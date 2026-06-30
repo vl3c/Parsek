@@ -95,7 +95,14 @@ namespace Parsek.InGameTests
                     return;
                 }
 
-                double triggeredLiveUT = triggerUT + 0.4 * ClipSeconds; // inside the clip
+                // Sample at 0.7 of the clip (re-anchored head = recordedDeorbitUT + 0.7*clip). The descent
+                // TRACED RUN starts at recordedDeorbitUT + clip/2: the first descent point sits exactly at the
+                // parking conic's (inclusive) endUT == recordedDeorbitUT, so it is counted as orbital-covered
+                // and dropped from the run, leaving the run [deorbit + clip/2, descentEnd]. A head at 0.4*clip
+                // would fall in the (deorbit, deorbit+clip/2) interior gap and be correctly InInteriorGap (the
+                // documented sub-surface-retire behaviour); 0.7*clip lands the realistic mid-clip head squarely
+                // inside the descent run.
+                double triggeredLiveUT = triggerUT + 0.7 * ClipSeconds; // inside the descent traced run
                 double pastEndLiveUT = triggerUT + 1.5 * ClipSeconds;   // past the clip => retire
 
                 // --- TRIGGERED frame: drive the SAME sampler RunFrame inlines for the spine path ---

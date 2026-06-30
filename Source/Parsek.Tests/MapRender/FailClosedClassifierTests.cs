@@ -45,6 +45,23 @@ namespace Parsek.Tests
         private static string Parent(string body)
             => StockParents.TryGetValue(body, out string p) ? p : null;
 
+        // The LIVE KSP convention: the root body (Sun) is SELF-REFERENTIAL - the live
+        // IBodyInfo.ReferenceBodyName("Sun") returns "Sun" (CelestialBody.referenceBody for the Sun is the
+        // Sun itself), NOT null. The StockParents fake (Sun -> null) masked the in-game false-positive that
+        // fail-closed every ordinary interplanetary transfer; this fake reproduces the live tree headlessly.
+        private static readonly Dictionary<string, string> LiveSunParents =
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                { "Sun", "Sun" }, // self-referential root (live KSP)
+                { "Kerbin", "Sun" }, { "Duna", "Sun" }, { "Jool", "Sun" },
+                { "Mun", "Kerbin" }, { "Minmus", "Kerbin" },
+                { "Laythe", "Jool" }, { "Vall", "Jool" }, { "Tylo", "Jool" },
+                { "Ike", "Duna" },
+            };
+
+        private static string LiveSunParent(string body)
+            => LiveSunParents.TryGetValue(body, out string p) ? p : null;
+
         // ---- (1) The fail-closed decision per case ----
 
         [Fact]
@@ -60,6 +77,29 @@ namespace Parsek.Tests
 
             Assert.False(d.IsFailClosed);
             Assert.Equal(FailClosedClassifier.FailClosedReason.None, d.Reason);
+        }
+
+        [Fact]
+        public void Classify_SingleLevelCrossSoiTransfer_LiveSelfReferentialSun_IsSupported()
+        {
+            // The LIVE-tree regression for the in-game sign-off failure (FailClosedFaithfulInGameTest cross-SOI
+            // facet): with the self-referential Sun (Parent("Sun") == "Sun", exactly what the live resolver
+            // returns), an ordinary Kerbin -> Sun -> Duna interplanetary transfer must STILL be SUPPORTED.
+            // Before the FindNestedRoot self-reference guard, the live convention flagged it nested-SOI and
+            // fail-closed every interplanetary mission; the headless Sun -> null fake never exercised it.
+            var bodies = new List<string> { "Kerbin", "Sun", "Duna" };
+            FailClosedClassifier.FailClosedDecision d = FailClosedClassifier.Classify(
+                bodies, hasLiveVesselArrivalAnchor: false, referenceBodyName: LiveSunParent);
+
+            Assert.False(d.IsFailClosed);
+            Assert.Equal(FailClosedClassifier.FailClosedReason.None, d.Reason);
+
+            // The guard must NOT over-correct: a real Jool moon tour is still fail-closed under the live tree.
+            FailClosedClassifier.FailClosedDecision jool = FailClosedClassifier.Classify(
+                new List<string> { "Jool", "Laythe", "Tylo" }, hasLiveVesselArrivalAnchor: false,
+                referenceBodyName: LiveSunParent);
+            Assert.True(jool.IsFailClosed);
+            Assert.Equal(FailClosedClassifier.FailClosedReason.NestedSoi, jool.Reason);
         }
 
         [Fact]

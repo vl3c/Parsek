@@ -31,6 +31,23 @@ namespace Parsek.Tests
         private static string Parent(string body)
             => StockParents.TryGetValue(body, out string p) ? p : null;
 
+        // The LIVE KSP convention: the root body (Sun) is SELF-REFERENTIAL - CelestialBody.referenceBody for
+        // the Sun returns the Sun itself, so the live IBodyInfo.ReferenceBodyName("Sun") returns "Sun", NOT
+        // null. The headless StockParents fake (Sun -> null) masked the in-game fail-closed false-positive on
+        // ordinary interplanetary transfers; this fake reproduces the live tree so the regression is headless.
+        private static readonly Dictionary<string, string> LiveSunParents =
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                { "Sun", "Sun" }, // self-referential root (live KSP)
+                { "Kerbin", "Sun" }, { "Duna", "Sun" }, { "Jool", "Sun" },
+                { "Mun", "Kerbin" }, { "Minmus", "Kerbin" },
+                { "Laythe", "Jool" }, { "Vall", "Jool" }, { "Tylo", "Jool" },
+                { "Ike", "Duna" },
+            };
+
+        private static string LiveSunParent(string body)
+            => LiveSunParents.TryGetValue(body, out string p) ? p : null;
+
         [Fact]
         public void TryBuild_JoolMoonTour_IsNested_WithCrossingsAndRoot()
         {
@@ -75,6 +92,32 @@ namespace Parsek.Tests
             // null) -> interplanetary, NOT a nested-SOI moon tour.
             var bodies = new List<string> { "Kerbin", "Sun", "Duna" };
             Assert.Null(NestedSoiSubtree.TryBuildFromBodySequence(bodies, Parent));
+        }
+
+        [Fact]
+        public void TryBuild_InterplanetaryChain_LiveSelfReferentialSun_IsNotNested()
+        {
+            // The LIVE-tree regression for the in-game fail-closed false-positive: with the self-referential
+            // Sun (Parent("Sun") == "Sun", as live KSP reports), an ordinary Kerbin -> Sun -> Duna transfer
+            // must STILL be NOT nested. Before the self-reference guard, the Sun (>= 2 visited children) had a
+            // non-null grandparent ("Sun") and was wrongly returned as a nested root -> every interplanetary
+            // transfer fail-closed. Also covers the Sun-omitted variant a recording's body list may produce.
+            Assert.Null(NestedSoiSubtree.TryBuildFromBodySequence(
+                new List<string> { "Kerbin", "Sun", "Duna" }, LiveSunParent));
+            Assert.Null(NestedSoiSubtree.TryBuildFromBodySequence(
+                new List<string> { "Kerbin", "Duna" }, LiveSunParent));
+        }
+
+        [Fact]
+        public void TryBuild_JoolMoonTour_LiveSelfReferentialSun_StillNested()
+        {
+            // The guard must NOT over-correct: a real moon tour is still nested under the live self-referential
+            // Sun. Jool's parent is the Sun (not itself), so Jool remains a valid non-root nested ancestor.
+            NestedSoiSubtree subtree = NestedSoiSubtree.TryBuildFromBodySequence(
+                new List<string> { "Jool", "Laythe", "Tylo" }, LiveSunParent);
+            Assert.NotNull(subtree);
+            Assert.True(subtree.IsNested);
+            Assert.Equal("Jool", subtree.RootBody);
         }
 
         [Fact]

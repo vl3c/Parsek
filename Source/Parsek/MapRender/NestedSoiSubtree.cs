@@ -134,9 +134,10 @@ namespace Parsek.MapRender
         /// <summary>
         /// Find a non-root ancestor under which at least two distinct visited bodies are SIBLINGS (the
         /// moon-tour signature). Returns the shared parent body name, or null when no such ancestor exists
-        /// (a single-level mission). A "non-root" ancestor is one that itself has a reference body (so the
-        /// Sun, whose reference body is null, never counts — two planets sharing the Sun is interplanetary,
-        /// not a nested-SOI tour). Pure.
+        /// (a single-level mission). A "non-root" ancestor is one that has a PROPER parent — the system root
+        /// (the Sun) never counts, whether the parent-chain delegate reports its parent as null (the headless
+        /// fake convention) or as ITSELF (live KSP: <c>Sun.referenceBody == Sun</c>, self-referential). Two
+        /// planets sharing the Sun is interplanetary, not a nested-SOI tour. Pure.
         /// </summary>
         private static string FindNestedRoot(
             IReadOnlyList<string> distinctBodies, Func<string, string> referenceBodyName)
@@ -157,10 +158,15 @@ namespace Parsek.MapRender
             {
                 if (kv.Value < 2)
                     continue;
-                // The shared parent must itself be non-root (have a reference body): a planet's moons share
-                // the planet (non-root); the Sun's planets share the Sun (root) -> interplanetary, skip.
+                // The shared parent must itself have a PROPER parent (be non-root): a planet's moons share the
+                // planet (non-root); the Sun's planets share the Sun (root) -> interplanetary, skip. The root
+                // is detected whether the delegate reports its parent as null (headless fake) OR as ITSELF
+                // (live KSP: Sun.referenceBody == Sun). Without the self-reference guard, live
+                // ["Kerbin","Sun","Duna"] (Sun has >= 2 visited children, grandparent("Sun") == "Sun" != null)
+                // was wrongly flagged nested -> fail-closed every ordinary interplanetary transfer.
                 string grandparent = SafeReference(referenceBodyName, kv.Key);
-                if (!string.IsNullOrEmpty(grandparent))
+                if (!string.IsNullOrEmpty(grandparent)
+                    && !string.Equals(grandparent, kv.Key, StringComparison.Ordinal))
                     return kv.Key;
             }
             return null;

@@ -112,7 +112,7 @@ namespace Parsek.InGameTests
                 // SynthesizedParity_LoopShiftedGhost test).
                 MapRenderProbe.SynthesizedConicParitySample synth =
                     MapRenderProbe.ComputeSynthesizedConicParity(
-                        renderedOrbit, kerbin, iconBodyRel, reaimedSeg, KerbinBodyName, 0.0, liveUT);
+                        renderedOrbit, kerbin, iconBodyRel, reaimedSeg, KerbinBodyName, 0.0, liveUT, liveUT);
                 InGameAssert.IsTrue(synth.Sampled,
                     "the synthesized oracle must SAMPLE the rendered-vs-re-aimed-seed diff; skipReason="
                     + (synth.SkipReason ?? "(none)"));
