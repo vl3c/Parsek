@@ -205,5 +205,23 @@ namespace Parsek.Tests
                 hasAnchorLocalFrames: false, anchorLocalStartUt: 0, anchorLocalEndUt: 0);
             Assert.Equal(AnchorFrameResolver.ParentChildSurface.Retire, s);
         }
+
+        [Fact]
+        public void ParentChild_DegenerateSecondaryRange_FallsToRetire()
+        {
+            // The PRIMARY is unusable (1 body-fixed sample < the >=2 minimum) AND the SECONDARY's anchor-local
+            // range is DEGENERATE (start > end), with hasAnchorLocalFrames TRUE. A reversed range satisfies NO
+            // ut under the inclusive `ut >= start && ut <= end` check, so neither surface covers ut -> RETIRE,
+            // never a spurious AnchorLocalSecondary clamp to a stale child offset. This validates the
+            // primary-out + degenerate-secondary routing to Retire. (It does NOT separately prove the explicit
+            // `start > end` fast-reject is load-bearing: the inclusive range check already rejects every
+            // reversed range for any ut, so that guard is a redundant clarity guard, not observable through
+            // the public ResolveParentAnchoredChild.)
+            var s = AnchorFrameResolver.ResolveParentAnchoredChild(
+                ut: 150,
+                bodyFixedSampleCount: 1, bodyFixedStartUt: 150, bodyFixedEndUt: 150,  // 1 sample < 2 -> primary out
+                hasAnchorLocalFrames: true, anchorLocalStartUt: 200, anchorLocalEndUt: 100); // start > end -> degenerate
+            Assert.Equal(AnchorFrameResolver.ParentChildSurface.Retire, s);
+        }
     }
 }

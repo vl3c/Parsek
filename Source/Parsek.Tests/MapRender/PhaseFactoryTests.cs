@@ -458,5 +458,167 @@ namespace Parsek.Tests
             Assert.Empty(PhaseFactory.BuildOrderedRecordedBodies(
                 new MockTrajectory { RecordingId = "r", OrbitSegments = new List<OrbitSegment>() }));
         }
+
+        // ---- ClassifyTracedKind / ResolveEnvPhaseForWindow / IsArrivalConic internal helpers ----
+        // These exercise the branching faithful-leaf-identity helpers directly (PhaseFactory.cs ~330/350/389).
+        // They are NOT the byte-parity gate (kind/env are non-parity classification), so they assert the
+        // gameplay LABEL the helper resolves - the bug each catches is a wrong ascent/descent/surface/arrival
+        // split, which would mislabel a phase in the typed spine.
+
+        private static RenderSegment Traced(double s, double e, string body)
+            => new RenderSegment(SegmentKind.Surface, Treatment.TracedPath, s, e, body, SegmentPayload.Traced);
+
+        private static RenderSegment Conic(double s, double e, string body)
+            => new RenderSegment(
+                SegmentKind.Loiter, Treatment.StockConic, s, e, body,
+                SegmentPayload.ForConic(new OrbitSegment
+                {
+                    startUT = s, endUT = e, bodyName = body, semiMajorAxis = 700000, eccentricity = 0,
+                }));
+
+        [Fact]
+        public void ClassifyTracedKind_AscentBeforeFirstConic_DescentAfter()
+        {
+            // The recording has one above-surface conic at [10,30]. A traced run that STARTS before that
+            // first conic is an Ascent (the launch leg); one that starts at/after it is a Descent (the
+            // deorbit/landing leg). With no surface env on either run the split is purely positional. A
+            // mutation that dropped the FirstConicStartUT comparison (or flipped before/after) fails here.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec-asc-desc",
+                Points = new List<TrajectoryPoint>
+                {
+                    Pt(0, "Kerbin"), Pt(4, "Kerbin"), Pt(35, "Kerbin"), Pt(40, "Kerbin"),
+                },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 10, endUT = 30, bodyName = "Kerbin", semiMajorAxis = 700000, eccentricity = 0 },
+                },
+                // No TrackSections: the env phase is null, so the kind is the positional ascent/descent split.
+            };
+
+            Assert.Equal(PhaseKind.Ascent,
+                PhaseFactory.ClassifyTracedKind(Traced(0, 4, "Kerbin"), traj));   // before the [10,30] conic
+            Assert.Equal(PhaseKind.Descent,
+                PhaseFactory.ClassifyTracedKind(Traced(35, 40, "Kerbin"), traj)); // after the conic
+        }
+
+        [Fact]
+        public void ClassifyTracedKind_SurfaceEnv_WinsOverAscentDescent()
+        {
+            // A traced run whose recorded env-class is SURFACE classifies Surface, EVEN when it starts AFTER
+            // the first conic (where the positional rule would otherwise say Descent). The surface env is the
+            // terminal landed state, which must win - a mutation that ran the ascent/descent split first
+            // (ignoring the surface env) would mislabel a landed run as Descent.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec-surf-wins",
+                Points = new List<TrajectoryPoint> { Pt(35, "Kerbin"), Pt(40, "Kerbin") },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 10, endUT = 30, bodyName = "Kerbin", semiMajorAxis = 700000, eccentricity = 0 },
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    // The traced run [35,40] overlaps a SurfaceStationary section -> "surface".
+                    Sec(34, 41, SegmentEnvironment.SurfaceStationary),
+                },
+            };
+
+            // Positionally this run is AFTER the conic (would be Descent), but the surface env wins.
+            Assert.Equal(PhaseKind.Surface,
+                PhaseFactory.ClassifyTracedKind(Traced(35, 40, "Kerbin"), traj));
+        }
+
+        [Fact]
+        public void ResolveEnvPhaseForWindow_MultiSection_UsesLastOverlapping()
+        {
+            // When several TrackSections overlap the window, the LAST overlapping section's environment is
+            // returned (a descent run ending in atmo/surface reads its TERMINAL class). A mutation that
+            // returned the FIRST overlap, or stopped at the first match, would read "exo" here instead of
+            // "surface".
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec-multi-env",
+                TrackSections = new List<TrackSection>
+                {
+                    Sec(0, 10, SegmentEnvironment.ExoBallistic),   // overlaps -> "exo"
+                    Sec(10, 20, SegmentEnvironment.Atmospheric),   // overlaps -> "atmo"
+                    Sec(20, 30, SegmentEnvironment.SurfaceStationary), // overlaps -> "surface" (LAST)
+                    Sec(40, 50, SegmentEnvironment.Approach),      // does NOT overlap [5,25]
+                },
+            };
+
+            // Window [5,25] overlaps the first three sections; the LAST overlapping (SurfaceStationary) wins.
+            Assert.Equal("surface", PhaseFactory.ResolveEnvPhaseForWindow(traj, 5, 25));
+            // A null/empty TrackSection list returns null (BG-on-rails tolerated, no assert).
+            Assert.Null(PhaseFactory.ResolveEnvPhaseForWindow(
+                new MockTrajectory { RecordingId = "r", TrackSections = null }, 0, 100));
+        }
+
+        [Theory]
+        [InlineData(true)]   // ApproachEnv: a traced/conic window with an "approach" env is an arrival
+        [InlineData(false)]  // no env, departure body conic: not an arrival
+        public void IsArrivalConic_ApproachEnv_True(bool approach)
+        {
+            // A recorded conic whose env-class is "approach" is an ARRIVAL loiter regardless of body. The
+            // approach env is the destination-arrival signal; a mutation that dropped the approach short-
+            // circuit would mislabel a destination approach as DepartureLoiter.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec-approach",
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 10, endUT = 30, bodyName = "Kerbin", semiMajorAxis = 700000 },
+                },
+                TrackSections = approach
+                    ? new List<TrackSection> { Sec(10, 30, SegmentEnvironment.Approach) }
+                    : new List<TrackSection> { Sec(10, 30, SegmentEnvironment.ExoBallistic) },
+            };
+
+            // The conic on the SAME (departure) body: approach env -> arrival; exo env -> not arrival.
+            Assert.Equal(approach,
+                PhaseFactory.IsArrivalConic(Conic(10, 30, "Kerbin"), ordinal: 0, traj));
+        }
+
+        [Fact]
+        public void IsArrivalConic_DifferentBodyLastInTime_True()
+        {
+            // The first conic's body is the DEPARTURE body. A later conic on a DIFFERENT body that is the
+            // LAST conic in time is the destination park -> arrival. A mutation that dropped the
+            // different-body OR the last-in-time gate would mislabel the destination park.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec-arrival",
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 10, endUT = 30, bodyName = "Kerbin", semiMajorAxis = 700000 }, // departure (first)
+                    new OrbitSegment { startUT = 100, endUT = 130, bodyName = "Duna", semiMajorAxis = 400000 }, // arrival (last)
+                },
+            };
+
+            // The Duna conic at [100,130] is on a different body AND last in time -> arrival.
+            Assert.True(PhaseFactory.IsArrivalConic(Conic(100, 130, "Duna"), ordinal: 1, traj));
+        }
+
+        [Fact]
+        public void IsArrivalConic_DepartureBodyConic_False()
+        {
+            // The departure-body conic (the FIRST conic's body, not last in time) is a DEPARTURE loiter, not
+            // arrival - even when a later different-body conic exists. The different-body gate must reject a
+            // conic that is ON the first (departure) body.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec-departure",
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 10, endUT = 30, bodyName = "Kerbin", semiMajorAxis = 700000 }, // departure (first)
+                    new OrbitSegment { startUT = 100, endUT = 130, bodyName = "Duna", semiMajorAxis = 400000 }, // a later arrival
+                },
+            };
+
+            // The Kerbin departure conic at [10,30]: same body as the first conic -> NOT arrival.
+            Assert.False(PhaseFactory.IsArrivalConic(Conic(10, 30, "Kerbin"), ordinal: 0, traj));
+        }
     }
 }

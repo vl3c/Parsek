@@ -92,6 +92,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Classify_KerbinTwoMoonsTour_IsFailClosed_NestedSoi()
+        {
+            // Kerbin -> Mun -> Minmus: Mun and Minmus are SIBLINGS under Kerbin (a non-root ancestor: Kerbin
+            // itself orbits the Sun), so a two-moon hop under one planet is a nested-SOI tour -> fail closed
+            // to faithful, with RootBody == the shared parent "Kerbin" (NOT the Jool-only signature). This is
+            // the stock-system nested-SOI case (proves the classifier is not Jool-hardcoded): the moon-tour
+            // signature is "two visited bodies share a non-root parent", which Kerbin's moons satisfy.
+            var bodies = new List<string> { "Kerbin", "Mun", "Minmus" };
+            FailClosedClassifier.FailClosedDecision d = FailClosedClassifier.Classify(
+                bodies, hasLiveVesselArrivalAnchor: false, referenceBodyName: Parent);
+
+            Assert.True(d.IsFailClosed);
+            Assert.Equal(FailClosedClassifier.FailClosedReason.NestedSoi, d.Reason);
+            Assert.Equal(SegmentProvenance.FaithfulFallback, d.Provenance);
+            Assert.NotNull(d.NestedSubtree);
+            Assert.Equal("Kerbin", d.NestedSubtree.RootBody);
+            Assert.True(d.NestedSubtree.IsNested);
+        }
+
+        [Fact]
         public void Classify_StationArrivalAnchor_IsFailClosed_MovingTargetStation_HighestPrecedence()
         {
             // A live-vessel arrival anchor (a station) is the least-supported phase -> fail closed, and it

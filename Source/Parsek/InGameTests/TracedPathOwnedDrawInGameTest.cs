@@ -51,12 +51,14 @@ namespace Parsek.InGameTests
             RunTracedPathOwnership(forceSpineOn: false);
         }
 
-        // Build a live non-orbital ghost, drive RunFrame with the spine forced the requested way, and assert
-        // the flag-aware owned-draw signal contract. The shared invariant in BOTH flag states: the owned-
-        // draw routing (IsTracedPathOwnedThisFrame) equals the proto/marker consumer signal
-        // (IsDirectorTracedPathActive) for the ghost pid, so exactly one painter owns the leg (no double,
-        // no gap). Additionally: flag-OFF must read the legacy side-channel (intent stamp absent off the
-        // flag); flag-ON must read the intent source.
+        // Build a live non-orbital ghost (SELF-CREATED via GhostMapPresence.CreateGhostVesselFromSource -
+        // the RenderParityBaselineTest pattern - so the test needs ZERO live mission / pre-existing ghost
+        // and ASSERTS instead of passing-as-skip on a cold pad launch), drive RunFrame with the spine
+        // forced the requested way, and assert the flag-aware owned-draw signal contract. The shared
+        // invariant in BOTH flag states: the owned-draw routing (IsTracedPathOwnedThisFrame) equals the
+        // proto/marker consumer signal (IsDirectorTracedPathActive) for the ghost pid, so exactly one
+        // painter owns the leg (no double, no gap). Additionally: flag-OFF must read the legacy
+        // side-channel (intent stamp absent off the flag); flag-ON must read the intent source.
         private static void RunTracedPathOwnership(bool forceSpineOn)
         {
             CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == KerbinBodyName);
@@ -67,6 +69,9 @@ namespace Parsek.InGameTests
             }
 
             double liveUT = Planetarium.GetUniversalTime();
+            // Author the non-orbital TracedPath leg AROUND liveUT so the leg deterministically covers liveUT
+            // and the chain's active segment at liveUT classifies TracedPath + in-coverage - the leg ASSERTS
+            // instead of skipping.
             double startUT = liveUT - 60.0;
             double endUT = liveUT + 60.0;
 
@@ -94,15 +99,27 @@ namespace Parsek.InGameTests
             {
                 MapRenderTrace.ForceEnabledForTesting = true; // so the spine + intent path are live
 
-                // A non-orbital recording's ghost has no faithful orbit drive; it may still create a proto
-                // for the marker. Resolve the recording's ghost pid; skip gracefully if none materialized.
-                uint resolvedPid = GhostMapPresence.GetGhostVesselPidForRecording(recordingIndex);
-                Vessel ghost = null;
-                if (resolvedPid != 0u)
-                    FlightGlobals.FindVessel(resolvedPid, out ghost);
+                // SELF-CREATE the ghost from the recording's own first body-relative state vector (the
+                // RenderParityBaselineTest.cs:134-141 pattern). A non-orbital leg has no conic to seed, so
+                // create through the StateVector source (a flat low-altitude TrajectoryPoint), which
+                // registers the pid in GhostMapPresence.ghostMapVesselPids + the pid->recording maps the
+                // MapViewScene resolves through. This makes the test SELF-CONTAINED (no live mission /
+                // pre-existing ghost) and DETERMINISTIC (the leg classifies TracedPath + in-coverage at
+                // liveUT), so it ASSERTS rather than skipping on a cold pad launch.
+                Vessel ghost = GhostMapPresence.CreateGhostVesselFromSource(
+                    recordingIndex,
+                    rec,
+                    GhostMapPresence.TrackingStationGhostSource.StateVector,
+                    default(OrbitSegment),
+                    rec.Points[0],
+                    liveUT);
                 if (ghost == null)
                 {
-                    InGameAssert.Skip("non-orbital recording produced no ghost proto in this context");
+                    // A ghost-create miss here is environmental (the state-vector create resolves the body
+                    // by name and needs a live PartLoader/Vessel context). Keep this a Skip - the body-
+                    // not-found guard's sibling - rather than a false assert. It is NOT a pass-as-skip on
+                    // the TracedPath decision: it means no ghost could be created AT ALL in this context.
+                    InGameAssert.Skip("ghost ProtoVessel did not create in this context (no proto)");
                     return;
                 }
                 pid = ghost.persistentId;
@@ -129,15 +146,15 @@ namespace Parsek.InGameTests
                     + "ownedRouting={4}",
                     forceSpineOn, pid, legacyActive, intentActive, ownedRouting));
 
-                if (!legacyActive)
-                {
-                    // The spine did not decide TracedPath for this ghost this frame (e.g. coverage gap or the
-                    // ghost is orbital here). Nothing to assert about owned routing; skip rather than false-
-                    // pass.
-                    InGameAssert.Skip("spine did not decide TracedPath for the ghost this frame "
-                        + "(legacy side-channel not active)");
-                    return;
-                }
+                // DETERMINISTIC TracedPath: the self-created ghost's recording is a flat non-orbital leg
+                // (no OrbitSegment) covering liveUT, so RunFrame's chain classifies its active segment at
+                // liveUT as TracedPath, sets a visible-InSegment intent, and stamps the legacy side-channel.
+                // ASSERT it decided TracedPath (the prior Skip("spine did not decide TracedPath") was a
+                // pass-as-skip on a cold pad launch; the self-created in-coverage leg removes that path).
+                InGameAssert.IsTrue(legacyActive,
+                    "the self-created non-orbital ghost's leg must classify TracedPath in-coverage at liveUT "
+                    + "(the legacy side-channel must be active) - if not, the chain mis-classified a flat "
+                    + "non-orbital leg covering liveUT");
 
                 // EXACTLY-ONE-PAINTER: the owned-draw routing must AGREE with the proto/marker consumers
                 // (which read IsDirectorTracedPathActive). If they disagreed, either the owned treatment AND
