@@ -598,6 +598,86 @@ namespace Parsek.Tests
         }
 
         // ===================================================================================
+        //  CLASS 2 residual: the CREATION / REBIND-frame epoch-convention gate
+        //  (MapRenderProbe.IsSynthEpochConventionBaked - the pure predicate the production synth
+        //  caller gates on so it never measures an orbit the icon-drive has not baked yet)
+        // ===================================================================================
+
+        [Fact]
+        public void SynthEpochGate_BakedConvention_Passes()
+        {
+            // Steady state: SeedAndDriveLive baked epoch = seg.epoch + loopShift verbatim -> measure.
+            Assert.True(Parsek.MapRenderProbe.IsSynthEpochConventionBaked(
+                renderedEpoch: 70_000_000.0 + 4_931_136_168.0, segEpoch: 70_000_000.0,
+                loopShift: 4_931_136_168.0, out bool isRaw));
+            Assert.False(isRaw);
+        }
+
+        [Fact]
+        public void SynthEpochGate_RawCreationFrame_SkipsAsKnownTransient()
+        {
+            // The live 777km/2709km FP frames: GhostCreated at frame N, anomaly at N+1 - the orbit still
+            // carried the RAW seg.epoch from ApplyOrbitToVessel (the icon-drive had not baked it yet;
+            // 8a director-drive logged active=False on the creation frame). With a ~156-year loop shift
+            // the raw phase is n*shift off the baked reference: identical elements, huge false drift.
+            // The gate classifies it as the KNOWN raw-convention transient -> skip, measure next frame.
+            Assert.False(Parsek.MapRenderProbe.IsSynthEpochConventionBaked(
+                renderedEpoch: 70_000_000.0, segEpoch: 70_000_000.0,
+                loopShift: 4_931_136_168.0, out bool isRaw));
+            Assert.True(isRaw);
+        }
+
+        [Fact]
+        public void SynthEpochGate_ZeroShift_ConventionsCoincide_Passes()
+        {
+            // A non-loop member: raw and baked epochs are the same value, so the gate passes (measurable
+            // in either convention) and reports non-raw.
+            Assert.True(Parsek.MapRenderProbe.IsSynthEpochConventionBaked(
+                renderedEpoch: 50_000.0, segEpoch: 50_000.0, loopShift: 0.0, out bool isRaw));
+            Assert.False(isRaw);
+        }
+
+        [Fact]
+        public void SynthEpochGate_UnexplainedEpoch_SkipsAsNonRaw()
+        {
+            // An epoch matching NEITHER convention (e.g. a stale prior-segment bake) is not measurable
+            // AND not the known raw transient - the caller logs it distinctly (worth eyes).
+            Assert.False(Parsek.MapRenderProbe.IsSynthEpochConventionBaked(
+                renderedEpoch: 50_000.0 + 555.0, segEpoch: 50_000.0, loopShift: 1100.0, out bool isRaw));
+            Assert.False(isRaw);
+        }
+
+        [Fact]
+        public void SynthEpochGate_NonFiniteShift_TreatedAsZero_MatchesReferenceBuilder()
+        {
+            // A NaN loopShift falls back to 0 exactly like BuildPhaseMatchedReferenceOrbit's NaN guard, so
+            // the gate and the reference epoch can never disagree about what "baked" means.
+            Assert.True(Parsek.MapRenderProbe.IsSynthEpochConventionBaked(
+                renderedEpoch: 50_000.0, segEpoch: 50_000.0, loopShift: double.NaN, out bool isRaw));
+            Assert.False(isRaw);
+        }
+
+        [Fact]
+        public void SynthEpochGate_NonFiniteRenderedEpoch_Skips()
+        {
+            // A NaN/Inf rendered epoch is never measurable and never "raw" (unexplained).
+            Assert.False(Parsek.MapRenderProbe.IsSynthEpochConventionBaked(
+                renderedEpoch: double.NaN, segEpoch: 50_000.0, loopShift: 0.0, out bool isRaw));
+            Assert.False(isRaw);
+        }
+
+        [Fact]
+        public void SynthEpochGate_SlackAbsorbsRoundTrip_ButNotAFrameOfDrift()
+        {
+            // The 0.5s slack absorbs double round-trip error (the drive copies the epoch verbatim, so real
+            // matches are exact) without admitting anything approaching a real phase offset.
+            Assert.True(Parsek.MapRenderProbe.IsSynthEpochConventionBaked(
+                renderedEpoch: 51_100.0 + 0.4, segEpoch: 50_000.0, loopShift: 1100.0, out _));
+            Assert.False(Parsek.MapRenderProbe.IsSynthEpochConventionBaked(
+                renderedEpoch: 51_100.0 + 5.0, segEpoch: 50_000.0, loopShift: 1100.0, out _));
+        }
+
+        // ===================================================================================
         //  SYNTHESIZED drifted rows -> drift flagged (rendered != the producer's intended arc)
         // ===================================================================================
 

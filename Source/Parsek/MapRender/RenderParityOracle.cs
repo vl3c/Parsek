@@ -350,10 +350,20 @@ namespace Parsek.MapRender
         /// false-firing on sub-meter rendered jitter. This is the scale-derived path ONLY - the
         /// explicit-tolerance <see cref="ComputeDrift"/> overload (the faithful/synthesized conic lenses)
         /// is unaffected.</para>
+        ///
+        /// <para>MEASUREMENT NOISE FLOOR: <paramref name="minToleranceMeters"/> (default 0 = no floor)
+        /// clamps the derived tolerance UP to the caller's known measurement resolution - e.g. the float
+        /// quantization of drawn <c>Vector3</c> vertices
+        /// (<see cref="RenderGeometrySampler.DrawnVertexQuantizationFloorMeters"/>), which on a body far
+        /// from the scaled origin can exceed a small leg's 0.1% scale-derived tolerance. This is honest
+        /// metrology, not a tolerance widen: a deviation below the instrument's own resolution is float
+        /// noise, unmeasurable by construction, while a real mis-draw larger than the floor still fires.
+        /// A non-finite floor is ignored (treated as 0).</para>
         /// </summary>
         internal static ParityResult ComputeDriftScaleDerived(
             ParityMode mode, double[] referenceXyz, double[] renderedXyz,
-            double fraction = DefaultScaleToleranceFraction)
+            double fraction = DefaultScaleToleranceFraction,
+            double minToleranceMeters = 0.0)
         {
             double scale = EstimateScaleFromPoints(referenceXyz);
 
@@ -373,7 +383,10 @@ namespace Parsek.MapRender
                     mode, ToleranceForScale(scale, fraction), refCount, rendCount);
             }
 
-            double tol = ToleranceForScale(scale, fraction);
+            double noiseFloor =
+                (double.IsNaN(minToleranceMeters) || double.IsInfinity(minToleranceMeters))
+                    ? 0.0 : minToleranceMeters;
+            double tol = System.Math.Max(ToleranceForScale(scale, fraction), noiseFloor);
             return ComputeDrift(mode, referenceXyz, renderedXyz, tol);
         }
 

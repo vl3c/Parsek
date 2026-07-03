@@ -101,6 +101,31 @@ namespace Parsek.MapRender
             return (scaledVertex - bodyCentreScaled) * scaleFactor;
         }
 
+        /// <summary>One float ulp as a fraction of the value's magnitude (2^-23, ~1.19e-7).</summary>
+        private const double FloatUlpFraction = 1.1920928955078125e-7;
+
+        /// <summary>
+        /// Pure: the METROLOGY FLOOR of a drawn polyline vertex, in real metres - the smallest
+        /// rendered-vs-recorded deviation a <c>points3</c>-based parity capture can meaningfully resolve.
+        /// A drawn vertex is a single-precision <c>Vector3</c> sum <c>bodyCentreScaled + offset*invScale</c>;
+        /// when the scaled body centre sits far from the scaled origin (a non-focused body in the tracking
+        /// station, e.g. heliocentric Duna at ~3e6 scaled units), the SUM quantizes at the CENTRE's float
+        /// ulp - about <c>|centre| * 2^-23</c> scaled units, i.e. <c>* scaleFactor</c> real metres per
+        /// component, baked into the drawn float before any capture runs. Deviations below this floor are
+        /// float noise, not geometry: the parity tolerance must be clamped up to it (a scale-derived 0.1%
+        /// tolerance on a small leg can sit far below it). x2 headroom covers the 3-component diagonal and
+        /// round-to-nearest. Returns 0 for a non-finite / near-origin centre (no floor - full precision).
+        /// </summary>
+        internal static double DrawnVertexQuantizationFloorMeters(
+            Vector3d bodyCentreScaled, double scaleFactor)
+        {
+            if (!IsFinite(bodyCentreScaled) || !IsFiniteScalar(scaleFactor))
+                return 0.0;
+            double maxAbs = Math.Max(Math.Abs(bodyCentreScaled.x),
+                Math.Max(Math.Abs(bodyCentreScaled.y), Math.Abs(bodyCentreScaled.z)));
+            return maxAbs * FloatUlpFraction * Math.Abs(scaleFactor) * 2.0;
+        }
+
         /// <summary>
         /// Pure: flatten a sequence of <c>Vector3d</c> samples into the flat <c>[x0,y0,z0, x1,...]</c>
         /// layout <see cref="RenderParityOracle.ComputeDrift"/> expects. <paramref name="count"/> caps how

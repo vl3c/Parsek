@@ -1311,6 +1311,34 @@ namespace Parsek
                     pid, frame, out OrbitSegment intendedSeg, out string seedBody))
                 return;
 
+            // CREATION / REBIND TRANSIENT GATE: only measure when the live orbit ACTUALLY carries the
+            // director epoch-bake convention (epoch == seg.epoch + loopShift) the currentUT sampling below
+            // assumes. A fresh seed does NOT guarantee the orbit was driven from it yet: on the ghost's
+            // CREATION frame (and an ApplyOrbitToVessel rebind window) the orbit still carries the RAW
+            // seg.epoch until the next icon-drive FixedUpdate bakes it, so sampling it at currentUT against
+            // the +loopShift-baked reference reads a phase offset of n*loopShift - a huge FALSE drift on
+            // identical elements (the live 777km/2709km creation-frame emits; a loop member's shift can be
+            // years). Direct STATE inspection (the orbit's own epoch) is warp-immune, unlike a drive-truth
+            // frame-freshness window. Raw-epoch frames skip quietly (known 1-frame transient, measured next
+            // frame once baked); an epoch matching NEITHER convention is logged distinctly (unexplained -
+            // worth eyes, but not a geometry measurement). Production-only: the in-game synth fixtures drive
+            // RAW-epoch ghosts directly and pass their own icon clock, so they bypass this gate by design.
+            if (!IsSynthEpochConventionBaked(
+                    renderedOrbit.epoch, intendedSeg.epoch, loopShift, out bool isRawConvention))
+            {
+                ParsekLog.VerboseRateLimited("MapRender", "synth-parity-epoch-gate",
+                    string.Format(ic,
+                        "Synth parity skipped: rendered orbit epoch={0:F3} is not the baked convention "
+                        + "(seg.epoch={1:F3} + loopShift={2:F1}) - {3} pid={4} recId={5} frame={6}",
+                        renderedOrbit.epoch, intendedSeg.epoch, loopShift,
+                        isRawConvention
+                            ? "RAW epoch (creation/rebind transient, measured next baked frame)"
+                            : "UNEXPLAINED epoch convention",
+                        pid, recId ?? "<none>", frame),
+                    5.0);
+                return;
+            }
+
             SynthesizedConicParitySample sample = ComputeSynthesizedConicParity(
                 renderedOrbit, renderedBody, iconBodyRel, intendedSeg, seedBody, loopShift, currentUT, effUT);
             if (!sample.Sampled)
@@ -1477,13 +1505,18 @@ namespace Parsek
         {
             Parsek.Display.GhostTrajectoryPolylineRenderer.CaptureRenderedVsRecordedLegGeometry(
                 frame,
-                (recId, legIndex, legCount, legBody, renderedFlat, recordedFlat) =>
+                (recId, legIndex, legCount, legBody, renderedFlat, recordedFlat, noiseFloorMeters) =>
                 {
-                    // Reference = the recorded leg track; rendered = what the VectorLine actually drew.
+                    // Reference = the DRAW-FRAME snapshot of the recorded leg track; rendered = what the
+                    // VectorLine actually drew (both from the same draw - see the capture's frame-coherence
+                    // contract). noiseFloorMeters is the drawn vertices' float-quantization metrology floor:
+                    // the tolerance is clamped up to it so sub-float-noise deviations never fire while a
+                    // real mis-draw above the floor still does.
                     Parsek.MapRender.RenderParityOracle.ParityResult result =
                         Parsek.MapRender.RenderParityOracle.ComputeDriftScaleDerived(
                             Parsek.MapRender.RenderParityOracle.ParityMode.Synthesized,
-                            recordedFlat, renderedFlat);
+                            recordedFlat, renderedFlat,
+                            minToleranceMeters: noiseFloorMeters);
                     if (!result.HasMeasurement || !result.OverTolerance)
                         return;
                     if (!PassesPolylineParityDriftRateLimit(recId, realtime))
@@ -1496,11 +1529,12 @@ namespace Parsek
                         MapRenderTrace.RenderSurface.Polyline, recId, currentUT, currentUT,
                         MapRenderTrace.AnomalyParityDrift,
                         string.Format(ic,
-                            "mode=polyline maxDev={0}m tol={1}m scale={2}m refCount={3} rendCount={4} "
-                            + "countMismatch={5} leg={6}/{7} body={8} recId={9}",
+                            "mode=polyline maxDev={0}m tol={1}m scale={2}m noiseFloor={3}m refCount={4} "
+                            + "rendCount={5} countMismatch={6} leg={7}/{8} body={9} recId={10}",
                             MapRenderTrace.FormatDouble(result.MaxDeviationMeters, "F0"),
                             MapRenderTrace.FormatDouble(result.ToleranceMeters, "F0"),
                             MapRenderTrace.FormatDouble(scale, "F0"),
+                            MapRenderTrace.FormatDouble(noiseFloorMeters, "F0"),
                             result.ReferenceCount, result.RenderedCount, result.CountMismatch,
                             legIndex, legCount, legBody, recId),
                         recId);
@@ -1552,6 +1586,39 @@ namespace Parsek
         // phase for a faithful draw. When loopShift == 0 (a non-loop faithful ghost) this is BuildOrbitFromSegment
         // verbatim. A non-finite loopShift falls back to 0 (raw epoch) rather than poisoning the epoch with NaN.
         // internal so the in-game baseline test builds the reference through the EXACT production path.
+        /// <summary>
+        /// Pure: does <paramref name="renderedEpoch"/> (the live OrbitDriver.orbit's epoch) carry the
+        /// director EPOCH-BAKE convention (<c>seg.epoch + loopShift</c>) that the production synthesized
+        /// parity sampling assumes? StockConicTreatment.SeedAndDriveLive copies the seed's epoch + shift
+        /// verbatim, so a driven orbit matches EXACTLY; a generous 0.5s slack absorbs double round-trips.
+        /// When false, <paramref name="isRawConvention"/> distinguishes the KNOWN transient (the orbit
+        /// still carries the RAW <c>seg.epoch</c> from ApplyOrbitToVessel - a creation / rebind frame the
+        /// icon-drive has not baked yet) from an UNEXPLAINED epoch state. A non-finite
+        /// <paramref name="loopShift"/> is treated as 0 (mirrors BuildPhaseMatchedReferenceOrbit's NaN
+        /// fallback, so gate and reference always agree on the baked epoch). Note when loopShift == 0 the
+        /// raw and baked conventions coincide: the gate passes and reports non-raw (measurable either way).
+        /// internal + pure for direct xUnit coverage.
+        /// </summary>
+        internal static bool IsSynthEpochConventionBaked(
+            double renderedEpoch, double segEpoch, double loopShift, out bool isRawConvention)
+        {
+            const double EpochSlackSeconds = 0.5;
+            double shift = (double.IsNaN(loopShift) || double.IsInfinity(loopShift)) ? 0.0 : loopShift;
+            double bakedEpoch = segEpoch + shift;
+            if (double.IsNaN(renderedEpoch) || double.IsInfinity(renderedEpoch))
+            {
+                isRawConvention = false;
+                return false;
+            }
+            if (System.Math.Abs(renderedEpoch - bakedEpoch) <= EpochSlackSeconds)
+            {
+                isRawConvention = false; // baked (or shift==0, where the two conventions coincide)
+                return true;
+            }
+            isRawConvention = System.Math.Abs(renderedEpoch - segEpoch) <= EpochSlackSeconds;
+            return false;
+        }
+
         internal static Orbit BuildPhaseMatchedReferenceOrbit(
             OrbitSegment seg, CelestialBody body, double loopShift)
         {

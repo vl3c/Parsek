@@ -515,6 +515,71 @@ namespace Parsek.Tests
             Assert.True(RenderParityOracle.MinMeasurableScaleMeters < 16_000.0); // below smallest real arc leg
         }
 
+        // ---- ComputeDriftScaleDerived minToleranceMeters (the drawn-vertex float-noise metrology floor) ----
+
+        [Fact]
+        public void ComputeDriftScaleDerived_NoiseFloor_SubFloorDeviation_NoFire_ButFiresWithoutFloor()
+        {
+            // PAIRED FP-no-fire + load-bearing control in one scenario: a real ~19 km arc rendered a uniform
+            // 500 m off. WITHOUT the floor the 0.1% scale tolerance (~19 m) fires - proving the deviation is
+            // real relative to the geometry and the floor param is load-bearing, not a tautology. WITH a
+            // 4.3 km floor (the drawn Vector3 vertices' float quantization when the scaled body centre sits
+            // at a heliocentric ~3e6 scaled units - see DrawnVertexQuantizationFloorMeters) the SAME 500 m is
+            // BELOW the instrument's own resolution: float noise, not geometry, so it must NOT fire. The
+            // result still MEASURES (HasMeasurement, tolerance = the clamped floor) - honest metrology, not
+            // a skip.
+            double[] reference = Line(20, 1000.0, yOffset: 0.0);   // extent ~19 km
+            double[] rendered = Line(20, 1000.0, yOffset: 500.0);  // drawn 500 m off
+
+            var without = RenderParityOracle.ComputeDriftScaleDerived(
+                RenderParityOracle.ParityMode.Synthesized, reference, rendered);
+            Assert.True(without.HasMeasurement);
+            Assert.True(without.OverTolerance); // the deviation is real; the param is load-bearing
+
+            var with = RenderParityOracle.ComputeDriftScaleDerived(
+                RenderParityOracle.ParityMode.Synthesized, reference, rendered,
+                minToleranceMeters: 4300.0);
+            Assert.True(with.HasMeasurement);
+            Assert.False(with.OverTolerance);           // sub-floor deviation = float noise, no anomaly
+            Assert.Equal(4300.0, with.ToleranceMeters, 6); // tolerance clamped UP to the floor
+        }
+
+        [Fact]
+        public void ComputeDriftScaleDerived_NoiseFloor_RealMisDrawAboveFloor_StillFires()
+        {
+            // NON-BLINDING guard (the non-negotiable pairing): a genuine mis-draw LARGER than the noise
+            // floor still fires with the floor applied. The floor bounds what the float vertices can
+            // resolve; it never hides a mis-draw the instrument CAN see.
+            double[] reference = Line(20, 1000.0, yOffset: 0.0);
+            double[] rendered = Line(20, 1000.0, yOffset: 20_000.0); // 20 km off >> 4.3 km floor
+
+            var r = RenderParityOracle.ComputeDriftScaleDerived(
+                RenderParityOracle.ParityMode.Synthesized, reference, rendered,
+                minToleranceMeters: 4300.0);
+
+            Assert.True(r.HasMeasurement);
+            Assert.True(r.OverTolerance);
+            Assert.True(r.MaxDeviationMeters >= 19_999.0);
+        }
+
+        [Fact]
+        public void ComputeDriftScaleDerived_NoiseFloor_NonFiniteOrZero_Ignored()
+        {
+            // A non-finite floor is treated as 0 (no floor); a zero floor is byte-identical to the
+            // pre-param behaviour, so every existing caller is unchanged.
+            double[] reference = Line(20, 1000.0, yOffset: 0.0);
+            double[] rendered = Line(20, 1000.0, yOffset: 500.0);
+
+            var nan = RenderParityOracle.ComputeDriftScaleDerived(
+                RenderParityOracle.ParityMode.Synthesized, reference, rendered,
+                minToleranceMeters: double.NaN);
+            var none = RenderParityOracle.ComputeDriftScaleDerived(
+                RenderParityOracle.ParityMode.Synthesized, reference, rendered);
+
+            Assert.True(nan.OverTolerance);
+            Assert.Equal(none.ToleranceMeters, nan.ToleranceMeters, 9);
+        }
+
         // ---- Wired-but-inert: the parity-drift token flows through the gated EmitAnomaly sink ----
 
         [Fact]

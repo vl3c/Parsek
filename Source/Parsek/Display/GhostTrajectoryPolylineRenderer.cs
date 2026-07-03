@@ -673,26 +673,28 @@ namespace Parsek.Display
         /// <c>[x0,y0,z0, x1,...]</c> XYZ-triple arrays in ONE consistent BODY-RELATIVE WORLD metres frame:
         /// the RENDERED polyline geometry (the leg's live <c>VectorLine.points3</c>, each scaled-space
         /// vertex inverted back to a body-relative world offset by
-        /// <see cref="Parsek.MapRender.RenderGeometrySampler.RenderedScaledVertexToBodyRelative"/> using the
-        /// SAME registered scaled-body-transform centre + <c>ScaleFactor</c> the draw built it with) and the
-        /// RECORDED reference geometry (the leg's own recorded <c>lats/lons/alts</c> via
-        /// <c>body.GetWorldSurfacePosition</c>, made body-relative against the SAME live body position). Both
-        /// sides therefore share the floating-origin- and body-world-motion-free frame the icon/orbit parity
-        /// already uses, so the diff is pure geometry.
+        /// <see cref="Parsek.MapRender.RenderGeometrySampler.RenderedScaledVertexToBodyRelative"/>) and the
+        /// RECORDED reference geometry - plus the leg's float-quantization METROLOGY FLOOR in metres (the
+        /// last callback arg; see <see cref="Parsek.MapRender.RenderGeometrySampler.DrawnVertexQuantizationFloorMeters"/>)
+        /// the caller clamps its tolerance up to.
         ///
-        /// <para><b>The rendered inverse must match the draw's own frame.</b> The draw
-        /// (<see cref="TryDrawLeg"/>, scaledXform branch) builds each vertex as
-        /// <c>bodyCentreScaled + (world - bodyPos) * invScale</c> against the registered scaled-body
-        /// transform position SPECIFICALLY to avoid the per-render-frame strobing
-        /// <c>ScaledSpace.totalOffset</c> scaled-origin recenter. The earlier capture inverse
-        /// (<c>ScaledSpace.ScaledToLocalSpace(points3[i]) - body.position</c>) round-trips through that same
-        /// <c>totalOffset</c>, re-introducing a CONSTANT per-point residual
-        /// (<c>ScaledToLocalSpace(bodyCentreScaled) - body.position</c>) on EVERY body-fixed leg regardless
-        /// of scale / body / point count - a steady ~250-360 m floor plus out-of-phase multi-km / tens-of-km
-        /// spikes, the false-positive signature seen live (parity-drift on visually-correct Duna descent
-        /// legs). Inverting against the draw's OWN centre (the same <c>scaledXform.position</c>) cancels both
-        /// <c>bodyCentreScaled</c> and <c>totalOffset</c> exactly, so a faithfully-drawn leg reconstructs to
-        /// ~0 drift while a genuine mis-draw still differences against that centre and drifts.</para>
+        /// <para><b>FRAME-COHERENT capture (the false-drift fix, take 2).</b> BOTH sides come from the
+        /// DRAW's own frame: <see cref="TryDrawLeg"/> snapshots the body-relative offsets it builds the
+        /// vertices from (<see cref="LegPolyline.parityRecordedRel"/>) plus the exact centre float it added
+        /// in (<see cref="LegPolyline.parityDrawCentreScaled"/>), tracing-gated; this capture inverts
+        /// <c>points3</c> against that RECORDED centre and diffs against that RECORDED snapshot. It never
+        /// re-reads <c>GetWorldSurfacePosition</c> / <c>body.position</c> / <c>scaledXform.position</c> at
+        /// capture time: the Driver draws in a different part of the frame than the probe (exec order -50
+        /// vs +10000, with ScaledSpace's own update in between), so a capture-time re-read skews the
+        /// reference by one frame of body translation AND rotation, scaled by warp - the live FP signature
+        /// this replaced (a ~280 m 1x floor = one frame of the body's heliocentric motion, with 16-24 km
+        /// spikes under warp; the FIRST capture inverse additionally strobed through
+        /// <c>ScaledSpace.totalOffset</c>). Subtracting the identical recorded centre float also cancels
+        /// the vertex sum's quantization of the centre exactly. A leg whose snapshot is missing or from a
+        /// different draw than its <c>points3</c> (<see cref="LegPolyline.parityDrawFrame"/> !=
+        /// <see cref="LegPolyline.lastDrawnFrame"/>: the absolute-fallback draw branch, or a leg not yet
+        /// redrawn since tracing came on) is SKIPPED this frame (batch-counted, rate-limited summary) and
+        /// captured on its next traced draw.</para>
         ///
         /// <para>CONIC-ANCHORED legs are SKIPPED (a known, stated limitation). A leg the draw rotated ~96 deg
         /// onto the bracketing conic seam (<see cref="TryAnchorLegToConicSeam"/> returned true, recorded in
@@ -708,21 +710,23 @@ namespace Parsek.Display
         /// <c>min(points3.Count, leg.PointCount)</c> samples), so the diff is a like-for-like recorded-vs-
         /// rendered comparison even though the oracle itself is count-independent.</para>
         ///
-        /// <para>Unity-coupled (reads <c>VectorLine.points3</c>, <c>ScaledSpace</c>, <c>body.position</c>,
-        /// <c>GetWorldSurfacePosition</c>), so it is driven ONLY from the live <see cref="MapRenderProbe"/>
-        /// (never xUnit) and only while tracing is on. NaN/Inf-safe: a non-finite scaled point or surface
-        /// position is written through unchanged (the oracle filters non-finite points and never raises a
-        /// false anomaly). A leg with no rendered line, no recorded surface samples, or an unresolved body is
-        /// skipped silently. Each drawn leg is handed to <paramref name="onLeg"/> as
-        /// <c>(recordingId, legIndex, legCount, bodyName, renderedBodyRelFlat, recordedBodyRelFlat)</c>; the
-        /// caller owns the oracle diff + emit so the decision math stays pure/unit-testable.</para>
+        /// <para>Unity-coupled (reads <c>VectorLine.points3</c> + <c>ScaledSpace.ScaleFactor</c>; the
+        /// reference and centre come from the draw-frame snapshot, no capture-time body reads), so it is
+        /// driven ONLY from the live <see cref="MapRenderProbe"/> (never xUnit) and only while tracing is
+        /// on. NaN/Inf-safe: a non-finite vertex or snapshot value is written through unchanged (the oracle
+        /// filters non-finite points and never raises a false anomaly). Each drawn leg is handed to
+        /// <paramref name="onLeg"/> as
+        /// <c>(recordingId, legIndex, legCount, bodyName, renderedBodyRelFlat, recordedBodyRelFlat,
+        /// quantizationFloorMeters)</c>; the caller owns the oracle diff + emit so the decision math stays
+        /// pure/unit-testable.</para>
         /// </summary>
         internal static void CaptureRenderedVsRecordedLegGeometry(
             int currentFrame,
-            System.Action<string, int, int, string, double[], double[]> onLeg)
+            System.Action<string, int, int, string, double[], double[], double> onLeg)
         {
             if (onLeg == null) return;
 
+            int skippedNoSnapshot = 0;
             foreach (var kv in polylineCache)
             {
                 LegPolyline[] legs = kv.Value.legs;
@@ -738,91 +742,93 @@ namespace Parsek.Display
 
                     // SKIP conic-anchored legs: a leg the last draw rotated onto the bracketing conic seam
                     // (TryAnchorLegToConicSeam returned true, stamped here) draws its points3 ~96 deg off the
-                    // RAW recorded surface track on PURPOSE, so diffing rendered-points3 against leg.lats/lons/
-                    // alts would report ~body-radius drift on EVERY correctly-anchored leg (false positive) -
-                    // and a leg that FAILED to anchor (the real regression) reads ~0 (exactly backwards). The
-                    // anchor rotation is a per-point Slerp of two live-computed FromToRotation quaternions, not
-                    // a cheaply recoverable single transform, so this lens does NOT cover anchored vacuum-
-                    // maneuver legs - a STATED limitation. It validates ONLY non-anchored body-fixed legs
-                    // (descent / atmospheric / surface - the descent re-stitch the audit cares about), where
-                    // the rendered points3 ARE the raw body-fixed points so rendered == recorded by
-                    // construction and any real mis-draw (incl. a leg that should have stayed body-fixed but
-                    // drew wrong) drifts. See LegPolyline.wasAnchored / TryAnchorLegToConicSeam. The skip
-                    // decision is the pure ShouldCaptureLegForParity (xUnit-covered).
+                    // RAW recorded surface track on PURPOSE, so diffing rendered-points3 against the raw
+                    // recorded snapshot would report ~body-radius drift on EVERY correctly-anchored leg (false
+                    // positive) - and a leg that FAILED to anchor (the real regression) reads ~0 (exactly
+                    // backwards). The anchor rotation is a per-point Slerp of two live-computed FromToRotation
+                    // quaternions, not a cheaply recoverable single transform, so this lens does NOT cover
+                    // anchored vacuum-maneuver legs - a STATED limitation. It validates ONLY non-anchored
+                    // body-fixed legs (descent / atmospheric / surface - the descent re-stitch the audit cares
+                    // about). The skip decision is the pure ShouldCaptureLegForParity (xUnit-covered).
                     if (!ShouldCaptureLegForParity(leg.wasAnchored)) continue;
 
                     var points3 = line.points3;
                     if (points3 == null || points3.Count == 0) continue;
-                    if (leg.lats == null || leg.lons == null || leg.alts == null) continue;
 
-                    CelestialBody body = ParityResolveBodyByName(leg.bodyName);
-                    if (body == null) continue;
+                    // FRAME-COHERENT reference: the diff runs against the parity snapshot the DRAW itself
+                    // took (leg.parityRecordedRel + parityDrawCentreScaled, filled inside the vertex-build
+                    // loop while tracing is on), NEVER a capture-time re-read. The draw and this probe run
+                    // in different parts of the frame: re-evaluating GetWorldSurfacePosition/body.position/
+                    // scaledXform.position here skews the reference by a frame of body translation +
+                    // rotation (x warp) - the pre-fix ~280m@1x floor and 16-24km warp spikes were exactly
+                    // that artifact. parityDrawFrame must EQUAL lastDrawnFrame so the snapshot and points3
+                    // came from the SAME draw (a leg drawn via the absolute fallback, or tracing enabled
+                    // mid-flight before this leg redrew, is skipped this frame and captured on its next
+                    // draw). Subtracting the recorded centre float also cancels the vertex-sum quantization
+                    // of the centre exactly.
+                    if (leg.parityRecordedRel == null
+                        || leg.parityDrawFrame != leg.lastDrawnFrame
+                        || leg.parityRecordedRel.Length < 3)
+                    {
+                        skippedNoSnapshot++;
+                        continue;
+                    }
 
-                    // Like-for-like index set: the leg's points3 hold this leg's drawn samples 1:1 with its
-                    // recorded lats/lons/alts (CopyLegIntoVectorLine writes exactly leg.PointCount of them at
-                    // offset 0). Diff over the common prefix so a transiently-resized line never misaligns.
+                    // Like-for-like index set: points3 hold this leg's drawn samples 1:1 with the snapshot
+                    // (both written from the same loop). Diff over the common prefix so a transiently-
+                    // resized line never misaligns.
                     int m = leg.PointCount;
                     if (m > points3.Count) m = points3.Count;
+                    if (m > leg.parityRecordedRel.Length / 3) m = leg.parityRecordedRel.Length / 3;
                     if (m <= 0) continue;
 
-                    Vector3d bodyPos = body.position;
-                    // Invert the RENDERED scaled-space vertices in the SAME frame the draw built them: the
-                    // registered scaled-body transform centre + ScaleFactor (NOT ScaledSpace.ScaledToLocalSpace,
-                    // which re-introduces the strobing totalOffset the draw deliberately avoids and leaves a
-                    // constant per-leg residual = a false parity-drift). See
-                    // RenderGeometrySampler.RenderedScaledVertexToBodyRelative. If the scaled body is missing
-                    // (the draw's fallback ABSOLUTE LocalToScaledSpace branch, only when scaledBody==null),
-                    // fall back to the matching ScaledToLocalSpace inverse so the two sides still agree.
-                    var scaledBody = body.scaledBody;
-                    Transform scaledXform = scaledBody != null ? scaledBody.transform : null;
-                    Vector3d bodyCentreScaled = scaledXform != null
-                        ? (Vector3d)scaledXform.position
-                        : new Vector3d(double.NaN, double.NaN, double.NaN);
+                    Vector3d bodyCentreScaled = (Vector3d)leg.parityDrawCentreScaled;
                     double scaleFactor = ScaledSpace.ScaleFactor;
                     var renderedFlat = new double[m * 3];
                     var recordedFlat = new double[m * 3];
                     for (int i = 0; i < m; i++)
                     {
-                        // RENDERED: live scaled-space vertex -> body-relative world offset, inverted in the
-                        // draw's own scaled-body frame (cancels both bodyCentreScaled and totalOffset).
-                        Vector3d renderedRel = scaledXform != null
-                            ? Parsek.MapRender.RenderGeometrySampler.RenderedScaledVertexToBodyRelative(
-                                points3[i], bodyCentreScaled, scaleFactor)
-                            : ScaledSpace.ScaledToLocalSpace(points3[i]) - bodyPos;
+                        // RENDERED: the drawn scaled-space vertex float -> body-relative world offset,
+                        // inverted against the SAME centre float the draw added in (cancels the centre,
+                        // totalOffset, and the centre's own float quantization outright).
+                        Vector3d renderedRel =
+                            Parsek.MapRender.RenderGeometrySampler.RenderedScaledVertexToBodyRelative(
+                                points3[i], bodyCentreScaled, scaleFactor);
                         renderedFlat[i * 3] = renderedRel.x;
                         renderedFlat[i * 3 + 1] = renderedRel.y;
                         renderedFlat[i * 3 + 2] = renderedRel.z;
 
-                        // RECORDED reference: the leg's own body-fixed surface track, body-relative.
-                        Vector3d recordedWorld = body.GetWorldSurfacePosition(
-                            leg.lats[i], leg.lons[i], leg.alts[i]);
-                        Vector3d recordedRel = recordedWorld - bodyPos;
-                        recordedFlat[i * 3] = recordedRel.x;
-                        recordedFlat[i * 3 + 1] = recordedRel.y;
-                        recordedFlat[i * 3 + 2] = recordedRel.z;
+                        // RECORDED reference: the draw-frame snapshot of the leg's body-fixed surface
+                        // track, body-relative (what the draw ACTUALLY encoded into the vertices).
+                        recordedFlat[i * 3] = leg.parityRecordedRel[i * 3];
+                        recordedFlat[i * 3 + 1] = leg.parityRecordedRel[i * 3 + 1];
+                        recordedFlat[i * 3 + 2] = leg.parityRecordedRel[i * 3 + 2];
                     }
 
-                    onLeg(kv.Key, l, legs.Length, leg.bodyName ?? "(null)", renderedFlat, recordedFlat);
+                    // METROLOGY FLOOR: the drawn Vector3 vertex quantizes at the CENTRE's float ulp (x
+                    // scaleFactor in real metres) - on a body far from the scaled origin (a non-focused
+                    // body in the TS) that noise can exceed a small leg's 0.1% scale tolerance. The oracle
+                    // clamps its tolerance up to this floor: sub-floor deviations are float noise, not
+                    // geometry; a real mis-draw above the floor still fires.
+                    double noiseFloor =
+                        Parsek.MapRender.RenderGeometrySampler.DrawnVertexQuantizationFloorMeters(
+                            bodyCentreScaled, scaleFactor);
+
+                    onLeg(kv.Key, l, legs.Length, leg.bodyName ?? "(null)", renderedFlat, recordedFlat,
+                        noiseFloor);
                 }
             }
-        }
 
-        // Minimal name->CelestialBody resolve for the tracing-only leg-parity capture. A small
-        // FlightGlobals.Bodies scan (the Driver's own per-frame cache is a private instance member; this
-        // static capture path is gated behind MapRenderTrace.IsEnabled, so the scan cost is paid only while
-        // tracing is on). Returns null on an empty / unknown name (caller skips the leg).
-        private static CelestialBody ParityResolveBodyByName(string bodyName)
-        {
-            if (string.IsNullOrEmpty(bodyName)) return null;
-            var bodies = FlightGlobals.Bodies;
-            if (bodies == null) return null;
-            for (int i = 0; i < bodies.Count; i++)
-            {
-                CelestialBody b = bodies[i];
-                if (b != null && string.Equals(b.bodyName, bodyName, System.StringComparison.Ordinal))
-                    return b;
-            }
-            return null;
+            // Batch summary (convention: one line after the loop, never per-item). Rate-limited: this runs
+            // per frame while tracing is on; a sustained skip usually just means legs drawn before tracing
+            // came on.
+            if (skippedNoSnapshot > 0)
+                ParsekLog.VerboseRateLimited(Tag, "parity-capture-skip",
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Leg parity capture skipped {0} leg(s) with no same-draw snapshot (absolute-fallback "
+                        + "draw, or drawn before tracing enabled; captured on their next traced draw)",
+                        skippedNoSnapshot),
+                    10.0);
         }
 
         /// <summary>
@@ -923,6 +929,37 @@ namespace Parsek.Display
             /// (stock MakeLine-on-flip). See <c>RebuildMapLineIfModeChanged</c>.
             /// </summary>
             public int lineMode;
+
+            /// <summary>
+            /// TRACING-ONLY (null in normal play): the parity-lens REFERENCE snapshot taken IN THE DRAW's
+            /// own frame - the flat <c>[x,y,z]*M</c> body-relative world offsets (<c>world - body.position</c>)
+            /// the draw itself computed the vertices from. The capture
+            /// (<see cref="CaptureRenderedVsRecordedLegGeometry"/>) diffs the drawn <c>points3</c> floats
+            /// against THIS, never a re-evaluation at capture time: the draw runs in a different part of the
+            /// frame than the probe, and re-computing <c>GetWorldSurfacePosition</c>/<c>body.position</c> at
+            /// capture time skews the reference by a frame of body translation + rotation (x warp - the
+            /// observed ~280m@1x floor and 16-24km warp spikes, pure artifact). Allocated / refilled per draw
+            /// only while <c>MapRenderTrace.IsEnabled</c>.
+            /// </summary>
+            public double[] parityRecordedRel;
+
+            /// <summary>
+            /// TRACING-ONLY: the exact <c>scaledXform.position</c> float the draw added into every vertex
+            /// this leg's <see cref="parityRecordedRel"/> snapshot was taken with. The capture inverts
+            /// <c>points3</c> against THIS value (not a live re-read): ScaledSpace moves the body's scaled
+            /// transform between the draw and the probe, and even at rest the two reads quantize differently
+            /// - subtracting the identical float cancels the centre exactly.
+            /// </summary>
+            public Vector3 parityDrawCentreScaled;
+
+            /// <summary>
+            /// <c>Time.frameCount</c> of the draw that filled <see cref="parityRecordedRel"/> /
+            /// <see cref="parityDrawCentreScaled"/>. The capture requires it to EQUAL
+            /// <see cref="lastDrawnFrame"/> (the same draw that wrote <c>points3</c>) - a stale snapshot
+            /// (leg drawn via the no-scaled-body absolute fallback, or an early-out between geometry build
+            /// and the draw stamp) is skipped, never diffed against newer vertices. 0 = never filled.
+            /// </summary>
+            public int parityDrawFrame;
 
             /// <summary>Number of points in this leg (M).</summary>
             public int PointCount => lats != null ? lats.Length : 0;
@@ -3136,23 +3173,51 @@ namespace Parsek.Display
             // no capture it can never go stale / invisible. scaledXform also feeds the conic anchor.
             var scaledBody = body.scaledBody;
             Transform scaledXform = scaledBody != null ? scaledBody.transform : null;
+            bool parityFilled = false;
             if (scaledXform != null)
             {
                 Vector3 bodyCentreScaled = scaledXform.position;
                 double invScale = ScaledSpace.InverseScaleFactor;
                 Vector3d bodyPos = body.position;
+                // PARITY SNAPSHOT (tracing-only): record the body-relative offsets THIS draw builds the
+                // vertices from, plus the exact centre float added in, so the parity capture diffs the
+                // drawn points3 against a SAME-FRAME reference. Re-evaluating the surface positions /
+                // centre at capture time (a different part of the frame) skews the reference by a frame
+                // of body translation + rotation (x warp) - pure artifact, not draw drift. Null / not
+                // stamped in normal play: zero cost while tracing is off.
+                double[] parityRel = null;
+                if (MapRenderTrace.IsEnabled)
+                {
+                    parityRel = leg.parityRecordedRel;
+                    if (parityRel == null || parityRel.Length != m * 3)
+                        parityRel = new double[m * 3];
+                }
                 for (int i = 0; i < m; i++)
                 {
                     Vector3d world = body.GetWorldSurfacePosition(
                         leg.lats[i], leg.lons[i], leg.alts[i]);
-                    leg.scratchScaledSpace[i] = bodyCentreScaled
-                        + (Vector3)((world - bodyPos) * invScale);
+                    Vector3d rel = world - bodyPos;
+                    leg.scratchScaledSpace[i] = bodyCentreScaled + (Vector3)(rel * invScale);
+                    if (parityRel != null)
+                    {
+                        parityRel[i * 3] = rel.x;
+                        parityRel[i * 3 + 1] = rel.y;
+                        parityRel[i * 3 + 2] = rel.z;
+                    }
+                }
+                if (parityRel != null)
+                {
+                    leg.parityRecordedRel = parityRel;
+                    leg.parityDrawCentreScaled = bodyCentreScaled;
+                    parityFilled = true; // frame stamped at the draw write-back below
                 }
             }
             else
             {
                 // No scaled body available (should not happen in map view): fall back to the
                 // direct absolute path. Strobes under warp, but at least renders on the surface.
+                // No parity snapshot: this branch strobes by design, so the parity lens skips it
+                // (parityDrawFrame stays != lastDrawnFrame).
                 for (int i = 0; i < m; i++)
                 {
                     Vector3d world = body.GetWorldSurfacePosition(
@@ -3208,6 +3273,11 @@ namespace Parsek.Display
             // past it) so the leg never vanishes on zoom-out. See DrawMapLine.
             DrawMapLine(leg.vectorLine);
             leg.lastDrawnFrame = drawFrame;
+            // Stamp the parity snapshot as belonging to THIS draw only after the draw actually happened
+            // (an early-out above leaves the frame stale, so the capture skips rather than diffing a fresh
+            // snapshot against older points3).
+            if (parityFilled)
+                leg.parityDrawFrame = drawFrame;
             return true;
         }
 

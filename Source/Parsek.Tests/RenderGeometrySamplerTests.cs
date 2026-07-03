@@ -139,6 +139,57 @@ namespace Parsek.Tests
             Assert.True(double.IsNaN(badScale.x));
         }
 
+        // ---- DrawnVertexQuantizationFloorMeters (the polyline parity metrology floor) ----
+
+        [Fact]
+        public void DrawnVertexQuantizationFloor_HeliocentricScaledCentre_KnownValue()
+        {
+            // A NON-FOCUSED body in the tracking station sits ~3e6 scaled units from the scaled origin
+            // (e.g. heliocentric Duna while the camera is elsewhere). A drawn Vector3 vertex is the float
+            // SUM centre + offset, which quantizes at the CENTRE's float ulp (~|centre| * 2^-23), i.e.
+            // ~0.36 scaled units = ~2.1 km real per component at scaleFactor 6000; x2 headroom = ~4.3 km.
+            // Rendered-vs-recorded deviations below this are float noise baked into the drawn vertex, NOT
+            // geometry - the parity tolerance must clamp up to it.
+            double floor = RenderGeometrySampler.DrawnVertexQuantizationFloorMeters(
+                new Vector3d(3_000_000.0, 0.0, 0.0), 6000.0);
+            Assert.Equal(3_000_000.0 * 1.1920928955078125e-7 * 6000.0 * 2.0, floor, 6);
+            Assert.True(floor > 4_000.0 && floor < 4_500.0); // ~4.3 km, dominates a small leg's 0.1% tol
+        }
+
+        [Fact]
+        public void DrawnVertexQuantizationFloor_NearOriginCentre_IsNegligible()
+        {
+            // The FOCUSED body sits near the scaled origin, so the floor collapses to sub-metre and the
+            // scale-derived tolerance governs unchanged - the clamp is a no-op in the common (focused)
+            // case, which is why the live Duna-focused session only showed the frame-skew term.
+            double floor = RenderGeometrySampler.DrawnVertexQuantizationFloorMeters(
+                new Vector3d(100.0, -50.0, 25.0), 6000.0);
+            Assert.True(floor < 1.0);
+        }
+
+        [Fact]
+        public void DrawnVertexQuantizationFloor_UsesLargestComponentMagnitude()
+        {
+            // The quantization is set by the largest-magnitude component of the centre (float ulp is
+            // per-component); sign and which axis carry it are irrelevant.
+            double mixed = RenderGeometrySampler.DrawnVertexQuantizationFloorMeters(
+                new Vector3d(0.0, -2_000_000.0, 1_000_000.0), 6000.0);
+            double axis = RenderGeometrySampler.DrawnVertexQuantizationFloorMeters(
+                new Vector3d(2_000_000.0, 0.0, 0.0), 6000.0);
+            Assert.Equal(axis, mixed, 9);
+        }
+
+        [Fact]
+        public void DrawnVertexQuantizationFloor_NonFinite_ReturnsZero()
+        {
+            // A non-finite centre / scale yields no floor (full precision assumed) rather than poisoning
+            // the tolerance with NaN - the oracle's NaN-filtering handles any genuinely bad geometry.
+            Assert.Equal(0.0, RenderGeometrySampler.DrawnVertexQuantizationFloorMeters(
+                new Vector3d(double.NaN, 0.0, 0.0), 6000.0), 9);
+            Assert.Equal(0.0, RenderGeometrySampler.DrawnVertexQuantizationFloorMeters(
+                new Vector3d(1.0, 2.0, 3.0), double.PositiveInfinity), 9);
+        }
+
         // A representative Duna-scale body-fixed descent leg's recorded body-relative track (the parity
         // REFERENCE), as a short arc of metre-scale offsets a few hundred km from the body centre. Mirrors
         // the live leg=0/1 scale~223 km / 357 km Duna descent legs.
