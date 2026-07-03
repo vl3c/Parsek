@@ -575,12 +575,24 @@ namespace Parsek
                 // head can pin off the gap-filled below-surface chord or bracket-miss (the icon vanishing / not
                 // following the descent down - the symptom this fixes), so for descent-set members try the ride
                 // first; only fall through to the unchanged body-fixed-first chain when the leg has not drawn
-                // this frame. Gated to descent-set members (IsDescentTriggerMember) so every other marker keeps
-                // body-fixed-first ordering, byte-identical. Overlap descent members never reach here (the
-                // per-instance overlap branch above already rides + continues), so this is the non-overlap gap.
+                // this frame. Overlap descent members never reach here (the per-instance overlap branch above
+                // already rides + continues), so this is the non-overlap gap.
+                //
+                // GENERALIZED to every polyline-OWNED phase (2026-07-03 Duna One escape-burn icon offset,
+                // aligning TS with the flight map's ordering - ParsekUI.DrawMapMarkers rides FIRST whenever
+                // the polyline owns the phase): a CONIC-ANCHORED leg (TryAnchorLegToConicSeam) is drawn
+                // ROTATED off the raw body-fixed track (the live burn leg drew at rotAngle=1.7deg, ~27km),
+                // so the body-fixed-first resolve painted the marker OFF the visible line while the proto
+                // icon was suppressed - the ghost's only indicator sat away from its own trajectory. Riding
+                // first fixes the anchored case and is position-identical for NON-anchored owned legs (the
+                // ride returns the same per-frame drawn body-fixed points the resolve computes), and the
+                // ride still self-gates on the leg having drawn this frame, so un-owned / un-drawn phases
+                // keep the body-fixed-first chain byte-identically.
                 bool isDescentSetMember =
                     Parsek.Display.GhostTrajectoryPolylineRenderer.IsDescentTriggerMember(i, loopUnits);
-                if (isDescentSetMember
+                bool polylineOwnsMarkerPhase =
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(rec.RecordingId);
+                if ((isDescentSetMember || polylineOwnsMarkerPhase)
                     && Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
                         rec.RecordingId, effUT, out Vector3 descentRiddenPos))
                 {
