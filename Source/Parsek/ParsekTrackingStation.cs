@@ -803,10 +803,12 @@ namespace Parsek
             HashSet<string> suppressedIds)
         {
             // A ProtoVessel exists but its icon may be suppressed (below atmosphere).
-            // When suppressed, the atmospheric marker should still draw.
+            // When suppressed, the atmospheric marker should still draw. The pid is hoisted so the
+            // OrbitSegmentActive veto below can consult the SAME ghost's live icon-suppressed state.
+            uint ghostPid = 0;
             if (GhostMapPresence.HasGhostVesselForRecording(recordingIndex))
             {
-                uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(recordingIndex);
+                ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(recordingIndex);
                 // The native proto icon is NOT visible when the marker-draw decision
                 // (GhostMapPresence.ShouldDrawNonProtoMarkerForGhost, Phase 8c - the SAME
                 // source the flight-map DrawMapMarkers uses) says draw our marker: gate ON
@@ -833,13 +835,39 @@ namespace Parsek
             // the SOLE position indicator. Without the bypass, a recorded conic covering the current
             // UT - including a BELOW-SURFACE one that draws no arc, or short mid-burn fragments under
             // an owned leg - silently vetoed the marker and the icon vanished on the landing chord
-            // and on the escape-burn leg. When the polyline does NOT own the phase the veto keeps its
-            // original job: no duplicate marker next to a live proto orbit icon.
-            if (rec.HasOrbitSegments
-                && !Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(rec.RecordingId)
-                && TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT).HasValue)
+            // and on the escape-burn leg. ALSO bypassed while the ghost's proto icon is SUPPRESSED
+            // (the chain member-handoff blank, 2026-07-03 Duna One): at a member boundary the effUT
+            // jumps to the next member's clock, whose covering conic re-arms this veto a few frames
+            // BEFORE the icon-drive un-suppresses the proto icon (its arc window / coalesce updates on
+            // its own pass) - the veto presumed an icon that was still hidden, so NEITHER the icon nor
+            // the marker drew (~28 blank frames on the escape-burn -> hyperbola handoff). A suppressed
+            // icon cannot produce the duplicate this veto exists to prevent, so it must never fire
+            // then. When the polyline does not own the phase AND the icon is live, the veto keeps its
+            // original job: no duplicate marker next to a live proto orbit icon. Decision is the pure
+            // ShouldVetoMarkerForActiveOrbitSegment (xUnit truth table).
+            if (ShouldVetoMarkerForActiveOrbitSegment(
+                    hasCoveringOrbitSegment: rec.HasOrbitSegments
+                        && TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT).HasValue,
+                    polylineOwnsPhase: Parsek.Display.GhostTrajectoryPolylineRenderer
+                        .IsRenderingNonOrbitalLeg(rec.RecordingId),
+                    iconSuppressed: ghostPid != 0 && GhostMapPresence.IsIconSuppressed(ghostPid)))
                 return AtmosphericMarkerSkipReason.OrbitSegmentActive;
             return AtmosphericMarkerSkipReason.None;
+        }
+
+        /// <summary>
+        /// Pure core of the OrbitSegmentActive marker veto: the veto's ONLY job is preventing a
+        /// duplicate marker NEXT TO a live proto orbit icon, so it fires only when a recorded conic
+        /// covers the current UT AND the proto icon can actually represent the ghost - i.e. the
+        /// polyline does NOT own the phase (ownership hides the icon) AND the icon is NOT suppressed
+        /// (a suppressed icon draws nothing; vetoing the marker then leaves the ghost BLANK - the
+        /// member-handoff gap where the next member's conic covers the new effUT a few frames before
+        /// the icon-drive un-suppresses). internal + pure for the xUnit truth table.
+        /// </summary>
+        internal static bool ShouldVetoMarkerForActiveOrbitSegment(
+            bool hasCoveringOrbitSegment, bool polylineOwnsPhase, bool iconSuppressed)
+        {
+            return hasCoveringOrbitSegment && !polylineOwnsPhase && !iconSuppressed;
         }
 
         void OnDestroy()
