@@ -6,13 +6,15 @@ using Parsek.Display;
 namespace Parsek.MapRender
 {
     /// <summary>
-    /// Phase 4 (design §6.7): runs the new render pipeline in DECISION-ONLY SHADOW. Per map-ghost
-    /// instance it builds the chain, samples it at the live UT, decides the intent, and records that
-    /// intent via <see cref="GhostRenderReconciler.NoteIntent"/> — and writes NOTHING to the stock
-    /// surfaces (the still-live old patches own those). The end-of-frame <see cref="MapRenderProbe"/>
-    /// then reconciles the recorded intent against the OLD path's rendered truth, surfacing
-    /// decision-vs-old-truth / gap-vs-retire divergence: the signal that tells us whether the new
-    /// single-owner Director would have rendered the same thing as today's scattered coordination.
+    /// Phase 4 origin (design 6.7), no longer decision-only shadow: this driver now STAMPS THE DRIVE the
+    /// legacy surfaces read. Per map-ghost instance it builds the chain, samples it at the live UT,
+    /// decides the intent, and records the StockConic seed the icon-drive patch re-asserts plus the
+    /// traced-path stamps the proto/marker consumers read. It still records each intent via
+    /// <see cref="GhostRenderReconciler.NoteIntent"/>, but that store has NO production reader: the old
+    /// intent-vs-old-truth comparator (<c>CheckIntentAgainstOldTruth</c>) was RETIRED in the Phase-8
+    /// unwiring (circular once the spine drove the render) and the recorded-vs-rendered
+    /// <c>RenderParityOracle</c> is the SOLE acceptance axis. The NoteIntent write is kept only to avoid
+    /// touching this driver in an observability-only phase - a removal candidate at the 5a/5b deletes.
     ///
     /// <para>Wholly gated by the caller on <see cref="MapRenderTrace.IsEnabled"/> (the off-by-default
     /// <c>mapRenderTracing</c> setting), so normal play pays nothing. Consumes the loop units from the
@@ -718,6 +720,17 @@ namespace Parsek.MapRender
         internal static void EmitPhaseChainAssembledForTesting(uint pid, double currentUT, PhaseChain phaseChain)
         {
             EmitPhaseChainAssembled(pid, currentUT, phaseChain);
+        }
+
+        /// <summary>Test seam: true when a NON-NULL typed <see cref="PhaseChain"/> is cached for
+        /// <paramref name="pid"/>. The flag-ON in-game gates assert this after RunFrame because
+        /// <see cref="GetOrBuildChain"/> swallows a factory throw into a cached null PhaseChain and the
+        /// spine then falls back to the legacy assembler chain - so "zero drift" alone cannot distinguish
+        /// "the spine drove" from "the spine threw and the legacy fallback drove" (a false green on the
+        /// flag-ON gate).</summary>
+        internal static bool HasCachedPhaseChainForTesting(uint pid)
+        {
+            return chainByPid.TryGetValue(pid, out CachedChain cached) && cached.PhaseChain != null;
         }
 
         private static string SummarizePhaseKinds(PhaseChain chain)

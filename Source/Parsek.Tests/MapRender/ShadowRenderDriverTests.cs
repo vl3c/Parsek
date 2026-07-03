@@ -16,7 +16,11 @@ namespace Parsek.Tests
     /// What makes it fail: a re-aim / overlap member is shadowed (emitting reconciler noise the MVP
     /// must skip), or the composed pipeline routes a faithful ghost to the wrong treatment / fails to
     /// hold across a gap.
+    ///
+    /// Mutates ShadowRenderDriver static state (the per-pid caches / seams via DecideForGhost and the
+    /// test seams), so it runs in the Sequential collection.
     /// </summary>
+    [Collection("Sequential")]
     public class ShadowRenderDriverTests
     {
         // ---- ClassifyScope (per-member: heliocentric member skipped, faithful members shadowed) ----

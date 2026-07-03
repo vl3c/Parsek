@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Parsek.MapRender;
 using Xunit;
 
@@ -145,9 +146,13 @@ namespace Parsek.Tests
             return outp;
         }
 
-        // Append the points of a second flat XYZ array onto a copy of the first (the headless analogue of the
-        // synth probe anchoring the live ICON point onto the end of the rendered orbit-sample set - the
-        // rendCount = sampleCount + 1 case). Both arrays are length-3 multiples by construction.
+        // Append the points of a second flat XYZ array onto a copy of the first. HISTORICAL modeling of the
+        // PRE-S8 rendered shape: the synth probe used to anchor the live ICON point onto the end of the
+        // rendered orbit-sample set (the rendCount = sampleCount + 1 case in the live FP logs). Production
+        // appends NOTHING since S8 removed the icon anchors from both parity lenses (an extra rendered
+        // vertex can only LOWER the one-sided ref->rendered deviation, never raise it - see
+        // RenderParityOracleTests.ComputeDrift_ExtraRenderedVertex_CannotRaiseDeviation_...). The Class-2
+        // tests below keep the append to reproduce the historical skew math faithfully.
         private static double[] AppendPoint(double[] xyz, double[] extra)
         {
             var outp = new double[xyz.Length + extra.Length];
@@ -514,9 +519,11 @@ namespace Parsek.Tests
             // the rendered conic at the LIVE clock (currentUT), so the FIX has the production probe pass
             // currentUT (not the reseed-stale icon-drive clock offEffUT) as the rendered sample clock - both
             // sides then sample at currentUT (the effUT parameter is retained so the in-game raw-epoch synth
-            // fixture can still pass its own icon clock). This models that production sampling: a Duna parking
-            // circle, 9 samples across a quarter-period half-arc, both sides at currentUT, plus the live icon
-            // anchor point (the rendCount=10 tenth point).
+            // fixture can still pass its own icon clock). This models the HISTORICAL (pre-S8) production
+            // sampling shape: a Duna parking circle, 9 samples across a quarter-period half-arc, both sides
+            // at currentUT, plus the icon anchor point the pre-S8 probe appended (the rendCount=10 tenth
+            // point). Production appends no icon vertex since S8; the append is kept here to reproduce the
+            // live FP's skew math verbatim.
             const double radius = 380_000.0;           // ~Duna parking, matching the live iconR=380617
             const double period = 2680.0;              // a fast parking-orbit period
             const double omega = 2.0 * Math.PI / period;
@@ -531,8 +538,10 @@ namespace Parsek.Tests
             double[] reference = CircleAtUTs(radius, omega, epoch + shift, referenceUTs);
 
             // POST-FIX rendered: sampled at the SAME currentUT clock as the reference (the fix), then anchored
-            // with one live icon point at currentUT - effSkew (the icon still rides the drive clock; it can only
-            // ADD a vertex, never inflate the ref->rendered nearest distance). The faithful draw reads ~0.
+            // with one icon point at currentUT - effSkew, modeling the HISTORICAL pre-S8 rendered shape
+            // (production appends nothing since S8; an extra rendered vertex can only ADD a candidate, never
+            // inflate the one-sided ref->rendered nearest distance, so the skew math is unchanged either
+            // way). The faithful draw reads ~0.
             double[] renderedUTs = RenderGeometrySampler.BuildSampleUTs(currentUT, halfSpan, count);
             double[] renderedCurve = CircleAtUTs(radius, omega, epoch + shift, renderedUTs);
             double[] iconPoint = CircleAtUTs(
@@ -584,6 +593,8 @@ namespace Parsek.Tests
             double[] referenceUTs = RenderGeometrySampler.BuildSampleUTs(currentUT, halfSpan, count);
             double[] reference = CircleAtUTs(radius, omega, epoch, referenceUTs);
             // Both sides at currentUT (the fix), but the rendered orbit has the wrong radius (wrong sma).
+            // The appended icon point is the HISTORICAL pre-S8 rendered shape (production appends nothing
+            // since S8); kept so this negative control diffs the same shape as the skew row above.
             double[] renderedCurve = CircleAtUTs(wrongRadius, omega, epoch, referenceUTs);
             double[] iconPoint = CircleAtUTs(wrongRadius, omega, epoch, new[] { currentUT });
             double[] rendered = AppendPoint(renderedCurve, iconPoint);
@@ -675,6 +686,70 @@ namespace Parsek.Tests
                 renderedEpoch: 51_100.0 + 0.4, segEpoch: 50_000.0, loopShift: 1100.0, out _));
             Assert.False(Parsek.MapRenderProbe.IsSynthEpochConventionBaked(
                 renderedEpoch: 51_100.0 + 5.0, segEpoch: 50_000.0, loopShift: 1100.0, out _));
+        }
+
+        // ===================================================================================
+        //  The FAITHFUL lens's covering-segment lookup clock
+        //  (MapRenderProbe.ResolveFaithfulLookupUT - the pure recorded-clock resolver the
+        //  production faithful sampler looks its covering OrbitSegment up with)
+        // ===================================================================================
+
+        [Fact]
+        public void FaithfulLookup_IsTheRecordedClock_CurrentUTMinusShift()
+        {
+            // The lookup clock is the RECORDED timeline UT: currentUT - loopShift (rec.OrbitSegments live
+            // on the recorded clock, never the icon-drive clock).
+            Assert.Equal(151_800.0 - 50_000.0,
+                Parsek.MapRenderProbe.ResolveFaithfulLookupUT(currentUT: 151_800.0, loopShift: 50_000.0), 9);
+            // Zero shift (a non-loop faithful ghost): the two clocks coincide.
+            Assert.Equal(1234.5,
+                Parsek.MapRenderProbe.ResolveFaithfulLookupUT(currentUT: 1234.5, loopShift: 0.0), 9);
+        }
+
+        [Fact]
+        public void FaithfulLookup_NonFiniteShift_TreatedAsZero_CurrentUTUnchanged()
+        {
+            // A NaN/Inf shift falls back to 0 (mirrors BuildPhaseMatchedReferenceOrbit's NaN guard), so a
+            // poisoned shift can never poison the lookup clock into NaN.
+            Assert.Equal(9000.0,
+                Parsek.MapRenderProbe.ResolveFaithfulLookupUT(9000.0, double.NaN), 9);
+            Assert.Equal(9000.0,
+                Parsek.MapRenderProbe.ResolveFaithfulLookupUT(9000.0, double.PositiveInfinity), 9);
+            Assert.Equal(9000.0,
+                Parsek.MapRenderProbe.ResolveFaithfulLookupUT(9000.0, double.NegativeInfinity), 9);
+        }
+
+        [Fact]
+        public void FaithfulLookup_BlockerScenario_RecordedClockLandsInSpan_DriveClockDoesNot()
+        {
+            // THE BLOCKER SCENARIO (stack-review): a loop ghost's recorded segments span [S,E], the loop
+            // shift EXCEEDS the span length, and the live clock is far beyond E (any loop iteration past
+            // the first). The RECORDED-clock lookup (currentUT - loopShift) lands INSIDE [S,E] and finds
+            // the covering segment; the OLD drive-clock lookup (currentUT, which the unconditional director
+            // epoch-bake drive made equal to the icon-drive clock) lands OUTSIDE and silently skipped
+            // ("no-covering-segment") EVERY loop-shifted ghost - the top regression class read "zero drift"
+            // while unguarded. Both facts asserted through the REAL segment finder over a real fixture list.
+            const double S = 100_000.0;
+            const double E = 103_600.0;                       // span length 3600s
+            const double loopShift = 50_000.0;                // > E - S
+            const double currentUT = E + loopShift - 1_800.0; // far beyond E (loop iteration in progress)
+            var segments = new List<OrbitSegment>
+            {
+                new OrbitSegment
+                {
+                    startUT = S, endUT = E, bodyName = "Kerbin",
+                    semiMajorAxis = 700_000.0, eccentricity = 0.0, epoch = S,
+                },
+            };
+
+            double lookup = Parsek.MapRenderProbe.ResolveFaithfulLookupUT(currentUT, loopShift);
+            Assert.Equal(currentUT - loopShift, lookup, 9);
+            Assert.True(lookup >= S && lookup <= E); // the recorded clock lands inside the recorded span
+
+            // The recorded-clock lookup FINDS the covering segment...
+            Assert.True(TrajectoryMath.FindOrbitSegment(segments, lookup).HasValue);
+            // ...while the old drive-clock lookup (currentUT) lands loopShift beyond the span and MISSES.
+            Assert.False(TrajectoryMath.FindOrbitSegment(segments, currentUT).HasValue);
         }
 
         // ===================================================================================

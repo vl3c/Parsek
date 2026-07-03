@@ -641,11 +641,15 @@ truth above (assert the decision-source-swap contract; never a 5b-only geometry 
 - **A3 - `FlagOnParityBaselineInGameTest.cs`** (known-good + loop-shifted): the FLAG-ON parity BASELINE the
   audit found missing (the existing `RenderParityBaselineTest` is flag-OFF; `PhaseSpineSwapInGameTest`
   exercises only the faithful lens). Drives the REAL `ShadowRenderDriver.RunFrame` SPINE-ON over a live
-  faithful ghost and asserts ZERO parity-drift across ALL THREE Phase-9 oracle modes at once (faithful,
-  synthesized, polyline), the spine's stamped loop-shift matches `GetGhostOrbitEpochShift`, and NO
-  `parity-drift` anomaly fired on the trace sink. Non-vacuous: each lens must `Sampled` + `HasMeasurement`
-  or it fails as blind; the loop-shifted arm bakes a 1100s shift end-to-end through the real seam. CLOSES
-  the section 11.5 "loop a single recording" / baseline-only-flag-OFF gap, flag-ON.
+  faithful ghost and asserts ZERO parity-drift across the FAITHFUL + SYNTHESIZED Phase-9 oracle modes,
+  plus a POLYLINE ORACLE ZERO-CONTRACT SANITY check (rendered == recorded input yields zero drift; NOT
+  live polyline capture coverage - the live `CaptureRenderedVsRecordedLegGeometry` walk needs a real map
+  render and is validated by tracing-on play sessions), the spine's stamped loop-shift matches
+  `GetGhostOrbitEpochShift`, and NO `parity-drift` anomaly fired on the trace sink. Non-vacuous: each lens
+  must `Sampled` + `HasMeasurement` or it fails as blind; the loop-shifted arm bakes a 1100s shift
+  end-to-end through the real seam. CLOSES the section 11.5 "loop a single recording" /
+  baseline-only-flag-OFF gap for the faithful + synthesized lenses, flag-ON; live polyline flag-ON capture
+  remains a tracing-on play-session check.
 
 - **B-row2 - `ReaimedLoopSynthesizedOracleInGameTest.cs`** (the Phase-9 SYNTHESIZED payoff): drives a live
   ghost from a RE-AIMED segment (recorded shape rotated 70 deg in LAN) while the recording stores the
@@ -669,14 +673,18 @@ truth above (assert the decision-source-swap contract; never a 5b-only geometry 
   5b).
 
 - **B-row4 - `ParentAnchoredChildSpineInGameTest.cs`** (parent-anchored controlled child): (a) drives the
-  REAL `AnchorFrameResolver.ResolveParentAnchoredChild` on LIVE-body UT magnitudes through all three
+  DEFINE-ONLY `AnchorFrameResolver.ResolveParentAnchoredChild` (ZERO production callers until Phase 5b
+  wires the spine's parent-anchored routing through it) on LIVE-body UT magnitudes through all three
   outcomes - >=2-sample in-range -> `BodyFixedPrimary`; out-of-range / no loop-frames -> `Retire` (never
   clamp to a stale child offset, the documented "stale ghost" bug it prevents); too-few-samples + covering
   loop frames -> `AnchorLocalSecondary`; (b) drives a live controlled-decoupled child ghost
-  (`IsDebris=false`, `ParentAnchorRecordingId` set) through RunFrame spine-ON and asserts ZERO faithful
-  drift. Non-vacuous: all three routing branches asserted distinctly; the oracle arm must `Sampled` +
-  `HasMeasurement`. CLOSES section 11.5 "controlled-decoupled child (lander off a stage)" dual-surface routing,
-  flag-ON.
+  (`IsDebris=false`, `ParentAnchorRecordingId` set) through RunFrame spine-ON as a CRASH-SMOKE + PLUMBING
+  check with the faithful oracle green (the oracle compares the ghost against the segment it was created
+  from - green-by-construction for the routing question). Non-vacuous as a contract pin: all three
+  resolver branches asserted distinctly; the oracle arm must `Sampled` + `HasMeasurement`. This is a
+  CONTRACT PIN for the 5b wiring, NOT closed spine-decision coverage of parent-anchored routing; the
+  section 11.5 "controlled-decoupled child (lander off a stage)" dual-surface routing row CLOSES when 5b
+  wires the resolver.
 
 - **B-row9 / B-row20 - `WarpThroughInteriorGapSpineInGameTest.cs`** (the HoldPhase decision +
   interior-gap warp-step hold). **HoldPhase decision: VACUOUS-UNDER-FLAG-ON in v1, with evidence.** The

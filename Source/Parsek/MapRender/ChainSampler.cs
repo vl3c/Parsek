@@ -88,14 +88,16 @@ namespace Parsek.MapRender
                 return GhostSample.Outside();
 
             // Phase 6 (the ONE cross-member geometric seam): a re-aim looped landing's descent member is
-            // joined to its transfer member over a Rigid + G1 orbit↔landing seam by the
+            // joined to its transfer member over a Rigid + G1 orbit<->landing seam by the
             // CrossMemberSeamStitcher. It composes AFTER the span-clock remap above (the sampleUT/liveUT are
             // already remapped). The stitcher OWNS the swept-deorbit-head / captureShift / per-leg head-gate
             // clock (so those identifiers stay out of this file and the Phase-3 source-gate stays GREEN);
             // this call names none of them. It returns false for every non-descent member / non-re-aim unit
-            // (byte-identical), and false WITHOUT a held sample when the descent member's slice is out of
-            // window so the sub-surface ghost RETIRES rather than clamping below the surface. The base
-            // coverage path below is unchanged for everything else.
+            // (byte-identical). NOTE the PRODUCTION sub-surface retire gate is the span-clock resolver's
+            // renderHidden above (GhostPlaybackLogic.SpanClock resolves the descent head itself and hides a
+            // Done / out-of-slice descent member BEFORE this stitcher is ever reached); the stitcher
+            // returning false WITHOUT a held sample past the clip is defense-in-depth behind that gate, not
+            // the load-bearing retire. The base coverage path below is unchanged for everything else.
             if (CrossMemberSeamStitcher.TryStitchDescentSeam(chain, sampleUT, liveUT, units, out GhostSample stitched))
                 return stitched;
 

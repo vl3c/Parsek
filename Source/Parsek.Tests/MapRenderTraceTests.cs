@@ -812,17 +812,44 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void EmitFactoryParity_RateLimitedPerRecording()
+        public void EmitFactoryParity_OncePerEvent_SameSignatureSuppressed_ChangedSignatureReEmits()
         {
+            // The once-per-event signature dedup (mirrors the FailClosedClassifierTests signature-dict
+            // tests): two back-to-back emits with the SAME diverging-field signature collapse to ONE
+            // line (a per-frame shadow loop on a steady divergence cannot flood), while a CHANGED
+            // signature (a different diverging field) re-emits - it is a new event, not spam.
             MapRenderTrace.ForceEnabledForTesting = true;
+            Assert.Equal(0, MapRenderTrace.FactoryParitySignatureCountForTesting);
 
-            // Two back-to-back emits for the SAME recording at the same clock: the second is rate-limited
-            // (one line only), proving the per-recording rate limit bounds a per-frame shadow loop.
-            MapRenderTrace.EmitFactoryParity("rec-rl", 100.0, "diverging=StartUt seg=0");
-            MapRenderTrace.EmitFactoryParity("rec-rl", 100.0, "diverging=StartUt seg=0");
+            MapRenderTrace.EmitFactoryParity("rec-sig", 100.0, "diverging=StartUt seg=0");
+            MapRenderTrace.EmitFactoryParity("rec-sig", 100.0, "diverging=StartUt seg=0");
+            Assert.Equal(1, MapRenderTrace.FactoryParitySignatureCountForTesting);
+            Assert.Equal(1, logLines.Count(l =>
+                l.Contains("reason=factory-parity") && l.Contains("pid=rec-sig")));
 
-            int count = logLines.Count(l => l.Contains("reason=factory-parity") && l.Contains("pid=rec-rl"));
-            Assert.Equal(1, count);
+            MapRenderTrace.EmitFactoryParity("rec-sig", 101.0, "diverging=EndUt seg=1");
+            Assert.Equal(2, logLines.Count(l =>
+                l.Contains("reason=factory-parity") && l.Contains("pid=rec-sig")));
+        }
+
+        [Fact]
+        public void EmitFactoryParity_MismatchLandsWithVerboseLoggingDisabled()
+        {
+            // THE S4 REGRESSION GUARD: the factory byte-parity mismatch is a flag-flip gate signal and
+            // must land at Info level (via EmitAnomaly) even when the user's verboseLogging setting is
+            // OFF. The old ParsekLog.VerboseRateLimited routing early-returned on !IsVerboseEnabled and
+            // silently swallowed the mismatch while tracing was on.
+            MapRenderTrace.ForceEnabledForTesting = true;
+            ParsekLog.VerboseOverrideForTesting = false; // verbose logging OFF (the swallowed case)
+
+            MapRenderTrace.EmitFactoryParity("rec-noverbose", 100.0, "diverging=Treatment seg=2");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[MapRenderTrace]")
+                && l.Contains("phase=Anomaly")
+                && l.Contains("reason=factory-parity")
+                && l.Contains("pid=rec-noverbose")
+                && l.Contains("diverging=Treatment"));
         }
 
         // ---- GAP-2: first-class Polyline-surface trace at the shared Driver's per-leg draw site ----

@@ -163,10 +163,19 @@ namespace Parsek.InGameTests
                 ShadowRenderDriver.Reset();
                 ShadowRenderDriver.RunFrame(scene);
 
+                // S6 false-green guard (the flag-ON leg only): GetOrBuildChain swallows a factory throw
+                // into a cached null PhaseChain and the spine then falls back to the legacy assembler
+                // chain, so a matching seed + zero drift alone cannot prove the SPINE drove.
+                if (forceSpineOn)
+                    InGameAssert.IsTrue(ShadowRenderDriver.HasCachedPhaseChainForTesting(pid),
+                        "the spine must have BUILT a PhaseChain for this ghost - a null cache means the "
+                        + "factory threw and the legacy fallback drove (the flag-ON gate would otherwise "
+                        + "pass on a false green)");
+
                 Orbit renderedOrbit = ghost.orbitDriver.orbit;
                 Vector3d iconBodyRel = ghost.GetWorldPos3D() - kerbin.position;
                 MapRenderProbe.FaithfulParitySample sample = MapRenderProbe.ComputeFaithfulOrbitParity(
-                    renderedOrbit, kerbin, iconBodyRel, liveUT, 0.0, liveUT, rec.RecordingId);
+                    renderedOrbit, kerbin, 0.0, liveUT, rec.RecordingId);
                 RenderParityOracle.ParityResult result = sample.Result;
 
                 ParsekLog.Info("TestRunner", string.Format(CultureInfo.InvariantCulture,

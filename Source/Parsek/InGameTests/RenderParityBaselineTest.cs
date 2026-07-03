@@ -17,9 +17,14 @@ namespace Parsek.InGameTests
     // re-implemented the diff inline with shift=0, so it never exercised the loop-shift epoch-bake
     // orchestration where the BLOCKER lived (the reference was built from the raw segment epoch while the
     // live orbit was baked to seg.epoch + loopShift, tracing opposite arcs and reporting a FALSE drift on
-    // every faithful loop ghost). The LOOP-SHIFTED variant below drives a ghost whose live orbit epoch IS
-    // baked with a non-zero loop shift and asserts ZERO drift end-to-end - the in-game proof the blocker
-    // fix (phase-matched reference epoch) works.
+    // every faithful loop ghost). TWO loop-shifted variants below cover BOTH live epoch conventions:
+    //  - RAW (ParityBaseline_LoopShiftedFaithfulGhost_ZeroDrift_Flight): the creation-frame orbit still
+    //    carries the recorded seg.epoch, the legacy raw-epoch drive path;
+    //  - DIRECTOR (ParityBaseline_LoopShiftedFaithfulGhost_DirectorBakedEpoch_ZeroDrift_Flight): the orbit
+    //    epoch is baked to seg.epoch + loopShift (the unconditional SeedAndDriveLive drive), where the
+    //    icon-drive clock equals currentUT - the exact production path on which the old drive-clock
+    //    covering-segment lookup silently skipped every loop ghost (the stack-review BLOCKER); the
+    //    recorded-clock lookup (ResolveFaithfulLookupUT) must sample AND read ~0.
     //
     // Why it complements the others: the diff MATH is unit-tested headless (RenderParityOracleTests), the
     // pure reframing/flattening is unit-tested headless (RenderGeometrySamplerTests), the Unity CAPTURE
@@ -68,16 +73,31 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "GhostMap", Scene = GameScenes.FLIGHT,
-            Description = "Phase 0 parity-baseline (FLIGHT, LOOP-SHIFTED): a faithful ghost whose live "
-                + "orbit epoch is baked with a NON-ZERO loop shift reports ZERO parity-drift through the "
-                + "REAL wired probe seam - the in-game proof the false-drift blocker fix (phase-matched "
-                + "reference epoch) works on the buggy loop-shift orchestration path")]
+            Description = "Phase 0 parity-baseline (FLIGHT, LOOP-SHIFTED, RAW epoch convention): a faithful "
+                + "ghost whose live orbit still carries the RAW recorded seg.epoch (the creation-frame "
+                + "convention) with a NON-ZERO loop shift reports ZERO parity-drift through the REAL wired "
+                + "probe seam - the in-game proof the false-drift blocker fix (phase-matched reference "
+                + "epoch) works on the buggy loop-shift orchestration path")]
         public void ParityBaseline_LoopShiftedFaithfulGhost_ZeroDrift_Flight()
         {
             AssertKnownGoodGhostReportsZeroDrift("FLIGHT-loop", LoopEpochShiftSeconds);
         }
 
-        private static void AssertKnownGoodGhostReportsZeroDrift(string scene, double LoopEpochShiftSeconds)
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.FLIGHT,
+            Description = "Phase 0 parity-baseline (FLIGHT, LOOP-SHIFTED, DIRECTOR epoch convention): a "
+                + "faithful loop ghost whose live orbit carries the DIRECTOR epoch-bake convention "
+                + "(epoch = seg.epoch + loopShift, the unconditional StockConicTreatment.SeedAndDriveLive "
+                + "drive) reports ZERO parity-drift - the production-wiring pin for the recorded-clock "
+                + "covering-segment lookup (the stack-review BLOCKER: the drive clock equals currentUT on "
+                + "this path, loopShift beyond the recorded span)")]
+        public void ParityBaseline_LoopShiftedFaithfulGhost_DirectorBakedEpoch_ZeroDrift_Flight()
+        {
+            AssertKnownGoodGhostReportsZeroDrift(
+                "FLIGHT-loop-director", LoopEpochShiftSeconds, bakeDirectorEpoch: true);
+        }
+
+        private static void AssertKnownGoodGhostReportsZeroDrift(
+            string scene, double LoopEpochShiftSeconds, bool bakeDirectorEpoch = false)
         {
             CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == KerbinBodyName);
             if (kerbin == null)
@@ -147,6 +167,21 @@ namespace Parsek.InGameTests
                 }
                 pid = ghost.persistentId;
 
+                // The epoch CONVENTION the live orbit carries when the probe samples it. Default (RAW):
+                // the creation-frame orbit still carries the recorded seg.epoch from ApplyOrbitToVessel.
+                // DIRECTOR variant: bake the unconditional director drive's convention onto the live orbit
+                // (StockConicTreatment.SeedAndDriveLive copies epoch = seg.epoch + loopShift verbatim), so
+                // the icon-drive clock equals currentUT - loopShift beyond the recorded span for any loop
+                // iteration past the first. The recorded-clock covering-segment lookup
+                // (ResolveFaithfulLookupUT = currentUT - loopShift) must STILL find the segment, and the
+                // epoch-convention gate must resolve the rendered clock to currentUT, so the parity reads
+                // ~0 (the stack-review BLOCKER's production-wiring pin; the RAW arm is the loop test above).
+                string convention = bakeDirectorEpoch
+                    ? "DIRECTOR-baked (epoch=seg.epoch+loopShift)"
+                    : "RAW (recorded seg.epoch)";
+                if (bakeDirectorEpoch)
+                    ghost.orbitDriver.orbit.epoch = seg.epoch + LoopEpochShiftSeconds;
+
                 Orbit renderedOrbit = ghost.orbitDriver.orbit;
 
                 // Read the loop shift the live orbit was ACTUALLY baked with from the production map (NOT a
@@ -163,35 +198,39 @@ namespace Parsek.InGameTests
                 // OrbitRelativePositionYup sampling of BOTH orbits at the SAME UTs, the scale-derived
                 // tolerance, and the oracle diff - the same call the probe makes each frame.
                 MapRenderProbe.FaithfulParitySample sample = MapRenderProbe.ComputeFaithfulOrbitParity(
-                    renderedOrbit, kerbin, iconBodyRel, effUT, loopShift, liveUT, rec.RecordingId);
+                    renderedOrbit, kerbin, loopShift, liveUT, rec.RecordingId);
 
                 Parsek.MapRender.RenderParityOracle.ParityResult result = sample.Result;
 
                 ParsekLog.Info("TestRunner",
                     string.Format(CultureInfo.InvariantCulture,
                         "ParityBaseline_KnownGood ({0}): pid={1} sma={2:F0} ecc={3:F2} loopShift={4:F1} "
-                        + "sampled={5} skip={6} hasMeas={7} maxDev={8:F1}m tol={9:F1}m scale={10:F0}m over={11}",
-                        scene, pid, Sma, Ecc, loopShift, sample.Sampled, sample.SkipReason ?? "(none)",
-                        result.HasMeasurement, result.MaxDeviationMeters, result.ToleranceMeters,
-                        sample.Scale, result.OverTolerance));
+                        + "convention={5} sampled={6} skip={7} hasMeas={8} maxDev={9:F1}m tol={10:F1}m "
+                        + "scale={11:F0}m over={12}",
+                        scene, pid, Sma, Ecc, loopShift, convention, sample.Sampled,
+                        sample.SkipReason ?? "(none)", result.HasMeasurement, result.MaxDeviationMeters,
+                        result.ToleranceMeters, sample.Scale, result.OverTolerance));
 
                 // The KNOWN-GOOD baseline: a faithful ghost drawing its own recorded orbit MUST sample (a
-                // skip here means the covering segment / body guard mis-fired) and MUST measure within
-                // tolerance (zero drift). A no-sample / no-measurement here is a sampler-blindness bug (the
-                // positive gate that would otherwise pass silently), so assert both.
+                // skip here means the covering segment / body guard mis-fired - on the DIRECTOR convention a
+                // skip is exactly the BLOCKER: the drive-clock lookup missed the recorded span) and MUST
+                // measure within tolerance (zero drift). A no-sample / no-measurement here is a
+                // sampler-blindness bug (the positive gate that would otherwise pass silently), so assert both.
                 InGameAssert.IsTrue(sample.Sampled,
-                    "Known-good faithful ghost must SAMPLE (not skip) the parity diff; skipReason="
-                    + (sample.SkipReason ?? "(none)"));
+                    "Known-good faithful ghost (epoch convention " + convention + ") must SAMPLE (not skip) "
+                    + "the parity diff - the recorded-clock lookup must find the covering segment on BOTH "
+                    + "conventions; skipReason=" + (sample.SkipReason ?? "(none)"));
                 InGameAssert.IsTrue(result.HasMeasurement,
-                    "Known-good faithful ghost must yield a parity MEASUREMENT (else the positive gate is "
-                    + "blind); HasMeasurement was false.");
+                    "Known-good faithful ghost (epoch convention " + convention + ") must yield a parity "
+                    + "MEASUREMENT (else the positive gate is blind); HasMeasurement was false.");
                 InGameAssert.IsFalse(result.OverTolerance,
                     string.Format(CultureInfo.InvariantCulture,
-                        "Known-good faithful ghost (loopShift={0:F1}) must report ZERO drift; maxDev={1:F1}m "
-                        + "exceeded tol={2:F1}m (scale={3:F0}m). The wired parity path is flagging a faithful "
-                        + "baseline as drifted - a positive-gate regression (the loop-shift false-drift "
-                        + "blocker if loopShift != 0).",
-                        loopShift, result.MaxDeviationMeters, result.ToleranceMeters, sample.Scale));
+                        "Known-good faithful ghost (loopShift={0:F1}, epoch convention {1}) must report ZERO "
+                        + "drift; maxDev={2:F1}m exceeded tol={3:F1}m (scale={4:F0}m). The wired parity path "
+                        + "is flagging a faithful baseline as drifted - a positive-gate regression (the "
+                        + "loop-shift false-drift blocker if loopShift != 0).",
+                        loopShift, convention, result.MaxDeviationMeters, result.ToleranceMeters,
+                        sample.Scale));
 
                 // Mirror the production emit decision: a known-good ghost would NOT emit a parity-drift
                 // anomaly. Run the same EmitAnomaly-on-over-tolerance gate and assert nothing fired.

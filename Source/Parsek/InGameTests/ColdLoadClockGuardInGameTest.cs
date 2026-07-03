@@ -73,6 +73,12 @@ namespace Parsek.InGameTests
             uint pid = 0u;
             try
             {
+                // Reset BEFORE the first arm (and again in finally, mirroring FailClosedFaithfulInGameTest):
+                // the spine:clock-not-ready anomaly dedups through a constant (key,signature) in
+                // MapRenderTrace's cutover-anomaly dict, cleared only on scene switch - without this a
+                // SECOND run of this test in the same scene session would have the anomaly suppressed and
+                // false-fail the clockNotReadyFired assertion.
+                MapRenderTrace.Reset();
                 MapRenderTrace.ForceEnabledForTesting = true; // so the anomaly raise is live
                 ShadowRenderDriver.ForceSpineDriveForTesting = true; // the guard is flag-ON only
 
@@ -141,6 +147,8 @@ namespace Parsek.InGameTests
                 ShadowRenderDriver.ForceSpineDriveForTesting = prevForceSpine;
                 ShadowRenderDriver.Reset();
                 MapRenderTrace.ForceEnabledForTesting = prevForceTrace;
+                // Clear the once-per-scene anomaly dedup this run consumed (see the Reset before arm 1).
+                MapRenderTrace.Reset();
                 RecordingStore.ClearCommittedInternal();
                 RecordingStore.ClearCommittedTreesInternal();
                 for (int i = 0; i < prevRecordings.Count; i++)

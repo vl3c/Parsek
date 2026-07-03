@@ -7,37 +7,41 @@ namespace Parsek.InGameTests
 {
     // Phase 10 / A3 (cutover regression harness) - the FLAG-ON parity-BASELINE in-game test, the positive
     // gate proving that with the typed PhaseChain spine DRIVING (ForceSpineDriveForTesting), a known-good
-    // faithful ghost rendered live reports ZERO parity-drift across ALL THREE Phase-9 oracle modes
-    // (faithful + synthesized + polyline).
+    // faithful ghost rendered live reports ZERO parity-drift across the FAITHFUL + SYNTHESIZED Phase-9
+    // oracle modes, plus a POLYLINE ORACLE ZERO-CONTRACT SANITY check (NOT live polyline capture coverage;
+    // see the mode-3 note below).
     //
     // WHY THIS DID NOT EXIST: the existing RenderParityBaselineTest captures the zero-drift baseline with the
     // spine flag OFF (the legacy assembler spine drives the orbit; the flag only swaps the DECISION source).
     // PhaseSpineSwapInGameTest proves flag-ON and flag-OFF stamp the SAME seed and read zero FAITHFUL drift,
-    // but it exercises only the faithful oracle. This test closes the gap the 5-lens audit found: the
-    // KNOWN-GOOD baseline run with the spine ON, asserted through every oracle lens at once, so a flag-ON
-    // regression that diverged in ANY lens (faithful recorded-vs-rendered, synthesized rendered-vs-intended,
-    // or polyline rendered-leg-vs-recorded-track) lights up here.
+    // but it exercises only the faithful oracle. This test closes the gap the 5-lens audit found for the two
+    // LIVE lenses: the KNOWN-GOOD baseline run with the spine ON, asserted through the faithful AND
+    // synthesized lenses at once, so a flag-ON regression that diverged in either (faithful
+    // rendered-vs-recorded, synthesized rendered-vs-intended) lights up here.
     //
     // ARCHITECTURAL TRUTH respected: flag-ON only swaps the decision SOURCE - the legacy code still DRAWS the
     // pixels (GhostOrbitLinePatch / the autonomous polyline Driver). So this asserts the CURRENT contract:
     //  (i)  the spine's DECISION matches what flag-OFF would decide for a faithful member (the seed the icon-
     //       drive reads is byte-identical across the flag), and
-    //  (ii) the live Phase-9 oracle stays GREEN (zero drift) on the correct draw, in all three modes.
+    //  (ii) the live Phase-9 oracle stays GREEN (zero drift) on the correct draw, in the faithful +
+    //       synthesized modes.
     // It does NOT assert any geometry change that only Phase 5b delivers.
     //
-    // The three oracle modes:
+    // The oracle modes exercised:
     //  - FAITHFUL  : MapRenderProbe.ComputeFaithfulOrbitParity on the live OrbitDriver.orbit vs the recorded
-    //                segment, PHASE-MATCHED. (the rendered-vs-recorded lens)
+    //                segment, PHASE-MATCHED. (the rendered-vs-recorded lens; LIVE flag-ON coverage)
     //  - SYNTHESIZED: MapRenderProbe.ComputeSynthesizedConicParity of the live orbit vs the Director's fresh
     //                StockConic seed (ShadowRenderDriver.TryGetFreshStockConicSeed) - for a faithful StockConic
-    //                member the rendered orbit IS the seed, so it reads ~0. (the rendered-vs-intended lens)
-    //  - POLYLINE  : the leg-track lens (RenderParityOracle.ComputeDriftScaleDerived, ParityMode.Synthesized)
-    //                on a real body-framed recorded leg arc diffed against itself (rendered == recorded for a
-    //                non-anchored body-fixed leg). The live CaptureRenderedVsRecordedLegGeometry walk needs a
-    //                populated polylineCache from an actual map render, which a headless test harness cannot
-    //                produce; this mirrors FailClosedFaithfulInGameTest's established in-game polyline-lens
-    //                pattern (a real Unity-framed leg arc through the live body's world surface positions,
-    //                diffed against itself => the oracle's rendered==recorded zero-drift contract).
+    //                member the rendered orbit IS the seed, so it reads ~0. (the rendered-vs-intended lens;
+    //                LIVE flag-ON coverage)
+    //  - POLYLINE  : ORACLE ZERO-CONTRACT SANITY ONLY (rendered == recorded input yields zero drift): the
+    //                leg-track lens (RenderParityOracle.ComputeDriftScaleDerived, ParityMode.Synthesized) on
+    //                a real body-framed recorded leg arc diffed against ITSELF. This is NOT live polyline
+    //                capture coverage - the live CaptureRenderedVsRecordedLegGeometry walk needs a populated
+    //                polylineCache from a real map render, which this harness cannot produce; that live walk
+    //                is validated by tracing-on play sessions. The arc-vs-itself diff mirrors
+    //                FailClosedFaithfulInGameTest's in-game polyline-lens pattern (a real Unity-framed leg
+    //                arc through the live body's world surface positions).
     //
     // NOTE: in-game test (Ctrl+Shift+T / Settings > Diagnostics); cannot run headless (builds a live ghost
     // ProtoVessel, reads its OrbitDriver, drives RunFrame against a live MapViewScene, frames a leg arc
@@ -56,8 +60,9 @@ namespace Parsek.InGameTests
 
         [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
             Description = "Phase 10 A3 flag-ON parity baseline: with the typed PhaseChain spine DRIVING, a "
-                + "known-good faithful ghost rendered live reports ZERO parity-drift across all THREE Phase-9 "
-                + "oracle modes (faithful + synthesized + polyline)")]
+                + "known-good faithful ghost rendered live reports ZERO parity-drift across the faithful + "
+                + "synthesized oracle modes, plus a polyline-oracle zero-contract sanity check (NOT live "
+                + "polyline capture coverage)")]
         public void FlagOnBaseline_KnownGoodGhost_ZeroDrift_AllThreeOracleModes()
         {
             RunFlagOnAllModeBaseline(LoopEpochShiftSeconds: 0.0);
@@ -66,7 +71,8 @@ namespace Parsek.InGameTests
         [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
             Description = "Phase 10 A3 flag-ON parity baseline (LOOP-SHIFTED): with the spine DRIVING, a "
                 + "ghost whose live orbit epoch is baked with a NON-ZERO loop shift reports ZERO parity-drift "
-                + "across all THREE oracle modes - the spine-ON proof the loop-shift epoch bake stays correct")]
+                + "across the faithful + synthesized oracle modes plus the polyline-oracle sanity check - the "
+                + "spine-ON proof the loop-shift epoch bake stays correct")]
         public void FlagOnBaseline_LoopShiftedGhost_ZeroDrift_AllThreeOracleModes()
         {
             RunFlagOnAllModeBaseline(LoopEpochShiftSeconds);
@@ -143,6 +149,14 @@ namespace Parsek.InGameTests
                 ShadowRenderDriver.Reset();
                 ShadowRenderDriver.RunFrame(scene);
 
+                // S6 false-green guard: GetOrBuildChain swallows a factory throw into a cached null
+                // PhaseChain and the spine then falls back to the legacy assembler chain, so zero drift
+                // alone cannot prove the SPINE drove. A non-null cached PhaseChain is the proof.
+                InGameAssert.IsTrue(ShadowRenderDriver.HasCachedPhaseChainForTesting(pid),
+                    "the spine must have BUILT a PhaseChain for this ghost - a null cache means the factory "
+                    + "threw and the legacy fallback drove (the flag-ON gate would otherwise pass on a false "
+                    + "green)");
+
                 Orbit renderedOrbit = ghost.orbitDriver.orbit;
                 Vector3d iconBodyRel = ghost.GetWorldPos3D() - kerbin.position;
                 if (iconBodyRel.magnitude < 1.0)
@@ -159,7 +173,7 @@ namespace Parsek.InGameTests
 
                 // --- ORACLE MODE 1: FAITHFUL (rendered orbit vs recorded segment, PHASE-MATCHED) ---
                 MapRenderProbe.FaithfulParitySample faithful = MapRenderProbe.ComputeFaithfulOrbitParity(
-                    renderedOrbit, kerbin, iconBodyRel, effUT, loopShift, liveUT, rec.RecordingId);
+                    renderedOrbit, kerbin, loopShift, liveUT, rec.RecordingId);
                 InGameAssert.IsTrue(faithful.Sampled,
                     "FAITHFUL oracle must SAMPLE (not skip) the spine-ON faithful ghost; skipReason="
                     + (faithful.SkipReason ?? "(none)"));
@@ -181,7 +195,7 @@ namespace Parsek.InGameTests
                     + "diff against (none stamped)");
                 MapRenderProbe.SynthesizedConicParitySample synth =
                     MapRenderProbe.ComputeSynthesizedConicParity(
-                        renderedOrbit, kerbin, iconBodyRel, seed, seedBody, loopShift, liveUT, effUT);
+                        renderedOrbit, kerbin, seed, seedBody, loopShift, liveUT, effUT);
                 InGameAssert.IsTrue(synth.Sampled,
                     "SYNTHESIZED oracle must SAMPLE the rendered-vs-seed diff; skipReason="
                     + (synth.SkipReason ?? "(none)"));
@@ -193,22 +207,26 @@ namespace Parsek.InGameTests
                         + "faithful StockConic member); maxDev={0:F1}m tol={1:F1}m.",
                         synth.Result.MaxDeviationMeters, synth.Result.ToleranceMeters));
 
-                // --- ORACLE MODE 3: POLYLINE (rendered leg track vs recorded leg track) ---
-                // A real Unity-framed body-fixed leg arc (Kerbin world surface positions) diffed against
-                // itself in the polyline lens (ParityMode.Synthesized, the same mode the live polyline-leg
-                // capture uses): a non-anchored body-fixed leg draws its points3 == the raw recorded track,
-                // so rendered == recorded => zero drift. This is the established in-game polyline-lens pattern
-                // (the live polylineCache walk needs an actual map render the harness cannot produce).
+                // --- ORACLE MODE 3: POLYLINE ORACLE ZERO-CONTRACT SANITY (NOT live polyline capture) ---
+                // HONEST SCOPE: this diffs a real Unity-framed body-fixed leg arc (Kerbin world surface
+                // positions) against ITSELF in the polyline lens (ParityMode.Synthesized, the same mode the
+                // live polyline-leg capture uses). It pins the oracle's zero-contract (rendered == recorded
+                // input yields zero drift) on live Unity-framed geometry; it is NOT live polyline capture
+                // coverage - the live CaptureRenderedVsRecordedLegGeometry walk needs a populated
+                // polylineCache from a real map render, which this harness cannot produce, and is validated
+                // by tracing-on play sessions instead.
                 double[] recordedLegArc = BuildKerbinFramedLegArc(kerbin);
                 RenderParityOracle.ParityResult polyline = RenderParityOracle.ComputeDriftScaleDerived(
                     RenderParityOracle.ParityMode.Synthesized, recordedLegArc, recordedLegArc);
                 InGameAssert.AreEqual(RenderParityOracle.ParityMode.Synthesized, polyline.Mode,
                     "the polyline lens runs in Synthesized mode (rendered leg vs recorded leg track)");
                 InGameAssert.IsTrue(polyline.HasMeasurement,
-                    "POLYLINE oracle must yield a measurement (else the lens is blind)");
+                    "POLYLINE oracle zero-contract sanity must yield a measurement (else the sanity check "
+                    + "is blind)");
                 InGameAssert.IsFalse(polyline.OverTolerance,
-                    "POLYLINE oracle must read ZERO drift for a non-anchored body-fixed leg drawn verbatim "
-                    + "(rendered == recorded)");
+                    "POLYLINE oracle zero-contract sanity (rendered == recorded input) must read ZERO drift; "
+                    + "NOT live polyline capture coverage - the live leg-capture walk is validated by "
+                    + "tracing-on play sessions");
 
                 ParsekLog.Info("TestRunner", string.Format(CultureInfo.InvariantCulture,
                     "FlagOnBaseline_AllThreeModes: pid={0} loopShift={1:F1} | faithfulDev={2:F1}m "

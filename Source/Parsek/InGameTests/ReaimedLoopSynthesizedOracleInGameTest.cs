@@ -112,7 +112,7 @@ namespace Parsek.InGameTests
                 // SynthesizedParity_LoopShiftedGhost test).
                 MapRenderProbe.SynthesizedConicParitySample synth =
                     MapRenderProbe.ComputeSynthesizedConicParity(
-                        renderedOrbit, kerbin, iconBodyRel, reaimedSeg, KerbinBodyName, 0.0, liveUT, liveUT);
+                        renderedOrbit, kerbin, reaimedSeg, KerbinBodyName, 0.0, liveUT, liveUT);
                 InGameAssert.IsTrue(synth.Sampled,
                     "the synthesized oracle must SAMPLE the rendered-vs-re-aimed-seed diff; skipReason="
                     + (synth.SkipReason ?? "(none)"));
@@ -132,7 +132,7 @@ namespace Parsek.InGameTests
                 // one. (Production skips faithful parity for re-aimed members via ShouldSkipReaimSegment for
                 // exactly this reason; here we exercise it directly to prove the lens distinction is real.)
                 MapRenderProbe.FaithfulParitySample faithful = MapRenderProbe.ComputeFaithfulOrbitParity(
-                    renderedOrbit, kerbin, iconBodyRel, liveUT, 0.0, liveUT, rec.RecordingId);
+                    renderedOrbit, kerbin, 0.0, liveUT, rec.RecordingId);
                 InGameAssert.IsTrue(faithful.Sampled,
                     "the faithful oracle must SAMPLE here (same body, covering recorded segment) so the "
                     + "lens-distinction control is non-vacuous; skipReason=" + (faithful.SkipReason ?? "(none)"));

@@ -29,10 +29,13 @@ namespace Parsek.InGameTests
     //   flight-scene mesh          appear/disappear: MeshSpawned / MeshDestroyed (Tier-A, the GhostRenderTrace
     //                                                sibling instrument)
     //
-    // NON-VACUOUS: every assertion drives a real production emit path (real builder + real Emit* sink). If a
-    // surface ever loses its appear/disappear or Tier-A/B/C wiring (a helper renamed, the RenderSurface enum
-    // entry dropped, an Emit* turned into a no-op, the gate inverted), the matching matrix line goes missing
-    // and this test fails - the exact "a surface is no longer instrumented" regression Phase 8 must guard.
+    // SCOPE (honest): EMIT MACHINERY + SCHEMA coverage, NOT production call-site wiring. Every assertion
+    // drives a real emit ENTRY POINT (real builder + real Emit* sink) DIRECTLY - it does not walk the
+    // production decision sites that call them, so a production call site silently removed would NOT fail
+    // here (that wiring is asserted by the headless MapRenderTracerCallSiteSourceGateTests source-text gate
+    // plus tracing-on play sessions). What DOES fail here: a helper renamed, the RenderSurface enum entry
+    // dropped, an Emit* turned into a no-op, the gate inverted - the "the emit machinery itself broke"
+    // regression class.
     //
     // The pure per-line schema is locked headlessly in MapRenderTraceTests / MapRenderEventCoverageTests and
     // the per-surface decision math in the surface tests; this in-game test is the integration assertion that

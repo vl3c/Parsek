@@ -28,8 +28,9 @@ namespace Parsek.MapRender
     /// This is an UNWIRING, not a rename/promote: the type, the pure predicates, and
     /// <see cref="CheckIntentAgainstOldTruth"/> itself are KEPT and stay exercised by
     /// <c>GhostRenderReconcilerTests</c>; only the production call site is gone.
-    /// <see cref="NoteIntent"/> (the shadow PRODUCER side) is UNAFFECTED - it feeds the spine, not this
-    /// retired comparator.</para>
+    /// <see cref="NoteIntent"/> still WRITES the intent into the tracer store, but that store now has NO
+    /// production reader (its only consumer was the retired comparator) - the write is kept only to avoid
+    /// touching the driver in an observability-only phase, a removal candidate at the 5a/5b deletes.</para>
     ///
     /// <para>The compare predicates are PURE (primitive-only, Unity-ECall-free) so they are unit
     /// testable; only <see cref="NoteIntent"/> / <see cref="CheckIntentAgainstOldTruth"/> touch the

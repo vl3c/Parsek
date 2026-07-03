@@ -8,26 +8,35 @@ namespace Parsek.InGameTests
     // Phase 10 / B-row4 (cutover regression harness) - the PARENT-ANCHORED controlled-child spine test. A
     // controlled-decoupled child (a lander / probe / capsule off a parent through a decoupler:
     // IsDebris=false, ParentAnchorRecordingId set) renders through its own body-relative arc while close to
-    // its parent. This test drives such a child flag-ON and asserts BOTH halves of the v1 contract:
+    // its parent.
     //
-    //  (a) THE DUAL-SURFACE ROUTING DECISION (the AnchorFrameResolver.ResolveParentAnchoredChild decision):
-    //      against a LIVE-body-scaled UT range,
+    // HONEST SCOPE (S11): AnchorFrameResolver.ResolveParentAnchoredChild is DEFINE-ONLY in v1 - it has ZERO
+    // production callers until Phase 5b wires the spine's parent-anchored routing through it. So arm (a)
+    // exercises the defined-but-unwired resolver's decision matrix (a contract pin for the 5b wiring, not
+    // proof the spine routes through it today), and arm (b) is a CRASH-SMOKE + PLUMBING check (a
+    // parent-anchored child ghost creates, RunFrame runs over it without throwing, and the faithful oracle
+    // reads the arc the ghost was created from) - NOT spine-decision coverage of parent-anchored routing.
+    //
+    //  (a) THE DUAL-SURFACE ROUTING DECISION (the define-only ResolveParentAnchoredChild): against a
+    //      LIVE-body-scaled UT range,
     //        - >= 2 body-fixed samples AND the UT in-range  -> BodyFixedPrimary (render via bodyFixedFrames),
     //        - the body-fixed primary unusable but an anchor-local frames surface covers the UT (loop-anchored
     //          chain fallback)                               -> AnchorLocalSecondary,
     //        - the UT out-of-range / too few samples         -> RETIRE (never clamp to a stale child offset -
     //          the documented "stale ghost" bug it prevents).
     //      The pure decision matrix is locked headlessly in AnchorFrameTests; here we exercise it against a
-    //      LIVE-body UT scale (the same body the rendered child arc is framed through) so the in-game
-    //      contract holds on real clock magnitudes, not just synthetic small numbers.
+    //      LIVE-body UT scale (the same body the rendered child arc is framed through) so the contract the
+    //      5b wiring will consume holds on real clock magnitudes, not just synthetic small numbers.
     //
-    //  (b) THE ORACLE GREEN: a live parent-anchored child ghost on a body-relative orbit arc, driven through
-    //      the REAL wired RunFrame with the spine ON, reports ZERO faithful parity-drift (the rendered arc is
-    //      the recorded arc). A child whose dual-surface routing or body-relative framing drew it off its
-    //      recorded track would drift here.
+    //  (b) CRASH-SMOKE + PLUMBING: a live parent-anchored child ghost on a body-relative orbit arc, driven
+    //      through the REAL wired RunFrame with the spine ON, reports ZERO faithful parity-drift. The oracle
+    //      arm compares the ghost against the SAME segment it was created from (green-by-construction for
+    //      the routing question), so it proves the parent-anchored recording shape flows through
+    //      creation/RunFrame/oracle without throwing or skipping - not that the spine made a
+    //      parent-anchored routing decision.
     //
-    // ARCHITECTURAL TRUTH respected: this asserts the spine's routing DECISION + the live oracle staying GREEN
-    // on the correct draw. It does NOT assert any geometry change that only Phase 5b delivers.
+    // ARCHITECTURAL TRUTH respected: it does NOT assert any geometry change or routing wiring that only
+    // Phase 5b delivers.
     //
     // NOTE: in-game test (Ctrl+Shift+T / Settings > Diagnostics); cannot run headless (builds a live child
     // ghost ProtoVessel, reads its OrbitDriver, drives RunFrame, scales the dual-surface UT range off the live
@@ -41,10 +50,11 @@ namespace Parsek.InGameTests
         private const double KerbinRadiusFallback = 600000.0;
 
         [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
-            Description = "Phase 10 B-row4 parent-anchored child (spine): the dual-surface routing decision is "
-                + "correct (>=2-sample in-range -> body-fixed primary; out-of-range -> RETIRE, never clamp) on "
-                + "a live-body UT scale, and a controlled-decoupled child ghost driven through RunFrame (spine "
-                + "ON) reports ZERO faithful parity-drift")]
+            Description = "Phase 10 B-row4 parent-anchored child: the DEFINE-ONLY dual-surface resolver "
+                + "(zero production callers until 5b wires it) decides correctly (>=2-sample in-range -> "
+                + "body-fixed primary; out-of-range -> RETIRE, never clamp) on a live-body UT scale, plus a "
+                + "crash-smoke/plumbing pass of a controlled-decoupled child ghost through RunFrame (spine "
+                + "ON) with the faithful oracle green - NOT spine parent-anchored routing coverage")]
         public void ParentAnchoredChild_FlagOn_DualSurfaceRoutingCorrect_OracleGreen()
         {
             CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == KerbinBodyName);
@@ -83,10 +93,12 @@ namespace Parsek.InGameTests
                 MapRenderTrace.ForceEnabledForTesting = true;
                 ShadowRenderDriver.ForceSpineDriveForTesting = true; // spine ON (flag-ON scenario)
 
-                // --- (a) THE DUAL-SURFACE ROUTING DECISION (the real resolver, live-body UT scale) ---
-                // Model a body-fixed window [winStart, winEnd] around the live drive clock. The body-fixed
-                // primary needs >=2 samples AND the UT inside the range. Use the live UT magnitudes so the
-                // decision holds on real clock scales, not just synthetic small numbers.
+                // --- (a) THE DUAL-SURFACE ROUTING DECISION (the DEFINE-ONLY resolver, live-body UT scale) ---
+                // ResolveParentAnchoredChild has zero production callers until 5b wires it; this pins the
+                // contract the 5b wiring will consume. Model a body-fixed window [winStart, winEnd] around
+                // the live drive clock. The body-fixed primary needs >=2 samples AND the UT inside the
+                // range. Use the live UT magnitudes so the decision holds on real clock scales, not just
+                // synthetic small numbers.
                 double winStart = liveUT - 300.0;
                 double winEnd = liveUT + 300.0;
                 double loopFramesStart = liveUT - 1000.0;   // a wider loop-anchored frames window
@@ -99,8 +111,9 @@ namespace Parsek.InGameTests
                         hasAnchorLocalFrames: true, anchorLocalStartUt: loopFramesStart,
                         anchorLocalEndUt: loopFramesEnd);
                 InGameAssert.AreEqual(AnchorFrameResolver.ParentChildSurface.BodyFixedPrimary, inRange,
-                    "a parent-anchored child with >=2 body-fixed samples and the UT in-range must route to the "
-                    + "body-fixed PRIMARY surface (the ordinary controlled-child playback path)");
+                    "the DEFINE-ONLY resolver (unwired until 5b): a parent-anchored child with >=2 body-fixed "
+                    + "samples and the UT in-range must route to the body-fixed PRIMARY surface (the contract "
+                    + "the 5b wiring consumes)");
 
                 // OUT-OF-RANGE (past the body-fixed window) with NO loop-frames cover -> RETIRE (never clamp).
                 double pastEndUT = winEnd + 5000.0;
@@ -123,7 +136,11 @@ namespace Parsek.InGameTests
                     "a parent-anchored child with too few body-fixed samples but a covering loop-anchored "
                     + "frames surface must fall back to the anchor-local SECONDARY surface");
 
-                // --- (b) THE ORACLE GREEN: a live child ghost on its body-relative arc, RunFrame spine ON ---
+                // --- (b) CRASH-SMOKE + PLUMBING: a live child ghost on its body-relative arc, RunFrame
+                // spine ON. Green-by-construction for the routing question (the oracle compares the ghost
+                // against the segment it was created from); it proves the parent-anchored recording shape
+                // flows through creation/RunFrame/oracle without throwing or skipping - NOT that the spine
+                // made a parent-anchored routing decision (5b wires that). ---
                 Vessel ghost = GhostMapPresence.CreateGhostVesselFromSource(
                     recordingIndex, rec, GhostMapPresence.TrackingStationGhostSource.Segment,
                     seg, default(TrajectoryPoint), startUT, loopEpochShiftSeconds: 0.0);
@@ -156,16 +173,18 @@ namespace Parsek.InGameTests
                 }
 
                 MapRenderProbe.FaithfulParitySample faithful = MapRenderProbe.ComputeFaithfulOrbitParity(
-                    renderedOrbit, kerbin, iconBodyRel, liveUT, 0.0, liveUT, rec.RecordingId);
+                    renderedOrbit, kerbin, 0.0, liveUT, rec.RecordingId);
                 InGameAssert.IsTrue(faithful.Sampled,
-                    "the controlled-child faithful oracle must SAMPLE (not skip); skipReason="
-                    + (faithful.SkipReason ?? "(none)"));
+                    "crash-smoke/plumbing arm: the parent-anchored recording shape must flow through the "
+                    + "faithful oracle (SAMPLE, not skip - a skip means the shape broke the plumbing); "
+                    + "skipReason=" + (faithful.SkipReason ?? "(none)"));
                 InGameAssert.IsTrue(faithful.Result.HasMeasurement,
-                    "the controlled-child faithful oracle must yield a measurement");
+                    "crash-smoke/plumbing arm: the controlled-child faithful oracle must yield a measurement");
                 InGameAssert.IsFalse(faithful.Result.OverTolerance,
                     string.Format(CultureInfo.InvariantCulture,
-                        "a controlled-decoupled child driven spine-ON must report ZERO faithful drift (rendered "
-                        + "body-relative arc == recorded arc); maxDev={0:F1}m tol={1:F1}m",
+                        "crash-smoke/plumbing arm (green-by-construction for routing: the ghost is compared "
+                        + "against the segment it was created from): a controlled-decoupled child driven "
+                        + "spine-ON must report ZERO faithful drift; maxDev={0:F1}m tol={1:F1}m",
                         faithful.Result.MaxDeviationMeters, faithful.Result.ToleranceMeters));
 
                 ParsekLog.Info("TestRunner", string.Format(CultureInfo.InvariantCulture,

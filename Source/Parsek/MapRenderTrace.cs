@@ -622,6 +622,47 @@ namespace Parsek
             return true;
         }
 
+        // ---- Phase 2: factory-parity Tier-C anomaly once-per-event dedup ----
+        // The Phase-2 shadow byte-parity comparator (ShadowRenderDriver.AssertFactoryParity) runs on
+        // every chain (re)build while tracing is on, but the factory-parity anomaly is a per-DIVERGENCE
+        // signal, not a per-frame one (EmitAnomaly routes to Info unconditionally + opens a detail
+        // window). This per-recording signature gate emits ONE line per distinct diverging-field
+        // signature, honoring the VerboseRateLimited convention. Same warp-cap + Reset() (scene-switch)
+        // clearing as the sibling signature dicts.
+        private static readonly Dictionary<string, string> lastFactoryParitySignatureByRecording =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>Test-only: current size of the factory-parity change-detection dict (warp-cap assert).</summary>
+        internal static int FactoryParitySignatureCountForTesting => lastFactoryParitySignatureByRecording.Count;
+
+        /// <summary>
+        /// Once-per-event gate for the Tier-C <c>factory-parity</c> anomaly (Phase 2): returns true only
+        /// when <paramref name="signature"/> (the comparator's diverging-field details) changed for this
+        /// <paramref name="recordingKey"/> since its last emit, so a steadily-diverging per-frame shadow
+        /// loop emits ONE anomaly line per distinct divergence rather than one per frame. No-op (false)
+        /// when disabled. An empty key is allowed through (the <see cref="IsEnabled"/> gate + the caller
+        /// still bound the emit). Warp-capped + cleared in <see cref="Reset"/> (scene switch), like the
+        /// sibling signature dicts.
+        /// </summary>
+        internal static bool ShouldEmitFactoryParityOnChange(string recordingKey, string signature)
+        {
+            if (!IsEnabled)
+                return false;
+            if (string.IsNullOrEmpty(recordingKey))
+                return true;
+
+            if (lastFactoryParitySignatureByRecording.TryGetValue(recordingKey, out string last)
+                && string.Equals(last, signature, StringComparison.Ordinal))
+                return false; // unchanged divergence for this recording -> suppress
+
+            if (!lastFactoryParitySignatureByRecording.ContainsKey(recordingKey)
+                && lastFactoryParitySignatureByRecording.Count >= MaxTrackedMarkerDecisionKeys)
+                lastFactoryParitySignatureByRecording.Clear();
+
+            lastFactoryParitySignatureByRecording[recordingKey] = signature;
+            return true;
+        }
+
         // MVP: detailed windows are keyed by pid.ToString(). recordingId keying
         // (and the shared registry with GhostRenderTrace) is a later cut.
         private static readonly Dictionary<string, double> detailedUntilByKey =
@@ -651,6 +692,7 @@ namespace Parsek
             lastDescentStitchSignatureByPid.Clear();
             lastFailClosedSignatureByPid.Clear();
             lastCutoverAnomalySignatureByKey.Clear();
+            lastFactoryParitySignatureByRecording.Clear();
             descentRenderWindowFrame = -1;
             descentRenderWindowPhase = null;
             descentRenderWindowRecId = null;
@@ -1303,27 +1345,27 @@ namespace Parsek
 
         /// <summary>
         /// Phase 2 shadow-comparator anomaly emit: the gated <see cref="MapRender.PhaseFactory"/>'s
-        /// emitted geometry diverged from the live <c>ChainAssembler</c>'s <c>GhostRenderChain</c>. Routes
-        /// the <see cref="AnomalyFactoryParity"/> reason + the diverging field detail through a
-        /// rate-limited Verbose sink keyed per recording id (so a per-frame shadow loop on a steadily
-        /// diverging member cannot flood the log) — distinct from <see cref="EmitAnomaly"/> (which is
-        /// Info + opens a detailed window per occurrence). The diverging field is in the
-        /// <paramref name="details"/> built by the caller (the comparator result). Gated by
+        /// emitted geometry diverged from the live <c>ChainAssembler</c>'s <c>GhostRenderChain</c>.
+        /// This byte-parity mismatch is a FLAG-FLIP GATE signal, so the mismatch routes through
+        /// <see cref="EmitAnomaly"/> (Info-level, phase=Anomaly) - NOT
+        /// <see cref="ParsekLog.VerboseRateLimited"/>, which early-returns when the user's
+        /// verboseLogging setting is off and silently swallowed the mismatch while tracing was on.
+        /// Deduped once-per-event via <see cref="ShouldEmitFactoryParityOnChange"/> (keyed per
+        /// recording id, signature = the diverging-field <paramref name="details"/> built by the
+        /// caller from the comparator result), so a per-frame shadow loop on a steadily diverging
+        /// member emits ONE line per distinct divergence, not one per frame. Gated by
         /// <see cref="IsEnabled"/>; no-op in normal play.
         /// </summary>
         internal static void EmitFactoryParity(
-            string recordingId, double currentUT, string details, double minIntervalSeconds = 5.0)
+            string recordingId, double currentUT, string details)
         {
             if (!IsEnabled)
                 return;
             string key = Token(recordingId);
-            string combined = "reason=" + AnomalyFactoryParity
-                + (string.IsNullOrEmpty(details) ? string.Empty : " " + details);
-            string message = BuildPrefix(
-                "Anomaly", RenderSurface.ProtoOrbitLine, key, currentUT, currentUT,
-                CurrentFrameCount(), recordingId) + " " + combined;
-            ParsekLog.VerboseRateLimited(
-                Tag, "factory-parity-" + key, message, minIntervalSeconds);
+            if (!ShouldEmitFactoryParityOnChange(key, details ?? string.Empty))
+                return;
+            EmitAnomaly(RenderSurface.ProtoOrbitLine, key, currentUT, currentUT,
+                AnomalyFactoryParity, details, recordingId);
         }
 
         /// <summary>IMGUI marker-surface decision emit (<c>ImguiLabeledMarker</c> /

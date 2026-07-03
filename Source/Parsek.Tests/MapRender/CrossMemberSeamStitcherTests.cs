@@ -15,13 +15,14 @@ namespace Parsek.Tests
     /// the per-leg head-gate, (3) the G1 tangent-match math + the <c>rigid-seam-tangent-discontinuity</c>
     /// predicate, (4) the compose-AFTER-the-remap ordering, and (5) the clean spine API
     /// <see cref="CrossMemberSeamStitcher.TryStitchDescentSeam"/> (descent member promoted to a visible
-    /// first-class phase; non-descent / non-re-aim returns false byte-identically; out-of-window retires the
-    /// sub-surface ghost rather than holding a stale below-surface sample).
+    /// first-class phase; non-descent / non-re-aim returns false byte-identically; out-of-window returns
+    /// false without a held sample - the defense-in-depth layer behind the span-clock resolver's
+    /// <c>renderHidden</c>, which is the PRODUCTION sub-surface retire gate).
     ///
     /// Each assertion states the bug it catches: a wrong clock would re-anchor the descent to the wrong UT
     /// (the icon-frozen / mis-rotation bug); a wrong tangent predicate would flag a continuous landing or
-    /// miss a real kink; a missing retire would leave the documented sub-surface ghost; engaging on a
-    /// non-descent unit would break flag-OFF parity.
+    /// miss a real kink; a held out-of-window sample would defeat the defense-in-depth behind the span
+    /// clock's sub-surface retire; engaging on a non-descent unit would break flag-OFF parity.
     ///
     /// <para>The tracer-integration cases touch the shared <c>MapRenderTrace</c> / <c>ParsekLog</c> static
     /// state, so this class runs in the Sequential collection.</para>
@@ -373,6 +374,106 @@ namespace Parsek.Tests
             Assert.IsType<DescentPhase>(phase);
         }
 
+        // A descent member whose traced run ENDS ON THE SURFACE: the run's last overlapping TrackSection is
+        // Surface, so ResolveEnvPhaseForWindow's terminal-class rule classifies the whole post-conic run as
+        // a SurfacePhase (a real landing-shaped recording that touches down inside the clip).
+        private static MockTrajectory SurfaceTailedDescentMemberTrajectory()
+            => new MockTrajectory
+            {
+                RecordingId = "rec-descent-surface-tail",
+                VesselName = "Duna Lander",
+                Points = new List<TrajectoryPoint> { Pt(200, "Duna"), Pt(250, "Duna"), Pt(300, "Duna") },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 150, endUT = 200, bodyName = "Duna", semiMajorAxis = 400000, eccentricity = 0.01 },
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    Sec(150, 200, SegmentEnvironment.ExoBallistic),
+                    Sec(200, 280, SegmentEnvironment.Atmospheric),
+                    Sec(280, 300, SegmentEnvironment.SurfaceStationary), // the surface tail (terminal class)
+                },
+            };
+
+        // A descent member with NO OrbitSegments at all (a pure-atmospheric recording): with no conic,
+        // ClassifyTracedKind's v1 default classifies the traced run as an AscentPhase.
+        private static MockTrajectory NoConicAscentShapedMemberTrajectory()
+            => new MockTrajectory
+            {
+                RecordingId = "rec-descent-no-conic",
+                VesselName = "Duna Lander",
+                Points = new List<TrajectoryPoint> { Pt(200, "Duna"), Pt(250, "Duna"), Pt(300, "Duna") },
+                OrbitSegments = new List<OrbitSegment>(),
+                TrackSections = new List<TrackSection>
+                {
+                    Sec(200, 300, SegmentEnvironment.Atmospheric),
+                },
+            };
+
+        [Theory]
+        [InlineData("surface-tail")]
+        [InlineData("no-conic-ascent")]
+        public void Stitch_TracedFamilyPromotionTarget_StitchesWithNoWarn(string shape)
+        {
+            // S5 REGRESSION GUARD: PhaseFactory legitimately classifies real landing-shaped members'
+            // post-conic traced runs as SurfacePhase (surface-tailed run) or AscentPhase (no OrbitSegments),
+            // not only DescentPhase. Both are TracedPath-family (TracedPhase) promotion targets, so the
+            // stitcher must promote them over the Rigid orbit<->landing seam WITHOUT the "not a
+            // TracedPath-family phase" factory-regression Warn - the old DescentPhase-only guard fired a
+            // full Warn EVERY stitched frame on these correct classifications (a post-flip log flood in
+            // normal play).
+            bool surfaceTail = shape == "surface-tail";
+            MockTrajectory traj = surfaceTail
+                ? SurfaceTailedDescentMemberTrajectory()
+                : NoConicAscentShapedMemberTrajectory();
+            PhaseChain chain = PhaseFactory.BuildPhaseChain(
+                traj, DescentMemberIdx, instanceKey: 0, windowStartUT: 150, windowEndUT: 300);
+            var units = MakeDescentUnitSet();
+
+            Parsek.Reaim.DescentTrigger.ComputeDescentTiming(
+                0, PhaseAnchor, Cadence, SpanStart, RecDeorbit, TestTrot, CaptureShift, null,
+                out _, out _, out double triggerUT);
+            double liveUT = triggerUT + 50.0; // head = 250, inside the promoted run [200,300]
+
+            // Load-bearing fixture check: the phase at the re-anchored head IS the intended
+            // TracedPath-family classification (else the fixture silently degenerated to DescentPhase and
+            // this test would be blind to the guard).
+            Assert.True(chain.TryGetPhase(250.0, out TrajectoryPhase phaseAtHead, out _));
+            if (surfaceTail)
+                Assert.IsType<SurfacePhase>(phaseAtHead);
+            else
+                Assert.IsType<AscentPhase>(phaseAtHead);
+
+            var logLines = new List<string>();
+            System.Action<string> prevSink = ParsekLog.TestSinkForTesting;
+            bool prevSuppress = ParsekLog.SuppressLogging;
+            try
+            {
+                ParsekLog.ResetRateLimitsForTesting();
+                ParsekLog.SuppressLogging = false;
+                ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+                bool ok = CrossMemberSeamStitcher.TryStitchDescentSeam(
+                    chain, sampleUT: liveUT, liveUT, units, out GhostSample stitched);
+
+                Assert.True(ok); // the traced-family member stitches successfully
+                Assert.Equal(Coverage.InSegment, stitched.Coverage);
+                Assert.Equal(Treatment.TracedPath, stitched.Treatment);
+                Assert.Equal(SeamKind.Rigid, stitched.Segment.LeadingSeam);
+                Assert.Equal(250.0, stitched.DriveUT, 6);
+
+                // NO factory-regression Warn for a legitimate TracedPath-family promotion target.
+                Assert.DoesNotContain(logLines, l =>
+                    l.Contains("[WARN]") && l.Contains("CrossMemberSeamStitcher"));
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = prevSink;
+                ParsekLog.SuppressLogging = prevSuppress;
+                ParsekLog.ResetRateLimitsForTesting();
+            }
+        }
+
         [Fact]
         public void StampOrbitLandingSeam_SetsRigidLeading_PreservesEverythingElse()
         {
@@ -425,10 +526,14 @@ namespace Parsek.Tests
         [Fact]
         public void Stitch_PastDescentEnd_RetiresSubSurfaceGhost_NoHeldSample()
         {
-            // SUB-SURFACE-GHOST-RETIRES (the documented bug closed): once the clip is Done (liveUT past the
-            // descent window), the stitcher returns FALSE WITHOUT a held sample, so the descent member's
-            // intent falls to Hidden and the ghost RETIRES rather than clamping to a stale below-surface
-            // sample. Pick a liveUT well past the trigger + clip duration (100s clip), inside cycle 0.
+            // DEFENSE-IN-DEPTH behind the production sub-surface retire: once the clip is Done (liveUT past
+            // the descent window), the stitcher returns FALSE WITHOUT a held sample, so a caller that
+            // reached it would render nothing rather than clamp to a stale below-surface sample. NOTE this
+            // false path is NOT the production retire gate: the span-clock resolver's renderHidden
+            // (GhostPlaybackLogic.SpanClock resolves the descent head itself) hides a Done descent member
+            // BEFORE ChainSampler ever consults the stitcher (pinned by
+            // ChainSampler_PastClip_SpanClockRenderHiddenIsTheProductionRetire_OutsideWindow below).
+            // Pick a liveUT well past the trigger + clip duration (100s clip), inside cycle 0.
             var units = MakeDescentUnitSet();
             PhaseChain chain = DescentMemberChain();
 
@@ -443,13 +548,33 @@ namespace Parsek.Tests
             Assert.False(ok);
             Assert.Equal(Parsek.Reaim.DescentTrigger.DescentHeadPhase.Done, phase);
 
-            // RETIRE is signaled by the bool false WITHOUT a held sample: the caller (ChainSampler) discards
-            // the out-param on a false return and renders nothing (GhostSample.Outside), so the sub-surface
-            // ghost retires. Asserting the unread out-param (default vs default) would be tautological; the
-            // bool is the contract.
+            // The defense-in-depth is signaled by the bool false WITHOUT a held sample: a caller discards
+            // the out-param on a false return and renders nothing (GhostSample.Outside). Asserting the
+            // unread out-param (default vs default) would be tautological; the bool is the contract.
             bool stitchOk = CrossMemberSeamStitcher.TryStitchDescentSeam(
                 chain, sampleUT: pastEnd, liveUT: pastEnd, units, out _);
             Assert.False(stitchOk);
+        }
+
+        [Fact]
+        public void ChainSampler_PastClip_SpanClockRenderHiddenIsTheProductionRetire_OutsideWindow()
+        {
+            // DOC-TRUTH PIN: the PRODUCTION sub-surface retire gate is the span-clock resolver's
+            // renderHidden (GhostPlaybackLogic.SpanClock's ResolveTrackingStationSampleUT resolves the
+            // descent head itself and hides a Done descent member), NOT the stitcher's false path.
+            // ChainSampler.Sample over the SAME past-clip inputs as Stitch_PastDescentEnd_... returns
+            // Coverage.OutsideWindow from the renderHidden early-out, BEFORE TryStitchDescentSeam is ever
+            // consulted - the stitcher's own false return is defense-in-depth behind this gate.
+            var units = MakeDescentUnitSet();
+            PhaseChain chain = DescentMemberChain();
+
+            Parsek.Reaim.DescentTrigger.ComputeDescentTiming(
+                0, PhaseAnchor, Cadence, SpanStart, RecDeorbit, TestTrot, CaptureShift, null,
+                out _, out _, out double triggerUT);
+            double pastEnd = triggerUT + 150.0; // > trigger + 100s clip => Done
+
+            GhostSample s = ChainSampler.Sample(chain, pastEnd, units);
+            Assert.Equal(Coverage.OutsideWindow, s.Coverage);
         }
 
         [Fact]

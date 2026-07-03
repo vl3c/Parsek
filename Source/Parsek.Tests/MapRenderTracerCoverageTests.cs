@@ -7,9 +7,11 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Phase 8 (map/TS render overhaul, migration plan section 10) - the HEADLESS half of the
-    /// tracer-coverage matrix guard. The in-game <c>MapRenderTracerCoverageInGameTest</c> proves the
-    /// production CALL SITES are wired (a mapRenderTracing-on session lights up every surface end-to-end);
-    /// this proves the tracer SCHEMA is complete without a live KSP:
+    /// tracer-coverage matrix guard: EMIT MACHINERY + SCHEMA coverage, NOT production call-site wiring
+    /// (both halves - this and the in-game <c>MapRenderTracerCoverageInGameTest</c> - drive the emit
+    /// entry points directly; the production call-site wiring is asserted by the source-text gate below,
+    /// <c>MapRenderTracerCallSiteSourceGateTests</c>, plus tracing-on play sessions). This proves the
+    /// tracer SCHEMA is complete without a live KSP:
     ///
     ///  - every <see cref="MapRenderTrace.RenderSurface"/> enum value (except <c>Unknown</c>) maps to a
     ///    distinct, non-"unknown" <c>surface=</c> token, so a new surface added without a token mapping (the
@@ -189,6 +191,58 @@ namespace Parsek.Tests
             int idx = prefix.IndexOf("surface=", StringComparison.Ordinal) + "surface=".Length;
             int end = prefix.IndexOf(' ', idx);
             return end < 0 ? prefix.Substring(idx) : prefix.Substring(idx, end - idx);
+        }
+    }
+
+    /// <summary>
+    /// The PRODUCTION CALL-SITE half of the tracer-coverage guard (S13): a SOURCE-TEXT gate (the repo's
+    /// established pattern, mirroring <c>FailClosedWiringSourceGateTests</c>) asserting the production
+    /// files still CONTAIN the live tracer call tokens. The two tracer-coverage matrix tests above/in-game
+    /// drive the emit MACHINERY directly and would stay green if a production call site were silently
+    /// removed; this gate catches exactly that removal. Tokens are minimal + stable (the emit call name,
+    /// plus the event token where the call carries one), read from the real call sites. Pure file reads,
+    /// no shared static state - NOT in the Sequential collection.
+    /// </summary>
+    public class MapRenderTracerCallSiteSourceGateTests
+    {
+        private static string ReadProductionSource(params string[] relativeSegments)
+        {
+            string root = System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string relative = System.IO.Path.Combine(relativeSegments);
+            string path = System.IO.Path.Combine(root, "Source", "Parsek", relative);
+            if (!System.IO.File.Exists(path))
+                path = System.IO.Path.Combine(root, "Parsek", relative); // alt layout (mirrors sibling gates)
+            Assert.True(System.IO.File.Exists(path), "Source file not found at " + path);
+            return System.IO.File.ReadAllText(path);
+        }
+
+        [Fact]
+        public void GhostMapPresence_EmitsGhostCreatedStructuralEvent_SourceGate()
+        {
+            // The Tier-A GhostCreated lifecycle event is emitted from the GhostMapPresence create funnel.
+            // Losing this call site would silence ghost-lifecycle tracing while the matrix tests stay green.
+            string src = ReadProductionSource("GhostMapPresence.cs");
+            Assert.Contains("MapRenderTrace.EmitStructural(", src);
+            Assert.Contains("\"GhostCreated\"", src);
+        }
+
+        [Fact]
+        public void GhostOrbitLinePatch_EmitsLineVisibilityOnChange_SourceGate()
+        {
+            // The Tier-B LineVisibilityChange on-change event is emitted from the orbit-line decision
+            // point (GhostOrbitLinePatch.LogOrbitLineDecision).
+            string src = ReadProductionSource("Patches", "GhostOrbitLinePatch.cs");
+            Assert.Contains("MapRenderTrace.EmitLineVisibilityOnChange(", src);
+        }
+
+        [Fact]
+        public void MapRenderProbe_EmitsAnomalies_SourceGate()
+        {
+            // The Tier-C anomaly raises (icon-jump / line-blink / decision-vs-truth / parity-drift / ...)
+            // are emitted from the end-of-frame truth probe.
+            string src = ReadProductionSource("MapRenderProbe.cs");
+            Assert.Contains("MapRenderTrace.EmitAnomaly(", src);
         }
     }
 }

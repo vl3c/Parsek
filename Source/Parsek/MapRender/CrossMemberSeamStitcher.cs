@@ -181,11 +181,15 @@ namespace Parsek.MapRender
         /// <c>captureShift</c>), so the spine can invoke it without tripping the Phase-3 gate. The clock
         /// arithmetic itself stays inside this stitcher (and the pure helpers it reuses).</para>
         ///
-        /// <para><b>Sub-surface retire (design §9.1 / migration plan §8):</b> when the re-anchored head is NOT
-        /// live (the descent member's slice is out of window — past <c>descentEndUT</c> / before entry /
-        /// loitering), this returns false WITHOUT a held sample, so the descent member's
-        /// <see cref="GhostRenderIntent"/> falls to Hidden and the sub-surface ghost RETIRES (the documented
-        /// bug closed) rather than clamping to a stale below-surface sample.</para>
+        /// <para><b>Sub-surface retire (design section 9.1 / migration plan section 8) - defense-in-depth
+        /// here, NOT the production gate:</b> the PRODUCTION sub-surface retire gate is the span-clock
+        /// resolver's <c>renderHidden</c> (<c>GhostPlaybackLogic.SpanClock</c>'s
+        /// <c>ResolveTrackingStationSampleUT</c> resolves the descent head itself and hides a Done / Inert /
+        /// Loiter / out-of-slice descent member BEFORE the sampler ever reaches this stitcher). When the
+        /// re-anchored head is NOT live (the descent member's slice is out of window - past
+        /// <c>descentEndUT</c> / before entry / loitering), this returns false WITHOUT a held sample so the
+        /// caller's base path renders nothing - a second, defense-in-depth layer behind the span clock,
+        /// never the load-bearing retire.</para>
         /// </summary>
         internal static bool TryStitchDescentSeam(
             PhaseChain chain,
@@ -232,16 +236,26 @@ namespace Parsek.MapRender
             if (!chain.TryGetPhase(reAnchoredHead, out TrajectoryPhase phaseAtHead, out int phaseIndex))
                 return false;
 
-            // DEFENSIVE GUARD (provably never with today's factory: reAnchoredHead >= recordedDeorbitUT lands
-            // in the post-deorbit body-fixed run, which the factory classifies as a DescentPhase). If a future
-            // factory-classification regression ever puts a non-DescentPhase at the head, log LOUDLY rather
-            // than silently stamp a Rigid orbit↔landing seam onto the wrong phase kind ("if it didn't get
-            // logged, it didn't happen"). Behaviour is unchanged on the correct path; this is observability.
-            if (!(phaseAtHead is DescentPhase))
-                ParsekLog.Warn("MapRender", string.Format(CultureInfo.InvariantCulture,
-                    "CrossMemberSeamStitcher: phase at re-anchored head {0:R} is {1}, not DescentPhase "
-                    + "(rec={2} member={3}) - stamping orbit↔landing seam anyway; factory classification regression?",
-                    reAnchoredHead, phaseAtHead?.GetType().Name ?? "null", chain.RecordingId, committedIndex));
+            // TracedPath-family guard: PhaseFactory legitimately classifies a real landing-shaped member's
+            // post-conic traced run as a DescentPhase, a SurfacePhase (a surface-tailed run: the run's LAST
+            // overlapping TrackSection is Surface, per ResolveEnvPhaseForWindow's terminal-class rule), or an
+            // AscentPhase (no OrbitSegments at all, the v1 pure-atmospheric default). All three are TracedPhase
+            // subclasses emitting the same TracedPath geometry, so promoting ANY of them over the Rigid
+            // orbit<->landing seam is CORRECT - warning on them would flood normal post-flip play every
+            // stitched frame. Only a ConicPhase / HoldPhase at the re-anchored head is a genuine
+            // factory-classification anomaly (a conic or hold can never be the promoted descent run); warn
+            // on that, rate-limited per (recordingId, phaseType) so a persistent regression logs LOUDLY
+            // ("if it didn't get logged, it didn't happen") without per-frame spam. Behaviour is unchanged
+            // on the correct path; this is observability.
+            if (!(phaseAtHead is TracedPhase))
+                ParsekLog.WarnRateLimited("MapRender",
+                    "stitch-non-traced-" + (chain.RecordingId ?? "?") + "-"
+                        + (phaseAtHead?.GetType().Name ?? "null"),
+                    string.Format(CultureInfo.InvariantCulture,
+                        "CrossMemberSeamStitcher: phase at re-anchored head {0:R} is {1}, not a TracedPath-family "
+                        + "(TracedPhase) phase (rec={2} member={3}) - stamping orbit<->landing seam anyway; "
+                        + "factory classification regression?",
+                        reAnchoredHead, phaseAtHead?.GetType().Name ?? "null", chain.RecordingId, committedIndex));
 
             // PROMOTE: emit the descent phase as a visible first-class phase carrying the Rigid + G1 leading
             // seam (the orbit↔landing cross-member seam). The seam CONTRACT is stamped here, and the Tier-A

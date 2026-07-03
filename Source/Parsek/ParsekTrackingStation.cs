@@ -671,13 +671,18 @@ namespace Parsek
 
                 // A ridden marker never resolved a body-fixed sample, so sampledPoint is default - label
                 // the position source instead of printing misleading lat=0.00 lon=0.00 alt=0 fields.
+                // InvariantCulture on the numeric fields (house hard rule: comma-locale systems otherwise
+                // produce broken lat/lon/alt output).
                 ParsekLog.VerboseRateLimited(Tag, $"atmosMarker-{i}",
-                    $"Drawing atmospheric marker #{i} \"{rec.VesselName}\" " +
-                    $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
-                    (rodePolyline
-                        ? "pos=on-line(ridden) "
-                        : $"lat={sampledPoint.latitude:F2} lon={sampledPoint.longitude:F2} alt={sampledPoint.altitude:F0} ") +
-                    $"rodePolyline={rodePolyline}");
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Drawing atmospheric marker #{0} \"{1}\" terminal={2} {3}rodePolyline={4}",
+                        i, rec.VesselName, rec.TerminalStateValue?.ToString() ?? "null",
+                        rodePolyline
+                            ? "pos=on-line(ridden) "
+                            : string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "lat={0:F2} lon={1:F2} alt={2:F0} ",
+                                sampledPoint.latitude, sampledPoint.longitude, sampledPoint.altitude),
+                        rodePolyline));
 
                 // MapRenderTrace IMGUI surface coverage (AtmosphericMarker). Decision-only: this
                 // marker draws here in OnGUI, so the position IS the truth (no end-of-frame
