@@ -379,27 +379,30 @@ namespace Parsek.Tests
         // ---- Phase 3 spine swap: the new default-OFF flag + the spine-select wiring ----
 
         [Fact]
-        public void PhaseSpineDriveFlag_DefaultsOff()
+        public void PhaseSpineDriveFlag_DefaultsOn_TheCutoverFlip()
         {
-            // The migration plan REQUIRES the new spine be behind a default-OFF flag so flag-OFF play is
-            // byte-identical to today. A regression that flips the default to true would silently swap the
-            // live spine for every install.
-            Assert.False(MapRenderFlags.MapRenderPhaseSpineDrive);
+            // THE CUTOVER FLIP (2026-07-04): after the full pre-flip gate sequence (in-game sign-off,
+            // zero-FP parity oracle, the 13-PR stack review's blocker + pre-flip findings landed), the
+            // typed spine is the DEFAULT decision source. This pin inverts the pre-flip guard: a
+            // regression that flips the const back to false would silently revert the cutover for every
+            // install - a rollback must be a deliberate edit that also updates this test.
+            Assert.True(MapRenderFlags.MapRenderPhaseSpineDrive);
         }
 
         [Fact]
-        public void PhaseSpineDriveActive_IsConstOrTestSeam_AndDefaultsOff()
+        public void PhaseSpineDriveActive_ConstCarriesTheCutover_SeamIsRedundantNotAnOverride()
         {
-            // The single source of truth for "drive off the PhaseChain this frame" is the const OR the
-            // in-game test seam. With both off (normal play) it is false (flag-OFF). The seam flips it on
-            // for an in-game test without a rebuild; it must restore.
+            // Post-flip: the const alone carries the spine drive; the in-game test seam is an OR, so it
+            // is now redundant (still true with it on) and CANNOT force the spine OFF - a rollback is the
+            // const edit, never a runtime toggle. Pins both facts so a future "force off for a test"
+            // attempt fails loudly here instead of silently doing nothing in game.
             bool prev = ShadowRenderDriver.ForceSpineDriveForTesting;
             try
             {
                 ShadowRenderDriver.ForceSpineDriveForTesting = false;
-                Assert.False(ShadowRenderDriver.PhaseSpineDriveActive); // const false + seam false -> off
+                Assert.True(ShadowRenderDriver.PhaseSpineDriveActive); // const true carries it
                 ShadowRenderDriver.ForceSpineDriveForTesting = true;
-                Assert.True(ShadowRenderDriver.PhaseSpineDriveActive);  // seam ON forces the spine on
+                Assert.True(ShadowRenderDriver.PhaseSpineDriveActive); // seam is redundant, not an override
             }
             finally
             {
@@ -502,31 +505,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsTracedPathOwnedThisFrame_FlagOff_ReadsLegacySideChannel_NotIntent()
+        public void IsTracedPathOwnedThisFrame_LegacyElseBranch_RetainedForRollback_SourceGate()
         {
-            // FLAG OFF (default): the owned-draw routing reads the LEGACY side-channel (tracedPathByPid),
-            // byte-identical to today. An intent-only stamp (which never exists off the flag in production,
-            // but the seam lets us prove the SOURCE) must NOT make the leg owned when the flag is off.
-            const uint pid = 4002u;
-            bool prev = ShadowRenderDriver.ForceSpineDriveForTesting;
-            try
-            {
-                ShadowRenderDriver.ForceSpineDriveForTesting = false; // flag OFF
-                Assert.False(ShadowRenderDriver.PhaseSpineDriveActive);
-
-                // Legacy stamp present, intent stamp absent -> owned (today's behavior).
-                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: 50, intentFrame: -1);
-                Assert.True(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 50));
-
-                // Intent stamp present, legacy stamp absent -> NOT owned off the flag (it ignores intent).
-                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: -1, intentFrame: 50);
-                Assert.False(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 50));
-            }
-            finally
-            {
-                ShadowRenderDriver.ForceSpineDriveForTesting = prev;
-                ShadowRenderDriver.Reset();
-            }
+            // POST-FLIP: PhaseSpineDriveActive is const-true, so the selector's legacy else-branch is
+            // unreachable at runtime and can no longer be driven by the seam (an OR, not an override) -
+            // the old FlagOff runtime test's premise is gone. The branch MUST stay in source until Phase
+            // 5b deletes it: flipping the const back to false is the instant regression rollback and must
+            // restore the pre-flip routing byte-identically. This source gate pins both branches of the
+            // selector; the intent-side runtime behavior keeps its own FlagOn test below.
+            string normalized = CollapseWhitespace(StripLineComments(ReadShadowRenderDriverSource()));
+            Assert.Contains("? IsDirectorTracedPathActiveFromIntent(pid, currentFrame)", normalized);
+            Assert.Contains(": IsDirectorTracedPathActive(pid, currentFrame)", normalized);
         }
 
         [Fact]
@@ -629,35 +618,11 @@ namespace Parsek.Tests
         // (the selector itself is the load-bearing 4a sibling); the Unity-coupled wrapper's static reads
         // are covered by the in-game test (project rule: Unity-coupled -> in-game).
 
-        [Fact]
-        public void MarkerTracedPathDisjunct_FlagOff_TracksLegacySideChannel_NotIntent()
-        {
-            // FLAG OFF (default): the marker decision's TracedPath disjunct source
-            // (IsTracedPathOwnedThisFrame) reads the LEGACY side-channel - byte-identical to today. An
-            // intent-only stamp (which never exists off the flag in production) must NOT make the disjunct
-            // true. This is the marker-side mirror of the polyline Driver's flag-OFF parity.
-            const uint pid = 4101u;
-            bool prev = ShadowRenderDriver.ForceSpineDriveForTesting;
-            try
-            {
-                ShadowRenderDriver.ForceSpineDriveForTesting = false; // flag OFF
-                Assert.False(ShadowRenderDriver.PhaseSpineDriveActive);
-
-                // Legacy stamp present, intent absent -> disjunct true (today's marker behavior).
-                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: 80, intentFrame: -1);
-                Assert.True(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 80));
-
-                // Intent stamp present, legacy absent -> disjunct FALSE off the flag (it ignores intent),
-                // so the marker decision falls back to its other disjuncts only.
-                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: -1, intentFrame: 80);
-                Assert.False(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 80));
-            }
-            finally
-            {
-                ShadowRenderDriver.ForceSpineDriveForTesting = prev;
-                ShadowRenderDriver.Reset();
-            }
-        }
+        // NOTE (cutover flip): the FlagOff runtime variant of the marker disjunct test was removed with
+        // the const flip - PhaseSpineDriveActive can no longer be false at runtime (the seam is an OR,
+        // not an override), so its premise is untestable. The retained legacy else-branch (the rollback
+        // path) is pinned by IsTracedPathOwnedThisFrame_LegacyElseBranch_RetainedForRollback_SourceGate
+        // above; the marker disjunct shares that exact selector.
 
         [Fact]
         public void MarkerTracedPathDisjunct_FlagOn_TracksIntentSource_NotLegacySideChannel()

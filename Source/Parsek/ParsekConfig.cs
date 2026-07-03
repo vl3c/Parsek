@@ -419,13 +419,17 @@ namespace Parsek
         /// assembler (Phase-2 parity), so a flag-ON render is identical to flag-OFF — the parity oracle is
         /// the gate.
         ///
-        /// <para><b>Default FALSE.</b> With the flag OFF the legacy assembler-driven spine drives unchanged
-        /// (byte-identical to pre-Phase-3 behavior); the new <see cref="Parsek.MapRender.PhaseChain"/>
-        /// build / sampler / director consumption is inert. The flag is an instant flip-back on a
-        /// regression; it is removed in Phase 5b (alongside the legacy-draw delete), at which point a
-        /// grep-audit gate locks the deletion of this symbol. This is a DISTINCT, new flag name: it does
-        /// not reuse the removed Phase-8e director-drive setting (a grep-audit forbids that literal).</para>
+        /// <para><b>Default TRUE (the cutover flip, 2026-07-04).</b> Flipped after the full pre-flip gate
+        /// sequence passed: the Phase 0-11 stack + sign-off fix tail in-game validated (tests 7/7, Duna
+        /// One render user-confirmed, parity oracle at ZERO false positives across three tracing runs),
+        /// plus a sequential 13-PR full-stack review whose blocker + every pre-flip finding landed
+        /// (branch maprender-stack-review-fixes). The typed spine now DECIDES in normal play; the legacy
+        /// code still DRAWS the pixels until the Phase 5a/5b deletes. Flipping this back to false is the
+        /// instant regression rollback; the flag is removed in Phase 5b (alongside the legacy-draw
+        /// delete), at which point a grep-audit gate locks the deletion of this symbol. This is a
+        /// DISTINCT, new flag name: it does not reuse the removed Phase-8e director-drive setting (a
+        /// grep-audit forbids that literal).</para>
         /// </summary>
-        internal const bool MapRenderPhaseSpineDrive = false;
+        internal const bool MapRenderPhaseSpineDrive = true;
     }
 }
