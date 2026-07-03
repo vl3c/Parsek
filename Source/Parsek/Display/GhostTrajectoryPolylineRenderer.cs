@@ -955,9 +955,12 @@ namespace Parsek.Display
             /// <summary>
             /// <c>Time.frameCount</c> of the draw that filled <see cref="parityRecordedRel"/> /
             /// <see cref="parityDrawCentreScaled"/>. The capture requires it to EQUAL
-            /// <see cref="lastDrawnFrame"/> (the same draw that wrote <c>points3</c>) - a stale snapshot
-            /// (leg drawn via the no-scaled-body absolute fallback, or an early-out between geometry build
-            /// and the draw stamp) is skipped, never diffed against newer vertices. 0 = never filled.
+            /// <see cref="lastDrawnFrame"/> (the same draw that wrote <c>points3</c>), so a leg drawn via
+            /// the no-scaled-body absolute fallback (which never stamps) is skipped. NOTE: an early-out
+            /// BETWEEN the geometry build and the draw stamp is NOT covered by staleness alone - the fill
+            /// mutates the aliased snapshot array in place and the stale stamps can be pairwise equal - so
+            /// the anchor-reject early-out in <c>TryDrawLeg</c> EXPLICITLY resets this to 0 ("never
+            /// filled") on its exit path; the next successful draw refills and restamps.
             /// </summary>
             public int parityDrawFrame;
 
@@ -3250,6 +3253,15 @@ namespace Parsek.Display
             // body-fixed - the live ghost is glued to the pad/terrain there, so body-fixed is correct.
             if (requireConicAnchor && !anchored)
             {
+                // Invalidate the tracing-only parity snapshot: the fill above already overwrote the
+                // snapshot array IN PLACE (it is aliased by the cache), but this leg will NOT draw this
+                // frame - points3 still hold the PREVIOUS draw's (possibly conic-anchored) vertices.
+                // Without this, the stale stamps can be pairwise EQUAL (parityDrawFrame ==
+                // lastDrawnFrame, both from the prior drawn frame), so the capture's coherence check
+                // would pass and diff the old anchored points3 against the fresh RAW snapshot - a false
+                // parity-drift of anchor-rotation magnitude on the anchored->seam-rejected transition.
+                // 0 = "never filled"; the next successful draw refills and restamps.
+                leg.parityDrawFrame = 0;
                 ParsekLog.VerboseRateLimited(Tag, "runleg-anchor-reject." + recordingId,
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
                         "Run leg hidden (conic anchor unavailable): rec={0} leg={1} [{2:F1},{3:F1}] " +
@@ -3273,9 +3285,11 @@ namespace Parsek.Display
             // past it) so the leg never vanishes on zoom-out. See DrawMapLine.
             DrawMapLine(leg.vectorLine);
             leg.lastDrawnFrame = drawFrame;
-            // Stamp the parity snapshot as belonging to THIS draw only after the draw actually happened
-            // (an early-out above leaves the frame stale, so the capture skips rather than diffing a fresh
-            // snapshot against older points3).
+            // Stamp the parity snapshot as belonging to THIS draw only after the draw actually happened.
+            // NOTE: a stale stamp alone is NOT protection - the fill mutates the aliased snapshot array
+            // in place, and the stale parityDrawFrame can EQUAL the stale lastDrawnFrame (both from the
+            // prior drawn frame), which passes the capture's coherence check. The anchor-reject early-out
+            // above therefore invalidates the stamp EXPLICITLY (parityDrawFrame = 0) on its exit path.
             if (parityFilled)
                 leg.parityDrawFrame = drawFrame;
             return true;

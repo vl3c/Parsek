@@ -584,10 +584,13 @@ namespace Parsek
                 // ROTATED off the raw body-fixed track (the live burn leg drew at rotAngle=1.7deg, ~27km),
                 // so the body-fixed-first resolve painted the marker OFF the visible line while the proto
                 // icon was suppressed - the ghost's only indicator sat away from its own trajectory. Riding
-                // first fixes the anchored case and is position-identical for NON-anchored owned legs (the
-                // ride returns the same per-frame drawn body-fixed points the resolve computes), and the
-                // ride still self-gates on the leg having drawn this frame, so un-owned / un-drawn phases
-                // keep the body-fixed-first chain byte-identically.
+                // first fixes the anchored case; for NON-anchored owned legs the ridden position lies on
+                // the same per-frame drawn body-fixed points the resolve computes (visually identical -
+                // a chord point ON the drawn line rather than the independent body-fixed re-resolve). The
+                // ride self-gates on the leg having drawn this frame OR TryAnchorMarkerToPolyline's brief
+                // bounded HeldLastGood hold (a recently-drawn leg's last on-line position, <=8 frames /
+                // 5 s of head UT - the same hold the flight map and the descent ride already use), so
+                // un-owned / never-recently-drawn phases keep the body-fixed-first chain byte-identically.
                 bool isDescentSetMember =
                     Parsek.Display.GhostTrajectoryPolylineRenderer.IsDescentTriggerMember(i, loopUnits);
                 bool polylineOwnsMarkerPhase =
@@ -666,10 +669,14 @@ namespace Parsek
                 EmitMarkerDecision(MapRenderTrace.MarkerOutcome.DrawnNonProto,
                     decisionEffUT: effUT);
 
+                // A ridden marker never resolved a body-fixed sample, so sampledPoint is default - label
+                // the position source instead of printing misleading lat=0.00 lon=0.00 alt=0 fields.
                 ParsekLog.VerboseRateLimited(Tag, $"atmosMarker-{i}",
                     $"Drawing atmospheric marker #{i} \"{rec.VesselName}\" " +
                     $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
-                    $"lat={sampledPoint.latitude:F2} lon={sampledPoint.longitude:F2} alt={sampledPoint.altitude:F0} " +
+                    (rodePolyline
+                        ? "pos=on-line(ridden) "
+                        : $"lat={sampledPoint.latitude:F2} lon={sampledPoint.longitude:F2} alt={sampledPoint.altitude:F0} ") +
                     $"rodePolyline={rodePolyline}");
 
                 // MapRenderTrace IMGUI surface coverage (AtmosphericMarker). Decision-only: this
@@ -680,9 +687,14 @@ namespace Parsek
                         MapRenderTrace.RenderSurface.AtmosphericMarker, rec.RecordingId,
                         Planetarium.GetUniversalTime(),
                         string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "vessel={0} worldPos={1} lat={2:F2} lon={3:F2} alt={4:F0} terminal={5}",
-                            rec.VesselName, worldPos, sampledPoint.latitude, sampledPoint.longitude,
-                            sampledPoint.altitude, rec.TerminalStateValue?.ToString() ?? "null"));
+                            "vessel={0} worldPos={1} {2} terminal={3}",
+                            rec.VesselName, worldPos,
+                            rodePolyline
+                                ? "pos=on-line(ridden)"
+                                : string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                    "lat={0:F2} lon={1:F2} alt={2:F0}",
+                                    sampledPoint.latitude, sampledPoint.longitude, sampledPoint.altitude),
+                            rec.TerminalStateValue?.ToString() ?? "null"));
             }
 
             LogAtmosphericMarkerSummary(summary);
