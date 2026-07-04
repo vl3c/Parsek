@@ -972,7 +972,17 @@ namespace Parsek
                     if (ReferenceEquals(committedTrees[i], tree))
                     {
                         Log($"[Parsek] WARNING: Tree '{tree.Id}' already committed — skipping duplicate");
-                        GameStateRecorder.PendingScienceSubjects.Clear();
+                        // Scoped-drop only THIS already-committed tree's own pending science
+                        // subjects (the helper skips committed ids, so this is a no-op in the
+                        // common case), PRESERVING a DIFFERENT live recording's still-
+                        // uncommitted tagged science. A blanket PendingScienceSubjects.Clear()
+                        // here wiped the WHOLE list, and the post-CommitTree
+                        // NotifyLedgerTreeCommitted then ran on an empty list and silently lost
+                        // the other recording's science. Mirrors the scoped discard cores
+                        // (LedgerOrchestrator.RemovePendingScienceSubjectsForRecordings).
+                        LedgerOrchestrator.RemovePendingScienceSubjectsForRecordings(
+                            tree.Recordings?.Keys,
+                            $"CommitTree duplicate-skip (reference-equal) tree '{tree.Id}'");
                         ClearRewindReplayTargetScope();
                         return;
                     }
@@ -1027,7 +1037,15 @@ namespace Parsek
                         Log($"[Parsek] WARNING: Tree '{tree.Id}' already committed — skipping duplicate");
                         ParsekLog.Verbose("RecordingStore",
                             $"CommitTree: duplicate tree id='{tree.Id}' skipped reason={replaceReason}");
-                        GameStateRecorder.PendingScienceSubjects.Clear();
+                        // Scoped-drop only the incoming duplicate tree's own pending science
+                        // subjects (the helper skips committed ids), PRESERVING a DIFFERENT
+                        // live recording's still-uncommitted tagged science. See the
+                        // reference-equal branch above: a blanket Clear() here let the
+                        // post-CommitTree NotifyLedgerTreeCommitted run on an empty list and
+                        // silently drop another recording's science.
+                        LedgerOrchestrator.RemovePendingScienceSubjectsForRecordings(
+                            tree.Recordings?.Keys,
+                            $"CommitTree duplicate-skip (reason={replaceReason}) tree '{tree.Id}'");
                         ClearRewindReplayTargetScope();
                         return;
                     }
@@ -2770,7 +2788,7 @@ namespace Parsek
         /// purged set) are removed too. Recording ids still present in committed
         /// history are preserved.
         /// </summary>
-        public static void DiscardPendingTree()
+        public static void DiscardPendingTree(bool preserveIrreversibleLiveGameplay = true)
         {
             if (pendingTree == null)
             {
@@ -2810,6 +2828,23 @@ namespace Parsek
             // the discarded tree. Use the actual pending tree instance and the
             // pending-only recording id set so same-id committed trees and
             // committed-overlap recordings are preserved.
+            // Preserve irreversible live-gameplay economy (completed/failed/cancelled
+            // contracts, achieved milestones, collected science) BEFORE the purge/clear
+            // below drops it. KSP applied it irreversibly during the live flight, so the
+            // ledger must keep it or it diverges from KSP (re-listing a completed contract
+            // as active in the in-progress tab + a re-completable duplicate reward + a
+            // silent fund drop). Scoped to pending-only ids (committed-overlap excluded).
+            //
+            // ONLY on a genuine live discard. The abandon path
+            // (DiscardPendingTreeAndAbandonDeferredFlightResults: quickload-backwards,
+            // revert, and stale-pending-from-a-different-save on load) passes
+            // preserveIrreversibleLiveGameplay=false: there KSP's economy is rolled back
+            // (or belongs to another save), so preserving would diverge the ledger the
+            // OTHER way (credit economy KSP no longer reflects / cross-save contamination).
+            if (preserveIrreversibleLiveGameplay && idsToPurge.Count > 0)
+                LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard(
+                    idsToPurge, $"DiscardPendingTree '{pendingTree.TreeName}'");
+
             TreeDiscardPurge.PurgeTree(pendingTree, idsToPurge);
             if (idsToPurge.Count > 0)
                 GameStateStore.PurgeEventsForRecordings(idsToPurge, $"DiscardPendingTree '{pendingTree.TreeName}'");
@@ -2839,7 +2874,30 @@ namespace Parsek
                     $"DiscardPendingTree: skipped deleting {skippedCommittedDeletes} recording sidecar set(s) " +
                     "because the recording ID still exists in committed history");
             }
-            GameStateRecorder.PendingScienceSubjects.Clear();
+            if (preserveIrreversibleLiveGameplay)
+            {
+                // Genuine live discard: the re-home above already converted this tree's
+                // irreversible science into direct ledger actions and scoped-removed those
+                // subjects. Drop any remaining pending subjects tagged to the discarded ids,
+                // but PRESERVE a DIFFERENT live recording's still-uncommitted science (and
+                // untagged KSC captures) — matching the scoped commit path
+                // (LedgerOrchestrator.NotifyLedgerTreeCommitted). A blanket Clear() here
+                // silently dropped another recording's uncommitted science. This explicit
+                // call is also the backstop for the re-home's nothing-to-re-home early-return
+                // (zero irreversible events + zero pending science for these ids), which
+                // returns before its own internal scoped removal runs.
+                LedgerOrchestrator.RemovePendingScienceSubjectsForRecordings(
+                    idsToPurge, $"DiscardPendingTree '{pendingTree.TreeName}'");
+            }
+            else
+            {
+                // Abandon path (quickload-backwards / revert / cross-save stale pending):
+                // KSP's economy is rolled back or belongs to another save, so ALL pending
+                // science is from the discarded future and must NOT survive. Wipe it
+                // wholesale (the quickload handler in ParsekScenario also clears it at the
+                // scenario level for the same reason).
+                GameStateRecorder.PendingScienceSubjects.Clear();
+            }
             Log($"[Parsek] Discarded pending tree '{pendingTree.TreeName}' (state={pendingTreeState})");
             pendingTree = null;
             pendingTreeState = PendingTreeState.Finalized;
@@ -2962,6 +3020,12 @@ namespace Parsek
             int deletedSidecars = 0;
             if (ownedIds.Count > 0)
             {
+                // Preserve irreversible live-gameplay economy (contracts/milestones/science)
+                // for the discarded segment subtree before the purge drops it — KSP applied
+                // it live and the ledger must keep it. Runs once here, before the disposition
+                // branch split below, so both the clone and prune branches are covered.
+                LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard(
+                    ownedIds, $"SwitchSegment scoped discard sess={sessionIdStr}");
                 purgedEvents = GameStateStore.PurgeEventsForRecordings(
                     ownedIds,
                     $"SwitchSegment scoped discard sess={sessionIdStr}");
@@ -3056,7 +3120,11 @@ namespace Parsek
 
                 ClearCommittedTreeRestoreAttempt(
                     "switch-segment-scoped-discard committed-restore-clone");
-                GameStateRecorder.PendingScienceSubjects.Clear();
+                // Pending science was already scoped-removed for this segment subtree by
+                // PreserveIrreversibleLiveGameplayOnDiscard(ownedIds) above. Do NOT
+                // blanket-Clear() here: that would silently drop a DIFFERENT live
+                // recording's still-uncommitted science (it is not in ownedIds), against
+                // the scoped commit/discard contract.
                 ClearRewindReplayTargetScope();
 
                 reason = "scoped-discard-success";

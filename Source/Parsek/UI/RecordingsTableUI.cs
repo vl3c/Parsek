@@ -4111,30 +4111,6 @@ namespace Parsek
                 false, HighLogic.UISkin);
         }
 
-        internal void ShowClearRecordingConfirmation()
-        {
-            var flight = parentUI.Flight;
-            PopupDialog.SpawnPopupDialog(
-                new Vector2(0.5f, 0.5f),
-                new Vector2(0.5f, 0.5f),
-                new MultiOptionDialog(
-                    "ParsekClearRecordingConfirm",
-                    "Discard the current recording?\n\nThis cannot be undone.",
-                    "Confirm: Clear Recording",
-                    HighLogic.UISkin,
-                    new DialogGUIButton("Clear", () =>
-                    {
-                        ParsekLog.Info("UI", "User confirmed clear recording");
-                        flight.ClearRecording();
-                    }),
-                    new DialogGUIButton("Cancel", () =>
-                    {
-                        ParsekLog.Info("UI", "User cancelled clear recording");
-                    })
-                ),
-                false, HighLogic.UISkin);
-        }
-
         /// <summary>
         /// Deletes a ghost-only recording by index. No confirmation dialog — ghost-only
         /// recordings are low-commitment.
