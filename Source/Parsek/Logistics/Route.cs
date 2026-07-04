@@ -418,6 +418,37 @@ namespace Parsek.Logistics
         public long LastObservedLoopCycleIndex = -1;
 
         /// <summary>
+        /// (M5 D3) Window index of the FIRST window this route fired under the
+        /// <c>RouteWindowBasis.ReaimWindows</c> basis - the offset anchor of the
+        /// residual cadence modulo (deliver every Nth window counted from this).
+        /// -1 = unset; when -1 and an owed crossing arrives on a ReaimWindows
+        /// unit, the crossing adopts <c>anchor = dockCycleIndex</c> and delivers
+        /// (the first crossing after creation / activation / rebase ALWAYS
+        /// delivers). Reset to -1 wherever <see cref="LastObservedLoopCycleIndex"/>
+        /// rebases (<c>RouteOrchestrator.TryActivate</c>,
+        /// <c>RouteCadence.ApplyMultiplier</c>, the <c>RouteBuilder</c> default)
+        /// and on every D6 basis transition. Never consulted for
+        /// <c>FlatInterval</c> / <c>ZeroDriftSchedule</c> routes (their residual
+        /// is off / 1). Sparse in the codec: omitted at -1 so pre-M5 route nodes
+        /// stay byte-identical.
+        /// </summary>
+        public long WindowAnchorCycleIndex = -1;
+
+        /// <summary>
+        /// (M5 D6) Persisted flip-detector marker: true while the route's last
+        /// evaluated tick derived the <c>RouteWindowBasis.ReaimWindows</c> basis.
+        /// NOT a basis cache (the basis is re-derived from the resolved unit
+        /// every tick); only the memory that lets the transition evaluator
+        /// detect a build-level engage/decline FLIP across ticks (and across
+        /// save/reload) and re-baseline the cycle cursors between the flat and
+        /// window index spaces - a stale cursor from one space compared in the
+        /// other either mis-fires (decline) or permanently silences the route
+        /// (re-engage, review C6). Sparse in the codec: omitted when false so
+        /// pre-M5 route nodes stay byte-identical.
+        /// </summary>
+        public bool ReaimWindowBasisEngaged;
+
+        /// <summary>
         /// Recovery-credit deferral marker (logistics-recovery-credit, design doc
         /// section 5.2): the id of the dispatched cycle whose recovery credit has
         /// not yet been flushed. A Career, KSC-origin dispatch sets this to the

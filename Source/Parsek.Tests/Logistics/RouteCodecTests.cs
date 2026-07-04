@@ -358,6 +358,111 @@ namespace Parsek.Tests.Logistics
             Assert.True(roundTripped.IsLoopRoute);
         }
 
+        // catches (M5 D3/D6): the sparse windowed-basis pair. Defaults (-1
+        // anchor / false marker) must write NOTHING (pre-M5 route nodes stay
+        // byte-identical); set values must round-trip; absent keys must read
+        // back the defaults.
+        [Fact]
+        public void RoundTrip_WindowAnchorAndBasisMarker_SparseOmittedAtDefaults()
+        {
+            // Defaults: both keys omitted, both read back as defaults.
+            Route plain = BuildLeanSingleStopRoute("m5-sparse-defaults");
+            var plainNode = new ConfigNode("ROUTE");
+            plain.SerializeInto(plainNode);
+            Assert.False(plainNode.HasValue("windowAnchorCycleIndex"),
+                "windowAnchorCycleIndex must be omitted at the -1 default");
+            Assert.False(plainNode.HasValue("reaimWindowBasisEngaged"),
+                "reaimWindowBasisEngaged must be omitted at the false default");
+            Route plainBack = Route.DeserializeFrom(plainNode);
+            Assert.NotNull(plainBack);
+            Assert.Equal(-1L, plainBack.WindowAnchorCycleIndex);
+            Assert.False(plainBack.ReaimWindowBasisEngaged);
+
+            // Set values: both keys written, both round-trip.
+            Route windowed = BuildLeanSingleStopRoute("m5-sparse-set");
+            windowed.WindowAnchorCycleIndex = 7;
+            windowed.ReaimWindowBasisEngaged = true;
+            var windowedNode = new ConfigNode("ROUTE");
+            windowed.SerializeInto(windowedNode);
+            Assert.True(windowedNode.HasValue("windowAnchorCycleIndex"));
+            Assert.True(windowedNode.HasValue("reaimWindowBasisEngaged"));
+            Route windowedBack = Route.DeserializeFrom(windowedNode);
+            Assert.NotNull(windowedBack);
+            Assert.Equal(7L, windowedBack.WindowAnchorCycleIndex);
+            Assert.True(windowedBack.ReaimWindowBasisEngaged);
+        }
+
+        // catches (M5, the behavior-identical-off byte pin): a route left at
+        // EVERY M5 default must serialize byte-identically to the pre-M5
+        // baseline (the same known-good string Serialize_SingleStop_
+        // ByteIdenticalToBaseline pins) - i.e. the M5 fields land NO new keys
+        // on a flat route's wire shape.
+        [Fact]
+        public void Serialize_PreM5Route_ByteIdenticalBaseline()
+        {
+            Route route = BuildLeanSingleStopRoute("byte-id-single-stop");
+            // M5 fields at their defaults (the constructor state every pre-M5 /
+            // flat route is in).
+            Assert.Equal(-1L, route.WindowAnchorCycleIndex);
+            Assert.False(route.ReaimWindowBasisEngaged);
+
+            var node = new ConfigNode("ROUTE");
+            route.SerializeInto(node);
+
+            const string baseline =
+@"ROUTE
+{
+	id = byte-id-single-stop
+	name = Lean Single Stop
+	isKscOrigin = False
+	kscDispatchFundsCost = 0
+	transitDuration = 0
+	dispatchInterval = 0
+	dispatchWindowEpochUT = 0
+	dispatchWindowPeriod = 0
+	nextDispatchUT = 0
+	currentSegmentIndex = -1
+	pendingStopIndex = -1
+	status = Active
+	pauseAfterCurrentCycle = False
+	completedCycles = 0
+	skippedCycles = 0
+	recordedDockUT = -1
+	loopAnchorUT = -1
+	ORIGIN
+	{
+		bodyName = Kerbin
+		latitude = -0.0972
+		longitude = -74.5577
+		altitude = 75.2
+		isSurface = True
+	}
+	STOP
+	{
+		connectionKind = DockingPort
+		segmentIndexBefore = 0
+		deliveryOffsetSeconds = 0
+		ENDPOINT
+		{
+			vesselPersistentId = 67890
+			bodyName = Mun
+			latitude = 3.2001
+			longitude = -45.1234
+			altitude = 612.5
+			isSurface = True
+		}
+		DELIVERY_MANIFEST
+		{
+			LiquidFuel = 100
+		}
+	}
+}
+";
+            Assert.Equal(
+                Normalize(baseline),
+                Normalize(node.ToString()));
+        }
+
         // catches (M2, plan D7): the sparse isHarvestOrigin key - false (every
         // pre-M2 route) must write NOTHING (byte-stable saves), true must
         // round-trip, absent must read back false.

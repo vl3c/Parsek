@@ -1267,6 +1267,140 @@ namespace Parsek.Logistics
             return dueStopIndex.Contains(maxStopIdx);
         }
 
+        // ==================================================================
+        // M5 - window-basis transitions (D6)
+        // ==================================================================
+
+        /// <summary>
+        /// (M5 D6, diagnostic) Per-route count of basis transitions this session.
+        /// Runtime-only: a builder verdict thrashing across ticks (engage /
+        /// decline alternating) is bounded by the M-MIS-11 signature-gated build
+        /// cache and the idempotent re-baselines, but more than 2 transitions in
+        /// one session for one route is suspicious enough to Warn (risk register
+        /// "builder verdict thrash").
+        /// </summary>
+        private static readonly Dictionary<string, int> windowBasisTransitionCounts =
+            new Dictionary<string, int>(StringComparer.Ordinal);
+
+        /// <summary>Clears the per-session transition-thrash counters (test isolation).</summary>
+        internal static void ResetWindowBasisTransitionCountsForTesting()
+        {
+            windowBasisTransitionCounts.Clear();
+        }
+
+        /// <summary>
+        /// (M5 D6) Applies the tick's window-basis transition to
+        /// <paramref name="route"/>: evaluates the pure
+        /// <see cref="RouteLoopClock.EvaluateWindowBasisTransition"/> decision
+        /// from the persisted flip-detector marker + the derived
+        /// <paramref name="basis"/>, and on a flip RE-BASELINES the cycle
+        /// cursors between the flat and window index spaces:
+        /// <list type="bullet">
+        ///   <item><b>Engage</b> (marker false, basis ReaimWindows): set the
+        ///     marker, reset the anchor, and re-baseline
+        ///     <see cref="Route.LastObservedLoopCycleIndex"/> to the current
+        ///     dock cycle index MINUS ONE (per-stop
+        ///     <c>LastFiredCycleIndex</c> re-baselined the same way against each
+        ///     stop's OWN dock UT) - exactly the CURRENT window is left owed, so
+        ///     the first crossing after engage still delivers via D3 anchor
+        ///     adoption. Without this, a stale flat-space cursor (large: flat
+        ///     cadence = days) exceeds every future synodic index (small:
+        ///     ~synodic cadence) and <c>TryGetOwedDockCrossing</c> never emits
+        ///     again - a PERMANENT silent skip (review C6, the blocker).</item>
+        ///   <item><b>Decline</b> (marker true, basis NOT ReaimWindows): clear
+        ///     the marker, reset the anchor, and re-baseline the cursors to the
+        ///     CURRENT dock cycle index in the new (flat) space with NO fire
+        ///     this tick - fail-closed: a stale window-space cursor compared
+        ///     against flat indices reads as a huge owed jump and would fire a
+        ///     delivery the player never scheduled (the mis-fire the milestone
+        ///     forbids). The whole warp span is consumed without a fire by
+        ///     design (a decline is a property of the BUILD, not a window).</item>
+        /// </list>
+        /// Per-stop snap values are computed against each stop's OWN
+        /// <c>RecordedDockUT</c> (falling back to the route-level dock UT for a
+        /// stop without one) so no stop is left owed (Decline) / more than the
+        /// current window owed (Engage) regardless of where the tick lands
+        /// between docks. Cold-load belt (BUG-F class): never evaluates at
+        /// <paramref name="currentUT"/> &lt;= 0. Returns the applied kind
+        /// (<see cref="WindowBasisTransitionKind.None"/> when nothing changed).
+        /// Wired into <see cref="ProcessLoopRoute"/> (P2); internal static for
+        /// direct xUnit coverage.
+        /// </summary>
+        internal static WindowBasisTransitionKind ApplyWindowBasisTransition(
+            Route route, RouteWindowBasis basis, double loopUT, long cycleIndex, double currentUT)
+        {
+            if (route == null)
+                return WindowBasisTransitionKind.None;
+
+            // Cold-load belt: Planetarium UT 0 means "not a real tick yet"
+            // (BUG-F class). The production Update accumulator never delivers a
+            // UT<=0 tick, but the transition re-baseline is destructive enough
+            // to warrant the explicit gate here too.
+            if (currentUT <= 0.0)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "basis-transition-ut0-" + route.Id,
+                    $"WindowBasis: route {ShortIdForLog(route)} transition evaluation skipped " +
+                    $"at ut={currentUT.ToString("R", IC)} (cold-load gate)", 5.0);
+                return WindowBasisTransitionKind.None;
+            }
+
+            WindowBasisTransitionKind kind = RouteLoopClock.EvaluateWindowBasisTransition(
+                route.ReaimWindowBasisEngaged, basis);
+            if (kind == WindowBasisTransitionKind.None)
+                return kind;
+
+            long prevObserved = route.LastObservedLoopCycleIndex;
+            long prevAnchor = route.WindowAnchorCycleIndex;
+            long routeDockCycle = RouteLoopClock.ComputeDockCycleIndex(
+                loopUT, cycleIndex, route.RecordedDockUT);
+
+            // Engage owes exactly the current window (dock - 1); Decline consumes
+            // the current index (dock) so nothing is owed this tick.
+            long offset = kind == WindowBasisTransitionKind.Engage ? -1L : 0L;
+            route.LastObservedLoopCycleIndex = routeDockCycle + offset;
+            route.WindowAnchorCycleIndex = -1;
+            route.ReaimWindowBasisEngaged = kind == WindowBasisTransitionKind.Engage;
+
+            // Per-stop cursors re-baseline against each stop's OWN dock phase so
+            // the multi-stop sub-gates land in the same index space (a stop
+            // without a per-stop dock UT - the single-stop shape - snaps against
+            // the route-level dock).
+            int stopsSnapped = 0;
+            if (route.Stops != null)
+            {
+                for (int i = 0; i < route.Stops.Count; i++)
+                {
+                    RouteStop s = route.Stops[i];
+                    if (s == null) continue;
+                    double stopDockUT = s.RecordedDockUT >= 0.0 ? s.RecordedDockUT : route.RecordedDockUT;
+                    s.LastFiredCycleIndex = RouteLoopClock.ComputeDockCycleIndex(
+                        loopUT, cycleIndex, stopDockUT) + offset;
+                    stopsSnapped++;
+                }
+            }
+
+            ParsekLog.Info(Tag,
+                $"WindowBasis: route {ShortIdForLog(route)} {(kind == WindowBasisTransitionKind.Engage ? "ENGAGED" : "DECLINED")} " +
+                $"ReaimWindows basis (basis={basis}) - re-baselined into {(kind == WindowBasisTransitionKind.Engage ? "window" : "flat")} space: " +
+                $"lastObserved {prevObserved.ToString(IC)}->{route.LastObservedLoopCycleIndex.ToString(IC)} " +
+                $"(dockCycleIdx={routeDockCycle.ToString(IC)}) anchor {prevAnchor.ToString(IC)}->-1 " +
+                $"stopsSnapped={stopsSnapped.ToString(IC)} at ut={currentUT.ToString("R", IC)}");
+
+            // Thrash diagnostic: >2 transitions for one route in a session means
+            // the builder verdict is alternating (degraded bodyInfo flicker, a
+            // mutating tree, or a bug) - Warn once per route per threshold cross.
+            windowBasisTransitionCounts.TryGetValue(route.Id ?? string.Empty, out int count);
+            count++;
+            windowBasisTransitionCounts[route.Id ?? string.Empty] = count;
+            if (count > 2)
+            {
+                ParsekLog.WarnRateLimited(Tag, "basis-thrash-" + route.Id,
+                    $"WindowBasis: route {ShortIdForLog(route)} has flipped basis {count.ToString(IC)} times " +
+                    "this session - builder verdict thrash (degraded bodyInfo / mutating tree?)", 30.0);
+            }
+            return kind;
+        }
+
         /// <summary>
         /// (M4a A3) Emits ONE window of a multi-stop cycle: the pickup half (when
         /// the stop carries a witnessed pickup manifest) then the delivery half
