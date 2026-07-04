@@ -214,6 +214,12 @@ namespace Parsek.Logistics
                 // cycle cursor rebases - the first post-activate crossing on a
                 // windowed route re-anchors and delivers (anchor adoption).
                 route.WindowAnchorCycleIndex = -1;
+                // Deliberately NOT reset: ReaimWindowBasisEngaged. It is the D6
+                // flip-detector's MEMORY, not cycle state - keeping it across
+                // Pause/Activate lets the first post-activate tick still detect
+                // a basis flip that happened while paused and decline
+                // fail-closed (re-baseline, no fire) instead of firing off a
+                // stale index space.
             }
 
             // M6 hold reasons: activation resets loop observation, so a
@@ -1088,6 +1094,20 @@ namespace Parsek.Logistics
             // always IS cMin (its stops' cursors lag there until it completes),
             // so this gate can never strand or leapfrog a half-fired cycle
             // (review Missed #4).
+            //
+            // M5-1 (review CONFIRMED-MINOR): cMin is the COLLAPSED owed cycle -
+            // after a long warp each stop's owed-crossing emitter reports only
+            // the HIGHEST passed dock cycle, so a non-deliverable cMin can hide
+            // a deliverable window that was passed DURING the warp (N=2: land
+            // on wrong parity and a naive skip drops a whole deliverable
+            // window, ~2 synodic periods with zero deliveries). Before
+            // skipping, mirror the single-stop D5 downward search on the
+            // collapsed cMin (ComputeHighestDeliverableWindow, reused): when a
+            // deliverable window exists in (lastObserved, cMin), RETARGET this
+            // pass to fire THAT cycle in the normal one-dock-cycle-per-pass
+            // shape; the still-owed collapsed cycle then reports stillDue and a
+            // later pass D4-skips it, snapping the cursors to the landed
+            // window. When none exists, skip exactly as before.
             if (nResidual > 1)
             {
                 if (route.WindowAnchorCycleIndex < 0)
@@ -1104,23 +1124,98 @@ namespace Parsek.Logistics
                 else if (!RouteLoopClock.IsDeliverableWindow(
                     cMin, route.WindowAnchorCycleIndex, nResidual))
                 {
-                    EmitPendingRecoveryCredit(route, currentUT, env);
-                    for (int j = 0; j < stopCount; j++)
+                    // M5-1 downward mirror of D5 on the collapsed cMin.
+                    long deliverable = RouteLoopClock.ComputeHighestDeliverableWindow(
+                        route.LastObservedLoopCycleIndex, cMin,
+                        route.WindowAnchorCycleIndex, nResidual);
+                    bool retargeted = false;
+                    if (deliverable != RouteLoopClock.NoDeliverableWindow)
                     {
-                        if (route.Stops[j].LastFiredCycleIndex < cMin)
-                            route.Stops[j].LastFiredCycleIndex = cMin;
+                        // Rebuild the due set + later-owed count for the
+                        // retargeted cycle. Every crossing stop's collapsed
+                        // DockCycleIndex is >= the collapsed cMin > deliverable,
+                        // so its dock phase for the retargeted cycle was passed
+                        // during the warp; a stop is due iff its own cursor has
+                        // not consumed the retargeted cycle yet (the per-stop
+                        // sub-gate - which also makes a pre-warp half-fired
+                        // deliverable cycle resume correctly: its already-fired
+                        // stops filter out here and its dispatch resumes under
+                        // the existing cycle-{C+S} id via the dispatchAlready
+                        // branch below). All crossing stops remain owed ABOVE
+                        // the retargeted cycle, so they count as laterOwed and
+                        // stillDue re-invokes the caller until the D4 skip
+                        // snaps them through the landed cycle.
+                        var retargetDue = new List<int>(stopCount);
+                        int retargetLaterOwed = 0;
+                        for (int i = 0; i < stopCount; i++)
+                        {
+                            RouteStop s = route.Stops[i];
+                            bool windowCrossing = RouteLoopClock.TryGetOwedDockCrossing(
+                                unit, loopUT, cycleIndex, s.RecordedDockUT,
+                                s.LastFiredCycleIndex, out RouteLoopClock.OwedDockCrossing sOwed);
+                            if (!windowCrossing)
+                                continue;
+                            if (s.LastFiredCycleIndex < deliverable
+                                && sOwed.DockCycleIndex >= deliverable)
+                                retargetDue.Add(i);
+                            if (sOwed.DockCycleIndex > deliverable)
+                                retargetLaterOwed++;
+                        }
+                        if (retargetDue.Count > 0)
+                        {
+                            ParsekLog.Info(Tag,
+                                $"LoopRoute(multi): route {ShortIdForLog(route)} warp-collapsed window {cMin.ToString(IC)} " +
+                                $"NOT deliverable (N={nResidual.ToString(IC)} " +
+                                $"anchor={route.WindowAnchorCycleIndex.ToString(IC)} basis={basis}) " +
+                                $"- retargeting pass to highest deliverable window {deliverable.ToString(IC)} " +
+                                $"within ({route.LastObservedLoopCycleIndex.ToString(IC)}, {cMin.ToString(IC)}); " +
+                                $"dueWindows={retargetDue.Count.ToString(IC)} " +
+                                $"laterOwed={retargetLaterOwed.ToString(IC)}");
+                            cMin = deliverable;
+                            dueStopIndex = retargetDue;
+                            laterOwed = retargetLaterOwed;
+                            dueCount = retargetDue.Count;
+                            retargeted = true;
+                        }
+                        else
+                        {
+                            // Defensive: a deliverable window below the collapsed
+                            // cMin with NO due stop should be impossible (a
+                            // completed cycle advances the route marker past it;
+                            // a half-fired one leaves its unfired stops due).
+                            // Warn + fall through to the D4 skip rather than
+                            // dispatching an empty cycle.
+                            ParsekLog.Warn(Tag,
+                                $"LoopRoute(multi): route {ShortIdForLog(route)} downward search found " +
+                                $"deliverable window {deliverable.ToString(IC)} below collapsed " +
+                                $"cMin {cMin.ToString(IC)} but NO stop is due there " +
+                                "- falling back to the modulo skip");
+                        }
                     }
-                    if (route.LastObservedLoopCycleIndex < cMin)
-                        route.LastObservedLoopCycleIndex = cMin;
-                    skipped++;
-                    stillDue = laterOwed > 0;
-                    ParsekLog.VerboseRateLimited(Tag, "loop-modulo-skip-multi-" + route.Id,
-                        $"LoopRoute(multi): route {ShortIdForLog(route)} window {cMin.ToString(IC)} " +
-                        $"SKIPPED by cadence modulo (N={nResidual.ToString(IC)} " +
-                        $"anchor={route.WindowAnchorCycleIndex.ToString(IC)} basis={basis}) " +
-                        $"- marker+stops snapped, nothing emitted, stillDue={(stillDue ? "1" : "0")}",
-                        5.0);
-                    return;
+                    if (!retargeted)
+                    {
+                        EmitPendingRecoveryCredit(route, currentUT, env);
+                        for (int j = 0; j < stopCount; j++)
+                        {
+                            if (route.Stops[j].LastFiredCycleIndex < cMin)
+                                route.Stops[j].LastFiredCycleIndex = cMin;
+                        }
+                        if (route.LastObservedLoopCycleIndex < cMin)
+                            route.LastObservedLoopCycleIndex = cMin;
+                        skipped++;
+                        stillDue = laterOwed > 0;
+                        ParsekLog.VerboseRateLimited(Tag, "loop-modulo-skip-multi-" + route.Id,
+                            $"LoopRoute(multi): route {ShortIdForLog(route)} window {cMin.ToString(IC)} " +
+                            $"SKIPPED by cadence modulo (N={nResidual.ToString(IC)} " +
+                            $"anchor={route.WindowAnchorCycleIndex.ToString(IC)} basis={basis}) " +
+                            $"- marker+stops snapped, nothing emitted, stillDue={(stillDue ? "1" : "0")}",
+                            5.0);
+                        return;
+                    }
+                    // Retargeted: fall through - the pass now fires the
+                    // retargeted deliverable cycle exactly like a normal cMin
+                    // pass (dispatch guard, eligibility, per-window emit,
+                    // deferred completion snap).
                 }
             }
 

@@ -422,13 +422,17 @@ namespace Parsek.Logistics
         public long LastObservedLoopCycleIndex = -1;
 
         /// <summary>
-        /// (M5 D3) Window index of the FIRST window this route fired under the
-        /// <c>RouteWindowBasis.ReaimWindows</c> basis - the offset anchor of the
-        /// residual cadence modulo (deliver every Nth window counted from this).
+        /// (M5 D3) Window index adopted on the FIRST owed crossing that ARRIVES
+        /// under the <c>RouteWindowBasis.ReaimWindows</c> basis - the offset
+        /// anchor of the residual cadence modulo (deliver every Nth window
+        /// counted from this). Adoption is on crossing ARRIVAL, not on a
+        /// successful fire: the anchor is set even when that crossing then
+        /// blocks on eligibility and emits nothing (the plan's literal adoption
+        /// rule - the anchor pins the window PHASE, not a delivery).
         /// -1 = unset; when -1 and an owed crossing arrives on a ReaimWindows
-        /// unit, the crossing adopts <c>anchor = dockCycleIndex</c> and delivers
-        /// (the first crossing after creation / activation / rebase ALWAYS
-        /// delivers). Reset to -1 wherever <see cref="LastObservedLoopCycleIndex"/>
+        /// unit, the crossing adopts <c>anchor = dockCycleIndex</c> and is
+        /// deliverable (the first crossing after creation / activation / rebase
+        /// is ALWAYS deliverable). Reset to -1 wherever <see cref="LastObservedLoopCycleIndex"/>
         /// rebases (<c>RouteOrchestrator.TryActivate</c>,
         /// <c>RouteCadence.ApplyMultiplier</c>, the <c>RouteBuilder</c> default)
         /// and on every D6 basis transition. Never consulted for

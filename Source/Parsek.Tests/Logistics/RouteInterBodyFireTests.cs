@@ -672,6 +672,80 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(2, route.CompletedCycles); // bumped once for the fired cycle
         }
 
+        // REQUIRED-RED (review M5-1, the multi-stop warp-collapse modulo skip):
+        // after a long warp the per-stop owed-crossing emitters collapse every
+        // intermediate cycle into the single HIGHEST passed dock cycle, so a
+        // non-deliverable collapsed cMin (wrong parity at N=2) must NOT skip
+        // the whole catch-up - the downward mirror of the single-stop D5 rule
+        // fires the highest deliverable window passed during the warp. RED
+        // shape (the pre-fix gate): deliverability checked on cMin ONLY ->
+        // skip -> snap all stops to the landed window -> the deliverable
+        // window passed mid-warp is silently dropped (~2 synodic periods with
+        // zero deliveries).
+        [Fact]
+        public void MultiStop_WarpCollapse_FiresHighestDeliverableWindow_NotSkipped()
+        {
+            var route = BuildReaimRoute(
+                cadenceMultiplier: 2, lastObserved: 0, windowAnchor: 0,
+                markerEngaged: true, completedCycles: 1);
+            // Two stops: dock A 1150 (stop 0), dock B 1200 (stop 1); window 0
+            // already fired for both.
+            route.Stops = new List<RouteStop>
+            {
+                new RouteStop
+                {
+                    Endpoint = new RouteEndpoint { VesselPersistentId = 42u },
+                    DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+                    RecordedDockUT = 1150.0,
+                    LastFiredCycleIndex = 0,
+                },
+                new RouteStop
+                {
+                    Endpoint = new RouteEndpoint { VesselPersistentId = 43u },
+                    DeliveryManifest = new Dictionary<string, double> { { "Oxidizer", 120.0 } },
+                    RecordedDockUT = 1200.0,
+                    LastFiredCycleIndex = 0,
+                },
+            };
+            route.RecordedDockUT = 1200.0; // route-level pair keys the LAST dock
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildReaimUnit());
+            InstallRealPathRowEmitter();
+            var env = new EligibleEnv();
+
+            // Warp from window 0 clean past windows 1, 2 and 3, landing past
+            // BOTH docks of window 3 (loopUT 1250): each stop's owed crossing
+            // collapses to cycle 3 -> cMin = 3, NOT deliverable (anchor 0,
+            // N=2). Window 2 - deliverable, passed mid-warp - must fire ONCE
+            // as a normal full cycle (dispatch + window A + window B under one
+            // cycleId, CompletedCycles bumped once); the same tick's catch-up
+            // then D4-skips the landed window 3 and snaps every cursor to it.
+            RouteOrchestrator.Tick(SpanStart + 3 * Synodic + 250.0, env); // ut 10250
+
+            var delivered = Delivered();
+            Assert.Single(Dispatched());                    // ONE dispatch (window 2's cycle)
+            Assert.Equal(2, delivered.Count);               // window A + window B
+            Assert.Equal(new[] { 0, 1 },
+                delivered.Select(a => a.RouteStopIndex).OrderBy(i => i).ToArray());
+            Assert.Single(delivered.Select(a => a.RouteCycleId).Distinct()); // one cycleId
+            Assert.Equal(2, route.CompletedCycles);         // bumped exactly once
+            Assert.Equal(0, route.SkippedCycles);           // D4 purity for the landed skip
+            Assert.False(RouteStore.HasEscrow(route.Id));   // no residual escrow
+            Assert.Contains(logLines, l => l.Contains("highest deliverable window 2"));
+            Assert.Contains(logLines, l => l.Contains("SKIPPED by cadence modulo")
+                && l.Contains("window 3"));
+            // Cursors end snapped to the LANDED window (3), not the fired one.
+            Assert.Equal(3L, route.LastObservedLoopCycleIndex);
+            Assert.Equal(3L, route.Stops[0].LastFiredCycleIndex);
+            Assert.Equal(3L, route.Stops[1].LastFiredCycleIndex);
+
+            // The next deliverable window (4) still fires normally after the warp.
+            RouteOrchestrator.Tick(SpanStart + 4 * Synodic + 250.0, env);
+            Assert.Equal(4, Delivered().Count);
+            Assert.Equal(2, Dispatched().Count);
+            Assert.Equal(3, route.CompletedCycles);
+        }
+
         // ==================================================================
         // Behavior-identity guards: zero-drift + flat
         // ==================================================================
