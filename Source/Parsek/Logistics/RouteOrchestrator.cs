@@ -1917,6 +1917,133 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// (M5 D8) READ-ONLY next-dispatch-WINDOW countdown accessor for the
+        /// Logistics window. Mirrors <see cref="TryComputeSecondsToNextDockCrossing"/>'s
+        /// discipline (throttled by the ~1 Hz legibility cache, mutates NOTHING,
+        /// never leaks a <see cref="GhostPlaybackLogic.LoopUnit"/> or a raw
+        /// committed list) but serves the WINDOWED bases the flat H1 helper
+        /// deliberately refuses: for <see cref="RouteWindowBasis.ZeroDriftSchedule"/>
+        /// the next scheduled launch (<c>RelaunchSchedule.NextLaunchAfter</c>);
+        /// for <see cref="RouteWindowBasis.ReaimWindows"/> the launch of the next
+        /// DELIVERABLE window - the smallest k with
+        /// <c>unit.PhaseAnchorUT + k * unit.CadenceSeconds &gt; nowUT</c> that the
+        /// residual modulo (anchor + N, D2/D3) admits. The countdown targets the
+        /// window LAUNCH, not the dock instant (per-launch knob timings / loiter
+        /// cuts make the exact dock offset builder-internal; the launch is the
+        /// honest, stable number - label it so, D8).
+        ///
+        /// <para><b>Field-source pin (review Missed #2).</b> ALL window
+        /// arithmetic here reads <c>unit.PhaseAnchorUT</c> /
+        /// <c>unit.CadenceSeconds</c>, NEVER raw <c>ReaimSchedule</c> fields:
+        /// pad-align updates <c>sched.FirstDepartureUT</c> / <c>CadenceSeconds</c>
+        /// but NOT <c>sched.PhaseAnchorUT</c>, and the unit anchor additionally
+        /// carries the loiter-compression cutBeforeDeparture shift - raw sched
+        /// fields desynchronize k from the firing index space.</para>
+        ///
+        /// <para><paramref name="basis"/> + <paramref name="targetBody"/> are
+        /// populated whenever the unit resolves (even on a false return) so the
+        /// caller can label the row; a <see cref="RouteWindowBasis.FlatInterval"/>
+        /// route returns false and the caller keeps the existing flat dock
+        /// countdown - flat rows render byte-identically.</para>
+        /// </summary>
+        /// <param name="route">The route to count down for.</param>
+        /// <param name="nowUT">Current game UT.</param>
+        /// <param name="seconds">Seconds until the next deliverable dispatch
+        /// window's launch (&gt; 0 on success); 0 on a false return.</param>
+        /// <param name="basis">The derived window basis (FlatInterval when the
+        /// route is not ghost-driving / has no resolvable unit).</param>
+        /// <param name="targetBody">The re-aim plan's target body for the basis
+        /// label ("(Duna transfer)"), or null.</param>
+        /// <returns>True when a finite windowed launch countdown exists.</returns>
+        internal static bool TryComputeSecondsToNextDispatchWindow(
+            Route route, double nowUT, out double seconds,
+            out RouteWindowBasis basis, out string targetBody)
+        {
+            seconds = 0.0;
+            basis = RouteWindowBasis.FlatInterval;
+            targetBody = null;
+
+            if (route == null)
+                return false;
+
+            // Status gate: only ghost-driving routes run the loop clock (mirrors
+            // the H1 accessor, whose rate-limited log already names the status).
+            if (!RouteStatusPolicy.GhostDriving(route.Status))
+                return false;
+
+            GhostPlaybackLogic.LoopUnit? unitOpt = ResolveLoopUnit(route, nowUT);
+            if (!unitOpt.HasValue)
+                return false;
+            GhostPlaybackLogic.LoopUnit unit = unitOpt.Value;
+
+            basis = RouteLoopClock.DeriveWindowBasis(unit);
+            if (basis == RouteWindowBasis.ReaimWindows && unit.ReaimPlan.HasValue)
+                targetBody = unit.ReaimPlan.Value.TargetBody;
+
+            switch (basis)
+            {
+                case RouteWindowBasis.ZeroDriftSchedule:
+                {
+                    // Non-uniform launch UTs: resolve through the schedule only
+                    // (the flat arithmetic is INVALID for a Scheduled index).
+                    double next = unit.RelaunchSchedule.NextLaunchAfter(nowUT);
+                    if (double.IsNaN(next) || next <= nowUT)
+                        return false;
+                    seconds = next - nowUT;
+                    ParsekLog.VerboseRateLimited(Tag, "next-window-" + route.Id,
+                        $"NextDispatchWindow: route {ShortIdForLog(route)} basis=ZeroDriftSchedule " +
+                        $"nextLaunchUT={next.ToString("R", IC)} seconds={seconds.ToString("R", IC)} " +
+                        $"at ut={nowUT.ToString("R", IC)}", 5.0);
+                    return true;
+                }
+
+                case RouteWindowBasis.ReaimWindows:
+                {
+                    // Field-source pin: unit anchor + unit cadence ONLY.
+                    double anchorUT = unit.PhaseAnchorUT;
+                    double cadence = unit.CadenceSeconds;
+                    if (double.IsNaN(cadence) || cadence <= 0.0)
+                        return false;
+
+                    // Smallest window k whose launch is strictly after now.
+                    long k = (long)Math.Floor((nowUT - anchorUT) / cadence) + 1;
+                    if (k < 0)
+                        k = 0;
+
+                    // Advance to the next DELIVERABLE window under the residual
+                    // modulo. An unset anchor (-1) means the next crossing
+                    // adopts and delivers (D3), so k stands as-is.
+                    int nResidual = RouteLoopClock.ResolveResidualCadence(
+                        basis, route.CadenceMultiplier);
+                    if (nResidual > 1 && route.WindowAnchorCycleIndex >= 0)
+                    {
+                        long m = (k - route.WindowAnchorCycleIndex) % nResidual;
+                        if (m < 0)
+                            m += nResidual;
+                        if (m != 0)
+                            k += nResidual - m;
+                    }
+
+                    double launchUT = anchorUT + k * cadence;
+                    if (launchUT <= nowUT)
+                        return false;
+                    seconds = launchUT - nowUT;
+                    ParsekLog.VerboseRateLimited(Tag, "next-window-" + route.Id,
+                        $"NextDispatchWindow: route {ShortIdForLog(route)} basis=ReaimWindows " +
+                        $"window={k.ToString(IC)} launchUT={launchUT.ToString("R", IC)} " +
+                        $"seconds={seconds.ToString("R", IC)} " +
+                        $"(N={nResidual.ToString(IC)} anchor={route.WindowAnchorCycleIndex.ToString(IC)} " +
+                        $"target={targetBody ?? "<none>"}) at ut={nowUT.ToString("R", IC)}", 5.0);
+                    return true;
+                }
+
+                default:
+                    // FlatInterval: the existing flat dock countdown owns it.
+                    return false;
+            }
+        }
+
+        /// <summary>
         /// Resolves the route's backing-mission loop unit for this tick. Routes
         /// through the <see cref="LoopUnitResolverForTesting"/> seam when set;
         /// otherwise builds it from live KSP state via the first-class Missions
