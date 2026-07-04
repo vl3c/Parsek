@@ -16,10 +16,14 @@ namespace Parsek.MapRender
     /// write was removed (its store lost its last production reader at the Phase-8 unwiring; the
     /// recorded-vs-rendered <c>RenderParityOracle</c> is the SOLE acceptance axis).
     ///
-    /// <para>Wholly gated by the caller on <see cref="MapRenderTrace.IsEnabled"/> (the off-by-default
-    /// <c>mapRenderTracing</c> setting), so normal play pays nothing. Consumes the loop units from the
-    /// scene adapter (the <see cref="MissionLoopUnitBuilder.Build"/> output), not the engine
-    /// passthrough.</para>
+    /// <para><b>NOT tracing-gated - this drives the render in NORMAL PLAY.</b> <see cref="Enabled"/> is
+    /// unconditionally true and the scene callers run <see cref="RunFrame"/> every frame: the intent
+    /// stamp it writes is the SOLE TracedPath ownership signal and the StockConic seed it records is
+    /// what the icon-drive bakes. (The pre-cutover doc said "gated on mapRenderTracing, normal play pays
+    /// nothing" - that stopped being true at the 8e S4 / Phase-3 cutover, and re-introducing such a gate
+    /// would kill the render drive, not just observability.) Only the TRACER emits inside it are
+    /// tracing-gated. Consumes the loop units from the scene adapter (the
+    /// <see cref="MissionLoopUnitBuilder.Build"/> output), not the engine passthrough.</para>
     ///
     /// <para><b>Shadow scope: faithful + overlap single-instance members — decided PER MEMBER.</b>
     /// Re-aim is per member, not per mission (design §4): only the heliocentric (Sun-relative) member

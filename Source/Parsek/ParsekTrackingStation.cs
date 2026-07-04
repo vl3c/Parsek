@@ -261,11 +261,12 @@ namespace Parsek
             // the cached field. The OnGUI pass never rebuilds.
             DriveMissionLoopUnits(RecordingStore.CommittedRecordings);
 
-            // Phase 7a decision-only shadow: run the new map-render pipeline over the TS map ghosts and
-            // reconcile each intent against the OLD path's truth via MapRenderProbe. Writes NOTHING to
-            // the stock surfaces. Gated on the off-by-default mapRenderTracing setting; try/catch so a
-            // diagnostic bug can never break the TS update. Runs every Update tick (cachedLoopUnits is
-            // fresh) before the rate-limited lifecycle pass.
+            // The map-render spine pass over the TS map ghosts. NOT tracing-gated and NOT diagnostic
+            // (the pre-cutover comment said "gated on mapRenderTracing" - false since the 8e S4 /
+            // Phase-3 cutover): RunFrame's intent stamp is the SOLE TracedPath ownership signal and its
+            // StockConic seed is what the icon-drive bakes, so this call IS the render drive.
+            // try/catch so a spine bug can never break the TS update. Runs every Update tick
+            // (cachedLoopUnits is fresh) before the rate-limited lifecycle pass.
             if (MapRender.ShadowRenderDriver.Enabled)
             {
                 try

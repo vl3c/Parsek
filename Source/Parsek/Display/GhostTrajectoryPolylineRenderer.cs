@@ -4777,6 +4777,13 @@ namespace Parsek.Display
                 if (!MapRenderTrace.IsEnabled) return; // decide-pass flag is tracing-gated; cheap re-check
                 if (leg.PointCount < 2 || p.body == null || p.rec == null) return;
 
+                // ROTATION-ALIGNMENT ASSUMPTION: the entering tangent below is body-fixed recorded points
+                // at the LIVE rotation; the leaving tangent is the recorded conic at the RECORDED seam
+                // epoch (inertial). The two frames coincide because the descent trigger fires
+                // rotation-aligned; a trigger with a nonzero site-rotation residual (loiter-cut cycles)
+                // can measure a residual-sized angle. If this anomaly ever fires in a tracing run, check
+                // siteRotResidual in the DESCENT RENDERED line before suspecting a real seam kink.
+
                 // ENTERING tangent: the drawn descent leg's first two recorded points as body-relative
                 // world positions at the LIVE rotation (double subtraction first - float would
                 // catastrophically cancel at raw world magnitudes).
