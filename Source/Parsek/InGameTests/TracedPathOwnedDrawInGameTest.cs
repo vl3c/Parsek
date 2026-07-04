@@ -35,21 +35,19 @@ namespace Parsek.InGameTests
         private const double KerbinRadiusFallback = 600000.0;
 
         [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
-            Description = "Phase 4a TracedPath owned-draw (FLAG ON): RunFrame over a live non-orbital ghost "
-                + "sources the owned-draw decision from the intent and agrees with the proto/marker consumers "
-                + "- exactly one polyline painter, no double-draw, no gap")]
+            Description = "Phase 4a TracedPath owned-draw (flag ON = the post-cutover default): RunFrame over "
+                + "a live non-orbital ghost sources the owned-draw decision from the intent and agrees with "
+                + "the proto/marker consumers - exactly one polyline painter, no double-draw, no gap")]
         public void TracedPathOwnedDraw_FlagOn_SourcedFromIntent_ExactlyOnePainter()
         {
-            RunTracedPathOwnership(forceSpineOn: true);
+            RunTracedPathOwnership();
         }
 
-        [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
-            Description = "Phase 4a TracedPath owned-draw (FLAG OFF): RunFrame over a live non-orbital ghost "
-                + "routes the owned-draw decision on the legacy side-channel - byte-identical to today")]
-        public void TracedPathOwnedDraw_FlagOff_LegacySideChannel_Unchanged()
-        {
-            RunTracedPathOwnership(forceSpineOn: false);
-        }
+        // NOTE (cutover flip): the FlagOff variant was removed - MapRenderPhaseSpineDrive is const-true and
+        // the test seam is an OR (not an override), so "flag off" is unreachable at runtime and its premise
+        // ("the intent stamp must NOT be written") is untestable. The retained legacy routing branch (the
+        // rollback path, deleted at 5b) is pinned headlessly by
+        // ShadowRenderDriverTests.IsTracedPathOwnedThisFrame_LegacyElseBranch_RetainedForRollback_SourceGate.
 
         // Build a live non-orbital ghost (SELF-CREATED via GhostMapPresence.CreateGhostVesselFromSource -
         // the RenderParityBaselineTest pattern - so the test needs ZERO live mission / pre-existing ghost
@@ -59,7 +57,7 @@ namespace Parsek.InGameTests
         // proto/marker consumer signal (IsDirectorTracedPathActive) for the ghost pid, so exactly one
         // painter owns the leg (no double, no gap). Additionally: flag-OFF must read the legacy
         // side-channel (intent stamp absent off the flag); flag-ON must read the intent source.
-        private static void RunTracedPathOwnership(bool forceSpineOn)
+        private static void RunTracedPathOwnership()
         {
             CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == KerbinBodyName);
             if (kerbin == null)
@@ -132,7 +130,9 @@ namespace Parsek.InGameTests
                     return;
                 }
 
-                ShadowRenderDriver.ForceSpineDriveForTesting = forceSpineOn;
+                // Redundant post-cutover (the const carries the spine drive); kept explicit so the
+                // test's intent survives a rollback of the const.
+                ShadowRenderDriver.ForceSpineDriveForTesting = true;
                 ShadowRenderDriver.Reset();
                 ShadowRenderDriver.RunFrame(scene);
                 int frame = Time.frameCount;
@@ -142,9 +142,9 @@ namespace Parsek.InGameTests
                 bool ownedRouting = ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, frame);
 
                 ParsekLog.Info("TestRunner", string.Format(CultureInfo.InvariantCulture,
-                    "TracedPathOwned: forceSpineOn={0} pid={1} legacyActive={2} intentActive={3} "
-                    + "ownedRouting={4}",
-                    forceSpineOn, pid, legacyActive, intentActive, ownedRouting));
+                    "TracedPathOwned: pid={0} legacyActive={1} intentActive={2} "
+                    + "ownedRouting={3}",
+                    pid, legacyActive, intentActive, ownedRouting));
 
                 // DETERMINISTIC TracedPath: the self-created ghost's recording is a flat non-orbital leg
                 // (no OrbitSegment) covering liveUT, so RunFrame's chain classifies its active segment at
@@ -164,26 +164,13 @@ namespace Parsek.InGameTests
                     "owned-draw routing (IsTracedPathOwnedThisFrame) must agree with the proto/marker "
                     + "consumer signal (IsDirectorTracedPathActive) - exactly one painter, no double, no gap");
 
-                if (forceSpineOn)
-                {
-                    // FLAG ON: the routing is SOURCED FROM THE INTENT, and the intent stamp is present (it
-                    // matches the legacy stamp by construction).
-                    InGameAssert.IsTrue(intentActive,
-                        "FLAG ON: the intent-sourced stamp must be present (RunFrame stamps it from the same "
-                        + "intent as the legacy side-channel)");
-                    InGameAssert.AreEqual(intentActive, ownedRouting,
-                        "FLAG ON: the owned-draw routing must equal the intent-sourced signal (re-homed)");
-                }
-                else
-                {
-                    // FLAG OFF: the intent stamp is NEVER written, so the routing reads the legacy side-
-                    // channel - byte-identical to today.
-                    InGameAssert.IsFalse(intentActive,
-                        "FLAG OFF: the intent-sourced stamp must NOT be written (flag-gated), so the routing "
-                        + "falls through to the legacy side-channel - byte-identical to today");
-                    InGameAssert.AreEqual(legacyActive, ownedRouting,
-                        "FLAG OFF: the owned-draw routing must equal the legacy side-channel signal");
-                }
+                // FLAG ON (the post-cutover default): the routing is SOURCED FROM THE INTENT, and the
+                // intent stamp is present (it matches the legacy stamp by construction).
+                InGameAssert.IsTrue(intentActive,
+                    "FLAG ON: the intent-sourced stamp must be present (RunFrame stamps it from the same "
+                    + "intent as the legacy side-channel)");
+                InGameAssert.AreEqual(intentActive, ownedRouting,
+                    "FLAG ON: the owned-draw routing must equal the intent-sourced signal (re-homed)");
             }
             finally
             {

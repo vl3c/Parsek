@@ -34,21 +34,20 @@ namespace Parsek.InGameTests
         private const double KerbinRadiusFallback = 600000.0;
 
         [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
-            Description = "Phase 4b marker draw (FLAG ON): RunFrame over a live below-atmosphere ghost draws "
-                + "our non-proto marker (never a blank icon), sources the TracedPath disjunct from the intent, "
-                + "and stays in sync with the proto-line consumer - no double-marker, no gap")]
+            Description = "Phase 4b marker draw (flag ON = the post-cutover default): RunFrame over a live "
+                + "below-atmosphere ghost draws our non-proto marker (never a blank icon), sources the "
+                + "TracedPath disjunct from the intent, and stays in sync with the proto-line consumer - no "
+                + "double-marker, no gap")]
         public void MarkerDraw_FlagOn_SourcedFromIntent_NeverBlankNoDouble()
         {
-            RunMarkerOwnership(forceSpineOn: true);
+            RunMarkerOwnership();
         }
 
-        [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
-            Description = "Phase 4b marker draw (FLAG OFF): RunFrame over a live below-atmosphere ghost draws "
-                + "our non-proto marker on the legacy side-channel - byte-identical to today")]
-        public void MarkerDraw_FlagOff_LegacySideChannel_Unchanged()
-        {
-            RunMarkerOwnership(forceSpineOn: false);
-        }
+        // NOTE (cutover flip): the FlagOff variant was removed - MapRenderPhaseSpineDrive is const-true and
+        // the test seam is an OR (not an override), so "flag off" is unreachable at runtime and its premise
+        // ("the intent stamp must NOT be written") is untestable. The retained legacy routing branch (the
+        // rollback path, deleted at 5b) is pinned headlessly by
+        // ShadowRenderDriverTests.IsTracedPathOwnedThisFrame_LegacyElseBranch_RetainedForRollback_SourceGate.
 
         // Build a live below-atmosphere (non-orbital) ghost (SELF-CREATED via
         // GhostMapPresence.CreateGhostVesselFromSource - the RenderParityBaselineTest pattern - so the test
@@ -60,7 +59,7 @@ namespace Parsek.InGameTests
         //      consumer signal (IsDirectorTracedPathActive) - exactly one painter, no double, no gap.
         // Additionally: flag-OFF reads the legacy side-channel (intent stamp absent off the flag); flag-ON
         // reads the intent source.
-        private static void RunMarkerOwnership(bool forceSpineOn)
+        private static void RunMarkerOwnership()
         {
             CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == KerbinBodyName);
             if (kerbin == null)
@@ -133,7 +132,9 @@ namespace Parsek.InGameTests
                     return;
                 }
 
-                ShadowRenderDriver.ForceSpineDriveForTesting = forceSpineOn;
+                // Redundant post-cutover (the const carries the spine drive); kept explicit so the
+                // test's intent survives a rollback of the const.
+                ShadowRenderDriver.ForceSpineDriveForTesting = true;
                 ShadowRenderDriver.Reset();
                 ShadowRenderDriver.RunFrame(scene);
                 int frame = Time.frameCount;
@@ -147,10 +148,10 @@ namespace Parsek.InGameTests
                     pid, out bool decDirectorTraced, out bool decPolylineOwning, out bool decIconSuppressed);
 
                 ParsekLog.Info("TestRunner", string.Format(CultureInfo.InvariantCulture,
-                    "SuppressedMarkerOwned: forceSpineOn={0} pid={1} legacyActive={2} intentActive={3} "
-                    + "ownedRouting={4} shouldDraw={5} decDirectorTraced={6} decPolylineOwning={7} "
-                    + "decIconSuppressed={8}",
-                    forceSpineOn, pid, legacyActive, intentActive, ownedRouting, shouldDraw,
+                    "SuppressedMarkerOwned: pid={0} legacyActive={1} intentActive={2} "
+                    + "ownedRouting={3} shouldDraw={4} decDirectorTraced={5} decPolylineOwning={6} "
+                    + "decIconSuppressed={7}",
+                    pid, legacyActive, intentActive, ownedRouting, shouldDraw,
                     decDirectorTraced, decPolylineOwning, decIconSuppressed));
 
                 // DETERMINISTIC TracedPath: the self-created ghost's recording is a flat below-atmosphere
@@ -184,28 +185,15 @@ namespace Parsek.InGameTests
                     "a below-atmosphere / no-bounds ghost must draw our non-proto marker (never a blank "
                     + "icon) - the marker decision is the dual of 'proto icon hidden'");
 
-                if (forceSpineOn)
-                {
-                    // FLAG ON: the marker's TracedPath disjunct is SOURCED FROM THE INTENT. The leg is
-                    // deterministically TracedPath this frame (legacyActive asserted above), so the
-                    // intent-sourced stamp is present and the disjunct equals it - assert unconditionally.
-                    InGameAssert.IsTrue(intentActive,
-                        "FLAG ON: the intent-sourced stamp must be present (RunFrame stamps it from the "
-                        + "same intent as the legacy side-channel)");
-                    InGameAssert.AreEqual(intentActive, decDirectorTraced,
-                        "FLAG ON: the marker TracedPath disjunct must equal the intent-sourced signal "
-                        + "(re-homed)");
-                }
-                else
-                {
-                    // FLAG OFF: the intent stamp is NEVER written, so the marker disjunct reads the legacy
-                    // side-channel - byte-identical to today.
-                    InGameAssert.IsFalse(intentActive,
-                        "FLAG OFF: the intent-sourced stamp must NOT be written (flag-gated), so the marker "
-                        + "disjunct falls through to the legacy side-channel - byte-identical to today");
-                    InGameAssert.AreEqual(legacyActive, decDirectorTraced,
-                        "FLAG OFF: the marker TracedPath disjunct must equal the legacy side-channel signal");
-                }
+                // FLAG ON (the post-cutover default): the marker's TracedPath disjunct is SOURCED FROM
+                // THE INTENT. The leg is deterministically TracedPath this frame (legacyActive asserted
+                // above), so the intent-sourced stamp is present and the disjunct equals it.
+                InGameAssert.IsTrue(intentActive,
+                    "FLAG ON: the intent-sourced stamp must be present (RunFrame stamps it from the "
+                    + "same intent as the legacy side-channel)");
+                InGameAssert.AreEqual(intentActive, decDirectorTraced,
+                    "FLAG ON: the marker TracedPath disjunct must equal the intent-sourced signal "
+                    + "(re-homed)");
             }
             finally
             {
