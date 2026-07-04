@@ -35,8 +35,10 @@ namespace Parsek.MapRender
 
         /// <summary>
         /// The ordered distinct bodies the recorded trajectory visited inside the root's SOI hierarchy,
-        /// in first-visit order (e.g. Jool, Laythe, Tylo). The first entry is the deepest common ancestor
-        /// the tour stayed under; subsequent entries are the moons / sub-SOIs visited.
+        /// in first-visit order (e.g. Jool, Laythe, Tylo). FILTERED to the root's hierarchy (S15): the
+        /// departure body and the interplanetary legs of a Kerbin-departure tour are NOT part of the
+        /// subtree payload. When the tour touched the root body itself it leads the list; a moons-only
+        /// tour starts at the first-visited moon.
         /// </summary>
         internal IReadOnlyList<string> VisitedBodies { get; }
 
@@ -114,9 +116,25 @@ namespace Parsek.MapRender
             if (string.IsNullOrEmpty(rootBody))
                 return null;
 
+            // S15: the payload is scoped to the ROOT'S SOI HIERARCHY (the type contract above), so a real
+            // Kerbin-departure tour ([Kerbin, Sun, Jool, Laythe, Tylo]) must NOT list the departure body /
+            // the interplanetary transfer in VisitedBodies or carry Kerbin->Sun / Sun->Jool as
+            // "intra-subtree" crossings. Filter to bodies whose parent chain reaches the root (the root
+            // itself included).
+            var inSubtree = new HashSet<string>(StringComparer.Ordinal);
+            var visited = new List<string>(distinct.Count);
+            foreach (string b in distinct)
+            {
+                if (!IsInRootHierarchy(b, rootBody, referenceBodyName))
+                    continue;
+                inSubtree.Add(b);
+                visited.Add(b);
+            }
+
             // Build the per-leg crossings (every adjacent body change in the ORIGINAL order, so a back-
-            // and-forth moon tour records each hop). The exit/entry state vectors are left default (v1
-            // RECORDS the crossing identity, does not enforce continuity — design §10 / SoiCrossing).
+            // and-forth moon tour records each hop), restricted to hops WITHIN the subtree set. The
+            // exit/entry state vectors are left default (v1 RECORDS the crossing identity, does not
+            // enforce continuity - design §10 / SoiCrossing).
             var crossings = new List<SoiCrossing>();
             for (int i = 1; i < orderedBodies.Count; i++)
             {
@@ -125,10 +143,33 @@ namespace Parsek.MapRender
                 if (string.IsNullOrEmpty(from) || string.IsNullOrEmpty(to)
                     || string.Equals(from, to, StringComparison.Ordinal))
                     continue;
+                if (!inSubtree.Contains(from) || !inSubtree.Contains(to))
+                    continue;
                 crossings.Add(new SoiCrossing(from, to, crossingUt: double.NaN, soiRadius: double.NaN));
             }
 
-            return new NestedSoiSubtree(rootBody, distinct, crossings);
+            return new NestedSoiSubtree(rootBody, visited, crossings);
+        }
+
+        /// <summary>
+        /// True iff <paramref name="body"/> is the root itself or its parent chain reaches
+        /// <paramref name="rootBody"/>. Walks at most 16 levels (a real SOI tree is ~3 deep; the cap
+        /// guards a cyclic / self-referential delegate). Pure.
+        /// </summary>
+        private static bool IsInRootHierarchy(
+            string body, string rootBody, Func<string, string> referenceBodyName)
+        {
+            string cursor = body;
+            for (int depth = 0; depth < 16 && !string.IsNullOrEmpty(cursor); depth++)
+            {
+                if (string.Equals(cursor, rootBody, StringComparison.Ordinal))
+                    return true;
+                string parent = SafeReference(referenceBodyName, cursor);
+                if (string.Equals(parent, cursor, StringComparison.Ordinal))
+                    return false; // self-referential system root (live KSP Sun convention)
+                cursor = parent;
+            }
+            return false;
         }
 
         /// <summary>
@@ -154,9 +195,16 @@ namespace Parsek.MapRender
                 childrenByParent[parent] = c + 1;
             }
 
-            foreach (KeyValuePair<string, int> kv in childrenByParent)
+            // DETERMINISTIC candidate order (review N11): walk the visited bodies in FIRST-VISIT order
+            // and return the first qualifying shared parent, never Dictionary iteration order (which is
+            // insertion-order-ish today but not contractual - two qualifying parents in one tour must
+            // resolve to the same root on every run and every runtime).
+            for (int i = 0; i < distinctBodies.Count; i++)
             {
-                if (kv.Value < 2)
+                string parent = SafeReference(referenceBodyName, distinctBodies[i]);
+                if (string.IsNullOrEmpty(parent))
+                    continue;
+                if (!childrenByParent.TryGetValue(parent, out int count) || count < 2)
                     continue;
                 // The shared parent must itself have a PROPER parent (be non-root): a planet's moons share the
                 // planet (non-root); the Sun's planets share the Sun (root) -> interplanetary, skip. The root
@@ -164,10 +212,10 @@ namespace Parsek.MapRender
                 // (live KSP: Sun.referenceBody == Sun). Without the self-reference guard, live
                 // ["Kerbin","Sun","Duna"] (Sun has >= 2 visited children, grandparent("Sun") == "Sun" != null)
                 // was wrongly flagged nested -> fail-closed every ordinary interplanetary transfer.
-                string grandparent = SafeReference(referenceBodyName, kv.Key);
+                string grandparent = SafeReference(referenceBodyName, parent);
                 if (!string.IsNullOrEmpty(grandparent)
-                    && !string.Equals(grandparent, kv.Key, StringComparison.Ordinal))
-                    return kv.Key;
+                    && !string.Equals(grandparent, parent, StringComparison.Ordinal))
+                    return parent;
             }
             return null;
         }

@@ -106,10 +106,13 @@ namespace Parsek.InGameTests
                 // surface=Polyline -----------------------------------------------------------------------
                 AssertHasMapLine(lines, "PolylineLegChange", "Polyline",
                     "Polyline appear/disappear (Tier-A PolylineLegChange) missing");
+                // Trailing space on the surface token (review N13): a bare "surface=Polyline" substring
+                // also matches surface=PolylineForwardArc lines, so a ForwardArc event could green these
+                // asserts while the Polyline surface itself went blind.
                 AssertContainsAll(lines, "Polyline appear/disappear must carry both event tokens",
-                    new[] { "surface=Polyline", "event=appear" });
+                    new[] { "surface=Polyline ", "event=appear" });
                 AssertContainsAll(lines, "Polyline appear/disappear must carry both event tokens",
-                    new[] { "surface=Polyline", "event=disappear" });
+                    new[] { "surface=Polyline ", "event=disappear" });
                 AssertHasMapPhase(lines, "DescentStitched", "Polyline",
                     "Polyline Tier-A DescentStitched (Phase 6) missing");
                 AssertHasReason(lines, "polyline-orbit-overlap", "Polyline",
@@ -297,13 +300,19 @@ namespace Parsek.InGameTests
 
         // ---- Matrix assertion helpers (each names the gap precisely) ----
 
+        // Surface tokens match on the FIELD BOUNDARY (trailing space; BuildPrefix always emits pid= after
+        // surface=): a bare Contains("surface=Polyline") would also match surface=PolylineForwardArc
+        // lines, silently greening a Polyline row off a ForwardArc event (review N13).
+        private static bool HasSurfaceField(string line, string surfaceToken)
+            => line.Contains("surface=" + surfaceToken + " ");
+
         private static void AssertHasMapLine(
             List<string> lines, string phaseToken, string surfaceToken, string message)
         {
             foreach (string l in lines)
                 if (l.Contains("[MapRenderTrace]")
                     && l.Contains("phase=" + phaseToken)
-                    && l.Contains("surface=" + surfaceToken))
+                    && HasSurfaceField(l, surfaceToken))
                     return;
             InGameAssert.Fail(message);
         }
@@ -323,7 +332,7 @@ namespace Parsek.InGameTests
         {
             foreach (string l in lines)
                 if (l.Contains("[MapRenderTrace]")
-                    && l.Contains("surface=" + surfaceToken)
+                    && HasSurfaceField(l, surfaceToken)
                     && (l.Contains("reason=" + reasonOrPhaseToken)
                         || l.Contains("phase=" + reasonOrPhaseToken)))
                     return;

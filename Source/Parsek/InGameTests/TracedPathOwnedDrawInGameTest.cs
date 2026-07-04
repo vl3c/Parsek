@@ -24,7 +24,6 @@ namespace Parsek.InGameTests
     public class TracedPathOwnedDrawInGameTest
     {
         private const string KerbinBodyName = "Kerbin";
-        private const double KerbinRadiusFallback = 600000.0;
 
         [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
             Description = "Phase 4a/5b TracedPath owned-draw: RunFrame over a live non-orbital ghost "
@@ -161,7 +160,6 @@ namespace Parsek.InGameTests
         // the spine classifies it as a TracedPath leg rather than a StockConic.
         private static Recording BuildNonOrbitalRecording(double startUT, double endUT, CelestialBody kerbin)
         {
-            double radius = kerbin != null ? kerbin.Radius : KerbinRadiusFallback;
             var rec = new Recording
             {
                 RecordingId = "tracedpath-own-" + System.Guid.NewGuid().ToString("N"),

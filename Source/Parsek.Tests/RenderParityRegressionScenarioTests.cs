@@ -677,6 +677,58 @@ namespace Parsek.Tests
             Assert.False(isRaw);
         }
 
+        // ---- Review N18: the epoch-gate SKIP classifier (pure) ----
+        // Splits the rate-limit key by class at the emit site and names the prior-seed reseed
+        // transient distinctly instead of UNEXPLAINED, so a sign-off log's genuine mysteries are not
+        // buried under known one-frame transients (and one ghost's steady mystery cannot swallow
+        // another's first occurrence - the unexplained key is per-pid).
+
+        [Fact]
+        public void SynthEpochSkip_RawConvention_ClassifiesRawTransient()
+        {
+            Assert.Equal(Parsek.MapRenderProbe.SynthEpochSkipClass.RawTransient,
+                Parsek.MapRenderProbe.ClassifySynthEpochSkip(
+                    isRawConvention: true, renderedEpoch: 50_000.0, lastBakedEpoch: double.NaN));
+        }
+
+        [Fact]
+        public void SynthEpochSkip_MatchesPriorBakedEpoch_ClassifiesPriorSeedTransient()
+        {
+            // The reseed frame: the seed changed, the orbit still carries the PREVIOUS seed's baked
+            // epoch (which passed the gate last frame). Pre-N18 this logged as UNEXPLAINED.
+            Assert.Equal(Parsek.MapRenderProbe.SynthEpochSkipClass.PriorSeedTransient,
+                Parsek.MapRenderProbe.ClassifySynthEpochSkip(
+                    isRawConvention: false, renderedEpoch: 51_100.2, lastBakedEpoch: 51_100.0));
+        }
+
+        [Fact]
+        public void SynthEpochSkip_NoPriorBaked_OrNoMatch_ClassifiesUnexplained()
+        {
+            Assert.Equal(Parsek.MapRenderProbe.SynthEpochSkipClass.Unexplained,
+                Parsek.MapRenderProbe.ClassifySynthEpochSkip(
+                    isRawConvention: false, renderedEpoch: 51_100.0, lastBakedEpoch: double.NaN));
+            Assert.Equal(Parsek.MapRenderProbe.SynthEpochSkipClass.Unexplained,
+                Parsek.MapRenderProbe.ClassifySynthEpochSkip(
+                    isRawConvention: false, renderedEpoch: 51_100.0, lastBakedEpoch: 40_000.0));
+        }
+
+        [Fact]
+        public void SynthEpochSkip_Describe_LabelsAreGrepStableAndDistinct()
+        {
+            string raw = Parsek.MapRenderProbe.DescribeSynthEpochSkip(
+                Parsek.MapRenderProbe.SynthEpochSkipClass.RawTransient);
+            string prior = Parsek.MapRenderProbe.DescribeSynthEpochSkip(
+                Parsek.MapRenderProbe.SynthEpochSkipClass.PriorSeedTransient);
+            string unexplained = Parsek.MapRenderProbe.DescribeSynthEpochSkip(
+                Parsek.MapRenderProbe.SynthEpochSkipClass.Unexplained);
+
+            Assert.Contains("RAW epoch", raw);
+            Assert.Contains("PRIOR-SEED", prior);
+            Assert.Contains("UNEXPLAINED", unexplained);
+            Assert.NotEqual(raw, prior);
+            Assert.NotEqual(prior, unexplained);
+        }
+
         // ===================================================================================
         //  The faithful lens's RE-AIM gate (AreSameConicElements): the flag-ON playtest FP -
         //  the recorded-clock lookup (B1) removed the ACCIDENTAL re-aim exclusion, so a looped

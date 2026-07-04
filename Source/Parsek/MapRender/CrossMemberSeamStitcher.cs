@@ -235,9 +235,10 @@ namespace Parsek.MapRender
         }
 
         /// <summary>
-        /// THE SPINE API (clean, gate-safe). When the flag is ON, the typed-spine sampler calls this AFTER it
-        /// has resolved the base coverage of a per-member <see cref="PhaseChain"/> at the already-remapped
-        /// <paramref name="sampleUT"/>. If <paramref name="committedIndex"/> is a descent-set member of a
+        /// THE SPINE API (clean, gate-safe). The typed-spine sampler calls this after the span-clock remap
+        /// (the stitcher re-resolves the descent clock itself from <paramref name="liveUT"/>; it never
+        /// consumes the sampler's remapped UT - review N9 dropped that unused parameter, and the
+        /// independence is pinned by the stitch tests). If <c>chain.CommittedIndex</c> is a descent-set member of a
         /// descent-trigger unit AND its re-anchored descent head is live this frame, the stitcher PROMOTES the
         /// matched <see cref="DescentPhase"/> over a Rigid + G1 leading seam and returns the stitched
         /// <see cref="GhostSample"/> (visible TracedPath descent at the re-anchored head). Otherwise it
@@ -260,7 +261,6 @@ namespace Parsek.MapRender
         /// </summary>
         internal static bool TryStitchDescentSeam(
             PhaseChain chain,
-            double sampleUT,
             double liveUT,
             GhostPlaybackLogic.LoopUnitSet units,
             out GhostSample stitched)
@@ -299,7 +299,7 @@ namespace Parsek.MapRender
             // Locate the descent phase covering the re-anchored head in the per-member chain. The factory
             // already classifies the post-conic body-fixed run as a DescentPhase, so this is the promoted
             // first-class phase. Use the RE-ANCHORED head as the assembled UT (the swept deorbit head), not
-            // the raw sampleUT, because the descent clip plays forward from recordedDeorbitUT.
+            // the sampler's remapped UT, because the descent clip plays forward from recordedDeorbitUT.
             if (!chain.TryGetPhase(reAnchoredHead, out TrajectoryPhase phaseAtHead, out int phaseIndex))
                 return false;
 

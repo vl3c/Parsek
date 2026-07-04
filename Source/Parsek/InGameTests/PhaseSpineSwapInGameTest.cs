@@ -119,6 +119,12 @@ namespace Parsek.InGameTests
                 InGameAssert.ApproxEqual(Ecc, drivenSeed.eccentricity, 1e-9,
                     "the spine must stamp the recorded segment's eccentricity");
 
+                // Honesty note (review N5): this zero-drift leg cannot detect a WRONG SEED - the ghost's
+                // rendered orbit was created from the same recorded segment the oracle diffs against, so
+                // drift reads ~0 by construction even if the spine had stamped garbage. The seed-element
+                // asserts ABOVE are the wrong-seed gate (plus the cached-PhaseChain false-green guard);
+                // this leg pins the oracle plumbing (sampled + measured + within tolerance) on a
+                // known-correct render.
                 Orbit renderedOrbit = ghost.orbitDriver.orbit;
                 MapRenderProbe.FaithfulParitySample sample = MapRenderProbe.ComputeFaithfulOrbitParity(
                     renderedOrbit, kerbin, 0.0, liveUT, rec.RecordingId);

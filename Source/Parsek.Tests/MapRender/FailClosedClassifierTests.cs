@@ -312,6 +312,51 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldEmitFailClosedOnChange_DirectPredicate_TrueRepeatFalse_ChangeTrue()
+        {
+            // Review S16: the wiring test above asserts via the signature-DICT SIZE, which cannot detect a
+            // broken on-change predicate (a predicate that returns true every frame still keeps the dict at
+            // size 1 - green while production spams one line per frame). Assert the predicate's RETURN
+            // VALUES directly, mirroring the TangentSeamOnChange direct tests: true on first, false on the
+            // unchanged repeat, true again on a signature change.
+            bool prevForce = MapRenderTrace.ForceEnabledForTesting;
+            try
+            {
+                MapRenderTrace.Reset();
+                MapRenderTrace.ForceEnabledForTesting = true;
+                MapRenderTrace.FrameCounterOverrideForTesting = () => 0;
+
+                Assert.True(MapRenderTrace.ShouldEmitFailClosedOnChange("pid-1", "rec|nested-soi"));
+                Assert.False(MapRenderTrace.ShouldEmitFailClosedOnChange("pid-1", "rec|nested-soi")); // steady
+                Assert.True(MapRenderTrace.ShouldEmitFailClosedOnChange("pid-1", "rec|moving-target")); // change
+                Assert.True(MapRenderTrace.ShouldEmitFailClosedOnChange("pid-2", "rec|nested-soi")); // other pid
+            }
+            finally
+            {
+                MapRenderTrace.ForceEnabledForTesting = prevForce;
+                MapRenderTrace.FrameCounterOverrideForTesting = null;
+                MapRenderTrace.Reset();
+            }
+        }
+
+        [Fact]
+        public void ShouldEmitFailClosedOnChange_Disabled_NeverEmits()
+        {
+            bool prevForce = MapRenderTrace.ForceEnabledForTesting;
+            try
+            {
+                MapRenderTrace.Reset();
+                MapRenderTrace.ForceEnabledForTesting = false;
+                Assert.False(MapRenderTrace.ShouldEmitFailClosedOnChange("pid-1", "rec|nested-soi"));
+            }
+            finally
+            {
+                MapRenderTrace.ForceEnabledForTesting = prevForce;
+                MapRenderTrace.Reset();
+            }
+        }
+
+        [Fact]
         public void EmitFailClosedToFaithful_SupportedDecision_EmitsNothing()
         {
             // A SUPPORTED decision must NOT reach the emit gate (no spurious fail-closed line for a

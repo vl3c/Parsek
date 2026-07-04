@@ -170,5 +170,70 @@ namespace Parsek.Tests
             Assert.Empty(subtree.VisitedBodies);
             Assert.False(subtree.IsNested);
         }
+
+        // ---- Review S15: the payload is scoped to the ROOT'S SOI HIERARCHY ----
+
+        [Fact]
+        public void TryBuild_KerbinDepartureJoolTour_PayloadScopedToSubtree()
+        {
+            // THE S15 case: a real Kerbin-departure Jool tour. The nesting DECISION still fires (Laythe +
+            // Tylo are siblings under Jool), but the PAYLOAD must contain only the subtree: Kerbin (the
+            // departure body) and Sun (the interplanetary transfer) are NOT part of the Jool hierarchy, so
+            // VisitedBodies excludes them and the Kerbin->Sun / Sun->Jool legs are NOT intra-subtree
+            // crossings. Pre-S15 both leaked in, so every consumer (the Tier-A fail-closed detail line,
+            // the future recursive producer) read an interplanetary transfer as a moon hop.
+            var bodies = new List<string> { "Kerbin", "Sun", "Jool", "Laythe", "Tylo" };
+            NestedSoiSubtree subtree = NestedSoiSubtree.TryBuildFromBodySequence(bodies, Parent);
+
+            Assert.NotNull(subtree);
+            Assert.Equal("Jool", subtree.RootBody);
+            Assert.Equal(new[] { "Jool", "Laythe", "Tylo" }, subtree.VisitedBodies);
+            Assert.Equal(2, subtree.CrossingCount); // Jool->Laythe, Laythe->Tylo only
+            foreach (SoiCrossing c in subtree.Crossings)
+            {
+                Assert.NotEqual("Kerbin", c.FromBody);
+                Assert.NotEqual("Sun", c.FromBody);
+                Assert.NotEqual("Kerbin", c.ToBody);
+                Assert.NotEqual("Sun", c.ToBody);
+            }
+        }
+
+        [Fact]
+        public void TryBuild_MoonsOnlyTour_PayloadStartsAtFirstVisitedMoon()
+        {
+            // A tour that never orbits Jool itself (moon-to-moon only after the transfer): the subtree
+            // payload is just the visited moons, in first-visit order, and the single intra-subtree
+            // crossing is the moon hop.
+            var bodies = new List<string> { "Kerbin", "Sun", "Laythe", "Tylo" };
+            NestedSoiSubtree subtree = NestedSoiSubtree.TryBuildFromBodySequence(bodies, Parent);
+
+            Assert.NotNull(subtree);
+            Assert.Equal("Jool", subtree.RootBody);
+            Assert.Equal(new[] { "Laythe", "Tylo" }, subtree.VisitedBodies);
+            Assert.Equal(1, subtree.CrossingCount); // Laythe->Tylo
+        }
+
+        // ---- Review N11: FindNestedRoot resolves deterministically (first-visit order) ----
+
+        [Fact]
+        public void TryBuild_TwoQualifyingParents_RootIsFirstVisitedParent()
+        {
+            // Two qualifying nested roots in one sequence (Mun+Minmus under Kerbin, Laythe+Tylo under
+            // Jool): the root must resolve by FIRST-VISIT order of the visited bodies, never by
+            // Dictionary iteration order (insertion-order-ish today, but not contractual across runtimes).
+            // Forward order picks Kerbin; reversed picks Jool - deterministic both ways.
+            NestedSoiSubtree forward = NestedSoiSubtree.TryBuildFromBodySequence(
+                new List<string> { "Mun", "Minmus", "Laythe", "Tylo" }, Parent);
+            Assert.NotNull(forward);
+            Assert.Equal("Kerbin", forward.RootBody);
+            Assert.Equal(new[] { "Mun", "Minmus" }, forward.VisitedBodies);
+            Assert.Equal(1, forward.CrossingCount); // Mun->Minmus only
+
+            NestedSoiSubtree reversed = NestedSoiSubtree.TryBuildFromBodySequence(
+                new List<string> { "Laythe", "Tylo", "Mun", "Minmus" }, Parent);
+            Assert.NotNull(reversed);
+            Assert.Equal("Jool", reversed.RootBody);
+            Assert.Equal(new[] { "Laythe", "Tylo" }, reversed.VisitedBodies);
+        }
     }
 }

@@ -26,7 +26,6 @@ namespace Parsek.InGameTests
     public class SuppressedMarkerOwnedDrawInGameTest
     {
         private const string KerbinBodyName = "Kerbin";
-        private const double KerbinRadiusFallback = 600000.0;
 
         [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
             Description = "Phase 4b/5b marker draw: RunFrame over a live below-atmosphere ghost draws our "
@@ -185,7 +184,6 @@ namespace Parsek.InGameTests
         // below-atmosphere / no-bounds case whose marker the icon floor would otherwise carry.
         private static Recording BuildNonOrbitalRecording(double startUT, double endUT, CelestialBody kerbin)
         {
-            double radius = kerbin != null ? kerbin.Radius : KerbinRadiusFallback;
             var rec = new Recording
             {
                 RecordingId = "suppressedmarker-own-" + System.Guid.NewGuid().ToString("N"),

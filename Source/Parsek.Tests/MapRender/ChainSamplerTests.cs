@@ -218,5 +218,65 @@ namespace Parsek.Tests
             var s = ChainSampler.Sample(chain, liveUT, units);
             Assert.Equal(Coverage.OutsideWindow, s.Coverage);
         }
+
+        // ---- Review N6: the in-segment projection is cached (Emit is UT-independent) ----
+
+        [Fact]
+        public void PhaseChain_TwoDifferentUts_ProjectSameSegment_DifferentDriveUt()
+        {
+            // THE N6 UT-independence pin: the sampler serves the CACHED projected segment (computed once
+            // per phase), so two samples at different UTs inside the same phase must project the
+            // identical geometry while the DriveUT tracks each sample. If a future Emit implementation
+            // starts reading ctx.SampleUt, the segment payloads diverge and this test goes red - the
+            // signal that the TryGetFirstEmittedSegmentCached cache must be removed.
+            PhaseChain chain = PhaseChainTwoConics();
+            var s1 = ChainSampler.Sample(chain, 102, NonLooped);
+            var s2 = ChainSampler.Sample(chain, 108, NonLooped);
+
+            Assert.Equal(Coverage.InSegment, s1.Coverage);
+            Assert.Equal(Coverage.InSegment, s2.Coverage);
+            Assert.Equal(102, s1.DriveUT);
+            Assert.Equal(108, s2.DriveUT); // the REAL per-frame UT still flows into the sample
+            Assert.Equal(s1.Segment.StartUT, s2.Segment.StartUT);
+            Assert.Equal(s1.Segment.EndUT, s2.Segment.EndUT);
+            Assert.Equal(s1.Segment.FrameBodyName, s2.Segment.FrameBodyName);
+            Assert.Equal(s1.Segment.Treatment, s2.Segment.Treatment);
+            Assert.Equal(
+                s1.Segment.Payload.Conic.semiMajorAxis, s2.Segment.Payload.Conic.semiMajorAxis);
+        }
+
+        [Fact]
+        public void TryGetFirstEmittedSegmentCached_RepeatedCalls_ReturnSameGeometry()
+        {
+            var anchor = new Parsek.MapRender.AnchorFrame.BodyAnchor("Kerbin");
+            var phase = new DepartureLoiterPhase(
+                new PhaseId("rec-C", 0, 0), SegmentProvenance.Recorded, anchor, 100, 110,
+                new OrbitSegment { startUT = 100, endUT = 110, bodyName = "Kerbin", semiMajorAxis = 700000 });
+
+            Assert.True(phase.TryGetFirstEmittedSegmentCached(out RenderSegment first));
+            Assert.True(phase.TryGetFirstEmittedSegmentCached(out RenderSegment second));
+            Assert.Equal(first.StartUT, second.StartUT);
+            Assert.Equal(first.FrameBodyName, second.FrameBodyName);
+            Assert.Equal(Treatment.StockConic, second.Treatment);
+
+            // And it matches a direct Emit projection (the cache is the same projection, computed once).
+            foreach (RenderSegment emitted in phase.Emit(
+                new SampleContext(100, "Kerbin")))
+            {
+                Assert.Equal(emitted.StartUT, first.StartUT);
+                Assert.Equal(emitted.EndUT, first.EndUT);
+                Assert.Equal(emitted.FrameBodyName, first.FrameBodyName);
+                break;
+            }
+        }
+
+        [Fact]
+        public void TryGetFirstEmittedSegmentCached_HoldPhase_ReturnsFalse()
+        {
+            var anchor = new Parsek.MapRender.AnchorFrame.BodyAnchor("Kerbin");
+            var hold = new HoldPhase(new PhaseId("rec-C", 0, 0), anchor, 100, 130);
+            Assert.False(hold.TryGetFirstEmittedSegmentCached(out _));
+            Assert.False(hold.TryGetFirstEmittedSegmentCached(out _)); // stable on repeat
+        }
     }
 }

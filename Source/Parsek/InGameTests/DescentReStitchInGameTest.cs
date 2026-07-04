@@ -110,11 +110,11 @@ namespace Parsek.InGameTests
 
                 // --- TRIGGERED frame: the stitcher promotes a visible TracedPath descent at the re-anchored head ---
                 bool stitched = CrossMemberSeamStitcher.TryStitchDescentSeam(
-                    chain, sampleUT: triggeredLiveUT, liveUT: triggeredLiveUT, units, out GhostSample sample);
+                    chain, liveUT: triggeredLiveUT, units, out GhostSample sample);
 
                 // --- PAST-END frame: the stitcher retires (no held sample) so the sub-surface ghost retires ---
                 bool stitchedPastEnd = CrossMemberSeamStitcher.TryStitchDescentSeam(
-                    chain, sampleUT: pastEndLiveUT, liveUT: pastEndLiveUT, units, out GhostSample pastSample);
+                    chain, liveUT: pastEndLiveUT, units, out GhostSample pastSample);
 
                 ParsekLog.Info("TestRunner", string.Format(CultureInfo.InvariantCulture,
                     "DescentReStitch result: triggered stitched={0} cov={1} treat={2} "

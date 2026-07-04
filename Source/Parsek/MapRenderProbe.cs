@@ -85,6 +85,11 @@ namespace Parsek
         // VerboseOnChange dict) so the scene-change clear is a single Clear() and
         // the just-reset suppression is exact.
         private readonly Dictionary<uint, Vector3d> prevWorldPos = new Dictionary<uint, Vector3d>();
+        // Review N18: the last rendered-orbit epoch that PASSED the synth-parity baked-epoch gate, per
+        // pid. Lets the epoch-gate skip classifier name the reseed transient (orbit still baked to the
+        // PRIOR seed's epoch) instead of logging it UNEXPLAINED. Cleared with the rest of the per-pid
+        // state on scene switch.
+        private readonly Dictionary<uint, double> lastBakedSynthEpochByPid = new Dictionary<uint, double>();
         // Body-relative (orbit-frame) position per pid = GetWorldPos3D - referenceBody.position.
         // This is the icon-jump DECISION quantity. prevWorldPos above is retained only to log
         // the raw-world delta as context (so a re-test shows the frame contamination magnitude).
@@ -235,6 +240,7 @@ namespace Parsek
             lastPolylineOverlapEmitRealtime.Clear();
             firstPositionEmittedPids.Clear();
             lastUnaccountedEmitRealtime.Clear();
+            lastBakedSynthEpochByPid.Clear();
         }
 
         void LateUpdate()
@@ -1400,18 +1406,35 @@ namespace Parsek
             if (!IsSynthEpochConventionBaked(
                     renderedOrbit.epoch, intendedSeg.epoch, loopShift, out bool isRawConvention))
             {
-                ParsekLog.VerboseRateLimited("MapRender", "synth-parity-epoch-gate",
+                // Review N18: classify the skip (pure helper) and SPLIT the rate-limit key by class -
+                // the two known transients aggregate per class, but an UNEXPLAINED epoch keys per pid so
+                // one ghost's steady mystery cannot swallow another ghost's first occurrence. The
+                // prior-seed case (orbit still baked to the PREVIOUS seed's epoch on a reseed frame) is
+                // labeled distinctly instead of UNEXPLAINED so sign-off logs read clean.
+                double lastBaked = lastBakedSynthEpochByPid.TryGetValue(pid, out double lb)
+                    ? lb : double.NaN;
+                SynthEpochSkipClass skipClass =
+                    ClassifySynthEpochSkip(isRawConvention, renderedOrbit.epoch, lastBaked);
+                string rateKey =
+                    skipClass == SynthEpochSkipClass.Unexplained
+                        ? "synth-parity-epoch-gate-unexplained-"
+                            + pid.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        : (skipClass == SynthEpochSkipClass.RawTransient
+                            ? "synth-parity-epoch-gate-raw"
+                            : "synth-parity-epoch-gate-prior-seed");
+                ParsekLog.VerboseRateLimited("MapRender", rateKey,
                     string.Format(ic,
                         "Synth parity skipped: rendered orbit epoch={0:F3} is not the baked convention "
                         + "(seg.epoch={1:F3} + loopShift={2:F1}) - {3} pid={4} recId={5} frame={6}",
                         renderedOrbit.epoch, intendedSeg.epoch, loopShift,
-                        isRawConvention
-                            ? "RAW epoch (creation/rebind transient, measured next baked frame)"
-                            : "UNEXPLAINED epoch convention",
+                        DescribeSynthEpochSkip(skipClass),
                         pid, recId ?? "<none>", frame),
                     5.0);
                 return;
             }
+            // Remember the last epoch that PASSED the baked gate for this pid: it is the prior-seed
+            // reference the classifier above uses to name a reseed transient.
+            lastBakedSynthEpochByPid[pid] = renderedOrbit.epoch;
 
             SynthesizedConicParitySample sample = ComputeSynthesizedConicParity(
                 renderedOrbit, renderedBody, intendedSeg, seedBody, loopShift, currentUT, effUT);
@@ -1714,6 +1737,53 @@ namespace Parsek
         /// raw and baked conventions coincide: the gate passes and reports non-raw (measurable either way).
         /// internal + pure for direct xUnit coverage.
         /// </summary>
+        /// <summary>
+        /// Review N18: the three classes of a synth-parity epoch-gate SKIP. The two transients are
+        /// expected one-frame states (measured again once the icon-drive bakes); only Unexplained is
+        /// worth eyes in a sign-off log.
+        /// </summary>
+        internal enum SynthEpochSkipClass : byte
+        {
+            /// <summary>Orbit still carries the RAW seg.epoch (creation / rebind frame, not yet baked).</summary>
+            RawTransient = 0,
+            /// <summary>Orbit still baked to the PREVIOUS seed's epoch (a reseed frame).</summary>
+            PriorSeedTransient = 1,
+            /// <summary>Matches neither convention nor the prior baked epoch.</summary>
+            Unexplained = 2,
+        }
+
+        /// <summary>
+        /// Pure (review N18): classify an epoch-gate skip. <paramref name="isRawConvention"/> comes from
+        /// <see cref="IsSynthEpochConventionBaked"/>; <paramref name="lastBakedEpoch"/> is the last epoch
+        /// that PASSED the gate for this pid (NaN when none seen yet). Same 0.5s slack as the gate.
+        /// </summary>
+        internal static SynthEpochSkipClass ClassifySynthEpochSkip(
+            bool isRawConvention, double renderedEpoch, double lastBakedEpoch)
+        {
+            const double EpochSlackSeconds = 0.5;
+            if (isRawConvention)
+                return SynthEpochSkipClass.RawTransient;
+            if (!double.IsNaN(lastBakedEpoch) && !double.IsInfinity(lastBakedEpoch)
+                && !double.IsNaN(renderedEpoch)
+                && System.Math.Abs(renderedEpoch - lastBakedEpoch) <= EpochSlackSeconds)
+                return SynthEpochSkipClass.PriorSeedTransient;
+            return SynthEpochSkipClass.Unexplained;
+        }
+
+        /// <summary>Grep-stable log label for an epoch-gate skip class. Pure.</summary>
+        internal static string DescribeSynthEpochSkip(SynthEpochSkipClass skipClass)
+        {
+            switch (skipClass)
+            {
+                case SynthEpochSkipClass.RawTransient:
+                    return "RAW epoch (creation/rebind transient, measured next baked frame)";
+                case SynthEpochSkipClass.PriorSeedTransient:
+                    return "PRIOR-SEED baked epoch (reseed transient, re-measured once the new seed bakes)";
+                default:
+                    return "UNEXPLAINED epoch convention";
+            }
+        }
+
         internal static bool IsSynthEpochConventionBaked(
             double renderedEpoch, double segEpoch, double loopShift, out bool isRawConvention)
         {

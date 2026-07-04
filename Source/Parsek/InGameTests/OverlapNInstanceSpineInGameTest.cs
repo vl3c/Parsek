@@ -75,8 +75,6 @@ namespace Parsek.InGameTests
             var headsByCycleSlot = new HashSet<long>();   // distinct selected-cycle head buckets observed
             var distinctHeads = new HashSet<double>();
             GhostRenderIntent prior = GhostRenderIntent.Hidden();
-            bool everHiddenAfterVisible = false;
-            bool everVisible = false;
             int sampleCount = 0;
             int distinctCycleCount = 0;
 
@@ -120,15 +118,15 @@ namespace Parsek.InGameTests
                         "the spine's DriveUT must equal the legacy single-head UT at liveUT={0:F1} (ResolveTrackin"
                         + "gStationSampleUT) - the map ghost rides ONE span instance, never enumerating N", liveUT));
 
-                // Visibility / no-blink: once visible, never spuriously Hidden mid-cycle.
+                // Visibility / no-blink: once visible, never spuriously Hidden mid-cycle. This per-sample
+                // assert IS the no-blink invariant (review N17: the old everHiddenAfterVisible tracking +
+                // final assert were provably dead - InGameAssert aborts the test at the FIRST non-visible
+                // sample, so the flag could never reach the end true; the per-sample assert is strictly
+                // stronger).
                 InGameAssert.IsTrue(intent.Visible,
                     string.Format(CultureInfo.InvariantCulture,
                         "the overlap ghost must be VISIBLE at every in-window liveUT={0:F1} (never blink Hidden "
                         + "mid-cycle - the looped overlap no-blink invariant)", liveUT));
-                if (everVisible && !intent.Visible)
-                    everHiddenAfterVisible = true;
-                if (intent.Visible)
-                    everVisible = true;
 
                 distinctHeads.Add(System.Math.Round(sample.DriveUT, 3));
                 prior = intent;
@@ -146,13 +144,9 @@ namespace Parsek.InGameTests
                 string.Format(CultureInfo.InvariantCulture,
                     "the spine must resolve >= 2 DISTINCT selected-cycle head-UTs across the span (saw {0}); a "
                     + "regression that froze the head on one cycle would collapse these to 1", distinctHeads.Count));
-            InGameAssert.IsFalse(everHiddenAfterVisible,
-                "across the overlap span the ghost must NEVER blink Hidden once it has become visible - the "
-                + "looped overlap no-blink invariant");
-
             ParsekLog.Info("TestRunner", string.Format(CultureInfo.InvariantCulture,
-                "OverlapNInstance SUMMARY: samples={0} distinctCycles={1} distinctHeads={2} everHiddenAfterVis={3}",
-                sampleCount, distinctCycleCount, distinctHeads.Count, everHiddenAfterVisible));
+                "OverlapNInstance SUMMARY: samples={0} distinctCycles={1} distinctHeads={2}",
+                sampleCount, distinctCycleCount, distinctHeads.Count));
         }
 
         // Copied verbatim from ChainSamplerTests.cs:72 (OverlapUnit) minus the xUnit Assert (replaced by an

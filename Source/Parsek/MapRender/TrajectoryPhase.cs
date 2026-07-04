@@ -83,8 +83,11 @@ namespace Parsek.MapRender
         /// design §6: does this phase own <paramref name="ut"/> (assembled-chain clock)? Default is the
         /// half-open interval <c>[StartUt, EndUt)</c> so a UT shared with the next phase's start belongs
         /// to the LATER phase (mirroring <see cref="GhostRenderChain.LocateSegmentIndex"/>). The CHAIN
-        /// is responsible for the inclusive end of the LAST phase. Subclasses override only when their
-        /// coverage is special (e.g. <see cref="HoldPhase"/> must cover an entire warp-skipped span).
+        /// is responsible for the inclusive end of the LAST phase. NO current subclass overrides this -
+        /// in particular <see cref="HoldPhase"/> deliberately does NOT: its [StartUt, EndUt) base
+        /// interval IS the warp-skipped span it must cover, so the base implementation is already correct
+        /// for it (review N2; do not add a HoldPhase override). A future subclass overrides only if its
+        /// coverage genuinely differs from its [StartUt, EndUt) bounds.
         /// </summary>
         internal virtual bool CoversUt(double ut)
         {
@@ -100,6 +103,44 @@ namespace Parsek.MapRender
         /// kernels. A phase with no geometry this frame (e.g. <see cref="HoldPhase"/>) yields nothing.
         /// </summary>
         internal abstract IEnumerable<RenderSegment> Emit(SampleContext ctx);
+
+        // Review N6: the ChainSampler's per-frame InSegment projection used to run Emit(ctx) EVERY frame
+        // per ghost - an iterator allocation on the path that went hot at the cutover flip. Emit is
+        // UT-INDEPENDENT (no implementation reads ctx.SampleUt) and the anchor-derived frame body is
+        // fixed at construction, so the FIRST emitted segment is cacheable once per phase instance.
+        // Phases are immutable after construction (the ShadowRenderDriver caches whole PhaseChains per
+        // pid signature), so no invalidation is needed. If a future Emit implementation starts reading
+        // ctx.SampleUt this cache MUST go - ChainSamplerTests pins the UT-independence so that change
+        // fails loudly instead of silently serving a stale frame.
+        private bool firstEmitCached;
+        private bool firstEmitHasGeometry;
+        private RenderSegment firstEmitSegment;
+
+        /// <summary>
+        /// The phase's first emitted <see cref="RenderSegment"/>, computed once (context: StartUt + the
+        /// anchor body fallback, the SAME projection <c>GeometryParityComparator.ProjectGeometry</c>
+        /// uses) and cached. False when the phase emits no geometry (<see cref="HoldPhase"/>).
+        /// </summary>
+        internal bool TryGetFirstEmittedSegmentCached(out RenderSegment seg)
+        {
+            if (!firstEmitCached)
+            {
+                string frameBody = (Anchor is AnchorFrame.BodyAnchor body) ? body.BodyName : null;
+                var ctx = new SampleContext(StartUt, frameBody);
+                foreach (RenderSegment s in Emit(ctx))
+                {
+                    firstEmitSegment = s;
+                    firstEmitHasGeometry = true;
+                    break;
+                }
+                // Marked cached only AFTER a successful enumeration: if a future Emit threw, the next
+                // call rethrows (like the old per-frame inline projection did) instead of silently
+                // serving "no geometry" forever (review follow-up nit).
+                firstEmitCached = true;
+            }
+            seg = firstEmitSegment;
+            return firstEmitHasGeometry;
+        }
 
         public override string ToString()
             => string.Format(
