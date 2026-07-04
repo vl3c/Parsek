@@ -1787,7 +1787,12 @@ namespace Parsek.Logistics
             route.CachedLoopUnit = built ? unit : (GhostPlaybackLogic.LoopUnit?)null;
             route.LoopUnitBuilderSignature = builderSignature;
             route.LoopUnitTopologySignature = topologySignature;
-            ParsekLog.Verbose(Tag,
+            // Rate-limited per route+reason: a quantization-boundary thrash (loaded
+            // anchor under thrust straddling the 1s period floor) rebuilds with a
+            // constant reason on every Tick and Logistics-window OnGUI frame; the
+            // reason in the key keeps distinct transitions individually visible.
+            ParsekLog.VerboseRateLimited(Tag,
+                "loop-unit-cache-rebuild-" + route.Id + "-" + rebuildReason,
                 $"ResolveLoopUnit: route {ShortIdForLog(route)} loop-unit cache rebuilt " +
                 $"reason={rebuildReason} built={(built ? "1" : "0")} " +
                 $"tree={route.BackingMissionTreeId ?? "<null>"} at ut={currentUT.ToString("R", IC)}");
