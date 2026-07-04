@@ -62,6 +62,11 @@ namespace Parsek.MapRender
             var phases = Phases;
             int n = phases.Count;
             if (n == 0) return -1;
+            // INTENTIONAL HARDENING (deliberately stricter than the legacy GhostRenderChain.LocateSegmentIndex,
+            // which has no NaN/Inf guard): a non-finite UT cannot match any phase, so short-circuit to -1.
+            // Unreachable from the live span clock (ResolveTrackingStationSampleUT never yields NaN/Inf for a
+            // finite liveUT), so this is a no-op in production and the two intended-mirror chains stay
+            // byte-identical for every finite UT; it only closes a degenerate non-finite input deterministically.
             if (double.IsNaN(ut) || double.IsInfinity(ut)) return -1;
 
             // rightmost phase with StartUt <= ut
@@ -107,6 +112,11 @@ namespace Parsek.MapRender
         {
             phase = null;
             index = -1;
+            // INTENTIONAL HARDENING (deliberately stricter than the legacy GhostRenderChain.ClassifyCoverage,
+            // which lets a NaN UT fall through to InInteriorGap via the < / > comparisons): a non-finite UT
+            // classifies OutsideWindow -> Hidden. Unreachable from the live span clock (a finite liveUT never
+            // produces a non-finite assembled UT), so it never diverges from the legacy chain in production; it
+            // only fail-safes a degenerate non-finite input to Hidden rather than a held stale intent.
             if (double.IsNaN(ut) || double.IsInfinity(ut))
                 return Coverage.OutsideWindow;
             if (ut < WindowStartUt || ut > WindowEndUt)
