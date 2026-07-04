@@ -612,6 +612,12 @@ namespace Parsek
                 {
                     if (toggled) mission.ExcludedIntervalKeys.Remove(node.HeadLegId);
                     else mission.ExcludedIntervalKeys.Add(node.HeadLegId);
+                    // Any interval edit is authored against CURRENT key numbering. A gen-0
+                    // mission whose tree was uncommitted at load (reconcile stamp DEFERRED)
+                    // becomes editable once the tree commits mid-session; without this stamp
+                    // the next load's generation-0 reconcile would wrongly extend the fresh
+                    // selection across @dock sub-siblings the player deliberately kept.
+                    mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;
                     ParsekLog.Info("Mission",
                         $"Mission '{mission.Name}' interval '{node.HeadLegId}' included={toggled}");
                 }

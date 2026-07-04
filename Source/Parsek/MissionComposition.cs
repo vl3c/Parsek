@@ -438,6 +438,10 @@ namespace Parsek
                     // overcounts by it) - accepted for a logged fallback path. namedBase is
                     // deliberately NOT flipped by partner names: a nameless head base keeps
                     // counting through crewFallback so the head's unnamed crew are not lost.
+                    // The mirror direction is also accepted: a NAMED head base with a NAMELESS
+                    // partner (CrewCount>0, no CrewNames) undercounts by the partner's crew
+                    // (crew = roster.Count; the partner reached only crewFallback) - strictly
+                    // no worse than pre-M-MIS-5, which added nothing on this path.
                     for (int p = 0; p < merge.BranchParentIds.Count; p++)
                     {
                         string parentId = merge.BranchParentIds[p];
