@@ -13,9 +13,28 @@ namespace Parsek.MapRender
     /// (<c>HasConic</c> + the Kepler elements when present); chain-level it checks <c>WindowStartUt</c>,
     /// <c>WindowEndUt</c>, and <c>IsFaithfulFallback</c> (<c>GhostRenderChain.cs:24-27</c> — they drive
     /// coverage/clip and matter for the trimmed-window route case). <see cref="PhaseKind"/> /
-    /// <see cref="SegmentProvenance"/> (and the legacy cosmetic <c>SegmentKind</c> / <c>IsGenerated</c>)
-    /// are DELIBERATELY NOT in the parity set — they are validated by the Phase-1 unit tests, not this
-    /// gate (design §6 / plan §4).</para>
+    /// <see cref="SegmentProvenance"/> (and the legacy cosmetic <c>SegmentKind</c>) are DELIBERATELY NOT
+    /// in the parity set — they are validated by the Phase-1 unit tests, not this gate (design §6 / plan §4).</para>
+    ///
+    /// <para><b>Why seams (<c>LeadingSeam</c> / <c>TrailingSeam</c>) and <c>IsGenerated</c> are NOT compared
+    /// (Phase-10 A4 decide: GATE, not compare).</b> The factory deliberately builds every phase with NULL
+    /// seams (<c>PhaseFactory.ClassifySegment</c>: seam reproduction is a spine-side re-derivation concern,
+    /// landing at Phase 5b), so a factory segment projects <see cref="SeamKind.None"/> while the assembler
+    /// stamps Rigid/FlexibleSoi (<c>ChainAssembler.AssignSeams</c>) — they DIVERGE today by construction.
+    /// Comparing them would force the factory to stamp seams to match (a producer change this test layer is
+    /// forbidden to make) AND would false-fail every real factory-vs-assembler build (e.g.
+    /// <c>PhaseFactoryTests.FullChain_FactoryGeometry_ByteMatchesAssembler</c>). They are LEGITIMATELY
+    /// draw-irrelevant TODAY: the <see cref="GhostRenderDirector"/> reduces a sampled
+    /// <see cref="RenderSegment"/> to (<c>Treatment</c>, <c>Payload</c>, <c>FrameBodyName</c>, visibility)
+    /// in the <see cref="GhostRenderIntent"/> it emits, and the two LIVE PIXEL-DRAW paths
+    /// (<c>Patches/GhostOrbitLinePatch.cs</c> for StockConic, <c>Display/GhostTrajectoryPolylineRenderer.cs</c>
+    /// for TracedPath) read NEITHER seam fields NOR <c>IsGenerated</c> off a spine-emitted segment (they
+    /// draw from <see cref="Recording"/> / <see cref="Orbit"/> / the intent). So omitting them cannot let a
+    /// draw-affecting divergence pass. Rather than leave the omission SILENT, it is GUARDED: the
+    /// <c>SeamFieldsDrawIrrelevantSourceGateTests</c> source gate asserts those two draw files keep reading
+    /// zero <c>RenderSegment</c> seam / <c>IsGenerated</c> fields, so when Phase 5b makes the descent G1
+    /// seam load-bearing at the draw layer the gate fails and forces this comparator (and the factory's
+    /// seam stamping) to be revisited at exactly the right time.</para>
     ///
     /// <para>The factory's geometry is obtained by projecting each phase through
     /// <see cref="TrajectoryPhase.Emit"/> (a phase with no geometry — <see cref="HoldPhase"/> — yields
@@ -175,6 +194,13 @@ namespace Parsek.MapRender
                     return conic;
             }
 
+            // NOTE (Phase-10 A4): factory.LeadingSeam / factory.TrailingSeam / factory.IsGenerated are
+            // INTENTIONALLY NOT compared here. The factory builds null seams (-> SeamKind.None) while the
+            // assembler stamps Rigid/FlexibleSoi, so they diverge by construction (seam re-derivation is a
+            // spine-side / Phase-5b concern). They are also draw-irrelevant today (the director drops them
+            // when it forms the GhostRenderIntent, and neither live draw path reads them off a spine
+            // segment). The omission is GUARDED, not silent, by SeamFieldsDrawIrrelevantSourceGateTests.
+            // See the class-header "Why seams ... are NOT compared" section for the full justification.
             return ParityResult.Match;
         }
 
