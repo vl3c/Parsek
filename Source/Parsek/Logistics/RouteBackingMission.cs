@@ -762,8 +762,10 @@ namespace Parsek.Logistics
         // logs nothing). Catches count-neutral mutations (e.g. a paired
         // discard + re-fly batched into one observation while the route was not
         // ghost-driving). "<no-tree>" when the tree is not committed (yet), so
-        // the cache re-derives once when it appears.
-        private static string ComputeTopologySignature(RecordingTree tree)
+        // the cache re-derives once when it appears. Internal (M-MIS-11 item 1):
+        // the orchestrator's loop-unit cache reuses this EXACT signature scheme
+        // rather than inventing a second one.
+        internal static string ComputeTopologySignature(RecordingTree tree)
         {
             if (tree == null)
                 return "<no-tree>";
