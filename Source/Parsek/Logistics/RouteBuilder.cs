@@ -433,7 +433,12 @@ namespace Parsek.Logistics
                 // window through DockMemberRecordingId).
                 DockMemberRecordingId = (lastAnalysisStop.SourceRecording ?? source).RecordingId,
                 LoopAnchorUT = loopAnchorUT,
-                LastObservedLoopCycleIndex = -1
+                LastObservedLoopCycleIndex = -1,
+                // M5 (D3): a fresh route starts with the residual-modulo anchor
+                // unset - the first owed crossing on a windowed route adopts it
+                // and delivers. Explicit (matches the field default) so the
+                // creation-default contract is visible at the build site.
+                WindowAnchorCycleIndex = -1
             };
 
             LogBuiltRoute(routeId, originLabel, origin, source, rootLaunchUT, undockUT,

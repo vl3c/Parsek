@@ -210,6 +210,10 @@ namespace Parsek.Logistics
                 // "no cycle fired yet" so the first post-activate crossing of each
                 // window fires exactly once.
                 ResetStopFireState(route);
+                // M5 (D3): the residual-modulo offset anchor resets wherever the
+                // cycle cursor rebases - the first post-activate crossing on a
+                // windowed route re-anchors and delivers (anchor adoption).
+                route.WindowAnchorCycleIndex = -1;
             }
 
             // M6 hold reasons: activation resets loop observation, so a
@@ -677,6 +681,24 @@ namespace Parsek.Logistics
                 return;
             }
 
+            // M5 (D1/D6): derive the route-side window basis once per tick from
+            // the resolved unit and run the basis-flip transition evaluator
+            // BEFORE any crossing consumption - a build-level flip re-baselines
+            // the cycle cursors between the flat and window index spaces
+            // (Engage: the review-C6 permanent-silent-skip guard; Decline: the
+            // mis-fire guard, no fire this tick by construction). Behaviorally
+            // inert for flat routes (basis FlatInterval + marker false =
+            // steady-state None; no field writes, no logs).
+            RouteWindowBasis basis = RouteLoopClock.DeriveWindowBasis(unit);
+            ApplyWindowBasisTransition(route, basis, loopUT, cycleIndex, currentUT);
+
+            // M5 (D2): the residual cadence modulo - live only when > 1, which
+            // is only possible under the ReaimWindows basis (flat: N is fully
+            // consumed by the flat cadence DispatchInterval = N x span;
+            // zero-drift: N is fully consumed Missions-side by the schedule's
+            // minSpacing throttle, sIdx indexes the THROTTLED launch list).
+            int nResidual = RouteLoopClock.ResolveResidualCadence(basis, route.CadenceMultiplier);
+
             // M4a A3 (Horn A, BLOCKER-1 fix): a multi-stop DELIVERY route fires N
             // windows under ONE cycleId, each at its OWN recorded dock phase via the
             // loop clock. The dispatch half fires once (cycle open), each window's
@@ -703,6 +725,7 @@ namespace Parsek.Logistics
                 {
                     ProcessMultiStopCrossings(
                         route, currentUT, env, unit, loopUT, cycleIndex, isInInterCycleTail,
+                        basis, nResidual,
                         ref dispatched, ref transitioned, ref skipped, out stillDue);
                     passes++;
                 }
@@ -767,6 +790,63 @@ namespace Parsek.Logistics
                     $"LoopRoute: route {ShortIdForLog(route)} warp jump={jump.ToString(IC)} " +
                     $"(lastObserved={route.LastObservedLoopCycleIndex.ToString(IC)} -> " +
                     $"dockCycleIndex={dockCycleIndex.ToString(IC)}); firing ONCE and snapping forward");
+            }
+
+            // M5 (D2/D3/D4/D5): the residual cadence modulo, live only under the
+            // ReaimWindows basis (nResidual > 1 is impossible elsewhere, D2).
+            // Decided AFTER the crossing is confirmed and BEFORE the cycleId /
+            // eligibility machinery, so a skipped window touches neither.
+            if (nResidual > 1)
+            {
+                if (route.WindowAnchorCycleIndex < 0)
+                {
+                    // D3 anchor adoption: the first owed crossing after creation /
+                    // activation / rebase / engage anchors the modulo and DELIVERS
+                    // (fall through to the fire path below).
+                    route.WindowAnchorCycleIndex = dockCycleIndex;
+                    ParsekLog.Info(Tag,
+                        $"LoopRoute: route {ShortIdForLog(route)} window-anchor ADOPTED " +
+                        $"anchor={dockCycleIndex.ToString(IC)} (N={nResidual.ToString(IC)} basis={basis}) " +
+                        $"- this window delivers, every {nResidual.ToString(IC)}th after it");
+                }
+                else
+                {
+                    long deliverable = RouteLoopClock.ComputeHighestDeliverableWindow(
+                        route.LastObservedLoopCycleIndex, dockCycleIndex,
+                        route.WindowAnchorCycleIndex, nResidual);
+                    if (deliverable == RouteLoopClock.NoDeliverableWindow)
+                    {
+                        // D4: a modulo-SKIPPED window advances the marker and
+                        // NOTHING else. No SkippedCycles bump (scheduled behavior,
+                        // not a failure; cycleId uniqueness is per FIRED cycle
+                        // only), no hold, no ledger rows, no escrow, no
+                        // partner-alternation advance. The skip IS the "next
+                        // crossing" for the previously dispatched cycle, so its
+                        // pending recovery credit flushes here (OQ3), mirroring
+                        // the blocked path above.
+                        EmitPendingRecoveryCredit(route, currentUT, env);
+                        route.LastObservedLoopCycleIndex = dockCycleIndex;
+                        skipped++;
+                        ParsekLog.VerboseRateLimited(Tag, "loop-modulo-skip-" + route.Id,
+                            $"LoopRoute: route {ShortIdForLog(route)} window {dockCycleIndex.ToString(IC)} " +
+                            $"SKIPPED by cadence modulo (N={nResidual.ToString(IC)} " +
+                            $"anchor={route.WindowAnchorCycleIndex.ToString(IC)} basis={basis}) " +
+                            "- marker advanced, nothing emitted", 5.0);
+                        return;
+                    }
+                    if (deliverable != dockCycleIndex)
+                    {
+                        // D5 warp rule: the jump spans a deliverable window plus
+                        // trailing skipped one(s). Fire ONCE for the highest
+                        // deliverable window; the snap below still goes to
+                        // dockCycleIndex (never replay, never re-fire).
+                        ParsekLog.Verbose(Tag,
+                            $"LoopRoute: route {ShortIdForLog(route)} warp spans modulo windows - " +
+                            $"firing for highest deliverable window {deliverable.ToString(IC)} " +
+                            $"within (lastObserved, {dockCycleIndex.ToString(IC)}]; snapping to " +
+                            $"{dockCycleIndex.ToString(IC)}");
+                    }
+                }
             }
 
             // cycleId pins the dispatch+debit+delivered triple under one id
@@ -910,6 +990,7 @@ namespace Parsek.Logistics
         private static void ProcessMultiStopCrossings(
             Route route, double currentUT, IRouteRuntimeEnvironment env,
             GhostPlaybackLogic.LoopUnit unit, double loopUT, long cycleIndex, bool isInInterCycleTail,
+            RouteWindowBasis basis, int nResidual,
             ref int dispatched, ref int transitioned, ref int skipped, out bool stillDue)
         {
             stillDue = false;
@@ -993,6 +1074,55 @@ namespace Parsek.Logistics
                     laterOwed++; // a window of cMin+1.. (processed on a later pass)
             }
             int dueCount = dueStopIndex.Count;
+
+            // M5 (D10): the modulo decision is CYCLE-level, taken once per pass
+            // on cMin, BEFORE the dispatch guard / escrow reserve below. Live
+            // only under the ReaimWindows basis (nResidual > 1, D2). A
+            // non-deliverable cMin is skipped ATOMICALLY - the blocked-cycle
+            // snap shape MINUS the SkippedCycles bump, the hold, and the rows:
+            // every stop's LastFiredCycleIndex and the route marker snap through
+            // cMin, the prior cycle's pending recovery credit flushes (OQ3, the
+            // skip IS its next crossing), no escrow is reserved, and stillDue
+            // reports as usual so a deliverable LATER owed cycle still fires in
+            // this tick's catch-up loop. A partially-fired deliverable cycle
+            // always IS cMin (its stops' cursors lag there until it completes),
+            // so this gate can never strand or leapfrog a half-fired cycle
+            // (review Missed #4).
+            if (nResidual > 1)
+            {
+                if (route.WindowAnchorCycleIndex < 0)
+                {
+                    // D3 anchor adoption: the first owed cycle after creation /
+                    // activation / rebase / engage anchors the modulo and
+                    // delivers (fall through to the dispatch/fire path below).
+                    route.WindowAnchorCycleIndex = cMin;
+                    ParsekLog.Info(Tag,
+                        $"LoopRoute(multi): route {ShortIdForLog(route)} window-anchor ADOPTED " +
+                        $"anchor={cMin.ToString(IC)} (N={nResidual.ToString(IC)} basis={basis}) " +
+                        $"- this cycle delivers, every {nResidual.ToString(IC)}th after it");
+                }
+                else if (!RouteLoopClock.IsDeliverableWindow(
+                    cMin, route.WindowAnchorCycleIndex, nResidual))
+                {
+                    EmitPendingRecoveryCredit(route, currentUT, env);
+                    for (int j = 0; j < stopCount; j++)
+                    {
+                        if (route.Stops[j].LastFiredCycleIndex < cMin)
+                            route.Stops[j].LastFiredCycleIndex = cMin;
+                    }
+                    if (route.LastObservedLoopCycleIndex < cMin)
+                        route.LastObservedLoopCycleIndex = cMin;
+                    skipped++;
+                    stillDue = laterOwed > 0;
+                    ParsekLog.VerboseRateLimited(Tag, "loop-modulo-skip-multi-" + route.Id,
+                        $"LoopRoute(multi): route {ShortIdForLog(route)} window {cMin.ToString(IC)} " +
+                        $"SKIPPED by cadence modulo (N={nResidual.ToString(IC)} " +
+                        $"anchor={route.WindowAnchorCycleIndex.ToString(IC)} basis={basis}) " +
+                        $"- marker+stops snapped, nothing emitted, stillDue={(stillDue ? "1" : "0")}",
+                        5.0);
+                    return;
+                }
+            }
 
             // The cycle's id. The SAFETY PROPERTY (BLOCKER-1 fix) is that the
             // cycleId is unique per FIRED cycle: CompletedCycles + SkippedCycles is
@@ -1355,9 +1485,16 @@ namespace Parsek.Logistics
                 loopUT, cycleIndex, route.RecordedDockUT);
 
             // Engage owes exactly the current window (dock - 1); Decline consumes
-            // the current index (dock) so nothing is owed this tick.
+            // the current index (dock) so nothing is owed this tick. FLOOR at -1
+            // ("nothing consumed yet"): before the FIRST dock of the phase
+            // anchor's window 0 has passed, ComputeDockCycleIndex reports -1 and
+            // an unfloored Engage would set -2, making a nonexistent "window -1"
+            // owed and firing PRE-dock.
             long offset = kind == WindowBasisTransitionKind.Engage ? -1L : 0L;
-            route.LastObservedLoopCycleIndex = routeDockCycle + offset;
+            long rebased = routeDockCycle + offset;
+            if (rebased < -1L)
+                rebased = -1L;
+            route.LastObservedLoopCycleIndex = rebased;
             route.WindowAnchorCycleIndex = -1;
             route.ReaimWindowBasisEngaged = kind == WindowBasisTransitionKind.Engage;
 
@@ -1373,8 +1510,11 @@ namespace Parsek.Logistics
                     RouteStop s = route.Stops[i];
                     if (s == null) continue;
                     double stopDockUT = s.RecordedDockUT >= 0.0 ? s.RecordedDockUT : route.RecordedDockUT;
-                    s.LastFiredCycleIndex = RouteLoopClock.ComputeDockCycleIndex(
+                    long stopRebased = RouteLoopClock.ComputeDockCycleIndex(
                         loopUT, cycleIndex, stopDockUT) + offset;
+                    if (stopRebased < -1L)
+                        stopRebased = -1L;
+                    s.LastFiredCycleIndex = stopRebased;
                     stopsSnapped++;
                 }
             }
