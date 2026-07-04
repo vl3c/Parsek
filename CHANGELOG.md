@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.2
 
+### Features
+
+- A supply route's detail panel now lists its recent cycles' cargo flow (newest first, last 5): what each cycle charged or took from where, picked up where, and delivered where, with shortfall cycles highlighted, so a route that is bleeding cargo (for example a crashed run that still debits its depot) is visible at a glance.
+
 ### Fixes
 
 - Fixed a career freeze on the first climb to space (and sometimes during a Kerbin landing): KSP's repeatable world-record achievements (altitude, speed, distance) fire continuously while climbing, and Parsek was recording every single one as a separate entry and recomputing the whole career each time, which ground the game to a halt. World-record rewards are now tracked once per record type, so the climb stays smooth.
