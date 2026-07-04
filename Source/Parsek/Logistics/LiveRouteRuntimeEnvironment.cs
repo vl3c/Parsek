@@ -253,6 +253,14 @@ namespace Parsek.Logistics
             // loaded-gate ONCE (the loaded-gate is NEVER hoisted across vessels).
             var resolvedByEndpoint = new Dictionary<uint, RoutePickupSourceGate.PickupSourceResolution>();
 
+            // M6 escrow-hold legibility: the reserving-route lookup below captures
+            // the winning competitor's id + amount so the post-evaluate
+            // classification log line can name them (the gate itself stays pure
+            // and non-logging; Evaluate consults the lookup at most once per
+            // evaluation, on the first escrow-caused resource short).
+            string escrowReservingRouteId = null;
+            double escrowReservedAmount = 0.0;
+
             RoutePickupSourceGate.PickupSourceResolution Resolver(RouteEndpoint endpoint)
             {
                 uint cacheKey = endpoint.VesselPersistentId;
@@ -307,11 +315,35 @@ namespace Parsek.Logistics
                     // The resource escrow is the primary deliverable; the inventory
                     // counter passes through unmodified so the symmetry is one
                     // analogous wrap away if B3 needs it.
+
+                    // M6 escrow-hold legibility: thread the RAW (un-netted) reader
+                    // plus a reserving-route display-name lookup into the gate so
+                    // an escrow-caused short names the competing route instead of
+                    // claiming the depot is physically empty. The lookup resolves
+                    // the LARGEST competing reservation for (pid, resource) via
+                    // RouteStore (pure RAM, same own-route exclusion as the net)
+                    // and prefers the route's player-visible Name, falling back to
+                    // the short id when unnamed.
+                    Func<string, string> reservingRouteNameLookup = name =>
+                    {
+                        if (!RouteStore.TryGetReservingRoute(sourcePid, name, routeId,
+                                out string reservingRouteId, out double reservedAmount))
+                            return null;
+                        escrowReservingRouteId = reservingRouteId;
+                        escrowReservedAmount = reservedAmount;
+                        return RouteStore.TryGetRoute(reservingRouteId, out Route reservingRoute)
+                                && !string.IsNullOrEmpty(reservingRoute.Name)
+                            ? reservingRoute.Name
+                            : RouteIds.Short(reservingRouteId);
+                    };
+
                     result = RoutePickupSourceGate.PickupSourceResolution.Ok(
                         sourcePid,
                         vessel.vesselName,
                         nettedReader,
-                        inventoryWriter.CountStored);
+                        inventoryWriter.CountStored,
+                        liveReader,
+                        reservingRouteNameLookup);
                 }
 
                 if (cacheKey != 0u)
@@ -363,6 +395,26 @@ namespace Parsek.Logistics
                     $"shortfall={result.Shortfall.ToString("R", IC)} " +
                     $"inventory={result.InventoryShort.ToString(IC)} " +
                     $"sources={groups.Count.ToString(IC)}");
+
+                // M6 escrow-hold legibility: one classification line per gate
+                // evaluation (rate-limited; this runs ~1Hz per blocked route).
+                // cause=escrow means the depot physically covers the need and only
+                // competing reservations explain the shortfall (the hold token
+                // names the reserving route); cause=physical covers everything
+                // else. Inventory shorts skip the line - no inventory escrow
+                // exists, so raw/netted amounts would be meaningless there.
+                if (!result.InventoryShort)
+                {
+                    ParsekLog.VerboseRateLimited(Tag, "pickup-source-short-cause-" + route.Id,
+                        $"PickupSourcesHaveCargo: route {ShortIdForRoute(route)} " +
+                        $"short-cause={(result.EscrowShort ? "escrow" : "physical")} " +
+                        $"pid={result.ShortSourcePid.ToString(IC)} " +
+                        $"resource={result.ShortResource} " +
+                        $"raw={result.ShortRawStored.ToString("R", IC)} " +
+                        $"netted={result.ShortNettedStored.ToString("R", IC)} " +
+                        $"reservingRouteId={(escrowReservingRouteId != null ? RouteIds.Short(escrowReservingRouteId) : "<none>")} " +
+                        $"reservedByRoute={escrowReservedAmount.ToString("R", IC)}");
+                }
                 return false;
             }
 
