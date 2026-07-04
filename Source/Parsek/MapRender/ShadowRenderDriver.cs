@@ -634,6 +634,15 @@ namespace Parsek.MapRender
                 MapRenderTrace.SegmentChangeWindowSeconds, details, phaseChain.RecordingId);
         }
 
+        /// <summary>Test seam: drive the Tier-A <c>PhaseChainAssembled</c> structural emit directly (the
+        /// production caller is the gated shadow hook inside <see cref="DriveShadow"/>, which needs a full live
+        /// frame). Used by the Phase-8 tracer-coverage matrix in-game test to prove the Phase-3 structural
+        /// wiring lights up end-to-end. No-op when tracing is off (the underlying emit early-returns).</summary>
+        internal static void EmitPhaseChainAssembledForTesting(uint pid, double currentUT, PhaseChain phaseChain)
+        {
+            EmitPhaseChainAssembled(pid, currentUT, phaseChain);
+        }
+
         private static string SummarizePhaseKinds(PhaseChain chain)
         {
             var sb = new System.Text.StringBuilder();
