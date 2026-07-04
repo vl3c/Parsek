@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.2
 
+### Features
+
+- Supply run candidates can now be dismissed: each candidate and near-miss row in the Logistics window gets a Dismiss button that hides trees you never intend to run as routes, and a collapsed "Dismissed (N)" list at the bottom of the Candidates section lets you restore any of them later.
+
 ### Fixes
 
 - Fixed a career freeze on the first climb to space (and sometimes during a Kerbin landing): KSP's repeatable world-record achievements (altitude, speed, distance) fire continuously while climbing, and Parsek was recording every single one as a separate entry and recomputing the whole career each time, which ground the game to a halt. World-record rewards are now tracked once per record type, so the climb stays smooth.

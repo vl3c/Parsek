@@ -96,20 +96,28 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Production entry point: derive candidates from the live stores.
+        /// Production entry point: derive candidates from the live stores,
+        /// skipping trees the player dismissed as route candidates (M6
+        /// candidate intent helper, <see cref="RouteStore.DismissedCandidateTreeIds"/>).
         /// </summary>
         internal static List<RouteCandidate> DeriveCandidates()
         {
-            return DeriveCandidates(RecordingStore.CommittedTrees, RouteStore.CommittedRoutes);
+            return DeriveCandidates(
+                RecordingStore.CommittedTrees, RouteStore.CommittedRoutes,
+                RouteStore.DismissedCandidateTreeIds);
         }
 
         /// <summary>
         /// Pure derivation over the supplied trees and existing routes. Exposed
         /// for direct xUnit testing without touching the static stores.
+        /// <paramref name="dismissedTreeIds"/> (M6 candidate intent helper) is
+        /// an optional id-membership set of player-dismissed trees to skip;
+        /// null means nothing is dismissed.
         /// </summary>
         internal static List<RouteCandidate> DeriveCandidates(
             IReadOnlyList<RecordingTree> committedTrees,
-            IReadOnlyList<Route> existingRoutes)
+            IReadOnlyList<Route> existingRoutes,
+            ICollection<string> dismissedTreeIds = null)
         {
             var result = new List<RouteCandidate>();
             if (committedTrees == null || committedTrees.Count == 0)
@@ -123,6 +131,7 @@ namespace Parsek.Logistics
             int notSealed = 0;
             int ineligible = 0;
             int alreadyPromoted = 0;
+            int dismissed = 0;
             // Per-reason breakdown of the ineligible count, so the single batch
             // summary preserves the diagnosability the per-tree engine logs used
             // to give. The engine runs in Quiet mode here (this sweep polls ~1/s),
@@ -139,6 +148,17 @@ namespace Parsek.Logistics
                 RecordingTree tree = committedTrees[i];
                 if (tree == null)
                     continue;
+
+                // M6 candidate intent helper: a player-dismissed tree disappears
+                // from the whole Candidates section (candidates AND near-misses).
+                // Id-membership only; the set lives in RouteStore and persists
+                // alongside the routes.
+                if (dismissedTreeIds != null && !string.IsNullOrEmpty(tree.Id)
+                    && dismissedTreeIds.Contains(tree.Id))
+                {
+                    dismissed++;
+                    continue;
+                }
 
                 if (!IsTreeFullySealed(tree))
                 {
@@ -177,7 +197,7 @@ namespace Parsek.Logistics
 
             ParsekLog.Verbose(Tag,
                 $"DeriveCandidates: trees={committedTrees.Count} candidates={result.Count} " +
-                $"notSealed={notSealed} ineligible={ineligible} alreadyPromoted={alreadyPromoted} " +
+                $"notSealed={notSealed} ineligible={ineligible} alreadyPromoted={alreadyPromoted} dismissed={dismissed} " +
                 $"[missingProof={missingProof} unorderableWindows={unorderableWindows} " +
                 $"missingEndpoint={missingEndpoint} mixedPickup={mixedPickup} " +
                 $"noManifest={noManifest} undockedStart={undockedStart} " +
@@ -186,11 +206,15 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Production entry point: derive near-misses from the live stores.
+        /// Production entry point: derive near-misses from the live stores,
+        /// skipping trees the player dismissed as route candidates (M6
+        /// candidate intent helper - a dismissed tree disappears from the
+        /// near-miss list too, not just the candidates).
         /// </summary>
         internal static List<RouteNearMiss> DeriveNearMisses()
         {
-            return DeriveNearMisses(RecordingStore.CommittedTrees);
+            return DeriveNearMisses(
+                RecordingStore.CommittedTrees, RouteStore.DismissedCandidateTreeIds);
         }
 
         /// <summary>
@@ -207,7 +231,8 @@ namespace Parsek.Logistics
         /// <see cref="RouteAnalysisEngine"/>, never a raw ledger / committed read.
         /// </summary>
         internal static List<RouteNearMiss> DeriveNearMisses(
-            IReadOnlyList<RecordingTree> committedTrees)
+            IReadOnlyList<RecordingTree> committedTrees,
+            ICollection<string> dismissedTreeIds = null)
         {
             var result = new List<RouteNearMiss>();
             if (committedTrees == null || committedTrees.Count == 0)
@@ -218,6 +243,7 @@ namespace Parsek.Logistics
 
             int notSealed = 0;
             int ineligible = 0;
+            int dismissed = 0;
             // Per-reason breakdown of the ineligible count, mirroring DeriveCandidates'
             // batch-summary convention (one Verbose line after the loop, never per item).
             // M4a (plan D1): MultipleConnectionWindows is re-purposed to the
@@ -233,6 +259,16 @@ namespace Parsek.Logistics
                 // (0 recordings still re-flyable)" is self-contradictory.
                 if (tree?.Recordings == null || tree.Recordings.Count == 0)
                     continue;
+
+                // M6 candidate intent helper: a player-dismissed tree disappears
+                // from the near-miss list too (the whole Candidates section),
+                // mirroring the DeriveCandidates skip.
+                if (dismissedTreeIds != null && !string.IsNullOrEmpty(tree.Id)
+                    && dismissedTreeIds.Contains(tree.Id))
+                {
+                    dismissed++;
+                    continue;
+                }
 
                 if (!IsTreeFullySealed(tree))
                 {
@@ -281,7 +317,7 @@ namespace Parsek.Logistics
 
             ParsekLog.Verbose(Tag,
                 $"DeriveNearMisses: trees={committedTrees.Count} nearMisses={result.Count} " +
-                $"notSealed={notSealed} ineligible={ineligible} " +
+                $"notSealed={notSealed} ineligible={ineligible} dismissed={dismissed} " +
                 $"[missingProof={missingProof} unorderableWindows={unorderableWindows} " +
                 $"missingEndpoint={missingEndpoint} mixedPickup={mixedPickup} " +
                 $"noManifest={noManifest} undockedStart={undockedStart} " +

@@ -76,6 +76,14 @@ namespace Parsek
         private List<RouteNearMiss> cachedNearMisses = new List<RouteNearMiss>();
         private float lastNearMissComputeRealtime = -1f;
 
+        // M6 candidate intent helper: cached display rows for the collapsed
+        // "Dismissed (N)" subsection, rebuilt on the SAME ~1 Hz timer as the
+        // candidate cache (inside GetCandidates) so tree display names are never
+        // resolved live on the IMGUI draw path. Sorted by label (then id) for a
+        // stable row order across HashSet iteration.
+        private readonly List<(string treeId, string label)> cachedDismissedRows =
+            new List<(string treeId, string label)>();
+
         // Throttled per-route legibility cache (Phase 2 H1/H2/H3). Recomputing the
         // next-dock-crossing countdown (H1, a LoopUnit build) and the realized /
         // cumulative delivery summary (H2/H3, an ELS scan) is NOT free, and many
@@ -213,6 +221,17 @@ namespace Parsek
         // discipline as the cadence stepper).
         private Route pendingPriorityRoute;
         private int pendingPriorityValue;
+        // M6 candidate intent helper: deferred dismiss / restore of a candidate
+        // tree. The row buttons record the tree id + display label during the
+        // draw loop; ApplyPendingActions commits through
+        // RouteStore.DismissCandidateTree / RestoreCandidateTree after the
+        // scroll view (same deferred-mutation discipline as the action buttons)
+        // and dirties the candidate + near-miss caches so the row disappears /
+        // reappears immediately instead of waiting out the ~1s timer.
+        private string pendingDismissTreeId;
+        private string pendingDismissLabel;
+        private string pendingRestoreTreeId;
+        private string pendingRestoreLabel;
 
         // M1 inline interval text field (deferred-commit, SettingsWindowUI idiom).
         // Keyed by route.Id (NOT a row index) because routes are re-sectioned /
@@ -449,6 +468,10 @@ namespace Parsek
             pendingCadenceMultiplier = 0;
             pendingPriorityRoute = null;
             pendingPriorityValue = 0;
+            pendingDismissTreeId = null;
+            pendingDismissLabel = null;
+            pendingRestoreTreeId = null;
+            pendingRestoreLabel = null;
 
             scrollPos = GUILayout.BeginScrollView(scrollPos, GUILayout.ExpandHeight(true));
 
@@ -567,6 +590,11 @@ namespace Parsek
             // does not match the dock-deliver-undock proof". Reads only the cached list.
             DrawNearMissSubsection(nearMisses);
 
+            // M6 candidate intent helper: the collapsed "Dismissed (N)" subsection
+            // listing player-dismissed trees, each with a Restore control. Reads
+            // only the cached rows (rebuilt on the ~1 Hz candidate refresh).
+            DrawDismissedSubsection();
+
             GUILayout.EndVertical();
             GUILayout.Space(SpacingSmall);
         }
@@ -614,7 +642,80 @@ namespace Parsek
                 string treeName = NearMissTreeLabel(nm.Tree);
                 string reason = LogisticsRejectPresentation.DescribeNearMiss(
                     nm.Status, nm.NotSealed, nm.ReflyableCount, nm.RejectDetail);
-                DetailLine($"{treeName} - {reason}");
+                // M6 candidate intent helper: near-miss rows get the same
+                // Dismiss control as candidate rows (a dismissed tree leaves
+                // the WHOLE Candidates section). Row layout mirrors DetailLine
+                // (24px indent + detailStyle label) with the button appended;
+                // the button only draws for a resolvable tree id, a per-row
+                // condition that is stable within a frame (cached list), so the
+                // IMGUI control count stays consistent across Layout/Repaint.
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(24f);
+                GUILayout.Label($"{treeName} - {reason}", detailStyle, GUILayout.ExpandWidth(true));
+                string nmTreeId = nm.Tree?.Id;
+                if (!string.IsNullOrEmpty(nmTreeId)
+                    && GUILayout.Button(new GUIContent("Dismiss",
+                        "Hide this tree from the Candidates section (it is not meant to become a route). Restore it any time from the Dismissed list below."),
+                        GUILayout.Width(70)))
+                {
+                    pendingDismissTreeId = nmTreeId;
+                    pendingDismissLabel = treeName;
+                }
+                GUILayout.EndHorizontal();
+            }
+        }
+
+        // M6 dismissed-candidates subsection key (collapsible via the shared
+        // expandedRows set, mirroring NearMissSectionKey).
+        private const string DismissedSectionKey = "dismissed:section";
+
+        /// <summary>
+        /// Draws the M6 "Dismissed (N)" collapsible subsection at the bottom of
+        /// the Candidates bubble: the trees the player dismissed as route
+        /// candidates, each with a Restore control. Mirrors the near-miss
+        /// subsection idiom exactly (caret header via the shared
+        /// <see cref="expandedRows"/> / <see cref="ToggleExpanded"/>, fixed key
+        /// <see cref="DismissedSectionKey"/>); nothing renders when nothing is
+        /// dismissed. Reads only <see cref="cachedDismissedRows"/> (labels
+        /// resolved on the ~1 Hz candidate-cache refresh, never live on the
+        /// IMGUI draw path); Restore defers through
+        /// <see cref="pendingRestoreTreeId"/> to <see cref="ApplyPendingActions"/>.
+        /// </summary>
+        private void DrawDismissedSubsection()
+        {
+            if (cachedDismissedRows.Count == 0)
+                return;
+
+            bool expanded = expandedRows.Contains(DismissedSectionKey);
+            string arrow = expanded ? "▼" : "▶";
+            GUILayout.Space(SpacingSmall);
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(8f);
+            if (GUILayout.Button(
+                    new GUIContent(
+                        $"{arrow} Dismissed ({cachedDismissedRows.Count.ToString(CultureInfo.InvariantCulture)})",
+                        "Trees you dismissed as route candidates. A dismissed tree is hidden from the candidates and near-miss lists; Restore brings it back."),
+                    GUI.skin.label, GUILayout.ExpandWidth(true)))
+                ToggleExpanded(DismissedSectionKey, "dismissed subsection");
+            GUILayout.EndHorizontal();
+
+            if (!expanded)
+                return;
+
+            for (int i = 0; i < cachedDismissedRows.Count; i++)
+            {
+                (string treeId, string label) = cachedDismissedRows[i];
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(24f);
+                GUILayout.Label(label, detailStyle, GUILayout.ExpandWidth(true));
+                if (GUILayout.Button(new GUIContent("Restore",
+                        "Offer this tree as a Supply Run candidate again."),
+                        GUILayout.Width(70)))
+                {
+                    pendingRestoreTreeId = treeId;
+                    pendingRestoreLabel = label;
+                }
+                GUILayout.EndHorizontal();
             }
         }
 
@@ -1212,6 +1313,17 @@ namespace Parsek
                     "Promote this Supply Run to a stored route (created Paused; use Send Once to test, then Activate)."),
                     GUILayout.Width(100)))
                 pendingCreate = candidate;
+            // M6 candidate intent helper: hide a tree the player never intends
+            // as a route. Deferred through pendingDismissTreeId (applied in
+            // ApplyPendingActions); always reversible from the Dismissed
+            // subsection at the bottom of this section.
+            if (GUILayout.Button(new GUIContent("Dismiss",
+                    "Hide this tree from the Candidates section (it is not meant to become a route). Restore it any time from the Dismissed list below."),
+                    GUILayout.Width(70)))
+            {
+                pendingDismissTreeId = candidate.Tree?.Id;
+                pendingDismissLabel = name;
+            }
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
@@ -2101,6 +2213,35 @@ namespace Parsek
                     $"Logistics: Priority route={ShortId(pendingPriorityRoute.Id)} value={pendingPriorityValue} " +
                     $"result={(changed ? "applied" : "unchanged")}");
             }
+            if (pendingDismissTreeId != null)
+            {
+                // M6 candidate intent helper: pure UI-intent mutation (no route /
+                // ledger effect, always reversible). RouteStore logs the
+                // authoritative Info line with tree id + display name. On success
+                // both derivation caches are dirtied so the tree vanishes from the
+                // candidates AND near-miss lists this second, not after ~1s.
+                bool ok = RouteStore.DismissCandidateTree(pendingDismissTreeId, pendingDismissLabel);
+                ParsekLog.Info("UI",
+                    $"Logistics: Dismiss candidate tree={ShortId(pendingDismissTreeId)} " +
+                    $"name='{pendingDismissLabel}' result={(ok ? "dismissed" : "no-op")}");
+                if (ok)
+                {
+                    lastCandidateComputeRealtime = -1f;
+                    lastNearMissComputeRealtime = -1f;
+                }
+            }
+            if (pendingRestoreTreeId != null)
+            {
+                bool ok = RouteStore.RestoreCandidateTree(pendingRestoreTreeId, pendingRestoreLabel);
+                ParsekLog.Info("UI",
+                    $"Logistics: Restore candidate tree={ShortId(pendingRestoreTreeId)} " +
+                    $"name='{pendingRestoreLabel}' result={(ok ? "restored" : "no-op")}");
+                if (ok)
+                {
+                    lastCandidateComputeRealtime = -1f;
+                    lastNearMissComputeRealtime = -1f;
+                }
+            }
 
             if (routeStateMutated)
                 lastLegibilityComputeRealtime = -1f;
@@ -2114,6 +2255,10 @@ namespace Parsek
             pendingCadenceMultiplier = 0;
             pendingPriorityRoute = null;
             pendingPriorityValue = 0;
+            pendingDismissTreeId = null;
+            pendingDismissLabel = null;
+            pendingRestoreTreeId = null;
+            pendingRestoreLabel = null;
         }
 
         /// <summary>
@@ -2408,6 +2553,19 @@ namespace Parsek
                 ParsekLog.Verbose("UI",
                     $"Logistics candidate run-cost cache refreshed candidates={cachedCandidates.Count.ToString(CultureInfo.InvariantCulture)} " +
                     $"costed={costed.ToString(CultureInfo.InvariantCulture)}");
+
+                // M6: rebuild the Dismissed-subsection display rows on the same
+                // refresh (tree names resolved here, never on the draw path).
+                // Sorted by label then id so the row order is stable across
+                // HashSet iteration order changes.
+                cachedDismissedRows.Clear();
+                foreach (string dismissedId in RouteStore.DismissedCandidateTreeIds)
+                    cachedDismissedRows.Add((dismissedId, ResolveTreeDisplayName(dismissedId)));
+                cachedDismissedRows.Sort((a, b) =>
+                {
+                    int byLabel = string.CompareOrdinal(a.label, b.label);
+                    return byLabel != 0 ? byLabel : string.CompareOrdinal(a.treeId, b.treeId);
+                });
             }
             return cachedCandidates ?? new List<RouteCandidate>();
         }
