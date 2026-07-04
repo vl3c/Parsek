@@ -498,6 +498,48 @@ namespace Parsek
                 currentUT, currentUT, details, recId);
         }
 
+        // ---- Cutover-hardening: Tier-C cutover-anomaly once-per-event dedup ----
+        // The cold-load clock-not-ready guard, the retire-not-held inverse-hold check, and the
+        // anchor-resolve-fail fail-closed check are all evaluated every frame at their decision site (the
+        // MAP spine), but each Tier-C anomaly is a per-EVENT signal, not a per-frame one (EmitAnomaly
+        // routes to Info + opens a detail window). This per-(pid+reason+detail-key) signature gate emits
+        // ONE line per distinct event onset, honoring the VerboseRateLimited convention - matching the
+        // ShouldEmit*OnChange pattern already used for the descent-stitch / fail-closed structural events.
+        // Same warp-cap + Reset() (scene-switch) clearing as the sibling signature dicts.
+        private static readonly Dictionary<string, string> lastCutoverAnomalySignatureByKey =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>Test-only: current size of the cutover-anomaly change-detection dict (warp-cap assert).</summary>
+        internal static int CutoverAnomalySignatureCountForTesting => lastCutoverAnomalySignatureByKey.Count;
+
+        /// <summary>
+        /// Once-per-event gate for a Tier-C cutover anomaly (clock-not-ready / retire-not-held /
+        /// anchor-resolve-fail): returns true only when <paramref name="signature"/> changed for this
+        /// <paramref name="eventKey"/> (typically <c>pid + ":" + reason</c>) since its last emit, so a
+        /// steadily-true decision site emits ONE anomaly line rather than one per frame. No-op (false) when
+        /// disabled. An empty key (a headless / no-resolvable-ghost path) is allowed through (the
+        /// <see cref="IsEnabled"/> gate + the caller still bound the emit). Warp-capped + cleared in
+        /// <see cref="Reset"/> (scene switch), like the sibling signature dicts.
+        /// </summary>
+        internal static bool ShouldEmitCutoverAnomalyOnChange(string eventKey, string signature)
+        {
+            if (!IsEnabled)
+                return false;
+            if (string.IsNullOrEmpty(eventKey))
+                return true;
+
+            if (lastCutoverAnomalySignatureByKey.TryGetValue(eventKey, out string last)
+                && string.Equals(last, signature, StringComparison.Ordinal))
+                return false; // unchanged anomaly onset for this key -> suppress
+
+            if (!lastCutoverAnomalySignatureByKey.ContainsKey(eventKey)
+                && lastCutoverAnomalySignatureByKey.Count >= MaxTrackedMarkerDecisionKeys)
+                lastCutoverAnomalySignatureByKey.Clear();
+
+            lastCutoverAnomalySignatureByKey[eventKey] = signature;
+            return true;
+        }
+
         // ---- Phase 6: descent-stitch structural-event once-per-event dedup ----
         // The CrossMemberSeamStitcher's TryStitchDescentSeam runs every frame the re-aim looped descent is
         // live + re-anchored, but the Tier-A DescentStitched structural event is a per-(re)stitch ONSET
@@ -608,6 +650,7 @@ namespace Parsek
             lastLineVisibilitySignatureByPid.Clear();
             lastDescentStitchSignatureByPid.Clear();
             lastFailClosedSignatureByPid.Clear();
+            lastCutoverAnomalySignatureByKey.Clear();
             descentRenderWindowFrame = -1;
             descentRenderWindowPhase = null;
             descentRenderWindowRecId = null;
@@ -1158,6 +1201,104 @@ namespace Parsek
             string combined = "reason=" + Token(reason)
                 + (string.IsNullOrEmpty(details) ? string.Empty : " " + details);
             EmitRaw(true, "Anomaly", surface, pidKey, currentUT, effUT, combined, recId);
+        }
+
+        // ---- Cutover-hardening Tier-C anomaly raises (clock-not-ready / retire-not-held /
+        //      anchor-resolve-fail) ----
+        //
+        // Each is a thin, tracing-gated, once-per-event wrapper over EmitAnomaly so the call site at the
+        // real decision point passes only values already in scope and never pays a formatting cost in
+        // normal play (the IsEnabled guard short-circuits before any work). They reuse the existing
+        // AnomalyClockNotReady / AnomalyRetireNotHeld / AnomalyAnchorResolveFail reason tokens, so one grep
+        // (reason=clock-not-ready | retire-not-held | anchor-resolve-fail) lights up each lens.
+
+        /// <summary>
+        /// PURE <c>retire-not-held</c> predicate (Tier C): true when a member's resolved sample is
+        /// OUTSIDE its window (it should RETIRE this frame) yet the prior intent was VISIBLE and the
+        /// director HELD it (kept it visible) instead — the inverse of the held-across-gap contract
+        /// (design §6.4 / §10.7). An interior-gap hold is legitimate (brief off-camera flexible-SOI seam),
+        /// so this is scoped to the OutsideWindow case only: a terminal / past-end / pre-launch member that
+        /// is still being shown. Pure (no Unity / no global state) so it is directly unit-testable.
+        /// </summary>
+        internal static bool IsRetireNotHeld(
+            bool sampleOutsideWindow, bool priorVisible, bool resolvedVisible)
+        {
+            return sampleOutsideWindow && priorVisible && resolvedVisible;
+        }
+
+        /// <summary>
+        /// Raise the Tier-C <c>clock-not-ready</c> anomaly: the MAP render spine was reached at a
+        /// non-positive live UT (cold-load Planetarium UT=0 / pre-time-init — design §11.2), so the spine
+        /// DEFERS (renders nothing) rather than sampling the span clock at UT&lt;=0 and placing a degenerate
+        /// ghost. Gated by <see cref="IsEnabled"/> (free in normal play) and deduped once-per-event via
+        /// <see cref="ShouldEmitCutoverAnomalyOnChange"/> (keyed on the whole-frame defer, not per ghost,
+        /// so one cold-load defer burst emits one line). Surface = ProtoOrbitLine (the spine ultimately
+        /// drives the proto icon/line). This is OBSERVABILITY for the flag-ON defer; it never changes the
+        /// flag-OFF path.
+        /// </summary>
+        internal static void EmitClockNotReady(double liveUT, int ghostCount)
+        {
+            if (!IsEnabled)
+                return;
+            // Frame-scoped event key: the defer is whole-frame (not per ghost). Re-emit only when the
+            // not-ready condition (re)appears, not every cold-load frame.
+            const string eventKey = "spine:clock-not-ready";
+            if (!ShouldEmitCutoverAnomalyOnChange(eventKey, AnomalyClockNotReady))
+                return;
+            string details = "liveUT=" + FormatDouble(liveUT, "F3")
+                + " ghosts=" + ghostCount.ToString(CultureInfo.InvariantCulture)
+                + " action=defer-render";
+            EmitAnomaly(RenderSurface.ProtoOrbitLine, "<none>", liveUT, liveUT,
+                AnomalyClockNotReady, details, recId: null);
+        }
+
+        /// <summary>
+        /// Raise the Tier-C <c>retire-not-held</c> anomaly for <paramref name="pid"/>: a member whose
+        /// sample resolved OUTSIDE its window (should retire) was nonetheless kept visible (held) this
+        /// frame — the inverse-hold defect (design §6.4 / §10.7). Caller pre-checks
+        /// <see cref="IsRetireNotHeld"/>. Gated by <see cref="IsEnabled"/> and deduped once-per-event
+        /// (pid + reason) via <see cref="ShouldEmitCutoverAnomalyOnChange"/>. Surface = ProtoOrbitLine.
+        /// </summary>
+        internal static void EmitRetireNotHeld(
+            uint pid, string recId, double currentUT, double effUT, string treatmentToken)
+        {
+            if (!IsEnabled)
+                return;
+            string pidKey = pid.ToString(CultureInfo.InvariantCulture);
+            string eventKey = pidKey + ":" + AnomalyRetireNotHeld;
+            // Signature includes the treatment so a held-then-different-held transition re-emits.
+            if (!ShouldEmitCutoverAnomalyOnChange(eventKey, AnomalyRetireNotHeld + ":" + (treatmentToken ?? "?")))
+                return;
+            string details = "heldTreatment=" + Token(treatmentToken)
+                + " action=should-retire";
+            EmitAnomaly(RenderSurface.ProtoOrbitLine, pidKey, currentUT, effUT,
+                AnomalyRetireNotHeld, details, recId);
+        }
+
+        /// <summary>
+        /// Raise the Tier-C <c>anchor-resolve-fail</c> anomaly for <paramref name="pid"/>: a
+        /// <c>BodyAnchor</c> / parent-anchor resolution failed (missing / unknown body, or an
+        /// out-of-range parent-anchored surface) so the phase failed CLOSED (hide / suppress) rather than
+        /// NRE (design §5.2 / §11.4). The pure decision is <see cref="MapRender.AnchorFrameResolver"/>;
+        /// this is its observability raise. Gated by <see cref="IsEnabled"/> and deduped once-per-event
+        /// (pid + reason + outcome) via <see cref="ShouldEmitCutoverAnomalyOnChange"/>. Surface =
+        /// ProtoOrbitLine.
+        /// </summary>
+        internal static void EmitAnchorResolveFail(
+            uint pid, string recId, double currentUT, string bodyName, string outcomeToken)
+        {
+            if (!IsEnabled)
+                return;
+            string pidKey = pid.ToString(CultureInfo.InvariantCulture);
+            string eventKey = pidKey + ":" + AnomalyAnchorResolveFail;
+            if (!ShouldEmitCutoverAnomalyOnChange(
+                    eventKey, AnomalyAnchorResolveFail + ":" + (outcomeToken ?? "?") + ":" + (bodyName ?? "?")))
+                return;
+            string details = "body=" + Token(bodyName)
+                + " outcome=" + Token(outcomeToken)
+                + " action=fail-closed";
+            EmitAnomaly(RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
+                AnomalyAnchorResolveFail, details, recId);
         }
 
         /// <summary>

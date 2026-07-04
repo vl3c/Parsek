@@ -174,6 +174,292 @@ namespace Parsek.InGameTests
             }
         }
 
+        // A1 cutover-instrument: the SYNTHESIZED-mode conic parity capture-harness, the sibling guard to
+        // ParitySampler_CapturesHandComputedOrbitGeometry above. Exercises the REAL production orchestration
+        // (MapRenderProbe.ComputeSynthesizedConicParity: BuildOrbitFromSegment of the producer's intended
+        // seed, OrbitRelativePositionYup sampling of BOTH the rendered orbit and the intended reference, the
+        // scale-derived tolerance, the oracle diff in ParityMode.Synthesized) against a live ghost. Two
+        // arms: (1) intended seed == the rendered orbit's own elements -> the synthesized diff reads ~0
+        // (rendered IS the intended arc, no anomaly); (2) intended seed with the SAME shape ROTATED in LAN
+        // (a re-aim DRAW regression: the rendered orbit drew a different orientation than the seed it was
+        // driven from) -> the diff flags OverTolerance. This proves the synthesized capture path is not
+        // "green but blind". Career-independent; FLIGHT on a stock Kerbin pack.
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.FLIGHT,
+            Description = "A1 synthesized-mode parity capture-harness: ComputeSynthesizedConicParity diffs a "
+                + "live ghost's rendered conic against the producer's intended seed (~0 when seed==rendered, "
+                + "flags drift when the seed is rotated off the rendered orbit)")]
+        public void SynthesizedParity_CapturesRenderedVsIntendedConic()
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == KerbinBodyName);
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies (non-stock pack)");
+                return;
+            }
+
+            double liveUT = Planetarium.GetUniversalTime();
+            double startUT = liveUT;
+            OrbitSegment seg = BuildSegment(startUT);
+
+            System.Func<double> prevUTNow = GhostMapPresence.CurrentUTNow;
+            List<Recording> prevRecordings = RecordingStore.CommittedRecordings != null
+                ? new List<Recording>(RecordingStore.CommittedRecordings)
+                : new List<Recording>();
+            List<RecordingTree> prevTrees = RecordingStore.CommittedTrees != null
+                ? new List<RecordingTree>(RecordingStore.CommittedTrees)
+                : new List<RecordingTree>();
+
+            Recording rec = BuildRecording(startUT, seg);
+            RecordingStore.ClearCommittedInternal();
+            RecordingStore.ClearCommittedTreesInternal();
+            RecordingStore.AddCommittedInternal(rec);
+            int recordingIndex = RecordingStore.CommittedRecordings.Count - 1;
+            GhostMapPresence.CurrentUTNow = () => liveUT;
+            GhostMapPresence.RemoveAllGhostVessels("synth-parity-fixture-start");
+
+            uint pid = 0u;
+            try
+            {
+                Vessel ghost = GhostMapPresence.CreateGhostVesselFromSource(
+                    recordingIndex,
+                    rec,
+                    GhostMapPresence.TrackingStationGhostSource.Segment,
+                    seg,
+                    default(TrajectoryPoint),
+                    startUT,
+                    loopEpochShiftSeconds: 0.0);
+
+                if (ghost == null || ghost.orbitDriver == null || ghost.orbitDriver.orbit == null)
+                {
+                    InGameAssert.Skip("Ghost did not create in this context (no proto)");
+                    return;
+                }
+                pid = ghost.persistentId;
+                Orbit renderedOrbit = ghost.orbitDriver.orbit;
+                Vector3d iconBodyRel = ghost.GetWorldPos3D() - kerbin.position;
+                if (iconBodyRel.magnitude < 1.0)
+                {
+                    InGameAssert.Skip("Ghost world position not resolved on the creation frame");
+                    return;
+                }
+
+                // Arm 1: intended seed == the rendered orbit's own elements (a faithful StockConic draw:
+                // rendered IS the intended arc). The synthesized diff must measure and report ZERO drift.
+                // loopShift 0.0: this non-loop ghost was created with loopEpochShiftSeconds 0.0, so the
+                // phase-matched reference equals the raw-epoch reference (BuildOrbitFromSegment verbatim).
+                MapRenderProbe.SynthesizedConicParitySample matched =
+                    MapRenderProbe.ComputeSynthesizedConicParity(
+                        renderedOrbit, kerbin, iconBodyRel, seg, KerbinBodyName, 0.0, liveUT);
+                InGameAssert.IsTrue(matched.Sampled,
+                    "A matching intended seed must yield a synthesized parity measurement (skipReason="
+                    + (matched.SkipReason ?? "(none)") + ")");
+                InGameAssert.IsTrue(matched.Result.HasMeasurement,
+                    "The synthesized faithful arm must produce a usable measurement");
+                InGameAssert.IsFalse(matched.Result.OverTolerance,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "rendered == intended seed must read ~0 synthesized drift; maxDev={0:F0} m tol={1:F0} m",
+                        matched.Result.MaxDeviationMeters, matched.Result.ToleranceMeters));
+
+                // Arm 2: intended seed ROTATED 90 deg in LAN (same shape, drawn at a different orientation).
+                // This is the re-aim DRAW regression the synthesized lens exists to catch: the rendered orbit
+                // (LAN=0) diverges from the intended seed (LAN=90). The diff must flag OverTolerance.
+                OrbitSegment rotatedSeed = seg;
+                rotatedSeed.longitudeOfAscendingNode = 90.0;
+                MapRenderProbe.SynthesizedConicParitySample rotated =
+                    MapRenderProbe.ComputeSynthesizedConicParity(
+                        renderedOrbit, kerbin, iconBodyRel, rotatedSeed, KerbinBodyName, 0.0, liveUT);
+                InGameAssert.IsTrue(rotated.Sampled,
+                    "A rotated (still-on-Kerbin) intended seed must still yield a measurement, not skip");
+                InGameAssert.IsTrue(rotated.Result.HasMeasurement,
+                    "The synthesized rotated-seed arm must produce a usable measurement");
+                InGameAssert.IsTrue(rotated.Result.OverTolerance,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "A rendered orbit drawn 90 deg off its intended seed LAN must flag synthesized "
+                        + "parity drift; maxDev={0:F0} m tol={1:F0} m",
+                        rotated.Result.MaxDeviationMeters, rotated.Result.ToleranceMeters));
+
+                // Body-mismatch arm: a seed naming a different frame body is a stale-seed / SOI race and must
+                // SKIP cleanly (no false anomaly).
+                MapRenderProbe.SynthesizedConicParitySample wrongBody =
+                    MapRenderProbe.ComputeSynthesizedConicParity(
+                        renderedOrbit, kerbin, iconBodyRel, seg, "Mun", 0.0, liveUT);
+                InGameAssert.IsFalse(wrongBody.Sampled,
+                    "A seed on a different frame body must skip cleanly (no synthesized diff)");
+
+                ParsekLog.Info("TestRunner",
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "SynthesizedParity_CapturesRenderedVsIntendedConic: pid={0} matchedDev={1:F0}m "
+                        + "rotatedDev={2:F0}m tol={3:F0}m wrongBodySkip={4}",
+                        pid, matched.Result.MaxDeviationMeters, rotated.Result.MaxDeviationMeters,
+                        matched.Result.ToleranceMeters, wrongBody.SkipReason ?? "(none)"));
+            }
+            finally
+            {
+                if (pid != 0u)
+                    GhostMapPresence.RemoveAllGhostVessels("synth-parity-fixture-cleanup");
+                RecordingStore.ClearCommittedInternal();
+                RecordingStore.ClearCommittedTreesInternal();
+                for (int i = 0; i < prevRecordings.Count; i++)
+                    RecordingStore.AddCommittedInternal(prevRecordings[i]);
+                for (int i = 0; i < prevTrees.Count; i++)
+                    RecordingStore.AddCommittedTreeInternal(prevTrees[i]);
+                GhostMapPresence.CurrentUTNow = prevUTNow;
+            }
+        }
+
+        // A1 cutover-instrument (BLOCKER fix): the LOOPED synthesized-mode parity arm. The non-loop fixture
+        // above (loopEpochShiftSeconds 0.0) never exercises the loop-shift epoch bake, so it was BLIND to the
+        // false-drift blocker (the synthesized reference was built at the RAW intendedSeg.epoch while the
+        // rendered conic is driven at seg.epoch + loopShift, so every LOOPED member traced a different mean-
+        // anomaly half-arc and false-fired on a CORRECT draw). This arm drives a ghost whose live orbit epoch
+        // IS baked with a NON-ZERO loop shift (read back from the production map via GetGhostOrbitEpochShift)
+        // and asserts: (1) the PHASE-MATCHED synthesized diff (loopShift threaded in -> the reference epoch is
+        // baked with the SAME shift) reads ~0 for a faithful loop draw (rendered == intended seed); and (2)
+        // the fix is LOAD-BEARING - a deliberately phase-MISMATCHED reference (loopShift 0.0, the raw epoch,
+        // i.e. the pre-fix behavior) WOULD flag drift on the SAME correct draw. Mirrors the faithful path's
+        // loop-shifted in-game arm (RenderParityBaselineTest.ParityBaseline_LoopShiftedFaithfulGhost_*).
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.FLIGHT,
+            Description = "A1 synthesized-mode parity (LOOP-SHIFTED): a ghost whose live orbit epoch is baked "
+                + "with a NON-ZERO loop shift reads ~0 synthesized drift when the intended reference is phase-"
+                + "matched (loopShift threaded in), and the raw-epoch (phase-MISMATCHED) reference WOULD drift "
+                + "- the proof the false-drift blocker fix is load-bearing")]
+        public void SynthesizedParity_LoopShiftedGhost_PhaseMatched_ZeroDrift()
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == KerbinBodyName);
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies (non-stock pack)");
+                return;
+            }
+
+            double liveUT = Planetarium.GetUniversalTime();
+            // The looped ghost replays a PAST recorded segment whose effUT = liveUT - shift. Author the
+            // segment around that effUT so the seed is a real recorded arc, mirroring a real loop replay.
+            double effUT = liveUT - LoopEpochShiftSeconds;
+            double startUT = effUT - 1800.0;
+            OrbitSegment seg = BuildSegment(startUT);
+
+            System.Func<double> prevUTNow = GhostMapPresence.CurrentUTNow;
+            List<Recording> prevRecordings = RecordingStore.CommittedRecordings != null
+                ? new List<Recording>(RecordingStore.CommittedRecordings)
+                : new List<Recording>();
+            List<RecordingTree> prevTrees = RecordingStore.CommittedTrees != null
+                ? new List<RecordingTree>(RecordingStore.CommittedTrees)
+                : new List<RecordingTree>();
+
+            Recording rec = BuildRecording(startUT, seg);
+            RecordingStore.ClearCommittedInternal();
+            RecordingStore.ClearCommittedTreesInternal();
+            RecordingStore.AddCommittedInternal(rec);
+            int recordingIndex = RecordingStore.CommittedRecordings.Count - 1;
+            GhostMapPresence.CurrentUTNow = () => liveUT;
+            GhostMapPresence.RemoveAllGhostVessels("synth-parity-loop-fixture-start");
+
+            uint pid = 0u;
+            try
+            {
+                // Create the live ghost with the NON-ZERO loop epoch shift baked in: this seeds the rendered
+                // OrbitDriver.orbit epoch to seg.epoch + shift (StockConicTreatment.SeedAndDriveLive) and
+                // records the shift via GetGhostOrbitEpochShift(pid) - the EXACT orchestration the probe reads.
+                Vessel ghost = GhostMapPresence.CreateGhostVesselFromSource(
+                    recordingIndex,
+                    rec,
+                    GhostMapPresence.TrackingStationGhostSource.Segment,
+                    seg,
+                    default(TrajectoryPoint),
+                    startUT,
+                    loopEpochShiftSeconds: LoopEpochShiftSeconds);
+
+                if (ghost == null || ghost.orbitDriver == null || ghost.orbitDriver.orbit == null)
+                {
+                    InGameAssert.Skip("Loop ghost did not create in this context (no proto)");
+                    return;
+                }
+                pid = ghost.persistentId;
+                Orbit renderedOrbit = ghost.orbitDriver.orbit;
+                Vector3d iconBodyRel = ghost.GetWorldPos3D() - kerbin.position;
+                if (iconBodyRel.magnitude < 1.0)
+                {
+                    InGameAssert.Skip("Ghost world position not resolved on the creation frame");
+                    return;
+                }
+
+                // Read the loop shift the live orbit was ACTUALLY baked with from the production map (NOT a
+                // local constant): proves the create path stored it and the probe reads back the same value
+                // the rendered orbit was driven with.
+                double loopShift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
+                InGameAssert.ApproxEqual(LoopEpochShiftSeconds, loopShift, 1.0,
+                    "Loop ghost must record the loop epoch shift the production probe threads into the "
+                    + "synthesized reference");
+
+                // PHASE-MATCHED arm: intended seed == the rendered orbit's elements, reference built with the
+                // SAME loopShift the rendered conic was driven with. A faithful loop draw must read ~0 drift.
+                MapRenderProbe.SynthesizedConicParitySample phaseMatched =
+                    MapRenderProbe.ComputeSynthesizedConicParity(
+                        renderedOrbit, kerbin, iconBodyRel, seg, KerbinBodyName, loopShift, liveUT);
+                InGameAssert.IsTrue(phaseMatched.Sampled,
+                    "The phase-matched loop arm must yield a synthesized parity measurement (skipReason="
+                    + (phaseMatched.SkipReason ?? "(none)") + ")");
+                InGameAssert.IsTrue(phaseMatched.Result.HasMeasurement,
+                    "The phase-matched loop arm must produce a usable measurement");
+                InGameAssert.IsFalse(phaseMatched.Result.OverTolerance,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "A loop-shifted ghost drawing its intended seed must read ~0 synthesized drift when "
+                        + "the reference is PHASE-MATCHED (loopShift={0:F1}); maxDev={1:F0} m tol={2:F0} m. A "
+                        + "drift here is the false-drift blocker re-appearing.",
+                        loopShift, phaseMatched.Result.MaxDeviationMeters,
+                        phaseMatched.Result.ToleranceMeters));
+
+                // LOAD-BEARING negative control: build the reference with loopShift 0.0 (the raw epoch, the
+                // PRE-FIX behavior) against the SAME correct rendered loop draw. The phase no longer cancels,
+                // so the two orbits trace different mean-anomaly arcs and the diff MUST flag OverTolerance.
+                // Without this the phase-match could be a no-op (e.g. a tautological circle-vs-itself) and the
+                // arm would pass green-but-blind.
+                MapRenderProbe.SynthesizedConicParitySample phaseMismatched =
+                    MapRenderProbe.ComputeSynthesizedConicParity(
+                        renderedOrbit, kerbin, iconBodyRel, seg, KerbinBodyName, 0.0, liveUT);
+                InGameAssert.IsTrue(phaseMismatched.Sampled,
+                    "The phase-mismatched control arm must still SAMPLE (it is a real diff, not a skip)");
+                InGameAssert.IsTrue(phaseMismatched.Result.HasMeasurement,
+                    "The phase-mismatched control arm must produce a usable measurement");
+                InGameAssert.IsTrue(phaseMismatched.Result.OverTolerance,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "A raw-epoch (phase-MISMATCHED, loopShift=0) reference against a loop-shifted rendered "
+                        + "draw MUST flag synthesized drift - proving the phase-match is load-bearing; "
+                        + "maxDev={0:F0} m tol={1:F0} m. If this reads ~0 the loopShift is not actually moving "
+                        + "the reference phase (the test is tautological).",
+                        phaseMismatched.Result.MaxDeviationMeters,
+                        phaseMismatched.Result.ToleranceMeters));
+
+                ParsekLog.Info("TestRunner",
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "SynthesizedParity_LoopShiftedGhost_PhaseMatched_ZeroDrift: pid={0} loopShift={1:F1} "
+                        + "matchedDev={2:F0}m mismatchedDev={3:F0}m tol={4:F0}m",
+                        pid, loopShift, phaseMatched.Result.MaxDeviationMeters,
+                        phaseMismatched.Result.MaxDeviationMeters,
+                        phaseMatched.Result.ToleranceMeters));
+            }
+            finally
+            {
+                if (pid != 0u)
+                    GhostMapPresence.RemoveAllGhostVessels("synth-parity-loop-fixture-cleanup");
+                RecordingStore.ClearCommittedInternal();
+                RecordingStore.ClearCommittedTreesInternal();
+                for (int i = 0; i < prevRecordings.Count; i++)
+                    RecordingStore.AddCommittedInternal(prevRecordings[i]);
+                for (int i = 0; i < prevTrees.Count; i++)
+                    RecordingStore.AddCommittedTreeInternal(prevTrees[i]);
+                GhostMapPresence.CurrentUTNow = prevUTNow;
+            }
+        }
+
+        // A deliberately non-zero loop epoch shift (seconds) for the LOOP-SHIFTED synthesized arm: ~18 min, a
+        // sizeable fraction of the orbit period at Sma, so the rendered conic sits well around the orbit from
+        // the raw recorded phase. With the BLOCKER bug present (raw-epoch reference) the phase-matched and
+        // raw-epoch references diverge by ~orbit-diameter at this shift; the fix collapses the phase-matched
+        // case to ~0 while the raw-epoch control still drifts.
+        private const double LoopEpochShiftSeconds = 1100.0;
+
         private static OrbitSegment BuildSegment(double startUT)
         {
             return new OrbitSegment

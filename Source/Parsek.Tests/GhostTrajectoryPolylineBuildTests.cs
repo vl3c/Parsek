@@ -3000,5 +3000,37 @@ namespace Parsek.Tests
                 GhostTrajectoryPolylineRenderer.UndrawnLegFallback.UseFreshBodyFixedHead,
                 GhostTrajectoryPolylineRenderer.ResolveUndrawnLegFallback(legWasConicAnchored: false));
         }
+
+        // --- A1 polyline-leg parity lens: ShouldCaptureLegForParity (pure capture-skip decision, BLOCKER 2)
+        // The rendered-vs-recorded leg-geometry parity lens diffs the leg's rendered points3 against its RAW
+        // recorded surface track. A CONIC-ANCHORED leg draws its points ~96 deg off that raw track ON PURPOSE
+        // (TryAnchorLegToConicSeam), so including it would report ~body-radius drift on a CORRECT anchor (a
+        // false positive) while a leg that FAILED to anchor reads ~0 - exactly backwards. So anchored legs are
+        // SKIPPED and only non-anchored body-fixed legs (descent / atmospheric / surface) are validated, where
+        // rendered == recorded by construction. The Unity capture (points3 / ScaledSpace / GetWorldSurface
+        // Position) is in-game-only; this pure decision is the xUnit-covered seam.
+
+        [Fact]
+        public void AnchoredLeg_IsSkippedFromParityCapture()
+        {
+            // A conic-anchored leg's rendered points are intentionally rotated off the raw recorded track, so
+            // the lens must NOT capture it (it would false-fire on a correct anchor).
+            Assert.False(
+                GhostTrajectoryPolylineRenderer.ShouldCaptureLegForParity(legWasConicAnchored: true),
+                "A conic-anchored leg must be excluded from the rendered-vs-recorded parity capture (its "
+                + "rendered points are intentionally far from the raw recorded surface track).");
+        }
+
+        [Fact]
+        public void NonAnchoredBodyFixedLeg_IsCapturedForParity()
+        {
+            // The descent / atmospheric / surface re-stitch the audit cares about: a non-anchored body-fixed
+            // leg draws the raw body-fixed points, so rendered == recorded by construction and a genuine
+            // mis-draw drifts. The lens MUST capture it.
+            Assert.True(
+                GhostTrajectoryPolylineRenderer.ShouldCaptureLegForParity(legWasConicAnchored: false),
+                "A non-anchored body-fixed leg (descent / atmospheric / surface) must be captured for parity; "
+                + "its rendered points ARE the raw recorded track, so a real mis-draw shows drift.");
+        }
     }
 }
