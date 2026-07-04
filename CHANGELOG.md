@@ -14,6 +14,7 @@ All notable changes to Parsek are documented here.
 - The tracking station ghost icon now stays on its drawn trajectory during engine-burn segments (for example the escape burn out of Kerbin orbit): it previously drew on the unrotated recorded track, visibly off the line, whenever the burn leg was rotated to connect its surrounding orbits.
 - Tracking station ghosts no longer blink out entirely for a moment when a multi-part mission hands off between its recorded segments: the fallback icon keeps drawing until the orbit icon actually takes over.
 - Looped landing-mission ghosts now retire cleanly at touchdown on the map and tracking station: the descent ghost stops at the end of its recorded descent instead of gliding on below the planet surface.
+- After switching vessels, a far-away ghost's map orbit line no longer takes tens of seconds to appear: the line was waiting on the ghost's 3D model build (time-sliced, slowest for distant ghosts); the map presence is now created as soon as playback registers the ghost.
 
 ### Internals & Tests
 
