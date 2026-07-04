@@ -125,7 +125,6 @@ namespace Parsek.MapRender
         {
             if (!firstEmitCached)
             {
-                firstEmitCached = true;
                 string frameBody = (Anchor is AnchorFrame.BodyAnchor body) ? body.BodyName : null;
                 var ctx = new SampleContext(StartUt, frameBody);
                 foreach (RenderSegment s in Emit(ctx))
@@ -134,6 +133,10 @@ namespace Parsek.MapRender
                     firstEmitHasGeometry = true;
                     break;
                 }
+                // Marked cached only AFTER a successful enumeration: if a future Emit threw, the next
+                // call rethrows (like the old per-frame inline projection did) instead of silently
+                // serving "no geometry" forever (review follow-up nit).
+                firstEmitCached = true;
             }
             seg = firstEmitSegment;
             return firstEmitHasGeometry;
