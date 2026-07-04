@@ -2926,6 +2926,220 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True for the irreversible live-gameplay terminal events that KSP applies the
+        /// moment they happen and cannot be cleanly undone without a quicksave reload:
+        /// contract terminal outcomes and world-record / progress milestone achievements.
+        /// These must survive a recording discard (see
+        /// <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>). Science is handled
+        /// separately (it rides <c>PendingScienceSubjects</c>, not a GameStateEvent).
+        /// </summary>
+        internal static bool IsIrreversibleLiveGameplayEvent(GameStateEventType type)
+        {
+            return type == GameStateEventType.ContractCompleted
+                || type == GameStateEventType.ContractFailed
+                || type == GameStateEventType.ContractCancelled
+                || type == GameStateEventType.MilestoneAchieved;
+        }
+
+        /// <summary>
+        /// Preserves irreversible live-gameplay economy when a recording is DISCARDED on a
+        /// NON-rewind path (which has no quicksave to roll KSP back). The player flew live,
+        /// so KSP already applied these irreversibly; they must survive into the ledger or
+        /// the ledger diverges from KSP — re-listing a completed contract as active
+        /// (double-listing in the in-progress tab + a re-completable duplicate reward + a
+        /// silent fund drop), or un-crediting collected science / achieved milestones.
+        ///
+        /// Re-homes the discarded recordings' tagged irreversible terminal events
+        /// (ContractCompleted/Failed/Cancelled, MilestoneAchieved) and their collected
+        /// science subjects into DIRECT ledger actions (recordingId cleared), so the ledger
+        /// keeps what KSP applied while the discard still drops the ghost / trajectory. The
+        /// contract / milestone reward (funds / rep / science) rides the re-homed action
+        /// itself (ConvertContractCompleted / ConvertMilestoneAchieved read it from the event
+        /// detail), so one re-homed row preserves both the lifecycle state and the reward —
+        /// no separate FundsChanged / ReputationChanged re-home is needed (that would
+        /// double-count). The
+        /// caller purges the now-redundant tagged store events afterward (the two purging
+        /// cores) or leaves them orphaned (AutoDiscardActiveTreeCore — economy-safe: they
+        /// are not recalc inputs and ConvertEvents' cross-recording scope-skip prevents a
+        /// different recording's commit from re-crediting them). The direct ledger actions
+        /// are the truth either way. NO recalc here: the re-homed actions are durable in the
+        /// ledger and are applied to KSP by the caller's post-discard recalc, or — for the
+        /// scoped switch-segment dispositions that defer it — by the next natural recalc
+        /// (scene switch / commit / load). That deferral is safe: KSP's live state already
+        /// reflects what the player did, and whenever a recalc runs the ledger (now holding
+        /// the completion) keeps it consistent. The re-homed actions are stamped at PAST UTs,
+        /// so they rely on the no-future-actions full-replay branch of
+        /// <see cref="RecalculateAndPatchForCurrentTimelineIfFutureActions"/> to be patched in.
+        ///
+        /// Re-fly / rewind discards must NOT call this: they revert KSP via a quicksave
+        /// reload, so preserving would diverge the other way. The wired non-rewind cores
+        /// only ever run a genuine non-rewind discard (re-fly-scoped discards are handled
+        /// earlier by <c>TryDiscardActiveReFlyAttempt</c>), and the discarded id set is only
+        /// ever the discarded tree's own ids.
+        ///
+        /// Internal static for testability.
+        /// </summary>
+        internal static void PreserveIrreversibleLiveGameplayOnDiscard(
+            ICollection<string> discardedRecordingIds, string reason)
+        {
+            if (discardedRecordingIds == null || discardedRecordingIds.Count == 0)
+                return;
+
+            Initialize();
+
+            var idSet = discardedRecordingIds as HashSet<string>
+                ?? new HashSet<string>(discardedRecordingIds);
+
+            // 1. Tagged irreversible terminal events from the discarded recordings ->
+            //    direct ledger actions (ConvertEvent with recordingId=null clears the tag).
+            var rehomed = new List<GameAction>();
+            int contractEvents = 0, milestoneEvents = 0;
+            var storeEvents = GameStateStore.Events;
+            for (int i = 0; i < storeEvents.Count; i++)
+            {
+                var e = storeEvents[i];
+                if (string.IsNullOrEmpty(e.recordingId) || !idSet.Contains(e.recordingId))
+                    continue;
+                // Never re-home committed history: a committed recording's terminal events
+                // are already ledger actions. (DiscardPendingTree pre-excludes committed
+                // ids; AutoDiscardActiveTreeCore's committed-restore-clone callers can pass
+                // committed ids, so guard here too — dedup would also catch it, but this
+                // keeps committed history out of the re-home input entirely.)
+                if (RecordingStore.IsCommittedRecordingId(e.recordingId))
+                    continue;
+                if (!IsIrreversibleLiveGameplayEvent(e.eventType))
+                    continue;
+
+                var action = GameStateEventConverter.ConvertEvent(e, recordingId: null);
+                if (action == null)
+                    continue;
+                rehomed.Add(action);
+                if (e.eventType == GameStateEventType.MilestoneAchieved) milestoneEvents++;
+                else contractEvents++;
+            }
+
+            // 2. Collected science subjects from the discarded recordings -> direct
+            //    ScienceEarning actions (cleared recordingId + null owner => untagged-in-
+            //    window conversion). Science is irreversible too (banked in the R&D archive).
+            int scienceSubjectCount = 0;
+            double minUT = double.MaxValue, maxUT = double.MinValue;
+            var clearedSubjects = new List<PendingScienceSubject>();
+            var pending = GameStateRecorder.PendingScienceSubjects;
+            for (int i = 0; i < pending.Count; i++)
+            {
+                var s = pending[i];
+                if (string.IsNullOrEmpty(s.recordingId) || !idSet.Contains(s.recordingId))
+                    continue;
+                if (RecordingStore.IsCommittedRecordingId(s.recordingId))
+                    continue; // committed science is already a ledger action
+                var cleared = s;
+                cleared.recordingId = "";
+                clearedSubjects.Add(cleared);
+                scienceSubjectCount++;
+                if (s.captureUT < minUT) minUT = s.captureUT;
+                if (s.captureUT > maxUT) maxUT = s.captureUT;
+            }
+            List<GameAction> scienceActions = null;
+            if (clearedSubjects.Count > 0)
+            {
+                scienceActions = GameStateEventConverter.ConvertScienceSubjects(
+                    clearedSubjects, recordingId: null, minUT - 1.0, maxUT + 1.0);
+                rehomed.AddRange(scienceActions);
+            }
+
+            if (rehomed.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PreserveIrreversibleLiveGameplayOnDiscard ({reason}): nothing to re-home " +
+                    $"for {idSet.Count.ToString(CultureInfo.InvariantCulture)} discarded id(s)");
+                return;
+            }
+
+            // 3. Dedup against the ledger (defensive: a re-homed event already present is
+            //    credited once), assign KSC sequence numbers, append. NO recalc — the
+            //    caller's post-discard recalc credits these.
+            int beforeDedup = rehomed.Count;
+            rehomed = DeduplicateAgainstLedger(rehomed);
+            int deduped = beforeDedup - rehomed.Count;
+            for (int i = 0; i < rehomed.Count; i++)
+                rehomed[i].Sequence = AllocateKscSequence();
+            Ledger.AddActions(rehomed);
+
+            // Mirror the committed-science cache for any surviving re-homed ScienceEarning
+            // action so the direct science is treated as committed (subjectId-deduped,
+            // max-not-additive).
+            if (scienceActions != null)
+            {
+                var survivingScience = new List<GameAction>();
+                for (int i = 0; i < rehomed.Count; i++)
+                    if (rehomed[i].Type == GameActionType.ScienceEarning)
+                        survivingScience.Add(rehomed[i]);
+                if (survivingScience.Count > 0)
+                    GameStateStore.CommitScienceActions(survivingScience);
+            }
+
+            // Scoped-remove the re-homed science subjects from the static pending list so
+            // the discard's own clear/teardown does not leave them stale or re-process them.
+            // Same scoped contract the discard cores use directly (see
+            // RemovePendingScienceSubjectsForRecordings): a DIFFERENT live recording's
+            // still-uncommitted science stays pending.
+            int subjectsRemoved = RemovePendingScienceSubjectsForRecordings(idSet, reason);
+
+            ParsekLog.Info(Tag,
+                $"PreserveIrreversibleLiveGameplayOnDiscard ({reason}): re-homed " +
+                $"{rehomed.Count.ToString(CultureInfo.InvariantCulture)} direct action(s) " +
+                $"(contract={contractEvents.ToString(CultureInfo.InvariantCulture)}, " +
+                $"milestone={milestoneEvents.ToString(CultureInfo.InvariantCulture)}, " +
+                $"science={scienceSubjectCount.ToString(CultureInfo.InvariantCulture)}, " +
+                $"deduped={deduped.ToString(CultureInfo.InvariantCulture)}, " +
+                $"subjectsRemoved={subjectsRemoved.ToString(CultureInfo.InvariantCulture)}) " +
+                $"for {idSet.Count.ToString(CultureInfo.InvariantCulture)} discarded id(s)");
+        }
+
+        /// <summary>
+        /// Scoped removal of pending science subjects tagged with any id in
+        /// <paramref name="recordingIds"/> from the static
+        /// <see cref="GameStateRecorder.PendingScienceSubjects"/> list. UNLIKE a blanket
+        /// <c>PendingScienceSubjects.Clear()</c>, this leaves UNRELATED subjects pending —
+        /// a DIFFERENT live recording's still-uncommitted science, and untagged KSC captures.
+        /// A blanket clear in a non-rewind discard core silently dropped another recording's
+        /// uncommitted science. This mirrors the scoped commit contract
+        /// (<see cref="NotifyLedgerTreeCommitted"/>'s "preserved unrelated
+        /// PendingScienceSubjects") and the scoped removal inside
+        /// <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/>. Committed-id subjects are
+        /// skipped (committed science is already a ledger action). Internal static for
+        /// direct testability.
+        /// </summary>
+        /// <returns>The number of subjects removed.</returns>
+        internal static int RemovePendingScienceSubjectsForRecordings(
+            ICollection<string> recordingIds, string reason)
+        {
+            if (recordingIds == null || recordingIds.Count == 0)
+                return 0;
+
+            var idSet = recordingIds as HashSet<string> ?? new HashSet<string>(recordingIds);
+            var pending = GameStateRecorder.PendingScienceSubjects;
+            int removed = 0;
+            for (int i = pending.Count - 1; i >= 0; i--)
+            {
+                string rid = pending[i].recordingId ?? "";
+                if (string.IsNullOrEmpty(rid) || !idSet.Contains(rid))
+                    continue;
+                if (RecordingStore.IsCommittedRecordingId(rid))
+                    continue; // committed science is already a ledger action
+                pending.RemoveAt(i);
+                removed++;
+            }
+
+            if (removed > 0)
+                ParsekLog.Verbose(Tag,
+                    $"RemovePendingScienceSubjectsForRecordings ({reason}): removed " +
+                    $"{removed.ToString(CultureInfo.InvariantCulture)} scoped pending subject(s), " +
+                    $"{pending.Count.ToString(CultureInfo.InvariantCulture)} unrelated retained");
+            return removed;
+        }
+
+        /// <summary>
         /// Captures unowned stock science payouts directly into the ledger. Science
         /// collected while a recording is live stays in <see cref="GameStateRecorder.PendingScienceSubjects"/>
         /// and flows through <see cref="OnRecordingCommitted"/>; this path is for KSC /
