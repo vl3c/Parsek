@@ -224,7 +224,10 @@ namespace Parsek
         /// ride OnGhostCreated, so a far-distance-tier multi-part ghost's ~4ms/frame split build
         /// left its map orbit line missing for tens of seconds after a vessel switch (2026-07-04
         /// Duna playtest: 24s for a 75-part ghost). Same mid-update deferral contract as
-        /// OnGhostCreated (fired from the frame tail, pending before created). NOT fired for
+        /// OnGhostCreated (fired from the frame tail, pending before created). Caveat: on the
+        /// force-immediate direct-spawn path invoked OUTSIDE UpdatePlayback (in-game tests), the
+        /// build finalizes synchronously, so created fires before this event - both converge on
+        /// the idempotent map-presence body, so order only matters for the deferred path. NOT fired for
         /// demoted boundary-overlap secondaries (no lifecycle side effects by design) and NOT
         /// fired when the visual build fails at the registration site (state is removed again;
         /// behavior matches the old no-GhostCreated outcome).
