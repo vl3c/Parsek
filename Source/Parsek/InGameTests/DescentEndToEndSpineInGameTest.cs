@@ -6,7 +6,7 @@ using UnityEngine;
 namespace Parsek.InGameTests
 {
     // Phase 10 / B-row1 (cutover regression harness) - the DESCENT end-to-end SPINE test. It drives a looped
-    // landing flag-ON through the SAME sampler entry point ShadowRenderDriver.RunFrame inlines
+    // landing through the SAME sampler entry point ShadowRenderDriver.RunFrame inlines
     // (ChainSampler.Sample(PhaseChain, liveUT, units) -> the span-clock remap + the CrossMemberSeamStitcher +
     // the projection) at three live UTs and asserts the spine's DESCENT DECISION is correct:
     //
@@ -26,14 +26,13 @@ namespace Parsek.InGameTests
     // headless tests (CrossMemberSeamStitcherTests, pure-clock only) cannot reach: the live-PhaseChain
     // span-clock remap -> stitcher -> projection -> the GhostSample the Director turns into an intent.
     //
-    // ARCHITECTURAL TRUTH respected + the GATE FINDING surfaced (NOT a faked pixel change): the spine's
-    // DECISION (re-anchored head / promoted DescentPhase / Hidden-past-clip) is what flag-ON changes today.
-    // The legacy autonomous polyline Driver still OWNS the actual leg DRAW (the pixels), so the Phase-6
-    // sub-surface-retire FIX only LANDS at the draw layer when Phase 5b deletes the legacy draw. This test
-    // therefore asserts the spine's RETIRE DECISION (the sample retires past the clip) and DOCUMENTS - by
-    // asserting the CURRENT observable state - that the leg-draw ownership is still the legacy Driver
-    // (IsRenderingNonOrbitalLeg is NOT driven by this spine sample; the draw-layer retire lands at 5b). It
-    // does NOT assert a sub-surface pixel disappearing this phase.
+    // ARCHITECTURAL TRUTH respected: the spine's DECISION (re-anchored head / promoted DescentPhase /
+    // Hidden-past-clip) is the retire source, and since Phase 5b the retained draw host (the fenced
+    // polyline Driver walk) follows it - a stamped TracedPath intent routes the descent leg through the
+    // OWNED draw, and a Hidden intent leaves nothing to draw, so the Phase-6 sub-surface-retire fix
+    // reaches the pixels. This test asserts the spine's RETIRE DECISION (the sample retires past the
+    // clip) and - because it drives the pure sampler directly, never the live walk - documents that
+    // IsRenderingNonOrbitalLeg is an ACTUAL-DRAW signal the sampler alone does not flip.
     //
     // NOTE: in-game test (Ctrl+Shift+T / Settings > Diagnostics); cannot run headless (builds a live
     // PhaseChain over a recording + resolves the destination body). FLIGHT only; career-independent.
@@ -52,9 +51,9 @@ namespace Parsek.InGameTests
         [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
             Description = "Phase 10 B-row1 descent end-to-end (spine): the spine's sampler (the RunFrame-"
                 + "inlined ChainSampler.Sample) resolves a VISIBLE re-anchored DescentPhase at a triggered "
-                + "live UT and RETIRES (Hidden, no held sample) past the descent clip; documents that the "
-                + "legacy Driver still owns the leg DRAW (sub-surface retire lands at 5b)")]
-        public void DescentSpine_FlagOn_PromotesReanchoredDescent_RetiresPastClip_LegDrawStillLegacy()
+                + "live UT and RETIRES (Hidden, no held sample) past the descent clip - the sub-surface "
+                + "retire decision the 5b draw layer follows")]
+        public void DescentSpine_PromotesReanchoredDescent_RetiresPastClip()
         {
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.bodyName == DescentBodyName);
             if (body == null)
@@ -70,13 +69,11 @@ namespace Parsek.InGameTests
             double spanStart = now;
             double spanEnd = now + 1000.0;
 
-            bool prevForceSpine = ShadowRenderDriver.ForceSpineDriveForTesting;
             bool prevForceTrace = MapRenderTrace.ForceEnabledForTesting;
 
             try
             {
                 MapRenderTrace.ForceEnabledForTesting = true;
-                ShadowRenderDriver.ForceSpineDriveForTesting = true; // the spine drives (flag ON)
 
                 GhostPlaybackLogic.LoopUnitSet units = BuildDescentUnitSet(
                     phaseAnchor, spanStart, spanEnd, recordedDeorbitUT, descentEndUT);
@@ -148,8 +145,8 @@ namespace Parsek.InGameTests
                     "the spine promotes a first-class DescentPhase (visible, no longer hidden in transfer)");
 
                 // (ii) THE SPINE RETIRE DECISION past the clip: the sample is OutsideWindow and the intent
-                // retires to Hidden (no held sub-surface sample). This is the spine's decision; the actual
-                // sub-surface PIXEL only stops at 5b (see the gate finding below).
+                // retires to Hidden (no held sub-surface sample). Since Phase 5b the draw layer follows
+                // this decision, so the sub-surface pixel stops with it.
                 InGameAssert.AreEqual(Coverage.OutsideWindow, pastEnd.Coverage,
                     "past the descent clip the spine must resolve OutsideWindow (the stitcher returns no held "
                     + "sample - the spine's retire decision)");
@@ -157,29 +154,24 @@ namespace Parsek.InGameTests
                     "the spine's descent intent must RETIRE (Hidden) past the clip, even though the prior "
                     + "frame was visible - the spine does not hold a sub-surface ghost");
 
-                // (iii) THE GATE FINDING (documented, not faked): the ACTUAL leg DRAW is still owned by the
-                // legacy autonomous polyline Driver. The spine's intent above is the DECISION source; it does
-                // NOT itself drive the pixels. So the polyline ownership signal for this recording is NOT set
-                // by this spine sample (no live map render walk ran), confirming the Phase-6 sub-surface-retire
-                // FIX lands at the DRAW layer only when Phase 5b deletes the legacy draw. We assert the CURRENT
-                // observable state (ownership not driven by the spine sample) rather than a pixel change.
+                // (iii) ACTUAL-DRAW ownership contract: IsRenderingNonOrbitalLeg is the walk's
+                // actual-draw signal (8e S3b) - this test drives the PURE sampler directly, no live map
+                // render walk ran, so the ownership signal must NOT flip from a sampler decision alone.
+                // (In live play the walk consumes the intent this sampler produced and the OWNED descent
+                // draw flips it.)
                 bool legDrawOwnedByPolyline =
                     Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(rec.RecordingId);
                 InGameAssert.IsFalse(legDrawOwnedByPolyline,
-                    "GATE FINDING (documents the 5b-pending state): the spine's descent DECISION does not "
-                    + "itself own the leg DRAW - IsRenderingNonOrbitalLeg is false because no live polyline "
-                    + "walk drew this recording's leg (the legacy autonomous Driver owns the draw; the "
-                    + "sub-surface-retire fix lands at the DRAW layer at Phase 5b). This asserts the current "
-                    + "decision-source-swap contract, NOT a 5b-only pixel change.");
+                    "IsRenderingNonOrbitalLeg is an ACTUAL-DRAW signal: no live polyline walk drew this "
+                    + "recording's leg in this pure-sampler harness, so the ownership signal must stay "
+                    + "false (a decision alone never flips it).");
 
                 ParsekLog.Info("TestRunner",
-                    "DescentSpine GATE FINDING: spine descent DECISION is correct (visible re-anchored head + "
-                    + "retire past clip), but the leg DRAW ownership remains the legacy Driver - the "
-                    + "sub-surface-retire pixel change lands at Phase 5b (legacy-draw deletion).");
+                    "DescentSpine: spine descent DECISION correct (visible re-anchored head + retire past "
+                    + "clip); the 5b draw layer follows this decision in live play.");
             }
             finally
             {
-                ShadowRenderDriver.ForceSpineDriveForTesting = prevForceSpine;
                 ShadowRenderDriver.Reset();
                 MapRenderTrace.ForceEnabledForTesting = prevForceTrace;
             }

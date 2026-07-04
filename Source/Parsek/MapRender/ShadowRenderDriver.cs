@@ -9,12 +9,12 @@ namespace Parsek.MapRender
     /// Phase 4 origin (design 6.7), no longer decision-only shadow: this driver now STAMPS THE DRIVE the
     /// legacy surfaces read. Per map-ghost instance it builds the chain, samples it at the live UT,
     /// decides the intent, and records the StockConic seed the icon-drive patch re-asserts plus the
-    /// traced-path stamps the proto/marker consumers read. It still records each intent via
-    /// <see cref="GhostRenderReconciler.NoteIntent"/>, but that store has NO production reader: the old
-    /// intent-vs-old-truth comparator (<c>CheckIntentAgainstOldTruth</c>) was RETIRED in the Phase-8
-    /// unwiring (circular once the spine drove the render) and the recorded-vs-rendered
-    /// <c>RenderParityOracle</c> is the SOLE acceptance axis. The NoteIntent write is kept only to avoid
-    /// touching this driver in an observability-only phase - a removal candidate at the 5a/5b deletes.
+    /// traced-path stamp the proto/marker consumers read. Phase 5b: the typed PhaseChain spine is
+    /// UNCONDITIONAL (the cutover flag was removed; the legacy assembler chain survives only as the
+    /// loud-warned exception fallback for a factory throw), the legacy per-pid TracedPath side-channel
+    /// was deleted (one intent-sourced stamp remains), and the <c>GhostRenderReconciler.NoteIntent</c>
+    /// write was removed (its store lost its last production reader at the Phase-8 unwiring; the
+    /// recorded-vs-rendered <c>RenderParityOracle</c> is the SOLE acceptance axis).
     ///
     /// <para>Wholly gated by the caller on <see cref="MapRenderTrace.IsEnabled"/> (the off-by-default
     /// <c>mapRenderTracing</c> setting), so normal play pays nothing. Consumes the loop units from the
@@ -65,12 +65,11 @@ namespace Parsek.MapRender
         {
             public string Signature;
             public GhostRenderChain Chain;
-            // The typed PhaseChain successor (migration plan §5 / Phase 3). Built from the SAME inputs as
-            // Chain (PhaseFactory wraps the assembler's geometry), cached under the SAME signature, and
-            // consumed by the sampler/director ONLY when MapRenderFlags.MapRenderPhaseSpineDrive is ON. It
-            // is null when neither the flag is on NOR tracing is on (no consumer needs it). The Phase-2
-            // shadow already builds a factory chain when tracing is on for byte-parity; when the spine flag
-            // is on it is also built (regardless of tracing) so the spine has something to drive.
+            // The typed PhaseChain the spine drives (migration plan section 5 / Phase 3; UNCONDITIONAL
+            // since the Phase-5b flag removal). Built from the SAME inputs as Chain (PhaseFactory wraps the
+            // assembler's geometry) and cached under the SAME signature. It is null ONLY when the factory
+            // threw (the swallow in GetOrBuildChain); RunFrame then falls back to the assembler Chain with
+            // a loud once-per-pid warn - the FENCED exception fallback, never a routine path.
             public PhaseChain PhaseChain;
             // True when this cached chain was assembled from RE-AIMED OrbitSegments (the override differed
             // from the recorded list by reference). Stored WITH the chain so the per-frame skip decision
@@ -95,28 +94,15 @@ namespace Parsek.MapRender
         private static readonly Dictionary<uint, StockConicSeed> seedByPid =
             new Dictionary<uint, StockConicSeed>();
 
-        // Per-pid frame stamp: the frame the Director's active segment for this ghost was a TracedPath
-        // (a non-orbital leg - ascent / burn / descent - the autonomous polyline owns). Under the gate
-        // the icon-drive + line patches read this and HARD-SUPPRESS the stock proto icon + line, so the
-        // legacy gap-glide can't stock-propagate a per-frame synthesized orbit and teleport the icon
-        // across it (the s15 escape-burn teleport). Mirrors seedByPid: written each shadow frame, read
-        // with the same +/-SeedFreshnessFrames tolerance, keyed on the intent (not a FixedUpdate stamp).
-        // KEPT (migration plan Phase 5): this is the legacy side-channel stamp the flag-OFF owned-draw
-        // routing + every proto/marker consumer reads via IsDirectorTracedPathActive. Phase 4a adds an
-        // intent-sourced sibling (tracedPathIntentByPid) for the flag-ON path WITHOUT touching this.
-        private static readonly Dictionary<uint, int> tracedPathByPid = new Dictionary<uint, int>();
-
-        // Phase 4a (migration plan §6.6a — re-home the TracedPath polyline draw to the intent): the
-        // INTENT-SOURCED sibling of tracedPathByPid, written ONLY when the typed-spine flag is ON
-        // (PhaseSpineDriveActive). Same frame-stamp + same +/-SeedFreshnessFrames freshness contract, so
-        // the flag-ON owned-draw routing reads the SAME shape the legacy side-channel offers - but the
-        // stamp is sourced from the spine's GhostRenderIntent (intent.Treatment == TracedPath), the design
-        // §8 "scene.Apply(intent)" sourcing, not the autonomous walk. By construction it is stamped from
-        // the SAME intent, in the SAME RunFrame pass, on the SAME frame as tracedPathByPid, so the two are
-        // byte-identical when the flag is on - which is exactly why the flag-ON owned-draw routing can read
-        // it WITHOUT desyncing the proto/marker consumers that still read tracedPathByPid (no double-draw,
-        // no gap). Flag OFF: never written, so the flag-OFF routing falls through to tracedPathByPid and is
-        // byte-identical to today. Additive; nothing here is deleted (the Phase-5 cutover removes both).
+        // Per-pid frame stamp (THE single TracedPath signal since the Phase-5b delete of the legacy
+        // side-channel): the frame the spine's GhostRenderIntent for this ghost was a visible TracedPath
+        // (a non-orbital leg - ascent / burn / descent - the polyline owns). The icon-drive + line
+        // patches read this and HARD-SUPPRESS the stock proto icon + line, so the legacy gap-glide
+        // can't stock-propagate a per-frame synthesized orbit and teleport the icon across it (the s15
+        // escape-burn teleport). Mirrors seedByPid: written each shadow frame, read with the same
+        // +/-SeedFreshnessFrames tolerance, keyed on the intent (not a FixedUpdate stamp) - the design
+        // section-8 "scene.Apply(intent)" sourcing. Every consumer (the owned-draw routing, the proto/marker
+        // consumers, IsDirectorTracking) reads this one stamp, so they can never disagree.
         private static readonly Dictionary<uint, int> tracedPathIntentByPid = new Dictionary<uint, int>();
 
         internal static void Reset()
@@ -124,7 +110,6 @@ namespace Parsek.MapRender
             priorIntentByPid.Clear();
             chainByPid.Clear();
             seedByPid.Clear();
-            tracedPathByPid.Clear();
             tracedPathIntentByPid.Clear();
             spineFallbackWarnedPids.Clear();
         }
@@ -134,31 +119,10 @@ namespace Parsek.MapRender
         /// reconciler reads it when render tracing is on). Kept as a property for call-site stability.</summary>
         internal static bool Enabled => true;
 
-        /// <summary>
-        /// In-game test seam (migration plan §5 / Phase 3): force the typed-spine drive ON regardless of
-        /// the default-OFF compile-time <see cref="MapRenderFlags.MapRenderPhaseSpineDrive"/> const, so a
-        /// flag-ON in-game test can exercise the PhaseChain spine without a rebuild. ORed with the const in
-        /// <see cref="PhaseSpineDriveActive"/>. Default false (normal play reads only the const). Tests MUST
-        /// restore it in a finally; a leaked true would silently flip every later ghost onto the new spine.
-        ///
-        /// <para><b>Callers MUST <see cref="Reset"/> after flipping this</b> (or run with tracing on so the
-        /// PhaseChain is always built). <see cref="BuildChainSignature"/> intentionally OMITS the spine flag
-        /// from the cache key (the flag does not change the geometry, only which spine consumes it), so a
-        /// chain cached while the flag was off can carry a null <see cref="CachedChain.PhaseChain"/>; without
-        /// a <see cref="Reset"/> that stale cache entry would persist after the flip and the flag-ON branch
-        /// would silently fall back to the assembler chain (phaseChain == null). The in-game test seam
-        /// (<see cref="PhaseSpineSwapInGameTest"/>) calls <see cref="Reset"/> on every flip for this reason.</para>
-        /// </summary>
-        internal static bool ForceSpineDriveForTesting = false;
-
-        /// <summary>
-        /// The single source of truth for "drive the sampler/director off the typed PhaseChain this frame":
-        /// the default-OFF compile-time flag OR the in-game test seam. With BOTH off (normal play) the C#
-        /// const-fold elides the new spine branch entirely (the seam is a runtime read, so the JIT keeps the
-        /// branch, but the false seam means it is never taken), so flag-OFF behavior is byte-identical.
-        /// </summary>
-        internal static bool PhaseSpineDriveActive =>
-            MapRenderFlags.MapRenderPhaseSpineDrive || ForceSpineDriveForTesting;
+        // Phase 5b: the cutover flag + its in-game test seam were REMOVED - the typed PhaseChain spine
+        // drives unconditionally. Rollback is a revert of the 5b commit, never a runtime toggle. A
+        // grep-audit gate (scripts/grep-audit-map-render-phase-spine-drive.ps1) locks the deleted
+        // symbols out of Source/Parsek/.
 
         /// <summary>
         /// Max frame gap between the shadow recording a StockConic seed and the icon-drive patch reading
@@ -197,31 +161,16 @@ namespace Parsek.MapRender
         }
 
         /// <summary>
-        /// True when the Director's active segment for <paramref name="pid"/> was a
-        /// TracedPath (non-orbital leg) within <see cref="SeedFreshnessFrames"/> of
-        /// <paramref name="currentFrame"/> (the gate was dropped in 8e S4; the predicate now gates purely
-        /// on the TracedPath stamp freshness). The icon-drive + line patches read this to HARD-SUPPRESS the
-        /// stock proto icon + line on those frames (the autonomous polyline owns the leg), so the legacy
-        /// gap-glide can't stock-propagate a synthesized orbit and teleport the icon. Same shared-signal
-        /// shape as <see cref="IsDirectorDriveActive"/> - keyed on the shadow's per-segment intent, not a
+        /// The INTENT-SOURCED TracedPath-active signal (Phase 4a origin; THE single source since the
+        /// Phase-5b delete of the legacy side-channel) - true when the spine's
+        /// <see cref="GhostRenderIntent"/> for <paramref name="pid"/> was a visible TracedPath within
+        /// <see cref="SeedFreshnessFrames"/> of <paramref name="currentFrame"/>, as stamped from the
+        /// intent into <see cref="tracedPathIntentByPid"/>. The icon-drive + line patches read this (via
+        /// <see cref="IsTracedPathOwnedThisFrame"/>) to HARD-SUPPRESS the stock proto icon + line on
+        /// those frames (the polyline owns the leg), so the legacy gap-glide can't stock-propagate a
+        /// synthesized orbit and teleport the icon. Same shared-signal shape as
+        /// <see cref="IsDirectorDriveActive"/> - keyed on the shadow's per-segment intent, not a
         /// FixedUpdate stamp, so it stays correct on no-FixedUpdate render frames.
-        /// </summary>
-        internal static bool IsDirectorTracedPathActive(uint pid, int currentFrame)
-        {
-            return tracedPathByPid.TryGetValue(pid, out int f)
-                && System.Math.Abs(currentFrame - f) <= SeedFreshnessFrames;
-        }
-
-        /// <summary>
-        /// Phase 4a (migration plan §6.6a): the INTENT-SOURCED TracedPath-active signal - true when the
-        /// spine's <see cref="GhostRenderIntent"/> for <paramref name="pid"/> was a visible TracedPath
-        /// within <see cref="SeedFreshnessFrames"/> of <paramref name="currentFrame"/>, as stamped from
-        /// the intent into <see cref="tracedPathIntentByPid"/>. Written ONLY when
-        /// <see cref="PhaseSpineDriveActive"/> is on, so this returns false in flag-OFF play (no stamp).
-        /// Same freshness contract as <see cref="IsDirectorTracedPathActive"/>; the flag-ON owned-draw
-        /// routing reads THIS (the intent) instead of the legacy side-channel, while the proto/marker
-        /// consumers keep reading <see cref="IsDirectorTracedPathActive"/> - the two are byte-identical
-        /// when the flag is on (same intent, same pass, same frame), so the consumers never disagree.
         /// </summary>
         internal static bool IsDirectorTracedPathActiveFromIntent(uint pid, int currentFrame)
         {
@@ -230,39 +179,27 @@ namespace Parsek.MapRender
         }
 
         /// <summary>
-        /// Phase 4a (migration plan §6.6a): the FLAG-AWARE "does the OWNED TracedPath treatment draw this
-        /// ghost's leg this frame (and the autonomous Driver-direct draw stand down for it)?" signal the
-        /// polyline Driver routes on. Flag ON (<see cref="PhaseSpineDriveActive"/>): source the decision
-        /// from the spine's intent (<see cref="IsDirectorTracedPathActiveFromIntent"/>) - the design §8
-        /// "scene.Apply(intent)" sourcing, re-homed off the autonomous walk's side-channel. Flag OFF
-        /// (default): fall through to the legacy <see cref="IsDirectorTracedPathActive"/> side-channel -
-        /// BYTE-IDENTICAL to today (the prior-rewrite routing is untouched). The two underlying stamps are
-        /// written from the SAME intent in the SAME pass, so the flag flip never changes WHICH frames own
-        /// the leg; it only re-points the SOURCE of the decision, keeping flag-ON consistent with the
-        /// proto/marker consumers (no double-draw, no gap) and flag-OFF unchanged.
+        /// "Does the OWNED TracedPath treatment draw this ghost's leg this frame (and the Driver-direct
+        /// draw stand down for it)?" - the shared selector the polyline Driver, the marker decision
+        /// (<see cref="GhostMapPresence.ResolveMarkerDrawDecision"/> disjunct), and the proto icon/line
+        /// suppress patches all route on. Phase 5b collapsed it onto the single intent source
+        /// (<see cref="IsDirectorTracedPathActiveFromIntent"/>): the legacy side-channel else-branch was
+        /// deleted with the cutover flag, so every consumer reads one stamp and can never disagree (no
+        /// double-draw, no gap).
         /// </summary>
         internal static bool IsTracedPathOwnedThisFrame(uint pid, int currentFrame)
         {
-            return PhaseSpineDriveActive
-                ? IsDirectorTracedPathActiveFromIntent(pid, currentFrame)
-                : IsDirectorTracedPathActive(pid, currentFrame);
+            return IsDirectorTracedPathActiveFromIntent(pid, currentFrame);
         }
 
         /// <summary>
-        /// Test-only seam (Phase 4a): stamps the two per-pid TracedPath frame maps the Unity-coupled
-        /// <see cref="RunFrame"/> populates, so the freshness predicates + the flag-aware selector
+        /// Test-only seam: stamps the per-pid TracedPath intent frame map the Unity-coupled
+        /// <see cref="RunFrame"/> populates, so the freshness predicate + the collapsed selector
         /// (<see cref="IsTracedPathOwnedThisFrame"/>) can be exercised from xUnit without a live KSP.
-        /// <paramref name="legacyFrame"/> stamps the legacy side-channel (<c>tracedPathByPid</c>, the
-        /// flag-OFF + proto/marker source); <paramref name="intentFrame"/> stamps the intent-sourced
-        /// sibling (<c>tracedPathIntentByPid</c>, the flag-ON source). A negative frame removes the stamp.
-        /// Mirrors the production contract (RunFrame stamps BOTH on the flag, only the legacy off it), but
-        /// the seam lets a test stamp them independently to prove the selector reads the right one.
-        /// Cleared by <see cref="Reset"/>.
+        /// A negative frame removes the stamp. Cleared by <see cref="Reset"/>.
         /// </summary>
-        internal static void SetTracedPathStampsForTesting(uint pid, int legacyFrame, int intentFrame)
+        internal static void SetTracedPathIntentStampForTesting(uint pid, int intentFrame)
         {
-            if (legacyFrame < 0) tracedPathByPid.Remove(pid);
-            else tracedPathByPid[pid] = legacyFrame;
             if (intentFrame < 0) tracedPathIntentByPid.Remove(pid);
             else tracedPathIntentByPid[pid] = intentFrame;
         }
@@ -283,7 +220,7 @@ namespace Parsek.MapRender
         internal static bool IsDirectorTracking(uint pid, int currentFrame)
         {
             return IsDirectorDriveActive(pid, currentFrame)
-                || IsDirectorTracedPathActive(pid, currentFrame);
+                || IsDirectorTracedPathActiveFromIntent(pid, currentFrame);
         }
 
         /// <summary>
@@ -367,14 +304,10 @@ namespace Parsek.MapRender
             // span clock at UT<=0 would place a degenerate TS/map ghost on the first cold-load frames (TS
             // presence is stock-automatic the moment a ProtoVessel exists). DEFER the whole spine frame
             // (render nothing / hold) and raise the once-per-event clock-not-ready anomaly. Mirrors
-            // LedgerOrchestrator.IsCurrentUtReadyForCutoff (ut > 0).
-            //
-            // FLAG-GATED so the flag-OFF path is BYTE-IDENTICAL to today: with the spine flag off the legacy
-            // assembler-driven branch below already runs unchanged, and this overhaul's defer must not alter
-            // any currently-supported producer's geometry. The clock-not-ready RAISE is additionally
-            // tracing-gated inside EmitClockNotReady (free in normal play). The legacy spine continues to
-            // sample as before when the flag is off (no behavior change there).
-            if (PhaseSpineDriveActive && !IsLiveClockReady(currentUT))
+            // LedgerOrchestrator.IsCurrentUtReadyForCutoff (ut > 0). Unconditional since the Phase-5b flag
+            // removal (the spine always drives); the clock-not-ready RAISE is tracing-gated inside
+            // EmitClockNotReady (free in normal play).
+            if (!IsLiveClockReady(currentUT))
             {
                 MapRenderTrace.EmitClockNotReady(currentUT, pids?.Count ?? 0);
                 ParsekLog.VerboseRateLimited("MapRender", "spine-clock-not-ready",
@@ -415,35 +348,30 @@ namespace Parsek.MapRender
                         pid, traj, idx, wStart, wEnd, currentUT, units, surface,
                         out bool chainHasReaimedSegments, out PhaseChain phaseChain);
 
-                    // THE SPINE SWAP (migration plan §5 / Phase 3). Flag OFF (default): sample the legacy
-                    // ChainAssembler-built GhostRenderChain — byte-identical to pre-Phase-3 behavior. Flag
-                    // ON: sample the typed PhaseChain instead. Both run the SAME span clock + coverage
-                    // classify + 3-case Decide, and the factory geometry byte-matches the assembler
-                    // (Phase-2 parity), so the emitted intent + side-channel stamps + draw are identical.
-                    // The director's prior-intent gap-hold is shared (one priorIntentByPid map), so the swap
-                    // does not change the hold contract.
+                    // THE SPINE (migration plan section 5 / Phase 3, UNCONDITIONAL since the Phase-5b flag
+                    // removal): sample the typed PhaseChain. The legacy assembler chain survives ONLY as
+                    // the FENCED exception fallback below - phaseChain is null exactly when the factory
+                    // threw (GetOrBuildChain swallows the throw so a phase-chain build can never
+                    // destabilize the live render), and that fallback WARNS loudly once per pid. Both
+                    // paths run the SAME span clock + coverage classify + 3-case Decide, and the factory
+                    // geometry byte-matches the assembler (Phase-2 parity). The director's prior-intent
+                    // gap-hold is shared (one priorIntentByPid map).
                     priorIntentByPid.TryGetValue(pid, out GhostRenderIntent prior);
                     GhostSample sample;
                     GhostRenderIntent intent;
-                    if (PhaseSpineDriveActive && phaseChain != null)
+                    if (phaseChain != null)
                     {
                         sample = ChainSampler.Sample(phaseChain, currentUT, units);
                         intent = GhostRenderDirector.Decide(sample, prior, traj.VesselName);
                     }
                     else
                     {
-                        // C4 SILENT-FALLBACK VISIBILITY: BuildChainSignature deliberately OMITS the spine
-                        // flag from the cache key, so a chain cached while the flag was off carries a null
-                        // PhaseChain; after an A/B toggle / hot-reload of the flag (without a Reset) the
-                        // flag-ON branch above would silently fall through HERE to the assembler chain
-                        // (phaseChain == null). Without a log this is invisible - a flag-ON run that is
-                        // actually rendering off the LEGACY spine. Warn ONCE per pid+condition so the
-                        // toggle is observable (the in-game test seam Resets on every flip, so this never
-                        // fires in a correctly-driven flag-ON run). Pure observability; the render result
-                        // (assembler chain) is unchanged. Note: NOT tracing-gated - this is a correctness
-                        // signal for the cutover operator, but it is rate-limited so it cannot flood.
-                        if (PhaseSpineDriveActive)
-                            WarnSpineFlagOnAssemblerFallback(pid, traj.RecordingId, currentUT);
+                        // FENCED EXCEPTION FALLBACK (Phase 5b keep-decision): a factory throw left the
+                        // cached PhaseChain null, so render off the legacy assembler chain rather than
+                        // dropping the ghost. Warn ONCE per pid so a throwing factory is loudly visible
+                        // (NOT tracing-gated - it is a correctness signal - but one-shot so it cannot
+                        // flood). This is the ONLY route to the assembler sample post-5b.
+                        WarnSpineAssemblerFallback(pid, traj.RecordingId, currentUT);
                         sample = ChainSampler.Sample(chain, currentUT, units);
                         intent = GhostRenderDirector.Decide(sample, prior, traj.VesselName);
                     }
@@ -512,26 +440,19 @@ namespace Parsek.MapRender
                             Seg = intent.Payload.Conic,
                             BodyName = intent.FrameBodyName
                         };
-                    // A visible TracedPath leg (ascent / burn / descent): stamp it so the icon-drive +
-                    // line patches suppress the stock proto icon + line under the gate (the polyline owns
-                    // it). Mutually exclusive with the StockConic seed above (one treatment per intent).
+                    // A visible TracedPath leg (ascent / burn / descent): stamp the single intent-sourced
+                    // signal so the icon-drive + line patches suppress the stock proto icon + line (the
+                    // polyline owns it) and the owned-draw routing engages. Mutually exclusive with the
+                    // StockConic seed above (one treatment per intent). Phase 5b: the legacy side-channel
+                    // stamp was deleted; this is THE stamp every consumer reads.
                     else if (intent.Visible && intent.Treatment == Treatment.TracedPath)
                     {
-                        int tracedFrame = UnityFrame();
-                        // KEPT (legacy side-channel): every proto/marker consumer + the flag-OFF owned-draw
-                        // routing reads this via IsDirectorTracedPathActive. Stamped in BOTH flag states so
-                        // flag-OFF is byte-identical to today.
-                        tracedPathByPid[pid] = tracedFrame;
-                        // Phase 4a (intent-sourced sibling): stamp the flag-ON owned-draw signal from the
-                        // SAME intent in the SAME pass. Written ONLY under the flag so flag-OFF never grows
-                        // a stamp here (its routing keeps falling through to tracedPathByPid). On the flag
-                        // these two stamps are identical by construction, so the flag-ON owned routing and
-                        // the proto/marker consumers (which read tracedPathByPid) can never disagree.
-                        if (PhaseSpineDriveActive)
-                            tracedPathIntentByPid[pid] = tracedFrame;
+                        tracedPathIntentByPid[pid] = UnityFrame();
                     }
 
-                    GhostRenderReconciler.NoteIntent(pid, intent);
+                    // Phase 5b: the GhostRenderReconciler.NoteIntent write was removed here - its store
+                    // lost its last production reader at the Phase-8 unwiring (the intent-vs-old-truth
+                    // comparator); the reconciler type + pure predicates stay for their unit tests.
                     EmitLocateIntent(pid, currentUT, sample, intent);
                     shadowed++;
                 }
@@ -644,40 +565,35 @@ namespace Parsek.MapRender
                 traj, idx, instanceKey: 0, wStart, wEnd, faithfulFallback: false, surface: surface,
                 orbitSegmentsOverride: overrideSegs, reaimAncestorBody: reaimAncestor);
 
-            // Build the typed PhaseChain (migration plan §5 / Phase 3) when ANY consumer needs it: the
-            // spine flag is ON (the sampler/director drive off it), OR tracing is on (the Phase-2 shadow
-            // byte-parity comparator asserts against it). When neither is on it stays null and no factory
-            // work runs, so flag-OFF normal play pays nothing beyond the unchanged assembler build above.
-            // Tolerant of any factory throw: a phase-chain build must never destabilize the live render
-            // path, so an exception leaves phaseChain null (the spine falls back to the assembler chain in
-            // RunFrame) and is logged + swallowed.
+            // Build the typed PhaseChain the spine drives (migration plan section 5 / Phase 3; UNCONDITIONAL
+            // since the Phase-5b flag removal - the sampler/director always consume it). Tolerant of any
+            // factory throw: a phase-chain build must never destabilize the live render path, so an
+            // exception leaves phaseChain null (RunFrame then takes the loud-warned assembler exception
+            // fallback) and is logged + swallowed.
             phaseChain = null;
-            if (PhaseSpineDriveActive || MapRenderTrace.IsEnabled)
+            try
             {
-                try
-                {
-                    phaseChain = PhaseFactory.BuildPhaseChain(
-                        traj, idx, instanceKey: 0, wStart, wEnd, faithfulFallback: false, surface: surface,
-                        orbitSegmentsOverride: overrideSegs, reaimAncestorBody: reaimAncestor);
+                phaseChain = PhaseFactory.BuildPhaseChain(
+                    traj, idx, instanceKey: 0, wStart, wEnd, faithfulFallback: false, surface: surface,
+                    orbitSegmentsOverride: overrideSegs, reaimAncestorBody: reaimAncestor);
 
-                    // Phase 2 SHADOW byte-parity assertion (migration plan §4): assert the factory's emitted
-                    // geometry byte-matches the assembler's chain, emitting the factory-parity Tier-C anomaly
-                    // on a mismatch. Gated on tracing (the anomaly sink is). Reuses the just-built phaseChain
-                    // so a single factory build serves both the assertion and the spine.
-                    if (MapRenderTrace.IsEnabled)
-                        AssertFactoryParity(traj, wStart, phaseChain, chain);
+                // Phase 2 SHADOW byte-parity assertion (migration plan section 4): assert the factory's
+                // emitted geometry byte-matches the assembler's chain, emitting the factory-parity Tier-C
+                // anomaly on a mismatch. Gated on tracing (the anomaly sink is). Reuses the just-built
+                // phaseChain so a single factory build serves both the assertion and the spine.
+                if (MapRenderTrace.IsEnabled)
+                    AssertFactoryParity(traj, wStart, phaseChain, chain);
 
-                    // Tier-A structural event on a (re)build: the phase chain's count + kinds + provenance.
-                    // Emitted only when tracing is on (EmitStructural early-returns otherwise) so it is a
-                    // pure observability line, not a hot-path cost in flag-ON-tracing-off play.
-                    EmitPhaseChainAssembled(pid, currentUT, phaseChain);
-                }
-                catch (System.Exception ex)
-                {
-                    phaseChain = null;
-                    ParsekLog.Warn("MapRender", string.Format(CultureInfo.InvariantCulture,
-                        "phase-chain build threw for rec={0}: {1}", traj?.RecordingId ?? "?", ex.Message));
-                }
+                // Tier-A structural event on a (re)build: the phase chain's count + kinds + provenance.
+                // Emitted only when tracing is on (EmitStructural early-returns otherwise) so it is a
+                // pure observability line, not a hot-path cost in tracing-off play.
+                EmitPhaseChainAssembled(pid, currentUT, phaseChain);
+            }
+            catch (System.Exception ex)
+            {
+                phaseChain = null;
+                ParsekLog.Warn("MapRender", string.Format(CultureInfo.InvariantCulture,
+                    "phase-chain build threw for rec={0}: {1}", traj?.RecordingId ?? "?", ex.Message));
             }
 
             chainByPid[pid] = new CachedChain
@@ -723,11 +639,11 @@ namespace Parsek.MapRender
         }
 
         /// <summary>Test seam: true when a NON-NULL typed <see cref="PhaseChain"/> is cached for
-        /// <paramref name="pid"/>. The flag-ON in-game gates assert this after RunFrame because
+        /// <paramref name="pid"/>. The in-game spine gates assert this after RunFrame because
         /// <see cref="GetOrBuildChain"/> swallows a factory throw into a cached null PhaseChain and the
         /// spine then falls back to the legacy assembler chain - so "zero drift" alone cannot distinguish
-        /// "the spine drove" from "the spine threw and the legacy fallback drove" (a false green on the
-        /// flag-ON gate).</summary>
+        /// "the spine drove" from "the spine threw and the exception fallback drove" (a false green on
+        /// the gate).</summary>
         internal static bool HasCachedPhaseChainForTesting(uint pid)
         {
             return chainByPid.TryGetValue(pid, out CachedChain cached) && cached.PhaseChain != null;
@@ -843,37 +759,35 @@ namespace Parsek.MapRender
                 priorIntentByPid.Remove(stalePidScratch[i]);
                 chainByPid.Remove(stalePidScratch[i]);
                 seedByPid.Remove(stalePidScratch[i]);
-                tracedPathByPid.Remove(stalePidScratch[i]);
                 tracedPathIntentByPid.Remove(stalePidScratch[i]);
                 spineFallbackWarnedPids.Remove(stalePidScratch[i]);
             }
         }
 
-        // C4: per-pid one-shot guard for the silent flag-ON -> assembler-chain fallback warn. A flag
-        // toggle / hot-reload without a Reset leaves a stale cache entry with a null PhaseChain, so the
-        // flag-ON branch falls through to the assembler chain; warn ONCE per pid so an A/B toggle is
-        // visible without flooding (the condition is per-pid steady until the next signature rebuild
-        // re-populates PhaseChain). Cleared in Reset() (scene switch) + PruneStaleState (ghost retire).
+        // Per-pid one-shot guard for the assembler-chain exception-fallback warn (Phase 5b: the fallback
+        // fires ONLY when the PhaseFactory threw and left the cached PhaseChain null). Warn ONCE per pid
+        // so a throwing factory is loudly visible without flooding (the condition is per-pid steady until
+        // the next signature rebuild retries the factory). Cleared in Reset() (scene switch) +
+        // PruneStaleState (ghost retire).
         private static readonly HashSet<uint> spineFallbackWarnedPids = new HashSet<uint>();
 
-        // C4 (the silent flag-ON -> assembler fallback, since BuildChainSignature omits the flag): warn
-        // ONE Info line per pid when the spine flag is ON yet the cached chain carries a null PhaseChain
-        // (so the spine-select fell through to the legacy assembler chain). NOT tracing-gated - this is a
-        // cutover-correctness signal for an A/B toggle / hot-reload, but one-shot per pid so it cannot
-        // flood. The render result is unchanged (the assembler chain renders); this only surfaces that the
-        // flag-ON run is actually driving the LEGACY spine for this ghost.
-        private static void WarnSpineFlagOnAssemblerFallback(uint pid, string recordingId, double currentUT)
+        // The loud once-per-pid warn for the FENCED assembler exception fallback: the cached chain
+        // carries a null PhaseChain (the factory threw; see the swallow in GetOrBuildChain), so the
+        // spine-select fell through to the legacy assembler chain. NOT tracing-gated - this is a
+        // correctness signal - but one-shot per pid so it cannot flood. The render result is a coherent
+        // assembler-chain render; this surfaces that the ghost is riding the exception fallback.
+        private static void WarnSpineAssemblerFallback(uint pid, string recordingId, double currentUT)
         {
             if (!spineFallbackWarnedPids.Add(pid))
                 return;
             ParsekLog.Warn("MapRender", string.Format(CultureInfo.InvariantCulture,
-                "spine flag ON but PhaseChain null for pid={0} rec={1} at UT={2:R}: falling back to the "
-                + "legacy assembler chain (stale chain cache after a flag toggle? call ShadowRenderDriver.Reset "
-                + "on every flag flip). Rendering off the LEGACY spine for this ghost.",
+                "PhaseChain null for pid={0} rec={1} at UT={2:R} (PhaseFactory threw on the last build): "
+                + "rendering this ghost off the legacy assembler-chain EXCEPTION FALLBACK. Investigate the "
+                + "preceding 'phase-chain build threw' warn.",
                 pid, recordingId ?? "?", currentUT));
         }
 
-        /// <summary>Test-only: count of pids that have logged the C4 flag-ON assembler-fallback warn (so a
+        /// <summary>Test-only: count of pids that have logged the assembler exception-fallback warn (so a
         /// test can assert the one-shot guard fires once per pid). Cleared by <see cref="Reset"/>.</summary>
         internal static int SpineFallbackWarnedPidCountForTesting => spineFallbackWarnedPids.Count;
 

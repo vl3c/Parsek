@@ -669,5 +669,136 @@ namespace Parsek.Tests
                 MapRenderTrace.Reset();
             }
         }
+
+        // ---- (6) Phase 5b: the Driver-consumed transfer deorbit-tail clock absorb ----
+
+        [Fact]
+        public void TransferDeorbitTailHead_LoiterFrame_TransferMember_ResolvesSweptHead()
+        {
+            // The polyline Driver consumes the I1 transfer deorbit-tail clock exclusively through this
+            // stitcher absorb (Phase 5b). During the Loiter phase (liveUT=150, trigger=200) the transfer
+            // member's swept head is recordedDeorbitUT + (liveUT - triggerUT) = 200 - 50 = 150, the seam
+            // is the recorded deorbit (200), and the shifted conic end is deorbit + captureShift (50).
+            // A wrong delegation here would freeze the deorbit-tail sweep on every looped landing.
+            GhostPlaybackLogic.LoopUnitSet units = MakeDescentUnitSet();
+            Assert.True(units.TryGetUnitForMember(TransferMemberIdx, out GhostPlaybackLogic.LoopUnit unit));
+
+            bool resolved = CrossMemberSeamStitcher.TryResolveTransferDeorbitTailHead(
+                unit, TransferMemberIdx, liveUT: 150.0, memberStartUT: 0.0, memberEndUT: 1000.0,
+                out double head, out double conicEnd, out double seam);
+
+            Assert.True(resolved);
+            Assert.Equal(150.0, head, 6);
+            Assert.Equal(50.0, conicEnd, 6);
+            Assert.Equal(200.0, seam, 6);
+
+            // Delegation equality: the absorb is the span-clock resolve verbatim (one source of truth).
+            bool direct = GhostPlaybackLogic.TryResolveTransferDeorbitHeadForMember(
+                unit, TransferMemberIdx, 150.0, 0.0, 1000.0,
+                out double dHead, out double dConicEnd, out double dSeam);
+            Assert.Equal(direct, resolved);
+            Assert.Equal(dHead, head, 9);
+            Assert.Equal(dConicEnd, conicEnd, 9);
+            Assert.Equal(dSeam, seam, 9);
+        }
+
+        [Fact]
+        public void TransferDeorbitTailHead_NonTransferMember_ReturnsFalse_ByteIdentical()
+        {
+            // Only the DESTINATION transfer member carries the deorbit tail; a descent-set member (or
+            // any ride-along) must resolve false so no other recording draws a swept tail.
+            GhostPlaybackLogic.LoopUnitSet units = MakeDescentUnitSet();
+            Assert.True(units.TryGetUnitForMember(DescentMemberIdx, out GhostPlaybackLogic.LoopUnit unit));
+
+            bool resolved = CrossMemberSeamStitcher.TryResolveTransferDeorbitTailHead(
+                unit, DescentMemberIdx, liveUT: 150.0, memberStartUT: 0.0, memberEndUT: 1000.0,
+                out double head, out _, out _);
+
+            Assert.False(resolved);
+            Assert.True(double.IsNaN(head));
+        }
+
+        // ---- (7) Phase 5b: the tangent-seam draw-site wiring (pure gate + angle + once-per-onset) ----
+
+        [Theory]
+        [InlineData(true, true, true, true, true)]    // owned descent seam-entry leg, tracing on -> evaluate
+        [InlineData(false, true, true, true, false)]  // tracing off -> free in normal play
+        [InlineData(true, false, true, true, false)]  // Driver-direct draw -> no Rigid seam to evaluate
+        [InlineData(true, true, false, true, false)]  // not a descent-trigger member -> no stitched seam
+        [InlineData(true, true, true, false, false)]  // not the seam-entry leg -> no leading seam
+        public void ShouldEvaluateTangentSeamAtDraw_GatesOnAllFourConditions(
+            bool tracing, bool owned, bool descentMember, bool entryLeg, bool expected)
+        {
+            Assert.Equal(expected, CrossMemberSeamStitcher.ShouldEvaluateTangentSeamAtDraw(
+                tracing, owned, descentMember, entryLeg));
+        }
+
+        [Fact]
+        public void TangentSeamAngleRadians_MeasurablePairs_MatchThePredicateGeometry()
+        {
+            // Aligned tangents read ~0; perpendicular ~pi/2 - the exact quantity the discontinuity
+            // predicate decided on, so the anomaly detail line never reports a different angle.
+            Assert.Equal(0.0, CrossMemberSeamStitcher.TangentSeamAngleRadians(
+                new Vector3(1f, 0f, 0f), new Vector3(2f, 0f, 0f)), 4);
+            Assert.Equal(Math.PI / 2.0, CrossMemberSeamStitcher.TangentSeamAngleRadians(
+                new Vector3(1f, 0f, 0f), new Vector3(0f, 3f, 0f)), 4);
+        }
+
+        [Fact]
+        public void TangentSeamAngleRadians_UnmeasurablePair_IsNaN_NeverAFalseAngle()
+        {
+            // A zero-length / non-finite tangent is unmeasurable: the predicate reports continuous (no
+            // anomaly), so the angle helper must report NaN rather than a fabricated value.
+            Assert.True(double.IsNaN(CrossMemberSeamStitcher.TangentSeamAngleRadians(
+                Vector3.zero, new Vector3(1f, 0f, 0f))));
+            Assert.True(double.IsNaN(CrossMemberSeamStitcher.TangentSeamAngleRadians(
+                new Vector3(float.NaN, 0f, 0f), new Vector3(1f, 0f, 0f))));
+        }
+
+        [Fact]
+        public void TangentSeamOnChange_OncePerOnset_ReArmsAfterContinuous()
+        {
+            // The draw-site raise is once-per-ONSET: a steadily-kinked seam emits one anomaly, a healed
+            // seam feeds the continuous signature through (re-arming), and the next kink emits again.
+            bool prevForce = MapRenderTrace.ForceEnabledForTesting;
+            try
+            {
+                MapRenderTrace.Reset();
+                MapRenderTrace.ForceEnabledForTesting = true;
+
+                Assert.True(MapRenderTrace.ShouldEmitTangentSeamOnChange("77", "rec|leg0|disc"));
+                Assert.False(MapRenderTrace.ShouldEmitTangentSeamOnChange("77", "rec|leg0|disc")); // steady kink
+                Assert.True(MapRenderTrace.ShouldEmitTangentSeamOnChange("77", "rec|leg0|cont"));  // heals (re-arm)
+                Assert.True(MapRenderTrace.ShouldEmitTangentSeamOnChange("77", "rec|leg0|disc"));  // next onset
+                Assert.Equal(1, MapRenderTrace.TangentSeamSignatureCountForTesting);
+            }
+            finally
+            {
+                MapRenderTrace.ForceEnabledForTesting = prevForce;
+                MapRenderTrace.Reset();
+            }
+        }
+
+        [Fact]
+        public void TangentSeamOnChange_Disabled_NeverEmits()
+        {
+            // Tracing off -> the gate is a no-op false (the draw-site evaluation is also decide-pass
+            // gated on tracing, so normal play pays nothing).
+            bool prevForce = MapRenderTrace.ForceEnabledForTesting;
+            try
+            {
+                MapRenderTrace.Reset();
+                MapRenderTrace.ForceEnabledForTesting = false;
+                if (MapRenderTrace.IsEnabled)
+                    return; // a live mapRenderTracing setting would invalidate the premise; skip silently
+                Assert.False(MapRenderTrace.ShouldEmitTangentSeamOnChange("78", "rec|leg0|disc"));
+                Assert.Equal(0, MapRenderTrace.TangentSeamSignatureCountForTesting);
+            }
+            finally
+            {
+                MapRenderTrace.ForceEnabledForTesting = prevForce;
+                MapRenderTrace.Reset();
+            }
+        }
     }
 }

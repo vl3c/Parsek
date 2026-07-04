@@ -314,7 +314,8 @@ populations the spine deliberately does not drive.
   stale-segment contract folded into the gate). One decision source for icon + line + show.
 - **Retained (fallback-only; a Director-driven ghost never reaches them):** the Director TracedPath
   suppress first branch; the polyline actual-draw ownership hide + `StampPolylineOwning` (the
-  5b-pending Driver-direct legs still draw, and the `polyline-orbit-overlap` oracle invariant plus the
+  Driver-direct legs still draw - 5b RETAINED them as the fenced populations, see the 5b IMPLEMENTED
+  note - and the `polyline-orbit-overlap` oracle invariant plus the
   ParsekUI marker's release-stamp read require both); the below-atmosphere icon floor (4c/8f: the ONLY
   marker signal for that population); the body-frame window clamp + stale-segment guard for the
   populations with NO spine signal (per-segment re-aim SKIP on declined synodic windows still renders
@@ -326,8 +327,9 @@ populations the spine deliberately does not drive.
   (`RecordLineIntent`/`EmitLineVisibilityOnChange` via `LogOrbitLineDecision`) is unchanged and every
   surviving branch still routes through it. **Grep gate:** `GhostOrbitLineCascadeDeleteGateTests`
   (deleted symbols stay deleted in `GhostOrbitLinePatch.cs` + `GhostMapPresence.cs`; retained
-  mechanisms stay wired). The retained fallback branches are re-examined at 5b (the Driver-direct
-  delete removes the polyline-owns feeder) and whenever the spine learns the terminal/endpoint-tail
+  mechanisms stay wired). The retained fallback branches were re-examined at 5b (which RETAINED the
+  Driver-direct draws as fenced populations, so the polyline-owns feeder stays; see the 5b IMPLEMENTED
+  note) and are re-examined again whenever the spine learns the terminal/endpoint-tail
   and re-aim-declined populations.
 
 ### 5b — Delete the autonomous polyline Driver ownership walk (HARD-depends on Phase 6) ⚠️
@@ -343,6 +345,57 @@ in-game playtest sign-off. **Grep gate:** assert the Driver-ownership-walk symbo
 **Rollback:** revert restores the legacy walk (kept intact until this PR). **Risk:** HIGH (a delete with
 a cross-phase dependency) — mitigated by the Phase-6-predecessor gate + the parity gate + playtest
 sign-off.
+
+**IMPLEMENTED (Phase 5b, re-scoped per the walk end-to-end population map - the same 4c/8f "the plan's
+deletion list is the intent, the populations decide" discipline as 5a):** the walk itself is RETAINED as
+a documented fence; what died is the cutover flag, the legacy TracedPath side-channel, the walk's direct
+deorbit-clock reads, and the driver's dead reconciler write. Mapping the Driver-direct vs owned draws
+under the (then) const-true flag showed the walk is the SINGLE draw host and the only renderer for four
+populations the spine does not enumerate, so "delete the walk" would have deleted the owned draw's
+dispatch too.
+- **Deleted - the flag:** `MapRenderFlags.MapRenderPhaseSpineDrive` (+ the now-empty `MapRenderFlags`
+  class), `ShadowRenderDriver.ForceSpineDriveForTesting`, and `PhaseSpineDriveActive` - the typed
+  PhaseChain spine is UNCONDITIONAL. `GetOrBuildChain` builds the PhaseChain always; RunFrame's
+  assembler-chain else-branch is KEPT as the FENCED exception fallback for a PhaseFactory throw only
+  (the SAFER keep-decision), warned loudly once per pid (`WarnSpineAssemblerFallback`; the C4 warn
+  reworded). The cold-load clock guard is unconditional. Rollback is a revert of the 5b commit, never a
+  runtime toggle.
+- **Deleted - the legacy TracedPath side-channel:** `tracedPathByPid` + `IsDirectorTracedPathActive`;
+  `IsTracedPathOwnedThisFrame` COLLAPSED onto the single intent source
+  (`IsDirectorTracedPathActiveFromIntent`), and every consumer re-routed to it: the
+  `GhostOrbitLinePatch` Director TracedPath suppress (both the icon-drive Prefix and the line Postfix),
+  `IsDirectorTracking`'s disjunct, the marker decision's disjunct (already on the selector), and the
+  Driver's owned-draw routing (already on the selector). RunFrame stamps ONE intent-sourced map; the
+  test seam collapsed to `SetTracedPathIntentStampForTesting`.
+- **Deleted - the walk's direct deorbit-clock consumption:** the I1 block now routes through the
+  Phase-6 stitcher's absorb APIs (`CrossMemberSeamStitcher.TryResolveTransferDeorbitTailHead` +
+  `ResolveDeorbitTailLegHead` - the absorb finally has its production caller), so
+  `GhostTrajectoryPolylineRenderer.cs` names NO deorbit-clock helper directly (file-scoped source gate).
+  The I1 SWEEP itself is retained: the stitcher promotes the DescentPhase only from the trigger onward,
+  and the transfer member's LOITER-phase deorbit-tail sweep has no spine equivalent.
+- **Deleted - the dead reconciler write:** `GhostRenderReconciler.NoteIntent` no longer called from
+  `RunFrame` (the store lost its last production reader at the Phase-8 unwiring); the type + pure
+  predicates stay for their unit tests.
+- **Wired - the deferred Tier-C tangent raise:** `rigid-seam-tangent-discontinuity` is now LIVE at the
+  descent DRAW site (`Driver.EvaluateDescentSeamTangents`, called for a drawn owned seam-entry leg of a
+  stitched descent member - the pure gate `ShouldEvaluateTangentSeamAtDraw`): leaving tangent from the
+  bracketing capture conic sampled at the seam, entering tangent from the drawn leg's first two
+  body-relative world points; tracing-gated + once-per-onset (`ShouldEmitTangentSeamOnChange`, healed
+  seams re-arm). A continuous seam emits nothing.
+- **Retained (fenced, documented in the walk):** the Driver walk as the single draw host - the only
+  renderer for (1) proto-less pid-0 recordings (never in `scene.GhostPids`), (2) StockConic
+  Driver-direct "bridge" legs (8b.2), (3) the boundary-overlap secondary head legs, (4) the forward
+  legs/arcs/seam bridges; the dispatch of the OWNED `TracedPathTreatment.TryDrawOwnedLeg` draw; and the
+  8e S3b SOLE ownership source `drewNonOrbitalLegRecordings` (KEPT, as is the icon floor). Re-examine
+  the fence whenever the spine learns one of those populations.
+- **Grep gates:** `scripts/grep-audit-map-render-phase-spine-drive.ps1` (+
+  `GrepAuditMapRenderPhaseSpineDriveTests`) forbids the four deleted symbols repo-wide under
+  `Source/Parsek/`; `PolylineDriverWalkDeleteGateTests` file-scopes the deorbit-clock delete + the
+  NoteIntent delete and positively pins the retained fence. The old flag pins
+  (`PhaseSpineDriveFlag_DefaultsOn_TheCutoverFlip`, `PhaseSpineDriveActive_ConstCarriesTheCutover`,
+  `IsTracedPathOwnedThisFrame_LegacyElseBranch_RetainedForRollback_SourceGate`) became flag-GONE pins;
+  the in-game spine tests dropped the seam writes (PhaseSpineSwap lost its A/B arm - there is no second
+  spine to compare against).
 
 ---
 

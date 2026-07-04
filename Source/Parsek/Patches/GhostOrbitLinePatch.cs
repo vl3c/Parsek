@@ -162,17 +162,19 @@ namespace Parsek.Patches
             // branch is already deferred by the null-vessel guard above).
             if (__instance.reverse) return true;
 
-            // Director TracedPath suppression (unconditional since 8e S4): when the new pipeline's
-            // active segment for this ghost is a non-orbital leg (ascent / burn / descent), the autonomous
-            // polyline owns it and the stock proto icon must be HIDDEN. Assert it HERE, before the
-            // no-bounds early-return below: during an escape-burn gap there are no segment bounds, so the
-            // legacy path falls through to stock, which propagates the gap-glide's per-frame synthesized
-            // eccentric orbit at the live clock and teleports the icon across it (the s15 burn-seam
-            // teleport). Adding the pid to ghostsWithSuppressedIcon makes the marker pass draw the
-            // non-proto polyline indicator instead; the line Postfix kills drawIcons/line.active. Return
-            // true so stock keeps the driver's position (harmless - the icon is not drawn). Recomputed per
-            // frame, so the icon re-shows cleanly when the next StockConic segment (the hyperbolic) starts.
-            if (Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(pid, Time.frameCount))
+            // Director TracedPath suppression (unconditional since 8e S4; Phase 5b re-routed it onto the
+            // single intent-sourced selector IsTracedPathOwnedThisFrame - the legacy side-channel was
+            // deleted): when the spine's active segment for this ghost is a non-orbital leg (ascent /
+            // burn / descent), the polyline owns it and the stock proto icon must be HIDDEN. Assert it
+            // HERE, before the no-bounds early-return below: during an escape-burn gap there are no
+            // segment bounds, so the legacy path falls through to stock, which propagates the gap-glide's
+            // per-frame synthesized eccentric orbit at the live clock and teleports the icon across it
+            // (the s15 burn-seam teleport). Adding the pid to ghostsWithSuppressedIcon makes the marker
+            // pass draw the non-proto polyline indicator instead; the line Postfix kills
+            // drawIcons/line.active. Return true so stock keeps the driver's position (harmless - the
+            // icon is not drawn). Recomputed per frame, so the icon re-shows cleanly when the next
+            // StockConic segment (the hyperbolic) starts.
+            if (Parsek.MapRender.ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, Time.frameCount))
             {
                 GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
                 ParsekLog.VerboseRateLimited("GhostOrbitIcon", "traced-suppress-" + pid,
@@ -785,15 +787,16 @@ namespace Parsek.Patches
                 return;
             }
 
-            // Director TracedPath suppression (unconditional since 8e S4), checked FIRST so it
-            // pre-empts the polyline-owns / show branches deterministically. When the new pipeline's
-            // active segment for this ghost is a non-orbital leg, the autonomous polyline owns it:
+            // Director TracedPath suppression (unconditional since 8e S4; Phase 5b re-routed it onto the
+            // single intent-sourced selector IsTracedPathOwnedThisFrame), checked FIRST so it
+            // pre-empts the polyline-owns / show branches deterministically. When the spine's
+            // active segment for this ghost is a non-orbital leg, the polyline owns it:
             // kill the stock orbit line + proto icon so a show branch can't re-show them on the
             // per-frame gap-glide reseed orbit (the burn-seam icon teleport + the
             // orbit-line-active-while-polyline-owns flicker). Recomputed per frame, so the line/icon
             // re-show via the director-stockconic-visible branch the moment the next StockConic
             // segment starts.
-            if (Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(pid, Time.frameCount))
+            if (Parsek.MapRender.ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, Time.frameCount))
             {
                 line.active = false;
                 __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
@@ -823,9 +826,10 @@ namespace Parsek.Patches
             // Station because it is driven by the renderer's own LateUpdate, not the
             // orbit-updater cadence. Distinct from the Director TracedPath suppress
             // above: this keys on the ACTUAL polyline draw, which includes the
-            // 5b-pending Driver-direct legs the Director classifies StockConic (the
-            // re-aim "bridge" legs), so the proto line can never double-draw under a
-            // drawn leg (the polyline-orbit-overlap oracle invariant).
+            // fenced Driver-direct legs the Director classifies StockConic (the
+            // re-aim "bridge" legs - RETAINED at 5b), so the proto line can never
+            // double-draw under a drawn leg (the polyline-orbit-overlap oracle
+            // invariant).
             if (GhostMapPresence.IsPolylineOwningGhostPhase(pid))
             {
                 // Stamp the "polyline owning" real-time clock so the no-bounds branch (below)

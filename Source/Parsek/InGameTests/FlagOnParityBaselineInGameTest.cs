@@ -5,35 +5,31 @@ using UnityEngine;
 
 namespace Parsek.InGameTests
 {
-    // Phase 10 / A3 (cutover regression harness) - the FLAG-ON parity-BASELINE in-game test, the positive
-    // gate proving that with the typed PhaseChain spine DRIVING (ForceSpineDriveForTesting), a known-good
+    // Phase 10 / A3 (cutover regression harness) - the spine parity-BASELINE in-game test (the class name
+    // keeps its historical "FlagOn" token from before the Phase-5b flag removal; the spine is now
+    // UNCONDITIONAL), the positive gate proving that with the typed PhaseChain spine driving, a known-good
     // faithful ghost rendered live reports ZERO parity-drift across the FAITHFUL + SYNTHESIZED Phase-9
     // oracle modes, plus a POLYLINE ORACLE ZERO-CONTRACT SANITY check (NOT live polyline capture coverage;
     // see the mode-3 note below).
     //
-    // WHY THIS DID NOT EXIST: the existing RenderParityBaselineTest captures the zero-drift baseline with the
-    // spine flag OFF (the legacy assembler spine drives the orbit; the flag only swaps the DECISION source).
-    // PhaseSpineSwapInGameTest proves flag-ON and flag-OFF stamp the SAME seed and read zero FAITHFUL drift,
-    // but it exercises only the faithful oracle. This test closes the gap the 5-lens audit found for the two
-    // LIVE lenses: the KNOWN-GOOD baseline run with the spine ON, asserted through the faithful AND
-    // synthesized lenses at once, so a flag-ON regression that diverged in either (faithful
-    // rendered-vs-recorded, synthesized rendered-vs-intended) lights up here.
+    // This test closes the gap the 5-lens audit found for the two LIVE lenses: the KNOWN-GOOD baseline run
+    // with the spine driving, asserted through the faithful AND synthesized lenses at once, so a spine
+    // regression that diverged in either (faithful rendered-vs-recorded, synthesized rendered-vs-intended)
+    // lights up here.
     //
-    // ARCHITECTURAL TRUTH respected: flag-ON only swaps the decision SOURCE - the legacy code still DRAWS the
-    // pixels (GhostOrbitLinePatch / the autonomous polyline Driver). So this asserts the CURRENT contract:
-    //  (i)  the spine's DECISION matches what flag-OFF would decide for a faithful member (the seed the icon-
-    //       drive reads is byte-identical across the flag), and
+    // ARCHITECTURAL TRUTH respected: the spine is the decision SOURCE - the retained draw host
+    // (GhostOrbitLinePatch / the fenced polyline Driver walk) still paints the pixels. So this asserts:
+    //  (i)  the spine's DECISION stamps the StockConic seed the icon-drive reads, and
     //  (ii) the live Phase-9 oracle stays GREEN (zero drift) on the correct draw, in the faithful +
     //       synthesized modes.
-    // It does NOT assert any geometry change that only Phase 5b delivers.
     //
     // The oracle modes exercised:
     //  - FAITHFUL  : MapRenderProbe.ComputeFaithfulOrbitParity on the live OrbitDriver.orbit vs the recorded
-    //                segment, PHASE-MATCHED. (the rendered-vs-recorded lens; LIVE flag-ON coverage)
+    //                segment, PHASE-MATCHED. (the rendered-vs-recorded lens; LIVE spine coverage)
     //  - SYNTHESIZED: MapRenderProbe.ComputeSynthesizedConicParity of the live orbit vs the Director's fresh
     //                StockConic seed (ShadowRenderDriver.TryGetFreshStockConicSeed) - for a faithful StockConic
     //                member the rendered orbit IS the seed, so it reads ~0. (the rendered-vs-intended lens;
-    //                LIVE flag-ON coverage)
+    //                LIVE spine coverage)
     //  - POLYLINE  : ORACLE ZERO-CONTRACT SANITY ONLY (rendered == recorded input yields zero drift): the
     //                leg-track lens (RenderParityOracle.ComputeDriftScaleDerived, ParityMode.Synthesized) on
     //                a real body-framed recorded leg arc diffed against ITSELF. This is NOT live polyline
@@ -55,11 +51,11 @@ namespace Parsek.InGameTests
         private const double KerbinRadiusFallback = 600000.0;
 
         // A non-zero loop epoch shift (~18 min) for the loop-shifted arm, exercising the loop-shift epoch
-        // bake (the false-drift blocker path) end-to-end through the real seam under the SPINE-ON flag.
+        // bake (the false-drift blocker path) end-to-end through the real seam under the spine.
         private const double LoopEpochShiftSeconds = 1100.0;
 
         [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
-            Description = "Phase 10 A3 flag-ON parity baseline: with the typed PhaseChain spine DRIVING, a "
+            Description = "Phase 10 A3 spine parity baseline: with the typed PhaseChain spine driving, a "
                 + "known-good faithful ghost rendered live reports ZERO parity-drift across the faithful + "
                 + "synthesized oracle modes, plus a polyline-oracle zero-contract sanity check (NOT live "
                 + "polyline capture coverage)")]
@@ -69,10 +65,10 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
-            Description = "Phase 10 A3 flag-ON parity baseline (LOOP-SHIFTED): with the spine DRIVING, a "
+            Description = "Phase 10 A3 spine parity baseline (LOOP-SHIFTED): with the spine driving, a "
                 + "ghost whose live orbit epoch is baked with a NON-ZERO loop shift reports ZERO parity-drift "
                 + "across the faithful + synthesized oracle modes plus the polyline-oracle sanity check - the "
-                + "spine-ON proof the loop-shift epoch bake stays correct")]
+                + "spine proof the loop-shift epoch bake stays correct")]
         public void FlagOnBaseline_LoopShiftedGhost_ZeroDrift_AllThreeOracleModes()
         {
             RunFlagOnAllModeBaseline(LoopEpochShiftSeconds);
@@ -94,7 +90,6 @@ namespace Parsek.InGameTests
             double startUT = effUT - 1800.0;
             OrbitSegment seg = BuildSegment(startUT);
 
-            bool prevForceSpine = ShadowRenderDriver.ForceSpineDriveForTesting;
             bool prevForceTrace = MapRenderTrace.ForceEnabledForTesting;
             System.Func<double> prevUTNow = GhostMapPresence.CurrentUTNow;
             var capturedLines = new List<string>();
@@ -120,7 +115,6 @@ namespace Parsek.InGameTests
             try
             {
                 MapRenderTrace.ForceEnabledForTesting = true;   // the parity sink + anomaly raises are live
-                ShadowRenderDriver.ForceSpineDriveForTesting = true; // THE SPINE DRIVES (flag ON)
                 ParsekLog.SuppressLogging = false;
                 ParsekLog.TestSinkForTesting = line => capturedLines.Add(line);
 
@@ -154,7 +148,7 @@ namespace Parsek.InGameTests
                 // alone cannot prove the SPINE drove. A non-null cached PhaseChain is the proof.
                 InGameAssert.IsTrue(ShadowRenderDriver.HasCachedPhaseChainForTesting(pid),
                     "the spine must have BUILT a PhaseChain for this ghost - a null cache means the factory "
-                    + "threw and the legacy fallback drove (the flag-ON gate would otherwise pass on a false "
+                    + "threw and the exception fallback drove (the gate would otherwise pass on a false "
                     + "green)");
 
                 Orbit renderedOrbit = ghost.orbitDriver.orbit;
@@ -250,7 +244,6 @@ namespace Parsek.InGameTests
                 ParsekLog.SuppressLogging = prevSuppress;
                 if (pid != 0u)
                     GhostMapPresence.RemoveAllGhostVessels("flagon-baseline-cleanup");
-                ShadowRenderDriver.ForceSpineDriveForTesting = prevForceSpine;
                 ShadowRenderDriver.Reset();
                 MapRenderTrace.ForceEnabledForTesting = prevForceTrace;
                 RecordingStore.ClearCommittedInternal();

@@ -13,16 +13,13 @@ namespace Parsek.InGameTests
     // REAL stitcher (CrossMemberSeamStitcher.TryStitchDescentSeam) over the typed PhaseChain at a TRIGGERED
     // live UT:
     //
-    //  - FLAG ON: the stitcher PROMOTES the descent member to a visible first-class DescentPhase at the
+    //  - the stitcher PROMOTES the descent member to a visible first-class DescentPhase at the
     //    re-anchored swept-deorbit head (recordedDeorbitUT + (liveUT - triggerUT)), and the orbit↔landing
     //    G1 tangent seam is CONTINUOUS (zero rigid-seam-tangent-discontinuity) for a smoothly-recorded
     //    descent. Past the descent clip the stitcher RETIRES the member (no held sample), so the sub-surface
-    //    ghost does NOT linger below the surface (the documented bug closed).
-    //  - FLAG OFF (default): the spine never invokes the stitcher (the ChainSampler PhaseChain overload only
-    //    runs under PhaseSpineDriveActive), so the descent renders through the legacy path - byte-identical
-    //    to today. This case is asserted at the source/unit layer (the stitcher returns the same decisions;
-    //    the spine gate is the caller's). Here we document it and verify the stitcher is inert when fed the
-    //    same out-of-window frame.
+    //    ghost does NOT linger below the surface (the documented bug closed). Unconditional since the
+    //    Phase-5b flag removal (the spine always invokes the stitcher; the old FLAG OFF inert arm's premise
+    //    is gone).
     //
     // The pure clock/tangent/ordering math is locked headlessly in CrossMemberSeamStitcherTests; this
     // exercises the Unity-coupled live-PhaseChain + live-body-tangent path those cannot reach (the parity
@@ -48,25 +45,16 @@ namespace Parsek.InGameTests
         private const double Cadence = 4000.0;
 
         [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
-            Description = "Phase 6 descent re-stitch (FLAG ON): the CrossMemberSeamStitcher promotes the "
+            Description = "Phase 6 descent re-stitch: the CrossMemberSeamStitcher promotes the "
                 + "descent member to a visible first-class DescentPhase at the re-anchored head, the "
                 + "orbit↔landing G1 seam is continuous (zero rigid-seam-tangent-discontinuity), and the "
                 + "sub-surface ghost retires past the descent clip")]
-        public void DescentReStitch_FlagOn_PromotesContinuousDescent_AndRetiresPastEnd()
+        public void DescentReStitch_PromotesContinuousDescent_AndRetiresPastEnd()
         {
-            RunDescentReStitch(forceSpineOn: true);
+            RunDescentReStitch();
         }
 
-        [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
-            Description = "Phase 6 descent re-stitch (FLAG OFF): the stitcher is inert (the spine never "
-                + "invokes it off the flag), so the descent renders through the legacy path - byte-identical "
-                + "to today")]
-        public void DescentReStitch_FlagOff_StitcherInert_LegacyDescentUnchanged()
-        {
-            RunDescentReStitch(forceSpineOn: false);
-        }
-
-        private static void RunDescentReStitch(bool forceSpineOn)
+        private static void RunDescentReStitch()
         {
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.bodyName == DescentBodyName);
             if (body == null)
@@ -84,13 +72,11 @@ namespace Parsek.InGameTests
             double spanStart = now;
             double spanEnd = now + 1000.0;
 
-            bool prevForceSpine = ShadowRenderDriver.ForceSpineDriveForTesting;
             bool prevForceTrace = MapRenderTrace.ForceEnabledForTesting;
 
             try
             {
                 MapRenderTrace.ForceEnabledForTesting = true; // so EmitStructural / the anomaly sink are live
-                ShadowRenderDriver.ForceSpineDriveForTesting = forceSpineOn;
 
                 GhostPlaybackLogic.LoopUnitSet units = BuildDescentUnitSet(
                     phaseAnchor, spanStart, spanEnd, recordedDeorbitUT, descentEndUT);
@@ -103,8 +89,8 @@ namespace Parsek.InGameTests
                     out _, out double entryUT, out double triggerUT);
 
                 ParsekLog.Info("TestRunner", string.Format(CultureInfo.InvariantCulture,
-                    "DescentReStitch: forceSpineOn={0} now={1:R} deorbit={2:R} entry={3:R} trigger={4:R} "
-                    + "clip={5:F0}s", forceSpineOn, now, recordedDeorbitUT, entryUT, triggerUT, ClipSeconds));
+                    "DescentReStitch: now={0:R} deorbit={1:R} entry={2:R} trigger={3:R} "
+                    + "clip={4:F0}s", now, recordedDeorbitUT, entryUT, triggerUT, ClipSeconds));
 
                 if (double.IsNaN(triggerUT))
                 {
@@ -131,15 +117,10 @@ namespace Parsek.InGameTests
                     chain, sampleUT: pastEndLiveUT, liveUT: pastEndLiveUT, units, out GhostSample pastSample);
 
                 ParsekLog.Info("TestRunner", string.Format(CultureInfo.InvariantCulture,
-                    "DescentReStitch result: forceSpineOn={0} triggered stitched={1} cov={2} treat={3} "
-                    + "driveUT={4:R} | pastEnd stitched={5} cov={6}",
-                    forceSpineOn, stitched, sample.Coverage, sample.Treatment, sample.DriveUT,
+                    "DescentReStitch result: triggered stitched={0} cov={1} treat={2} "
+                    + "driveUT={3:R} | pastEnd stitched={4} cov={5}",
+                    stitched, sample.Coverage, sample.Treatment, sample.DriveUT,
                     stitchedPastEnd, pastSample.Coverage));
-
-                // The stitcher decisions are flag-INDEPENDENT (its TryStitchDescentSeam is pure of the flag;
-                // the FLAG gates only whether the SPINE invokes it). So both flag states must agree here -
-                // that is precisely why flag-OFF (spine never calls) is the safe reversible fallback and
-                // flag-ON renders the promoted descent.
                 InGameAssert.IsTrue(stitched,
                     "the stitcher must promote the descent member at a TRIGGERED live UT (re-anchored head "
                     + "inside the descent clip)");
@@ -172,8 +153,9 @@ namespace Parsek.InGameTests
                     "the past-end sample must be the default (no held below-surface sample)");
 
                 // --- The orbit↔landing G1 seam predicate on LIVE body-relative world tangents ---
-                // The capture-orbit-velocity-vs-descent-first-tangent PRODUCTION anomaly raise is wired at the
-                // descent DRAW site in Phase 5b (the only place those live world tangents exist - a
+                // The capture-orbit-velocity-vs-descent-first-tangent PRODUCTION anomaly raise is WIRED
+                // (Phase 5b) at the descent DRAW site (GhostTrajectoryPolylineRenderer.Driver
+                // .EvaluateDescentSeamTangents - the only place those live world tangents exist; a
                 // RenderSegment carries no points). Here we exercise the Unity-coupled live-body tangent
                 // extraction + the seam predicate the headless tests cannot reach: two GENUINELY DISTINCT world
                 // tangents from the recorded descent's consecutive legs (p0->p1, p1->p2) must read CONTINUOUS
@@ -198,7 +180,6 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                ShadowRenderDriver.ForceSpineDriveForTesting = prevForceSpine;
                 ShadowRenderDriver.Reset();
                 MapRenderTrace.ForceEnabledForTesting = prevForceTrace;
             }

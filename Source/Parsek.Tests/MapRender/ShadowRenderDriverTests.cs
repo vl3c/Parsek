@@ -376,54 +376,25 @@ namespace Parsek.Tests
             return sb.ToString();
         }
 
-        // ---- Phase 3 spine swap: the new default-OFF flag + the spine-select wiring ----
+        // ---- Phase 5b: the cutover flag is GONE; the spine is unconditional ----
+        // The two old flag pins (const-defaults-on + seam-is-redundant) died with the flag; the
+        // repo-wide deletion lock is the grep-audit gate (GrepAuditMapRenderPhaseSpineDriveTests /
+        // scripts/grep-audit-map-render-phase-spine-drive.ps1) forbidding the deleted symbols under
+        // Source/Parsek/. The source gate below pins the post-5b RunFrame shape.
 
         [Fact]
-        public void PhaseSpineDriveFlag_DefaultsOn_TheCutoverFlip()
+        public void RunFrame_SpineUnconditional_AssemblerIsExceptionFallbackOnly_SourceGate()
         {
-            // THE CUTOVER FLIP (2026-07-04): after the full pre-flip gate sequence (in-game sign-off,
-            // zero-FP parity oracle, the 13-PR stack review's blocker + pre-flip findings landed), the
-            // typed spine is the DEFAULT decision source. This pin inverts the pre-flip guard: a
-            // regression that flips the const back to false would silently revert the cutover for every
-            // install - a rollback must be a deliberate edit that also updates this test.
-            Assert.True(MapRenderFlags.MapRenderPhaseSpineDrive);
-        }
-
-        [Fact]
-        public void PhaseSpineDriveActive_ConstCarriesTheCutover_SeamIsRedundantNotAnOverride()
-        {
-            // Post-flip: the const alone carries the spine drive; the in-game test seam is an OR, so it
-            // is now redundant (still true with it on) and CANNOT force the spine OFF - a rollback is the
-            // const edit, never a runtime toggle. Pins both facts so a future "force off for a test"
-            // attempt fails loudly here instead of silently doing nothing in game.
-            bool prev = ShadowRenderDriver.ForceSpineDriveForTesting;
-            try
-            {
-                ShadowRenderDriver.ForceSpineDriveForTesting = false;
-                Assert.True(ShadowRenderDriver.PhaseSpineDriveActive); // const true carries it
-                ShadowRenderDriver.ForceSpineDriveForTesting = true;
-                Assert.True(ShadowRenderDriver.PhaseSpineDriveActive); // seam is redundant, not an override
-            }
-            finally
-            {
-                ShadowRenderDriver.ForceSpineDriveForTesting = prev;
-            }
-        }
-
-        [Fact]
-        public void RunFrame_FlagOffPath_SamplesAssemblerChain_NotPhaseChain_SourceGate()
-        {
-            // Flag-OFF must drive the LEGACY assembler GhostRenderChain (byte-identical to pre-Phase-3).
-            // The source carries BOTH spine branches behind PhaseSpineDriveActive; this gate proves the
-            // selector exists (the flag-ON branch samples the phaseChain) and the flag-OFF else-branch
-            // samples the assembler `chain`. A regression that hard-wired the PhaseChain spine (dropping
-            // the assembler else-branch) is caught here.
+            // Phase 5b: the spine-select no longer reads a flag - the PhaseChain samples whenever the
+            // factory built one, and the assembler chain survives ONLY as the loud-warned exception
+            // fallback (phaseChain null = the factory threw). A regression that re-introduced a flag
+            // read into the selector, or deleted the fenced fallback, is caught here.
             string normalized = CollapseWhitespace(StripLineComments(ReadShadowRenderDriverSource()));
 
-            // The selector reads PhaseSpineDriveActive (the const-OR-seam gate), not the raw const, and the
-            // flag-ON branch samples the phaseChain while the flag-OFF else-branch samples the assembler chain.
-            Assert.Contains("if (PhaseSpineDriveActive && phaseChain != null)", normalized);
+            Assert.Contains("if (phaseChain != null)", normalized);
             Assert.Contains("ChainSampler.Sample(phaseChain, currentUT, units)", normalized);
+            // The fenced exception fallback: warn + assembler sample.
+            Assert.Contains("WarnSpineAssemblerFallback(pid, traj.RecordingId, currentUT);", normalized);
             Assert.Contains("ChainSampler.Sample(chain, currentUT, units)", normalized);
         }
 
@@ -445,15 +416,6 @@ namespace Parsek.Tests
             Assert.DoesNotContain("ResolveTransferLegHeadUT", normalized);
             Assert.DoesNotContain("deorbitHead", normalized);
             Assert.DoesNotContain("captureShift", normalized);
-        }
-
-        [Fact]
-        public void PhaseSpineDriveFlag_IsNotTheRemovedMapRenderDirectorDriveName()
-        {
-            // The new flag MUST NOT reuse the removed `mapRenderDirectorDrive` name (a grep-audit forbids
-            // it). Lock the new symbol name so a rename to the forbidden token is caught at the test layer
-            // too (the grep-audit catches the source; this documents the intent).
-            Assert.DoesNotContain("mapRenderDirectorDrive", nameof(MapRenderFlags.MapRenderPhaseSpineDrive));
         }
 
         [Fact]
@@ -488,7 +450,7 @@ namespace Parsek.Tests
             const uint pid = 4001u;
             try
             {
-                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: -1, intentFrame: 100);
+                ShadowRenderDriver.SetTracedPathIntentStampForTesting(pid, intentFrame: 100);
                 Assert.True(ShadowRenderDriver.IsDirectorTracedPathActiveFromIntent(pid, 100));
                 Assert.True(ShadowRenderDriver.IsDirectorTracedPathActiveFromIntent(
                     pid, 100 + ShadowRenderDriver.SeedFreshnessFrames));
@@ -505,211 +467,120 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsTracedPathOwnedThisFrame_LegacyElseBranch_RetainedForRollback_SourceGate()
+        public void IsTracedPathOwnedThisFrame_CollapsedToIntentSource_FlagGone_SourceGate()
         {
-            // POST-FLIP: PhaseSpineDriveActive is const-true, so the selector's legacy else-branch is
-            // unreachable at runtime and can no longer be driven by the seam (an OR, not an override) -
-            // the old FlagOff runtime test's premise is gone. The branch MUST stay in source until Phase
-            // 5b deletes it: flipping the const back to false is the instant regression rollback and must
-            // restore the pre-flip routing byte-identically. This source gate pins both branches of the
-            // selector; the intent-side runtime behavior keeps its own FlagOn test below.
+            // Phase 5b (the flag-GONE pin): the selector is COLLAPSED onto the single intent source -
+            // the legacy else-branch (and the legacy side-channel it read) were deleted with the cutover
+            // flag. A regression that re-introduced a second source / a flag read into the selector is
+            // caught here; the repo-wide symbol lock is the grep-audit gate
+            // (GrepAuditMapRenderPhaseSpineDriveTests).
             string normalized = CollapseWhitespace(StripLineComments(ReadShadowRenderDriverSource()));
-            Assert.Contains("? IsDirectorTracedPathActiveFromIntent(pid, currentFrame)", normalized);
-            Assert.Contains(": IsDirectorTracedPathActive(pid, currentFrame)", normalized);
+            Assert.Contains(
+                "internal static bool IsTracedPathOwnedThisFrame(uint pid, int currentFrame) "
+                + "{ return IsDirectorTracedPathActiveFromIntent(pid, currentFrame); }",
+                normalized);
         }
 
         [Fact]
-        public void IsTracedPathOwnedThisFrame_FlagOn_ReadsIntentSource_NotLegacySideChannel()
+        public void IsTracedPathOwnedThisFrame_ReadsIntentSource_SingleStamp()
         {
-            // FLAG ON: the owned-draw routing is RE-HOMED onto the spine's intent
-            // (IsDirectorTracedPathActiveFromIntent). An intent stamp owns the leg; a legacy-only stamp
-            // (without the intent sibling) does NOT - proving the source moved off the autonomous walk's
-            // side-channel onto the intent.
+            // Phase 5b: the owned-draw routing reads the single intent-sourced stamp. An intent stamp
+            // owns the leg; no stamp -> not owned. (The old legacy-only-stamp arm died with the
+            // side-channel.)
             const uint pid = 4003u;
-            bool prev = ShadowRenderDriver.ForceSpineDriveForTesting;
             try
             {
-                ShadowRenderDriver.ForceSpineDriveForTesting = true; // flag ON
-                Assert.True(ShadowRenderDriver.PhaseSpineDriveActive);
-
-                // Intent stamp present -> owned (the re-homed source).
-                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: -1, intentFrame: 70);
+                ShadowRenderDriver.SetTracedPathIntentStampForTesting(pid, intentFrame: 70);
                 Assert.True(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 70));
 
-                // Legacy-only stamp (no intent sibling) -> NOT owned on the flag (it reads the intent).
-                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: 70, intentFrame: -1);
+                ShadowRenderDriver.SetTracedPathIntentStampForTesting(pid, intentFrame: -1);
                 Assert.False(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 70));
             }
             finally
             {
-                ShadowRenderDriver.ForceSpineDriveForTesting = prev;
                 ShadowRenderDriver.Reset();
             }
         }
 
         [Fact]
-        public void IsTracedPathOwnedThisFrame_BothStampsEqual_OwnedInEitherFlagState_NoDoubleNoGap()
+        public void RunFrame_StampsIntentUnconditionally_SourceGate()
         {
-            // Production INVARIANT: RunFrame stamps the legacy + intent maps from the SAME intent in the
-            // SAME pass on the SAME frame whenever the flag is on, so the two signals are byte-identical.
-            // Modeling that (both stamped to the same frame), the owned decision is the SAME regardless of
-            // the flag - which is exactly why the flag-ON routing (reads intent) can never disagree with the
-            // proto/marker consumers (read legacy): no double-draw, no gap, in either flag state.
-            const uint pid = 4004u;
-            bool prev = ShadowRenderDriver.ForceSpineDriveForTesting;
-            try
-            {
-                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: 200, intentFrame: 200);
-
-                ShadowRenderDriver.ForceSpineDriveForTesting = false;
-                bool ownedOff = ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 200);
-                ShadowRenderDriver.ForceSpineDriveForTesting = true;
-                bool ownedOn = ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 200);
-
-                Assert.True(ownedOff);
-                Assert.True(ownedOn);
-                Assert.Equal(ownedOff, ownedOn);
-            }
-            finally
-            {
-                ShadowRenderDriver.ForceSpineDriveForTesting = prev;
-                ShadowRenderDriver.Reset();
-            }
-        }
-
-        [Fact]
-        public void RunFrame_StampsLegacyAlways_IntentOnlyUnderFlag_SourceGate()
-        {
-            // The intent stamp must be FLAG-GATED (so flag-OFF never grows it and stays byte-identical),
-            // while the legacy stamp is UNCONDITIONAL (every proto/marker consumer + flag-OFF routing reads
-            // it). A regression that stamped the intent map unconditionally (breaking flag-OFF parity) or
-            // gated the legacy stamp (breaking the proto/marker consumers) is caught here.
+            // Phase 5b: the single intent stamp is written UNCONDITIONALLY on a visible TracedPath
+            // intent (every consumer reads it - the owned-draw routing, the proto/marker consumers,
+            // IsDirectorTracking). A regression that re-gated the stamp (a consumer would then read a
+            // missing signal) is caught here.
             string normalized = CollapseWhitespace(StripLineComments(ReadShadowRenderDriverSource()));
-
-            // Legacy stamp is unconditional (assigned to the captured frame, no flag guard around it).
-            Assert.Contains("tracedPathByPid[pid] = tracedFrame;", normalized);
-            // Intent stamp is written ONLY inside the flag guard.
-            Assert.Contains("if (PhaseSpineDriveActive) tracedPathIntentByPid[pid] = tracedFrame;",
-                normalized);
+            Assert.Contains("tracedPathIntentByPid[pid] = UnityFrame();", normalized);
         }
 
-        [Fact]
-        public void OwnedDrawSource_IsFlagAware_NotRawLegacyOrRawIntent_SourceGate()
-        {
-            // The flag-aware selector chooses the intent source on the flag and the legacy source off it.
-            // A regression that hard-wired EITHER source (dropping the flag awareness) would change one of
-            // the two flag states and is caught here.
-            string normalized = CollapseWhitespace(StripLineComments(ReadShadowRenderDriverSource()));
-            Assert.Contains(
-                "return PhaseSpineDriveActive ? IsDirectorTracedPathActiveFromIntent(pid, currentFrame) "
-                + ": IsDirectorTracedPathActive(pid, currentFrame);",
-                normalized);
-        }
-
-        // ---- Phase 4b: re-home the IMGUI marker draw's TracedPath disjunct to the spine intent ----
+        // ---- Phase 4b origin / 5b collapse: the IMGUI marker draw's TracedPath disjunct ----
         // The marker-draw decision (GhostMapPresence.ShouldDrawNonProtoMarkerForGhost, routed by both
         // the flight-map + TS marker call sites) composes THREE disjuncts; only the directorTracedPath
-        // one is something the spine's intent decides. Phase 4b re-sources THAT disjunct through the SAME
-        // flag-aware selector 4a routes the polyline Driver on (IsTracedPathOwnedThisFrame), so the marker
-        // decision, the polyline owned-draw, and the proto/marker consumers all read a byte-identical
-        // TracedPath signal on the flag - no double-marker, no gap, flag-OFF byte-identical to today. The
-        // other two disjuncts (polylineOwning actual-draw, iconSuppressed = the KEPT no-conic floor) have
-        // no intent equivalent and stay legacy. These tests lock the SELECTOR the marker site now reads
-        // (the selector itself is the load-bearing 4a sibling); the Unity-coupled wrapper's static reads
-        // are covered by the in-game test (project rule: Unity-coupled -> in-game).
-
-        // NOTE (cutover flip): the FlagOff runtime variant of the marker disjunct test was removed with
-        // the const flip - PhaseSpineDriveActive can no longer be false at runtime (the seam is an OR,
-        // not an override), so its premise is untestable. The retained legacy else-branch (the rollback
-        // path) is pinned by IsTracedPathOwnedThisFrame_LegacyElseBranch_RetainedForRollback_SourceGate
-        // above; the marker disjunct shares that exact selector.
+        // one is something the spine's intent decides, and it reads the SAME shared selector the
+        // polyline Driver routes on (IsTracedPathOwnedThisFrame - single intent source since 5b), so the
+        // marker decision, the polyline owned-draw, and the proto/marker consumers can never desync. The
+        // other two disjuncts (polylineOwning actual-draw, iconSuppressed = the KEPT no-conic floor)
+        // have no intent equivalent and stay on their sources. These tests lock the SELECTOR the marker
+        // site reads; the Unity-coupled wrapper's static reads are covered by the in-game test (project
+        // rule: Unity-coupled -> in-game).
 
         [Fact]
-        public void MarkerTracedPathDisjunct_FlagOn_TracksIntentSource_NotLegacySideChannel()
+        public void MarkerTracedPathDisjunct_TracksIntentSource_SingleStamp()
         {
-            // FLAG ON: the marker decision's TracedPath disjunct is RE-HOMED onto the spine's intent
-            // (IsDirectorTracedPathActiveFromIntent). An intent stamp makes the disjunct true; a
-            // legacy-only stamp (without the intent sibling) does NOT - proving the marker's TracedPath
-            // source moved off the autonomous walk's side-channel onto the intent, design §8.
+            // The marker decision's TracedPath disjunct tracks the single intent-sourced stamp: an
+            // intent stamp makes the disjunct true; no stamp -> false.
             const uint pid = 4102u;
-            bool prev = ShadowRenderDriver.ForceSpineDriveForTesting;
             try
             {
-                ShadowRenderDriver.ForceSpineDriveForTesting = true; // flag ON
-                Assert.True(ShadowRenderDriver.PhaseSpineDriveActive);
-
-                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: -1, intentFrame: 90);
+                ShadowRenderDriver.SetTracedPathIntentStampForTesting(pid, intentFrame: 90);
                 Assert.True(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 90));
 
-                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: 90, intentFrame: -1);
+                ShadowRenderDriver.SetTracedPathIntentStampForTesting(pid, intentFrame: -1);
                 Assert.False(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 90));
             }
             finally
             {
-                ShadowRenderDriver.ForceSpineDriveForTesting = prev;
                 ShadowRenderDriver.Reset();
             }
         }
 
         [Fact]
-        public void MarkerTracedPathDisjunct_BothStampsEqual_SameInEitherFlagState_NoDesyncNoDoubleNoGap()
+        public void MarkerTracedPathDisjunct_SharedSelector_DecisionConsistent()
         {
-            // Production INVARIANT (the no-desync proof for the marker site): RunFrame stamps the legacy +
-            // intent maps from the SAME intent in the SAME pass on the SAME frame whenever the flag is on,
-            // so the two are byte-identical. Modeling that, the marker's TracedPath disjunct is the SAME
-            // regardless of the flag - which is precisely why the flag-ON marker decision (sources intent)
-            // can never disagree with the proto-icon suppression in GhostOrbitLinePatch (reads the legacy
-            // IsDirectorTracedPathActive): exactly one of {proto icon, our marker} draws - no double, no gap.
+            // The no-desync proof for the marker site (Phase 5b single-source collapse): the marker's
+            // TracedPath disjunct and the proto-icon suppression in GhostOrbitLinePatch read the SAME
+            // selector over the SAME single stamp, so exactly one of {proto icon, our marker} draws -
+            // no double, no gap. Model the stamp and assert disjunct -> decision consistency.
             const uint pid = 4103u;
-            bool prev = ShadowRenderDriver.ForceSpineDriveForTesting;
             try
             {
-                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: 210, intentFrame: 210);
+                ShadowRenderDriver.SetTracedPathIntentStampForTesting(pid, intentFrame: 210);
 
-                ShadowRenderDriver.ForceSpineDriveForTesting = false;
-                bool offDisjunct = ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 210);
-                // Marker decision with only the TracedPath disjunct true, off the flag.
-                bool offDecision = GhostMapPresence.ResolveMarkerDrawDecision(
-                    directorTracedPathActive: offDisjunct, polylineOwning: false, iconSuppressedLegacy: false);
+                bool disjunct = ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 210);
+                bool decision = GhostMapPresence.ResolveMarkerDrawDecision(
+                    directorTracedPathActive: disjunct, polylineOwning: false, iconSuppressedLegacy: false);
 
-                ShadowRenderDriver.ForceSpineDriveForTesting = true;
-                bool onDisjunct = ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 210);
-                bool onDecision = GhostMapPresence.ResolveMarkerDrawDecision(
-                    directorTracedPathActive: onDisjunct, polylineOwning: false, iconSuppressedLegacy: false);
-
-                Assert.True(offDisjunct);
-                Assert.True(onDisjunct);
-                Assert.Equal(offDisjunct, onDisjunct);   // the source is byte-identical on the flag
-                Assert.True(offDecision);
-                Assert.True(onDecision);
-                Assert.Equal(offDecision, onDecision);   // so the marker decision can never desync
+                Assert.True(disjunct);
+                Assert.True(decision);
             }
             finally
             {
-                ShadowRenderDriver.ForceSpineDriveForTesting = prev;
                 ShadowRenderDriver.Reset();
             }
         }
 
         [Fact]
-        public void MarkerSite_TracedPathDisjunct_ReadsFlagAwareSelector_NotRawLegacy_SourceGate()
+        public void MarkerSite_TracedPathDisjunct_ReadsSharedSelector_SourceGate()
         {
             // The marker-draw site (GhostMapPresence.ShouldDrawNonProtoMarkerForGhost) must resolve its
-            // directorTracedPathActive disjunct through the flag-aware selector IsTracedPathOwnedThisFrame
-            // (the same source the polyline Driver routes on), NOT the raw legacy IsDirectorTracedPathActive.
-            // A regression that reverted the marker site to the raw legacy read (re-coupling it to the
-            // autonomous side-channel and breaking the flag-ON re-home) is caught here.
+            // directorTracedPathActive disjunct through the shared selector IsTracedPathOwnedThisFrame
+            // (the same source the polyline Driver + the proto icon/line suppress patches route on). A
+            // regression that re-introduced a second source at the marker site is caught here.
             string normalized = CollapseWhitespace(StripLineComments(ReadGhostMapPresenceSource()));
 
-            // The disjunct is assigned from the flag-aware selector.
+            // The disjunct is assigned from the shared selector.
             Assert.Contains(
                 "directorTracedPathActive = Parsek.MapRender.ShadowRenderDriver.IsTracedPathOwnedThisFrame(",
-                normalized);
-            // And the raw legacy read is NOT used to assign that disjunct at the marker site (the legacy
-            // predicate still EXISTS and is read by GhostOrbitLinePatch - a different file - so this gate
-            // is scoped to GhostMapPresence.cs only).
-            Assert.DoesNotContain(
-                "directorTracedPathActive = Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(",
                 normalized);
         }
 

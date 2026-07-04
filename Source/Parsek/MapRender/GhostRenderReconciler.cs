@@ -28,9 +28,10 @@ namespace Parsek.MapRender
     /// This is an UNWIRING, not a rename/promote: the type, the pure predicates, and
     /// <see cref="CheckIntentAgainstOldTruth"/> itself are KEPT and stay exercised by
     /// <c>GhostRenderReconcilerTests</c>; only the production call site is gone.
-    /// <see cref="NoteIntent"/> still WRITES the intent into the tracer store, but that store now has NO
-    /// production reader (its only consumer was the retired comparator) - the write is kept only to avoid
-    /// touching the driver in an observability-only phase, a removal candidate at the 5a/5b deletes.</para>
+    /// Phase 5b removed the production <see cref="NoteIntent"/> write from the driver (the store had NO
+    /// production reader once the comparator retired); the method itself stays as the tests' producer
+    /// seam, and a source gate (PolylineDriverWalkDeleteGateTests) keeps the driver from repopulating
+    /// the store.</para>
     ///
     /// <para>The compare predicates are PURE (primitive-only, Unity-ECall-free) so they are unit
     /// testable; only <see cref="NoteIntent"/> / <see cref="CheckIntentAgainstOldTruth"/> touch the
@@ -61,7 +62,8 @@ namespace Parsek.MapRender
 
         /// <summary>Record the new pipeline's intent for a ghost this frame (shadow producer side).
         /// Delegates to the gated <see cref="MapRenderTrace"/> store, frame-stamped. No-op when the
-        /// map-render tracing setting is off.</summary>
+        /// map-render tracing setting is off. NO production caller since Phase 5b (the driver's write
+        /// was removed); kept as the unit tests' producer seam.</summary>
         internal static void NoteIntent(uint pid, GhostRenderIntent intent)
         {
             MapRenderTrace.RecordRenderIntent(pid, intent.Visible, TreatmentToken(intent.Treatment), intent.DriveUT);

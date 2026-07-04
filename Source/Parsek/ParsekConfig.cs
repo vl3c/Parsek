@@ -398,38 +398,9 @@ namespace Parsek
         internal const bool MapRenderWarpEnabled = false;
     }
 
-    /// <summary>
-    /// Map / Tracking-Station render-pipeline FEATURE flags (migration plan
-    /// <c>docs/dev/plans/map-ts-render-overhaul-migration.md</c>). These are NOT player-facing settings and
-    /// NOT debug aids that break gameplay — they are runtime-reversible cutover switches for the map/TS
-    /// render overhaul, default OFF so a normal install renders exactly as today. Code-only (rebuild to
-    /// flip) so the flip is deliberate and a player cannot toggle a mid-migration spine by accident; the
-    /// flag is removed once its migration phase lands (a <c>grep-audit-*</c> gate then locks the deletion).
-    /// </summary>
-    internal static class MapRenderFlags
-    {
-        /// <summary>
-        /// Phase 3 (migration plan §5, the spine swap): when <c>true</c>, the map/TS render decision spine
-        /// (<see cref="Parsek.MapRender.ShadowRenderDriver"/>) drives <see cref="Parsek.MapRender.ChainSampler"/>
-        /// + <see cref="Parsek.MapRender.GhostRenderDirector"/> off the typed
-        /// <see cref="Parsek.MapRender.PhaseChain"/> (built by <see cref="Parsek.MapRender.PhaseFactory"/>)
-        /// instead of the <see cref="Parsek.MapRender.GhostRenderChain"/> from
-        /// <see cref="Parsek.MapRender.ChainAssembler"/>. The downstream DRAW is unchanged (the same
-        /// side-channel stamps + reconciler + stock patches), and the factory geometry byte-matches the
-        /// assembler (Phase-2 parity), so a flag-ON render is identical to flag-OFF — the parity oracle is
-        /// the gate.
-        ///
-        /// <para><b>Default TRUE (the cutover flip, 2026-07-04).</b> Flipped after the full pre-flip gate
-        /// sequence passed: the Phase 0-11 stack + sign-off fix tail in-game validated (tests 7/7, Duna
-        /// One render user-confirmed, parity oracle at ZERO false positives across three tracing runs),
-        /// plus a sequential 13-PR full-stack review whose blocker + every pre-flip finding landed
-        /// (branch maprender-stack-review-fixes). The typed spine now DECIDES in normal play; the legacy
-        /// code still DRAWS the pixels until the Phase 5a/5b deletes. Flipping this back to false is the
-        /// instant regression rollback; the flag is removed in Phase 5b (alongside the legacy-draw
-        /// delete), at which point a grep-audit gate locks the deletion of this symbol. This is a
-        /// DISTINCT, new flag name: it does not reuse the removed Phase-8e director-drive setting (a
-        /// grep-audit forbids that literal).</para>
-        /// </summary>
-        internal const bool MapRenderPhaseSpineDrive = true;
-    }
+    // Phase 5b (migration plan docs/dev/plans/map-ts-render-overhaul-migration.md section 7): the
+    // MapRenderFlags class and its spine-drive cutover const were REMOVED - the typed PhaseChain spine
+    // drives the map/TS render unconditionally. A grep-audit gate
+    // (scripts/grep-audit-map-render-phase-spine-drive.ps1) locks the deleted symbols out of
+    // Source/Parsek/; rollback is a revert of the 5b commit, never a runtime toggle.
 }

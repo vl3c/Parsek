@@ -6,8 +6,8 @@ using UnityEngine;
 namespace Parsek.InGameTests
 {
     // Cutover-hardening (B4/D2, design §11.2) - the in-game gate that drives the REAL wired
-    // ShadowRenderDriver.RunFrame with the typed-spine flag ON over a live faithful ghost and proves the
-    // cold-load clock-readiness guard:
+    // ShadowRenderDriver.RunFrame (the unconditional typed spine) over a live faithful ghost and proves
+    // the cold-load clock-readiness guard:
     //
     //  - liveUT <= 0 (the Planetarium UT=0 cold-load trap): RunFrame DEFERS the whole spine frame (renders
     //    nothing), so NO StockConic seed is stamped, and the once-per-event clock-not-ready anomaly fires.
@@ -18,9 +18,8 @@ namespace Parsek.InGameTests
     // dedup + emit helpers are unit-tested headless in CutoverHardeningTests). RunFrame reads Time.frameCount
     // and drives a live MapViewScene, so it cannot run headless.
     //
-    // NOTE: in-game test (Ctrl+Shift+T / Settings > Diagnostics); FLIGHT only; career-independent. The guard
-    // is flag-ON only (flag-OFF is byte-identical to today), so the test forces the spine ON via
-    // ShadowRenderDriver.ForceSpineDriveForTesting and restores it in finally.
+    // NOTE: in-game test (Ctrl+Shift+T / Settings > Diagnostics); FLIGHT only; career-independent. The
+    // spine is unconditional since the Phase-5b flag removal, so no seam forcing is needed.
     public class ColdLoadClockGuardInGameTest
     {
         private const string KerbinBodyName = "Kerbin";
@@ -30,7 +29,7 @@ namespace Parsek.InGameTests
         private const double KerbinRadiusFallback = 600000.0;
 
         [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
-            Description = "Cold-load clock guard: RunFrame (spine flag ON) DEFERS at liveUT<=0 (no seed "
+            Description = "Cold-load clock guard: RunFrame (unconditional spine) DEFERS at liveUT<=0 (no seed "
                 + "stamped, clock-not-ready anomaly fired) and samples normally at liveUT>0 (the guard does "
                 + "not over-defer a ready clock)")]
         public void ColdLoadGuard_DefersAtUtZero_SamplesWhenReady()
@@ -46,7 +45,6 @@ namespace Parsek.InGameTests
             double startUT = liveUT - 1800.0;
             OrbitSegment seg = BuildSegment(startUT);
 
-            bool prevForceSpine = ShadowRenderDriver.ForceSpineDriveForTesting;
             bool prevForceTrace = MapRenderTrace.ForceEnabledForTesting;
             System.Func<double> prevUTNow = GhostMapPresence.CurrentUTNow;
             List<Recording> prevRecordings = RecordingStore.CommittedRecordings != null
@@ -80,7 +78,6 @@ namespace Parsek.InGameTests
                 // false-fail the clockNotReadyFired assertion.
                 MapRenderTrace.Reset();
                 MapRenderTrace.ForceEnabledForTesting = true; // so the anomaly raise is live
-                ShadowRenderDriver.ForceSpineDriveForTesting = true; // the guard is flag-ON only
 
                 Vessel ghost = GhostMapPresence.CreateGhostVesselFromSource(
                     recordingIndex, rec, GhostMapPresence.TrackingStationGhostSource.Segment,
@@ -144,7 +141,6 @@ namespace Parsek.InGameTests
                 ParsekLog.TestSinkForTesting = prevSink;
                 if (pid != 0u)
                     GhostMapPresence.RemoveAllGhostVessels("coldload-guard-cleanup");
-                ShadowRenderDriver.ForceSpineDriveForTesting = prevForceSpine;
                 ShadowRenderDriver.Reset();
                 MapRenderTrace.ForceEnabledForTesting = prevForceTrace;
                 // Clear the once-per-scene anomaly dedup this run consumed (see the Reset before arm 1).

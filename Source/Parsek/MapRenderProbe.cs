@@ -611,10 +611,9 @@ namespace Parsek
             // GhostRenderReconciler type + its pure predicates stay (exercised by GhostRenderReconcilerTests)
             // but have no LIVE production call site (a scripts/grep-audit-render-reconciler-unwired.ps1 gate
             // enforces zero CheckIntentAgainstOldTruth call sites under Source/Parsek/). The shadow
-            // PRODUCER side (ShadowRenderDriver -> GhostRenderReconciler.NoteIntent) still writes the intent
-            // into the tracer store, but that store now has NO production reader (its only consumer was this
-            // retired comparator); the write is kept only to avoid touching the driver in an
-            // observability-only phase - a removal candidate at the 5a/5b deletes. This whole probe is
+            // PRODUCER side (ShadowRenderDriver -> GhostRenderReconciler.NoteIntent) was removed at the
+            // Phase-5b deletes (the store had no production reader once this comparator retired); the
+            // reconciler type + pure predicates stay for their unit tests. This whole probe is
             // MapRenderTrace.IsEnabled-gated (tracing OFF by default), so removing the call is
             // OBSERVABILITY-ONLY: flag-OFF / tracing-OFF normal play is byte-identical (the probe never ran).
 

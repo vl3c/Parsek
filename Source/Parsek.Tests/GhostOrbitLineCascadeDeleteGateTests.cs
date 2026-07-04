@@ -76,9 +76,9 @@ namespace Parsek.Tests
             // the marker to a stale mesh position):
             string src = StripComments(ReadParsekSource("Patches/GhostOrbitLinePatch.cs"));
 
-            // Spine decision reads: the TracedPath suppress + the StockConic show + the no-bounds
-            // tracking guard.
-            Assert.Contains("IsDirectorTracedPathActive(", src);
+            // Spine decision reads: the TracedPath suppress (the single intent-sourced selector since
+            // the Phase-5b side-channel delete) + the StockConic show + the no-bounds tracking guard.
+            Assert.Contains("IsTracedPathOwnedThisFrame(", src);
             Assert.Contains("IsDirectorDriveActive(", src);
             Assert.Contains("IsDirectorTracking(", src);
 
