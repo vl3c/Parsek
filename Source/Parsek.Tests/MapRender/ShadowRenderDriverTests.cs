@@ -612,5 +612,152 @@ namespace Parsek.Tests
                 + ": IsDirectorTracedPathActive(pid, currentFrame);",
                 normalized);
         }
+
+        // ---- Phase 4b: re-home the IMGUI marker draw's TracedPath disjunct to the spine intent ----
+        // The marker-draw decision (GhostMapPresence.ShouldDrawNonProtoMarkerForGhost, routed by both
+        // the flight-map + TS marker call sites) composes THREE disjuncts; only the directorTracedPath
+        // one is something the spine's intent decides. Phase 4b re-sources THAT disjunct through the SAME
+        // flag-aware selector 4a routes the polyline Driver on (IsTracedPathOwnedThisFrame), so the marker
+        // decision, the polyline owned-draw, and the proto/marker consumers all read a byte-identical
+        // TracedPath signal on the flag - no double-marker, no gap, flag-OFF byte-identical to today. The
+        // other two disjuncts (polylineOwning actual-draw, iconSuppressed = the KEPT no-conic floor) have
+        // no intent equivalent and stay legacy. These tests lock the SELECTOR the marker site now reads
+        // (the selector itself is the load-bearing 4a sibling); the Unity-coupled wrapper's static reads
+        // are covered by the in-game test (project rule: Unity-coupled -> in-game).
+
+        [Fact]
+        public void MarkerTracedPathDisjunct_FlagOff_TracksLegacySideChannel_NotIntent()
+        {
+            // FLAG OFF (default): the marker decision's TracedPath disjunct source
+            // (IsTracedPathOwnedThisFrame) reads the LEGACY side-channel - byte-identical to today. An
+            // intent-only stamp (which never exists off the flag in production) must NOT make the disjunct
+            // true. This is the marker-side mirror of the polyline Driver's flag-OFF parity.
+            const uint pid = 4101u;
+            bool prev = ShadowRenderDriver.ForceSpineDriveForTesting;
+            try
+            {
+                ShadowRenderDriver.ForceSpineDriveForTesting = false; // flag OFF
+                Assert.False(ShadowRenderDriver.PhaseSpineDriveActive);
+
+                // Legacy stamp present, intent absent -> disjunct true (today's marker behavior).
+                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: 80, intentFrame: -1);
+                Assert.True(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 80));
+
+                // Intent stamp present, legacy absent -> disjunct FALSE off the flag (it ignores intent),
+                // so the marker decision falls back to its other disjuncts only.
+                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: -1, intentFrame: 80);
+                Assert.False(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 80));
+            }
+            finally
+            {
+                ShadowRenderDriver.ForceSpineDriveForTesting = prev;
+                ShadowRenderDriver.Reset();
+            }
+        }
+
+        [Fact]
+        public void MarkerTracedPathDisjunct_FlagOn_TracksIntentSource_NotLegacySideChannel()
+        {
+            // FLAG ON: the marker decision's TracedPath disjunct is RE-HOMED onto the spine's intent
+            // (IsDirectorTracedPathActiveFromIntent). An intent stamp makes the disjunct true; a
+            // legacy-only stamp (without the intent sibling) does NOT - proving the marker's TracedPath
+            // source moved off the autonomous walk's side-channel onto the intent, design §8.
+            const uint pid = 4102u;
+            bool prev = ShadowRenderDriver.ForceSpineDriveForTesting;
+            try
+            {
+                ShadowRenderDriver.ForceSpineDriveForTesting = true; // flag ON
+                Assert.True(ShadowRenderDriver.PhaseSpineDriveActive);
+
+                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: -1, intentFrame: 90);
+                Assert.True(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 90));
+
+                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: 90, intentFrame: -1);
+                Assert.False(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 90));
+            }
+            finally
+            {
+                ShadowRenderDriver.ForceSpineDriveForTesting = prev;
+                ShadowRenderDriver.Reset();
+            }
+        }
+
+        [Fact]
+        public void MarkerTracedPathDisjunct_BothStampsEqual_SameInEitherFlagState_NoDesyncNoDoubleNoGap()
+        {
+            // Production INVARIANT (the no-desync proof for the marker site): RunFrame stamps the legacy +
+            // intent maps from the SAME intent in the SAME pass on the SAME frame whenever the flag is on,
+            // so the two are byte-identical. Modeling that, the marker's TracedPath disjunct is the SAME
+            // regardless of the flag - which is precisely why the flag-ON marker decision (sources intent)
+            // can never disagree with the proto-icon suppression in GhostOrbitLinePatch (reads the legacy
+            // IsDirectorTracedPathActive): exactly one of {proto icon, our marker} draws - no double, no gap.
+            const uint pid = 4103u;
+            bool prev = ShadowRenderDriver.ForceSpineDriveForTesting;
+            try
+            {
+                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: 210, intentFrame: 210);
+
+                ShadowRenderDriver.ForceSpineDriveForTesting = false;
+                bool offDisjunct = ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 210);
+                // Marker decision with only the TracedPath disjunct true, off the flag.
+                bool offDecision = GhostMapPresence.ResolveMarkerDrawDecision(
+                    directorTracedPathActive: offDisjunct, polylineOwning: false, iconSuppressedLegacy: false);
+
+                ShadowRenderDriver.ForceSpineDriveForTesting = true;
+                bool onDisjunct = ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 210);
+                bool onDecision = GhostMapPresence.ResolveMarkerDrawDecision(
+                    directorTracedPathActive: onDisjunct, polylineOwning: false, iconSuppressedLegacy: false);
+
+                Assert.True(offDisjunct);
+                Assert.True(onDisjunct);
+                Assert.Equal(offDisjunct, onDisjunct);   // the source is byte-identical on the flag
+                Assert.True(offDecision);
+                Assert.True(onDecision);
+                Assert.Equal(offDecision, onDecision);   // so the marker decision can never desync
+            }
+            finally
+            {
+                ShadowRenderDriver.ForceSpineDriveForTesting = prev;
+                ShadowRenderDriver.Reset();
+            }
+        }
+
+        [Fact]
+        public void MarkerSite_TracedPathDisjunct_ReadsFlagAwareSelector_NotRawLegacy_SourceGate()
+        {
+            // The marker-draw site (GhostMapPresence.ShouldDrawNonProtoMarkerForGhost) must resolve its
+            // directorTracedPathActive disjunct through the flag-aware selector IsTracedPathOwnedThisFrame
+            // (the same source the polyline Driver routes on), NOT the raw legacy IsDirectorTracedPathActive.
+            // A regression that reverted the marker site to the raw legacy read (re-coupling it to the
+            // autonomous side-channel and breaking the flag-ON re-home) is caught here.
+            string normalized = CollapseWhitespace(StripLineComments(ReadGhostMapPresenceSource()));
+
+            // The disjunct is assigned from the flag-aware selector.
+            Assert.Contains(
+                "directorTracedPathActive = Parsek.MapRender.ShadowRenderDriver.IsTracedPathOwnedThisFrame(",
+                normalized);
+            // And the raw legacy read is NOT used to assign that disjunct at the marker site (the legacy
+            // predicate still EXISTS and is read by GhostOrbitLinePatch - a different file - so this gate
+            // is scoped to GhostMapPresence.cs only).
+            Assert.DoesNotContain(
+                "directorTracedPathActive = Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(",
+                normalized);
+        }
+
+        // Read Source/Parsek/<fileName> for a source-text gate (a top-level source file, NOT under
+        // MapRender/). Mirrors ReadMapRenderSource's root resolution + the Parsek/-rooted fallback.
+        private static string ReadParsekSource(string fileName)
+        {
+            string root = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string path = Path.Combine(root, "Source", "Parsek", fileName);
+            if (!File.Exists(path))
+                path = Path.Combine(root, "Parsek", fileName);
+            Assert.True(File.Exists(path), $"Source file not found at {path}");
+            return File.ReadAllText(path);
+        }
+
+        private static string ReadGhostMapPresenceSource()
+            => ReadParsekSource("GhostMapPresence.cs");
     }
 }

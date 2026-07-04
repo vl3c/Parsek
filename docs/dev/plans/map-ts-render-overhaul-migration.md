@@ -240,6 +240,43 @@ scenarios.
 `seedByPid` re-assert into an explicit MANAGED-treatment contract, but the `GhostOrbitLinePatch:396`
 prefix read with `±SeedFreshnessFrames=2` STAYS (KSP owns the icon-drive site). No deletion here.
 
+**IMPLEMENTED (Phase 4b, behind `MapRenderPhaseSpineDrive`, ADDITIVE / flag-reversible — side-channel
+deletions stay Phase 5):** the marker-draw decision is re-sourced to the spine's `GhostRenderIntent`
+*under the flag* without deleting anything.
+- **Entanglement (anticipated by the phase brief).** The marker decision
+  (`GhostMapPresence.ShouldDrawNonProtoMarkerForGhost` → pure `ResolveMarkerDrawDecision`, read by the
+  flight-map `ParsekUI.DrawMapMarkers` and the TS `ParsekTrackingStation.ClassifyAtmosphericMarkerSkip`)
+  composes THREE disjuncts — `directorTracedPathActive || polylineOwning || iconSuppressedLegacy`. Only
+  the FIRST is something the spine's intent decides. `polylineOwning` (`IsPolylineOwningGhostPhase`) is the
+  downstream ACTUAL-draw set, not an intent field; `iconSuppressedLegacy` (`ghostsWithSuppressedIcon` /
+  `IsIconSuppressed`) is the KEPT no-conic floor, set by `GhostOrbitLinePatch` — and the director emits
+  only `None`/`StockConic`/`TracedPath` (there is NO `SuppressedMarker` `Treatment` value yet), so the
+  spine does not decide the no-conic floor case. Re-sourcing the floor would require the director to learn
+  a new `SuppressedMarker` treatment + producer (out of Phase-4 scope). So 4b re-homes the one
+  intent-decided disjunct and KEEPS the other two on their legacy sources — exactly the 4a outcome
+  (re-source the intent-decided signal, keep the rest).
+- **What 4b actually changed (additive).** `ShouldDrawNonProtoMarkerForGhost` now resolves its
+  `directorTracedPathActive` disjunct through the FLAG-AWARE selector
+  `ShadowRenderDriver.IsTracedPathOwnedThisFrame` (flag ON → the intent source
+  `IsDirectorTracedPathActiveFromIntent`; flag OFF → the legacy `IsDirectorTracedPathActive`,
+  byte-identical to today), instead of the raw legacy `IsDirectorTracedPathActive`. This is the SAME
+  selector 4a routes the polyline Driver on, so the marker call sites, the polyline owned-draw, and the
+  proto/marker consumers in `GhostOrbitLinePatch` (which keep reading the legacy `IsDirectorTracedPathActive`
+  to set `drawIcons=NONE` + add to `ghostsWithSuppressedIcon`) all read a byte-identical TracedPath signal
+  on the flag — exactly one of {proto icon, our marker} per ghost, no double-marker, no gap, and flag-OFF
+  byte-identical. NOTHING was deleted — `ghostsWithSuppressedIcon`, `IsIconSuppressed`, `seedByPid`, the
+  legacy marker anchoring all stay intact for the flag-OFF path and Phase 5. **No NEW side-channel was
+  added:** 4b reuses 4a's `tracedPathIntentByPid` / `IsTracedPathOwnedThisFrame` (so there is nothing new
+  for the Phase-5 deletion list beyond what 4a already recorded; reusing the one selector is what keeps the
+  marker site in lockstep with the polyline Driver). The `icon-suppressed` EVENT is NOT re-pointed in 4b —
+  it tracks `IsIconSuppressed` (the kept floor, unchanged); re-pointing it onto a `SuppressedMarker`
+  treatment is the Phase-5+ cutover when the director learns that treatment. Tests:
+  `ShadowRenderDriverTests` (the marker-decision flag-aware selection, the equal-stamp no-desync/no-double/
+  no-gap invariant, a marker-site source-gate that the disjunct reads the flag-aware selector not the raw
+  legacy) + `MarkerDrawDecisionTests` (the pure decision, unchanged) + the
+  `SuppressedMarkerOwnedDrawInGameTest` (flag ON/OFF over a live below-atmosphere ghost: never a blank
+  icon, marker disjunct agrees with the proto-line consumer).
+
 ---
 
 ## 7. Phase 5 — Delete the legacy draw, in TWO parts with different dependencies (cutover-complete) ⚠️
