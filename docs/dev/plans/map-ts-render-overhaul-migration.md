@@ -295,6 +295,41 @@ deorbit clock. **Logging:** verify no trace regressions (EVENT coverage now flow
 universal gate across the regression set. **Grep gate:** assert the cascade symbols are gone.
 **Rollback:** revert restores the cascade. **Risk:** medium (an isolated line-visibility delete).
 
+**IMPLEMENTED (Phase 5a, re-scoped per the 4c/8f findings - the spine decides, floors and non-driven
+populations retained):** the line Postfix is restructured so the SPINE signals are the primary decision
+source, and the pure-legacy chatter machinery is deleted; the plan's original "shrinks toward just the
+seed apply" wording predates the 4c re-scope (the icon floor is a KEPT permanent fallback) and two
+populations the spine deliberately does not drive.
+- **Deleted:** the FIX-#26 orbit-line grace machinery in full: `ShouldDeferOrbitLineHide`,
+  `OrbitLineGraceFrames`, the `OffReasonStaleSegment`/`OffReasonPolylineOwns` consts, both grace-defer
+  branches (polyline-owns + stale-segment), the per-branch grace re-stamps, and the per-pid grace map in
+  `GhostMapPresence` (`StampOrbitLineGrace`/`GetOrbitLineGraceUntilFrame`/`ghostOrbitLineGraceUntilFrame`
+  + its teardown clears). It debounced chatter between the legacy cascade's own transient off reasons;
+  the spine's decisions are freshness-bridged (`SeedFreshnessFrames`) and the Director TracedPath
+  suppress was never graced, so no spine-driven ghost loses a debounce. `GhostOrbitLineGraceTests`
+  (20 tests, all pinning deleted symbols) removed with it.
+- **Added:** the `director-stockconic-visible` branch: a Director-driven ghost's line SHOW is now
+  applied from `IsDirectorDriveActive` (the same fresh seed the icon-drive bakes and the arc-clip
+  switches to live bounds on), gated on the applied bounds covering the live clock (the legacy
+  stale-segment contract folded into the gate). One decision source for icon + line + show.
+- **Retained (fallback-only; a Director-driven ghost never reaches them):** the Director TracedPath
+  suppress first branch; the polyline actual-draw ownership hide + `StampPolylineOwning` (the
+  5b-pending Driver-direct legs still draw, and the `polyline-orbit-overlap` oracle invariant plus the
+  ParsekUI marker's release-stamp read require both); the below-atmosphere icon floor (4c/8f: the ONLY
+  marker signal for that population); the body-frame window clamp + stale-segment guard for the
+  populations with NO spine signal (per-segment re-aim SKIP on declined synodic windows still renders
+  the recorded conic via the legacy seg-drive; terminal-orbit / endpoint-tail protos have no spine
+  model - the Director emits Hidden past the window while the parked terminal ellipse must keep
+  rendering); the parking-conic loiter hold (belt-and-suspenders: the spine's span-clock loiter wrap
+  keeps the seed fresh through the gap, so the hold only fires if the spine goes stale); and the
+  post-polyline-release grace + director-terminal-suppress no-bounds guards. The tracer wiring
+  (`RecordLineIntent`/`EmitLineVisibilityOnChange` via `LogOrbitLineDecision`) is unchanged and every
+  surviving branch still routes through it. **Grep gate:** `GhostOrbitLineCascadeDeleteGateTests`
+  (deleted symbols stay deleted in `GhostOrbitLinePatch.cs` + `GhostMapPresence.cs`; retained
+  mechanisms stay wired). The retained fallback branches are re-examined at 5b (the Driver-direct
+  delete removes the polyline-owns feeder) and whenever the spine learns the terminal/endpoint-tail
+  and re-aim-declined populations.
+
 ### 5b — Delete the autonomous polyline Driver ownership walk (HARD-depends on Phase 6) ⚠️
 **What changes:** delete the autonomous `GhostTrajectoryPolylineRenderer.Driver` ownership walk —
 **including the `deorbitHead`/`captureShift`/`ResolveTransferLegHeadUT` consumer (:3801-3834), only after

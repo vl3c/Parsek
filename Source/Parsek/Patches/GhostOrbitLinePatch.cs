@@ -599,87 +599,26 @@ namespace Parsek.Patches
     {
         private const string Tag = "GhostOrbitLine";
 
-        /// <summary>
-        /// Length of the orbit-line grace window, in RENDER FRAMES. When the line
-        /// is genuinely shown (`visible-body-frame`) a grace deadline of
-        /// Time.frameCount + this is stamped; a subsequent TRANSIENT off-dip within
-        /// the deadline frame is deferred so the line does not blink at a short
-        /// phase-boundary segment while the per-frame reseed catches up.
-        ///
-        /// This is a FRAME count, not a UT window. The blink is per-render-frame
-        /// chatter. The original UT window (1.5 s) was defeated by time warp: at
-        /// transfer-watching warp one render frame advances UT by far more than
-        /// 1.5 s (even a modest ~75x steps ~2.5 UT/frame), so a transient dip's UT
-        /// is already past `lastShownUT + 1.5` on the very next frame and the grace
-        /// deferred ZERO frames -> the heliocentric orbit line blinked. A frame
-        /// count is warp-independent: it defers a few-frame transient dip at any
-        /// warp, while a SUSTAINED off (more consecutive off-frames than this, e.g.
-        /// the polyline owning a whole below-surface descent) still expires and
-        /// hides (the grace deadline was last stamped while the line was visible),
-        /// preserving the FIX-2 sustained-descent handoff. Tunable; the observed
-        /// transfer-phase chatter dips are ~1-12 render frames.
-        /// </summary>
-        internal const int OrbitLineGraceFrames = 20;
+        // Phase 5a (migration plan section 7): the FIX-#26 orbit-line grace machinery
+        // (OrbitLineGraceFrames / ShouldDeferOrbitLineHide / the OffReason* transient-reason consts /
+        // the per-pid grace stamps in GhostMapPresence) was DELETED with the legacy line-visibility
+        // decision cascade. It existed to debounce chatter between the legacy cascade's own transient
+        // off reasons; the spine's decisions are already freshness-bridged (SeedFreshnessFrames) and
+        // the Director TracedPath suppress was never graced. Locked by
+        // GhostOrbitLineCascadeDeleteGateTests.
 
         /// <summary>
         /// Real-time grace window (seconds) during which the stock orbit icon is held
         /// suppressed after the trajectory polyline releases ownership of a non-orbital phase.
         /// Covers the worst-case lag between polyline release and the next seg-drive dispatcher
         /// tick (MapOrbitUpdateIntervalSec = 0.5s under load, plus the on-vessel apply jitter);
-        /// 1.5s is comfortably above that and matches OrbitLineGraceSeconds for consistency.
-        /// Once seg-drive applies, the visible-body-frame / out-of-body-frame branches engage
-        /// with fresh bounds and the icon shows on the correct mesh position naturally.
+        /// 1.5s is comfortably above that. Once seg-drive applies, bounds return and the
+        /// director / visible-body-frame branches engage with fresh bounds, so the icon shows
+        /// on the correct mesh position naturally. Also read by ParsekUI.DrawMapMarkers (the
+        /// labeled marker prefers the trajectory-derived position through the same window).
         /// </summary>
         internal const float PolylineReleaseGraceSeconds = 1.5f;
 
-        /// <summary>
-        /// The two TRANSIENT off reasons that the grace window may defer for one
-        /// frame at a short phase-boundary segment.
-        /// </summary>
-        internal const string OffReasonStaleSegment = "stale-segment-awaiting-reseed";
-        internal const string OffReasonPolylineOwns = "polyline-owns-phase";
-
-        /// <summary>
-        /// Pure grace decision: should a transient orbit-line hide be DEFERRED
-        /// (kept visible) for this frame?
-        ///
-        /// Returns true only when ALL of:
-        /// - the off reason is one of the two TRANSIENT reasons
-        ///   (<see cref="OffReasonStaleSegment"/> / <see cref="OffReasonPolylineOwns"/>);
-        ///   the durable reasons (below-atmosphere, out-of-body-frame) are never
-        ///   graced and hide instantly;
-        /// - the grace window is still open (<paramref name="currentFrame"/> &lt;=
-        ///   <paramref name="graceUntilFrame"/>); and
-        /// - the orbit elements are still finite and elliptical
-        ///   (<paramref name="orbitFiniteElliptical"/>), so a real arc exists to
-        ///   keep showing (a hyperbolic / degenerate orbit has no meaningful
-        ///   ellipse to bridge with).
-        ///
-        /// A SUSTAINED transient phase (e.g. the polyline owning a whole
-        /// below-atmosphere descent) keeps hiding because the grace deadline was
-        /// last stamped while the line was visible, so it expires within
-        /// <see cref="OrbitLineGraceFrames"/> render frames of the last genuine
-        /// show and the off then takes effect normally (the coupling with FIX 2's
-        /// sustained descent ownership).
-        /// </summary>
-        internal static bool ShouldDeferOrbitLineHide(
-            string offReason,
-            int currentFrame,
-            int graceUntilFrame,
-            bool orbitFiniteElliptical)
-        {
-            if (!orbitFiniteElliptical) return false;
-            bool transient =
-                offReason == OffReasonStaleSegment || offReason == OffReasonPolylineOwns;
-            if (!transient) return false;
-            return currentFrame <= graceUntilFrame;
-        }
-
-        /// <summary>
-        /// Pure: are the orbit elements finite and elliptical (eccentricity &lt; 1,
-        /// period &gt; 0, both finite)? Only an elliptical arc has a meaningful
-        /// shape to keep showing across transient boundary chatter.
-        /// </summary>
         /// <summary>
         /// PURE (Layer B of the re-aim descent parking-conic render fix): should the
         /// <c>past-body-frame-end</c> branch HOLD the orbit line visible instead of retiring it? True IFF the
@@ -700,6 +639,11 @@ namespace Parsek.Patches
             return pastEnd && !belowAtmosphere && !beforeStart;
         }
 
+        /// <summary>
+        /// Pure: are the orbit elements finite and elliptical (eccentricity &lt; 1,
+        /// period &gt; 0, both finite)? Only an elliptical arc has a meaningful
+        /// shape to keep drawing (input to the parking-conic line hold above).
+        /// </summary>
         internal static bool IsOrbitFiniteElliptical(Orbit orbit)
         {
             return orbit != null
@@ -842,14 +786,13 @@ namespace Parsek.Patches
             }
 
             // Director TracedPath suppression (unconditional since 8e S4), checked FIRST so it
-            // pre-empts the polyline-owns / visible-body-frame / grace branches deterministically. When
-            // the new pipeline's active segment for this ghost is a non-orbital leg, the autonomous
-            // polyline owns it: kill the stock orbit line + proto icon so the legacy visible-body-frame
-            // branch can't re-show them on the per-frame gap-glide reseed orbit (the burn-seam icon
-            // teleport + the orbit-line-active-while-polyline-owns flicker). Recomputed per frame, so the
-            // line/icon re-show via visible-body-frame the moment the next StockConic segment starts. Do
-            // NOT stamp the grace deadline here - leave it frozen so the StockConic transition re-stamps
-            // it cleanly.
+            // pre-empts the polyline-owns / show branches deterministically. When the new pipeline's
+            // active segment for this ghost is a non-orbital leg, the autonomous polyline owns it:
+            // kill the stock orbit line + proto icon so a show branch can't re-show them on the
+            // per-frame gap-glide reseed orbit (the burn-seam icon teleport + the
+            // orbit-line-active-while-polyline-owns flicker). Recomputed per frame, so the line/icon
+            // re-show via the director-stockconic-visible branch the moment the next StockConic
+            // segment starts.
             if (Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(pid, Time.frameCount))
             {
                 line.active = false;
@@ -869,20 +812,6 @@ namespace Parsek.Patches
                 return;
             }
 
-            // Grace inputs (FIX #26 blink): the two TRANSIENT off reasons
-            // (polyline-owns-phase / stale-segment-awaiting-reseed) can chatter
-            // on/off frame-to-frame at a short phase-boundary segment because the
-            // per-frame orbit reseed lags the playback head by up to one refresh
-            // interval. A short UT grace window, stamped whenever the line is
-            // genuinely shown, defers a transient off for one frame so the line
-            // does not blink. Computed once here for both branches; the orbit
-            // elements must still be finite + elliptical to have an arc to keep
-            // showing. Durable off reasons (below-atmosphere / out-of-body-frame)
-            // are NEVER graced (they are checked separately below).
-            int graceCurrentFrame = Time.frameCount;
-            int graceUntilFrame = GhostMapPresence.GetOrbitLineGraceUntilFrame(pid);
-            bool orbitFiniteElliptical = IsOrbitFiniteElliptical(__instance.vessel?.orbit);
-
             // Polyline ownership (PR #970): while the map-view trajectory polyline
             // draws this recording's CURRENT non-orbital leg, hide the orbit LINE so
             // the two visuals do not overlap (and the orbit does not churn under
@@ -890,14 +819,16 @@ namespace Parsek.Patches
             // so this Postfix keeps running every frame and re-shows the line
             // automatically once the polyline relinquishes the phase. line.active is
             // the real visibility control (same idiom as the atmosphere / out-of-
-            // bounds suppression below). The vessel icon (OBJ) stays so the ghost's
-            // position is still marked. Takes precedence over the atmosphere /
-            // body-frame branches, and works identically in flight and the Tracking
+            // bounds suppression below). Works identically in flight and the Tracking
             // Station because it is driven by the renderer's own LateUpdate, not the
-            // orbit-updater cadence.
+            // orbit-updater cadence. Distinct from the Director TracedPath suppress
+            // above: this keys on the ACTUAL polyline draw, which includes the
+            // 5b-pending Driver-direct legs the Director classifies StockConic (the
+            // re-aim "bridge" legs), so the proto line can never double-draw under a
+            // drawn leg (the polyline-orbit-overlap oracle invariant).
             if (GhostMapPresence.IsPolylineOwningGhostPhase(pid))
             {
-                // Stamp the "polyline owning" real-time clock so the terminal-visible branch (below)
+                // Stamp the "polyline owning" real-time clock so the no-bounds branch (below)
                 // can defer the icon-show for a short grace after the polyline releases. Without
                 // this defer the stock orbit icon would appear at the OrbitDriver's STALE mesh
                 // transform (the pre-polyline segment's endpoint - e.g. the parking-orbit endpoint
@@ -905,43 +836,10 @@ namespace Parsek.Patches
                 // seg-drive dispatcher tick, which is the visible "icon teleported far away to the
                 // wrong position on the loiter orbit" symptom from the playtest. Stamping every
                 // frame the polyline owns means the grace measures time-since-RELEASE precisely.
+                // The ParsekUI labeled-marker draw reads the same stamp (via
+                // IsPolylineRecentlyOwningGhostPhase) to prefer the trajectory-derived position
+                // through the same window, so this stamp is a KEPT mechanism.
                 GhostMapPresence.StampPolylineOwning(pid);
-
-                // Grace (FIX #26): a TRANSIENT single-frame dip into
-                // polyline-owns at a short phase boundary (the ghost is really
-                // orbital this frame but a sub-second non-orbital leg covers the
-                // instant) defers ONLY the orbit LINE hide while the grace window
-                // is open, so the line does not blink. It must NOT re-show the
-                // proto ICON: IsPolylineOwningGhostPhase(pid) is TRUE in this
-                // branch, so the marker paths (ClassifyAtmosphericMarkerSkip /
-                // DrawMapMarkers) still draw the non-proto trajectory marker
-                // regardless of the suppressed-icon flag; re-enabling the proto
-                // icon (OBJ) here would draw BOTH it and the non-proto marker for
-                // the deferred frame (the transient double-icon the polyline-owns
-                // branch exists to prevent). So keep drawIcons=NONE and leave the
-                // icon suppressed; only line.active is deferred. (The
-                // stale-segment grace-defer below DOES re-show OBJ because
-                // IsPolylineOwningGhostPhase is FALSE there, so the marker is
-                // already skipped and the proto icon is the right indicator.)
-                // A SUSTAINED polyline-owns phase (e.g. the whole below-atmosphere
-                // descent FIX #27 makes the polyline own) is NOT deferred at all:
-                // the grace deadline was last stamped while the line was genuinely
-                // shown, so it expires within OrbitLineGraceFrames render frames and
-                // the hide takes effect, preventing a double-draw of line + polyline.
-                if (ShouldDeferOrbitLineHide(
-                        OffReasonPolylineOwns, graceCurrentFrame, graceUntilFrame, orbitFiniteElliptical))
-                {
-                    line.active = true;
-                    __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
-                    GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
-                    ParsekLog.VerboseRateLimited(Tag,
-                        "grace-defer-" + pid.ToString(CultureInfo.InvariantCulture),
-                        string.Format(CultureInfo.InvariantCulture,
-                            "hide deferred by grace pid={0} reason={1} currentFrame={2} graceUntilFrame={3} (line only, icon stays suppressed)",
-                            pid, OffReasonPolylineOwns, graceCurrentFrame, graceUntilFrame),
-                        1.0);
-                    return;
-                }
 
                 // Hide the orbit line AND the proto-vessel icon, and mark the icon
                 // suppressed (same as the below-atmosphere branch). During a
@@ -972,31 +870,92 @@ namespace Parsek.Patches
                 return;
             }
 
-            // Atmosphere suppression — shared by both segment-based and terminal-orbit ghosts.
-            // Below the atmosphere boundary, Keplerian orbits are meaningless (drag makes them
-            // flicker wildly). Suppress the orbit line and icon, letting the trajectory-interpolated
-            // atmospheric marker take over.
+            // Below-atmosphere icon floor (KEPT permanent fallback, the 8f reassessment): below the
+            // atmosphere boundary a Keplerian orbit is meaningless (drag makes it flicker wildly),
+            // and the ghostsWithSuppressedIcon add here is the ONLY marker signal for a
+            // below-atmosphere ghost (the Director's TracedPath / polyline-owns paths do not own
+            // this case), so the trajectory-interpolated atmospheric marker takes over. Shared by
+            // segment-based and terminal-orbit ghosts, and checked BEFORE the Director StockConic
+            // show below so a driven conic dipping under the atmosphere still hides.
             CelestialBody body = __instance.driver?.referenceBody;
             bool belowAtmosphere = body != null && body.atmosphere
                 && __instance.vessel.orbit != null
                 && __instance.vessel.orbit.altitude < body.atmosphereDepth;
 
-            // Segment-based ghosts: the orbit line is clipped by GhostOrbitArcPatch and the
-            // icon position by GhostOrbitIconDrivePatch, both of which use SEGMENT bounds.
-            // For the line.active toggle we instead use BODY-FRAME bounds (the run of
-            // consecutive same-body OrbitSegments around the playback head). That keeps the
-            // line continuously visible across inter-segment burns / sparse-physics gaps
-            // inside one body frame, so the ghost icon stays on the map throughout the
-            // body frame and only blinks at the actual SOI / body change. Per spec: the
-            // ghost should jump from the end of a transfer trajectory to its correct
-            // recorded position in the next body frame — no flicker inside a body frame.
+            // Body-frame bounds (the run of consecutive same-body OrbitSegments around the playback
+            // head): resolved once for the below-atmosphere log fields and the legacy-population
+            // fallback below. Presence discriminates segment-based from terminal-orbit ghosts.
             double currentUT = Planetarium.GetUniversalTime();
-            if (GhostMapPresence.TryGetBodyFrameOrbitBoundsForGhostVessel(
-                pid, currentUT, out double startUT, out double endUT))
+            bool hasBodyFrameBounds = GhostMapPresence.TryGetBodyFrameOrbitBoundsForGhostVessel(
+                pid, currentUT, out double startUT, out double endUT);
+
+            if (belowAtmosphere)
+            {
+                line.active = false;
+                __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
+                GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+                LogOrbitLineDecision(
+                    pid,
+                    hasBodyFrameBounds ? "below-atmosphere" : "terminal-below-atmosphere",
+                    line.active,
+                    __instance.drawIcons,
+                    GhostMapPresence.IsIconSuppressed(pid),
+                    belowAtmosphere,
+                    hasBounds: hasBodyFrameBounds,
+                    currentUT,
+                    hasBodyFrameBounds ? startUT : double.NaN,
+                    hasBodyFrameBounds ? endUT : double.NaN);
+                return;
+            }
+
+            // Phase 5a - THE SPINE DECIDES (migration plan section 7 / 5a): a Director-driven
+            // StockConic ghost shows its line HERE, sourced from the SAME fresh seed the icon-drive
+            // Prefix bakes (StockConicTreatment.SeedAndDriveLive) and the arc-clip switches to live
+            // bounds on - one decision source for icon, line, and show/hide. The legacy per-frame
+            // line-visibility cascade that re-derived this decision from bounds/atmosphere/terminal
+            // state was DELETED here (Phase 5a); the branches below this one serve ONLY populations
+            // the Director does not drive. Gated on the applied segment bounds covering the live
+            // clock: the arc-clip clips to those bounds and the icon-drive window-clamps on them, so
+            // a fresh seed whose applied bounds lag the head must not re-show a stale clip range
+            // (the legacy stale-segment contract, folded into this gate).
+            bool haveAppliedBounds = GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel(
+                pid, currentUT, out double segStartUT, out double segEndUT);
+            bool appliedBoundsCoverHead =
+                haveAppliedBounds && currentUT >= segStartUT && currentUT <= segEndUT;
+            if (appliedBoundsCoverHead
+                && Parsek.MapRender.ShadowRenderDriver.IsDirectorDriveActive(pid, Time.frameCount))
+            {
+                line.active = true;
+                __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
+                GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
+                LogOrbitLineDecision(
+                    pid,
+                    "director-stockconic-visible",
+                    line.active,
+                    __instance.drawIcons,
+                    GhostMapPresence.IsIconSuppressed(pid),
+                    belowAtmosphere,
+                    hasBounds: true,
+                    currentUT,
+                    segStartUT,
+                    segEndUT);
+                return;
+            }
+
+            // ---- RETAINED legacy fallback (Phase-5a re-scope) ----
+            // Every branch below serves ONLY ghosts the Director does not drive this frame:
+            //  - the per-active-segment re-aim skip (a DECLINED synodic window renders the recorded
+            //    conic through the legacy seg-drive, with no Director seed by design - see
+            //    ShadowRenderDriver.ShouldSkipReaimSegment),
+            //  - terminal-orbit / endpoint-tail protos (no spine model: the Director emits Hidden
+            //    past the recorded window while the parked terminal ellipse must keep rendering),
+            //  - the seg-drive reseed lag and the no-bounds transients.
+            // A Director-driven ghost always returned above, so these decisions are fallback-only.
+            if (hasBodyFrameBounds)
             {
                 bool pastEnd = currentUT > endUT;
                 bool beforeStart = currentUT < startUT;
-                if (pastEnd || beforeStart || belowAtmosphere)
+                if (pastEnd || beforeStart)
                 {
                     // Layer B (re-aim descent parking-conic LINE HOLD): a descent-trigger TRANSFER member in the
                     // captureShift loiter gap holds its FULL parking ellipse drawn through the whole loiter (the
@@ -1005,19 +964,19 @@ namespace Parsek.Patches
                     // reseed sites stamp the per-pid hold while the loiter-gap predicate is true and clear it the
                     // instant it goes false (descent fired / loop wrapped), so the hold's deadline IS the trigger
                     // UT and the line retires cleanly the same frame the descent set takes over. PAST-END ONLY:
-                    // below-atmosphere / before-start still retire. Byte-identical-off for every non-held ghost
-                    // (no stamp -> holdActive false -> the normal retire runs).
+                    // below-atmosphere (handled above) / before-start still retire. Retained as a belt-and-
+                    // suspenders override: when the spine keeps the parking-conic seed fresh through the loiter
+                    // gap (the span clock's ClampTransferMemberHeadToLoiterGap wrap), the director branch above
+                    // already holds the line and this never fires.
                     bool holdActive =
                         GhostMapPresence.TryGetParkingConicLineHold(pid, currentUT, out _);
                     if (ShouldHoldParkingConicLine(
-                            pastEnd, belowAtmosphere, beforeStart, holdActive, orbitFiniteElliptical))
+                            pastEnd, belowAtmosphere: false, beforeStart, holdActive,
+                            IsOrbitFiniteElliptical(__instance.vessel?.orbit)))
                     {
                         line.active = true;
                         __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
                         GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
-                        // Re-stamp the grace deadline so a subsequent transient off-dip is still deferred while
-                        // the line is genuinely shown (same idiom as the visible-body-frame / terminal branches).
-                        GhostMapPresence.StampOrbitLineGrace(pid, Time.frameCount + OrbitLineGraceFrames);
                         LogOrbitLineDecision(
                             pid,
                             "parking-conic-loiter-hold",
@@ -1034,14 +993,9 @@ namespace Parsek.Patches
 
                     line.active = false;
                     __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
-                    if (belowAtmosphere)
-                        GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
-                    string reason = belowAtmosphere
-                        ? "below-atmosphere"
-                        : (pastEnd ? "past-body-frame-end" : "before-body-frame-start");
                     LogOrbitLineDecision(
                         pid,
-                        reason,
+                        pastEnd ? "past-body-frame-end" : "before-body-frame-start",
                         line.active,
                         __instance.drawIcons,
                         GhostMapPresence.IsIconSuppressed(pid),
@@ -1063,44 +1017,8 @@ namespace Parsek.Patches
                 // trajectory polyline / non-proto marker covers the gap) until the APPLIED
                 // SEGMENT bounds actually cover the head, so only the correct orbit is ever
                 // drawn.
-                if (GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel(
-                        pid, currentUT, out double segStartUT, out double segEndUT)
-                    && (currentUT > segEndUT || currentUT < segStartUT))
+                if (haveAppliedBounds && !appliedBoundsCoverHead)
                 {
-                    // Grace (FIX #26): the stale-segment guard fires every frame
-                    // the head sits in the lag between leaving one segment and the
-                    // reseed applying the next. At a phase boundary the head
-                    // crosses many short segments, so without a debounce the line
-                    // blinks off once per boundary. Defer the hide while the grace
-                    // window is open: we are inside the body frame (the durable
-                    // out-of-body-frame / below-atmosphere checks already passed
-                    // above), so the line genuinely belongs on this frame; only
-                    // the reseed has not caught up yet. Once grace expires the
-                    // hide takes effect, so a genuinely stale arc is never shown
-                    // for long.
-                    if (ShouldDeferOrbitLineHide(
-                            OffReasonStaleSegment, graceCurrentFrame, graceUntilFrame, orbitFiniteElliptical))
-                    {
-                        // Re-show the proto ICON here (unlike the polyline-owns
-                        // grace-defer above): the polyline does NOT own this
-                        // recording's phase in the stale-segment branch
-                        // (IsPolylineOwningGhostPhase is false), so the marker
-                        // paths already SKIP the non-proto marker (NativeIconActive
-                        // is returned), making the proto icon the correct sole
-                        // indicator. Showing OBJ here matches the visible-body-frame
-                        // branch and does not double up with a non-proto marker.
-                        line.active = true;
-                        __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
-                        GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
-                        ParsekLog.VerboseRateLimited(Tag,
-                            "grace-defer-" + pid.ToString(CultureInfo.InvariantCulture),
-                            string.Format(CultureInfo.InvariantCulture,
-                                "hide deferred by grace pid={0} reason={1} currentFrame={2} graceUntilFrame={3}",
-                                pid, OffReasonStaleSegment, graceCurrentFrame, graceUntilFrame),
-                            1.0);
-                        return;
-                    }
-
                     line.active = false;
                     __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
                     GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
@@ -1126,12 +1044,6 @@ namespace Parsek.Patches
                 line.active = true;
                 __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
                 GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
-                // Grace (FIX #26): the line is genuinely shown this frame, so
-                // (re)stamp the grace deadline. A transient off-dip in the next
-                // ~OrbitLineGraceFrames render frames is deferred; once the line stops being
-                // genuinely shown the deadline stops advancing and any sustained
-                // off takes effect when it expires.
-                GhostMapPresence.StampOrbitLineGrace(pid, Time.frameCount + OrbitLineGraceFrames);
                 LogOrbitLineDecision(
                     pid,
                     "visible-body-frame",
@@ -1146,15 +1058,36 @@ namespace Parsek.Patches
                 return;
             }
 
-            // Non-segment ghosts (terminal orbits): atmosphere-based suppression
-            if (belowAtmosphere)
+            // Non-segment ghosts (terminal orbits): no seg-drive bounds at all.
+            // Post-polyline-release icon grace: the trajectory polyline just released ownership
+            // of this ghost's non-orbital phase (within PolylineReleaseGraceSeconds, stamped each
+            // frame the polyline-owns branch above fired). The seg-drive dispatcher runs on a
+            // ~0.5s cadence so the next orbital segment has NOT been applied yet, which means
+            // the OrbitDriver mesh transform is still at the pre-polyline segment's endpoint
+            // (e.g. the parking-orbit endpoint before the orbit-raise gap). Showing the stock
+            // orbit icon now (drawIcons=ALL) would draw it at that stale position - the visible
+            // "icon teleported far away to the wrong position on the loiter orbit" playtest
+            // seam. Defer the icon-show until seg-drive applies. The orbit LINE is ALSO held off
+            // here: with no fresh segment applied yet (hasBounds is false in this terminal
+            // branch), the renderer still holds the PREVIOUS segment's ellipse, so re-enabling
+            // the line would briefly redraw that stale ellipse (the parking circle flashing for
+            // ~0.3-0.5s before the loiter line appears - the "glimpse of another circular orbit
+            // before the loiter" playtest report). A hidden line for the few grace frames until
+            // seg-drive applies is strictly better than drawing the wrong ellipse; the trajectory
+            // polyline already covered the visual through the non-orbital phase. On the next tick,
+            // seg-drive applies, bounds return, and the director / visible-body-frame branches
+            // (above) fire with the fresh loiter orbit, so line + icon show in the right place.
+            bool postPolylineReleaseGrace =
+                GhostMapPresence.IsPolylineRecentlyOwningGhostPhase(pid, PolylineReleaseGraceSeconds)
+                && !GhostMapPresence.IsPolylineOwningGhostPhase(pid);
+            if (postPolylineReleaseGrace)
             {
                 line.active = false;
                 __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
                 GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
                 LogOrbitLineDecision(
                     pid,
-                    "terminal-below-atmosphere",
+                    "post-polyline-release-grace",
                     line.active,
                     __instance.drawIcons,
                     GhostMapPresence.IsIconSuppressed(pid),
@@ -1163,84 +1096,22 @@ namespace Parsek.Patches
                     currentUT,
                     double.NaN,
                     double.NaN);
+                return;
             }
-            else
+
+            // Director no-bounds suppression: a director-tracked ghost only reaches this
+            // terminal (no-bounds) branch transiently, when the legacy gap-glide cleared its segment
+            // bounds at a loiter->burn transition and reseeded a phantom eccentric orbit. Showing it
+            // here (ALL) is the residual icon teleport. Suppress instead - the Director re-shows the
+            // icon via the StockConic / visible-body-frame path once bounds return (the hyperbolic).
+            if (Parsek.MapRender.ShadowRenderDriver.IsDirectorTracking(pid, Time.frameCount))
             {
-                // Post-polyline-release icon grace: the trajectory polyline just released ownership
-                // of this ghost's non-orbital phase (within PolylineReleaseGraceSeconds, stamped each
-                // frame the polyline-owns branch above fired). The seg-drive dispatcher runs on a
-                // ~0.5s cadence so the next orbital segment has NOT been applied yet, which means
-                // the OrbitDriver mesh transform is still at the pre-polyline segment's endpoint
-                // (e.g. the parking-orbit endpoint before the orbit-raise gap). Showing the stock
-                // orbit icon now (drawIcons=ALL) would draw it at that stale position - the visible
-                // "icon teleported far away to the wrong position on the loiter orbit" playtest
-                // seam. Defer the icon-show until seg-drive applies. The orbit LINE is ALSO held off
-                // here: with no fresh segment applied yet (hasBounds is false in this terminal
-                // branch), the renderer still holds the PREVIOUS segment's ellipse, so re-enabling
-                // the line would briefly redraw that stale ellipse (the parking circle flashing for
-                // ~0.3-0.5s before the loiter line appears - the "glimpse of another circular orbit
-                // before the loiter" playtest report). A hidden line for the few grace frames until
-                // seg-drive applies is strictly better than drawing the wrong ellipse; the trajectory
-                // polyline already covered the visual through the non-orbital phase. On the next tick,
-                // seg-drive applies, hasBounds becomes true, the visible-body-frame branch (above)
-                // fires with the fresh loiter orbit, line + icon show in the right place, and the
-                // stamp expires naturally over the grace.
-                bool postPolylineReleaseGrace =
-                    GhostMapPresence.IsPolylineRecentlyOwningGhostPhase(pid, PolylineReleaseGraceSeconds)
-                    && !GhostMapPresence.IsPolylineOwningGhostPhase(pid);
-                if (postPolylineReleaseGrace)
-                {
-                    line.active = false;
-                    __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
-                    GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
-                    LogOrbitLineDecision(
-                        pid,
-                        "post-polyline-release-grace",
-                        line.active,
-                        __instance.drawIcons,
-                        GhostMapPresence.IsIconSuppressed(pid),
-                        belowAtmosphere,
-                        hasBounds: false,
-                        currentUT,
-                        double.NaN,
-                        double.NaN);
-                    return;
-                }
-
-                // Director no-bounds suppression (gated): a director-tracked ghost only reaches this
-                // terminal (no-bounds) branch transiently, when the legacy gap-glide cleared its segment
-                // bounds at a loiter->burn transition and reseeded a phantom eccentric orbit. Showing it
-                // here (ALL) is the residual icon teleport. Suppress instead - the Director re-shows the
-                // icon via the StockConic / visible-body-frame path once bounds return (the hyperbolic).
-                if (Parsek.MapRender.ShadowRenderDriver.IsDirectorTracking(pid, Time.frameCount))
-                {
-                    line.active = false;
-                    __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
-                    GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
-                    LogOrbitLineDecision(
-                        pid,
-                        "director-terminal-suppress",
-                        line.active,
-                        __instance.drawIcons,
-                        GhostMapPresence.IsIconSuppressed(pid),
-                        belowAtmosphere,
-                        hasBounds: false,
-                        currentUT,
-                        double.NaN,
-                        double.NaN);
-                    return;
-                }
-
-                line.active = true;
-                __instance.drawIcons = OrbitRendererBase.DrawIcons.ALL;
-                GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
-                // Grace (FIX #26): a terminal-orbit ghost genuinely shown this
-                // frame restamps the grace deadline too, so a transient
-                // polyline-owns dip on a terminal ghost is debounced as well.
-                GhostMapPresence.StampOrbitLineGrace(pid, Time.frameCount + OrbitLineGraceFrames);
+                line.active = false;
+                __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
+                GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
                 LogOrbitLineDecision(
                     pid,
-                    "terminal-visible",
+                    "director-terminal-suppress",
                     line.active,
                     __instance.drawIcons,
                     GhostMapPresence.IsIconSuppressed(pid),
@@ -1249,7 +1120,27 @@ namespace Parsek.Patches
                     currentUT,
                     double.NaN,
                     double.NaN);
+                return;
             }
+
+            // Terminal-orbit population (not spine-modeled): a proto parked on its recording's
+            // terminal ellipse past the recorded window. The Director emits Hidden for it
+            // (OutsideWindow), but the parked ellipse must keep rendering - the tracking-station
+            // fleet ghosts. Full stock icon set (ALL) as before.
+            line.active = true;
+            __instance.drawIcons = OrbitRendererBase.DrawIcons.ALL;
+            GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
+            LogOrbitLineDecision(
+                pid,
+                "terminal-visible",
+                line.active,
+                __instance.drawIcons,
+                GhostMapPresence.IsIconSuppressed(pid),
+                belowAtmosphere,
+                hasBounds: false,
+                currentUT,
+                double.NaN,
+                double.NaN);
         }
     }
 

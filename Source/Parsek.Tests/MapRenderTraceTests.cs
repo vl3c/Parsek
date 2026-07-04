@@ -684,8 +684,9 @@ namespace Parsek.Tests
         public void TryGetFreshLineIntent_OneFrameLater_ReturnsFalse()
         {
             // freshness=0: intent recorded at frame 100 is reconciled only on frame 100. The next
-            // frame is stale - a grace-defer branch may have legitimately changed the rendered state
-            // without re-recording intent - so it is dropped rather than producing a false mismatch.
+            // frame is stale - a branch that does not re-record intent (e.g. the missing-line
+            // early-return) may have legitimately changed the rendered state without a new
+            // LogOrbitLineDecision - so it is dropped rather than producing a false mismatch.
             MapRenderTrace.ForceEnabledForTesting = true;
             MapRenderTrace.FrameCounterOverrideForTesting = () => 100;
             MapRenderTrace.RecordLineIntent(7u, false, "NONE", "polyline-owns-phase");

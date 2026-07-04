@@ -1403,8 +1403,9 @@ namespace Parsek
         /// for the two to be reconciled. 0 = same Unity frame only. The ONLY caller of
         /// <see cref="RecordLineIntent"/> is GhostOrbitLinePatch's per-render-frame LateUpdate Postfix,
         /// which runs in the SAME frame as the order-10000 probe LateUpdate (delta 0). Allowing &gt;0
-        /// would reconcile a STALE intent against a LATER frame whose decision was made by a grace-defer
-        /// branch that does NOT re-record intent (it returns without LogOrbitLineDecision), producing a
+        /// would reconcile a STALE intent against a LATER frame decided by a branch that does not
+        /// re-record intent (historically the FIX-#26 grace-defer branches, deleted in Phase 5a; the
+        /// transient missing-line early-return still returns without LogOrbitLineDecision), producing a
         /// spurious drawIcons-changed-after-decision for a change the patch itself made legitimately. If
         /// a per-physics-step decision site is ever wired into RecordLineIntent, revisit this.</summary>
         internal const int IntentFreshnessFrames = 0;
