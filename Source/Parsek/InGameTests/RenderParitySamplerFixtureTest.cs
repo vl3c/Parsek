@@ -249,7 +249,7 @@ namespace Parsek.InGameTests
                 // phase-matched reference equals the raw-epoch reference (BuildOrbitFromSegment verbatim).
                 MapRenderProbe.SynthesizedConicParitySample matched =
                     MapRenderProbe.ComputeSynthesizedConicParity(
-                        renderedOrbit, kerbin, iconBodyRel, seg, KerbinBodyName, 0.0, liveUT, liveUT);
+                        renderedOrbit, kerbin, seg, KerbinBodyName, 0.0, liveUT, liveUT);
                 InGameAssert.IsTrue(matched.Sampled,
                     "A matching intended seed must yield a synthesized parity measurement (skipReason="
                     + (matched.SkipReason ?? "(none)") + ")");
@@ -267,7 +267,7 @@ namespace Parsek.InGameTests
                 rotatedSeed.longitudeOfAscendingNode = 90.0;
                 MapRenderProbe.SynthesizedConicParitySample rotated =
                     MapRenderProbe.ComputeSynthesizedConicParity(
-                        renderedOrbit, kerbin, iconBodyRel, rotatedSeed, KerbinBodyName, 0.0, liveUT, liveUT);
+                        renderedOrbit, kerbin, rotatedSeed, KerbinBodyName, 0.0, liveUT, liveUT);
                 InGameAssert.IsTrue(rotated.Sampled,
                     "A rotated (still-on-Kerbin) intended seed must still yield a measurement, not skip");
                 InGameAssert.IsTrue(rotated.Result.HasMeasurement,
@@ -282,7 +282,7 @@ namespace Parsek.InGameTests
                 // SKIP cleanly (no false anomaly).
                 MapRenderProbe.SynthesizedConicParitySample wrongBody =
                     MapRenderProbe.ComputeSynthesizedConicParity(
-                        renderedOrbit, kerbin, iconBodyRel, seg, "Mun", 0.0, liveUT, liveUT);
+                        renderedOrbit, kerbin, seg, "Mun", 0.0, liveUT, liveUT);
                 InGameAssert.IsFalse(wrongBody.Sampled,
                     "A seed on a different frame body must skip cleanly (no synthesized diff)");
 
@@ -396,7 +396,7 @@ namespace Parsek.InGameTests
                 // SAME loopShift the rendered conic was driven with. A faithful loop draw must read ~0 drift.
                 MapRenderProbe.SynthesizedConicParitySample phaseMatched =
                     MapRenderProbe.ComputeSynthesizedConicParity(
-                        renderedOrbit, kerbin, iconBodyRel, seg, KerbinBodyName, loopShift, liveUT, effUT);
+                        renderedOrbit, kerbin, seg, KerbinBodyName, loopShift, liveUT, effUT);
                 InGameAssert.IsTrue(phaseMatched.Sampled,
                     "The phase-matched loop arm must yield a synthesized parity measurement (skipReason="
                     + (phaseMatched.SkipReason ?? "(none)") + ")");
@@ -417,7 +417,7 @@ namespace Parsek.InGameTests
                 // arm would pass green-but-blind.
                 MapRenderProbe.SynthesizedConicParitySample phaseMismatched =
                     MapRenderProbe.ComputeSynthesizedConicParity(
-                        renderedOrbit, kerbin, iconBodyRel, seg, KerbinBodyName, 0.0, liveUT, effUT);
+                        renderedOrbit, kerbin, seg, KerbinBodyName, 0.0, liveUT, effUT);
                 InGameAssert.IsTrue(phaseMismatched.Sampled,
                     "The phase-mismatched control arm must still SAMPLE (it is a real diff, not a skip)");
                 InGameAssert.IsTrue(phaseMismatched.Result.HasMeasurement,

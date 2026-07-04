@@ -17,7 +17,7 @@ namespace Parsek.Tests
     /// host back to a direct policy call, (b) duplicate the presence dicts back into the policy, or
     /// (c) sneak a director-drive gate into the relocated presence body (presence is behavior-identical
     /// across the cutover, so it must never branch on <c>IsDirectorDriveActive</c> /
-    /// <c>IsDirectorTracedPathActive</c>). The relocated body is Unity/proto-coupled (needs a live KSP),
+    /// <c>IsTracedPathOwnedThisFrame</c>). The relocated body is Unity/proto-coupled (needs a live KSP),
     /// so it is validated in-game; this is the Unity-free equivalent, mirroring the
     /// <c>ChainSaveLoadTests.ChainStateNotPersistedInScenario</c> source-gate pattern.</para>
     /// </summary>
@@ -136,9 +136,12 @@ namespace Parsek.Tests
                 "private static void PruneTerminalMapRetentionLogKeys(");
 
             // Presence is behavior-identical across the map-render cutover; the relocated body must
-            // never branch on the Director TracedPath / drive decision predicates.
+            // never branch on the Director TracedPath / drive decision predicates. (The legacy
+            // IsDirectorTracedPathActive name was deleted at Phase 5b; the negative gate stays so a
+            // resurrection is caught too.)
             Assert.DoesNotContain("IsDirectorDriveActive", body);
             Assert.DoesNotContain("IsDirectorTracedPathActive", body);
+            Assert.DoesNotContain("IsTracedPathOwnedThisFrame", body);
         }
 
         // Returns the source slice from <paramref name="startNeedle"/> up to (not including) the next

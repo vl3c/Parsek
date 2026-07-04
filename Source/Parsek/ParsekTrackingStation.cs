@@ -261,11 +261,12 @@ namespace Parsek
             // the cached field. The OnGUI pass never rebuilds.
             DriveMissionLoopUnits(RecordingStore.CommittedRecordings);
 
-            // Phase 7a decision-only shadow: run the new map-render pipeline over the TS map ghosts and
-            // reconcile each intent against the OLD path's truth via MapRenderProbe. Writes NOTHING to
-            // the stock surfaces. Gated on the off-by-default mapRenderTracing setting; try/catch so a
-            // diagnostic bug can never break the TS update. Runs every Update tick (cachedLoopUnits is
-            // fresh) before the rate-limited lifecycle pass.
+            // The map-render spine pass over the TS map ghosts. NOT tracing-gated and NOT diagnostic
+            // (the pre-cutover comment said "gated on mapRenderTracing" - false since the 8e S4 /
+            // Phase-3 cutover): RunFrame's intent stamp is the SOLE TracedPath ownership signal and its
+            // StockConic seed is what the icon-drive bakes, so this call IS the render drive.
+            // try/catch so a spine bug can never break the TS update. Runs every Update tick
+            // (cachedLoopUnits is fresh) before the rate-limited lifecycle pass.
             if (MapRender.ShadowRenderDriver.Enabled)
             {
                 try
@@ -671,13 +672,18 @@ namespace Parsek
 
                 // A ridden marker never resolved a body-fixed sample, so sampledPoint is default - label
                 // the position source instead of printing misleading lat=0.00 lon=0.00 alt=0 fields.
+                // InvariantCulture on the numeric fields (house hard rule: comma-locale systems otherwise
+                // produce broken lat/lon/alt output).
                 ParsekLog.VerboseRateLimited(Tag, $"atmosMarker-{i}",
-                    $"Drawing atmospheric marker #{i} \"{rec.VesselName}\" " +
-                    $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
-                    (rodePolyline
-                        ? "pos=on-line(ridden) "
-                        : $"lat={sampledPoint.latitude:F2} lon={sampledPoint.longitude:F2} alt={sampledPoint.altitude:F0} ") +
-                    $"rodePolyline={rodePolyline}");
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Drawing atmospheric marker #{0} \"{1}\" terminal={2} {3}rodePolyline={4}",
+                        i, rec.VesselName, rec.TerminalStateValue?.ToString() ?? "null",
+                        rodePolyline
+                            ? "pos=on-line(ridden) "
+                            : string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "lat={0:F2} lon={1:F2} alt={2:F0} ",
+                                sampledPoint.latitude, sampledPoint.longitude, sampledPoint.altitude),
+                        rodePolyline));
 
                 // MapRenderTrace IMGUI surface coverage (AtmosphericMarker). Decision-only: this
                 // marker draws here in OnGUI, so the position IS the truth (no end-of-frame

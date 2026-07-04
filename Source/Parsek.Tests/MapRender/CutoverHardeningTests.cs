@@ -366,26 +366,27 @@ namespace Parsek.Tests
         // ---- Source gates: the RunFrame wiring is flag-gated (flag-OFF byte-identical) ----
 
         [Fact]
-        public void RunFrame_ColdLoadGuard_IsFlagGated_AndDefers_SourceGate()
+        public void RunFrame_ColdLoadGuard_Unconditional_AndDefers_SourceGate()
         {
-            // The cold-load defer must be gated on PhaseSpineDriveActive (flag-ON only) so the flag-OFF
-            // legacy spine path is byte-identical to today, and it must RETURN (defer the whole frame) when
-            // the clock is not ready. A regression that dropped the flag guard (changing flag-OFF behavior)
-            // or sampled anyway at UT<=0 is caught here.
+            // Phase 5b (flag removed): the cold-load defer is UNCONDITIONAL - the spine always drives, so
+            // the guard must gate the whole frame on the live clock alone and RETURN (defer) when the
+            // clock is not ready. A regression that dropped the guard or sampled anyway at UT<=0 is
+            // caught here.
             string src = CollapseWhitespace(StripLineComments(ReadMapRenderSource("ShadowRenderDriver.cs")));
-            Assert.Contains("if (PhaseSpineDriveActive && !IsLiveClockReady(currentUT))", src);
+            Assert.Contains("if (!IsLiveClockReady(currentUT))", src);
             Assert.Contains("MapRenderTrace.EmitClockNotReady(currentUT, pids?.Count ?? 0);", src);
         }
 
         [Fact]
-        public void RunFrame_C4_FlagOnAssemblerFallbackWarn_IsFlagGated_SourceGate()
+        public void RunFrame_AssemblerExceptionFallback_WarnsLoudly_SourceGate()
         {
-            // The C4 silent flag-ON -> assembler fallback warn fires only inside the flag-ON else-branch
-            // (PhaseSpineDriveActive true but phaseChain null), so a correctly-driven flag-ON run (or any
-            // flag-OFF run) never warns. A regression that warned unconditionally (flooding flag-OFF) is
-            // caught here.
+            // Phase 5b keep-decision: the assembler chain survives ONLY as the exception fallback for a
+            // PhaseFactory throw (phaseChain null), and that fallback must WARN loudly (once per pid) so
+            // a throwing factory is visible. A regression that deleted the warn (a silent fallback) or
+            // deleted the fallback itself (dropping ghosts on a factory throw) is caught here.
             string src = CollapseWhitespace(StripLineComments(ReadMapRenderSource("ShadowRenderDriver.cs")));
-            Assert.Contains("if (PhaseSpineDriveActive) WarnSpineFlagOnAssemblerFallback(pid, traj.RecordingId, currentUT);", src);
+            Assert.Contains("WarnSpineAssemblerFallback(pid, traj.RecordingId, currentUT);", src);
+            Assert.Contains("ChainSampler.Sample(chain, currentUT, units)", src);
         }
 
         [Fact]

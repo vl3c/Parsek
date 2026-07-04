@@ -30,6 +30,12 @@ the reference set + the capture surface differ):
    capture is validated by the in-game `RenderParitySamplerFixtureTest` (capture-harness) and the in-game
    `RenderParityBaselineTest` (positive zero-drift gate, with a LOOP-SHIFTED variant that drives a
    non-zero baked loop shift end-to-end through the real seam and asserts zero drift).
+   (2026-07-04 stack-review B1 correction: the live lens was silently SKIPPING loop-shifted ghosts in
+   production - the covering-segment lookup ran at the director icon-drive clock, loopShift past the
+   recorded span; the faithful lens now looks the recorded segment up on the RECORDED clock,
+   `ResolveFaithfulLookupUT` = currentUT - loopShift, and a DIRECTOR-convention in-game loop baseline
+   pins the production wiring - the earlier loop-shifted variant hand-fed the recorded clock and could
+   not catch this.)
 4. **The HEADLESS regression scenario set** (`Source/Parsek.Tests/RenderParityRegressionScenarioTests.cs`) - representative synthetic geometry per §11.5 row, asserting the oracle's VERDICT (known-good -> zero
    drift; deliberately drifted -> drift flagged), in both faithful and synthesized modes.
 
@@ -105,8 +111,8 @@ pinned but not baselined. **runtime-only** = needs a dedicated in-game scenario 
 | Warp through HoldPhase / loiter / descent re-anchor | runtime-only | `HoldPhase.CoversUt` warp-step-safe (see runtime-only table); HoldPhase has no Phase-0 producer. |
 | Warp-reseed-lag at SOI / orbit-raise gaps | expected-to-change | The documented warp-reseed-lag bug class - `InInteriorGap` hold + SOI-block + CoMD re-snap. NOT baselined; the wrong-reseed shape is pinned by `Faithful_WrongBodyOrbit_DifferentScale_FlagsDrift`. |
 | Warp across a re-aim synodic window boundary | runtime-only | `\|w{window}` chain-signature token invalidation - a runtime cache event. |
-| Loop a single recording | headless (faithful) | `Faithful_LoopShiftedGhost_SameOrbit_ZeroDrift` (loop shift sets phase, not shape -> zero drift). |
-| Loop a whole multi-member mission | headless (faithful) | N independent `PhaseChain`s - each member's faithful arc is covered by `Faithful_*`; `Faithful_LoopShiftedGhost_SameOrbit_ZeroDrift` exercises the per-member loop invariant. |
+| Loop a single recording | headless (faithful) | `Faithful_LoopShiftedGhost_SameOrbit_ZeroDrift` (loop shift sets phase, not shape -> zero drift). (2026-07-04 stack-review B1 correction: the LIVE faithful lens was blind to loop ghosts until the recorded-clock lookup fix; live loop measurement is now pinned by the DIRECTOR-convention in-game loop baseline.) |
+| Loop a whole multi-member mission | headless (faithful) | N independent `PhaseChain`s - each member's faithful arc is covered by `Faithful_*`; `Faithful_LoopShiftedGhost_SameOrbit_ZeroDrift` exercises the per-member loop invariant. (2026-07-04: the same B1 recorded-clock-lookup correction applies to each loop member's LIVE measurement.) |
 | Looping mission while player flies live nearby | oos (Phase 0) | Disjoint tree indices - a presence-selection concern; the rendered geometry of each loop member is the faithful-arc case already covered. |
 | Overlap (N instances) | runtime-only | One ghost at the selected cycle head; the gap-hold caveat is a per-frame runtime symptom (see runtime-only table). |
 | Loiter compression / arrival hold / loiter trim | headless (synthesized) | Span-clock transforms reshape WHERE/WHEN, not the arc; `Synthesized_ReaimedLoopIntendedArc_KnownGood_ZeroDrift` covers a trimmed/transformed intended arc drawn faithfully. |

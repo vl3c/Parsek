@@ -15,13 +15,14 @@ namespace Parsek.Tests
     /// the per-leg head-gate, (3) the G1 tangent-match math + the <c>rigid-seam-tangent-discontinuity</c>
     /// predicate, (4) the compose-AFTER-the-remap ordering, and (5) the clean spine API
     /// <see cref="CrossMemberSeamStitcher.TryStitchDescentSeam"/> (descent member promoted to a visible
-    /// first-class phase; non-descent / non-re-aim returns false byte-identically; out-of-window retires the
-    /// sub-surface ghost rather than holding a stale below-surface sample).
+    /// first-class phase; non-descent / non-re-aim returns false byte-identically; out-of-window returns
+    /// false without a held sample - the defense-in-depth layer behind the span-clock resolver's
+    /// <c>renderHidden</c>, which is the PRODUCTION sub-surface retire gate).
     ///
     /// Each assertion states the bug it catches: a wrong clock would re-anchor the descent to the wrong UT
     /// (the icon-frozen / mis-rotation bug); a wrong tangent predicate would flag a continuous landing or
-    /// miss a real kink; a missing retire would leave the documented sub-surface ghost; engaging on a
-    /// non-descent unit would break flag-OFF parity.
+    /// miss a real kink; a held out-of-window sample would defeat the defense-in-depth behind the span
+    /// clock's sub-surface retire; engaging on a non-descent unit would break flag-OFF parity.
     ///
     /// <para>The tracer-integration cases touch the shared <c>MapRenderTrace</c> / <c>ParsekLog</c> static
     /// state, so this class runs in the Sequential collection.</para>
@@ -373,6 +374,106 @@ namespace Parsek.Tests
             Assert.IsType<DescentPhase>(phase);
         }
 
+        // A descent member whose traced run ENDS ON THE SURFACE: the run's last overlapping TrackSection is
+        // Surface, so ResolveEnvPhaseForWindow's terminal-class rule classifies the whole post-conic run as
+        // a SurfacePhase (a real landing-shaped recording that touches down inside the clip).
+        private static MockTrajectory SurfaceTailedDescentMemberTrajectory()
+            => new MockTrajectory
+            {
+                RecordingId = "rec-descent-surface-tail",
+                VesselName = "Duna Lander",
+                Points = new List<TrajectoryPoint> { Pt(200, "Duna"), Pt(250, "Duna"), Pt(300, "Duna") },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 150, endUT = 200, bodyName = "Duna", semiMajorAxis = 400000, eccentricity = 0.01 },
+                },
+                TrackSections = new List<TrackSection>
+                {
+                    Sec(150, 200, SegmentEnvironment.ExoBallistic),
+                    Sec(200, 280, SegmentEnvironment.Atmospheric),
+                    Sec(280, 300, SegmentEnvironment.SurfaceStationary), // the surface tail (terminal class)
+                },
+            };
+
+        // A descent member with NO OrbitSegments at all (a pure-atmospheric recording): with no conic,
+        // ClassifyTracedKind's v1 default classifies the traced run as an AscentPhase.
+        private static MockTrajectory NoConicAscentShapedMemberTrajectory()
+            => new MockTrajectory
+            {
+                RecordingId = "rec-descent-no-conic",
+                VesselName = "Duna Lander",
+                Points = new List<TrajectoryPoint> { Pt(200, "Duna"), Pt(250, "Duna"), Pt(300, "Duna") },
+                OrbitSegments = new List<OrbitSegment>(),
+                TrackSections = new List<TrackSection>
+                {
+                    Sec(200, 300, SegmentEnvironment.Atmospheric),
+                },
+            };
+
+        [Theory]
+        [InlineData("surface-tail")]
+        [InlineData("no-conic-ascent")]
+        public void Stitch_TracedFamilyPromotionTarget_StitchesWithNoWarn(string shape)
+        {
+            // S5 REGRESSION GUARD: PhaseFactory legitimately classifies real landing-shaped members'
+            // post-conic traced runs as SurfacePhase (surface-tailed run) or AscentPhase (no OrbitSegments),
+            // not only DescentPhase. Both are TracedPath-family (TracedPhase) promotion targets, so the
+            // stitcher must promote them over the Rigid orbit<->landing seam WITHOUT the "not a
+            // TracedPath-family phase" factory-regression Warn - the old DescentPhase-only guard fired a
+            // full Warn EVERY stitched frame on these correct classifications (a post-flip log flood in
+            // normal play).
+            bool surfaceTail = shape == "surface-tail";
+            MockTrajectory traj = surfaceTail
+                ? SurfaceTailedDescentMemberTrajectory()
+                : NoConicAscentShapedMemberTrajectory();
+            PhaseChain chain = PhaseFactory.BuildPhaseChain(
+                traj, DescentMemberIdx, instanceKey: 0, windowStartUT: 150, windowEndUT: 300);
+            var units = MakeDescentUnitSet();
+
+            Parsek.Reaim.DescentTrigger.ComputeDescentTiming(
+                0, PhaseAnchor, Cadence, SpanStart, RecDeorbit, TestTrot, CaptureShift, null,
+                out _, out _, out double triggerUT);
+            double liveUT = triggerUT + 50.0; // head = 250, inside the promoted run [200,300]
+
+            // Load-bearing fixture check: the phase at the re-anchored head IS the intended
+            // TracedPath-family classification (else the fixture silently degenerated to DescentPhase and
+            // this test would be blind to the guard).
+            Assert.True(chain.TryGetPhase(250.0, out TrajectoryPhase phaseAtHead, out _));
+            if (surfaceTail)
+                Assert.IsType<SurfacePhase>(phaseAtHead);
+            else
+                Assert.IsType<AscentPhase>(phaseAtHead);
+
+            var logLines = new List<string>();
+            System.Action<string> prevSink = ParsekLog.TestSinkForTesting;
+            bool prevSuppress = ParsekLog.SuppressLogging;
+            try
+            {
+                ParsekLog.ResetRateLimitsForTesting();
+                ParsekLog.SuppressLogging = false;
+                ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+                bool ok = CrossMemberSeamStitcher.TryStitchDescentSeam(
+                    chain, sampleUT: liveUT, liveUT, units, out GhostSample stitched);
+
+                Assert.True(ok); // the traced-family member stitches successfully
+                Assert.Equal(Coverage.InSegment, stitched.Coverage);
+                Assert.Equal(Treatment.TracedPath, stitched.Treatment);
+                Assert.Equal(SeamKind.Rigid, stitched.Segment.LeadingSeam);
+                Assert.Equal(250.0, stitched.DriveUT, 6);
+
+                // NO factory-regression Warn for a legitimate TracedPath-family promotion target.
+                Assert.DoesNotContain(logLines, l =>
+                    l.Contains("[WARN]") && l.Contains("CrossMemberSeamStitcher"));
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = prevSink;
+                ParsekLog.SuppressLogging = prevSuppress;
+                ParsekLog.ResetRateLimitsForTesting();
+            }
+        }
+
         [Fact]
         public void StampOrbitLandingSeam_SetsRigidLeading_PreservesEverythingElse()
         {
@@ -425,10 +526,14 @@ namespace Parsek.Tests
         [Fact]
         public void Stitch_PastDescentEnd_RetiresSubSurfaceGhost_NoHeldSample()
         {
-            // SUB-SURFACE-GHOST-RETIRES (the documented bug closed): once the clip is Done (liveUT past the
-            // descent window), the stitcher returns FALSE WITHOUT a held sample, so the descent member's
-            // intent falls to Hidden and the ghost RETIRES rather than clamping to a stale below-surface
-            // sample. Pick a liveUT well past the trigger + clip duration (100s clip), inside cycle 0.
+            // DEFENSE-IN-DEPTH behind the production sub-surface retire: once the clip is Done (liveUT past
+            // the descent window), the stitcher returns FALSE WITHOUT a held sample, so a caller that
+            // reached it would render nothing rather than clamp to a stale below-surface sample. NOTE this
+            // false path is NOT the production retire gate: the span-clock resolver's renderHidden
+            // (GhostPlaybackLogic.SpanClock resolves the descent head itself) hides a Done descent member
+            // BEFORE ChainSampler ever consults the stitcher (pinned by
+            // ChainSampler_PastClip_SpanClockRenderHiddenIsTheProductionRetire_OutsideWindow below).
+            // Pick a liveUT well past the trigger + clip duration (100s clip), inside cycle 0.
             var units = MakeDescentUnitSet();
             PhaseChain chain = DescentMemberChain();
 
@@ -443,13 +548,33 @@ namespace Parsek.Tests
             Assert.False(ok);
             Assert.Equal(Parsek.Reaim.DescentTrigger.DescentHeadPhase.Done, phase);
 
-            // RETIRE is signaled by the bool false WITHOUT a held sample: the caller (ChainSampler) discards
-            // the out-param on a false return and renders nothing (GhostSample.Outside), so the sub-surface
-            // ghost retires. Asserting the unread out-param (default vs default) would be tautological; the
-            // bool is the contract.
+            // The defense-in-depth is signaled by the bool false WITHOUT a held sample: a caller discards
+            // the out-param on a false return and renders nothing (GhostSample.Outside). Asserting the
+            // unread out-param (default vs default) would be tautological; the bool is the contract.
             bool stitchOk = CrossMemberSeamStitcher.TryStitchDescentSeam(
                 chain, sampleUT: pastEnd, liveUT: pastEnd, units, out _);
             Assert.False(stitchOk);
+        }
+
+        [Fact]
+        public void ChainSampler_PastClip_SpanClockRenderHiddenIsTheProductionRetire_OutsideWindow()
+        {
+            // DOC-TRUTH PIN: the PRODUCTION sub-surface retire gate is the span-clock resolver's
+            // renderHidden (GhostPlaybackLogic.SpanClock's ResolveTrackingStationSampleUT resolves the
+            // descent head itself and hides a Done descent member), NOT the stitcher's false path.
+            // ChainSampler.Sample over the SAME past-clip inputs as Stitch_PastDescentEnd_... returns
+            // Coverage.OutsideWindow from the renderHidden early-out, BEFORE TryStitchDescentSeam is ever
+            // consulted - the stitcher's own false return is defense-in-depth behind this gate.
+            var units = MakeDescentUnitSet();
+            PhaseChain chain = DescentMemberChain();
+
+            Parsek.Reaim.DescentTrigger.ComputeDescentTiming(
+                0, PhaseAnchor, Cadence, SpanStart, RecDeorbit, TestTrot, CaptureShift, null,
+                out _, out _, out double triggerUT);
+            double pastEnd = triggerUT + 150.0; // > trigger + 100s clip => Done
+
+            GhostSample s = ChainSampler.Sample(chain, pastEnd, units);
+            Assert.Equal(Coverage.OutsideWindow, s.Coverage);
         }
 
         [Fact]
@@ -541,6 +666,137 @@ namespace Parsek.Tests
             {
                 MapRenderTrace.ForceEnabledForTesting = prevForce;
                 MapRenderTrace.FrameCounterOverrideForTesting = null;
+                MapRenderTrace.Reset();
+            }
+        }
+
+        // ---- (6) Phase 5b: the Driver-consumed transfer deorbit-tail clock absorb ----
+
+        [Fact]
+        public void TransferDeorbitTailHead_LoiterFrame_TransferMember_ResolvesSweptHead()
+        {
+            // The polyline Driver consumes the I1 transfer deorbit-tail clock exclusively through this
+            // stitcher absorb (Phase 5b). During the Loiter phase (liveUT=150, trigger=200) the transfer
+            // member's swept head is recordedDeorbitUT + (liveUT - triggerUT) = 200 - 50 = 150, the seam
+            // is the recorded deorbit (200), and the shifted conic end is deorbit + captureShift (50).
+            // A wrong delegation here would freeze the deorbit-tail sweep on every looped landing.
+            GhostPlaybackLogic.LoopUnitSet units = MakeDescentUnitSet();
+            Assert.True(units.TryGetUnitForMember(TransferMemberIdx, out GhostPlaybackLogic.LoopUnit unit));
+
+            bool resolved = CrossMemberSeamStitcher.TryResolveTransferDeorbitTailHead(
+                unit, TransferMemberIdx, liveUT: 150.0, memberStartUT: 0.0, memberEndUT: 1000.0,
+                out double head, out double conicEnd, out double seam);
+
+            Assert.True(resolved);
+            Assert.Equal(150.0, head, 6);
+            Assert.Equal(50.0, conicEnd, 6);
+            Assert.Equal(200.0, seam, 6);
+
+            // Delegation equality: the absorb is the span-clock resolve verbatim (one source of truth).
+            bool direct = GhostPlaybackLogic.TryResolveTransferDeorbitHeadForMember(
+                unit, TransferMemberIdx, 150.0, 0.0, 1000.0,
+                out double dHead, out double dConicEnd, out double dSeam);
+            Assert.Equal(direct, resolved);
+            Assert.Equal(dHead, head, 9);
+            Assert.Equal(dConicEnd, conicEnd, 9);
+            Assert.Equal(dSeam, seam, 9);
+        }
+
+        [Fact]
+        public void TransferDeorbitTailHead_NonTransferMember_ReturnsFalse_ByteIdentical()
+        {
+            // Only the DESTINATION transfer member carries the deorbit tail; a descent-set member (or
+            // any ride-along) must resolve false so no other recording draws a swept tail.
+            GhostPlaybackLogic.LoopUnitSet units = MakeDescentUnitSet();
+            Assert.True(units.TryGetUnitForMember(DescentMemberIdx, out GhostPlaybackLogic.LoopUnit unit));
+
+            bool resolved = CrossMemberSeamStitcher.TryResolveTransferDeorbitTailHead(
+                unit, DescentMemberIdx, liveUT: 150.0, memberStartUT: 0.0, memberEndUT: 1000.0,
+                out double head, out _, out _);
+
+            Assert.False(resolved);
+            Assert.True(double.IsNaN(head));
+        }
+
+        // ---- (7) Phase 5b: the tangent-seam draw-site wiring (pure gate + angle + once-per-onset) ----
+
+        [Theory]
+        [InlineData(true, true, true, true, true)]    // owned descent seam-entry leg, tracing on -> evaluate
+        [InlineData(false, true, true, true, false)]  // tracing off -> free in normal play
+        [InlineData(true, false, true, true, false)]  // Driver-direct draw -> no Rigid seam to evaluate
+        [InlineData(true, true, false, true, false)]  // not a descent-trigger member -> no stitched seam
+        [InlineData(true, true, true, false, false)]  // not the seam-entry leg -> no leading seam
+        public void ShouldEvaluateTangentSeamAtDraw_GatesOnAllFourConditions(
+            bool tracing, bool owned, bool descentMember, bool entryLeg, bool expected)
+        {
+            Assert.Equal(expected, CrossMemberSeamStitcher.ShouldEvaluateTangentSeamAtDraw(
+                tracing, owned, descentMember, entryLeg));
+        }
+
+        [Fact]
+        public void TangentSeamAngleRadians_MeasurablePairs_MatchThePredicateGeometry()
+        {
+            // Aligned tangents read ~0; perpendicular ~pi/2 - the exact quantity the discontinuity
+            // predicate decided on, so the anomaly detail line never reports a different angle.
+            Assert.Equal(0.0, CrossMemberSeamStitcher.TangentSeamAngleRadians(
+                new Vector3(1f, 0f, 0f), new Vector3(2f, 0f, 0f)), 4);
+            Assert.Equal(Math.PI / 2.0, CrossMemberSeamStitcher.TangentSeamAngleRadians(
+                new Vector3(1f, 0f, 0f), new Vector3(0f, 3f, 0f)), 4);
+        }
+
+        [Fact]
+        public void TangentSeamAngleRadians_UnmeasurablePair_IsNaN_NeverAFalseAngle()
+        {
+            // A zero-length / non-finite tangent is unmeasurable: the predicate reports continuous (no
+            // anomaly), so the angle helper must report NaN rather than a fabricated value.
+            Assert.True(double.IsNaN(CrossMemberSeamStitcher.TangentSeamAngleRadians(
+                Vector3.zero, new Vector3(1f, 0f, 0f))));
+            Assert.True(double.IsNaN(CrossMemberSeamStitcher.TangentSeamAngleRadians(
+                new Vector3(float.NaN, 0f, 0f), new Vector3(1f, 0f, 0f))));
+        }
+
+        [Fact]
+        public void TangentSeamOnChange_OncePerOnset_ReArmsAfterContinuous()
+        {
+            // The draw-site raise is once-per-ONSET: a steadily-kinked seam emits one anomaly, a healed
+            // seam feeds the continuous signature through (re-arming), and the next kink emits again.
+            bool prevForce = MapRenderTrace.ForceEnabledForTesting;
+            try
+            {
+                MapRenderTrace.Reset();
+                MapRenderTrace.ForceEnabledForTesting = true;
+
+                Assert.True(MapRenderTrace.ShouldEmitTangentSeamOnChange("77", "rec|leg0|disc"));
+                Assert.False(MapRenderTrace.ShouldEmitTangentSeamOnChange("77", "rec|leg0|disc")); // steady kink
+                Assert.True(MapRenderTrace.ShouldEmitTangentSeamOnChange("77", "rec|leg0|cont"));  // heals (re-arm)
+                Assert.True(MapRenderTrace.ShouldEmitTangentSeamOnChange("77", "rec|leg0|disc"));  // next onset
+                Assert.Equal(1, MapRenderTrace.TangentSeamSignatureCountForTesting);
+            }
+            finally
+            {
+                MapRenderTrace.ForceEnabledForTesting = prevForce;
+                MapRenderTrace.Reset();
+            }
+        }
+
+        [Fact]
+        public void TangentSeamOnChange_Disabled_NeverEmits()
+        {
+            // Tracing off -> the gate is a no-op false (the draw-site evaluation is also decide-pass
+            // gated on tracing, so normal play pays nothing).
+            bool prevForce = MapRenderTrace.ForceEnabledForTesting;
+            try
+            {
+                MapRenderTrace.Reset();
+                MapRenderTrace.ForceEnabledForTesting = false;
+                if (MapRenderTrace.IsEnabled)
+                    return; // a live mapRenderTracing setting would invalidate the premise; skip silently
+                Assert.False(MapRenderTrace.ShouldEmitTangentSeamOnChange("78", "rec|leg0|disc"));
+                Assert.Equal(0, MapRenderTrace.TangentSeamSignatureCountForTesting);
+            }
+            finally
+            {
+                MapRenderTrace.ForceEnabledForTesting = prevForce;
                 MapRenderTrace.Reset();
             }
         }

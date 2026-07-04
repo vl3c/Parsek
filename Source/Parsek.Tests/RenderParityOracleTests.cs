@@ -159,6 +159,41 @@ namespace Parsek.Tests
             Assert.True(r.MaxDeviationMeters >= 500.0 - 1e-6);
         }
 
+        // ---- One-sided deviation: an extra RENDERED vertex can never RAISE the drift (S8) ----
+
+        [Fact]
+        public void ComputeDrift_ExtraRenderedVertex_CannotRaiseDeviation_WhyIconAnchorsWereRemoved()
+        {
+            // THE S8 RATIONALE, pinned: the oracle's deviation is ONE-SIDED - the max over REFERENCE points
+            // of the nearest distance to the RENDERED polyline. Appending an extra vertex to the RENDERED
+            // set only ADDS nearest-distance candidates (more segments to project onto), so it can only
+            // LOWER (or keep) each reference point's distance - it can NEVER raise MaxDeviationMeters. That
+            // is exactly why the icon anchors were REMOVED from both parity lenses in S8: an appended icon
+            // vertex could never catch an off-arc icon (it cannot raise the deviation), it could only MASK
+            // real drift by sitting closer to the reference than the drifted curve. Icon-off-its-own-line
+            // detection lives solely in the icon-off-orbit angle check.
+            double[] reference = Line(5, 1000.0, yOffset: 0.0);
+            double[] rendered = Line(5, 1000.0, yOffset: 300.0); // a deliberate 300 m offset (real drift)
+
+            var without = RenderParityOracle.ComputeDrift(
+                RenderParityOracle.ParityMode.Faithful, reference, rendered, toleranceMeters: 10.0);
+            Assert.True(without.HasMeasurement);
+            Assert.True(without.OverTolerance); // the offset is a real measured drift
+
+            // Append ONE far-away extra vertex to the RENDERED flat array (the pre-S8 icon-anchor shape,
+            // exaggerated) and recompute: the deviation must not rise.
+            double[] renderedPlus = new double[rendered.Length + 3];
+            System.Array.Copy(rendered, renderedPlus, rendered.Length);
+            renderedPlus[rendered.Length] = 250_000.0;     // far off the arc
+            renderedPlus[rendered.Length + 1] = -80_000.0;
+            renderedPlus[rendered.Length + 2] = 40_000.0;
+
+            var with = RenderParityOracle.ComputeDrift(
+                RenderParityOracle.ParityMode.Faithful, reference, renderedPlus, toleranceMeters: 10.0);
+            Assert.True(with.HasMeasurement);
+            Assert.True(with.MaxDeviationMeters <= without.MaxDeviationMeters + 1e-9);
+        }
+
         // ---- Faithful vs Synthesized: same math, different reference, carried on the result ----
 
         [Fact]

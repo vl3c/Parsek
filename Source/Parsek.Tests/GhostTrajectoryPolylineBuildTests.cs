@@ -750,16 +750,16 @@ namespace Parsek.Tests
                 Parsek.MapRender.TracedPathTreatment.ShouldOwnLeg(directorActive));
         }
 
-        // --- Phase 4a: the Driver routes the owned-draw decision on the FLAG-AWARE signal ---
+        // --- Phase 4a/5b: the Driver routes the owned-draw decision on the shared intent selector ---
 
         [Fact]
         public void Driver_RoutesOwnedDrawOnFlagAwareSignal_NotRawSideChannel_SourceGate()
         {
-            // Phase 4a re-homes the TracedPath owned-draw decision to the intent UNDER THE FLAG. The
-            // Driver's per-recording routing must read the flag-aware IsTracedPathOwnedThisFrame (which
-            // returns the legacy side-channel off the flag - byte-identical to today - and the intent
-            // source on the flag), NOT the raw IsDirectorTracedPathActive. A regression that reverted the
-            // routing to the raw side-channel (dropping the flag-ON re-home) is caught here.
+            // Phase 4a re-homed the TracedPath owned-draw decision to the intent; Phase 5b collapsed the
+            // selector onto the single intent source (the legacy side-channel is deleted). The Driver's
+            // per-recording routing must read the shared IsTracedPathOwnedThisFrame selector - the same
+            // one the marker decision + the proto icon/line suppress patches read - so a regression that
+            // re-introduced a second source (desyncing the consumers) is caught here.
             string normalized = CollapseWhitespace(StripLineComments(ReadPolylineRendererSource()));
             Assert.Contains(
                 "bool directorOwnsTracedPath = Parsek.MapRender.ShadowRenderDriver"

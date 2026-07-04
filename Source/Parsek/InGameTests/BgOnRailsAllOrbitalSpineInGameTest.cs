@@ -129,7 +129,7 @@ namespace Parsek.InGameTests
                 Vector3d iconBodyRel = ghost.GetWorldPos3D() - kerbin.position;
 
                 MapRenderProbe.FaithfulParitySample sample = MapRenderProbe.ComputeFaithfulOrbitParity(
-                    renderedOrbit, kerbin, iconBodyRel, liveUT, 0.0, liveUT, rec.RecordingId);
+                    renderedOrbit, kerbin, 0.0, liveUT, rec.RecordingId);
                 Parsek.MapRender.RenderParityOracle.ParityResult result = sample.Result;
 
                 ParsekLog.Info("TestRunner", string.Format(CultureInfo.InvariantCulture,
@@ -150,8 +150,10 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                if (pid != 0u)
-                    GhostMapPresence.RemoveAllGhostVessels("bgonrails-cleanup");
+                // UNCONDITIONAL cleanup (S17): a PARTIAL creation (the vessel created but the orbit-driver
+                // null Skip taken) leaves pid == 0, and a pid-guarded cleanup would strand a live synthetic
+                // ghost aliased to the user's restored recording indices for the rest of the batch.
+                GhostMapPresence.RemoveAllGhostVessels("bgonrails-cleanup");
                 RecordingStore.ClearCommittedInternal();
                 RecordingStore.ClearCommittedTreesInternal();
                 for (int i = 0; i < prevRecordings.Count; i++)

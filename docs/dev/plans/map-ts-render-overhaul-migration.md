@@ -295,6 +295,43 @@ deorbit clock. **Logging:** verify no trace regressions (EVENT coverage now flow
 universal gate across the regression set. **Grep gate:** assert the cascade symbols are gone.
 **Rollback:** revert restores the cascade. **Risk:** medium (an isolated line-visibility delete).
 
+**IMPLEMENTED (Phase 5a, re-scoped per the 4c/8f findings - the spine decides, floors and non-driven
+populations retained):** the line Postfix is restructured so the SPINE signals are the primary decision
+source, and the pure-legacy chatter machinery is deleted; the plan's original "shrinks toward just the
+seed apply" wording predates the 4c re-scope (the icon floor is a KEPT permanent fallback) and two
+populations the spine deliberately does not drive.
+- **Deleted:** the FIX-#26 orbit-line grace machinery in full: `ShouldDeferOrbitLineHide`,
+  `OrbitLineGraceFrames`, the `OffReasonStaleSegment`/`OffReasonPolylineOwns` consts, both grace-defer
+  branches (polyline-owns + stale-segment), the per-branch grace re-stamps, and the per-pid grace map in
+  `GhostMapPresence` (`StampOrbitLineGrace`/`GetOrbitLineGraceUntilFrame`/`ghostOrbitLineGraceUntilFrame`
+  + its teardown clears). It debounced chatter between the legacy cascade's own transient off reasons;
+  the spine's decisions are freshness-bridged (`SeedFreshnessFrames`) and the Director TracedPath
+  suppress was never graced, so no spine-driven ghost loses a debounce. `GhostOrbitLineGraceTests`
+  (20 tests, all pinning deleted symbols) removed with it.
+- **Added:** the `director-stockconic-visible` branch: a Director-driven ghost's line SHOW is now
+  applied from `IsDirectorDriveActive` (the same fresh seed the icon-drive bakes and the arc-clip
+  switches to live bounds on), gated on the applied bounds covering the live clock (the legacy
+  stale-segment contract folded into the gate). One decision source for icon + line + show.
+- **Retained (fallback-only; a Director-driven ghost never reaches them):** the Director TracedPath
+  suppress first branch; the polyline actual-draw ownership hide + `StampPolylineOwning` (the
+  Driver-direct legs still draw - 5b RETAINED them as the fenced populations, see the 5b IMPLEMENTED
+  note - and the `polyline-orbit-overlap` oracle invariant plus the
+  ParsekUI marker's release-stamp read require both); the below-atmosphere icon floor (4c/8f: the ONLY
+  marker signal for that population); the body-frame window clamp + stale-segment guard for the
+  populations with NO spine signal (per-segment re-aim SKIP on declined synodic windows still renders
+  the recorded conic via the legacy seg-drive; terminal-orbit / endpoint-tail protos have no spine
+  model - the Director emits Hidden past the window while the parked terminal ellipse must keep
+  rendering); the parking-conic loiter hold (belt-and-suspenders: the spine's span-clock loiter wrap
+  keeps the seed fresh through the gap, so the hold only fires if the spine goes stale); and the
+  post-polyline-release grace + director-terminal-suppress no-bounds guards. The tracer wiring
+  (`RecordLineIntent`/`EmitLineVisibilityOnChange` via `LogOrbitLineDecision`) is unchanged and every
+  surviving branch still routes through it. **Grep gate:** `GhostOrbitLineCascadeDeleteGateTests`
+  (deleted symbols stay deleted in `GhostOrbitLinePatch.cs` + `GhostMapPresence.cs`; retained
+  mechanisms stay wired). The retained fallback branches were re-examined at 5b (which RETAINED the
+  Driver-direct draws as fenced populations, so the polyline-owns feeder stays; see the 5b IMPLEMENTED
+  note) and are re-examined again whenever the spine learns the terminal/endpoint-tail
+  and re-aim-declined populations.
+
 ### 5b — Delete the autonomous polyline Driver ownership walk (HARD-depends on Phase 6) ⚠️
 **What changes:** delete the autonomous `GhostTrajectoryPolylineRenderer.Driver` ownership walk —
 **including the `deorbitHead`/`captureShift`/`ResolveTransferLegHeadUT` consumer (:3801-3834), only after
@@ -308,6 +345,57 @@ in-game playtest sign-off. **Grep gate:** assert the Driver-ownership-walk symbo
 **Rollback:** revert restores the legacy walk (kept intact until this PR). **Risk:** HIGH (a delete with
 a cross-phase dependency) — mitigated by the Phase-6-predecessor gate + the parity gate + playtest
 sign-off.
+
+**IMPLEMENTED (Phase 5b, re-scoped per the walk end-to-end population map - the same 4c/8f "the plan's
+deletion list is the intent, the populations decide" discipline as 5a):** the walk itself is RETAINED as
+a documented fence; what died is the cutover flag, the legacy TracedPath side-channel, the walk's direct
+deorbit-clock reads, and the driver's dead reconciler write. Mapping the Driver-direct vs owned draws
+under the (then) const-true flag showed the walk is the SINGLE draw host and the only renderer for four
+populations the spine does not enumerate, so "delete the walk" would have deleted the owned draw's
+dispatch too.
+- **Deleted - the flag:** `MapRenderFlags.MapRenderPhaseSpineDrive` (+ the now-empty `MapRenderFlags`
+  class), `ShadowRenderDriver.ForceSpineDriveForTesting`, and `PhaseSpineDriveActive` - the typed
+  PhaseChain spine is UNCONDITIONAL. `GetOrBuildChain` builds the PhaseChain always; RunFrame's
+  assembler-chain else-branch is KEPT as the FENCED exception fallback for a PhaseFactory throw only
+  (the SAFER keep-decision), warned loudly once per pid (`WarnSpineAssemblerFallback`; the C4 warn
+  reworded). The cold-load clock guard is unconditional. Rollback is a revert of the 5b commit, never a
+  runtime toggle.
+- **Deleted - the legacy TracedPath side-channel:** `tracedPathByPid` + `IsDirectorTracedPathActive`;
+  `IsTracedPathOwnedThisFrame` COLLAPSED onto the single intent source
+  (`IsDirectorTracedPathActiveFromIntent`), and every consumer re-routed to it: the
+  `GhostOrbitLinePatch` Director TracedPath suppress (both the icon-drive Prefix and the line Postfix),
+  `IsDirectorTracking`'s disjunct, the marker decision's disjunct (already on the selector), and the
+  Driver's owned-draw routing (already on the selector). RunFrame stamps ONE intent-sourced map; the
+  test seam collapsed to `SetTracedPathIntentStampForTesting`.
+- **Deleted - the walk's direct deorbit-clock consumption:** the I1 block now routes through the
+  Phase-6 stitcher's absorb APIs (`CrossMemberSeamStitcher.TryResolveTransferDeorbitTailHead` +
+  `ResolveDeorbitTailLegHead` - the absorb finally has its production caller), so
+  `GhostTrajectoryPolylineRenderer.cs` names NO deorbit-clock helper directly (file-scoped source gate).
+  The I1 SWEEP itself is retained: the stitcher promotes the DescentPhase only from the trigger onward,
+  and the transfer member's LOITER-phase deorbit-tail sweep has no spine equivalent.
+- **Deleted - the dead reconciler write:** `GhostRenderReconciler.NoteIntent` no longer called from
+  `RunFrame` (the store lost its last production reader at the Phase-8 unwiring); the type + pure
+  predicates stay for their unit tests.
+- **Wired - the deferred Tier-C tangent raise:** `rigid-seam-tangent-discontinuity` is now LIVE at the
+  descent DRAW site (`Driver.EvaluateDescentSeamTangents`, called for a drawn owned seam-entry leg of a
+  stitched descent member - the pure gate `ShouldEvaluateTangentSeamAtDraw`): leaving tangent from the
+  bracketing capture conic sampled at the seam, entering tangent from the drawn leg's first two
+  body-relative world points; tracing-gated + once-per-onset (`ShouldEmitTangentSeamOnChange`, healed
+  seams re-arm). A continuous seam emits nothing.
+- **Retained (fenced, documented in the walk):** the Driver walk as the single draw host - the only
+  renderer for (1) proto-less pid-0 recordings (never in `scene.GhostPids`), (2) StockConic
+  Driver-direct "bridge" legs (8b.2), (3) the boundary-overlap secondary head legs, (4) the forward
+  legs/arcs/seam bridges; the dispatch of the OWNED `TracedPathTreatment.TryDrawOwnedLeg` draw; and the
+  8e S3b SOLE ownership source `drewNonOrbitalLegRecordings` (KEPT, as is the icon floor). Re-examine
+  the fence whenever the spine learns one of those populations.
+- **Grep gates:** `scripts/grep-audit-map-render-phase-spine-drive.ps1` (+
+  `GrepAuditMapRenderPhaseSpineDriveTests`) forbids the four deleted symbols repo-wide under
+  `Source/Parsek/`; `PolylineDriverWalkDeleteGateTests` file-scopes the deorbit-clock delete + the
+  NoteIntent delete and positively pins the retained fence. The old flag pins
+  (`PhaseSpineDriveFlag_DefaultsOn_TheCutoverFlip`, `PhaseSpineDriveActive_ConstCarriesTheCutover`,
+  `IsTracedPathOwnedThisFrame_LegacyElseBranch_RetainedForRollback_SourceGate`) became flag-GONE pins;
+  the in-game spine tests dropped the seam writes (PhaseSpineSwap lost its A/B arm - there is no second
+  spine to compare against).
 
 ---
 
@@ -641,11 +729,15 @@ truth above (assert the decision-source-swap contract; never a 5b-only geometry 
 - **A3 - `FlagOnParityBaselineInGameTest.cs`** (known-good + loop-shifted): the FLAG-ON parity BASELINE the
   audit found missing (the existing `RenderParityBaselineTest` is flag-OFF; `PhaseSpineSwapInGameTest`
   exercises only the faithful lens). Drives the REAL `ShadowRenderDriver.RunFrame` SPINE-ON over a live
-  faithful ghost and asserts ZERO parity-drift across ALL THREE Phase-9 oracle modes at once (faithful,
-  synthesized, polyline), the spine's stamped loop-shift matches `GetGhostOrbitEpochShift`, and NO
-  `parity-drift` anomaly fired on the trace sink. Non-vacuous: each lens must `Sampled` + `HasMeasurement`
-  or it fails as blind; the loop-shifted arm bakes a 1100s shift end-to-end through the real seam. CLOSES
-  the section 11.5 "loop a single recording" / baseline-only-flag-OFF gap, flag-ON.
+  faithful ghost and asserts ZERO parity-drift across the FAITHFUL + SYNTHESIZED Phase-9 oracle modes,
+  plus a POLYLINE ORACLE ZERO-CONTRACT SANITY check (rendered == recorded input yields zero drift; NOT
+  live polyline capture coverage - the live `CaptureRenderedVsRecordedLegGeometry` walk needs a real map
+  render and is validated by tracing-on play sessions), the spine's stamped loop-shift matches
+  `GetGhostOrbitEpochShift`, and NO `parity-drift` anomaly fired on the trace sink. Non-vacuous: each lens
+  must `Sampled` + `HasMeasurement` or it fails as blind; the loop-shifted arm bakes a 1100s shift
+  end-to-end through the real seam. CLOSES the section 11.5 "loop a single recording" /
+  baseline-only-flag-OFF gap for the faithful + synthesized lenses, flag-ON; live polyline flag-ON capture
+  remains a tracing-on play-session check.
 
 - **B-row2 - `ReaimedLoopSynthesizedOracleInGameTest.cs`** (the Phase-9 SYNTHESIZED payoff): drives a live
   ghost from a RE-AIMED segment (recorded shape rotated 70 deg in LAN) while the recording stores the
@@ -669,14 +761,18 @@ truth above (assert the decision-source-swap contract; never a 5b-only geometry 
   5b).
 
 - **B-row4 - `ParentAnchoredChildSpineInGameTest.cs`** (parent-anchored controlled child): (a) drives the
-  REAL `AnchorFrameResolver.ResolveParentAnchoredChild` on LIVE-body UT magnitudes through all three
+  DEFINE-ONLY `AnchorFrameResolver.ResolveParentAnchoredChild` (ZERO production callers until Phase 5b
+  wires the spine's parent-anchored routing through it) on LIVE-body UT magnitudes through all three
   outcomes - >=2-sample in-range -> `BodyFixedPrimary`; out-of-range / no loop-frames -> `Retire` (never
   clamp to a stale child offset, the documented "stale ghost" bug it prevents); too-few-samples + covering
   loop frames -> `AnchorLocalSecondary`; (b) drives a live controlled-decoupled child ghost
-  (`IsDebris=false`, `ParentAnchorRecordingId` set) through RunFrame spine-ON and asserts ZERO faithful
-  drift. Non-vacuous: all three routing branches asserted distinctly; the oracle arm must `Sampled` +
-  `HasMeasurement`. CLOSES section 11.5 "controlled-decoupled child (lander off a stage)" dual-surface routing,
-  flag-ON.
+  (`IsDebris=false`, `ParentAnchorRecordingId` set) through RunFrame spine-ON as a CRASH-SMOKE + PLUMBING
+  check with the faithful oracle green (the oracle compares the ghost against the segment it was created
+  from - green-by-construction for the routing question). Non-vacuous as a contract pin: all three
+  resolver branches asserted distinctly; the oracle arm must `Sampled` + `HasMeasurement`. This is a
+  CONTRACT PIN for the 5b wiring, NOT closed spine-decision coverage of parent-anchored routing; the
+  section 11.5 "controlled-decoupled child (lander off a stage)" dual-surface routing row CLOSES when 5b
+  wires the resolver.
 
 - **B-row9 / B-row20 - `WarpThroughInteriorGapSpineInGameTest.cs`** (the HoldPhase decision +
   interior-gap warp-step hold). **HoldPhase decision: VACUOUS-UNDER-FLAG-ON in v1, with evidence.** The

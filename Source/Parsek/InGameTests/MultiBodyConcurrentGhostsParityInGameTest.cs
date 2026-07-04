@@ -121,8 +121,10 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                if (kerbinPid != 0u || munPid != 0u)
-                    GhostMapPresence.RemoveAllGhostVessels("multibody-cleanup");
+                // UNCONDITIONAL cleanup (S17): a PARTIAL creation (one ghost created, then a Skip on the
+                // other's null) leaves both pids 0, and a pid-guarded cleanup would strand live synthetic
+                // ghosts aliased to the user's restored recording indices for the rest of the batch.
+                GhostMapPresence.RemoveAllGhostVessels("multibody-cleanup");
                 RecordingStore.ClearCommittedInternal();
                 RecordingStore.ClearCommittedTreesInternal();
                 for (int i = 0; i < prevRecordings.Count; i++)
@@ -144,7 +146,7 @@ namespace Parsek.InGameTests
             Vector3d iconBodyRel = ghost.GetWorldPos3D() - body.position;
 
             MapRenderProbe.FaithfulParitySample sample = MapRenderProbe.ComputeFaithfulOrbitParity(
-                renderedOrbit, body, iconBodyRel, liveUT, 0.0, liveUT, rec.RecordingId);
+                renderedOrbit, body, 0.0, liveUT, rec.RecordingId);
             Parsek.MapRender.RenderParityOracle.ParityResult result = sample.Result;
 
             ParsekLog.Info("TestRunner", string.Format(CultureInfo.InvariantCulture,

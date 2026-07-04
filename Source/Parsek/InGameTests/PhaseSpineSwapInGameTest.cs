@@ -5,16 +5,14 @@ using UnityEngine;
 
 namespace Parsek.InGameTests
 {
-    // Phase 3 (migration plan §5, the spine swap) - the in-game gate that drives the REAL wired
-    // ShadowRenderDriver.RunFrame over a live faithful ghost with the typed PhaseChain spine ON vs OFF and
-    // asserts the two are byte-identical AND both report ZERO parity-drift:
-    //
-    //  - FLAG OFF (default): RunFrame samples the legacy ChainAssembler-built GhostRenderChain and stamps
-    //    the StockConic seed the icon-drive patch reads. The ghost stays on its recorded orbit -> the
-    //    probe's ComputeFaithfulOrbitParity reports zero drift (unchanged from today).
-    //  - FLAG ON (ForceSpineDriveForTesting): RunFrame samples the typed PhaseChain (PhaseFactory output,
-    //    byte-matching the assembler from Phase 2) and stamps the SAME seed. The ghost renders identically
-    //    -> zero drift, and the stamped seed elements match the flag-OFF seed exactly.
+    // Phase 3 origin (migration plan section 5, the spine swap), reworked at Phase 5b (the cutover flag +
+    // its test seam were REMOVED - the typed PhaseChain spine is UNCONDITIONAL): the in-game gate that
+    // drives the REAL wired ShadowRenderDriver.RunFrame over a live faithful ghost and asserts the spine
+    // (1) actually BUILT + drove a typed PhaseChain (not the loud-warned assembler exception fallback),
+    // (2) stamped the StockConic seed the icon-drive patch reads, and (3) reports ZERO parity-drift via
+    // the production faithful oracle. The old flag-ON-vs-flag-OFF A/B seed comparison died with the flag
+    // (there is no second spine to compare against; the assembler chain survives only as the exception
+    // fallback for a factory throw, pinned by the HasCachedPhaseChainForTesting false-green guard here).
     //
     // This complements the headless PhaseSpineParityTests (which prove the sampler/director intent parity
     // pure) by exercising the Unity-coupled RunFrame -> seed-stamp -> probe path the pure tests cannot
@@ -33,35 +31,10 @@ namespace Parsek.InGameTests
         private const double KerbinRadiusFallback = 600000.0;
 
         [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
-            Description = "Phase 3 spine-swap (FLAG ON): RunFrame driving the typed PhaseChain spine over a "
-                + "live faithful ghost stamps a StockConic seed and reports ZERO parity-drift, identical to "
-                + "the legacy assembler spine")]
-        public void SpineSwap_FlagOn_DrivesPhaseChain_ZeroDrift_MatchesAssemblerSeed()
-        {
-            RunSpineSwapParity(forceSpineOn: true);
-        }
-
-        [InGameTest(Category = "MapRender", Scene = GameScenes.FLIGHT,
-            Description = "Phase 3 spine-swap (FLAG OFF): RunFrame driving the legacy assembler spine over a "
-                + "live faithful ghost reports ZERO parity-drift (unchanged baseline) - the flag-off path is "
-                + "byte-identical to pre-Phase-3 behavior")]
-        public void SpineSwap_FlagOff_DrivesAssembler_ZeroDrift()
-        {
-            // CLAIM SCOPE: this exercises the FLAG-OFF-WITH-TRACING-ON path. RunSpineSwapParity force-enables
-            // MapRenderTrace so the factory PhaseChain is always built (the parity sink + EmitStructural are
-            // live), which means the spine is built-but-not-consumed here, not fully inert. So this proves
-            // "flag-off renders identically to the assembler baseline" — NOT "the spine path is wholly
-            // elided." The TRACING-OFF full-inertness of flag-off normal play (the C# const-fold + the
-            // null-PhaseChain assembler fallback) is locked at the source/unit layer
-            // (ShadowRenderDriverTests.PhaseSpineDriveActive_*, RunFrame_FlagOffPath_*), not here.
-            RunSpineSwapParity(forceSpineOn: false);
-        }
-
-        // Build the live ghost once, then drive RunFrame with the spine forced OFF and ON, reading back the
-        // stamped StockConic seed each time + the parity result. Asserts: both stamp a seed, both report
-        // zero drift, and the flag-ON seed elements byte-match the flag-OFF seed (the spine produced the
-        // same drive).
-        private static void RunSpineSwapParity(bool forceSpineOn)
+            Description = "Phase 3/5b spine drive: RunFrame driving the unconditional typed PhaseChain "
+                + "spine over a live faithful ghost BUILDS a PhaseChain (no exception fallback), stamps a "
+                + "StockConic seed, and reports ZERO parity-drift")]
+        public void SpineDrive_Unconditional_BuildsPhaseChain_StampsSeed_ZeroDrift()
         {
             CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == KerbinBodyName);
             if (kerbin == null)
@@ -74,7 +47,6 @@ namespace Parsek.InGameTests
             double startUT = liveUT - 1800.0;
             OrbitSegment seg = BuildSegment(startUT);
 
-            bool prevForceSpine = ShadowRenderDriver.ForceSpineDriveForTesting;
             bool prevForceTrace = MapRenderTrace.ForceEnabledForTesting;
             System.Func<double> prevUTNow = GhostMapPresence.CurrentUTNow;
             List<Recording> prevRecordings = RecordingStore.CommittedRecordings != null
@@ -117,79 +89,61 @@ namespace Parsek.InGameTests
                     return;
                 }
 
-                // Drive the spine the requested way and read back the stamped seed.
-                ShadowRenderDriver.ForceSpineDriveForTesting = forceSpineOn;
+                // Drive the unconditional spine and read back the stamped seed.
                 ShadowRenderDriver.Reset();
                 ShadowRenderDriver.RunFrame(scene);
                 bool stamped = ShadowRenderDriver.TryGetFreshStockConicSeed(
                     pid, Time.frameCount, out OrbitSegment drivenSeed, out string drivenBody);
 
-                // Also drive the OPPOSITE flag state so we can assert the two spines stamp the SAME seed
-                // (the byte-identical-drive proof). Build a fresh scene/seed each pass.
-                ShadowRenderDriver.ForceSpineDriveForTesting = !forceSpineOn;
-                ShadowRenderDriver.Reset();
-                ShadowRenderDriver.RunFrame(scene);
-                bool otherStamped = ShadowRenderDriver.TryGetFreshStockConicSeed(
-                    pid, Time.frameCount, out OrbitSegment otherSeed, out string otherBody);
-
                 ParsekLog.Info("TestRunner", string.Format(CultureInfo.InvariantCulture,
-                    "SpineSwap parity: forceSpineOn={0} stamped={1} body={2} sma={3:F0} ecc={4:F4} | "
-                    + "other stamped={5} body={6} sma={7:F0} ecc={8:F4}",
-                    forceSpineOn, stamped, drivenBody ?? "?", drivenSeed.semiMajorAxis, drivenSeed.eccentricity,
-                    otherStamped, otherBody ?? "?", otherSeed.semiMajorAxis, otherSeed.eccentricity));
+                    "SpineDrive: stamped={0} body={1} sma={2:F0} ecc={3:F4}",
+                    stamped, drivenBody ?? "?", drivenSeed.semiMajorAxis, drivenSeed.eccentricity));
 
                 InGameAssert.IsTrue(stamped,
                     "RunFrame must stamp a StockConic seed for a faithful orbital ghost (the drive the "
-                    + "icon-drive patch reads); none stamped for forceSpineOn=" + forceSpineOn);
-                InGameAssert.IsTrue(otherStamped,
-                    "the opposite-flag RunFrame must ALSO stamp a seed (both spines drive the same ghost)");
+                    + "icon-drive patch reads)");
 
-                // The two spines must stamp the SAME conic drive (byte-identical seed): same body + elements.
-                InGameAssert.AreEqual(drivenBody, otherBody,
-                    "the two spines must stamp the same seed body");
-                InGameAssert.ApproxEqual(drivenSeed.semiMajorAxis, otherSeed.semiMajorAxis, 1e-6,
-                    "the two spines must stamp the same seed semiMajorAxis (byte-identical drive)");
-                InGameAssert.ApproxEqual(drivenSeed.eccentricity, otherSeed.eccentricity, 1e-9,
-                    "the two spines must stamp the same seed eccentricity");
-                InGameAssert.ApproxEqual(drivenSeed.startUT, otherSeed.startUT, 1e-6,
-                    "the two spines must stamp the same seed startUT");
-                InGameAssert.ApproxEqual(drivenSeed.endUT, otherSeed.endUT, 1e-6,
-                    "the two spines must stamp the same seed endUT");
+                // False-green guard: GetOrBuildChain swallows a factory throw into a cached null
+                // PhaseChain and the spine then falls back to the loud-warned legacy assembler chain, so
+                // a stamped seed + zero drift alone cannot prove the SPINE drove.
+                InGameAssert.IsTrue(ShadowRenderDriver.HasCachedPhaseChainForTesting(pid),
+                    "the spine must have BUILT a PhaseChain for this ghost - a null cache means the "
+                    + "factory threw and the assembler exception fallback drove (this gate would "
+                    + "otherwise pass on a false green)");
 
-                // Restore the requested flag state, drive once more so the live orbit reflects it, then run
-                // the production parity seam and assert ZERO drift (the ghost stays on its recorded orbit
-                // regardless of which spine drove it).
-                ShadowRenderDriver.ForceSpineDriveForTesting = forceSpineOn;
-                ShadowRenderDriver.Reset();
-                ShadowRenderDriver.RunFrame(scene);
+                // The seed must be the recorded segment's elements (the faithful drive).
+                InGameAssert.AreEqual(KerbinBodyName, drivenBody,
+                    "the spine must stamp the recorded segment's body");
+                InGameAssert.ApproxEqual(Sma, drivenSeed.semiMajorAxis, 1e-6,
+                    "the spine must stamp the recorded segment's semiMajorAxis");
+                InGameAssert.ApproxEqual(Ecc, drivenSeed.eccentricity, 1e-9,
+                    "the spine must stamp the recorded segment's eccentricity");
 
                 Orbit renderedOrbit = ghost.orbitDriver.orbit;
-                Vector3d iconBodyRel = ghost.GetWorldPos3D() - kerbin.position;
                 MapRenderProbe.FaithfulParitySample sample = MapRenderProbe.ComputeFaithfulOrbitParity(
-                    renderedOrbit, kerbin, iconBodyRel, liveUT, 0.0, liveUT, rec.RecordingId);
+                    renderedOrbit, kerbin, 0.0, liveUT, rec.RecordingId);
                 RenderParityOracle.ParityResult result = sample.Result;
 
                 ParsekLog.Info("TestRunner", string.Format(CultureInfo.InvariantCulture,
-                    "SpineSwap parity-drift: forceSpineOn={0} sampled={1} skip={2} hasMeas={3} maxDev={4:F1}m "
-                    + "tol={5:F1}m over={6}",
-                    forceSpineOn, sample.Sampled, sample.SkipReason ?? "(none)", result.HasMeasurement,
+                    "SpineDrive parity-drift: sampled={0} skip={1} hasMeas={2} maxDev={3:F1}m "
+                    + "tol={4:F1}m over={5}",
+                    sample.Sampled, sample.SkipReason ?? "(none)", result.HasMeasurement,
                     result.MaxDeviationMeters, result.ToleranceMeters, result.OverTolerance));
 
                 InGameAssert.IsTrue(sample.Sampled,
-                    "spine-swap parity must SAMPLE (not skip); skipReason=" + (sample.SkipReason ?? "(none)"));
+                    "spine parity must SAMPLE (not skip); skipReason=" + (sample.SkipReason ?? "(none)"));
                 InGameAssert.IsTrue(result.HasMeasurement,
-                    "spine-swap parity must yield a MEASUREMENT (else the gate is blind)");
+                    "spine parity must yield a MEASUREMENT (else the gate is blind)");
                 InGameAssert.IsFalse(result.OverTolerance,
                     string.Format(CultureInfo.InvariantCulture,
-                        "spine-swap (forceSpineOn={0}) must report ZERO drift; maxDev={1:F1}m exceeded "
-                        + "tol={2:F1}m - the swapped spine is rendering a different orbit than the assembler.",
-                        forceSpineOn, result.MaxDeviationMeters, result.ToleranceMeters));
+                        "the spine must report ZERO drift; maxDev={0:F1}m exceeded tol={1:F1}m - the "
+                        + "spine is rendering a different orbit than the recorded segment.",
+                        result.MaxDeviationMeters, result.ToleranceMeters));
             }
             finally
             {
                 if (pid != 0u)
                     GhostMapPresence.RemoveAllGhostVessels("spine-swap-cleanup");
-                ShadowRenderDriver.ForceSpineDriveForTesting = prevForceSpine;
                 ShadowRenderDriver.Reset();
                 MapRenderTrace.ForceEnabledForTesting = prevForceTrace;
                 RecordingStore.ClearCommittedInternal();

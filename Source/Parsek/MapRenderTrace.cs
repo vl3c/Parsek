@@ -42,16 +42,15 @@ namespace Parsek
         // is now WIRED + LIVE: it is fired by the gated probe sampler
         // MapRenderProbe.TrySampleAndEmitFaithfulOrbitParity (the Unity geometry sampler driving
         // RenderParityOracle in Faithful mode) whenever a faithful ghost's rendered orbit diverges from
-        // its recorded reference beyond tolerance. The OTHER FOUR tokens below
-        // (rigid-seam-tangent-discontinuity / retire-not-held / anchor-resolve-fail / clock-not-ready)
-        // remain WIRED-BUT-INERT in PRODUCTION: the constants exist (and EmitAnomaly already routes any
-        // reason through the gated sink) so later phases emit them without re-touching this file. NOTE the
-        // Phase-6 status: the descent re-stitch now wires the Tier-A DescentStitched STRUCTURAL event
-        // (CrossMemberSeamStitcher.TryStitchDescentSeam, once-per-stitch-onset via
-        // ShouldEmitDescentStitchOnChange), and the rigid-seam-tangent-discontinuity predicate +
-        // EmitTangentDiscontinuity helper are built and test-exercised (unit + in-game); its production
-        // auto-raise is wired at the descent DRAW site in Phase 5b (the only place the live world tangents
-        // exist - a RenderSegment carries no points), so that one token stays production-inert until 5b.
+        // its recorded reference beyond tolerance. rigid-seam-tangent-discontinuity is WIRED + LIVE since
+        // Phase 5b: the descent DRAW site (the polyline Driver's post-draw seam evaluation - the only
+        // place the live world tangents exist, a RenderSegment carries no points) raises it via
+        // CrossMemberSeamStitcher.EmitTangentDiscontinuity, once-per-onset via
+        // ShouldEmitTangentSeamOnChange. The remaining THREE reserved tokens
+        // (retire-not-held / anchor-resolve-fail / clock-not-ready) are raised from their guard sites in
+        // ShadowRenderDriver / AnchorFrameResolver. NOTE the Phase-6 status: the descent re-stitch wires
+        // the Tier-A DescentStitched STRUCTURAL event (CrossMemberSeamStitcher.TryStitchDescentSeam,
+        // once-per-stitch-onset via ShouldEmitDescentStitchOnChange).
         //
         //  - parity-drift: the geometry the pipeline actually RENDERED diverged from the reference it
         //    was supposed to draw (recorded in Faithful mode / the producer's intended arc in
@@ -60,8 +59,8 @@ namespace Parsek
         //    `gap-vs-retire`; the two coexist through Phases 0-8.
         //  - rigid-seam-tangent-discontinuity: a Rigid seam's two sides (e.g. capture-orbit velocity
         //    direction at SOI/atmosphere entry vs the recorded descent's first-sample tangent) diverged
-        //    beyond tolerance at the G1 descent re-stitch (Phase 6). Predicate + emit helper built and
-        //    test-exercised; production auto-raise lands at the descent draw site in Phase 5b (see above).
+        //    beyond tolerance at the G1 descent re-stitch (Phase 6). WIRED + LIVE (Phase 5b): raised from
+        //    the descent draw site, once-per-onset (see above).
         //  - retire-not-held: a terminal / out-of-range member HELD its last visible intent across an
         //    interior gap where it should have RETIRED (rendered nothing) - the inverse of the
         //    held-across-gap contract (design §6.4 / §10.7).
@@ -622,6 +621,91 @@ namespace Parsek
             return true;
         }
 
+        // ---- Phase 5b: rigid-seam-tangent Tier-C anomaly once-per-onset dedup ----
+        // The orbit<->landing G1 tangent seam is evaluated at the descent DRAW site every frame the
+        // stitched descent's seam-entry leg draws (tracing-gated), but the Tier-C
+        // rigid-seam-tangent-discontinuity anomaly is a per-ONSET signal, not a per-frame one
+        // (EmitAnomaly routes to Warn unconditionally + opens a detail window). This per-pid signature
+        // gate emits ONE line per discontinuity onset; the caller also feeds the CONTINUOUS signature
+        // through so a seam that heals re-arms the next onset. Same warp-cap + Reset() (scene-switch)
+        // clearing as the sibling signature dicts.
+        private static readonly Dictionary<string, string> lastTangentSeamSignatureByPid =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>Test-only: current size of the tangent-seam change-detection dict (warp-cap assert).</summary>
+        internal static int TangentSeamSignatureCountForTesting => lastTangentSeamSignatureByPid.Count;
+
+        /// <summary>
+        /// Once-per-onset gate for the Tier-C <c>rigid-seam-tangent-discontinuity</c> anomaly (Phase 5b
+        /// draw-site wiring): returns true only when <paramref name="signature"/> (leg identity +
+        /// continuous/discontinuous state) changed for this <paramref name="pidKey"/> since the last call,
+        /// so a steadily-kinked seam emits ONE anomaly line rather than one per frame, and a seam that
+        /// returns to continuous re-arms the next onset (the caller feeds the continuous signature through
+        /// and ignores the result). No-op (false) when disabled. An empty pid (no resolvable ghost - e.g.
+        /// a headless unit test) is allowed through (the <see cref="IsEnabled"/> gate + the caller still
+        /// bound the emit). Warp-capped + cleared in <see cref="Reset"/> (scene switch), like the sibling
+        /// signature dicts.
+        /// </summary>
+        internal static bool ShouldEmitTangentSeamOnChange(string pidKey, string signature)
+        {
+            if (!IsEnabled)
+                return false;
+            if (string.IsNullOrEmpty(pidKey))
+                return true;
+
+            if (lastTangentSeamSignatureByPid.TryGetValue(pidKey, out string last)
+                && string.Equals(last, signature, StringComparison.Ordinal))
+                return false; // unchanged seam state for this ghost -> suppress
+
+            if (!lastTangentSeamSignatureByPid.ContainsKey(pidKey)
+                && lastTangentSeamSignatureByPid.Count >= MaxTrackedMarkerDecisionKeys)
+                lastTangentSeamSignatureByPid.Clear();
+
+            lastTangentSeamSignatureByPid[pidKey] = signature;
+            return true;
+        }
+
+        // ---- Phase 2: factory-parity Tier-C anomaly once-per-event dedup ----
+        // The Phase-2 shadow byte-parity comparator (ShadowRenderDriver.AssertFactoryParity) runs on
+        // every chain (re)build while tracing is on, but the factory-parity anomaly is a per-DIVERGENCE
+        // signal, not a per-frame one (EmitAnomaly routes to Info unconditionally + opens a detail
+        // window). This per-recording signature gate emits ONE line per distinct diverging-field
+        // signature, honoring the VerboseRateLimited convention. Same warp-cap + Reset() (scene-switch)
+        // clearing as the sibling signature dicts.
+        private static readonly Dictionary<string, string> lastFactoryParitySignatureByRecording =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>Test-only: current size of the factory-parity change-detection dict (warp-cap assert).</summary>
+        internal static int FactoryParitySignatureCountForTesting => lastFactoryParitySignatureByRecording.Count;
+
+        /// <summary>
+        /// Once-per-event gate for the Tier-C <c>factory-parity</c> anomaly (Phase 2): returns true only
+        /// when <paramref name="signature"/> (the comparator's diverging-field details) changed for this
+        /// <paramref name="recordingKey"/> since its last emit, so a steadily-diverging per-frame shadow
+        /// loop emits ONE anomaly line per distinct divergence rather than one per frame. No-op (false)
+        /// when disabled. An empty key is allowed through (the <see cref="IsEnabled"/> gate + the caller
+        /// still bound the emit). Warp-capped + cleared in <see cref="Reset"/> (scene switch), like the
+        /// sibling signature dicts.
+        /// </summary>
+        internal static bool ShouldEmitFactoryParityOnChange(string recordingKey, string signature)
+        {
+            if (!IsEnabled)
+                return false;
+            if (string.IsNullOrEmpty(recordingKey))
+                return true;
+
+            if (lastFactoryParitySignatureByRecording.TryGetValue(recordingKey, out string last)
+                && string.Equals(last, signature, StringComparison.Ordinal))
+                return false; // unchanged divergence for this recording -> suppress
+
+            if (!lastFactoryParitySignatureByRecording.ContainsKey(recordingKey)
+                && lastFactoryParitySignatureByRecording.Count >= MaxTrackedMarkerDecisionKeys)
+                lastFactoryParitySignatureByRecording.Clear();
+
+            lastFactoryParitySignatureByRecording[recordingKey] = signature;
+            return true;
+        }
+
         // MVP: detailed windows are keyed by pid.ToString(). recordingId keying
         // (and the shared registry with GhostRenderTrace) is a later cut.
         private static readonly Dictionary<string, double> detailedUntilByKey =
@@ -650,7 +734,9 @@ namespace Parsek
             lastLineVisibilitySignatureByPid.Clear();
             lastDescentStitchSignatureByPid.Clear();
             lastFailClosedSignatureByPid.Clear();
+            lastTangentSeamSignatureByPid.Clear();
             lastCutoverAnomalySignatureByKey.Clear();
+            lastFactoryParitySignatureByRecording.Clear();
             descentRenderWindowFrame = -1;
             descentRenderWindowPhase = null;
             descentRenderWindowRecId = null;
@@ -1303,27 +1389,27 @@ namespace Parsek
 
         /// <summary>
         /// Phase 2 shadow-comparator anomaly emit: the gated <see cref="MapRender.PhaseFactory"/>'s
-        /// emitted geometry diverged from the live <c>ChainAssembler</c>'s <c>GhostRenderChain</c>. Routes
-        /// the <see cref="AnomalyFactoryParity"/> reason + the diverging field detail through a
-        /// rate-limited Verbose sink keyed per recording id (so a per-frame shadow loop on a steadily
-        /// diverging member cannot flood the log) — distinct from <see cref="EmitAnomaly"/> (which is
-        /// Info + opens a detailed window per occurrence). The diverging field is in the
-        /// <paramref name="details"/> built by the caller (the comparator result). Gated by
+        /// emitted geometry diverged from the live <c>ChainAssembler</c>'s <c>GhostRenderChain</c>.
+        /// This byte-parity mismatch is a FLAG-FLIP GATE signal, so the mismatch routes through
+        /// <see cref="EmitAnomaly"/> (Info-level, phase=Anomaly) - NOT
+        /// <see cref="ParsekLog.VerboseRateLimited"/>, which early-returns when the user's
+        /// verboseLogging setting is off and silently swallowed the mismatch while tracing was on.
+        /// Deduped once-per-event via <see cref="ShouldEmitFactoryParityOnChange"/> (keyed per
+        /// recording id, signature = the diverging-field <paramref name="details"/> built by the
+        /// caller from the comparator result), so a per-frame shadow loop on a steadily diverging
+        /// member emits ONE line per distinct divergence, not one per frame. Gated by
         /// <see cref="IsEnabled"/>; no-op in normal play.
         /// </summary>
         internal static void EmitFactoryParity(
-            string recordingId, double currentUT, string details, double minIntervalSeconds = 5.0)
+            string recordingId, double currentUT, string details)
         {
             if (!IsEnabled)
                 return;
             string key = Token(recordingId);
-            string combined = "reason=" + AnomalyFactoryParity
-                + (string.IsNullOrEmpty(details) ? string.Empty : " " + details);
-            string message = BuildPrefix(
-                "Anomaly", RenderSurface.ProtoOrbitLine, key, currentUT, currentUT,
-                CurrentFrameCount(), recordingId) + " " + combined;
-            ParsekLog.VerboseRateLimited(
-                Tag, "factory-parity-" + key, message, minIntervalSeconds);
+            if (!ShouldEmitFactoryParityOnChange(key, details ?? string.Empty))
+                return;
+            EmitAnomaly(RenderSurface.ProtoOrbitLine, key, currentUT, currentUT,
+                AnomalyFactoryParity, details, recordingId);
         }
 
         /// <summary>IMGUI marker-surface decision emit (<c>ImguiLabeledMarker</c> /
@@ -1361,8 +1447,9 @@ namespace Parsek
         /// for the two to be reconciled. 0 = same Unity frame only. The ONLY caller of
         /// <see cref="RecordLineIntent"/> is GhostOrbitLinePatch's per-render-frame LateUpdate Postfix,
         /// which runs in the SAME frame as the order-10000 probe LateUpdate (delta 0). Allowing &gt;0
-        /// would reconcile a STALE intent against a LATER frame whose decision was made by a grace-defer
-        /// branch that does NOT re-record intent (it returns without LogOrbitLineDecision), producing a
+        /// would reconcile a STALE intent against a LATER frame decided by a branch that does not
+        /// re-record intent (historically the FIX-#26 grace-defer branches, deleted in Phase 5a; the
+        /// transient missing-line early-return still returns without LogOrbitLineDecision), producing a
         /// spurious drawIcons-changed-after-decision for a change the patch itself made legitimately. If
         /// a per-physics-step decision site is ever wired into RecordLineIntent, revisit this.</summary>
         internal const int IntentFreshnessFrames = 0;

@@ -30,8 +30,11 @@ namespace Parsek.MapRender
     /// (<see cref="PhaseSeamClassifier.IsRigidSeamTangentDiscontinuity"/> / <see cref="IsTangentSeamContinuous"/>
     /// / <see cref="EmitTangentDiscontinuity"/>). Those tangents are a RENDER-TIME quantity (a
     /// <see cref="RenderSegment"/> carries no points — the treatment reads the recorded points at draw time),
-    /// so the pure predicate + emit helper are built and test-exercised here while the production anomaly
-    /// auto-raise is wired at the descent DRAW site in Phase 5b (when that path is reworked).</para>
+    /// so the pure predicate + emit helper live here and the production auto-raise is WIRED (Phase 5b) at
+    /// the descent DRAW site (the polyline Driver's post-draw seam evaluation: the leaving tangent from the
+    /// bracketing conic sampled at the seam, the entering tangent from the drawn descent leg's first two
+    /// world points), tracing-gated + once-per-onset via
+    /// <see cref="MapRenderTrace.ShouldEmitTangentSeamOnChange"/>.</para>
     ///
     /// <para><b>Tracer integration (Tier-A).</b> Every successful promote emits the Tier-A
     /// <c>DescentStitched</c> structural event from the decision site (<see cref="EmitDescentStitched"/> via
@@ -48,12 +51,13 @@ namespace Parsek.MapRender
     /// the time <see cref="ChainSampler.Sample(PhaseChain, double, GhostPlaybackLogic.LoopUnitSet)"/> calls
     /// in), so the stitcher composes after the remap by construction (it never re-applies it).</para>
     ///
-    /// <para><b>Flag-gated, additive.</b> Only invoked when <see cref="ShadowRenderDriver.PhaseSpineDriveActive"/>
-    /// (default OFF). Flag OFF: the spine never calls in, so the descent renders through the legacy path,
-    /// byte-identical to today. Flag ON: the stitcher promotes the descent + enforces the G1 seam. Nothing
-    /// here is deleted; the legacy descent path stays intact as the reversible fallback. Phase 6 INTENTIONALLY
-    /// changes the flag-ON descent geometry (it is the fix for the sub-surface ghost), so the parity oracle
-    /// runs in SYNTHESIZED mode here (rendered == the stitcher's intended G1 arc), NOT recorded-vs-rendered.</para>
+    /// <para><b>Unconditional since Phase 5b</b> (the cutover flag was removed): the spine always invokes
+    /// this stitcher, and the polyline Driver consumes the transfer-member deorbit-tail clock exclusively
+    /// through the absorb APIs here (<see cref="TryResolveTransferDeorbitTailHead"/> /
+    /// <see cref="ResolveDeorbitTailLegHead"/>) - the walk's direct <c>DescentTrigger</c> clock reads were
+    /// deleted. Phase 6 INTENTIONALLY changed the descent geometry (it is the fix for the sub-surface
+    /// ghost), so the parity oracle runs in SYNTHESIZED mode here (rendered == the stitcher's intended G1
+    /// arc), NOT recorded-vs-rendered.</para>
     ///
     /// <para><b>Minimal — NOT the full <see cref="MissionComposite"/></b> (design §17). It is the focused
     /// slice that the eventual composite absorbs unchanged: ONE cross-member seam (orbit↔landing), not the
@@ -120,8 +124,9 @@ namespace Parsek.MapRender
         /// frame, REUSING <see cref="Parsek.Reaim.DescentTrigger.ResolveTransferLegHeadUT"/>. A deorbit-tail
         /// leg (the contiguous approach legs ending at/below the seam) gates on the swept deorbit head so it
         /// sweeps down to the seam during the Loiter phase; every other leg keeps the normal loop head. This
-        /// is the same per-leg gate the legacy polyline Driver applies, re-homed into the stitcher so the
-        /// spine never names <c>ResolveTransferLegHeadUT</c>. Pure; no Unity.
+        /// is the per-leg gate the polyline Driver applies (Phase 5b routed the Driver through THIS absorb;
+        /// the walk no longer names <c>ResolveTransferLegHeadUT</c> directly), and the spine never names it
+        /// either. Pure; no Unity.
         /// </summary>
         internal static double ResolveDeorbitTailLegHead(
             double legEndUT, double seamUT, double epsSeconds, double loopHeadUT,
@@ -129,6 +134,28 @@ namespace Parsek.MapRender
         {
             return Parsek.Reaim.DescentTrigger.ResolveTransferLegHeadUT(
                 legEndUT, seamUT, epsSeconds, loopHeadUT, deorbitTailHead, deorbitTailLegEligible);
+        }
+
+        /// <summary>
+        /// Clock absorb for the TRANSFER member's deorbit-tail sweep (the I1 head): resolves the
+        /// re-anchored deorbit-tail head + the shifted-parking-conic end + the seam UT for the DESTINATION
+        /// transfer member of a descent-trigger unit during its Loiter phase, by delegating verbatim to
+        /// <see cref="GhostPlaybackLogic.TryResolveTransferDeorbitHeadForMember"/> (which resolves the unit
+        /// cycle through the production span-clock decision - one source of truth). Phase 5b: this is the
+        /// stitcher-owned entry the polyline Driver consumes the deorbit clock through, so the Driver walk
+        /// names NO deorbit-clock helper directly (the stitcher owns that clock; see the file summary).
+        /// False (all outputs NaN) for any member that is not the destination transfer member, a unit with
+        /// no descent trigger, an unresolved span clock, or any phase other than Loiter - byte-identical
+        /// to the no-trigger path. Pure; no Unity, no logging (the caller owns rate-limiting).
+        /// </summary>
+        internal static bool TryResolveTransferDeorbitTailHead(
+            GhostPlaybackLogic.LoopUnit unit, int committedIndex, double liveUT,
+            double memberStartUT, double memberEndUT,
+            out double deorbitTailHead, out double shiftedConicEndUT, out double seamUT)
+        {
+            return GhostPlaybackLogic.TryResolveTransferDeorbitHeadForMember(
+                unit, committedIndex, liveUT, memberStartUT, memberEndUT,
+                out deorbitTailHead, out shiftedConicEndUT, out seamUT);
         }
 
         /// <summary>
@@ -168,6 +195,46 @@ namespace Parsek.MapRender
         }
 
         /// <summary>
+        /// PURE draw-site gate for the Tier-C rigid-seam tangent evaluation (Phase 5b wiring): evaluate
+        /// the orbit<->landing G1 seam ONLY when tracing is on (the anomaly sink is tracing-gated - free in
+        /// normal play), the drawn leg is the Director-OWNED TracedPath draw (the stitched descent draws
+        /// owned; Driver-direct populations carry no Rigid seam), the recording is a descent-set member of
+        /// a descent-trigger unit (the only population the stitcher stamps the Rigid + G1 leading seam
+        /// on), and the drawn leg is the clip's SEAM ENTRY leg (the seam is the entry into the descent
+        /// clip; later legs of a multi-leg clip carry no leading cross-member seam). Pure; xUnit-testable.
+        /// </summary>
+        internal static bool ShouldEvaluateTangentSeamAtDraw(
+            bool tracingEnabled, bool ownedByTreatment, bool isDescentTriggerMember, bool isSeamEntryLeg)
+        {
+            return tracingEnabled && ownedByTreatment && isDescentTriggerMember && isSeamEntryLeg;
+        }
+
+        /// <summary>
+        /// PURE measured angle (radians) between the two seam tangents, for the anomaly detail line.
+        /// Mirrors <see cref="PhaseSeamClassifier.IsRigidSeamTangentDiscontinuity"/>'s normalize + acos
+        /// math so the reported angle is exactly the quantity the predicate decided on. Returns NaN for an
+        /// unmeasurable pair (zero-length / non-finite tangent on either side) - the predicate reports
+        /// those as continuous, so no anomaly line ever formats a NaN angle. Pure; xUnit-testable.
+        /// </summary>
+        internal static double TangentSeamAngleRadians(Vector3 leavingTangent, Vector3 enteringTangent)
+        {
+            Vector3 a = leavingTangent;
+            Vector3 b = enteringTangent;
+            if (!IsFinite(a.x) || !IsFinite(a.y) || !IsFinite(a.z)
+                || !IsFinite(b.x) || !IsFinite(b.y) || !IsFinite(b.z))
+                return double.NaN;
+            float magA = a.magnitude;
+            float magB = b.magnitude;
+            if (magA <= 1e-9f || magB <= 1e-9f
+                || float.IsNaN(magA) || float.IsInfinity(magA)
+                || float.IsNaN(magB) || float.IsInfinity(magB))
+                return double.NaN;
+            float dot = Mathf.Clamp(Vector3.Dot(a / magA, b / magB), -1f, 1f);
+            double angle = Math.Acos(dot);
+            return double.IsInfinity(angle) ? double.NaN : angle;
+        }
+
+        /// <summary>
         /// THE SPINE API (clean, gate-safe). When the flag is ON, the typed-spine sampler calls this AFTER it
         /// has resolved the base coverage of a per-member <see cref="PhaseChain"/> at the already-remapped
         /// <paramref name="sampleUT"/>. If <paramref name="committedIndex"/> is a descent-set member of a
@@ -181,11 +248,15 @@ namespace Parsek.MapRender
         /// <c>captureShift</c>), so the spine can invoke it without tripping the Phase-3 gate. The clock
         /// arithmetic itself stays inside this stitcher (and the pure helpers it reuses).</para>
         ///
-        /// <para><b>Sub-surface retire (design §9.1 / migration plan §8):</b> when the re-anchored head is NOT
-        /// live (the descent member's slice is out of window — past <c>descentEndUT</c> / before entry /
-        /// loitering), this returns false WITHOUT a held sample, so the descent member's
-        /// <see cref="GhostRenderIntent"/> falls to Hidden and the sub-surface ghost RETIRES (the documented
-        /// bug closed) rather than clamping to a stale below-surface sample.</para>
+        /// <para><b>Sub-surface retire (design section 9.1 / migration plan section 8) - defense-in-depth
+        /// here, NOT the production gate:</b> the PRODUCTION sub-surface retire gate is the span-clock
+        /// resolver's <c>renderHidden</c> (<c>GhostPlaybackLogic.SpanClock</c>'s
+        /// <c>ResolveTrackingStationSampleUT</c> resolves the descent head itself and hides a Done / Inert /
+        /// Loiter / out-of-slice descent member BEFORE the sampler ever reaches this stitcher). When the
+        /// re-anchored head is NOT live (the descent member's slice is out of window - past
+        /// <c>descentEndUT</c> / before entry / loitering), this returns false WITHOUT a held sample so the
+        /// caller's base path renders nothing - a second, defense-in-depth layer behind the span clock,
+        /// never the load-bearing retire.</para>
         /// </summary>
         internal static bool TryStitchDescentSeam(
             PhaseChain chain,
@@ -232,23 +303,34 @@ namespace Parsek.MapRender
             if (!chain.TryGetPhase(reAnchoredHead, out TrajectoryPhase phaseAtHead, out int phaseIndex))
                 return false;
 
-            // DEFENSIVE GUARD (provably never with today's factory: reAnchoredHead >= recordedDeorbitUT lands
-            // in the post-deorbit body-fixed run, which the factory classifies as a DescentPhase). If a future
-            // factory-classification regression ever puts a non-DescentPhase at the head, log LOUDLY rather
-            // than silently stamp a Rigid orbit↔landing seam onto the wrong phase kind ("if it didn't get
-            // logged, it didn't happen"). Behaviour is unchanged on the correct path; this is observability.
-            if (!(phaseAtHead is DescentPhase))
-                ParsekLog.Warn("MapRender", string.Format(CultureInfo.InvariantCulture,
-                    "CrossMemberSeamStitcher: phase at re-anchored head {0:R} is {1}, not DescentPhase "
-                    + "(rec={2} member={3}) - stamping orbit↔landing seam anyway; factory classification regression?",
-                    reAnchoredHead, phaseAtHead?.GetType().Name ?? "null", chain.RecordingId, committedIndex));
+            // TracedPath-family guard: PhaseFactory legitimately classifies a real landing-shaped member's
+            // post-conic traced run as a DescentPhase, a SurfacePhase (a surface-tailed run: the run's LAST
+            // overlapping TrackSection is Surface, per ResolveEnvPhaseForWindow's terminal-class rule), or an
+            // AscentPhase (no OrbitSegments at all, the v1 pure-atmospheric default). All three are TracedPhase
+            // subclasses emitting the same TracedPath geometry, so promoting ANY of them over the Rigid
+            // orbit<->landing seam is CORRECT - warning on them would flood normal post-flip play every
+            // stitched frame. Only a ConicPhase / HoldPhase at the re-anchored head is a genuine
+            // factory-classification anomaly (a conic or hold can never be the promoted descent run); warn
+            // on that, rate-limited per (recordingId, phaseType) so a persistent regression logs LOUDLY
+            // ("if it didn't get logged, it didn't happen") without per-frame spam. Behaviour is unchanged
+            // on the correct path; this is observability.
+            if (!(phaseAtHead is TracedPhase))
+                ParsekLog.WarnRateLimited("MapRender",
+                    "stitch-non-traced-" + (chain.RecordingId ?? "?") + "-"
+                        + (phaseAtHead?.GetType().Name ?? "null"),
+                    string.Format(CultureInfo.InvariantCulture,
+                        "CrossMemberSeamStitcher: phase at re-anchored head {0:R} is {1}, not a TracedPath-family "
+                        + "(TracedPhase) phase (rec={2} member={3}) - stamping orbit<->landing seam anyway; "
+                        + "factory classification regression?",
+                        reAnchoredHead, phaseAtHead?.GetType().Name ?? "null", chain.RecordingId, committedIndex));
 
             // PROMOTE: emit the descent phase as a visible first-class phase carrying the Rigid + G1 leading
             // seam (the orbit↔landing cross-member seam). The seam CONTRACT is stamped here, and the Tier-A
             // DescentStitched structural event is emitted from this decision site (EmitDescentStitchedTraceOnChange,
-            // below). The G1 TANGENT MATCH's production anomaly raise lives at the descent DRAW site (the only
-            // place the live world tangents exist — a RenderSegment carries no points), wired in Phase 5b when
-            // that path is reworked; the pure predicate + EmitTangentDiscontinuity helper are built + test-exercised.
+            // below). The G1 TANGENT MATCH's production anomaly raise is WIRED at the descent DRAW site (the
+            // only place the live world tangents exist (a RenderSegment carries no points): the polyline
+            // Driver's post-draw seam evaluation (Phase 5b), via the pure predicate + EmitTangentDiscontinuity
+            // helpers here.
             //
             // The phase the factory built carries a null leading seam (PhaseFactory deliberately leaves seams
             // null — they are a spine-side re-derivation concern), so its emitted RenderSegment.LeadingSeam is

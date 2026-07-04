@@ -477,51 +477,10 @@ namespace Parsek
         /// </summary>
         internal static readonly HashSet<uint> ghostsWithSuppressedIcon = new HashSet<uint>();
 
-        /// <summary>
-        /// Per-ghost orbit-line "grace deadline" (a render-frame count). When
-        /// <see cref="Parsek.Patches.GhostOrbitLinePatch"/> genuinely shows the
-        /// orbit line (`visible-body-frame`), it stamps a short grace window
-        /// here. While the current render frame is still inside that window, a TRANSIENT off
-        /// reason (`stale-segment-awaiting-reseed` or `polyline-owns-phase`) is
-        /// deferred for a few frames so the line does not blink off at a short
-        /// phase-boundary segment while the per-frame reseed catches up.
-        /// Durable off reasons (below-atmosphere / out-of-body-frame) are never
-        /// graced. The deadline is a RENDER FRAME count (Time.frameCount), NOT a
-        /// UT window: the blink is a per-render-frame chatter, and under time warp
-        /// UT advances by hundreds-to-thousands of seconds per frame, so a UT
-        /// window (the old 1.5 s) collapses below a single frame's UT step and
-        /// defers nothing. A frame count is warp-independent: it defers a few-frame
-        /// transient dip at any warp, while a SUSTAINED phase (more than the grace
-        /// frames of consecutive off, e.g. the polyline owning a whole below-surface
-        /// descent) still expires and hides. Cleared alongside
-        /// <see cref="ghostsWithSuppressedIcon"/> on every ghost teardown / scene change.
-        /// </summary>
-        internal static readonly Dictionary<uint, int> ghostOrbitLineGraceUntilFrame =
-            new Dictionary<uint, int>();
-
-        /// <summary>
-        /// Stamps the orbit-line grace deadline for <paramref name="pid"/> at render
-        /// frame <paramref name="graceUntilFrame"/>. Called by
-        /// <see cref="Parsek.Patches.GhostOrbitLinePatch"/> on every frame the
-        /// line is genuinely shown so a subsequent transient off-dip can be
-        /// deferred until the deadline frame.
-        /// </summary>
-        internal static void StampOrbitLineGrace(uint pid, int graceUntilFrame)
-        {
-            ghostOrbitLineGraceUntilFrame[pid] = graceUntilFrame;
-        }
-
-        /// <summary>
-        /// Returns the orbit-line grace deadline (render frame) for <paramref name="pid"/>,
-        /// or <see cref="int.MinValue"/> when none is stamped (so any
-        /// `currentFrame &lt;= graceUntil` test is false and grace is inactive).
-        /// </summary>
-        internal static int GetOrbitLineGraceUntilFrame(uint pid)
-        {
-            return ghostOrbitLineGraceUntilFrame.TryGetValue(pid, out int until)
-                ? until
-                : int.MinValue;
-        }
+        // Phase 5a: the per-ghost orbit-line grace map (ghostOrbitLineGraceUntilFrame /
+        // StampOrbitLineGrace / GetOrbitLineGraceUntilFrame) was DELETED with the legacy
+        // line-visibility cascade in GhostOrbitLinePatch (its only consumer). Locked by
+        // GhostOrbitLineCascadeDeleteGateTests.
 
         /// <summary>
         /// Per-pid real-time stamp of the last frame the trajectory polyline was actively rendering
@@ -1064,13 +1023,11 @@ namespace Parsek
         /// <para>No marker gap: the decision is a SUPERSET of the legacy decision (it adds the
         /// <paramref name="directorTracedPathActive"/> disjunct), so it can never be false on a frame the
         /// proto icon is hidden. No double marker: whenever <paramref name="directorTracedPathActive"/> is
-        /// true the orbit-line Postfix's first branch has set the proto <c>drawIcons=NONE</c>, so the proto
-        /// icon is not also drawn. (Phase 4b sources this disjunct through the flag-aware
-        /// <see cref="Parsek.MapRender.ShadowRenderDriver.IsTracedPathOwnedThisFrame"/>; the no-double
-        /// argument holds in BOTH flag states because that selector is byte-identical-on-the-flag to the
-        /// raw <c>IsDirectorTracedPathActive</c> the orbit-line Postfix still reads - same stamp, same
-        /// frame - so the marker and the proto-icon suppression can never disagree. This pure core is
-        /// itself flag-agnostic: it just ORs the three resolved booleans.)</para>
+        /// true the orbit-line Postfix's first branch has set the proto <c>drawIcons=NONE</c>. Phase 5b:
+        /// this disjunct AND the orbit-line Postfix both read the single intent-sourced selector
+        /// <see cref="Parsek.MapRender.ShadowRenderDriver.IsTracedPathOwnedThisFrame"/> (the legacy
+        /// side-channel was deleted), so the marker and the proto-icon suppression can never disagree.
+        /// This pure core just ORs the three resolved booleans.</para>
         /// </summary>
         internal static bool ResolveMarkerDrawDecision(
             bool directorTracedPathActive,
@@ -1100,28 +1057,14 @@ namespace Parsek
         /// the marker drew or was skipped. (8e S4 dropped the director-drive gate, so the former
         /// <c>gateOn</c> out is gone.)
         ///
-        /// <para><b>Phase 4b (migration plan §6.6b — re-home the IMGUI marker draw to the spine intent,
-        /// behind <see cref="Parsek.MapRender.MapRenderFlags.MapRenderPhaseSpineDrive"/>, ADDITIVE /
-        /// flag-reversible):</b> the <paramref name="directorTracedPathActive"/> disjunct - the ONE
-        /// disjunct of this decision the Director's <c>GhostRenderIntent</c> actually decides - is now
-        /// resolved through the FLAG-AWARE selector
-        /// <see cref="Parsek.MapRender.ShadowRenderDriver.IsTracedPathOwnedThisFrame"/> (the SAME
-        /// selector 4a routes the polyline Driver through), NOT the raw legacy
-        /// <see cref="Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive"/>:
-        /// <list type="bullet">
-        /// <item>Flag OFF (default): the selector falls through to the legacy
-        /// <c>IsDirectorTracedPathActive</c> side-channel - BYTE-IDENTICAL to today.</item>
-        /// <item>Flag ON: the selector sources the disjunct from the spine's intent
-        /// (<c>IsDirectorTracedPathActiveFromIntent</c>) - the design §8 "scene.Apply(intent)" sourcing,
-        /// re-homed off the autonomous walk's side-channel.</item>
-        /// </list>
-        /// Because <c>RunFrame</c> stamps the legacy + intent maps from the SAME intent in the SAME pass
-        /// on the SAME frame whenever the flag is on, the two stamps are byte-identical on the flag, so
-        /// the flag flip NEVER changes WHICH frames this disjunct is true - it only re-points the SOURCE.
-        /// That is exactly why the marker call sites (flight-map + TS, which route through this) stay in
-        /// lockstep with BOTH the polyline Driver (also reads <c>IsTracedPathOwnedThisFrame</c>) AND the
-        /// proto/marker consumers in <c>GhostOrbitLinePatch</c> (which keep reading the legacy
-        /// <c>IsDirectorTracedPathActive</c> to set <c>drawIcons=NONE</c>): no double-marker, no gap.</para>
+        /// <para><b>Phase 4b origin (migration plan section 6.6b), collapsed at Phase 5b:</b> the
+        /// <paramref name="directorTracedPathActive"/> disjunct - the ONE disjunct of this decision the
+        /// Director's <c>GhostRenderIntent</c> actually decides - is resolved through
+        /// <see cref="Parsek.MapRender.ShadowRenderDriver.IsTracedPathOwnedThisFrame"/>, which since the
+        /// Phase-5b delete of the legacy side-channel reads the single intent-sourced stamp (the design section 8
+        /// "scene.Apply(intent)" sourcing). The marker call sites (flight-map + TS, which route through
+        /// this), the polyline Driver's owned-draw routing, and the proto icon/line suppress patches in
+        /// <c>GhostOrbitLinePatch</c> all read that ONE selector: no double-marker, no gap.</para>
         ///
         /// <para><b>KEPT, NOT moved (Phase 5):</b> the <paramref name="polylineOwning"/> (actual-draw,
         /// downstream of the intent) and <paramref name="iconSuppressed"/>
@@ -1138,9 +1081,9 @@ namespace Parsek
             out bool polylineOwning,
             out bool iconSuppressed)
         {
-            // Phase 4b: flag-aware source for the TracedPath disjunct (flag ON -> intent;
-            // flag OFF -> legacy IsDirectorTracedPathActive, byte-identical to today). Same selector the
-            // polyline Driver routes on, so the marker decision never desyncs from the owned draw.
+            // The TracedPath disjunct reads the single intent-sourced selector (Phase 5b collapsed the
+            // flag-aware selection; the legacy side-channel is gone). Same selector the polyline Driver
+            // routes on, so the marker decision never desyncs from the owned draw.
             directorTracedPathActive = Parsek.MapRender.ShadowRenderDriver.IsTracedPathOwnedThisFrame(
                 ghostPid, UnityEngine.Time.frameCount);
             polylineOwning = IsPolylineOwningGhostPhase(ghostPid);
@@ -2380,7 +2323,6 @@ namespace Parsek
             ghostMapVesselPids.Remove(ghostPid);
             ghostsWithSuppressedIcon.Remove(ghostPid);
             ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
-            ghostOrbitLineGraceUntilFrame.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
             ghostLastAppliedOrbitBody.Remove(ghostPid);
@@ -3454,7 +3396,6 @@ namespace Parsek
 
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
-            ghostOrbitLineGraceUntilFrame.Clear();
             ghostNoBoundsSuppressLastFrame.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
@@ -3889,7 +3830,6 @@ namespace Parsek
             ghostMapVesselPids.Remove(ghostPid);
             ghostsWithSuppressedIcon.Remove(ghostPid);
             ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
-            ghostOrbitLineGraceUntilFrame.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
             ghostLastAppliedOrbitBody.Remove(ghostPid);
@@ -10007,7 +9947,6 @@ namespace Parsek
             OrbitSeedResolver.ResetForTesting();
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
-            ghostOrbitLineGraceUntilFrame.Clear();
             ghostNoBoundsSuppressLastFrame.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
@@ -10083,7 +10022,6 @@ namespace Parsek
 
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
-            ghostOrbitLineGraceUntilFrame.Clear();
             ghostNoBoundsSuppressLastFrame.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
@@ -11640,7 +11578,6 @@ namespace Parsek
                 ghostMapVesselPids.Remove(ghostPid);
                 ghostsWithSuppressedIcon.Remove(ghostPid);
                 ghostNoBoundsSuppressLastFrame.Remove(ghostPid);
-                ghostOrbitLineGraceUntilFrame.Remove(ghostPid);
                 ghostOrbitBounds.Remove(ghostPid);
                 ghostBodyFrameOrbitBounds.Remove(ghostPid);
                 ghostLastAppliedOrbitBody.Remove(ghostPid);

@@ -131,6 +131,15 @@ namespace Parsek
         // Soft rate-limit timestamps for the per-pid Phase-0 recorded-vs-rendered parity-drift anomaly (a
         // PERSISTENT condition, like icon-off-orbit, so it must not fire every frame).
         private readonly Dictionary<uint, double> lastParityDriftEmitRealtime = new Dictionary<uint, double>();
+
+        // Per-PASS faithful-parity accounting (stack-review S2): reset at the top of every LateUpdate
+        // pass, accumulated by TrySampleAndEmitFaithfulOrbitParity, emitted as ONE rate-limited summary
+        // after the per-pid loop (house batch-counting convention). Makes a silent oracle stand-down
+        // (every ghost skipping) distinguishable from a clean measurement in a sign-off log.
+        private readonly Dictionary<string, int> faithfulParitySkipCounts =
+            new Dictionary<string, int>(System.StringComparer.Ordinal);
+        private int faithfulParitySampledCount;
+        private int faithfulParityOverCount;
         // A1 cutover-instrument: soft rate-limit timestamps for the per-pid SYNTHESIZED-mode (rendered conic
         // vs the Director's intended re-aimed seed) parity-drift anomaly. SEPARATE from the faithful dict so
         // a faithful drift and a synthesized drift on the same pid do not suppress each other. PERSISTENT
@@ -240,9 +249,13 @@ namespace Parsek
             if (scene != GameScenes.FLIGHT && scene != GameScenes.TRACKSTATION)
                 return;
 
+            // NOTE: no early return on an empty ghost-pid set. The per-RECORDING captures below (the
+            // drawn-recording accounting, the descent snapshot, and the polyline leg parity lens) cover
+            // PROTO-LESS recordings - a save whose only recording is atmospheric has polyline legs but
+            // zero entries in ghostMapVesselPids, and the old early return silently blinded exactly the
+            // lens meant to watch it (stack-review S3). The per-pid loop over an empty set is a no-op.
             var pids = GhostMapPresence.ghostMapVesselPids;
-            if (pids == null || pids.Count == 0)
-                return;
+            int ghostCount = pids != null ? pids.Count : 0;
 
             int frame = Time.frameCount;
             double currentUT = CurrentUT();
@@ -255,23 +268,45 @@ namespace Parsek
             // Vessel via the PersistentVesselIds dict lookup, so the enabled-path
             // cost is O(ghosts), not O(all vessels) (design-review fix (b)).
             int sampled = 0, resolveMisses = 0;
-            foreach (uint pid in pids)
+            faithfulParitySampledCount = 0;
+            faithfulParityOverCount = 0;
+            faithfulParitySkipCounts.Clear();
+            if (pids != null)
             {
-                Vessel v;
-                if (!FlightGlobals.FindVessel(pid, out v) || v == null)
+                foreach (uint pid in pids)
                 {
-                    resolveMisses++;
-                    continue;
+                    Vessel v;
+                    if (!FlightGlobals.FindVessel(pid, out v) || v == null)
+                    {
+                        resolveMisses++;
+                        continue;
+                    }
+                    Sample(v, pid, frame, currentUT, foShiftFrame, realtime);
+                    sampled++;
                 }
-                Sample(v, pid, frame, currentUT, foShiftFrame, realtime);
-                sampled++;
             }
 
             ParsekLog.VerboseRateLimited(MapRenderTrace.Tag, "probe-frame-summary",
                 string.Format(ic,
                     "probe frame summary frame={0} ghosts={1} sampled={2} resolveMisses={3}",
-                    frame, pids.Count, sampled, resolveMisses),
+                    frame, ghostCount, sampled, resolveMisses),
                 5.0);
+
+            // Faithful-parity pass accounting (stack-review S2): one rate-limited summary per the house
+            // batch-counting convention, so a sign-off log distinguishes "the oracle measured N ghosts and
+            // read clean" from "the oracle skipped everything" (the loop-ghost lookup blindness survived
+            // three sign-off runs because every skip was silent). Emitted only when the pass touched the
+            // lens at all.
+            if (faithfulParitySampledCount > 0 || faithfulParitySkipCounts.Count > 0)
+            {
+                var sb = new System.Text.StringBuilder();
+                sb.Append("faithful-parity summary sampled=").Append(faithfulParitySampledCount)
+                  .Append(" overTolerance=").Append(faithfulParityOverCount);
+                foreach (var kv in faithfulParitySkipCounts)
+                    sb.Append(" skip.").Append(kv.Key).Append('=').Append(kv.Value);
+                ParsekLog.VerboseRateLimited(MapRenderTrace.Tag, "faithful-parity-summary",
+                    sb.ToString(), 5.0);
+            }
 
             // --- Phase 8e S0 Instrument 1: accounted-vs-drawn coverage assertion ---
             // Once per frame (NOT inside the per-pid loop above - a drawn recording may be PROTO-LESS,
@@ -576,10 +611,11 @@ namespace Parsek
             // GhostRenderReconciler type + its pure predicates stay (exercised by GhostRenderReconcilerTests)
             // but have no LIVE production call site (a scripts/grep-audit-render-reconciler-unwired.ps1 gate
             // enforces zero CheckIntentAgainstOldTruth call sites under Source/Parsek/). The shadow
-            // PRODUCER side (ShadowRenderDriver -> GhostRenderReconciler.NoteIntent) is unaffected - it feeds
-            // the spine, not this retired comparator. This whole probe is MapRenderTrace.IsEnabled-gated
-            // (tracing OFF by default), so removing the call is OBSERVABILITY-ONLY: flag-OFF / tracing-OFF
-            // normal play is byte-identical (the probe never ran).
+            // PRODUCER side (ShadowRenderDriver -> GhostRenderReconciler.NoteIntent) was removed at the
+            // Phase-5b deletes (the store had no production reader once this comparator retired); the
+            // reconciler type + pure predicates stay for their unit tests. This whole probe is
+            // MapRenderTrace.IsEnabled-gated (tracing OFF by default), so removing the call is
+            // OBSERVABILITY-ONLY: flag-OFF / tracing-OFF normal play is byte-identical (the probe never ran).
 
             // --- Tier-C line-blink anomaly (line.active toggled within N frames) ---
             // A toggle is line.active != the previous sample's value. The blink
@@ -823,23 +859,19 @@ namespace Parsek
                     // supposed to draw?" - a faithful (non-re-aimed) member must draw what it recorded.
                     //
                     // FAITHFUL ONLY this slice: the reference is the RECORDED OrbitSegment covering the
-                    // ghost's drive clock (offEffUT). Re-aimed / synthesized members (whose intended arc is
-                    // NOT the recorded segment) are skipped cleanly inside the sampler when the recorded
-                    // reference cannot be sampled at offEffUT (no covering recorded segment), so no false
-                    // anomaly fires for them. PHASE-MATCH (the false-drift fix): the reference is built with its
-                    // epoch baked + loopShift and sampled at the LIVE clock (currentUT), while the RENDERED
-                    // orbit is sampled at its OWN drive clock offEffUT - the UT the icon-drive actually
-                    // propagated the live orbit to. offEffUT == currentUT in the director epoch-bake path and
-                    // == currentUT - loopShift in the DOMINANT legacy raw-epoch path (the live drive keeps the
-                    // raw seg.epoch and propagates the icon at effUT), so for a faithful draw the rendered
-                    // raw-epoch orbit at offEffUT and the reference shifted-epoch orbit at currentUT land on the
-                    // SAME recorded phase and read ~0 drift (the shift only sets WHERE on the orbit, not its
-                    // shape) while a wrong-elements / wrong-body / off-orbit draw shows drift. Sampling the
-                    // rendered side at currentUT (the pre-fix behaviour) read the UNSHIFTED phase on the legacy
-                    // raw-epoch orbit and false-fired a ~half-orbit drift on every loop ghost. Body-relative
-                    // frame (the same bodyRelPos frame the off-orbit check uses) so the diff is body-world-
-                    // motion-free. loopShift is the SAME value the live orbit was baked with
-                    // (GetGhostOrbitEpochShift(pid)).
+                    // ghost's RECORDED clock (currentUT - loopShift; rec.OrbitSegments live on the recorded
+                    // timeline, and under the unconditional 8e S4 director drive the icon-drive clock is
+                    // currentUT, which for a loop ghost lies loopShift beyond the recorded span - the old
+                    // drive-clock lookup silently skipped every loop ghost, the stack-review BLOCKER).
+                    // Re-aimed / synthesized members (whose intended arc is NOT the recorded segment) still
+                    // skip cleanly (no covering segment / body mismatch), preserving the division of labor
+                    // with the synthesized lens. PHASE-MATCH: the reference is built with its epoch baked
+                    // + loopShift and sampled at the LIVE clock (currentUT); the RENDERED orbit is sampled
+                    // at the clock its OWN epoch convention implies (currentUT when director-baked,
+                    // currentUT - loopShift when raw; an unexplained epoch skips as a transition frame) -
+                    // see ComputeFaithfulOrbitParity for the full clock contract. Body-relative frame (the
+                    // same bodyRelPos frame the off-orbit check uses) so the diff is body-world-motion-free.
+                    // loopShift is the SAME value the live orbit was baked with (GetGhostOrbitEpochShift).
                     double parityLoopShift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
                     TrySampleAndEmitFaithfulOrbitParity(
                         offOrbit, body, bodyRelPos, offEffUT, offShift, parityLoopShift, currentUT,
@@ -1121,14 +1153,34 @@ namespace Parsek
             double offEffUT, double offShift, double loopShift, double currentUT,
             uint pid, string pidKey, string recId, string lineActive, string bodyName, double realtime)
         {
-            FaithfulParitySample sample = ComputeFaithfulOrbitParity(
-                renderedOrbit, renderedBody, iconBodyRel, offEffUT, loopShift, currentUT, recId);
+            // The Director's fresh StockConic seed (when present) feeds the RE-AIM gate: a re-aimed
+            // window's seed differs from the covering recorded segment, so the faithful lens stands down
+            // for it (the synthesized lens owns rendered-vs-intended). No fresh seed -> null -> ungated
+            // (a TracedPath/hidden member never reaches a measurable covering conic anyway).
+            OrbitSegment? intendedSeed = null;
+            if (Parsek.MapRender.ShadowRenderDriver.TryGetFreshStockConicSeed(
+                    pid, Time.frameCount, out OrbitSegment freshSeed, out string _))
+                intendedSeed = freshSeed;
 
+            FaithfulParitySample sample = ComputeFaithfulOrbitParity(
+                renderedOrbit, renderedBody, loopShift, currentUT, recId, intendedSeed);
+
+            // Batch skip/sample accounting (house convention: count in the loop, one summary after it -
+            // see the LateUpdate summary emit). Without this, "zero parity lines" in a sign-off log was
+            // indistinguishable from "the oracle never measured anything", which is exactly how the
+            // loop-ghost lookup blindness survived three sign-off runs.
             if (!sample.Sampled)
+            {
+                string reason = sample.SkipReason ?? "unknown";
+                faithfulParitySkipCounts.TryGetValue(reason, out int c);
+                faithfulParitySkipCounts[reason] = c + 1;
                 return sample.Result;
+            }
+            faithfulParitySampledCount++;
             Parsek.MapRender.RenderParityOracle.ParityResult result = sample.Result;
             if (!result.HasMeasurement || !result.OverTolerance)
                 return result;
+            faithfulParityOverCount++;
             if (!PassesParityDriftRateLimit(pid, realtime))
                 return result;
 
@@ -1165,30 +1217,34 @@ namespace Parsek
         // scale-derived tolerance, the oracle diff) end-to-end, including the loop-shifted bake that the
         // BLOCKER fix corrects. internal for that test.
         internal static FaithfulParitySample ComputeFaithfulOrbitParity(
-            Orbit renderedOrbit, CelestialBody renderedBody, Vector3d iconBodyRel,
-            double offEffUT, double loopShift, double currentUT, string recId)
+            Orbit renderedOrbit, CelestialBody renderedBody,
+            double loopShift, double currentUT, string recId,
+            OrbitSegment? intendedSeed = null)
         {
             if (renderedOrbit == null || renderedBody == null)
                 return FaithfulParitySample.Skip("no-rendered-orbit");
             if (string.IsNullOrEmpty(recId))
                 return FaithfulParitySample.Skip("no-recId");
 
-            // Resolve the FAITHFUL recorded reference: the recorded OrbitSegment covering the ghost's drive
-            // clock (offEffUT), on the SAME body as the rendered orbit. A re-aim / synthesized member, a
-            // window the recording has no covering segment for, or a different-body segment -> no reference,
-            // skip (no false anomaly). Reuses the existing recorded-segment lookup (TrajectoryMath
-            // .FindOrbitSegment + HasUsableOrbitSegmentElements) and the EXACT Kepler-to-Orbit construction
-            // TrajectoryMath.EvaluateOrbitSegmentAtUT / GhostMapPresence.TryResolveOrbitWorldPosition use
-            // (BuildPhaseMatchedReferenceOrbit below, which is BuildOrbitFromSegment with the live orbit's
-            // loop-shift epoch bake); no new recording-to-world projector. The reconstructed Orbit is then
-            // sampled through the SAME OrbitRelativePositionYup the rendered side uses, so both sides land in
-            // one identical Y-up body-relative metres frame by construction.
+            // Resolve the FAITHFUL recorded reference: the recorded OrbitSegment covering the ghost's
+            // RECORDED clock, on the SAME body as the rendered orbit. THE LOOKUP CLOCK IS THE RECORDED
+            // CLOCK (currentUT - loopShift), NOT the icon-drive clock: rec.OrbitSegments live on the
+            // recorded timeline, and under the (unconditional since 8e S4) director epoch-bake drive the
+            // icon-drive clock equals currentUT, which for any loop ghost past its first iteration lies
+            // loopShift BEYOND the recorded span - looking the segment up there silently skipped every
+            // loop-shifted ghost in production ("no-covering-segment"), leaving the top regression class
+            // unguarded while the sign-off read "zero drift" (the stack-review BLOCKER). The recorded
+            // clock is path-independent: on the legacy raw-epoch path it equals the icon-drive effUT, on
+            // the director path it lands inside the recorded span. A re-aim / synthesized member, a window
+            // with no covering segment, or a different-body segment -> skip (no false anomaly): the
+            // deliberate division of labor with the synthesized lens is unchanged.
             if (!Parsek.GhostMapPresence.TryGetCommittedRecordingById(
                     recId, out int _, out Recording rec)
                 || rec == null || rec.OrbitSegments == null || rec.OrbitSegments.Count == 0)
                 return FaithfulParitySample.Skip("no-recording-or-segments");
 
-            OrbitSegment? coveringMaybe = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, offEffUT);
+            double lookupUT = ResolveFaithfulLookupUT(currentUT, loopShift);
+            OrbitSegment? coveringMaybe = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, lookupUT);
             if (!coveringMaybe.HasValue)
                 return FaithfulParitySample.Skip("no-covering-segment"); // re-aim / trim gap -> skip
             OrbitSegment covering = coveringMaybe.Value;
@@ -1202,68 +1258,86 @@ namespace Parsek
             if (recordedBody == null)
                 return FaithfulParitySample.Skip("recorded-body-unresolved");
 
+            // RE-AIM GATE (the flag-ON playtest false-positive, 2026-07-04): pre-B1, re-aimed members were
+            // excluded from this lens by ACCIDENT (the drive-clock lookup fell outside the recorded span);
+            // the recorded-clock lookup removed that accident, so a looped re-aim owner's heliocentric leg
+            // started faithful-diffing its RE-AIMED rendered conic against the RECORDED transfer - an
+            // 18-32 Gm "drift" on a CORRECT render (the re-aim differs from the recording BY DESIGN).
+            // The explicit gate: when the caller supplies the Director's fresh seed and it is NOT the
+            // covering recorded segment (the producer re-aimed this window), skip - rendered-vs-INTENDED
+            // is the synthesized lens's job. A faithful member's seed IS the recorded segment (fed
+            // verbatim), so it compares equal and a WRONG DRAW on a faithful member still fires. A
+            // transient seed-vs-covering mismatch at a segment boundary skips one frame and re-measures.
+            if (intendedSeed.HasValue && !AreSameConicElements(intendedSeed.Value, covering))
+                return FaithfulParitySample.Skip("reaimed-or-foreign-seed");
+
+            // RENDERED sampling clock: derived from the live orbit's OWN epoch convention (the same
+            // state-inspection discipline as the synthesized lens's epoch gate, warp-immune - never a
+            // drive-truth frame stamp, which can be up to SeedFreshnessFrames stale at a reseed boundary
+            // and read orbitalSpeed x lag as false drift at warp):
+            //   - epoch == covering.epoch + loopShift (director bake)  -> sample at currentUT
+            //   - epoch == covering.epoch (legacy raw)                 -> sample at currentUT - loopShift
+            //   - neither (creation / rebind / segment-transition)     -> skip, measured next frame
+            // Either way the rendered arc lands on the SAME recorded phase as the reference below, so a
+            // faithful loop ghost reads ~0 in BOTH conventions while a wrong-elements / off-orbit draw
+            // still drifts.
+            double renderedClockUT;
+            if (IsSynthEpochConventionBaked(
+                    renderedOrbit.epoch, covering.epoch, loopShift, out bool isRawConvention))
+                renderedClockUT = currentUT;
+            else if (isRawConvention)
+                renderedClockUT = lookupUT;
+            else
+                return FaithfulParitySample.Skip("epoch-transition");
+
             // Build the rendered Orbit's own visible-span half-window from its period (a full conic) or a
-            // fixed window (degenerate / hyperbolic), centred on the live drive clock so the samples lie on
-            // the part of the orbit the line draws. BOTH the rendered orbit AND the PHASE-MATCHED reference
-            // orbit are sampled at these SAME UTs (the BLOCKER fix: phase is cancelled by baking the loop
-            // shift into the reference EPOCH, NOT by remapping the reference UTs by offShift - which is ~0 in
-            // the director path and would leave the loop phase uncancelled, tracing opposite arcs).
+            // fixed window (degenerate / hyperbolic). The RECORDED reference is sampled at the LIVE clock
+            // (currentUT) on the +loopShift-baked reference orbit (BuildPhaseMatchedReferenceOrbit), so it
+            // traces the recorded mean-anomaly arc the ghost SHOULD draw; the RENDERED orbit is sampled at
+            // renderedClockUT (its own epoch-convention clock, above). Keeping the reference phase
+            // controlled solely by loopShift keeps the phase-match load-bearing: a wrong loopShift still
+            // drifts.
             double halfSpan = ResolveOrbitSampleHalfSpanSeconds(renderedOrbit);
-            // The RECORDED reference is sampled at the LIVE clock (currentUT) with its epoch baked + loopShift
-            // (BuildPhaseMatchedReferenceOrbit), so it traces the recorded mean-anomaly arc the ghost SHOULD
-            // draw. The RENDERED orbit is sampled at its OWN drive clock (offEffUT = where the icon-drive
-            // actually propagated it: == currentUT in the director epoch-bake path, == currentUT - loopShift in
-            // the dominant legacy raw-epoch path). For a faithful draw BOTH therefore land on the SAME recorded
-            // phase (the rendered raw-epoch orbit at offEffUT == the reference shifted-epoch orbit at currentUT)
-            // and the diff reads ~0; a wrong-elements / off-orbit draw still drifts. Sampling the RENDERED side
-            // at currentUT instead (the pre-fix behaviour) read the UNSHIFTED phase on the dominant legacy
-            // raw-epoch orbit, tracing a half-arc offset by loopShift => a false ~half-orbit drift on every
-            // loop-shifted faithful ghost (the false-drift blocker). Keeping the two clocks separate leaves the
-            // reference phase controlled solely by loopShift, so a wrong loopShift still drifts.
             double[] referenceUTs = Parsek.MapRender.RenderGeometrySampler.BuildSampleUTs(
                 currentUT, halfSpan, ParityOrbitSampleCount);
             double[] renderedUTs = Parsek.MapRender.RenderGeometrySampler.BuildSampleUTs(
-                offEffUT, halfSpan, ParityOrbitSampleCount);
+                renderedClockUT, halfSpan, ParityOrbitSampleCount);
             if (referenceUTs.Length == 0 || renderedUTs.Length == 0)
                 return FaithfulParitySample.Skip("no-sample-uts");
 
-            // Rendered samples in the Y-up body-relative frame at the rendered orbit's own drive clock.
+            // Rendered samples in the Y-up body-relative frame at the rendered orbit's own clock. NOTE:
+            // no icon vertex is appended to the rendered set - the oracle's deviation is one-sided (max
+            // over REFERENCE points of the nearest distance to the RENDERED polyline), so an extra
+            // rendered vertex can only LOWER distances: it cannot catch an off-arc icon and can only mask
+            // real drift. Icon-off-its-own-line detection lives solely in the icon-off-orbit angle check.
             var renderedPts = new Vector3d[renderedUTs.Length];
             for (int i = 0; i < renderedUTs.Length; i++)
                 renderedPts[i] = OrbitRelativePositionYup(renderedOrbit, renderedUTs[i]);
 
             // The recorded reference orbit, built ONCE from the covering segment's Kepler elements with its
             // epoch PHASE-MATCHED to the live rendered orbit (epoch = seg.epoch + loopShift; loopShift == 0 ->
-            // BuildOrbitFromSegment verbatim).
+            // BuildOrbitFromSegment verbatim). Wrapped in a try/catch: an unexpected getRelativePositionAtUT
+            // throw on degenerate reconstructed elements skips this parity sample (no measurement) rather
+            // than aborting the rest of the tracing-on probe pass. (BuildSampleUTs includes the exact centre
+            // sample, so no separate currentUT anchor point is appended - it was a duplicate.)
             Orbit recordedOrbit = BuildPhaseMatchedReferenceOrbit(covering, recordedBody, loopShift);
             if (recordedOrbit == null)
                 return FaithfulParitySample.Skip("reference-orbit-build-failed");
-            // Reference set = the recorded curve samples PLUS the recorded position at the LIVE clock (currentUT)
-            // - the recorded phase the icon SHOULD sit on, matching iconBodyRel. The rendered icon point
-            // (iconBodyRel) anchors the rendered set so the diff also catches an icon parked off its own
-            // rendered line. Wrapped in a try/catch: an unexpected getRelativePositionAtUT throw on degenerate
-            // reconstructed elements skips this parity sample (no measurement) rather than aborting the rest of
-            // the tracing-on probe pass.
-            var referencePts = new Vector3d[referenceUTs.Length + 1];
+            var referencePts = new Vector3d[referenceUTs.Length];
             try
             {
                 for (int i = 0; i < referenceUTs.Length; i++)
                     referencePts[i] = OrbitRelativePositionYup(recordedOrbit, referenceUTs[i]);
-                referencePts[referenceUTs.Length] = OrbitRelativePositionYup(recordedOrbit, currentUT);
             }
             catch (System.Exception)
             {
                 return FaithfulParitySample.Skip("reference-sample-threw");
             }
 
-            var renderedAll = new Vector3d[renderedPts.Length + 1];
-            System.Array.Copy(renderedPts, renderedAll, renderedPts.Length);
-            renderedAll[renderedPts.Length] = iconBodyRel;
-
             double[] referenceFlat = Parsek.MapRender.RenderGeometrySampler.Flatten(
                 referencePts, referencePts.Length);
             double[] renderedFlat = Parsek.MapRender.RenderGeometrySampler.Flatten(
-                renderedAll, renderedAll.Length);
+                renderedPts, renderedPts.Length);
 
             // Per-scenario tolerance derived from the recorded reference's OWN scale (its bounding-box
             // diagonal) - NOT a blanket metre constant (a LKO arc and a heliocentric transfer want wildly
@@ -1340,7 +1414,7 @@ namespace Parsek
             }
 
             SynthesizedConicParitySample sample = ComputeSynthesizedConicParity(
-                renderedOrbit, renderedBody, iconBodyRel, intendedSeg, seedBody, loopShift, currentUT, effUT);
+                renderedOrbit, renderedBody, intendedSeg, seedBody, loopShift, currentUT, effUT);
             if (!sample.Sampled)
                 return;
             Parsek.MapRender.RenderParityOracle.ParityResult result = sample.Result;
@@ -1411,7 +1485,7 @@ namespace Parsek
         // frame, and run the oracle diff in ParityMode.Synthesized. No emit, no rate-limit, no per-pid state.
         // internal for an in-game baseline test.
         internal static SynthesizedConicParitySample ComputeSynthesizedConicParity(
-            Orbit renderedOrbit, CelestialBody renderedBody, Vector3d iconBodyRel,
+            Orbit renderedOrbit, CelestialBody renderedBody,
             OrbitSegment intendedSeg, string seedBody, double loopShift, double currentUT, double effUT)
         {
             if (renderedOrbit == null || renderedBody == null)
@@ -1455,7 +1529,12 @@ namespace Parsek
             if (referenceUTs.Length == 0 || renderedUTs.Length == 0)
                 return SynthesizedConicParitySample.Skip("no-sample-uts");
 
-            var renderedPts = new Vector3d[renderedUTs.Length + 1];
+            // NOTE: no icon vertex is appended to the rendered set - the oracle's deviation is one-sided
+            // (max over REFERENCE points of nearest distance to the RENDERED polyline), so an extra
+            // rendered vertex can only LOWER distances: it could never catch an icon parked off the
+            // intended arc and could only mask real drift, while permanently printing countMismatch=True.
+            // Icon-off-its-own-line detection lives solely in the icon-off-orbit angle check.
+            var renderedPts = new Vector3d[renderedUTs.Length];
             var referencePts = new Vector3d[referenceUTs.Length];
             try
             {
@@ -1463,9 +1542,6 @@ namespace Parsek
                     referencePts[i] = OrbitRelativePositionYup(intendedOrbit, referenceUTs[i]);
                 for (int i = 0; i < renderedUTs.Length; i++)
                     renderedPts[i] = OrbitRelativePositionYup(renderedOrbit, renderedUTs[i]);
-                // Anchor the rendered set with the live icon point so the diff also catches an icon parked
-                // off the intended arc (mirrors the faithful path).
-                renderedPts[renderedUTs.Length] = iconBodyRel;
             }
             catch (System.Exception)
             {
@@ -1586,6 +1662,45 @@ namespace Parsek
         // phase for a faithful draw. When loopShift == 0 (a non-loop faithful ghost) this is BuildOrbitFromSegment
         // verbatim. A non-finite loopShift falls back to 0 (raw epoch) rather than poisoning the epoch with NaN.
         // internal so the in-game baseline test builds the reference through the EXACT production path.
+        /// <summary>
+        /// Pure: do two OrbitSegments carry the SAME conic (shape + orientation + phase basis)? The
+        /// faithful lens's RE-AIM gate: when the Director's fresh seed for a pid does NOT match the
+        /// covering RECORDED segment, the producer re-aimed this window (the seed is aimed at the
+        /// target's CURRENT position), so the rendered conic differs from the recorded segment BY DESIGN
+        /// and the faithful lens must stand down - rendered-vs-INTENDED is the synthesized lens's job.
+        /// A faithful member's seed IS the recorded segment (the chain feeds it verbatim), so it compares
+        /// equal and the lens still measures - a wrong DRAW on a faithful member still fires. Tolerances
+        /// are tight (the faithful seed is a verbatim copy, not a recompute): sma relative 1e-6, ecc 1e-6,
+        /// angles 1e-4 deg, epoch/MAE 1e-3. internal + pure for xUnit.
+        /// </summary>
+        internal static bool AreSameConicElements(OrbitSegment a, OrbitSegment b)
+        {
+            double smaScale = System.Math.Max(1.0, System.Math.Abs(a.semiMajorAxis));
+            return System.Math.Abs(a.semiMajorAxis - b.semiMajorAxis) <= smaScale * 1e-6
+                && System.Math.Abs(a.eccentricity - b.eccentricity) <= 1e-6
+                && System.Math.Abs(a.inclination - b.inclination) <= 1e-4
+                && System.Math.Abs(a.longitudeOfAscendingNode - b.longitudeOfAscendingNode) <= 1e-4
+                && System.Math.Abs(a.argumentOfPeriapsis - b.argumentOfPeriapsis) <= 1e-4
+                && System.Math.Abs(a.meanAnomalyAtEpoch - b.meanAnomalyAtEpoch) <= 1e-3
+                && System.Math.Abs(a.epoch - b.epoch) <= 1e-3
+                && string.Equals(a.bodyName, b.bodyName, System.StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Pure: the FAITHFUL lens's covering-segment lookup clock - the RECORDED timeline UT
+        /// (<c>currentUT - loopShift</c>, NaN/Inf shift treated as 0). rec.OrbitSegments live on the
+        /// recorded clock, so the lookup must too: under the unconditional director epoch-bake drive the
+        /// icon-drive clock equals currentUT, which for any loop ghost past its first iteration lies
+        /// loopShift beyond the recorded span - looking up there silently skipped every loop ghost (the
+        /// stack-review BLOCKER). Path-independent: equals the legacy icon-drive effUT on the raw-epoch
+        /// path and lands inside the recorded span on the director path. internal + pure for xUnit.
+        /// </summary>
+        internal static double ResolveFaithfulLookupUT(double currentUT, double loopShift)
+        {
+            double shift = (double.IsNaN(loopShift) || double.IsInfinity(loopShift)) ? 0.0 : loopShift;
+            return currentUT - shift;
+        }
+
         /// <summary>
         /// Pure: does <paramref name="renderedEpoch"/> (the live OrbitDriver.orbit's epoch) carry the
         /// director EPOCH-BAKE convention (<c>seg.epoch + loopShift</c>) that the production synthesized
