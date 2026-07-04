@@ -331,6 +331,32 @@ to fix the sub-surface bug; cf. design §14 faithful-vs-synthesized scope), plus
 `sub-surface-ghost-retires` + zero-`rigid-seam-tangent-discontinuity` assertions. **Risk:** medium — the
 cross-member clock re-home is the substantive work; the existing `DescentTrigger` logic de-risks it.
 
+**Status (implemented, flag-gated):** the clock re-home is DONE — the swept deorbit head + `captureShift`
+phase alignment + per-leg head-gate now live in `Source/Parsek/MapRender/CrossMemberSeamStitcher.cs`
+(delegating to the pure `DescentTrigger.*` helpers verbatim), invoked only from the `PhaseChain` spine
+overload of `ChainSampler.Sample` under `MapRenderFlags.MapRenderPhaseSpineDrive`. The G1 leading seam is
+stamped onto the promoted `DescentPhase` segment by `CrossMemberSeamStitcher.StampOrbitLandingSeam` (the
+`PhaseFactory` builds `DescentPhase` with a null leading seam by design — seams are a spine concern).
+**This satisfies Phase 5b's HARD predecessor:** the `deorbitHead`/`captureShift`/`ResolveTransferLegHeadUT`
+consumer is now owned by the stitcher, so 5b may delete the autonomous polyline `Driver` ownership walk
+without losing deorbit-head alignment. The deorbit-clock identifiers are kept OUT of the three gated spine
+files (`ShadowRenderDriver` / `ChainSampler` / `GhostRenderDirector`); the `SwappedSpine_DoesNotConsumeDeorbitClock_SourceGate`
+source-gate remains green. Flag OFF (default): byte-identical (`DescentTrigger.cs` untouched). The
+`sub-surface-ghost-retires` fix is live only under the flag, so `todo-and-known-bugs.md` / `CHANGELOG.md`
+mark the bug closed when the flag flips default-on (post in-game sign-off), not at this PR.
+
+**Tracer integration (logging priority):** the new producer participates in `MapRenderTrace`. The Tier-A
+`DescentStitched` structural event is wired at the stitcher's decision site
+(`CrossMemberSeamStitcher.TryStitchDescentSeam` -> `EmitDescentStitchedTraceOnChange`), emitted
+once-per-stitch-onset (not per frame) via `MapRenderTrace.ShouldEmitDescentStitchOnChange` and free in
+normal play. The Tier-C `rigid-seam-tangent-discontinuity` anomaly's pure predicate + emit helper +
+detail builders are built and test-exercised (unit + the in-game live-body-tangent path), but its
+PRODUCTION auto-raise is deferred to **Phase 5b**: the leaving/entering world tangents exist only in the
+descent DRAW path (`GhostTrajectoryPolylineRenderer.TryDrawLeg` - a `RenderSegment` carries no points),
+which is the shared deorbit-clock-hosting file 5b reworks/deletes anyway, so wiring the raise there avoids
+a throwaway, flight-touching edit to a soon-deleted file this cycle. In the interim the parity oracle
+(SYNTHESIZED mode, this section) is the render-time seam-quality gate.
+
 ---
 
 ## 9. Phase 7 — Define the fail-closed producers

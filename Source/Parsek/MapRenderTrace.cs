@@ -44,9 +44,14 @@ namespace Parsek
         // RenderParityOracle in Faithful mode) whenever a faithful ghost's rendered orbit diverges from
         // its recorded reference beyond tolerance. The OTHER FOUR tokens below
         // (rigid-seam-tangent-discontinuity / retire-not-held / anchor-resolve-fail / clock-not-ready)
-        // remain WIRED-BUT-INERT: the constants exist (and EmitAnomaly already routes any reason through
-        // the gated sink) so later phases emit them without re-touching this file; no caller fires those
-        // four yet.
+        // remain WIRED-BUT-INERT in PRODUCTION: the constants exist (and EmitAnomaly already routes any
+        // reason through the gated sink) so later phases emit them without re-touching this file. NOTE the
+        // Phase-6 status: the descent re-stitch now wires the Tier-A DescentStitched STRUCTURAL event
+        // (CrossMemberSeamStitcher.TryStitchDescentSeam, once-per-stitch-onset via
+        // ShouldEmitDescentStitchOnChange), and the rigid-seam-tangent-discontinuity predicate +
+        // EmitTangentDiscontinuity helper are built and test-exercised (unit + in-game); its production
+        // auto-raise is wired at the descent DRAW site in Phase 5b (the only place the live world tangents
+        // exist - a RenderSegment carries no points), so that one token stays production-inert until 5b.
         //
         //  - parity-drift: the geometry the pipeline actually RENDERED diverged from the reference it
         //    was supposed to draw (recorded in Faithful mode / the producer's intended arc in
@@ -55,7 +60,8 @@ namespace Parsek
         //    `gap-vs-retire`; the two coexist through Phases 0-8.
         //  - rigid-seam-tangent-discontinuity: a Rigid seam's two sides (e.g. capture-orbit velocity
         //    direction at SOI/atmosphere entry vs the recorded descent's first-sample tangent) diverged
-        //    beyond tolerance at the G1 descent re-stitch (Phase 6).
+        //    beyond tolerance at the G1 descent re-stitch (Phase 6). Predicate + emit helper built and
+        //    test-exercised; production auto-raise lands at the descent draw site in Phase 5b (see above).
         //  - retire-not-held: a terminal / out-of-range member HELD its last visible intent across an
         //    interior gap where it should have RETIRED (rendered nothing) - the inverse of the
         //    held-across-gap contract (design §6.4 / §10.7).
@@ -478,6 +484,47 @@ namespace Parsek
                 currentUT, currentUT, details, recId);
         }
 
+        // ---- Phase 6: descent-stitch structural-event once-per-event dedup ----
+        // The CrossMemberSeamStitcher's TryStitchDescentSeam runs every frame the re-aim looped descent is
+        // live + re-anchored, but the Tier-A DescentStitched structural event is a per-(re)stitch ONSET
+        // signal, not a per-frame one (EmitStructural routes to Info unconditionally + opens a detail
+        // window). This per-pid signature gate emits ONE line per stitch onset / descent-head-phase change,
+        // honoring the VerboseRateLimited convention. Same warp-cap + Reset() (scene-switch) clearing as the
+        // marker / line-visibility signature dicts.
+        private static readonly Dictionary<string, string> lastDescentStitchSignatureByPid =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>Test-only: current size of the descent-stitch change-detection dict (warp-cap assert).</summary>
+        internal static int DescentStitchSignatureCountForTesting => lastDescentStitchSignatureByPid.Count;
+
+        /// <summary>
+        /// Once-per-event gate for the Tier-A <c>DescentStitched</c> structural event (Phase 6): returns true
+        /// only when <paramref name="signature"/> (committed index + descent head phase) changed for this
+        /// <paramref name="pidKey"/> since its last emit, so a steady re-anchored descent emits ONE structural
+        /// line rather than one per frame. No-op (false) when disabled. An empty pid (no resolvable ghost -
+        /// e.g. a headless unit test) is allowed through (the <see cref="IsEnabled"/> gate + the caller still
+        /// bound the emit). Warp-capped + cleared in <see cref="Reset"/> (scene switch), like the sibling
+        /// signature dicts.
+        /// </summary>
+        internal static bool ShouldEmitDescentStitchOnChange(string pidKey, string signature)
+        {
+            if (!IsEnabled)
+                return false;
+            if (string.IsNullOrEmpty(pidKey))
+                return true;
+
+            if (lastDescentStitchSignatureByPid.TryGetValue(pidKey, out string last)
+                && string.Equals(last, signature, StringComparison.Ordinal))
+                return false; // unchanged stitch onset for this ghost -> suppress
+
+            if (!lastDescentStitchSignatureByPid.ContainsKey(pidKey)
+                && lastDescentStitchSignatureByPid.Count >= MaxTrackedMarkerDecisionKeys)
+                lastDescentStitchSignatureByPid.Clear();
+
+            lastDescentStitchSignatureByPid[pidKey] = signature;
+            return true;
+        }
+
         // MVP: detailed windows are keyed by pid.ToString(). recordingId keying
         // (and the shared registry with GhostRenderTrace) is a later cut.
         private static readonly Dictionary<string, double> detailedUntilByKey =
@@ -504,6 +551,7 @@ namespace Parsek
             renderIntentByPid.Clear();
             lastMarkerDecisionSignatureByPid.Clear();
             lastLineVisibilitySignatureByPid.Clear();
+            lastDescentStitchSignatureByPid.Clear();
             descentRenderWindowFrame = -1;
             descentRenderWindowPhase = null;
             descentRenderWindowRecId = null;
