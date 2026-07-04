@@ -99,7 +99,23 @@ namespace Parsek.MapRender
         // legacy gap-glide can't stock-propagate a per-frame synthesized orbit and teleport the icon
         // across it (the s15 escape-burn teleport). Mirrors seedByPid: written each shadow frame, read
         // with the same +/-SeedFreshnessFrames tolerance, keyed on the intent (not a FixedUpdate stamp).
+        // KEPT (migration plan Phase 5): this is the legacy side-channel stamp the flag-OFF owned-draw
+        // routing + every proto/marker consumer reads via IsDirectorTracedPathActive. Phase 4a adds an
+        // intent-sourced sibling (tracedPathIntentByPid) for the flag-ON path WITHOUT touching this.
         private static readonly Dictionary<uint, int> tracedPathByPid = new Dictionary<uint, int>();
+
+        // Phase 4a (migration plan §6.6a — re-home the TracedPath polyline draw to the intent): the
+        // INTENT-SOURCED sibling of tracedPathByPid, written ONLY when the typed-spine flag is ON
+        // (PhaseSpineDriveActive). Same frame-stamp + same +/-SeedFreshnessFrames freshness contract, so
+        // the flag-ON owned-draw routing reads the SAME shape the legacy side-channel offers - but the
+        // stamp is sourced from the spine's GhostRenderIntent (intent.Treatment == TracedPath), the design
+        // §8 "scene.Apply(intent)" sourcing, not the autonomous walk. By construction it is stamped from
+        // the SAME intent, in the SAME RunFrame pass, on the SAME frame as tracedPathByPid, so the two are
+        // byte-identical when the flag is on - which is exactly why the flag-ON owned-draw routing can read
+        // it WITHOUT desyncing the proto/marker consumers that still read tracedPathByPid (no double-draw,
+        // no gap). Flag OFF: never written, so the flag-OFF routing falls through to tracedPathByPid and is
+        // byte-identical to today. Additive; nothing here is deleted (the Phase-5 cutover removes both).
+        private static readonly Dictionary<uint, int> tracedPathIntentByPid = new Dictionary<uint, int>();
 
         internal static void Reset()
         {
@@ -107,6 +123,7 @@ namespace Parsek.MapRender
             chainByPid.Clear();
             seedByPid.Clear();
             tracedPathByPid.Clear();
+            tracedPathIntentByPid.Clear();
         }
 
         /// <summary>The shadow always runs: the Director pipeline is unconditional (8e S4 dropped the
@@ -190,6 +207,61 @@ namespace Parsek.MapRender
         {
             return tracedPathByPid.TryGetValue(pid, out int f)
                 && System.Math.Abs(currentFrame - f) <= SeedFreshnessFrames;
+        }
+
+        /// <summary>
+        /// Phase 4a (migration plan §6.6a): the INTENT-SOURCED TracedPath-active signal - true when the
+        /// spine's <see cref="GhostRenderIntent"/> for <paramref name="pid"/> was a visible TracedPath
+        /// within <see cref="SeedFreshnessFrames"/> of <paramref name="currentFrame"/>, as stamped from
+        /// the intent into <see cref="tracedPathIntentByPid"/>. Written ONLY when
+        /// <see cref="PhaseSpineDriveActive"/> is on, so this returns false in flag-OFF play (no stamp).
+        /// Same freshness contract as <see cref="IsDirectorTracedPathActive"/>; the flag-ON owned-draw
+        /// routing reads THIS (the intent) instead of the legacy side-channel, while the proto/marker
+        /// consumers keep reading <see cref="IsDirectorTracedPathActive"/> - the two are byte-identical
+        /// when the flag is on (same intent, same pass, same frame), so the consumers never disagree.
+        /// </summary>
+        internal static bool IsDirectorTracedPathActiveFromIntent(uint pid, int currentFrame)
+        {
+            return tracedPathIntentByPid.TryGetValue(pid, out int f)
+                && System.Math.Abs(currentFrame - f) <= SeedFreshnessFrames;
+        }
+
+        /// <summary>
+        /// Phase 4a (migration plan §6.6a): the FLAG-AWARE "does the OWNED TracedPath treatment draw this
+        /// ghost's leg this frame (and the autonomous Driver-direct draw stand down for it)?" signal the
+        /// polyline Driver routes on. Flag ON (<see cref="PhaseSpineDriveActive"/>): source the decision
+        /// from the spine's intent (<see cref="IsDirectorTracedPathActiveFromIntent"/>) - the design §8
+        /// "scene.Apply(intent)" sourcing, re-homed off the autonomous walk's side-channel. Flag OFF
+        /// (default): fall through to the legacy <see cref="IsDirectorTracedPathActive"/> side-channel -
+        /// BYTE-IDENTICAL to today (the prior-rewrite routing is untouched). The two underlying stamps are
+        /// written from the SAME intent in the SAME pass, so the flag flip never changes WHICH frames own
+        /// the leg; it only re-points the SOURCE of the decision, keeping flag-ON consistent with the
+        /// proto/marker consumers (no double-draw, no gap) and flag-OFF unchanged.
+        /// </summary>
+        internal static bool IsTracedPathOwnedThisFrame(uint pid, int currentFrame)
+        {
+            return PhaseSpineDriveActive
+                ? IsDirectorTracedPathActiveFromIntent(pid, currentFrame)
+                : IsDirectorTracedPathActive(pid, currentFrame);
+        }
+
+        /// <summary>
+        /// Test-only seam (Phase 4a): stamps the two per-pid TracedPath frame maps the Unity-coupled
+        /// <see cref="RunFrame"/> populates, so the freshness predicates + the flag-aware selector
+        /// (<see cref="IsTracedPathOwnedThisFrame"/>) can be exercised from xUnit without a live KSP.
+        /// <paramref name="legacyFrame"/> stamps the legacy side-channel (<c>tracedPathByPid</c>, the
+        /// flag-OFF + proto/marker source); <paramref name="intentFrame"/> stamps the intent-sourced
+        /// sibling (<c>tracedPathIntentByPid</c>, the flag-ON source). A negative frame removes the stamp.
+        /// Mirrors the production contract (RunFrame stamps BOTH on the flag, only the legacy off it), but
+        /// the seam lets a test stamp them independently to prove the selector reads the right one.
+        /// Cleared by <see cref="Reset"/>.
+        /// </summary>
+        internal static void SetTracedPathStampsForTesting(uint pid, int legacyFrame, int intentFrame)
+        {
+            if (legacyFrame < 0) tracedPathByPid.Remove(pid);
+            else tracedPathByPid[pid] = legacyFrame;
+            if (intentFrame < 0) tracedPathIntentByPid.Remove(pid);
+            else tracedPathIntentByPid[pid] = intentFrame;
         }
 
         /// <summary>
@@ -375,7 +447,20 @@ namespace Parsek.MapRender
                     // line patches suppress the stock proto icon + line under the gate (the polyline owns
                     // it). Mutually exclusive with the StockConic seed above (one treatment per intent).
                     else if (intent.Visible && intent.Treatment == Treatment.TracedPath)
-                        tracedPathByPid[pid] = UnityFrame();
+                    {
+                        int tracedFrame = UnityFrame();
+                        // KEPT (legacy side-channel): every proto/marker consumer + the flag-OFF owned-draw
+                        // routing reads this via IsDirectorTracedPathActive. Stamped in BOTH flag states so
+                        // flag-OFF is byte-identical to today.
+                        tracedPathByPid[pid] = tracedFrame;
+                        // Phase 4a (intent-sourced sibling): stamp the flag-ON owned-draw signal from the
+                        // SAME intent in the SAME pass. Written ONLY under the flag so flag-OFF never grows
+                        // a stamp here (its routing keeps falling through to tracedPathByPid). On the flag
+                        // these two stamps are identical by construction, so the flag-ON owned routing and
+                        // the proto/marker consumers (which read tracedPathByPid) can never disagree.
+                        if (PhaseSpineDriveActive)
+                            tracedPathIntentByPid[pid] = tracedFrame;
+                    }
 
                     GhostRenderReconciler.NoteIntent(pid, intent);
                     EmitLocateIntent(pid, currentUT, sample, intent);
@@ -660,6 +745,7 @@ namespace Parsek.MapRender
                 chainByPid.Remove(stalePidScratch[i]);
                 seedByPid.Remove(stalePidScratch[i]);
                 tracedPathByPid.Remove(stalePidScratch[i]);
+                tracedPathIntentByPid.Remove(stalePidScratch[i]);
             }
         }
 

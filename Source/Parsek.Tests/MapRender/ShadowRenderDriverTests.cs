@@ -470,5 +470,147 @@ namespace Parsek.Tests
             // increments WITHOUT a continue), proving the member flows into the normal pipeline.
             Assert.Contains("overlapShadowed++", normalized);
         }
+
+        // ---- Phase 4a: re-home the TracedPath owned-draw decision to the intent (flag-gated) ----
+
+        [Fact]
+        public void IsDirectorTracedPathActiveFromIntent_FreshIntentStamp_IsActive()
+        {
+            // The intent-sourced sibling honors the SAME +/-SeedFreshnessFrames freshness window the
+            // legacy side-channel uses, so the flag-ON owned-draw routing reads the same shape.
+            const uint pid = 4001u;
+            try
+            {
+                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: -1, intentFrame: 100);
+                Assert.True(ShadowRenderDriver.IsDirectorTracedPathActiveFromIntent(pid, 100));
+                Assert.True(ShadowRenderDriver.IsDirectorTracedPathActiveFromIntent(
+                    pid, 100 + ShadowRenderDriver.SeedFreshnessFrames));
+                // Beyond the freshness window: stale, not active.
+                Assert.False(ShadowRenderDriver.IsDirectorTracedPathActiveFromIntent(
+                    pid, 100 + ShadowRenderDriver.SeedFreshnessFrames + 1));
+                // A pid with no intent stamp is never active.
+                Assert.False(ShadowRenderDriver.IsDirectorTracedPathActiveFromIntent(pid + 1, 100));
+            }
+            finally
+            {
+                ShadowRenderDriver.Reset();
+            }
+        }
+
+        [Fact]
+        public void IsTracedPathOwnedThisFrame_FlagOff_ReadsLegacySideChannel_NotIntent()
+        {
+            // FLAG OFF (default): the owned-draw routing reads the LEGACY side-channel (tracedPathByPid),
+            // byte-identical to today. An intent-only stamp (which never exists off the flag in production,
+            // but the seam lets us prove the SOURCE) must NOT make the leg owned when the flag is off.
+            const uint pid = 4002u;
+            bool prev = ShadowRenderDriver.ForceSpineDriveForTesting;
+            try
+            {
+                ShadowRenderDriver.ForceSpineDriveForTesting = false; // flag OFF
+                Assert.False(ShadowRenderDriver.PhaseSpineDriveActive);
+
+                // Legacy stamp present, intent stamp absent -> owned (today's behavior).
+                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: 50, intentFrame: -1);
+                Assert.True(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 50));
+
+                // Intent stamp present, legacy stamp absent -> NOT owned off the flag (it ignores intent).
+                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: -1, intentFrame: 50);
+                Assert.False(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 50));
+            }
+            finally
+            {
+                ShadowRenderDriver.ForceSpineDriveForTesting = prev;
+                ShadowRenderDriver.Reset();
+            }
+        }
+
+        [Fact]
+        public void IsTracedPathOwnedThisFrame_FlagOn_ReadsIntentSource_NotLegacySideChannel()
+        {
+            // FLAG ON: the owned-draw routing is RE-HOMED onto the spine's intent
+            // (IsDirectorTracedPathActiveFromIntent). An intent stamp owns the leg; a legacy-only stamp
+            // (without the intent sibling) does NOT - proving the source moved off the autonomous walk's
+            // side-channel onto the intent.
+            const uint pid = 4003u;
+            bool prev = ShadowRenderDriver.ForceSpineDriveForTesting;
+            try
+            {
+                ShadowRenderDriver.ForceSpineDriveForTesting = true; // flag ON
+                Assert.True(ShadowRenderDriver.PhaseSpineDriveActive);
+
+                // Intent stamp present -> owned (the re-homed source).
+                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: -1, intentFrame: 70);
+                Assert.True(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 70));
+
+                // Legacy-only stamp (no intent sibling) -> NOT owned on the flag (it reads the intent).
+                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: 70, intentFrame: -1);
+                Assert.False(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 70));
+            }
+            finally
+            {
+                ShadowRenderDriver.ForceSpineDriveForTesting = prev;
+                ShadowRenderDriver.Reset();
+            }
+        }
+
+        [Fact]
+        public void IsTracedPathOwnedThisFrame_BothStampsEqual_OwnedInEitherFlagState_NoDoubleNoGap()
+        {
+            // Production INVARIANT: RunFrame stamps the legacy + intent maps from the SAME intent in the
+            // SAME pass on the SAME frame whenever the flag is on, so the two signals are byte-identical.
+            // Modeling that (both stamped to the same frame), the owned decision is the SAME regardless of
+            // the flag - which is exactly why the flag-ON routing (reads intent) can never disagree with the
+            // proto/marker consumers (read legacy): no double-draw, no gap, in either flag state.
+            const uint pid = 4004u;
+            bool prev = ShadowRenderDriver.ForceSpineDriveForTesting;
+            try
+            {
+                ShadowRenderDriver.SetTracedPathStampsForTesting(pid, legacyFrame: 200, intentFrame: 200);
+
+                ShadowRenderDriver.ForceSpineDriveForTesting = false;
+                bool ownedOff = ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 200);
+                ShadowRenderDriver.ForceSpineDriveForTesting = true;
+                bool ownedOn = ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 200);
+
+                Assert.True(ownedOff);
+                Assert.True(ownedOn);
+                Assert.Equal(ownedOff, ownedOn);
+            }
+            finally
+            {
+                ShadowRenderDriver.ForceSpineDriveForTesting = prev;
+                ShadowRenderDriver.Reset();
+            }
+        }
+
+        [Fact]
+        public void RunFrame_StampsLegacyAlways_IntentOnlyUnderFlag_SourceGate()
+        {
+            // The intent stamp must be FLAG-GATED (so flag-OFF never grows it and stays byte-identical),
+            // while the legacy stamp is UNCONDITIONAL (every proto/marker consumer + flag-OFF routing reads
+            // it). A regression that stamped the intent map unconditionally (breaking flag-OFF parity) or
+            // gated the legacy stamp (breaking the proto/marker consumers) is caught here.
+            string normalized = CollapseWhitespace(StripLineComments(ReadShadowRenderDriverSource()));
+
+            // Legacy stamp is unconditional (assigned to the captured frame, no flag guard around it).
+            Assert.Contains("tracedPathByPid[pid] = tracedFrame;", normalized);
+            // Intent stamp is written ONLY inside the flag guard.
+            Assert.Contains("if (PhaseSpineDriveActive) tracedPathIntentByPid[pid] = tracedFrame;",
+                normalized);
+        }
+
+        [Fact]
+        public void OwnedDrawSource_IsFlagAware_NotRawLegacyOrRawIntent_SourceGate()
+        {
+            // The flag-aware selector chooses the intent source on the flag and the legacy source off it.
+            // A regression that hard-wired EITHER source (dropping the flag awareness) would change one of
+            // the two flag states and is caught here.
+            string normalized = CollapseWhitespace(StripLineComments(ReadShadowRenderDriverSource()));
+            Assert.Contains(
+                "return PhaseSpineDriveActive ? IsDirectorTracedPathActiveFromIntent(pid, currentFrame) "
+                + ": IsDirectorTracedPathActive(pid, currentFrame);",
+                normalized);
+        }
     }
 }
