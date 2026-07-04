@@ -224,6 +224,13 @@ namespace Parsek.Logistics
             // DispatchInterval and CadenceMultiplier stay in LOCK-STEP (the UI later
             // recomputes the same way; one crossing == one cycle).
             //
+            // (M5) On a RE-AIM inter-body route the derived interval is dead input
+            // to the unit build (ApplyReaim discards it; the synodic cadence wins)
+            // and N instead applies as the residual window modulo at the firing
+            // path (RouteLoopClock.ResolveResidualCadence). The lock-step
+            // derivation here still runs unchanged - it keeps N/interval coherent
+            // for the flat fallback and the zero-drift minSpacing throttle.
+            //
             // LOCK-STEP INTENT (CRE-3): this round-then-rederive deliberately SNAPS
             // any player-entered interval to the nearest whole-span multiple. A
             // sub-2x interval (e.g. 1.4 x span) rounds to N=1 and is rewritten back

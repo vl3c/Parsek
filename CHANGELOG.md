@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.2
 
+### Features
+
+- Supply routes now work between planets: delivery follows the transfer windows the ghost flies, and the cadence setting delivers every Nth window.
+
 ### Fixes
 
 - Fixed a career freeze on the first climb to space (and sometimes during a Kerbin landing): KSP's repeatable world-record achievements (altitude, speed, distance) fire continuously while climbing, and Parsek was recording every single one as a separate entry and recomputing the whole career each time, which ground the game to a halt. World-record rewards are now tracked once per record type, so the climb stays smooth.

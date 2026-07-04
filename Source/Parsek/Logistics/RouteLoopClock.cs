@@ -140,10 +140,13 @@ namespace Parsek.Logistics
     ///     rotation period -- the SAME values the ghost renders on, so delivery fires on
     ///     the relaunch UTs the player sees (the DEL-1 fix; before it the
     ///     <c>bodyInfo:null</c> delivery clock over-fired at the raw interval).</item>
-    ///   <item><b>Inter-body</b> (future): the unit carries a synodic / re-aimed
-    ///     <see cref="MissionRelaunchSchedule"/> built by the locked Missions layer, and
-    ///     delivery inherits it for free through the passthrough. v0 does NOT enable
-    ///     inter-body routes; the passthrough is only the seam.</item>
+    ///   <item><b>Inter-body</b> (M5, BUILT): the unit carries either the
+    ///     same-parent zero-drift <see cref="MissionRelaunchSchedule"/> or the
+    ///     cross-parent re-aim synodic schedule built by the locked Missions
+    ///     layer, and delivery fires on the SAME rendered windows through this
+    ///     passthrough, with <c>Route.CadenceMultiplier</c> applied as the
+    ///     RESIDUAL window modulo (<see cref="ResolveResidualCadence"/> /
+    ///     <see cref="DeriveWindowBasis"/>).</item>
     /// </list>
     /// All consumed fields are READ-ONLY (no Missions/engine file is edited). Phase 5's
     /// <c>RouteBuilder</c> clamps <c>DispatchInterval &gt;= backingMissionSpan</c> and

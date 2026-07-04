@@ -114,9 +114,13 @@ namespace Parsek.Logistics
         /// clock still reads <see cref="DispatchInterval"/> directly (Phase 4
         /// unchanged); <see cref="CadenceMultiplier"/> is only the UI/derivation
         /// handle. Always clamp <c>&gt;= 1</c> on every write (UI, builder, codec).
-        /// Post-v0 inter-body: <c>N</c> becomes a modulo on the scheduled-launch index
-        /// rather than a multiplier on a fixed interval (the
-        /// <c>RouteLoopClock</c> schedule passthrough is the seam).
+        /// M5 inter-body: <c>N</c> applies as a RESIDUAL modulo on the window
+        /// index (<c>RouteLoopClock.ResolveResidualCadence</c>) - OFF for a
+        /// flat route (N lives in the interval, this v0 contract), 1 for a
+        /// zero-drift scheduled route (N is consumed Missions-side by the
+        /// schedule's minSpacing throttle), N for a re-aim synodic route
+        /// (deliver every Nth rendered window, anchored at
+        /// <see cref="WindowAnchorCycleIndex"/>).
         /// </summary>
         public int CadenceMultiplier = 1;
 
