@@ -729,6 +729,122 @@ decision / geometry contract those runtime rows build on.
 
 ---
 
+## 10d. Phase 11 - test automation + coverage (stacked on Phase 10)
+
+**Goal:** make every MapRender in-game test RUN and ASSERT (not skip) from a fresh launch-pad FLIGHT
+scene with zero manual setup and FAST, and add self-contained gameplay-case coverage the prior phases
+left to the manual runbook. TEST-ONLY + additive: NO production geometry / draw / spine code changed,
+so with the spine flag OFF (`MapRenderFlags.MapRenderPhaseSpineDrive` default false) AND tracing OFF
+(`mapRenderTracing` default off) normal play stays BYTE-IDENTICAL to today (all flag-OFF / tracing-OFF
+source gates stay green).
+
+**Status (implemented, test-only / flag-OFF + tracing-OFF byte-identical):**
+
+### P1 portability hardening (the two prior in-game tests no longer pass-as-skip on a cold pad)
+
+`Source/Parsek/InGameTests/TracedPathOwnedDrawInGameTest.cs` and
+`Source/Parsek/InGameTests/SuppressedMarkerOwnedDrawInGameTest.cs` previously resolved a PRE-EXISTING
+ghost (via `GetGhostVesselPidForRecording` + `FindVessel`) and, when none was present on a cold pad,
+Skipped - so they passed as skips with no assertion. Both now SELF-CREATE their ghost via
+`GhostMapPresence.CreateGhostVesselFromSource(... TrackingStationGhostSource.StateVector ...)` (the
+`RenderParityBaselineTest.cs` create pattern) from the recording's first flat low-altitude
+`TrajectoryPoint` (a non-orbital leg has no conic to seed), which registers the pid in
+`ghostMapVesselPids` + the pid->recording maps the spine resolves through. The two pass-as-skip Skips
+were removed: the spine-decided-TracedPath early-return is now a firm `InGameAssert.IsTrue(legacyActive,
+...)`, and the FLAG-ON intent-stamp assertion is unconditional. The ONLY Skips kept are legitimate
+environmental guards - `Kerbin not found` (non-stock pack), `MapViewScene not active` (not in FLIGHT),
+and a new `ghost ProtoVessel did not create` (a true no-proto-at-all context, NOT a pass-as-skip on the
+TracedPath / marker render decision).
+
+### Five new SELF-CONTAINED pad-runnable in-game tests
+
+All are `[InGameTest(Category="MapRender", Scene=GameScenes.FLIGHT)]`, VOID (not IEnumerator - fast),
+self-contained (build their own synthetic Recording / ghost / PhaseChain - no live mission / active
+vessel / loaded save), and CLEAN UP in `finally` (remove synthetic ghosts via `GhostMapPresence`,
+restore `ForceSpineDriveForTesting` / `ForceEnabledForTesting` / `CurrentUTNow` / `RecordingStore`,
+`ShadowRenderDriver.Reset()`). Each carries the honest caveat that it asserts the spine
+DECISION / parity, not the live ProtoVessel lifecycle / 5b pixel. Files under
+`Source/Parsek/InGameTests/`:
+
+- **N1 `OverlapNInstanceSpineInGameTest.cs`** (P2-pure) - copies `OverlapUnit` verbatim from
+  `ChainSamplerTests.cs:72` (two-arg overlap LoopUnit ctor + `UnitMemberOverlaps`); samples 8 liveUTs
+  across 4 span-cadence cycles through `ChainSampler.Sample` + `GhostRenderDirector.Decide`. Asserts
+  >=2 DISTINCT selected-cycle head-UTs, every sample InSegment + Visible, `DriveUT ==
+  ResolveTrackingStationSampleUT` (legacy single-head parity = ONE ghost not N), never Hidden-after-
+  visible. A frozen-head / N-at-once regression collapses the distinct-head count to 1 and fails.
+- **N2 `DockUndockMemberWindowSpineInGameTest.cs`** (P2-pure) - a `LoopUnit` with `memberWindows`
+  (`MemberWindow` ctor at `GhostPlaybackLogic.SpanClock.cs:61`): absorbed member trimmed to dockUT,
+  split child beginning at splitUT, cadence==span + anchor==spanStart so `spanLoopUT` tracks liveUT
+  linearly. Samples at boundary -/+ 1.0s. Asserts the absorbed member flips Visible->Hidden EXACTLY at
+  dockUT (no clamp past its window = the stale-ghost-after-dock guard) and the split child
+  Hidden->Visible exactly at splitUT.
+- **N3 `MultiBodyConcurrentGhostsParityInGameTest.cs`** (P1-ghost) - TWO live faithful ghosts in one
+  `RecordingStore` swap (Kerbin orbit idx 0, Mun orbit idx 1) via `CreateGhostVesselFromSource(...
+  Segment ...)`; runs `ComputeFaithfulOrbitParity` for each vs its OWN body. Asserts both Sampled (not
+  body-mismatch-skipped) + zero drift, DISTINCT pids, own-body framing (a cross-frame leak surfaces as
+  body-mismatch skip or large drift). Skips cleanly if Mun absent (mirrors the fail-closed Jool guard);
+  cleans up BOTH ghosts + restores RecordingStore / CurrentUTNow in `finally`.
+- **N4 `TerminalRetireDecisionInGameTest.cs`** (P2-pure) - a one-phase `DescentPhase` PhaseChain whose
+  window ENDS at a terminal crashUT (recording `EndpointPhase=SurfacePosition`). Samples inside
+  (Visible) and past the terminal end WITH a visible prior intent fed in; asserts
+  `Coverage.OutsideWindow` past end -> `Decide` returns Hidden even with the visible prior (the
+  crash-no-linger retire). A regression that held the prior (treating post-terminal as an interior gap)
+  keeps it Visible and fails.
+- **N5 `BgOnRailsAllOrbitalSpineInGameTest.cs`** (P1+P2) - an all-`OrbitSegment` recording (NO
+  atmospheric Points, NO TrackSections = the on-rails BG shape). Runs the REAL
+  `PhaseFactory.BuildPhaseChain` and asserts zero Descent / Surface / Ascent phases + >=1 conic phase,
+  then creates the live ghost and asserts `ComputeFaithfulOrbitParity` zero drift.
+
+The P2-pure tests (N1 / N2 / N4 + N5's factory half) do pure builder / count-seam work, so they run
+instantly from a cold pad. The P1-ghost tests (N3, N5's parity half) author their own Recording(s), swap
+`RecordingStore`, create the ghost via `CreateGhostVesselFromSource`, and restore in `finally`.
+
+### New headless unit tests
+
+- `PhaseFactoryTests.cs`: ascent/descent positional split around the first conic; surface env wins over
+  the after-conic Descent default; `ResolveEnvPhaseForWindow` last-overlapping-section + null-list
+  tolerance; `IsArrivalConic` approach-env short-circuit (Theory, 2 cases) / destination-park /
+  departure-body-conic rejected.
+- `RenderParityOracleTests.cs`: `ComputeDrift` with the reference point at a segment INTERIOR (not a
+  vertex) measures ~0 (point-to-POLYLINE), catching a point-to-VERTEX rewrite that would false-fire
+  ("green but blind").
+- `FailClosedClassifierTests.cs`: Kerbin->Mun->Minmus siblings -> `NestedSoi`, `RootBody=="Kerbin"`,
+  `FaithfulFallback` (stock-system nested-SOI, proves not Jool-hardcoded).
+- `CrossMemberSeamStitcherTests.cs`: descent seam head EXACTLY at descentEnd still renders, one tick
+  past retires (Theory, 2 cases) - the off-by-one boundary guard.
+- `AnchorFrameTests.cs`: 1-sample primary + degenerate (start>end) secondary -> `Retire`, not a
+  spurious `AnchorLocalSecondary` match.
+
+### Gameplay case dispositioned NOT self-containable (with evidence)
+
+The HoldPhase warp-through PRODUCER stays vacuous-under-flag-ON: the factory constructs no live
+HoldPhase (only `MovingTargetStationApproach`, which is fail-closed / define-only); fabricating a
+producer would be new geometry, out of test-only scope. The existing
+`WarpThroughInteriorGapSpineInGameTest` already documents this with factory evidence and asserts the
+observable interior-gap-hold equivalent, so no new HoldPhase test was fabricated. Anything needing a
+real re-fly merge / live re-aim mission plan / actual ProtoVessel lifecycle transition belongs in the
+manual Ctrl+Shift+T runbook.
+
+### P2 runbook note - the one intentional cold-pad skip
+
+A full launch-pad Ctrl+Shift+T MapRender sweep now runs and asserts every method EXCEPT exactly ONE:
+`RenderParityBaselineTest.ParityBaseline_KnownGoodFaithfulGhost_ZeroDrift_TrackingStation`
+(Category `GhostMap`, `Scene=GameScenes.TRACKSTATION`), which is intentional per design 11.5 - it
+exercises the TRACKSTATION variant of the parity baseline and therefore cannot run from a FLIGHT-scene
+sweep. It MUST be signed off separately from the Tracking Station view (Ctrl+Shift+T in TRACKSTATION).
+No in-repo cutover sign-off runbook file exists; this one-line TS-view caveat is recorded here in the
+migration plan (the in-game playtest sign-off home, see sections 0 and 12) and should be carried into
+the umbrella cutover sign-off doc when one is written.
+
+### Flag-OFF / tracing-OFF byte-identical
+
+No producer geometry or draw code was touched - only test files. Flag-OFF
+(`MapRenderPhaseSpineDrive` default false) and tracing-OFF (`mapRenderTracing` default off) normal play
+is byte-identical to today; every source gate stays green. Because this is test-only / additive with no
+user-visible default-play change, there is NO CHANGELOG / todo entry.
+
+---
+
 ## 11. Phase ordering & dependencies
 
 ```

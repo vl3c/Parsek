@@ -96,6 +96,34 @@ namespace Parsek.Tests
             Assert.True(r.MaxDeviationMeters <= 5.0 + 1e-6);
         }
 
+        // ---- ComputeDrift: point-to-POLYLINE (not point-to-vertex) - the "green but blind" guard ----
+
+        [Fact]
+        public void ComputeDrift_ReferencePointNearSegmentInterior_NotVertices_MeasuresSmall()
+        {
+            // THE point-to-polyline guard (catches a "green but blind" rewrite to point-to-VERTEX): the
+            // rendered polyline has vertices ONLY at (0,0,0) and (1000,0,0) - a single 1000 m segment with
+            // no vertex in its interior. The reference point sits at (250,0,0), ON that segment but FAR from
+            // either vertex (250 m from the nearest vertex). A correct point-to-segment (polyline) diff
+            // projects onto the segment interior and measures ~0 m -> within a 10 m tolerance, OverTolerance
+            // false. A point-to-VERTEX rewrite would measure 250 m (the nearest-vertex distance) and FALSE-
+            // FIRE drift - so this test would go RED on that regression. The whole acceptance axis is "did
+            // the rendered ARC match the reference ARC", and an arc is the polyline, not its sample vertices.
+            double[] reference = new double[] { 250.0, 0.0, 0.0 }; // on the segment interior, 250 m from both vertices
+            double[] rendered = new double[]
+            {
+                0.0, 0.0, 0.0,
+                1000.0, 0.0, 0.0, // a single 1000 m segment; NO vertex near (250,0,0)
+            };
+
+            var r = RenderParityOracle.ComputeDrift(
+                RenderParityOracle.ParityMode.Faithful, reference, rendered, toleranceMeters: 10.0);
+
+            Assert.True(r.HasMeasurement);
+            Assert.False(r.OverTolerance);                       // ~0 m to the segment interior, not 250 m to a vertex
+            Assert.Equal(0.0, r.MaxDeviationMeters, 6);          // projects exactly onto the segment
+        }
+
         // ---- ComputeDrift: over tolerance (drift) ----
 
         [Fact]

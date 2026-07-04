@@ -155,6 +155,56 @@ namespace Parsek.Tests
             Assert.Equal(Parsek.Reaim.DescentTrigger.DescentHeadPhase.Loiter, phase);
         }
 
+        [Theory]
+        [InlineData(-0.5, true)]  // triggerUT + clip - eps -> still inside the clip (head < descentEnd) -> Descent
+        [InlineData(0.0, true)]   // triggerUT + clip EXACTLY -> head == descentEnd -> INCLUSIVE -> still Descent
+        [InlineData(0.5, false)]  // triggerUT + clip + eps -> one tick past the clip (head > descentEnd) -> Done
+        public void DescentSeamHead_ExactlyAtDescentEnd_StillRenders_OneTickPastRetires(
+            double offsetFromClipEnd, bool expectRender)
+        {
+            // OFF-BY-ONE GUARD on the descent-clip end boundary. The offset=0.0 case lands the head EXACTLY
+            // on descentEnd, which is the ONLY input that distinguishes > from >= : with the correct
+            // `descentHead > descentEndUT` Done-condition it still renders (Descent); a mutation to >= would
+            // retire it one frame early (a visible clip truncation) and fail this case; a mutation to < would
+            // render one frame too long past +eps (a sub-surface ghost) and fail the 0.5 case. The descent head is
+            // recordedDeorbitUT + (currentUT - triggerUT); the clip duration is descentEnd - recordedDeorbit
+            // (= 300 - 200 = 100s here). At currentUT = triggerUT + clip the head == descentEnd EXACTLY: the
+            // boundary is INCLUSIVE (descentHead > descentEndUT is the Done condition, so head == end is still
+            // Descent). One tick PAST (head > descentEnd) retires (Done). A mutation that flipped the
+            // comparison to >= would retire one frame early (a visible clip truncation); one that used <
+            // would render one frame too long (a sub-surface ghost). This pins the exact > boundary.
+            var units = MakeDescentUnitSet();
+            Assert.True(units.TryGetUnitForMember(DescentMemberIdx, out GhostPlaybackLogic.LoopUnit unit));
+
+            Parsek.Reaim.DescentTrigger.ComputeDescentTiming(
+                0, PhaseAnchor, Cadence, SpanStart, RecDeorbit, TestTrot, CaptureShift, null,
+                out _, out _, out double triggerUT);
+
+            double clipSeconds = DescentEnd - RecDeorbit;               // 100s
+            double liveUT = triggerUT + clipSeconds + offsetFromClipEnd; // just inside / just past the clip end
+
+            bool ok = CrossMemberSeamStitcher.TryResolveDescentSeamHead(
+                unit, DescentMemberIdx, unitCycle: 0, currentUT: liveUT,
+                memberStartUT: 150, memberEndUT: 300,
+                out double head, out Parsek.Reaim.DescentTrigger.DescentHeadPhase phase);
+
+            Assert.Equal(expectRender, ok);
+            if (expectRender)
+            {
+                Assert.Equal(Parsek.Reaim.DescentTrigger.DescentHeadPhase.Descent, phase);
+                // head == recordedDeorbit + (liveUT - trigger), just under descentEnd (300).
+                Assert.Equal(RecDeorbit + (liveUT - triggerUT), head, 6);
+                Assert.True(head <= DescentEnd); // still inside the clip
+            }
+            else
+            {
+                // One tick past the clip end -> Done -> the stitcher hides the member (head NaN), so the
+                // sub-surface ghost retires rather than clamping to a stale below-surface sample.
+                Assert.Equal(Parsek.Reaim.DescentTrigger.DescentHeadPhase.Done, phase);
+                Assert.True(double.IsNaN(head));
+            }
+        }
+
         [Fact]
         public void DescentSeamHead_NonDescentMember_ReturnsFalse_ByteIdentical()
         {

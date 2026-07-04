@@ -50,8 +50,11 @@ namespace Parsek.InGameTests
             RunMarkerOwnership(forceSpineOn: false);
         }
 
-        // Build a live below-atmosphere (non-orbital) ghost, drive RunFrame with the spine forced the
-        // requested way, and assert the marker-draw contract. Shared invariants in BOTH flag states:
+        // Build a live below-atmosphere (non-orbital) ghost (SELF-CREATED via
+        // GhostMapPresence.CreateGhostVesselFromSource - the RenderParityBaselineTest pattern - so the test
+        // needs ZERO live mission / pre-existing ghost and ASSERTS instead of passing-as-skip on a cold pad
+        // launch), drive RunFrame with the spine forced the requested way, and assert the marker-draw
+        // contract. Shared invariants in BOTH flag states:
         //  (1) the marker decision (ShouldDrawNonProtoMarkerForGhost) draws our marker - never a blank icon;
         //  (2) the marker's TracedPath disjunct source (IsTracedPathOwnedThisFrame) equals the proto-line
         //      consumer signal (IsDirectorTracedPathActive) - exactly one painter, no double, no gap.
@@ -67,6 +70,8 @@ namespace Parsek.InGameTests
             }
 
             double liveUT = Planetarium.GetUniversalTime();
+            // Author the below-atmosphere TracedPath leg AROUND liveUT so the leg deterministically covers
+            // liveUT and the chain's active segment at liveUT classifies TracedPath + in-coverage.
             double startUT = liveUT - 60.0;
             double endUT = liveUT + 60.0;
 
@@ -94,13 +99,28 @@ namespace Parsek.InGameTests
             {
                 MapRenderTrace.ForceEnabledForTesting = true; // so the spine + intent path are live
 
-                uint resolvedPid = GhostMapPresence.GetGhostVesselPidForRecording(recordingIndex);
-                Vessel ghost = null;
-                if (resolvedPid != 0u)
-                    FlightGlobals.FindVessel(resolvedPid, out ghost);
+                // SELF-CREATE the ghost from the recording's own first body-relative state vector (the
+                // RenderParityBaselineTest.cs:134-141 pattern). A below-atmosphere / no-bounds leg has no
+                // conic to seed, so create through the StateVector source (a flat low-altitude
+                // TrajectoryPoint), which registers the pid in GhostMapPresence.ghostMapVesselPids + the
+                // pid->recording maps the MapViewScene + the marker decision resolve through. SELF-CONTAINED
+                // (no live mission / pre-existing ghost) + DETERMINISTIC (the leg classifies TracedPath +
+                // in-coverage at liveUT), so the marker-draw + ownership ASSERT rather than skip on a cold
+                // pad launch.
+                Vessel ghost = GhostMapPresence.CreateGhostVesselFromSource(
+                    recordingIndex,
+                    rec,
+                    GhostMapPresence.TrackingStationGhostSource.StateVector,
+                    default(OrbitSegment),
+                    rec.Points[0],
+                    liveUT);
                 if (ghost == null)
                 {
-                    InGameAssert.Skip("non-orbital recording produced no ghost proto in this context");
+                    // A ghost-create miss here is environmental (the state-vector create resolves the body
+                    // by name and needs a live PartLoader/Vessel context). Keep this a Skip - the body-
+                    // not-found guard's sibling - rather than a false assert. It is NOT a pass-as-skip on
+                    // the marker decision: it means no ghost could be created AT ALL in this context.
+                    InGameAssert.Skip("ghost ProtoVessel did not create in this context (no proto)");
                     return;
                 }
                 pid = ghost.persistentId;
@@ -133,6 +153,14 @@ namespace Parsek.InGameTests
                     forceSpineOn, pid, legacyActive, intentActive, ownedRouting, shouldDraw,
                     decDirectorTraced, decPolylineOwning, decIconSuppressed));
 
+                // DETERMINISTIC TracedPath: the self-created ghost's recording is a flat below-atmosphere
+                // leg (no OrbitSegment) covering liveUT, so RunFrame's chain classifies its active segment
+                // at liveUT as TracedPath and stamps the legacy side-channel. ASSERT it (no pass-as-skip on
+                // a cold pad launch - the self-created in-coverage leg makes this deterministic).
+                InGameAssert.IsTrue(legacyActive,
+                    "the self-created below-atmosphere ghost's leg must classify TracedPath in-coverage at "
+                    + "liveUT (the legacy side-channel must be active)");
+
                 // The marker site's TracedPath disjunct (decDirectorTraced) IS the flag-aware selector
                 // output - the Phase-4b re-home. Assert that wiring directly.
                 InGameAssert.AreEqual(ownedRouting, decDirectorTraced,
@@ -158,18 +186,15 @@ namespace Parsek.InGameTests
 
                 if (forceSpineOn)
                 {
-                    // FLAG ON: the marker's TracedPath disjunct is SOURCED FROM THE INTENT. When the spine
-                    // decided TracedPath this frame (legacyActive), the intent stamp is present and the
-                    // disjunct equals it.
-                    if (legacyActive)
-                    {
-                        InGameAssert.IsTrue(intentActive,
-                            "FLAG ON: the intent-sourced stamp must be present (RunFrame stamps it from the "
-                            + "same intent as the legacy side-channel)");
-                        InGameAssert.AreEqual(intentActive, decDirectorTraced,
-                            "FLAG ON: the marker TracedPath disjunct must equal the intent-sourced signal "
-                            + "(re-homed)");
-                    }
+                    // FLAG ON: the marker's TracedPath disjunct is SOURCED FROM THE INTENT. The leg is
+                    // deterministically TracedPath this frame (legacyActive asserted above), so the
+                    // intent-sourced stamp is present and the disjunct equals it - assert unconditionally.
+                    InGameAssert.IsTrue(intentActive,
+                        "FLAG ON: the intent-sourced stamp must be present (RunFrame stamps it from the "
+                        + "same intent as the legacy side-channel)");
+                    InGameAssert.AreEqual(intentActive, decDirectorTraced,
+                        "FLAG ON: the marker TracedPath disjunct must equal the intent-sourced signal "
+                        + "(re-homed)");
                 }
                 else
                 {
