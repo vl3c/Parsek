@@ -677,6 +677,50 @@ namespace Parsek.Tests
             Assert.False(isRaw);
         }
 
+        // ===================================================================================
+        //  The faithful lens's RE-AIM gate (AreSameConicElements): the flag-ON playtest FP -
+        //  the recorded-clock lookup (B1) removed the ACCIDENTAL re-aim exclusion, so a looped
+        //  re-aim owner's heliocentric leg faithful-diffed its re-aimed conic against the
+        //  RECORDED transfer (18-32 Gm "drift" on a correct render). The gate skips when the
+        //  Director's seed is not the covering recorded segment; a faithful member's verbatim
+        //  seed compares equal, so a wrong DRAW on a faithful member still measures + fires.
+        // ===================================================================================
+
+        private static OrbitSegment GateSeg(
+            double sma = 14_072_049_898.0, double ecc = 0.0327, double inc = 0.4,
+            double lan = 12.0, double argPe = 33.0, double mae = 1.1,
+            double epoch = 50_000.0, string body = "Sun")
+        {
+            return new OrbitSegment
+            {
+                semiMajorAxis = sma, eccentricity = ecc, inclination = inc,
+                longitudeOfAscendingNode = lan, argumentOfPeriapsis = argPe,
+                meanAnomalyAtEpoch = mae, epoch = epoch, bodyName = body,
+                startUT = epoch, endUT = epoch + 1000.0,
+            };
+        }
+
+        [Fact]
+        public void ReaimGate_VerbatimSeed_ComparesEqual_FaithfulMemberStaysMeasured()
+        {
+            // A faithful member's seed IS the recorded segment (fed verbatim by the chain), so the gate
+            // passes it through and the lens still measures - a wrong DRAW on a faithful member fires.
+            Assert.True(Parsek.MapRenderProbe.AreSameConicElements(GateSeg(), GateSeg()));
+        }
+
+        [Theory]
+        [InlineData("lan")]    // the re-aim rotates the transfer plane/orientation
+        [InlineData("sma")]    // the re-aim re-sizes the transfer
+        [InlineData("epoch")]  // the re-aim re-times the window
+        public void ReaimGate_ReaimedSeed_Differs_FaithfulLensStandsDown(string what)
+        {
+            OrbitSegment seed =
+                what == "lan" ? GateSeg(lan: 82.0)
+                : what == "sma" ? GateSeg(sma: 14_500_000_000.0)
+                : GateSeg(epoch: 61_000.0);
+            Assert.False(Parsek.MapRenderProbe.AreSameConicElements(seed, GateSeg()));
+        }
+
         [Fact]
         public void SynthEpochGate_SlackAbsorbsRoundTrip_ButNotAFrameOfDrift()
         {

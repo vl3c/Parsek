@@ -1154,8 +1154,17 @@ namespace Parsek
             double offEffUT, double offShift, double loopShift, double currentUT,
             uint pid, string pidKey, string recId, string lineActive, string bodyName, double realtime)
         {
+            // The Director's fresh StockConic seed (when present) feeds the RE-AIM gate: a re-aimed
+            // window's seed differs from the covering recorded segment, so the faithful lens stands down
+            // for it (the synthesized lens owns rendered-vs-intended). No fresh seed -> null -> ungated
+            // (a TracedPath/hidden member never reaches a measurable covering conic anyway).
+            OrbitSegment? intendedSeed = null;
+            if (Parsek.MapRender.ShadowRenderDriver.TryGetFreshStockConicSeed(
+                    pid, Time.frameCount, out OrbitSegment freshSeed, out string _))
+                intendedSeed = freshSeed;
+
             FaithfulParitySample sample = ComputeFaithfulOrbitParity(
-                renderedOrbit, renderedBody, loopShift, currentUT, recId);
+                renderedOrbit, renderedBody, loopShift, currentUT, recId, intendedSeed);
 
             // Batch skip/sample accounting (house convention: count in the loop, one summary after it -
             // see the LateUpdate summary emit). Without this, "zero parity lines" in a sign-off log was
@@ -1210,7 +1219,8 @@ namespace Parsek
         // BLOCKER fix corrects. internal for that test.
         internal static FaithfulParitySample ComputeFaithfulOrbitParity(
             Orbit renderedOrbit, CelestialBody renderedBody,
-            double loopShift, double currentUT, string recId)
+            double loopShift, double currentUT, string recId,
+            OrbitSegment? intendedSeed = null)
         {
             if (renderedOrbit == null || renderedBody == null)
                 return FaithfulParitySample.Skip("no-rendered-orbit");
@@ -1248,6 +1258,19 @@ namespace Parsek
             CelestialBody recordedBody = ResolveBodyByName(covering.bodyName);
             if (recordedBody == null)
                 return FaithfulParitySample.Skip("recorded-body-unresolved");
+
+            // RE-AIM GATE (the flag-ON playtest false-positive, 2026-07-04): pre-B1, re-aimed members were
+            // excluded from this lens by ACCIDENT (the drive-clock lookup fell outside the recorded span);
+            // the recorded-clock lookup removed that accident, so a looped re-aim owner's heliocentric leg
+            // started faithful-diffing its RE-AIMED rendered conic against the RECORDED transfer - an
+            // 18-32 Gm "drift" on a CORRECT render (the re-aim differs from the recording BY DESIGN).
+            // The explicit gate: when the caller supplies the Director's fresh seed and it is NOT the
+            // covering recorded segment (the producer re-aimed this window), skip - rendered-vs-INTENDED
+            // is the synthesized lens's job. A faithful member's seed IS the recorded segment (fed
+            // verbatim), so it compares equal and a WRONG DRAW on a faithful member still fires. A
+            // transient seed-vs-covering mismatch at a segment boundary skips one frame and re-measures.
+            if (intendedSeed.HasValue && !AreSameConicElements(intendedSeed.Value, covering))
+                return FaithfulParitySample.Skip("reaimed-or-foreign-seed");
 
             // RENDERED sampling clock: derived from the live orbit's OWN epoch convention (the same
             // state-inspection discipline as the synthesized lens's epoch gate, warp-immune - never a
@@ -1640,6 +1663,30 @@ namespace Parsek
         // phase for a faithful draw. When loopShift == 0 (a non-loop faithful ghost) this is BuildOrbitFromSegment
         // verbatim. A non-finite loopShift falls back to 0 (raw epoch) rather than poisoning the epoch with NaN.
         // internal so the in-game baseline test builds the reference through the EXACT production path.
+        /// <summary>
+        /// Pure: do two OrbitSegments carry the SAME conic (shape + orientation + phase basis)? The
+        /// faithful lens's RE-AIM gate: when the Director's fresh seed for a pid does NOT match the
+        /// covering RECORDED segment, the producer re-aimed this window (the seed is aimed at the
+        /// target's CURRENT position), so the rendered conic differs from the recorded segment BY DESIGN
+        /// and the faithful lens must stand down - rendered-vs-INTENDED is the synthesized lens's job.
+        /// A faithful member's seed IS the recorded segment (the chain feeds it verbatim), so it compares
+        /// equal and the lens still measures - a wrong DRAW on a faithful member still fires. Tolerances
+        /// are tight (the faithful seed is a verbatim copy, not a recompute): sma relative 1e-6, ecc 1e-6,
+        /// angles 1e-4 deg, epoch/MAE 1e-3. internal + pure for xUnit.
+        /// </summary>
+        internal static bool AreSameConicElements(OrbitSegment a, OrbitSegment b)
+        {
+            double smaScale = System.Math.Max(1.0, System.Math.Abs(a.semiMajorAxis));
+            return System.Math.Abs(a.semiMajorAxis - b.semiMajorAxis) <= smaScale * 1e-6
+                && System.Math.Abs(a.eccentricity - b.eccentricity) <= 1e-6
+                && System.Math.Abs(a.inclination - b.inclination) <= 1e-4
+                && System.Math.Abs(a.longitudeOfAscendingNode - b.longitudeOfAscendingNode) <= 1e-4
+                && System.Math.Abs(a.argumentOfPeriapsis - b.argumentOfPeriapsis) <= 1e-4
+                && System.Math.Abs(a.meanAnomalyAtEpoch - b.meanAnomalyAtEpoch) <= 1e-3
+                && System.Math.Abs(a.epoch - b.epoch) <= 1e-3
+                && string.Equals(a.bodyName, b.bodyName, System.StringComparison.Ordinal);
+        }
+
         /// <summary>
         /// Pure: the FAITHFUL lens's covering-segment lookup clock - the RECORDED timeline UT
         /// (<c>currentUT - loopShift</c>, NaN/Inf shift treated as 0). rec.OrbitSegments live on the
