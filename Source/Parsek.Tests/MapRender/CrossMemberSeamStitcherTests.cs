@@ -330,9 +330,9 @@ namespace Parsek.Tests
             double expectedHead = RecDeorbit + (liveUT - triggerUT); // 250
 
             bool a = CrossMemberSeamStitcher.TryStitchDescentSeam(
-                chain, sampleUT: 999.0 /* wrong on purpose */, liveUT, units, out GhostSample sa);
+                chain, liveUT, units, out GhostSample sa);
             bool b = CrossMemberSeamStitcher.TryStitchDescentSeam(
-                chain, sampleUT: -777.0 /* also wrong */, liveUT, units, out GhostSample sb);
+                chain, liveUT, units, out GhostSample sb);
 
             Assert.True(a);
             Assert.True(b);
@@ -354,7 +354,7 @@ namespace Parsek.Tests
             double liveUT = triggerUT + 50.0; // head = 250, inside the descent run [200,300]
 
             bool ok = CrossMemberSeamStitcher.TryStitchDescentSeam(
-                chain, sampleUT: liveUT, liveUT, units, out GhostSample stitched);
+                chain, liveUT, units, out GhostSample stitched);
 
             Assert.True(ok);
             Assert.Equal(Coverage.InSegment, stitched.Coverage);
@@ -454,7 +454,7 @@ namespace Parsek.Tests
                 ParsekLog.TestSinkForTesting = line => logLines.Add(line);
 
                 bool ok = CrossMemberSeamStitcher.TryStitchDescentSeam(
-                    chain, sampleUT: liveUT, liveUT, units, out GhostSample stitched);
+                    chain, liveUT, units, out GhostSample stitched);
 
                 Assert.True(ok); // the traced-family member stitches successfully
                 Assert.Equal(Coverage.InSegment, stitched.Coverage);
@@ -506,7 +506,7 @@ namespace Parsek.Tests
             // false return and falls through to its own coverage path, so an out-param assertion here would be
             // tautological (default vs default). The load-bearing check is the bool.
             bool ok = CrossMemberSeamStitcher.TryStitchDescentSeam(
-                chain, sampleUT: 250.0, liveUT: 250.0, GhostPlaybackLogic.LoopUnitSet.Empty, out _);
+                chain, liveUT: 250.0, GhostPlaybackLogic.LoopUnitSet.Empty, out _);
             Assert.False(ok);
         }
 
@@ -519,7 +519,7 @@ namespace Parsek.Tests
             PhaseChain transferChain = PhaseFactory.BuildPhaseChain(
                 DescentMemberTrajectory(), TransferMemberIdx, instanceKey: 0, windowStartUT: 150, windowEndUT: 300);
             bool ok = CrossMemberSeamStitcher.TryStitchDescentSeam(
-                transferChain, sampleUT: 250.0, liveUT: 250.0, units, out _);
+                transferChain, liveUT: 250.0, units, out _);
             Assert.False(ok);
         }
 
@@ -552,7 +552,7 @@ namespace Parsek.Tests
             // the out-param on a false return and renders nothing (GhostSample.Outside). Asserting the
             // unread out-param (default vs default) would be tautological; the bool is the contract.
             bool stitchOk = CrossMemberSeamStitcher.TryStitchDescentSeam(
-                chain, sampleUT: pastEnd, liveUT: pastEnd, units, out _);
+                chain, liveUT: pastEnd, units, out _);
             Assert.False(stitchOk);
         }
 
@@ -581,9 +581,9 @@ namespace Parsek.Tests
         public void Stitch_NullChain_OrNullUnits_ReturnsFalse()
         {
             Assert.False(CrossMemberSeamStitcher.TryStitchDescentSeam(
-                null, 0, 0, MakeDescentUnitSet(), out _));
+                null, 0, MakeDescentUnitSet(), out _));
             Assert.False(CrossMemberSeamStitcher.TryStitchDescentSeam(
-                DescentMemberChain(), 0, 0, null, out _));
+                DescentMemberChain(), 0, null, out _));
         }
 
         // ---- (6) MapRenderTrace integration (the standing priority: "full logging coverage for the map
@@ -654,11 +654,11 @@ namespace Parsek.Tests
                 MapRenderTrace.FrameCounterOverrideForTesting = () => 0; // Time.frameCount is a Unity ECall
                 Assert.Equal(0, MapRenderTrace.DescentStitchSignatureCountForTesting);
 
-                bool a = CrossMemberSeamStitcher.TryStitchDescentSeam(chain, liveUT, liveUT, units, out _);
+                bool a = CrossMemberSeamStitcher.TryStitchDescentSeam(chain, liveUT, units, out _);
                 Assert.True(a);
                 Assert.Equal(1, MapRenderTrace.DescentStitchSignatureCountForTesting); // wired: gate reached once
 
-                bool b = CrossMemberSeamStitcher.TryStitchDescentSeam(chain, liveUT, liveUT, units, out _);
+                bool b = CrossMemberSeamStitcher.TryStitchDescentSeam(chain, liveUT, units, out _);
                 Assert.True(b);
                 Assert.Equal(1, MapRenderTrace.DescentStitchSignatureCountForTesting); // unchanged onset => no dup
             }
@@ -666,6 +666,51 @@ namespace Parsek.Tests
             {
                 MapRenderTrace.ForceEnabledForTesting = prevForce;
                 MapRenderTrace.FrameCounterOverrideForTesting = null;
+                MapRenderTrace.Reset();
+            }
+        }
+
+        [Fact]
+        public void ShouldEmitDescentStitchOnChange_DirectPredicate_TrueRepeatFalse_ChangeTrue()
+        {
+            // Review S16 (the P6 twin of the fail-closed direct-predicate test): the wiring test above
+            // asserts via the signature-DICT SIZE, which cannot detect a broken on-change predicate (an
+            // always-true predicate keeps the dict at size 1 - green while production spams). Assert the
+            // predicate's RETURN VALUES directly: true on first, false on the unchanged repeat, true on a
+            // signature change (stitch onset / descent-head-phase change).
+            bool prevForce = MapRenderTrace.ForceEnabledForTesting;
+            try
+            {
+                MapRenderTrace.Reset();
+                MapRenderTrace.ForceEnabledForTesting = true;
+                MapRenderTrace.FrameCounterOverrideForTesting = () => 0;
+
+                Assert.True(MapRenderTrace.ShouldEmitDescentStitchOnChange("77", "idx2|Descent"));
+                Assert.False(MapRenderTrace.ShouldEmitDescentStitchOnChange("77", "idx2|Descent")); // steady
+                Assert.True(MapRenderTrace.ShouldEmitDescentStitchOnChange("77", "idx2|Done"));     // change
+                Assert.True(MapRenderTrace.ShouldEmitDescentStitchOnChange("78", "idx2|Descent")); // other pid
+            }
+            finally
+            {
+                MapRenderTrace.ForceEnabledForTesting = prevForce;
+                MapRenderTrace.FrameCounterOverrideForTesting = null;
+                MapRenderTrace.Reset();
+            }
+        }
+
+        [Fact]
+        public void ShouldEmitDescentStitchOnChange_Disabled_NeverEmits()
+        {
+            bool prevForce = MapRenderTrace.ForceEnabledForTesting;
+            try
+            {
+                MapRenderTrace.Reset();
+                MapRenderTrace.ForceEnabledForTesting = false;
+                Assert.False(MapRenderTrace.ShouldEmitDescentStitchOnChange("77", "idx2|Descent"));
+            }
+            finally
+            {
+                MapRenderTrace.ForceEnabledForTesting = prevForce;
                 MapRenderTrace.Reset();
             }
         }

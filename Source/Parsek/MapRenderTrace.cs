@@ -502,9 +502,10 @@ namespace Parsek
         // anchor-resolve-fail fail-closed check are all evaluated every frame at their decision site (the
         // MAP spine), but each Tier-C anomaly is a per-EVENT signal, not a per-frame one (EmitAnomaly
         // routes to Info + opens a detail window). This per-(pid+reason+detail-key) signature gate emits
-        // ONE line per distinct event onset, honoring the VerboseRateLimited convention - matching the
+        // ONE line per distinct (key, signature) per scene session - a CHANGED signature re-emits, and
+        // Reset() clears on scene switch; signature dedup, NOT time-based rate limiting - matching the
         // ShouldEmit*OnChange pattern already used for the descent-stitch / fail-closed structural events.
-        // Same warp-cap + Reset() (scene-switch) clearing as the sibling signature dicts.
+        // Same warp-cap as the sibling signature dicts.
         private static readonly Dictionary<string, string> lastCutoverAnomalySignatureByKey =
             new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -543,9 +544,10 @@ namespace Parsek
         // The CrossMemberSeamStitcher's TryStitchDescentSeam runs every frame the re-aim looped descent is
         // live + re-anchored, but the Tier-A DescentStitched structural event is a per-(re)stitch ONSET
         // signal, not a per-frame one (EmitStructural routes to Info unconditionally + opens a detail
-        // window). This per-pid signature gate emits ONE line per stitch onset / descent-head-phase change,
-        // honoring the VerboseRateLimited convention. Same warp-cap + Reset() (scene-switch) clearing as the
-        // marker / line-visibility signature dicts.
+        // window). This per-pid signature gate emits ONE line per distinct (pid, signature) per scene
+        // session - a stitch-onset / descent-head-phase signature change re-emits, and Reset() clears on
+        // scene switch; signature dedup, NOT time-based rate limiting. Same warp-cap as the marker /
+        // line-visibility signature dicts.
         private static readonly Dictionary<string, string> lastDescentStitchSignatureByPid =
             new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -584,9 +586,10 @@ namespace Parsek
         // The Phase-7 FailClosedClassifier runs every frame a member's chain is (re)classified, but the
         // Tier-A fail-closed-to-faithful structural event is a per-(re)classification ONSET signal, not a
         // per-frame one (EmitStructural routes to Info unconditionally + opens a detail window). This
-        // per-pid signature gate emits ONE line per fail-closed onset / reason change, honoring the
-        // VerboseRateLimited convention. Same warp-cap + Reset() (scene-switch) clearing as the marker /
-        // line-visibility / descent-stitch signature dicts.
+        // per-pid signature gate emits ONE line per distinct (pid, signature) per scene session - a
+        // fail-closed onset / reason change re-emits, and Reset() clears on scene switch; signature
+        // dedup, NOT time-based rate limiting. Same warp-cap as the marker / line-visibility /
+        // descent-stitch signature dicts.
         private static readonly Dictionary<string, string> lastFailClosedSignatureByPid =
             new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -625,10 +628,11 @@ namespace Parsek
         // The orbit<->landing G1 tangent seam is evaluated at the descent DRAW site every frame the
         // stitched descent's seam-entry leg draws (tracing-gated), but the Tier-C
         // rigid-seam-tangent-discontinuity anomaly is a per-ONSET signal, not a per-frame one
-        // (EmitAnomaly routes to Warn unconditionally + opens a detail window). This per-pid signature
-        // gate emits ONE line per discontinuity onset; the caller also feeds the CONTINUOUS signature
-        // through so a seam that heals re-arms the next onset. Same warp-cap + Reset() (scene-switch)
-        // clearing as the sibling signature dicts.
+        // (EmitAnomaly routes to INFO unconditionally - EmitRaw(important:true) -> ParsekLog.Info, NOT
+        // Warn - + opens a detail window; review N14 fixed this header's wrong Warn claim). This per-pid
+        // signature gate emits ONE line per distinct (pid, signature) per scene session; the caller also
+        // feeds the CONTINUOUS signature through so a seam that heals re-arms the next onset, and Reset()
+        // clears on scene switch. Same warp-cap as the sibling signature dicts.
         private static readonly Dictionary<string, string> lastTangentSeamSignatureByPid =
             new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -669,9 +673,10 @@ namespace Parsek
         // The Phase-2 shadow byte-parity comparator (ShadowRenderDriver.AssertFactoryParity) runs on
         // every chain (re)build while tracing is on, but the factory-parity anomaly is a per-DIVERGENCE
         // signal, not a per-frame one (EmitAnomaly routes to Info unconditionally + opens a detail
-        // window). This per-recording signature gate emits ONE line per distinct diverging-field
-        // signature, honoring the VerboseRateLimited convention. Same warp-cap + Reset() (scene-switch)
-        // clearing as the sibling signature dicts.
+        // window). This per-recording signature gate emits ONE line per distinct (recording, signature)
+        // per scene session - a changed diverging-field signature re-emits, and Reset() clears on scene
+        // switch; signature dedup, NOT time-based rate limiting. Same warp-cap as the sibling signature
+        // dicts.
         private static readonly Dictionary<string, string> lastFactoryParitySignatureByRecording =
             new Dictionary<string, string>(StringComparer.Ordinal);
 

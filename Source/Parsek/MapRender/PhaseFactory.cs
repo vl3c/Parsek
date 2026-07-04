@@ -231,7 +231,7 @@ namespace Parsek.MapRender
         {
             var id = new PhaseId(traj?.RecordingId, instanceKey, ordinal);
             var anchor = ResolveAnchorFrame(seg, traj);
-            SegmentProvenance provenance = ResolveProvenance(seg, isReaimedMember, reaimAncestorBody);
+            SegmentProvenance provenance = ResolveProvenance(seg, isReaimedMember);
 
             // NOTE: every phase below is built with default (null) leading/trailing PhaseSeams. Seams are
             // DELIBERATELY OUTSIDE the Phase-2 byte-parity field set (GeometryParityComparator checks
@@ -265,8 +265,13 @@ namespace Parsek.MapRender
 
             // StockConic: a generated transfer is the heliocentric transfer leg; a recorded conic is a
             // departure or arrival loiter (the departure-vs-arrival split is NEW, from the conic's role).
+            // The transfer branch is gated on the PROVENANCE resolution, not the raw IsGenerated bit: the
+            // assembler over-marks predicted recorded tails as generated (see ResolveProvenance), and a
+            // FinalizedPredicted tail is a loiter-shaped conic on the recording's own body, not a
+            // transfer. Kind is non-parity (GeometryParityComparator ignores PhaseKind / SegmentKind /
+            // provenance), so this label split is byte-neutral on the geometry fields.
             OrbitSegment conic = seg.Payload.HasConic ? seg.Payload.Conic : default(OrbitSegment);
-            if (seg.IsGenerated)
+            if (seg.IsGenerated && provenance == SegmentProvenance.Synthesized)
             {
                 return new HeliocentricTransferPhase(
                     id, provenance, anchor, seg.StartUT, seg.EndUT, conic);
@@ -274,7 +279,12 @@ namespace Parsek.MapRender
 
             // Heliocentric-park variant: a re-aimed member whose conic is the common-ancestor (star) body
             // but is NOT the generated transfer is the recorded park copy (LAN-re-phased upstream), a
-            // SYNTHESIZED DepartureLoiterPhase (design §6: s15).
+            // SYNTHESIZED DepartureLoiterPhase (design §6: s15). NOTE (review N3): this branch is
+            // UNREACHABLE through the assembler path today - ChainAssembler marks every ancestor-body
+            // conic of a re-aimed override generated (isPredicted OR ancestor match), so it exits at the
+            // transfer branch above. It is kept as the correct direct-classification rule (exercised by
+            // ClassifySegment_ReaimedNonGeneratedAncestorConic_IsSynthesizedDepartureLoiter) and as
+            // defense for a future assembler that stops over-marking the park copy.
             if (isReaimedMember
                 && !string.IsNullOrEmpty(reaimAncestorBody)
                 && string.Equals(seg.FrameBodyName, reaimAncestorBody, StringComparison.Ordinal))
@@ -289,7 +299,7 @@ namespace Parsek.MapRender
             // crossing is arrival. Without per-leg role data the v1 default is DepartureLoiter (the legacy
             // SegmentKind.Loiter), matching the assembler's role-blind Loiter; arrival loiter is resolved
             // when the env-class / transfer ordinal says so.
-            if (IsArrivalConic(seg, ordinal, traj))
+            if (IsArrivalConic(seg, traj))
             {
                 return new ArrivalLoiterPhase(id, provenance, anchor, seg.StartUT, seg.EndUT, conic);
             }
@@ -307,15 +317,27 @@ namespace Parsek.MapRender
             return new AnchorFrame.BodyAnchor(seg.FrameBodyName);
         }
 
-        // Provenance: a generated transfer is Synthesized; a faithful-fallback chain's segments are
-        // FaithfulFallback; an isPredicted conic tail is FinalizedPredicted; everything else Recorded.
-        // (Provenance is NOT a parity field; it is validated by the Phase-1 unit tests.)
-        internal static SegmentProvenance ResolveProvenance(
-            RenderSegment seg, bool isReaimedMember, string reaimAncestorBody)
+        // Provenance: a generated transfer is Synthesized; an isPredicted conic tail is
+        // FinalizedPredicted; everything else Recorded. (Provenance is NOT a parity field; it is
+        // validated by the Phase-1 unit tests.)
+        //
+        // The assembler OVER-MARKS IsGenerated (ChainAssembler's acknowledged v1 heuristic: isPredicted
+        // OR re-aim ancestor match), so a ballistic-extrapolated / patched-conic PREDICTED RECORDED TAIL
+        // arrives IsGenerated=true. That over-mark is parity-load-bearing at the assembler and must not
+        // change there (review must-not-fix #1); the split lives HERE, at the factory layer: a predicted
+        // conic on a NON-re-aimed member is the finalizer's prediction (FinalizedPredicted), not a
+        // synthesized transfer. Re-aimed members keep Synthesized for every generated segment (the
+        // synthesized transfer itself carries isPredicted=false, but a re-aimed member's own predicted
+        // tail stays Synthesized too - conservative, re-aim semantics untouched).
+        internal static SegmentProvenance ResolveProvenance(RenderSegment seg, bool isReaimedMember)
         {
+            bool predictedConic = seg.Treatment == Treatment.StockConic
+                && seg.Payload.HasConic && seg.Payload.Conic.isPredicted;
+            if (seg.IsGenerated && predictedConic && !isReaimedMember)
+                return SegmentProvenance.FinalizedPredicted;
             if (seg.IsGenerated)
                 return SegmentProvenance.Synthesized;
-            if (seg.Treatment == Treatment.StockConic && seg.Payload.HasConic && seg.Payload.Conic.isPredicted)
+            if (predictedConic)
                 return SegmentProvenance.FinalizedPredicted;
             return SegmentProvenance.Recorded;
         }
@@ -386,14 +408,25 @@ namespace Parsek.MapRender
         // the chain on a body different from the recording's first conic body (the destination park). The
         // v1 default is DepartureLoiter (legacy role-blind Loiter), so this only promotes the clear
         // arrival case; the geometry is identical either way (kind is non-parity).
-        internal static bool IsArrivalConic(RenderSegment seg, int ordinal, IPlaybackTrajectory traj)
+        //
+        // The seg arrives COALESCED (ChainAssembler runs TrajectoryMath.CoalesceSameOrbitFragments before
+        // building RenderSegments), so the raw traj.OrbitSegments list must be coalesced the same way
+        // before the first/last comparison: an arrival park the recorder split into two same-orbit
+        // fragments would otherwise compare the COALESCED seg.StartUT (first fragment's start) against the
+        // RAW last fragment's start and false-negative the promotion (review N4).
+        internal static bool IsArrivalConic(RenderSegment seg, IPlaybackTrajectory traj)
         {
             string env = ResolveEnvPhaseForWindow(traj, seg.StartUT, seg.EndUT);
             if (string.Equals(env, "approach", StringComparison.Ordinal))
                 return true;
 
-            var orbits = traj?.OrbitSegments;
-            if (orbits == null || orbits.Count == 0)
+            var rawOrbits = traj?.OrbitSegments;
+            if (rawOrbits == null || rawOrbits.Count == 0)
+                return false;
+            List<OrbitSegment> orbits =
+                TrajectoryMath.CoalesceSameOrbitFragments(new List<OrbitSegment>(rawOrbits))
+                ?? new List<OrbitSegment>();
+            if (orbits.Count == 0)
                 return false;
 
             // The first conic's body is the departure body; a conic on a different body that is the last

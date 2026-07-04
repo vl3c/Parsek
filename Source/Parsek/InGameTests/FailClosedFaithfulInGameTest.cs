@@ -119,27 +119,31 @@ namespace Parsek.InGameTests
                     "the Tier-A fail-closed-to-faithful structural line (producer=nested-soi) must reach the "
                     + "gated MapRenderTrace sink");
 
-                // --- (5) FAITHFUL-mode parity oracle: rendered == recorded for the fail-closed member ---
-                // Fail-closed renders the recorded trajectory verbatim, so a recorded arc diffed against the
-                // SAME arc (the rendered output of a verbatim replay) reports ZERO drift. Build a recorded
-                // arc framed through Jool's world surface positions (a real Unity-framed reference set) and
-                // diff it against itself in Faithful mode - the oracle's "rendered == recorded" contract.
+                // --- (5) FAITHFUL-mode oracle IDENTITY / PLUMBING check (review N12 honesty relabel) ---
+                // This step diffs a Jool-framed recorded arc AGAINST ITSELF, so it can NEVER detect a
+                // fail-closed member rendering the wrong thing - both inputs are the same array by
+                // construction. What it DOES pin is the oracle PLUMBING on real Unity-framed geometry: the
+                // Faithful-mode path accepts the frame, yields a measurement (not a silent skip), derives a
+                // scale tolerance, and reports zero on identical inputs. The rendered-vs-recorded truth for
+                // fail-closed members is the production probe's job (the faithful lens samples the LIVE
+                // rendered orbit); this in-game step only proves the oracle machinery is not blind here.
                 double[] recordedArc = BuildJoolFramedArc(jool);
                 RenderParityOracle.ParityResult parity = RenderParityOracle.ComputeDriftScaleDerived(
                     RenderParityOracle.ParityMode.Faithful, recordedArc, recordedArc);
 
                 ParsekLog.Info("TestRunner", string.Format(CultureInfo.InvariantCulture,
-                    "FailClosed parity (faithful): hasMeas={0} maxDev={1:F2}m tol={2:F2}m over={3}",
+                    "FailClosed parity (faithful identity/plumbing): hasMeas={0} maxDev={1:F2}m tol={2:F2}m over={3}",
                     parity.HasMeasurement, parity.MaxDeviationMeters, parity.ToleranceMeters,
                     parity.OverTolerance));
 
                 InGameAssert.AreEqual(RenderParityOracle.ParityMode.Faithful, parity.Mode,
-                    "the fail-closed oracle runs in FAITHFUL mode (rendered == recorded)");
+                    "the oracle identity check runs in FAITHFUL mode");
                 InGameAssert.IsTrue(parity.HasMeasurement,
-                    "the faithful arc must yield a parity measurement (else the gate is blind)");
+                    "the Jool-framed arc must yield a parity measurement (oracle plumbing not blind on "
+                    + "this frame)");
                 InGameAssert.IsFalse(parity.OverTolerance,
-                    "a fail-closed member renders the recorded arc verbatim, so the FAITHFUL-mode oracle "
-                    + "must report ZERO drift (rendered == recorded)");
+                    "an arc diffed against itself must report ZERO drift (oracle identity check - this "
+                    + "does NOT prove the fail-closed render matched the recording)");
             }
             finally
             {

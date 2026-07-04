@@ -33,9 +33,12 @@ namespace Parsek.InGameTests
     // ARCHITECTURAL TRUTH respected: this asserts the spine's coverage DECISION + the director's gap-hold
     // (the decision-source contract). It introduces no producer geometry and asserts no 5b-only pixel change.
     //
-    // NOTE: in-game test (Ctrl+Shift+T / Settings > Diagnostics). It builds a PhaseChain + samples it; the
-    // chain build + the conic Orbit reference are KSP-coupled enough that it ships as an in-game test (it runs
-    // alongside the other spine in-game tests via Ctrl+Shift+T). FLIGHT only; career-independent.
+    // NOTE: in-game test (Ctrl+Shift+T / Settings > Diagnostics). The three-frame sampler+director
+    // sequence is PURE (hand-built PhaseChain, ChainSampler, director - no KSP reads; review N16 removed
+    // the stale KSP-coupling claim and the unused Kerbin lookup), and a HEADLESS TWIN pins it in
+    // GhostRenderDirectorTests.WarpStep_AcrossInteriorGap_HoldsPriorIntent_NoBlink_Headless. This copy
+    // stays as the in-KSP-runtime confirmation alongside the other spine in-game tests. FLIGHT only;
+    // career-independent.
     public class WarpThroughInteriorGapSpineInGameTest
     {
         private const string KerbinBodyName = "Kerbin";
@@ -47,13 +50,6 @@ namespace Parsek.InGameTests
                 + "vacuous-under-flag-ON in v1 (the factory constructs none).")]
         public void WarpStep_AcrossInteriorGap_HoldsPriorIntent_NoBlink()
         {
-            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == KerbinBodyName);
-            if (kerbin == null)
-            {
-                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies (non-stock pack)");
-                return;
-            }
-
             // --- THE HOLDPHASE VACUITY EVIDENCE (documented, asserted) ---
             // A HoldPhase covers its WHOLE span (CoversUt the full [StartUt, EndUt)) BY DESIGN so a warp step
             // never resolves to "no phase" mid-hold - that is the warp-safety contract IF a HoldPhase existed.

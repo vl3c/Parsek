@@ -312,6 +312,13 @@ namespace Parsek.MapRender
         internal override IEnumerable<RenderSegment> Emit(SampleContext ctx)
         {
             bool conicTreatment = treatment == Treatment.StockConic;
+            // Body resolution precedent for the FUTURE producer (review N1; no producer constructs these
+            // dual-treatment phases yet): a TracedPath-treated SOI leg under a NON-body anchor (e.g. a
+            // ParentAnchoredChild) would resolve body from the conic reference / ctx fallback below,
+            // which is the anchor's frame, not necessarily the GEOMETRY's recorded body. TracedPhase
+            // solved this by carrying an explicit GeometryBodyName stamped at classification (the body
+            // is geometry, not the anchor); a future producer of these phases should follow that
+            // precedent rather than lean on the fallback chain.
             string body = (Anchor is AnchorFrame.BodyAnchor b && !string.IsNullOrEmpty(b.BodyName))
                 ? b.BodyName
                 : (!string.IsNullOrEmpty(Conic.bodyName) ? Conic.bodyName : ctx.FrameBodyName);

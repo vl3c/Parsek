@@ -89,8 +89,9 @@ namespace Parsek.MapRender
 
             // Phase 6 (the ONE cross-member geometric seam): a re-aim looped landing's descent member is
             // joined to its transfer member over a Rigid + G1 orbit<->landing seam by the
-            // CrossMemberSeamStitcher. It composes AFTER the span-clock remap above (the sampleUT/liveUT are
-            // already remapped). The stitcher OWNS the swept-deorbit-head / captureShift / per-leg head-gate
+            // CrossMemberSeamStitcher. It composes AFTER the span-clock remap above and re-resolves the
+            // descent clock from liveUT itself (it never consumed the remapped sampleUT - review N9 dropped
+            // that parameter). The stitcher OWNS the swept-deorbit-head / captureShift / per-leg head-gate
             // clock (so those identifiers stay out of this file and the Phase-3 source-gate stays GREEN);
             // this call names none of them. It returns false for every non-descent member / non-re-aim unit
             // (byte-identical). NOTE the PRODUCTION sub-surface retire gate is the span-clock resolver's
@@ -98,7 +99,7 @@ namespace Parsek.MapRender
             // Done / out-of-slice descent member BEFORE this stitcher is ever reached); the stitcher
             // returning false WITHOUT a held sample past the clip is defense-in-depth behind that gate, not
             // the load-bearing retire. The base coverage path below is unchanged for everything else.
-            if (CrossMemberSeamStitcher.TryStitchDescentSeam(chain, sampleUT, liveUT, units, out GhostSample stitched))
+            if (CrossMemberSeamStitcher.TryStitchDescentSeam(chain, liveUT, units, out GhostSample stitched))
                 return stitched;
 
             Coverage coverage = chain.ClassifyCoverage(sampleUT, out TrajectoryPhase phase, out int index);
@@ -121,8 +122,12 @@ namespace Parsek.MapRender
 
         // Project the located phase's first emitted RenderSegment into an InSegment GhostSample. Returns
         // false when the phase is null or emits no geometry (a HoldPhase), so the caller holds the prior
-        // intent. The SampleContext carries the phase's anchor body as the frame-name fallback, mirroring
-        // GeometryParityComparator.ProjectGeometry so the resolved FrameBodyName matches the assembler.
+        // intent. Review N6: the projection is CACHED on the phase (TryGetFirstEmittedSegmentCached) -
+        // Emit is UT-independent (no implementation reads ctx.SampleUt; pinned by the two-UT sampler
+        // test), so re-running the Emit iterator per ghost per frame only allocated. The projection
+        // context inside the cache is StartUt + the anchor-body fallback, the SAME projection
+        // GeometryParityComparator.ProjectGeometry uses; the REAL per-frame sampleUT still flows into the
+        // GhostSample (the drive clock), so downstream is byte-identical.
         private static bool TryProjectInSegment(
             TrajectoryPhase phase, double sampleUT, int index, out GhostSample sample)
         {
@@ -130,20 +135,10 @@ namespace Parsek.MapRender
             if (phase == null)
                 return false;
 
-            string frameBody = (phase.Anchor is AnchorFrame.BodyAnchor body) ? body.BodyName : null;
-            // Pass the REAL per-frame sampleUT into the context. Emit is currently UT-INDEPENDENT (no Emit
-            // implementation reads ctx.SampleUt, so this is byte-neutral today and keeps every parity test
-            // green), but carrying the real sampling UT here is the correct contract: this is the live
-            // per-frame path, unlike the static whole-chain projection in
-            // GeometryParityComparator.ProjectGeometry, which has no per-frame UT and deliberately passes
-            // phase.StartUt instead (see the comment there).
-            var ctx = new SampleContext(sampleUT, frameBody);
-            foreach (RenderSegment seg in phase.Emit(ctx))
-            {
-                sample = GhostSample.InSegment(seg, index, sampleUT);
-                return true;
-            }
-            return false;
+            if (!phase.TryGetFirstEmittedSegmentCached(out RenderSegment seg))
+                return false;
+            sample = GhostSample.InSegment(seg, index, sampleUT);
+            return true;
         }
     }
 }
