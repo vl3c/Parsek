@@ -181,7 +181,7 @@ namespace Parsek.InGameTests
                     + "diff against (none stamped)");
                 MapRenderProbe.SynthesizedConicParitySample synth =
                     MapRenderProbe.ComputeSynthesizedConicParity(
-                        renderedOrbit, kerbin, iconBodyRel, seed, seedBody, loopShift, liveUT);
+                        renderedOrbit, kerbin, iconBodyRel, seed, seedBody, loopShift, liveUT, effUT);
                 InGameAssert.IsTrue(synth.Sampled,
                     "SYNTHESIZED oracle must SAMPLE the rendered-vs-seed diff; skipReason="
                     + (synth.SkipReason ?? "(none)"));

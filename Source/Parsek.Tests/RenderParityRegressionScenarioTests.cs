@@ -145,6 +145,17 @@ namespace Parsek.Tests
             return outp;
         }
 
+        // Append the points of a second flat XYZ array onto a copy of the first (the headless analogue of the
+        // synth probe anchoring the live ICON point onto the end of the rendered orbit-sample set - the
+        // rendCount = sampleCount + 1 case). Both arrays are length-3 multiples by construction.
+        private static double[] AppendPoint(double[] xyz, double[] extra)
+        {
+            var outp = new double[xyz.Length + extra.Length];
+            Array.Copy(xyz, 0, outp, 0, xyz.Length);
+            Array.Copy(extra, 0, outp, xyz.Length, extra.Length);
+            return outp;
+        }
+
         // Scenario constants (body-relative metres, KSP-scale).
         private const double LkoRadius = 700_000.0;       // ~low Kerbin orbit
         private const double MunOrbitRadius = 12_000_000.0; // Munar-distance arc
@@ -491,6 +502,179 @@ namespace Parsek.Tests
                 RenderParityOracle.ParityMode.Synthesized, intendedRawEpoch, rendered);
             Assert.True(rBug.HasMeasurement);
             Assert.True(rBug.OverTolerance);
+        }
+
+        [Fact]
+        public void Synthesized_ReaimedParkingOrbit_StaleEffUtSkew_ZeroDrift()
+        {
+            // CLASS 2 FP row (the live synth 50km outlier: maxDev=50022 tol=904 scale=903559 refCount=9
+            // rendCount=10 with IDENTICAL intended/rendered orbit elements - sma=379874 ecc=0.0043 body=Duna).
+            // Identical elements + epochs CANNOT truly drift 50km; the skew was the oracle sampling the two
+            // sides at different clocks. The synth lens runs ONLY under the epoch-bake path, which propagates
+            // the rendered conic at the LIVE clock (currentUT), so the FIX has the production probe pass
+            // currentUT (not the reseed-stale icon-drive clock offEffUT) as the rendered sample clock - both
+            // sides then sample at currentUT (the effUT parameter is retained so the in-game raw-epoch synth
+            // fixture can still pass its own icon clock). This models that production sampling: a Duna parking
+            // circle, 9 samples across a quarter-period half-arc, both sides at currentUT, plus the live icon
+            // anchor point (the rendCount=10 tenth point).
+            const double radius = 380_000.0;           // ~Duna parking, matching the live iconR=380617
+            const double period = 2680.0;              // a fast parking-orbit period
+            const double omega = 2.0 * Math.PI / period;
+            const double epoch = 50_000.0;
+            const double shift = 0.0;                   // the live emit's intendedSeg/rendOrbit were IDENTICAL
+            const double currentUT = epoch + 6.0 * period;
+            const int count = 9;                        // matches the live refCount=9
+            const double halfSpan = period * 0.25;
+            const double effSkew = 56.0;                // ~2 frames stale at warp (SeedFreshnessFrames)
+
+            double[] referenceUTs = RenderGeometrySampler.BuildSampleUTs(currentUT, halfSpan, count);
+            double[] reference = CircleAtUTs(radius, omega, epoch + shift, referenceUTs);
+
+            // POST-FIX rendered: sampled at the SAME currentUT clock as the reference (the fix), then anchored
+            // with one live icon point at currentUT - effSkew (the icon still rides the drive clock; it can only
+            // ADD a vertex, never inflate the ref->rendered nearest distance). The faithful draw reads ~0.
+            double[] renderedUTs = RenderGeometrySampler.BuildSampleUTs(currentUT, halfSpan, count);
+            double[] renderedCurve = CircleAtUTs(radius, omega, epoch + shift, renderedUTs);
+            double[] iconPoint = CircleAtUTs(
+                radius, omega, epoch + shift, new[] { currentUT - effSkew });
+            double[] rendered = AppendPoint(renderedCurve, iconPoint);
+
+            double scale = RenderParityOracle.EstimateScaleFromPoints(reference);
+            double tol = RenderParityOracle.ToleranceForScale(scale);
+            var r = RenderParityOracle.ComputeDrift(
+                RenderParityOracle.ParityMode.Synthesized, reference, rendered, tol);
+
+            Assert.True(r.HasMeasurement);
+            Assert.False(r.OverTolerance);
+
+            // LOAD-BEARING negative control (proves the FP was REAL, not a tautology): re-run the PRE-FIX
+            // sampling - the rendered CURVE at the stale drive clock (currentUT - effSkew) while the reference
+            // stays at currentUT. The two arcs cover non-overlapping spans and the trailing endpoint reads a
+            // ~50km chord on the fast parking orbit (the live maxDev=50022), so the oracle MUST flag drift.
+            // This locks in that the stale-clock SKEW, not a real element error, was the FP source.
+            double[] preFixRenderedUTs = RenderGeometrySampler.BuildSampleUTs(
+                currentUT - effSkew, halfSpan, count);
+            double[] preFixRendered = CircleAtUTs(radius, omega, epoch + shift, preFixRenderedUTs);
+            var rPreFix = RenderParityOracle.ComputeDrift(
+                RenderParityOracle.ParityMode.Synthesized, reference, preFixRendered, tol);
+            Assert.True(rPreFix.HasMeasurement);
+            Assert.True(rPreFix.OverTolerance);
+            // The pre-fix skew lands in the tens-of-km band (the live ~50km), not a sub-km nibble: confirm the
+            // negative control is exercising a drift of comparable scale to the live FP, not a knife-edge.
+            Assert.True(rPreFix.MaxDeviationMeters > 10_000.0);
+        }
+
+        [Fact]
+        public void Synthesized_ReaimedParkingOrbit_WrongElements_FlagsDrift()
+        {
+            // CLASS 2 non-blinding guard: the fix samples both sides at currentUT, which removes the oracle's
+            // dependence on the drive clock. This negative control proves the fix does NOT also hide a REAL
+            // element regression: same currentUT clock on both sides (post-fix), but the rendered parking orbit
+            // carries the sma+5000 element bug (radius 385km vs the intended 380km). A genuine ~5km radial
+            // element error must STILL flag OverTolerance (~5km >> the ~904m scale-derived tol).
+            const double radius = 380_000.0;
+            const double wrongRadius = 385_000.0;       // the sma+5000 element regression
+            const double period = 2680.0;
+            const double omega = 2.0 * Math.PI / period;
+            const double epoch = 50_000.0;
+            const double currentUT = epoch + 6.0 * period;
+            const int count = 9;
+            const double halfSpan = period * 0.25;
+
+            double[] referenceUTs = RenderGeometrySampler.BuildSampleUTs(currentUT, halfSpan, count);
+            double[] reference = CircleAtUTs(radius, omega, epoch, referenceUTs);
+            // Both sides at currentUT (the fix), but the rendered orbit has the wrong radius (wrong sma).
+            double[] renderedCurve = CircleAtUTs(wrongRadius, omega, epoch, referenceUTs);
+            double[] iconPoint = CircleAtUTs(wrongRadius, omega, epoch, new[] { currentUT });
+            double[] rendered = AppendPoint(renderedCurve, iconPoint);
+
+            double scale = RenderParityOracle.EstimateScaleFromPoints(reference);
+            double tol = RenderParityOracle.ToleranceForScale(scale);
+            var r = RenderParityOracle.ComputeDrift(
+                RenderParityOracle.ParityMode.Synthesized, reference, rendered, tol);
+
+            Assert.True(r.HasMeasurement);
+            Assert.True(r.OverTolerance);   // the 5km radial element error dwarfs the ~904m tolerance
+        }
+
+        // ===================================================================================
+        //  CLASS 2 residual: the CREATION / REBIND-frame epoch-convention gate
+        //  (MapRenderProbe.IsSynthEpochConventionBaked - the pure predicate the production synth
+        //  caller gates on so it never measures an orbit the icon-drive has not baked yet)
+        // ===================================================================================
+
+        [Fact]
+        public void SynthEpochGate_BakedConvention_Passes()
+        {
+            // Steady state: SeedAndDriveLive baked epoch = seg.epoch + loopShift verbatim -> measure.
+            Assert.True(Parsek.MapRenderProbe.IsSynthEpochConventionBaked(
+                renderedEpoch: 70_000_000.0 + 4_931_136_168.0, segEpoch: 70_000_000.0,
+                loopShift: 4_931_136_168.0, out bool isRaw));
+            Assert.False(isRaw);
+        }
+
+        [Fact]
+        public void SynthEpochGate_RawCreationFrame_SkipsAsKnownTransient()
+        {
+            // The live 777km/2709km FP frames: GhostCreated at frame N, anomaly at N+1 - the orbit still
+            // carried the RAW seg.epoch from ApplyOrbitToVessel (the icon-drive had not baked it yet;
+            // 8a director-drive logged active=False on the creation frame). With a ~156-year loop shift
+            // the raw phase is n*shift off the baked reference: identical elements, huge false drift.
+            // The gate classifies it as the KNOWN raw-convention transient -> skip, measure next frame.
+            Assert.False(Parsek.MapRenderProbe.IsSynthEpochConventionBaked(
+                renderedEpoch: 70_000_000.0, segEpoch: 70_000_000.0,
+                loopShift: 4_931_136_168.0, out bool isRaw));
+            Assert.True(isRaw);
+        }
+
+        [Fact]
+        public void SynthEpochGate_ZeroShift_ConventionsCoincide_Passes()
+        {
+            // A non-loop member: raw and baked epochs are the same value, so the gate passes (measurable
+            // in either convention) and reports non-raw.
+            Assert.True(Parsek.MapRenderProbe.IsSynthEpochConventionBaked(
+                renderedEpoch: 50_000.0, segEpoch: 50_000.0, loopShift: 0.0, out bool isRaw));
+            Assert.False(isRaw);
+        }
+
+        [Fact]
+        public void SynthEpochGate_UnexplainedEpoch_SkipsAsNonRaw()
+        {
+            // An epoch matching NEITHER convention (e.g. a stale prior-segment bake) is not measurable
+            // AND not the known raw transient - the caller logs it distinctly (worth eyes).
+            Assert.False(Parsek.MapRenderProbe.IsSynthEpochConventionBaked(
+                renderedEpoch: 50_000.0 + 555.0, segEpoch: 50_000.0, loopShift: 1100.0, out bool isRaw));
+            Assert.False(isRaw);
+        }
+
+        [Fact]
+        public void SynthEpochGate_NonFiniteShift_TreatedAsZero_MatchesReferenceBuilder()
+        {
+            // A NaN loopShift falls back to 0 exactly like BuildPhaseMatchedReferenceOrbit's NaN guard, so
+            // the gate and the reference epoch can never disagree about what "baked" means.
+            Assert.True(Parsek.MapRenderProbe.IsSynthEpochConventionBaked(
+                renderedEpoch: 50_000.0, segEpoch: 50_000.0, loopShift: double.NaN, out bool isRaw));
+            Assert.False(isRaw);
+        }
+
+        [Fact]
+        public void SynthEpochGate_NonFiniteRenderedEpoch_Skips()
+        {
+            // A NaN/Inf rendered epoch is never measurable and never "raw" (unexplained).
+            Assert.False(Parsek.MapRenderProbe.IsSynthEpochConventionBaked(
+                renderedEpoch: double.NaN, segEpoch: 50_000.0, loopShift: 0.0, out bool isRaw));
+            Assert.False(isRaw);
+        }
+
+        [Fact]
+        public void SynthEpochGate_SlackAbsorbsRoundTrip_ButNotAFrameOfDrift()
+        {
+            // The 0.5s slack absorbs double round-trip error (the drive copies the epoch verbatim, so real
+            // matches are exact) without admitting anything approaching a real phase offset.
+            Assert.True(Parsek.MapRenderProbe.IsSynthEpochConventionBaked(
+                renderedEpoch: 51_100.0 + 0.4, segEpoch: 50_000.0, loopShift: 1100.0, out _));
+            Assert.False(Parsek.MapRenderProbe.IsSynthEpochConventionBaked(
+                renderedEpoch: 51_100.0 + 5.0, segEpoch: 50_000.0, loopShift: 1100.0, out _));
         }
 
         // ===================================================================================

@@ -2768,6 +2768,28 @@ namespace Parsek.Tests
                 ParsekTrackingStation.ClassifyAtmosphericMarkerSkip(rec, 0, 250.0, null));
         }
 
+        // The OrbitSegmentActive veto's pure core (member-handoff blank fix, 2026-07-03 Duna One):
+        // the veto exists ONLY to prevent a duplicate marker next to a LIVE proto orbit icon, so it
+        // must never fire when the icon cannot actually draw - polyline ownership hides it, and a
+        // SUPPRESSED icon draws nothing. The live blank: at a chain member boundary the effUT jumps
+        // to the next member's clock, whose covering conic re-armed the veto ~28 frames before the
+        // icon-drive un-suppressed the proto icon -> neither icon nor marker drew on the escape-burn
+        // -> hyperbola handoff. Full truth table so any future re-ordering is a conscious edit.
+        [Theory]
+        [InlineData(true, false, false, true)]   // conic covers + icon LIVE -> veto (the original job)
+        [InlineData(true, true, false, false)]   // polyline owns -> icon hidden -> marker must draw
+        [InlineData(true, false, true, false)]   // REGRESSION ROW: icon SUPPRESSED -> marker must draw
+        [InlineData(true, true, true, false)]    // both hidden signals -> marker must draw
+        [InlineData(false, false, false, false)] // no covering conic -> nothing to veto
+        [InlineData(false, true, true, false)]
+        public void ShouldVetoMarkerForActiveOrbitSegment_TruthTable(
+            bool hasCoveringSegment, bool polylineOwns, bool iconSuppressed, bool expectVeto)
+        {
+            Assert.Equal(expectVeto,
+                ParsekTrackingStation.ShouldVetoMarkerForActiveOrbitSegment(
+                    hasCoveringSegment, polylineOwns, iconSuppressed));
+        }
+
         // RecordedLongitudeAtUT is the exact inverse of BodyFixedLongitudeAtUT (playtest-12
         // gap-fill): a conic sample converted through the live rotation, counter-rotated to the
         // recorded basis, must roundtrip back through the draw path's forward correction.

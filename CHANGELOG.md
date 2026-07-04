@@ -11,6 +11,8 @@ All notable changes to Parsek are documented here.
 - Fixed a career freeze on the first climb to space (and sometimes during a Kerbin landing): KSP's repeatable world-record achievements (altitude, speed, distance) fire continuously while climbing, and Parsek was recording every single one as a separate entry and recomputing the whole career each time, which ground the game to a halt. World-record rewards are now tracked once per record type, so the climb stays smooth.
 - Re-aimed interplanetary transfers no longer render the heliocentric leg tilted out of plane: a re-flown Kerbin to Duna transfer now lies in Duna's orbital plane instead of climbing several degrees "upwards", and an inclined target is never wrongly flattened toward the ecliptic.
 - Discarding a flight recording no longer corrupts contracts: a contract you completed live during that flight now stays completed (and its science and world-record milestones stay credited) instead of reappearing in the in-progress tab as a still-open, re-completable duplicate. Discarding a recording drops only the saved ghost, never the career progress you actually earned.
+- The tracking station ghost icon now stays on its drawn trajectory during engine-burn segments (for example the escape burn out of Kerbin orbit): it previously drew on the unrotated recorded track, visibly off the line, whenever the burn leg was rotated to connect its surrounding orbits.
+- Tracking station ghosts no longer blink out entirely for a moment when a multi-part mission hands off between its recorded segments: the fallback icon keeps drawing until the orbit icon actually takes over.
 
 ### Internals & Tests
 

@@ -145,6 +145,32 @@ namespace Parsek.MapRender
         internal const double MinToleranceMeters = 1.0;
 
         /// <summary>
+        /// Minimum REFERENCE arc extent (metres, the bounding-box diagonal from
+        /// <see cref="EstimateScaleFromPoints"/>) below which a SCALE-DERIVED parity diff is NOT a
+        /// shape-parity measurement at all (<see cref="ComputeDriftScaleDerived"/> returns
+        /// <see cref="ParityResult.NoMeasurement"/>, NOT a pass). The oracle's contract is "is the rendered
+        /// ARC the same CURVE as the reference ARC?". A reference whose own points span less than this -
+        /// e.g. a landed / near-stationary surface-dwell leg whose <c>GetWorldSurfacePosition</c> samples
+        /// are all (near-)coincident, so the bounding box collapses to a POINT - has no curve to compare:
+        /// a point-to-polyline distance is "how far is the line from this one point", not a parity of
+        /// shape, and a degenerate reference makes the scale-derived tolerance floor to
+        /// <see cref="MinToleranceMeters"/> so any sub-meter rendered jitter false-fires (the live Duna One
+        /// surface-dwell legs that emitted 20 tol=1m/scale~0 parity-drift anomalies with wildly
+        /// frame-unstable maxDev - the signature of a non-measurement, not a fixed mis-draw).
+        ///
+        /// <para>This is DELIBERATELY a floor on the REFERENCE EXTENT (a no-measurement gate), NOT a
+        /// blanket tolerance raise: a genuinely WRONG draw on a SMALL-but-real arc (a few-km descent leg
+        /// rendered kilometres off) still has real reference extent &gt;= this floor, derives its own
+        /// scale-proportional tolerance, and STILL fires <see cref="ParityResult.OverTolerance"/>. The
+        /// floor is two orders of magnitude below the smallest REAL leg extent seen live (the Kerbin
+        /// ascent leg at scale~16.9 km and the Duna descent legs at scale~223 km), so it never blinds a
+        /// real small leg; it only refuses to measure a point-degenerate reference. 100 m is comfortably
+        /// above the metre-scale <c>GetWorldSurfacePosition</c> / float jitter of a "stationary" leg
+        /// (~16 m live) yet far below any leg that actually traces an arc.</para>
+        /// </summary>
+        internal const double MinMeasurableScaleMeters = 100.0;
+
+        /// <summary>
         /// Default fraction of the geometry scale used as the parity tolerance. A rendered arc that is
         /// faithful to within this fraction of the arc's own extent is drawing the same geometry; a
         /// looped-rotation / off-orbit / mis-stitched arc deviates by a far larger fraction. 0.1% of the
@@ -315,13 +341,52 @@ namespace Parsek.MapRender
         /// <c>ComputeDrift(mode, reference, rendered, ToleranceForScale(EstimateScaleFromPoints(reference), fraction))</c>.
         /// The reference (not the rendered) drives the scale: it is the geometry of record, and a drifted
         /// rendered arc could have a misleadingly large or small extent.
+        ///
+        /// <para>DEGENERATE-REFERENCE GUARD: when the reference's own arc extent is below
+        /// <see cref="MinMeasurableScaleMeters"/> (a landed / near-stationary surface-dwell leg whose
+        /// points collapse to a POINT), this returns <see cref="ParityResult.NoMeasurement"/> instead of a
+        /// floored-tolerance diff. A zero-extent reference has no curve to compare, so a point-to-polyline
+        /// distance is not a shape-parity measurement; the floor refuses to MEASURE it rather than
+        /// false-firing on sub-meter rendered jitter. This is the scale-derived path ONLY - the
+        /// explicit-tolerance <see cref="ComputeDrift"/> overload (the faithful/synthesized conic lenses)
+        /// is unaffected.</para>
+        ///
+        /// <para>MEASUREMENT NOISE FLOOR: <paramref name="minToleranceMeters"/> (default 0 = no floor)
+        /// clamps the derived tolerance UP to the caller's known measurement resolution - e.g. the float
+        /// quantization of drawn <c>Vector3</c> vertices
+        /// (<see cref="RenderGeometrySampler.DrawnVertexQuantizationFloorMeters"/>), which on a body far
+        /// from the scaled origin can exceed a small leg's 0.1% scale-derived tolerance. This is honest
+        /// metrology, not a tolerance widen: a deviation below the instrument's own resolution is float
+        /// noise, unmeasurable by construction, while a real mis-draw larger than the floor still fires.
+        /// A non-finite floor is ignored (treated as 0).</para>
         /// </summary>
         internal static ParityResult ComputeDriftScaleDerived(
             ParityMode mode, double[] referenceXyz, double[] renderedXyz,
-            double fraction = DefaultScaleToleranceFraction)
+            double fraction = DefaultScaleToleranceFraction,
+            double minToleranceMeters = 0.0)
         {
             double scale = EstimateScaleFromPoints(referenceXyz);
-            double tol = ToleranceForScale(scale, fraction);
+
+            // Degenerate-reference guard: a reference whose own points span less than the minimum
+            // measurable arc extent (a landed / near-stationary surface-dwell leg that collapses to a
+            // POINT) is NOT a shape-parity measurement. Return NoMeasurement ("could not measure", caller
+            // does NOT emit) rather than letting ToleranceForScale floor to MinToleranceMeters and
+            // false-fire on sub-meter rendered jitter. This is a floor on the REFERENCE EXTENT, not a
+            // tolerance widen: a SMALL-but-real arc (scale >= the floor) still derives its own
+            // scale-proportional tolerance and a real mis-draw still fires OverTolerance. See
+            // MinMeasurableScaleMeters.
+            if (scale < MinMeasurableScaleMeters)
+            {
+                int refCount = referenceXyz == null ? 0 : referenceXyz.Length / 3;
+                int rendCount = renderedXyz == null ? 0 : renderedXyz.Length / 3;
+                return ParityResult.NoMeasurement(
+                    mode, ToleranceForScale(scale, fraction), refCount, rendCount);
+            }
+
+            double noiseFloor =
+                (double.IsNaN(minToleranceMeters) || double.IsInfinity(minToleranceMeters))
+                    ? 0.0 : minToleranceMeters;
+            double tol = System.Math.Max(ToleranceForScale(scale, fraction), noiseFloor);
             return ComputeDrift(mode, referenceXyz, renderedXyz, tol);
         }
 

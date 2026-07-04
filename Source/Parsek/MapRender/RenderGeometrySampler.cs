@@ -58,6 +58,75 @@ namespace Parsek.MapRender
         }
 
         /// <summary>
+        /// Pure: recover the body-relative world offset (metres) of a DRAWN polyline scaled-space vertex
+        /// by inverting the EXACT scaled-space build the renderer used, IN THE SAME FRAME the draw built
+        /// it. This is the parity-capture inverse of the strobe-free draw path
+        /// (<c>GhostTrajectoryPolylineRenderer.TryDrawLeg</c>, the scaledXform branch):
+        /// <code>
+        ///   scaledVertex = bodyCentreScaled + (world - bodyPos) * invScale
+        /// </code>
+        /// where <paramref name="bodyCentreScaled"/> is the registered scaled-body transform position
+        /// (<c>body.scaledBody.transform.position</c>) and <c>invScale = 1/scaleFactor</c>. Inverting
+        /// against that SAME <paramref name="bodyCentreScaled"/> gives
+        /// <code>
+        ///   (scaledVertex - bodyCentreScaled) * scaleFactor == (world - bodyPos)
+        /// </code>
+        /// exactly, so a faithfully-drawn leg reconstructs to its own recorded body-relative track (~0
+        /// drift) while a genuine mis-draw (wrong <c>scaledVertex</c>) still differences against the same
+        /// centre and drifts.
+        ///
+        /// <para><b>Why NOT <c>ScaledSpace.ScaledToLocalSpace(scaledVertex) - body.position</c></b> (the
+        /// previous capture inverse): that inverts through <c>(s + totalOffset) * scaleFactor</c>, the
+        /// inverse of the ABSOLUTE <c>LocalToScaledSpace</c> the draw DELIBERATELY does NOT use. The draw
+        /// builds each vertex relative to the registered scaled-body transform precisely to avoid the
+        /// <c>ScaledSpace.totalOffset</c> scaled-origin recenter (which oscillates every render frame).
+        /// Re-introducing <c>totalOffset</c> in the inverse leaves a CONSTANT per-point residual
+        /// <c>ScaledToLocalSpace(bodyCentreScaled) - body.position</c> (the gap between the registered
+        /// transform's round-tripped position and the body's true world position): a steady float-quantized
+        /// floor (~250-360 m at <c>scaleFactor</c> 6000) on every body-fixed leg REGARDLESS of arc scale or
+        /// point count, with multi-km / tens-of-km spikes on the frames where the transform and
+        /// <c>totalOffset</c> are read out of phase. That residual is identical for every leg in a frame
+        /// (scale-, body-, and count-independent) - the fingerprint of a capture-reconstruction artifact,
+        /// NOT a per-leg geometric mis-draw. Inverting against the draw's own centre cancels both
+        /// <c>bodyCentreScaled</c> and <c>totalOffset</c> outright.</para>
+        ///
+        /// <para>NaN/Inf-safe: a non-finite vertex / centre / scale yields a NaN-filled result so the oracle
+        /// skips the point (no false anomaly).</para>
+        /// </summary>
+        internal static Vector3d RenderedScaledVertexToBodyRelative(
+            Vector3d scaledVertex, Vector3d bodyCentreScaled, double scaleFactor)
+        {
+            if (!IsFinite(scaledVertex) || !IsFinite(bodyCentreScaled) || !IsFiniteScalar(scaleFactor))
+                return new Vector3d(double.NaN, double.NaN, double.NaN);
+            return (scaledVertex - bodyCentreScaled) * scaleFactor;
+        }
+
+        /// <summary>One float ulp as a fraction of the value's magnitude (2^-23, ~1.19e-7).</summary>
+        private const double FloatUlpFraction = 1.1920928955078125e-7;
+
+        /// <summary>
+        /// Pure: the METROLOGY FLOOR of a drawn polyline vertex, in real metres - the smallest
+        /// rendered-vs-recorded deviation a <c>points3</c>-based parity capture can meaningfully resolve.
+        /// A drawn vertex is a single-precision <c>Vector3</c> sum <c>bodyCentreScaled + offset*invScale</c>;
+        /// when the scaled body centre sits far from the scaled origin (a non-focused body in the tracking
+        /// station, e.g. heliocentric Duna at ~3e6 scaled units), the SUM quantizes at the CENTRE's float
+        /// ulp - about <c>|centre| * 2^-23</c> scaled units, i.e. <c>* scaleFactor</c> real metres per
+        /// component, baked into the drawn float before any capture runs. Deviations below this floor are
+        /// float noise, not geometry: the parity tolerance must be clamped up to it (a scale-derived 0.1%
+        /// tolerance on a small leg can sit far below it). x2 headroom covers the 3-component diagonal and
+        /// round-to-nearest. Returns 0 for a non-finite / near-origin centre (no floor - full precision).
+        /// </summary>
+        internal static double DrawnVertexQuantizationFloorMeters(
+            Vector3d bodyCentreScaled, double scaleFactor)
+        {
+            if (!IsFinite(bodyCentreScaled) || !IsFiniteScalar(scaleFactor))
+                return 0.0;
+            double maxAbs = Math.Max(Math.Abs(bodyCentreScaled.x),
+                Math.Max(Math.Abs(bodyCentreScaled.y), Math.Abs(bodyCentreScaled.z)));
+            return maxAbs * FloatUlpFraction * Math.Abs(scaleFactor) * 2.0;
+        }
+
+        /// <summary>
         /// Pure: flatten a sequence of <c>Vector3d</c> samples into the flat <c>[x0,y0,z0, x1,...]</c>
         /// layout <see cref="RenderParityOracle.ComputeDrift"/> expects. <paramref name="count"/> caps how
         /// many entries of <paramref name="points"/> are read (so a caller can reuse an oversized scratch
