@@ -374,6 +374,44 @@ station approach / cross-SOI transfer renders the recorded trajectory faithfully
 == recorded), since fail-closed renders the recorded trajectory verbatim. **Risk:** low
 (no new geometry; fail-closed is what the classifiers already do).
 
+**Status (implemented, define-only / geometry-neutral):** the three types have a typed home.
+`Source/Parsek/MapRender/NestedSoiSubtree.cs` (Jool moon-tour body tree + per-leg `SoiCrossing` list +
+the pure `TryBuildFromBodySequence` nesting decision) and `Source/Parsek/MapRender/MovingTargetStationApproach.cs`
+(the `HeliocentricTransferPhase` arrival-anchored to a `LiveVesselAnchor` + a station-period `HoldPhase`,
+joined by a `FlexibleSoi` G0 `PhaseSeam`) join the already-defined `SoiCrossing` (Phase 1). The pure,
+headless `Source/Parsek/MapRender/FailClosedClassifier.cs` is the fail-closed DECISION: its `Classify`
+returns `MovingTargetStation` when the arrival anchor is a live moving vessel, `NestedSoi` when the
+recorded body sequence is a moon-rich tour (two visited bodies are siblings under a shared non-root
+ancestor), and SUPPORTED otherwise: a single-level cross-SOI transfer (Kerbin->Mun->Sun->Duna) is NOT
+auto-failed (it renders correctly through the existing per-crossing `FlexibleSoi` G0 path, so auto-raising
+`CrossSoiChain` on every ordinary interplanetary mission would be noise that changes nothing). The
+`CrossSoiChain` reason + its detection are defined for the deferred whole-patched-conic-chain synthesis
+effort's home, surfaced only by the explicit `ClassifyCrossSoiChainForTesting` seam, never by the live
+path. A fail-closed decision changes only PROVENANCE (`FaithfulFallback`) and emits the tracer event; it
+NEVER mutates geometry (the three synthetic producers do not exist in v1, so "fail-closed to faithful" is
+exactly what the pipeline already does, and the cross-SOI kink renders the current `FlexibleSoi` G0
+behavior unchanged). **Decision site:** `PhaseFactory.EmitFailClosedDecisionTraceIfEnabled` (called from
+`BuildPhaseChain` AFTER the chain is built, returning the same `PhaseChain`), gated wholly on
+`MapRenderTrace.IsEnabled`, so flag-OFF (`MapRenderPhaseSpineDrive` default-OFF) is byte-identical and
+tracing-OFF normal play pays a single bool check and never touches the live `FlightGlobalsBodyInfo`
+resolver (keeping the headless factory tests pure). The deorbit-clock identifiers stay out of the spine
+files, so `SwappedSpine_DoesNotConsumeDeorbitClock_SourceGate` remains green.
+
+**Tracer integration (logging priority):** the Tier-A `fail-closed-to-faithful` structural event
+(`MapRenderTrace.EventFailClosedToFaithful`) is emitted once-per-event from the fail-closed decision site
+(`FailClosedClassifier.EmitFailClosedToFaithful` -> `MapRenderTrace.EmitStructural`), gated on
+`MapRenderTrace.IsEnabled` and deduped per-pid/per-reason via `MapRenderTrace.ShouldEmitFailClosedOnChange`
+(its `lastFailClosedSignatureByPid` signature dict mirrors `ShouldEmitDescentStitchOnChange` /
+`lastDescentStitchSignatureByPid`, same `MaxTrackedMarkerDecisionKeys` warp cap, cleared in
+`MapRenderTrace.Reset()` on scene switch), so a steady fail-closed member emits ONE line, not one per
+frame. The line names the unsupported PRODUCER token (`FailClosedClassifier.ReasonToken`) plus the
+`faithful-fallback` provenance and the case payload (the nested-SOI subtree summary), built by the PURE
+`FailClosedClassifier.BuildFailClosedDetails` (+ the per-type `ToSummaryToken` builders) so the detail
+schema is directly unit-testable without the global log sink. The v1 LIVE path detects the nested-SOI
+(Jool) case from the recorded body sequence; the moving-target-station case is reachable only through the
+explicit `FailClosedClassifier.Classify` seam the unit / in-game tests drive (no faithful trajectory
+resolves a `LiveVesselAnchor` arrival in v1).
+
 ---
 
 ## 10. Phase 8 — Retire the circular reconciler; finalize tracer EVENT coverage
