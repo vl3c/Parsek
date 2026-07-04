@@ -6,6 +6,11 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.2
 
+### Features
+
+- Docked stretches are now selectable mission intervals: a dock (or a kerbal boarding) splits the vessel's timeline in the Missions window, the docked interval shows the combined vessel's real controller and crew counts (no more undercounting the station you docked to), and unchecking the pre-dock interval starts the mission's render at the dock. Existing saves keep their exact selections; old exclusions automatically cover the new docked sub-intervals they always covered.
+- Supply routes now deliver at the displayed dispatch interval: the docked loading stretch no longer pads the realized cycle, so a route whose interval was shorter than the old launch-to-undock window delivers more often than before, and the route ghost retires at the dock instead of sitting docked until the undock.
+
 ### Fixes
 
 - Fixed a career freeze on the first climb to space (and sometimes during a Kerbin landing): KSP's repeatable world-record achievements (altitude, speed, distance) fire continuously while climbing, and Parsek was recording every single one as a separate entry and recomputing the whole career each time, which ground the game to a halt. World-record rewards are now tracked once per record type, so the climb stays smooth.

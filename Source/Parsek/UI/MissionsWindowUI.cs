@@ -470,7 +470,20 @@ namespace Parsek
             if (!compositionCache.TryGetValue(tree.Id, out var roots))
             {
                 var (structure, _) = GetMissionView(tree);
-                roots = MissionCompositionBuilder.Build(structure);
+                // Per-frame display rebuild (M-MIS-5): suppress the per-build
+                // "BuildComposition:" Verbose batch summary exactly like the structure
+                // summary above - the composition built is byte-identical, only the
+                // diagnostic line is gated. Restored in finally.
+                bool prevCompSuppress = MissionCompositionBuilder.SuppressLogging;
+                MissionCompositionBuilder.SuppressLogging = true;
+                try
+                {
+                    roots = MissionCompositionBuilder.Build(structure);
+                }
+                finally
+                {
+                    MissionCompositionBuilder.SuppressLogging = prevCompSuppress;
+                }
                 compositionCache[tree.Id] = roots;
             }
             return roots;
@@ -498,15 +511,18 @@ namespace Parsek
                 // matches the engine's schedule (a flipped flag rebuilds via the signature).
                 TransitedBodyRotationMode tbrMode = settings?.TransitedBodyRotationMode
                                                     ?? TransitedBodyRotationMode.Loose;
-                // MissionLoopUnitBuilder.Build internally rebuilds the mission structure and runs
-                // the periodicity solver, so gate ALL THREE pipeline diagnostic flags - not just
-                // the loop builder's own - or the inner "BuildMissionStructure:" /
-                // MissionPeriodicity ExtractConstraints/Solve lines still flood once per frame per
-                // looping mission. Mirrors RouteOrchestrator.ResolveLoopUnit. Restored in finally.
+                // MissionLoopUnitBuilder.Build internally rebuilds the mission structure, the
+                // composition (M-MIS-5), and runs the periodicity solver, so gate ALL FOUR
+                // pipeline diagnostic flags - not just the loop builder's own - or the inner
+                // "BuildMissionStructure:" / "BuildComposition:" / MissionPeriodicity
+                // ExtractConstraints/Solve lines still flood once per frame per looping mission.
+                // Mirrors RouteOrchestrator.ResolveLoopUnit. Restored in finally.
                 bool prevStructSuppress = MissionStructureBuilder.SuppressLogging;
+                bool prevCompSuppress = MissionCompositionBuilder.SuppressLogging;
                 bool prevPeriodicitySuppress = MissionPeriodicity.SuppressLogging;
                 bool prevLoopSuppress = MissionLoopUnitBuilder.SuppressLogging;
                 MissionStructureBuilder.SuppressLogging = true;
+                MissionCompositionBuilder.SuppressLogging = true;
                 MissionPeriodicity.SuppressLogging = true;
                 MissionLoopUnitBuilder.SuppressLogging = true;
                 try
@@ -519,6 +535,7 @@ namespace Parsek
                 finally
                 {
                     MissionStructureBuilder.SuppressLogging = prevStructSuppress;
+                    MissionCompositionBuilder.SuppressLogging = prevCompSuppress;
                     MissionPeriodicity.SuppressLogging = prevPeriodicitySuppress;
                     MissionLoopUnitBuilder.SuppressLogging = prevLoopSuppress;
                 }
@@ -1241,8 +1258,13 @@ namespace Parsek
             double nowUT = Planetarium.GetUniversalTime();
 
             // Suppress the per-call Verbose lines (every frame) and emit one rate-limited summary.
+            // MissionCompositionBuilder is gated too for parity (defensive - compRoots above is
+            // already built through the suppressed GetCompositionRoots cache, and
+            // ExtractConstraints emits no composition lines today).
             bool prevSuppress = MissionPeriodicity.SuppressLogging;
+            bool prevCompSuppress = MissionCompositionBuilder.SuppressLogging;
             MissionPeriodicity.SuppressLogging = true;
+            MissionCompositionBuilder.SuppressLogging = true;
             ConstraintExtraction extraction;
             PeriodicitySolution solution;
             try
@@ -1257,6 +1279,7 @@ namespace Parsek
             finally
             {
                 MissionPeriodicity.SuppressLogging = prevSuppress;
+                MissionCompositionBuilder.SuppressLogging = prevCompSuppress;
             }
 
             result.Solved = true;
