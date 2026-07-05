@@ -44,5 +44,32 @@ namespace Parsek.MapRender
                     return GhostRenderIntent.Hidden(label);
             }
         }
+
+        /// <summary>
+        /// Phase 3 (migration plan §5): the typed-spine entry point. Samples a <see cref="PhaseChain"/>
+        /// (via <see cref="ChainSampler.Sample(PhaseChain, double, GhostPlaybackLogic.LoopUnitSet)"/>) and
+        /// runs the SAME three-case <see cref="Decide(GhostSample, GhostRenderIntent, string)"/> the legacy
+        /// chain spine runs. ADDITIVE — it does not change the existing
+        /// <see cref="GhostRenderChain"/>-fed sampler/director path (the flag-OFF spine). Because the
+        /// sampler projects the matched phase to the same <see cref="GhostSample"/> the assembler chain
+        /// produced (Phase-2 byte-parity), the emitted <see cref="GhostRenderIntent"/> is identical to the
+        /// legacy spine's for the same geometry.
+        ///
+        /// <para><b>Test/parity convenience overload — NOT the production call path.</b>
+        /// <see cref="ShadowRenderDriver.RunFrame"/> inlines the equivalent
+        /// <see cref="ChainSampler.Sample(PhaseChain, double, GhostPlaybackLogic.LoopUnitSet)"/> +
+        /// <see cref="Decide(GhostSample, GhostRenderIntent, string)"/> pair itself, because it needs the
+        /// intermediate <see cref="GhostSample"/> afterward for the per-active-segment re-aim skip
+        /// (<c>sample.Coverage == Coverage.InSegment</c>), which this overload hides. This convenience form
+        /// keeps the typed-spine sampler+director composition addressable in one call for the headless
+        /// parity sweep (<c>PhaseSpineParityTests</c>); it is behaviorally identical to the inlined pair.</para>
+        /// </summary>
+        internal static GhostRenderIntent Decide(
+            PhaseChain chain, double liveUT, GhostPlaybackLogic.LoopUnitSet units,
+            GhostRenderIntent priorIntent, string label)
+        {
+            GhostSample sample = ChainSampler.Sample(chain, liveUT, units);
+            return Decide(sample, priorIntent, label);
+        }
     }
 }
