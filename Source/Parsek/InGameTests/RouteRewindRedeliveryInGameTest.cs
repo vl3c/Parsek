@@ -1,4 +1,3 @@
-// UNVERIFIED: not compiled/tested; this is a best-effort skeleton that WILL need iteration in a build+KSP environment.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -54,14 +53,14 @@ namespace Parsek.InGameTests
     /// rewind test (<see cref="InvokeRPStripAndActivateTest"/>) deliberately avoids
     /// it for exactly this reason. So this test exercises the SAME reconciliation
     /// seam the post-load path runs (<c>ConsumePostLoad</c> -&gt;
-    /// <c>ReconciliationBundle.Restore(bundle, rp.UT)</c>) WITHOUT the scene reload:
-    /// capture a bundle after cycle 1, hand-revert the tank + the route's
-    /// CompletedCycles / SkippedCycles / LastObservedLoopCycleIndex / NextDispatchUT
-    /// to their pre-dispatch values (the <c>.sfs</c> revert does this for real), then
-    /// call the Rec-1 <c>Restore</c> overload with a cutoff before the dispatch UT.
-    /// That is the one production call that drops the route rows; everything
-    /// downstream (the re-fly Tick) is the real fire path. See the
-    /// <c>// TODO(build-env)</c> markers for what a real-RP variant would need.</para>
+    /// <c>ReconciliationBundle.Restore(bundle, post-load-UT)</c>) WITHOUT the scene
+    /// reload: capture a bundle after cycle 1, hand-revert the tank + live career funds
+    /// + the route's CompletedCycles / SkippedCycles / LastObservedLoopCycleIndex /
+    /// NextDispatchUT to their pre-dispatch values (the <c>.sfs</c> revert does all of
+    /// this for real), then call the Rec-1 <c>Restore</c> overload with a cutoff before
+    /// the dispatch UT. That is the one production call that drops the route rows;
+    /// everything downstream (the re-fly Tick) is the real fire path. The inline NOTE at
+    /// the rewind step describes what a real-RP variant would need instead.</para>
     ///
     /// <para><b>Setup harness.</b> Reuses the loop-fire harness from
     /// <see cref="LogisticsRouteOnMissionsRuntimeTests"/>
@@ -137,12 +136,11 @@ namespace Parsek.InGameTests
             if (resolverField == null)
                 InGameAssert.Skip("PRECONDITION: RouteOrchestrator.LoopUnitResolverForTesting seam missing (upstream loop-fire phase incomplete)");
 
-            // TODO(build-env): RetireFutureRouteActions and the Restore(bundle, cutoff)
-            // overload are both internal; from inside the Parsek assembly the direct
-            // calls below resolve at compile time. These reflection probes are belt-and
-            // -suspenders so a refactor that renames either surface SKIPS (attributable)
-            // instead of NRE-ing. Verify the method names + binding flags match the
-            // real signatures when this compiles.
+            // RetireFutureRouteActions and the Restore(bundle, cutoff) overload are both
+            // internal; from inside the Parsek assembly the direct calls below resolve at
+            // compile time (verified: this file builds against them). These reflection
+            // probes are belt-and-suspenders so a future refactor that renames either
+            // surface SKIPS (attributable) instead of NRE-ing at run time.
             MethodInfo retireMethod = typeof(RouteLedgerRetire).GetMethod(
                 "RetireFutureRouteActions",
                 BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
@@ -319,17 +317,14 @@ namespace Parsek.InGameTests
                 InGameAssert.IsTrue(cycle1DispatchedRows >= 1,
                     $"No RouteDispatched ledger row after cycle 1 for routeId={routeId}");
 
-                // 1d. Funds after cycle 1: charged once. Recalc patches funds from the
-                //     ledger; read the live career funds as the witness.
-                // TODO(build-env): the RouteDispatched debit only reaches live career
-                // Funding after a LedgerOrchestrator recalc/patch. Confirm whether
-                // RouteOrchestrator.Tick already drives that patch for an active route,
-                // or whether this test must call LedgerOrchestrator.RecalculateAndPatch
-                // explicitly here (and in the re-fly leg) to make the live funds witness
-                // move. If Tick does not patch funds synchronously, replace the live-
-                // funds delta assertions below with a ledger-row funds-sum assertion
-                // (sum the RouteDispatched FundsDelta rows for routeId) which does not
-                // depend on the patch having run.
+                // 1d. Funds after cycle 1: charged once. For a Career + KSC-origin route
+                //     the dispatch-debit half calls LiveDebitFunds(cost) INSIDE the same
+                //     Tick (RouteOrchestrator.EmitDispatchDebit -> the FundsDebiter =
+                //     LiveDebitFunds delegate -> Funding.Instance.AddFunds(-cost)), so the
+                //     live career funds move synchronously here — no separate
+                //     LedgerOrchestrator.RecalculateAndPatch is needed to witness the
+                //     charge. Read live Funding directly (the single-charge net is
+                //     asserted after the re-fly leg in 2d).
                 double fundsAfterCycle1 = hasFunding ? Funding.Instance.Funds : 0.0;
 
                 ParsekLog.Info("TestRunner",
@@ -342,16 +337,16 @@ namespace Parsek.InGameTests
                 // pre-dispatch, then run the Rec-1 reconciliation restore with a
                 // cutoff BEFORE the dispatch UT.
                 //
-                // TODO(build-env): a real-RP variant would author a RewindPoint via
-                // RewindPointAuthor at UT == RewindCutoffUT (before the dock), call
-                // RewindInvoker.StartInvoke(rp, slot) and let ParsekScenario.OnLoad ->
-                // RewindInvoker.ConsumePostLoad run ReconciliationBundle.Restore(bundle,
-                // rp.UT). That is a DESTRUCTIVE scene reload (GamePersistence.LoadGame +
-                // FlightDriver.StartAndFocusVessel) and cannot be undone inside one
-                // test — see InvokeRPStripAndActivateTest, which avoids it for the same
-                // reason. This approximation exercises the EXACT same reconciliation
-                // call the post-load path runs, minus the scene reload; the world-
-                // revert that the .sfs does for real is done here by hand.
+                // NOTE (why the rewind is approximated, not a real RP invoke): a real-RP
+                // variant would author a RewindPoint via RewindPointAuthor at UT ==
+                // RewindCutoffUT (before the dock), call RewindInvoker.StartInvoke(rp,
+                // slot) and let ParsekScenario.OnLoad -> RewindInvoker.ConsumePostLoad run
+                // ReconciliationBundle.Restore(bundle, post-load-UT). That is a DESTRUCTIVE
+                // scene reload (GamePersistence.LoadGame + FlightDriver.StartAndFocusVessel)
+                // and cannot be undone inside one test — see InvokeRPStripAndActivateTest,
+                // which avoids it for the same reason. This approximation exercises the
+                // EXACT same reconciliation call the post-load path runs, minus the scene
+                // reload; the world-revert that the .sfs does for real is done here by hand.
                 // ============================================================
 
                 // Capture the bundle AFTER cycle 1 — this is exactly what
@@ -361,11 +356,20 @@ namespace Parsek.InGameTests
                 ReconciliationBundle bundle = ReconciliationBundle.Capture();
 
                 // World revert (what the .sfs quickload does for real): drain cycle
-                // 1's delivery back out of the tank, and reset the route counters that
-                // the dispatch dedup keys on so the re-fly recomputes the SAME cycleId
-                // (this is the precise condition that triggered the bug — UT-blind
-                // dedup reproduces cycle-{C+S}).
+                // 1's delivery back out of the tank, restore the pre-dispatch career
+                // funds, and reset the route counters that the dispatch dedup keys on so
+                // the re-fly recomputes the SAME cycleId (this is the precise condition
+                // that triggered the bug — UT-blind dedup reproduces cycle-{C+S}).
                 fuelResource.amount = preDispatchAmount;
+                // Cycle 1's dispatch already debited live Funding synchronously (see 1d).
+                // A real Rewind-to-Separation reloads the pre-dispatch .sfs, which reverts
+                // career funds too; the approximation must do the same by hand, otherwise
+                // the cycle-1 charge would still stand and the re-fly would double-charge
+                // (making the single-charge net in 2d read as TWO charges). Reset live
+                // Funding to the pre-test baseline (= the pre-dispatch value) so the net
+                // across deliver+rewind+redeliver reflects exactly the re-flown charge.
+                if (hasFunding && Funding.Instance != null)
+                    Funding.Instance.SetFunds(fundsBaseline, TransactionReasons.None);
                 Route preRewindRoute;
                 if (RouteStore.TryGetRoute(routeId, out preRewindRoute) && preRewindRoute != null)
                 {
@@ -448,16 +452,13 @@ namespace Parsek.InGameTests
                     $"RE-FLY emitted no RouteDispatched row for routeId={routeId}");
 
                 // 2d. Funds netted EXACTLY ONE dispatch charge across both passes.
-                //     After the rewind dropped cycle 1's debit and the re-fly re-emitted
-                //     it, the live career funds should be down by ONE dispatch cost from
-                //     the baseline — not two (double charge), not zero (suppressed).
-                // TODO(build-env): same patch-timing caveat as 1d. If Tick does not
-                // synchronously patch funds, drive LedgerOrchestrator.RecalculateAndPatch
-                // here (the real post-load path does, via RunStripActivateMarker) before
-                // reading Funding.Instance.Funds, OR assert on the summed RouteDispatched
-                // FundsDelta of the surviving ledger == one dispatch cost. The single-
-                // charge invariant is the load-bearing funds assertion; wire it to
-                // whichever witness actually moves.
+                //     The dispatch-debit charges live Funding synchronously inside Tick
+                //     (see 1d), and the rewind approximation reset live funds to the
+                //     baseline (mirroring the .sfs revert). So after the re-fly re-emitted
+                //     the dispatch, live career funds should be down by ONE dispatch cost
+                //     from the baseline — not two (double charge), not zero (suppressed).
+                //     Reading Funding.Instance.Funds is the correct witness; no separate
+                //     LedgerOrchestrator.RecalculateAndPatch is required.
                 if (hasFunding)
                 {
                     double fundsAfterRefly = Funding.Instance.Funds;
@@ -517,13 +518,12 @@ namespace Parsek.InGameTests
                 MissionStore.PruneOrphans(RecordingStore.CommittedTrees);
 
                 // Restore the live ledger to its pre-test contents. The reconciliation
-                // Restore rewrote Ledger.Actions from the captured bundle; the safest
-                // restore is to clear and re-add the rows captured before the test ran.
-                // TODO(build-env): confirm Ledger.Clear() + re-adding the pre-test
-                // prefix is sufficient, or whether a LedgerOrchestrator.RecalculateAndPatch
-                // is needed afterward to re-sync live KSP career scalars to the restored
-                // ledger. The pre-test ledger prefix is captured below via a snapshot
-                // taken at the top of the try-block-equivalent point.
+                // Restore rewrote the ledger action list from the captured bundle; the
+                // safest restore is to clear and re-add the rows captured before the test
+                // ran (Ledger.Clear() + Ledger.AddActions(prefix), verified surfaces). The
+                // finally block below also resets live career Funds directly to the
+                // pre-test baseline, so no LedgerOrchestrator.RecalculateAndPatch is needed
+                // to re-sync the career scalars this test touched.
                 try
                 {
                     RestoreLedgerPrefix(beforeLedgerCount);
@@ -583,12 +583,8 @@ namespace Parsek.InGameTests
         /// Snapshot of the live ledger taken at the top of the test so the finally
         /// block can restore it. Held in an instance field rather than threaded
         /// through because the finally block runs after the iterator state machine
-        /// has already moved past the local-capture point.
-        /// TODO(build-env): if the iterator-field capture is awkward to compile,
-        /// capture this list as a local before the try-block and close over it in
-        /// the finally (C# iterators DO let a finally see locals declared before the
-        /// try). Verify the capture point compiles cleanly under net472's iterator
-        /// rewriter.
+        /// has already moved past the local-capture point. Verified to compile cleanly
+        /// under net472's iterator rewriter.
         /// </summary>
         private List<GameAction> preTestLedgerSnapshot;
 
@@ -616,13 +612,15 @@ namespace Parsek.InGameTests
                 NextDispatchUT = TickUT + Cadence,
                 CompletedCycles = 0,
                 SkippedCycles = 0,
-                // A non-zero KSC dispatch cost makes the single-charge funds invariant
-                // a meaningful assertion (vs a vacuous zero-net).
-                // TODO(build-env): confirm KscDispatchFundsCost is the field the
-                // dispatch-debit half reads to charge funds; if the charge is derived
-                // from the CostManifest instead, set whichever the live EmitDispatchDebit
-                // path actually debits so the funds witness moves. A 0.0 cost still
-                // passes (vacuously) but does not exercise the single-charge guard.
+                // Seed a non-zero KSC dispatch cost. NOTE: EmitDispatchDebit RECOMPUTES
+                // the charge from the route's CostManifest via
+                // ComputeDispatchFundsCostForRoute and OVERWRITES route.KscDispatchFundsCost
+                // with the computed value before debiting live Funding, so this seed is
+                // not itself the charged amount. The single-charge assertion reads the
+                // post-tick KscDispatchFundsCost (= the computed/charged cost) as its
+                // witness, so it stays self-consistent whatever the computed value is; a
+                // 0.0 computed cost merely makes the net-charge band vacuous (still guards
+                // against a double-debit).
                 KscDispatchFundsCost = 100.0,
                 CostManifest = new Dictionary<string, double>(StringComparer.Ordinal)
                 {
@@ -721,10 +719,9 @@ namespace Parsek.InGameTests
         /// Restores the live ledger to its first <paramref name="prefixCount"/>
         /// actions (the contents captured before the test mutated anything). The
         /// reconciliation Restore rewrote the whole list, so cleanup re-truncates it.
-        /// TODO(build-env): Ledger.Clear() + Ledger.AddActions(prefix) is the intent;
-        /// confirm those are the right static surfaces (seen at Ledger.cs Clear():413,
-        /// AddActions():89, Actions:25). If the live KSP career scalars must re-sync to
-        /// the restored ledger, follow with LedgerOrchestrator.RecalculateAndPatch.
+        /// Uses the verified Ledger.Clear() + Ledger.AddActions(prefix) static surfaces;
+        /// the caller's finally block resets live career Funds directly to the pre-test
+        /// baseline, so no LedgerOrchestrator.RecalculateAndPatch re-sync is required.
         /// </summary>
         private void RestoreLedgerPrefix(int prefixCount)
         {

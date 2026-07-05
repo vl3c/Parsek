@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.3
 
+### Fixes
+
+- A supply route that was dispatched and then rewound past no longer leaves the depot charged with the cargo undelivered: the abandoned-future route ledger entries are now dropped at the rewind so the re-flown route re-delivers exactly once and is charged exactly once.
+
 ## 0.10.2
 
 ### Fixes

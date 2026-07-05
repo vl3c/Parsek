@@ -13,7 +13,7 @@ namespace Parsek.Logistics
     /// <see cref="GameAction.RecordingId"/>), so the supersede/tombstone walk —
     /// which gates on <c>RecordingId</c> — can never retire them. On a
     /// Rewind-to-Separation the <c>ReconciliationBundle</c> PRESERVES the full
-    /// pre-rewind <c>Ledger.Actions</c> while the live world AND the route counters
+    /// pre-rewind ledger action list while the live world AND the route counters
     /// revert via the <c>.sfs</c>. The UT-blind dispatch dedup then reproduces the
     /// counter-keyed cycleId and SUPPRESSES the re-flown cycle that would re-apply
     /// the live cargo, so the player is charged but the goods are never
@@ -42,8 +42,8 @@ namespace Parsek.Logistics
     /// stays byte-identical.</para>
     ///
     /// <para><b>ERS/ELS grep-gate:</b> takes the action / list BY PARAMETER and reads
-    /// NEITHER <c>Ledger.Actions</c> NOR <c>.CommittedRecordings</c>, so it is not a
-    /// grep-gate concern and needs no allowlist entry (the caller —
+    /// neither the static ledger action list nor the committed-recordings store, so it
+    /// is not a grep-gate concern and needs no allowlist entry (the caller —
     /// <c>ReconciliationBundle</c>, already allowlisted — passes the list in).</para>
     /// </summary>
     internal static class RouteLedgerRetire

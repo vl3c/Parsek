@@ -1,4 +1,3 @@
-// UNVERIFIED: not compiled/tested in this environment.
 using Parsek.Logistics;
 using Xunit;
 

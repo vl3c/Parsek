@@ -1,12 +1,14 @@
 # Plan: fix logistics ↔ time-rewind determinism (route ledger rows must revert with the world)
 
-Status: IMPLEMENTATION-READY plan (clean-context reviewed: GO-WITH-FIXES; the review's
-must-fix Capture->Restore consistency + the #2/#3/#4/#5/#7 clarity fixes are folded in).
-No code written yet. Implement on branch `claude/logistics-rewind-fix-r8ud6s` off `origin/main`
-(these files — `ReconciliationBundle.cs`, `RewindInvoker.cs`, `Logistics/*`,
-`GameActions/*`, the discard cores — are disjoint from the map-render refactor
-stack, so no map-render dependency). Current version `0.10.2` (AssemblyInfo
-`0.10.2.0`, CHANGELOG `## 0.10.2`).
+Status: BUILT + HEADLESS-GREEN (Rec-1), in-game repro WIRED, PENDING the live playtest
+(clean-context reviewed: GO-WITH-FIXES; the review's must-fix Capture->Restore consistency +
+the #2/#3/#4/#5/#7 clarity fixes are folded in). Authored on branch
+`claude/logistics-rewind-fix-r8ud6s`, finished (build + `dotnet test` green + in-game test
+wired) on branch `logistics-rewind-rec1` off `origin/main` @ `6ae12b076` (current version
+`0.10.3`). The touched files — `ReconciliationBundle.cs`, `RewindInvoker.cs`, `Logistics/*`
+(`RouteLedgerRetire.cs`, `RouteRevertSafety.cs`) — are disjoint from the map-render refactor
+stack, so no map-render dependency. Rec-1 is the shipped fix; Rec-3 (non-rewind discard leak)
+stays DEFERRED (only the unwired observability predicate landed).
 
 Companion report (read first): `docs/dev/research/logistics-time-rewind-compat-report.md`
 (per-axis verdicts, 13-row risk register, worked example, Rec-1..Rec-5). This plan
@@ -759,4 +761,9 @@ LIKELY-COMPILES-AND-CORRECT), an adversarial edge-case review, and a test-file r
 - **Test reviews:** the 7 headless `[Fact]`s prove the drop→re-fire non-trivially and the
   headless economic-magnitude approximation is honestly scoped (real charge is the in-game
   test's job); the in-game test is a faithful `ConsumePostLoad` proxy and fully reversible.
-  One cosmetic SHOULD-FIX (a `RecalculateAndPatch` in cleanup) is already a `TODO(build-env)`.
+  Build-finish resolution: the cutoff dispatch-debit charges live `Funding` synchronously
+  inside `RouteOrchestrator.Tick` (via `LiveDebitFunds`), so NO `RecalculateAndPatch` is
+  needed in the in-game test to witness or restore the charge — the earlier `TODO(build-env)`
+  cleanup caveat is resolved (the test resets live `Funding` directly to the baseline in the
+  rewind approximation and in the `finally`). The 9 in-game `TODO(build-env)` markers are all
+  wired; the only remaining gate is the single live-KSP playtest.

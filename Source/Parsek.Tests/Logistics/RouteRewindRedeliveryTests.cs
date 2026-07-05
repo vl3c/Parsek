@@ -1,5 +1,3 @@
-// UNVERIFIED: not compiled/tested in this environment
-//
 // Phase-3 end-to-end proof for the logistics <-> time-rewind determinism fix (Rec-1).
 // Plan:   docs/dev/plans/fix-logistics-rewind-determinism.md (Phase 3 + section 6).
 // Report: docs/dev/research/logistics-time-rewind-compat-report.md section 4.
@@ -540,11 +538,13 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(1, CountActions(GameActionType.RouteRecoveryCredited, route.Id, "cycle-0"));
             Assert.Equal(31200.0, RecalcRunningBalance()); // credited exactly once
 
-            // TODO(build-env): drive the credit re-flush through RouteOrchestrator.Tick ->
-            // EmitPendingRecoveryCredit with a committed source recording carrying a
-            // RouteRecoveryCredited-able recovery row in the ERS, so SumRecoveredCredits
-            // returns 1200 and the live path emits the row itself. Headless that sum is 0,
-            // so the re-flushed row is modeled here; the live cadence is the in-game test.
+            // HEADLESS LIMITATION: the live re-flush (RouteOrchestrator.Tick ->
+            // EmitPendingRecoveryCredit) reads SumRecoveredCredits over the ERS/ELS, which
+            // is 0 without a committed source recording carrying a recovery row and KSP's
+            // PartResourceLibrary. So the re-flushed credit is modeled here as an explicit
+            // RouteRecoveryCredited row; the live re-flush cadence (SumRecoveredCredits
+            // returning the real amount, the live path emitting the row itself) is covered
+            // by the in-game test RouteRewindRedeliveryInGameTest.
         }
 
         // ==================================================================

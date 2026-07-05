@@ -1,4 +1,3 @@
-// UNVERIFIED: not compiled/tested in this environment.
 namespace Parsek.Logistics
 {
     /// <summary>
@@ -41,8 +40,8 @@ namespace Parsek.Logistics
     /// quicksave). Per the plan, do not wire this in here.</para>
     ///
     /// <para><b>ERS/ELS grep-gate:</b> takes its inputs BY PARAMETER (plain booleans)
-    /// and reads NEITHER <c>Ledger.Actions</c> NOR <c>.CommittedRecordings</c>, so it
-    /// is not a grep-gate concern and needs no allowlist entry.</para>
+    /// and reads neither the static ledger action list nor the committed-recordings
+    /// store, so it is not a grep-gate concern and needs no allowlist entry.</para>
     /// </summary>
     internal static class RouteRevertSafety
     {
