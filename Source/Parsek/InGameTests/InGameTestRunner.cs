@@ -1670,13 +1670,26 @@ namespace Parsek.InGameTests
 
                 if (attempt > BaselineReloadCameraRaceRetries)
                 {
+                    // Give up: the camera-race flood did not clear across all retries. Trip the
+                    // storm-abort DIRECTLY here rather than relying on a later RunBatch storm check —
+                    // that check never runs for the LAST restore-backed test (the foreach ends with no
+                    // next iteration, and this wrapper returns "success" with no exception), so without
+                    // this the batch would end "clean" with the game still corrupted and no alert.
+                    // Setting the flag fires the existing disk-only-revert path + the relaunch alert
+                    // regardless of which test was last.
                     ParsekLog.Warn(Tag,
                         $"Baseline reload still flooding (+{settleDelta} exc/{BaselineReloadHealthSettleFrames}f) " +
                         $"after {attempt} attempt(s) for {cleanupReason} — the stock FlightCamera camera-race " +
-                        "(Bug #4803) did not clear; letting the batch storm-abort take over.");
+                        "(Bug #4803) did not clear; aborting the batch.");
+                    if (!batchExceptionStormDetected)
+                    {
+                        batchExceptionStormDetected = true;
+                        abortBatchAfterRestoreFailure = true;
+                        NotifyExceptionStormAbort(null, batchUnhandledExceptionCount);
+                    }
                     if (coreFailure != null)
                         throw coreFailure;
-                    yield break; // storm-abort is the backstop
+                    yield break;
                 }
 
                 ParsekLog.Warn(Tag,
