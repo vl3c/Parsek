@@ -4,6 +4,8 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.10.3
+
 ## 0.10.2
 
 ### Fixes
@@ -24,6 +26,7 @@ All notable changes to Parsek are documented here.
 - Code-health refactor pass over the systems added since the last structural cleanup, with no behavior change: several large methods were split into well-named same-file helpers (the supply-route builder, the mission loop-unit builder, the map render-session rebuild, mission scheduling and structure building, route source revalidation and harvest analysis, the relative-anchor resolver, terminal-orbit spawn safety, and the pannotations / FX sidecar codecs). Pure restructuring, verified byte-for-byte behavior-neutral by the existing test suites; no gameplay, save-format, or log change.
 - De-duplicated repeated blocks across the route and settings code (settings persistence, switch-segment refusal logging, route-codec field loaders, and recovered-credit sums) into single shared helpers. No behavior change.
 - Introduced two shared owners to remove copy-pasted code: a route-id log-shortening helper used across the logistics route files, and a shared ConfigNode codec for route endpoints and connection kinds used by both the route and route-proof serializers (the on-disk byte and field order is unchanged). No behavior or save-format change.
+- Log hygiene: the ghost map-polyline build and below-surface-exclusion diagnostic lines are now rate-limited per recording, so an active descent no longer repeats them at frame rate in the log.
 
 ## 0.10.1
 
