@@ -347,14 +347,15 @@ namespace Parsek.Tests
             rec.Points.Add(MakePoint(200.0, 0.0, 0.0, 100.0));
 
             GhostTrajectoryPolylineRenderer.RefreshForRecording(rec);
-            int buildsBefore =
-                logLines.Count(l => l.Contains("[GhostMap]") && l.Contains("Polyline build:"));
+            // The build log is now rate-limited per recording, so a same-recording
+            // rebuild within the interval is suppressed. Assert the rebuild via the
+            // build-invocation counter instead of the (throttled) log line.
+            int buildsBefore = GhostTrajectoryPolylineRenderer.BuildInvocationCountForTesting;
 
             // Mutate -- append a new point. The hash flips.
             rec.Points.Add(MakePoint(300.0, 0.0, 0.0, 150.0));
             GhostTrajectoryPolylineRenderer.RefreshForRecording(rec);
-            int buildsAfter =
-                logLines.Count(l => l.Contains("[GhostMap]") && l.Contains("Polyline build:"));
+            int buildsAfter = GhostTrajectoryPolylineRenderer.BuildInvocationCountForTesting;
 
             Assert.True(buildsAfter > buildsBefore, "expected a fresh polyline build after mutation");
         }

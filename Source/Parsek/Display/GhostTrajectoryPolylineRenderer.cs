@@ -603,6 +603,13 @@ namespace Parsek.Display
         internal static int CacheCountForTesting => polylineCache.Count;
 
         /// <summary>
+        /// Test-only counter of actual polyline (re)builds that reach the build
+        /// log site. Lets a cache-invalidation test assert a rebuild happened
+        /// without depending on the now rate-limited build log line.
+        /// </summary>
+        internal static int BuildInvocationCountForTesting;
+
+        /// <summary>
         /// OBSERVABILITY (descent render-window tracing): emit one line per RENDERED polyline object - every
         /// cached leg AND forward-arc whose Vectrosity <c>VectorLine</c> is live this frame (active, or drawn
         /// this frame). These VectorLines are NOT in <see cref="GhostMapPresence.ghostMapVesselPids"/>, so the
@@ -1216,6 +1223,8 @@ namespace Parsek.Display
         /// </summary>
         internal static void Clear()
         {
+            // Test-only rebuild counter shares the cross-save / test-reset lifecycle of the caches below.
+            BuildInvocationCountForTesting = 0;
             // Drop the per-frame ownership publish set first (before the empty-cache early-return), so a
             // cross-save flush / test reset never leaves a stale ownership behind. It is re-cleared
             // every LateUpdate, so this is belt-and-suspenders in normal play and the reset hook in tests.
@@ -2701,8 +2710,13 @@ namespace Parsek.Display
             }
             FlushPolylineRun(run, runBody, legs);
 
-            ParsekLog.Verbose(Tag,
-                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+            BuildInvocationCountForTesting++;
+            // Per-recording rate limit: a descent rebuilds the polyline (cache
+            // miss) every frame, so an unthrottled Verbose here bursts at frame
+            // rate. verboseLogging ships ON, so this reaches a default install.
+            ParsekLog.VerboseRateLimited(Tag,
+                "polyline-build:" + rec.RecordingId,
+                () => string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "Polyline build: rec={0} legs={1} (sectionPts={2} flatPts={3} skippedRelNoBodyFixed={4} excludedBelowSurfaceSegs={5} gapFilled={6})",
                     rec.RecordingId,
                     legs.Count, sectionPointCount, flatPointCount,
@@ -2715,8 +2729,9 @@ namespace Parsek.Display
             if (excludedBelowSurfaceSegments > 0 && legs.Count > 0)
             {
                 var descentLeg = legs[legs.Count - 1];
-                ParsekLog.Verbose(Tag,
-                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                ParsekLog.VerboseRateLimited(Tag,
+                    "polyline-excluded-belowsurf:" + rec.RecordingId,
+                    () => string.Format(System.Globalization.CultureInfo.InvariantCulture,
                         "excluded {0} below-surface orbit segments from cover rec={1} -> descent leg [{2:F1},{3:F1}]",
                         excludedBelowSurfaceSegments, rec.RecordingId,
                         descentLeg.startUT, descentLeg.endUT));
