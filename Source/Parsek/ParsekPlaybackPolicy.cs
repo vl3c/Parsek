@@ -68,6 +68,7 @@ namespace Parsek
 
             // Subscribe to engine events
             engine.OnPlaybackCompleted += HandlePlaybackCompleted;
+            engine.OnGhostSpawnPending += HandleGhostSpawnPending;
             engine.OnGhostCreated += HandleGhostCreated;
             engine.OnGhostDestroyed += HandleGhostDestroyed;
             engine.OnLoopRestarted += HandleLoopRestarted;
@@ -958,6 +959,23 @@ namespace Parsek
         internal const double StateVectorRemoveAltitude = GhostMapPresence.StateVectorRemoveAltitude;
         internal const double StateVectorRemoveSpeed = GhostMapPresence.StateVectorRemoveSpeed;
 
+        /// <summary>
+        /// Early map-presence enqueue, decoupled from the mesh build: runs the SAME idempotent
+        /// create-or-update / pending-queue body as <see cref="HandleGhostCreated"/> the moment the
+        /// engine registers a primary pending-spawn state (<see cref="GhostPlaybackEngine.OnGhostSpawnPending"/>).
+        /// The mesh-gated created pass below stays untouched (camera auto-follow at finalize plus a
+        /// map-presence refresh), so finalize-time behavior is unchanged; this only makes the map
+        /// ProtoVessel (and with it the ghost's orbit line) exist EARLIER. Without it a far-SOI
+        /// multi-part ghost's time-sliced visual build (4ms/frame, slowest distance tier) left the
+        /// map orbit line missing for ~24s after a TS Fly vessel switch (2026-07-04 Duna playtest:
+        /// Kerbal X, 75 snapshot parts). The camera concern is deliberately NOT run here - there is
+        /// no mesh to follow yet.
+        /// </summary>
+        private void HandleGhostSpawnPending(GhostLifecycleEvent evt)
+        {
+            GhostMapPresence.HandleFlightGhostCreatedMapPresence(evt, engine.CurrentLoopUnits);
+        }
+
         private void HandleGhostCreated(GhostLifecycleEvent evt)
         {
             // Chain-seam auto-follow: if this is a chain-seam first-spawn AND the watched
@@ -1323,6 +1341,7 @@ namespace Parsek
         internal void Dispose()
         {
             engine.OnPlaybackCompleted -= HandlePlaybackCompleted;
+            engine.OnGhostSpawnPending -= HandleGhostSpawnPending;
             engine.OnGhostCreated -= HandleGhostCreated;
             engine.OnGhostDestroyed -= HandleGhostDestroyed;
             engine.OnLoopRestarted -= HandleLoopRestarted;
@@ -1330,7 +1349,7 @@ namespace Parsek
             engine.OnAllGhostsDestroying -= HandleAllGhostsDestroying;
             heldGhosts.Clear();
             GhostMapPresence.ClearFlightMapPresenceState();
-            ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 6 engine events");
+            ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 7 engine events");
         }
 
         /// <summary>

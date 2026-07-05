@@ -11,6 +11,17 @@
 > gameplay-completeness review. The detailed phased **migration plan is a separate follow-up doc**;
 > §16 is the outline.
 
+> **Cutover status (2026-07-04): EXECUTED.** The section-16 migration ran to completion (PR stack
+> #1208-#1226, then the post-sign-off flag flip `643affb0f` and the Phase 5a `b13c7dba4` / 5b
+> `1f9727fe3` deletes). The typed `PhaseChain` spine is the UNCONDITIONAL decision source (the
+> migration plan's transitional `MapRenderPhaseSpineDrive` flag was deleted at 5b); the legacy
+> line-visibility cascade and the `tracedPathByPid` side-channel are deleted; the descent retire and
+> the `rigid-seam-tangent-discontinuity` raise are live at the draw site. The per-phase as-built
+> record, including the two executed re-scopes (5a: fenced legacy fallback for undriven populations
+> plus the retained icon floor; 5b: the polyline Driver walk retained as the fenced single draw
+> host), is `docs/dev/plans/map-ts-render-overhaul-migration.md`. Statements below written in the
+> present tense about the pre-cutover pipeline carry dated notes where the cutover changed them.
+
 > **Template map** (per `development-workflow.md` §3): Problem = §1 · Terminology = §2 · Mental
 > Model = §3 · Scope = §4 · Data Model = §5–§7 · Behavior = §8 · Producers = §9 · SOI/moon-rich =
 > §10 · Edge Cases = §11 · What Doesn't Change = §12 · Backward Compatibility = §13 · Diagnostic
@@ -25,6 +36,9 @@ the **Tracking Station**, and (separately) the **flight 3D scene**. The map/TS r
 already rewritten once into a clean modular pipeline (`Parsek.MapRender`) and that rewrite is
 **design-complete and cut over** — it is NOT greenfield. But three structural problems remain, and
 they are what this design addresses:
+
+> (Cutover 2026-07-04: the three problems below describe the PRE-overhaul state, kept as the design
+> rationale; all three are resolved in the shipped architecture.)
 
 1. **The cutover is incomplete — ownership is data, not control.** A pure *decision* pipeline
    (`ShadowRenderDriver → ChainAssembler → ChainSampler → GhostRenderDirector → treatments`) decides
@@ -155,7 +169,7 @@ provenance. Adding a new phase or treatment becomes one new subclass, not a five
 | Area | Decision | Rationale |
 |---|---|---|
 | **Scenes** | **Map + Tracking Station only.** Flight 3D-mesh untouched; model designed flight-adoptable. | Map+TS already share the pure pipeline; flight is a different world (live GameObject in floating-origin space) whose geometry source (`.pann`) is unimplemented. |
-| **Cutover** | **Full collapse of OWNED surfaces.** TracedPath polyline + IMGUI markers + the 430-line line-visibility cascade become thin `scene.Apply(intent)` shims; delete `tracedPathByPid` + `drewNonOrbitalLegRecordings`. **StockConic stays permanently MANAGED**: keep `seedByPid` (re-homed as the re-assert channel) and `ghostsWithSuppressedIcon` (re-homed as the `SuppressedMarker` tier). | KSP re-propagates the stock icon at the live clock every FixedUpdate; the per-frame re-seed is structurally unavoidable. "Full collapse" applies to surfaces Parsek itself draws. |
+| **Cutover** | **Full collapse of OWNED surfaces.** TracedPath polyline + IMGUI markers + the 430-line line-visibility cascade become thin `scene.Apply(intent)` shims; delete `tracedPathByPid` + `drewNonOrbitalLegRecordings`. **StockConic stays permanently MANAGED**: keep `seedByPid` (re-homed as the re-assert channel) and `ghostsWithSuppressedIcon` (re-homed as the `SuppressedMarker` tier). (Cutover 2026-07-04: executed with one re-scope - `tracedPathByPid` was deleted at 5b, but `drewNonOrbitalLegRecordings` was RETAINED as the actual-draw ownership signal per the 8e S3b re-scope, and the autonomous Driver walk survives as the FENCED single draw host for populations the spine does not yet model.) | KSP re-propagates the stock icon at the live clock every FixedUpdate; the per-frame re-seed is structurally unavoidable. "Full collapse" applies to surfaces Parsek itself draws. |
 | **Phase model** | **Polymorphic `TrajectoryPhase` hierarchy.** Replaces the struct+enum+switch+predicates. **No object pooling in v1.** | Chains are cached by `BuildChainSignature` (not rebuilt per frame), so phase-object allocation is an amortized chain-build cost, not a frame-loop cost. Add pooling only if a profile shows chain churn. |
 | **Substrate** | **Out of scope.** Keep `Recording` / `TrackSection` / `OrbitSegment` / `TrajectoryPoint` as-is. | Their struct value-copy semantics are load-bearing for `RecordingOptimizer.SplitAtUT` and the Re-Fly `RecordingTreeSplitter` rollback. The phase layer reads them via a typed *view*; no retype needed. God-object split is a separate later effort. |
 | **Descent re-stitch** | **v1 BUILD.** First-class `Descent` phase + a **minimal cross-member seam-stitcher** for the G1 orbit↔landing join. Full `MissionComposite` is *defined* in the model; only the minimal stitcher is *built*. | Highest-value visible fix (every landing). The seam is cross-member; the minimal stitcher is the smallest owner that makes it buildable, absorbable by the future `MissionComposite`. |
@@ -391,6 +405,13 @@ The legacy `GhostOrbitLinePatch` Prefix/Postfix shrink to: (a) the StockConic ic
 and (b) nothing else — the ~430-line line-visibility cascade and the autonomous polyline Driver's
 ownership logic move into `DescentPhase`/`HeliocentricTransferPhase`/the director and are deleted.
 
+(Cutover 2026-07-04: done. The cascade was deleted at Phase 5a, keeping a fenced legacy fallback for
+populations the spine does not drive plus the retained icon floor; the ownership logic and the
+side-channel died at 5b. The Driver WALK itself was retained as the fenced single draw host for
+proto-less pid-0 recordings, Driver-direct StockConic bridge legs, the boundary-overlap secondary,
+and the forward legs/arcs/bridges; its deorbit clock is consumed through
+`CrossMemberSeamStitcher`.)
+
 ---
 
 ## 9. Producers — v1 build targets
@@ -415,7 +436,8 @@ It must absorb BOTH the existing clock logic AND add the geometry seam:
 - **Add the G1 continuity assertion on top:** a numerical **tangent match** — the capture orbit's
   velocity direction at SOI/atmosphere entry matched to the recorded descent's first-sample tangent —
   over one `PhaseSeam { Rigid, G1, OnCamera=true }`. A tangent discontinuity beyond tolerance raises
-  `rigid-seam-tangent-discontinuity`.
+  `rigid-seam-tangent-discontinuity`. (Cutover 2026-07-04: the raise is live at the owned descent
+  draw site, `Driver.EvaluateDescentSeamTangents`, tracing-gated, once-per-onset.)
 - It promotes the deorbit arc into a visible first-class phase (no longer hidden in the transfer member).
 - It is designed as a standalone owner that the full `MissionComposite` (§17) absorbs unchanged.
 
@@ -501,6 +523,8 @@ the others are sequenced by the span clock and the existing presence lifecycle.
   `InInteriorGap` hold. The retire trigger is recorded end-of-data / `TerminalKindClassifier`, not
   `WindowEndUT`. This closes the documented "sub-surface ghost not retiring" bug class. (See §12 for the
   preserved `IsTerminalStateEligibleForMapPresence` gate that keeps Destroyed/Recovered out of presence.)
+  (Cutover 2026-07-04: shipped and live at the pixels since the 5a/5b deletes; pinned by
+  `DescentEndToEndSpineInGameTest` and `DescentReStitchInGameTest`.)
 
 ### 11.2 Navigation, session & scene
 
@@ -775,6 +799,13 @@ plus an injected synthetic recording for end-to-end coverage (per the post-chang
 ## 16. Migration outline (the detailed plan is the next deliverable)
 
 High-level sequencing only — the full phased migration plan is the next document.
+
+> (Cutover 2026-07-04: this outline is EXECUTED. The detailed plan it promised was written and
+> carried out as `docs/dev/plans/map-ts-render-overhaul-migration.md`; see its per-phase
+> IMPLEMENTED notes for the as-built record, including the step-4 re-scope (the Driver walk was
+> retained as a fenced draw host; the cascade, ownership logic, and side-channel were deleted) and
+> the step-7 parity oracle, which landed with the cutover instruments and read 58 -> 0 false
+> positives across the tracing sign-off runs.)
 
 1. **Introduce Layer 0/2 types alongside the current pipeline** (no behavior change): `TrajectoryPhase`
    hierarchy, `SegmentProvenance`, `AnchorFrame`, `PhaseSeam` — built and unit-tested, not yet wired.

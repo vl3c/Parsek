@@ -397,4 +397,10 @@ namespace Parsek
         /// </summary>
         internal const bool MapRenderWarpEnabled = false;
     }
+
+    // Phase 5b (migration plan docs/dev/plans/map-ts-render-overhaul-migration.md section 7): the
+    // MapRenderFlags class and its spine-drive cutover const were REMOVED - the typed PhaseChain spine
+    // drives the map/TS render unconditionally. A grep-audit gate
+    // (scripts/grep-audit-map-render-phase-spine-drive.ps1) locks the deleted symbols out of
+    // Source/Parsek/; rollback is a revert of the 5b commit, never a runtime toggle.
 }
