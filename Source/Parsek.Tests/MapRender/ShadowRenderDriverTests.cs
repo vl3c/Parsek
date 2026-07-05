@@ -16,7 +16,11 @@ namespace Parsek.Tests
     /// What makes it fail: a re-aim / overlap member is shadowed (emitting reconciler noise the MVP
     /// must skip), or the composed pipeline routes a faithful ghost to the wrong treatment / fails to
     /// hold across a gap.
+    ///
+    /// Mutates ShadowRenderDriver static state (the per-pid caches / seams via DecideForGhost and the
+    /// test seams), so it runs in the Sequential collection.
     /// </summary>
+    [Collection("Sequential")]
     public class ShadowRenderDriverTests
     {
         // ---- ClassifyScope (per-member: heliocentric member skipped, faithful members shadowed) ----
@@ -323,14 +327,19 @@ namespace Parsek.Tests
         // ---- Source gate: RunFrame no longer DROPS an overlap member (the skip is lifted) ----
 
         private static string ReadShadowRenderDriverSource()
+            => ReadMapRenderSource("ShadowRenderDriver.cs");
+
+        // Read a Source/Parsek/MapRender/<fileName> file for a source-text gate. Shared by the spine-swap
+        // source gates that span the THREE spine files (ShadowRenderDriver + ChainSampler + GhostRenderDirector).
+        private static string ReadMapRenderSource(string fileName)
         {
             string root = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            string path = Path.Combine(root, "Source", "Parsek", "MapRender", "ShadowRenderDriver.cs");
+            string path = Path.Combine(root, "Source", "Parsek", "MapRender", fileName);
             if (!File.Exists(path))
             {
                 // Fallback layout (mirrors MapPresenceSeamTests): some checkouts root at Parsek/.
-                path = Path.Combine(root, "Parsek", "MapRender", "ShadowRenderDriver.cs");
+                path = Path.Combine(root, "Parsek", "MapRender", fileName);
             }
             Assert.True(File.Exists(path), $"Source file not found at {path}");
             return File.ReadAllText(path);
@@ -367,6 +376,48 @@ namespace Parsek.Tests
             return sb.ToString();
         }
 
+        // ---- Phase 5b: the cutover flag is GONE; the spine is unconditional ----
+        // The two old flag pins (const-defaults-on + seam-is-redundant) died with the flag; the
+        // repo-wide deletion lock is the grep-audit gate (GrepAuditMapRenderPhaseSpineDriveTests /
+        // scripts/grep-audit-map-render-phase-spine-drive.ps1) forbidding the deleted symbols under
+        // Source/Parsek/. The source gate below pins the post-5b RunFrame shape.
+
+        [Fact]
+        public void RunFrame_SpineUnconditional_AssemblerIsExceptionFallbackOnly_SourceGate()
+        {
+            // Phase 5b: the spine-select no longer reads a flag - the PhaseChain samples whenever the
+            // factory built one, and the assembler chain survives ONLY as the loud-warned exception
+            // fallback (phaseChain null = the factory threw). A regression that re-introduced a flag
+            // read into the selector, or deleted the fenced fallback, is caught here.
+            string normalized = CollapseWhitespace(StripLineComments(ReadShadowRenderDriverSource()));
+
+            Assert.Contains("if (phaseChain != null)", normalized);
+            Assert.Contains("ChainSampler.Sample(phaseChain, currentUT, units)", normalized);
+            // The fenced exception fallback: warn + assembler sample.
+            Assert.Contains("WarnSpineAssemblerFallback(pid, traj.RecordingId, currentUT);", normalized);
+            Assert.Contains("ChainSampler.Sample(chain, currentUT, units)", normalized);
+        }
+
+        // The swapped spine is THREE files (ShadowRenderDriver + ChainSampler + GhostRenderDirector); the
+        // deorbit-decoupling gate must scan ALL of them, not just the driver. A future edit that pulled the
+        // deorbit clock into the sampler or the director (e.g. a sampler that consumed the transfer-leg head
+        // UT) would re-introduce the Phase-3<->Phase-6 coupling this gate forbids, and these per-file
+        // assertions would FAIL. All three are currently clean.
+        [Theory]
+        [InlineData("ShadowRenderDriver.cs")]
+        [InlineData("ChainSampler.cs")]
+        [InlineData("GhostRenderDirector.cs")]
+        public void SwappedSpine_DoesNotConsumeDeorbitClock_SourceGate(string spineFile)
+        {
+            // The deorbit-head / captureShift clock is consumed only by the legacy polyline Driver + the
+            // span clock, NOT the swapped spine (no Phase-3<->Phase-6 coupling). Confirm each spine file
+            // never references those symbols, so Phase 3 parity does not hide a clock coupling.
+            string normalized = CollapseWhitespace(StripLineComments(ReadMapRenderSource(spineFile)));
+            Assert.DoesNotContain("ResolveTransferLegHeadUT", normalized);
+            Assert.DoesNotContain("deorbitHead", normalized);
+            Assert.DoesNotContain("captureShift", normalized);
+        }
+
         [Fact]
         public void RunFrame_DoesNotSkipOverlapMembers_SourceGate()
         {
@@ -388,5 +439,165 @@ namespace Parsek.Tests
             // increments WITHOUT a continue), proving the member flows into the normal pipeline.
             Assert.Contains("overlapShadowed++", normalized);
         }
+
+        // ---- Phase 4a: re-home the TracedPath owned-draw decision to the intent (flag-gated) ----
+
+        [Fact]
+        public void IsDirectorTracedPathActiveFromIntent_FreshIntentStamp_IsActive()
+        {
+            // The intent-sourced sibling honors the SAME +/-SeedFreshnessFrames freshness window the
+            // legacy side-channel uses, so the flag-ON owned-draw routing reads the same shape.
+            const uint pid = 4001u;
+            try
+            {
+                ShadowRenderDriver.SetTracedPathIntentStampForTesting(pid, intentFrame: 100);
+                Assert.True(ShadowRenderDriver.IsDirectorTracedPathActiveFromIntent(pid, 100));
+                Assert.True(ShadowRenderDriver.IsDirectorTracedPathActiveFromIntent(
+                    pid, 100 + ShadowRenderDriver.SeedFreshnessFrames));
+                // Beyond the freshness window: stale, not active.
+                Assert.False(ShadowRenderDriver.IsDirectorTracedPathActiveFromIntent(
+                    pid, 100 + ShadowRenderDriver.SeedFreshnessFrames + 1));
+                // A pid with no intent stamp is never active.
+                Assert.False(ShadowRenderDriver.IsDirectorTracedPathActiveFromIntent(pid + 1, 100));
+            }
+            finally
+            {
+                ShadowRenderDriver.Reset();
+            }
+        }
+
+        [Fact]
+        public void IsTracedPathOwnedThisFrame_CollapsedToIntentSource_FlagGone_SourceGate()
+        {
+            // Phase 5b (the flag-GONE pin): the selector is COLLAPSED onto the single intent source -
+            // the legacy else-branch (and the legacy side-channel it read) were deleted with the cutover
+            // flag. A regression that re-introduced a second source / a flag read into the selector is
+            // caught here; the repo-wide symbol lock is the grep-audit gate
+            // (GrepAuditMapRenderPhaseSpineDriveTests).
+            string normalized = CollapseWhitespace(StripLineComments(ReadShadowRenderDriverSource()));
+            Assert.Contains(
+                "internal static bool IsTracedPathOwnedThisFrame(uint pid, int currentFrame) "
+                + "{ return IsDirectorTracedPathActiveFromIntent(pid, currentFrame); }",
+                normalized);
+        }
+
+        [Fact]
+        public void IsTracedPathOwnedThisFrame_ReadsIntentSource_SingleStamp()
+        {
+            // Phase 5b: the owned-draw routing reads the single intent-sourced stamp. An intent stamp
+            // owns the leg; no stamp -> not owned. (The old legacy-only-stamp arm died with the
+            // side-channel.)
+            const uint pid = 4003u;
+            try
+            {
+                ShadowRenderDriver.SetTracedPathIntentStampForTesting(pid, intentFrame: 70);
+                Assert.True(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 70));
+
+                ShadowRenderDriver.SetTracedPathIntentStampForTesting(pid, intentFrame: -1);
+                Assert.False(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 70));
+            }
+            finally
+            {
+                ShadowRenderDriver.Reset();
+            }
+        }
+
+        [Fact]
+        public void RunFrame_StampsIntentUnconditionally_SourceGate()
+        {
+            // Phase 5b: the single intent stamp is written UNCONDITIONALLY on a visible TracedPath
+            // intent (every consumer reads it - the owned-draw routing, the proto/marker consumers,
+            // IsDirectorTracking). A regression that re-gated the stamp (a consumer would then read a
+            // missing signal) is caught here.
+            string normalized = CollapseWhitespace(StripLineComments(ReadShadowRenderDriverSource()));
+            Assert.Contains("tracedPathIntentByPid[pid] = UnityFrame();", normalized);
+        }
+
+        // ---- Phase 4b origin / 5b collapse: the IMGUI marker draw's TracedPath disjunct ----
+        // The marker-draw decision (GhostMapPresence.ShouldDrawNonProtoMarkerForGhost, routed by both
+        // the flight-map + TS marker call sites) composes THREE disjuncts; only the directorTracedPath
+        // one is something the spine's intent decides, and it reads the SAME shared selector the
+        // polyline Driver routes on (IsTracedPathOwnedThisFrame - single intent source since 5b), so the
+        // marker decision, the polyline owned-draw, and the proto/marker consumers can never desync. The
+        // other two disjuncts (polylineOwning actual-draw, iconSuppressed = the KEPT no-conic floor)
+        // have no intent equivalent and stay on their sources. These tests lock the SELECTOR the marker
+        // site reads; the Unity-coupled wrapper's static reads are covered by the in-game test (project
+        // rule: Unity-coupled -> in-game).
+
+        [Fact]
+        public void MarkerTracedPathDisjunct_TracksIntentSource_SingleStamp()
+        {
+            // The marker decision's TracedPath disjunct tracks the single intent-sourced stamp: an
+            // intent stamp makes the disjunct true; no stamp -> false.
+            const uint pid = 4102u;
+            try
+            {
+                ShadowRenderDriver.SetTracedPathIntentStampForTesting(pid, intentFrame: 90);
+                Assert.True(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 90));
+
+                ShadowRenderDriver.SetTracedPathIntentStampForTesting(pid, intentFrame: -1);
+                Assert.False(ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 90));
+            }
+            finally
+            {
+                ShadowRenderDriver.Reset();
+            }
+        }
+
+        [Fact]
+        public void MarkerTracedPathDisjunct_SharedSelector_DecisionConsistent()
+        {
+            // The no-desync proof for the marker site (Phase 5b single-source collapse): the marker's
+            // TracedPath disjunct and the proto-icon suppression in GhostOrbitLinePatch read the SAME
+            // selector over the SAME single stamp, so exactly one of {proto icon, our marker} draws -
+            // no double, no gap. Model the stamp and assert disjunct -> decision consistency.
+            const uint pid = 4103u;
+            try
+            {
+                ShadowRenderDriver.SetTracedPathIntentStampForTesting(pid, intentFrame: 210);
+
+                bool disjunct = ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, 210);
+                bool decision = GhostMapPresence.ResolveMarkerDrawDecision(
+                    directorTracedPathActive: disjunct, polylineOwning: false, iconSuppressedLegacy: false);
+
+                Assert.True(disjunct);
+                Assert.True(decision);
+            }
+            finally
+            {
+                ShadowRenderDriver.Reset();
+            }
+        }
+
+        [Fact]
+        public void MarkerSite_TracedPathDisjunct_ReadsSharedSelector_SourceGate()
+        {
+            // The marker-draw site (GhostMapPresence.ShouldDrawNonProtoMarkerForGhost) must resolve its
+            // directorTracedPathActive disjunct through the shared selector IsTracedPathOwnedThisFrame
+            // (the same source the polyline Driver + the proto icon/line suppress patches route on). A
+            // regression that re-introduced a second source at the marker site is caught here.
+            string normalized = CollapseWhitespace(StripLineComments(ReadGhostMapPresenceSource()));
+
+            // The disjunct is assigned from the shared selector.
+            Assert.Contains(
+                "directorTracedPathActive = Parsek.MapRender.ShadowRenderDriver.IsTracedPathOwnedThisFrame(",
+                normalized);
+        }
+
+        // Read Source/Parsek/<fileName> for a source-text gate (a top-level source file, NOT under
+        // MapRender/). Mirrors ReadMapRenderSource's root resolution + the Parsek/-rooted fallback.
+        private static string ReadParsekSource(string fileName)
+        {
+            string root = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string path = Path.Combine(root, "Source", "Parsek", fileName);
+            if (!File.Exists(path))
+                path = Path.Combine(root, "Parsek", fileName);
+            Assert.True(File.Exists(path), $"Source file not found at {path}");
+            return File.ReadAllText(path);
+        }
+
+        private static string ReadGhostMapPresenceSource()
+            => ReadParsekSource("GhostMapPresence.cs");
     }
 }

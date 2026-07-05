@@ -177,6 +177,7 @@ namespace Parsek
         // Deferred event lists (reused per frame to avoid GC allocation)
         private readonly List<PlaybackCompletedEvent> deferredCompletedEvents = new List<PlaybackCompletedEvent>();
         private readonly List<GhostLifecycleEvent> deferredCreatedEvents = new List<GhostLifecycleEvent>();
+        private readonly List<GhostLifecycleEvent> deferredSpawnPendingEvents = new List<GhostLifecycleEvent>();
 
         // Dedup: prevent completed events from firing every frame for past-end recordings.
         // Rewind safety: DestroyAllGhosts() clears this set, and rewind always calls
@@ -213,6 +214,25 @@ namespace Parsek
         #endregion
 
         #region Lifecycle events
+
+        /// <summary>
+        /// Fired when a PRIMARY ghost playback state REGISTERS in <c>ghostStates</c> (pending spawn
+        /// seeded, build not Failed), BEFORE the time-sliced mesh build completes.
+        /// <see cref="OnGhostCreated"/> keeps firing at spawn FINALIZE (mesh ready) for the
+        /// mesh-dependent concerns (camera auto-follow); this earlier signal exists for
+        /// mesh-INDEPENDENT consumers - the flight map presence (ProtoVessel + orbit line) used to
+        /// ride OnGhostCreated, so a far-distance-tier multi-part ghost's ~4ms/frame split build
+        /// left its map orbit line missing for tens of seconds after a vessel switch (2026-07-04
+        /// Duna playtest: 24s for a 75-part ghost). Same mid-update deferral contract as
+        /// OnGhostCreated (fired from the frame tail, pending before created). Caveat: on the
+        /// force-immediate direct-spawn path invoked OUTSIDE UpdatePlayback (in-game tests), the
+        /// build finalizes synchronously, so created fires before this event - both converge on
+        /// the idempotent map-presence body, so order only matters for the deferred path. NOT fired for
+        /// demoted boundary-overlap secondaries (no lifecycle side effects by design) and NOT
+        /// fired when the visual build fails at the registration site (state is removed again;
+        /// behavior matches the old no-GhostCreated outcome).
+        /// </summary>
+        internal event Action<GhostLifecycleEvent> OnGhostSpawnPending;
 
         internal event Action<GhostLifecycleEvent> OnGhostCreated;
         internal event Action<GhostLifecycleEvent> OnGhostDestroyed;
@@ -1535,6 +1555,11 @@ namespace Parsek
         {
             createdEventsFired = deferredCreatedEvents.Count;
             deferredCreatedStopwatch.Start();
+            // Spawn-pending fires BEFORE created (pending precedes finalize semantically, even for
+            // a same-frame immediate build). Shares the created stopwatch so the #414 budget
+            // breakdown keeps accounting for the map-presence enqueue without a new phase field.
+            for (int i = 0; i < deferredSpawnPendingEvents.Count; i++)
+                OnGhostSpawnPending?.Invoke(deferredSpawnPendingEvents[i]);
             for (int i = 0; i < deferredCreatedEvents.Count; i++)
                 OnGhostCreated?.Invoke(deferredCreatedEvents[i]);
             deferredCreatedStopwatch.Stop();
@@ -1644,6 +1669,7 @@ namespace Parsek
 
             deferredCompletedEvents.Clear();
             deferredCreatedEvents.Clear();
+            deferredSpawnPendingEvents.Clear();
             frameSpawnCount = 0;
             frameDestroyCount = 0;
             frameSpawnDeferred = 0;
@@ -2113,6 +2139,7 @@ namespace Parsek
                 ghostActive = false;
                 return FirstSpawnOutcome.ReturnFalse;
             }
+            QueueOrEmitGhostSpawnPending(i, traj, state, f);
             if (firstSpawnStatus == GhostVisualLoadStatus.Pending)
             {
                 ghostActive = false;
@@ -3849,6 +3876,7 @@ namespace Parsek
                     ghostStates.Remove(index);
                     return;
                 }
+                QueueOrEmitGhostSpawnPending(index, traj, state, flags);
                 if (loopSpawnStatus == GhostVisualLoadStatus.Pending)
                 {
                     ghostActive = false;
@@ -4078,6 +4106,7 @@ namespace Parsek
                             $"Overlap: SpawnGhost failed for #{index} cycle={lastCycle}");
                         return;
                     }
+                    QueueOrEmitGhostSpawnPending(index, traj, primaryState, flags);
                     primaryAdvanceDeferredThisFrame =
                         overlapPrimarySpawnStatus == GhostVisualLoadStatus.Pending;
                 }
@@ -6504,6 +6533,8 @@ namespace Parsek
                 forceImmediateBuild: true, resetCompletedEventDedup: true);
             if (status == GhostVisualLoadStatus.Failed)
                 ghostStates.Remove(index);
+            else
+                QueueOrEmitGhostSpawnPending(index, traj, state, default(TrajectoryPlaybackFlags));
         }
 
         /// <summary>
@@ -6593,6 +6624,37 @@ namespace Parsek
                 FormattableString.Invariant(
                     $"vessel={traj?.VesselName ?? state?.vesselName ?? "Unknown"} reason={reason ?? "lifecycle"}"),
                 important: true);
+        }
+
+        /// <summary>
+        /// Early spawn signal: queue/emit <see cref="OnGhostSpawnPending"/> the moment a PRIMARY
+        /// pending-spawn state registers (call sites sit AFTER the Failed-status check so a
+        /// failed-and-removed registration never notifies, matching the old no-GhostCreated
+        /// outcome). Same mid-update deferral as <see cref="QueueOrEmitGhostCreated"/>; no mesh
+        /// trace here (the mesh does not exist yet - MeshSpawned stays with the created funnel).
+        /// </summary>
+        private void QueueOrEmitGhostSpawnPending(
+            int index, IPlaybackTrajectory traj, GhostPlaybackState state, TrajectoryPlaybackFlags flags)
+        {
+            if (OnGhostSpawnPending == null)
+                return;
+
+            ParsekLog.VerboseRateLimited("Engine", $"spawn-pending-{index}",
+                $"Ghost #{index} \"{state?.vesselName}\" spawn-pending notify " +
+                "(state registered; mesh build may still be time-sliced)", 2.0);
+
+            var evt = new GhostLifecycleEvent
+            {
+                Index = index,
+                Trajectory = traj,
+                State = state,
+                Flags = flags
+            };
+
+            if (updateStopwatch.IsRunning)
+                deferredSpawnPendingEvents.Add(evt);
+            else
+                OnGhostSpawnPending(evt);
         }
 
         private void QueueOrEmitGhostCreated(

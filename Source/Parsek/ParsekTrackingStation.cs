@@ -261,11 +261,12 @@ namespace Parsek
             // the cached field. The OnGUI pass never rebuilds.
             DriveMissionLoopUnits(RecordingStore.CommittedRecordings);
 
-            // Phase 7a decision-only shadow: run the new map-render pipeline over the TS map ghosts and
-            // reconcile each intent against the OLD path's truth via MapRenderProbe. Writes NOTHING to
-            // the stock surfaces. Gated on the off-by-default mapRenderTracing setting; try/catch so a
-            // diagnostic bug can never break the TS update. Runs every Update tick (cachedLoopUnits is
-            // fresh) before the rate-limited lifecycle pass.
+            // The map-render spine pass over the TS map ghosts. NOT tracing-gated and NOT diagnostic
+            // (the pre-cutover comment said "gated on mapRenderTracing" - false since the 8e S4 /
+            // Phase-3 cutover): RunFrame's intent stamp is the SOLE TracedPath ownership signal and its
+            // StockConic seed is what the icon-drive bakes, so this call IS the render drive.
+            // try/catch so a spine bug can never break the TS update. Runs every Update tick
+            // (cachedLoopUnits is fresh) before the rate-limited lifecycle pass.
             if (MapRender.ShadowRenderDriver.Enabled)
             {
                 try
@@ -575,12 +576,27 @@ namespace Parsek
                 // head can pin off the gap-filled below-surface chord or bracket-miss (the icon vanishing / not
                 // following the descent down - the symptom this fixes), so for descent-set members try the ride
                 // first; only fall through to the unchanged body-fixed-first chain when the leg has not drawn
-                // this frame. Gated to descent-set members (IsDescentTriggerMember) so every other marker keeps
-                // body-fixed-first ordering, byte-identical. Overlap descent members never reach here (the
-                // per-instance overlap branch above already rides + continues), so this is the non-overlap gap.
+                // this frame. Overlap descent members never reach here (the per-instance overlap branch above
+                // already rides + continues), so this is the non-overlap gap.
+                //
+                // GENERALIZED to every polyline-OWNED phase (2026-07-03 Duna One escape-burn icon offset,
+                // aligning TS with the flight map's ordering - ParsekUI.DrawMapMarkers rides FIRST whenever
+                // the polyline owns the phase): a CONIC-ANCHORED leg (TryAnchorLegToConicSeam) is drawn
+                // ROTATED off the raw body-fixed track (the live burn leg drew at rotAngle=1.7deg, ~27km),
+                // so the body-fixed-first resolve painted the marker OFF the visible line while the proto
+                // icon was suppressed - the ghost's only indicator sat away from its own trajectory. Riding
+                // first fixes the anchored case; for NON-anchored owned legs the ridden position lies on
+                // the same per-frame drawn body-fixed points the resolve computes (visually identical -
+                // a chord point ON the drawn line rather than the independent body-fixed re-resolve). The
+                // ride self-gates on the leg having drawn this frame OR TryAnchorMarkerToPolyline's brief
+                // bounded HeldLastGood hold (a recently-drawn leg's last on-line position, <=8 frames /
+                // 5 s of head UT - the same hold the flight map and the descent ride already use), so
+                // un-owned / never-recently-drawn phases keep the body-fixed-first chain byte-identically.
                 bool isDescentSetMember =
                     Parsek.Display.GhostTrajectoryPolylineRenderer.IsDescentTriggerMember(i, loopUnits);
-                if (isDescentSetMember
+                bool polylineOwnsMarkerPhase =
+                    Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(rec.RecordingId);
+                if ((isDescentSetMember || polylineOwnsMarkerPhase)
                     && Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
                         rec.RecordingId, effUT, out Vector3 descentRiddenPos))
                 {
@@ -654,11 +670,20 @@ namespace Parsek
                 EmitMarkerDecision(MapRenderTrace.MarkerOutcome.DrawnNonProto,
                     decisionEffUT: effUT);
 
+                // A ridden marker never resolved a body-fixed sample, so sampledPoint is default - label
+                // the position source instead of printing misleading lat=0.00 lon=0.00 alt=0 fields.
+                // InvariantCulture on the numeric fields (house hard rule: comma-locale systems otherwise
+                // produce broken lat/lon/alt output).
                 ParsekLog.VerboseRateLimited(Tag, $"atmosMarker-{i}",
-                    $"Drawing atmospheric marker #{i} \"{rec.VesselName}\" " +
-                    $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
-                    $"lat={sampledPoint.latitude:F2} lon={sampledPoint.longitude:F2} alt={sampledPoint.altitude:F0} " +
-                    $"rodePolyline={rodePolyline}");
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Drawing atmospheric marker #{0} \"{1}\" terminal={2} {3}rodePolyline={4}",
+                        i, rec.VesselName, rec.TerminalStateValue?.ToString() ?? "null",
+                        rodePolyline
+                            ? "pos=on-line(ridden) "
+                            : string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "lat={0:F2} lon={1:F2} alt={2:F0} ",
+                                sampledPoint.latitude, sampledPoint.longitude, sampledPoint.altitude),
+                        rodePolyline));
 
                 // MapRenderTrace IMGUI surface coverage (AtmosphericMarker). Decision-only: this
                 // marker draws here in OnGUI, so the position IS the truth (no end-of-frame
@@ -668,9 +693,14 @@ namespace Parsek
                         MapRenderTrace.RenderSurface.AtmosphericMarker, rec.RecordingId,
                         Planetarium.GetUniversalTime(),
                         string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "vessel={0} worldPos={1} lat={2:F2} lon={3:F2} alt={4:F0} terminal={5}",
-                            rec.VesselName, worldPos, sampledPoint.latitude, sampledPoint.longitude,
-                            sampledPoint.altitude, rec.TerminalStateValue?.ToString() ?? "null"));
+                            "vessel={0} worldPos={1} {2} terminal={3}",
+                            rec.VesselName, worldPos,
+                            rodePolyline
+                                ? "pos=on-line(ridden)"
+                                : string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                    "lat={0:F2} lon={1:F2} alt={2:F0}",
+                                    sampledPoint.latitude, sampledPoint.longitude, sampledPoint.altitude),
+                            rec.TerminalStateValue?.ToString() ?? "null"));
             }
 
             LogAtmosphericMarkerSummary(summary);
@@ -803,10 +833,12 @@ namespace Parsek
             HashSet<string> suppressedIds)
         {
             // A ProtoVessel exists but its icon may be suppressed (below atmosphere).
-            // When suppressed, the atmospheric marker should still draw.
+            // When suppressed, the atmospheric marker should still draw. The pid is hoisted so the
+            // OrbitSegmentActive veto below can consult the SAME ghost's live icon-suppressed state.
+            uint ghostPid = 0;
             if (GhostMapPresence.HasGhostVesselForRecording(recordingIndex))
             {
-                uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(recordingIndex);
+                ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(recordingIndex);
                 // The native proto icon is NOT visible when the marker-draw decision
                 // (GhostMapPresence.ShouldDrawNonProtoMarkerForGhost, Phase 8c - the SAME
                 // source the flight-map DrawMapMarkers uses) says draw our marker: gate ON
@@ -833,13 +865,39 @@ namespace Parsek
             // the SOLE position indicator. Without the bypass, a recorded conic covering the current
             // UT - including a BELOW-SURFACE one that draws no arc, or short mid-burn fragments under
             // an owned leg - silently vetoed the marker and the icon vanished on the landing chord
-            // and on the escape-burn leg. When the polyline does NOT own the phase the veto keeps its
-            // original job: no duplicate marker next to a live proto orbit icon.
-            if (rec.HasOrbitSegments
-                && !Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(rec.RecordingId)
-                && TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT).HasValue)
+            // and on the escape-burn leg. ALSO bypassed while the ghost's proto icon is SUPPRESSED
+            // (the chain member-handoff blank, 2026-07-03 Duna One): at a member boundary the effUT
+            // jumps to the next member's clock, whose covering conic re-arms this veto a few frames
+            // BEFORE the icon-drive un-suppresses the proto icon (its arc window / coalesce updates on
+            // its own pass) - the veto presumed an icon that was still hidden, so NEITHER the icon nor
+            // the marker drew (~28 blank frames on the escape-burn -> hyperbola handoff). A suppressed
+            // icon cannot produce the duplicate this veto exists to prevent, so it must never fire
+            // then. When the polyline does not own the phase AND the icon is live, the veto keeps its
+            // original job: no duplicate marker next to a live proto orbit icon. Decision is the pure
+            // ShouldVetoMarkerForActiveOrbitSegment (xUnit truth table).
+            if (ShouldVetoMarkerForActiveOrbitSegment(
+                    hasCoveringOrbitSegment: rec.HasOrbitSegments
+                        && TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, currentUT).HasValue,
+                    polylineOwnsPhase: Parsek.Display.GhostTrajectoryPolylineRenderer
+                        .IsRenderingNonOrbitalLeg(rec.RecordingId),
+                    iconSuppressed: ghostPid != 0 && GhostMapPresence.IsIconSuppressed(ghostPid)))
                 return AtmosphericMarkerSkipReason.OrbitSegmentActive;
             return AtmosphericMarkerSkipReason.None;
+        }
+
+        /// <summary>
+        /// Pure core of the OrbitSegmentActive marker veto: the veto's ONLY job is preventing a
+        /// duplicate marker NEXT TO a live proto orbit icon, so it fires only when a recorded conic
+        /// covers the current UT AND the proto icon can actually represent the ghost - i.e. the
+        /// polyline does NOT own the phase (ownership hides the icon) AND the icon is NOT suppressed
+        /// (a suppressed icon draws nothing; vetoing the marker then leaves the ghost BLANK - the
+        /// member-handoff gap where the next member's conic covers the new effUT a few frames before
+        /// the icon-drive un-suppresses). internal + pure for the xUnit truth table.
+        /// </summary>
+        internal static bool ShouldVetoMarkerForActiveOrbitSegment(
+            bool hasCoveringOrbitSegment, bool polylineOwnsPhase, bool iconSuppressed)
+        {
+            return hasCoveringOrbitSegment && !polylineOwnsPhase && !iconSuppressed;
         }
 
         void OnDestroy()

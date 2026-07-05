@@ -17,6 +17,22 @@ namespace Parsek.MapRender
     /// divergence is the bug class the rewrite exists to surface: it means the new single-owner
     /// Director would have rendered something different from today's path.</para>
     ///
+    /// <para><b>Phase 8 (migration plan §10): the LIVE intent-vs-old-truth comparator is UNWIRED.</b>
+    /// Through Phases 0-7 the end-of-frame <see cref="MapRenderProbe"/> called
+    /// <see cref="CheckIntentAgainstOldTruth"/> to compare the new spine's intent against the OLD path's
+    /// rendered truth. Once the spine drives the render (Phases 3-7), that OLD truth IS the spine's own
+    /// consequence, so the comparison became CIRCULAR / self-confirming. The Phase-0 recorded-vs-rendered
+    /// <c>RenderParityOracle</c> (a DISTINCT axis that coexisted since Phase 0) is now the SOLE acceptance
+    /// oracle, so the probe call site was removed (a <c>scripts/grep-audit-render-reconciler-unwired.ps1</c>
+    /// gate enforces zero LIVE <see cref="CheckIntentAgainstOldTruth"/> call sites under <c>Source/Parsek/</c>).
+    /// This is an UNWIRING, not a rename/promote: the type, the pure predicates, and
+    /// <see cref="CheckIntentAgainstOldTruth"/> itself are KEPT and stay exercised by
+    /// <c>GhostRenderReconcilerTests</c>; only the production call site is gone.
+    /// Phase 5b removed the production <see cref="NoteIntent"/> write from the driver (the store had NO
+    /// production reader once the comparator retired); the method itself stays as the tests' producer
+    /// seam, and a source gate (PolylineDriverWalkDeleteGateTests) keeps the driver from repopulating
+    /// the store.</para>
+    ///
     /// <para>The compare predicates are PURE (primitive-only, Unity-ECall-free) so they are unit
     /// testable; only <see cref="NoteIntent"/> / <see cref="CheckIntentAgainstOldTruth"/> touch the
     /// gated <see cref="MapRenderTrace"/> store/sink. The three new anomaly classes (design §6.8):
@@ -46,7 +62,8 @@ namespace Parsek.MapRender
 
         /// <summary>Record the new pipeline's intent for a ghost this frame (shadow producer side).
         /// Delegates to the gated <see cref="MapRenderTrace"/> store, frame-stamped. No-op when the
-        /// map-render tracing setting is off.</summary>
+        /// map-render tracing setting is off. NO production caller since Phase 5b (the driver's write
+        /// was removed); kept as the unit tests' producer seam.</summary>
         internal static void NoteIntent(uint pid, GhostRenderIntent intent)
         {
             MapRenderTrace.RecordRenderIntent(pid, intent.Visible, TreatmentToken(intent.Treatment), intent.DriveUT);
@@ -190,8 +207,10 @@ namespace Parsek.MapRender
         }
 
         /// <summary>
-        /// Wiring (called by the end-of-frame <see cref="MapRenderProbe"/>): if a fresh new-pipeline
-        /// intent was recorded for <paramref name="pid"/> THIS frame (decision-only shadow producer),
+        /// <b>Phase 8: NO LONGER CALLED FROM PRODUCTION (the live probe call site was unwired - see the
+        /// type-level note). KEPT and exercised by <c>GhostRenderReconcilerTests</c>.</b>
+        /// Wiring (historically called by the end-of-frame <see cref="MapRenderProbe"/>): if a fresh
+        /// new-pipeline intent was recorded for <paramref name="pid"/> THIS frame (decision-only shadow producer),
         /// reconcile it against the old path's rendered truth and emit the matching anomaly. A
         /// visibility mismatch is the <c>gap-vs-retire</c> class; otherwise a treatment mismatch is
         /// the <c>decision-vs-old-truth</c> class. No fresh intent → no-op (nothing recorded the

@@ -684,8 +684,9 @@ namespace Parsek.Tests
         public void TryGetFreshLineIntent_OneFrameLater_ReturnsFalse()
         {
             // freshness=0: intent recorded at frame 100 is reconciled only on frame 100. The next
-            // frame is stale - a grace-defer branch may have legitimately changed the rendered state
-            // without re-recording intent - so it is dropped rather than producing a false mismatch.
+            // frame is stale - a branch that does not re-record intent (e.g. the missing-line
+            // early-return) may have legitimately changed the rendered state without a new
+            // LogOrbitLineDecision - so it is dropped rather than producing a false mismatch.
             MapRenderTrace.ForceEnabledForTesting = true;
             MapRenderTrace.FrameCounterOverrideForTesting = () => 100;
             MapRenderTrace.RecordLineIntent(7u, false, "NONE", "polyline-owns-phase");
@@ -782,6 +783,74 @@ namespace Parsek.Tests
             MapRenderTrace.EmitMarker(
                 MapRenderTrace.RenderSurface.AtmosphericMarker, "rec-marker-disabled", 100.0, "vessel=X");
             Assert.Empty(logLines);
+        }
+
+        // ---- Phase 2: factory-parity Tier-C anomaly emit ----
+
+        [Fact]
+        public void EmitFactoryParity_Enabled_EmitsAnomalyWithReasonAndDivergingField()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            MapRenderTrace.EmitFactoryParity(
+                "rec-factory", 1234.0, "diverging=Treatment seg=1 countMismatch=False");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[MapRenderTrace]")
+                && l.Contains("phase=Anomaly")
+                && l.Contains("reason=factory-parity")
+                && l.Contains("pid=rec-factory")
+                && l.Contains("recId=rec-factory")
+                && l.Contains("diverging=Treatment"));
+        }
+
+        [Fact]
+        public void EmitFactoryParity_Disabled_NoOp()
+        {
+            MapRenderTrace.ForceEnabledForTesting = false;
+            MapRenderTrace.EmitFactoryParity("rec-factory-off", 100.0, "diverging=EndUt seg=0");
+            Assert.Empty(logLines);
+        }
+
+        [Fact]
+        public void EmitFactoryParity_OncePerEvent_SameSignatureSuppressed_ChangedSignatureReEmits()
+        {
+            // The once-per-event signature dedup (mirrors the FailClosedClassifierTests signature-dict
+            // tests): two back-to-back emits with the SAME diverging-field signature collapse to ONE
+            // line (a per-frame shadow loop on a steady divergence cannot flood), while a CHANGED
+            // signature (a different diverging field) re-emits - it is a new event, not spam.
+            MapRenderTrace.ForceEnabledForTesting = true;
+            Assert.Equal(0, MapRenderTrace.FactoryParitySignatureCountForTesting);
+
+            MapRenderTrace.EmitFactoryParity("rec-sig", 100.0, "diverging=StartUt seg=0");
+            MapRenderTrace.EmitFactoryParity("rec-sig", 100.0, "diverging=StartUt seg=0");
+            Assert.Equal(1, MapRenderTrace.FactoryParitySignatureCountForTesting);
+            Assert.Equal(1, logLines.Count(l =>
+                l.Contains("reason=factory-parity") && l.Contains("pid=rec-sig")));
+
+            MapRenderTrace.EmitFactoryParity("rec-sig", 101.0, "diverging=EndUt seg=1");
+            Assert.Equal(2, logLines.Count(l =>
+                l.Contains("reason=factory-parity") && l.Contains("pid=rec-sig")));
+        }
+
+        [Fact]
+        public void EmitFactoryParity_MismatchLandsWithVerboseLoggingDisabled()
+        {
+            // THE S4 REGRESSION GUARD: the factory byte-parity mismatch is a flag-flip gate signal and
+            // must land at Info level (via EmitAnomaly) even when the user's verboseLogging setting is
+            // OFF. The old ParsekLog.VerboseRateLimited routing early-returned on !IsVerboseEnabled and
+            // silently swallowed the mismatch while tracing was on.
+            MapRenderTrace.ForceEnabledForTesting = true;
+            ParsekLog.VerboseOverrideForTesting = false; // verbose logging OFF (the swallowed case)
+
+            MapRenderTrace.EmitFactoryParity("rec-noverbose", 100.0, "diverging=Treatment seg=2");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[MapRenderTrace]")
+                && l.Contains("phase=Anomaly")
+                && l.Contains("reason=factory-parity")
+                && l.Contains("pid=rec-noverbose")
+                && l.Contains("diverging=Treatment"));
         }
 
         // ---- GAP-2: first-class Polyline-surface trace at the shared Driver's per-leg draw site ----
