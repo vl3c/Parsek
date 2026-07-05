@@ -4,6 +4,12 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.10.3
+
+### Features
+
+- A supply route held because another route reserved a shared depot's cargo for its own in-flight cycle now says so in the Logistics window, naming the reserving route, instead of wrongly claiming the depot is out of that resource.
+
 ## 0.10.2
 
 ### Fixes
@@ -11,7 +17,6 @@ All notable changes to Parsek are documented here.
 - Fixed a career freeze on the first climb to space (and sometimes during a Kerbin landing): KSP's repeatable world-record achievements (altitude, speed, distance) fire continuously while climbing, and Parsek was recording every single one as a separate entry and recomputing the whole career each time, which ground the game to a halt. World-record rewards are now tracked once per record type, so the climb stays smooth.
 - Re-aimed interplanetary transfers no longer render the heliocentric leg tilted out of plane: a re-flown Kerbin to Duna transfer now lies in Duna's orbital plane instead of climbing several degrees "upwards", and an inclined target is never wrongly flattened toward the ecliptic.
 - Discarding a flight recording no longer corrupts contracts: a contract you completed live during that flight now stays completed (and its science and world-record milestones stay credited) instead of reappearing in the in-progress tab as a still-open, re-completable duplicate. Discarding a recording drops only the saved ghost, never the career progress you actually earned.
-- A supply route held because another route reserved a shared depot's cargo for its own in-flight cycle now says so in the Logistics window, naming the reserving route, instead of wrongly claiming the depot is out of that resource.
 - The tracking station ghost icon now stays on its drawn trajectory during engine-burn segments (for example the escape burn out of Kerbin orbit): it previously drew on the unrotated recorded track, visibly off the line, whenever the burn leg was rotated to connect its surrounding orbits.
 - Tracking station ghosts no longer blink out entirely for a moment when a multi-part mission hands off between its recorded segments: the fallback icon keeps drawing until the orbit icon actually takes over.
 - Looped landing-mission ghosts now retire cleanly at touchdown on the map and tracking station: the descent ghost stops at the end of its recorded descent instead of gliding on below the planet surface.
@@ -25,6 +30,7 @@ All notable changes to Parsek are documented here.
 - Code-health refactor pass over the systems added since the last structural cleanup, with no behavior change: several large methods were split into well-named same-file helpers (the supply-route builder, the mission loop-unit builder, the map render-session rebuild, mission scheduling and structure building, route source revalidation and harvest analysis, the relative-anchor resolver, terminal-orbit spawn safety, and the pannotations / FX sidecar codecs). Pure restructuring, verified byte-for-byte behavior-neutral by the existing test suites; no gameplay, save-format, or log change.
 - De-duplicated repeated blocks across the route and settings code (settings persistence, switch-segment refusal logging, route-codec field loaders, and recovered-credit sums) into single shared helpers. No behavior change.
 - Introduced two shared owners to remove copy-pasted code: a route-id log-shortening helper used across the logistics route files, and a shared ConfigNode codec for route endpoints and connection kinds used by both the route and route-proof serializers (the on-disk byte and field order is unchanged). No behavior or save-format change.
+- Log hygiene: the ghost map-polyline build and below-surface-exclusion diagnostic lines are now rate-limited per recording, so an active descent no longer repeats them at frame rate in the log.
 
 ## 0.10.1
 
