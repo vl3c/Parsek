@@ -4,11 +4,17 @@ All notable changes to Parsek are documented here.
 
 ---
 
-## 0.10.2
+## 0.10.3
 
 ### Features
 
 - Supply routes now work between planets: delivery follows the transfer windows the ghost flies, and the cadence setting delivers every Nth window.
+
+### Internals & Tests
+
+- Loop-unit API hardening on the Missions-to-Logistics seam, with no behavior change: supply routes now cache their built loop unit (rebuilt only when an input actually changes, instead of re-running the full builder pipeline every orchestrator tick and countdown call), the fire-once dock-crossing detection is centralized in one shared emitter, and the loop cycle index carries an explicit flat-vs-scheduled type so consumers cannot misread one as the other. Route firing, replay keys, escrow, and ledger rows are unchanged.
+
+## 0.10.2
 
 ### Fixes
 
@@ -22,13 +28,13 @@ All notable changes to Parsek are documented here.
 
 ### Internals & Tests
 
-- Loop-unit API hardening on the Missions-to-Logistics seam, with no behavior change: supply routes now cache their built loop unit (rebuilt only when an input actually changes, instead of re-running the full builder pipeline every orchestrator tick and countdown call), the fire-once dock-crossing detection is centralized in one shared emitter, and the loop cycle index carries an explicit flat-vs-scheduled type so consumers cannot misread one as the other. Route firing, replay keys, escrow, and ledger rows are unchanged.
 - Map render cutover cleanup (phase 5a): the old per-frame orbit-line show/hide decision code was removed now that the new render pipeline makes those decisions, so a driven ghost's map line, icon, and visibility come from one source. Below-atmosphere, end-of-recording, and declined re-aim ghosts keep their existing behavior, and a source gate keeps the removed code from growing back.
 - Map render cutover cleanup (phase 5b): the cutover flag and the legacy per-ghost draw-signal side-channel were removed, so the new render pipeline decides unconditionally from one signal; the polyline draw host is kept as a documented fallback for the populations the pipeline does not yet model, its descent clock now comes from the phase-6 seam stitcher, a descent seam-kink diagnostic went live at the draw site, and grep gates lock every deletion.
 - Map render review wave 4 (post-cutover batch from the full-stack review): diagnostics-label fixes (predicted recorded orbit tails no longer mislabeled as synthesized transfers; the moon-tour payload is scoped to the toured planet's SOI; clearer trace-skip labels), a per-frame allocation removed from the now-hot sampler path, test hardening (on-change dedup predicates asserted directly, a headless twin for the warp-gap test, honesty relabels on two identity-only checks), and assorted dead-code and stale-comment cleanups. No render behavior change.
 - Code-health refactor pass over the systems added since the last structural cleanup, with no behavior change: several large methods were split into well-named same-file helpers (the supply-route builder, the mission loop-unit builder, the map render-session rebuild, mission scheduling and structure building, route source revalidation and harvest analysis, the relative-anchor resolver, terminal-orbit spawn safety, and the pannotations / FX sidecar codecs). Pure restructuring, verified byte-for-byte behavior-neutral by the existing test suites; no gameplay, save-format, or log change.
 - De-duplicated repeated blocks across the route and settings code (settings persistence, switch-segment refusal logging, route-codec field loaders, and recovered-credit sums) into single shared helpers. No behavior change.
 - Introduced two shared owners to remove copy-pasted code: a route-id log-shortening helper used across the logistics route files, and a shared ConfigNode codec for route endpoints and connection kinds used by both the route and route-proof serializers (the on-disk byte and field order is unchanged). No behavior or save-format change.
+- Log hygiene: the ghost map-polyline build and below-surface-exclusion diagnostic lines are now rate-limited per recording, so an active descent no longer repeats them at frame rate in the log.
 
 ## 0.10.1
 
