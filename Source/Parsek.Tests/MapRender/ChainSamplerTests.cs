@@ -32,7 +32,7 @@ namespace Parsek.Tests
         [Fact]
         public void NullChain_IsOutside()
         {
-            Assert.Equal(Coverage.OutsideWindow, ChainSampler.Sample(null, 105, NonLooped).Coverage);
+            Assert.Equal(Coverage.OutsideWindow, ChainSampler.Sample((GhostRenderChain)null, 105, NonLooped).Coverage);
         }
 
         [Fact]
@@ -135,6 +135,72 @@ namespace Parsek.Tests
             Assert.Equal(expected, s.DriveUT, 6);
         }
 
+        // ---- Phase 3: the PhaseChain overload routes coverage the same way (HoldPhase -> gap) ----
+
+        // A minimal PhaseChain whose single ConicPhase covers [100,110] and an interior gap [110,120]
+        // before a second ConicPhase [120,130], built from real phases (so Emit projects geometry).
+        private static PhaseChain PhaseChainTwoConics()
+        {
+            var anchor = new Parsek.MapRender.AnchorFrame.BodyAnchor("Kerbin");
+            var p0 = new DepartureLoiterPhase(
+                new PhaseId("rec-P", 0, 0), SegmentProvenance.Recorded, anchor, 100, 110,
+                new OrbitSegment { startUT = 100, endUT = 110, bodyName = "Kerbin", semiMajorAxis = 700000 });
+            var p1 = new DepartureLoiterPhase(
+                new PhaseId("rec-P", 0, 1), SegmentProvenance.Recorded, anchor, 120, 130,
+                new OrbitSegment { startUT = 120, endUT = 130, bodyName = "Kerbin", semiMajorAxis = 700000 });
+            return new PhaseChain("rec-P", committedIndex: 0, instanceKey: 0,
+                phases: new List<TrajectoryPhase> { p0, p1 }, windowStartUt: 100, windowEndUt: 130);
+        }
+
+        [Fact]
+        public void PhaseChain_NullChain_IsOutside()
+        {
+            Assert.Equal(Coverage.OutsideWindow, ChainSampler.Sample((PhaseChain)null, 105, NonLooped).Coverage);
+        }
+
+        [Fact]
+        public void PhaseChain_InSegment_ProjectsTreatmentAndConic()
+        {
+            var s = ChainSampler.Sample(PhaseChainTwoConics(), 105, NonLooped);
+            Assert.Equal(Coverage.InSegment, s.Coverage);
+            Assert.Equal(105, s.DriveUT);
+            Assert.Equal(Treatment.StockConic, s.Treatment);
+            Assert.Equal("Kerbin", s.FrameBodyName);
+            Assert.Equal(0, s.SegmentIndex);
+            Assert.True(s.Segment.Payload.HasConic);
+        }
+
+        [Fact]
+        public void PhaseChain_MidGap_Holds_NotRetire()
+        {
+            var s = ChainSampler.Sample(PhaseChainTwoConics(), 115, NonLooped);
+            Assert.Equal(Coverage.InInteriorGap, s.Coverage);
+            Assert.Equal(Treatment.None, s.Treatment);
+        }
+
+        [Fact]
+        public void PhaseChain_PastEnd_IsOutside()
+        {
+            var s = ChainSampler.Sample(PhaseChainTwoConics(), 200, NonLooped);
+            Assert.Equal(Coverage.OutsideWindow, s.Coverage);
+        }
+
+        [Fact]
+        public void PhaseChain_MatchedHoldPhase_FallsToGap()
+        {
+            // A HoldPhase emits no geometry; if the sampler locates it as the in-segment owner it must fall
+            // to the gap (hold prior) rather than emit an empty/garbage segment. A HoldPhase covering the
+            // whole window means any in-window UT classifies InSegment-on-a-Hold -> the sampler returns Gap.
+            var anchor = new Parsek.MapRender.AnchorFrame.BodyAnchor("Kerbin");
+            var hold = new HoldPhase(new PhaseId("rec-H", 0, 0), anchor, 100, 130);
+            var chain = new PhaseChain("rec-H", 0, 0,
+                new List<TrajectoryPhase> { hold }, windowStartUt: 100, windowEndUt: 130);
+
+            var s = ChainSampler.Sample(chain, 115, NonLooped);
+            Assert.Equal(Coverage.InInteriorGap, s.Coverage); // hold, not a bogus in-segment draw
+            Assert.Equal(Treatment.None, s.Treatment);
+        }
+
         [Fact]
         public void OverlapMember_BeforeSpanStart_IsOutside_LikeLegacyHidden()
         {
@@ -151,6 +217,66 @@ namespace Parsek.Tests
 
             var s = ChainSampler.Sample(chain, liveUT, units);
             Assert.Equal(Coverage.OutsideWindow, s.Coverage);
+        }
+
+        // ---- Review N6: the in-segment projection is cached (Emit is UT-independent) ----
+
+        [Fact]
+        public void PhaseChain_TwoDifferentUts_ProjectSameSegment_DifferentDriveUt()
+        {
+            // THE N6 UT-independence pin: the sampler serves the CACHED projected segment (computed once
+            // per phase), so two samples at different UTs inside the same phase must project the
+            // identical geometry while the DriveUT tracks each sample. If a future Emit implementation
+            // starts reading ctx.SampleUt, the segment payloads diverge and this test goes red - the
+            // signal that the TryGetFirstEmittedSegmentCached cache must be removed.
+            PhaseChain chain = PhaseChainTwoConics();
+            var s1 = ChainSampler.Sample(chain, 102, NonLooped);
+            var s2 = ChainSampler.Sample(chain, 108, NonLooped);
+
+            Assert.Equal(Coverage.InSegment, s1.Coverage);
+            Assert.Equal(Coverage.InSegment, s2.Coverage);
+            Assert.Equal(102, s1.DriveUT);
+            Assert.Equal(108, s2.DriveUT); // the REAL per-frame UT still flows into the sample
+            Assert.Equal(s1.Segment.StartUT, s2.Segment.StartUT);
+            Assert.Equal(s1.Segment.EndUT, s2.Segment.EndUT);
+            Assert.Equal(s1.Segment.FrameBodyName, s2.Segment.FrameBodyName);
+            Assert.Equal(s1.Segment.Treatment, s2.Segment.Treatment);
+            Assert.Equal(
+                s1.Segment.Payload.Conic.semiMajorAxis, s2.Segment.Payload.Conic.semiMajorAxis);
+        }
+
+        [Fact]
+        public void TryGetFirstEmittedSegmentCached_RepeatedCalls_ReturnSameGeometry()
+        {
+            var anchor = new Parsek.MapRender.AnchorFrame.BodyAnchor("Kerbin");
+            var phase = new DepartureLoiterPhase(
+                new PhaseId("rec-C", 0, 0), SegmentProvenance.Recorded, anchor, 100, 110,
+                new OrbitSegment { startUT = 100, endUT = 110, bodyName = "Kerbin", semiMajorAxis = 700000 });
+
+            Assert.True(phase.TryGetFirstEmittedSegmentCached(out RenderSegment first));
+            Assert.True(phase.TryGetFirstEmittedSegmentCached(out RenderSegment second));
+            Assert.Equal(first.StartUT, second.StartUT);
+            Assert.Equal(first.FrameBodyName, second.FrameBodyName);
+            Assert.Equal(Treatment.StockConic, second.Treatment);
+
+            // And it matches a direct Emit projection (the cache is the same projection, computed once).
+            foreach (RenderSegment emitted in phase.Emit(
+                new SampleContext(100, "Kerbin")))
+            {
+                Assert.Equal(emitted.StartUT, first.StartUT);
+                Assert.Equal(emitted.EndUT, first.EndUT);
+                Assert.Equal(emitted.FrameBodyName, first.FrameBodyName);
+                break;
+            }
+        }
+
+        [Fact]
+        public void TryGetFirstEmittedSegmentCached_HoldPhase_ReturnsFalse()
+        {
+            var anchor = new Parsek.MapRender.AnchorFrame.BodyAnchor("Kerbin");
+            var hold = new HoldPhase(new PhaseId("rec-C", 0, 0), anchor, 100, 130);
+            Assert.False(hold.TryGetFirstEmittedSegmentCached(out _));
+            Assert.False(hold.TryGetFirstEmittedSegmentCached(out _)); // stable on repeat
         }
     }
 }
