@@ -820,5 +820,37 @@ namespace Parsek.Tests
                 GameScenes.TRACKSTATION, GameScenes.FLIGHT,
                 currentScenarioInstanceId: 99, previousScenarioInstanceId: 42));
         }
+
+        [Fact]
+        public void IsExceptionStorm_BelowThreshold_IsFalse()
+        {
+            // A healthy batch logs ~0 unhandled exceptions.
+            Assert.False(InGameTestRunner.IsExceptionStorm(
+                0, InGameTestRunner.BatchExceptionStormThreshold));
+            Assert.False(InGameTestRunner.IsExceptionStorm(
+                InGameTestRunner.BatchExceptionStormThreshold - 1,
+                InGameTestRunner.BatchExceptionStormThreshold));
+        }
+
+        [Fact]
+        public void IsExceptionStorm_AtOrAboveThreshold_IsTrue()
+        {
+            // The flood signature: thousands of unhandled exceptions in a batch.
+            Assert.True(InGameTestRunner.IsExceptionStorm(
+                InGameTestRunner.BatchExceptionStormThreshold,
+                InGameTestRunner.BatchExceptionStormThreshold));
+            Assert.True(InGameTestRunner.IsExceptionStorm(
+                InGameTestRunner.BatchExceptionStormThreshold + 500_000,
+                InGameTestRunner.BatchExceptionStormThreshold));
+        }
+
+        [Fact]
+        public void IsExceptionStorm_NonPositiveThreshold_DisablesGuard()
+        {
+            // A non-positive threshold disables the guard (never a storm), so a
+            // misconfiguration cannot spuriously abort every batch.
+            Assert.False(InGameTestRunner.IsExceptionStorm(1_000_000, 0));
+            Assert.False(InGameTestRunner.IsExceptionStorm(1_000_000, -1));
+        }
     }
 }

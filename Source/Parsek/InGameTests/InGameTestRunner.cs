@@ -225,6 +225,17 @@ namespace Parsek.InGameTests
         private bool stateDirtySinceLastRestore;        // a test body ran since the last successful baseline restore
         private Guid batchInstanceId;                   // monotonic-per-batch token, stamped on the marker (defensive same-process guard)
 
+        // Unhandled-exception storm guard (flight-state corruption detector). A save-load into
+        // a broken flight scene (e.g. the stock FlightCamera.SetModeImmediate NRE during
+        // FlightDriver.Start) can leave FlightGlobals half-initialized so KSP AND every per-frame
+        // mod (Waterfall / BetterTimeWarp / ...) NRE-flood every frame. Reloading the flight scene
+        // for a baseline restore re-runs that broken stock bootstrap and sustains the flood, so
+        // once a storm is detected the batch aborts via the existing disk-only-revert path instead
+        // of another flight-scene reload. Monitored only for the duration of a batch.
+        private bool batchExceptionMonitorActive;
+        private int batchUnhandledExceptionCount;
+        private bool batchExceptionStormDetected;
+
         // Results summary
         public int Passed { get; private set; }
         public int Failed { get; private set; }
@@ -568,6 +579,7 @@ namespace Parsek.InGameTests
         public void Cancel()
         {
             if (!isRunning) return;
+            EndBatchExceptionMonitor(); // StopCoroutine below won't run RunBatch's normal-end teardown
             if (activeInnerCoroutine != null)
                 coroutineHost.StopCoroutine(activeInnerCoroutine);
             activeInnerCoroutine = null;
@@ -617,6 +629,92 @@ namespace Parsek.InGameTests
             isRunning = false;
             abortBatchAfterRestoreFailure = false;
             ParsekLog.Info(Tag, "Test run cancelled");
+        }
+
+        // Number of unhandled Unity exceptions during a batch that marks a corrupted flight
+        // state (a healthy batch logs ~0 unhandled exceptions; a corrupted flight scene floods
+        // thousands per second). Set well above any legitimate single-batch exception count.
+        internal const int BatchExceptionStormThreshold = 1000;
+
+        /// <summary>
+        /// True when the unhandled-exception count logged during a batch has crossed the storm
+        /// threshold — the signature of a corrupted flight state (a stock/mod NRE flooding every
+        /// frame). Pure; a non-positive threshold disables the guard.
+        /// </summary>
+        internal static bool IsExceptionStorm(int unhandledExceptionCount, int threshold)
+        {
+            return threshold > 0 && unhandledExceptionCount >= threshold;
+        }
+
+        // Subscribe the batch unhandled-exception counter and reset the count so each batch starts
+        // clean. Unsubscribe-before-subscribe guarantees EXACTLY ONE handler even if a prior batch
+        // leaked its subscription (RunBatch is a Unity coroutine; a synchronous throw in it would
+        // skip the normal-end unsubscribe, and StopCoroutine on cancel does not run a finally) —
+        // -= on an absent handler is a safe no-op, so no leaked handler can accumulate across batches.
+        private void BeginBatchExceptionMonitor()
+        {
+            batchUnhandledExceptionCount = 0;
+            batchExceptionStormDetected = false;
+            Application.logMessageReceived -= OnBatchLogMessage;
+            Application.logMessageReceived += OnBatchLogMessage;
+            batchExceptionMonitorActive = true;
+        }
+
+        // Unsubscribe the counter (idempotent). Called from RunBatch's normal end AND from
+        // Cancel(): Unity StopCoroutine abandons the RunBatch iterator without running any
+        // finally, so the normal-end unsubscribe would otherwise leak the handler on cancel.
+        private void EndBatchExceptionMonitor()
+        {
+            if (!batchExceptionMonitorActive)
+                return;
+            Application.logMessageReceived -= OnBatchLogMessage;
+            batchExceptionMonitorActive = false;
+        }
+
+        // Main-thread Unity log callback: count unhandled exceptions (LogType.Exception) and hard
+        // errors (LogType.Error). Cheap (an int increment); registered only during a batch.
+        private void OnBatchLogMessage(string condition, string stackTrace, LogType type)
+        {
+            if (type == LogType.Exception || type == LogType.Error)
+                batchUnhandledExceptionCount++;
+        }
+
+        // Loud WARN + on-screen alert on a storm abort so the user knows the batch stopped because
+        // the flight state is corrupted (NOT because a test is at fault) and that KSP must be
+        // relaunched to recover.
+        private void NotifyExceptionStormAbort(InGameTestInfo test, int exceptionCount)
+        {
+            string testName = test != null ? test.Name : "<test>";
+            ParsekLog.Warn(Tag,
+                $"NRE storm detected ({exceptionCount}+ unhandled exceptions) after {testName} — the flight state is "
+                + "corrupted (a stock/mod NRE flooding every frame, NOT the test). Aborting the batch WITHOUT another "
+                + "flight-scene reload and reverting the campaign save on disk; close and relaunch KSP to recover.");
+            try
+            {
+                ScreenMessages.PostScreenMessage(
+                    "[Parsek] Test batch aborted: flight-state NRE storm detected. Relaunch KSP to recover.",
+                    12f, ScreenMessageStyle.UPPER_CENTER);
+            }
+            catch
+            {
+                // ScreenMessages can be unavailable mid-teardown; the WARN above is the durable record.
+            }
+        }
+
+        // Detect an unhandled-exception storm and, on the first detection, flag the batch for the
+        // disk-only abort path (abortBatchAfterRestoreFailure) so no further flight-scene reload
+        // runs and the loop breaks. Returns true only on the transition into the storm state.
+        private bool TryDetectExceptionStorm(InGameTestInfo test)
+        {
+            if (batchExceptionStormDetected
+                || !IsExceptionStorm(batchUnhandledExceptionCount, BatchExceptionStormThreshold))
+            {
+                return false;
+            }
+            batchExceptionStormDetected = true;
+            abortBatchAfterRestoreFailure = true;
+            NotifyExceptionStormAbort(test, batchUnhandledExceptionCount);
+            return true;
         }
 
         /// <summary>
@@ -1378,15 +1476,30 @@ namespace Parsek.InGameTests
         private IEnumerator RunBatch(List<InGameTestInfo> tests)
         {
             isRunning = true;
+            BeginBatchExceptionMonitor();
             ParsekLog.Info(Tag, $"Starting test run: {tests.Count} tests");
             int sceneEligibilitySkipped = 0;
             var sceneEligibilitySkipsByRequiredScene = new Dictionary<GameScenes, int>();
 
             foreach (var test in tests)
             {
+                // Storm pre-check (before the prime/run below): if a flood has crossed the threshold
+                // since the previous test (e.g. exceptions accumulated during a baseline restore's
+                // frames), stop here so the next test neither runs on a corpse nor reloads the flight
+                // scene (each reload re-runs the broken stock bootstrap and sustains the flood). Pairs
+                // with the post-check after each test. NOTE: a flood already active before the batch's
+                // FIRST test is caught by that test's POST-check, not here — the per-batch counter
+                // starts at 0 and needs a few frames to cross the threshold.
+                if (TryDetectExceptionStorm(test))
+                {
+                    RecountResults();
+                    break;
+                }
+
                 if (test.RestoreBatchFlightBaselineAfterExecution
                     && batchFlightBaseline != null
-                    && !batchFlightBaselinePrimed)
+                    && !batchFlightBaselinePrimed
+                    && !batchExceptionStormDetected)
                 {
                     yield return coroutineHost.StartCoroutine(
                         PrimeBatchFlightBaselineBeforeFirstRestoreBackedTest(test));
@@ -1413,7 +1526,15 @@ namespace Parsek.InGameTests
                 activeTestCoroutine = coroutineHost.StartCoroutine(RunOneTest(test));
                 yield return activeTestCoroutine;
                 activeTestCoroutine = null;
-                if (ShouldRestoreBatchFlightBaselineAfterTest(test))
+
+                // Storm post-check: the test body itself may have tipped the game into the flood.
+                // Detecting it here skips this test's flight-scene reload (each reload re-runs the
+                // broken stock bootstrap and sustains the flood) and routes the batch to the
+                // existing disk-only-revert abort path (ShouldRunFinalBatchRestore returns false
+                // when abortBatchAfterRestoreFailure is set).
+                TryDetectExceptionStorm(test);
+
+                if (!batchExceptionStormDetected && ShouldRestoreBatchFlightBaselineAfterTest(test))
                 {
                     yield return coroutineHost.StartCoroutine(
                         RestoreBatchFlightBaselineAfterExecution(test));
@@ -1438,6 +1559,7 @@ namespace Parsek.InGameTests
             }
 
             isRunning = false;
+            EndBatchExceptionMonitor();
 
             // Piece 4 + 5: teardown by mode. InMemoryAndDisk reverts persistent.sfs
             // from the clean .bak + sweeps slot/loadmeta/bak/snapshot; DiskOnly
