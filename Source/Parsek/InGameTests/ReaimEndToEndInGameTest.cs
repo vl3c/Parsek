@@ -221,18 +221,30 @@ namespace Parsek.InGameTests
         // at the burn (RecordedDepartureUT) with full Kepler elements (LAN/argPe/mEp/epoch), so the resolver
         // engages the park-end r1 override (DepartedFromHeliocentricPark=true). The park is near-circular and
         // near-equatorial (co-orbital with Kerbin) so it passes the ParkRephaseMaxInclinationDeg guard.
+        //
+        // CO-LOCATION (the load-bearing fix): the park's Kepler elements are NOT arbitrary constants - they
+        // are CLONED from the LAUNCH BODY's live heliocentric orbit and offset only a small along-track
+        // amount (see AssertParkEndSeam). A real two-burn park is co-orbital AND co-located with the launch
+        // body (the vessel has just escaped its SOI, so the heliocentric park sits right beside the body).
+        // The re-aimed transfer's r1 is the park-end, so the park-end MUST land near the launch body's own
+        // known-good departure geometry or the Lambert solve is degenerate (an arbitrary-phase park on the
+        // far side of the Sun connects to the target at a random transfer angle => "no solution" every tof
+        // candidate). Cloning the body's elements + a tiny along-track lead keeps the park genuinely off the
+        // body center (> the 1000 km seam floor) while inheriting the direct transfer's ~180 deg Hohmann
+        // geometry, so the park-end window resolves exactly as the direct window at the same departure does.
         private sealed class ParkingDepartureFixture
         {
             public string LaunchBodyName = "Kerbin";
             public string TargetBodyName = "Duna";
-            // The Sun PARK sub-coast (co-orbital with Kerbin's heliocentric orbit; the icon abuts this at the
-            // burn). sma ~ Kerbin's heliocentric sma so it is genuinely co-orbital; near-circular + near-eq.
-            public double ParkSma;            // ~ Kerbin heliocentric sma (set live from the body)
-            public double ParkEcc = 0.01;
-            public double ParkInc = 1.0;      // degrees, under the 15 deg guard
-            public double ParkLan = 200.0;    // degrees
-            public double ParkArgPe = 40.0;   // degrees
-            public double ParkMEp = 1.2;      // radians
+            // The Sun PARK sub-coast (co-orbital + co-located with the launch body's heliocentric orbit; the
+            // icon abuts this at the burn). Every element is set live from the body in AssertParkEndSeam.
+            public double ParkSma;            // launch-body heliocentric sma (co-orbital)
+            public double ParkEcc;            // launch-body eccentricity (near-circular)
+            public double ParkInc;            // launch-body inclination, degrees (co-planar, under the 15 deg guard)
+            public double ParkLan;            // launch-body LAN, degrees
+            public double ParkArgPe;          // launch-body argPe, degrees
+            public double ParkMEp;            // launch-body mEp + a small along-track lead, radians
+            public double ParkEpoch;          // launch-body epoch (mEp is defined at THIS epoch, not parkStart)
         }
 
         private sealed class ScanContext
@@ -984,7 +996,32 @@ namespace Parsek.InGameTests
             bool requireResolve, bool requireNonIdentityRotation)
         {
             var ic = CultureInfo.InvariantCulture;
-            var fx = new ParkingDepartureFixture { ParkSma = ctx.LaunchBody.orbit.semiMajorAxis };
+
+            // Build a CO-LOCATED heliocentric park: clone the launch body's own live orbit and lead it a
+            // small along-track amount. offset / sma is the mean-anomaly advance that shifts a near-circular
+            // co-orbital park along-track by ~offset metres, so the park-end r1 lands ~offset off the launch
+            // body's center - genuinely off-center (>> the 1000 km seam floor asserted below) but only ~0.7%
+            // of the orbit radius, so the transfer angle to the target is essentially the launch body's own
+            // known-good ~180 deg Hohmann geometry and the Lambert resolves like the direct window does. An
+            // arbitrary-phase park (the old fixed 200/40/1.2 constants) put the park-end on a random longitude
+            // of the ring, giving a degenerate transfer angle that declined every tof candidate. Co-planar
+            // (park inc == launch-body inc) so the transfer plane stays the launch body's, avoiding the
+            // near-180 out-of-plane tilt amplification entirely.
+            Orbit lo = ctx.LaunchBody.orbit;
+            const double parkAlongTrackLeadMetres = 1.0e8; // ~100 Mm: off-center, << the interplanetary scale
+            double parkAlongTrackLeadRad = parkAlongTrackLeadMetres / lo.semiMajorAxis;
+            var fx = new ParkingDepartureFixture
+            {
+                LaunchBodyName = ctx.LaunchBodyName,
+                TargetBodyName = ctx.TargetBodyName,
+                ParkSma = lo.semiMajorAxis,
+                ParkEcc = lo.eccentricity,
+                ParkInc = lo.inclination,
+                ParkLan = lo.LAN,
+                ParkArgPe = lo.argumentOfPeriapsis,
+                ParkMEp = lo.meanAnomalyAtEpoch + parkAlongTrackLeadRad,
+                ParkEpoch = lo.epoch,
+            };
             BuildParkingMemberAndPlan(ctx, goodDep, fx,
                 out List<OrbitSegment> memberSegments, out ReaimMissionPlan plan,
                 out double spanStart, out double spanEnd, out double recordedTofSeconds);
@@ -1190,9 +1227,13 @@ namespace Parsek.InGameTests
             double recordedArrivalUT = departureUT + recordedTofSeconds;
             spanEnd = recordedArrivalUT + 600.0;
 
+            // epoch == fx.ParkEpoch (the launch body's epoch), NOT parkStart: fx.ParkMEp is the launch body's
+            // mean anomaly at ITS epoch plus the along-track lead, so the park must carry the same epoch for
+            // the phase to co-locate with the launch body at RecordedDepartureUT. startUT/endUT still bracket
+            // the recorded coast [parkStart, burn]; the Kepler epoch is independent of the segment's UT window.
             var parkSeg = new OrbitSegment
             {
-                bodyName = parent, startUT = parkStart, endUT = departureUT, epoch = parkStart,
+                bodyName = parent, startUT = parkStart, endUT = departureUT, epoch = fx.ParkEpoch,
                 semiMajorAxis = fx.ParkSma, eccentricity = fx.ParkEcc, inclination = fx.ParkInc,
                 longitudeOfAscendingNode = fx.ParkLan, argumentOfPeriapsis = fx.ParkArgPe,
                 meanAnomalyAtEpoch = fx.ParkMEp, isPredicted = false

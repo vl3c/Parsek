@@ -71,5 +71,53 @@ namespace Parsek.Tests
             Assert.Equal(Treatment.TracedPath, b.Treatment);
             Assert.NotEqual(a.Treatment, b.Treatment);
         }
+
+        // ---- Review N16: the headless twin of WarpThroughInteriorGapSpineInGameTest's warp sequence ----
+        // The in-game test's three-frame sampler+director sequence is PURE (a hand-built PhaseChain, the
+        // ChainSampler, the director - no Unity reads), so the warp-through-gap no-blink invariant is
+        // pinned headless here; the in-game copy remains the in-KSP-runtime confirmation.
+
+        [Fact]
+        public void WarpStep_AcrossInteriorGap_HoldsPriorIntent_NoBlink_Headless()
+        {
+            // Two StockConic phases [100,400] and [700,1000] with the interior gap (400,700) between
+            // them; units=Empty maps liveUT through unchanged. A single high-warp step lands IN the gap
+            // (frame B): the director must HOLD the prior visible intent (no blink/retire), and the next
+            // step past the gap (frame C) resumes visible - never Hidden once visible.
+            var anchor = new AnchorFrame.BodyAnchor("Kerbin");
+            var chain = new PhaseChain(
+                "warp-gap-rec", committedIndex: 0, instanceKey: 0,
+                phases: new System.Collections.Generic.List<TrajectoryPhase>
+                {
+                    new DepartureLoiterPhase(
+                        new PhaseId("warp-gap", 0, 0), SegmentProvenance.Recorded, anchor, 100, 400,
+                        new OrbitSegment { startUT = 100, endUT = 400, bodyName = "Kerbin", semiMajorAxis = 850000 }),
+                    new ArrivalLoiterPhase(
+                        new PhaseId("warp-gap", 0, 1), SegmentProvenance.Recorded, anchor, 700, 1000,
+                        new OrbitSegment { startUT = 700, endUT = 1000, bodyName = "Kerbin", semiMajorAxis = 850000 }),
+                },
+                windowStartUt: 100, windowEndUt: 1000);
+            var units = GhostPlaybackLogic.LoopUnitSet.Empty;
+
+            // Fixture sanity: the gap must actually classify as an interior gap (non-vacuous hold).
+            Assert.Equal(Coverage.InInteriorGap, chain.ClassifyCoverage(550.0, out _, out _));
+
+            GhostSample sampleA = ChainSampler.Sample(chain, 250.0, units);
+            GhostRenderIntent intentA = GhostRenderDirector.Decide(sampleA, GhostRenderIntent.Hidden(), "X");
+            Assert.Equal(Coverage.InSegment, sampleA.Coverage);
+            Assert.True(intentA.Visible);
+
+            GhostSample sampleB = ChainSampler.Sample(chain, 550.0, units);
+            GhostRenderIntent intentB = GhostRenderDirector.Decide(sampleB, intentA, "X");
+            Assert.Equal(Coverage.InInteriorGap, sampleB.Coverage);
+            Assert.True(intentB.Visible);                               // held, no blink
+            Assert.Equal(intentA.Treatment, intentB.Treatment);         // no surface flip
+            Assert.Equal(intentA.FrameBodyName, intentB.FrameBodyName); // no re-anchor blink
+
+            GhostSample sampleC = ChainSampler.Sample(chain, 850.0, units);
+            GhostRenderIntent intentC = GhostRenderDirector.Decide(sampleC, intentB, "X");
+            Assert.Equal(Coverage.InSegment, sampleC.Coverage);
+            Assert.True(intentC.Visible); // never Hidden once visible across A->B->C
+        }
     }
 }

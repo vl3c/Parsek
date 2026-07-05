@@ -11,24 +11,22 @@ namespace Parsek.MapRender
     /// <c>DriveUT</c> and cannot disagree - design §6.5 invariant 2 is STRUCTURALLY guaranteed here
     /// (unlike the managed StockConic surface KSP co-owns).
     ///
-    /// <para>Phase 8b.1 scope: the treatment now OWNS the non-orbital polyline leg draw for a
-    /// director-owned ghost. It does NOT spin up a parallel host: the existing autonomous
+    /// <para>Phase 8b.1 scope: the treatment OWNS the non-orbital polyline leg draw for a
+    /// director-owned ghost. It does NOT spin up a parallel host: the existing
     /// <c>GhostTrajectoryPolylineRenderer.Driver.LateUpdate</c> stays the single draw host (the locked
     /// design - drawing from the Update-time shadow would strobe / mis-layer against the stock orbit
-    /// lines). When the Director decides <c>Visible &amp;&amp; TracedPath</c> for a pid this frame (the pid
-    /// stamped fresh in <see cref="ShadowRenderDriver.tracedPathByPid"/>, surfaced via
-    /// <see cref="ShadowRenderDriver.IsDirectorTracedPathActive"/>), the Driver routes that ONE leg's
-    /// draw through <see cref="TryDrawOwnedLeg"/> here (the same shared <c>TryDrawLeg</c> conic-anchor)
-    /// and STANDS DOWN on its own direct <c>TryDrawLeg</c> call for that leg, so the leg is never drawn
-    /// twice. Every other recording, and all recordings when the gate is off or there is no fresh
-    /// TracedPath intent, keep drawing through the Driver's direct path - byte-identical to today.</para>
+    /// lines). When the Director decides <c>Visible &amp;&amp; TracedPath</c> for a pid this frame (the
+    /// intent stamp surfaced via <see cref="ShadowRenderDriver.IsTracedPathOwnedThisFrame"/> - the single
+    /// intent-sourced signal since the Phase-5b delete of the legacy side-channel), the Driver routes that
+    /// ONE leg's draw through <see cref="TryDrawOwnedLeg"/> here (the same shared <c>TryDrawLeg</c>
+    /// conic-anchor) and STANDS DOWN on its own direct <c>TryDrawLeg</c> call for that leg, so the leg is
+    /// never drawn twice. The Driver-direct path survives ONLY for the fenced populations the spine does
+    /// not enumerate (see the 5b fence note in the Driver walk).</para>
     ///
-    /// <para>What 8b.1 does NOT touch (deferred): the ownership SIGNAL repoint. The Driver still
-    /// publishes <c>drewNonOrbitalLegRecordings</c> / <c>IsRenderingNonOrbitalLeg</c> for a director-owned
-    /// pid it stands down on (it still walks the leg, resolves the body, head-UT-gates, and sets
-    /// <c>anyDrawn</c>), so <c>IsPolylineOwningGhostPhase</c> stays correct and the proto orbit line is
-    /// still hidden + the marker still rides the drawn line. Repointing that signal to the Director is
-    /// Phase 8b.2; the marker ownership is 8c.</para>
+    /// <para>The ownership SIGNAL stays with the walk: the Driver publishes
+    /// <c>drewNonOrbitalLegRecordings</c> / <c>IsRenderingNonOrbitalLeg</c> on any ACTUAL draw (owned or
+    /// Driver-direct - the 8e S3b sole-ownership-source decision), so <c>IsPolylineOwningGhostPhase</c>
+    /// stays correct and the proto orbit line is hidden + the marker rides the drawn line.</para>
     /// </summary>
     internal sealed class TracedPathTreatment : IGhostRenderTreatment
     {
@@ -41,10 +39,10 @@ namespace Parsek.MapRender
 
         /// <summary>
         /// PURE no-double-draw decision (8b.1): should the OWNED treatment draw this ghost's
-        /// non-orbital leg this frame (and the autonomous Driver stand down on its own
+        /// non-orbital leg this frame (and the Driver stand down on its own
         /// <c>TryDrawLeg</c> for the same leg)? True exactly when the Director's active segment for the
         /// pid is a fresh TracedPath this frame (<paramref name="directorTracedPathActive"/> =
-        /// <see cref="ShadowRenderDriver.IsDirectorTracedPathActive"/>). The treatment's "draw" and the
+        /// <see cref="ShadowRenderDriver.IsTracedPathOwnedThisFrame"/>). The treatment's "draw" and the
         /// Driver's "stand down" are the SAME boolean, so they can never both draw the leg on any frame
         /// (the single shared predicate is also the one the icon-drive / orbit-line patches read to
         /// suppress the stock proto, so the proto and the treatment never co-draw either). Unit-testable

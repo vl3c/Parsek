@@ -820,5 +820,68 @@ namespace Parsek.Tests
                 GameScenes.TRACKSTATION, GameScenes.FLIGHT,
                 currentScenarioInstanceId: 99, previousScenarioInstanceId: 42));
         }
+
+        [Fact]
+        public void IsExceptionStorm_BelowThreshold_IsFalse()
+        {
+            // A healthy batch logs ~0 unhandled exceptions.
+            Assert.False(InGameTestRunner.IsExceptionStorm(
+                0, InGameTestRunner.BatchExceptionStormThreshold));
+            Assert.False(InGameTestRunner.IsExceptionStorm(
+                InGameTestRunner.BatchExceptionStormThreshold - 1,
+                InGameTestRunner.BatchExceptionStormThreshold));
+        }
+
+        [Fact]
+        public void IsExceptionStorm_AtOrAboveThreshold_IsTrue()
+        {
+            // The flood signature: thousands of unhandled exceptions in a batch.
+            Assert.True(InGameTestRunner.IsExceptionStorm(
+                InGameTestRunner.BatchExceptionStormThreshold,
+                InGameTestRunner.BatchExceptionStormThreshold));
+            Assert.True(InGameTestRunner.IsExceptionStorm(
+                InGameTestRunner.BatchExceptionStormThreshold + 500_000,
+                InGameTestRunner.BatchExceptionStormThreshold));
+        }
+
+        [Fact]
+        public void IsExceptionStorm_NonPositiveThreshold_DisablesGuard()
+        {
+            // A non-positive threshold disables the guard (never a storm), so a
+            // misconfiguration cannot spuriously abort every batch.
+            Assert.False(InGameTestRunner.IsExceptionStorm(1_000_000, 0));
+            Assert.False(InGameTestRunner.IsExceptionStorm(1_000_000, -1));
+        }
+
+        [Fact]
+        public void ReloadStillFlooding_CleanSettleWindow_IsFalse()
+        {
+            // A clean baseline reload adds ~0 unhandled exceptions in the settle window.
+            Assert.False(InGameTestRunner.ReloadStillFlooding(
+                0, InGameTestRunner.BaselineReloadFloodExceptionThreshold));
+            Assert.False(InGameTestRunner.ReloadStillFlooding(
+                InGameTestRunner.BaselineReloadFloodExceptionThreshold - 1,
+                InGameTestRunner.BaselineReloadFloodExceptionThreshold));
+        }
+
+        [Fact]
+        public void ReloadStillFlooding_FloodingSettleWindow_IsTrue()
+        {
+            // A reload that tripped the camera race keeps flooding hundreds of exceptions per window.
+            Assert.True(InGameTestRunner.ReloadStillFlooding(
+                InGameTestRunner.BaselineReloadFloodExceptionThreshold,
+                InGameTestRunner.BaselineReloadFloodExceptionThreshold));
+            Assert.True(InGameTestRunner.ReloadStillFlooding(
+                5000, InGameTestRunner.BaselineReloadFloodExceptionThreshold));
+        }
+
+        [Fact]
+        public void ReloadStillFlooding_NonPositiveThreshold_DisablesCheck()
+        {
+            // A non-positive threshold disables the retry check (never flooding), so a
+            // misconfiguration cannot spin retries on every reload.
+            Assert.False(InGameTestRunner.ReloadStillFlooding(1_000_000, 0));
+            Assert.False(InGameTestRunner.ReloadStillFlooding(1_000_000, -1));
+        }
     }
 }
