@@ -750,6 +750,63 @@ namespace Parsek.Tests
                 Parsek.MapRender.TracedPathTreatment.ShouldOwnLeg(directorActive));
         }
 
+        // --- Phase 4a/5b: the Driver routes the owned-draw decision on the shared intent selector ---
+
+        [Fact]
+        public void Driver_RoutesOwnedDrawOnFlagAwareSignal_NotRawSideChannel_SourceGate()
+        {
+            // Phase 4a re-homed the TracedPath owned-draw decision to the intent; Phase 5b collapsed the
+            // selector onto the single intent source (the legacy side-channel is deleted). The Driver's
+            // per-recording routing must read the shared IsTracedPathOwnedThisFrame selector - the same
+            // one the marker decision + the proto icon/line suppress patches read - so a regression that
+            // re-introduced a second source (desyncing the consumers) is caught here.
+            string normalized = CollapseWhitespace(StripLineComments(ReadPolylineRendererSource()));
+            Assert.Contains(
+                "bool directorOwnsTracedPath = Parsek.MapRender.ShadowRenderDriver"
+                + ".IsTracedPathOwnedThisFrame(ghostPid, drawFrame);",
+                normalized);
+        }
+
+        private static string ReadPolylineRendererSource()
+        {
+            string root = System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string path = System.IO.Path.Combine(
+                root, "Source", "Parsek", "Display", "GhostTrajectoryPolylineRenderer.cs");
+            if (!System.IO.File.Exists(path))
+                path = System.IO.Path.Combine(
+                    root, "Parsek", "Display", "GhostTrajectoryPolylineRenderer.cs");
+            Assert.True(System.IO.File.Exists(path), $"Source file not found at {path}");
+            return System.IO.File.ReadAllText(path);
+        }
+
+        private static string StripLineComments(string source)
+        {
+            var sb = new System.Text.StringBuilder(source.Length);
+            foreach (string line in source.Split('\n'))
+            {
+                int idx = line.IndexOf("//", StringComparison.Ordinal);
+                sb.Append(idx >= 0 ? line.Substring(0, idx) : line);
+                sb.Append('\n');
+            }
+            return sb.ToString();
+        }
+
+        private static string CollapseWhitespace(string source)
+        {
+            var sb = new System.Text.StringBuilder(source.Length);
+            bool inWs = false;
+            foreach (char c in source)
+            {
+                if (char.IsWhiteSpace(c))
+                {
+                    if (!inWs) { sb.Append(' '); inWs = true; }
+                }
+                else { sb.Append(c); inWs = false; }
+            }
+            return sb.ToString();
+        }
+
         // --- Phase 8b.2 / 8e S3b / 8e S4: ownership-signal authority (sole actual-draw set) ---
 
         [Theory]
@@ -2711,6 +2768,28 @@ namespace Parsek.Tests
                 ParsekTrackingStation.ClassifyAtmosphericMarkerSkip(rec, 0, 250.0, null));
         }
 
+        // The OrbitSegmentActive veto's pure core (member-handoff blank fix, 2026-07-03 Duna One):
+        // the veto exists ONLY to prevent a duplicate marker next to a LIVE proto orbit icon, so it
+        // must never fire when the icon cannot actually draw - polyline ownership hides it, and a
+        // SUPPRESSED icon draws nothing. The live blank: at a chain member boundary the effUT jumps
+        // to the next member's clock, whose covering conic re-armed the veto ~28 frames before the
+        // icon-drive un-suppressed the proto icon -> neither icon nor marker drew on the escape-burn
+        // -> hyperbola handoff. Full truth table so any future re-ordering is a conscious edit.
+        [Theory]
+        [InlineData(true, false, false, true)]   // conic covers + icon LIVE -> veto (the original job)
+        [InlineData(true, true, false, false)]   // polyline owns -> icon hidden -> marker must draw
+        [InlineData(true, false, true, false)]   // REGRESSION ROW: icon SUPPRESSED -> marker must draw
+        [InlineData(true, true, true, false)]    // both hidden signals -> marker must draw
+        [InlineData(false, false, false, false)] // no covering conic -> nothing to veto
+        [InlineData(false, true, true, false)]
+        public void ShouldVetoMarkerForActiveOrbitSegment_TruthTable(
+            bool hasCoveringSegment, bool polylineOwns, bool iconSuppressed, bool expectVeto)
+        {
+            Assert.Equal(expectVeto,
+                ParsekTrackingStation.ShouldVetoMarkerForActiveOrbitSegment(
+                    hasCoveringSegment, polylineOwns, iconSuppressed));
+        }
+
         // RecordedLongitudeAtUT is the exact inverse of BodyFixedLongitudeAtUT (playtest-12
         // gap-fill): a conic sample converted through the live rotation, counter-rotated to the
         // recorded basis, must roundtrip back through the draw path's forward correction.
@@ -2942,6 +3021,38 @@ namespace Parsek.Tests
             Assert.Equal(
                 GhostTrajectoryPolylineRenderer.UndrawnLegFallback.UseFreshBodyFixedHead,
                 GhostTrajectoryPolylineRenderer.ResolveUndrawnLegFallback(legWasConicAnchored: false));
+        }
+
+        // --- A1 polyline-leg parity lens: ShouldCaptureLegForParity (pure capture-skip decision, BLOCKER 2)
+        // The rendered-vs-recorded leg-geometry parity lens diffs the leg's rendered points3 against its RAW
+        // recorded surface track. A CONIC-ANCHORED leg draws its points ~96 deg off that raw track ON PURPOSE
+        // (TryAnchorLegToConicSeam), so including it would report ~body-radius drift on a CORRECT anchor (a
+        // false positive) while a leg that FAILED to anchor reads ~0 - exactly backwards. So anchored legs are
+        // SKIPPED and only non-anchored body-fixed legs (descent / atmospheric / surface) are validated, where
+        // rendered == recorded by construction. The Unity capture (points3 / ScaledSpace / GetWorldSurface
+        // Position) is in-game-only; this pure decision is the xUnit-covered seam.
+
+        [Fact]
+        public void AnchoredLeg_IsSkippedFromParityCapture()
+        {
+            // A conic-anchored leg's rendered points are intentionally rotated off the raw recorded track, so
+            // the lens must NOT capture it (it would false-fire on a correct anchor).
+            Assert.False(
+                GhostTrajectoryPolylineRenderer.ShouldCaptureLegForParity(legWasConicAnchored: true),
+                "A conic-anchored leg must be excluded from the rendered-vs-recorded parity capture (its "
+                + "rendered points are intentionally far from the raw recorded surface track).");
+        }
+
+        [Fact]
+        public void NonAnchoredBodyFixedLeg_IsCapturedForParity()
+        {
+            // The descent / atmospheric / surface re-stitch the audit cares about: a non-anchored body-fixed
+            // leg draws the raw body-fixed points, so rendered == recorded by construction and a genuine
+            // mis-draw drifts. The lens MUST capture it.
+            Assert.True(
+                GhostTrajectoryPolylineRenderer.ShouldCaptureLegForParity(legWasConicAnchored: false),
+                "A non-anchored body-fixed leg (descent / atmospheric / surface) must be captured for parity; "
+                + "its rendered points ARE the raw recorded track, so a real mis-draw shows drift.");
         }
     }
 }

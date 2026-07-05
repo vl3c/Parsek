@@ -97,7 +97,7 @@ namespace Parsek.Display
         /// span StockConic, e.g. the re-aim "bridge" legs that lie on the conic). The DRAW is the
         /// authoritative ownership signal; the Director's StockConic/TracedPath classification is
         /// irrelevant to whether the proto line/icon must be hidden, so this set is DECOUPLED from
-        /// <c>IsDirectorTracedPathActive</c> (8e S3a.1). Populated only on an ACTUAL draw (preserving
+        /// <c>IsTracedPathOwnedThisFrame</c> (8e S3a.1). Populated only on an ACTUAL draw (preserving
         /// 8b.1's "proto hidden iff a leg drew" robustness), so it can never report ownership for a frame
         /// where nothing drew (the degenerate-leg / head-in-gap / traj.Points-vs-TrackSections divergence
         /// gap - see <see cref="ResolveNonOrbitalLegOwnership"/>). 8e S3b: this is now the SOLE ownership
@@ -500,6 +500,20 @@ namespace Parsek.Display
                 previous.Add(id);
         }
 
+        /// <summary>Test seam: drive the appear/disappear <c>PolylineLegChange</c> EVENT diff directly (the
+        /// production caller is the Driver's per-frame onPreCull / walk, which needs a live render frame). Used
+        /// by the Phase-8 tracer-coverage matrix in-game test to prove the Polyline / PolylineForwardArc
+        /// appear/disappear wiring lights up end-to-end. Clears the per-(surface, recordingId, event)
+        /// wall-clock floor first so a repeated in-game run is not suppressed by a stale onset timestamp.
+        /// No-op emit when tracing is off (the underlying structural emit early-returns).</summary>
+        internal static void EmitPolylineDrawSetChangesForTesting(
+            MapRenderTrace.RenderSurface surface,
+            HashSet<string> previous, HashSet<string> current, double currentUT)
+        {
+            legChangeLastEmitRealtime.Clear();
+            EmitPolylineDrawSetChanges(surface, previous, current, currentUT);
+        }
+
         private static void EmitPolylineLegChange(
             MapRenderTrace.RenderSurface surface, string recordingId, string ev, double currentUT)
         {
@@ -654,6 +668,170 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// A1 cutover-instrument (design §14, ParityMode.Synthesized polyline leg): for every cached leg
+        /// whose Vectrosity <c>VectorLine</c> is RENDERED this frame, hand the caller two flat
+        /// <c>[x0,y0,z0, x1,...]</c> XYZ-triple arrays in ONE consistent BODY-RELATIVE WORLD metres frame:
+        /// the RENDERED polyline geometry (the leg's live <c>VectorLine.points3</c>, each scaled-space
+        /// vertex inverted back to a body-relative world offset by
+        /// <see cref="Parsek.MapRender.RenderGeometrySampler.RenderedScaledVertexToBodyRelative"/>) and the
+        /// RECORDED reference geometry - plus the leg's float-quantization METROLOGY FLOOR in metres (the
+        /// last callback arg; see <see cref="Parsek.MapRender.RenderGeometrySampler.DrawnVertexQuantizationFloorMeters"/>)
+        /// the caller clamps its tolerance up to.
+        ///
+        /// <para><b>FRAME-COHERENT capture (the false-drift fix, take 2).</b> BOTH sides come from the
+        /// DRAW's own frame: <see cref="TryDrawLeg"/> snapshots the body-relative offsets it builds the
+        /// vertices from (<see cref="LegPolyline.parityRecordedRel"/>) plus the exact centre float it added
+        /// in (<see cref="LegPolyline.parityDrawCentreScaled"/>), tracing-gated; this capture inverts
+        /// <c>points3</c> against that RECORDED centre and diffs against that RECORDED snapshot. It never
+        /// re-reads <c>GetWorldSurfacePosition</c> / <c>body.position</c> / <c>scaledXform.position</c> at
+        /// capture time: the Driver draws in a different part of the frame than the probe (exec order -50
+        /// vs +10000, with ScaledSpace's own update in between), so a capture-time re-read skews the
+        /// reference by one frame of body translation AND rotation, scaled by warp - the live FP signature
+        /// this replaced (a ~280 m 1x floor = one frame of the body's heliocentric motion, with 16-24 km
+        /// spikes under warp; the FIRST capture inverse additionally strobed through
+        /// <c>ScaledSpace.totalOffset</c>). Subtracting the identical recorded centre float also cancels
+        /// the vertex sum's quantization of the centre exactly. A leg whose snapshot is missing or from a
+        /// different draw than its <c>points3</c> (<see cref="LegPolyline.parityDrawFrame"/> !=
+        /// <see cref="LegPolyline.lastDrawnFrame"/>: the absolute-fallback draw branch, or a leg not yet
+        /// redrawn since tracing came on) is SKIPPED this frame (batch-counted, rate-limited summary) and
+        /// captured on its next traced draw.</para>
+        ///
+        /// <para>CONIC-ANCHORED legs are SKIPPED (a known, stated limitation). A leg the draw rotated ~96 deg
+        /// onto the bracketing conic seam (<see cref="TryAnchorLegToConicSeam"/> returned true, recorded in
+        /// <see cref="LegPolyline.wasAnchored"/>) draws its <c>points3</c> INTENTIONALLY far from its raw
+        /// recorded surface track, so diffing rendered-<c>points3</c> against the raw <c>lats/lons/alts</c>
+        /// would report ~body-radius drift on EVERY correctly-anchored leg (a false positive) while a leg
+        /// that FAILED to anchor would read ~0 - exactly backwards. The anchor transform is a per-point Slerp
+        /// of two live-computed <c>FromToRotation</c> quaternions, not a cheaply recoverable single transform
+        /// to rebuild the reference in, so this lens deliberately covers ONLY non-anchored body-fixed legs
+        /// (descent / atmospheric / surface - the descent re-stitch the audit cares about). For those the
+        /// rendered <c>points3</c> ARE the raw body-fixed points, so rendered == recorded by construction and
+        /// any genuine mis-draw drifts. The two arrays use the SAME index set (the first
+        /// <c>min(points3.Count, leg.PointCount)</c> samples), so the diff is a like-for-like recorded-vs-
+        /// rendered comparison even though the oracle itself is count-independent.</para>
+        ///
+        /// <para>Unity-coupled (reads <c>VectorLine.points3</c> + <c>ScaledSpace.ScaleFactor</c>; the
+        /// reference and centre come from the draw-frame snapshot, no capture-time body reads), so it is
+        /// driven ONLY from the live <see cref="MapRenderProbe"/> (never xUnit) and only while tracing is
+        /// on. NaN/Inf-safe: a non-finite vertex or snapshot value is written through unchanged (the oracle
+        /// filters non-finite points and never raises a false anomaly). Each drawn leg is handed to
+        /// <paramref name="onLeg"/> as
+        /// <c>(recordingId, legIndex, legCount, bodyName, renderedBodyRelFlat, recordedBodyRelFlat,
+        /// quantizationFloorMeters)</c>; the caller owns the oracle diff + emit so the decision math stays
+        /// pure/unit-testable.</para>
+        /// </summary>
+        internal static void CaptureRenderedVsRecordedLegGeometry(
+            int currentFrame,
+            System.Action<string, int, int, string, double[], double[], double> onLeg)
+        {
+            if (onLeg == null) return;
+
+            int skippedNoSnapshot = 0;
+            foreach (var kv in polylineCache)
+            {
+                LegPolyline[] legs = kv.Value.legs;
+                if (legs == null) continue;
+                for (int l = 0; l < legs.Length; l++)
+                {
+                    LegPolyline leg = legs[l];
+                    VectorLine line = leg.vectorLine;
+                    if (line == null) continue;
+                    bool active = line.active;
+                    bool drawnRecently = leg.lastDrawnFrame >= currentFrame - 1;
+                    if (!active && !drawnRecently) continue; // not rendered recently
+
+                    // SKIP conic-anchored legs: a leg the last draw rotated onto the bracketing conic seam
+                    // (TryAnchorLegToConicSeam returned true, stamped here) draws its points3 ~96 deg off the
+                    // RAW recorded surface track on PURPOSE, so diffing rendered-points3 against the raw
+                    // recorded snapshot would report ~body-radius drift on EVERY correctly-anchored leg (false
+                    // positive) - and a leg that FAILED to anchor (the real regression) reads ~0 (exactly
+                    // backwards). The anchor rotation is a per-point Slerp of two live-computed FromToRotation
+                    // quaternions, not a cheaply recoverable single transform, so this lens does NOT cover
+                    // anchored vacuum-maneuver legs - a STATED limitation. It validates ONLY non-anchored
+                    // body-fixed legs (descent / atmospheric / surface - the descent re-stitch the audit cares
+                    // about). The skip decision is the pure ShouldCaptureLegForParity (xUnit-covered).
+                    if (!ShouldCaptureLegForParity(leg.wasAnchored)) continue;
+
+                    var points3 = line.points3;
+                    if (points3 == null || points3.Count == 0) continue;
+
+                    // FRAME-COHERENT reference: the diff runs against the parity snapshot the DRAW itself
+                    // took (leg.parityRecordedRel + parityDrawCentreScaled, filled inside the vertex-build
+                    // loop while tracing is on), NEVER a capture-time re-read. The draw and this probe run
+                    // in different parts of the frame: re-evaluating GetWorldSurfacePosition/body.position/
+                    // scaledXform.position here skews the reference by a frame of body translation +
+                    // rotation (x warp) - the pre-fix ~280m@1x floor and 16-24km warp spikes were exactly
+                    // that artifact. parityDrawFrame must EQUAL lastDrawnFrame so the snapshot and points3
+                    // came from the SAME draw (a leg drawn via the absolute fallback, or tracing enabled
+                    // mid-flight before this leg redrew, is skipped this frame and captured on its next
+                    // draw). Subtracting the recorded centre float also cancels the vertex-sum quantization
+                    // of the centre exactly.
+                    if (leg.parityRecordedRel == null
+                        || leg.parityDrawFrame != leg.lastDrawnFrame
+                        || leg.parityRecordedRel.Length < 3)
+                    {
+                        skippedNoSnapshot++;
+                        continue;
+                    }
+
+                    // Like-for-like index set: points3 hold this leg's drawn samples 1:1 with the snapshot
+                    // (both written from the same loop). Diff over the common prefix so a transiently-
+                    // resized line never misaligns.
+                    int m = leg.PointCount;
+                    if (m > points3.Count) m = points3.Count;
+                    if (m > leg.parityRecordedRel.Length / 3) m = leg.parityRecordedRel.Length / 3;
+                    if (m <= 0) continue;
+
+                    Vector3d bodyCentreScaled = (Vector3d)leg.parityDrawCentreScaled;
+                    double scaleFactor = ScaledSpace.ScaleFactor;
+                    var renderedFlat = new double[m * 3];
+                    var recordedFlat = new double[m * 3];
+                    for (int i = 0; i < m; i++)
+                    {
+                        // RENDERED: the drawn scaled-space vertex float -> body-relative world offset,
+                        // inverted against the SAME centre float the draw added in (cancels the centre,
+                        // totalOffset, and the centre's own float quantization outright).
+                        Vector3d renderedRel =
+                            Parsek.MapRender.RenderGeometrySampler.RenderedScaledVertexToBodyRelative(
+                                points3[i], bodyCentreScaled, scaleFactor);
+                        renderedFlat[i * 3] = renderedRel.x;
+                        renderedFlat[i * 3 + 1] = renderedRel.y;
+                        renderedFlat[i * 3 + 2] = renderedRel.z;
+
+                        // RECORDED reference: the draw-frame snapshot of the leg's body-fixed surface
+                        // track, body-relative (what the draw ACTUALLY encoded into the vertices).
+                        recordedFlat[i * 3] = leg.parityRecordedRel[i * 3];
+                        recordedFlat[i * 3 + 1] = leg.parityRecordedRel[i * 3 + 1];
+                        recordedFlat[i * 3 + 2] = leg.parityRecordedRel[i * 3 + 2];
+                    }
+
+                    // METROLOGY FLOOR: the drawn Vector3 vertex quantizes at the CENTRE's float ulp (x
+                    // scaleFactor in real metres) - on a body far from the scaled origin (a non-focused
+                    // body in the TS) that noise can exceed a small leg's 0.1% scale tolerance. The oracle
+                    // clamps its tolerance up to this floor: sub-floor deviations are float noise, not
+                    // geometry; a real mis-draw above the floor still fires.
+                    double noiseFloor =
+                        Parsek.MapRender.RenderGeometrySampler.DrawnVertexQuantizationFloorMeters(
+                            bodyCentreScaled, scaleFactor);
+
+                    onLeg(kv.Key, l, legs.Length, leg.bodyName ?? "(null)", renderedFlat, recordedFlat,
+                        noiseFloor);
+                }
+            }
+
+            // Batch summary (convention: one line after the loop, never per-item). Rate-limited: this runs
+            // per frame while tracing is on; a sustained skip usually just means legs drawn before tracing
+            // came on.
+            if (skippedNoSnapshot > 0)
+                ParsekLog.VerboseRateLimited(Tag, "parity-capture-skip",
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Leg parity capture skipped {0} leg(s) with no same-draw snapshot (absolute-fallback "
+                        + "draw, or drawn before tracing enabled; captured on their next traced draw)",
+                        skippedNoSnapshot),
+                    10.0);
+        }
+
+        /// <summary>
         /// One body-coherent contiguous polyline leg covering a non-orbital
         /// phase of the recording. Built ONCE at cache-build time from
         /// either a TrackSection's per-frame sample list (Absolute /
@@ -751,6 +929,40 @@ namespace Parsek.Display
             /// (stock MakeLine-on-flip). See <c>RebuildMapLineIfModeChanged</c>.
             /// </summary>
             public int lineMode;
+
+            /// <summary>
+            /// TRACING-ONLY (null in normal play): the parity-lens REFERENCE snapshot taken IN THE DRAW's
+            /// own frame - the flat <c>[x,y,z]*M</c> body-relative world offsets (<c>world - body.position</c>)
+            /// the draw itself computed the vertices from. The capture
+            /// (<see cref="CaptureRenderedVsRecordedLegGeometry"/>) diffs the drawn <c>points3</c> floats
+            /// against THIS, never a re-evaluation at capture time: the draw runs in a different part of the
+            /// frame than the probe, and re-computing <c>GetWorldSurfacePosition</c>/<c>body.position</c> at
+            /// capture time skews the reference by a frame of body translation + rotation (x warp - the
+            /// observed ~280m@1x floor and 16-24km warp spikes, pure artifact). Allocated / refilled per draw
+            /// only while <c>MapRenderTrace.IsEnabled</c>.
+            /// </summary>
+            public double[] parityRecordedRel;
+
+            /// <summary>
+            /// TRACING-ONLY: the exact <c>scaledXform.position</c> float the draw added into every vertex
+            /// this leg's <see cref="parityRecordedRel"/> snapshot was taken with. The capture inverts
+            /// <c>points3</c> against THIS value (not a live re-read): ScaledSpace moves the body's scaled
+            /// transform between the draw and the probe, and even at rest the two reads quantize differently
+            /// - subtracting the identical float cancels the centre exactly.
+            /// </summary>
+            public Vector3 parityDrawCentreScaled;
+
+            /// <summary>
+            /// <c>Time.frameCount</c> of the draw that filled <see cref="parityRecordedRel"/> /
+            /// <see cref="parityDrawCentreScaled"/>. The capture requires it to EQUAL
+            /// <see cref="lastDrawnFrame"/> (the same draw that wrote <c>points3</c>), so a leg drawn via
+            /// the no-scaled-body absolute fallback (which never stamps) is skipped. NOTE: an early-out
+            /// BETWEEN the geometry build and the draw stamp is NOT covered by staleness alone - the fill
+            /// mutates the aliased snapshot array in place and the stale stamps can be pairwise equal - so
+            /// the anchor-reject early-out in <c>TryDrawLeg</c> EXPLICITLY resets this to 0 ("never
+            /// filled") on its exit path; the next successful draw refills and restamps.
+            /// </summary>
+            public int parityDrawFrame;
 
             /// <summary>Number of points in this leg (M).</summary>
             public int PointCount => lats != null ? lats.Length : 0;
@@ -1287,7 +1499,7 @@ namespace Parsek.Display
         /// non-orbital leg be drawn by the OWNED <c>TracedPathTreatment</c> instead of the Driver's
         /// direct <c>TryDrawLeg</c> call? True exactly when the Director owns the ghost's active leg as a
         /// fresh TracedPath this frame (<paramref name="directorOwnsTracedPath"/> =
-        /// <c>ShadowRenderDriver.IsDirectorTracedPathActive(pid, frame)</c>). The Driver routes through
+        /// <c>ShadowRenderDriver.IsTracedPathOwnedThisFrame(pid, frame)</c>). The Driver routes through
         /// the treatment when true and STANDS DOWN on its own direct call; it draws directly when false.
         /// Because the treatment's draw and the Driver's stand-down are the SAME boolean - and the icon-
         /// drive / orbit-line patches read the same predicate to suppress the stock proto - the leg can
@@ -2090,6 +2302,21 @@ namespace Parsek.Display
             => legWasConicAnchored
                 ? UndrawnLegFallback.HoldLastGoodOnLine
                 : UndrawnLegFallback.UseFreshBodyFixedHead;
+
+        /// <summary>
+        /// PURE decision (A1 polyline-leg parity lens): should this leg be included in the rendered-vs-
+        /// recorded leg-geometry parity capture (<see cref="CaptureRenderedVsRecordedLegGeometry"/>)? A
+        /// CONIC-ANCHORED leg (<see cref="LegPolyline.wasAnchored"/>: the draw rotated its points ~96 deg onto
+        /// the bracketing conic seam) is EXCLUDED - its rendered points3 are INTENTIONALLY far from the raw
+        /// recorded surface track, so a rendered-vs-raw-recorded diff would false-fire on a CORRECT anchor
+        /// (and read ~0 on a leg that FAILED to anchor - exactly backwards). A NON-anchored body-fixed leg
+        /// (descent / atmospheric / surface) draws the raw body-fixed points, so rendered == recorded by
+        /// construction and a genuine mis-draw drifts -> INCLUDED. The anchor's per-point Slerp is not cheaply
+        /// recoverable to rebuild the reference in, so anchored vacuum-maneuver legs are a STATED, documented
+        /// lens limitation. xUnit-testable without Unity.
+        /// </summary>
+        internal static bool ShouldCaptureLegForParity(bool legWasConicAnchored)
+            => !legWasConicAnchored;
 
         /// <summary>
         /// Rides the polyline with a labeled marker (icon + label): returns the world position ON the
@@ -2949,23 +3176,51 @@ namespace Parsek.Display
             // no capture it can never go stale / invisible. scaledXform also feeds the conic anchor.
             var scaledBody = body.scaledBody;
             Transform scaledXform = scaledBody != null ? scaledBody.transform : null;
+            bool parityFilled = false;
             if (scaledXform != null)
             {
                 Vector3 bodyCentreScaled = scaledXform.position;
                 double invScale = ScaledSpace.InverseScaleFactor;
                 Vector3d bodyPos = body.position;
+                // PARITY SNAPSHOT (tracing-only): record the body-relative offsets THIS draw builds the
+                // vertices from, plus the exact centre float added in, so the parity capture diffs the
+                // drawn points3 against a SAME-FRAME reference. Re-evaluating the surface positions /
+                // centre at capture time (a different part of the frame) skews the reference by a frame
+                // of body translation + rotation (x warp) - pure artifact, not draw drift. Null / not
+                // stamped in normal play: zero cost while tracing is off.
+                double[] parityRel = null;
+                if (MapRenderTrace.IsEnabled)
+                {
+                    parityRel = leg.parityRecordedRel;
+                    if (parityRel == null || parityRel.Length != m * 3)
+                        parityRel = new double[m * 3];
+                }
                 for (int i = 0; i < m; i++)
                 {
                     Vector3d world = body.GetWorldSurfacePosition(
                         leg.lats[i], leg.lons[i], leg.alts[i]);
-                    leg.scratchScaledSpace[i] = bodyCentreScaled
-                        + (Vector3)((world - bodyPos) * invScale);
+                    Vector3d rel = world - bodyPos;
+                    leg.scratchScaledSpace[i] = bodyCentreScaled + (Vector3)(rel * invScale);
+                    if (parityRel != null)
+                    {
+                        parityRel[i * 3] = rel.x;
+                        parityRel[i * 3 + 1] = rel.y;
+                        parityRel[i * 3 + 2] = rel.z;
+                    }
+                }
+                if (parityRel != null)
+                {
+                    leg.parityRecordedRel = parityRel;
+                    leg.parityDrawCentreScaled = bodyCentreScaled;
+                    parityFilled = true; // frame stamped at the draw write-back below
                 }
             }
             else
             {
                 // No scaled body available (should not happen in map view): fall back to the
                 // direct absolute path. Strobes under warp, but at least renders on the surface.
+                // No parity snapshot: this branch strobes by design, so the parity lens skips it
+                // (parityDrawFrame stays != lastDrawnFrame).
                 for (int i = 0; i < m; i++)
                 {
                     Vector3d world = body.GetWorldSurfacePosition(
@@ -2998,6 +3253,15 @@ namespace Parsek.Display
             // body-fixed - the live ghost is glued to the pad/terrain there, so body-fixed is correct.
             if (requireConicAnchor && !anchored)
             {
+                // Invalidate the tracing-only parity snapshot: the fill above already overwrote the
+                // snapshot array IN PLACE (it is aliased by the cache), but this leg will NOT draw this
+                // frame - points3 still hold the PREVIOUS draw's (possibly conic-anchored) vertices.
+                // Without this, the stale stamps can be pairwise EQUAL (parityDrawFrame ==
+                // lastDrawnFrame, both from the prior drawn frame), so the capture's coherence check
+                // would pass and diff the old anchored points3 against the fresh RAW snapshot - a false
+                // parity-drift of anchor-rotation magnitude on the anchored->seam-rejected transition.
+                // 0 = "never filled"; the next successful draw refills and restamps.
+                leg.parityDrawFrame = 0;
                 ParsekLog.VerboseRateLimited(Tag, "runleg-anchor-reject." + recordingId,
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
                         "Run leg hidden (conic anchor unavailable): rec={0} leg={1} [{2:F1},{3:F1}] " +
@@ -3021,6 +3285,13 @@ namespace Parsek.Display
             // past it) so the leg never vanishes on zoom-out. See DrawMapLine.
             DrawMapLine(leg.vectorLine);
             leg.lastDrawnFrame = drawFrame;
+            // Stamp the parity snapshot as belonging to THIS draw only after the draw actually happened.
+            // NOTE: a stale stamp alone is NOT protection - the fill mutates the aliased snapshot array
+            // in place, and the stale parityDrawFrame can EQUAL the stale lastDrawnFrame (both from the
+            // prior drawn frame), which passes the capture's coherence check. The anchor-reject early-out
+            // above therefore invalidates the stamp EXPLICITLY (parityDrawFrame = 0) on its exit path.
+            if (parityFilled)
+                leg.parityDrawFrame = drawFrame;
             return true;
         }
 
@@ -3325,6 +3596,12 @@ namespace Parsek.Display
                 // legs draw regardless (anchored when possible, body-fixed otherwise - the Duna landing
                 // descent), connected to the inertial run by the seam bridges.
                 public bool requireConicAnchor;
+                // Phase 5b: evaluate the orbit<->landing G1 tangent seam after this leg draws (the
+                // stitched descent member's seam-entry leg, owned draw, tracing on - the pure gate
+                // CrossMemberSeamStitcher.ShouldEvaluateTangentSeamAtDraw). The tangents exist only at
+                // the DRAW site (a RenderSegment carries no points), so the Tier-C
+                // rigid-seam-tangent-discontinuity raise is wired here.
+                public bool evalTangentSeam;
             }
             private readonly List<PendingLegDraw> pendingDraws = new List<PendingLegDraw>();
             private int pendingDrawsFrame = -1;
@@ -3645,6 +3922,23 @@ namespace Parsek.Display
                 // the ghost-bearing / pending-create iterators that
                 // GhostMapPresence and ParsekPlaybackPolicy use, so the
                 // polyline must reach the raw committed list.
+                //
+                // ---- Phase 5b FENCE (migration plan section 7, 5b): the walk is RETAINED ----
+                // The plan's original "delete the autonomous Driver ownership walk" was re-scoped at 5b
+                // after mapping the populations end-to-end: this walk is the SINGLE draw host, and it is
+                // the only renderer for populations the spine does NOT enumerate:
+                //  (1) proto-less pid-0 recordings (atmospheric-only ascents; scene.GhostPids never
+                //      reports them, so no intent is ever stamped),
+                //  (2) Driver-direct "bridge" legs the Director classifies StockConic (the re-aim bridge
+                //      legs on the conic - the 8b.2 actual-draw decoupling),
+                //  (3) the boundary-overlap SECONDARY head legs (deliberately non-owned),
+                //  (4) the additive FORWARD legs / forward arcs / seam bridges (predicted-path surfaces),
+                // AND the dispatch host for the OWNED TracedPathTreatment.TryDrawOwnedLeg draw itself,
+                // AND the sole feeder of drewNonOrbitalLegRecordings (the 8e S3b SOLE ownership source -
+                // KEPT). What 5b DID delete here: the walk's direct deorbit-clock reads (now consumed via
+                // the CrossMemberSeamStitcher absorb APIs; source-gated) - and it WIRED the Tier-C
+                // rigid-seam-tangent evaluation at the owned descent draw. Re-examine this fence whenever
+                // the spine learns a population above.
                 var committed = RecordingStore.CommittedRecordings;
                 int frameDrawn = 0;
                 int frameSkippedSuppressed = 0;
@@ -3764,13 +4058,19 @@ namespace Parsek.Display
                     // Phase 8b.1: resolve this recording's live ghost map pid ONCE (committed-list
                     // index -> ghost vessel pid; 0 when the recording has no proto-vessel ghost, e.g. an
                     // atmospheric-only recording). The TracedPath treatment ownership decision below is
-                    // pid-keyed (ShadowRenderDriver.IsDirectorTracedPathActive), the SAME predicate the
-                    // icon-drive / orbit-line patches read to suppress the stock proto. Resolving here,
-                    // outside the leg loop, keeps the per-leg routing cheap. pid 0 (no ghost) is never
-                    // stamped by the shadow, so those recordings always take the Driver-direct path.
+                    // pid-keyed, the SAME freshness contract the icon-drive / orbit-line patches read to
+                    // suppress the stock proto. Resolving here, outside the leg loop, keeps the per-leg
+                    // routing cheap. pid 0 (no ghost) is never stamped by the shadow, so those recordings
+                    // always take the Driver-direct path.
+                    //
+                    // Phase 5b: the owned-draw routing reads the single intent-sourced selector
+                    // (IsTracedPathOwnedThisFrame == the spine's GhostRenderIntent stamp; the legacy
+                    // side-channel was deleted with the cutover flag). A stamped ghost's leg draws via the
+                    // OWNED TracedPathTreatment path and the Driver-direct draw stands down for it; the
+                    // proto/marker consumers read the SAME selector, so no double-draw, no gap.
                     uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(recordingIndex);
                     bool directorOwnsTracedPath =
-                        Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(ghostPid, drawFrame);
+                        Parsek.MapRender.ShadowRenderDriver.IsTracedPathOwnedThisFrame(ghostPid, drawFrame);
 
                     bool anyDrawn = false;
                     // Disjoint-leg guard (plan 4.2): the leg index the PRIMARY head landed on this frame (-1 when
@@ -3797,6 +4097,15 @@ namespace Parsek.Display
                     // frame (e.g. a launch-body-orbit probe) have no shifted deorbit tail and must not draw one.
                     // Byte-identical-off for them, for non-re-aim units (hasDeorbitHead false), and for every phase
                     // other than Loiter on the transfer member.
+                    //
+                    // Phase 5b: the walk consumes this clock EXCLUSIVELY through the Phase-6
+                    // CrossMemberSeamStitcher absorb APIs (TryResolveTransferDeorbitTailHead below +
+                    // ResolveDeorbitTailLegHead in the leg gate) - the stitcher owns the deorbit clock;
+                    // the walk's direct DescentTrigger / span-clock deorbit reads were deleted (a source
+                    // gate forbids them in this file). RETAINED (not deleted) because the spine renders
+                    // the promoted DescentPhase only from the trigger onward; the LOITER-phase deorbit-
+                    // tail sweep on the transfer member has no spine equivalent and would regress on
+                    // every looped landing mission if this block died.
                     bool hasDeorbitHead = false;
                     double deorbitHead = double.NaN;
                     double deorbitSeamUT = double.NaN;
@@ -3806,7 +4115,7 @@ namespace Parsek.Display
                         && dtUnit.HasDescentTrigger
                         && recordingIndex == dtUnit.TransferMemberIndex)
                     {
-                        hasDeorbitHead = GhostPlaybackLogic.TryResolveTransferDeorbitHeadForMember(
+                        hasDeorbitHead = Parsek.MapRender.CrossMemberSeamStitcher.TryResolveTransferDeorbitTailHead(
                             dtUnit, recordingIndex, currentUT, rec.StartUT, rec.EndUT,
                             out deorbitHead, out deorbitConicEndUT, out deorbitSeamUT);
                     }
@@ -3827,10 +4136,11 @@ namespace Parsek.Display
                         // I1: a deorbit-tail leg (the contiguous post-shifted-conic destination tail, UT window
                         // conicEnd < legEnd <= seam+eps) on the transfer member gates on the re-anchored
                         // deorbitHead instead of the loop head; every other leg keeps headUT (byte-identical).
+                        // Phase 5b: routed through the stitcher's per-leg absorb (it owns the clock).
                         bool deorbitTailLeg = hasDeorbitHead
                             && !double.IsNaN(deorbitConicEndUT) && !double.IsNaN(deorbitSeamUT)
                             && leg.endUT > deorbitConicEndUT;
-                        double legHeadUT = Parsek.Reaim.DescentTrigger.ResolveTransferLegHeadUT(
+                        double legHeadUT = Parsek.MapRender.CrossMemberSeamStitcher.ResolveDeorbitTailLegHead(
                             leg.endUT, deorbitSeamUT, 1.0, headUT, deorbitHead, deorbitTailLeg);
                         if (!ShouldDrawLegAtHeadUT(leg.startUT, leg.endUT, legHeadUT))
                         {
@@ -3849,11 +4159,11 @@ namespace Parsek.Display
                             continue;
                         }
 
-                        // Phase 8b routing decision (unchanged): when the Director owns this ghost's CURRENT
+                        // Phase 8b routing decision: when the Director owns this ghost's CURRENT
                         // leg as a TracedPath (directorOwnsTracedPath, the pid-keyed
-                        // IsDirectorTracedPathActive), the OWNED TracedPathTreatment path is the structural
-                        // owner of the leg; otherwise the Driver-direct path draws. Gate off / no fresh
-                        // TracedPath intent -> directorOwnsTracedPath is false -> Driver-direct, byte-identical.
+                        // IsTracedPathOwnedThisFrame), the OWNED TracedPathTreatment path is the structural
+                        // owner of the leg; otherwise the Driver-direct path draws (the fenced 5b
+                        // populations: no fresh TracedPath intent, pid-0 proto-less, StockConic bridges).
                         bool ownedByTreatment = ShouldDrawLegOwnedByTreatment(directorOwnsTracedPath);
 
                         // Pan-stability split (FIX 1): this decide pass runs at -50, BEFORE the map camera
@@ -3879,7 +4189,14 @@ namespace Parsek.Display
                             body = body,
                             rec = rec,
                             ownedByTreatment = ownedByTreatment,
-                            ghostPid = ghostPid
+                            ghostPid = ghostPid,
+                            // Phase 5b tangent-seam wiring: evaluate the orbit<->landing G1 seam after
+                            // the draw for the stitched descent member's seam-entry leg (owned draw,
+                            // tracing on). Pure gate; false for every other population.
+                            evalTangentSeam =
+                                Parsek.MapRender.CrossMemberSeamStitcher.ShouldEvaluateTangentSeamAtDraw(
+                                    MapRenderTrace.IsEnabled, ownedByTreatment,
+                                    IsDescentTriggerMember(recordingIndex, loopUnits), li == 0)
                         });
                         anyDrawn = true;
                         primaryDrawnLegIndex = li;
@@ -4308,6 +4625,15 @@ namespace Parsek.Display
                                 leg.PointCount, p.ownedByTreatment, pendingTargetLayer,
                                 leg.startUT, leg.endUT),
                             recId: p.recordingId);
+
+                    // Phase 5b: the deferred Tier-C rigid-seam-tangent raise, at the only place the live
+                    // world tangents exist - the stitched descent's seam-entry leg just DREW, so its first
+                    // two world points (the entering tangent) and the bracketing capture conic sampled at
+                    // the seam (the leaving tangent) are both available. Tracing-gated by the decide-pass
+                    // flag (ShouldEvaluateTangentSeamAtDraw), once-per-onset inside. A continuous seam
+                    // emits nothing.
+                    if (legDrawn && p.evalTangentSeam)
+                        EvaluateDescentSeamTangents(p, leg);
                 }
                 pendingDraws.Clear();
 
@@ -4427,6 +4753,116 @@ namespace Parsek.Display
                         MapRenderTrace.RenderSurface.PolylineForwardArc,
                         previousDrewForwardArcRecordings, currentDrewForwardArcRecordings,
                         Planetarium.GetUniversalTime());
+            }
+
+            // The UT step used to sample the leaving (capture-conic) tangent just before the seam.
+            private const double TangentSeamConicSampleDtSeconds = 1.0;
+
+            /// <summary>
+            /// Phase 5b: the Tier-C <c>rigid-seam-tangent-discontinuity</c> production raise, wired at
+            /// the descent DRAW site (the only place the live world tangents exist - a RenderSegment
+            /// carries no points; see the Phase-6 deferral note in
+            /// <see cref="Parsek.MapRender.CrossMemberSeamStitcher"/>). Called only for a drawn
+            /// seam-entry leg of a stitched descent member (the decide-pass
+            /// <c>ShouldEvaluateTangentSeamAtDraw</c> gate, tracing-gated). ENTERING tangent = the drawn
+            /// descent leg's first two body-relative world points at the live rotation; LEAVING tangent =
+            /// the same-body capture/parking conic ending at the seam, sampled just before its end. An
+            /// unmeasurable side (no bracketing conic / degenerate geometry) reads CONTINUOUS - no false
+            /// anomaly. Once-per-onset via <see cref="MapRenderTrace.ShouldEmitTangentSeamOnChange"/>
+            /// (both states feed the signature gate, so a healed seam re-arms the next onset); a real
+            /// kink emits the anomaly, a continuous seam emits nothing.
+            /// </summary>
+            private void EvaluateDescentSeamTangents(PendingLegDraw p, LegPolyline leg)
+            {
+                if (!MapRenderTrace.IsEnabled) return; // decide-pass flag is tracing-gated; cheap re-check
+                if (leg.PointCount < 2 || p.body == null || p.rec == null) return;
+
+                // ROTATION-ALIGNMENT ASSUMPTION: the entering tangent below is body-fixed recorded points
+                // at the LIVE rotation; the leaving tangent is the recorded conic at the RECORDED seam
+                // epoch (inertial). The two frames coincide because the descent trigger fires
+                // rotation-aligned; a trigger with a nonzero site-rotation residual (loiter-cut cycles)
+                // can measure a residual-sized angle. If this anomaly ever fires in a tracing run, check
+                // siteRotResidual in the DESCENT RENDERED line before suspecting a real seam kink.
+
+                // ENTERING tangent: the drawn descent leg's first two recorded points as body-relative
+                // world positions at the LIVE rotation (double subtraction first - float would
+                // catastrophically cancel at raw world magnitudes).
+                Vector3d bodyPos = p.body.position;
+                Vector3d w0 = p.body.GetWorldSurfacePosition(leg.lats[0], leg.lons[0], leg.alts[0]) - bodyPos;
+                Vector3d w1 = p.body.GetWorldSurfacePosition(leg.lats[1], leg.lons[1], leg.alts[1]) - bodyPos;
+                Vector3 entering = Parsek.MapRender.CrossMemberSeamStitcher.TangentFromPositions(
+                    (Vector3)w0, (Vector3)w1);
+
+                // LEAVING tangent: the capture/parking conic ENDING at the leg's start (the seam) - the
+                // same-body OrbitSegment whose endUT is nearest leg.startUT within the bridge seam
+                // tolerance, sampled as two conic positions just before the seam. No such conic (or a
+                // degenerate/throwing one) leaves the tangent unmeasurable -> continuous (no false
+                // anomaly).
+                Vector3 leaving = Vector3.zero;
+                var segs = p.rec.OrbitSegments;
+                if (segs != null)
+                {
+                    double bestDist = double.PositiveInfinity;
+                    int bestIdx = -1;
+                    for (int i = 0; i < segs.Count; i++)
+                    {
+                        var s = segs[i];
+                        if (s.endUT <= s.startUT) continue;
+                        if (!string.Equals(s.bodyName, leg.bodyName, StringComparison.Ordinal)) continue;
+                        double dist = System.Math.Abs(leg.startUT - s.endUT);
+                        if (dist <= BridgeMaxSeamGapSeconds && dist < bestDist)
+                        {
+                            bestDist = dist;
+                            bestIdx = i;
+                        }
+                    }
+                    if (bestIdx >= 0)
+                    {
+                        var s = segs[bestIdx];
+                        try
+                        {
+                            var orbit = new Orbit(
+                                s.inclination, s.eccentricity, s.semiMajorAxis,
+                                s.longitudeOfAscendingNode, s.argumentOfPeriapsis,
+                                s.meanAnomalyAtEpoch, s.epoch, p.body);
+                            Vector3d c0 = orbit.getPositionAtUT(s.endUT - TangentSeamConicSampleDtSeconds);
+                            Vector3d c1 = orbit.getPositionAtUT(s.endUT);
+                            if (IsFiniteVec(c0) && IsFiniteVec(c1))
+                                leaving = Parsek.MapRender.CrossMemberSeamStitcher.TangentFromPositions(
+                                    (Vector3)(c0 - bodyPos), (Vector3)(c1 - bodyPos));
+                        }
+                        catch (Exception)
+                        {
+                            leaving = Vector3.zero; // unmeasurable -> no anomaly
+                        }
+                    }
+                }
+
+                bool continuous = Parsek.MapRender.CrossMemberSeamStitcher.IsTangentSeamContinuous(
+                    leaving, entering);
+                double angleRad = Parsek.MapRender.CrossMemberSeamStitcher.TangentSeamAngleRadians(
+                    leaving, entering);
+
+                // Once-per-onset: feed the state through the signature gate in BOTH states (a healed seam
+                // re-arms the next onset); only a CHANGED discontinuous state emits the anomaly.
+                string pidKey = p.ghostPid.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                string signature = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "{0}|leg{1}|{2}", p.recordingId, p.legIndex, continuous ? "cont" : "disc");
+                bool changed = MapRenderTrace.ShouldEmitTangentSeamOnChange(pidKey, signature);
+                if (changed && !continuous)
+                {
+                    Parsek.MapRender.CrossMemberSeamStitcher.EmitTangentDiscontinuity(
+                        p.ghostPid, p.recordingId, Planetarium.GetUniversalTime(),
+                        leaving, entering, angleRad);
+                }
+
+                ParsekLog.VerboseRateLimited(DriverTag, "descent-seam-tangent." + p.recordingId,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Descent G1 seam tangents: rec={0} leg={1} continuous={2} angleRad={3:F4} " +
+                        "leavingMeasured={4} enteringMeasured={5} pid={6}",
+                        p.recordingId, p.legIndex, continuous, angleRad,
+                        leaving != Vector3.zero, entering != Vector3.zero, p.ghostPid),
+                    5.0);
             }
 
             /// <summary>

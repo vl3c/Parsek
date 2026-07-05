@@ -35,6 +35,67 @@ namespace Parsek
         internal const double AnomalyWindowSeconds = 5.0;
         internal const double DestroyWindowSeconds = 1.0;
 
+        // ---- New Tier-C anomaly reason tokens (design §14) ----
+        //
+        // Canonical reason strings for the new render-overhaul anomaly classes, passed as the
+        // `reason` argument to EmitAnomaly so a grep finds them by a single stable token. `parity-drift`
+        // is now WIRED + LIVE: it is fired by the gated probe sampler
+        // MapRenderProbe.TrySampleAndEmitFaithfulOrbitParity (the Unity geometry sampler driving
+        // RenderParityOracle in Faithful mode) whenever a faithful ghost's rendered orbit diverges from
+        // its recorded reference beyond tolerance. rigid-seam-tangent-discontinuity is WIRED + LIVE since
+        // Phase 5b: the descent DRAW site (the polyline Driver's post-draw seam evaluation - the only
+        // place the live world tangents exist, a RenderSegment carries no points) raises it via
+        // CrossMemberSeamStitcher.EmitTangentDiscontinuity, once-per-onset via
+        // ShouldEmitTangentSeamOnChange. The remaining THREE reserved tokens
+        // (retire-not-held / anchor-resolve-fail / clock-not-ready) are raised from their guard sites in
+        // ShadowRenderDriver / AnchorFrameResolver. NOTE the Phase-6 status: the descent re-stitch wires
+        // the Tier-A DescentStitched STRUCTURAL event (CrossMemberSeamStitcher.TryStitchDescentSeam,
+        // once-per-stitch-onset via ShouldEmitDescentStitchOnChange).
+        //
+        //  - parity-drift: the geometry the pipeline actually RENDERED diverged from the reference it
+        //    was supposed to draw (recorded in Faithful mode / the producer's intended arc in
+        //    Synthesized mode) beyond tolerance - the recorded-vs-rendered oracle's anomaly. This is a
+        //    DISTINCT axis from GhostRenderReconciler's intent-vs-old-truth `decision-vs-old-truth` /
+        //    `gap-vs-retire`; the two coexist through Phases 0-8.
+        //  - rigid-seam-tangent-discontinuity: a Rigid seam's two sides (e.g. capture-orbit velocity
+        //    direction at SOI/atmosphere entry vs the recorded descent's first-sample tangent) diverged
+        //    beyond tolerance at the G1 descent re-stitch (Phase 6). WIRED + LIVE (Phase 5b): raised from
+        //    the descent draw site, once-per-onset (see above).
+        //  - retire-not-held: a terminal / out-of-range member HELD its last visible intent across an
+        //    interior gap where it should have RETIRED (rendered nothing) - the inverse of the
+        //    held-across-gap contract (design §6.4 / §10.7).
+        //  - anchor-resolve-fail: a BodyAnchor or parent-anchor resolution failed (missing body /
+        //    unresolvable parent trajectory) -> the phase fails closed to faithful rather than NRE.
+        //  - clock-not-ready: the render path was sampled at UT<=0 (cold-load Planetarium UT=0); the
+        //    sampler must defer rather than produce a degenerate ghost.
+        //  - factory-parity (Phase 2): the SHADOW PhaseFactory's emitted GEOMETRY (Treatment / StartUt /
+        //    EndUt / FrameBodyName / conic payload + chain-level WindowStartUt / WindowEndUt /
+        //    IsFaithfulFallback) diverged from the live ChainAssembler's GhostRenderChain. PhaseKind /
+        //    Provenance are NOT in this parity set (they are unit-tested). WIRED + LIVE: emitted by the
+        //    gated shadow hook in ShadowRenderDriver via EmitFactoryParity (rate-limited per recording)
+        //    whenever GeometryParityComparator.Compare reports a non-match. Shadow-only: it asserts, never
+        //    drives a draw, so a fire is a build-bug signal, not a rendered regression.
+        internal const string AnomalyParityDrift = "parity-drift";
+        internal const string AnomalyRigidSeamTangentDiscontinuity = "rigid-seam-tangent-discontinuity";
+        internal const string AnomalyRetireNotHeld = "retire-not-held";
+        internal const string AnomalyAnchorResolveFail = "anchor-resolve-fail";
+        internal const string AnomalyClockNotReady = "clock-not-ready";
+        internal const string AnomalyFactoryParity = "factory-parity";
+
+        // ---- Phase 7 Tier-A structural EVENT: fail-closed-to-faithful (design §14 / migration plan §9) ----
+        //
+        // The phase name passed to EmitStructural when a producer is UNSUPPORTED and the classifier chose
+        // exact recorded replay (FaithfulFallback) instead of a broken synthetic guess. WIRED + LIVE: the
+        // Phase-7 FailClosedClassifier emits it once-per-event (not per frame) from its decision site
+        // (FailClosedClassifier.EmitFailClosedToFaithful, gated through ShouldEmitFailClosedOnChange) when
+        // it classifies a cross-SOI / nested-SOI (Jool) / moving-target-station member as fail-closed. The
+        // detail line names the unsupported PRODUCER token (FailClosedReason) so a grep finds WHY a member
+        // rendered recorded-verbatim. This is define-only/inert behavior in v1 (fail-closed is what the
+        // classifiers already do — no synthetic producer exists for these three), so the event records the
+        // decision; it never changes geometry. The cross-SOI kink renders the current FlexibleSoi G0 seam
+        // unchanged.
+        internal const string EventFailClosedToFaithful = "fail-closed-to-faithful";
+
         // ---- Tier-C anomaly tuning ----
 
         /// <summary>
@@ -436,6 +497,220 @@ namespace Parsek
                 currentUT, currentUT, details, recId);
         }
 
+        // ---- Cutover-hardening: Tier-C cutover-anomaly once-per-event dedup ----
+        // The cold-load clock-not-ready guard, the retire-not-held inverse-hold check, and the
+        // anchor-resolve-fail fail-closed check are all evaluated every frame at their decision site (the
+        // MAP spine), but each Tier-C anomaly is a per-EVENT signal, not a per-frame one (EmitAnomaly
+        // routes to Info + opens a detail window). This per-(pid+reason+detail-key) signature gate emits
+        // ONE line per distinct (key, signature) per scene session - a CHANGED signature re-emits, and
+        // Reset() clears on scene switch; signature dedup, NOT time-based rate limiting - matching the
+        // ShouldEmit*OnChange pattern already used for the descent-stitch / fail-closed structural events.
+        // Same warp-cap as the sibling signature dicts.
+        private static readonly Dictionary<string, string> lastCutoverAnomalySignatureByKey =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>Test-only: current size of the cutover-anomaly change-detection dict (warp-cap assert).</summary>
+        internal static int CutoverAnomalySignatureCountForTesting => lastCutoverAnomalySignatureByKey.Count;
+
+        /// <summary>
+        /// Once-per-event gate for a Tier-C cutover anomaly (clock-not-ready / retire-not-held /
+        /// anchor-resolve-fail): returns true only when <paramref name="signature"/> changed for this
+        /// <paramref name="eventKey"/> (typically <c>pid + ":" + reason</c>) since its last emit, so a
+        /// steadily-true decision site emits ONE anomaly line rather than one per frame. No-op (false) when
+        /// disabled. An empty key (a headless / no-resolvable-ghost path) is allowed through (the
+        /// <see cref="IsEnabled"/> gate + the caller still bound the emit). Warp-capped + cleared in
+        /// <see cref="Reset"/> (scene switch), like the sibling signature dicts.
+        /// </summary>
+        internal static bool ShouldEmitCutoverAnomalyOnChange(string eventKey, string signature)
+        {
+            if (!IsEnabled)
+                return false;
+            if (string.IsNullOrEmpty(eventKey))
+                return true;
+
+            if (lastCutoverAnomalySignatureByKey.TryGetValue(eventKey, out string last)
+                && string.Equals(last, signature, StringComparison.Ordinal))
+                return false; // unchanged anomaly onset for this key -> suppress
+
+            if (!lastCutoverAnomalySignatureByKey.ContainsKey(eventKey)
+                && lastCutoverAnomalySignatureByKey.Count >= MaxTrackedMarkerDecisionKeys)
+                lastCutoverAnomalySignatureByKey.Clear();
+
+            lastCutoverAnomalySignatureByKey[eventKey] = signature;
+            return true;
+        }
+
+        // ---- Phase 6: descent-stitch structural-event once-per-event dedup ----
+        // The CrossMemberSeamStitcher's TryStitchDescentSeam runs every frame the re-aim looped descent is
+        // live + re-anchored, but the Tier-A DescentStitched structural event is a per-(re)stitch ONSET
+        // signal, not a per-frame one (EmitStructural routes to Info unconditionally + opens a detail
+        // window). This per-pid signature gate emits ONE line per distinct (pid, signature) per scene
+        // session - a stitch-onset / descent-head-phase signature change re-emits, and Reset() clears on
+        // scene switch; signature dedup, NOT time-based rate limiting. Same warp-cap as the marker /
+        // line-visibility signature dicts.
+        private static readonly Dictionary<string, string> lastDescentStitchSignatureByPid =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>Test-only: current size of the descent-stitch change-detection dict (warp-cap assert).</summary>
+        internal static int DescentStitchSignatureCountForTesting => lastDescentStitchSignatureByPid.Count;
+
+        /// <summary>
+        /// Once-per-event gate for the Tier-A <c>DescentStitched</c> structural event (Phase 6): returns true
+        /// only when <paramref name="signature"/> (committed index + descent head phase) changed for this
+        /// <paramref name="pidKey"/> since its last emit, so a steady re-anchored descent emits ONE structural
+        /// line rather than one per frame. No-op (false) when disabled. An empty pid (no resolvable ghost -
+        /// e.g. a headless unit test) is allowed through (the <see cref="IsEnabled"/> gate + the caller still
+        /// bound the emit). Warp-capped + cleared in <see cref="Reset"/> (scene switch), like the sibling
+        /// signature dicts.
+        /// </summary>
+        internal static bool ShouldEmitDescentStitchOnChange(string pidKey, string signature)
+        {
+            if (!IsEnabled)
+                return false;
+            if (string.IsNullOrEmpty(pidKey))
+                return true;
+
+            if (lastDescentStitchSignatureByPid.TryGetValue(pidKey, out string last)
+                && string.Equals(last, signature, StringComparison.Ordinal))
+                return false; // unchanged stitch onset for this ghost -> suppress
+
+            if (!lastDescentStitchSignatureByPid.ContainsKey(pidKey)
+                && lastDescentStitchSignatureByPid.Count >= MaxTrackedMarkerDecisionKeys)
+                lastDescentStitchSignatureByPid.Clear();
+
+            lastDescentStitchSignatureByPid[pidKey] = signature;
+            return true;
+        }
+
+        // ---- Phase 7: fail-closed-to-faithful structural-event once-per-event dedup ----
+        // The Phase-7 FailClosedClassifier runs every frame a member's chain is (re)classified, but the
+        // Tier-A fail-closed-to-faithful structural event is a per-(re)classification ONSET signal, not a
+        // per-frame one (EmitStructural routes to Info unconditionally + opens a detail window). This
+        // per-pid signature gate emits ONE line per distinct (pid, signature) per scene session - a
+        // fail-closed onset / reason change re-emits, and Reset() clears on scene switch; signature
+        // dedup, NOT time-based rate limiting. Same warp-cap as the marker / line-visibility /
+        // descent-stitch signature dicts.
+        private static readonly Dictionary<string, string> lastFailClosedSignatureByPid =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>Test-only: current size of the fail-closed change-detection dict (warp-cap assert).</summary>
+        internal static int FailClosedSignatureCountForTesting => lastFailClosedSignatureByPid.Count;
+
+        /// <summary>
+        /// Once-per-event gate for the Tier-A <c>fail-closed-to-faithful</c> structural event (Phase 7):
+        /// returns true only when <paramref name="signature"/> (recording id + the unsupported producer
+        /// reason) changed for this <paramref name="pidKey"/> since its last emit, so a steady fail-closed
+        /// member emits ONE structural line rather than one per frame. No-op (false) when disabled. An
+        /// empty pid (no resolvable ghost — e.g. a headless unit test) is allowed through (the
+        /// <see cref="IsEnabled"/> gate + the caller still bound the emit). Warp-capped + cleared in
+        /// <see cref="Reset"/> (scene switch), like the sibling signature dicts.
+        /// </summary>
+        internal static bool ShouldEmitFailClosedOnChange(string pidKey, string signature)
+        {
+            if (!IsEnabled)
+                return false;
+            if (string.IsNullOrEmpty(pidKey))
+                return true;
+
+            if (lastFailClosedSignatureByPid.TryGetValue(pidKey, out string last)
+                && string.Equals(last, signature, StringComparison.Ordinal))
+                return false; // unchanged fail-closed onset for this ghost -> suppress
+
+            if (!lastFailClosedSignatureByPid.ContainsKey(pidKey)
+                && lastFailClosedSignatureByPid.Count >= MaxTrackedMarkerDecisionKeys)
+                lastFailClosedSignatureByPid.Clear();
+
+            lastFailClosedSignatureByPid[pidKey] = signature;
+            return true;
+        }
+
+        // ---- Phase 5b: rigid-seam-tangent Tier-C anomaly once-per-onset dedup ----
+        // The orbit<->landing G1 tangent seam is evaluated at the descent DRAW site every frame the
+        // stitched descent's seam-entry leg draws (tracing-gated), but the Tier-C
+        // rigid-seam-tangent-discontinuity anomaly is a per-ONSET signal, not a per-frame one
+        // (EmitAnomaly routes to INFO unconditionally - EmitRaw(important:true) -> ParsekLog.Info, NOT
+        // Warn - + opens a detail window; review N14 fixed this header's wrong Warn claim). This per-pid
+        // signature gate emits ONE line per distinct (pid, signature) per scene session; the caller also
+        // feeds the CONTINUOUS signature through so a seam that heals re-arms the next onset, and Reset()
+        // clears on scene switch. Same warp-cap as the sibling signature dicts.
+        private static readonly Dictionary<string, string> lastTangentSeamSignatureByPid =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>Test-only: current size of the tangent-seam change-detection dict (warp-cap assert).</summary>
+        internal static int TangentSeamSignatureCountForTesting => lastTangentSeamSignatureByPid.Count;
+
+        /// <summary>
+        /// Once-per-onset gate for the Tier-C <c>rigid-seam-tangent-discontinuity</c> anomaly (Phase 5b
+        /// draw-site wiring): returns true only when <paramref name="signature"/> (leg identity +
+        /// continuous/discontinuous state) changed for this <paramref name="pidKey"/> since the last call,
+        /// so a steadily-kinked seam emits ONE anomaly line rather than one per frame, and a seam that
+        /// returns to continuous re-arms the next onset (the caller feeds the continuous signature through
+        /// and ignores the result). No-op (false) when disabled. An empty pid (no resolvable ghost - e.g.
+        /// a headless unit test) is allowed through (the <see cref="IsEnabled"/> gate + the caller still
+        /// bound the emit). Warp-capped + cleared in <see cref="Reset"/> (scene switch), like the sibling
+        /// signature dicts.
+        /// </summary>
+        internal static bool ShouldEmitTangentSeamOnChange(string pidKey, string signature)
+        {
+            if (!IsEnabled)
+                return false;
+            if (string.IsNullOrEmpty(pidKey))
+                return true;
+
+            if (lastTangentSeamSignatureByPid.TryGetValue(pidKey, out string last)
+                && string.Equals(last, signature, StringComparison.Ordinal))
+                return false; // unchanged seam state for this ghost -> suppress
+
+            if (!lastTangentSeamSignatureByPid.ContainsKey(pidKey)
+                && lastTangentSeamSignatureByPid.Count >= MaxTrackedMarkerDecisionKeys)
+                lastTangentSeamSignatureByPid.Clear();
+
+            lastTangentSeamSignatureByPid[pidKey] = signature;
+            return true;
+        }
+
+        // ---- Phase 2: factory-parity Tier-C anomaly once-per-event dedup ----
+        // The Phase-2 shadow byte-parity comparator (ShadowRenderDriver.AssertFactoryParity) runs on
+        // every chain (re)build while tracing is on, but the factory-parity anomaly is a per-DIVERGENCE
+        // signal, not a per-frame one (EmitAnomaly routes to Info unconditionally + opens a detail
+        // window). This per-recording signature gate emits ONE line per distinct (recording, signature)
+        // per scene session - a changed diverging-field signature re-emits, and Reset() clears on scene
+        // switch; signature dedup, NOT time-based rate limiting. Same warp-cap as the sibling signature
+        // dicts.
+        private static readonly Dictionary<string, string> lastFactoryParitySignatureByRecording =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>Test-only: current size of the factory-parity change-detection dict (warp-cap assert).</summary>
+        internal static int FactoryParitySignatureCountForTesting => lastFactoryParitySignatureByRecording.Count;
+
+        /// <summary>
+        /// Once-per-event gate for the Tier-C <c>factory-parity</c> anomaly (Phase 2): returns true only
+        /// when <paramref name="signature"/> (the comparator's diverging-field details) changed for this
+        /// <paramref name="recordingKey"/> since its last emit, so a steadily-diverging per-frame shadow
+        /// loop emits ONE anomaly line per distinct divergence rather than one per frame. No-op (false)
+        /// when disabled. An empty key is allowed through (the <see cref="IsEnabled"/> gate + the caller
+        /// still bound the emit). Warp-capped + cleared in <see cref="Reset"/> (scene switch), like the
+        /// sibling signature dicts.
+        /// </summary>
+        internal static bool ShouldEmitFactoryParityOnChange(string recordingKey, string signature)
+        {
+            if (!IsEnabled)
+                return false;
+            if (string.IsNullOrEmpty(recordingKey))
+                return true;
+
+            if (lastFactoryParitySignatureByRecording.TryGetValue(recordingKey, out string last)
+                && string.Equals(last, signature, StringComparison.Ordinal))
+                return false; // unchanged divergence for this recording -> suppress
+
+            if (!lastFactoryParitySignatureByRecording.ContainsKey(recordingKey)
+                && lastFactoryParitySignatureByRecording.Count >= MaxTrackedMarkerDecisionKeys)
+                lastFactoryParitySignatureByRecording.Clear();
+
+            lastFactoryParitySignatureByRecording[recordingKey] = signature;
+            return true;
+        }
+
         // MVP: detailed windows are keyed by pid.ToString(). recordingId keying
         // (and the shared registry with GhostRenderTrace) is a later cut.
         private static readonly Dictionary<string, double> detailedUntilByKey =
@@ -462,6 +737,11 @@ namespace Parsek
             renderIntentByPid.Clear();
             lastMarkerDecisionSignatureByPid.Clear();
             lastLineVisibilitySignatureByPid.Clear();
+            lastDescentStitchSignatureByPid.Clear();
+            lastFailClosedSignatureByPid.Clear();
+            lastTangentSeamSignatureByPid.Clear();
+            lastCutoverAnomalySignatureByKey.Clear();
+            lastFactoryParitySignatureByRecording.Clear();
             descentRenderWindowFrame = -1;
             descentRenderWindowPhase = null;
             descentRenderWindowRecId = null;
@@ -1014,6 +1294,129 @@ namespace Parsek
             EmitRaw(true, "Anomaly", surface, pidKey, currentUT, effUT, combined, recId);
         }
 
+        // ---- Cutover-hardening Tier-C anomaly raises (clock-not-ready / retire-not-held /
+        //      anchor-resolve-fail) ----
+        //
+        // Each is a thin, tracing-gated, once-per-event wrapper over EmitAnomaly so the call site at the
+        // real decision point passes only values already in scope and never pays a formatting cost in
+        // normal play (the IsEnabled guard short-circuits before any work). They reuse the existing
+        // AnomalyClockNotReady / AnomalyRetireNotHeld / AnomalyAnchorResolveFail reason tokens, so one grep
+        // (reason=clock-not-ready | retire-not-held | anchor-resolve-fail) lights up each lens.
+
+        /// <summary>
+        /// PURE <c>retire-not-held</c> predicate (Tier C): true when a member's resolved sample is
+        /// OUTSIDE its window (it should RETIRE this frame) yet the prior intent was VISIBLE and the
+        /// director HELD it (kept it visible) instead — the inverse of the held-across-gap contract
+        /// (design §6.4 / §10.7). An interior-gap hold is legitimate (brief off-camera flexible-SOI seam),
+        /// so this is scoped to the OutsideWindow case only: a terminal / past-end / pre-launch member that
+        /// is still being shown. Pure (no Unity / no global state) so it is directly unit-testable.
+        /// </summary>
+        internal static bool IsRetireNotHeld(
+            bool sampleOutsideWindow, bool priorVisible, bool resolvedVisible)
+        {
+            return sampleOutsideWindow && priorVisible && resolvedVisible;
+        }
+
+        /// <summary>
+        /// Raise the Tier-C <c>clock-not-ready</c> anomaly: the MAP render spine was reached at a
+        /// non-positive live UT (cold-load Planetarium UT=0 / pre-time-init — design §11.2), so the spine
+        /// DEFERS (renders nothing) rather than sampling the span clock at UT&lt;=0 and placing a degenerate
+        /// ghost. Gated by <see cref="IsEnabled"/> (free in normal play) and deduped once-per-event via
+        /// <see cref="ShouldEmitCutoverAnomalyOnChange"/> (keyed on the whole-frame defer, not per ghost,
+        /// so one cold-load defer burst emits one line). Surface = ProtoOrbitLine (the spine ultimately
+        /// drives the proto icon/line). This is OBSERVABILITY for the flag-ON defer; it never changes the
+        /// flag-OFF path.
+        /// </summary>
+        internal static void EmitClockNotReady(double liveUT, int ghostCount)
+        {
+            if (!IsEnabled)
+                return;
+            // Frame-scoped event key: the defer is whole-frame (not per ghost). Re-emit only when the
+            // not-ready condition (re)appears, not every cold-load frame.
+            const string eventKey = "spine:clock-not-ready";
+            if (!ShouldEmitCutoverAnomalyOnChange(eventKey, AnomalyClockNotReady))
+                return;
+            string details = "liveUT=" + FormatDouble(liveUT, "F3")
+                + " ghosts=" + ghostCount.ToString(CultureInfo.InvariantCulture)
+                + " action=defer-render";
+            EmitAnomaly(RenderSurface.ProtoOrbitLine, "<none>", liveUT, liveUT,
+                AnomalyClockNotReady, details, recId: null);
+        }
+
+        /// <summary>
+        /// Raise the Tier-C <c>retire-not-held</c> anomaly for <paramref name="pid"/>: a member whose
+        /// sample resolved OUTSIDE its window (should retire) was nonetheless kept visible (held) this
+        /// frame — the inverse-hold defect (design §6.4 / §10.7). Caller pre-checks
+        /// <see cref="IsRetireNotHeld"/>. Gated by <see cref="IsEnabled"/> and deduped once-per-event
+        /// (pid + reason) via <see cref="ShouldEmitCutoverAnomalyOnChange"/>. Surface = ProtoOrbitLine.
+        /// </summary>
+        internal static void EmitRetireNotHeld(
+            uint pid, string recId, double currentUT, double effUT, string treatmentToken)
+        {
+            if (!IsEnabled)
+                return;
+            string pidKey = pid.ToString(CultureInfo.InvariantCulture);
+            string eventKey = pidKey + ":" + AnomalyRetireNotHeld;
+            // Signature includes the treatment so a held-then-different-held transition re-emits.
+            if (!ShouldEmitCutoverAnomalyOnChange(eventKey, AnomalyRetireNotHeld + ":" + (treatmentToken ?? "?")))
+                return;
+            string details = "heldTreatment=" + Token(treatmentToken)
+                + " action=should-retire";
+            EmitAnomaly(RenderSurface.ProtoOrbitLine, pidKey, currentUT, effUT,
+                AnomalyRetireNotHeld, details, recId);
+        }
+
+        /// <summary>
+        /// Raise the Tier-C <c>anchor-resolve-fail</c> anomaly for <paramref name="pid"/>: a
+        /// <c>BodyAnchor</c> / parent-anchor resolution failed (missing / unknown body, or an
+        /// out-of-range parent-anchored surface) so the phase failed CLOSED (hide / suppress) rather than
+        /// NRE (design §5.2 / §11.4). The pure decision is <see cref="MapRender.AnchorFrameResolver"/>;
+        /// this is its observability raise. Gated by <see cref="IsEnabled"/> and deduped once-per-event
+        /// (pid + reason + outcome) via <see cref="ShouldEmitCutoverAnomalyOnChange"/>. Surface =
+        /// ProtoOrbitLine.
+        /// </summary>
+        internal static void EmitAnchorResolveFail(
+            uint pid, string recId, double currentUT, string bodyName, string outcomeToken)
+        {
+            if (!IsEnabled)
+                return;
+            string pidKey = pid.ToString(CultureInfo.InvariantCulture);
+            string eventKey = pidKey + ":" + AnomalyAnchorResolveFail;
+            if (!ShouldEmitCutoverAnomalyOnChange(
+                    eventKey, AnomalyAnchorResolveFail + ":" + (outcomeToken ?? "?") + ":" + (bodyName ?? "?")))
+                return;
+            string details = "body=" + Token(bodyName)
+                + " outcome=" + Token(outcomeToken)
+                + " action=fail-closed";
+            EmitAnomaly(RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
+                AnomalyAnchorResolveFail, details, recId);
+        }
+
+        /// <summary>
+        /// Phase 2 shadow-comparator anomaly emit: the gated <see cref="MapRender.PhaseFactory"/>'s
+        /// emitted geometry diverged from the live <c>ChainAssembler</c>'s <c>GhostRenderChain</c>.
+        /// This byte-parity mismatch is a FLAG-FLIP GATE signal, so the mismatch routes through
+        /// <see cref="EmitAnomaly"/> (Info-level, phase=Anomaly) - NOT
+        /// <see cref="ParsekLog.VerboseRateLimited"/>, which early-returns when the user's
+        /// verboseLogging setting is off and silently swallowed the mismatch while tracing was on.
+        /// Deduped once-per-event via <see cref="ShouldEmitFactoryParityOnChange"/> (keyed per
+        /// recording id, signature = the diverging-field <paramref name="details"/> built by the
+        /// caller from the comparator result), so a per-frame shadow loop on a steadily diverging
+        /// member emits ONE line per distinct divergence, not one per frame. Gated by
+        /// <see cref="IsEnabled"/>; no-op in normal play.
+        /// </summary>
+        internal static void EmitFactoryParity(
+            string recordingId, double currentUT, string details)
+        {
+            if (!IsEnabled)
+                return;
+            string key = Token(recordingId);
+            if (!ShouldEmitFactoryParityOnChange(key, details ?? string.Empty))
+                return;
+            EmitAnomaly(RenderSurface.ProtoOrbitLine, key, currentUT, currentUT,
+                AnomalyFactoryParity, details, recordingId);
+        }
+
         /// <summary>IMGUI marker-surface decision emit (<c>ImguiLabeledMarker</c> /
         /// <c>AtmosphericMarker</c>). These surfaces draw in OnGUI - AFTER the end-of-frame probe -
         /// so they are decision-only: there is no separate end-of-frame truth read to reconcile (the
@@ -1049,8 +1452,9 @@ namespace Parsek
         /// for the two to be reconciled. 0 = same Unity frame only. The ONLY caller of
         /// <see cref="RecordLineIntent"/> is GhostOrbitLinePatch's per-render-frame LateUpdate Postfix,
         /// which runs in the SAME frame as the order-10000 probe LateUpdate (delta 0). Allowing &gt;0
-        /// would reconcile a STALE intent against a LATER frame whose decision was made by a grace-defer
-        /// branch that does NOT re-record intent (it returns without LogOrbitLineDecision), producing a
+        /// would reconcile a STALE intent against a LATER frame decided by a branch that does not
+        /// re-record intent (historically the FIX-#26 grace-defer branches, deleted in Phase 5a; the
+        /// transient missing-line early-return still returns without LogOrbitLineDecision), producing a
         /// spurious drawIcons-changed-after-decision for a change the patch itself made legitimately. If
         /// a per-physics-step decision site is ever wired into RecordLineIntent, revisit this.</summary>
         internal const int IntentFreshnessFrames = 0;

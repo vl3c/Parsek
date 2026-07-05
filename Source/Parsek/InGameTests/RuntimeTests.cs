@@ -10320,7 +10320,7 @@ namespace Parsek.InGameTests
             int drawFrame = Time.frameCount;
             // Route the leg through the OWNED treatment exactly as the Driver does for a director-owned
             // pid. The pid is arbitrary here (no live ghost / shadow stamp is needed - the Driver decides
-            // ownership via IsDirectorTracedPathActive; this test drives the owned-draw path directly).
+            // ownership via IsTracedPathOwnedThisFrame; this test drives the owned-draw path directly).
             bool drawn = Parsek.MapRender.TracedPathTreatment.TryDrawOwnedLeg(
                 ref leg, rec, kerbin, /*targetLayer*/ 31, drawFrame, rec.RecordingId, /*legIndex*/ 0,
                 /*pid*/ 123456u);
