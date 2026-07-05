@@ -646,12 +646,7 @@ namespace Parsek.InGameTests
             return threshold > 0 && unhandledExceptionCount >= threshold;
         }
 
-        // Max times a baseline flight reload is retried to win the intermittent stock camera-race
-        // (Bug #4803: FlightDriver.Start runs before the new FlightCamera's Awake sets fetch -> NRE
-        // -> FlightGlobals corruption -> per-frame NRE flood). The race is intermittent, so a reload
-        // almost always wins on retry.
-        private const int BaselineReloadCameraRaceRetries = 3;
-        // Frames sampled after a reload to detect whether the camera-race NRE flood is still active.
+        // Frames sampled after a reload to detect whether the FlightCamera NRE flood is active.
         private const int BaselineReloadHealthSettleFrames = 8;
         // Unhandled exceptions within the settle window above which the reload is treated as still
         // flooding. A clean reload adds ~0; a corrupted one floods hundreds even across a few frames.
@@ -659,8 +654,8 @@ namespace Parsek.InGameTests
 
         /// <summary>
         /// True when the unhandled-exception count sampled across a post-reload settle window shows the
-        /// stock FlightCamera camera-race NRE flood (Bug #4803) is still active (a clean reload adds
-        /// ~0). Pure; a non-positive threshold disables the check.
+        /// stock FlightCamera NRE flood (Bug #4803) is active (a clean reload adds ~0). Pure; a
+        /// non-positive threshold disables the check.
         /// </summary>
         internal static bool ReloadStillFlooding(int exceptionsInSettleWindow, int threshold)
         {
@@ -1622,82 +1617,55 @@ namespace Parsek.InGameTests
             ExportResultsFile();
         }
 
-        // Camera-race recovery wrapper around RestoreBatchFlightBaselineCore. A FLIGHT->FLIGHT baseline
-        // reload intermittently trips the stock null-FlightCamera.fetch race (Bug #4803), which
-        // half-initializes FlightGlobals into a per-frame NRE flood that bricks the session. The race
-        // is intermittent, so re-running the reload almost always wins. After each reload this samples
-        // a short settle window for the flood signature and, if still flooding, re-runs the core
-        // (another reload) up to BaselineReloadCameraRaceRetries times. Genuine core failures
-        // (skip/fail/other) are re-raised UNCHANGED so the caller's existing abort/recovery handling is
-        // untouched; a clean (or recovered) reload returns normally; if the race never clears, it gives
-        // up and the batch storm-abort is the final backstop. Relies on the batch exception monitor
-        // being active (it is on the prime + per-test restore paths that call this).
-        private IEnumerator RestoreBatchFlightBaselineCoreWithReloadRetry(
+        // Corruption backstop around RestoreBatchFlightBaselineCore. A FLIGHT->FLIGHT baseline reload
+        // can trip stock Bug #4803 (the persistent FlightCamera is destroyed on the reload and fetch
+        // orphaned to null -> FlightGlobals half-initialized -> a per-frame NRE flood that bricks the
+        // session). The core's EnsureFlightCameraSurvivesReload PREVENTS it; this wrapper is the
+        // backstop: it samples a short settle window after the reload and, if the flood signature is
+        // present, trips the storm-abort IMMEDIATELY at the reload site. It does NOT retry - the
+        // corruption is PERSISTENT (confirmed in-game 2026-07-05: re-reloading never recovers it, only
+        // a Space Center bounce or a relaunch does), so re-reloading would just flood the log further.
+        // Tripping here (rather than waiting for the RunBatch storm check) matters because that check
+        // never runs for the LAST restore-backed test (the foreach ends with no next iteration and this
+        // wrapper returns "success"), so without it the batch would end "clean" with the game corrupted
+        // and no disk-revert / relaunch alert. Genuine core failures (skip/fail/other) are re-raised
+        // UNCHANGED so the caller's existing abort/recovery handling is untouched. Relies on the batch
+        // exception monitor being active (it is on the prime + per-test restore paths that call this).
+        private IEnumerator RestoreBatchFlightBaselineCoreWithReloadGuard(
             FlightBatchBaselineState baseline, int previousFlightInstanceId, string cleanupReason)
         {
-            for (int attempt = 1; ; attempt++)
+            Exception coreFailure = null;
+            yield return coroutineHost.StartCoroutine(RunCoroutineSafely(
+                RestoreBatchFlightBaselineCore(baseline, previousFlightInstanceId, cleanupReason),
+                ex => coreFailure = ex));
+
+            // Settle window: a clean reload adds ~0 unhandled exceptions across these frames; a
+            // corrupted one floods hundreds. The post-settle rate (not a cumulative-since-reload count)
+            // is the reliable signal.
+            int settleStart = batchUnhandledExceptionCount;
+            for (int f = 0; f < BaselineReloadHealthSettleFrames; f++)
+                yield return null;
+            int settleDelta = batchUnhandledExceptionCount - settleStart;
+
+            if (ReloadStillFlooding(settleDelta, BaselineReloadFloodExceptionThreshold))
             {
-                Exception coreFailure = null;
-                yield return coroutineHost.StartCoroutine(RunCoroutineSafely(
-                    RestoreBatchFlightBaselineCore(
-                        baseline, previousFlightInstanceId,
-                        attempt == 1 ? cleanupReason : cleanupReason + ":camera-race-retry-" + attempt),
-                    ex => coreFailure = ex));
-
-                // Settle window: measure whether the camera-race NRE flood is ACTIVE after this reload.
-                // A clean reload adds ~0 unhandled exceptions across these frames; a corrupted one floods
-                // hundreds. A cumulative-since-reload count can't be used - an ongoing flood keeps
-                // climbing during a SUCCESSFUL retry's own reload - so only the post-settle rate is
-                // reliable.
-                int settleStart = batchUnhandledExceptionCount;
-                for (int f = 0; f < BaselineReloadHealthSettleFrames; f++)
-                    yield return null;
-                int settleDelta = batchUnhandledExceptionCount - settleStart;
-
-                if (!ReloadStillFlooding(settleDelta, BaselineReloadFloodExceptionThreshold))
-                {
-                    // Clean (or recovered) reload: reset the batch storm-abort baseline so a
-                    // transient camera-race flood that THIS retry already recovered does not count
-                    // toward the cumulative storm threshold (which would otherwise spuriously abort
-                    // the batch on the next check). An UNrecovered flood leaves the counter high on
-                    // the give-up path below, so the storm-abort still fires as the final backstop.
-                    if (attempt > 1)
-                        batchUnhandledExceptionCount = 0;
-                    if (coreFailure != null)
-                        throw coreFailure; // clean scene, but a genuine core failure -> caller handles it
-                    yield break;           // clean (or recovered) reload
-                }
-
-                if (attempt > BaselineReloadCameraRaceRetries)
-                {
-                    // Give up: the camera-race flood did not clear across all retries. Trip the
-                    // storm-abort DIRECTLY here rather than relying on a later RunBatch storm check —
-                    // that check never runs for the LAST restore-backed test (the foreach ends with no
-                    // next iteration, and this wrapper returns "success" with no exception), so without
-                    // this the batch would end "clean" with the game still corrupted and no alert.
-                    // Setting the flag fires the existing disk-only-revert path + the relaunch alert
-                    // regardless of which test was last.
-                    ParsekLog.Warn(Tag,
-                        $"Baseline reload still flooding (+{settleDelta} exc/{BaselineReloadHealthSettleFrames}f) " +
-                        $"after {attempt} attempt(s) for {cleanupReason} — the stock FlightCamera camera-race " +
-                        "(Bug #4803) did not clear; aborting the batch.");
-                    if (!batchExceptionStormDetected)
-                    {
-                        batchExceptionStormDetected = true;
-                        abortBatchAfterRestoreFailure = true;
-                        NotifyExceptionStormAbort(null, batchUnhandledExceptionCount);
-                    }
-                    if (coreFailure != null)
-                        throw coreFailure;
-                    yield break;
-                }
-
+                // Corruption slipped past the prevention. It cannot be recovered by re-reloading
+                // (persistent), so trip the storm-abort DIRECTLY here (disk-only revert + relaunch
+                // alert) rather than rely on a later RunBatch check that never runs for the last test.
                 ParsekLog.Warn(Tag,
-                    $"Baseline reload tripped the stock FlightCamera camera-race NRE flood (Bug #4803): " +
-                    $"+{settleDelta} exc/{BaselineReloadHealthSettleFrames}f after {cleanupReason}; retrying the " +
-                    $"reload (attempt {attempt + 1}/{BaselineReloadCameraRaceRetries + 1}) to win the intermittent race.");
-                // loop -> re-run the restore-core (another reload)
+                    $"Baseline reload flooding (+{settleDelta} exc/{BaselineReloadHealthSettleFrames}f) after " +
+                    $"{cleanupReason} — the FlightCamera was destroyed on reload (stock Bug #4803) and cannot be " +
+                    "recovered by re-reloading; aborting the batch. Relaunch KSP (or bounce via the Space Center).");
+                if (!batchExceptionStormDetected)
+                {
+                    batchExceptionStormDetected = true;
+                    abortBatchAfterRestoreFailure = true;
+                    NotifyExceptionStormAbort(null, batchUnhandledExceptionCount);
+                }
             }
+
+            if (coreFailure != null)
+                throw coreFailure; // caller's existing skip/fail/other handling is unchanged
         }
 
         private IEnumerator RestoreBatchFlightBaselineAfterExecution(InGameTestInfo test)
@@ -1714,7 +1682,7 @@ namespace Parsek.InGameTests
 
             Exception restoreFailure = null;
             yield return coroutineHost.StartCoroutine(RunCoroutineSafely(
-                RestoreBatchFlightBaselineCoreWithReloadRetry(
+                RestoreBatchFlightBaselineCoreWithReloadGuard(
                     batchFlightBaseline,
                     previousFlightInstanceId,
                     "post-batch-restore:" + test.Name),
@@ -1759,7 +1727,7 @@ namespace Parsek.InGameTests
 
             Exception restoreFailure = null;
             yield return coroutineHost.StartCoroutine(RunCoroutineSafely(
-                RestoreBatchFlightBaselineCoreWithReloadRetry(
+                RestoreBatchFlightBaselineCoreWithReloadGuard(
                     batchFlightBaseline,
                     previousFlightInstanceId,
                     "pre-batch-restore:" + test.Name),
@@ -2000,9 +1968,66 @@ namespace Parsek.InGameTests
             isRunning = false;
         }
 
+        // Bug #4803 PREVENTION - the actual fix for the FLIGHT-batch freeze. Decompilation-confirmed
+        // mechanism: FlightCamera survives a FLIGHT->FLIGHT reload only because FlightCamera.Start()
+        // parents its transform under a DontDestroyOnLoad "pivot"; each reload's fresh FlightCamera
+        // self-destructs via the fetch!=null duplicate guard, so the SAME camera persists and fetch
+        // stays valid. Stock FlightCamera.OnSceneSwitch re-parents the pivot under the DDOL
+        // PSystemSetup root right before unload, which is why ~50 normal reloads work. But an EVA
+        // leaves the pivot parented under a TRANSIENT EVA-kerbal vessel; when that vessel is
+        // Vessel.Die()'d (Destroy(gameObject) + children) while it is still the camera target,
+        // FlightCamera.OnTargetDestroyed refuses to re-home the pivot (it only acts when the dead
+        // target is NOT the active vessel), so the DDOL pivot + the FlightCamera under it are destroyed
+        // with the vessel and FlightCamera.OnDestroy sets fetch=null. The corruption is PERMANENT (the
+        // next MakeActive NREs on the null fetch and no FLIGHT->FLIGHT reload re-establishes it).
+        //
+        // fetch is still VALID here (the camera dies during the reload's UNLOAD, which happens later),
+        // so re-home the pivot onto a SURVIVING vessel now: force Flight camera mode (exit any IVA left
+        // by an EVA test) and re-target the live active vessel. Then the reload's stock OnSceneSwitch
+        // rescue re-parents the pivot under DDOL PSystemSetup against a live target - exactly the clean
+        // case - and the persistent FlightCamera survives the reload with fetch intact. Best-effort +
+        // fully guarded: any failure just proceeds (the reload-guard + storm-abort backstops apply).
+        private void EnsureFlightCameraSurvivesReload(string cleanupReason)
+        {
+            if (HighLogic.LoadedScene != GameScenes.FLIGHT)
+                return;
+            if (FlightCamera.fetch == null)
+            {
+                // Already destroyed (corruption already happened, or no camera yet) - nothing to
+                // re-home. Proceed; the reload-guard settle-check + storm-abort will catch the flood.
+                ParsekLog.Warn(Tag,
+                    $"Pre-reload camera guard ({cleanupReason}): FlightCamera.fetch is already null - " +
+                    "cannot re-home; the reload's camera bring-up may fail (stock Bug #4803).");
+                return;
+            }
+            Vessel active = FlightGlobals.ActiveVessel;
+            try
+            {
+                if (CameraManager.Instance != null)
+                    CameraManager.Instance.SetCameraFlight();
+                if (active != null)
+                    FlightCamera.fetch.SetTargetVessel(active);
+                ParsekLog.Info(Tag,
+                    $"Pre-reload camera guard ({cleanupReason}): forced Flight mode + re-homed the FlightCamera pivot " +
+                    $"onto '{(active != null ? active.vesselName : "<null>")}' so it survives the reload (stock Bug #4803 prevention).");
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Pre-reload camera guard ({cleanupReason}) threw: {ex.GetType().Name}: {ex.Message} - proceeding (backstops apply).");
+            }
+        }
+
         private IEnumerator RestoreBatchFlightBaselineCore(
             FlightBatchBaselineState baseline, int previousFlightInstanceId, string cleanupReason)
         {
+            // Bug #4803 prevention: re-home the FlightCamera onto a surviving vessel BEFORE anything
+            // else (well before LoadAndValidateGameForQuickload / the scene unload), so the stock
+            // OnSceneSwitch rescue keeps the persistent camera alive across the reload. No-op unless a
+            // prior EVA test left the camera targeted at a transient vessel. See the method for the
+            // full decompiled mechanism. Synchronous + guarded, so it never blocks or throws here.
+            EnsureFlightCameraSurvivesReload(cleanupReason);
+
             // Fail-closed live-data recovery for the batch FLIGHT baseline
             // restore flow. The sequence below splits validation into a
             // truly-non-destructive XML structural pre-check and a
