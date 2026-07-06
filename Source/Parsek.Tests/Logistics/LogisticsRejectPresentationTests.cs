@@ -114,6 +114,27 @@ namespace Parsek.Tests.Logistics
             Assert.Contains("(Ore: 120.0 gained, 100.0 harvested)", text);
         }
 
+        // catches (M6 verify): the flow-closure near-miss dropping the
+        // resource-and-quantity detail at the presentation hop. Mirror of the
+        // UntrackedCargoGain pass-through above: the detail must reach
+        // FormatRejectMessage(status, detail) so the row names the offending
+        // resource and the unaccounted amount, never only the generic text.
+        [Fact]
+        public void DescribeNearMiss_FlowDoesNotClose_PassesDetailThrough()
+        {
+            string detail = "Ore: 30.0 over-delivered";
+
+            string text = LogisticsRejectPresentation.DescribeNearMiss(
+                RouteAnalysisStatus.FlowDoesNotClose,
+                notSealed: false, reflyableCount: 0, rejectDetail: detail);
+
+            Assert.Equal(
+                RouteCreationFormatters.FormatRejectMessage(
+                    RouteAnalysisStatus.FlowDoesNotClose, detail),
+                text);
+            Assert.Contains("(Ore: 30.0 over-delivered)", text);
+        }
+
         // catches: the 3-arg overload (legacy call sites) drifting from the
         // 4-arg null-detail rendering.
         [Fact]
@@ -281,6 +302,34 @@ namespace Parsek.Tests.Logistics
             Assert.Equal("not fully sealed (1 recording still re-flyable)", text);
         }
 
+        // catches (M6 verify, design 19.4 M6 first bullet): any link in the
+        // flow-closure naming chain dropping the resource + quantity between the
+        // engine and the player. End to end over the REAL chain: an over-
+        // delivering sealed tree -> DeriveNearMisses (AnalyzeTree inside) yields
+        // a FlowDoesNotClose near-miss carrying ComputeFlowClosure's RejectDetail;
+        // rendering it through DescribeNearMiss with the exact call shape of
+        // LogisticsWindowUI.DrawNearMissSubsection must produce player-facing
+        // text naming the offending resource and the unaccounted quantity.
+        [Fact]
+        public void DeriveNearMisses_OverDeliveryTree_TextNamesResourceAndQuantity()
+        {
+            RecordingTree tree = BuildOverDeliveryTree("t-flow");
+
+            var nearMisses = RouteCandidateFinder.DeriveNearMisses(
+                new List<RecordingTree> { tree });
+
+            RouteNearMiss nm = Assert.Single(nearMisses);
+            Assert.False(nm.NotSealed);
+            Assert.Equal(RouteAnalysisStatus.FlowDoesNotClose, nm.Status);
+            Assert.Equal("Ore: 30.0 over-delivered", nm.RejectDetail);
+
+            // The exact call shape of LogisticsWindowUI.DrawNearMissSubsection.
+            string text = LogisticsRejectPresentation.DescribeNearMiss(
+                nm.Status, nm.NotSealed, nm.ReflyableCount, nm.RejectDetail);
+            Assert.Contains("does not add up", text);
+            Assert.Contains("(Ore: 30.0 over-delivered)", text);
+        }
+
         // ------------------------------------------------------------------
         // Helpers (mirror RouteCandidateFinderTests): a sealed tree carrying one
         // eligible dock-deliver-undock window on its "mid" recording. All recordings
@@ -359,6 +408,149 @@ namespace Parsek.Tests.Logistics
             {
                 ["LiquidFuel"] = new ResourceAmount { amount = amount, maxAmount = maxAmount }
             };
+        }
+
+        // ------------------------------------------------------------------
+        // Over-delivery fixture (mirrors RouteAnalysisEngineTests
+        // .AnalyzeTree_OverDelivery_RejectsFlowDoesNotClose): root launches
+        // 50 LiquidFuel + 0 Ore, drills 120 Ore (harvest-covered), and the
+        // colony window delivers the 50 LiquidFuel cleanly while the transport
+        // ends with 150 Ore aboard (only 120 ever arrived) - a 30 Ore phantom
+        // the run-level closure rejects as "Ore: 30.0 over-delivered". All
+        // recordings default to MergeState.Immutable, so the tree is fully
+        // sealed and reaches AnalyzeTree inside DeriveNearMisses.
+        // ------------------------------------------------------------------
+
+        private const uint TransportPid = 100;
+        private const uint ColonyPid = 300;
+
+        private static RecordingTree BuildOverDeliveryTree(string treeId)
+        {
+            var root = new Recording
+            {
+                RecordingId = "od-root",
+                TreeId = treeId,
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
+                ExplicitStartUT = 0.0,
+                ExplicitEndUT = 500.0,
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { TransportPid },
+                    StartTransportResources = new Dictionary<string, ResourceAmount>
+                    {
+                        ["LiquidFuel"] = RA(50.0),
+                        ["Ore"] = RA(0.0)
+                    },
+                    EndTransportResources = new Dictionary<string, ResourceAmount>
+                    {
+                        ["LiquidFuel"] = RA(0.0),
+                        ["Ore"] = RA(150.0)
+                    },
+                    EndCaptured = true
+                },
+                RouteHarvestWindows = new List<RouteHarvestWindow>
+                {
+                    new RouteHarvestWindow
+                    {
+                        WindowId = "hw",
+                        StartUT = 150.0,
+                        EndUT = 400.0,
+                        StartTransportResources = OreAmount(0.0),
+                        EndTransportResources = OreAmount(120.0),
+                        BodyName = "Minmus",
+                        Latitude = 5.0,
+                        Longitude = 6.0,
+                        Altitude = 7.0,
+                        SituationAtOpen = 1
+                    }
+                }
+            };
+            var merge = new Recording
+            {
+                RecordingId = "od-merge",
+                TreeId = treeId,
+                ExplicitStartUT = 500.0,
+                ExplicitEndUT = 600.0,
+                ParentBranchPointId = "bp-dock",
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { TransportPid, ColonyPid },
+                    StartTransportResources = OreAmount(120.0),
+                    EndTransportResources = OreAmount(150.0),
+                    EndCaptured = true
+                },
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow
+                    {
+                        WindowId = "od-window",
+                        DockUT = 500.0,
+                        UndockUT = 600.0,
+                        TransferTargetVesselPid = 9001,
+                        TransferKind = RouteConnectionKind.DockingPort,
+                        TransportPartPersistentIds = new List<uint> { TransportPid },
+                        EndpointPartPersistentIds = new List<uint> { ColonyPid },
+                        DockTransportResources = new Dictionary<string, ResourceAmount>
+                        {
+                            ["LiquidFuel"] = RA(50.0),
+                            ["Ore"] = RA(120.0)
+                        },
+                        UndockTransportResources = new Dictionary<string, ResourceAmount>
+                        {
+                            ["LiquidFuel"] = RA(0.0),
+                            ["Ore"] = RA(150.0)
+                        },
+                        DockEndpointResources = new Dictionary<string, ResourceAmount>
+                        {
+                            ["LiquidFuel"] = RA(0.0),
+                            ["Ore"] = RA(0.0)
+                        },
+                        UndockEndpointResources = new Dictionary<string, ResourceAmount>
+                        {
+                            ["LiquidFuel"] = RA(50.0),
+                            ["Ore"] = RA(0.0)
+                        },
+                        EndpointAtDock = new RouteEndpoint
+                        {
+                            VesselPersistentId = 9001,
+                            BodyName = "Mun",
+                            Latitude = 1.0,
+                            Longitude = 2.0,
+                            Altitude = 3.0,
+                            IsSurface = true
+                        },
+                        TransferEndpointSituation = 1
+                    }
+                }
+            };
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                RootRecordingId = root.RecordingId,
+                ActiveRecordingId = merge.RecordingId
+            };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(merge);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-dock",
+                UT = 500.0,
+                Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { root.RecordingId },
+                ChildRecordingIds = new List<string> { merge.RecordingId }
+            });
+            return tree;
+        }
+
+        private static ResourceAmount RA(double amount)
+        {
+            return new ResourceAmount { amount = amount, maxAmount = 1000.0 };
+        }
+
+        private static Dictionary<string, ResourceAmount> OreAmount(double amount)
+        {
+            return new Dictionary<string, ResourceAmount> { ["Ore"] = RA(amount) };
         }
     }
 }

@@ -47,6 +47,18 @@ namespace Parsek
         // looping; un-archive (or turn the Archive toggle off) to see it again.
         public bool Archived;
 
+        // M-MIS-5 (D3): the interval-key SCHEMA GENERATION this selection was last authored /
+        // reconciled under. 0 = pre-M-MIS-5 (dock edges did not exist, so an excluded structural
+        // key covered the WHOLE structural interval including any docked stretch); 1 = current
+        // (dock/board sub-intervals key as "<parentKey>@dockM" and are selected independently).
+        // MissionStore.ReconcileSelections extends a generation-0 mission's excluded keys across
+        // their @dock sub-siblings once (semantics-preserving) and stamps EVERY tree-resolvable
+        // mission to the current generation. The field initializer covers every creation path
+        // (ctor, EnsureDefaultsForTrees, UI creates); Clone copies the source's generation; ONLY
+        // Load with the key absent yields 0.
+        public int SelectionSchemaGeneration = CurrentSelectionSchemaGeneration;
+        internal const int CurrentSelectionSchemaGeneration = 1;
+
         public Mission() { }
 
         public Mission(string id, string treeId, string name)
@@ -69,6 +81,9 @@ namespace Parsek
             copy.LoopTimeUnit = LoopTimeUnit;
             copy.LoopAnchorUT = LoopAnchorUT;
             copy.Archived = Archived;
+            // The clone's selection was authored under the SAME schema generation as its source
+            // (a not-yet-reconciled generation-0 copy must still receive the @dock extension).
+            copy.SelectionSchemaGeneration = SelectionSchemaGeneration;
             return copy;
         }
 
@@ -84,6 +99,8 @@ namespace Parsek
             node.AddValue("loopAnchorUT",
                 LoopAnchorUT.ToString("R", CultureInfo.InvariantCulture));
             node.AddValue("archived", Archived);
+            node.AddValue("selectionSchemaGeneration",
+                SelectionSchemaGeneration.ToString(CultureInfo.InvariantCulture));
             foreach (string h in ExcludedThroughLineHeadIds)
                 node.AddValue("excludedHead", h ?? "");
             foreach (string k in ExcludedIntervalKeys)
@@ -116,6 +133,15 @@ namespace Parsek
                 m.LoopAnchorUT = loopAnchor;
             if (bool.TryParse(node.GetValue("archived"), out bool archived))
                 m.Archived = archived;
+
+            // M-MIS-5 (D3): the ONLY path that yields generation 0 - a save written before the
+            // key existed (or a malformed value). The field initializer defaults every freshly
+            // constructed Mission to the current generation.
+            m.SelectionSchemaGeneration =
+                int.TryParse(node.GetValue("selectionSchemaGeneration"),
+                    NumberStyles.Integer, CultureInfo.InvariantCulture, out int schemaGen)
+                ? schemaGen
+                : 0;
 
             string[] heads = node.GetValues("excludedHead");
             for (int i = 0; i < heads.Length; i++)
