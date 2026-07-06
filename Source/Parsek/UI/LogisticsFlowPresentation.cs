@@ -61,7 +61,8 @@ namespace Parsek
                 IReadOnlyDictionary<string, double> requested,
                 uint endpointPid,
                 float kscFundsCost,
-                int inventoryCount)
+                int inventoryCount,
+                int requestedInventoryCount)
             {
                 Kind = kind;
                 CycleId = cycleId;
@@ -73,6 +74,7 @@ namespace Parsek
                 EndpointPid = endpointPid;
                 KscFundsCost = kscFundsCost;
                 InventoryCount = inventoryCount;
+                RequestedInventoryCount = requestedInventoryCount;
             }
 
             internal FlowRowKind Kind { get; }
@@ -102,6 +104,13 @@ namespace Parsek
 
             /// <summary>Count of stored-part inventory payloads moved on this row.</summary>
             internal int InventoryCount { get; }
+
+            /// <summary>
+            /// Count of requested stored-part inventory payloads, populated only
+            /// on an inventory shortfall (the inventory analogue of
+            /// <see cref="Requested"/>); 0 on a full fill.
+            /// </summary>
+            internal int RequestedInventoryCount { get; }
         }
 
         /// <summary>One rendered per-cycle line plus its shortfall tint flag.</summary>
@@ -170,7 +179,8 @@ namespace Parsek
                         kind, a.RouteCycleId, a.RouteStopIndex, a.UT, a.Sequence,
                         a.RouteResourceManifest, a.RouteRequestedResourceManifest,
                         a.RouteOriginVesselPid, a.RouteKscFundsCost,
-                        a.RouteInventoryManifest?.Count ?? 0));
+                        a.RouteInventoryManifest?.Count ?? 0,
+                        a.RouteRequestedInventoryManifest?.Count ?? 0));
                 }
             }
         }
@@ -212,6 +222,7 @@ namespace Parsek
             // Group rows by cycle id, tracking each cycle's earliest row UT for
             // ordering. Insertion order of the dictionary is not relied on.
             var byCycle = new Dictionary<string, List<FlowRow>>(System.StringComparer.Ordinal);
+            var minUtByCycle = new Dictionary<string, double>(System.StringComparer.Ordinal);
             var cycleIds = new List<string>();
             for (int i = 0; i < rows.Count; i++)
             {
@@ -221,7 +232,12 @@ namespace Parsek
                 {
                     bucket = new List<FlowRow>();
                     byCycle[row.CycleId] = bucket;
+                    minUtByCycle[row.CycleId] = row.Ut;
                     cycleIds.Add(row.CycleId);
+                }
+                else if (row.Ut < minUtByCycle[row.CycleId])
+                {
+                    minUtByCycle[row.CycleId] = row.Ut;
                 }
                 bucket.Add(row);
             }
@@ -232,7 +248,7 @@ namespace Parsek
             // deterministic tiebreak); ordinal = 1-based position in that order.
             cycleIds.Sort((idA, idB) =>
             {
-                int cmp = MinUt(byCycle[idA]).CompareTo(MinUt(byCycle[idB]));
+                int cmp = minUtByCycle[idA].CompareTo(minUtByCycle[idB]);
                 return cmp != 0 ? cmp : string.CompareOrdinal(idA, idB);
             });
 
@@ -248,14 +264,17 @@ namespace Parsek
             return lines;
         }
 
-        private static double MinUt(List<FlowRow> bucket)
+        /// <summary>
+        /// True when the row recorded any shortfall: a per-resource requested
+        /// amount exceeding the actual, OR a requested-inventory manifest
+        /// (populated only when the stored-part pickup/debit came up short, so
+        /// presence alone is the signal - entry counts can match on a
+        /// quantity-level shortfall within one identity).
+        /// </summary>
+        private static bool RowHasShortfall(FlowRow row)
         {
-            double min = double.MaxValue;
-            for (int i = 0; i < bucket.Count; i++)
-            {
-                if (bucket[i].Ut < min) min = bucket[i].Ut;
-            }
-            return min;
+            return LogisticsDeliveryPresentation.HasShortfall(row.Requested, row.Actual)
+                || row.RequestedInventoryCount > 0;
         }
 
         /// <summary>
@@ -293,7 +312,7 @@ namespace Parsek
             {
                 FlowRow row = bucket[i];
                 if (row.Ut > maxUt) maxUt = row.Ut;
-                if (LogisticsDeliveryPresentation.HasShortfall(row.Requested, row.Actual))
+                if (RowHasShortfall(row))
                     shortfall = true;
 
                 switch (row.Kind)
@@ -356,7 +375,8 @@ namespace Parsek
             if (kscFunds)
                 return;
 
-            string amounts = FormatAmounts(row.Actual, row.Requested, row.InventoryCount);
+            string amounts = FormatAmounts(
+                row.Actual, row.Requested, row.InventoryCount, row.RequestedInventoryCount);
             if (amounts == null)
                 return;
 
@@ -365,7 +385,7 @@ namespace Parsek
                 : (string.IsNullOrEmpty(originFallback) ? "the origin" : originFallback);
 
             string segment = "took " + amounts + " from " + source;
-            if (LogisticsDeliveryPresentation.HasShortfall(row.Requested, row.Actual))
+            if (RowHasShortfall(row))
                 segment += " (origin was short)";
             segments.Add(segment);
         }
@@ -374,13 +394,14 @@ namespace Parsek
             FlowRow row,
             IReadOnlyDictionary<uint, string> endpointNames)
         {
-            string amounts = FormatAmounts(row.Actual, row.Requested, row.InventoryCount)
+            string amounts = FormatAmounts(
+                row.Actual, row.Requested, row.InventoryCount, row.RequestedInventoryCount)
                 ?? "nothing";
             string source = row.EndpointPid != 0u
                 ? ResolveEndpointName(row.EndpointPid, endpointNames)
                 : "an unresolved source";
             string segment = "picked up " + amounts + " from " + source;
-            if (LogisticsDeliveryPresentation.HasShortfall(row.Requested, row.Actual))
+            if (RowHasShortfall(row))
                 segment += " (source was short)";
             return segment;
         }
@@ -389,11 +410,12 @@ namespace Parsek
             FlowRow row,
             IReadOnlyList<string> stopDestinationNames)
         {
-            string amounts = FormatAmounts(row.Actual, row.Requested, row.InventoryCount)
+            string amounts = FormatAmounts(
+                row.Actual, row.Requested, row.InventoryCount, row.RequestedInventoryCount)
                 ?? "nothing";
             string dest = ResolveStopDestination(row.StopIndex, stopDestinationNames);
             string segment = "delivered " + amounts + " to " + dest;
-            if (LogisticsDeliveryPresentation.HasShortfall(row.Requested, row.Actual))
+            if (RowHasShortfall(row))
                 segment += " (some cargo did not fit)";
             return segment;
         }
@@ -440,13 +462,17 @@ namespace Parsek
         /// on a shortfall (F1 + InvariantCulture, full stock keys - the
         /// <see cref="LogisticsDeliveryPresentation.FormatRealizedDelivery"/>
         /// number idiom), plus "N inventory item(s)" when stored parts moved
-        /// (the FormatWouldDeliver idiom). Returns null when nothing moved and
-        /// nothing was requested, so callers can skip or say "nothing".
+        /// (the FormatWouldDeliver idiom) or "K of N inventory item(s)" when
+        /// the requested-inventory entry count exceeds the actual (the resource
+        /// shortfall idiom; a fully blocked pickup renders "0 of N"). Returns
+        /// null when nothing moved and nothing was requested, so callers can
+        /// skip or say "nothing".
         /// </summary>
         private static string FormatAmounts(
             IReadOnlyDictionary<string, double> actual,
             IReadOnlyDictionary<string, double> requested,
-            int inventoryCount)
+            int inventoryCount,
+            int requestedInventoryCount)
         {
             var keys = new List<string>();
             if (actual != null)
@@ -489,11 +515,16 @@ namespace Parsek
                 }
             }
 
-            if (inventoryCount > 0)
+            if (inventoryCount > 0 || requestedInventoryCount > 0)
             {
                 if (sb.Length > 0) sb.Append(", ");
-                sb.Append(inventoryCount.ToString(CultureInfo.InvariantCulture))
-                  .Append(" inventory item(s)");
+                sb.Append(inventoryCount.ToString(CultureInfo.InvariantCulture));
+                if (requestedInventoryCount > inventoryCount)
+                {
+                    sb.Append(" of ")
+                      .Append(requestedInventoryCount.ToString(CultureInfo.InvariantCulture));
+                }
+                sb.Append(" inventory item(s)");
             }
 
             return sb.Length > 0 ? sb.ToString() : null;
