@@ -21,11 +21,131 @@ namespace Parsek.Logistics
         private const string Tag = "Route";
         private const string RoutesParentNodeName = "ROUTES";
         private const string RouteChildNodeName = "ROUTE";
+        private const string DismissedCandidatesNodeName = "DISMISSED_ROUTE_CANDIDATES";
+        private const string DismissedTreeIdValueName = "treeId";
 
         private static readonly List<Route> committedRoutes = new List<Route>();
 
         /// <summary>Read-only view of currently committed routes.</summary>
         internal static IReadOnlyList<Route> CommittedRoutes => committedRoutes;
+
+        // -----------------------------------------------------------------
+        // M6 candidate intent helper: dismissed route-candidate trees.
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// Tree ids the player dismissed as route candidates (M6 candidate
+        /// intent helper). A dismissed tree is skipped by BOTH
+        /// <see cref="RouteCandidateFinder.DeriveCandidates()"/> and
+        /// <see cref="RouteCandidateFinder.DeriveNearMisses()"/> - the tree
+        /// disappears from the whole Candidates section - until restored from
+        /// the Logistics window's Dismissed subsection. UI-intent state only:
+        /// dismissing has no route / ledger effect and is always reversible.
+        /// The flag deliberately lives HERE in the consuming logistics domain,
+        /// NOT on the RecordingTree schema. Persisted sparse through
+        /// <see cref="SaveRoutesTo"/> / <see cref="LoadRoutesFrom"/> (an empty
+        /// set writes nothing); stale ids of deleted / pruned trees are swept
+        /// at load via <see cref="SweepStaleDismissedCandidates"/>. Pure
+        /// id-membership - no committed-recording / ledger read.
+        /// </summary>
+        private static readonly HashSet<string> dismissedCandidateTreeIds =
+            new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Live view of the dismissed candidate tree ids, consumed by the
+        /// finder's skip check and the Logistics window's Dismissed subsection.
+        /// Treat as read-only: mutate ONLY through
+        /// <see cref="DismissCandidateTree"/> / <see cref="RestoreCandidateTree"/>
+        /// so every change is logged and stays reversible.
+        /// </summary>
+        internal static HashSet<string> DismissedCandidateTreeIds => dismissedCandidateTreeIds;
+
+        /// <summary>True when <paramref name="treeId"/> is currently dismissed as a route candidate.</summary>
+        internal static bool IsCandidateDismissed(string treeId)
+        {
+            return !string.IsNullOrEmpty(treeId) && dismissedCandidateTreeIds.Contains(treeId);
+        }
+
+        /// <summary>
+        /// Dismiss a tree as a route candidate: it vanishes from the Candidates
+        /// AND near-miss lists on the next finder pass. Reversible any time via
+        /// <see cref="RestoreCandidateTree"/>; no route / ledger effect. Returns
+        /// true when the id was newly added; a null/empty id (Warn) or an
+        /// already-dismissed id (Verbose) is a no-op returning false.
+        /// </summary>
+        internal static bool DismissCandidateTree(string treeId, string displayName)
+        {
+            if (string.IsNullOrEmpty(treeId))
+            {
+                ParsekLog.Warn(Tag, "DismissCandidateTree: null or empty tree id - ignored");
+                return false;
+            }
+            if (!dismissedCandidateTreeIds.Add(treeId))
+            {
+                ParsekLog.Verbose(Tag, $"DismissCandidateTree: tree {treeId} already dismissed - no-op");
+                return false;
+            }
+            ParsekLog.Info(Tag,
+                $"Candidate dismissed treeId={treeId} name='{displayName ?? "<null>"}' " +
+                $"dismissedCount={dismissedCandidateTreeIds.Count}");
+            return true;
+        }
+
+        /// <summary>
+        /// Restore a previously dismissed candidate tree so the finder offers it
+        /// again. Returns true when the id was removed from the dismissed set; a
+        /// null/empty id or a not-dismissed id is a no-op returning false (Warn:
+        /// the UI only offers Restore for listed ids, so a miss means stale state).
+        /// </summary>
+        internal static bool RestoreCandidateTree(string treeId, string displayName)
+        {
+            if (string.IsNullOrEmpty(treeId))
+            {
+                ParsekLog.Warn(Tag, "RestoreCandidateTree: null or empty tree id - ignored");
+                return false;
+            }
+            if (!dismissedCandidateTreeIds.Remove(treeId))
+            {
+                ParsekLog.Warn(Tag, $"RestoreCandidateTree: tree {treeId} is not dismissed - no-op");
+                return false;
+            }
+            ParsekLog.Info(Tag,
+                $"Candidate restored treeId={treeId} name='{displayName ?? "<null>"}' " +
+                $"dismissedCount={dismissedCandidateTreeIds.Count}");
+            return true;
+        }
+
+        /// <summary>
+        /// Drop dismissed-candidate ids whose tree no longer exists in
+        /// <paramref name="committedTrees"/> (deleted / pruned since the save was
+        /// written). Called from <see cref="LoadRoutesFrom"/> AFTER the set is
+        /// loaded - <see cref="ParsekScenario"/> loads routes after recordings,
+        /// so the committed trees are already in memory. Pure id-membership
+        /// sweep (no committed-recording / ledger read); exposed for direct
+        /// xUnit testing. Returns the number of stale ids swept.
+        /// </summary>
+        internal static int SweepStaleDismissedCandidates(IReadOnlyList<RecordingTree> committedTrees)
+        {
+            if (dismissedCandidateTreeIds.Count == 0)
+                return 0;
+
+            var liveIds = new HashSet<string>(StringComparer.Ordinal);
+            int treeCount = committedTrees != null ? committedTrees.Count : 0;
+            for (int i = 0; i < treeCount; i++)
+            {
+                string id = committedTrees[i]?.Id;
+                if (!string.IsNullOrEmpty(id))
+                    liveIds.Add(id);
+            }
+
+            int before = dismissedCandidateTreeIds.Count;
+            dismissedCandidateTreeIds.RemoveWhere(id => !liveIds.Contains(id));
+            int swept = before - dismissedCandidateTreeIds.Count;
+            ParsekLog.Verbose(Tag,
+                $"SweepStaleDismissedCandidates: swept={swept} " +
+                $"kept={dismissedCandidateTreeIds.Count} committedTrees={treeCount}");
+            return swept;
+        }
 
         // -----------------------------------------------------------------
         // M4b Phase B2 (plan D11 / OQ7): RAM-only cargo escrow.
@@ -324,8 +444,13 @@ namespace Parsek.Logistics
             // reservation into the next test. Clear it here alongside the routes.
             int prevEscrowRoutes = cargoEscrow.Count;
             cargoEscrow.Clear();
+            // M6: the dismissed-candidate set is shared static state too - a
+            // test that dismisses must not leak the id into the next test.
+            int prevDismissed = dismissedCandidateTreeIds.Count;
+            dismissedCandidateTreeIds.Clear();
             ParsekLog.Verbose(Tag,
-                $"ResetForTesting prevCount={prevCount} prevEscrowRoutes={prevEscrowRoutes}");
+                $"ResetForTesting prevCount={prevCount} prevEscrowRoutes={prevEscrowRoutes} " +
+                $"prevDismissedCandidates={prevDismissed}");
         }
 
         // -----------------------------------------------------------------
@@ -599,26 +724,43 @@ namespace Parsek.Logistics
             }
 
             // Always strip pre-existing wrappers before deciding what to
-            // write. A previously-saved ROUTES node with stale entries would
-            // otherwise survive an empty-store save.
+            // write. A previously-saved ROUTES / dismissed-candidates node with
+            // stale entries would otherwise survive an empty-store save.
             parent.RemoveNodes(RoutesParentNodeName);
+            parent.RemoveNodes(DismissedCandidatesNodeName);
 
             if (committedRoutes.Count == 0)
             {
                 ParsekLog.Verbose(Tag, "SaveRoutesTo: no routes to save");
-                return;
             }
-
-            ConfigNode routesNode = parent.AddNode(RoutesParentNodeName);
-            for (int i = 0; i < committedRoutes.Count; i++)
+            else
             {
-                Route route = committedRoutes[i];
-                if (route == null) continue;
-                ConfigNode routeNode = routesNode.AddNode(RouteChildNodeName);
-                route.SerializeInto(routeNode);
+                ConfigNode routesNode = parent.AddNode(RoutesParentNodeName);
+                for (int i = 0; i < committedRoutes.Count; i++)
+                {
+                    Route route = committedRoutes[i];
+                    if (route == null) continue;
+                    ConfigNode routeNode = routesNode.AddNode(RouteChildNodeName);
+                    route.SerializeInto(routeNode);
+                }
+
+                ParsekLog.Info(Tag, $"SaveRoutesTo: wrote {committedRoutes.Count} route(s)");
             }
 
-            ParsekLog.Info(Tag, $"SaveRoutesTo: wrote {committedRoutes.Count} route(s)");
+            // M6 candidate intent helper: sparse sibling node - written only
+            // when at least one tree is dismissed, so saves without dismissals
+            // stay byte-identical. Ids are sorted ordinal for deterministic
+            // save bytes across sessions (HashSet iteration order is not).
+            if (dismissedCandidateTreeIds.Count > 0)
+            {
+                ConfigNode dismissedNode = parent.AddNode(DismissedCandidatesNodeName);
+                var ids = new List<string>(dismissedCandidateTreeIds);
+                ids.Sort(StringComparer.Ordinal);
+                for (int i = 0; i < ids.Count; i++)
+                    dismissedNode.AddValue(DismissedTreeIdValueName, ids[i]);
+                ParsekLog.Verbose(Tag,
+                    $"SaveRoutesTo: wrote {ids.Count} dismissed candidate tree id(s)");
+            }
         }
 
         /// <summary>
@@ -636,12 +778,19 @@ namespace Parsek.Logistics
             // Mirrors MilestoneStore.LoadMilestoneFile / RecordingStore load
             // semantics so callers do not have to manage the reset themselves.
             committedRoutes.Clear();
+            dismissedCandidateTreeIds.Clear();
 
             if (parent == null)
             {
                 ParsekLog.Verbose(Tag, "LoadRoutesFrom: null parent — 0 loaded");
                 return 0;
             }
+
+            // M6 candidate intent helper: the dismissed-candidate set is a
+            // sparse SIBLING of ROUTES, so it loads before the ROUTES-node
+            // check - a save with dismissals but zero routes must still
+            // restore the set.
+            LoadDismissedCandidatesFrom(parent);
 
             ConfigNode routesNode = parent.GetNode(RoutesParentNodeName);
             if (routesNode == null)
@@ -677,6 +826,34 @@ namespace Parsek.Logistics
             }
 
             return loaded;
+        }
+
+        /// <summary>
+        /// Loads the M6 dismissed-candidate tree ids from the sparse
+        /// <c>DISMISSED_ROUTE_CANDIDATES</c> sibling node (absent node = the
+        /// common "nothing ever dismissed" path, stays quiet), then sweeps ids
+        /// whose tree was deleted / pruned since the save was written against
+        /// the already-loaded committed trees.
+        /// </summary>
+        private static void LoadDismissedCandidatesFrom(ConfigNode parent)
+        {
+            ConfigNode dismissedNode = parent.GetNode(DismissedCandidatesNodeName);
+            if (dismissedNode == null)
+                return;
+
+            string[] ids = dismissedNode.GetValues(DismissedTreeIdValueName);
+            int added = 0;
+            for (int i = 0; i < ids.Length; i++)
+            {
+                if (!string.IsNullOrEmpty(ids[i]) && dismissedCandidateTreeIds.Add(ids[i]))
+                    added++;
+            }
+            ParsekLog.Verbose(Tag,
+                $"LoadRoutesFrom: loaded {added} dismissed candidate tree id(s)");
+
+            // ParsekScenario loads routes AFTER recordings/trees, so the
+            // committed trees are already in memory here.
+            SweepStaleDismissedCandidates(RecordingStore.CommittedTrees);
         }
 
         private static string ShortId(string id)

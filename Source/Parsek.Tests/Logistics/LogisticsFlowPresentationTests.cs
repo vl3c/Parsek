@@ -288,6 +288,121 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
+        public void FormatPerCycleFlow_InventoryOnlyPickupShortfall_FlagsAndAnnotates()
+        {
+            // Inventory-only pickup that came up short: 1 of 3 requested
+            // stored-part payloads moved, no resources involved. The cycle line
+            // must carry the shortfall tint flag and the "(source was short)"
+            // annotation, mirroring the resource shortfall path.
+            var rows = new List<LogisticsFlowPresentation.FlowRow>
+            {
+                FlowRow(LogisticsFlowPresentation.FlowRowKind.PickedUp, "cyc-1", 0, 1000.0, 2,
+                    null, null, 42u, 0f, 1, 3),
+            };
+            var names = new Dictionary<uint, string> { [42u] = "Parts Depot" };
+
+            List<LogisticsFlowPresentation.CycleFlowLine> lines =
+                LogisticsFlowPresentation.FormatPerCycleFlow(
+                    rows, names, null, null, 1000.0, 5);
+
+            Assert.Single(lines);
+            Assert.True(lines[0].Shortfall);
+            Assert.Contains("picked up 1 of 3 inventory item(s) from Parts Depot", lines[0].Text);
+            Assert.Contains("(source was short)", lines[0].Text);
+        }
+
+        [Fact]
+        public void FormatPerCycleFlow_FullyBlockedInventoryPickup_RendersZeroOfN()
+        {
+            // Fully blocked inventory pickup: nothing moved but 2 payloads were
+            // requested. Must NOT read "picked up nothing" with no explanation.
+            var rows = new List<LogisticsFlowPresentation.FlowRow>
+            {
+                FlowRow(LogisticsFlowPresentation.FlowRowKind.PickedUp, "cyc-1", 0, 1000.0, 2,
+                    null, null, 42u, 0f, 0, 2),
+            };
+            var names = new Dictionary<uint, string> { [42u] = "Parts Depot" };
+
+            List<LogisticsFlowPresentation.CycleFlowLine> lines =
+                LogisticsFlowPresentation.FormatPerCycleFlow(
+                    rows, names, null, null, 1000.0, 5);
+
+            Assert.Single(lines);
+            Assert.True(lines[0].Shortfall);
+            Assert.Contains("picked up 0 of 2 inventory item(s) from Parts Depot", lines[0].Text);
+            Assert.Contains("(source was short)", lines[0].Text);
+            Assert.DoesNotContain("nothing", lines[0].Text);
+        }
+
+        [Fact]
+        public void FormatPerCycleFlow_InventoryDebitShortfall_MarksOriginShort()
+        {
+            var rows = new List<LogisticsFlowPresentation.FlowRow>
+            {
+                FlowRow(LogisticsFlowPresentation.FlowRowKind.Debited, "cyc-1", 0, 1000.0, 1,
+                    null, null, 7u, 0f, 1, 2),
+            };
+            var names = new Dictionary<uint, string> { [7u] = "Minmus Depot" };
+
+            List<LogisticsFlowPresentation.CycleFlowLine> lines =
+                LogisticsFlowPresentation.FormatPerCycleFlow(
+                    rows, names, null, null, 1000.0, 5);
+
+            Assert.Single(lines);
+            Assert.True(lines[0].Shortfall);
+            Assert.Contains("took 1 of 2 inventory item(s) from Minmus Depot", lines[0].Text);
+            Assert.Contains("(origin was short)", lines[0].Text);
+        }
+
+        [Fact]
+        public void FormatPerCycleFlow_QuantityLevelInventoryShortfall_EqualCounts_StillFlags()
+        {
+            // A quantity-level shortfall within ONE identity: the requested
+            // manifest (populated only on shortfall) has the same ENTRY count
+            // as the actual, so no "K of N" rendering, but the presence of the
+            // requested manifest alone must still flag + annotate the line.
+            var rows = new List<LogisticsFlowPresentation.FlowRow>
+            {
+                FlowRow(LogisticsFlowPresentation.FlowRowKind.PickedUp, "cyc-1", 0, 1000.0, 2,
+                    null, null, 42u, 0f, 1, 1),
+            };
+            var names = new Dictionary<uint, string> { [42u] = "Parts Depot" };
+
+            List<LogisticsFlowPresentation.CycleFlowLine> lines =
+                LogisticsFlowPresentation.FormatPerCycleFlow(
+                    rows, names, null, null, 1000.0, 5);
+
+            Assert.Single(lines);
+            Assert.True(lines[0].Shortfall);
+            Assert.Contains("picked up 1 inventory item(s) from Parts Depot", lines[0].Text);
+            Assert.DoesNotContain(" of ", lines[0].Text);
+            Assert.Contains("(source was short)", lines[0].Text);
+        }
+
+        [Fact]
+        public void CollectRows_CarriesRequestedInventoryCount()
+        {
+            var pickedUp = MakePickedUpAction(RouteId, "cyc-1", 0, 100.0, 2, null, null, 42u);
+            pickedUp.RouteInventoryManifest = new List<InventoryPayloadItem>
+            {
+                new InventoryPayloadItem { IdentityHash = "ore-container", Quantity = 1 },
+            };
+            pickedUp.RouteRequestedInventoryManifest = new List<InventoryPayloadItem>
+            {
+                new InventoryPayloadItem { IdentityHash = "ore-container", Quantity = 2 },
+                new InventoryPayloadItem { IdentityHash = "science-box", Quantity = 1 },
+            };
+            var els = new List<GameAction> { pickedUp };
+
+            var flowRows = new List<LogisticsFlowPresentation.FlowRow>();
+            LogisticsFlowPresentation.CollectRows(els, RouteId, null, flowRows);
+
+            Assert.Single(flowRows);
+            Assert.Equal(1, flowRows[0].InventoryCount);
+            Assert.Equal(2, flowRows[0].RequestedInventoryCount);
+        }
+
+        [Fact]
         public void FormatPerCycleFlow_LastNBounding_NewestFirst()
         {
             var rows = new List<LogisticsFlowPresentation.FlowRow>();
@@ -381,11 +496,13 @@ namespace Parsek.Tests.Logistics
             LogisticsFlowPresentation.FlowRowKind kind,
             string cycleId, int stopIndex, double ut, int sequence,
             Dictionary<string, double> actual, Dictionary<string, double> requested,
-            uint endpointPid, float kscFundsCost, int inventoryCount)
+            uint endpointPid, float kscFundsCost, int inventoryCount,
+            int requestedInventoryCount = 0)
         {
             return new LogisticsFlowPresentation.FlowRow(
                 kind, cycleId, stopIndex, ut, sequence,
-                actual, requested, endpointPid, kscFundsCost, inventoryCount);
+                actual, requested, endpointPid, kscFundsCost, inventoryCount,
+                requestedInventoryCount);
         }
 
         private static GameAction MakeDeliveredAction(
