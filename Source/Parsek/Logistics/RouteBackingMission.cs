@@ -10,16 +10,18 @@ namespace Parsek.Logistics
     /// segment over its source tree's <c>[launch .. dock]</c> path: rendering STOPS
     /// at the docking moment (playtest follow-up), so the docked-together combined
     /// vessel (the dock-merged child, which spans dock..undock) is NOT rendered.
+    /// Since M-MIS-5 the dock itself is a composition interval boundary (the
+    /// docked stretch keys as an <c>@dock</c> sub-interval starting AT the dock),
+    /// so this trim is exact: before M-MIS-5 the merged child folded into the
+    /// pre-dock interval and the rendered window actually ran to the UNDOCK.
     /// <para>
     /// N-stop note (M4a): a multi-stop route renders <c>[launch .. LAST dock]</c>.
-    /// The caller passes the LAST stop's dock UT as <c>segmentEndUT</c>, which
-    /// production aligns with the route's terminal structural boundary (the last
-    /// undock the folded transport through-line spans to), so the same single-UT
-    /// end-trim covers everything at/after the last dock (the post-last-dock tail
-    /// + the terminal peel) while the intermediate-undock survivor leg and the
-    /// last dock's combined leg stay rendered. The <c>segmentEndUT</c> /
-    /// "DOCK UT" wording below is the single-stop case; for N stops read it as the
-    /// LAST dock / terminal boundary.
+    /// The caller passes the LAST stop's dock UT as <c>segmentEndUT</c>; the last
+    /// dock is itself an interval boundary (M-MIS-5), so the single-UT end-trim
+    /// covers everything at/after it (the docked combined sub-interval, the
+    /// post-last-dock tail + the terminal peel) while the intermediate-undock
+    /// survivor leg stays rendered. The <c>segmentEndUT</c> / "DOCK UT" wording
+    /// below is the single-stop case; for N stops read it as the LAST dock.
     /// </para>
     /// This helper owns the route-side derivations:
     /// <list type="number">
@@ -84,15 +86,16 @@ namespace Parsek.Logistics
         /// mission renders only <c>[launchUT .. segmentEndUT]</c>. Pure.
         /// </summary>
         /// <param name="tree">Source recording tree (read-only).</param>
-        /// <param name="segmentEndUT">End of the route segment. For a single-stop v0
-        /// route this is the recorded DOCK UT (the docked combined-vessel tail is
-        /// excluded). For an N-stop route (M4a) the caller passes the LAST stop's
-        /// dock UT, which production aligns with the route's terminal structural
-        /// boundary (the last undock the folded transport through-line spans to); a
-        /// dock and its following undock bracket no selectable interval start, so
-        /// passing either yields the same excluded set. Everything at/after this UT
-        /// — the post-last-dock tail and the terminal peel — is excluded; the
-        /// intermediate-undock survivor leg (StartUT before this UT) stays rendered.</param>
+        /// <param name="segmentEndUT">End of the route segment: the recorded DOCK UT
+        /// (single-stop v0), or the LAST stop's dock UT (N-stop, M4a). Since M-MIS-5
+        /// the dock is itself a selectable interval boundary (the docked combined
+        /// stretch keys as an <c>@dock</c> sub-interval STARTING at the dock), so the
+        /// dock UT and the following undock UT are NO LONGER interchangeable here:
+        /// passing the dock excludes the docked combined stretch (production
+        /// behavior); passing the undock would keep it rendered. Everything at/after
+        /// this UT — the docked sub-interval, the post-last-dock tail and the
+        /// terminal peel — is excluded; the intermediate-undock survivor leg
+        /// (StartUT before this UT) stays rendered.</param>
         /// <param name="launchUT">Start of the route segment (tree ROOT launch UT).</param>
         /// <returns>
         /// Excluded interval keys. Empty set on any guard failure (NaN inputs,
@@ -130,6 +133,11 @@ namespace Parsek.Logistics
             }
 
             // --- Build the composition pipeline (read-only Missions seam). ---
+            // Deliberately NOT SuppressLogging-wrapped (M-MIS-5 build-time decision): this
+            // helper and its two siblings below run once per route CREATION or once per
+            // topology-signature change (ResolveAutoExcludedNewIntervalKeys gates the third
+            // site), never per tick/frame, so the one-shot BuildMissionStructure /
+            // BuildComposition summaries are bounded and valuable derivation diagnostics.
             MissionStructure structure = MissionStructureBuilder.Build(tree);
             List<MissionCompositionNode> roots = MissionCompositionBuilder.Build(structure);
             if (roots == null || roots.Count == 0)
@@ -192,12 +200,12 @@ namespace Parsek.Logistics
         /// </summary>
         /// <param name="tree">Source recording tree (read-only).</param>
         /// <param name="segmentEndUT">End of the route segment. Single-stop v0: the
-        /// recorded DOCK UT (the docked combined-vessel tail is excluded). N-stop
-        /// (M4a): the LAST stop's dock UT, which production aligns with the terminal
-        /// structural boundary (the last undock the folded through-line spans to),
-        /// so the member set covers the whole <c>[launch .. last dock]</c> rendered
-        /// path including the intermediate-undock survivor + the depot-B docked
-        /// combined leg.</param>
+        /// recorded DOCK UT (the docked combined-vessel stretch is excluded). N-stop
+        /// (M4a): the LAST stop's dock UT. Since M-MIS-5 the dock is itself an
+        /// interval boundary, so the member set covers the <c>[launch .. last dock]</c>
+        /// rendered path including the intermediate-undock survivor; the dock-merged
+        /// combined leg starts AT the dock and drops out of the kept set (RouteBuilder
+        /// adds the dock-child leaf ref separately as the delivery-binding carrier).</param>
         /// <param name="launchUT">Start of the route segment (tree ROOT launch UT).</param>
         /// <returns>
         /// Member recording ids for the kept intervals. On any guard failure (the
@@ -301,13 +309,22 @@ namespace Parsek.Logistics
 
         // The bare recording id behind a composition HeadLegId: strip the synthetic
         // "<realLegId>/segN" suffix MissionCompositionBuilder mints for the 2nd+
-        // structural interval of one vessel.
-        private static string StripSegMarker(string headLegId)
+        // structural interval of one vessel, and (M-MIS-5, R3) the "@dockM" suffix a
+        // dock/board sub-interval carries. A sub-interval of a non-first structural
+        // interval keys as "<realLegId>/segN@dockM" (the "/seg" strip covers it); a
+        // sub-interval of the BARE-HEAD interval keys as "<realLegId>@dockM" with no
+        // "/seg" marker, so the "@dock" strip is LOAD-BEARING for the M-MIS-9 prong-1
+        // base-id rule (without it every bare-head @dock key would misclassify as an
+        // unknown base and be wrongly auto-excluded). Internal for direct tests.
+        internal static string StripSegMarker(string headLegId)
         {
             if (string.IsNullOrEmpty(headLegId))
                 return headLegId;
             int segMarker = headLegId.IndexOf("/seg", StringComparison.Ordinal);
-            return segMarker > 0 ? headLegId.Substring(0, segMarker) : headLegId;
+            if (segMarker > 0)
+                return headLegId.Substring(0, segMarker);
+            int dockMarker = headLegId.IndexOf("@dock", StringComparison.Ordinal);
+            return dockMarker > 0 ? headLegId.Substring(0, dockMarker) : headLegId;
         }
 
         // Fallback member set: the root recording id when resolvable, else every
@@ -556,23 +573,18 @@ namespace Parsek.Logistics
             }
         }
 
-        // A composition node's HeadLegId is either a real recording id or a
-        // synthetic "<realHeadLegId>/segN" key (MissionCompositionBuilder.BuildNode
-        // mints these for the 2nd+ structural interval of one vessel). Both root at
-        // the real leg before the first "/seg" marker, so test the prefix.
+        // A composition node's HeadLegId is either a real recording id or a synthetic
+        // "<realHeadLegId>/segN" / "<realHeadLegId>@dockM" / "<realHeadLegId>/segN@dockM"
+        // key (MissionCompositionBuilder.BuildNode mints "/segN" for the 2nd+ structural
+        // interval of one vessel and "@dockM" for a dock/board sub-interval, M-MIS-5).
+        // All root at the real leg before the first marker, so strip and test.
         private static bool RootsAtUndockChild(string headLegId, HashSet<string> undockChildLegIds)
         {
             if (undockChildLegIds.Count == 0)
                 return false;
             if (undockChildLegIds.Contains(headLegId))
                 return true;
-            int segMarker = headLegId.IndexOf("/seg", StringComparison.Ordinal);
-            if (segMarker > 0)
-            {
-                string realLeg = headLegId.Substring(0, segMarker);
-                return undockChildLegIds.Contains(realLeg);
-            }
-            return false;
+            return undockChildLegIds.Contains(StripSegMarker(headLegId));
         }
 
         // The child recording ids of the route's TERMINAL Undock branch point: the
