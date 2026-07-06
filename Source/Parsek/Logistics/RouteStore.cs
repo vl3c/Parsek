@@ -633,6 +633,47 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// M6 escrow-hold legibility: find the COMPETING route holding the LARGEST
+        /// escrow reservation on <c>(pid, resourceName)</c>, excluding
+        /// <paramref name="excludeRouteId"/> (the gating route never competes with
+        /// itself - the same own-route exclusion as
+        /// <see cref="OtherRoutesReservedFor"/>). Deterministic tie-break: equal
+        /// amounts pick the ordinal-smaller route id. Returns false when no other
+        /// route holds a positive reservation there - the caller then renders the
+        /// plain physical-short hold. Silent on hit and miss (mirrors
+        /// <see cref="TryGetRoute"/>; the gate site logs the outcome). Pure RAM -
+        /// reads only the escrow dict, never ERS/ELS.
+        /// </summary>
+        internal static bool TryGetReservingRoute(uint pid, string resourceName,
+            string excludeRouteId, out string reservingRouteId, out double reservedAmount)
+        {
+            reservingRouteId = null;
+            reservedAmount = 0.0;
+            if (string.IsNullOrEmpty(resourceName) || cargoEscrow.Count == 0)
+                return false;
+
+            foreach (var routeEntry in cargoEscrow)
+            {
+                if (string.Equals(routeEntry.Key, excludeRouteId, StringComparison.Ordinal))
+                    continue;
+                var byPid = routeEntry.Value;
+                if (byPid == null || !byPid.TryGetValue(pid, out var byResource) || byResource == null)
+                    continue;
+                if (!byResource.TryGetValue(resourceName, out double reserved) || !(reserved > 0.0))
+                    continue;
+                if (reservingRouteId == null
+                    || reserved > reservedAmount
+                    || (reserved == reservedAmount
+                        && string.CompareOrdinal(routeEntry.Key, reservingRouteId) < 0))
+                {
+                    reservingRouteId = routeEntry.Key;
+                    reservedAmount = reserved;
+                }
+            }
+            return reservingRouteId != null;
+        }
+
+        /// <summary>
         /// Test/diagnostic read: the amount route <paramref name="routeId"/> has
         /// reserved on <c>(pid, resourceName)</c> (0 when absent). Pure RAM.
         /// </summary>
