@@ -63,12 +63,24 @@ namespace Parsek.Logistics
             internal PickupSourceResolution(bool resolved, uint pid, string vesselName,
                 Func<string, double> storedResourceReader, Func<string, int> storedInventoryReader,
                 string reason)
+                : this(resolved, pid, vesselName, storedResourceReader, storedInventoryReader,
+                    null, null, reason)
+            {
+            }
+
+            internal PickupSourceResolution(bool resolved, uint pid, string vesselName,
+                Func<string, double> storedResourceReader, Func<string, int> storedInventoryReader,
+                Func<string, double> rawStoredResourceReader,
+                Func<string, string> reservingRouteNameLookup,
+                string reason)
             {
                 Resolved = resolved;
                 Pid = pid;
                 VesselName = vesselName;
                 StoredResourceReader = storedResourceReader;
                 StoredInventoryReader = storedInventoryReader;
+                RawStoredResourceReader = rawStoredResourceReader;
+                ReservingRouteNameLookup = reservingRouteNameLookup;
                 Reason = reason;
             }
 
@@ -77,6 +89,25 @@ namespace Parsek.Logistics
             internal string VesselName { get; }
             internal Func<string, double> StoredResourceReader { get; }
             internal Func<string, int> StoredInventoryReader { get; }
+
+            /// <summary>
+            /// M6 escrow-hold legibility: the RAW (un-netted) stored-amount reader
+            /// for this source - the same once-captured loaded-gate as
+            /// <see cref="StoredResourceReader"/> but WITHOUT the other-routes
+            /// escrow subtraction. Null when the caller supplies no escrow
+            /// distinction (a short then always classifies as physical).
+            /// </summary>
+            internal Func<string, double> RawStoredResourceReader { get; }
+
+            /// <summary>
+            /// M6 escrow-hold legibility: resolves the display NAME of the
+            /// competing route holding the LARGEST escrow reservation on
+            /// (this pid, resource); a null result means no competing reservation
+            /// was found and the short falls back to the physical token.
+            /// Caller-supplied so the gate stays pure.
+            /// </summary>
+            internal Func<string, string> ReservingRouteNameLookup { get; }
+
             internal string Reason { get; }
 
             internal static PickupSourceResolution Miss(string reason) =>
@@ -84,7 +115,14 @@ namespace Parsek.Logistics
 
             internal static PickupSourceResolution Ok(uint pid, string vesselName,
                 Func<string, double> storedResourceReader, Func<string, int> storedInventoryReader) =>
-                new PickupSourceResolution(true, pid, vesselName, storedResourceReader, storedInventoryReader, null);
+                Ok(pid, vesselName, storedResourceReader, storedInventoryReader, null, null);
+
+            internal static PickupSourceResolution Ok(uint pid, string vesselName,
+                Func<string, double> storedResourceReader, Func<string, int> storedInventoryReader,
+                Func<string, double> rawStoredResourceReader,
+                Func<string, string> reservingRouteNameLookup) =>
+                new PickupSourceResolution(true, pid, vesselName, storedResourceReader,
+                    storedInventoryReader, rawStoredResourceReader, reservingRouteNameLookup, null);
         }
 
         /// <summary>
@@ -126,6 +164,20 @@ namespace Parsek.Logistics
             /// source's resolved vessel. Caller bakes the loaded-gate in.
             /// </summary>
             public Func<string, int> StoredInventoryReader;
+
+            /// <summary>
+            /// M6 escrow-hold legibility: the RAW (un-netted) sibling of
+            /// <see cref="StoredResourceReader"/>. Null = no escrow distinction
+            /// (a short classifies physical).
+            /// </summary>
+            public Func<string, double> RawStoredResourceReader;
+
+            /// <summary>
+            /// M6 escrow-hold legibility: resource name -> the display name of the
+            /// competing route holding the largest escrow reservation on this pid,
+            /// or null when none. Null delegate = no lookup wired.
+            /// </summary>
+            public Func<string, string> ReservingRouteNameLookup;
         }
 
         /// <summary>
@@ -140,7 +192,9 @@ namespace Parsek.Logistics
         internal readonly struct GateResult
         {
             internal GateResult(bool covered, uint shortPid, string shortName,
-                string shortResource, double shortfall, bool inventoryShort, string holdToken)
+                string shortResource, double shortfall, bool inventoryShort, string holdToken,
+                bool escrowShort, string reservingRouteName,
+                double shortRawStored, double shortNettedStored)
             {
                 Covered = covered;
                 ShortSourcePid = shortPid;
@@ -149,6 +203,10 @@ namespace Parsek.Logistics
                 Shortfall = shortfall;
                 InventoryShort = inventoryShort;
                 ShortHoldToken = holdToken;
+                EscrowShort = escrowShort;
+                ReservingRouteName = reservingRouteName;
+                ShortRawStored = shortRawStored;
+                ShortNettedStored = shortNettedStored;
             }
 
             internal bool Covered { get; }
@@ -159,8 +217,28 @@ namespace Parsek.Logistics
             internal bool InventoryShort { get; }
             internal string ShortHoldToken { get; }
 
+            /// <summary>
+            /// M6 escrow-hold legibility: true when the resource shortfall is
+            /// escrow-caused (physically sufficient, short only after netting
+            /// competing routes' reservations) AND a reserving route was named -
+            /// the <see cref="ShortHoldToken"/> is then the
+            /// <c>source-reserved:</c> variant. Physical shorts (including every
+            /// inventory short) keep this false and the byte-identical
+            /// <c>source:</c> token.
+            /// </summary>
+            internal bool EscrowShort { get; }
+
+            /// <summary>Display name of the competing route named on an escrow short; null otherwise.</summary>
+            internal string ReservingRouteName { get; }
+
+            /// <summary>Raw (un-netted) stored amount of the short resource (== netted when no raw reader was wired; 0 on inventory shorts).</summary>
+            internal double ShortRawStored { get; }
+
+            /// <summary>Escrow-netted stored amount of the short resource the gate checked against (0 on inventory shorts).</summary>
+            internal double ShortNettedStored { get; }
+
             internal static GateResult Ok() =>
-                new GateResult(true, 0u, null, null, 0.0, false, null);
+                new GateResult(true, 0u, null, null, 0.0, false, null, false, null, 0.0, 0.0);
         }
 
         /// <summary>
@@ -256,6 +334,8 @@ namespace Parsek.Logistics
                         SummedInventoryManifest = new List<InventoryPayloadItem>(),
                         StoredResourceReader = res.StoredResourceReader,
                         StoredInventoryReader = res.StoredInventoryReader,
+                        RawStoredResourceReader = res.RawStoredResourceReader,
+                        ReservingRouteNameLookup = res.ReservingRouteNameLookup,
                     };
                     byPid[res.Pid] = groups.Count;
                     groups.Add(group);
@@ -303,10 +383,40 @@ namespace Parsek.Logistics
                     out string shortResource, out double shortfall);
                 if (!covered)
                 {
+                    // M6 escrow-hold legibility: distinguish a PHYSICAL short (the
+                    // depot genuinely lacks the cargo) from an ESCROW short
+                    // (physically sufficient; the netted reader fell short only
+                    // because competing routes hold reservations). The raw reader
+                    // and the reserving-route lookup are caller-supplied; without
+                    // them (legacy resolutions) raw == netted, the classification
+                    // stays physical, and the token is byte-identical to pre-M6.
+                    // An escrow-caused short with NO reserving route found also
+                    // falls back to the physical token - the new token fires only
+                    // when a competing reservation actually explains the shortfall.
+                    double need = 0.0;
+                    if (g.SummedResourceManifest != null)
+                        g.SummedResourceManifest.TryGetValue(shortResource, out need);
+                    double netted = need - shortfall;
+                    double raw = g.RawStoredResourceReader != null
+                        ? g.RawStoredResourceReader(shortResource)
+                        : netted;
+                    bool escrowCaused = g.RawStoredResourceReader != null
+                        && IsEscrowCausedShort(need, raw, netted);
+                    string reservingRouteName = escrowCaused && g.ReservingRouteNameLookup != null
+                        ? g.ReservingRouteNameLookup(shortResource)
+                        : null;
+                    bool escrowShort = escrowCaused && !string.IsNullOrEmpty(reservingRouteName);
+                    string holdToken = escrowShort
+                        ? BuildReservedHoldToken(g.ResolvedPid, g.VesselName, shortResource, reservingRouteName)
+                        : BuildHoldToken(g.ResolvedPid, g.VesselName, shortResource);
                     return new GateResult(
                         false, g.ResolvedPid, g.VesselName, shortResource, shortfall,
                         inventoryShort: false,
-                        holdToken: BuildHoldToken(g.ResolvedPid, g.VesselName, shortResource));
+                        holdToken: holdToken,
+                        escrowShort: escrowShort,
+                        reservingRouteName: escrowShort ? reservingRouteName : null,
+                        shortRawStored: raw,
+                        shortNettedStored: netted);
                 }
 
                 bool inventoryCovered = RouteOriginCargoCheck.HasRequiredInventory(
@@ -314,10 +424,14 @@ namespace Parsek.Logistics
                     out string shortIdentity, out int shortQuantity);
                 if (!inventoryCovered)
                 {
+                    // Inventory escrow is not wired (the deferred B3 seam), so an
+                    // inventory short is always physical.
                     return new GateResult(
                         false, g.ResolvedPid, g.VesselName, "inventory:" + shortIdentity,
                         shortQuantity, inventoryShort: true,
-                        holdToken: BuildHoldToken(g.ResolvedPid, g.VesselName, "inventory:" + shortIdentity));
+                        holdToken: BuildHoldToken(g.ResolvedPid, g.VesselName, "inventory:" + shortIdentity),
+                        escrowShort: false, reservingRouteName: null,
+                        shortRawStored: 0.0, shortNettedStored: 0.0);
                 }
             }
 
@@ -427,6 +541,44 @@ namespace Parsek.Logistics
             string name = string.IsNullOrEmpty(vesselName) ? "<unnamed>" : vesselName.Replace(':', '_');
             return "source:" + pid.ToString(System.Globalization.CultureInfo.InvariantCulture)
                 + ":" + name + ":" + (shortToken ?? string.Empty);
+        }
+
+        /// <summary>
+        /// M6 escrow-hold legibility: pure classifier for a resource shortfall's
+        /// cause. TRUE when the shortfall is explained by competing routes' escrow
+        /// rather than physical absence: the source physically stores enough
+        /// (<paramref name="rawStored"/> covers <paramref name="need"/>) and only
+        /// the escrow-netted availability (<paramref name="nettedStored"/>) falls
+        /// short. A physically-short source (raw below need) classifies PHYSICAL
+        /// even when escrow deepens the gap - the depot would hold the route with
+        /// no competitors at all. NaN inputs classify physical (comparisons fail).
+        /// </summary>
+        internal static bool IsEscrowCausedShort(double need, double rawStored, double nettedStored)
+        {
+            return need > 0.0 && nettedStored < need && rawStored >= need;
+        }
+
+        /// <summary>
+        /// M6 escrow-hold legibility: the <c>OriginLacksCargo</c> detail token for
+        /// an ESCROW-caused pickup-source short, consumed by
+        /// <see cref="Parsek.LogisticsHoldPresentation"/>. Shape:
+        /// <c>source-reserved:&lt;pid&gt;:&lt;name&gt;:&lt;resource&gt;:&lt;reservingRouteName&gt;</c>.
+        /// Both names are sanitized of <c>:</c> (matching <see cref="BuildHoldToken"/>)
+        /// so the presentation's 4-way split stays unambiguous; the resource slot
+        /// only ever carries a bare resource name (inventory shorts never take the
+        /// escrow path). The reserving route's display name is baked into the token
+        /// at emit time; the hold refreshes at each blocked crossing, so a rename
+        /// self-heals.
+        /// </summary>
+        internal static string BuildReservedHoldToken(uint pid, string vesselName,
+            string resourceName, string reservingRouteName)
+        {
+            string name = string.IsNullOrEmpty(vesselName) ? "<unnamed>" : vesselName.Replace(':', '_');
+            string routeName = string.IsNullOrEmpty(reservingRouteName)
+                ? "<unnamed>"
+                : reservingRouteName.Replace(':', '_');
+            return "source-reserved:" + pid.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + ":" + name + ":" + (resourceName ?? string.Empty) + ":" + routeName;
         }
 
         private static void SumResourceManifestInto(

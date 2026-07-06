@@ -76,6 +76,14 @@ namespace Parsek
         private List<RouteNearMiss> cachedNearMisses = new List<RouteNearMiss>();
         private float lastNearMissComputeRealtime = -1f;
 
+        // M6 candidate intent helper: cached display rows for the collapsed
+        // "Dismissed (N)" subsection, rebuilt on the SAME ~1 Hz timer as the
+        // candidate cache (inside GetCandidates) so tree display names are never
+        // resolved live on the IMGUI draw path. Sorted by label (then id) for a
+        // stable row order across HashSet iteration.
+        private readonly List<(string treeId, string label)> cachedDismissedRows =
+            new List<(string treeId, string label)>();
+
         // Throttled per-route legibility cache (Phase 2 H1/H2/H3). Recomputing the
         // next-dock-crossing countdown (H1, a LoopUnit build) and the realized /
         // cumulative delivery summary (H2/H3, an ELS scan) is NOT free, and many
@@ -179,6 +187,16 @@ namespace Parsek
             // flashes a hold line.
             public string HoldText;
             public string HoldShort;
+
+            // M6 per-cycle flow: one compact line per recent completed cycle
+            // ("Cycle 3 (2.1h ago): paid 500 funds at KSC; delivered 150.0
+            // LiquidFuel to Munar Station"), newest first, bounded to the last
+            // LogisticsFlowPresentation.MaxCyclesShown cycles. Built on the
+            // ~1 Hz pass from the SAME ELS walk as the H2/H3 delivery summary
+            // (LogisticsFlowPresentation.CollectRows). Null when the route has
+            // no cycle-scoped cargo rows yet, so the detail panel renders no
+            // header for a never-run route.
+            public List<LogisticsFlowPresentation.CycleFlowLine> FlowLines;
         }
 
         // Deferred mutations: collected during the draw loop and applied after the
@@ -213,6 +231,17 @@ namespace Parsek
         // discipline as the cadence stepper).
         private Route pendingPriorityRoute;
         private int pendingPriorityValue;
+        // M6 candidate intent helper: deferred dismiss / restore of a candidate
+        // tree. The row buttons record the tree id + display label during the
+        // draw loop; ApplyPendingActions commits through
+        // RouteStore.DismissCandidateTree / RestoreCandidateTree after the
+        // scroll view (same deferred-mutation discipline as the action buttons)
+        // and dirties the candidate + near-miss caches so the row disappears /
+        // reappears immediately instead of waiting out the ~1s timer.
+        private string pendingDismissTreeId;
+        private string pendingDismissLabel;
+        private string pendingRestoreTreeId;
+        private string pendingRestoreLabel;
 
         // M1 inline interval text field (deferred-commit, SettingsWindowUI idiom).
         // Keyed by route.Id (NOT a row index) because routes are re-sectioned /
@@ -449,6 +478,10 @@ namespace Parsek
             pendingCadenceMultiplier = 0;
             pendingPriorityRoute = null;
             pendingPriorityValue = 0;
+            pendingDismissTreeId = null;
+            pendingDismissLabel = null;
+            pendingRestoreTreeId = null;
+            pendingRestoreLabel = null;
 
             scrollPos = GUILayout.BeginScrollView(scrollPos, GUILayout.ExpandHeight(true));
 
@@ -567,6 +600,11 @@ namespace Parsek
             // does not match the dock-deliver-undock proof". Reads only the cached list.
             DrawNearMissSubsection(nearMisses);
 
+            // M6 candidate intent helper: the collapsed "Dismissed (N)" subsection
+            // listing player-dismissed trees, each with a Restore control. Reads
+            // only the cached rows (rebuilt on the ~1 Hz candidate refresh).
+            DrawDismissedSubsection();
+
             GUILayout.EndVertical();
             GUILayout.Space(SpacingSmall);
         }
@@ -614,7 +652,80 @@ namespace Parsek
                 string treeName = NearMissTreeLabel(nm.Tree);
                 string reason = LogisticsRejectPresentation.DescribeNearMiss(
                     nm.Status, nm.NotSealed, nm.ReflyableCount, nm.RejectDetail);
-                DetailLine($"{treeName} - {reason}");
+                // M6 candidate intent helper: near-miss rows get the same
+                // Dismiss control as candidate rows (a dismissed tree leaves
+                // the WHOLE Candidates section). Row layout mirrors DetailLine
+                // (24px indent + detailStyle label) with the button appended;
+                // the button only draws for a resolvable tree id, a per-row
+                // condition that is stable within a frame (cached list), so the
+                // IMGUI control count stays consistent across Layout/Repaint.
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(24f);
+                GUILayout.Label($"{treeName} - {reason}", detailStyle, GUILayout.ExpandWidth(true));
+                string nmTreeId = nm.Tree?.Id;
+                if (!string.IsNullOrEmpty(nmTreeId)
+                    && GUILayout.Button(new GUIContent("Dismiss",
+                        "Hide this tree from the Candidates section (it is not meant to become a route). Restore it any time from the Dismissed list below."),
+                        GUILayout.Width(70)))
+                {
+                    pendingDismissTreeId = nmTreeId;
+                    pendingDismissLabel = treeName;
+                }
+                GUILayout.EndHorizontal();
+            }
+        }
+
+        // M6 dismissed-candidates subsection key (collapsible via the shared
+        // expandedRows set, mirroring NearMissSectionKey).
+        private const string DismissedSectionKey = "dismissed:section";
+
+        /// <summary>
+        /// Draws the M6 "Dismissed (N)" collapsible subsection at the bottom of
+        /// the Candidates bubble: the trees the player dismissed as route
+        /// candidates, each with a Restore control. Mirrors the near-miss
+        /// subsection idiom exactly (caret header via the shared
+        /// <see cref="expandedRows"/> / <see cref="ToggleExpanded"/>, fixed key
+        /// <see cref="DismissedSectionKey"/>); nothing renders when nothing is
+        /// dismissed. Reads only <see cref="cachedDismissedRows"/> (labels
+        /// resolved on the ~1 Hz candidate-cache refresh, never live on the
+        /// IMGUI draw path); Restore defers through
+        /// <see cref="pendingRestoreTreeId"/> to <see cref="ApplyPendingActions"/>.
+        /// </summary>
+        private void DrawDismissedSubsection()
+        {
+            if (cachedDismissedRows.Count == 0)
+                return;
+
+            bool expanded = expandedRows.Contains(DismissedSectionKey);
+            string arrow = expanded ? "▼" : "▶";
+            GUILayout.Space(SpacingSmall);
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(8f);
+            if (GUILayout.Button(
+                    new GUIContent(
+                        $"{arrow} Dismissed ({cachedDismissedRows.Count.ToString(CultureInfo.InvariantCulture)})",
+                        "Trees you dismissed as route candidates. A dismissed tree is hidden from the candidates and near-miss lists; Restore brings it back."),
+                    GUI.skin.label, GUILayout.ExpandWidth(true)))
+                ToggleExpanded(DismissedSectionKey, "dismissed subsection");
+            GUILayout.EndHorizontal();
+
+            if (!expanded)
+                return;
+
+            for (int i = 0; i < cachedDismissedRows.Count; i++)
+            {
+                (string treeId, string label) = cachedDismissedRows[i];
+                GUILayout.BeginHorizontal();
+                GUILayout.Space(24f);
+                GUILayout.Label(label, detailStyle, GUILayout.ExpandWidth(true));
+                if (GUILayout.Button(new GUIContent("Restore",
+                        "Offer this tree as a Supply Run candidate again."),
+                        GUILayout.Width(70)))
+                {
+                    pendingRestoreTreeId = treeId;
+                    pendingRestoreLabel = label;
+                }
+                GUILayout.EndHorizontal();
             }
         }
 
@@ -1212,6 +1323,17 @@ namespace Parsek
                     "Promote this Supply Run to a stored route (created Paused; use Send Once to test, then Activate)."),
                     GUILayout.Width(100)))
                 pendingCreate = candidate;
+            // M6 candidate intent helper: hide a tree the player never intends
+            // as a route. Deferred through pendingDismissTreeId (applied in
+            // ApplyPendingActions); always reversible from the Dismissed
+            // subsection at the bottom of this section.
+            if (GUILayout.Button(new GUIContent("Dismiss",
+                    "Hide this tree from the Candidates section (it is not meant to become a route). Restore it any time from the Dismissed list below."),
+                    GUILayout.Width(70)))
+            {
+                pendingDismissTreeId = candidate.Tree?.Id;
+                pendingDismissLabel = name;
+            }
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
@@ -1285,6 +1407,25 @@ namespace Parsek
                 DetailLine($"Last cycle: {leg.LastCycleText}",
                     leg.LastCycleShortfall ? statusStyleYellow : detailStyle);
                 DetailLine($"Total delivered: {leg.CumulativeText}");
+            }
+
+            // M6 per-cycle flow: what each recent completed cycle debited where,
+            // picked up where, and delivered where, newest first, bounded to the
+            // last LogisticsFlowPresentation.MaxCyclesShown cycles. Read straight
+            // from the ~1 Hz cache (built in the SAME ELS walk as the H2 summary);
+            // conditioned ONLY on the cached list so the IMGUI control count stays
+            // stable across Layout/Repaint. A route with no completed cycles has a
+            // null list and renders nothing (no empty header). Shortfall cycles
+            // tint yellow, matching the H2 realized-delivery line.
+            if (leg.FlowLines != null && leg.FlowLines.Count > 0)
+            {
+                DetailLine(LogisticsFlowPresentation.RecentCyclesHeader);
+                for (int i = 0; i < leg.FlowLines.Count; i++)
+                {
+                    LogisticsFlowPresentation.CycleFlowLine flowLine = leg.FlowLines[i];
+                    DetailLine("  " + flowLine.Text,
+                        flowLine.Shortfall ? statusStyleYellow : detailStyle);
+                }
             }
 
             DetailLine($"Interval: {FormatDuration(route.DispatchInterval)}   Transit: {FormatDuration(route.TransitDuration)}   Cycles: {route.CompletedCycles}");
@@ -2101,6 +2242,35 @@ namespace Parsek
                     $"Logistics: Priority route={ShortId(pendingPriorityRoute.Id)} value={pendingPriorityValue} " +
                     $"result={(changed ? "applied" : "unchanged")}");
             }
+            if (pendingDismissTreeId != null)
+            {
+                // M6 candidate intent helper: pure UI-intent mutation (no route /
+                // ledger effect, always reversible). RouteStore logs the
+                // authoritative Info line with tree id + display name. On success
+                // both derivation caches are dirtied so the tree vanishes from the
+                // candidates AND near-miss lists this second, not after ~1s.
+                bool ok = RouteStore.DismissCandidateTree(pendingDismissTreeId, pendingDismissLabel);
+                ParsekLog.Info("UI",
+                    $"Logistics: Dismiss candidate tree={ShortId(pendingDismissTreeId)} " +
+                    $"name='{pendingDismissLabel}' result={(ok ? "dismissed" : "no-op")}");
+                if (ok)
+                {
+                    lastCandidateComputeRealtime = -1f;
+                    lastNearMissComputeRealtime = -1f;
+                }
+            }
+            if (pendingRestoreTreeId != null)
+            {
+                bool ok = RouteStore.RestoreCandidateTree(pendingRestoreTreeId, pendingRestoreLabel);
+                ParsekLog.Info("UI",
+                    $"Logistics: Restore candidate tree={ShortId(pendingRestoreTreeId)} " +
+                    $"name='{pendingRestoreLabel}' result={(ok ? "restored" : "no-op")}");
+                if (ok)
+                {
+                    lastCandidateComputeRealtime = -1f;
+                    lastNearMissComputeRealtime = -1f;
+                }
+            }
 
             if (routeStateMutated)
                 lastLegibilityComputeRealtime = -1f;
@@ -2114,6 +2284,10 @@ namespace Parsek
             pendingCadenceMultiplier = 0;
             pendingPriorityRoute = null;
             pendingPriorityValue = 0;
+            pendingDismissTreeId = null;
+            pendingDismissLabel = null;
+            pendingRestoreTreeId = null;
+            pendingRestoreLabel = null;
         }
 
         /// <summary>
@@ -2408,6 +2582,19 @@ namespace Parsek
                 ParsekLog.Verbose("UI",
                     $"Logistics candidate run-cost cache refreshed candidates={cachedCandidates.Count.ToString(CultureInfo.InvariantCulture)} " +
                     $"costed={costed.ToString(CultureInfo.InvariantCulture)}");
+
+                // M6: rebuild the Dismissed-subsection display rows on the same
+                // refresh (tree names resolved here, never on the draw path).
+                // Sorted by label then id so the row order is stable across
+                // HashSet iteration order changes.
+                cachedDismissedRows.Clear();
+                foreach (string dismissedId in RouteStore.DismissedCandidateTreeIds)
+                    cachedDismissedRows.Add((dismissedId, ResolveTreeDisplayName(dismissedId)));
+                cachedDismissedRows.Sort((a, b) =>
+                {
+                    int byLabel = string.CompareOrdinal(a.label, b.label);
+                    return byLabel != 0 ? byLabel : string.CompareOrdinal(a.treeId, b.treeId);
+                });
             }
             return cachedCandidates ?? new List<RouteCandidate>();
         }
@@ -2464,6 +2651,7 @@ namespace Parsek
             int withCountdown = 0;
             int withDeliveries = 0;
             int withHold = 0;
+            int withFlow = 0;
             for (int i = 0; i < routeCount; i++)
             {
                 Route route = routes[i];
@@ -2480,6 +2668,9 @@ namespace Parsek
                 // M6 hold reasons: batch counter, one summary line below.
                 if (leg.HoldText != null)
                     withHold++;
+                // M6 per-cycle flow: batch counter, same summary line.
+                if (leg.FlowLines != null)
+                    withFlow++;
             }
             if (pruneArmed)
                 sendOnceArmedRouteIds.RemoveWhere(id => !stillArmed.Contains(id));
@@ -2488,7 +2679,8 @@ namespace Parsek
                 $"Logistics legibility cache refreshed routes={routeCount.ToString(CultureInfo.InvariantCulture)} " +
                 $"withCountdown={withCountdown.ToString(CultureInfo.InvariantCulture)} " +
                 $"withDeliveries={withDeliveries.ToString(CultureInfo.InvariantCulture)} " +
-                $"withHold={withHold.ToString(CultureInfo.InvariantCulture)}");
+                $"withHold={withHold.ToString(CultureInfo.InvariantCulture)} " +
+                $"withFlow={withFlow.ToString(CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>
@@ -2515,9 +2707,12 @@ namespace Parsek
             leg.CountdownBranch = countdown.Branch;
             leg.CountdownSeconds = countdown.Seconds;
 
-            // H2 / H3: one ELS scan -> realized + cumulative + badge.
+            // H2 / H3: one ELS scan -> realized + cumulative + badge. M6 per-cycle
+            // flow: the SAME scan also collects the debit / pickup / delivery rows
+            // the flow display buckets by cycle below (no second ledger walk).
+            var flowRows = new List<LogisticsFlowPresentation.FlowRow>();
             LogisticsDeliveryPresentation.RouteDeliverySummary summary =
-                CollectRouteDeliverySummary(route.Id);
+                CollectRouteDeliverySummary(route.Id, flowRows);
             leg.HasDeliveries = summary.HasAny;
             leg.LastCycleText = summary.HasAny
                 ? LogisticsDeliveryPresentation.FormatRealizedDelivery(summary.LastRequested, summary.LastActual)
@@ -2525,6 +2720,12 @@ namespace Parsek
             leg.LastCycleShortfall = summary.HasAny
                 && LogisticsDeliveryPresentation.HasShortfall(summary.LastRequested, summary.LastActual);
             leg.CumulativeText = LogisticsDeliveryPresentation.FormatCumulativeTotal(summary.CumulativeTotal);
+
+            // M6 per-cycle flow: bucket the collected rows by cycle and render the
+            // bounded newest-first lines HERE on the ~1 Hz pass (endpoint name
+            // resolution touches FlightGlobals, never the IMGUI draw path). Null
+            // when the route has no cycle-scoped rows yet.
+            leg.FlowLines = BuildPerCycleFlowLines(route, flowRows, currentUT);
 
             bool ghostDriving = RouteStatusPolicy.GhostDriving(route.Status);
             LogisticsDeliveryPresentation.DeliveryOutcome lastOutcome = ClassifyLastOutcome(route.Status, summary);
@@ -2778,8 +2979,13 @@ namespace Parsek
         /// cycle id. This is the one non-pure piece of H2/H3 (it needs a live Scenario
         /// for ComputeELS), so it stays in the window file and feeds the pure
         /// summary/format helpers; called only on the ~1 Hz cache refresh.
+        /// M6 per-cycle flow: the SAME single walk also fills
+        /// <paramref name="flowRows"/> (debit / pickup / delivery rows bucketed
+        /// later by cycle) via <see cref="LogisticsFlowPresentation.CollectRows"/>,
+        /// so the flow display adds NO second ledger walk; pass null to skip.
         /// </summary>
-        private static LogisticsDeliveryPresentation.RouteDeliverySummary CollectRouteDeliverySummary(string routeId)
+        private static LogisticsDeliveryPresentation.RouteDeliverySummary CollectRouteDeliverySummary(
+            string routeId, List<LogisticsFlowPresentation.FlowRow> flowRows)
         {
             var rows = new List<LogisticsDeliveryPresentation.DeliveryRow>();
             if (string.IsNullOrEmpty(routeId))
@@ -2797,19 +3003,92 @@ namespace Parsek
                 return LogisticsDeliveryPresentation.SummarizeRouteDeliveries(rows);
             }
 
-            if (els != null)
+            LogisticsFlowPresentation.CollectRows(els, routeId, rows, flowRows);
+            return LogisticsDeliveryPresentation.SummarizeRouteDeliveries(rows);
+        }
+
+        /// <summary>
+        /// Builds the M6 per-cycle flow lines for the legibility cache from the
+        /// rows collected in the shared ELS walk. This is the non-pure half (it
+        /// resolves live vessel names), so it stays in the window file and runs
+        /// only on the ~1 Hz refresh: endpoint pids on debit / pickup rows
+        /// resolve through the O(1) <c>FlightGlobals.FindVessel</c> (the
+        /// RouteEndpointResolver.ResolveByPid idiom - a vanished vessel misses
+        /// the map and the pure formatter renders its "vessel pid=N" fallback,
+        /// never blank), and per-stop delivery destinations resolve to the live
+        /// vessel name by the stop endpoint's baked pid with the recorded
+        /// coords as the fallback (the H4 name-else-coords contract, without
+        /// the O(vessels) surface re-scan). The pure
+        /// <see cref="LogisticsFlowPresentation.FormatPerCycleFlow"/> does the
+        /// bucketing / bounding / wording. Returns null when there is nothing
+        /// to show so the detail panel draws no header.
+        /// </summary>
+        private static List<LogisticsFlowPresentation.CycleFlowLine> BuildPerCycleFlowLines(
+            Route route, List<LogisticsFlowPresentation.FlowRow> flowRows, double currentUT)
+        {
+            if (flowRows == null || flowRows.Count == 0)
+                return null;
+
+            // Live names for the endpoint pids that appear on the rows.
+            var endpointNames = new Dictionary<uint, string>();
+            for (int i = 0; i < flowRows.Count; i++)
             {
-                for (int i = 0; i < els.Count; i++)
+                uint pid = flowRows[i].EndpointPid;
+                if (pid == 0u || endpointNames.ContainsKey(pid)) continue;
+                string name = TryResolveLiveVesselName(pid);
+                if (!string.IsNullOrEmpty(name))
+                    endpointNames[pid] = name;
+            }
+
+            // Per-stop delivery destination names, indexed by stop index.
+            List<string> stopDestinations = null;
+            if (route?.Stops != null && route.Stops.Count > 0)
+            {
+                stopDestinations = new List<string>(route.Stops.Count);
+                for (int i = 0; i < route.Stops.Count; i++)
                 {
-                    GameAction a = els[i];
-                    if (a == null) continue;
-                    if (a.Type != GameActionType.RouteCargoDelivered) continue;
-                    if (!string.Equals(a.RouteId, routeId, System.StringComparison.Ordinal)) continue;
-                    rows.Add(new LogisticsDeliveryPresentation.DeliveryRow(
-                        a.RouteResourceManifest, a.RouteRequestedResourceManifest, a.UT));
+                    RouteStop stop = route.Stops[i];
+                    if (stop == null)
+                    {
+                        stopDestinations.Add(null);
+                        continue;
+                    }
+                    string name = TryResolveLiveVesselName(stop.Endpoint.VesselPersistentId);
+                    stopDestinations.Add(!string.IsNullOrEmpty(name)
+                        ? name
+                        : LogisticsDeliveryPresentation.FormatEndpointCoords(stop.Endpoint));
                 }
             }
-            return LogisticsDeliveryPresentation.SummarizeRouteDeliveries(rows);
+
+            List<LogisticsFlowPresentation.CycleFlowLine> lines =
+                LogisticsFlowPresentation.FormatPerCycleFlow(
+                    flowRows, endpointNames, FormatOrigin(route), stopDestinations,
+                    currentUT, LogisticsFlowPresentation.MaxCyclesShown);
+            return lines.Count > 0 ? lines : null;
+        }
+
+        /// <summary>
+        /// Live vessel name by persistent id, or null when the pid is 0 / the
+        /// vessel is gone / FlightGlobals is unavailable. O(1) per pid
+        /// (FlightGlobals.PersistentVesselIds lookup); defensively wrapped like
+        /// <c>RouteEndpointResolver.ResolveByPid</c> so a stock-side teardown
+        /// null-deref degrades to the pid fallback instead of a crash.
+        /// </summary>
+        private static string TryResolveLiveVesselName(uint pid)
+        {
+            if (pid == 0u) return null;
+            try
+            {
+                if (FlightGlobals.fetch != null
+                    && FlightGlobals.FindVessel(pid, out Vessel found)
+                    && found != null)
+                    return found.vesselName;
+            }
+            catch
+            {
+                // Best-effort name only; the formatter's pid fallback covers a miss.
+            }
+            return null;
         }
 
         /// <summary>

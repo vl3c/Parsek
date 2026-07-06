@@ -406,8 +406,8 @@ These are settled-as-deferred; see `docs/dev/design-mission-abstractions.md` ope
 ### 14.1 New branches default to included
 A genuinely new branch added after a Mission was defined (most realistically a re-fly supersede split) defaults to INCLUDED under the excluded-id persistence model. Acceptable for v1. Making new branches default-excluded would require recording the known head-id set at definition time; revisit when logistics starts persisting routes on top of Missions.
 
-### 14.2 Dock is not an interval boundary
-`MissionCompositionBuilder.BuildNode` creates interval edges only at structural PEEL UTs (children leaving), never at a Dock / Board MERGE UT (a vessel joining), so the docked stretch is lumped into the continuing vessel's pre-dock interval and cannot be isolated for looping on its own. Docked composition labels also undercount (they never ADD controllers gained at a dock). Deferred to after supply-routes v0; do not fix piecemeal.
+### 14.2 Dock is not an interval boundary (RESOLVED - M-MIS-5 P1, 2026-07-04)
+Shipped: `MissionCompositionBuilder.BuildNode` now emits an interval edge at every Dock / Board MERGE UT on the continuing line (gated on the run member's `OriginBranchPointType`), so the docked stretch is its own selectable sub-interval, keyed `<parentIntervalKey>@dockM` so structural `/segN` keys never renumber. The docked interval's label rebases to the merge leg's own start-captured combined composition (undercount fixed; structural peels on a rebased base subtract the departing leg's crew too), and pre-M-MIS-5 selections are upgraded once via `Mission.SelectionSchemaGeneration` + the `MissionStore.ReconcileSelections` @dock exclusion extension. Route render windows now end at the last DOCK (the realized route cycle re-aligns to DispatchInterval). Remaining logistics lift (accepting undock-to-undock shuttle runs) is M-MIS-5 P2a/P2b; plan: `docs/dev/plan-mmis5-dock-interval-boundary.md`.
 
 ### 14.3 Cross-tree foreign dock
 When A and B are independent trees, the combined leg and post-undock continuation land in the controller's tree while the foreign partner's pre-dock flight stays in its own tree, so "loop the whole shared docked journey from the foreign side" spans two trees and is not a single contiguous selection. Likely wants the cross-tree dock link followed via the same PID linking playback already does in `GhostChainWalker`.
@@ -472,7 +472,7 @@ Re-aim carries its own non-`Mission*` test files (Lambert, window planner, loite
 | Zero-drift reschedule | Non-uniform schedule for drifting multi-constraint configs | Done |
 | Name / group link | Mission name <-> root group sync | Done (PR #977) |
 | Interplanetary re-aim | Per-window Lambert transfer, loiter compression, pad-align, arrival hold | Done (PR #981 / #982, #1024 / #1026 / #1030) |
-| Dock as interval boundary | Isolate a docked stretch for looping | Deferred (14.2) |
+| Dock as interval boundary | Isolate a docked stretch for looping | Done (14.2, M-MIS-5 P1) |
 | Cross-tree foreign dock | Loop a shared docked journey from the partner side | Deferred (14.3) |
 | Destination-SOI generalization | 2+-moon / multi-hop arrival alignment | Deferred (14.4) |
 

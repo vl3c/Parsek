@@ -6,9 +6,22 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.3
 
+### Features
+
+- A supply route's detail panel now lists its recent cycles' cargo flow (newest first, last 5): what each cycle charged or took from where, picked up where, and delivered where, with shortfall cycles highlighted, so a route that is bleeding cargo (for example a crashed run that still debits its depot) is visible at a glance.
+- Docked stretches are now selectable mission intervals: a dock (or a kerbal boarding) splits the vessel's timeline in the Missions window, the docked interval shows the combined vessel's real controller and crew counts (no more undercounting the station you docked to), and unchecking the pre-dock interval starts the mission's render at the dock. Existing saves keep their exact selections; old exclusions automatically cover the new docked sub-intervals they always covered.
+- Supply routes now deliver at the displayed dispatch interval: the docked loading stretch no longer pads the realized cycle, so a route whose interval was shorter than the old launch-to-undock window delivers more often than before, and the route ghost retires at the dock instead of sitting docked until the undock.
+- Supply run candidates can now be dismissed: each candidate and near-miss row in the Logistics window gets a Dismiss button that hides trees you never intend to run as routes, and a collapsed "Dismissed (N)" list at the bottom of the Candidates section lets you restore any of them later.
+- A supply route held because another route reserved a shared depot's cargo for its own in-flight cycle now says so in the Logistics window, naming the reserving route, instead of wrongly claiming the depot is out of that resource.
+- A supply route that was dispatched and then rewound past no longer leaves the depot charged with the cargo undelivered: the abandoned-future route ledger entries are now dropped at the rewind so the re-flown route re-delivers exactly once and is charged exactly once.
+
 ### Fixes
 
-- A supply route that was dispatched and then rewound past no longer leaves the depot charged with the cargo undelivered: the abandoned-future route ledger entries are now dropped at the rewind so the re-flown route re-delivers exactly once and is charged exactly once.
+- The route detail panel's recent-cycles lines now surface stored-part inventory shortfalls: a cycle short only on inventory items gets the shortfall highlight and a "(source was short)" note, and a fully blocked inventory pickup reads "picked up 0 of N inventory item(s)" instead of "picked up nothing" with no explanation.
+
+### Internals & Tests
+
+- Loop-unit API hardening on the Missions-to-Logistics seam, with no behavior change: supply routes now cache their built loop unit (rebuilt only when an input actually changes, instead of re-running the full builder pipeline every orchestrator tick and countdown call), the fire-once dock-crossing detection is centralized in one shared emitter, and the loop cycle index carries an explicit flat-vs-scheduled type so consumers cannot misread one as the other. Route firing, replay keys, escrow, and ledger rows are unchanged.
 
 ### Internals & Tests
 
