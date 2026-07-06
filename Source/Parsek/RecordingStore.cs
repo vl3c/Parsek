@@ -2854,11 +2854,30 @@ namespace Parsek
             // had its world reverted by the quickload/revert. Rewind/RP-backed sessions
             // are skipped inside the reporter (the quicksave is their rollback).
             if (preserveIrreversibleLiveGameplay)
+            {
+                // Scope the reported window to the recordings actually purged (idsToPurge),
+                // NOT the whole pending tree — committed-overlap recordings are preserved,
+                // not discarded, so their span must not widen the window (mirrors the
+                // idsToPurge scoping of PreserveIrreversibleLiveGameplayOnDiscard above and
+                // the owned-id resolution in TryDiscardActiveSwitchSegmentAttempt).
+                var discardedRecs = new List<Recording>(idsToPurge.Count);
+                if (pendingTree.Recordings != null)
+                {
+                    foreach (string purgeId in idsToPurge)
+                    {
+                        Recording drec;
+                        if (!string.IsNullOrEmpty(purgeId)
+                            && pendingTree.Recordings.TryGetValue(purgeId, out drec)
+                            && drec != null)
+                            discardedRecs.Add(drec);
+                    }
+                }
                 Parsek.Logistics.RouteDiscardObservability.ReportDiscardLeakForRecordings(
-                    pendingTree.Recordings.Values,
+                    discardedRecs,
                     Ledger.Actions,
                     ParsekScenario.IsReFlySessionActiveForQuickloadDiscard(),
                     $"DiscardPendingTree '{pendingTree.TreeName}'");
+            }
 
             TreeDiscardPurge.PurgeTree(pendingTree, idsToPurge);
             if (idsToPurge.Count > 0)

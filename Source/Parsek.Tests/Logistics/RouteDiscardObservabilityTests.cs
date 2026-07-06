@@ -84,6 +84,30 @@ namespace Parsek.Tests.Logistics
                 new List<Recording> { new Recording(), null }, out _, out _));
         }
 
+        [Fact]
+        public void Window_SkipsStartOnlyInvertedRecording()
+        {
+            // Start-only recording: ExplicitStartUT set, ExplicitEndUT defaults to NaN, so
+            // StartUT=100 but EndUT falls back to 0.0 (< start). It must be skipped, not
+            // accepted as an inverted [100..0] window (which would silently select nothing).
+            var recs = new List<Recording>
+            {
+                new Recording { ExplicitStartUT = 100.0 },
+            };
+            Assert.False(RouteDiscardObservability.TryComputeDiscardedWindow(recs, out _, out _));
+
+            // A start-only recording alongside a real one must not drag the window: only the
+            // real recording contributes.
+            var mixed = new List<Recording>
+            {
+                new Recording { ExplicitStartUT = 100.0 },                       // inverted -> skipped
+                new Recording { ExplicitStartUT = 300.0, ExplicitEndUT = 400.0 }, // real
+            };
+            Assert.True(RouteDiscardObservability.TryComputeDiscardedWindow(mixed, out double min, out double max));
+            Assert.Equal(300.0, min);
+            Assert.Equal(400.0, max);
+        }
+
         // ---- SummarizePhysicalLeak (pure decision) ----
 
         [Fact]

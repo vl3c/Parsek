@@ -71,10 +71,16 @@ namespace Parsek.Logistics
                     double e = rec.EndUT;
 
                     // Skip the boundsless-placeholder signature (no trajectory and no
-                    // explicit bounds => both fall back to 0.0) and any non-finite end.
+                    // explicit bounds => both fall back to 0.0), any non-finite bound, and
+                    // an INVERTED span (e < s). Inversion happens for a start-only recording
+                    // (ExplicitStartUT set, ExplicitEndUT NaN => StartUT > 0 but EndUT falls
+                    // back to 0.0); accepting it would push maxUT below minUT and make the
+                    // whole window select nothing (silent under-report).
                     if (double.IsNaN(s) || double.IsNaN(e) || double.IsInfinity(s) || double.IsInfinity(e))
                         continue;
                     if (s == 0.0 && e == 0.0)
+                        continue;
+                    if (e < s)
                         continue;
 
                     if (s < minUT) minUT = s;
@@ -144,8 +150,10 @@ namespace Parsek.Logistics
 
             summary = leaked + " route physical mutation(s) fired inside the discarded window ["
                 + minUT.ToString("F1", IC) + ".." + maxUT.ToString("F1", IC)
-                + "] and persist un-reversed in the surviving timeline: " + sb
-                + " (no reverse writer; funds+cargo both kept, Rec-3 reverse-on-discard deferred)";
+                + "] and were not undone by this non-rewind discard: " + sb
+                + " (route rows carry no RecordingId, so this UT window may also include a"
+                + " concurrent committed route; no reverse writer, funds+cargo both kept,"
+                + " Rec-3 reverse-on-discard deferred)";
             return leaked;
         }
 
