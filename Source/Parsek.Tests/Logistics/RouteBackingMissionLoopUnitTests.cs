@@ -12,9 +12,10 @@ namespace Parsek.Tests.Logistics
     /// through the UNCHANGED <c>MissionLoopUnitBuilder.Build</c> (the locked
     /// Missions seam, appended as a one-element list exactly as the three host push
     /// seams do), yields exactly one <c>LoopUnit</c> whose member window is
-    /// <c>[launch .. undock]</c> (the post-undock survivor / payload trimmed) and
-    /// whose <c>OwnerByIndex</c> covers ONLY that window's committed indices,
-    /// disjoint from a parallel manual mission loop on a different tree.
+    /// <c>[launch .. dock]</c> (M-MIS-5: the docked combined stretch, the
+    /// post-undock survivor and the payload are all trimmed) and whose
+    /// <c>OwnerByIndex</c> covers ONLY that window's committed indices, disjoint
+    /// from a parallel manual mission loop on a different tree.
     /// </summary>
     /// <remarks>
     /// This is the load-bearing proof that the route render path needs NO change to
@@ -120,32 +121,24 @@ namespace Parsek.Tests.Logistics
         //                                    the dock-merged combined leg, deliver)
         //   tail       C0/3  [3000..3500]  (TERMINAL undock@3000 from depot B; home)
         //   payloadB   C2/0  [3000..3300]  (delivered payload dropped at depot B)
-        // Composition folds the transport into ONE through-line owned by "launch",
-        // SPLIT only at the two undocks: launch [1000..1500], launch/seg1
-        // [1500..3000] (the intermediate-undock survivor that flies A->B, docks at B,
-        // and stays docked to the terminal undock - INCLUDES the depot-B docked
-        // combined leg), launch/seg2 [3000..3500] (the post-terminal tail). The
-        // route span END is the TERMINAL undock = 3000 (production aligns the last
-        // stop's RouteConnectionWindow.DockUT with this structural boundary, exactly
-        // as the single-stop fixtures pass UndockUT as segmentEndUT). Everything
-        // at/after 3000 (the post-terminal tail + payloadB) is excluded; the
-        // intermediate-undock survivor (StartUT 1500 < 3000) stays rendered.
-        // NOTE (A4 review nit a): this fixture passes the TERMINAL UNDOCK UT (3000)
-        // as segmentEndUT, whereas PRODUCTION passes the last stop's DOCK UT
-        // (RouteBuilder -> ComputeExcludedIntervalKeys with
-        // lastAnalysisStop.ConnectionWindow.DockUT, i.e. dockedB's start = 2500).
-        // Hand-verified these yield the IDENTICAL excluded set here: Missions
-        // composition folds the transport into one through-line split only at
-        // undocks, so the only selectable boundaries are launch [1000..1500],
-        // launch/seg1 [1500..3000] (the dockedB combined leg's interval, which
-        // STARTS at 1500 < both 2500 and 3000 so it is KEPT under either
-        // segmentEndUT), and launch/seg2 [3000..3500] (excluded under both, since
-        // 3000 >= 3000 and 3000 >= 2500) plus the peels payloadA/payloadB. So this
-        // is a valid NO-SPAWN model (the post-last-dock tail + terminal peel are
-        // non-members either way) but NOT a faithful dock-TRIM model: a real route
-        // trims at the dock instant 2500, not the undock 3000 - the difference is
-        // invisible because no selectable interval starts inside (2500, 3000).
-        private const double MultiStopSegmentEndUT = 3000.0;
+        // Composition (M-MIS-5) folds the transport into ONE through-line owned by
+        // "launch", split at the two undocks AND subdivided at the depot-B dock:
+        // launch [1000..1500], launch/seg1 [1500..2500] (the intermediate-undock
+        // survivor flying A->B), launch/seg1@dock1 [2500..3000] (the depot-B docked
+        // combined stretch - its own selectable sub-interval since M-MIS-5),
+        // launch/seg2 [3000..3500] (the post-terminal tail). The route span END is
+        // the LAST DOCK = 2500: production passes the last stop's
+        // RouteConnectionWindow.DockUT (RouteBuilder -> ComputeExcludedIntervalKeys),
+        // and since M-MIS-5 the dock UT and the terminal undock UT are NO LONGER
+        // interchangeable here - the docked stretch launch/seg1@dock1 STARTS at 2500,
+        // so passing 2500 excludes it (production behavior: the ghost retires at the
+        // dock) while passing 3000 would keep it rendered. The pre-M-MIS-5 fixture
+        // passed the terminal undock 3000 under an equivalence ("no selectable
+        // interval starts inside (2500, 3000)") that the dock edge EXPIRED; the
+        // fixture now models production faithfully. Everything at/after 2500 (the
+        // docked stretch, the post-terminal tail + payloadB) is excluded; the
+        // intermediate-undock survivor (StartUT 1500 < 2500) stays rendered.
+        private const double MultiStopSegmentEndUT = 2500.0; // the depot-B (LAST) dock
         private const double MultiStopRootLaunchUT = 1000.0;
 
         private static RecordingTree BuildMultiStopTree(string treeId)
@@ -176,7 +169,7 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
-        public void RouteMission_ThroughUnchangedBuild_YieldsOneUnit_TrimmedToLaunchUndock()
+        public void RouteMission_ThroughUnchangedBuild_TrimmedToLaunchDock()
         {
             const string treeId = "route-tree";
             RecordingTree tree = BuildLaunchDockUndockTree(treeId);
@@ -187,14 +180,15 @@ namespace Parsek.Tests.Logistics
             int idxPayload = committed.FindIndex(r => r.RecordingId == "payload");
 
             // Build the route-owned Mission via the production helpers exactly as the
-            // host seams do: derive the excluded keys, then build the Mission.
+            // host seams do: derive the excluded keys at the DOCK UT (production
+            // passes ConnectionWindow.DockUT, M-MIS-5), then build the Mission.
             HashSet<string> excluded =
-                RouteBackingMission.ComputeExcludedIntervalKeys(tree, segmentEndUT: 3000.0, launchUT: 1000.0);
+                RouteBackingMission.ComputeExcludedIntervalKeys(tree, segmentEndUT: 2000.0, launchUT: 1000.0);
             Route route = new RouteFixtureBuilder()
                 .WithId("route-loopunit")
                 .WithName("Loop Unit Route")
                 .WithBackingMissionTreeId(treeId)
-                .WithSchedule(2000.0, 2000.0)   // span, dispatchInterval (== span)
+                .WithSchedule(1000.0, 1000.0)   // span [launch..dock], dispatchInterval (== span)
                 .WithLoopAnchorUT(1000.0)
                 .Build();
             foreach (string key in excluded)
@@ -211,21 +205,23 @@ namespace Parsek.Tests.Logistics
             // Exactly one unit (the route's backing Mission).
             Assert.Equal(1, set.Count);
 
-            // The unit's member window is [launch..undock]: the launch + docked
-            // legs are members; the post-undock survivor + payload are NOT.
+            // The unit's member window is [launch..dock] (the M-MIS-5 D4 flip): the
+            // launch leg is a member; the docked combined leg (starts AT the dock),
+            // the post-undock survivor and the payload are NOT.
             Assert.True(set.IsMember(idxLaunch), "launch leg must be a unit member");
-            Assert.True(set.IsMember(idxDocked), "docked leg must be a unit member");
+            Assert.False(set.IsMember(idxDocked),
+                "docked combined leg must be trimmed (rendering stops at the dock, M-MIS-5)");
             Assert.False(set.IsMember(idxSurvivor), "post-undock survivor must be trimmed");
             Assert.False(set.IsMember(idxPayload), "post-undock payload must be trimmed");
 
-            // The unit's span end-trims at the undock.
+            // The unit's span end-trims at the DOCK.
             int ownerIndex = -1;
             foreach (var kvp in set.UnitsByOwner)
             {
                 ownerIndex = kvp.Key;
                 GhostPlaybackLogic.LoopUnit unit = kvp.Value;
                 Assert.Equal(1000.0, unit.SpanStartUT); // ROOT launch, not dock-child 2000
-                Assert.Equal(3000.0, unit.SpanEndUT);   // end-trimmed at undock
+                Assert.Equal(2000.0, unit.SpanEndUT);   // end-trimmed at the dock
             }
             Assert.True(ownerIndex >= 0);
         }
@@ -251,11 +247,11 @@ namespace Parsek.Tests.Logistics
             committed.AddRange(manualTree.Recordings.Values);
 
             HashSet<string> excluded =
-                RouteBackingMission.ComputeExcludedIntervalKeys(routeTree, segmentEndUT: 3000.0, launchUT: 1000.0);
+                RouteBackingMission.ComputeExcludedIntervalKeys(routeTree, segmentEndUT: 2000.0, launchUT: 1000.0);
             Route route = new RouteFixtureBuilder()
                 .WithId("route-disjoint")
                 .WithBackingMissionTreeId(routeTreeId)
-                .WithSchedule(2000.0, 2000.0)
+                .WithSchedule(1000.0, 1000.0)
                 .WithLoopAnchorUT(1000.0)
                 .Build();
             foreach (string key in excluded)
@@ -295,9 +291,9 @@ namespace Parsek.Tests.Logistics
 
         // Route captured at creation time over the dock tree: SourceRefs cover
         // the rendered members + the dock-child leaf, the dock binding carries
-        // the recorded dock UT (3000, the segment end, arming the UT end-trim
-        // prong), and the excluded keys are the production creation-time
-        // derivation.
+        // the recorded DOCK UT (2000 = the segment end since M-MIS-5, arming the
+        // UT end-trim prong), and the excluded keys are the production
+        // creation-time derivation ({launch@dock1, launch/seg1, payload}).
         private static Route FrozenRoute(RecordingTree creationTree, string id)
         {
             Route route = new RouteFixtureBuilder()
@@ -306,12 +302,12 @@ namespace Parsek.Tests.Logistics
                 .WithBackingMissionTreeId(creationTree.Id)
                 .WithSourceRef(new RouteSourceRef { RecordingId = "launch", TreeId = creationTree.Id })
                 .WithSourceRef(new RouteSourceRef { RecordingId = "docked", TreeId = creationTree.Id })
-                .WithSchedule(2000.0, 2000.0)
+                .WithSchedule(1000.0, 2000.0)
                 .WithLoopAnchorUT(1000.0)
-                .WithDockBinding(3000.0, "docked")
+                .WithDockBinding(2000.0, "docked")
                 .Build();
             foreach (string key in RouteBackingMission.ComputeExcludedIntervalKeys(
-                         creationTree, segmentEndUT: 3000.0, launchUT: 1000.0))
+                         creationTree, segmentEndUT: 2000.0, launchUT: 1000.0))
                 route.ExcludedIntervalKeys.Add(key);
             return route;
         }
@@ -349,7 +345,7 @@ namespace Parsek.Tests.Logistics
             foreach (var kvp in set.UnitsByOwner)
             {
                 Assert.Equal(1000.0, kvp.Value.SpanStartUT);
-                Assert.Equal(3000.0, kvp.Value.SpanEndUT);      // delivery cadence span unchanged
+                Assert.Equal(2000.0, kvp.Value.SpanEndUT);      // delivery span still ends at the dock
                 Assert.Equal(2000.0, kvp.Value.CadenceSeconds); // dispatch cadence unchanged
             }
         }
@@ -390,7 +386,7 @@ namespace Parsek.Tests.Logistics
             foreach (var kvp in set.UnitsByOwner)
             {
                 Assert.Equal(1000.0, kvp.Value.SpanStartUT);
-                Assert.Equal(3000.0, kvp.Value.SpanEndUT);
+                Assert.Equal(2000.0, kvp.Value.SpanEndUT);
                 Assert.Equal(2000.0, kvp.Value.CadenceSeconds);
             }
         }
@@ -449,7 +445,7 @@ namespace Parsek.Tests.Logistics
             foreach (var kvp in set.UnitsByOwner)
             {
                 Assert.Equal(1000.0, kvp.Value.SpanStartUT);
-                Assert.Equal(3000.0, kvp.Value.SpanEndUT);      // span end stays the dock
+                Assert.Equal(2000.0, kvp.Value.SpanEndUT);      // span end stays the dock
                 Assert.Equal(2000.0, kvp.Value.CadenceSeconds); // cadence not inflated
             }
         }
@@ -501,7 +497,7 @@ namespace Parsek.Tests.Logistics
             foreach (var kvp in set.UnitsByOwner)
             {
                 Assert.Equal(1000.0, kvp.Value.SpanStartUT);
-                Assert.Equal(3000.0, kvp.Value.SpanEndUT);      // span end stays the dock
+                Assert.Equal(2000.0, kvp.Value.SpanEndUT);      // span end stays the dock
                 Assert.Equal(2000.0, kvp.Value.CadenceSeconds); // cadence not inflated
             }
         }
@@ -525,9 +521,8 @@ namespace Parsek.Tests.Logistics
             const string treeId = "tree-multistop-d7";
             RecordingTree tree = BuildMultiStopTree(treeId);
 
-            // The route span END is the LAST dock (depot B), which production aligns
-            // with the terminal structural boundary = 3000. RouteBuilder passes this
-            // (the max stop DockUT, A2 RecordedDockUT=last-dock) to
+            // The route span END is the LAST dock (depot B) = 2500. RouteBuilder
+            // passes this (the max stop DockUT, A2 RecordedDockUT=last-dock) to
             // ComputeExcludedIntervalKeys.
             HashSet<string> excluded = RouteBackingMission.ComputeExcludedIntervalKeys(
                 tree, segmentEndUT: MultiStopSegmentEndUT, launchUT: MultiStopRootLaunchUT);
@@ -538,27 +533,29 @@ namespace Parsek.Tests.Logistics
 
             // The transport through-line (root-owned "launch") renders
             // [launch .. lastDock]: it starts at the ROOT launch (1000, NOT a
-            // mid-flight dock child) and end-trims at the last dock (3000), so the
-            // intermediate-undock survivor leg (the transport flying A->B and docked
-            // at B, StartUT 1500 < 3000) is INSIDE the rendered window - the run did
+            // mid-flight dock child) and end-trims at the last dock (2500), so the
+            // intermediate-undock survivor leg (the transport flying A->B,
+            // StartUT 1500 < 2500) is INSIDE the rendered window - the run did
             // not stop at depot A.
             Assert.True(windows.ContainsKey("launch"),
                 "transport (root-owned) through-line must still render");
             MissionIntervalSelection.RenderWindow w = windows["launch"];
             Assert.Equal(MultiStopRootLaunchUT, w.StartUT);   // 1000, the ROOT launch
-            Assert.Equal(MultiStopSegmentEndUT, w.EndUT);     // 3000, end-trimmed at the last dock
+            Assert.Equal(MultiStopSegmentEndUT, w.EndUT);     // 2500, end-trimmed at the last dock
 
             // The post-last-dock tail vessel and its peel are fully dropped.
             Assert.False(windows.ContainsKey("payloadB"),
                 "the terminal-undock peel must be excluded (post-last-dock)");
 
-            // The excluded set drops the post-last-dock tail interval + the peel.
+            // The excluded set drops the docked combined stretch, the post-terminal
+            // tail interval + the peel.
             Assert.NotEmpty(excluded);
-            Assert.Contains("payloadB", excluded);     // terminal-undock peel
-            Assert.Contains("launch/seg2", excluded);  // the post-terminal tail interval
+            Assert.Contains("launch/seg1@dock1", excluded); // the depot-B docked stretch (M-MIS-5)
+            Assert.Contains("payloadB", excluded);          // terminal-undock peel
+            Assert.Contains("launch/seg2", excluded);       // the post-terminal tail interval
             // The intermediate survivor's interval is NOT excluded: the transport
             // renders launch -> undock A -> dock B as ONE through-line whose middle
-            // interval ("launch/seg1") is kept (StartUT 1500 < 3000).
+            // interval ("launch/seg1") is kept (StartUT 1500 < 2500).
             Assert.DoesNotContain("launch/seg1", excluded);
             Assert.DoesNotContain("launch", excluded);
         }
@@ -619,14 +616,12 @@ namespace Parsek.Tests.Logistics
             //     GhostPlaybackEngine.cs:1141 by UpdateUnitMemberPlayback, never
             //     reaching ShouldSpawnAtRecordingEnd): the transport through-line up
             //     to the last dock, INCLUDING the intermediate-undock survivor leg
-            //     (the transport flew depot A -> depot B and docked at B - the
-            //     widened multi-stop window keeps it).
+            //     (the transport flew depot A -> depot B - the widened multi-stop
+            //     window keeps it).
             Assert.True(set.IsMember(idxLaunch),
                 "launch leg must be a loop-unit member (loops, never spawns)");
             Assert.True(set.IsMember(idxMidA2B),
                 "intermediate-undock survivor (transport continues depot A -> depot B) must STAY a member");
-            Assert.True(set.IsMember(idxDockedB),
-                "depot-B docked combined leg (folded into the kept through-line up to the last dock) must be a member");
 
             // (A4 review nit c) The intermediate depot-A peel (payloadA, the cargo
             // the transport dropped at depot A, [1500..1800]) is INTENTIONALLY a
@@ -638,19 +633,25 @@ namespace Parsek.Tests.Logistics
             Assert.True(set.IsMember(idxPayloadA),
                 "intermediate depot-A peel (payloadA [1500..1800]) is intentionally a KEPT member - it dropped before the last dock");
 
-            // (b) post-last-dock recordings are NON-members (excluded entirely ->
-            //     never become a unit member, never spawn).
+            // (b) recordings AT/after the last dock are NON-members (excluded
+            //     entirely -> never become a unit member, never spawn). Since
+            //     M-MIS-5 this includes the depot-B docked combined leg itself:
+            //     its interval STARTS at the last dock (launch/seg1@dock1) and the
+            //     route's rendered window stops there (the ghost retires at the
+            //     dock instead of sitting docked to the undock).
+            Assert.False(set.IsMember(idxDockedB),
+                "the depot-B docked combined leg must be a NON-member (rendering stops at the last dock, M-MIS-5)");
             Assert.False(set.IsMember(idxTail),
                 "the post-last-dock tail continuation must be a NON-member");
             Assert.False(set.IsMember(idxPayloadB),
                 "the terminal-undock peel must be a NON-member");
 
-            // The unit span end-trims at the last dock (depot B = the terminal
-            // structural boundary 3000), not the post-last-dock tail (3500).
+            // The unit span end-trims at the last dock (depot B = 2500), not the
+            // terminal undock (3000) or the post-last-dock tail (3500).
             foreach (var kvp in set.UnitsByOwner)
             {
                 Assert.Equal(MultiStopRootLaunchUT, kvp.Value.SpanStartUT);  // 1000, ROOT launch
-                Assert.Equal(MultiStopSegmentEndUT, kvp.Value.SpanEndUT);    // 3000, the last dock
+                Assert.Equal(MultiStopSegmentEndUT, kvp.Value.SpanEndUT);    // 2500, the last dock
             }
         }
 
