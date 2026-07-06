@@ -108,6 +108,55 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, token, 0.0));
         }
 
+        // M6 escrow-hold legibility: an escrow-caused pickup-source short renders
+        // the reserving route by name instead of the lying "X is out of Y" text.
+        // catches: the "source-reserved:" token falling through to the plain
+        // "source:" branch (or the fallback), or the parse dropping the vessel /
+        // resource / route name. Round-trips the REAL emit-site token builder.
+        [Fact]
+        public void DescribeHold_PickupSourceReserved_NamesVesselResourceAndRoute()
+        {
+            string token = RoutePickupSourceGate.BuildReservedHoldToken(
+                40u, "Depot A", "Ore", "Fuel Run Alpha");
+            Assert.Equal(
+                "Depot A has Ore reserved by route 'Fuel Run Alpha' - delivers when the reservation clears",
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, token, 0.0));
+            // The legacy "origin-lacks-" wrapper strips first, same as every
+            // other OriginLacksCargo token.
+            Assert.Equal(
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, token, 0.0),
+                LogisticsHoldPresentation.DescribeHold(
+                    OriginLacksCargo, "origin-lacks-" + token, 0.0));
+        }
+
+        // catches: a malformed / truncated "source-reserved:" token throwing or
+        // rendering blank instead of the generic reserved-cargo clause, and the
+        // sanitized-empty slots rendering broken sentences.
+        [Fact]
+        public void DescribeHold_PickupSourceReserved_DegradedShapes()
+        {
+            // Too few parts (no resource / route slots): generic clause.
+            Assert.Equal(
+                "a pickup source has cargo reserved by another route - delivers when the reservation clears",
+                LogisticsHoldPresentation.DescribeHold(
+                    OriginLacksCargo, "source-reserved:12:OnlyName", 0.0));
+            // Empty vessel-name slot: generic source noun, named route kept.
+            Assert.Equal(
+                "a pickup source has Ore reserved by route 'Fuel Run' - delivers when the reservation clears",
+                LogisticsHoldPresentation.DescribeHold(
+                    OriginLacksCargo, "source-reserved:12::Ore:Fuel Run", 0.0));
+            // Empty route-name slot: generic route noun.
+            Assert.Equal(
+                "Depot A has Ore reserved by route 'another route' - delivers when the reservation clears",
+                LogisticsHoldPresentation.DescribeHold(
+                    OriginLacksCargo, "source-reserved:12:Depot A:Ore:", 0.0));
+            // Empty resource slot: reserved-cargo phrasing, both names kept.
+            Assert.Equal(
+                "Depot A has cargo reserved by route 'Fuel Run' - delivers when the reservation clears",
+                LogisticsHoldPresentation.DescribeHold(
+                    OriginLacksCargo, "source-reserved:12:Depot A::Fuel Run", 0.0));
+        }
+
         // catches: an unresolved pickup source losing its raw reason tail.
         [Fact]
         public void DescribeHold_PickupSourceUnresolved()
@@ -395,6 +444,8 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "origin-unresolved:pid-miss-no-surface-fallback", 0.0),
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, RoutePickupSourceGate.BuildHoldToken(40u, "Depot A", "Ore"), 0.0),
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, RoutePickupSourceGate.BuildHoldToken(50u, "Cargo Bay", "inventory:abc123"), 0.0),
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, RoutePickupSourceGate.BuildReservedHoldToken(40u, "Depot A", "Ore", "Fuel Run Alpha"), 0.0),
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "source-reserved:12:OnlyName", 0.0),
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "pickup-source-unresolved:pid-miss", 0.0),
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "", 0.0),
                 LogisticsHoldPresentation.DescribeHold(FundsShort, "funds-short", 1234.5),

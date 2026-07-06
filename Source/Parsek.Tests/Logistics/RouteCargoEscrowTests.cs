@@ -421,5 +421,82 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(300.0, GateAvailable("route-A", 100u, "LiquidFuel", 300.0));
             Assert.Equal(0, RouteStore.EscrowRouteCountForTesting);
         }
+
+        // ---- M6 escrow-hold legibility: the reserving-route lookup -----------
+
+        // catches: the lookup returning the gating route's OWN reservation as the
+        // "competitor" (a route never competes with itself - the same own-route
+        // exclusion as OtherRoutesReservedFor).
+        [Fact]
+        public void TryGetReservingRoute_ExcludesOwnRoute()
+        {
+            const uint depotX = 100u;
+            RouteStore.ReserveCargo("route-A", depotX, "LiquidFuel", 100.0);
+
+            // A itself sees no competitor (its own 100 is excluded).
+            Assert.False(RouteStore.TryGetReservingRoute(
+                depotX, "LiquidFuel", "route-A", out string idForA, out double amtForA));
+            Assert.Null(idForA);
+            Assert.Equal(0.0, amtForA, 6);
+
+            // B sees A as the competitor.
+            Assert.True(RouteStore.TryGetReservingRoute(
+                depotX, "LiquidFuel", "route-B", out string idForB, out double amtForB));
+            Assert.Equal("route-A", idForB);
+            Assert.Equal(100.0, amtForB, 6);
+        }
+
+        // catches: the lookup naming a smaller competitor when several routes hold
+        // reservations on the same pid+resource (the LARGEST reservation is the
+        // route that explains the shortfall best).
+        [Fact]
+        public void TryGetReservingRoute_LargestReservationWins()
+        {
+            const uint depotX = 100u;
+            RouteStore.ReserveCargo("route-A", depotX, "LiquidFuel", 50.0);
+            RouteStore.ReserveCargo("route-B", depotX, "LiquidFuel", 200.0);
+            RouteStore.ReserveCargo("route-C", depotX, "LiquidFuel", 120.0);
+
+            Assert.True(RouteStore.TryGetReservingRoute(
+                depotX, "LiquidFuel", "route-D", out string id, out double amt));
+            Assert.Equal("route-B", id);
+            Assert.Equal(200.0, amt, 6);
+        }
+
+        // catches: a non-deterministic winner on an exact amount tie (dictionary
+        // iteration order is unspecified; the ordinal-smaller route id must win).
+        [Fact]
+        public void TryGetReservingRoute_ExactTie_OrdinalSmallerIdWins()
+        {
+            const uint depotX = 100u;
+            RouteStore.ReserveCargo("route-Z", depotX, "LiquidFuel", 100.0);
+            RouteStore.ReserveCargo("route-A", depotX, "LiquidFuel", 100.0);
+
+            Assert.True(RouteStore.TryGetReservingRoute(
+                depotX, "LiquidFuel", "route-D", out string id, out double amt));
+            Assert.Equal("route-A", id);
+            Assert.Equal(100.0, amt, 6);
+        }
+
+        // catches: the lookup fabricating a competitor from a different pid, a
+        // different resource, an empty escrow, or a null/empty resource name -
+        // all must return false so the gate falls back to the physical token.
+        [Fact]
+        public void TryGetReservingRoute_NoMatch_ReturnsFalse()
+        {
+            const uint depotX = 100u;
+            Assert.False(RouteStore.TryGetReservingRoute(
+                depotX, "LiquidFuel", "route-B", out _, out _)); // empty escrow
+
+            RouteStore.ReserveCargo("route-A", depotX, "LiquidFuel", 100.0);
+            Assert.False(RouteStore.TryGetReservingRoute(
+                999u, "LiquidFuel", "route-B", out _, out _)); // other pid
+            Assert.False(RouteStore.TryGetReservingRoute(
+                depotX, "Oxidizer", "route-B", out _, out _)); // other resource
+            Assert.False(RouteStore.TryGetReservingRoute(
+                depotX, null, "route-B", out _, out _)); // null resource
+            Assert.False(RouteStore.TryGetReservingRoute(
+                depotX, "", "route-B", out _, out _)); // empty resource
+        }
     }
 }

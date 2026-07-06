@@ -179,6 +179,16 @@ namespace Parsek
             // flashes a hold line.
             public string HoldText;
             public string HoldShort;
+
+            // M6 per-cycle flow: one compact line per recent completed cycle
+            // ("Cycle 3 (2.1h ago): paid 500 funds at KSC; delivered 150.0
+            // LiquidFuel to Munar Station"), newest first, bounded to the last
+            // LogisticsFlowPresentation.MaxCyclesShown cycles. Built on the
+            // ~1 Hz pass from the SAME ELS walk as the H2/H3 delivery summary
+            // (LogisticsFlowPresentation.CollectRows). Null when the route has
+            // no cycle-scoped cargo rows yet, so the detail panel renders no
+            // header for a never-run route.
+            public List<LogisticsFlowPresentation.CycleFlowLine> FlowLines;
         }
 
         // Deferred mutations: collected during the draw loop and applied after the
@@ -1285,6 +1295,25 @@ namespace Parsek
                 DetailLine($"Last cycle: {leg.LastCycleText}",
                     leg.LastCycleShortfall ? statusStyleYellow : detailStyle);
                 DetailLine($"Total delivered: {leg.CumulativeText}");
+            }
+
+            // M6 per-cycle flow: what each recent completed cycle debited where,
+            // picked up where, and delivered where, newest first, bounded to the
+            // last LogisticsFlowPresentation.MaxCyclesShown cycles. Read straight
+            // from the ~1 Hz cache (built in the SAME ELS walk as the H2 summary);
+            // conditioned ONLY on the cached list so the IMGUI control count stays
+            // stable across Layout/Repaint. A route with no completed cycles has a
+            // null list and renders nothing (no empty header). Shortfall cycles
+            // tint yellow, matching the H2 realized-delivery line.
+            if (leg.FlowLines != null && leg.FlowLines.Count > 0)
+            {
+                DetailLine(LogisticsFlowPresentation.RecentCyclesHeader);
+                for (int i = 0; i < leg.FlowLines.Count; i++)
+                {
+                    LogisticsFlowPresentation.CycleFlowLine flowLine = leg.FlowLines[i];
+                    DetailLine("  " + flowLine.Text,
+                        flowLine.Shortfall ? statusStyleYellow : detailStyle);
+                }
             }
 
             DetailLine($"Interval: {FormatDuration(route.DispatchInterval)}   Transit: {FormatDuration(route.TransitDuration)}   Cycles: {route.CompletedCycles}");
@@ -2464,6 +2493,7 @@ namespace Parsek
             int withCountdown = 0;
             int withDeliveries = 0;
             int withHold = 0;
+            int withFlow = 0;
             for (int i = 0; i < routeCount; i++)
             {
                 Route route = routes[i];
@@ -2480,6 +2510,9 @@ namespace Parsek
                 // M6 hold reasons: batch counter, one summary line below.
                 if (leg.HoldText != null)
                     withHold++;
+                // M6 per-cycle flow: batch counter, same summary line.
+                if (leg.FlowLines != null)
+                    withFlow++;
             }
             if (pruneArmed)
                 sendOnceArmedRouteIds.RemoveWhere(id => !stillArmed.Contains(id));
@@ -2488,7 +2521,8 @@ namespace Parsek
                 $"Logistics legibility cache refreshed routes={routeCount.ToString(CultureInfo.InvariantCulture)} " +
                 $"withCountdown={withCountdown.ToString(CultureInfo.InvariantCulture)} " +
                 $"withDeliveries={withDeliveries.ToString(CultureInfo.InvariantCulture)} " +
-                $"withHold={withHold.ToString(CultureInfo.InvariantCulture)}");
+                $"withHold={withHold.ToString(CultureInfo.InvariantCulture)} " +
+                $"withFlow={withFlow.ToString(CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>
@@ -2515,9 +2549,12 @@ namespace Parsek
             leg.CountdownBranch = countdown.Branch;
             leg.CountdownSeconds = countdown.Seconds;
 
-            // H2 / H3: one ELS scan -> realized + cumulative + badge.
+            // H2 / H3: one ELS scan -> realized + cumulative + badge. M6 per-cycle
+            // flow: the SAME scan also collects the debit / pickup / delivery rows
+            // the flow display buckets by cycle below (no second ledger walk).
+            var flowRows = new List<LogisticsFlowPresentation.FlowRow>();
             LogisticsDeliveryPresentation.RouteDeliverySummary summary =
-                CollectRouteDeliverySummary(route.Id);
+                CollectRouteDeliverySummary(route.Id, flowRows);
             leg.HasDeliveries = summary.HasAny;
             leg.LastCycleText = summary.HasAny
                 ? LogisticsDeliveryPresentation.FormatRealizedDelivery(summary.LastRequested, summary.LastActual)
@@ -2525,6 +2562,12 @@ namespace Parsek
             leg.LastCycleShortfall = summary.HasAny
                 && LogisticsDeliveryPresentation.HasShortfall(summary.LastRequested, summary.LastActual);
             leg.CumulativeText = LogisticsDeliveryPresentation.FormatCumulativeTotal(summary.CumulativeTotal);
+
+            // M6 per-cycle flow: bucket the collected rows by cycle and render the
+            // bounded newest-first lines HERE on the ~1 Hz pass (endpoint name
+            // resolution touches FlightGlobals, never the IMGUI draw path). Null
+            // when the route has no cycle-scoped rows yet.
+            leg.FlowLines = BuildPerCycleFlowLines(route, flowRows, currentUT);
 
             bool ghostDriving = RouteStatusPolicy.GhostDriving(route.Status);
             LogisticsDeliveryPresentation.DeliveryOutcome lastOutcome = ClassifyLastOutcome(route.Status, summary);
@@ -2778,8 +2821,13 @@ namespace Parsek
         /// cycle id. This is the one non-pure piece of H2/H3 (it needs a live Scenario
         /// for ComputeELS), so it stays in the window file and feeds the pure
         /// summary/format helpers; called only on the ~1 Hz cache refresh.
+        /// M6 per-cycle flow: the SAME single walk also fills
+        /// <paramref name="flowRows"/> (debit / pickup / delivery rows bucketed
+        /// later by cycle) via <see cref="LogisticsFlowPresentation.CollectRows"/>,
+        /// so the flow display adds NO second ledger walk; pass null to skip.
         /// </summary>
-        private static LogisticsDeliveryPresentation.RouteDeliverySummary CollectRouteDeliverySummary(string routeId)
+        private static LogisticsDeliveryPresentation.RouteDeliverySummary CollectRouteDeliverySummary(
+            string routeId, List<LogisticsFlowPresentation.FlowRow> flowRows)
         {
             var rows = new List<LogisticsDeliveryPresentation.DeliveryRow>();
             if (string.IsNullOrEmpty(routeId))
@@ -2797,19 +2845,92 @@ namespace Parsek
                 return LogisticsDeliveryPresentation.SummarizeRouteDeliveries(rows);
             }
 
-            if (els != null)
+            LogisticsFlowPresentation.CollectRows(els, routeId, rows, flowRows);
+            return LogisticsDeliveryPresentation.SummarizeRouteDeliveries(rows);
+        }
+
+        /// <summary>
+        /// Builds the M6 per-cycle flow lines for the legibility cache from the
+        /// rows collected in the shared ELS walk. This is the non-pure half (it
+        /// resolves live vessel names), so it stays in the window file and runs
+        /// only on the ~1 Hz refresh: endpoint pids on debit / pickup rows
+        /// resolve through the O(1) <c>FlightGlobals.FindVessel</c> (the
+        /// RouteEndpointResolver.ResolveByPid idiom - a vanished vessel misses
+        /// the map and the pure formatter renders its "vessel pid=N" fallback,
+        /// never blank), and per-stop delivery destinations resolve to the live
+        /// vessel name by the stop endpoint's baked pid with the recorded
+        /// coords as the fallback (the H4 name-else-coords contract, without
+        /// the O(vessels) surface re-scan). The pure
+        /// <see cref="LogisticsFlowPresentation.FormatPerCycleFlow"/> does the
+        /// bucketing / bounding / wording. Returns null when there is nothing
+        /// to show so the detail panel draws no header.
+        /// </summary>
+        private static List<LogisticsFlowPresentation.CycleFlowLine> BuildPerCycleFlowLines(
+            Route route, List<LogisticsFlowPresentation.FlowRow> flowRows, double currentUT)
+        {
+            if (flowRows == null || flowRows.Count == 0)
+                return null;
+
+            // Live names for the endpoint pids that appear on the rows.
+            var endpointNames = new Dictionary<uint, string>();
+            for (int i = 0; i < flowRows.Count; i++)
             {
-                for (int i = 0; i < els.Count; i++)
+                uint pid = flowRows[i].EndpointPid;
+                if (pid == 0u || endpointNames.ContainsKey(pid)) continue;
+                string name = TryResolveLiveVesselName(pid);
+                if (!string.IsNullOrEmpty(name))
+                    endpointNames[pid] = name;
+            }
+
+            // Per-stop delivery destination names, indexed by stop index.
+            List<string> stopDestinations = null;
+            if (route?.Stops != null && route.Stops.Count > 0)
+            {
+                stopDestinations = new List<string>(route.Stops.Count);
+                for (int i = 0; i < route.Stops.Count; i++)
                 {
-                    GameAction a = els[i];
-                    if (a == null) continue;
-                    if (a.Type != GameActionType.RouteCargoDelivered) continue;
-                    if (!string.Equals(a.RouteId, routeId, System.StringComparison.Ordinal)) continue;
-                    rows.Add(new LogisticsDeliveryPresentation.DeliveryRow(
-                        a.RouteResourceManifest, a.RouteRequestedResourceManifest, a.UT));
+                    RouteStop stop = route.Stops[i];
+                    if (stop == null)
+                    {
+                        stopDestinations.Add(null);
+                        continue;
+                    }
+                    string name = TryResolveLiveVesselName(stop.Endpoint.VesselPersistentId);
+                    stopDestinations.Add(!string.IsNullOrEmpty(name)
+                        ? name
+                        : LogisticsDeliveryPresentation.FormatEndpointCoords(stop.Endpoint));
                 }
             }
-            return LogisticsDeliveryPresentation.SummarizeRouteDeliveries(rows);
+
+            List<LogisticsFlowPresentation.CycleFlowLine> lines =
+                LogisticsFlowPresentation.FormatPerCycleFlow(
+                    flowRows, endpointNames, FormatOrigin(route), stopDestinations,
+                    currentUT, LogisticsFlowPresentation.MaxCyclesShown);
+            return lines.Count > 0 ? lines : null;
+        }
+
+        /// <summary>
+        /// Live vessel name by persistent id, or null when the pid is 0 / the
+        /// vessel is gone / FlightGlobals is unavailable. O(1) per pid
+        /// (FlightGlobals.PersistentVesselIds lookup); defensively wrapped like
+        /// <c>RouteEndpointResolver.ResolveByPid</c> so a stock-side teardown
+        /// null-deref degrades to the pid fallback instead of a crash.
+        /// </summary>
+        private static string TryResolveLiveVesselName(uint pid)
+        {
+            if (pid == 0u) return null;
+            try
+            {
+                if (FlightGlobals.fetch != null
+                    && FlightGlobals.FindVessel(pid, out Vessel found)
+                    && found != null)
+                    return found.vesselName;
+            }
+            catch
+            {
+                // Best-effort name only; the formatter's pid fallback covers a miss.
+            }
+            return null;
         }
 
         /// <summary>
