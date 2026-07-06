@@ -171,6 +171,19 @@ namespace Parsek
                 return "a pickup source vessel could not be found - it may have moved, been recovered, or been destroyed ("
                     + token + ")";
             }
+            // M6 escrow-hold legibility: an ESCROW-caused pickup-source short -
+            // the source physically holds the cargo but a competing route's
+            // escrow reservation explains the shortfall. Token shape:
+            // "source-reserved:<pid>:<name>:<resource>:<reservingRouteName>"
+            // (both names sanitized of ':' at the emit site). Renders the
+            // reserving route so the hold does not read as an empty depot.
+            // Checked before the plain "source:" family for clarity (the
+            // prefixes cannot collide - the char after "source" differs).
+            if (token != null
+                && token.StartsWith("source-reserved:", System.StringComparison.Ordinal))
+            {
+                return DescribeReservedPickupSource(token);
+            }
             if (token != null
                 && token.StartsWith("source:", System.StringComparison.Ordinal))
             {
@@ -224,6 +237,33 @@ namespace Parsek
             if (string.IsNullOrEmpty(shortToken))
                 return name + " is missing required cargo - delivers when it has the full amount";
             return name + " is out of " + shortToken + " - delivers when it has the full amount";
+        }
+
+        // M6 escrow-hold legibility: parse
+        // "source-reserved:<pid>:<name>:<resource>:<reservingRouteName>" and name
+        // both the reserved source vessel and the competing route holding the
+        // reservation. Both names were sanitized of ':' at the emit site
+        // (RoutePickupSourceGate.BuildReservedHoldToken) and the resource slot is
+        // always a bare resource name (inventory shorts never take the escrow
+        // path), so a 4-way split delimits pid / name / resource / route cleanly.
+        // Degrades to a generic reserved-cargo clause on an unexpected shape
+        // (never throws, never blank).
+        private static string DescribeReservedPickupSource(string token)
+        {
+            string body = token.Substring("source-reserved:".Length);
+            string[] parts = body.Split(new[] { ':' }, 4);
+            if (parts.Length < 4)
+                return "a pickup source has cargo reserved by another route - delivers when the reservation clears";
+            string name = string.IsNullOrEmpty(parts[1]) ? "a pickup source" : parts[1];
+            string resource = parts[2];
+            string routeName = string.IsNullOrEmpty(parts[3]) ? "another route" : parts[3];
+            if (string.IsNullOrEmpty(resource))
+            {
+                return name + " has cargo reserved by route '" + routeName
+                    + "' - delivers when the reservation clears";
+            }
+            return name + " has " + resource + " reserved by route '" + routeName
+                + "' - delivers when the reservation clears";
         }
 
         // Total fallback row: readable, never blank, never throws - new tokens

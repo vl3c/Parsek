@@ -8,8 +8,10 @@ All notable changes to Parsek are documented here.
 
 ### Features
 
+- A supply route's detail panel now lists its recent cycles' cargo flow (newest first, last 5): what each cycle charged or took from where, picked up where, and delivered where, with shortfall cycles highlighted, so a route that is bleeding cargo (for example a crashed run that still debits its depot) is visible at a glance.
 - Docked stretches are now selectable mission intervals: a dock (or a kerbal boarding) splits the vessel's timeline in the Missions window, the docked interval shows the combined vessel's real controller and crew counts (no more undercounting the station you docked to), and unchecking the pre-dock interval starts the mission's render at the dock. Existing saves keep their exact selections; old exclusions automatically cover the new docked sub-intervals they always covered.
 - Supply routes now deliver at the displayed dispatch interval: the docked loading stretch no longer pads the realized cycle, so a route whose interval was shorter than the old launch-to-undock window delivers more often than before, and the route ghost retires at the dock instead of sitting docked until the undock.
+- A supply route held because another route reserved a shared depot's cargo for its own in-flight cycle now says so in the Logistics window, naming the reserving route, instead of wrongly claiming the depot is out of that resource.
 
 ### Internals & Tests
 
