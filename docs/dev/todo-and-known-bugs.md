@@ -348,7 +348,7 @@ The visibility gate is paired with a model-layer guarantee so that "no loop togg
 
 ---
 
-## In progress - Forward trajectory rendering (flight-map + tracking-station)
+## ~~In progress~~ Done (shipped 0.10.1) - Forward trajectory rendering (flight-map + tracking-station)
 
 **Goal:** render the FUTURE portion of a ghost's trajectory ahead of the icon, as one continuous chained line, stopping before the first full-loop closed orbit and at the first SOI change. Plan: `docs/dev/plans/forward-trajectory-render.md` (Option 1 - draw at the live production surfaces with a pure forward-window helper; not the Director-extension Option 2). Branch `claude/flight-map-trajectory-render-io6be0`.
 
