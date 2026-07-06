@@ -15,6 +15,10 @@ All notable changes to Parsek are documented here.
 - Supply run candidates can now be dismissed: each candidate and near-miss row in the Logistics window gets a Dismiss button that hides trees you never intend to run as routes, and a collapsed "Dismissed (N)" list at the bottom of the Candidates section lets you restore any of them later.
 - A supply route held because another route reserved a shared depot's cargo for its own in-flight cycle now says so in the Logistics window, naming the reserving route, instead of wrongly claiming the depot is out of that resource.
 
+### Fixes
+
+- The route detail panel's recent-cycles lines now surface stored-part inventory shortfalls: a cycle short only on inventory items gets the shortfall highlight and a "(source was short)" note, and a fully blocked inventory pickup reads "picked up 0 of N inventory item(s)" instead of "picked up nothing" with no explanation.
+
 ### Internals & Tests
 
 - Loop-unit API hardening on the Missions-to-Logistics seam, with no behavior change: supply routes now cache their built loop unit (rebuilt only when an input actually changes, instead of re-running the full builder pipeline every orchestrator tick and countdown call), the fire-once dock-crossing detection is centralized in one shared emitter, and the loop cycle index carries an explicit flat-vs-scheduled type so consumers cannot misread one as the other. Route firing, replay keys, escrow, and ledger rows are unchanged.
