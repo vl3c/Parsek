@@ -352,5 +352,55 @@ namespace Parsek.Tests.Logistics
                 lastObservedLoopCycleIndex: 0, out long dockIdx));
             Assert.Equal(4, dockIdx); // cycle 4 dock passed; cycle 5 dock still ahead
         }
+
+        // ==================================================================
+        // M-MIS-5 (R2): the dock phase lands exactly ON the span end
+        // ==================================================================
+
+        // catches (M-MIS-5 D4/R2): with the route window end flipped from the last
+        // undock to the last DOCK, recordedDockUT == SpanEndUT exactly - the dock
+        // phase sits on the span boundary. Driving the REAL span clock
+        // (TryGetRouteLoopState) across two full cycles at cadence == span, the
+        // crossing must fire EXACTLY once per cycle (never zero at the boundary,
+        // never twice from the boundary frame + the next in-play frame). Per the
+        // documented equality convention (ComputeDockCycleIndex uses loopUT >=
+        // dock; IsDockUTInSpan is end-inclusive) the crossing for cycle k fires at
+        // the first sample at/after cycle k+1's start via dockCycleIndex =
+        // cycleIndex - 1.
+        [Fact]
+        public void DockPhaseAtSpanEnd_CrossingFiresOncePerCycle()
+        {
+            // span [1000, 1300], cadence == span (300), anchor 1000; dock AT the
+            // span end (the M-MIS-5 route geometry).
+            var unit = BuildUnit();
+            const double dockUT = 1300.0; // == SpanEndUT
+            Assert.True(RouteLoopClock.IsDockUTInSpan(unit, dockUT)); // end-inclusive
+
+            long lastObserved = -1;
+            int fires = 0;
+            var firedCycles = new System.Collections.Generic.List<long>();
+
+            // Sample UTs walking cycles 0..2: mid cycle 0, just before the boundary,
+            // the exact boundary, early cycle 1, mid cycle 1, the next boundary,
+            // early cycle 2.
+            double[] samples = { 1150.0, 1299.5, 1300.0, 1310.0, 1450.0, 1600.0, 1610.0 };
+            foreach (double ut in samples)
+            {
+                Assert.True(RouteLoopClock.TryGetRouteLoopState(
+                    unit, ut, out double loopUT, out long cycleIndex, out _));
+                if (RouteLoopClock.IsDockCrossing(
+                        unit, loopUT, cycleIndex, dockUT, lastObserved, out long dockCycleIndex))
+                {
+                    fires++;
+                    firedCycles.Add(dockCycleIndex);
+                    lastObserved = dockCycleIndex; // the caller's snap-forward
+                }
+            }
+
+            // Exactly one fire per completed cycle: cycle 0's dock (reached at the
+            // 1300 boundary) and cycle 1's dock (reached at the 1600 boundary).
+            Assert.Equal(2, fires);
+            Assert.Equal(new long[] { 0, 1 }, firedCycles.ToArray());
+        }
     }
 }

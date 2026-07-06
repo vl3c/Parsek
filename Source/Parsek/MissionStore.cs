@@ -114,6 +114,20 @@ namespace Parsek
         /// dropped, so this fails loudly with a warn. Builds each tree's structure / view /
         /// composition at most once and reuses them across Missions that share the tree. Returns the
         /// total number of ids removed across all Missions.
+        /// <para>
+        /// M-MIS-5 (D3): this is also the one-time selection-schema upgrade seam. A generation-0
+        /// mission (loaded from a pre-M-MIS-5 save) authored its excluded interval keys when a
+        /// structural key covered the WHOLE structural interval, docked stretch included; the dock
+        /// edges mint "@dockM" sub-intervals inside that span, which would silently re-render. So
+        /// for generation-0 missions every excluded key is EXTENDED across its @dock sub-siblings
+        /// (against the SAME composition-derived valid-key set the stale-dropper uses, BEFORE
+        /// stale-dropping - semantics-preserving and idempotent, a superset union), then EVERY
+        /// mission whose tree resolves is stamped to the current generation UNCONDITIONALLY,
+        /// including empty-exclusion missions (so a later deliberate pre-dock-only exclusion is
+        /// never wrongly extended). Missions whose tree is not committed yet (a parked Limbo /
+        /// quickload-resume tree restored later in OnLoad) keep their generation so a later
+        /// reconcile with the tree present still performs the extension.
+        /// </para>
         /// </summary>
         internal static int ReconcileSelections(IEnumerable<RecordingTree> trees)
         {
@@ -128,46 +142,97 @@ namespace Parsek
             var intervalKeyCache = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
             int removedHeads = 0;
             int removedIntervals = 0;
+            int stamped = 0;
+            int extendedMissions = 0;
+            int extendedKeys = 0;
+            int stampDeferredNoTree = 0;
             for (int i = 0; i < missions.Count; i++)
             {
                 Mission m = missions[i];
                 if (m == null || string.IsNullOrEmpty(m.TreeId))
                     continue;
+                bool isLegacyGeneration =
+                    m.SelectionSchemaGeneration < Mission.CurrentSelectionSchemaGeneration;
+                if (!byId.TryGetValue(m.TreeId, out RecordingTree tree))
+                {
+                    // Tree not committed yet (parked Limbo / restored later this OnLoad): defer
+                    // the stamp so the @dock extension still runs once the tree is present.
+                    if (isLegacyGeneration)
+                        stampDeferredNoTree++;
+                    continue;
+                }
                 bool hasHeadExcl = m.ExcludedThroughLineHeadIds.Count > 0;
                 bool hasIntervalExcl = m.ExcludedIntervalKeys.Count > 0;
-                if (!hasHeadExcl && !hasIntervalExcl)
-                    continue;
-                if (!byId.TryGetValue(m.TreeId, out RecordingTree tree))
-                    continue;
 
-                if (!structureCache.TryGetValue(m.TreeId, out MissionStructure structure))
+                if (hasHeadExcl || hasIntervalExcl)
                 {
-                    structure = MissionStructureBuilder.Build(tree);
-                    structureCache[m.TreeId] = structure;
+                    if (!structureCache.TryGetValue(m.TreeId, out MissionStructure structure))
+                    {
+                        structure = MissionStructureBuilder.Build(tree);
+                        structureCache[m.TreeId] = structure;
+                    }
+
+                    if (hasHeadExcl)
+                    {
+                        if (!viewCache.TryGetValue(m.TreeId, out MissionThroughLineView view))
+                        {
+                            view = MissionThroughLineBuilder.Build(structure);
+                            viewCache[m.TreeId] = view;
+                        }
+                        removedHeads += RemoveStale(m.ExcludedThroughLineHeadIds,
+                            id => view.ByHeadId.ContainsKey(id));
+                    }
+
+                    if (hasIntervalExcl)
+                    {
+                        if (!intervalKeyCache.TryGetValue(m.TreeId, out HashSet<string> validKeys))
+                        {
+                            validKeys = new HashSet<string>(StringComparer.Ordinal);
+                            CollectSelectableHeadLegIds(MissionCompositionBuilder.Build(structure), validKeys);
+                            intervalKeyCache[m.TreeId] = validKeys;
+                        }
+                        // D3 generation-0 extension: BEFORE stale-dropping, against the SAME
+                        // valid-key set, so a still-valid key gains its @dock sub-siblings before
+                        // anything is removed.
+                        if (isLegacyGeneration)
+                        {
+                            int added = ExtendLegacyExclusionsAcrossDockSubIntervals(
+                                m.ExcludedIntervalKeys, validKeys);
+                            if (added > 0)
+                            {
+                                extendedMissions++;
+                                extendedKeys += added;
+                                if (!SuppressLogging)
+                                    ParsekLog.Info("Mission",
+                                        $"ReconcileSelections: mission '{m.Name}' (tree={m.TreeId}) " +
+                                        $"generation-0 selection extended across {added} @dock " +
+                                        "sub-interval key(s) (a pre-M-MIS-5 exclusion covered the " +
+                                        "whole structural interval, docked stretch included)");
+                            }
+                        }
+                        removedIntervals += RemoveStale(m.ExcludedIntervalKeys, validKeys.Contains);
+                    }
                 }
 
-                if (hasHeadExcl)
+                // D3 (verdict C3b): stamp UNCONDITIONALLY for every tree-resolvable mission,
+                // including empty-exclusion ones (no extension work for those, stamp only) - a
+                // generation-0 mission left unstamped would have a later deliberate pre-dock-only
+                // exclusion wrongly extended on the next load.
+                if (isLegacyGeneration)
                 {
-                    if (!viewCache.TryGetValue(m.TreeId, out MissionThroughLineView view))
-                    {
-                        view = MissionThroughLineBuilder.Build(structure);
-                        viewCache[m.TreeId] = view;
-                    }
-                    removedHeads += RemoveStale(m.ExcludedThroughLineHeadIds,
-                        id => view.ByHeadId.ContainsKey(id));
-                }
-
-                if (hasIntervalExcl)
-                {
-                    if (!intervalKeyCache.TryGetValue(m.TreeId, out HashSet<string> validKeys))
-                    {
-                        validKeys = new HashSet<string>(StringComparer.Ordinal);
-                        CollectSelectableHeadLegIds(MissionCompositionBuilder.Build(structure), validKeys);
-                        intervalKeyCache[m.TreeId] = validKeys;
-                    }
-                    removedIntervals += RemoveStale(m.ExcludedIntervalKeys, validKeys.Contains);
+                    m.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;
+                    stamped++;
                 }
             }
+
+            // Logged whenever any generation-0 mission was touched OR deferred: a deferred-only
+            // pass (every legacy mission's tree still uncommitted) must still be visible.
+            if ((stamped > 0 || stampDeferredNoTree > 0) && !SuppressLogging)
+                ParsekLog.Info("Mission",
+                    $"ReconcileSelections: stamped {stamped} mission(s) to selection schema " +
+                    $"generation {Mission.CurrentSelectionSchemaGeneration} ({extendedMissions} " +
+                    $"extended with {extendedKeys} @dock key(s); {stampDeferredNoTree} deferred, " +
+                    "tree not committed yet)");
 
             int removed = removedHeads + removedIntervals;
             if (removed > 0 && !SuppressLogging)
@@ -176,6 +241,26 @@ namespace Parsek
                     $"{removedIntervals} stale interval key(s) (no longer current after a topology " +
                     "change; cleared to avoid silently dropping / mis-targeting segments)");
             return removed;
+        }
+
+        // M-MIS-5 (D3): adds every valid "<parentKey>@dockM" sub-interval key whose parent key is
+        // already excluded. Pre-M-MIS-5 the parent key covered the whole structural interval, so
+        // extending across the new sub-siblings exactly preserves the old selection's meaning.
+        // Superset union: idempotent across a crash-and-reload re-run. Returns the count added.
+        private static int ExtendLegacyExclusionsAcrossDockSubIntervals(
+            HashSet<string> excluded, HashSet<string> validKeys)
+        {
+            int added = 0;
+            foreach (string validKey in validKeys)
+            {
+                int marker = validKey.IndexOf("@dock", StringComparison.Ordinal);
+                if (marker <= 0)
+                    continue;
+                string parentKey = validKey.Substring(0, marker);
+                if (excluded.Contains(parentKey) && excluded.Add(validKey))
+                    added++;
+            }
+            return added;
         }
 
         // Removes from <paramref name="excluded"/> every id for which <paramref name="isStillValid"/>

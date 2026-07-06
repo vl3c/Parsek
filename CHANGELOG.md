@@ -6,9 +6,15 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.3
 
-### Fixes
+### Features
 
+- Docked stretches are now selectable mission intervals: a dock (or a kerbal boarding) splits the vessel's timeline in the Missions window, the docked interval shows the combined vessel's real controller and crew counts (no more undercounting the station you docked to), and unchecking the pre-dock interval starts the mission's render at the dock. Existing saves keep their exact selections; old exclusions automatically cover the new docked sub-intervals they always covered.
+- Supply routes now deliver at the displayed dispatch interval: the docked loading stretch no longer pads the realized cycle, so a route whose interval was shorter than the old launch-to-undock window delivers more often than before, and the route ghost retires at the dock instead of sitting docked until the undock.
 - A supply route that was dispatched and then rewound past no longer leaves the depot charged with the cargo undelivered: the abandoned-future route ledger entries are now dropped at the rewind so the re-flown route re-delivers exactly once and is charged exactly once.
+
+### Internals & Tests
+
+- Loop-unit API hardening on the Missions-to-Logistics seam, with no behavior change: supply routes now cache their built loop unit (rebuilt only when an input actually changes, instead of re-running the full builder pipeline every orchestrator tick and countdown call), the fire-once dock-crossing detection is centralized in one shared emitter, and the loop cycle index carries an explicit flat-vs-scheduled type so consumers cannot misread one as the other. Route firing, replay keys, escrow, and ledger rows are unchanged.
 
 ## 0.10.2
 

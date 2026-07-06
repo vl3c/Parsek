@@ -343,6 +343,46 @@ namespace Parsek.Logistics
         public string AutoExcludeTopologySignature;
 
         /// <summary>
+        /// Runtime-only cache (M-MIS-11 item 1; NOT serialized, <see cref="RouteCodec"/>
+        /// untouched) of the route's built backing-mission loop unit, written by
+        /// <c>RouteOrchestrator.ResolveLoopUnit</c>. Null means either "cache not
+        /// primed yet" (<see cref="LoopUnitBuilderSignature"/> null) or "the
+        /// builder yielded no unit for the current inputs" (signature non-null) -
+        /// both re-resolve exactly like the pre-cache code would. Invalidated by
+        /// the two signatures below; defaults to null after every load, so the
+        /// first post-load resolve is always a fresh build.
+        /// </summary>
+        public GhostPlaybackLogic.LoopUnit? CachedLoopUnit;
+
+        /// <summary>
+        /// Runtime-only cache key (M-MIS-11 item 1; NOT serialized): the
+        /// <c>MissionLoopUnitBuilder.BuildSignature</c> of the synthesized
+        /// one-element backing-mission list at the last
+        /// <see cref="CachedLoopUnit"/> build. Covers every builder input the
+        /// render seams' own signature caching covers: the mission fields
+        /// (dispatch interval, loop anchor, excluded interval keys INCLUDING the
+        /// M-MIS-9 auto-excluded set), the backing tree's branch/recording
+        /// counts, the committed-list identity (count + rolling id hash), the
+        /// auto-loop-interval setting, the transited-body geometry + station
+        /// anchor digests, and the rotation-mode setting. Null until the first
+        /// build.
+        /// </summary>
+        public string LoopUnitBuilderSignature;
+
+        /// <summary>
+        /// Runtime-only cache key (M-MIS-11 item 1; NOT serialized): the backing
+        /// tree's topology signature (the M-MIS-9
+        /// <c>RouteBackingMission.ComputeTopologySignature</c> pattern - counts
+        /// PLUS rolling ordinal hashes of recording ids and branch-point ids) at
+        /// the last <see cref="CachedLoopUnit"/> build. Paired with
+        /// <see cref="LoopUnitBuilderSignature"/> because the builder signature
+        /// folds only the tree's COUNTS: a count-neutral tree mutation (paired
+        /// discard + re-fly observed in one batch) moves this hash and forces the
+        /// rebuild the counts alone would miss. Null until the first build.
+        /// </summary>
+        public string LoopUnitTopologySignature;
+
+        /// <summary>
         /// Recorded dock UT lifted from the leaf (dock-child) recording's
         /// <c>RouteConnectionWindow.DockUT</c>. The loop clock fires delivery
         /// when it crosses this UT within the backing-mission span each cycle
