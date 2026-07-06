@@ -257,6 +257,20 @@ physical route effects for discarded segments, or (matching the design's own "mu
 stance) gate physical route mutation off for any revert path that lacks a quicksave. This is the one
 case that genuinely violates §2.4 #11 today.
 
+> **Addendum (2026-07-06, implementation-time re-verification).** A per-discard-path code read
+> revised the severity DOWN: on **every** non-rewind discard path (`DiscardPendingTree`,
+> `TryDiscardActiveSwitchSegmentAttempt`, `AutoDiscardActiveTreeCore`, and `MergeDialog.ReFlyDiscard`)
+> the free-standing route funds rows **survive** the recording-scoped purge alongside the physical
+> effect, so both sides persist together — the discard leaves the career economy **consistent** (no
+> free/lost resources), and the leak is a discard-**intent** violation, not the economic desync this
+> "Medium-High" rating implied. That "both persist" outcome actually matches the 0.10.2
+> preserve-live-earned-gameplay doctrine (a route delivery is an ambient live career event, like a
+> completed contract). The gate-at-writer-call-sites option is **unimplementable** (any in-flight
+> segment can still commit, so write time cannot know the disposition); the settled fix is
+> reverse-on-discard at the discard cores with an all-or-nothing-per-cycle lockstep-funds retire.
+> An observability slice (a `[Rec-3 residual]` Warn) shipped first; the reverse writers are deferred.
+> See `docs/dev/plans/fix-logistics-rewind-determinism.md` Phase 4.
+
 ### Rec-4 — Reconcile the design doc + add a tracked todo
 Update `parsek-logistics-supply-routes-design.md` §2.4 #11 / §10.6 / §13.4 to describe the *shipped*
 contract (physical effects ride the full-world quicksave restore, funds ride the recalc, `RouteModule`

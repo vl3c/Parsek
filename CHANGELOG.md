@@ -10,6 +10,10 @@ All notable changes to Parsek are documented here.
 
 - A supply route that was dispatched and then rewound past no longer leaves the depot charged with the cargo undelivered: the abandoned-future route ledger entries are now dropped at the rewind so the re-flown route re-delivers exactly once and is charged exactly once.
 
+### Internals & Tests
+
+- Logistics / time-rewind determinism (Rec-3 observability slice): a supply route that physically delivered or debited cargo inside a flight you then discard WITHOUT a rewind persists in the surviving timeline. The career economy stays consistent (its funds row and its cargo both stay), but the discard does not undo it, so it is now logged as a `[Rec-3 residual]` warning naming the route, cycle, and amounts. Behavior is unchanged — nothing is reversed, retired, or gated; the full reverse-on-discard fix is scoped and deferred (see `docs/dev/plans/fix-logistics-rewind-determinism.md` Phase 4).
+
 ## 0.10.2
 
 ### Fixes
