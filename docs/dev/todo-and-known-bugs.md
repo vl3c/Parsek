@@ -13,6 +13,43 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Backlog - prioritized "what to develop next" (compiled 2026-07-06, v0.10.3)
+
+Session-compiled prioritized development backlog (survey of git log / open PRs / roadmap / design docs / this file). Ordering doctrine: correctness-first, land-shipped-work-before-new, gameplay-value-per-effort. Two premises corrected during the survey: (1) `roadmap.md` §19.4 lags - logistics **M1-M4 are all SHIPPED** in 0.10.3 (only M5 inter-body + M6 legibility remain); (2) there is **no CI** on the repo (`get_status` = 0 checks), so "ready" PRs are review-gated only (suite run locally).
+
+### Tier 1 - NOW: clear the merge queue + protect the career
+- **#1242** (logistics Rec-1 rewind-redelivery, DRAFT) - the ONLY open correctness bug (HIGH: rewind past a route dispatch charges funds but never re-delivers cargo). Code-complete, headless-green; gated on one career+FLIGHT playtest. Land BEFORE #1238.
+- **#1237** (M-MIS-11 loop-unit API, ready) - keystone zero-behavior refactor; merging it auto-retargets #1238/#1239 to main. Merge first.
+- **#1239** (M-MIS-5 P1 dock-as-interval-boundary, ready) - merge right after #1237.
+- **#1238** (Logistics M5 inter-body, DRAFT merge-held) - last logistics "Reach" milestone; after #1237+#1242, run the re-aim + N=1 Kerbin->Duna window playtests, then merge.
+- **M6 legibility batch** #1234/#1233/#1235 (real UI wins) + #1232/#1236 (verify/memo) - all ready, base main; merge #1232/#1236 anytime, then #1234, then #1233/#1235 (share `RouteStore.cs`, rebase each).
+- **Close #1220/#1221** as superseded by #1242 (their docs ship inside it) once #1242 merges.
+
+### Tier 2 - NEXT: highest value-per-effort new work
+- **Rec-3 reverse-on-discard** - observability slice SHIPPED (PR #1243, branch `claude/development-priorities-ftr2ye`, stacked on #1242); the full reverse fix is DEFERRED and has an OPEN attribution blocker (ambient route rows carry no RecordingId, so a UT-window reverse would wrongly undo concurrent committed routes). Likely answer: RATIFY "both persist" as correct (matches the 0.10.2 preserve-live-earned-gameplay doctrine) rather than build reverse writers. Maintainer decision. See `docs/dev/plans/fix-logistics-rewind-determinism.md` Phase 4.
+- **Map-view route lines** (M6 gameplay, M) - the one unbuilt M6 gameplay item; draw route paths on the map/TS via the MapRender Director surface. Reuse `GhostTrajectoryPolylineRenderer`.
+- **M-MIS-5 P2** (L) - lift the undock->undock shuttle mid-recording start-trim limitation (`MidRecordingStartTrimUnsupported=9`); unlocks multi-stop shuttle logistics routes rejected today. Prereq: #1239.
+
+### Tier 3 - LATER: verification + hygiene
+- **Validation debt (the real bottleneck)** - ~13 code-complete-but-in-game-unconfirmed fixes, clustering onto ~4-5 playtest sessions: (1) career-economy (Rec-1 #1242, career-freeze milestone-storm, contract-discard-desync, OnMainMenuTransition); (2) looped re-aim descent-render (reaim-descent cluster, arc truncation, M-MIS-2 P4, cross-SOI encounter observation); (3) eccentric-target Eeloo/Moho constant pinning (M-MIS-3); (4) cross-parent station resupply (M4c); (5) in-game test-runner camera-survival batch. KSP cannot run headless, so this is playtest-bound.
+- **M-MIS-10 archetype verification sweep** - constellation deploy / booster flyback / off-Kerbin launch / claw couples / Elcano; cheap verify-and-file, no known break.
+- **Remove `MapRenderWarpControl`** temporary debug aid once re-aim descent-render is signed off.
+- **Doc hygiene** - flip the stale "In progress - Forward trajectory rendering" header (shipped 0.10.2) + add SHIPPED markers to roadmap §19.4 M3/M4.
+- **Deferred re-aim solver follow-ups** - M-MIS-2 S4 re-stitch (product-decision-gated), `SolveArrivalWindow` wiring, leg-less-chain forward-run gap. Low-severity polish.
+
+### Tier 4 - LONG-HORIZON: the strategic arc
+- **Gloops extraction -> Gloops.dll** (XL) - gateway to multiplayer. Docs UNDERSTATE the effort (engine coupling re-accreted; a parallel Gloops recorder #435 to consolidate first) AND the real user-facing prerequisite is the `.gloop` file format + export/import, NOT the assembly split (`.prec` is already a `.gloop` superset), so export/import can be built on existing serialization and the split treated as a parallel code-health track. Don't start until logistics/missions are done - every in-flight feature still edits the engine files.
+- **Phase 14 co-op async multiplayer** -> **Phase 15 space race** -> **Phase 16 mod compat**.
+- **Parked mission shapes** M-MIS-6 (multi-moon, needs a design note) / M-MIS-7 (intra-SOI re-aim, gated on M-MIS-6) / M-MIS-8 (cross-tree foreign dock, low value). Hold pending a concrete player ask.
+
+### Open maintainer decisions (surfaced this session)
+- **Rec-3**: ratify both-persist (option C) vs build reverse writers (blocked on attribution). See Tier 2 / plan Phase 4.
+- **Rec-2** (inter-body route hard-block): left creatable; open product decision (report risk #12/#13).
+
+Healthy / no action needed (verified this session): the ledger/economy audit (all 5 recs shipped), the observability plan (landed), the render rewrite (cutover complete, no visible artifacts left). The pure-refactor backlog is low-ROI - ride it along with features.
+
+---
+
 ## Fixed (test-only; in-game confirmation pending 2026-07-05) - In-game `Reaim_KerbinToDuna_ParkingDeparture_TransferStartsAtParkEnd` failed at SPACECENTER (branch `fix-reaim-parking-departure-test`)
 
 **Symptom:** the one SPACECENTER (KSC) in-game test that kept failing (`parsek-test-results.txt` 2026-07-05: SPACECENTER Failed=1). CASE A asserted `requireResolve:true` ("this parking-departure window must resolve a re-aimed transfer") and the park-end-anchored Lambert declined "no solution" across all tof candidates, even though the DIRECT transfer at the same departure UT resolved.
