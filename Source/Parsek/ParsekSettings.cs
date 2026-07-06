@@ -73,6 +73,10 @@ namespace Parsek
             toolTip = "When on, stock UI actions already committed by pending recordings are blocked to preserve timeline consistency")]
         public bool blockCommittedActions = true;
 
+        [GameParameters.CustomParameterUI("Show supply route paths on map",
+            toolTip = "When on, each committed same-body supply route draws its recorded launch-to-dock path as a line on the flight map and Tracking Station, so you can see where a route runs")]
+        public bool showRouteLines = true;
+
         // The map-view non-orbital ghost trajectory polyline is always on (no
         // setting). It renders unconditionally in the DDOL Driver; there is no
         // useGhostTrajectoryPolyline field, CustomParameterUI, or persistence.

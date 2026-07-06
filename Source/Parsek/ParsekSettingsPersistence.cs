@@ -42,6 +42,7 @@ namespace Parsek
         private const string ReadableSidecarMirrorsKey = "writeReadableSidecarMirrors";
         private const string ShowCommittedFutureOverlaysKey = "showCommittedFutureOverlays";
         private const string BlockCommittedActionsKey = "blockCommittedActions";
+        private const string ShowRouteLinesKey = "showRouteLines";
         private const string GhostRenderTracingKey = "ghostRenderTracing";
         private const string MapRenderTracingKey = "mapRenderTracing";
         private const string LedgerTracingKey = "ledgerTracing";
@@ -55,6 +56,7 @@ namespace Parsek
         private static bool? storedReadableSidecarMirrors;
         private static bool? storedShowCommittedFutureOverlays;
         private static bool? storedBlockCommittedActions;
+        private static bool? storedShowRouteLines;
         private static bool? storedGhostRenderTracing;
         private static bool? storedMapRenderTracing;
         private static bool? storedLedgerTracing;
@@ -119,6 +121,7 @@ namespace Parsek
                 TryLoadBool(root, path, ReadableSidecarMirrorsKey, ref storedReadableSidecarMirrors);
                 TryLoadBool(root, path, ShowCommittedFutureOverlaysKey, ref storedShowCommittedFutureOverlays);
                 TryLoadBool(root, path, BlockCommittedActionsKey, ref storedBlockCommittedActions);
+                TryLoadBool(root, path, ShowRouteLinesKey, ref storedShowRouteLines);
                 TryLoadBool(root, path, GhostRenderTracingKey, ref storedGhostRenderTracing);
                 TryLoadBool(root, path, MapRenderTracingKey, ref storedMapRenderTracing);
                 TryLoadBool(root, path, LedgerTracingKey, ref storedLedgerTracing);
@@ -133,6 +136,7 @@ namespace Parsek
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<default>") +
                     $" showCommittedFutureOverlays={(storedShowCommittedFutureOverlays.HasValue ? storedShowCommittedFutureOverlays.Value.ToString() : "<default>")}" +
                     $" blockCommittedActions={(storedBlockCommittedActions.HasValue ? storedBlockCommittedActions.Value.ToString() : "<default>")}" +
+                    $" showRouteLines={(storedShowRouteLines.HasValue ? storedShowRouteLines.Value.ToString() : "<default>")}" +
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<default>")}" +
                     $" mapRenderTracing={(storedMapRenderTracing.HasValue ? storedMapRenderTracing.Value.ToString() : "<default>")}" +
                     $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<default>")}");
@@ -235,6 +239,15 @@ namespace Parsek
                     $"Restored blockCommittedActions {prev} -> {storedBlockCommittedActions.Value} from persistent store");
             }
 
+            if (storedShowRouteLines.HasValue
+                && storedShowRouteLines.Value != settings.showRouteLines)
+            {
+                bool prev = settings.showRouteLines;
+                settings.showRouteLines = storedShowRouteLines.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored showRouteLines {prev} -> {storedShowRouteLines.Value} from persistent store");
+            }
+
             if (storedGhostRenderTracing.HasValue
                 && storedGhostRenderTracing.Value != settings.ghostRenderTracing)
             {
@@ -285,6 +298,13 @@ namespace Parsek
         {
             LoadIfNeeded();
             storedBlockCommittedActions = value;
+            Save();
+        }
+
+        internal static void RecordShowRouteLines(bool value)
+        {
+            LoadIfNeeded();
+            storedShowRouteLines = value;
             Save();
         }
 
@@ -339,6 +359,8 @@ namespace Parsek
                     root.AddValue(ShowCommittedFutureOverlaysKey, storedShowCommittedFutureOverlays.Value.ToString());
                 if (storedBlockCommittedActions.HasValue)
                     root.AddValue(BlockCommittedActionsKey, storedBlockCommittedActions.Value.ToString());
+                if (storedShowRouteLines.HasValue)
+                    root.AddValue(ShowRouteLinesKey, storedShowRouteLines.Value.ToString());
                 if (storedGhostRenderTracing.HasValue)
                     root.AddValue(GhostRenderTracingKey, storedGhostRenderTracing.Value.ToString());
                 if (storedMapRenderTracing.HasValue)
@@ -359,6 +381,7 @@ namespace Parsek
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<null>") +
                     $" showCommittedFutureOverlays={(storedShowCommittedFutureOverlays.HasValue ? storedShowCommittedFutureOverlays.Value.ToString() : "<null>")}" +
                     $" blockCommittedActions={(storedBlockCommittedActions.HasValue ? storedBlockCommittedActions.Value.ToString() : "<null>")}" +
+                    $" showRouteLines={(storedShowRouteLines.HasValue ? storedShowRouteLines.Value.ToString() : "<null>")}" +
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<null>")}" +
                     $" mapRenderTracing={(storedMapRenderTracing.HasValue ? storedMapRenderTracing.Value.ToString() : "<null>")}" +
                     $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<null>")}");
@@ -377,6 +400,7 @@ namespace Parsek
             storedReadableSidecarMirrors = null;
             storedShowCommittedFutureOverlays = null;
             storedBlockCommittedActions = null;
+            storedShowRouteLines = null;
             storedGhostRenderTracing = null;
             storedMapRenderTracing = null;
             storedLedgerTracing = null;
@@ -395,6 +419,8 @@ namespace Parsek
         internal static bool? GetStoredShowCommittedFutureOverlays() => storedShowCommittedFutureOverlays;
 
         internal static bool? GetStoredBlockCommittedActions() => storedBlockCommittedActions;
+
+        internal static bool? GetStoredShowRouteLines() => storedShowRouteLines;
 
         internal static bool? GetStoredGhostRenderTracing() => storedGhostRenderTracing;
 
@@ -436,6 +462,12 @@ namespace Parsek
         internal static void SetStoredBlockCommittedActionsForTesting(bool? value)
         {
             storedBlockCommittedActions = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredShowRouteLinesForTesting(bool? value)
+        {
+            storedShowRouteLines = value;
             loaded = true;
         }
 
