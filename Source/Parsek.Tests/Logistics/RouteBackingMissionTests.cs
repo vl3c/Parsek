@@ -93,7 +93,13 @@ namespace Parsek.Tests.Logistics
         //   survivor C0/2 [3000..4000]  (Undock BP@3000; the transport continues)
         //   payload C1/0  [3000..3500]  (a separate vessel left behind at undock)
         // ROOT launch UT = 1000 (NOT the mid-flight dock child's 2000).
+        // Since M-MIS-5 the dock at 2000 is itself an interval boundary (the docked
+        // stretch keys as "launch@dock1"), and production passes the DOCK UT as
+        // segmentEndUT (RouteBuilder passes ConnectionWindow.DockUT), so the
+        // fixtures below trim at DockUT = 2000 - passing the undock 3000 would keep
+        // the docked stretch rendered and no longer model production.
         private const double RootLaunchUT = 1000.0;
+        private const double DockUT = 2000.0;
         private const double UndockUT = 3000.0;
 
         private static RecordingTree BuildLaunchDockUndockTree()
@@ -119,19 +125,23 @@ namespace Parsek.Tests.Logistics
         // ComputeExcludedIntervalKeys
         // -----------------------------------------------------------------
 
-        // catches: window START keyed off the mid-flight dock child instead of the
-        // tree ROOT, and post-undock segments not trimmed.
+        // catches (M-MIS-5 D4, supersedes the pre-M-MIS-5 undock-end pin): with the dock
+        // edge emitted, production's segmentEndUT = the DOCK UT excludes the docked
+        // combined stretch ("launch@dock1", which STARTS at the dock), so the rendered
+        // window ends AT THE DOCK - what the RouteBuilder comments claimed all along.
+        // Also catches: window START keyed off the mid-flight dock child instead of the
+        // tree ROOT.
         [Fact]
-        public void Compute_MultiLegTree_KeepsLaunchToUndock_ExcludesPostUndock()
+        public void Compute_DockEdge_WindowEndsAtDock()
         {
             RecordingTree tree = BuildLaunchDockUndockTree();
 
             HashSet<string> excluded =
-                RouteBackingMission.ComputeExcludedIntervalKeys(tree, UndockUT, RootLaunchUT);
+                RouteBackingMission.ComputeExcludedIntervalKeys(tree, DockUT, RootLaunchUT);
 
             // Build the composition windows under this exclusion and assert the
-            // transport renders [root.StartUT .. undockUT], not the dock-child start
-            // and not past the undock.
+            // transport renders [root.StartUT .. dockUT]: not the dock-child start,
+            // not the docked stretch, not past the undock.
             var structure = MissionStructureBuilder.Build(tree);
             var roots = MissionCompositionBuilder.Build(structure);
             var windows = MissionIntervalSelection.ComputeRenderWindows(roots, excluded);
@@ -141,29 +151,32 @@ namespace Parsek.Tests.Logistics
                 "transport (root-owned) vessel must still render");
             MissionIntervalSelection.RenderWindow w = windows["launch"];
             Assert.Equal(RootLaunchUT, w.StartUT); // == 1000, the ROOT launch, NOT 2000
-            Assert.Equal(UndockUT, w.EndUT);       // end-trimmed at the undock
+            Assert.Equal(DockUT, w.EndUT);         // end-trimmed at the DOCK (M-MIS-5 flip)
 
             // The post-undock payload vessel is fully dropped.
             Assert.False(windows.ContainsKey("payload"),
                 "post-undock payload must be excluded");
 
-            // Excluded keys are non-empty; the kept launch interval-0 key
-            // (the bare root leg id) is NOT excluded.
-            Assert.NotEmpty(excluded);
-            Assert.DoesNotContain("launch", excluded); // interval 0 stays in
-            Assert.Contains("payload", excluded);      // post-undock offshoot dropped
+            // Excluded keys: the docked combined sub-interval, the post-undock
+            // survivor interval, and the peel; the kept launch interval-0 key stays.
+            Assert.DoesNotContain("launch", excluded);      // interval 0 stays in
+            Assert.Contains("launch@dock1", excluded);      // the docked combined stretch
+            Assert.Contains("launch/seg1", excluded);       // post-undock survivor interval
+            Assert.Contains("payload", excluded);           // post-undock offshoot dropped
+            Assert.Equal(3, excluded.Count);
 
-            // Summary log fired with the tree id and undock UT.
+            // Summary log fired with the tree id.
             Assert.Contains(logLines, l =>
                 l.Contains("[Route]") &&
                 l.Contains("ComputeExcludedIntervalKeys") &&
                 l.Contains("tree=tree-dock"));
         }
 
-        // catches: an interval STARTING exactly at the undock boundary being kept
-        // (it is post-undock) or an interval ENDING at the undock being dropped.
+        // catches: an interval STARTING exactly at the dock boundary being kept
+        // (it is the docked combined stretch) or an interval ENDING at the dock
+        // being dropped.
         [Fact]
-        public void Compute_ExactBoundary_StartAtUndockExcluded_EndAtUndockKept()
+        public void Compute_ExactBoundary_StartAtDockExcluded_EndAtDockKept()
         {
             RecordingTree tree = BuildLaunchDockUndockTree();
 
@@ -171,14 +184,14 @@ namespace Parsek.Tests.Logistics
             var roots = MissionCompositionBuilder.Build(structure);
 
             HashSet<string> excluded =
-                RouteBackingMission.ComputeExcludedIntervalKeys(tree, UndockUT, RootLaunchUT);
+                RouteBackingMission.ComputeExcludedIntervalKeys(tree, DockUT, RootLaunchUT);
             var windows = MissionIntervalSelection.ComputeRenderWindows(roots, excluded);
 
-            // The first interval ENDS at the undock (3000) and is KEPT.
-            // The post-undock interval STARTS at the undock (3000) and is EXCLUDED.
-            // Net: the kept window's EndUT is exactly the undock instant.
+            // The first interval ENDS at the dock (2000) and is KEPT.
+            // The docked sub-interval STARTS at the dock (2000) and is EXCLUDED.
+            // Net: the kept window's EndUT is exactly the dock instant.
             Assert.True(windows.ContainsKey("launch"));
-            Assert.Equal(UndockUT, windows["launch"].EndUT);
+            Assert.Equal(DockUT, windows["launch"].EndUT);
         }
 
         // catches: a single-interval tree (no post-undock structure) producing a
@@ -237,24 +250,23 @@ namespace Parsek.Tests.Logistics
         // ComputeMemberRecordingIds (must-fix #3)
         // -----------------------------------------------------------------
 
-        // catches: the member set not covering the kept [root..undock] path, or
-        // the post-undock survivor / payload leaking into the member set. NOTE: the
-        // transport's launch+docked legs are ONE composition through-line owned by
-        // the root "launch" leg (the dock-continuation folds into the launch
-        // through-line; its structural intervals key as "launch" / "launch/segN",
-        // both stripping to "launch"), so the transport surfaces as the single
-        // member "launch". The dock-child leaf id is added separately by
+        // catches: the member set not covering the kept [root..dock] path, or the
+        // docked stretch / post-undock survivor / payload leaking into the member
+        // set. NOTE: the transport's legs are ONE composition through-line owned by
+        // the root "launch" leg (its intervals key as "launch" / "launch@dockM" /
+        // "launch/segN", all stripping to "launch"), so the transport surfaces as
+        // the single member "launch". The dock-child leaf id is added separately by
         // RouteBuilder (the delivery-binding carrier), not by this helper.
         [Fact]
-        public void ComputeMembers_MultiLegTree_CoversTransportThroughLine_ExcludesPostUndock()
+        public void ComputeMembers_MultiLegTree_CoversTransportThroughLine_ExcludesPostDock()
         {
             RecordingTree tree = BuildLaunchDockUndockTree();
 
             HashSet<string> members =
-                RouteBackingMission.ComputeMemberRecordingIds(tree, UndockUT, RootLaunchUT);
+                RouteBackingMission.ComputeMemberRecordingIds(tree, DockUT, RootLaunchUT);
 
-            // The transport through-line (launch + docked) renders up to the undock
-            // and surfaces as the root-owned "launch" member.
+            // The transport through-line renders up to the dock and surfaces as the
+            // root-owned "launch" member.
             Assert.Contains("launch", members);
             // The post-undock survivor and the peeled payload are NOT members.
             Assert.DoesNotContain("survivor", members);
@@ -322,13 +334,14 @@ namespace Parsek.Tests.Logistics
                         new[] { "docked" }, new[] { "survivor", "payload" }, ut: 3000)
                 });
 
+            // Production passes the route's DOCK UT (2500, M-MIS-5) as segmentEndUT.
             HashSet<string> members =
-                RouteBackingMission.ComputeMemberRecordingIds(tree, segmentEndUT: 3000.0, launchUT: 1000.0);
+                RouteBackingMission.ComputeMemberRecordingIds(tree, segmentEndUT: 2500.0, launchUT: 1000.0);
 
-            // The transport's full pre-route-undock through-line is kept; the early
+            // The transport's full pre-dock through-line is kept; the early
             // undock at 1500 does NOT trim the continuing transport.
             Assert.Contains("launch", members);
-            // The post-route-undock survivor / payload are excluded.
+            // The docked stretch and post-route-undock survivor / payload are excluded.
             Assert.DoesNotContain("survivor", members);
             Assert.DoesNotContain("payload", members);
         }
@@ -340,9 +353,10 @@ namespace Parsek.Tests.Logistics
         // A route captured at creation time over BuildLaunchDockUndockTree:
         // SourceRefs cover the rendered members (the "launch" through-line head
         // plus the dock-child leaf "docked"), the dock binding carries the
-        // recorded dock UT (3000, == the fixture undock = segment end), and the
-        // creation-time trim is the production ComputeExcludedIntervalKeys
-        // output ({launch/seg1, payload}).
+        // recorded DOCK UT (2000 - production's RecordedDockUT is genuinely the
+        // dock, M-MIS-5), and the creation-time trim is the production
+        // ComputeExcludedIntervalKeys output
+        // ({launch@dock1, launch/seg1, payload}).
         private static Route FrozenRouteOverDockTree(
             RecordingTree creationTree, string id, bool bindDock = true)
         {
@@ -355,10 +369,10 @@ namespace Parsek.Tests.Logistics
                 .WithSchedule(2000.0, 2000.0)
                 .WithLoopAnchorUT(1000.0);
             if (bindDock)
-                builder.WithDockBinding(UndockUT, "docked");
+                builder.WithDockBinding(DockUT, "docked");
             Route route = builder.Build();
             foreach (string key in RouteBackingMission.ComputeExcludedIntervalKeys(
-                         creationTree, UndockUT, RootLaunchUT))
+                         creationTree, DockUT, RootLaunchUT))
                 route.ExcludedIntervalKeys.Add(key);
             return route;
         }
@@ -387,9 +401,9 @@ namespace Parsek.Tests.Logistics
 
             // The tree GROWS after creation: a probe peels off the KNOWN member
             // through-line "launch" mid-ascent. Intervals renumber to
-            // launch [1000..1500], launch/seg1 [1500..3000], launch/seg2
-            // [3000..4000] - all base "launch" (known) - and the probe surfaces
-            // as a NEW recording's key.
+            // launch [1000..1500], launch/seg1 [1500..2000], launch/seg1@dock1
+            // [2000..3000], launch/seg2 [3000..4000] - all base "launch" (known) -
+            // and the probe surfaces as a NEW recording's key.
             RecordingTree grown = BuildLaunchDockUndockTree();
             grown.Recordings["newprobe"] = Leg("newprobe", "C2", 0, 1500, 1800, vessel: "Probe");
             grown.BranchPoints.Add(BP("probe-bp", BranchPointType.Undock,
@@ -400,10 +414,12 @@ namespace Parsek.Tests.Logistics
 
             // Prong 1 (base-id rule): the NEW recording's key is auto-excluded.
             Assert.Contains("newprobe", auto);
-            // Prong 2 (UT end-trim): the renumbered base-KNOWN post-dock tail
-            // ("launch/seg2", starts at the dock 3000) is auto-excluded too.
+            // Prong 2 (UT end-trim): the renumbered base-KNOWN docked stretch
+            // ("launch/seg1@dock1", starts at the dock 2000) and post-undock tail
+            // ("launch/seg2") are auto-excluded too.
+            Assert.Contains("launch/seg1@dock1", auto);
             Assert.Contains("launch/seg2", auto);
-            Assert.Equal(2, auto.Count);
+            Assert.Equal(3, auto.Count);
             // Pre-dock intervals of the known member stay included.
             Assert.DoesNotContain("launch", auto);
             Assert.DoesNotContain("launch/seg1", auto);
@@ -414,8 +430,8 @@ namespace Parsek.Tests.Logistics
                 l.Contains("[Route]") &&
                 l.Contains("ComputeAutoExcludedNewIntervalKeys") &&
                 l.Contains("autoExcluded=1") &&
-                l.Contains("utTrimAdded=1") &&
-                l.Contains("total=2"));
+                l.Contains("utTrimAdded=2") &&
+                l.Contains("total=3"));
         }
 
         // catches: the base-id rule in isolation (UT trim gated off: the route
@@ -439,7 +455,8 @@ namespace Parsek.Tests.Logistics
             Assert.Contains("newprobe", auto);
             Assert.Single(auto);
             Assert.DoesNotContain(auto, k =>
-                k == "launch" || k.StartsWith("launch/seg", StringComparison.Ordinal));
+                k == "launch" || k.StartsWith("launch/seg", StringComparison.Ordinal)
+                || k.StartsWith("launch@dock", StringComparison.Ordinal));
 
             // The skipped UT trim is logged (RecordedDockUT unset).
             Assert.Contains(logLines, l =>
@@ -457,9 +474,10 @@ namespace Parsek.Tests.Logistics
             Route route = new RouteFixtureBuilder()
                 .WithId("route-norefs01")
                 .WithBackingMissionTreeId("tree-dock")
+                .WithExcludedIntervalKey("launch@dock1")
                 .WithExcludedIntervalKey("launch/seg1")
                 .WithExcludedIntervalKey("payload")
-                .WithDockBinding(UndockUT, "docked")
+                .WithDockBinding(DockUT, "docked")
                 .Build();   // NO SourceRefs
 
             RecordingTree grown = BuildLaunchDockUndockTree();
@@ -538,7 +556,7 @@ namespace Parsek.Tests.Logistics
                 l.Contains("ComputeAutoExcludedNewIntervalKeys")));
             Assert.NotNull(route.AutoExcludedNewIntervalKeys);
             Assert.Empty(route.AutoExcludedNewIntervalKeys);
-            Assert.Equal(2, m1.ExcludedIntervalKeys.Count); // creation-time keys only
+            Assert.Equal(3, m1.ExcludedIntervalKeys.Count); // creation-time keys only
             Assert.DoesNotContain(logLines, l => l.Contains("after route creation"));
 
             // The tree GROWS (a post-creation fork at the undock): the counts
@@ -578,7 +596,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(3, logLines.FindAll(l =>
                 l.Contains("ComputeAutoExcludedNewIntervalKeys")).Count);
             Assert.Empty(route.AutoExcludedNewIntervalKeys);
-            Assert.Equal(2, m5.ExcludedIntervalKeys.Count); // creation-time keys only
+            Assert.Equal(3, m5.ExcludedIntervalKeys.Count); // creation-time keys only
             Assert.Equal(2, logLines.FindAll(l =>
                 l.Contains("after route creation")).Count);
         }
@@ -672,6 +690,26 @@ namespace Parsek.Tests.Logistics
             RouteBackingMission.BuildMission(route, clock);
             Assert.Equal(2, logLines.FindAll(l =>
                 l.Contains("BuildMission: id=route-flood01-backing")).Count);
+        }
+
+        // -----------------------------------------------------------------
+        // StripSegMarker (M-MIS-5 R3: the "@dock" strip is LOAD-BEARING)
+        // -----------------------------------------------------------------
+
+        // catches (R3): a bare-head "@dockM" key not stripping to its base recording id -
+        // M-MIS-9 prong 1 routes every persisted key through StripSegMarker, so without the
+        // "@dock" strip every bare-head @dock key would misclassify as an unknown base and be
+        // wrongly auto-excluded (the route no-flag self-heal breaks).
+        [Theory]
+        [InlineData("rec-a", "rec-a")]                       // bare recording id, untouched
+        [InlineData("rec-a/seg2", "rec-a")]                  // structural sub-segment
+        [InlineData("rec-a@dock1", "rec-a")]                 // dock sub-interval of the BARE head
+        [InlineData("rec-a/seg2@dock1", "rec-a")]            // dock sub-interval of a /segN interval
+        [InlineData("rec-a/seg10@dock3", "rec-a")]           // multi-digit ordinals
+        [InlineData("", "")]                                 // empty passthrough
+        public void StripSegMarker_StripsSegAndDockMarkers(string key, string expectedBase)
+        {
+            Assert.Equal(expectedBase, RouteBackingMission.StripSegMarker(key));
         }
     }
 }
