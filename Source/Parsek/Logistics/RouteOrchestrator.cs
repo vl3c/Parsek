@@ -2243,8 +2243,8 @@ namespace Parsek.Logistics
                 : !builderKeyHolds ? "builder-inputs-changed" : "tree-topology-changed";
 
             // Suppress the pure-derivation diagnostic logs the builder pipeline emits
-            // (BuildMissionStructure / ExtractConstraints / Solve / ReaimDiag /
-            // MissionLoopUnit / PhaseLock). This resolver runs on EVERY delivery-clock
+            // (BuildMissionStructure / BuildComposition / ExtractConstraints / Solve /
+            // ReaimDiag / MissionLoopUnit / PhaseLock). This resolver runs on EVERY delivery-clock
             // tick (ProcessLoopRoute) and every Logistics-window OnGUI frame
             // (ComputeRouteLegibility -> TryComputeSecondsToNextDockCrossing); the
             // signature cache above collapses steady-state calls, but a genuinely
@@ -2261,9 +2261,11 @@ namespace Parsek.Logistics
             // (DriveMissionLoopUnits) plus the Missions window still surface them
             // un-suppressed for the same config.
             bool prevStructSuppress = MissionStructureBuilder.SuppressLogging;
+            bool prevCompSuppress = MissionCompositionBuilder.SuppressLogging;
             bool prevPeriodicitySuppress = MissionPeriodicity.SuppressLogging;
             bool prevLoopSuppress = MissionLoopUnitBuilder.SuppressLogging;
             MissionStructureBuilder.SuppressLogging = true;
+            MissionCompositionBuilder.SuppressLogging = true;
             MissionPeriodicity.SuppressLogging = true;
             MissionLoopUnitBuilder.SuppressLogging = true;
             bool built;
@@ -2276,6 +2278,7 @@ namespace Parsek.Logistics
             finally
             {
                 MissionStructureBuilder.SuppressLogging = prevStructSuppress;
+                MissionCompositionBuilder.SuppressLogging = prevCompSuppress;
                 MissionPeriodicity.SuppressLogging = prevPeriodicitySuppress;
                 MissionLoopUnitBuilder.SuppressLogging = prevLoopSuppress;
             }

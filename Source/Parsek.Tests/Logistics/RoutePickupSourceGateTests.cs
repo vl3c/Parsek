@@ -478,5 +478,207 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(200.0, reservations[0].SummedResourceManifest["Ore"], 6);
             Assert.Null(reservations.Find(r => r.ResolvedPid == 10u));
         }
+
+        // ---- M6 escrow-hold legibility: physical vs escrow short cause --------
+
+        /// <summary>
+        /// M6 escrow-hold legibility resolver variant: also supplies the RAW
+        /// (un-netted) stored map + a reserving-route name lookup, mirroring the
+        /// production wiring in <see cref="LiveRouteRuntimeEnvironment"/> (the
+        /// netted map plays the escrow-netted reader's role).
+        /// </summary>
+        private sealed class EscrowFakeResolver
+        {
+            public Dictionary<uint, (uint pid, string name,
+                Dictionary<string, double> netted, Dictionary<string, double> raw,
+                System.Func<string, string> reservingLookup)> Resolved
+                = new Dictionary<uint, (uint, string, Dictionary<string, double>,
+                    Dictionary<string, double>, System.Func<string, string>)>();
+
+            public RoutePickupSourceGate.PickupSourceResolution Resolve(RouteEndpoint endpoint)
+            {
+                if (!Resolved.TryGetValue(endpoint.VesselPersistentId, out var r))
+                    return RoutePickupSourceGate.PickupSourceResolution.Miss("pid-miss");
+
+                var netted = r.netted ?? new Dictionary<string, double>();
+                var raw = r.raw ?? new Dictionary<string, double>();
+                return RoutePickupSourceGate.PickupSourceResolution.Ok(
+                    r.pid, r.name,
+                    name => netted.TryGetValue(name, out double v) ? v : 0.0,
+                    hash => 0,
+                    name => raw.TryGetValue(name, out double v) ? v : 0.0,
+                    r.reservingLookup);
+            }
+        }
+
+        private static RoutePickupSourceGate.GateResult RunEscrow(
+            Route route, EscrowFakeResolver resolver)
+        {
+            bool built = RoutePickupSourceGate.TryBuildSourceGroups(
+                route, resolver.Resolve, out var groups, out string unresolved);
+            Assert.True(built, "expected all pickup endpoints to resolve; unresolved=" + unresolved);
+            return RoutePickupSourceGate.Evaluate(groups);
+        }
+
+        // catches: the pure classifier misreading the three cause shapes. Escrow
+        // = physically sufficient (raw covers need) but netted short; physical =
+        // raw itself short, even when escrow deepens the gap (mixed); degenerate
+        // need / NaN inputs never classify escrow.
+        [Fact]
+        public void IsEscrowCausedShort_TruthTable()
+        {
+            // Escrow-caused: raw 150 covers need 100, netted 40 fell short.
+            Assert.True(RoutePickupSourceGate.IsEscrowCausedShort(100.0, 150.0, 40.0));
+            // Raw exactly at need still counts as physically sufficient.
+            Assert.True(RoutePickupSourceGate.IsEscrowCausedShort(100.0, 100.0, 99.5));
+            // Mixed: physically short (raw 80 < need 100) AND escrow netted lower
+            // -> physical (the depot would hold the route with no competitors).
+            Assert.False(RoutePickupSourceGate.IsEscrowCausedShort(100.0, 80.0, 30.0));
+            // Pure physical: no escrow at all (raw == netted, both short).
+            Assert.False(RoutePickupSourceGate.IsEscrowCausedShort(100.0, 40.0, 40.0));
+            // Degenerate zero need is never escrow-short.
+            Assert.False(RoutePickupSourceGate.IsEscrowCausedShort(0.0, 10.0, 10.0));
+            // NaN inputs classify physical (comparisons fail).
+            Assert.False(RoutePickupSourceGate.IsEscrowCausedShort(100.0, double.NaN, 40.0));
+            Assert.False(RoutePickupSourceGate.IsEscrowCausedShort(double.NaN, 150.0, 40.0));
+        }
+
+        // catches: an escrow-caused short (depot physically stocked, netted short
+        // because a competing route reserved it) rendering the SAME "source:" token
+        // as a physically-empty depot - the M6 escrow-hold-legibility headline. The
+        // gate must emit the "source-reserved:" token naming the reserving route
+        // and flag EscrowShort with the raw/netted amounts carried for the log.
+        [Fact]
+        public void EscrowShort_EmitsReservedTokenNamingReservingRoute()
+        {
+            var route = RouteWithStops(
+                PickupStop(10u, 100.0, new Dictionary<string, double> { { "Ore", 100.0 } }));
+            var resolver = new EscrowFakeResolver();
+            // Depot physically holds 150 Ore (raw) but a competitor reserved 110,
+            // so this route's netted view is 40 - short by 60, escrow-caused.
+            resolver.Resolved[10u] = (10u, "Depot A",
+                new Dictionary<string, double> { { "Ore", 40.0 } },
+                new Dictionary<string, double> { { "Ore", 150.0 } },
+                name => name == "Ore" ? "Fuel Run Alpha" : null);
+
+            var result = RunEscrow(route, resolver);
+
+            Assert.False(result.Covered);
+            Assert.True(result.EscrowShort);
+            Assert.Equal("Fuel Run Alpha", result.ReservingRouteName);
+            Assert.Equal("Ore", result.ShortResource);
+            Assert.Equal(60.0, result.Shortfall, 6);
+            Assert.Equal(150.0, result.ShortRawStored, 6);
+            Assert.Equal(40.0, result.ShortNettedStored, 6);
+            Assert.Equal("source-reserved:10:Depot A:Ore:Fuel Run Alpha", result.ShortHoldToken);
+        }
+
+        // catches: a PHYSICAL short leaking into the new token when the escrow
+        // wiring is present - the pre-M6 "source:" token must stay byte-identical
+        // whenever the depot is genuinely short (raw == netted, no reservations).
+        [Fact]
+        public void PhysicalShort_WithEscrowWiring_KeepsByteIdenticalSourceToken()
+        {
+            var route = RouteWithStops(
+                PickupStop(10u, 100.0, new Dictionary<string, double> { { "Ore", 100.0 } }));
+            var resolver = new EscrowFakeResolver();
+            int lookupCalls = 0;
+            resolver.Resolved[10u] = (10u, "Depot A",
+                new Dictionary<string, double> { { "Ore", 40.0 } },
+                new Dictionary<string, double> { { "Ore", 40.0 } },
+                name => { lookupCalls++; return "Should Not Appear"; });
+
+            var result = RunEscrow(route, resolver);
+
+            Assert.False(result.Covered);
+            Assert.False(result.EscrowShort);
+            Assert.Null(result.ReservingRouteName);
+            Assert.Equal(RoutePickupSourceGate.BuildHoldToken(10u, "Depot A", "Ore"),
+                result.ShortHoldToken);
+            Assert.Equal("source:10:Depot A:Ore", result.ShortHoldToken);
+            // The reserving-route lookup must not even be consulted on a
+            // physical short (classification gates the lookup).
+            Assert.Equal(0, lookupCalls);
+        }
+
+        // catches: a MIXED short (physically short AND escrow-reduced further)
+        // classifying escrow - it must stay physical; the depot cannot cover the
+        // need even with every reservation released.
+        [Fact]
+        public void MixedShort_PhysicallyShort_ClassifiesPhysical()
+        {
+            var route = RouteWithStops(
+                PickupStop(10u, 100.0, new Dictionary<string, double> { { "Ore", 100.0 } }));
+            var resolver = new EscrowFakeResolver();
+            int lookupCalls = 0;
+            // raw 80 < need 100 (physically short); escrow nets it down to 30.
+            resolver.Resolved[10u] = (10u, "Depot A",
+                new Dictionary<string, double> { { "Ore", 30.0 } },
+                new Dictionary<string, double> { { "Ore", 80.0 } },
+                name => { lookupCalls++; return "Competitor"; });
+
+            var result = RunEscrow(route, resolver);
+
+            Assert.False(result.Covered);
+            Assert.False(result.EscrowShort);
+            Assert.StartsWith("source:", result.ShortHoldToken);
+            Assert.Equal(0, lookupCalls);
+        }
+
+        // catches: an escrow-caused short with NO reserving route found (the
+        // lookup returns null - e.g. the reservation vanished between the net and
+        // the lookup) emitting a reserved token naming nobody. It must fall back
+        // to the physical token - the new token fires ONLY when a competing
+        // reservation actually explains the shortfall.
+        [Fact]
+        public void EscrowCaused_NoReservingRouteFound_FallsBackToPhysicalToken()
+        {
+            var route = RouteWithStops(
+                PickupStop(10u, 100.0, new Dictionary<string, double> { { "Ore", 100.0 } }));
+            var resolver = new EscrowFakeResolver();
+            resolver.Resolved[10u] = (10u, "Depot A",
+                new Dictionary<string, double> { { "Ore", 40.0 } },
+                new Dictionary<string, double> { { "Ore", 150.0 } },
+                name => null);
+
+            var result = RunEscrow(route, resolver);
+
+            Assert.False(result.Covered);
+            Assert.False(result.EscrowShort);
+            Assert.Null(result.ReservingRouteName);
+            Assert.Equal("source:10:Depot A:Ore", result.ShortHoldToken);
+        }
+
+        // catches: a legacy resolution (no raw reader, the pre-M6 4-arg Ok used by
+        // every older call site) changing behavior - the short must classify
+        // physical with the byte-identical token.
+        [Fact]
+        public void LegacyResolution_NoRawReader_PhysicalTokenByteIdentical()
+        {
+            var route = RouteWithStops(
+                PickupStop(10u, 100.0, new Dictionary<string, double> { { "Ore", 100.0 } }));
+            var resolver = new FakeResolver();
+            resolver.Resolved[10u] = (10u, "Depot A", new Dictionary<string, double> { { "Ore", 40.0 } }, null);
+
+            var result = Run(route, resolver);
+
+            Assert.False(result.Covered);
+            Assert.False(result.EscrowShort);
+            Assert.Equal("source:10:Depot A:Ore", result.ShortHoldToken);
+            // Without a raw reader the raw amount mirrors the netted one.
+            Assert.Equal(result.ShortNettedStored, result.ShortRawStored, 6);
+        }
+
+        // catches: colons in the vessel or reserving-route name breaking the
+        // presentation's 4-way token split (both must be sanitized like the
+        // existing "source:" token's vessel name).
+        [Fact]
+        public void BuildReservedHoldToken_SanitizesColons()
+        {
+            Assert.Equal("source-reserved:5:A_B:Ore:R_1",
+                RoutePickupSourceGate.BuildReservedHoldToken(5u, "A:B", "Ore", "R:1"));
+            Assert.Equal("source-reserved:5:<unnamed>:Ore:<unnamed>",
+                RoutePickupSourceGate.BuildReservedHoldToken(5u, null, "Ore", null));
+        }
     }
 }
