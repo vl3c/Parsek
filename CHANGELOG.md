@@ -12,7 +12,7 @@ All notable changes to Parsek are documented here.
 
 ### Internals & Tests
 
-- Logistics / time-rewind determinism (Rec-3 observability slice): a supply route that physically delivered or debited cargo inside a flight you then discard WITHOUT a rewind persists in the surviving timeline. The career economy stays consistent (its funds row and its cargo both stay), but the discard does not undo it, so it is now logged as a `[Rec-3 residual]` warning naming the route, cycle, and amounts. Behavior is unchanged — nothing is reversed, retired, or gated; the full reverse-on-discard fix is scoped and deferred (see `docs/dev/plans/fix-logistics-rewind-determinism.md` Phase 4).
+- Logistics / time-rewind determinism (Rec-3): a supply route that physically delivered or debited cargo inside a flight you then discard without a rewind stays in the surviving timeline, and both its funds row and its cargo persist so the career economy stays consistent. This persistence is intended (a route delivery is an ambient live career event, kept like other live-earned progress); it is now recorded as a behavior-neutral `[Rec-3 residual]` diagnostic warning naming the route, cycle, and amounts, and nothing is reversed or gated (see `docs/dev/plans/fix-logistics-rewind-determinism.md` Phase 4).
 
 ## 0.10.2
 

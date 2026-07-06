@@ -196,7 +196,7 @@ including non-tombstoned rows).
 | 3 | **Recovery credit** | `RouteRecoveryCredited` row survives un-tombstoned; its `FundsModule` `Effective` gate is **inert** (no module flips it for routes); neutralized only at *emit* time via source-recovery sum, which can't retro-neutralize an already-emitted row | **No (phantom credit)** | `FundsModule.cs:566-580`; `RouteRunCostCalculator.cs:133-147`; `SupersedeCommit.cs:1861-1867` | Medium | Same as #1; remove the dead `Effective` gate or wire it |
 | 4 | **Cadence/counter identity** | replay branch bumps `CompletedCycles` on a never-emitted cycle → post-rewind cycleId sequence offset | **No** (not bit-identical to unrewound run) | `RouteOrchestrator.cs:1813` | Medium | Resolved by #1 (no suppression → counters track the live run) |
 | 5 | **Multiple successive rewinds** | each rewind re-captures the growing ledger; route rows never tombstoned → orphan rows accumulate monotonically; commit recalc (`double.MaxValue`) re-includes all | **No** (unbounded accumulation, compounding) | `ReconciliationBundle.cs:114-120`; `RewindInvoker.cs:929` | Medium | Resolved by #1 (purge bounds it) |
-| 6 | **Non-rewind reverts (plain / Re-Fly discard)** | a plain discard / `ReFlyDiscard` has **no quicksave**; `PreserveIrreversibleLiveGameplayOnDiscard` and `ReFlyDiscard` do not touch routes; free-standing rows aren't in the discarded id set | **No** (un-reverted live mutation, no rollback path at all) | `LedgerOrchestrator.cs:2936-3094`; `MergeDialog.ReFlyDiscard.cs` (whole file) | **Medium-High** | Separate fix (§6 Rec-3): reverse route effects on discard, or disable physical effects for un-quicksaved reverts |
+| 6 | **Non-rewind reverts (plain / Re-Fly discard)** | a plain discard / `ReFlyDiscard` has **no quicksave**; `PreserveIrreversibleLiveGameplayOnDiscard` and `ReFlyDiscard` do not touch routes; free-standing rows aren't in the discarded id set | **No** (un-reverted live mutation, no rollback path at all) | `LedgerOrchestrator.cs:2936-3094`; `MergeDialog.ReFlyDiscard.cs` (whole file) | **Medium-High** (reframed) | RATIFIED by-design (§6 Rec-3 addendum, 2026-07-06 option C): both funds + cargo persist consistently and the discard intentionally keeps them; observability `[Rec-3 residual]` Warn only, reverse writers DECLINED |
 | 7 | **Background / on-rails firing** | `Tick` has no scene gate; writers mutate unloaded/packed proto-vessels; resolver ignores packed state → paradox fires on vessels the player isn't watching (amplifier) | n/a (blast-radius amplifier of #1) | `ParsekScenario.cs:893-930`; `LiveDeliveryWriters.cs:265-298`; `RouteEndpointResolver.cs:50-60` | Medium-High (amplifier) | Resolved-in-effect by #1; optionally log a Warn on a dedup-suppressed physical skip |
 | 8 | **Recovery-credit deferral straddling a rewind** | `PendingRecoveryCreditCycleId` arm reverts via `.sfs` while the emitted dispatch row persists in the bundle → owed credit can be silently dropped | **No** | `RouteOrchestrator.cs:1847-1854, 3708`; `RouteCodec.cs:168-172` | Medium | Make the credit non-deferred (emit at the same crossing), then #1 covers it |
 | 9 | **Route-definition lifecycle ("disable before it existed")** | definition + counters revert via the `.sfs`; route absent if created after RP; no fire below phase anchor | **Yes** | `RouteStore.cs:594-624`; `ParsekScenario.cs:3343`; `GhostPlaybackLogic.SpanClock.cs:1092-1093` | — (sound) | none |
@@ -270,6 +270,14 @@ case that genuinely violates §2.4 #11 today.
 > reverse-on-discard at the discard cores with an all-or-nothing-per-cycle lockstep-funds retire.
 > An observability slice (a `[Rec-3 residual]` Warn) shipped first; the reverse writers are deferred.
 > See `docs/dev/plans/fix-logistics-rewind-determinism.md` Phase 4.
+>
+> **Resolved (2026-07-06, maintainer): option C, RATIFY both-persist as correct.** The attribution
+> blocker settles the doctrine: route rows are AMBIENT (no `RecordingId`, fire ~1 Hz in all scenes),
+> so a discarded flight's UT window also captures a CONCURRENT committed route's deliveries, and a
+> bare-UT-window reverse would wrongly undo them. Since ambient route deliveries would have fired
+> regardless of the discarded flight, keeping them is CORRECT and matches the preserve-live-earned
+> doctrine. Risk #6 is therefore downgraded to **by-design / observability-only**; the reverse-on-discard
+> writers are **DECLINED** (not merely deferred), and the `[Rec-3 residual]` Warn is the final deliverable.
 
 ### Rec-4 — Reconcile the design doc + add a tracked todo
 Update `parsek-logistics-supply-routes-design.md` §2.4 #11 / §10.6 / §13.4 to describe the *shipped*
