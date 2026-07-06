@@ -268,7 +268,8 @@ case that genuinely violates §2.4 #11 today.
 > completed contract). The gate-at-writer-call-sites option is **unimplementable** (any in-flight
 > segment can still commit, so write time cannot know the disposition); the settled fix is
 > reverse-on-discard at the discard cores with an all-or-nothing-per-cycle lockstep-funds retire.
-> An observability slice (a `[Rec-3 residual]` Warn) shipped first; the reverse writers are deferred.
+> An observability slice (a `[Rec-3 residual]` Warn) shipped first; the reverse writers were initially
+> deferred (then declined, see the resolution just below).
 > See `docs/dev/plans/fix-logistics-rewind-determinism.md` Phase 4.
 >
 > **Resolved (2026-07-06, maintainer): option C, RATIFY both-persist as correct.** The attribution
