@@ -17,7 +17,8 @@ namespace Parsek.InGameTests
     ///   <see cref="RouteGhostDriverSelector"/>;</item>
     ///   <item>its backing Mission, fed through the UNCHANGED
     ///   <c>MissionLoopUnitBuilder.Build</c>, yields exactly one loop unit whose
-    ///   member window is <c>[launch .. undock]</c> (the post-undock tail trimmed);</item>
+    ///   member window is <c>[launch .. dock]</c> (M-MIS-5: the docked combined
+    ///   stretch and the post-undock tail trimmed);</item>
     ///   <item>the <see cref="RouteLoopClock"/> reports a crossing whose loopUT
     ///   sweeps across the recorded dock UT (delivery fires there);</item>
     ///   <item>the mutual-exclusion guard reports the route's tree bound (so both
@@ -37,7 +38,7 @@ namespace Parsek.InGameTests
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = "Isolated-run only - mutates RouteStore and the committed-tree list under live KSP statics; excluded from ordinary Run All / Run category. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
-            Description = "A ghost-driving route is selected, its backing mission yields one loop unit trimmed to [launch..undock], the loop clock crosses the recorded dock UT, mutual exclusion binds the route tree, and a manual loop on another tree renders in parallel (disjoint owners)")]
+            Description = "A ghost-driving route is selected, its backing mission yields one loop unit trimmed to [launch..dock] (M-MIS-5), the loop clock crosses the recorded dock UT at the span end, mutual exclusion binds the route tree, and a manual loop on another tree renders in parallel (disjoint owners)")]
         public void RouteOnMissions_RendersTrimmedLoop_FiresAtDock_AndMutuallyExcludes()
         {
             // ---- PRECONDITION GATE -------------------------------------------
@@ -91,25 +92,27 @@ namespace Parsek.InGameTests
                 committed.AddRange(manualTree.Recordings.Values);
 
                 int idxLaunch = committed.FindIndex(r => r.RecordingId == "launch");
+                int idxDocked = committed.FindIndex(r => r.RecordingId == "docked");
                 int idxSurvivor = committed.FindIndex(r => r.RecordingId == "survivor");
                 int idxManualA = committed.FindIndex(r => r.RecordingId == "m-a");
 
                 // Derive the route's backing-mission definition exactly as RouteBuilder
-                // would, and commit an Active route bound to the tree.
+                // would (segmentEndUT = the DOCK UT 2000, M-MIS-5), and commit an
+                // Active route bound to the tree.
                 HashSet<string> excluded = RouteBackingMission.ComputeExcludedIntervalKeys(
-                    routeTree, segmentEndUT: 3000.0, launchUT: 1000.0);
+                    routeTree, segmentEndUT: 2000.0, launchUT: 1000.0);
                 var route = new Route
                 {
                     Id = routeId,
                     Name = "Parsek Route-on-Missions In-Game",
                     BackingMissionTreeId = routeTreeId,
                     ExcludedIntervalKeys = excluded,
-                    RecordedDockUT = 2500.0,            // within [1000,3000]
+                    RecordedDockUT = 2000.0,            // == span end (the M-MIS-5 geometry)
                     DockMemberRecordingId = "docked",
                     LoopAnchorUT = 1000.0,
                     LastObservedLoopCycleIndex = -1,
-                    TransitDuration = 2000.0,
-                    DispatchInterval = 2000.0,          // == span -> cadence == interval
+                    TransitDuration = 1000.0,           // dock - launch
+                    DispatchInterval = 1000.0,          // == span -> cadence == interval
                     Status = RouteStatus.Active,
                     RecordingIds = new List<string> { "launch", "docked" },
                     SourceRefs = new List<RouteSourceRef>
@@ -152,6 +155,8 @@ namespace Parsek.InGameTests
                     "Expected exactly two loop units (route + manual), got " + set.Count);
                 InGameAssert.IsTrue(set.IsMember(idxLaunch),
                     "Route launch leg should be a loop-unit member");
+                InGameAssert.IsFalse(set.IsMember(idxDocked),
+                    "Docked combined leg must be trimmed (rendering stops at the dock, M-MIS-5)");
                 InGameAssert.IsFalse(set.IsMember(idxSurvivor),
                     "Post-undock survivor must be trimmed from the route loop unit");
 
@@ -172,17 +177,20 @@ namespace Parsek.InGameTests
                     "Could not resolve the route's loop unit");
 
                 bool sweptDock = false;
-                // Sample two UTs straddling the dock phase (anchor floored to spanEnd
-                // -> first cycle wraps spanStart). Just before and after the dock.
-                double dockPhase = 2500.0; // RecordedDockUT
+                // M-MIS-5: the dock phase now sits exactly ON the span end, so sample
+                // just BEFORE the boundary (the exact boundary rolls into the next
+                // cycle start; the crossing then fires via dockCycleIndex =
+                // cycleIndex - 1, pinned by RouteLoopClockTests.
+                // DockPhaseAtSpanEnd_CrossingFiresOncePerCycle).
+                double dockPhase = 2000.0; // RecordedDockUT == span end
                 double spanStart = routeUnit.SpanStartUT;
                 double anchor = routeUnit.PhaseAnchorUT;
                 // loopUT == spanStart + ((ut - anchor) mod cadence). Choose ut so the
-                // phase lands just past the dock to prove the dock UT is reachable.
+                // phase lands just short of the dock to prove the dock UT is reachable.
                 double cadence = routeUnit.SpanEndUT - routeUnit.SpanStartUT;
-                double utAtDock = anchor + (dockPhase - spanStart);
+                double utNearDock = anchor + (dockPhase - spanStart) - 0.5;
                 double loopUT; long cycleIdx; bool tail;
-                if (RouteLoopClock.TryGetRouteLoopState(routeUnit, utAtDock,
+                if (RouteLoopClock.TryGetRouteLoopState(routeUnit, utNearDock,
                         out loopUT, out cycleIdx, out tail))
                 {
                     // The resolved loopUT should land at/near the dock phase.
@@ -225,7 +233,8 @@ namespace Parsek.InGameTests
         ///   undocked from depot A and continued to depot B) - are loop-unit members
         ///   (so the engine intercepts them at the loop-unit gate and they NEVER reach
         ///   the spawn path);</item>
-        ///   <item>every recording AT/AFTER the last dock (the post-last-dock tail
+        ///   <item>every recording AT/AFTER the last dock (the depot-B docked combined
+        ///   leg - its interval starts AT the dock, M-MIS-5 - the post-last-dock tail
         ///   continuation + the terminal peel) is a NON-member (excluded entirely, so
         ///   it never becomes a unit member and never spawns).</item>
         /// </list>
@@ -258,8 +267,9 @@ namespace Parsek.InGameTests
                     preExistingRoutes.Add(committedRoutes[i]);
 
             // launch -> dock A -> undock A (continue) -> dock B (last dock) -> undock B.
-            // Span end = the terminal structural boundary = 3000 (the last dock,
-            // mirroring how production aligns the last stop's RouteConnectionWindow).
+            // Span end = the LAST dock = 2500 (production passes the last stop's
+            // RouteConnectionWindow.DockUT; since M-MIS-5 the dock is itself an
+            // interval boundary, so the docked stretch is excluded from render).
             RecordingTree routeTree = BuildMultiStopTree(routeTreeId);
 
             bool routeTreeAdded = false, routeAdded = false;
@@ -278,7 +288,7 @@ namespace Parsek.InGameTests
                 int idxPayloadB = committed.FindIndex(r => r.RecordingId == "payloadB");
 
                 const double rootLaunchUT = 1000.0;
-                const double lastDockUT = 3000.0;
+                const double lastDockUT = 2500.0; // the depot-B dock (M-MIS-5: NOT the undock 3000)
 
                 HashSet<string> excluded = RouteBackingMission.ComputeExcludedIntervalKeys(
                     routeTree, segmentEndUT: lastDockUT, launchUT: rootLaunchUT);
@@ -333,16 +343,19 @@ namespace Parsek.InGameTests
                     "launch leg must be a loop-unit member (loops, never spawns)");
                 InGameAssert.IsTrue(set.IsMember(idxMidA2B),
                     "intermediate-undock survivor (transport continues depot A -> depot B) must STAY a member");
-                InGameAssert.IsTrue(set.IsMember(idxDockedB),
-                    "depot-B docked combined leg (folded into the kept through-line) must be a member");
 
-                // (b) Post-last-dock recordings are NON-members (never spawn).
+                // (b) Recordings AT/after the last dock are NON-members (never spawn).
+                //     Since M-MIS-5 this includes the depot-B docked combined leg:
+                //     its interval starts AT the last dock and rendering stops there.
+                InGameAssert.IsFalse(set.IsMember(idxDockedB),
+                    "depot-B docked combined leg must be a NON-member (rendering stops at the last dock, M-MIS-5)");
                 InGameAssert.IsFalse(set.IsMember(idxTail),
                     "post-last-dock tail continuation must be a NON-member");
                 InGameAssert.IsFalse(set.IsMember(idxPayloadB),
                     "terminal-undock peel must be a NON-member");
 
-                // The unit span end-trims at the last dock (3000), not the tail (3500).
+                // The unit span end-trims at the last dock (2500), not the terminal
+                // undock (3000) or the tail (3500).
                 GhostPlaybackLogic.LoopUnit unit;
                 InGameAssert.IsTrue(set.TryGetUnitForMember(idxLaunch, out unit),
                     "Could not resolve the multi-stop route's loop unit");

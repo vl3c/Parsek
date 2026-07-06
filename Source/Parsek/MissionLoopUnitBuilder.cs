@@ -103,6 +103,45 @@ namespace Parsek
         }
 
         /// <summary>
+        /// (M-MIS-11 item 1) First-class SINGLE-selection entry point for the
+        /// Missions -&gt; Logistics loop-unit seam: builds the one
+        /// <see cref="GhostPlaybackLogic.LoopUnit"/> for <paramref name="mission"/>
+        /// without the <see cref="GhostPlaybackLogic.LoopUnitSet"/> wrapper.
+        /// Byte-identical to <c>Build(new List&lt;Mission&gt; { mission }, ...)</c>
+        /// followed by extracting the single unit: it runs the SAME
+        /// <c>BuildIndexById</c> + <c>TryBuildMissionUnit</c> pipeline (the
+        /// cross-mission owner/member collision handling in <see cref="Build"/>
+        /// is unreachable for a one-element list, so skipping it changes
+        /// nothing). Returns false (unit = default) when the mission is null,
+        /// not looping, its tree is missing, or its selection maps to no
+        /// committed members - exactly the cases where the one-element
+        /// <see cref="Build"/> returns Empty. The builder's INTERNAL logic is
+        /// untouched; this is only a named door for consumers (the route
+        /// delivery clock's <c>RouteOrchestrator.ResolveLoopUnit</c>) that were
+        /// synthesizing a throwaway one-element list to get one unit out.
+        /// Member indices are committed-list indices (the alignment invariant),
+        /// so callers must pass the SAME committed snapshot the render seams
+        /// use. Pure.
+        /// </summary>
+        internal static bool TryBuildLoopUnitForSelection(
+            Mission mission,
+            IReadOnlyList<RecordingTree> trees,
+            IReadOnlyList<Recording> committed,
+            double autoLoopIntervalSeconds,
+            IBodyInfo bodyInfo,
+            TransitedBodyRotationMode transitedBodyRotationMode,
+            out GhostPlaybackLogic.LoopUnit unit)
+        {
+            unit = default;
+            if (mission == null || !mission.LoopPlayback)
+                return false;
+            Dictionary<string, int> indexById = BuildIndexById(committed);
+            return TryBuildMissionUnit(
+                mission, trees, committed, indexById, autoLoopIntervalSeconds, bodyInfo,
+                transitedBodyRotationMode, out unit, out int[] _);
+        }
+
+        /// <summary>
         /// Builds one span-clock <see cref="GhostPlaybackLogic.LoopUnit"/> for a single looping
         /// Mission. Returns false (and logs why at Verbose) when the tree is missing or the
         /// selection maps to no committed members. <paramref name="indexById"/> is the shared

@@ -605,11 +605,14 @@ namespace Parsek.Logistics
         /// <summary>
         /// Test seam for the route's backing-mission <see cref="GhostPlaybackLogic.LoopUnit"/>.
         /// Production leaves this null and <see cref="ProcessLoopRoute"/> builds
-        /// the unit from live KSP state (<see cref="RecordingStore"/> +
-        /// <see cref="RouteGhostDriverSelector"/> + the LOCKED
-        /// <c>MissionLoopUnitBuilder.Build</c>); xUnit assigns a fake that returns
-        /// a directly-constructed <see cref="GhostPlaybackLogic.LoopUnit"/> so the
-        /// crossing/fire logic is exercised without Planetarium / RecordingStore.
+        /// the unit from live KSP state (<see cref="RecordingStore"/> + the LOCKED
+        /// <c>MissionLoopUnitBuilder.TryBuildLoopUnitForSelection</c> entry point,
+        /// behind the M-MIS-11 signature-gated per-route cache); xUnit assigns a
+        /// fake that returns a directly-constructed
+        /// <see cref="GhostPlaybackLogic.LoopUnit"/> so the crossing/fire logic is
+        /// exercised without Planetarium / RecordingStore. When the seam is set,
+        /// the cache is BYPASSED entirely (no route cache fields are read or
+        /// written).
         /// A null return means the route has no resolvable loop unit this tick
         /// (no committed members, or the build collapsed), and the loop path
         /// skips it.
@@ -713,19 +716,22 @@ namespace Parsek.Logistics
                 return;
             }
 
-            // Dock-phase crossing detection (DEL-2). A new span-clock cycle alone
-            // does NOT fire: the delivery is gated on the loop clock having reached
-            // the recorded dock PHASE within the cycle (loopUT >= RecordedDockUT),
-            // so one loop-clock crossing == one ghost relaunch == one delivery that
-            // fires when the ghost reaches the recorded dock. dockCycleIndex is the
-            // cycle whose dock instant has most recently passed (== cycleIndex once
-            // the dock phase is reached, cycleIndex-1 while the ghost is still
-            // pre-dock); the route snaps LastObservedLoopCycleIndex to THIS, not the
-            // raw cycleIndex, so a tick landing early in a fresh cycle does not
-            // consume that cycle before its dock.
-            bool crossing = RouteLoopClock.IsDockCrossing(
+            // Dock-phase crossing detection (DEL-2), via the shared owed-crossing
+            // emitter (M-MIS-11 item 2). A new span-clock cycle alone does NOT
+            // fire: the delivery is gated on the loop clock having reached the
+            // recorded dock PHASE within the cycle (loopUT >= RecordedDockUT), so
+            // one loop-clock crossing == one ghost relaunch == one delivery that
+            // fires when the ghost reaches the recorded dock. The emitter's
+            // DockCycleIndex is the cycle whose dock instant has most recently
+            // passed (== cycleIndex once the dock phase is reached, cycleIndex-1
+            // while the ghost is still pre-dock); the route snaps
+            // LastObservedLoopCycleIndex to THIS, not the raw cycleIndex, so a
+            // tick landing early in a fresh cycle does not consume that cycle
+            // before its dock.
+            bool crossing = RouteLoopClock.TryGetOwedDockCrossing(
                 unit, loopUT, cycleIndex, route.RecordedDockUT,
-                route.LastObservedLoopCycleIndex, out long dockCycleIndex);
+                route.LastObservedLoopCycleIndex, out RouteLoopClock.OwedDockCrossing owedCrossing);
+            long dockCycleIndex = owedCrossing.DockCycleIndex;
             if (!crossing)
             {
                 skipped++;
@@ -928,11 +934,13 @@ namespace Parsek.Logistics
 
             // BLOCKER-1: scan every stop's owed dock-cycle and find the LOWEST owed
             // cycle cMin. A window is owed when its dock phase has been reached for a
-            // cycle index strictly greater than its own LastFiredCycleIndex
-            // (RouteLoopClock.IsDockCrossing). We process ONLY cMin this pass: each
-            // stop is "due this pass" iff its owed dock-cycle equals cMin AND its dock
-            // phase is reached for cMin (sDockCycle == cMin). A later-cycle owed
-            // window (sDockCycle > cMin, e.g. an earlier stop already in cMin+1)
+            // cycle index strictly greater than its own LastFiredCycleIndex (the
+            // shared owed-crossing emitter, RouteLoopClock.TryGetOwedDockCrossing,
+            // gated per stop on the stop's OWN LastFiredCycleIndex - M-MIS-11 item 2
+            // keeps this per-stop sub-gate here). We process ONLY cMin this pass:
+            // each stop is "due this pass" iff its owed dock-cycle equals cMin AND
+            // its dock phase is reached for cMin (sDockCycle == cMin). A later-cycle
+            // owed window (sDockCycle > cMin, e.g. an earlier stop already in cMin+1)
             // sets stillDue so the caller re-invokes after the C+S bump advances the
             // cycleId. Stops are walked in DockUT-ascending order (RouteBuilder A1/A2).
             long cMin = long.MaxValue;
@@ -940,11 +948,12 @@ namespace Parsek.Logistics
             for (int i = 0; i < stopCount; i++)
             {
                 RouteStop s = route.Stops[i];
-                bool windowCrossing = RouteLoopClock.IsDockCrossing(
+                bool windowCrossing = RouteLoopClock.TryGetOwedDockCrossing(
                     unit, loopUT, cycleIndex, s.RecordedDockUT,
-                    s.LastFiredCycleIndex, out long sDockCycle);
+                    s.LastFiredCycleIndex, out RouteLoopClock.OwedDockCrossing sOwed);
                 if (!windowCrossing)
                     continue;
+                long sDockCycle = sOwed.DockCycleIndex;
                 anyOwed = true;
                 if (sDockCycle < cMin)
                     cMin = sDockCycle;
@@ -973,12 +982,12 @@ namespace Parsek.Logistics
             for (int i = 0; i < stopCount; i++)
             {
                 RouteStop s = route.Stops[i];
-                bool windowCrossing = RouteLoopClock.IsDockCrossing(
+                bool windowCrossing = RouteLoopClock.TryGetOwedDockCrossing(
                     unit, loopUT, cycleIndex, s.RecordedDockUT,
-                    s.LastFiredCycleIndex, out long sDockCycle);
+                    s.LastFiredCycleIndex, out RouteLoopClock.OwedDockCrossing sOwed);
                 if (!windowCrossing)
                     continue;
-                if (sDockCycle == cMin)
+                if (sOwed.DockCycleIndex == cMin)
                     dueStopIndex.Add(i);
                 else
                     laterOwed++; // a window of cMin+1.. (processed on a later pass)
@@ -1636,9 +1645,10 @@ namespace Parsek.Logistics
         /// <summary>
         /// Resolves the route's backing-mission loop unit for this tick. Routes
         /// through the <see cref="LoopUnitResolverForTesting"/> seam when set;
-        /// otherwise builds it from live KSP state via the same selector / Build
-        /// path the host push seams use (<see cref="RouteGhostDriverSelector"/> +
-        /// the LOCKED <c>MissionLoopUnitBuilder.Build</c>) over the SAME
+        /// otherwise builds it from live KSP state via the first-class Missions
+        /// entry point (<c>MissionLoopUnitBuilder.TryBuildLoopUnitForSelection</c>,
+        /// M-MIS-11 item 1 - the same pipeline the host push seams'
+        /// <c>Build</c> runs for a one-element list) over the SAME
         /// <c>RecordingStore.CommittedRecordings</c> / <c>CommittedTrees</c>
         /// snapshot, so member indices align. It also passes the IDENTICAL
         /// phase-lock seams the render path uses
@@ -1652,17 +1662,34 @@ namespace Parsek.Logistics
         /// pre-DEL-1 <c>bodyInfo:null</c> path. For a v0 same-body route this is the
         /// faithful (non-re-aimed) loop. Returns null when no unit owns the route's
         /// members this tick.
+        ///
+        /// <para><b>(M-MIS-11 item 1) Signature-gated cache.</b> The full builder
+        /// pipeline used to re-run on EVERY orchestrator tick and again per
+        /// Logistics-window countdown call. The built unit is now cached on the
+        /// route (runtime-only fields, <c>RouteCodec</c> untouched) and reused
+        /// while BOTH cache keys hold: the one-element
+        /// <c>MissionLoopUnitBuilder.BuildSignature</c> (the SAME change-detection
+        /// signature every scene render driver uses, covering the mission fields,
+        /// tree counts, committed-list identity, auto-loop setting, body-geometry
+        /// + station-anchor digests, and rotation mode) and the M-MIS-9
+        /// <c>RouteBackingMission.ComputeTopologySignature</c> of the backing tree
+        /// (id-level rolling hashes that catch count-neutral tree mutations the
+        /// builder signature's counts miss). Any input drift the old
+        /// rebuild-every-tick code would have picked up moves one of the two keys
+        /// and forces a rebuild; a cached NULL outcome (builder yielded no unit)
+        /// is reused the same way. Rebuilds log Verbose with the change reason;
+        /// steady-state hits log nothing.</para>
         /// </summary>
-        private static GhostPlaybackLogic.LoopUnit? ResolveLoopUnit(Route route, double currentUT)
+        internal static GhostPlaybackLogic.LoopUnit? ResolveLoopUnit(Route route, double currentUT)
         {
             var resolver = LoopUnitResolverForTesting;
             if (resolver != null)
                 return resolver(route, currentUT);
 
-            // Live build. Construct the route's backing Mission, run it through the
-            // unchanged builder over the committed snapshot, and extract the single
-            // unit. The build gates on Mission.LoopPlayback (set by BuildMission),
-            // so a one-element list yields at most one unit.
+            // Live build. Construct the route's backing Mission (cheap: the
+            // M-MIS-9 auto-exclude derivation inside is already signature-gated),
+            // then resolve the unit through the signature-gated cache below. The
+            // build gates on Mission.LoopPlayback (set by BuildMission).
             Mission mission = RouteBackingMission.BuildMission(route, currentUT);
             if (mission == null)
                 return null;
@@ -1693,47 +1720,86 @@ namespace Parsek.Logistics
             TransitedBodyRotationMode tbrMode = ParsekSettings.Current?.TransitedBodyRotationMode
                                                 ?? TransitedBodyRotationMode.Loose;
 
+            // (M-MIS-11 item 1) Cache keys. The builder signature is the SAME
+            // sanctioned change-detection fold the render drivers gate their
+            // per-frame Build on; the topology signature is the SAME M-MIS-9
+            // scheme BuildMission's auto-exclude cache uses (id-level hashes
+            // covering count-neutral tree mutations the builder signature's
+            // count folds miss). Computing both per tick is the render seams'
+            // established per-frame cost; the FULL builder pipeline only runs on
+            // a key change.
+            var missionList = new List<Mission> { mission };
+            string builderSignature = MissionLoopUnitBuilder.BuildSignature(
+                missionList, trees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
+            string topologySignature = RouteBackingMission.ComputeTopologySignature(
+                RouteTreeGuard.FindCommittedTree(route.BackingMissionTreeId));
+
+            bool cachePrimed = route.LoopUnitBuilderSignature != null;
+            bool builderKeyHolds = cachePrimed && string.Equals(
+                builderSignature, route.LoopUnitBuilderSignature, StringComparison.Ordinal);
+            bool topologyKeyHolds = cachePrimed && string.Equals(
+                topologySignature, route.LoopUnitTopologySignature, StringComparison.Ordinal);
+            if (builderKeyHolds && topologyKeyHolds)
+                return route.CachedLoopUnit; // steady-state hit: no build, no log
+
+            string rebuildReason = !cachePrimed
+                ? "first-build"
+                : !builderKeyHolds ? "builder-inputs-changed" : "tree-topology-changed";
+
             // Suppress the pure-derivation diagnostic logs the builder pipeline emits
-            // (BuildMissionStructure / ExtractConstraints / Solve / ReaimDiag /
-            // MissionLoopUnit / PhaseLock). This resolver runs on EVERY delivery-clock
+            // (BuildMissionStructure / BuildComposition / ExtractConstraints / Solve /
+            // ReaimDiag / MissionLoopUnit / PhaseLock). This resolver runs on EVERY delivery-clock
             // tick (ProcessLoopRoute) and every Logistics-window OnGUI frame
-            // (ComputeRouteLegibility -> TryComputeSecondsToNextDockCrossing); under time
-            // warp the UT-throttled tick fires many times per real second, so an
-            // un-suppressed build floods the log with a static verdict. The LoopUnit
-            // computed is byte-identical - only the diagnostic output is gated (mirrors
-            // MissionsWindowUI's display-mirror build). These flags gate Verbose/Info plus
-            // two pre-existing MissionPeriodicity diagnostic Warns (degenerate-period
-            // filter; over-constrained Tier-1 residual); the MissionLoopUnitBuilder.Build
-            // owner/member collision Warns stay un-gated. Silencing the MissionPeriodicity
-            // Warns here is intentional - at Warn they ignore verbose-off and would flood
-            // every tick, and the signature-gated render build (DriveMissionLoopUnits) plus
-            // the Missions window still surface them un-suppressed for the same config.
+            // (ComputeRouteLegibility -> TryComputeSecondsToNextDockCrossing); the
+            // signature cache above collapses steady-state calls, but a genuinely
+            // changing input set (e.g. an in-progress tree gaining recordings) can
+            // still rebuild often, so an un-suppressed build would flood the log
+            // with a near-static verdict. The LoopUnit computed is byte-identical -
+            // only the diagnostic output is gated (mirrors MissionsWindowUI's
+            // display-mirror build). These flags gate Verbose/Info plus two
+            // pre-existing MissionPeriodicity diagnostic Warns (degenerate-period
+            // filter; over-constrained Tier-1 residual); the MissionLoopUnitBuilder
+            // owner/member collision Warns stay un-gated. Silencing the
+            // MissionPeriodicity Warns here is intentional - at Warn they ignore
+            // verbose-off and would flood, and the signature-gated render build
+            // (DriveMissionLoopUnits) plus the Missions window still surface them
+            // un-suppressed for the same config.
             bool prevStructSuppress = MissionStructureBuilder.SuppressLogging;
+            bool prevCompSuppress = MissionCompositionBuilder.SuppressLogging;
             bool prevPeriodicitySuppress = MissionPeriodicity.SuppressLogging;
             bool prevLoopSuppress = MissionLoopUnitBuilder.SuppressLogging;
             MissionStructureBuilder.SuppressLogging = true;
+            MissionCompositionBuilder.SuppressLogging = true;
             MissionPeriodicity.SuppressLogging = true;
             MissionLoopUnitBuilder.SuppressLogging = true;
-            GhostPlaybackLogic.LoopUnitSet set;
+            bool built;
+            GhostPlaybackLogic.LoopUnit unit;
             try
             {
-                set = MissionLoopUnitBuilder.Build(
-                    new List<Mission> { mission }, trees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
+                built = MissionLoopUnitBuilder.TryBuildLoopUnitForSelection(
+                    mission, trees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode, out unit);
             }
             finally
             {
                 MissionStructureBuilder.SuppressLogging = prevStructSuppress;
+                MissionCompositionBuilder.SuppressLogging = prevCompSuppress;
                 MissionPeriodicity.SuppressLogging = prevPeriodicitySuppress;
                 MissionLoopUnitBuilder.SuppressLogging = prevLoopSuppress;
             }
 
-            if (set == null || set.Count == 0)
-                return null;
-
-            // Single unit — return the first (and only) one.
-            foreach (var kv in set.UnitsByOwner)
-                return kv.Value;
-            return null;
+            route.CachedLoopUnit = built ? unit : (GhostPlaybackLogic.LoopUnit?)null;
+            route.LoopUnitBuilderSignature = builderSignature;
+            route.LoopUnitTopologySignature = topologySignature;
+            // Rate-limited per route+reason: a quantization-boundary thrash (loaded
+            // anchor under thrust straddling the 1s period floor) rebuilds with a
+            // constant reason on every Tick and Logistics-window OnGUI frame; the
+            // reason in the key keeps distinct transitions individually visible.
+            ParsekLog.VerboseRateLimited(Tag,
+                "loop-unit-cache-rebuild-" + route.Id + "-" + rebuildReason,
+                $"ResolveLoopUnit: route {ShortIdForLog(route)} loop-unit cache rebuilt " +
+                $"reason={rebuildReason} built={(built ? "1" : "0")} " +
+                $"tree={route.BackingMissionTreeId ?? "<null>"} at ut={currentUT.ToString("R", IC)}");
+            return route.CachedLoopUnit;
         }
 
         /// <summary>

@@ -503,6 +503,125 @@ namespace Parsek.Tests
             Assert.Equal(170.0, max - min); // 200 - 30, matches the builder's trimmed span (30..200)
         }
 
+        // --- M-MIS-5: dock edges vs the constitutional byte-identical-off gate ---
+
+        // launch -> dock -> undock tree (the M-MIS-5 shuttle shape): the dock at 2000 mints the
+        // "launch@dock1" sub-interval; the undock at 3000 stays the structural "/seg1" edge.
+        private static RecordingTree DockTree(string id = "t1")
+        {
+            var tree = Tree(id, new[]
+                {
+                    Leg("launch", "C", 0, 1000, 2000),
+                    Leg("docked", "C2", 0, 2000, 3000),
+                    Leg("survivor", "C3", 0, 3000, 4000),
+                    Leg("payload", "C4", 0, 3000, 3500, vessel: "Payload")
+                },
+                new[]
+                {
+                    BP("dockbp", BranchPointType.Dock, new[] { "launch" }, new[] { "docked" }, ut: 2000),
+                    BP("undockbp", BranchPointType.Undock,
+                        new[] { "docked" }, new[] { "survivor", "payload" }, ut: 3000)
+                });
+            return tree;
+        }
+
+        private static List<Recording> DockTreeCommitted(RecordingTree tree) => new List<Recording>
+        {
+            tree.Recordings["launch"],   // 0
+            tree.Recordings["docked"],   // 1
+            tree.Recordings["survivor"], // 2
+            tree.Recordings["payload"]   // 3
+        };
+
+        // BYTE-IDENTICAL-OFF PIN (the named constitutional test, verdict C5): a dock tree with
+        // NO exclusions must produce the PRE-M-MIS-5 outcome in every observable the loop unit
+        // consumes - member set, span start/end, cadence, owner mapping, AND (because a
+        // start-trim bug first surfaces in ComputeTrimmedMemberWindows, whose rEnd <= rStart
+        // drop silently removes a member) vesselWindowCount plus each member window's numeric
+        // start/end VALUES. All expectations are pinned pre-change numbers.
+        [Fact]
+        public void Build_DockTree_NoExclusions_SpanMembersAndCadenceByteIdentical()
+        {
+            RecordingTree tree = DockTree();
+            var committed = DockTreeCommitted(tree);
+            var missions = new List<Mission>
+            {
+                LoopMission("t1", LoopTimeUnit.Sec, interval: 5000.0)
+            };
+
+            var set = Build(missions, new[] { tree }, committed);
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            // Member set + order (sorted by trimmed start, tiebreak index): unchanged.
+            Assert.Equal(new[] { 0, 1, 2, 3 }, unit.MemberIndices);
+            // Span endpoints: the whole-journey values, endpoints unmoved by subdivision.
+            Assert.Equal(1000.0, unit.SpanStartUT);
+            Assert.Equal(4000.0, unit.SpanEndUT);
+            // Cadence: max(LoopIntervalSeconds, span) = max(5000, 3000) = 5000, unchanged.
+            Assert.Equal(5000.0, unit.CadenceSeconds);
+            // Owner mapping: every member maps to the same single owner.
+            Assert.True(set.OwnerByIndex.TryGetValue(0, out int owner0));
+            for (int i = 1; i < 4; i++)
+            {
+                Assert.True(set.OwnerByIndex.TryGetValue(i, out int ownerI));
+                Assert.Equal(owner0, ownerI);
+            }
+            // Member-window VALUES: each recording renders its full own range.
+            Assert.Equal(1000.0, unit.MemberStartUT(0, double.NaN));
+            Assert.Equal(2000.0, unit.MemberEndUT(0, double.NaN));
+            Assert.Equal(2000.0, unit.MemberStartUT(1, double.NaN));
+            Assert.Equal(3000.0, unit.MemberEndUT(1, double.NaN));
+            Assert.Equal(3000.0, unit.MemberStartUT(2, double.NaN));
+            Assert.Equal(4000.0, unit.MemberEndUT(2, double.NaN));
+            Assert.Equal(3000.0, unit.MemberStartUT(3, double.NaN));
+            Assert.Equal(3500.0, unit.MemberEndUT(3, double.NaN));
+
+            // vesselWindowCount + the shared trimmed-window helper's values (the exact surface
+            // the UI period cell / watch target consume): pinned too.
+            var structure = MissionStructureBuilder.Build(tree);
+            var view = MissionThroughLineBuilder.Build(structure);
+            var compRoots = MissionCompositionBuilder.Build(structure);
+            var windows = MissionLoopUnitBuilder.ComputeTrimmedMemberWindows(
+                view, compRoots, committed, new HashSet<string>(), null,
+                out int vesselWindowCount, out _);
+            Assert.Equal(2, vesselWindowCount); // transport through-line + payload branch
+            Assert.Equal(new[] { 0, 1, 2, 3 }, windows.Keys.OrderBy(k => k).ToArray());
+            Assert.Equal(1000.0, windows[0].StartUT);
+            Assert.Equal(2000.0, windows[0].EndUT);
+            Assert.Equal(2000.0, windows[1].StartUT);
+            Assert.Equal(3000.0, windows[1].EndUT);
+            Assert.Equal(3000.0, windows[2].StartUT);
+            Assert.Equal(4000.0, windows[2].EndUT);
+            Assert.Equal(3000.0, windows[3].StartUT);
+            Assert.Equal(3500.0, windows[3].EndUT);
+        }
+
+        // The headline M-MIS-5 capability (extends Build_ExcludingLaunchInterval_StartTrims...):
+        // excluding the pre-dock lead interval start-trims the loop-unit span to the DOCK UT,
+        // which pre-M-MIS-5 was impossible (the docked stretch was welded to the launch).
+        [Fact]
+        public void Build_ExcludePreDockIntervals_StartTrimsSpanToDockUT()
+        {
+            RecordingTree tree = DockTree();
+            var committed = DockTreeCommitted(tree);
+            var mission = LoopMission("t1", LoopTimeUnit.Auto);
+            mission.ExcludedIntervalKeys.Add("launch");  // the pre-dock lead interval
+            mission.ExcludedIntervalKeys.Add("payload"); // the undock peel branch
+
+            var set = Build(new[] { mission }, new[] { tree }, committed);
+
+            Assert.True(set.TryGetUnitForMember(1, out var unit));
+            Assert.Equal(2000.0, unit.SpanStartUT);  // start-trimmed to the DOCK
+            Assert.Equal(4000.0, unit.SpanEndUT);
+            // The pre-dock launch recording drops out entirely (its window is empty).
+            Assert.False(set.IsMember(0));
+            Assert.Equal(new[] { 1, 2 }, unit.MemberIndices);
+            // The docked leg renders its full range from the dock on.
+            Assert.Equal(2000.0, unit.MemberStartUT(1, double.NaN));
+            Assert.Equal(3000.0, unit.MemberEndUT(1, double.NaN));
+            Assert.False(set.IsMember(3)); // excluded peel branch
+        }
+
         [Fact]
         public void Build_IncludedIdNotInCommitted_IsSkipped_NoOutOfRangeIndex()
         {

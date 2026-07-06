@@ -4,6 +4,47 @@ using System.Globalization;
 namespace Parsek.Logistics
 {
     /// <summary>
+    /// (M-MIS-11 item 3) Semantic type of a span-clock <c>cycleIndex</c>. The raw
+    /// <c>long</c> out of <see cref="GhostPlaybackLogic.TryComputeSpanLoopUT"/>
+    /// means two different things depending on the unit, distinguished only by
+    /// <c>unit.RelaunchSchedule != null</c>; this enum names the distinction at
+    /// the RouteLoopClock/emitter layer so consumers cannot misread one as the
+    /// other. Logistics M5's "CadenceMultiplier as a modulo on the
+    /// scheduled-launch index" builds on this seam.
+    /// </summary>
+    internal enum CycleIndexKind
+    {
+        /// <summary>
+        /// Flat-cadence index: <c>cycleIndex = floor((currentUT - PhaseAnchorUT)
+        /// / clampedCadence)</c> (the uniform span-clock branch). Cycle START UTs
+        /// obey the uniform arithmetic <c>PhaseAnchorUT + k * cadence</c>. NOTE:
+        /// a RE-AIM unit (<see cref="GhostPlaybackLogic.LoopUnit.ReaimSchedule"/>
+        /// valid, <see cref="GhostPlaybackLogic.LoopUnit.RelaunchSchedule"/> null
+        /// BY CONSTRUCTION - the builder's re-aim branch sets
+        /// <c>relaunchSchedule = null</c>) classifies Flat: its runtime index
+        /// comes out of the same uniform branch over the synodic cadence, and
+        /// that flat index doubles as the synodic window index
+        /// (<c>ReaimPlaybackResolver</c>: <c>windowIndex = cycleIndex</c>), so
+        /// the uniform per-CYCLE arithmetic stays valid. The within-cycle PHASE
+        /// mapping of a re-aim unit is still non-identity (loiter cuts / holds),
+        /// which is why <see cref="RouteLoopClock.TryComputeSecondsToNextDockCrossing"/>
+        /// gates on <see cref="GhostPlaybackLogic.LoopUnit.LoiterCuts"/>
+        /// separately - Flat kind alone does not license the naive dock-UT
+        /// formula.
+        /// </summary>
+        Flat = 0,
+
+        /// <summary>
+        /// Scheduled-launch index: <c>cycleIndex = sIdx</c> resolved by
+        /// <c>MissionRelaunchSchedule.TryResolveActiveLaunch</c> (the zero-drift
+        /// non-uniform schedule branch). Launch UTs are NON-uniform; the flat
+        /// arithmetic <c>PhaseAnchorUT + k * cadence</c> is INVALID for this
+        /// kind - resolve launch UTs through the schedule only.
+        /// </summary>
+        Scheduled = 1,
+    }
+
+    /// <summary>
     /// Loop-clock crossing detector for Supply Routes (design §0.4 / §0.5; plan
     /// Phase 4). Wraps the LOCKED Missions seam
     /// <see cref="GhostPlaybackLogic.TryComputeSpanLoopUT"/> so the route's
@@ -65,6 +106,57 @@ namespace Parsek.Logistics
     {
         private const string Tag = "Route";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+
+        /// <summary>
+        /// (M-MIS-11 item 2) The owed-dock-crossing emitter result: the cycle
+        /// whose recorded-dock phase has most recently been reached/passed
+        /// (<see cref="DockCycleIndex"/>, the fire-once snap-forward target) plus
+        /// the semantic kind of that index (<see cref="Kind"/>, item 3). Emitted
+        /// by <see cref="TryGetOwedDockCrossing"/>; consumed by the orchestrator's
+        /// single-stop path (fire once for <see cref="DockCycleIndex"/>, snap the
+        /// route marker to it), its multi-stop path (per-stop owed cycles feed the
+        /// lowest-owed-cycle cMin selection), and by <see cref="IsDockCrossing"/>
+        /// (the pre-M-MIS-11 predicate shape, kept as a thin wrapper so existing
+        /// consumers and tests are byte-identical).
+        /// </summary>
+        internal readonly struct OwedDockCrossing
+        {
+            internal OwedDockCrossing(long dockCycleIndex, CycleIndexKind kind)
+            {
+                DockCycleIndex = dockCycleIndex;
+                Kind = kind;
+            }
+
+            /// <summary>The 0-based cycle whose dock instant has most recently
+            /// been reached/passed (<see cref="ComputeDockCycleIndex"/>). On a
+            /// warp tick that jumps several cycles this is the HIGHEST cycle
+            /// whose dock passed - the caller fires ONCE and snaps its
+            /// last-observed marker to this, never replaying skipped cycles.
+            /// Populated even when no crossing is owed (the caller's diagnostics
+            /// log it on the no-crossing path).</summary>
+            internal long DockCycleIndex { get; }
+
+            /// <summary>Semantic kind of <see cref="DockCycleIndex"/> (item 3):
+            /// flat-cadence counter vs zero-drift scheduled-launch index. See
+            /// <see cref="CycleIndexKind"/> for the re-aim classification.</summary>
+            internal CycleIndexKind Kind { get; }
+        }
+
+        /// <summary>
+        /// (M-MIS-11 item 3) Derives the semantic kind of the unit's span-clock
+        /// cycle index. Scheduled iff the unit carries a zero-drift
+        /// <see cref="GhostPlaybackLogic.LoopUnit.RelaunchSchedule"/> (the branch
+        /// of <see cref="GhostPlaybackLogic.TryComputeSpanLoopUT"/> that returns
+        /// <c>sIdx</c> from <c>TryResolveActiveLaunch</c>); Flat otherwise -
+        /// INCLUDING re-aim units, whose <c>ReaimSchedule</c> shapes the anchor /
+        /// synodic cadence at BUILD time while the runtime index still resolves
+        /// through the uniform flat branch (see the <see cref="CycleIndexKind.Flat"/>
+        /// doc for why that is the truthful classification). Pure.
+        /// </summary>
+        internal static CycleIndexKind DeriveCycleIndexKind(GhostPlaybackLogic.LoopUnit unit)
+        {
+            return unit.RelaunchSchedule != null ? CycleIndexKind.Scheduled : CycleIndexKind.Flat;
+        }
 
         /// <summary>
         /// Resolves the route's loop-clock state at <paramref name="currentUT"/>
@@ -195,10 +287,56 @@ namespace Parsek.Logistics
             long lastObservedLoopCycleIndex,
             out long dockCycleIndex)
         {
-            dockCycleIndex = ComputeDockCycleIndex(loopUT, cycleIndex, recordedDockUT);
+            // Thin wrapper over the M-MIS-11 item 2 emitter so the pre-existing
+            // predicate shape (and its tests) stay byte-identical.
+            bool owedNow = TryGetOwedDockCrossing(
+                unit, loopUT, cycleIndex, recordedDockUT, lastObservedLoopCycleIndex,
+                out OwedDockCrossing owed);
+            dockCycleIndex = owed.DockCycleIndex;
+            return owedNow;
+        }
+
+        /// <summary>
+        /// (M-MIS-11 item 2) THE fire-once-snap-forward dock-crossing emitter.
+        /// Given the loop state (<paramref name="loopUT"/> /
+        /// <paramref name="cycleIndex"/> from <see cref="TryGetRouteLoopState"/>),
+        /// the recorded dock UT, and the consumer's last-observed/fired cycle
+        /// index, yields the owed crossing: <c>true</c> plus the newest owed dock
+        /// cycle (<see cref="OwedDockCrossing.DockCycleIndex"/>, the snap-forward
+        /// target) when a cycle whose dock instant has been reached/passed has
+        /// NOT yet been consumed; <c>false</c> otherwise (with
+        /// <see cref="OwedDockCrossing.DockCycleIndex"/> still populated for
+        /// diagnostics). Same predicate as the pre-extraction
+        /// <see cref="IsDockCrossing"/>:
+        /// <list type="bullet">
+        ///   <item><see cref="IsDockUTInSpan"/> - a dock outside the span never
+        ///     fires;</item>
+        ///   <item><see cref="ComputeDockCycleIndex"/> strictly greater than
+        ///     <paramref name="lastObservedCycleIndex"/> - the sole re-fire
+        ///     guard (covers the cadence &gt; span parked tail, where
+        ///     <c>loopUT == spanEnd &gt;= dock</c>).</item>
+        /// </list>
+        /// A warp tick that jumps N&gt;1 cycles yields ONE owed crossing for the
+        /// highest passed dock cycle; the single-stop consumer fires once and
+        /// snaps forward to it, while the multi-stop consumer feeds each stop's
+        /// owed cycle into its lowest-owed-cycle (cMin) catch-up selection. The
+        /// result also carries the cycle index's semantic
+        /// <see cref="CycleIndexKind"/> (item 3). Pure: no logging (callers own
+        /// their per-tick rate-limited summaries).
+        /// </summary>
+        internal static bool TryGetOwedDockCrossing(
+            GhostPlaybackLogic.LoopUnit unit,
+            double loopUT,
+            long cycleIndex,
+            double recordedDockUT,
+            long lastObservedCycleIndex,
+            out OwedDockCrossing owed)
+        {
+            long dockCycleIndex = ComputeDockCycleIndex(loopUT, cycleIndex, recordedDockUT);
+            owed = new OwedDockCrossing(dockCycleIndex, DeriveCycleIndexKind(unit));
             if (!IsDockUTInSpan(unit, recordedDockUT))
                 return false;
-            return dockCycleIndex > lastObservedLoopCycleIndex;
+            return dockCycleIndex > lastObservedCycleIndex;
         }
 
         /// <summary>
@@ -260,7 +398,12 @@ namespace Parsek.Logistics
             // Non-v0 paths (inter-body relaunch schedule / re-aim loiter cuts) have
             // non-uniform dock UTs; do not approximate with the uniform formula. v0
             // same-body routes carry null for both, so this never trips for them.
-            if (unit.RelaunchSchedule != null)
+            // (M-MIS-11 item 3) The schedule refusal is expressed through the typed
+            // kind: a Scheduled index has non-uniform launch UTs by definition.
+            // Kind == Flat alone is NOT sufficient (a re-aim unit is Flat but its
+            // loiter cuts make the within-cycle dock phase non-identity), hence the
+            // separate LoiterCuts gate below.
+            if (DeriveCycleIndexKind(unit) == CycleIndexKind.Scheduled)
                 return false;
             if (unit.LoiterCuts != null && unit.LoiterCuts.Count > 0)
                 return false;
