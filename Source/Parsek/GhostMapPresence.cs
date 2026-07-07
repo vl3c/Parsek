@@ -11191,7 +11191,9 @@ namespace Parsek
                     memberStartUT, memberEndUT, out double secondaryUT, out long secondaryCycle,
                     unit.RelaunchSchedule, unit.LoiterCuts,
                     unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds,
-                    unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT);
+                    unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT,
+                    unit.ArrivalJointSecondaryPeriodSeconds, unit.ArrivalJointSecondaryToleranceSeconds,
+                    unit.ArrivalJointMaxWholeHoldPeriods);
 
             if (decision != GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.Render)
             {

@@ -26,8 +26,10 @@ namespace Parsek.Reaim
     // constraint (its heliocentric SOI-entry) is EXCLUDED: arrival alignment does not care WHERE the
     // ghost crosses the destination SOI edge, only the destination configuration at entry / landing.
     // Fail-closed-to-faithful shapes: 2+ constrained moons (Jool-class, plan section 8b), and the
-    // design-D8 duals - a station combined with ANY second destination-side period (landing rotation
-    // or constrained moon) has no single arrival hold satisfying both.
+    // still-deferred design-D8 duals (station+moon, a moon-orbiting station). The landing+station
+    // dual (D8 shape a) is Supported since the post-M4c SolveArrivalWindow wiring: it is flagged
+    // IsJointLandingStation and the hold-aware joint arrival solve decides engage-vs-amber in
+    // ArrivalHoldPlanner.
     internal static class DestinationConstraintExtractor
     {
         /// <summary>
@@ -40,9 +42,12 @@ namespace Parsek.Reaim
             public List<PhaseConstraint> Constraints;
 
             /// <summary>False => fail closed to faithful (the un-aligned render) - a Jool-class
-            /// destination with more constrained moons than this phase supports, or an M4c
-            /// station-bearing dual shape (landing+station, station+moon, a moon-orbiting
-            /// station): no single arrival hold aligns two destination-side periods (D8).</summary>
+            /// destination with more constrained moons than this phase supports, or a still-deferred
+            /// M4c station-bearing dual shape (station+moon, a moon-orbiting station). The
+            /// landing+station dual (D8 shape a) is no longer refused here: it stays Supported with
+            /// <see cref="IsJointLandingStation"/> set and the JOINT arrival solve
+            /// (DestinationArrivalSolver.SolveArrivalWindow, hold-aware) decides engage-vs-amber
+            /// downstream in ArrivalHoldPlanner.</summary>
             public bool Supported;
 
             /// <summary>Why unsupported (set only when <see cref="Supported"/> is false).</summary>
@@ -71,6 +76,22 @@ namespace Parsek.Reaim
 
             /// <summary>The destination station's anchor vessel pid (logging).</summary>
             public uint StationAnchorPid;
+
+            /// <summary>The destination station's full constraint (the VesselOrbital orbiting the
+            /// target itself), so the joint arrival solve can feed it to
+            /// DestinationArrivalSolver.SolveArrivalWindow alongside <see cref="Constraints"/>. It is
+            /// deliberately NOT inside <see cref="Constraints"/> (that list's contract stays
+            /// "DestRotation + 0/1 MoonConfig, in solver order"). Null when no station orbits the
+            /// target itself.</summary>
+            public PhaseConstraint? StationConstraint;
+
+            /// <summary>D8 shape (a): a landing rotation AND a station orbiting the target itself,
+            /// with no constrained moon. The one-hold-one-period model cannot align it; the JOINT
+            /// arrival solve (station-exact hold + whole-period extension + the hold-aware window
+            /// pick) can, so the set stays Supported and ArrivalHoldPlanner routes it through
+            /// DestinationArrivalSolver. The other station-bearing duals (station+moon, a
+            /// moon-orbiting station, station-bearing Jool-class) stay fail-closed with a reason.</summary>
+            public bool IsJointLandingStation;
         }
 
         // The most constrained moons this phase handles (0 or 1). 2+ (a Jool-class mini star system)
@@ -97,7 +118,9 @@ namespace Parsek.Reaim
                 ConstrainedMoonCount = 0,
                 HasStation = false,
                 StationPeriodSeconds = double.NaN,
-                StationAnchorPid = 0
+                StationAnchorPid = 0,
+                StationConstraint = null,
+                IsJointLandingStation = false
             };
 
             DestinationConstraintCollection collected =
@@ -158,7 +181,9 @@ namespace Parsek.Reaim
                     {
                         moonStationReason =
                             "station orbits '" + c.BodyName + "', a moon of destination '" +
-                            targetBody + "': in-system station alignment deferred";
+                            targetBody + "': the joint arrival solve covers a station orbiting " +
+                            "the destination itself only; a moon-orbiting station stays " +
+                            "fail-closed (deferred)";
                         continue;
                     }
                     nonDestStations++;
@@ -217,6 +242,7 @@ namespace Parsek.Reaim
             result.HasStation = station != null || moonStationReason != null;
             result.StationPeriodSeconds = station?.PeriodSeconds ?? double.NaN;
             result.StationAnchorPid = station?.AnchorVesselPid ?? 0;
+            result.StationConstraint = station;
 
             if (moonConfigs.Count > MaxConstrainedMoons)
             {
@@ -231,28 +257,21 @@ namespace Parsek.Reaim
                 return result;
             }
 
-            // M4c fail-closed shapes (design D8 + the moon-station extension). ONE hold aligns
-            // ONE period: a destination with both a station and any other destination-side
-            // period (landing rotation, constrained moon SOI, or the station itself orbiting a
-            // moon) has no single hold satisfying all - fail closed to faithful; the reason
-            // surfaces as the UI arrival amber. Wiring SolveArrivalWindow for the joint pick is
-            // the explicitly deferred post-M4c follow-up. TransitedBodyRotationMode.Drop does
-            // NOT rescue the landing+station case: D8's letter wins; making D8 mode-aware is
-            // SolveArrivalWindow territory.
+            // M4c fail-closed shapes (design D8 + the moon-station extension), REVISED by the
+            // post-M4c SolveArrivalWindow wiring: the landing+station dual (D8 shape a) is now a
+            // JOINT candidate - Supported with IsJointLandingStation set; ArrivalHoldPlanner routes
+            // it through the hold-aware DestinationArrivalSolver, which itself fails closed (amber)
+            // when the joint geometry admits no in-tolerance window under the hold budget, and the
+            // solver's own Drop filter now makes the shape mode-aware (the sanctioned resolution of
+            // the M4c "making D8 mode-aware is SolveArrivalWindow territory" deferral). The
+            // remaining station-bearing duals stay fail-closed here with the reason as the UI
+            // arrival amber: the joint solve models exactly ONE exact-hold lattice (the station)
+            // plus one tolerance-checked second period (the rotation); a moon SOI or a
+            // moon-orbiting station adds a third coupled period it does not cover.
             if (moonStationReason != null)
             {
                 result.Supported = false;
                 result.Reason = moonStationReason;
-                result.Constraints.Clear();
-                LogExtract(targetBody, result, nonDestStations);
-                return result;
-            }
-            if (result.HasStation && result.HasLandingRotation)
-            {
-                result.Supported = false;
-                result.Reason =
-                    "landing rotation + station rendezvous at '" + (targetBody ?? "?") +
-                    "': no single arrival hold aligns both periods (deferred)";
                 result.Constraints.Clear();
                 LogExtract(targetBody, result, nonDestStations);
                 return result;
@@ -262,11 +281,16 @@ namespace Parsek.Reaim
                 result.Supported = false;
                 result.Reason =
                     "station rendezvous + constrained moon SOI at '" + (targetBody ?? "?") +
-                    "': no single arrival hold aligns both periods (deferred)";
+                    "': the joint arrival solve covers landing+station only; station+moon " +
+                    "stays fail-closed (deferred)";
                 result.Constraints.Clear();
                 LogExtract(targetBody, result, nonDestStations);
                 return result;
             }
+            // D8 shape (a): landing rotation + a station orbiting the target itself, no constrained
+            // moon (the moon rule above already returned). Stays Supported; the joint solve decides
+            // engage-vs-amber downstream.
+            result.IsJointLandingStation = result.HasStation && result.HasLandingRotation;
 
             if (destRotation != null)
                 result.Constraints.Add(destRotation.Value);
@@ -314,6 +338,7 @@ namespace Parsek.Reaim
                 " nonDestStations=" + nonDestStations.ToString(ic) +
                 " emitted=" + r.Constraints.Count +
                 " supported=" + r.Supported +
+                " jointLandingStation=" + r.IsJointLandingStation +
                 (r.Supported ? "" : " reason='" + r.Reason + "'"));
         }
     }

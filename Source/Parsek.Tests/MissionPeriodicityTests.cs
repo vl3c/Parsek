@@ -1568,26 +1568,64 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Build_ReaimWithStationAndLanding_FailsClosedWithAmber()
+        public void Build_ReaimWithStationAndLanding_Loose_EngagesJointHold()
         {
-            // M4c D8 E2E (plan test 15): a destination with BOTH a landing rotation and a
-            // station has no single hold satisfying both periods - the hold stays zero, the
-            // unit carries the amber reason, and the transition logs SET once.
+            // Post-M4c SolveArrivalWindow wiring E2E (supersedes the M4c fail-closed pin for D8
+            // shape a): under Loose (the shipped default TransitedBodyRotationMode) the
+            // landing+station dual now ENGAGES the joint hold - the 1800s station lattice
+            // reaches the 65517.86s Duna rotation's 5-degree Loose tolerance within a worst
+            // miss-run of 36 whole station periods (inside the 64 budget). The unit carries the
+            // station-exact align period + the joint secondary (rotation) fields, no amber, and
+            // the ARRIVAL HOLD line logs kind=joint with the consumed window pick.
             var tree = ReaimStationTree(withDunaLanding: true);
             var committed = new List<Recording>(tree.Recordings.Values);
             var mission = LoopMissionFor("t", 1.2e6);
 
             var set = MissionLoopUnitBuilder.Build(
-                new[] { mission }, new[] { tree }, committed, 30.0, StationFake(body: "Duna"));
+                new[] { mission }, new[] { tree }, committed, 30.0, StationFake(body: "Duna"),
+                TransitedBodyRotationMode.Loose);
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.True(unit.IsReaim);
+            Assert.True(unit.ArrivalHoldSeconds > 0.0,
+                $"expected a joint hold, got {unit.ArrivalHoldSeconds}");
+            Assert.True(unit.ArrivalHoldSeconds <= StationPeriod + 1e-9); // station-lattice base
+            Assert.Equal(StationPeriod, unit.ArrivalAlignPeriodSeconds, 9);
+            Assert.Equal(65517.86, unit.ArrivalJointSecondaryPeriodSeconds, 6);
+            Assert.Equal(65517.86 * 5.0 / 360.0, unit.ArrivalJointSecondaryToleranceSeconds, 6);
+            Assert.True(unit.ArrivalJointMaxWholeHoldPeriods > 0);
+            Assert.Null(unit.ArrivalAmberReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Reaim]") && l.Contains("ARRIVAL HOLD") &&
+                l.Contains("kind=joint") && l.Contains("dest=Duna") && l.Contains("k="));
+            Assert.DoesNotContain(logLines, l => l.Contains("Arrival amber SET"));
+        }
+
+        [Fact]
+        public void Build_ReaimWithStationAndLanding_Tight_FailsClosedWithAmber()
+        {
+            // The tolerance-miss polarity of the joint wiring: under Tight (0.25 deg -> 45.5s)
+            // the same geometry's lattice needs thousands of whole station periods (past the 64
+            // budget), so the joint solve declines - hold zero, the unit carries the amber
+            // naming the miss, and the transition logs SET once. Never a silent partial
+            // alignment.
+            var tree = ReaimStationTree(withDunaLanding: true);
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var mission = LoopMissionFor("t", 1.2e6);
+
+            var set = MissionLoopUnitBuilder.Build(
+                new[] { mission }, new[] { tree }, committed, 30.0, StationFake(body: "Duna"),
+                TransitedBodyRotationMode.Tight);
 
             Assert.True(set.TryGetUnitForMember(0, out var unit));
             Assert.True(unit.IsReaim); // the transfer still re-aims; only the arrival is faithful
             Assert.Equal(0.0, unit.ArrivalHoldSeconds);
+            Assert.True(double.IsNaN(unit.ArrivalJointSecondaryPeriodSeconds));
             Assert.NotNull(unit.ArrivalAmberReason);
-            Assert.Contains("no single arrival hold", unit.ArrivalAmberReason);
+            Assert.Contains("misses tolerance", unit.ArrivalAmberReason);
             Assert.Contains(logLines, l =>
                 l.Contains("[Reaim]") && l.Contains("Arrival amber SET") &&
-                l.Contains("tree=t") && l.Contains("no single arrival hold"));
+                l.Contains("tree=t") && l.Contains("misses tolerance"));
         }
 
         [Fact]

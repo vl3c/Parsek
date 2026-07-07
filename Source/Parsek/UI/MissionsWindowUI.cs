@@ -1595,14 +1595,18 @@ namespace Parsek
                 double delta = GhostPlaybackLogic.ComputeBoundaryOverlapAdvanceSeconds(
                     anchor, unit.SpanStartUT, unit.SpanEndUT, interval, win,
                     unit.LaunchBodyRotationPeriodSeconds, unit.LoiterCuts,
-                    unit.ArrivalHoldSeconds, unit.ArrivalAlignPeriodSeconds);
+                    unit.ArrivalHoldSeconds, unit.ArrivalAlignPeriodSeconds,
+                    unit.ArrivalHoldAtUT, unit.ArrivalJointSecondaryPeriodSeconds,
+                    unit.ArrivalJointSecondaryToleranceSeconds, unit.ArrivalJointMaxWholeHoldPeriods);
                 next = next - delta;
                 if (next < nowUT - 1e-6)
                 {
                     double deltaNext = GhostPlaybackLogic.ComputeBoundaryOverlapAdvanceSeconds(
                         anchor, unit.SpanStartUT, unit.SpanEndUT, interval, win + 1,
                         unit.LaunchBodyRotationPeriodSeconds, unit.LoiterCuts,
-                        unit.ArrivalHoldSeconds, unit.ArrivalAlignPeriodSeconds);
+                        unit.ArrivalHoldSeconds, unit.ArrivalAlignPeriodSeconds,
+                        unit.ArrivalHoldAtUT, unit.ArrivalJointSecondaryPeriodSeconds,
+                        unit.ArrivalJointSecondaryToleranceSeconds, unit.ArrivalJointMaxWholeHoldPeriods);
                     next = anchor + (win + 1) * interval - deltaNext;
                 }
             }

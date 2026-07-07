@@ -39,6 +39,22 @@ namespace Parsek.Reaim
         // free (each near-identical period yields the same ~0 phase error at the aligned k).
         internal const double PeriodEqualityRelTolerance = 1e-6;
 
+        // The joint-hold budget in whole hold-lattice periods (the M-MIS-4 post-M4c wiring for the D8
+        // landing+station dual): the per-loop arrival hold aligns the STATION period exactly and may
+        // extend by up to this many whole station periods so the landing ROTATION also lands within its
+        // mode tolerance. A constant, not a setting (the MaxExtraLoiterRevs precedent): 64 station
+        // orbits bounds the worst per-loop dead time to ~(64+1)*T_station (a few Kerbin days for an
+        // LDO-class station), negligible against a multi-year synodic cadence but a real frozen-ghost
+        // cost, so geometry needing more fails closed (amber) instead of holding for weeks.
+        internal const int MaxJointHoldWholePeriods = 64;
+
+        // Sample horizon for the joint-hold lattice feasibility scan (PlanJointHoldLattice): how many
+        // consecutive hold-lattice points the run-length check walks. Consecutive-miss runs of a circle
+        // rotation take only a few distinct lengths (three-distance-theorem structure), so a horizon
+        // this many times the budget observes every run length that occurs; an exactly commensurate
+        // ratio is periodic well within it. Build-time only, one pass, never in the clock hot path.
+        internal const int JointLatticeScanHorizon = 8192;
+
         /// <summary>
         /// The result of selecting an arrival window. Pure value: the chosen window index, the worst
         /// destination-constraint phase error at that window, whether it was within tolerance (vs the
@@ -51,6 +67,35 @@ namespace Parsek.Reaim
             public bool WithinTolerance;
             public int EffectiveConstraintCount;
             public string Method;
+
+            /// <summary>Hold-aware sampling only: the whole-hold-period extension i chosen at the
+            /// accepted window (the first-loop preview of the clock's per-loop i_N search). 0 when
+            /// hold-aware sampling is off or no extension was needed.</summary>
+            public long ChosenHoldWholePeriods;
+        }
+
+        /// <summary>
+        /// Feasibility verdict for the joint-hold lattice (the D8 landing+station dual): can EVERY
+        /// loop's arrival, station-exact by construction, be extended by at most
+        /// <see cref="MaxHoldWholePeriods"/> whole station periods so the rotation phase error is
+        /// within tolerance? Pure value from <see cref="PlanJointHoldLattice"/>.
+        /// </summary>
+        internal struct JointHoldLatticePlan
+        {
+            /// <summary>True when every scanned lattice offset reaches an in-tolerance rotation phase
+            /// within the whole-period budget - the all-loops guarantee the joint hold needs.</summary>
+            public bool Feasible;
+
+            /// <summary>The longest observed run of consecutive OUT-of-tolerance lattice points (the
+            /// worst whole-period extension any loop would need, minus the in-tolerance endpoint).</summary>
+            public int WorstMissRun;
+
+            /// <summary>The whole-period budget the scan tested against.</summary>
+            public int MaxHoldWholePeriods;
+
+            /// <summary>Upper bound on the per-loop hold under this plan:
+            /// (budget + 1) * holdPeriod (station-lattice base &lt; one period, plus the extension).</summary>
+            public double MaxHoldSeconds;
         }
 
         /// <summary>
@@ -62,9 +107,22 @@ namespace Parsek.Reaim
         /// <paramref name="windowSpacingSeconds"/> is the synodic spacing between arrival windows (the
         /// anchor period). <paramref name="destConstraints"/> are the destination-side phase constraints
         /// (a DestRotation Rotation constraint and at most one MoonConfig Orbital constraint in this
-        /// phase). <paramref name="mode"/> follows the existing Off/Loose/Precise = Drop/Loose/Tight
+        /// phase, plus - under hold-aware sampling - the destination STATION's VesselOrbital constraint).
+        /// <paramref name="mode"/> follows the existing Off/Loose/Precise = Drop/Loose/Tight
         /// ladder: Drop pre-filters the transited-body (destination) rotation constraint out here (its
-        /// body-fixed landing self-anchors); the MoonConfig (Orbital) constraint is NEVER dropped. Pure.
+        /// body-fixed landing self-anchors); the MoonConfig (Orbital) constraint is NEVER dropped.
+        ///
+        /// HOLD-AWARE SAMPLING (the M-MIS-4 post-M4c joint wiring): when
+        /// <paramref name="holdAlignPeriodSeconds"/> is a valid period, the per-window residual is no
+        /// longer sampled at the raw k*synodic offset. The per-loop arrival hold first snaps the
+        /// arrival FORWARD onto the hold lattice (the station period - that constraint becomes EXACT,
+        /// residual 0), then may extend by up to <paramref name="maxWholeHoldPeriods"/> whole hold
+        /// periods; the remaining constraints are sampled at the extended point and the smallest
+        /// in-tolerance extension i is chosen per window (mirroring the clock's per-loop i_N search).
+        /// Constraints whose period matches the hold period within
+        /// <see cref="PeriodEqualityRelTolerance"/> (the station itself, a tidally-collapsed twin)
+        /// contribute residual 0. Omitting the parameters preserves the raw-grid sampling
+        /// byte-identically. Pure.
         /// </summary>
         internal static DestinationArrivalSolve SolveArrivalWindow(
             double windowSpacingSeconds,
@@ -73,7 +131,9 @@ namespace Parsek.Reaim
             string launchBodyName,
             TransitedBodyRotationMode mode,
             long kStart,
-            int lookaheadWindows)
+            int lookaheadWindows,
+            double holdAlignPeriodSeconds = double.NaN,
+            int maxWholeHoldPeriods = 0)
         {
             var result = new DestinationArrivalSolve
             {
@@ -146,21 +206,198 @@ namespace Parsek.Reaim
                     active[i], bodyInfo, launchBodyName, mode);
             }
 
-            // The arrival window grid is synodic-spaced; choose which window k so the destination phases
-            // (sampled at k*synodic) recur to recorded within tolerance. anchorPeriod = synodic; the
-            // destination constraints are the "others".
-            MissionPeriodicity.TryFindNextScheduleK(
-                windowSpacingSeconds, periods, tolerances, kStart, lookaheadWindows,
-                out long foundK, out double residual, out bool within);
+            bool holdAware = !double.IsNaN(holdAlignPeriodSeconds)
+                && !double.IsInfinity(holdAlignPeriodSeconds)
+                && holdAlignPeriodSeconds > 0.0;
+
+            long foundK;
+            double residual;
+            bool within;
+            long chosenHoldWholePeriods = 0;
+            if (holdAware)
+            {
+                ScanHoldAwareWindows(
+                    windowSpacingSeconds, periods, tolerances,
+                    holdAlignPeriodSeconds, maxWholeHoldPeriods, kStart, lookaheadWindows,
+                    out foundK, out chosenHoldWholePeriods, out residual, out within);
+            }
+            else
+            {
+                // The arrival window grid is synodic-spaced; choose which window k so the destination
+                // phases (sampled at k*synodic) recur to recorded within tolerance. anchorPeriod =
+                // synodic; the destination constraints are the "others".
+                MissionPeriodicity.TryFindNextScheduleK(
+                    windowSpacingSeconds, periods, tolerances, kStart, lookaheadWindows,
+                    out foundK, out residual, out within);
+            }
 
             result.ChosenWindowK = foundK;
             result.ResidualSeconds = residual;
             result.WithinTolerance = within;
             result.EffectiveConstraintCount = CountEffectiveConstraints(active, PeriodEqualityRelTolerance);
-            result.Method = ClassifyMethod(active.Count, result.EffectiveConstraintCount, within);
+            result.Method = ClassifyMethod(active.Count, result.EffectiveConstraintCount, within, holdAware);
+            result.ChosenHoldWholePeriods = chosenHoldWholePeriods;
 
             LogSolve(destConstraints, result, mode, lookaheadWindows, droppedRotation, skippedDegenerate);
             return result;
+        }
+
+        // The hold-aware per-window scan (the joint-hold twin of TryFindNextScheduleK's base scan,
+        // reusing CircularPhaseError and the same accept-first / bounded-best shape). Per window k the
+        // pre-hold offset is delta = k*windowSpacing; the hold snaps it FORWARD to the hold lattice
+        // (wBase = (-delta) mod holdPeriod, so the held constraint is exact) and may extend by i whole
+        // hold periods; the non-held constraints are evaluated at delta + wBase + i*holdPeriod and the
+        // smallest in-tolerance i wins. Held-period constraints (period == holdPeriod within
+        // PeriodEqualityRelTolerance) contribute 0 by construction and are skipped.
+        private static void ScanHoldAwareWindows(
+            double windowSpacingSeconds,
+            double[] periods, double[] tolerances,
+            double holdPeriodSeconds, int maxWholeHoldPeriods,
+            long kStart, int lookaheadWindows,
+            out long foundK, out long foundHoldWholePeriods,
+            out double residualSeconds, out bool withinTolerance)
+        {
+            long bestK = kStart;
+            long bestI = 0;
+            double bestResidual = double.PositiveInfinity;
+            if (maxWholeHoldPeriods < 0)
+                maxWholeHoldPeriods = 0;
+
+            for (int step = 0; step < lookaheadWindows; step++)
+            {
+                long k = kStart + step;
+                double delta = k * windowSpacingSeconds;
+                // Forward snap onto the hold lattice: the smallest W >= 0 with (delta + W) a whole
+                // multiple of the hold period. Same normalization as ComputeArrivalAlignHoldSeconds.
+                double wBase = (-delta) % holdPeriodSeconds;
+                if (wBase < 0.0)
+                    wBase += holdPeriodSeconds;
+
+                long chosenI = 0;
+                double worstAtChosen = double.PositiveInfinity;
+                bool iWithin = false;
+                for (long i = 0; i <= maxWholeHoldPeriods && !iWithin; i++)
+                {
+                    double sample = delta + wBase + i * holdPeriodSeconds;
+                    double worst = 0.0;
+                    bool allWithin = true;
+                    for (int j = 0; j < periods.Length; j++)
+                    {
+                        if (IsHeldPeriod(periods[j], holdPeriodSeconds))
+                            continue; // exact by the hold, residual 0
+                        double err = MissionPeriodicity.CircularPhaseError(sample, periods[j]);
+                        if (err > worst)
+                            worst = err;
+                        if (err > tolerances[j])
+                            allWithin = false;
+                    }
+                    if (allWithin)
+                    {
+                        chosenI = i;
+                        worstAtChosen = worst;
+                        iWithin = true;
+                        break;
+                    }
+                    if (worst < worstAtChosen)
+                    {
+                        worstAtChosen = worst;
+                        chosenI = i;
+                    }
+                }
+
+                if (iWithin)
+                {
+                    foundK = k;
+                    foundHoldWholePeriods = chosenI;
+                    residualSeconds = worstAtChosen;
+                    withinTolerance = true;
+                    return;
+                }
+                if (worstAtChosen < bestResidual)
+                {
+                    bestResidual = worstAtChosen;
+                    bestK = k;
+                    bestI = chosenI;
+                }
+            }
+
+            // No window in the horizon admits an in-tolerance joint arrival under the budget: the
+            // bounded-best (min worst-residual) window, mirroring TryFindNextScheduleK's fallback.
+            foundK = bestK;
+            foundHoldWholePeriods = bestI;
+            residualSeconds = double.IsPositiveInfinity(bestResidual) ? 0.0 : bestResidual;
+            withinTolerance = false;
+        }
+
+        private static bool IsHeldPeriod(double period, double holdPeriodSeconds)
+        {
+            return Math.Abs(period - holdPeriodSeconds)
+                <= PeriodEqualityRelTolerance * Math.Max(1.0, holdPeriodSeconds);
+        }
+
+        /// <summary>
+        /// Feasibility of the joint-hold lattice for the D8 landing+station dual: per replayed loop the
+        /// arrival hold lands the offset on SOME whole multiple m of the station period (station phase
+        /// exact), then extends by i whole station periods (i &lt;= <paramref name="maxWholeHoldPeriods"/>)
+        /// until the rotation phase error is within <paramref name="secondaryToleranceSeconds"/>. The
+        /// loop index makes m effectively arbitrary, so the all-loops guarantee is a RUN-LENGTH bound on
+        /// the lattice orbit <c>m*holdPeriod mod secondaryPeriod</c>: every run of consecutive
+        /// out-of-tolerance lattice points observed over <see cref="JointLatticeScanHorizon"/> samples
+        /// must fit inside the whole-period budget. Reuses <see cref="MissionPeriodicity.CircularPhaseError"/>
+        /// per sample (the near-coincidence residual metric); this is the coverage twin of the
+        /// zero-drift near-coincidence scan, not new window math. Degenerate inputs are infeasible.
+        /// Pure; build-time only.
+        /// </summary>
+        internal static JointHoldLatticePlan PlanJointHoldLattice(
+            double holdPeriodSeconds,
+            double secondaryPeriodSeconds,
+            double secondaryToleranceSeconds,
+            int maxWholeHoldPeriods)
+        {
+            var plan = new JointHoldLatticePlan
+            {
+                Feasible = false,
+                WorstMissRun = int.MaxValue,
+                MaxHoldWholePeriods = maxWholeHoldPeriods,
+                MaxHoldSeconds = double.NaN,
+            };
+            if (double.IsNaN(holdPeriodSeconds) || double.IsInfinity(holdPeriodSeconds)
+                || holdPeriodSeconds <= 0.0)
+                return plan;
+            if (double.IsNaN(secondaryPeriodSeconds) || double.IsInfinity(secondaryPeriodSeconds)
+                || secondaryPeriodSeconds <= 0.0)
+                return plan;
+            if (double.IsNaN(secondaryToleranceSeconds) || secondaryToleranceSeconds < 0.0
+                || maxWholeHoldPeriods < 0)
+                return plan;
+
+            // Walk the lattice orbit and record the longest run of consecutive misses. The run that is
+            // OPEN at the horizon end is counted too (conservative: a longer real run can only start
+            // inside the horizon with this many misses already seen).
+            int worstRun = 0;
+            int currentRun = 0;
+            for (int m = 0; m < JointLatticeScanHorizon; m++)
+            {
+                double err = MissionPeriodicity.CircularPhaseError(
+                    m * holdPeriodSeconds, secondaryPeriodSeconds);
+                if (err > secondaryToleranceSeconds)
+                {
+                    currentRun++;
+                    if (currentRun > worstRun)
+                        worstRun = currentRun;
+                }
+                else
+                {
+                    currentRun = 0;
+                }
+            }
+
+            plan.WorstMissRun = worstRun;
+            // A loop landing at the START of the worst miss-run needs `worstRun` whole-period steps to
+            // reach the in-tolerance point just past it, so the budget must cover worstRun steps.
+            plan.Feasible = worstRun <= maxWholeHoldPeriods;
+            plan.MaxHoldSeconds = (maxWholeHoldPeriods + 1) * holdPeriodSeconds;
+            return plan;
         }
 
         /// <summary>
@@ -197,13 +434,15 @@ namespace Parsek.Reaim
 
         // Topology label for the summary log. The within/bounded-best outcome is appended so a single
         // tag carries both the constraint shape and whether the chosen window was actually in band.
-        private static string ClassifyMethod(int activeCount, int effectiveCount, bool within)
+        // Hold-aware sampling relabels the genuine multi-constraint case "joint-hold" (the station-exact
+        // + whole-period-extension model); the collapsed cases keep their existing labels.
+        private static string ClassifyMethod(int activeCount, int effectiveCount, bool within, bool holdAware = false)
         {
             string topology;
             if (effectiveCount <= 1)
                 topology = activeCount > effectiveCount ? "tidal-collapse" : "single-constraint";
             else
-                topology = "joint-best-fit";
+                topology = holdAware ? "joint-hold" : "joint-best-fit";
             return within ? topology : topology + "/bounded-best";
         }
 
@@ -223,6 +462,7 @@ namespace Parsek.Reaim
                 $"arrival-solve dest={destBody} k={r.ChosenWindowK} " +
                 $"residual={r.ResidualSeconds.ToString("R", ic)}s within={r.WithinTolerance} " +
                 $"mode={mode} effConstraints={r.EffectiveConstraintCount} method={r.Method} " +
+                $"holdI={r.ChosenHoldWholePeriods.ToString(ic)} " +
                 $"scanned={lookaheadWindows} droppedRot={droppedRotation} skippedDegenerate={skippedDegenerate}");
         }
 

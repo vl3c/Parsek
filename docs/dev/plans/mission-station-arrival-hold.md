@@ -416,6 +416,10 @@ Validation is the maintainer's cross-parent playtest save (station in Mun or Dun
   DestinationArrivalSolver precedent).
 - **D8 widening to station+moon (3.2)** - same rationale, same fail-closed direction;
   reviewer sanity-check.
+- **RESOLVED by the post-M4c follow-up (2026-07-07, branch `mmis4-solve-arrival-window`):**
+  the alignment-LOSING landing+station flip below is closed - the D8 dual now takes the
+  JOINT arrival hold (SolveArrivalWindow wired; see the design doc D8 row and the M-MIS-4
+  entry in todo-and-known-bugs.md).
 - **Existing-save behavior flip:** previously-rejected cross-parent station missions
   start aligning (schedule or hold) after this change. Intended (the milestone's
   purpose); fail-closed shapes keep today's behavior; first play untouched. ONE
