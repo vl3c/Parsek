@@ -223,17 +223,51 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
+        public void FormatRejectMessage_MidRecordingStartTrim_NamesOriginDock()
+        {
+            // catches (M-MIS-5 P2a): the shuttle-family rejection copy dropping
+            // the recognized origin-dock detail, or regressing the two pinned
+            // phrases ("starts between two docks", "not supported yet") the
+            // near-miss surface asserts on. The detail-carrying overload embeds
+            // the docked-origin moment; the detail-less call renders without an
+            // empty "()".
+            string detail = RouteAnalysisEngine.FormatStartTrimShuttleDetail(100.0);
+            string msg = RouteCreationFormatters.FormatRejectMessage(
+                RouteAnalysisStatus.MidRecordingStartTrimUnsupported, detail);
+
+            Assert.Contains("starts between two docks", msg);
+            Assert.Contains("(docked origin recorded at UT 100)", msg);
+            Assert.Contains("not supported yet", msg);
+            // The workflow fixes stay named (M6 legibility: every rejected
+            // route says why and what to do instead).
+            Assert.Contains("docked at the origin depot", msg);
+            Assert.Contains("launch it from KSC", msg);
+
+            string withoutDetail = RouteCreationFormatters.FormatRejectMessage(
+                RouteAnalysisStatus.MidRecordingStartTrimUnsupported);
+            Assert.DoesNotContain("()", withoutDetail);
+            Assert.Contains("starts between two docks", withoutDetail);
+
+            // copy guardrail: plain ASCII only (project hard rule).
+            foreach (char c in msg)
+                Assert.True(c < 128,
+                    "Reject copy must be plain ASCII (found non-ASCII char)");
+        }
+
+        [Fact]
         public void FormatRejectMessage_DetailOverload_OtherStatusesUnchanged()
         {
             // catches: the detail overload accidentally injecting the detail
             // into statuses that carry no quantity - every other status must
             // render byte-identically with and without a detail argument.
-            // UntrackedCargoGain and FlowDoesNotClose are the two detail-carrying
-            // statuses (M2 and M3 respectively).
+            // UntrackedCargoGain, FlowDoesNotClose, and
+            // MidRecordingStartTrimUnsupported are the three detail-carrying
+            // statuses (M2, M3, and M-MIS-5 P2a respectively).
             foreach (RouteAnalysisStatus status in Enum.GetValues(typeof(RouteAnalysisStatus)))
             {
                 if (status == RouteAnalysisStatus.UntrackedCargoGain ||
-                    status == RouteAnalysisStatus.FlowDoesNotClose)
+                    status == RouteAnalysisStatus.FlowDoesNotClose ||
+                    status == RouteAnalysisStatus.MidRecordingStartTrimUnsupported)
                     continue;
                 Assert.Equal(
                     RouteCreationFormatters.FormatRejectMessage(status),

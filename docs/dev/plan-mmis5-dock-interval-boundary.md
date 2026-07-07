@@ -1,7 +1,9 @@
 # Plan: M-MIS-5 - Dock as an interval boundary + docked composition counts (START-TRIM-ONLY)
 
 Status: RATIFIED (review-folded); P1 IMPLEMENTED 2026-07-04 on branch
-`mmis5-dock-boundary` (P2a / P2b remain). All file:line
+`mmis5-dock-boundary`; P2a IMPLEMENTED 2026-07-07 (detector at BOTH
+undocked-start gates per verdict C6, signals `preceding-window` +
+`mid-tree-origin-proof`; P2b remains). All file:line
 references verified against `main @ 7db479d94` (2026-07-04). Roadmap entry:
 `docs/dev/todo-and-known-bugs.md:455-460` (M-MIS-5) + `:1660-1668` (gaps 1+2);
 design doc: `docs/parsek-missions-design.md:409-410` (section 14.2).
