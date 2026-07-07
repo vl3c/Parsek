@@ -23,6 +23,7 @@ All notable changes to Parsek are documented here.
 
 ### Internals & Tests
 
+- The logistics legibility milestone (M6) is complete. Supply route recovery credits keep their fixed one-interval delay by decision (the evaluated per-run landing clock was ruled out: its timing drift is bounded per cycle and totals zero, so the simpler behavior is permanent).
 - Loop-unit API hardening on the Missions-to-Logistics seam, with no behavior change: supply routes now cache their built loop unit (rebuilt only when an input actually changes, instead of re-running the full builder pipeline every orchestrator tick and countdown call), the fire-once dock-crossing detection is centralized in one shared emitter, and the loop cycle index carries an explicit flat-vs-scheduled type so consumers cannot misread one as the other. Route firing, replay keys, escrow, and ledger rows are unchanged.
 
 ## 0.10.2
