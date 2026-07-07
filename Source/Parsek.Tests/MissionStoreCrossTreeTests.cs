@@ -173,6 +173,82 @@ namespace Parsek.Tests
             Assert.True(b.LoopPlayback);
         }
 
+        [Fact]
+        public void Reconcile_ParkedTreeUncommitted_DefersLinkAndKeyDrop()
+        {
+            // The linked FOREIGN tree may be a parked (Limbo / restored-later) tree; while any
+            // parked tree is uncommitted, the link + this mission's interval-key stale-drop
+            // are deferred so the selection is never permanently lost mid-OnLoad.
+            var tb = CrossTreeDockFixture.PartnerTree();
+            var m = AddMission("m1", "tb", "B mission");
+            m.IncludedForeignDockLinkIds.Add(CrossTreeDockFixture.DockBpId);
+            m.ExcludedIntervalKeys.Add("B1");
+
+            int removed = MissionStore.ReconcileSelections(
+                new List<RecordingTree> { tb },
+                additionalLiveTreeIds: new[] { "ta" });
+
+            Assert.Equal(0, removed);
+            Assert.Contains(CrossTreeDockFixture.DockBpId, m.IncludedForeignDockLinkIds);
+            Assert.Contains("B1", m.ExcludedIntervalKeys);
+            Assert.Contains(logLines, l => l.Contains("[Mission]")
+                && l.Contains("deferred cross-tree link reconcile"));
+        }
+
+        [Fact]
+        public void NormalizeOneLoopPerTree_SpannedSets_ClearsCrossTreeConflict()
+        {
+            var tb = CrossTreeDockFixture.PartnerTree();
+            var ta = CrossTreeDockFixture.ControllerTree();
+            var trees = new List<RecordingTree> { tb, ta };
+            var node = new ConfigNode("PARSEK");
+            var mA = new Mission("ma", "ta", "A mission") { LoopPlayback = true };
+            var mB = new Mission("mb", "tb", "B mission") { LoopPlayback = true };
+            mB.IncludedForeignDockLinkIds.Add(CrossTreeDockFixture.DockBpId);
+            mA.Save(node.AddNode("MISSION"));
+            mB.Save(node.AddNode("MISSION"));
+            MissionStore.Load(node);
+
+            // Without trees: legacy per-tree rule keeps both (distinct TreeIds).
+            Assert.Equal(0, MissionStore.NormalizeOneLoopPerTree());
+
+            // With trees: mb's spanned set {tb, ta} intersects ma's {ta}; ma is first in list
+            // order so mb is cleared.
+            int cleared = MissionStore.NormalizeOneLoopPerTree(trees);
+            Assert.Equal(1, cleared);
+            Assert.True(MissionStore.Missions.First(x => x.Id == "ma").LoopPlayback);
+            Assert.False(MissionStore.Missions.First(x => x.Id == "mb").LoopPlayback);
+        }
+
+        [Fact]
+        public void ClearLoopsConflictingWith_ClearsForeignTreeLoop_KeepsTargetUntouched()
+        {
+            // The Missions-window link toggle calls this when a link is included on an
+            // already-looping mission: the foreign tree's loop clears, the target keeps its
+            // loop state and anchor.
+            var tb = CrossTreeDockFixture.PartnerTree();
+            var ta = CrossTreeDockFixture.ControllerTree();
+            var trees = new List<RecordingTree> { tb, ta };
+            var node = new ConfigNode("PARSEK");
+            var mA = new Mission("ma", "ta", "A mission") { LoopPlayback = true };
+            var mB = new Mission("mb", "tb", "B mission") { LoopPlayback = true, LoopAnchorUT = 42.0 };
+            mB.IncludedForeignDockLinkIds.Add(CrossTreeDockFixture.DockBpId);
+            mA.Save(node.AddNode("MISSION"));
+            mB.Save(node.AddNode("MISSION"));
+            MissionStore.Load(node);
+            Mission a = MissionStore.Missions.First(x => x.Id == "ma");
+            Mission b = MissionStore.Missions.First(x => x.Id == "mb");
+
+            MissionStore.ClearLoopsConflictingWith(b, trees, out int same, out int cross,
+                "PartnerJourneyInclude");
+
+            Assert.Equal(0, same);
+            Assert.Equal(1, cross);
+            Assert.False(a.LoopPlayback);
+            Assert.True(b.LoopPlayback);
+            Assert.Equal(42.0, b.LoopAnchorUT);
+        }
+
         // ---- codec ----
 
         [Fact]
@@ -189,6 +265,21 @@ namespace Parsek.Tests
             Assert.Equal(2, loaded.IncludedForeignDockLinkIds.Count);
             Assert.Contains("link-1", loaded.IncludedForeignDockLinkIds);
             Assert.Contains("link-2", loaded.IncludedForeignDockLinkIds);
+        }
+
+        [Fact]
+        public void Save_ForeignDockLinks_WrittenSorted()
+        {
+            var m = new Mission("m1", "tb", "B mission");
+            m.IncludedForeignDockLinkIds.Add("z-link");
+            m.IncludedForeignDockLinkIds.Add("a-link");
+            m.IncludedForeignDockLinkIds.Add("m-link");
+
+            var node = new ConfigNode("MISSION");
+            m.Save(node);
+
+            var links = new List<string>(node.GetValues("foreignDockLink"));
+            Assert.Equal(new[] { "a-link", "m-link", "z-link" }, links);
         }
 
         [Fact]

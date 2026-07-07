@@ -536,10 +536,15 @@ namespace Parsek
                 bool prevCompSuppress = MissionCompositionBuilder.SuppressLogging;
                 bool prevPeriodicitySuppress = MissionPeriodicity.SuppressLogging;
                 bool prevLoopSuppress = MissionLoopUnitBuilder.SuppressLogging;
+                bool prevCrossTreeSuppress = MissionCrossTreeDock.SuppressLogging;
                 MissionStructureBuilder.SuppressLogging = true;
                 MissionCompositionBuilder.SuppressLogging = true;
                 MissionPeriodicity.SuppressLogging = true;
                 MissionLoopUnitBuilder.SuppressLogging = true;
+                // M-MIS-8: Build resolves cross-tree dock links for linked looping missions,
+                // so the fifth pipeline flag must be gated too or the FindLinks / journey /
+                // member-merge Verbose lines flood once per frame.
+                MissionCrossTreeDock.SuppressLogging = true;
                 try
                 {
                     loopUnitSetCache = MissionLoopUnitBuilder.Build(
@@ -553,6 +558,7 @@ namespace Parsek
                     MissionCompositionBuilder.SuppressLogging = prevCompSuppress;
                     MissionPeriodicity.SuppressLogging = prevPeriodicitySuppress;
                     MissionLoopUnitBuilder.SuppressLogging = prevLoopSuppress;
+                    MissionCrossTreeDock.SuppressLogging = prevCrossTreeSuppress;
                 }
                 loopUnitSetCacheFrame = frame;
             }
@@ -772,7 +778,18 @@ namespace Parsek
         {
             if (!journeyLegsCache.TryGetValue(link.LinkId, out List<string> legs))
             {
-                legs = MissionCrossTreeDock.ComputePartnerJourneyLegIds(foreignTree, link);
+                // Per-frame derivation: suppress the walk's Verbose summary (same rationale as
+                // GetForeignDockLinks above).
+                bool prev = MissionCrossTreeDock.SuppressLogging;
+                MissionCrossTreeDock.SuppressLogging = true;
+                try
+                {
+                    legs = MissionCrossTreeDock.ComputePartnerJourneyLegIds(foreignTree, link);
+                }
+                finally
+                {
+                    MissionCrossTreeDock.SuppressLogging = prev;
+                }
                 journeyLegsCache[link.LinkId] = legs;
             }
             return legs;
@@ -807,6 +824,13 @@ namespace Parsek
                         $"Mission '{mission.Name}' partner journey link={link.LinkId} " +
                         $"(foreign tree={link.ForeignTreeId}, vessel='{link.ForeignVesselName}') " +
                         $"included={toggled}");
+                    // Including a link on an ALREADY-LOOPING mission widens its spanned tree
+                    // set, which can newly conflict with a loop on the foreign tree; clear the
+                    // conflict now (SetLoopEnabled only runs this on loop-enable).
+                    if (toggled && mission.LoopPlayback)
+                        MissionStore.ClearLoopsConflictingWith(mission,
+                            RecordingStore.CommittedTrees, out int _, out int _,
+                            "PartnerJourneyInclude");
                     included = toggled;
                 }
 
@@ -849,6 +873,8 @@ namespace Parsek
                     foreignStructure, foreignView, journeySet);
                 for (int r = 0; r < foreignRoots.Count; r++)
                     rows += DrawMaximalJourneyNodes(foreignRoots[r], mission, journeyWindows, 2);
+                // (journey leg derivation is suppressed + per-frame cached in GetJourneyLegIds;
+                // ComputeJourneyWindowsByOwner emits no diagnostics.)
             }
             return rows;
         }
@@ -857,7 +883,7 @@ namespace Parsek
         // journey node whose ancestors are not journey nodes) - typically the docked-stretch
         // sub-interval and the partner's post-undock offshoot branch. Returns rows drawn.
         private int DrawMaximalJourneyNodes(MissionCompositionNode node, Mission mission,
-            IReadOnlyDictionary<string, MissionIntervalSelection.RenderWindow> journeyWindows,
+            IReadOnlyDictionary<string, List<MissionIntervalSelection.RenderWindow>> journeyWindows,
             int depth)
         {
             if (node == null)
@@ -875,7 +901,7 @@ namespace Parsek
         // into children that are themselves journey nodes or roster atoms - the foreign
         // vessel's own pre-dock / post-departure intervals never render here. Returns rows.
         private int DrawForeignJourneyNode(MissionCompositionNode node, Mission mission,
-            IReadOnlyDictionary<string, MissionIntervalSelection.RenderWindow> journeyWindows,
+            IReadOnlyDictionary<string, List<MissionIntervalSelection.RenderWindow>> journeyWindows,
             int depth, bool isLast)
         {
             var drawChildren = new List<MissionCompositionNode>();

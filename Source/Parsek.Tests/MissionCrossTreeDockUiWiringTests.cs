@@ -36,6 +36,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LinkToggle_ClearsConflictingLoops_WhenIncludedOnLoopingMission()
+        {
+            string src = ReadMissionsWindowSource();
+
+            int add = src.IndexOf(
+                "mission.IncludedForeignDockLinkIds.Add(link.LinkId);", StringComparison.Ordinal);
+            Assert.True(add >= 0, "partner-journey include mutation site not found");
+            int clear = src.IndexOf(
+                "MissionStore.ClearLoopsConflictingWith(mission,", add, StringComparison.Ordinal);
+            Assert.True(clear >= 0 && clear - add < 900,
+                "including a link on a looping mission must clear conflicting loops " +
+                "(spanned-set rule) in the same toggle block");
+        }
+
+        [Fact]
         public void LoopToggle_PassesCommittedTreesForSpannedSetClearing()
         {
             string src = ReadMissionsWindowSource();

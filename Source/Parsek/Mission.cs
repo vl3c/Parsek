@@ -124,9 +124,17 @@ namespace Parsek
                 node.AddValue("excludedInterval", k ?? "");
             // M-MIS-8: SPARSE - written only when a link is included, so every pre-existing
             // (link-free) mission's save output is byte-identical to pre-feature builds.
-            foreach (string l in IncludedForeignDockLinkIds)
-                if (!string.IsNullOrEmpty(l))
-                    node.AddValue("foreignDockLink", l);
+            // Sorted: HashSet enumeration order is nondeterministic, and an unsorted write
+            // would churn the save bytes of a LINKED mission across sessions with no logical
+            // change.
+            if (IncludedForeignDockLinkIds.Count > 0)
+            {
+                var links = new List<string>(IncludedForeignDockLinkIds);
+                links.Sort(StringComparer.Ordinal);
+                for (int i = 0; i < links.Count; i++)
+                    if (!string.IsNullOrEmpty(links[i]))
+                        node.AddValue("foreignDockLink", links[i]);
+            }
         }
 
         public static Mission Load(ConfigNode node)

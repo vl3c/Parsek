@@ -42,7 +42,8 @@ else about the link - which tree it lives in, the dock UT, which of my recording
 which foreign legs form the partner journey - is DERIVED live by the same PID+guid matching
 playback uses. Empty set = today's behavior exactly; the codec writes the key only when the
 set is non-empty, so every pre-existing mission round-trips byte-identically (pinned by
-tests).
+tests). Linked missions write the key SORTED (HashSet enumeration order is
+nondeterministic; unsorted writes would churn save bytes with no logical change).
 
 Rejected alternatives:
 
@@ -72,7 +73,7 @@ New pure static class `MissionCrossTreeDock` (walker-parity derivation, headless
   Scan every OTHER committed tree's BranchPoints for Dock/Board with a non-zero
   `TargetVesselPersistentId` that matches a recording in MY tree by pid, guid-gated
   (unknown guid falls back to pid-only, walker semantics).
-- `ComputePartnerJourneyLegIds(foreignStructure, link)` -> the ordered leg ids in the
+- `ComputePartnerJourneyLegIds(foreignTree, link)` -> the ordered leg ids in the
   foreign tree that carry my vessel: start at the merged child, walk the continuation
   (sequence next / branch-continuation child); at each fork PREFER the child whose
   `VesselPersistentId` matches the partner pid (guid-gated) - that is the partner departing
@@ -86,7 +87,12 @@ New pure static class `MissionCrossTreeDock` (walker-parity derivation, headless
 
 **Interval selection**: the partner journey's selectable intervals come from the FOREIGN
 tree's own composition (`MissionCompositionBuilder` over its structure), filtered to nodes
-whose interval lies on the journey legs. Interval keys are recording-GUID-rooted
+whose interval lies inside a journey WINDOW. Windows are derived PER CONTIGUOUS RUN of
+journey legs along each foreign through-line (review fix): a partner that undocks and later
+RE-DOCKS the same line contributes two disjoint docked stretches, and a single [min,max]
+window would wrongly offer the foreign vessel's solo stretch between them as partner
+journey. Claims never match DEBRIS recordings (craft-baked pid collisions on guid-less
+debris would otherwise mint false affordances). Interval keys are recording-GUID-rooted
 (`<headLegId>`, `<head>/segN`, `<parent>@dockM`), hence globally unique across trees, so
 exclusions across the seam live in the SAME `Mission.ExcludedIntervalKeys` set - no second
 exclusion namespace.
@@ -123,14 +129,12 @@ member joined the unit, with a logged reason (`Info`, signature-gated builds):
 the faithful base anchor + raw cadences. The deliverable is the SELECTION + RENDER
 capability; phase-lock across trees is future work.
 
-**One-loop-per-tree**: a cross-tree unit's members overlap the foreign tree's committed
-indices, so a concurrently looping mission on the foreign tree would collide.
-`MissionStore.SetLoopEnabled` gains an optional `trees` parameter: when provided, enabling a
-loop also clears looping missions whose SPANNED tree set (own tree + linked foreign trees)
-intersects the target's spanned set (logged). Builder-side owner/member collision handling
-(first claimant wins + warn) stays as the safety net for saves that bypass it
-(`NormalizeOneLoopPerTree` keeps its per-own-tree rule; the builder warn covers the residual
-cross case).
+**One-loop-per-tree** generalizes to SPANNED tree sets (own tree + linked foreign trees),
+enforced at three sites (review fix closed the gaps): `MissionStore.SetLoopEnabled(trees)`
+on enable, `NormalizeOneLoopPerTree(trees)` after load (first in list order wins), and the
+Missions-window link toggle (including a link on an ALREADY-LOOPING mission widens its span,
+so it calls `ClearLoopsConflictingWith` immediately). Builder-side owner/member collision
+handling (first claimant wins + warn) stays as the final safety net.
 
 **BuildSignature**: folds in each looping mission's sorted `IncludedForeignDockLinkIds` and
 each linked foreign tree's BranchPoints/Recordings counts, so link edits and foreign-tree
@@ -143,7 +147,12 @@ topology changes rebuild the cached unit.
   point gone, claim no longer matches) - warn, same pattern as stale head/interval ids;
   (b) the valid-interval-key set for a mission = own tree's selectable keys UNION each
   surviving included link's journey selectable keys, so cross-seam exclusions are not
-  wrongly dropped as stale.
+  wrongly dropped as stale; (c) while any PARKED tree (quickload-resume Limbo node restored
+  later in the same OnLoad - the population PruneOrphans already protects via
+  additionalLiveTreeIds) is uncommitted, the link drop AND the linked missions'
+  interval-key stale-drop are DEFERRED wholesale (review fix: the parked tree may be the
+  link's foreign tree, and a stale link id does not name its tree, so dropping early would
+  permanently lose the player's selection - the Limbo data-loss class).
 - `Clone`: copies `IncludedForeignDockLinkIds` (definition-only copy, unchanged contract).
 - `CanDelete` / `Delete` / `FindOriginalMission` / `EnsureDefaultsForTrees` /
   `MissionGroupLink`: unchanged. The mission name syncs to its OWN tree's root group only;

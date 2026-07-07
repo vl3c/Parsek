@@ -122,6 +122,28 @@ namespace Parsek.Tests
             return Tree("ta", recs.ToArray(), bps.ToArray());
         }
 
+        // Controller tree ta with a RE-DOCK: A [0..150] -> Dock(B) -> AB [150..300] ->
+        // Undock -> { A1 [300..320], B1 [300..320] } -> Dock (two-parent same-tree merge)
+        // -> AB2 [320..400]. A's line carries TWO disjoint docked stretches with A's solo
+        // stretch [300..320] between them.
+        internal static RecordingTree ControllerTreeWithRedock()
+        {
+            var ta = ControllerTree();
+            var a1 = ta.Recordings["A1"];
+            var b1 = ta.Recordings["B1"];
+            a1.ExplicitEndUT = 320;
+            b1.ExplicitEndUT = 320;
+            a1.ChildBranchPointId = "dock2";
+            b1.ChildBranchPointId = "dock2";
+            var ab2 = Rec("AB2", PidA, GuidA, "CAB2", 0, 320, 400,
+                pods: 1, probes: 1, parentBp: "dock2", vessel: "Stack AB2");
+            ab2.TreeId = ta.Id;
+            ta.Recordings["AB2"] = ab2;
+            ta.BranchPoints.Add(BP("dock2", BranchPointType.Dock, 320,
+                new[] { "A1", "B1" }, new[] { "AB2" }, mergeCause: "DOCK"));
+            return ta;
+        }
+
         // Committed list spanning both trees: [B0, A0, AB, (A1, B1)].
         internal static List<Recording> Committed(RecordingTree tb, RecordingTree ta)
         {
@@ -301,14 +323,14 @@ namespace Parsek.Tests
 
             var windows = MissionCrossTreeDock.ComputeJourneyWindowsByOwner(structure, view, journey);
 
-            // Two owners: A's line (window = the docked stretch only) and B's offshoot.
+            // Two owners: A's line (one run = the docked stretch only) and B's offshoot.
             Assert.Equal(2, windows.Count);
-            Assert.True(windows.ContainsKey("A0"));
-            Assert.Equal(CrossTreeDockFixture.DockUT, windows["A0"].StartUT);
-            Assert.Equal(CrossTreeDockFixture.UndockUT, windows["A0"].EndUT);
-            Assert.True(windows.ContainsKey("B1"));
-            Assert.Equal(CrossTreeDockFixture.UndockUT, windows["B1"].StartUT);
-            Assert.Equal(380, windows["B1"].EndUT);
+            var aRun = Assert.Single(windows["A0"]);
+            Assert.Equal(CrossTreeDockFixture.DockUT, aRun.StartUT);
+            Assert.Equal(CrossTreeDockFixture.UndockUT, aRun.EndUT);
+            var bRun = Assert.Single(windows["B1"]);
+            Assert.Equal(CrossTreeDockFixture.UndockUT, bRun.StartUT);
+            Assert.Equal(380, bRun.EndUT);
         }
 
         [Fact]
@@ -526,6 +548,68 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("[Mission]")
                 && l.Contains("cross-tree partner-journey member(s)")
                 && l.Contains("fail closed"));
+        }
+
+        [Fact]
+        public void FindLinks_DebrisPidCollision_Declined()
+        {
+            // A guid-less DEBRIS recording carrying the claimed pid must not mint a partner
+            // journey (pids are craft-baked; the debris is an unrelated launch).
+            var tb = CrossTreeDockFixture.Tree("tb", new[]
+            {
+                CrossTreeDockFixture.Rec("B0", CrossTreeDockFixture.PidB, null,
+                    "CB", 0, 0, 100, debris: true),
+            });
+            var ta = CrossTreeDockFixture.ControllerTree();
+
+            Assert.Empty(MissionCrossTreeDock.FindLinks(tb, new List<RecordingTree> { tb, ta }));
+        }
+
+        [Fact]
+        public void Journey_Redock_SoloStretchIsNotOffered_TwoRunsOnForeignLine()
+        {
+            // Undock then RE-DOCK: A's line carries two disjoint docked stretches; the solo
+            // stretch [300..320] between them is NOT partner journey (per-run windows, not
+            // a min/max collapse).
+            var tb = CrossTreeDockFixture.PartnerTree();
+            var ta = CrossTreeDockFixture.ControllerTreeWithRedock();
+            var structure = MissionStructureBuilder.Build(ta);
+            var view = MissionThroughLineBuilder.Build(structure);
+            var compRoots = MissionCompositionBuilder.Build(structure);
+            var link = LinkFor(tb, ta);
+
+            var journeyList = MissionCrossTreeDock.ComputePartnerJourneyLegIds(ta, link);
+            Assert.Equal(new[] { "AB", "B1", "AB2" }, journeyList);
+
+            var journey = new HashSet<string>(journeyList, StringComparer.Ordinal);
+            var windows = MissionCrossTreeDock.ComputeJourneyWindowsByOwner(structure, view, journey);
+            Assert.Equal(2, windows["A0"].Count);
+            Assert.Equal(CrossTreeDockFixture.DockUT, windows["A0"][0].StartUT);
+            Assert.Equal(CrossTreeDockFixture.UndockUT, windows["A0"][0].EndUT);
+            Assert.Equal(320, windows["A0"][1].StartUT);
+            Assert.Equal(400, windows["A0"][1].EndUT);
+
+            // A's solo stretch interval (the structural piece [300..320]) is never offered.
+            var keys = new HashSet<string>(StringComparer.Ordinal);
+            MissionCrossTreeDock.CollectJourneySelectableKeys(compRoots, windows, keys);
+            Assert.DoesNotContain(keys, k => !k.Contains("@dock") && k != "B1");
+
+            // Member merge picks up both docked stretches + B's between-docks leg, never A's.
+            var committed = CrossTreeDockFixture.Committed(tb, ta);
+            var indexById = CrossTreeDockFixture.IndexById(committed);
+            var mission = new Mission("m1", "tb", "B mission");
+            mission.IncludedForeignDockLinkIds.Add(CrossTreeDockFixture.DockBpId);
+            var memberWindows = new Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow>();
+            MissionCrossTreeDock.MergeForeignMemberWindows(
+                mission, tb, new List<RecordingTree> { tb, ta }, committed, indexById,
+                memberWindows, out int _, out int _);
+            Assert.True(memberWindows.ContainsKey(indexById["AB"]));
+            Assert.True(memberWindows.ContainsKey(indexById["B1"]));
+            Assert.True(memberWindows.ContainsKey(indexById["AB2"]));
+            Assert.False(memberWindows.ContainsKey(indexById["A0"]));
+            Assert.False(memberWindows.ContainsKey(indexById["A1"]));
+            Assert.Equal(320, memberWindows[indexById["AB2"]].StartUT);
+            Assert.Equal(400, memberWindows[indexById["AB2"]].EndUT);
         }
 
         [Fact]

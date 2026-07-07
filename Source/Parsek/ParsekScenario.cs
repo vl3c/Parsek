@@ -3259,12 +3259,18 @@ namespace Parsek
                 // node restored LATER in this OnLoad by TryRestoreActiveTreeNode, or an already
                 // stashed pending tree) so PruneOrphans does not strip the mission name + loop
                 // settings of a tree that survives but is not yet committed. Limbo-tree data-loss fix.
+                List<string> parkedTreeIds = CollectParkedTreeIdsForMissionPrune(node);
                 MissionStore.PruneOrphans(
                     RecordingStore.CommittedTrees,
-                    CollectParkedTreeIdsForMissionPrune(node));
+                    parkedTreeIds);
                 MissionStore.EnsureDefaultsForTrees(RecordingStore.CommittedTrees);
-                MissionStore.ReconcileSelections(RecordingStore.CommittedTrees);
-                MissionStore.NormalizeOneLoopPerTree();
+                // Parked ids passed so the M-MIS-8 cross-tree link reconcile DEFERS while a
+                // parked tree (possibly a link's foreign tree) is not committed yet - dropping
+                // the link now would permanently lose the player's partner-journey selection.
+                MissionStore.ReconcileSelections(RecordingStore.CommittedTrees, parkedTreeIds);
+                // Trees passed so the one-loop invariant also covers SPANNED tree sets
+                // (a cross-tree-linked loop vs a loop on its linked foreign tree).
+                MissionStore.NormalizeOneLoopPerTree(RecordingStore.CommittedTrees);
 
                 // Cold-start active-tree restore (quickload-resume cold path).
                 // When the player quits KSP mid-flight and later relaunches + "Resume Saved

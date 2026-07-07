@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 
 namespace Parsek
 {
@@ -112,27 +111,14 @@ namespace Parsek
                 return cmp != 0 ? cmp : string.CompareOrdinal(a.LinkId, b.LinkId);
             });
 
-            if (!SuppressLogging && links.Count > 0)
+            // Logged on any derived link AND on any guid-gate rejection: a claim rejected by a
+            // conclusive launch-guid mismatch is the one case where a previously-offered
+            // "Partner journey" row vanishes with no other trace, so it must leave evidence.
+            if (!SuppressLogging && (links.Count > 0 || guidRejected > 0))
                 ParsekLog.Verbose("Mission",
                     $"CrossTreeDock: tree={myTree.Id} links={links.Count} " +
                     $"scannedTrees={scannedTrees} guidRejected={guidRejected}");
             return links;
-        }
-
-        /// <summary>
-        /// Resolves one link of <paramref name="myTree"/> by its persisted id, or null when it
-        /// no longer derives (foreign tree / branch point gone, claim no longer matches).
-        /// </summary>
-        internal static ForeignDockLink FindLinkById(
-            RecordingTree myTree, IReadOnlyList<RecordingTree> allTrees, string linkId)
-        {
-            if (string.IsNullOrEmpty(linkId))
-                return null;
-            List<ForeignDockLink> links = FindLinks(myTree, allTrees);
-            for (int i = 0; i < links.Count; i++)
-                if (string.Equals(links[i].LinkId, linkId, StringComparison.Ordinal))
-                    return links[i];
-            return null;
         }
 
         /// <summary>
@@ -156,76 +142,120 @@ namespace Parsek
                 return journey;
 
             var visited = new HashSet<string>(StringComparer.Ordinal);
+            bool departureFound = false;
             while (current != null && visited.Add(current.RecordingId))
             {
                 if (!current.IsDebris)
                     journey.Add(current.RecordingId);
+                if (current.RecordingId != link.MergedChildRecordingId
+                    && current.VesselPersistentId == link.PartnerPid)
+                    departureFound = true;
 
                 Recording next = FindChainSuccessor(foreignTree, current)
                                  ?? FindBranchSuccessor(foreignTree, current, link);
                 current = next;
             }
+            // One summary per derivation (batch convention): departureFound=False on a
+            // never-undocked stack is normal; on a tree that DID fork it is the mis-follow
+            // signature the doc comment above anticipates.
+            if (!SuppressLogging)
+                ParsekLog.Verbose("Mission",
+                    $"CrossTreeDock: journey link={link.LinkId} foreignTree={foreignTree.Id} " +
+                    $"legs={journey.Count} departureFound={departureFound}");
             return journey;
         }
 
         /// <summary>
-        /// Per through-line JOURNEY WINDOW: for each foreign through-line that contains journey
-        /// legs, the [min StartUT, max EndUT] over those legs (keyed by the line's head id). The
-        /// shared line's window starts at the dock (the merged child's start) and ends where the
-        /// partner departs, so the foreign vessel's own pre-dock / post-departure intervals fall
-        /// outside it. Pure.
+        /// Per through-line JOURNEY WINDOWS: for each foreign through-line that carries journey
+        /// legs, one window per CONTIGUOUS RUN of journey legs along that line (in member order).
+        /// Per-run (not min/max over the whole line) because a partner that undocks and later
+        /// RE-DOCKS the same foreign line contributes two disjoint docked stretches with the
+        /// foreign vessel's OWN solo stretch between them - a single [min,max] window would
+        /// wrongly classify that solo stretch as partner journey. The shared line's first run
+        /// starts at the dock (the merged child's start) and ends where the partner departs, so
+        /// the foreign vessel's pre-dock / post-departure intervals always fall outside. Pure.
         /// </summary>
-        internal static Dictionary<string, MissionIntervalSelection.RenderWindow> ComputeJourneyWindowsByOwner(
+        internal static Dictionary<string, List<MissionIntervalSelection.RenderWindow>> ComputeJourneyWindowsByOwner(
             MissionStructure foreignStructure,
             MissionThroughLineView foreignView,
             ICollection<string> journeyLegIds)
         {
-            var windows = new Dictionary<string, MissionIntervalSelection.RenderWindow>(StringComparer.Ordinal);
+            var windows = new Dictionary<string, List<MissionIntervalSelection.RenderWindow>>(StringComparer.Ordinal);
             if (foreignStructure == null || foreignView == null
                 || journeyLegIds == null || journeyLegIds.Count == 0)
                 return windows;
 
             foreach (var tl in foreignView.ByHeadId.Values)
             {
-                double start = double.PositiveInfinity;
-                double end = double.NegativeInfinity;
-                bool any = false;
+                List<MissionIntervalSelection.RenderWindow> runs = null;
+                bool inRun = false;
+                double start = 0.0;
+                double end = 0.0;
                 for (int i = 0; i < tl.MemberLegIds.Count; i++)
                 {
                     string legId = tl.MemberLegIds[i];
-                    if (!journeyLegIds.Contains(legId)
-                        || !foreignStructure.LegsById.TryGetValue(legId, out MissionLeg leg))
-                        continue;
-                    any = true;
-                    if (leg.StartUT < start) start = leg.StartUT;
-                    if (leg.EndUT > end) end = leg.EndUT;
-                }
-                if (any && end > start)
-                    windows[tl.HeadLegId] = new MissionIntervalSelection.RenderWindow
+                    bool isJourney = journeyLegIds.Contains(legId)
+                        && foreignStructure.LegsById.TryGetValue(legId, out MissionLeg leg);
+                    if (isJourney)
                     {
-                        StartUT = start,
-                        EndUT = end
-                    };
+                        MissionLeg l = foreignStructure.LegsById[legId];
+                        if (!inRun)
+                        {
+                            inRun = true;
+                            start = l.StartUT;
+                            end = l.EndUT;
+                        }
+                        else
+                        {
+                            if (l.StartUT < start) start = l.StartUT;
+                            if (l.EndUT > end) end = l.EndUT;
+                        }
+                    }
+                    else if (inRun)
+                    {
+                        inRun = false;
+                        AppendRun(ref runs, start, end);
+                    }
+                }
+                if (inRun)
+                    AppendRun(ref runs, start, end);
+                if (runs != null)
+                    windows[tl.HeadLegId] = runs;
             }
             return windows;
         }
 
+        private static void AppendRun(
+            ref List<MissionIntervalSelection.RenderWindow> runs, double start, double end)
+        {
+            if (end <= start)
+                return;
+            if (runs == null)
+                runs = new List<MissionIntervalSelection.RenderWindow>();
+            runs.Add(new MissionIntervalSelection.RenderWindow { StartUT = start, EndUT = end });
+        }
+
         /// <summary>
         /// True when a foreign composition node is a PARTNER-JOURNEY interval: selectable, owned
-        /// by a through-line that carries journey legs, and lying inside that line's journey
-        /// window (so the foreign vessel's own pre-dock / post-departure intervals are not
-        /// offered). Pure.
+        /// by a through-line that carries journey legs, and lying inside one of that line's
+        /// journey run windows (so the foreign vessel's own pre-dock / post-departure / between-
+        /// docks solo intervals are not offered). Pure.
         /// </summary>
         internal static bool IsJourneyNode(
             MissionCompositionNode node,
-            IReadOnlyDictionary<string, MissionIntervalSelection.RenderWindow> journeyWindows)
+            IReadOnlyDictionary<string, List<MissionIntervalSelection.RenderWindow>> journeyWindows)
         {
             if (node == null || !node.IsSelectable || string.IsNullOrEmpty(node.OwnerHeadId)
                 || journeyWindows == null
-                || !journeyWindows.TryGetValue(node.OwnerHeadId, out MissionIntervalSelection.RenderWindow w))
+                || !journeyWindows.TryGetValue(node.OwnerHeadId, out List<MissionIntervalSelection.RenderWindow> runs))
                 return false;
-            return node.StartUT >= w.StartUT - WindowEpsilon
-                   && node.EndUT <= w.EndUT + WindowEpsilon;
+            for (int i = 0; i < runs.Count; i++)
+            {
+                if (node.StartUT >= runs[i].StartUT - WindowEpsilon
+                    && node.EndUT <= runs[i].EndUT + WindowEpsilon)
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -235,7 +265,7 @@ namespace Parsek
         /// </summary>
         internal static void CollectJourneySelectableKeys(
             IReadOnlyList<MissionCompositionNode> compRoots,
-            IReadOnlyDictionary<string, MissionIntervalSelection.RenderWindow> journeyWindows,
+            IReadOnlyDictionary<string, List<MissionIntervalSelection.RenderWindow>> journeyWindows,
             HashSet<string> into)
         {
             if (compRoots == null || into == null)
@@ -245,35 +275,49 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The included render window per foreign through-line owner: accumulated over journey
-        /// nodes NOT in the excluded set (mirrors MissionIntervalSelection.ComputeRenderWindows),
-        /// then intersected with the journey window. An owner with every journey interval
-        /// excluded is absent. Pure.
+        /// The included render windows per foreign through-line owner: per journey RUN, the
+        /// window accumulated over that run's journey nodes NOT in the excluded set (mirrors
+        /// MissionIntervalSelection.ComputeRenderWindows), clamped into the run. A run with
+        /// every interval excluded contributes no window; an owner with no included run is
+        /// absent. Pure.
         /// </summary>
-        internal static Dictionary<string, MissionIntervalSelection.RenderWindow> ComputeIncludedJourneyRenderWindows(
+        internal static Dictionary<string, List<MissionIntervalSelection.RenderWindow>> ComputeIncludedJourneyRenderWindows(
             IReadOnlyList<MissionCompositionNode> compRoots,
-            IReadOnlyDictionary<string, MissionIntervalSelection.RenderWindow> journeyWindows,
+            IReadOnlyDictionary<string, List<MissionIntervalSelection.RenderWindow>> journeyWindows,
             ICollection<string> excludedIntervalKeys)
         {
-            var included = new Dictionary<string, MissionIntervalSelection.RenderWindow>(StringComparer.Ordinal);
+            var included = new Dictionary<string, List<MissionIntervalSelection.RenderWindow>>(StringComparer.Ordinal);
             if (compRoots == null || journeyWindows == null || journeyWindows.Count == 0)
                 return included;
-            for (int i = 0; i < compRoots.Count; i++)
-                AccumulateIncludedJourney(compRoots[i], journeyWindows, excludedIntervalKeys, included);
 
-            // Clamp each accumulated window into its journey window (defensive: journey nodes
-            // are inside the window by predicate, so this only trims epsilon slack).
-            var owners = new List<string>(included.Keys);
-            for (int i = 0; i < owners.Count; i++)
+            // Per (owner, run) accumulators, parallel to each owner's run list.
+            var acc = new Dictionary<string, MissionIntervalSelection.RenderWindow?[]>(StringComparer.Ordinal);
+            foreach (var kv in journeyWindows)
+                acc[kv.Key] = new MissionIntervalSelection.RenderWindow?[kv.Value.Count];
+            for (int i = 0; i < compRoots.Count; i++)
+                AccumulateIncludedJourney(compRoots[i], journeyWindows, excludedIntervalKeys, acc);
+
+            foreach (var kv in acc)
             {
-                MissionIntervalSelection.RenderWindow w = included[owners[i]];
-                MissionIntervalSelection.RenderWindow j = journeyWindows[owners[i]];
-                w.StartUT = Math.Max(w.StartUT, j.StartUT);
-                w.EndUT = Math.Min(w.EndUT, j.EndUT);
-                if (w.EndUT > w.StartUT)
-                    included[owners[i]] = w;
-                else
-                    included.Remove(owners[i]);
+                List<MissionIntervalSelection.RenderWindow> runs = journeyWindows[kv.Key];
+                List<MissionIntervalSelection.RenderWindow> outRuns = null;
+                for (int r = 0; r < kv.Value.Length; r++)
+                {
+                    if (!kv.Value[r].HasValue)
+                        continue;
+                    MissionIntervalSelection.RenderWindow w = kv.Value[r].Value;
+                    // Clamp into the run (defensive: journey nodes are inside by predicate, so
+                    // this only trims epsilon slack).
+                    w.StartUT = Math.Max(w.StartUT, runs[r].StartUT);
+                    w.EndUT = Math.Min(w.EndUT, runs[r].EndUT);
+                    if (w.EndUT <= w.StartUT)
+                        continue;
+                    if (outRuns == null)
+                        outRuns = new List<MissionIntervalSelection.RenderWindow>();
+                    outRuns.Add(w);
+                }
+                if (outRuns != null)
+                    included[kv.Key] = outRuns;
             }
             return included;
         }
@@ -369,18 +413,23 @@ namespace Parsek
                         Recording rec = committed[idx];
                         if (rec == null)
                             continue;
-                        double rStart = Math.Max(rw.Value.StartUT, rec.StartUT);
-                        double rEnd = Math.Min(rw.Value.EndUT, rec.EndUT);
-                        if (rEnd <= rStart)
-                            continue;
-                        if (memberWindowByIndex.ContainsKey(idx))
+                        // A member lies in at most one included run (runs are disjoint).
+                        for (int w = 0; w < rw.Value.Count; w++)
                         {
-                            duplicateIndices++;
-                            continue;
+                            double rStart = Math.Max(rw.Value[w].StartUT, rec.StartUT);
+                            double rEnd = Math.Min(rw.Value[w].EndUT, rec.EndUT);
+                            if (rEnd <= rStart)
+                                continue;
+                            if (memberWindowByIndex.ContainsKey(idx))
+                            {
+                                duplicateIndices++;
+                                break;
+                            }
+                            memberWindowByIndex[idx] =
+                                new GhostPlaybackLogic.LoopUnit.MemberWindow(rStart, rEnd);
+                            added++;
+                            break;
                         }
-                        memberWindowByIndex[idx] =
-                            new GhostPlaybackLogic.LoopUnit.MemberWindow(rStart, rEnd);
-                        added++;
                     }
                 }
             }
@@ -398,7 +447,7 @@ namespace Parsek
 
         private static void CollectJourneyKeysRecursive(
             MissionCompositionNode node,
-            IReadOnlyDictionary<string, MissionIntervalSelection.RenderWindow> journeyWindows,
+            IReadOnlyDictionary<string, List<MissionIntervalSelection.RenderWindow>> journeyWindows,
             HashSet<string> into)
         {
             if (node == null)
@@ -409,20 +458,40 @@ namespace Parsek
                 CollectJourneyKeysRecursive(node.Children[i], journeyWindows, into);
         }
 
+        // Index of the journey run containing the node, or -1. A journey node is inside exactly
+        // one run (runs are disjoint along one line).
+        private static int FindContainingRun(
+            MissionCompositionNode node,
+            IReadOnlyDictionary<string, List<MissionIntervalSelection.RenderWindow>> journeyWindows)
+        {
+            if (node == null || !node.IsSelectable || string.IsNullOrEmpty(node.OwnerHeadId)
+                || journeyWindows == null
+                || !journeyWindows.TryGetValue(node.OwnerHeadId, out List<MissionIntervalSelection.RenderWindow> runs))
+                return -1;
+            for (int i = 0; i < runs.Count; i++)
+            {
+                if (node.StartUT >= runs[i].StartUT - WindowEpsilon
+                    && node.EndUT <= runs[i].EndUT + WindowEpsilon)
+                    return i;
+            }
+            return -1;
+        }
+
         private static void AccumulateIncludedJourney(
             MissionCompositionNode node,
-            IReadOnlyDictionary<string, MissionIntervalSelection.RenderWindow> journeyWindows,
+            IReadOnlyDictionary<string, List<MissionIntervalSelection.RenderWindow>> journeyWindows,
             ICollection<string> excluded,
-            Dictionary<string, MissionIntervalSelection.RenderWindow> windows)
+            Dictionary<string, MissionIntervalSelection.RenderWindow?[]> acc)
         {
             if (node == null)
                 return;
-            if (IsJourneyNode(node, journeyWindows)
-                && (excluded == null || !excluded.Contains(node.HeadLegId)))
+            int run = FindContainingRun(node, journeyWindows);
+            if (run >= 0 && (excluded == null || !excluded.Contains(node.HeadLegId)))
             {
-                if (!windows.TryGetValue(node.OwnerHeadId, out MissionIntervalSelection.RenderWindow w))
+                MissionIntervalSelection.RenderWindow?[] slots = acc[node.OwnerHeadId];
+                if (!slots[run].HasValue)
                 {
-                    windows[node.OwnerHeadId] = new MissionIntervalSelection.RenderWindow
+                    slots[run] = new MissionIntervalSelection.RenderWindow
                     {
                         StartUT = node.StartUT,
                         EndUT = node.EndUT
@@ -430,18 +499,22 @@ namespace Parsek
                 }
                 else
                 {
+                    MissionIntervalSelection.RenderWindow w = slots[run].Value;
                     if (node.StartUT < w.StartUT) w.StartUT = node.StartUT;
                     if (node.EndUT > w.EndUT) w.EndUT = node.EndUT;
-                    windows[node.OwnerHeadId] = w;
+                    slots[run] = w;
                 }
             }
             for (int i = 0; i < node.Children.Count; i++)
-                AccumulateIncludedJourney(node.Children[i], journeyWindows, excluded, windows);
+                AccumulateIncludedJourney(node.Children[i], journeyWindows, excluded, acc);
         }
 
         // My tree's recording claimed by the foreign branch point: pid match, launch guids not
         // conclusively differing (walker parity). Prefers the EARLIEST-starting match so the
-        // claim pins the vessel's own line, not a later continuation segment.
+        // claim pins the vessel's own line, not a later continuation segment. Debris never
+        // matches: pids are craft-baked (not launch-unique), so a guid-less debris recording
+        // carrying a colliding pid would otherwise mint a false partner-journey affordance for
+        // an unrelated vessel (MissionStructureBuilder likewise excludes debris from legs).
         private static Recording FindClaimedRecording(
             RecordingTree myTree, uint pid, string foreignLaunchGuid, out bool rejectedByGuid)
         {
@@ -449,7 +522,7 @@ namespace Parsek
             Recording best = null;
             foreach (var rec in myTree.Recordings.Values)
             {
-                if (rec == null || rec.VesselPersistentId != pid)
+                if (rec == null || rec.IsDebris || rec.VesselPersistentId != pid)
                     continue;
                 if (VesselLaunchIdentity.GuidsConclusivelyDiffer(
                         rec.RecordedVesselGuid, foreignLaunchGuid))
