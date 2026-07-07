@@ -228,12 +228,14 @@ namespace Parsek.Tests.Logistics
             // catches: the detail overload accidentally injecting the detail
             // into statuses that carry no quantity - every other status must
             // render byte-identically with and without a detail argument.
-            // UntrackedCargoGain and FlowDoesNotClose are the two detail-carrying
-            // statuses (M2 and M3 respectively).
+            // UntrackedCargoGain (M2), FlowDoesNotClose (M3), and
+            // UnsupportedConnectionKind (claw producer: the detail names the
+            // rejected RouteConnectionKind) are the detail-carrying statuses.
             foreach (RouteAnalysisStatus status in Enum.GetValues(typeof(RouteAnalysisStatus)))
             {
                 if (status == RouteAnalysisStatus.UntrackedCargoGain ||
-                    status == RouteAnalysisStatus.FlowDoesNotClose)
+                    status == RouteAnalysisStatus.FlowDoesNotClose ||
+                    status == RouteAnalysisStatus.UnsupportedConnectionKind)
                     continue;
                 Assert.Equal(
                     RouteCreationFormatters.FormatRejectMessage(status),

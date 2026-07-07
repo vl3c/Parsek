@@ -229,6 +229,10 @@ namespace Parsek.Logistics
                         + ". The recorded loads, harvest, and deliveries cannot account for what was left aboard. Re-record so every resource that leaves the transport is matched by a recorded load, harvest, or delivery.";
                 case RouteAnalysisStatus.MidRecordingStartTrimUnsupported:
                     return "This run starts between two docks. Routes must begin at launch or while docked to the origin; mid-flight start points are not supported yet.";
+                case RouteAnalysisStatus.UnsupportedConnectionKind:
+                    return "This run's transfer used a connection type Parsek does not support for routes"
+                        + (string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")")
+                        + ". Docked and claw-grappled transfers are supported.";
                 default:
                     return "Route source is not eligible (" + status + ").";
             }
@@ -311,7 +315,14 @@ namespace Parsek.Logistics
 
             sb.Append("Endpoint: ");
             if (analysis.ConnectionWindow != null && analysis.ConnectionWindow.EndpointAtDock.HasValue)
+            {
                 sb.Append(FormatEndpoint(analysis.ConnectionWindow.EndpointAtDock.Value));
+                // Claw producer (design-logistics-claw-producer.md 5): name the
+                // connection kind where it is not a dock. Dock stays unannotated
+                // so existing route summaries render byte-identically.
+                if (analysis.ConnectionWindow.TransferKind == RouteConnectionKind.Grapple)
+                    sb.Append(" (grappled)");
+            }
             else
                 sb.Append("unknown");
             sb.Append('\n');

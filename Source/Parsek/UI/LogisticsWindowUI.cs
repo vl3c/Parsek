@@ -3054,9 +3054,15 @@ namespace Parsek
                         continue;
                     }
                     string name = TryResolveLiveVesselName(stop.Endpoint.VesselPersistentId);
-                    stopDestinations.Add(!string.IsNullOrEmpty(name)
+                    string destination = !string.IsNullOrEmpty(name)
                         ? name
-                        : LogisticsDeliveryPresentation.FormatEndpointCoords(stop.Endpoint));
+                        : LogisticsDeliveryPresentation.FormatEndpointCoords(stop.Endpoint);
+                    // Claw producer (design-logistics-claw-producer.md 5): name
+                    // the connection kind where it is not a dock; dock stays
+                    // unannotated so existing routes render identically.
+                    if (stop.ConnectionKind == RouteConnectionKind.Grapple)
+                        destination += " (grappled)";
+                    stopDestinations.Add(destination);
                 }
             }
 

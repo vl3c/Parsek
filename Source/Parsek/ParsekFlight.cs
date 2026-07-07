@@ -815,6 +815,11 @@ namespace Parsek
         // 0 means partner was foreign or unresolved; non-zero means the merge child should
         // carry a route window. Cleared when the pending dock state is cleared.
         private uint pendingDockRouteTargetPid;
+        // Connection producer that made the pending couple, classified from the live
+        // onPartCouple parts (DockingPort / Grapple / Unknown). Stamped on the merge
+        // branch data and the route connection window so admission can gate by
+        // producer. None when no couple is pending.
+        private RouteConnectionKind pendingDockTransferKind;
         // Pre-couple partner vessel snapshot, captured in OnPartCouple while data.from
         // and data.to still reference DISTINCT vessels. Used by CreateMergeBranch to
         // build the route window's endpoint baseline from the partner's pre-dock state,
@@ -5894,7 +5899,8 @@ namespace Parsek
             string backgroundParentRecordingId,  // from BackgroundMap lookup (null for foreign vessel)
             double mergeUT,
             FlightRecorder stoppedRecorder,
-            uint routeTargetVesselPid = 0)
+            uint routeTargetVesselPid = 0,
+            RouteConnectionKind transferKind = RouteConnectionKind.None)
         {
             // 1. Build parent recording ID list
             var parentIds = new List<string>();
@@ -5939,7 +5945,7 @@ namespace Parsek
                 parentIds, activeTree.Id, mergeUT, branchType,
                 mergedVesselPid, mergedVesselName,
                 routeTargetVesselPid,
-                routeTargetVesselPid != 0 ? RouteConnectionKind.DockingPort : RouteConnectionKind.None);
+                routeTargetVesselPid != 0 ? transferKind : RouteConnectionKind.None);
 
             // 6. Take snapshot of merged vessel
             ConfigNode mergedSnapshot = (mergedVessel != null)
@@ -6034,7 +6040,7 @@ namespace Parsek
                 RouteConnectionWindow window = RouteProofCapture.BuildDockRouteConnectionWindow(
                     mergeUT,
                     routeTargetVesselPid,
-                    RouteConnectionKind.DockingPort,
+                    transferKind,
                     mergedSnapshot,
                     transportPartPids,
                     endpointPartPids,
@@ -6049,6 +6055,7 @@ namespace Parsek
                     ParsekLog.Info("Flight",
                         $"Route proof dock window captured: child={mergedChild.RecordingId} " +
                         $"window={window.WindowId} targetPid={routeTargetVesselPid} " +
+                        $"kind={window.TransferKind} " +
                         $"transportParts={window.TransportPartPersistentIds?.Count ?? 0} " +
                         $"endpointParts={window.EndpointPartPersistentIds?.Count ?? 0}");
                 }
@@ -10236,6 +10243,22 @@ namespace Parsek
             if (data.to?.vessel == null) return;
             uint mergedPid = data.to.vessel.persistentId;
 
+            // Classify the connection producer NOW, while both event parts still
+            // resolve (design-logistics-claw-producer.md 2.1). A claw couple fires
+            // the same onPartCouple as a dock (findings 1.2) but must be stamped
+            // Grapple, and an unrecognized (modded) coupling producer is stamped
+            // Unknown so route admission fails closed instead of treating it as a
+            // dock. An EVA kerbal grab is a real couple but never a logistics
+            // transfer: suppress its route window by dropping the route target.
+            RouteConnectionKind coupleTransferKind =
+                ConnectionProducerClassifier.Classify(data.from, data.to);
+            bool coupleInvolvesEva =
+                ConnectionProducerClassifier.InvolvesEvaVessel(data.from, data.to);
+            ParsekLog.Info("Flight",
+                $"OnPartCouple producer classified: kind={coupleTransferKind} " +
+                $"fromPart={data.from?.partInfo?.name ?? "<null>"} " +
+                $"toPart={data.to?.partInfo?.name ?? "<null>"} involvesEva={coupleInvolvesEva}");
+
             // Phase 9 (design doc §12, §18 Phase 9): structural-event snapshot at the
             // exact dock UT for the recorded vessel. Done BEFORE
             // StopRecordingForChainBoundary so the snapshot lands in the active section
@@ -10370,6 +10393,13 @@ namespace Parsek
                         && partnerPidFromEvent != recorder.RecordingVesselId
                         && (partnerSnapshotCaptured || partnerKnown);
                     uint routeTargetPid = partnerEligible ? partnerPidFromEvent : 0u;
+                    if (coupleInvolvesEva && routeTargetPid != 0u)
+                    {
+                        ParsekLog.Info("Flight",
+                            $"OnPartCouple: EVA grab — route window suppressed " +
+                            $"(kind={coupleTransferKind}, partnerPid={routeTargetPid})");
+                        routeTargetPid = 0u;
+                    }
 
                     ParsekLog.Verbose("Flight",
                         $"OnPartCouple route-partner resolve: selfPid={recorder.RecordingVesselId} " +
@@ -10388,6 +10418,7 @@ namespace Parsek
                     pendingDockMergedPid = mergedPid;
                     pendingDockAbsorbedPid = absorbedPid;
                     pendingDockRouteTargetPid = routeTargetPid;
+                    pendingDockTransferKind = coupleTransferKind;
                     pendingDockAsTarget = isTarget;
                     dockConfirmFrames = 0;
 
@@ -10481,6 +10512,13 @@ namespace Parsek
                         && partnerPidFromEventR != recorder.RecordingVesselId
                         && (partnerSnapshotCapturedR || partnerKnownR);
                     uint routeTargetPid = partnerEligibleR ? partnerPidFromEventR : 0u;
+                    if (coupleInvolvesEva && routeTargetPid != 0u)
+                    {
+                        ParsekLog.Info("Flight",
+                            $"OnPartCouple (retroactive): EVA grab — route window suppressed " +
+                            $"(kind={coupleTransferKind}, partnerPid={routeTargetPid})");
+                        routeTargetPid = 0u;
+                    }
 
                     ParsekLog.Verbose("Flight",
                         $"OnPartCouple route-partner resolve (retroactive): " +
@@ -10495,6 +10533,7 @@ namespace Parsek
                     pendingDockMergedPid = mergedPid;
                     pendingDockAbsorbedPid = absorbedPid;
                     pendingDockRouteTargetPid = routeTargetPid;
+                    pendingDockTransferKind = coupleTransferKind;
                     pendingDockAsTarget = false;
                     dockConfirmFrames = 0;
 
@@ -11514,6 +11553,7 @@ namespace Parsek
                     pendingTreeDockMerge = false;
                     pendingDockAbsorbedPid = 0;
                     pendingDockRouteTargetPid = 0;
+                    pendingDockTransferKind = RouteConnectionKind.None;
                     pendingDockPartnerSnapshot = null;
                     pendingDockPartnerSnapshotPid = 0u;
                     pendingDockSelfSnapshot = null;
@@ -11653,6 +11693,7 @@ namespace Parsek
             undockConfirmFrames = 0;
             pendingDockAbsorbedPid = 0;
             pendingDockRouteTargetPid = 0;
+            pendingDockTransferKind = RouteConnectionKind.None;
             pendingDockPartnerSnapshot = null;
             pendingDockPartnerSnapshotPid = 0u;
             pendingDockSelfSnapshot = null;
@@ -11720,7 +11761,8 @@ namespace Parsek
                 bgParentId,
                 mergeUT,
                 stoppedRecorder,
-                routeTargetPid);
+                routeTargetPid,
+                pendingDockTransferKind);
 
             // Clean up
             if (pendingDockAbsorbedPid != 0)
@@ -11730,6 +11772,7 @@ namespace Parsek
             pendingDockMergedPid = 0;
             pendingDockAbsorbedPid = 0;
             pendingDockRouteTargetPid = 0;
+            pendingDockTransferKind = RouteConnectionKind.None;
             pendingDockPartnerSnapshot = null;
             pendingDockPartnerSnapshotPid = 0u;
             pendingDockSelfSnapshot = null;
