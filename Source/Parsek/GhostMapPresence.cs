@@ -11905,7 +11905,13 @@ namespace Parsek
                 && GhostMapPresence.AnyGhostHeadLeftAppliedSegment(currentUT);
             if (!ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(mapReseedTimerElapsed, TimeWarp.CurrentRate, mapReseedHeadLeftSegment))
                 return;
-            nextMapOrbitUpdateTime = UnityEngine.Time.time + MapOrbitUpdateIntervalSec;
+            // Warp-scaled cadence: cap the GAME time one reseed tick may span (the 2026-06-12
+            // reseed-lag icon jumps: a fixed 0.5 s REAL-time cadence spans ~170-500 game-s per tick
+            // at 344x-1000x, so the icon snaps ~1 Mm on reseed). Pure law; base-interval-identical
+            // at warp <= 1.
+            nextMapOrbitUpdateTime = UnityEngine.Time.time
+                + ParsekPlaybackPolicy.ResolveMapOrbitReseedIntervalSec(
+                    MapOrbitUpdateIntervalSec, TimeWarp.CurrentRate);
 
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null) return;

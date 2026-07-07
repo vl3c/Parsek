@@ -772,6 +772,78 @@ namespace Parsek.Tests
         }
 
         // -----------------------------------------------------------------
+        // Warp-scaled reseed cadence (the 2026-06-12 reseed-lag icon jumps at 344x-1000x): the
+        // REAL-time reseed interval shrinks under warp so one tick never spans more than
+        // MapOrbitReseedMaxGameSecondsPerTick of GAME time. Byte-identical at warp <= 1.
+        // -----------------------------------------------------------------
+
+        private const float ReseedBase = 0.5f;
+
+        [Theory]
+        [InlineData(1.0f)]
+        [InlineData(0.5f)]
+        [InlineData(0.0f)]
+        [InlineData(-1.0f)]
+        [InlineData(float.NaN)]
+        public void ResolveMapOrbitReseedIntervalSec_NotWarping_BaseIntervalExactly(float warpRate)
+        {
+            // Byte-identity pin: at 1x (and every degenerate rate) the cadence is EXACTLY the old
+            // fixed base interval — no scaling, no clamping.
+            Assert.Equal(ReseedBase,
+                ParsekPlaybackPolicy.ResolveMapOrbitReseedIntervalSec(ReseedBase, warpRate));
+        }
+
+        [Theory]
+        [InlineData(2.0f)]
+        [InlineData(10.0f)]
+        [InlineData(50.0f)]
+        public void ResolveMapOrbitReseedIntervalSec_LowWarp_BaseCadenceAlreadyMeetsBudget(float warpRate)
+        {
+            // Below budget/base (60x for 30/0.5) the base cadence's game-time span already fits
+            // the budget -> unchanged.
+            Assert.Equal(ReseedBase,
+                ParsekPlaybackPolicy.ResolveMapOrbitReseedIntervalSec(ReseedBase, warpRate));
+        }
+
+        [Fact]
+        public void ResolveMapOrbitReseedIntervalSec_ThresholdWarp_ContinuousWithBase()
+        {
+            // At exactly budget/base the two branches meet: no cadence discontinuity.
+            float threshold = ParsekPlaybackPolicy.MapOrbitReseedMaxGameSecondsPerTick / ReseedBase;
+            Assert.Equal(ReseedBase,
+                ParsekPlaybackPolicy.ResolveMapOrbitReseedIntervalSec(ReseedBase, threshold), 6);
+        }
+
+        [Theory]
+        [InlineData(344.0f)]   // the observed reseed-lag band lower edge (~172 game-s/tick before)
+        [InlineData(1000.0f)]  // upper edge (~500 game-s/tick before)
+        [InlineData(100000.0f)]
+        public void ResolveMapOrbitReseedIntervalSec_HighWarp_GameTimeSpanCapped(float warpRate)
+        {
+            float interval =
+                ParsekPlaybackPolicy.ResolveMapOrbitReseedIntervalSec(ReseedBase, warpRate);
+
+            Assert.True(interval > 0f && interval < ReseedBase);
+            // The law's whole point: one tick spans at most the game-time budget.
+            Assert.Equal(ParsekPlaybackPolicy.MapOrbitReseedMaxGameSecondsPerTick,
+                interval * warpRate, 3);
+        }
+
+        [Fact]
+        public void ResolveMapOrbitReseedIntervalSec_MonotonicNonIncreasingInWarp()
+        {
+            float prev = float.MaxValue;
+            foreach (float rate in new[] { 1f, 4f, 60f, 100f, 344f, 1000f, 10000f, 100000f })
+            {
+                float interval =
+                    ParsekPlaybackPolicy.ResolveMapOrbitReseedIntervalSec(ReseedBase, rate);
+                Assert.True(interval <= prev,
+                    $"interval must not grow with warp: rate={rate} interval={interval} prev={prev}");
+                prev = interval;
+            }
+        }
+
+        // -----------------------------------------------------------------
         // ShouldAssertTerminalOrbitBoundClamp — positive deorbit-clamp
         // assertion gate (proves the orbit proto was retired AT its last
         // recorded orbit bound, not driven past the deorbit).
