@@ -45,7 +45,7 @@ namespace Parsek.Logistics
         /// </summary>
         FlowDoesNotClose = 8,
         /// <summary>
-/// (M-MIS-5 P2a detection + P2b acceptance) The DEGENERATE remainder of
+        /// (M-MIS-5 P2a detection + P2b acceptance) The DEGENERATE remainder of
         /// the undock -> undock shuttle family. The SUPPORTED shape - an
         /// undocked-start tree whose run begins at a fully recorded docked-origin
         /// window (dock, then undock, both recorded, strictly before the first

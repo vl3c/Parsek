@@ -250,7 +250,7 @@ namespace Parsek.Logistics
                         + (string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")")
                         + ". The recorded loads, harvest, and deliveries cannot account for what was left aboard. Re-record so every resource that leaves the transport is matched by a recorded load, harvest, or delivery.";
                 case RouteAnalysisStatus.MidRecordingStartTrimUnsupported:
-// M-MIS-5 P2a detector + P2b acceptance: since P2b the well-formed
+                    // M-MIS-5 P2a detector + P2b acceptance: since P2b the well-formed
                     // docked-origin-window start is ACCEPTED, so this status names the
                     // family's remaining unsupported shapes; the detail names the
                     // recognized docked-origin moment.
