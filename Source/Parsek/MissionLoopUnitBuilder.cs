@@ -813,8 +813,21 @@ namespace Parsek
                         if (arrivalHold.Applied && !SuppressLogging)
                         {
                             var aic = CultureInfo.InvariantCulture;
-                            string kind = arrivalHold.IsJointHold
-                                ? "joint" : (arrivalHold.IsStationHold ? "station" : "rotation");
+                            string kind = arrivalHold.IsConfigHold
+                                ? "config"
+                                : arrivalHold.IsJointHold
+                                    ? "joint" : (arrivalHold.IsStationHold ? "station" : "rotation");
+                            int configMoons = 0;
+                            if (arrivalHold.IsConfigHold)
+                            {
+                                for (int ci = 0; ci < extraction.Constraints.Count; ci++)
+                                {
+                                    PhaseConstraint cc = extraction.Constraints[ci];
+                                    if (cc.Kind == ConstraintKind.Orbital
+                                        && bodyInfo?.ReferenceBodyName(cc.BodyName) == plan.TargetBody)
+                                        configMoons++;
+                                }
+                            }
                             ParsekLog.Info("Reaim",
                                 $"MissionLoopUnit: mission='{mission.Name}' ARRIVAL HOLD dest={plan.TargetBody} " +
                                 $"kind={kind} " +
@@ -829,10 +842,15 @@ namespace Parsek
                                       $"k={arrivalHold.JointChosenWindowK.ToString(aic)} " +
                                       $"residual={arrivalHold.JointResidualSeconds.ToString("F1", aic)}s "
                                     : "") +
+                                (arrivalHold.IsConfigHold
+                                    ? $"moons={configMoons.ToString(aic)} " +
+                                      $"alignedWindows={arrivalHold.ConfigAlignedWindowHorizon.ToString(aic)} " +
+                                      $"window1Residual={arrivalHold.ConfigFirstWindowResidualSeconds.ToString("F1", aic)}s "
+                                    : "") +
                                 $"hold={arrivalHold.HoldSeconds.ToString("R", aic)}s at " +
                                 $"recordedArrivalUT={plan.RecordedArrivalUT.ToString("R", aic)} " +
-                                $"(aligns the {(arrivalHold.IsJointHold ? "station orbital + landing rotation" : arrivalHold.IsStationHold ? "station orbital" : "deorbit rotation")} " +
-                                $"phase{(arrivalHold.IsJointHold ? "s" : "")}, mode={transitedBodyRotationMode})");
+                                $"(aligns the {(arrivalHold.IsConfigHold ? "multi-moon configuration" : arrivalHold.IsJointHold ? "station orbital + landing rotation" : arrivalHold.IsStationHold ? "station orbital" : "deorbit rotation")} " +
+                                $"phase{(arrivalHold.IsJointHold || arrivalHold.IsConfigHold ? "s" : "")}, mode={transitedBodyRotationMode})");
                         }
                     }
 

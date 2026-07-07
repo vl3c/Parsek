@@ -401,6 +401,54 @@ namespace Parsek.Reaim
         }
 
         /// <summary>
+        /// REPORTING-ONLY (M-MIS-6, design D6): counts the consecutive in-tolerance synodic
+        /// windows from k = 1 under the T_config-lattice hold - the FINITE aligned horizon of a
+        /// multi-moon configuration hold (the per-recurrence drift accumulates across loops, so
+        /// alignment does not last forever; the count is logged on engage so the eventual
+        /// degradation is never silent). Per window k the hold snaps the k*windowSpacing offset
+        /// FORWARD onto the holdPeriod (T_config) lattice and every constraint's
+        /// <see cref="MissionPeriodicity.CircularPhaseError"/> must be within its tolerance; the
+        /// count stops at the first miss and caps at <paramref name="maxCount"/>. A thin
+        /// CircularPhaseError loop, never a gate and never in the clock hot path. Pure.
+        /// </summary>
+        internal static int CountAlignedWindowPrefix(
+            double windowSpacingSeconds,
+            IReadOnlyList<double> periods, IReadOnlyList<double> tolerances,
+            double holdPeriodSeconds, int maxCount)
+        {
+            if (double.IsNaN(windowSpacingSeconds) || double.IsInfinity(windowSpacingSeconds)
+                || windowSpacingSeconds <= 0.0)
+                return 0;
+            if (double.IsNaN(holdPeriodSeconds) || double.IsInfinity(holdPeriodSeconds)
+                || holdPeriodSeconds <= 0.0)
+                return 0;
+            int n = periods?.Count ?? 0;
+            int count = 0;
+            for (int k = 1; k <= maxCount; k++)
+            {
+                double delta = k * windowSpacingSeconds;
+                double wBase = GhostPlaybackLogic.ComputeArrivalAlignHoldSeconds(
+                    0.0, delta, holdPeriodSeconds);
+                double sample = delta + wBase;
+                bool allWithin = true;
+                for (int j = 0; j < n; j++)
+                {
+                    double err = MissionPeriodicity.CircularPhaseError(sample, periods[j]);
+                    double tol = (tolerances != null && j < tolerances.Count) ? tolerances[j] : 0.0;
+                    if (err > tol)
+                    {
+                        allWithin = false;
+                        break;
+                    }
+                }
+                if (!allWithin)
+                    break;
+                count++;
+            }
+            return count;
+        }
+
+        /// <summary>
         /// The number of DISTINCT effective constraints after collapsing periods within
         /// <paramref name="relTolerance"/> (relative). Coincident periods (e.g. tidally-locked Ike's
         /// orbit period equal to Duna's rotation period) count once; degenerate periods are ignored.

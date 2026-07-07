@@ -59,8 +59,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TwoConstrainedMoons_Unsupported_ReturnsNone()
+        public void TwoConstrainedMoons_NoWindowSpacing_DeclinesWithAmber()
         {
+            // M-MIS-6 (supersedes the pre-M-MIS-6 fail-closed pin): the 2+-moon shape now routes
+            // through the multi-moon configuration hold, whose window gate needs a valid synodic
+            // spacing - omitted here, so the shape declines EXPLICITLY with an amber (the config
+            // hold is never silent; the engage/decline fixtures live in MultiMoonAlignmentTests).
             var jool = new List<PhaseConstraint>
             {
                 Rotation("Jool"), Orbital("Jool"), Orbital("Laythe"), Orbital("Vall"),
@@ -68,6 +72,7 @@ namespace Parsek.Tests
             var r = ArrivalHoldPlanner.ComputeArrivalHold(
                 jool, "Jool", 1000.0, TransitedBodyRotationMode.Loose, 350.0, 0.0, null, new HoldFake());
             Assert.False(r.Applied);
+            Assert.NotNull(r.AmberReason);
         }
 
         [Fact]
@@ -304,10 +309,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void JoolClassNoStation_NoAmber()
+        public void JoolClassNoStation_DeclineIsNeverSilent()
         {
-            // M4c plan test 10b: the pre-existing no-station Jool-class fail-closed path gains NO
-            // new amber (M4c only surfaces amber for shapes it owns - those with a station).
+            // M-MIS-6 (supersedes M4c plan test 10b): the no-station Jool-class decline is no
+            // longer silent - the multi-moon configuration hold owns the shape and every decline
+            // carries an amber reason (design D6). The engage polarity lives in
+            // MultiMoonAlignmentTests.
             var jool = new List<PhaseConstraint>
             {
                 Rotation("Jool"), Orbital("Jool"), Orbital("Laythe"), Orbital("Vall"),
@@ -315,7 +322,7 @@ namespace Parsek.Tests
             var r = ArrivalHoldPlanner.ComputeArrivalHold(
                 jool, "Jool", 1000.0, TransitedBodyRotationMode.Loose, 350.0, 0.0, null, new HoldFake());
             Assert.False(r.Applied);
-            Assert.Null(r.AmberReason);
+            Assert.NotNull(r.AmberReason);
         }
 
         [Fact]

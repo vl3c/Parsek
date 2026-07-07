@@ -1628,6 +1628,90 @@ namespace Parsek.Tests
                 l.Contains("tree=t") && l.Contains("misses tolerance"));
         }
 
+        // === M-MIS-6: the multi-moon (Jool-5) configuration hold ==========================
+
+        // Stock Jool-system values (docs/dev/design-mission-multimoon-alignment.md section 2).
+        private const double LaytheOrbit = 52980.9;
+        private const double VallOrbit = 105962.1;
+        private const double TyloOrbit = 211926.4;
+        private const double JoolOrbit = 104661432.0;
+
+        // StockFake extended with the Jool system: Jool as a Sun child plus the tidally locked
+        // resonant inner three (rotation == orbit period; SOI + velocity drive the Orbital
+        // constraint tolerance).
+        private static FakeBodyInfo JoolSystemFake()
+        {
+            var f = StockFake();
+            f.Orbit["Jool"] = JoolOrbit;
+            f.Rotation["Jool"] = 36000.0;
+            f.Parent["Jool"] = "Sun";
+            f.Soi["Jool"] = 2.4559852e9;
+            f.Velocity["Jool"] = 4129.0;
+            foreach (var (moon, period, soi, vel) in new[]
+            {
+                ("Laythe", LaytheOrbit, 3723645.8, 3223.8),
+                ("Vall", VallOrbit, 2406401.4, 2558.8),
+                ("Tylo", TyloOrbit, 10856518.0, 2030.9),
+            })
+            {
+                f.Orbit[moon] = period;
+                f.Rotation[moon] = period; // tidally locked
+                f.Parent[moon] = "Jool";
+                f.Soi[moon] = soi;
+                f.Velocity[moon] = vel;
+            }
+            return f;
+        }
+
+        // The looped "Jool-5" (inner-three) tour: Kerbin ascent + one journey member classified
+        // Kerbin parking -> Sun coast -> Jool arrival, then Laythe/Vall/Tylo SOI entries inside
+        // the Jool window. No Jool landing, no station.
+        private static RecordingTree ReaimJoolTourTree()
+        {
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var journey = OrbitLeg("o", 1100, 6000, "Kerbin");           // parking
+            WithSoiEntry(journey, 6000, 1000000, "Sun");                  // heliocentric coast
+            WithSoiEntry(journey, 1000000, 1005000, "Jool");              // arrival leg
+            WithSoiEntry(journey, 1005000, 1010000, "Laythe");
+            WithSoiEntry(journey, 1010000, 1015000, "Vall");
+            WithSoiEntry(journey, 1015000, 1020000, "Tylo");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            journey.ChainId = "C"; journey.ChainIndex = 1;
+            return TreeOf("t", ascent, journey);
+        }
+
+        [Fact]
+        public void Build_ReaimJoolMultiMoonTour_EngagesConfigHold()
+        {
+            // M-MIS-6 headline E2E (written FAILING before the implementation, the re-aim
+            // failing-test-first discipline): the resonant inner-three tour engages the
+            // configuration hold through the live Build if-chain - a plain single-period
+            // per-loop hold whose align period is the joint configuration period
+            // T_config = 2*P_Vall (~= T_Tylo; the smallest-duty anchor's lattice), no joint
+            // secondary fields (the clock runs the shipped single-period path), no amber.
+            // Pre-M-MIS-6 the extractor fails closed at 2+ moons and no hold applies.
+            var tree = ReaimJoolTourTree();
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var mission = LoopMissionFor("t", 1.2e6);
+
+            var set = MissionLoopUnitBuilder.Build(
+                new[] { mission }, new[] { tree }, committed, 30.0, JoolSystemFake(),
+                TransitedBodyRotationMode.Loose);
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.True(unit.IsReaim);
+            Assert.True(unit.ArrivalHoldSeconds > 0.0,
+                $"expected the multi-moon config hold, got {unit.ArrivalHoldSeconds}");
+            Assert.Equal(2.0 * VallOrbit, unit.ArrivalAlignPeriodSeconds, 3);
+            Assert.True(unit.ArrivalHoldSeconds <= 2.0 * VallOrbit + 1e-9); // W in (0, T_config]
+            Assert.True(double.IsNaN(unit.ArrivalJointSecondaryPeriodSeconds));
+            Assert.Null(unit.ArrivalAmberReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Reaim]") && l.Contains("ARRIVAL HOLD") &&
+                l.Contains("kind=config") && l.Contains("dest=Jool"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Arrival amber SET"));
+        }
+
         [Fact]
         public void BuildSignature_StationAnchorDigest_TracksLivePeriodAndPresence()
         {

@@ -26,6 +26,20 @@ namespace Parsek.Reaim
         // contract and the bounded-best residual report on decline.
         internal const int JointSolveLookaheadWindows = 8;
 
+        // M-MIS-6 (docs/dev/design-mission-multimoon-alignment.md D1): how many whole anchor
+        // periods the joint-configuration recurrence scan walks when searching T_config = k *
+        // P_anchor. The stock resonant inner three accept at k = 2 (Vall anchor); an
+        // incommensurate pack (Bop/Pol) finds nothing and fails closed. 64 mirrors the
+        // MaxJointHoldWholePeriods bound (a hold near 64 anchor periods is already a multi-day
+        // frozen-ghost cost); the loop slack clamps it further below.
+        internal const int ConfigAnchorLookaheadMultiples = 64;
+
+        // M-MIS-6 (design D6): how many synodic windows the aligned-horizon REPORT counts (the
+        // count of consecutive in-tolerance windows from k=1, logged on engage - the finite
+        // aligned horizon the design accepts; ~40 for the stock inner three under Loose).
+        // Reporting only, never a gate.
+        internal const int ConfigHorizonReportWindows = 64;
+
         /// <summary>The arrival hold decision. Pure value.</summary>
         internal struct ArrivalHoldResult
         {
@@ -50,6 +64,15 @@ namespace Parsek.Reaim
             public long JointChosenWindowK;                 // the solve's pick (logging); 0 when not joint
             public double JointResidualSeconds;             // the solve's residual (logging); NaN when not joint
 
+            // MULTI-MOON configuration hold (M-MIS-6). When IsConfigHold is true,
+            // AlignPeriodSeconds is the joint configuration period T_config (a whole number of
+            // anchor-moon periods) and the clock runs the SHIPPED single-period per-loop path -
+            // no new clock fields. The horizon/residual fields are build-time reporting only
+            // (design D6: the finite aligned horizon is computed and surfaced, never silent).
+            public bool IsConfigHold;
+            public int ConfigAlignedWindowHorizon;          // consecutive in-tolerance windows from k=1 (capped report)
+            public double ConfigFirstWindowResidualSeconds; // worst constraint error at window 1; NaN when not config
+
             internal static ArrivalHoldResult None =>
                 new ArrivalHoldResult
                 {
@@ -66,6 +89,9 @@ namespace Parsek.Reaim
                     JointMaxWholeHoldPeriods = 0,
                     JointChosenWindowK = 0,
                     JointResidualSeconds = double.NaN,
+                    IsConfigHold = false,
+                    ConfigAlignedWindowHorizon = 0,
+                    ConfigFirstWindowResidualSeconds = double.NaN,
                 };
 
             internal static ArrivalHoldResult NoneWithAmber(string reason)
@@ -78,16 +104,18 @@ namespace Parsek.Reaim
 
         /// <summary>
         /// The loop-clock arrival hold for a re-aim arrival, or None. GATED (fail closed to faithful,
-        /// leaving the span clock byte-identical): an unsupported destination (2+ moons Jool-class, or
-        /// the still-deferred D8 station-bearing duals station+moon / moon-orbiting-station - those
-        /// also carry <see cref="ArrivalHoldResult.AmberReason"/>), an orbit-only arrival with no
-        /// station, a landing with alignment OFF (Drop mode - the mode gates ONLY the rotation hold:
-        /// it is the transited-body ROTATION alignment A/B, and the station hold is a fully automatic
-        /// alignment with no toggle per design D4), or a degenerate align period all return None. The
-        /// D8 landing+station dual routes through the JOINT hold
-        /// (<see cref="ComputeJointArrivalHold"/>, the post-M4c SolveArrivalWindow wiring; the
-        /// windowSpacing / launchBody / loopSlack parameters feed it and are unused by every other
-        /// shape). Otherwise the hold W is the minimal forward delay that lands the SOI entry at the
+        /// leaving the span clock byte-identical): an unsupported destination (the still-deferred D8
+        /// station-bearing duals station+moon / moon-orbiting-station, incl. station-bearing
+        /// Jool-class - those carry <see cref="ArrivalHoldResult.AmberReason"/>), an orbit-only
+        /// arrival with no station, a landing with alignment OFF (Drop mode - the mode gates ONLY the
+        /// rotation hold: it is the transited-body ROTATION alignment A/B, and the station hold is a
+        /// fully automatic alignment with no toggle per design D4), or a degenerate align period all
+        /// return None. The D8 landing+station dual routes through the JOINT hold
+        /// (<see cref="ComputeJointArrivalHold"/>, the post-M4c SolveArrivalWindow wiring) and the
+        /// M-MIS-6 multi-moon (2+ constrained moons) shape through the CONFIGURATION hold
+        /// (<see cref="ComputeMultiMoonConfigHold"/>); the windowSpacing / launchBody / loopSlack
+        /// parameters feed those two branches and are unused by every other
+        /// shape. Otherwise the hold W is the minimal forward delay that lands the SOI entry at the
         /// recorded destination-side phase (rotation phase for a landing; station orbital phase for a
         /// destination station - the in-SOI sequence is rigid, so aligning the entry aligns the
         /// deorbit / the rendezvous). The live (unshifted) SOI entry replays at
@@ -115,11 +143,10 @@ namespace Parsek.Reaim
 
             DestinationConstraintExtractor.DestinationConstraintSet destSet =
                 DestinationConstraintExtractor.ExtractDestinationConstraints(allConstraints, targetBody, bodyInfo);
-            // Unsupported destination: no hold. A station-bearing failure (the still-deferred D8
-            // duals: station+moon, a moon-orbiting station, a station-bearing Jool-class
-            // destination) carries the reason as the arrival amber so the UI can explain WHY the
-            // alignment stays faithful; the pre-existing no-station Jool-class path stays silent
-            // (byte-identical).
+            // Unsupported destination: no hold. Every Unsupported shape is station-bearing since
+            // M-MIS-6 (the no-station Jool-class shape now emits and routes to the multi-moon
+            // config hold below), and carries the reason as the arrival amber so the UI can
+            // explain WHY the alignment stays faithful; the no-station arm is defensive.
             if (!destSet.Supported)
             {
                 return destSet.HasStation
@@ -132,6 +159,17 @@ namespace Parsek.Reaim
             if (destSet.IsJointLandingStation)
             {
                 return ComputeJointArrivalHold(
+                    destSet, targetBody, recordedArrivalUT, mode, phaseAnchorUT, spanStartUT,
+                    loiterCuts, bodyInfo, windowSpacingSeconds, launchBodyName, loopSlackSeconds);
+            }
+
+            // M-MIS-6 multi-moon (Jool-class) shape: 2+ constrained moons, never station-bearing
+            // (the extractor's station+moon reject already returned above). One per-loop hold on
+            // the joint configuration period T_config; its own gates fail closed with amber
+            // (docs/dev/design-mission-multimoon-alignment.md D1/D5/D6).
+            if (destSet.ConstrainedMoonCount >= 2)
+            {
+                return ComputeMultiMoonConfigHold(
                     destSet, targetBody, recordedArrivalUT, mode, phaseAnchorUT, spanStartUT,
                     loiterCuts, bodyInfo, windowSpacingSeconds, launchBodyName, loopSlackSeconds);
             }
@@ -394,6 +432,264 @@ namespace Parsek.Reaim
             joint.JointChosenWindowK = solve.ChosenWindowK;
             joint.JointResidualSeconds = solve.ResidualSeconds;
             return joint;
+        }
+
+        /// <summary>
+        /// The MULTI-MOON configuration hold for a 2+-constrained-moon (Jool-class) destination
+        /// (M-MIS-6, docs/dev/design-mission-multimoon-alignment.md). Model: all recorded moon
+        /// encounters shift TOGETHER under one arrival hold, so one hold aligns the tour iff the
+        /// moons' JOINT CONFIGURATION recurs - T_config = k * P_anchor found by the shipped
+        /// near-coincidence scan (<see cref="MissionPeriodicity.TryFindNextScheduleK"/>, anchor =
+        /// the smallest-duty participant per <see cref="MissionPeriodicity.SelectAnchorConstraintIndex"/>,
+        /// design D1/D2). Participants are the moon Orbital constraints (SOI tolerance,
+        /// mode-independent, never dropped) plus the constrained moons' landing rotations and the
+        /// target's DestRotation (mode ladder; Drop removes them; a tidally locked moon's rotation
+        /// equals its orbital period and collapses for free - design D3). Engage requires the scan
+        /// to accept within the slack-clamped anchor budget AND the hold-aware
+        /// <see cref="DestinationArrivalSolver.SolveArrivalWindow"/> pick (holdAlignPeriodSeconds =
+        /// T_config) to land window k=1 within tolerance; ANY miss fails closed to faithful with an
+        /// amber reason naming the shape, periods and residuals - the pre-M-MIS-6 silent Jool-class
+        /// decline is gone (design D4/D6, never silent). On engage the clock runs the SHIPPED
+        /// single-period per-loop hold with AlignPeriodSeconds = T_config (design D8, zero clock
+        /// change); the finite aligned-window horizon (drift accumulates across loops, design
+        /// section 2) is counted and logged, reporting only. Pure.
+        /// </summary>
+        internal static ArrivalHoldResult ComputeMultiMoonConfigHold(
+            DestinationConstraintExtractor.DestinationConstraintSet destSet,
+            string targetBody,
+            double recordedArrivalUT,
+            TransitedBodyRotationMode mode,
+            double phaseAnchorUT,
+            double spanStartUT,
+            IReadOnlyList<GhostPlaybackLogic.LoopCut> loiterCuts,
+            IBodyInfo bodyInfo,
+            double windowSpacingSeconds,
+            string launchBodyName,
+            double loopSlackSeconds)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            string shape = destSet.ConstrainedMoonCount.ToString(ic) + " constrained moons of '"
+                + (targetBody ?? "?") + "'";
+
+            // Destination-side loiter-cut rigidity guard (the shipped L8 refusal): a cut excised
+            // AFTER the SOI entry breaks the entry-referenced rigidity that lets ONE hold align
+            // every encounter. Amber (design D6: never silent).
+            if (loiterCuts != null)
+            {
+                for (int i = 0; i < loiterCuts.Count; i++)
+                    if (loiterCuts[i].EndUT > recordedArrivalUT)
+                        return ArrivalHoldResult.NoneWithAmber(
+                            shape + ": a destination-side loiter cut breaks the entry-referenced " +
+                            "configuration hold (deferred to the M-MIS-2 P4 re-timer); faithful");
+            }
+
+            // Participants (design D3): moon Orbitals + DestRotation (in Constraints) + the
+            // constrained moons' landing rotations (MoonRotations). Drop removes TRANSITED
+            // rotations (the same filter SolveArrivalWindow applies); degenerate periods skipped.
+            var participants = new List<PhaseConstraint>();
+            CollectConfigParticipants(destSet.Constraints, mode, launchBodyName, participants);
+            CollectConfigParticipants(destSet.MoonRotations, mode, launchBodyName, participants);
+            if (participants.Count == 0)
+                return ArrivalHoldResult.None; // defensive: >=2 valid moon periods always remain
+
+            var tolerances = new double[participants.Count];
+            for (int i = 0; i < participants.Count; i++)
+            {
+                tolerances[i] = MissionPeriodicity.ScheduleToleranceSecondsFor(
+                    participants[i], bodyInfo, launchBodyName, mode);
+            }
+
+            // The recurrence lattice anchor: the smallest-duty participant (design D2 - pinning
+            // the tightest band exactly wastes the least tolerance and maximizes the aligned
+            // horizon; Vall for the stock inner three).
+            int anchorIdx = MissionPeriodicity.SelectAnchorConstraintIndex(
+                participants, bodyInfo, launchBodyName, mode);
+            double pAnchor = participants[anchorIdx].PeriodSeconds;
+
+            // Anchor-multiple budget: the constant cap, clamped by the loop slack so the worst
+            // hold (< T_config = k * pAnchor) always fits the idle gap - the clock's defensive
+            // hold clamp must never silently truncate the configuration hold.
+            int maxK = ConfigAnchorLookaheadMultiples;
+            if (!double.IsNaN(loopSlackSeconds) && !double.IsInfinity(loopSlackSeconds))
+            {
+                long slackK = (long)System.Math.Floor(loopSlackSeconds / pAnchor);
+                if (slackK < maxK)
+                    maxK = (int)System.Math.Max(0, slackK);
+            }
+            if (maxK < 1)
+            {
+                return ArrivalHoldResult.NoneWithAmber(
+                    shape + ": loop slack " +
+                    (double.IsNaN(loopSlackSeconds) ? "unknown" : loopSlackSeconds.ToString("F0", ic) + "s") +
+                    " leaves no whole configuration-anchor-period hold budget (anchor '" +
+                    (participants[anchorIdx].BodyName ?? "?") + "' P=" + pAnchor.ToString("F0", ic) +
+                    "s); faithful");
+            }
+
+            // T_config = k * pAnchor via the shipped near-coincidence scan (design D1): the first
+            // whole anchor multiple where EVERY other participant is within its own tolerance.
+            var otherPeriods = new List<double>(participants.Count - 1);
+            var otherTolerances = new List<double>(participants.Count - 1);
+            for (int i = 0; i < participants.Count; i++)
+            {
+                if (i == anchorIdx)
+                    continue;
+                otherPeriods.Add(participants[i].PeriodSeconds);
+                otherTolerances.Add(tolerances[i]);
+            }
+            MissionPeriodicity.TryFindNextScheduleK(
+                pAnchor, otherPeriods, otherTolerances, 1, maxK,
+                out long foundK, out double scanResidual, out bool scanWithin);
+            if (!scanWithin)
+            {
+                return ArrivalHoldResult.NoneWithAmber(
+                    shape + ": joint configuration (" + DescribeParticipants(participants) +
+                    ") does not recur within tolerance in k*P_anchor (anchor '" +
+                    (participants[anchorIdx].BodyName ?? "?") + "', k<=" + maxK.ToString(ic) +
+                    "): worst residual " + scanResidual.ToString("F0", ic) + "s at " +
+                    WorstViolatorLabel(participants, tolerances, anchorIdx, foundK * pAnchor) +
+                    "; faithful");
+            }
+            double tConfig = foundK * pAnchor;
+
+            // The hold-aware window pick (the M-MIS-4 SolveArrivalWindow wiring, reused): window
+            // k=1 sampled at the T_config-lattice snap must land within every tolerance. Errors
+            // grow with the lattice index, so a window-1 miss means every window misses.
+            DestinationArrivalSolver.DestinationArrivalSolve solve =
+                DestinationArrivalSolver.SolveArrivalWindow(
+                    windowSpacingSeconds, participants, bodyInfo, launchBodyName, mode,
+                    kStart: 1, lookaheadWindows: JointSolveLookaheadWindows,
+                    holdAlignPeriodSeconds: tConfig, maxWholeHoldPeriods: 0);
+            if (!solve.WithinTolerance || solve.ChosenWindowK != 1)
+            {
+                return ArrivalHoldResult.NoneWithAmber(
+                    shape + ": configuration window solve declined (method=" + solve.Method +
+                    " k=" + solve.ChosenWindowK.ToString(ic) +
+                    " residual=" + solve.ResidualSeconds.ToString("F0", ic) +
+                    "s Tconfig=" + tConfig.ToString("F0", ic) + "s over " +
+                    JointSolveLookaheadWindows.ToString(ic) + " windows); faithful");
+            }
+
+            // The finite aligned horizon (design D6): consecutive in-tolerance windows from k=1,
+            // capped for reporting. Loops past it keep the lattice hold (bounded, slowly-growing
+            // configuration error); the count is logged so the degradation is never silent.
+            int horizon = DestinationArrivalSolver.CountAlignedWindowPrefix(
+                windowSpacingSeconds, ExtractPeriods(participants), tolerances,
+                tConfig, ConfigHorizonReportWindows);
+
+            // ENGAGE. A zero base hold (entry already configuration-aligned) substitutes one full
+            // T_config to keep the clock's hold>0 gate engaged (the shipped joint-hold trick; the
+            // per-loop formula mods it back to the true zero base, no spurious dead time).
+            double liveEntryUT = phaseAnchorUT
+                + (GhostPlaybackLogic.CompressSpanUT(recordedArrivalUT, loiterCuts) - spanStartUT);
+            double w0 = GhostPlaybackLogic.ComputeArrivalAlignHoldSeconds(
+                recordedArrivalUT, liveEntryUT, tConfig);
+            if (!(w0 > 0.0) || double.IsInfinity(w0))
+                w0 = tConfig;
+
+            if (!MissionPeriodicity.SuppressLogging)
+            {
+                ParsekLog.Verbose("ReaimArrival",
+                    "config-hold engage dest=" + (targetBody ?? "?") +
+                    " participants=" + DescribeParticipants(participants) +
+                    " anchor=" + (participants[anchorIdx].BodyName ?? "?") +
+                    " k=" + foundK.ToString(ic) +
+                    " Tconfig=" + tConfig.ToString("R", ic) + "s" +
+                    " scanResidual=" + scanResidual.ToString("F1", ic) + "s" +
+                    " window1Residual=" + solve.ResidualSeconds.ToString("F1", ic) + "s" +
+                    " alignedWindows" + (horizon >= ConfigHorizonReportWindows ? ">=" : "=") +
+                    horizon.ToString(ic) +
+                    " mode=" + mode);
+            }
+
+            ArrivalHoldResult config = ArrivalHoldResult.None;
+            config.HoldSeconds = w0;
+            config.HoldAtUT = recordedArrivalUT;
+            config.AlignPeriodSeconds = tConfig;
+            config.Applied = true;
+            config.IsStationHold = false;
+            config.AlignAnchorPid = 0;
+            config.IsConfigHold = true;
+            config.ConfigAlignedWindowHorizon = horizon;
+            config.ConfigFirstWindowResidualSeconds = solve.ResidualSeconds;
+            return config;
+        }
+
+        // Appends the valid configuration participants from one source list: Drop removes
+        // TRANSITED rotations (MissionPeriodicity.IsTransitedBodyRotation, the SolveArrivalWindow
+        // filter semantics); degenerate periods are skipped.
+        private static void CollectConfigParticipants(
+            IReadOnlyList<PhaseConstraint> source, TransitedBodyRotationMode mode,
+            string launchBodyName, List<PhaseConstraint> into)
+        {
+            int n = source?.Count ?? 0;
+            for (int i = 0; i < n; i++)
+            {
+                PhaseConstraint c = source[i];
+                double p = c.PeriodSeconds;
+                if (double.IsNaN(p) || double.IsInfinity(p) || p <= 0.0)
+                    continue;
+                if (mode == TransitedBodyRotationMode.Drop
+                    && MissionPeriodicity.IsTransitedBodyRotation(c, launchBodyName))
+                    continue;
+                into.Add(c);
+            }
+        }
+
+        // Compact participant summary for logs/ambers: "Laythe/Vall/Tylo/rot:Laythe".
+        private static string DescribeParticipants(IReadOnlyList<PhaseConstraint> participants)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < participants.Count; i++)
+            {
+                if (i > 0)
+                    sb.Append('/');
+                if (participants[i].Kind == ConstraintKind.Rotation)
+                    sb.Append("rot:");
+                sb.Append(participants[i].BodyName ?? "?");
+            }
+            return sb.ToString();
+        }
+
+        // The participant with the largest phase error at the given lattice offset, preferring
+        // those OUT of tolerance (for the honest decline amber).
+        private static string WorstViolatorLabel(
+            IReadOnlyList<PhaseConstraint> participants, double[] tolerances,
+            int anchorIdx, double latticeOffsetSeconds)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            int worstIdx = -1;
+            double worstErr = -1.0;
+            bool worstViolates = false;
+            for (int i = 0; i < participants.Count; i++)
+            {
+                if (i == anchorIdx)
+                    continue;
+                double err = MissionPeriodicity.CircularPhaseError(
+                    latticeOffsetSeconds, participants[i].PeriodSeconds);
+                bool violates = err > tolerances[i];
+                if (worstIdx < 0
+                    || (violates && !worstViolates)
+                    || (violates == worstViolates && err > worstErr))
+                {
+                    worstIdx = i;
+                    worstErr = err;
+                    worstViolates = violates;
+                }
+            }
+            if (worstIdx < 0)
+                return "?";
+            PhaseConstraint w = participants[worstIdx];
+            return (w.Kind == ConstraintKind.Rotation ? "rot:" : "") + (w.BodyName ?? "?")
+                + " (tol " + tolerances[worstIdx].ToString("F0", ic) + "s)";
+        }
+
+        private static double[] ExtractPeriods(IReadOnlyList<PhaseConstraint> participants)
+        {
+            var periods = new double[participants.Count];
+            for (int i = 0; i < participants.Count; i++)
+                periods[i] = participants[i].PeriodSeconds;
+            return periods;
         }
     }
 }
