@@ -344,13 +344,25 @@ namespace Parsek.Reaim
         /// <see cref="ShiftInTime"/>'d by this (negative = earlier) amount, BEFORE the sort/coalesce, so its
         /// startUT/endUT/epoch move together (phase preserved). The transfer + launch + park legs are
         /// untouched. Defaults (0 / null) leave every capture segment byte-identical (direct path).</para>
+        ///
+        /// <para><paramref name="arrivalRestitchRotationDeg"/> (default 0 = no rotation, byte-identical):
+        /// the S4 arrival re-stitch (docs/dev/plans/reaim-s4-arrival-restitch.md). When non-zero, every
+        /// non-predicted <paramref name="targetBody"/>-bodied segment starting at/after
+        /// <paramref name="recordedArrivalUT"/> - the SAME in-SOI arrival-chain population the capture
+        /// re-time touches (approach hyperbola + capture + destination parking) - is rigidly rotated
+        /// about the destination's spin axis by this angle (<see cref="RotateLanForParkRephase"/>, an
+        /// exact rigid rotation about the reference-plane pole for any inclination), so the recorded
+        /// approach connects to the re-aimed transfer's actual SOI-entry bearing. The rotation and the
+        /// time-shift are independent and compose; the body-fixed descent members never route through
+        /// here, so the landing site is untouched by construction (the ratified recorded-site decision).</para>
         /// </summary>
         internal static List<OrbitSegment> ReplaceHeliocentricLeg(
             IReadOnlyList<OrbitSegment> memberSegments, OrbitSegment transferSegment,
             string commonAncestor, double recordedDepartureUT, double recordedArrivalUT,
             double transferRenderStartUT, double transferRenderEndUT,
             double parkDeltaLonDeg = 0.0,
-            double captureRetimeShiftSeconds = 0.0, string targetBody = null)
+            double captureRetimeShiftSeconds = 0.0, string targetBody = null,
+            double arrivalRestitchRotationDeg = 0.0)
         {
             if (memberSegments == null || string.IsNullOrEmpty(commonAncestor))
                 return null;
@@ -393,18 +405,28 @@ namespace Parsek.Reaim
                 }
                 else
                 {
-                    // Capture-leg re-time (parking path): the re-aimed transfer arrives EARLIER than the
-                    // recorded arrival, so shift the recorded target-body capture leg(s) back to meet it. Only
-                    // a non-predicted targetBody-bodied segment starting at/after the recorded arrival is
-                    // moved; ShiftInTime moves startUT/endUT/epoch together (phase preserved). Gated on a
-                    // non-zero shift + a non-null targetBody, so the direct path (0 / null) leaves it
-                    // byte-identical. Mutually exclusive with the park-rephase below (park is commonAncestor,
-                    // capture is targetBody).
-                    if (captureRetimeShiftSeconds != 0.0 && !string.IsNullOrEmpty(targetBody)
+                    // In-SOI arrival-chain adjustments (parking path): the SAME segment population (a
+                    // non-predicted targetBody-bodied segment starting at/after the recorded arrival) takes
+                    // BOTH the capture re-time (the re-aimed transfer arrives EARLIER than the recorded
+                    // arrival, so the leg ShiftInTime's back to meet it; startUT/endUT/epoch move together,
+                    // phase preserved) AND the S4 arrival re-stitch rotation (the whole approach + capture +
+                    // parking chain turns rigidly about the destination's spin axis to meet the re-aimed
+                    // transfer's SOI-entry bearing). The two are independent (time vs orientation) and
+                    // compose in either order. Gated on non-zero values + a non-null targetBody, so the
+                    // direct path (0 / 0 / null) leaves every segment byte-identical. Mutually exclusive
+                    // with the park-rephase below (park is commonAncestor, capture is targetBody).
+                    bool isArrivalChainSeg = !string.IsNullOrEmpty(targetBody)
                         && !s.isPredicted && s.bodyName == targetBody
-                        && s.startUT >= recordedArrivalUT - 1.0)
+                        && s.startUT >= recordedArrivalUT - 1.0;
+                    if (isArrivalChainSeg
+                        && (captureRetimeShiftSeconds != 0.0 || arrivalRestitchRotationDeg != 0.0))
                     {
-                        result.Add(ShiftInTime(s, captureRetimeShiftSeconds));
+                        OrbitSegment adjusted = s;
+                        if (arrivalRestitchRotationDeg != 0.0)
+                            adjusted = RotateLanForParkRephase(adjusted, arrivalRestitchRotationDeg);
+                        if (captureRetimeShiftSeconds != 0.0)
+                            adjusted = ShiftInTime(adjusted, captureRetimeShiftSeconds);
+                        result.Add(adjusted);
                     }
                     // Heliocentric PARK re-phase: rotate ONLY the recorded common-ancestor coast(s)
                     // BEFORE the burn (the Sun-inertial park) into the live frame. The body-relative

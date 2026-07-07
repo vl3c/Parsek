@@ -116,7 +116,8 @@ namespace Parsek.MapRender
                 currentUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
                 unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
                 unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts,
-                memberStartUT, memberEndUT, out head, out phase);
+                memberStartUT, memberEndUT, out head, out phase,
+                GhostPlaybackLogic.ResolveDescentSiteAlignOffsetSeconds(unit, unitCycle));
         }
 
         /// <summary>

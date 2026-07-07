@@ -324,6 +324,12 @@ namespace Parsek
             // Driver calls, so the C1 icon-ride gate engages exactly when that leg first draws. NaN keeps
             // every non-descent unit byte-identical.
             double descentFirstDeorbitLegStartUT = double.NaN;
+            // The transfer member's recording id (the re-aim resolver's memberId), set ONLY when the
+            // descent trigger engages: the S4 arrival re-stitch trigger offset is resolved per cycle by
+            // reading the resolver's cached rotation for (this id, cycle)
+            // (docs/dev/plans/reaim-s4-arrival-restitch.md). Null keeps the offset 0 (byte-identical)
+            // on every non-descent unit.
+            string transferMemberRecordingId = null;
             if (bodyInfo != null)
             {
                 ConstraintExtraction extraction = MissionPeriodicity.ExtractConstraints(
@@ -423,7 +429,7 @@ namespace Parsek
                         ref launchHoldSoiExitUT, ref descentMemberIndices, ref descentRecordedDeorbitUT,
                         ref descentEndUT, ref descentRotationPeriod, ref descentLoiterPeriod,
                         ref descentCaptureShift, ref descentParkingConicEndUT, ref transferMemberIndex,
-                        ref descentFirstDeorbitLegStartUT);
+                        ref descentFirstDeorbitLegStartUT, ref transferMemberRecordingId);
                 }
             }
 
@@ -446,7 +452,8 @@ namespace Parsek
                 launchHoldRotationPeriod, launchHoldEngaged, launchHoldSoiExitUT,
                 descentMemberIndices, descentRecordedDeorbitUT, descentEndUT,
                 descentRotationPeriod, descentLoiterPeriod, descentCaptureShift,
-                descentParkingConicEndUT, transferMemberIndex, descentFirstDeorbitLegStartUT);
+                descentParkingConicEndUT, transferMemberIndex, descentFirstDeorbitLegStartUT,
+                transferMemberRecordingId);
 
             LogMissionUnitSummary(
                 mission, tree, memberArray, skippedNotCommitted, spanStartUT, spanEndUT, span,
@@ -503,7 +510,8 @@ namespace Parsek
             ref double descentCaptureShift,
             ref double descentParkingConicEndUT,
             ref int transferMemberIndex,
-            ref double descentFirstDeorbitLegStartUT)
+            ref double descentFirstDeorbitLegStartUT,
+            ref string transferMemberRecordingId)
         {
             // Classify across ALL members' segments (the mission's combined SOI chain): a real
             // interplanetary mission is usually a CHAIN (launch leg / transfer leg / arrival
@@ -931,6 +939,20 @@ namespace Parsek
                         descentRotationPeriod = descTrot;
                         descentLoiterPeriod = descentRun.PeriodSeconds;
                         descentCaptureShift = descCaptureShift;
+                        // S4 arrival re-stitch eligibility (docs/dev/plans/reaim-s4-arrival-restitch.md):
+                        // ONLY the Supported single-destination LANDING profile (this engage block) is
+                        // eligible - stamp the plan copy the LoopUnit stores (the resolver reads
+                        // unit.ReaimPlan, so the per-window rotation gate rides this flag), and record the
+                        // transfer member's recording id so the descent trigger reads the per-window
+                        // rotation back from the SAME resolver cache entry that renders it. Every
+                        // non-landing shape leaves both defaults (false / null) = byte-identical.
+                        plan.ArrivalRestitchEligible = true;
+                        reaimPlan = plan;
+                        transferMemberRecordingId =
+                            transferMemberIndex >= 0 && transferMemberIndex < committed.Count
+                            && committed[transferMemberIndex] != null
+                                ? committed[transferMemberIndex].RecordingId
+                                : null;
                         // PARKING-conic end (Layer A of the loiter-gap render fix): the SHIFTED
                         // destination loiter run end. A loiter run (ReaimLoiterCompressor.DetectRuns)
                         // ends at the first > 5% sma step, so descentRun.EndUT is the parking conic's

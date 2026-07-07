@@ -34,18 +34,31 @@ namespace Parsek.Reaim
         /// <c>[entryUT, entryUT + rotationPeriod)</c> - the loiter waits at most one destination day,
         /// however many parking revolutions that spans. NaN (no trigger) for NaN / non-positive
         /// <paramref name="rotationPeriod"/> or NaN inputs.
+        ///
+        /// <para><paramref name="siteAlignOffsetSeconds"/> (default 0 = the shipped behavior): the S4
+        /// arrival re-stitch congruence offset (<see cref="ArrivalRestitch.SiteAlignOffsetSeconds"/>).
+        /// When the in-SOI arrival chain was rotated by theta about the destination's spin axis, the
+        /// deorbit point's inertial bearing moved by theta, so the body-fixed recorded site rotates
+        /// under it theta/omega_rot seconds LATER in the rotation cycle: the congruence target becomes
+        /// <c>recordedDeorbitUT + offset (mod rotationPeriod)</c>. ONLY the congruence moves - the
+        /// descent head elsewhere stays anchored at <c>recordedDeorbitUT</c>, so the clip and the
+        /// touchdown lat/lon are untouched (the recorded-site invariant). A non-finite offset is
+        /// sanitized to 0 (shipped behavior), never a hidden descent.</para>
         /// </summary>
         internal static double ComputeRotationAlignedTriggerUT(
-            double entryUT, double recordedDeorbitUT, double rotationPeriod)
+            double entryUT, double recordedDeorbitUT, double rotationPeriod,
+            double siteAlignOffsetSeconds = 0.0)
         {
             if (double.IsNaN(entryUT) || double.IsNaN(recordedDeorbitUT) || double.IsNaN(rotationPeriod)
                 || double.IsInfinity(entryUT) || double.IsInfinity(recordedDeorbitUT)
                 || double.IsInfinity(rotationPeriod) || rotationPeriod <= 0.0)
                 return double.NaN;
+            double offset = double.IsNaN(siteAlignOffsetSeconds) || double.IsInfinity(siteAlignOffsetSeconds)
+                ? 0.0 : siteAlignOffsetSeconds;
 
-            // Seconds from entryUT forward to the next UT congruent to recordedDeorbitUT (mod rotationPeriod).
-            // C#'s % can be negative; normalize into [0, rotationPeriod).
-            double phase = (recordedDeorbitUT - entryUT) % rotationPeriod;
+            // Seconds from entryUT forward to the next UT congruent to recordedDeorbitUT + offset
+            // (mod rotationPeriod). C#'s % can be negative; normalize into [0, rotationPeriod).
+            double phase = (recordedDeorbitUT + offset - entryUT) % rotationPeriod;
             if (phase < 0.0) phase += rotationPeriod;
             return entryUT + phase;
         }
@@ -165,7 +178,8 @@ namespace Parsek.Reaim
             double parkingPeriod,
             double captureShiftSeconds,
             IReadOnlyList<GhostPlaybackLogic.LoopCut> loiterCuts,
-            out double head)
+            out double head,
+            double siteAlignOffsetSeconds = 0.0)
         {
             head = double.NaN;
 
@@ -181,7 +195,8 @@ namespace Parsek.Reaim
 
             ComputeDescentTiming(
                 cycleIndex, phaseAnchorUT, cadenceSeconds, spanStartUT, recordedDeorbitUT, rotationPeriod,
-                captureShiftSeconds, loiterCuts, out double conicEnd, out double entryUT, out double triggerUT);
+                captureShiftSeconds, loiterCuts, out double conicEnd, out double entryUT, out double triggerUT,
+                siteAlignOffsetSeconds);
 
             if (currentUT < entryUT)
                 return DescentHeadPhase.Inert; // icon still launching / transferring / riding the parking conic
@@ -228,7 +243,8 @@ namespace Parsek.Reaim
             long cycleIndex, double phaseAnchorUT, double cadenceSeconds, double spanStartUT,
             double recordedDeorbitUT, double rotationPeriod, double captureShiftSeconds,
             IReadOnlyList<GhostPlaybackLogic.LoopCut> loiterCuts,
-            out double conicEnd, out double entryUT, out double triggerUT)
+            out double conicEnd, out double entryUT, out double triggerUT,
+            double siteAlignOffsetSeconds = 0.0)
         {
             // conicEnd lands in the recorded TRANSFER region (captureShift is large + negative), so only
             // LAUNCH-side loiter cuts precede it - CompressSpanUT subtracts exactly those (the destination cut,
@@ -236,7 +252,8 @@ namespace Parsek.Reaim
             conicEnd = recordedDeorbitUT + captureShiftSeconds;
             double entryOffset = GhostPlaybackLogic.CompressSpanUT(conicEnd, loiterCuts) - spanStartUT;
             entryUT = phaseAnchorUT + cycleIndex * cadenceSeconds + entryOffset;
-            triggerUT = ComputeRotationAlignedTriggerUT(entryUT, recordedDeorbitUT, rotationPeriod);
+            triggerUT = ComputeRotationAlignedTriggerUT(
+                entryUT, recordedDeorbitUT, rotationPeriod, siteAlignOffsetSeconds);
         }
 
         /// <summary>
@@ -274,7 +291,8 @@ namespace Parsek.Reaim
             double parkingPeriod,
             double captureShiftSeconds,
             IReadOnlyList<GhostPlaybackLogic.LoopCut> loiterCuts,
-            out double deorbitHead)
+            out double deorbitHead,
+            double siteAlignOffsetSeconds = 0.0)
         {
             deorbitHead = double.NaN;
 
@@ -283,7 +301,7 @@ namespace Parsek.Reaim
             DescentHeadPhase phase = ComputeDescentMemberHead(
                 currentUT, cycleIndex, phaseAnchorUT, cadenceSeconds, spanStartUT,
                 recordedDeorbitUT, descentEndUT, rotationPeriod, parkingPeriod, captureShiftSeconds,
-                loiterCuts, out _);
+                loiterCuts, out _, siteAlignOffsetSeconds);
 
             if (phase != DescentHeadPhase.Loiter)
                 return false;
@@ -291,7 +309,8 @@ namespace Parsek.Reaim
             // Same triggerUT the descent member re-anchors on (ComputeDescentTiming is the shared source).
             ComputeDescentTiming(
                 cycleIndex, phaseAnchorUT, cadenceSeconds, spanStartUT, recordedDeorbitUT, rotationPeriod,
-                captureShiftSeconds, loiterCuts, out _, out _, out double triggerUT);
+                captureShiftSeconds, loiterCuts, out _, out _, out double triggerUT,
+                siteAlignOffsetSeconds);
             if (double.IsNaN(triggerUT))
                 return false; // defensive: degenerate trigger -> no re-anchor (Loiter implies a valid trigger)
 
@@ -593,12 +612,13 @@ namespace Parsek.Reaim
             double memberStartUT,
             double memberEndUT,
             out double head,
-            out DescentHeadPhase phase)
+            out DescentHeadPhase phase,
+            double siteAlignOffsetSeconds = 0.0)
         {
             phase = ComputeDescentMemberHead(
                 currentUT, cycleIndex, phaseAnchorUT, cadenceSeconds, spanStartUT,
                 recordedDeorbitUT, descentEndUT, rotationPeriod, parkingPeriod, captureShiftSeconds,
-                loiterCuts, out double sharedHead);
+                loiterCuts, out double sharedHead, siteAlignOffsetSeconds);
 
             // Doubly-inclusive epsilon window, matching the normal-path IsLoopUTInMemberWindow contract. At an
             // exact-abutting or slightly-overlapping chain seam (real recordings can overlap ~0.02 s) the head can
