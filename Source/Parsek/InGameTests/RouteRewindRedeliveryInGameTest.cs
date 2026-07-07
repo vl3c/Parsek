@@ -93,6 +93,21 @@ namespace Parsek.InGameTests
         private const double DeliveryAmount = 5.0;
         private const double ResourceTolerance = 0.01;
         private const double FundsTolerance = 0.5;
+
+        // Synthetic member recording ids MUST be unique against whatever save the
+        // batch runs in: RouteStore.RevalidateSources resolves source-refs through an
+        // ERS index keyed by RecordingId ("ids are unique among visible recordings"),
+        // and the InjectAllRecordings test save already carries recordings literally
+        // named "launch"/"docked"/"survivor"/"payload" (the dock-undock fixture).
+        // With colliding ids the first revalidation pass (triggered by the Rec-1
+        // Restore's state-version bump) resolved "launch" to the SAVE's Transport
+        // tree, flipped the route to SourceChanged (tree-id drift), and the re-fly
+        // was skipped - failing the test for a harness reason, not the Rec-1 bug
+        // (2026-07-07 in-game run, save "orbital supply route").
+        private const string LaunchRecId = "ingame-rewindredeliver-launch";
+        private const string DockedRecId = "ingame-rewindredeliver-docked";
+        private const string SurvivorRecId = "ingame-rewindredeliver-survivor";
+        private const string PayloadRecId = "ingame-rewindredeliver-payload";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         // Deterministic injected span clock (same shape as the loop-fire harness):
@@ -248,8 +263,8 @@ namespace Parsek.InGameTests
                 RecordingStore.AddCommittedTreeForTesting(routeTree);
                 routeTreeAdded = true;
                 // Push the route's member recordings into CommittedRecordings so ERS
-                // sees "launch" + "docked" (AddCommittedTreeForTesting registers only
-                // the tree, not its recordings).
+                // sees the launch + docked members (AddCommittedTreeForTesting registers
+                // only the tree, not its recordings).
                 foreach (Recording rec in routeTree.Recordings.Values)
                 {
                     if (rec == null) continue;
@@ -604,7 +619,7 @@ namespace Parsek.InGameTests
                 BackingMissionTreeId = routeTreeId,
                 ExcludedIntervalKeys = new HashSet<string>(),
                 RecordedDockUT = DockUT,
-                DockMemberRecordingId = "docked",
+                DockMemberRecordingId = DockedRecId,
                 LoopAnchorUT = SpanStartUT,
                 LastObservedLoopCycleIndex = -1,
                 TransitDuration = Cadence,
@@ -626,11 +641,11 @@ namespace Parsek.InGameTests
                 {
                     { LiquidFuelName, DeliveryAmount },
                 },
-                RecordingIds = new List<string> { "launch", "docked" },
+                RecordingIds = new List<string> { LaunchRecId, DockedRecId },
                 SourceRefs = new List<RouteSourceRef>
                 {
-                    new RouteSourceRef { RecordingId = "launch", TreeId = routeTreeId },
-                    new RouteSourceRef { RecordingId = "docked", TreeId = routeTreeId },
+                    new RouteSourceRef { RecordingId = LaunchRecId, TreeId = routeTreeId },
+                    new RouteSourceRef { RecordingId = DockedRecId, TreeId = routeTreeId },
                 },
                 Stops = new List<RouteStop>
                 {
@@ -773,18 +788,20 @@ namespace Parsek.InGameTests
 
         // launch -> dock -> undock with a peeled payload at undock. Root launch UT
         // 1000, undock 3000 (mirrors the loop-fire harness topology so ERS resolves
-        // "launch" + "docked").
+        // the launch + docked members). Ids carry the test-unique prefix so they can
+        // never collide with recordings already in the loaded save (see the RecId
+        // constants for the failure this prevents).
         private static RecordingTree BuildLaunchDockUndockTree(string treeId)
         {
-            var tree = new RecordingTree { Id = treeId, RootRecordingId = "launch" };
-            tree.Recordings["launch"] = Leg("launch", "C0", 0, 1000, 2000, "Transport");
-            tree.Recordings["docked"] = Leg("docked", "C0", 1, 2000, 3000, "Transport");
-            tree.Recordings["survivor"] = Leg("survivor", "C0", 2, 3000, 4000, "Transport");
-            tree.Recordings["payload"] = Leg("payload", "C1", 0, 3000, 3500, "Payload");
+            var tree = new RecordingTree { Id = treeId, RootRecordingId = LaunchRecId };
+            tree.Recordings[LaunchRecId] = Leg(LaunchRecId, "C0", 0, 1000, 2000, "Transport");
+            tree.Recordings[DockedRecId] = Leg(DockedRecId, "C0", 1, 2000, 3000, "Transport");
+            tree.Recordings[SurvivorRecId] = Leg(SurvivorRecId, "C0", 2, 3000, 4000, "Transport");
+            tree.Recordings[PayloadRecId] = Leg(PayloadRecId, "C1", 0, 3000, 3500, "Payload");
             tree.BranchPoints.Add(BP("dock-bp", BranchPointType.Dock,
-                new[] { "launch" }, new[] { "docked" }, 2000));
+                new[] { LaunchRecId }, new[] { DockedRecId }, 2000));
             tree.BranchPoints.Add(BP("undock-bp", BranchPointType.Undock,
-                new[] { "docked" }, new[] { "survivor", "payload" }, 3000));
+                new[] { DockedRecId }, new[] { SurvivorRecId, PayloadRecId }, 3000));
             return tree;
         }
 
