@@ -17,6 +17,7 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
+- A looped re-aim arrival now hands off cleanly in flight too: while the descent clip plays, the transfer/loiter member's flight 3D ghost hides (mirroring the tracking-station icon handoff), so only the descending vessel exists at the handoff instead of a second ghost still circling the parking orbit. The map/TS icon handoff and the flight ghost handoff now share one decision, so the two scenes can never disagree on when the handoff fires.
 - The route detail panel's recent-cycles lines now surface stored-part inventory shortfalls: a cycle short only on inventory items gets the shortfall highlight and a "(source was short)" note, and a fully blocked inventory pickup reads "picked up 0 of N inventory item(s)" instead of "picked up nothing" with no explanation.
 
 ### Internals & Tests
