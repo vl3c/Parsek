@@ -14,6 +14,8 @@ All notable changes to Parsek are documented here.
 - Supply routes now deliver at the displayed dispatch interval: the docked loading stretch no longer pads the realized cycle, so a route whose interval was shorter than the old launch-to-undock window delivers more often than before, and the route ghost retires at the dock instead of sitting docked until the undock.
 - Supply run candidates can now be dismissed: each candidate and near-miss row in the Logistics window gets a Dismiss button that hides trees you never intend to run as routes, and a collapsed "Dismissed (N)" list at the bottom of the Candidates section lets you restore any of them later.
 - A supply route held because another route reserved a shared depot's cargo for its own in-flight cycle now says so in the Logistics window, naming the reserving route, instead of wrongly claiming the depot is out of that resource.
+- A held supply route now names its specific blocker directly in its Status cell (for example "Held: Depot A out of Ore" or "Held: waiting for 'Return Run'") instead of a generic status sentence with the reason hidden in the tooltip. Long reasons are shortened in the cell; the full text stays in the tooltip and the detail panel.
+- Committing a flight that qualifies as a Supply Route now prompts you once: a screen message announces it and the Parsek window shows a small banner with Open Logistics / Dismiss buttons (Dismiss also hides the candidate, reversible from the Dismissed list). Each flight prompts at most once, and never during test runs.
 
 ### Fixes
 

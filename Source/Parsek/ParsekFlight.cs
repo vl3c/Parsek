@@ -12937,6 +12937,7 @@ namespace Parsek
 
             // Clear state
             var treeName = activeTree.TreeName;
+            var committedTreeForPrompt = activeTree;
             activeTree = null;
             if (backgroundRecorder != null)
             {
@@ -12955,6 +12956,14 @@ namespace Parsek
                 ParsekLog.ScreenMessage($"Tree committed to timeline! {spawnCount} vessel(s) spawned.", 3f);
             else
                 ParsekLog.ScreenMessage("Tree committed to timeline!", 3f);
+
+            // M6 Record-Supply-Run helper: one-time non-blocking prompt when
+            // this commit produced an eligible route candidate. Covers the
+            // in-flight commit path AND the pre-switch-dialog patch paths
+            // (both route through CommitTreeFlight); the merge-dialog path
+            // hooks in MergeDialog.MergeCommit. Internally gated (test batch,
+            // restore window, prompted-once, dismissed) and never throws.
+            Logistics.RouteRunPrompt.NotifyTreeCommitted(committedTreeForPrompt);
         }
 
         private void ReserveCrewForLeaves(List<Recording> spawnableLeaves)
