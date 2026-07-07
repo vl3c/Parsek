@@ -57,10 +57,14 @@ module scan injected):
 ConnectionProducerClassifier.Classify(Part from, Part to) -> RouteConnectionKind
 ```
 
-- Both endpoints carry `ModuleDockingNode` -> `DockingPort`.
-- Either endpoint carries `ModuleGrappleNode` -> `Grapple` (findings 1.3: the grabbed side
-  is an arbitrary part; which side is `from` depends on `Vessel.GetDominantVessel`, so BOTH
-  ends are tested and no module is expected on the non-claw side).
+- Both endpoints carry `ModuleDockingNode` -> `DockingPort` (dock-pair wins even when a
+  grapple module is also present: a port-to-port couple is most plausibly the docking FSM,
+  stock claw grabs never form a dock pair, and when the guess is wrong for a modded combo
+  part the consequence direction is stricter, never looser - review fix).
+- Otherwise, either endpoint carries `ModuleGrappleNode` -> `Grapple` (findings 1.3: the
+  grabbed side is an arbitrary part; which side is `from` depends on
+  `Vessel.GetDominantVessel`, so BOTH ends are tested and no module is expected on the
+  non-claw side).
 - Anything else -> `Unknown` (fail closed; modded coupling producers are not silently
   treated as docks anymore).
 
@@ -105,6 +109,22 @@ findings note pins that as a permanent constraint on future capture work.
    (fuel pumped across the claw on Easy/Normal presets, findings 5; inventory moved; crew
    is out of scope as before) builds manifests through the untouched builders and becomes
    a normal stop.
+
+   Three fail-closed refinements from the review pass:
+   - An unwitnessed transport INVENTORY gain on an otherwise-empty grapple window rejects
+     `MixedPickupDelivery` at the filter, exactly as the per-window gate would have -
+     the skip can never smuggle phantom-provenance inventory past that gate.
+   - An unmatched transport RESOURCE gain inside a skipped grapple window (the
+     drilling-while-grappled shape: transport gains, endpoint loses nothing) makes the
+     skip PROVISIONAL: it is admitted only when the run-level gain machinery is engaged
+     (complete run manifests; the gain shows at the gain anchor's dock corner and is
+     checked against harvest windows). On a legacy tree (incomplete or BG-voided
+     manifests) it rejects `UntrackedCargoGain` naming the resource - the M2 degrade
+     posture.
+   - The endpoint-proof gate runs AFTER the filter, on stop-bearing windows only: a
+     proof-less STRUCTURAL grab (endpoint capture failed at couple time, a warn-logged
+     path) skips as a non-stop instead of rejecting the whole run. Dock windows always
+     survive the filter, so their proof gate is unmoved in effect.
 
 Everything else is already connection-agnostic and stays byte-identical: window collection
 across the source path (M4a `AnalyzeTree`), DockUT ordering, direction classification, the

@@ -512,20 +512,12 @@ namespace Parsek.Logistics
                     };
                 }
 
-                if (!HasEndpointProof(window))
-                {
-                    Diag(logMode,
-                        $"RouteAnalysis rejected: missing endpoint proof source={source?.RecordingId ?? "<none>"} " +
-                        $"window={window.WindowId ?? "<none>"} targetPid={window.TransferTargetVesselPid} " +
-                        $"kind={window.TransferKind} situation={window.TransferEndpointSituation} " +
-                        $"endpointAtDock={(window.EndpointAtDock.HasValue ? "yes" : "no")}");
-                    return new RouteAnalysisResult
-                    {
-                        Status = RouteAnalysisStatus.MissingEndpointProof,
-                        SourceRecording = source,
-                        ConnectionWindow = window
-                    };
-                }
+                // NOTE (claw producer, review fix 3): the endpoint-proof gate
+                // moved BELOW the empty-grapple filter. A proof-less STRUCTURAL
+                // grab (endpoint capture failed at couple time, a warn-logged
+                // path in ParsekFlight) must be skippable as a non-stop instead
+                // of rejecting the whole run; dock windows always survive the
+                // filter, so their proof gate is unmoved in effect.
 
                 // M3 (plan D2/D4 item 1/6): build BOTH transfer directions up front.
                 built.Add(new PerWindowManifests
@@ -547,45 +539,102 @@ namespace Parsek.Logistics
             // Drop such windows as non-stops BEFORE the anchors are chosen, so the
             // scalar anchor, gain anchor, summed load, and stop list all see only
             // stop-bearing windows. Empty DOCK windows keep rejecting below
-            // (unchanged v0..M6 behavior). If nothing stop-bearing remains, the
-            // run transferred nothing anywhere: the existing NoDeliveryManifest
-            // reject fires with the last skipped window as context.
+            // (unchanged v0..M6 behavior).
+            //
+            // Fail-closed pre-checks before a window may skip (review fixes 1-2):
+            //  - an unwitnessed transport INVENTORY gain rejects here exactly as
+            //    the per-window gate below would have (inventory never has
+            //    harvested provenance), so the skip cannot smuggle it past;
+            //  - an unmatched transport RESOURCE gain (gain with no matching
+            //    endpoint loss - the drilling-while-grappled shape) is noted and
+            //    the skip stays PROVISIONAL: it is only safe when the run-level
+            //    gain machinery is engaged (complete run manifests), checked
+            //    after the gain check below; on a legacy tree it fails closed.
+            // If nothing stop-bearing remains, the run transferred nothing
+            // anywhere: NoDeliveryManifest with the FIRST skipped window as
+            // context.
             int skippedEmptyGrapple = 0;
-            PerWindowManifests lastSkipped = default;
-            for (int i = built.Count - 1; i >= 0; i--)
+            PerWindowManifests firstSkipped = default;
+            PerWindowManifests unmatchedGainSkipped = default;
+            string unmatchedGainResource = null;
+            var stopBearing = new List<PerWindowManifests>(built.Count);
+            for (int i = 0; i < built.Count; i++)
             {
                 PerWindowManifests w = built[i];
-                if (w.Window.TransferKind != RouteConnectionKind.Grapple)
+                if (w.Window.TransferKind != RouteConnectionKind.Grapple || HasAnyCargo(w))
+                {
+                    stopBearing.Add(w);
                     continue;
-                bool windowHasDelivery =
-                    (w.Resources != null && w.Resources.Count > 0) ||
-                    (w.Inventory != null && w.Inventory.Count > 0);
-                bool windowHasLoad =
-                    (w.LoadResources != null && w.LoadResources.Count > 0) ||
-                    (w.LoadInventory != null && w.LoadInventory.Count > 0);
-                if (windowHasDelivery || windowHasLoad)
-                    continue;
+                }
+
+                if (HasUnwitnessedInventoryGain(w.Window, out string grappleInventoryReason))
+                {
+                    Diag(logMode,
+                        $"RouteAnalysis rejected: unwitnessed inventory gain on structural grapple window " +
+                        $"source={w.Source?.RecordingId ?? "<none>"} " +
+                        $"window={w.Window.WindowId ?? "<none>"} {grappleInventoryReason}");
+                    return new RouteAnalysisResult
+                    {
+                        Status = RouteAnalysisStatus.MixedPickupDelivery,
+                        SourceRecording = w.Source,
+                        ConnectionWindow = w.Window
+                    };
+                }
+
+                if (unmatchedGainResource == null
+                    && TryFindUnmatchedTransportResourceGain(w.Window, out string gainedName))
+                {
+                    unmatchedGainResource = gainedName;
+                    unmatchedGainSkipped = w;
+                }
+
                 skippedEmptyGrapple++;
-                lastSkipped = w;
-                built.RemoveAt(i);
+                if (skippedEmptyGrapple == 1)
+                    firstSkipped = w;
             }
             if (skippedEmptyGrapple > 0)
             {
+                built = stopBearing;
                 Diag(logMode,
                     $"RouteAnalysis: skipped {skippedEmptyGrapple} empty grapple window(s) as non-stops " +
-                    $"(structural grabs); {built.Count} stop-bearing window(s) remain");
+                    $"(structural grabs); {built.Count} stop-bearing window(s) remain" +
+                    (unmatchedGainResource != null
+                        ? $"; unmatched transport gain noted resource={unmatchedGainResource}"
+                        : string.Empty));
             }
             if (built.Count == 0)
             {
                 Diag(logMode,
                     $"RouteAnalysis rejected: no stop-bearing window after empty-grapple skip " +
-                    $"source={lastSkipped.Source?.RecordingId ?? "<none>"} " +
-                    $"window={lastSkipped.Window?.WindowId ?? "<none>"}");
+                    $"source={firstSkipped.Source?.RecordingId ?? "<none>"} " +
+                    $"window={firstSkipped.Window?.WindowId ?? "<none>"}");
                 return new RouteAnalysisResult
                 {
                     Status = RouteAnalysisStatus.NoDeliveryManifest,
-                    SourceRecording = lastSkipped.Source,
-                    ConnectionWindow = lastSkipped.Window
+                    SourceRecording = firstSkipped.Source,
+                    ConnectionWindow = firstSkipped.Window
+                };
+            }
+
+            // Endpoint-proof gate (pre-claw step 2), now on the STOP-BEARING
+            // windows only: every window that is a stop must identify its
+            // endpoint; a skipped structural grab without proof is a non-stop
+            // and no longer rejects the run (review fix 3).
+            for (int i = 0; i < built.Count; i++)
+            {
+                PerWindowManifests w = built[i];
+                if (HasEndpointProof(w.Window))
+                    continue;
+                Diag(logMode,
+                    $"RouteAnalysis rejected: missing endpoint proof source={w.Source?.RecordingId ?? "<none>"} " +
+                    $"window={w.Window.WindowId ?? "<none>"} targetPid={w.Window.TransferTargetVesselPid} " +
+                    $"kind={w.Window.TransferKind} situation={w.Window.TransferEndpointSituation} " +
+                    $"endpointAtDock={(w.Window.EndpointAtDock.HasValue ? "yes" : "no")}");
+                return new RouteAnalysisResult
+                {
+                    Status = RouteAnalysisStatus.MissingEndpointProof,
+                    SourceRecording = w.Source,
+                    ConnectionWindow = w.Window
                 };
             }
 
@@ -615,6 +664,31 @@ namespace Parsek.Logistics
                 RouteHarvestAnalysis.CheckTransportGains(
                     tree, gainAnchor.Source, gainAnchor.Window, logMode, summedLoad);
             bool harvestEngaged = gainCheck.Outcome != HarvestGainOutcome.LegacyFallback;
+
+            // Claw producer review fix 2: a skipped structural grapple window
+            // that carried an unmatched transport resource gain is only
+            // accountable when the run-level gain machinery is engaged (the
+            // gain shows at the gain anchor's dock corner and is checked
+            // against harvest windows there). On a legacy tree (incomplete /
+            // BG-voided run manifests) nothing downstream can witness that
+            // gain, so it fails closed - the M2 degrade posture ("run manifest
+            // voided, tree degrades to legacy analysis").
+            if (!harvestEngaged && unmatchedGainResource != null)
+            {
+                Diag(logMode,
+                    $"RouteAnalysis rejected: unmatched transport gain in skipped grapple window on legacy tree " +
+                    $"resource={unmatchedGainResource} " +
+                    $"source={unmatchedGainSkipped.Source?.RecordingId ?? "<none>"} " +
+                    $"window={unmatchedGainSkipped.Window?.WindowId ?? "<none>"}");
+                return new RouteAnalysisResult
+                {
+                    Status = RouteAnalysisStatus.UntrackedCargoGain,
+                    SourceRecording = unmatchedGainSkipped.Source,
+                    ConnectionWindow = unmatchedGainSkipped.Window,
+                    RejectDetail = unmatchedGainResource +
+                        ": gained across a structural grapple window with no complete run manifest to witness it"
+                };
+            }
 
             // M1 workflow gate (design D7), run-level on the origin recording:
             // an undocked-start run carries cargo whose source was never
@@ -663,14 +737,9 @@ namespace Parsek.Logistics
 
                 // Gate fix (a) (plan D4): reject only when NO cargo flowed in
                 // EITHER direction at this window (a window that transferred
-                // nothing is not a stop).
-                bool hasDelivery =
-                    (w.Resources != null && w.Resources.Count > 0) ||
-                    (w.Inventory != null && w.Inventory.Count > 0);
-                bool hasInventoryLoad = w.LoadInventory != null && w.LoadInventory.Count > 0;
-                bool hasLoad =
-                    (w.LoadResources != null && w.LoadResources.Count > 0) || hasInventoryLoad;
-                if (!hasDelivery && !hasLoad)
+                // nothing is not a stop). Same predicate as the empty-grapple
+                // filter above (HasAnyCargo) so the two gates cannot diverge.
+                if (!HasAnyCargo(w))
                 {
                     Diag(logMode,
                         $"RouteAnalysis rejected: no delivery or load manifest source={w.Source?.RecordingId ?? "<none>"} " +
@@ -946,6 +1015,64 @@ namespace Parsek.Logistics
         internal static bool IsUndockedStartOrigin(Recording originRec)
         {
             return !IsKscOriginRecording(originRec) && !HasDockedOriginProof(originRec);
+        }
+
+        /// <summary>
+        /// True when the window moved ANY admitted cargo in either direction
+        /// (resources or inventory, delivery or load). The single stop-vs-non-stop
+        /// predicate shared by the empty-grapple filter and the per-window
+        /// no-delivery-AND-no-load gate so the two can never diverge.
+        /// </summary>
+        private static bool HasAnyCargo(PerWindowManifests w)
+        {
+            return (w.Resources != null && w.Resources.Count > 0)
+                || (w.Inventory != null && w.Inventory.Count > 0)
+                || (w.LoadResources != null && w.LoadResources.Count > 0)
+                || (w.LoadInventory != null && w.LoadInventory.Count > 0);
+        }
+
+        /// <summary>
+        /// Claw producer review fix 2: detects a routable transport-side
+        /// resource GAIN across the window with no matching endpoint loss
+        /// (transportGain above epsilon while endpointLoss is not) - the shape
+        /// the load manifest deliberately refuses to admit. Uses the same
+        /// admission-direction exclusions as the manifest builders (EC /
+        /// IntakeAir and undefined names never trip it; they cannot route
+        /// anywhere downstream either). The drilling-while-grappled window is
+        /// the legitimate instance: its gain is witnessed by harvest windows
+        /// at run level, so callers must treat a hit as "needs the engaged
+        /// gain machinery", not as an immediate reject.
+        /// </summary>
+        internal static bool TryFindUnmatchedTransportResourceGain(
+            RouteConnectionWindow window, out string resourceName)
+        {
+            resourceName = null;
+            var names = new Dictionary<string, double>();
+            AddResourceDeliveryKeys(names, window.DockEndpointResources);
+            AddResourceDeliveryKeys(names, window.UndockEndpointResources);
+            AddResourceDeliveryKeys(names, window.DockTransportResources);
+            AddResourceDeliveryKeys(names, window.UndockTransportResources);
+
+            foreach (KeyValuePair<string, double> kvp in names)
+            {
+                string name = kvp.Key;
+                if (!ResourceTransferability.IsRoutableResource(name, out _))
+                    continue;
+
+                double transportGain =
+                    GetResourceAmount(window.UndockTransportResources, name) -
+                    GetResourceAmount(window.DockTransportResources, name);
+                double endpointLoss =
+                    GetResourceAmount(window.DockEndpointResources, name) -
+                    GetResourceAmount(window.UndockEndpointResources, name);
+
+                if (transportGain > ResourceEpsilon && endpointLoss <= ResourceEpsilon)
+                {
+                    resourceName = name;
+                    return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>

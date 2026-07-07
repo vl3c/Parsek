@@ -20,9 +20,17 @@ namespace Parsek
     internal static class ConnectionProducerClassifier
     {
         /// <summary>
-        /// Pure classification core, unit-testable without Unity. Grapple wins
-        /// over dock when both module kinds appear across the pair (a claw
-        /// grabbing a docking port is still a grapple: the claw made the couple).
+        /// Pure classification core, unit-testable without Unity. Precedence
+        /// (review fix): a DOCK PAIR (ModuleDockingNode on BOTH ends) wins even
+        /// when a grapple module is also present - a port-to-port couple is
+        /// most plausibly the docking FSM, and stock claw grabs never form a
+        /// dock pair (the claw part carries no docking node, so grabbing a
+        /// docking-port PART yields dock-on-one-end only, which classifies
+        /// Grapple below). The ambiguous cell is a MODDED combo part (dock +
+        /// grapple modules on the claw's own side) docking normally; dock-pair
+        /// precedence classifies it DockingPort, and when that guess is wrong
+        /// the consequence direction is stricter (an empty window rejects
+        /// instead of skipping), never looser.
         /// </summary>
         internal static RouteConnectionKind ClassifyCore(
             bool fromHasDockingNode,
@@ -30,10 +38,10 @@ namespace Parsek
             bool fromHasGrappleNode,
             bool toHasGrappleNode)
         {
-            if (fromHasGrappleNode || toHasGrappleNode)
-                return RouteConnectionKind.Grapple;
             if (fromHasDockingNode && toHasDockingNode)
                 return RouteConnectionKind.DockingPort;
+            if (fromHasGrappleNode || toHasGrappleNode)
+                return RouteConnectionKind.Grapple;
             return RouteConnectionKind.Unknown;
         }
 

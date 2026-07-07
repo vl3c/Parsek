@@ -44,10 +44,14 @@ namespace Parsek.Tests.Logistics
         [InlineData(false, false, true, false, (int)RouteConnectionKind.Grapple)]
         [InlineData(false, false, false, true, (int)RouteConnectionKind.Grapple)]
         [InlineData(false, false, true, true, (int)RouteConnectionKind.Grapple)]
-        // a claw grabbing a docking port is still a grapple (the claw made it)
+        // a claw grabbing a docking-port PART is still a grapple (dock module
+        // on one end only, so no dock pair forms)
         [InlineData(true, false, false, true, (int)RouteConnectionKind.Grapple)]
         [InlineData(false, true, true, false, (int)RouteConnectionKind.Grapple)]
-        [InlineData(true, true, true, false, (int)RouteConnectionKind.Grapple)]
+        // DOCK PAIR wins over an incidental grapple module (modded combo part
+        // docking normally; review fix - wrong-guess direction is stricter)
+        [InlineData(true, true, true, false, (int)RouteConnectionKind.DockingPort)]
+        [InlineData(true, true, false, true, (int)RouteConnectionKind.DockingPort)]
         // dock module on only ONE end and no grapple -> not a dock: Unknown
         [InlineData(true, false, false, false, (int)RouteConnectionKind.Unknown)]
         [InlineData(false, true, false, false, (int)RouteConnectionKind.Unknown)]
@@ -157,6 +161,8 @@ namespace Parsek.Tests.Logistics
             RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
 
             Assert.Equal(RouteAnalysisStatus.NoDeliveryManifest, result.Status);
+            // The reject anchors the FIRST skipped window as context.
+            Assert.Equal("grab-1", result.ConnectionWindow.WindowId);
             Assert.Contains(logLines, l =>
                 l.Contains("no stop-bearing window after empty-grapple skip"));
         }
@@ -420,6 +426,309 @@ namespace Parsek.Tests.Logistics
 
             Assert.Contains("connection type", msg);
             Assert.DoesNotContain("()", msg);
+        }
+
+        // ---------------------------------------------------------------
+        // Review-pass fail-closed refinements (design 2.2)
+        // ---------------------------------------------------------------
+
+        [Fact]
+        public void AnalyzeRecording_ProoflessEmptyGrapplePlusDelivery_Eligible()
+        {
+            // Review fix 3: a proof-less STRUCTURAL grab (endpoint capture
+            // failed at couple time) skips as a non-stop instead of rejecting
+            // the whole run with MissingEndpointProof.
+            RouteConnectionWindow grab = EmptyWindow("proofless-grab",
+                RouteConnectionKind.Grapple, dockUT: 100.0);
+            grab.EndpointAtDock = null;
+            grab.TransferEndpointSituation = -1;
+            Recording rec = KscRecordingWithWindows(
+                grab,
+                DeliveryWindow("station", RouteConnectionKind.DockingPort, dockUT: 200.0));
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.True(result.IsEligible,
+                $"proof-less structural grab must skip, got {result.Status}");
+            Assert.Single(result.Stops);
+        }
+
+        [Fact]
+        public void AnalyzeRecording_ProoflessEmptyDockWindow_StillRejectsEndpointProof()
+        {
+            // Contrast pin: dock windows always survive the filter, so a
+            // proof-less dock window keeps its MissingEndpointProof reject.
+            RouteConnectionWindow deadDock = EmptyWindow("proofless-dock",
+                RouteConnectionKind.DockingPort, dockUT: 100.0);
+            deadDock.EndpointAtDock = null;
+            deadDock.TransferEndpointSituation = -1;
+            Recording rec = KscRecordingWithWindows(
+                deadDock,
+                DeliveryWindow("station", RouteConnectionKind.DockingPort, dockUT: 200.0));
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.Equal(RouteAnalysisStatus.MissingEndpointProof, result.Status);
+        }
+
+        [Fact]
+        public void AnalyzeRecording_EmptyGrappleWithInventoryGain_RejectsMixedPickup()
+        {
+            // Review fix 1: an unwitnessed transport INVENTORY gain on an
+            // otherwise-empty grapple window must reject exactly as the
+            // per-window gate would have, not slip past via the skip.
+            RouteConnectionWindow grab = EmptyWindow("inventory-grab",
+                RouteConnectionKind.Grapple, dockUT: 100.0);
+            grab.DockTransportInventory = null;
+            grab.UndockTransportInventory = new List<InventoryPayloadItem>
+            {
+                new InventoryPayloadItem
+                {
+                    IdentityHash = "phantom",
+                    PartName = "smallCargoContainer",
+                    Quantity = 1,
+                    SlotsTaken = 1
+                }
+            };
+            Recording rec = KscRecordingWithWindows(
+                grab,
+                DeliveryWindow("station", RouteConnectionKind.DockingPort, dockUT: 200.0));
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.Equal(RouteAnalysisStatus.MixedPickupDelivery, result.Status);
+            Assert.Contains(logLines, l =>
+                l.Contains("unwitnessed inventory gain on structural grapple window"));
+        }
+
+        [Fact]
+        public void AnalyzeRecording_GrappleUnmatchedGain_LegacyTree_RejectsUntrackedGain()
+        {
+            // Review fix 2: an unmatched transport resource gain inside a
+            // skipped grapple window (drilling-while-grappled shape) fails
+            // closed on a legacy tree (no complete run manifests): nothing
+            // downstream can witness the gain.
+            RouteConnectionWindow grab = EmptyWindow("drill-grab",
+                RouteConnectionKind.Grapple, dockUT: 100.0);
+            grab.DockTransportResources = OreManifest(0.0);
+            grab.UndockTransportResources = OreManifest(120.0);
+            Recording rec = KscRecordingWithWindows(
+                grab,
+                DeliveryWindow("station", RouteConnectionKind.DockingPort, dockUT: 200.0));
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeRecording(rec);
+
+            Assert.Equal(RouteAnalysisStatus.UntrackedCargoGain, result.Status);
+            Assert.Contains("Ore", result.RejectDetail);
+            Assert.Contains(logLines, l =>
+                l.Contains("unmatched transport gain in skipped grapple window on legacy tree"));
+        }
+
+        [Fact]
+        public void AnalyzeTree_GrappleDrillGain_EngagedManifests_Eligible()
+        {
+            // The asteroid-mining shape end to end WITH the gain machinery
+            // engaged: complete run manifests + a harvest window witness the
+            // Ore gained during the (skipped) grapple window, so the run
+            // analyzes Eligible with the station delivery as its one stop.
+            RouteConnectionWindow grab = EmptyWindow("asteroid-grab",
+                RouteConnectionKind.Grapple, dockUT: 450.0);
+            grab.DockTransportResources = OreManifest(0.0);
+            grab.UndockTransportResources = OreManifest(120.0);
+
+            RouteConnectionWindow delivery = new RouteConnectionWindow
+            {
+                WindowId = "ore-delivery",
+                DockUT = 500.0,
+                UndockUT = 600.0,
+                TransferTargetVesselPid = 9001,
+                TransferKind = RouteConnectionKind.DockingPort,
+                TransportPartPersistentIds = new List<uint> { 100 },
+                EndpointPartPersistentIds = new List<uint> { 300 },
+                DockTransportResources = OreManifest(120.0),
+                UndockTransportResources = OreManifest(20.0),
+                DockEndpointResources = OreManifest(0.0),
+                UndockEndpointResources = OreManifest(100.0),
+                EndpointAtDock = Endpoint(),
+                TransferEndpointSituation = 1
+            };
+
+            Recording root = new Recording
+            {
+                RecordingId = "mine-root",
+                TreeId = "tree-mine",
+                ExplicitStartUT = 0.0,
+                ExplicitEndUT = 500.0,
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "LaunchPad",
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { 100 },
+                    StartTransportResources = OreManifest(0.0),
+                    EndTransportResources = OreManifest(120.0),
+                    EndCaptured = true
+                },
+                RouteHarvestWindows = new List<RouteHarvestWindow>
+                {
+                    new RouteHarvestWindow
+                    {
+                        WindowId = "hw",
+                        StartUT = 150.0,
+                        EndUT = 440.0,
+                        StartTransportResources = OreManifest(0.0),
+                        EndTransportResources = OreManifest(120.0),
+                        BodyName = "Minmus",
+                        Latitude = 5.0,
+                        Longitude = 6.0,
+                        Altitude = 7.0,
+                        SituationAtOpen = 1
+                    }
+                },
+                RouteConnectionWindows = new List<RouteConnectionWindow> { grab }
+            };
+            Recording merge = new Recording
+            {
+                RecordingId = "mine-merge",
+                TreeId = "tree-mine",
+                ExplicitStartUT = 500.0,
+                ExplicitEndUT = 600.0,
+                ParentBranchPointId = "bp-dock",
+                RouteRunManifest = new RouteRunCargoManifest
+                {
+                    TransportPartPersistentIds = new List<uint> { 100, 300 },
+                    StartTransportResources = OreManifest(120.0),
+                    EndTransportResources = OreManifest(120.0),
+                    EndCaptured = true
+                },
+                RouteConnectionWindows = new List<RouteConnectionWindow> { delivery }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree-mine",
+                RootRecordingId = root.RecordingId,
+                ActiveRecordingId = merge.RecordingId
+            };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(merge);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-dock",
+                UT = 500.0,
+                Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { root.RecordingId },
+                ChildRecordingIds = new List<string> { merge.RecordingId }
+            });
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.True(result.IsEligible,
+                $"engaged mining run with skipped grab must be Eligible, got {result.Status}");
+            Assert.Single(result.Stops);
+            Assert.Equal("ore-delivery", result.Stops[0].ConnectionWindow.WindowId);
+        }
+
+        [Theory]
+        [InlineData(0.0, 120.0, 0.0, 0.0, true)]    // gain, no endpoint loss -> unmatched
+        [InlineData(0.0, 120.0, 120.0, 0.0, false)] // matched pickup -> witnessed, not unmatched
+        [InlineData(120.0, 0.0, 0.0, 0.0, false)]   // transport LOSS -> never trips
+        public void TryFindUnmatchedTransportResourceGain_Cases(
+            double dockT, double undockT, double dockE, double undockE, bool expected)
+        {
+            var window = new RouteConnectionWindow
+            {
+                DockTransportResources = OreManifest(dockT),
+                UndockTransportResources = OreManifest(undockT),
+                DockEndpointResources = OreManifest(dockE),
+                UndockEndpointResources = OreManifest(undockE)
+            };
+
+            bool hit = RouteAnalysisEngine.TryFindUnmatchedTransportResourceGain(
+                window, out string name);
+
+            Assert.Equal(expected, hit);
+            if (expected)
+                Assert.Equal("Ore", name);
+        }
+
+        [Fact]
+        public void TryFindUnmatchedTransportResourceGain_IgnoresElectricCharge()
+        {
+            // EC is environmental noise (batteries charge constantly) and is
+            // excluded from admission everywhere; it must not trip the
+            // fail-closed gain detector either.
+            var window = new RouteConnectionWindow
+            {
+                DockTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["ElectricCharge"] = new ResourceAmount { amount = 0.0, maxAmount = 100.0 }
+                },
+                UndockTransportResources = new Dictionary<string, ResourceAmount>
+                {
+                    ["ElectricCharge"] = new ResourceAmount { amount = 90.0, maxAmount = 100.0 }
+                },
+                DockEndpointResources = new Dictionary<string, ResourceAmount>(),
+                UndockEndpointResources = new Dictionary<string, ResourceAmount>()
+            };
+
+            Assert.False(RouteAnalysisEngine.TryFindUnmatchedTransportResourceGain(
+                window, out _));
+        }
+
+        // ---------------------------------------------------------------
+        // EVA route-window suppression (design 2.1, capture side)
+        // ---------------------------------------------------------------
+
+        [Fact]
+        public void SuppressRouteWindowForEvaGrab_EvaGrab_SuppressesAndLogs()
+        {
+            uint result = ParsekFlight.SuppressRouteWindowForEvaGrab(
+                9001u, involvesEva: true, RouteConnectionKind.Grapple, pathLabel: "");
+
+            Assert.Equal(0u, result);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Flight]") && l.Contains("EVA grab, route window suppressed")
+                && l.Contains("partnerPid=9001"));
+        }
+
+        [Fact]
+        public void SuppressRouteWindowForEvaGrab_NonEva_PassesThroughSilently()
+        {
+            int before = logLines.Count;
+            uint result = ParsekFlight.SuppressRouteWindowForEvaGrab(
+                9001u, involvesEva: false, RouteConnectionKind.Grapple, pathLabel: "");
+
+            Assert.Equal(9001u, result);
+            Assert.Equal(before, logLines.Count);
+        }
+
+        [Fact]
+        public void SuppressRouteWindowForEvaGrab_NoTarget_NoLog()
+        {
+            int before = logLines.Count;
+            uint result = ParsekFlight.SuppressRouteWindowForEvaGrab(
+                0u, involvesEva: true, RouteConnectionKind.Grapple, pathLabel: " (retroactive)");
+
+            Assert.Equal(0u, result);
+            Assert.Equal(before, logLines.Count);
+        }
+
+        [Fact]
+        public void ConnectionKindSuffix_GrappleOnly()
+        {
+            Assert.Equal(" (grappled)",
+                RouteCreationFormatters.ConnectionKindSuffix(RouteConnectionKind.Grapple));
+            Assert.Equal(string.Empty,
+                RouteCreationFormatters.ConnectionKindSuffix(RouteConnectionKind.DockingPort));
+            Assert.Equal(string.Empty,
+                RouteCreationFormatters.ConnectionKindSuffix(RouteConnectionKind.None));
+        }
+
+        private static Dictionary<string, ResourceAmount> OreManifest(double amount)
+        {
+            return new Dictionary<string, ResourceAmount>
+            {
+                ["Ore"] = new ResourceAmount { amount = amount, maxAmount = 1000.0 }
+            };
         }
 
         // ---------------------------------------------------------------

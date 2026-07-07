@@ -234,7 +234,7 @@ These principles govern every design decision in the logistics system. They are 
 
 **Route stop / endpoint** — the destination vessel and location for the route. v1 exposes one endpoint per Supply Route. The data model keeps a `Stops` list so multi-stop Supply Runs can be added later without replacing the save shape.
 
-**Stock connection window** — the bounded time interval where the transport is connected to the endpoint by a stock mechanism and cargo can move. Two producers are wired through capture and analysis: docking-port dock/undock and claw/grapple couple/release (`ModuleGrappleNode`; the decompile proved both ride the same `Part.Couple` / `Part.Undock` event pair, see `docs/dev/research/claw-grapple-coupling-internals.md`). Other stock transfer paths (crossfeed/fuel-line) are not window-shaped and stay out (19.6 rule 10).
+**Stock connection window**: the bounded time interval where the transport is connected to the endpoint by a stock mechanism and cargo can move. Two producers are wired through capture and analysis: docking-port dock/undock and claw/grapple couple/release (`ModuleGrappleNode`; the decompile proved both ride the same `Part.Couple` / `Part.Undock` event pair, see `docs/dev/research/claw-grapple-coupling-internals.md`). Other stock transfer paths (crossfeed/fuel-line) are not window-shaped and stay out (19.6 rule 10).
 
 **Endpoint** — origin or destination location of a route. Defined by body, coordinates, and the target vessel PID from the stock connection window. Surface endpoints can fall back to one nearest compatible vessel near the recorded coordinates. Orbital endpoints use PID only.
 
@@ -1684,7 +1684,7 @@ Half of "no matter what the player does, it should work" is never leaving the pl
 
 ### 19.5 Completeness test
 
-After M5, "complete" has a concrete form: any committed recording whose flows close (19.2.4) becomes a route — any provenance mix, any number of windows in either direction, any stops, any bodies, any defined resources, across BOTH admitted connection producers (docking port and claw/grapple) — and any recording whose flows do not close is rejected with the specific unaccounted window named. Crossfeed/fuel-line producers, crew delivery, persisting-transport materialization, and undocked-start origin proving remain out by doctrine, each with a stated reason, not by accident.
+After M5, "complete" has a concrete form: any committed recording whose flows close (19.2.4) becomes a route (any provenance mix, any number of windows in either direction, any stops, any bodies, any defined resources, across BOTH admitted connection producers: docking port and claw/grapple) and any recording whose flows do not close is rejected with the specific unaccounted window named. Crossfeed/fuel-line producers, crew delivery, persisting-transport materialization, and undocked-start origin proving remain out by doctrine, each with a stated reason, not by accident.
 
 ### 19.6 Doctrine summary (the rules that keep this small)
 

@@ -4985,6 +4985,28 @@ namespace Parsek
             return (bp, mergedChild);
         }
 
+        /// <summary>
+        /// Claw producer (design-logistics-claw-producer.md 2.1): an EVA kerbal
+        /// grab fires a real Part.Couple (findings 1.4) but is never a logistics
+        /// transfer, so its route window is suppressed at capture by dropping
+        /// the route target. Shared by both OnPartCouple paths (live and
+        /// retroactive); pure except for the Info log, so unit tests pin the
+        /// decision through the log sink.
+        /// </summary>
+        internal static uint SuppressRouteWindowForEvaGrab(
+            uint routeTargetPid,
+            bool involvesEva,
+            RouteConnectionKind kind,
+            string pathLabel)
+        {
+            if (!involvesEva || routeTargetPid == 0u)
+                return routeTargetPid;
+            ParsekLog.Info("Flight",
+                $"OnPartCouple{pathLabel}: EVA grab, route window suppressed " +
+                $"(kind={kind}, partnerPid={routeTargetPid})");
+            return 0u;
+        }
+
         internal static uint ResolveDockRouteTargetPid(
             bool activeWasDockTarget,
             uint mergedVesselPid,
@@ -10392,14 +10414,9 @@ namespace Parsek
                     bool partnerEligible = partnerPidFromEvent != 0u
                         && partnerPidFromEvent != recorder.RecordingVesselId
                         && (partnerSnapshotCaptured || partnerKnown);
-                    uint routeTargetPid = partnerEligible ? partnerPidFromEvent : 0u;
-                    if (coupleInvolvesEva && routeTargetPid != 0u)
-                    {
-                        ParsekLog.Info("Flight",
-                            $"OnPartCouple: EVA grab — route window suppressed " +
-                            $"(kind={coupleTransferKind}, partnerPid={routeTargetPid})");
-                        routeTargetPid = 0u;
-                    }
+                    uint routeTargetPid = SuppressRouteWindowForEvaGrab(
+                        partnerEligible ? partnerPidFromEvent : 0u,
+                        coupleInvolvesEva, coupleTransferKind, pathLabel: "");
 
                     ParsekLog.Verbose("Flight",
                         $"OnPartCouple route-partner resolve: selfPid={recorder.RecordingVesselId} " +
@@ -10511,14 +10528,9 @@ namespace Parsek
                     bool partnerEligibleR = partnerPidFromEventR != 0u
                         && partnerPidFromEventR != recorder.RecordingVesselId
                         && (partnerSnapshotCapturedR || partnerKnownR);
-                    uint routeTargetPid = partnerEligibleR ? partnerPidFromEventR : 0u;
-                    if (coupleInvolvesEva && routeTargetPid != 0u)
-                    {
-                        ParsekLog.Info("Flight",
-                            $"OnPartCouple (retroactive): EVA grab — route window suppressed " +
-                            $"(kind={coupleTransferKind}, partnerPid={routeTargetPid})");
-                        routeTargetPid = 0u;
-                    }
+                    uint routeTargetPid = SuppressRouteWindowForEvaGrab(
+                        partnerEligibleR ? partnerPidFromEventR : 0u,
+                        coupleInvolvesEva, coupleTransferKind, pathLabel: " (retroactive)");
 
                     ParsekLog.Verbose("Flight",
                         $"OnPartCouple route-partner resolve (retroactive): " +

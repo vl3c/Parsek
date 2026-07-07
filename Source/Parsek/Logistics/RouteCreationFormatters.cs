@@ -201,6 +201,18 @@ namespace Parsek.Logistics
         /// Statuses without a detail render identically to the single-arg
         /// overload.
         /// </summary>
+        /// <summary>
+        /// Claw producer (design-logistics-claw-producer.md 5): the one
+        /// player-facing label for a non-dock connection, shared by the
+        /// route-creation summary and the detail panel's per-stop destination.
+        /// Dock (and every other kind) returns an empty suffix so existing
+        /// routes render byte-identically.
+        /// </summary>
+        internal static string ConnectionKindSuffix(RouteConnectionKind kind)
+        {
+            return kind == RouteConnectionKind.Grapple ? " (grappled)" : string.Empty;
+        }
+
         internal static string FormatRejectMessage(RouteAnalysisStatus status, string detail)
         {
             switch (status)
@@ -317,11 +329,7 @@ namespace Parsek.Logistics
             if (analysis.ConnectionWindow != null && analysis.ConnectionWindow.EndpointAtDock.HasValue)
             {
                 sb.Append(FormatEndpoint(analysis.ConnectionWindow.EndpointAtDock.Value));
-                // Claw producer (design-logistics-claw-producer.md 5): name the
-                // connection kind where it is not a dock. Dock stays unannotated
-                // so existing route summaries render byte-identically.
-                if (analysis.ConnectionWindow.TransferKind == RouteConnectionKind.Grapple)
-                    sb.Append(" (grappled)");
+                sb.Append(ConnectionKindSuffix(analysis.ConnectionWindow.TransferKind));
             }
             else
                 sb.Append("unknown");
