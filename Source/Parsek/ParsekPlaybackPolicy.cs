@@ -984,6 +984,25 @@ namespace Parsek
             return warpScaled < baseIntervalSec ? warpScaled : baseIntervalSec;
         }
 
+        /// <summary>
+        /// Pure companion to <see cref="ResolveMapOrbitReseedIntervalSec"/>: clamp an
+        /// already-armed reseed deadline to the interval the CURRENT warp rate allows. The
+        /// deadline is armed with the rate in force at arm time, so a warp STEP-UP mid-interval
+        /// would otherwise let that one pending tick still span up to base*warpRate game-seconds
+        /// (punch 50x -> 1000x and the armed 0.5 s tick spans ~500 game-s — the exact pre-fix
+        /// snap magnitude, once per warp increase). Clamping to <c>now + currentInterval</c>
+        /// every frame keeps the game-time budget honest across rate changes; at steady rate the
+        /// armed deadline never exceeds <c>now + interval</c>, so this is a no-op (1x stays
+        /// byte-identical). A warp step-DOWN leaves the shorter armed deadline in place — one
+        /// early reseed, harmless.
+        /// </summary>
+        internal static float ClampPendingReseedDeadline(
+            float pendingDeadline, float now, float currentIntervalSec)
+        {
+            float allowed = now + currentIntervalSec;
+            return pendingDeadline < allowed ? pendingDeadline : allowed;
+        }
+
         // Hysteresis thresholds for state-vector orbit creation/removal.
         // Higher thresholds to create, lower to remove — prevents churn for borderline altitudes.
         // On bodies with atmosphere, the atmosphere depth overrides these (orbit lines are

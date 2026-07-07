@@ -843,6 +843,34 @@ namespace Parsek.Tests
             }
         }
 
+        [Fact]
+        public void ClampPendingReseedDeadline_SteadyRate_NoOp()
+        {
+            // At a steady rate the armed deadline never exceeds now + interval, so the clamp
+            // must return it unchanged (1x byte-identity: the pre-fix timer behavior).
+            Assert.Equal(100.4f,
+                ParsekPlaybackPolicy.ClampPendingReseedDeadline(100.4f, 100.0f, 0.5f), 6);
+        }
+
+        [Fact]
+        public void ClampPendingReseedDeadline_WarpStepUp_PullsDeadlineIn()
+        {
+            // A tick armed at low rate (deadline now+0.45) with warp punched to 1000x
+            // (current interval 0.03 s) must fire within the NEW game-time budget, not
+            // ride out the stale 0.45 s (= ~450 game-s at the new rate).
+            Assert.Equal(100.03f,
+                ParsekPlaybackPolicy.ClampPendingReseedDeadline(100.45f, 100.0f, 0.03f), 5);
+        }
+
+        [Fact]
+        public void ClampPendingReseedDeadline_WarpStepDown_KeepsShorterArmedDeadline()
+        {
+            // A tick armed at extreme warp (deadline now+0.0003) with warp dropped to 1x
+            // (interval 0.5 s) keeps its shorter armed deadline: one early reseed, harmless.
+            Assert.Equal(100.0003f,
+                ParsekPlaybackPolicy.ClampPendingReseedDeadline(100.0003f, 100.0f, 0.5f), 5);
+        }
+
         // -----------------------------------------------------------------
         // ShouldAssertTerminalOrbitBoundClamp — positive deorbit-clamp
         // assertion gate (proves the orbit proto was retired AT its last

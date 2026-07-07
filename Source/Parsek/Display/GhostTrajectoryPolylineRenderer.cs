@@ -2283,7 +2283,11 @@ namespace Parsek.Display
             // guard, which reads only rotation-invariant endpoint magnitudes), so rejected /
             // one-sided legs keep the caller's live body-fixed capture byte-identical. Same
             // strobe-safe stable-pieces construction as the caller's capture (scaled body centre
-            // + body-relative offset; see the "warp-strobe fix" comment in TryDrawLeg).
+            // + body-relative offset; see the "warp-strobe fix" comment in TryDrawLeg). COST
+            // (accepted): this duplicates the caller's m GetWorldSurfacePosition calls for
+            // anchored legs (m <= the per-leg point budget) — the anchor decision is not known
+            // before the caller's fill, and restructuring the strobe-sensitive capture loop to
+            // capture once risks the parity-lens/strobe regressions this file has burned on.
             double liveUT = Planetarium.GetUniversalTime();
             double rotationPeriod = body.rotationPeriod;
             Vector3d bodyPos = body.position;
