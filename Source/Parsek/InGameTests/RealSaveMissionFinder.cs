@@ -52,6 +52,16 @@ namespace Parsek.InGameTests
 
             /// <summary>The re-aim loop unit the live builder produced (<see cref="GhostPlaybackLogic.LoopUnit.IsReaim"/> true).</summary>
             public GhostPlaybackLogic.LoopUnit Unit;
+
+            /// <summary>
+            /// The full <see cref="GhostPlaybackLogic.LoopUnitSet"/> the builder produced for the
+            /// transient clone (contains exactly the matched unit; member indices are committed-list
+            /// indices). Carried so a test can drive the production per-member span-clock resolvers
+            /// (<see cref="GhostPlaybackLogic.ResolveTrackingStationSampleFrame"/> /
+            /// <c>GhostMapPresence.ResolveMapPresenceSampleUT</c>), which take the set, with the REAL
+            /// built set instead of hand-assembling one.
+            /// </summary>
+            public GhostPlaybackLogic.LoopUnitSet Units;
         }
 
         /// <summary>
@@ -141,7 +151,7 @@ namespace Parsek.InGameTests
                         GhostPlaybackLogic.LoopUnit unit = kv.Value;
                         if (!unit.IsReaim)
                             continue;
-                        match = new ReaimMissionMatch { Mission = mission, Tree = tree, Unit = unit };
+                        match = new ReaimMissionMatch { Mission = mission, Tree = tree, Unit = unit, Units = set };
                         found = true;
                         break;
                     }

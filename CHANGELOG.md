@@ -21,6 +21,7 @@ All notable changes to Parsek are documented here.
 
 ### Internals & Tests
 
+- Re-aim render-path canary (M-MIS-2 P5, test-only): a new in-game test asserts that the director-driven map orbit (the icon-drive epoch shift) and the body-fixed trajectory polyline read the SAME loop shift for a real re-aimed loop mission in the loaded save (e.g. s15 "Duna One"), sampled across two frames and probed across two loop cycles per member. Both render paths inherit the shift from the one shared span clock by design; the canary trips if that convention ever splits again (it already split once, the ResolveFaithfulLookupUT blocker). Skips cleanly on saves with no re-aim mission. No production behavior change.
 - Loop-unit API hardening on the Missions-to-Logistics seam, with no behavior change: supply routes now cache their built loop unit (rebuilt only when an input actually changes, instead of re-running the full builder pipeline every orchestrator tick and countdown call), the fire-once dock-crossing detection is centralized in one shared emitter, and the loop cycle index carries an explicit flat-vs-scheduled type so consumers cannot misread one as the other. Route firing, replay keys, escrow, and ledger rows are unchanged.
 
 ## 0.10.2
