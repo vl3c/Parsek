@@ -70,6 +70,7 @@ namespace Parsek.Reaim
             // no new clock fields. The horizon/residual fields are build-time reporting only
             // (design D6: the finite aligned horizon is computed and surfaced, never silent).
             public bool IsConfigHold;
+            public int ConfigMoonCount;                     // the destination set's constrained-moon count (logging)
             public int ConfigAlignedWindowHorizon;          // consecutive in-tolerance windows from k=1 (capped report)
             public double ConfigFirstWindowResidualSeconds; // worst constraint error at window 1; NaN when not config
 
@@ -90,6 +91,7 @@ namespace Parsek.Reaim
                     JointChosenWindowK = 0,
                     JointResidualSeconds = double.NaN,
                     IsConfigHold = false,
+                    ConfigMoonCount = 0,
                     ConfigAlignedWindowHorizon = 0,
                     ConfigFirstWindowResidualSeconds = double.NaN,
                 };
@@ -610,6 +612,7 @@ namespace Parsek.Reaim
             config.IsStationHold = false;
             config.AlignAnchorPid = 0;
             config.IsConfigHold = true;
+            config.ConfigMoonCount = destSet.ConstrainedMoonCount;
             config.ConfigAlignedWindowHorizon = horizon;
             config.ConfigFirstWindowResidualSeconds = solve.ResidualSeconds;
             return config;

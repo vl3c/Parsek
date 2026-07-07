@@ -817,17 +817,6 @@ namespace Parsek
                                 ? "config"
                                 : arrivalHold.IsJointHold
                                     ? "joint" : (arrivalHold.IsStationHold ? "station" : "rotation");
-                            int configMoons = 0;
-                            if (arrivalHold.IsConfigHold)
-                            {
-                                for (int ci = 0; ci < extraction.Constraints.Count; ci++)
-                                {
-                                    PhaseConstraint cc = extraction.Constraints[ci];
-                                    if (cc.Kind == ConstraintKind.Orbital
-                                        && bodyInfo?.ReferenceBodyName(cc.BodyName) == plan.TargetBody)
-                                        configMoons++;
-                                }
-                            }
                             ParsekLog.Info("Reaim",
                                 $"MissionLoopUnit: mission='{mission.Name}' ARRIVAL HOLD dest={plan.TargetBody} " +
                                 $"kind={kind} " +
@@ -843,7 +832,7 @@ namespace Parsek
                                       $"residual={arrivalHold.JointResidualSeconds.ToString("F1", aic)}s "
                                     : "") +
                                 (arrivalHold.IsConfigHold
-                                    ? $"moons={configMoons.ToString(aic)} " +
+                                    ? $"moons={arrivalHold.ConfigMoonCount.ToString(aic)} " +
                                       $"alignedWindows={arrivalHold.ConfigAlignedWindowHorizon.ToString(aic)} " +
                                       $"window1Residual={arrivalHold.ConfigFirstWindowResidualSeconds.ToString("F1", aic)}s "
                                     : "") +
