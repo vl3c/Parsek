@@ -711,5 +711,312 @@ namespace Parsek.Tests.Logistics
         {
             Assert.Equal(expectedBase, RouteBackingMission.StripSegMarker(key));
         }
+
+        // -----------------------------------------------------------------
+        // M-MIS-5 P2b: start-side trim (ComputeStartExcludedIntervalKeys),
+        // selection-span verifier, and the M-MIS-9 start-side freeze prong
+        // -----------------------------------------------------------------
+
+        // Shuttle tree: the transport ROOTS MID-FLIGHT (no launch), docks at
+        // depot A (loads), undocks - the ORIGIN UNDOCK, the lifted span start -
+        // transits, docks at depot B (delivers), undocks and continues.
+        //   root     C0/0 [0..1000]     (mid-orbit start; ROOT)
+        //   dockedA  C0/1 [1000..1500]  (Dock BP@1000: depot-A merge)
+        //   transit  C0/2 [1500..2500]  (Undock BP@1500: transit is the survivor)
+        //   depotA   C1/0 [1500..2600]  (depot-A offshoot; OUTLIVES the origin undock)
+        //   dockedB  C0/3 [2500..3000]  (Dock BP@2500: depot-B merge)
+        //   survivor C0/4 [3000..3600]  (Undock BP@3000)
+        //   payload  C2/0 [3000..3300]
+        // Composition keys on the transport's through-line (owned by "root"):
+        //   root [0..1000), root@dock1 [1000..1500), root/seg1 [1500..2500),
+        //   root/seg1@dock1 [2500..3000), root/seg2 [3000..3600); the offshoots
+        //   key as their own line heads ("depotA", "payload").
+        private const double ShuttleOriginUndockUT = 1500.0;
+        private const double ShuttleDockBUT = 2500.0;
+
+        private static RecordingTree BuildShuttleOriginTree()
+        {
+            return Tree("tree-shuttle", new[]
+                {
+                    Leg("root", "C0", 0, 0, 1000, vessel: "Transport"),
+                    Leg("dockedA", "C0", 1, 1000, 1500, vessel: "Transport"),
+                    Leg("transit", "C0", 2, 1500, 2500, vessel: "Transport"),
+                    Leg("depotA", "C1", 0, 1500, 2600, vessel: "DepotA"),
+                    Leg("dockedB", "C0", 3, 2500, 3000, vessel: "Transport"),
+                    Leg("survivor", "C0", 4, 3000, 3600, vessel: "Transport"),
+                    Leg("payload", "C2", 0, 3000, 3300, vessel: "Payload")
+                },
+                new[]
+                {
+                    BP("dockA-bp", BranchPointType.Dock,
+                        new[] { "root" }, new[] { "dockedA" }, ut: 1000),
+                    // transit first => the transport is the continuation; the
+                    // depot-A side peels at the ORIGIN undock.
+                    BP("origin-undock-bp", BranchPointType.Undock,
+                        new[] { "dockedA" }, new[] { "transit", "depotA" }, ut: 1500),
+                    BP("dockB-bp", BranchPointType.Dock,
+                        new[] { "transit" }, new[] { "dockedB" }, ut: 2500),
+                    BP("undockB-bp", BranchPointType.Undock,
+                        new[] { "dockedB" }, new[] { "survivor", "payload" }, ut: 3000)
+                });
+        }
+
+        // The creation-time exclusion union a mid-tree-origin route carries:
+        // end-trim at depot B's dock + start-trim at the origin undock.
+        private static HashSet<string> ShuttleCreationExclusions(RecordingTree tree)
+        {
+            HashSet<string> excluded = RouteBackingMission.ComputeExcludedIntervalKeys(
+                tree, ShuttleDockBUT, 0.0);
+            excluded.UnionWith(RouteBackingMission.ComputeStartExcludedIntervalKeys(
+                tree, ShuttleOriginUndockUT));
+            return excluded;
+        }
+
+        // catches (plan-named headline): the start trim not excluding the
+        // pre-origin lead + docked-origin stretch, or excluding the transit leg
+        // that STARTS at the origin undock. The rendered window must start at
+        // the origin undock and end at depot B's dock.
+        [Fact]
+        public void ComputeExcluded_StartTrim_ExcludesPreOriginDock()
+        {
+            RecordingTree tree = BuildShuttleOriginTree();
+
+            HashSet<string> startExcluded =
+                RouteBackingMission.ComputeStartExcludedIntervalKeys(tree, ShuttleOriginUndockUT);
+
+            Assert.Contains("root", startExcluded);         // pre-dock lead
+            Assert.Contains("root@dock1", startExcluded);   // docked-at-A stretch
+            Assert.Contains("depotA", startExcluded);       // origin-undock offshoot
+            Assert.DoesNotContain("root/seg1", startExcluded); // the transit leg stays
+            Assert.Equal(3, startExcluded.Count);
+
+            // Union with the end trim and assert the rendered window.
+            HashSet<string> excluded = ShuttleCreationExclusions(tree);
+            var structure = MissionStructureBuilder.Build(tree);
+            var roots = MissionCompositionBuilder.Build(structure);
+            var windows = MissionIntervalSelection.ComputeRenderWindows(roots, excluded);
+
+            Assert.True(windows.ContainsKey("root"),
+                "transport (root-owned) vessel must still render");
+            Assert.Equal(ShuttleOriginUndockUT, windows["root"].StartUT);
+            Assert.Equal(ShuttleDockBUT, windows["root"].EndUT);
+            Assert.False(windows.ContainsKey("depotA"), "depot-A offshoot must not render");
+            Assert.False(windows.ContainsKey("payload"), "post-undock payload must not render");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") &&
+                l.Contains("ComputeStartExcludedIntervalKeys") &&
+                l.Contains("tree=tree-shuttle"));
+        }
+
+        // catches: the symmetric epsilon tie inverted - an interval ENDING
+        // exactly at the origin undock (the docked-origin stretch) must be
+        // excluded; the interval STARTING there (the transit leg) must be kept.
+        [Fact]
+        public void ComputeStartExcluded_ExactBoundary_EndAtOriginExcluded_StartAtOriginKept()
+        {
+            RecordingTree tree = BuildShuttleOriginTree();
+
+            HashSet<string> startExcluded =
+                RouteBackingMission.ComputeStartExcludedIntervalKeys(tree, ShuttleOriginUndockUT);
+
+            Assert.Contains("root@dock1", startExcluded);   // ends exactly at 1500
+            Assert.DoesNotContain("root/seg1", startExcluded); // starts exactly at 1500
+        }
+
+        // catches: the origin-undock-child scoping missing - the depot-A
+        // offshoot starts AT the origin undock and outlives it (EndUT 2600 past
+        // the boundary), so the EndUT rule alone would keep it rendered as a
+        // ghost depot on top of the live one.
+        [Fact]
+        public void ComputeStartExcluded_OriginUndockChildBranch_Excluded()
+        {
+            RecordingTree tree = BuildShuttleOriginTree();
+
+            HashSet<string> startExcluded =
+                RouteBackingMission.ComputeStartExcludedIntervalKeys(tree, ShuttleOriginUndockUT);
+
+            Assert.Contains("depotA", startExcluded);
+            Assert.Contains(logLines, l =>
+                l.Contains("ComputeStartExcludedIntervalKeys") &&
+                l.Contains("originUndockChildren=2"));
+        }
+
+        // catches: bad inputs throwing or producing a non-empty set instead of
+        // the honest no-start-trim fallback.
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(0.0)]
+        [InlineData(-5.0)]
+        public void ComputeStartExcluded_BadInputs_EmptySetAndLogs(double segmentStartUT)
+        {
+            RecordingTree tree = BuildShuttleOriginTree();
+
+            HashSet<string> startExcluded =
+                RouteBackingMission.ComputeStartExcludedIntervalKeys(tree, segmentStartUT);
+
+            Assert.Empty(startExcluded);
+            Assert.Contains(logLines, l =>
+                l.Contains("ComputeStartExcludedIntervalKeys") &&
+                l.Contains("no start trim"));
+        }
+
+        [Fact]
+        public void ComputeStartExcluded_NullTree_EmptySetAndLogs()
+        {
+            Assert.Empty(RouteBackingMission.ComputeStartExcludedIntervalKeys(null, 1500.0));
+            Assert.Contains(logLines, l =>
+                l.Contains("ComputeStartExcludedIntervalKeys") &&
+                l.Contains("tree=<null>"));
+        }
+
+        // catches: the selection-span verifier disagreeing with the render
+        // windows the loop builder derives - the RouteBuilder fail-closed span
+        // check keys on these values.
+        [Fact]
+        public void TryComputeSelectionSpan_ShuttleExclusions_SpanIsOriginUndockToDock()
+        {
+            RecordingTree tree = BuildShuttleOriginTree();
+            HashSet<string> excluded = ShuttleCreationExclusions(tree);
+
+            bool resolved = RouteBackingMission.TryComputeSelectionSpan(
+                tree, excluded, out double spanStartUT, out double spanEndUT);
+
+            Assert.True(resolved);
+            Assert.Equal(ShuttleOriginUndockUT, spanStartUT);
+            Assert.Equal(ShuttleDockBUT, spanEndUT);
+        }
+
+        // catches: a pre-origin offshoot that outlives the origin undock (NOT an
+        // origin-undock child - it peeled earlier) silently dragging the span
+        // start early instead of surfacing through the verifier so the builder
+        // can reject origin-span-mismatch.
+        [Fact]
+        public void TryComputeSelectionSpan_PreOriginOffshootOutlivesUndock_SpanStartDisagrees()
+        {
+            RecordingTree tree = BuildShuttleOriginTree();
+            // A relay peels off the root line at 700 and keeps flying past the
+            // origin undock: its interval [700..2200] survives BOTH trims.
+            tree.Recordings["relay"] = Leg("relay", "C3", 0, 700, 2200, vessel: "Relay");
+            tree.BranchPoints.Add(BP("relay-bp", BranchPointType.Undock,
+                new[] { "root" }, new[] { "relay" }, ut: 700));
+
+            HashSet<string> excluded = ShuttleCreationExclusions(tree);
+            bool resolved = RouteBackingMission.TryComputeSelectionSpan(
+                tree, excluded, out double spanStartUT, out _);
+
+            Assert.True(resolved);
+            Assert.NotEqual(ShuttleOriginUndockUT, spanStartUT);
+            Assert.Equal(700.0, spanStartUT);
+        }
+
+        [Fact]
+        public void TryComputeSelectionSpan_NullTreeOrAllExcluded_False()
+        {
+            Assert.False(RouteBackingMission.TryComputeSelectionSpan(
+                null, new HashSet<string>(), out _, out _));
+
+            RecordingTree tree = BuildShuttleOriginTree();
+            var everything = new HashSet<string>
+            {
+                "root", "root@dock1", "root/seg1", "root/seg1@dock1", "root/seg2",
+                "depotA", "payload"
+            };
+            Assert.False(RouteBackingMission.TryComputeSelectionSpan(
+                tree, everything, out _, out _));
+        }
+
+        // Frozen mid-tree-origin route over the shuttle tree: creation-time
+        // exclusion union + the persisted origin-undock UT the start prong
+        // re-derives from.
+        private static Route FrozenShuttleRoute(RecordingTree creationTree, string id,
+            bool bindOriginUndock = true)
+        {
+            Route route = new RouteFixtureBuilder()
+                .WithId(id)
+                .WithName("Frozen Shuttle")
+                .WithBackingMissionTreeId(creationTree.Id)
+                .WithSourceRef(new RouteSourceRef { RecordingId = "root", TreeId = creationTree.Id })
+                .WithSourceRef(new RouteSourceRef { RecordingId = "dockedA", TreeId = creationTree.Id })
+                .WithSourceRef(new RouteSourceRef { RecordingId = "dockedB", TreeId = creationTree.Id })
+                .WithDockBinding(ShuttleDockBUT, "dockedB")
+                .Build();
+            if (bindOriginUndock)
+                route.RecordedOriginUndockUT = ShuttleOriginUndockUT;
+            foreach (string key in ShuttleCreationExclusions(creationTree))
+                route.ExcludedIntervalKeys.Add(key);
+            return route;
+        }
+
+        // catches (M-MIS-9 start prong): a post-creation peel on the known
+        // member through-line renumbering the PRE-ORIGIN intervals into
+        // base-known keys the base-id rule + the END trim both miss - only the
+        // start-side UT prong re-derived from the persisted RecordedOriginUndockUT
+        // catches them.
+        [Fact]
+        public void ComputeAutoExcluded_StartProng_NewPreOriginKey_AutoExcluded()
+        {
+            RecordingTree creationTree = BuildShuttleOriginTree();
+            Route route = FrozenShuttleRoute(creationTree, "route-startprong01");
+
+            // Growth: a probe peels off the root line at 700 (pre-origin).
+            // Intervals renumber: root [0..700), root/seg1 [700..1000),
+            // root/seg1@dock1 [1000..1500), root/seg2 [1500..2500),
+            // root/seg2@dock1 [2500..3000), root/seg3 [3000..3600).
+            RecordingTree grown = BuildShuttleOriginTree();
+            grown.Recordings["newprobe"] = Leg("newprobe", "C4", 0, 700, 900, vessel: "Probe");
+            grown.BranchPoints.Add(BP("probe-bp", BranchPointType.Undock,
+                new[] { "root" }, new[] { "newprobe" }, ut: 700));
+
+            HashSet<string> auto =
+                RouteBackingMission.ComputeAutoExcludedNewIntervalKeys(grown, route);
+
+            // Prong 1: the new recording's key.
+            Assert.Contains("newprobe", auto);
+            // Prong 2 (end trim at 2500): the renumbered post-dock tail.
+            Assert.Contains("root/seg2@dock1", auto);
+            Assert.Contains("root/seg3", auto);
+            // Prong 2b (START trim at 1500): the renumbered PRE-ORIGIN keys.
+            Assert.Contains("root/seg1", auto);
+            Assert.Contains("root/seg1@dock1", auto);
+            Assert.Equal(5, auto.Count);
+            // The in-span transit interval ("root/seg2" post-renumbering) stays.
+            Assert.DoesNotContain("root/seg2", auto);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("ComputeAutoExcludedNewIntervalKeys") &&
+                l.Contains("startTrimAdded=2") &&
+                l.Contains("total=5"));
+        }
+
+        // catches (byte-identity pin): a route WITHOUT a persisted origin-undock
+        // UT (every launch-rooted route) gaining start-prong exclusions - the
+        // freeze must stay end-prong-only for them.
+        [Fact]
+        public void ComputeAutoExcluded_NoOriginUndockUT_EndProngOnly()
+        {
+            RecordingTree creationTree = BuildShuttleOriginTree();
+            Route route = FrozenShuttleRoute(creationTree, "route-startprong02",
+                bindOriginUndock: false);
+
+            RecordingTree grown = BuildShuttleOriginTree();
+            grown.Recordings["newprobe"] = Leg("newprobe", "C4", 0, 700, 900, vessel: "Probe");
+            grown.BranchPoints.Add(BP("probe-bp", BranchPointType.Undock,
+                new[] { "root" }, new[] { "newprobe" }, ut: 700));
+
+            HashSet<string> auto =
+                RouteBackingMission.ComputeAutoExcludedNewIntervalKeys(grown, route);
+
+            Assert.Contains("newprobe", auto);
+            Assert.Contains("root/seg2@dock1", auto);
+            Assert.Contains("root/seg3", auto);
+            Assert.Equal(3, auto.Count);
+            Assert.DoesNotContain("root/seg1", auto);
+            Assert.DoesNotContain("root/seg1@dock1", auto);
+            Assert.Contains(logLines, l =>
+                l.Contains("ComputeAutoExcludedNewIntervalKeys") &&
+                l.Contains("startTrimAdded=0"));
+        }
     }
 }

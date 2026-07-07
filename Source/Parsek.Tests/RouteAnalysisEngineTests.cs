@@ -2642,31 +2642,70 @@ namespace Parsek.Tests
             return tree;
         }
 
-        // catches: the shuttle shape (undocked start + a witnessed depot pickup
-        // window preceding the delivery) still rejecting as the generic
-        // UndockedStartOrigin at the NON-harvest gate instead of the specific
-        // MidRecordingStartTrimUnsupported (site 1 of 2, verdict C6).
+        // catches (M-MIS-5 P2b, flipped from the P2a status-9 pin): the SUPPORTED
+        // shuttle shape - undocked-start tree, a witnessed depot window (dock 100 /
+        // undock 160) strictly preceding the delivery (dock 300) - is now ACCEPTED
+        // as a mid-tree docked-origin run: the first window is the ORIGIN, not a
+        // stop, and both undocked-start gates stand down (site 1 of 2).
         [Fact]
-        public void AnalyzeTree_ShuttleStart_BetweenDocks_EmitsMidRecordingStartTrim()
+        public void AnalyzeTree_StartDockedShuttle_WithOriginProof_Eligible()
         {
             RecordingTree tree = BuildShuttleTree(kscOrigin: false, out Recording source);
 
             RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
 
-            Assert.False(result.IsEligible);
-            Assert.Equal(RouteAnalysisStatus.MidRecordingStartTrimUnsupported, result.Status);
-            // Populated like the sibling undocked-start reject so the near-miss
-            // row can render; the detail names the recognized origin dock UT.
+            Assert.True(result.IsEligible,
+                $"supported shuttle shape must be accepted since P2b, got {result.Status}");
+            Assert.True(result.IsMidTreeDockedOrigin);
+            Assert.False(result.IsHarvestOrigin);
+            // The FIRST window is the origin binding, not a stop.
+            Assert.NotNull(result.OriginConnectionWindow);
+            Assert.Equal(100.0, result.OriginConnectionWindow.DockUT);
+            Assert.Equal(160.0, result.OriginConnectionWindow.UndockUT);
+            Assert.Same(source, result.OriginSourceRecording);
+            // Stops: only the delivery window remains; the scalar anchor
+            // re-points to it.
+            Assert.NotNull(result.Stops);
+            RouteAnalysisStop stop = Assert.Single(result.Stops);
+            Assert.Equal(300.0, stop.DockUT);
             Assert.Same(source, result.SourceRecording);
-            Assert.NotNull(result.ConnectionWindow);
-            Assert.Equal("docked origin recorded at UT 100", result.RejectDetail);
-            // The classification decision is logged with the recognizer signal.
+            Assert.Equal(300.0, result.ConnectionWindow.DockUT);
+            Assert.NotNull(result.ResourceDeliveryManifest);
+            Assert.Equal(50.0, result.ResourceDeliveryManifest["LiquidFuel"], 6);
+            // The acceptance decision is logged; the P2a reject never fires.
             Assert.Contains(logLines, l =>
                 l.Contains("[Route]") &&
+                l.Contains("mid-tree docked origin resolved") &&
+                l.Contains("dockUT=100") &&
+                l.Contains("undockUT=160") &&
+                l.Contains("stops=1"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("start-trim unsupported"));
+        }
+
+        // catches (fail-closed pin): a recognizable shuttle family member whose
+        // origin window OVERLAPS the next stop's dock (undock 350 >= dock 300) is
+        // NOT lifted - the P2a detector keeps rejecting it status 9 at the gate
+        // (its docked stretch still precedes the LAST transfer at 500).
+        [Fact]
+        public void AnalyzeTree_ShuttleStart_OverlappingOriginWindow_StillStatus9()
+        {
+            RecordingTree tree = BuildShuttleTree(kscOrigin: false, out Recording source);
+            source.RouteConnectionWindows = new List<RouteConnectionWindow>
+            {
+                BuildDeliveryWindowAt("overlap", 100.0, 350.0),
+                BuildDeliveryWindowAt("mid", 300.0, 360.0),
+                BuildDeliveryWindowAt("last", 500.0, 560.0)
+            };
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.False(result.IsEligible);
+            Assert.Equal(RouteAnalysisStatus.MidRecordingStartTrimUnsupported, result.Status);
+            Assert.Equal("docked origin recorded at UT 100", result.RejectDetail);
+            Assert.Contains(logLines, l =>
                 l.Contains("mid-recording start-trim unsupported (shuttle family)") &&
-                l.Contains("originRec=shuttle-root") &&
-                l.Contains("signal=preceding-window") &&
-                l.Contains("originDockUT=100"));
+                l.Contains("signal=preceding-window"));
         }
 
         // Harvest-path shuttle: undocked-start root, complete run manifests on
@@ -2739,28 +2778,39 @@ namespace Parsek.Tests
             return tree;
         }
 
-        // catches: the harvest-refined undocked-start reject (site 2 of 2,
-        // verdict C6) not classifying the recorded depot-pickup shuttle - the
-        // load-covered undock -> undock profile must reject 9, not 6, and the
-        // status-9 result must mirror the status-6 result's harvest fields.
+        // catches (M-MIS-5 P2b, flipped from the P2a status-9 pin; site 2 of 2):
+        // the harvest-DATA-path shuttle (complete run manifests, so the
+        // harvest-refined gate is the live gate for modern recordings) is now
+        // ACCEPTED as a mid-tree docked-origin run - NOT a harvest origin (the
+        // depot load is not a harvest; the depot origin debit covers the
+        // delivery).
         [Fact]
-        public void AnalyzeTree_ShuttleStart_HarvestPath_EmitsMidRecordingStartTrim()
+        public void AnalyzeTree_ShuttleStart_HarvestDataPath_AcceptedWithoutHarvestOrigin()
         {
-            RecordingTree tree = BuildHarvestShuttleTree(out _, out _);
+            RecordingTree tree = BuildHarvestShuttleTree(out _, out Recording merge);
 
             RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
 
-            Assert.False(result.IsEligible);
-            Assert.Equal(RouteAnalysisStatus.MidRecordingStartTrimUnsupported, result.Status);
-            Assert.Equal("docked origin recorded at UT 150", result.RejectDetail);
-            Assert.NotNull(result.HarvestedManifest);
+            Assert.True(result.IsEligible,
+                $"harvest-data-path shuttle must be accepted since P2b, got {result.Status}");
+            Assert.True(result.IsMidTreeDockedOrigin);
+            Assert.False(result.IsHarvestOrigin);
+            Assert.NotNull(result.OriginConnectionWindow);
+            Assert.Equal(150.0, result.OriginConnectionWindow.DockUT);
+            Assert.Equal(200.0, result.OriginConnectionWindow.UndockUT);
+            // Only the delivery remains a stop; the scalar anchor mirrors it.
+            RouteAnalysisStop stop = Assert.Single(result.Stops);
+            Assert.Equal(500.0, stop.DockUT);
+            Assert.Same(merge, result.SourceRecording);
+            Assert.NotNull(result.ResourceDeliveryManifest);
+            Assert.Equal(80.0, result.ResourceDeliveryManifest["Ore"], 6);
             Assert.Contains(logLines, l =>
                 l.Contains("[Route]") &&
-                l.Contains("mid-recording start-trim unsupported (shuttle family, harvest-refined)") &&
-                l.Contains("originRec=hshuttle-root") &&
-                l.Contains("signal=preceding-window") &&
-                l.Contains("originDockUT=150") &&
-                l.Contains("delivered-exceeds-harvested"));
+                l.Contains("mid-tree docked origin resolved") &&
+                l.Contains("dockUT=150") &&
+                l.Contains("stops=1"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("start-trim unsupported"));
         }
 
         // catches: the detector over-firing on a PLAIN undocked start (single
@@ -3032,6 +3082,89 @@ namespace Parsek.Tests
                 null, sourcePathIds, null));
             Assert.Null(RouteAnalysisEngine.CollectMidTreeDockedOriginProofStartUTs(
                 tree, null, null));
+        }
+
+        // ---- IsSupportedMidTreeDockedOrigin (pure, M-MIS-5 P2b) ----
+
+        // catches: the acceptance predicate widening past the supported shape -
+        // it must require a tree, two windows, a well-formed endpoint-proven
+        // origin window, and the origin undock STRICTLY before the next stop's
+        // dock. A false is not a reject by itself (the P2a detector at the gate
+        // owns the fail-closed status), but a wrong true silently lifts an
+        // unsupported shape.
+        [Fact]
+        public void IsSupportedMidTreeDockedOrigin_SupportedShape_True()
+        {
+            var windows = new List<RouteConnectionWindow>
+            {
+                BuildDeliveryWindowAt("origin", 100.0, 160.0),
+                BuildDeliveryWindowAt("delivery", 300.0, 360.0)
+            };
+
+            Assert.True(RouteAnalysisEngine.IsSupportedMidTreeDockedOrigin(windows, hasTree: true));
+        }
+
+        [Fact]
+        public void IsSupportedMidTreeDockedOrigin_NoTree_False()
+        {
+            var windows = new List<RouteConnectionWindow>
+            {
+                BuildDeliveryWindowAt("origin", 100.0, 160.0),
+                BuildDeliveryWindowAt("delivery", 300.0, 360.0)
+            };
+
+            Assert.False(RouteAnalysisEngine.IsSupportedMidTreeDockedOrigin(windows, hasTree: false));
+        }
+
+        [Fact]
+        public void IsSupportedMidTreeDockedOrigin_FewerThanTwoWindows_False()
+        {
+            Assert.False(RouteAnalysisEngine.IsSupportedMidTreeDockedOrigin(null, hasTree: true));
+            Assert.False(RouteAnalysisEngine.IsSupportedMidTreeDockedOrigin(
+                new List<RouteConnectionWindow>(), hasTree: true));
+            Assert.False(RouteAnalysisEngine.IsSupportedMidTreeDockedOrigin(
+                new List<RouteConnectionWindow> { BuildDeliveryWindow() }, hasTree: true));
+        }
+
+        // catches: the strict-precedence rule relaxed - an origin undock AT or
+        // AFTER the next stop's dock would put that stop's dock phase outside
+        // the lifted span (the loop clock could never fire it).
+        [Theory]
+        [InlineData(300.0)]   // undock == next dock (boundary)
+        [InlineData(350.0)]   // undock inside the next docked stretch
+        public void IsSupportedMidTreeDockedOrigin_OriginUndockNotStrictlyBeforeNextDock_False(
+            double originUndockUT)
+        {
+            var windows = new List<RouteConnectionWindow>
+            {
+                BuildDeliveryWindowAt("origin", 100.0, originUndockUT),
+                BuildDeliveryWindowAt("delivery", 300.0, 360.0)
+            };
+
+            Assert.False(RouteAnalysisEngine.IsSupportedMidTreeDockedOrigin(windows, hasTree: true));
+        }
+
+        [Fact]
+        public void IsSupportedMidTreeDockedOrigin_InvertedOrProoflessOriginWindow_False()
+        {
+            // Inverted: undock before its own dock.
+            var inverted = new List<RouteConnectionWindow>
+            {
+                BuildDeliveryWindowAt("origin", 100.0, 90.0),
+                BuildDeliveryWindowAt("delivery", 300.0, 360.0)
+            };
+            Assert.False(RouteAnalysisEngine.IsSupportedMidTreeDockedOrigin(inverted, hasTree: true));
+
+            // Endpoint-proof-less origin window (defensive; the per-window
+            // endpoint gate rejects these upstream in production).
+            RouteConnectionWindow proofless = BuildDeliveryWindowAt("origin", 100.0, 160.0);
+            proofless.EndpointAtDock = null;
+            var noProof = new List<RouteConnectionWindow>
+            {
+                proofless,
+                BuildDeliveryWindowAt("delivery", 300.0, 360.0)
+            };
+            Assert.False(RouteAnalysisEngine.IsSupportedMidTreeDockedOrigin(noProof, hasTree: true));
         }
     }
 }
