@@ -268,10 +268,10 @@ namespace Parsek.Reaim
                 long k = kStart + step;
                 double delta = k * windowSpacingSeconds;
                 // Forward snap onto the hold lattice: the smallest W >= 0 with (delta + W) a whole
-                // multiple of the hold period. Same normalization as ComputeArrivalAlignHoldSeconds.
-                double wBase = (-delta) % holdPeriodSeconds;
-                if (wBase < 0.0)
-                    wBase += holdPeriodSeconds;
+                // multiple of the hold period - the shipped normalization, reused (recorded=0,
+                // liveEntry=delta gives (0 - delta) mod holdPeriod).
+                double wBase = GhostPlaybackLogic.ComputeArrivalAlignHoldSeconds(
+                    0.0, delta, holdPeriodSeconds);
 
                 long chosenI = 0;
                 double worstAtChosen = double.PositiveInfinity;

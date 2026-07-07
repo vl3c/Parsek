@@ -313,6 +313,17 @@ faithful, closing the stale-hold-after-recovery hole the same way.
 
 ## 5. Tests (xUnit; pure, existing fakes extended)
 
+*NOTE (post-M4c follow-up, 2026-07-07): the D8 landing+station items below (8's
+"station + landing -> Supported=false", 10's dual amber, 12's "Drop + dual -> None")
+describe the M4c-era fail-closed contract and are SUPERSEDED - the
+`mmis4-solve-arrival-window` branch wired SolveArrivalWindow and the dual now stays
+Supported (`IsJointLandingStation`) with the joint hold engaging or ambering via
+`ArrivalHoldPlanner.ComputeJointArrivalHold`; the current pins live in
+`ArrivalHoldPlannerTests` / `DestinationConstraintExtractorTests` /
+`MissionPeriodicityTests.Build_ReaimWithStationAndLanding_*`. Station+moon,
+moon-orbiting-station, and Jool-class items still hold as written (updated reason
+texts).*
+
 `MissionPeriodicityTests` (M4c section):
 
 1. Cross-parent TRANSITED station (mission has Orbital(B); station orbits B) -> EMITTED:

@@ -253,7 +253,9 @@ namespace Parsek.Tests
                 isPhaseLockedConstrained: false, isScheduled: false,
                 scheduleAllLaunchesWithinTolerance: true, fixedFitWithinTolerance: true,
                 arrivalAmberReason: "landing rotation + station rendezvous at 'Duna': " +
-                    "no single arrival hold aligns both periods (deferred)"));
+                    "joint arrival alignment misses tolerance - the station/rotation lattice " +
+                    "needs 4658 whole station periods to reach the 45s rotation tolerance " +
+                    "(budget 64); faithful"));
             Assert.False(MissionsWindowUI.ShouldTintTMinusAmber(
                 isPhaseLockedConstrained: false, isScheduled: false,
                 scheduleAllLaunchesWithinTolerance: true, fixedFitWithinTolerance: true,

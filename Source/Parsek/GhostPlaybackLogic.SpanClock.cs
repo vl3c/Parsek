@@ -698,6 +698,37 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The SHARED per-loop arrival-hold resolution used by BOTH the span clock's primary hold
+        /// dispatch and the launch-advance mirror (<see cref="ComputeCappedLaunchAdvanceSeconds"/>),
+        /// so the two stay identical by construction instead of by manual mirroring: dispatches to
+        /// the JOINT per-loop hold when the joint fields are valid (deriving entryOffset0 from the
+        /// compressed-span map), else the shipped single-period hold. Pure.
+        /// </summary>
+        private static double ResolvePerLoopArrivalHold(
+            double w0, long cycleIndex, double cadence,
+            double alignPeriod,
+            double phaseAnchorUT, double spanStartUT, IReadOnlyList<LoopCut> loiterCuts,
+            double arrivalHoldAtUT,
+            double jointSecondaryPeriod, double jointSecondaryTolerance, int jointMaxWholeHoldPeriods,
+            out bool jointValid)
+        {
+            jointValid = !double.IsNaN(jointSecondaryPeriod)
+                && !double.IsInfinity(jointSecondaryPeriod)
+                && jointSecondaryPeriod > 0.0
+                && jointMaxWholeHoldPeriods > 0
+                && !double.IsNaN(arrivalHoldAtUT);
+            if (!jointValid)
+                return ComputePerLoopArrivalHoldSeconds(w0, cycleIndex, cadence, alignPeriod);
+
+            double entryOffset0 = phaseAnchorUT
+                + (CompressSpanUT(arrivalHoldAtUT, loiterCuts) - spanStartUT) - arrivalHoldAtUT;
+            return ComputePerLoopJointArrivalHoldSeconds(
+                w0, cycleIndex, cadence, alignPeriod,
+                jointSecondaryPeriod, jointSecondaryTolerance,
+                entryOffset0, jointMaxWholeHoldPeriods);
+        }
+
+        /// <summary>
         /// The PER-LOOP JOINT arrival hold W_N for the D8 landing+station dual (the post-M4c
         /// SolveArrivalWindow wiring, docs/dev/design-mission-phasing-alignment.md D8): the
         /// station-lattice base hold from <see cref="ComputePerLoopArrivalHoldSeconds"/> (the STATION
@@ -843,24 +874,11 @@ namespace Parsek
             double w = (arrivalHoldSeconds > 0.0 && !double.IsInfinity(arrivalHoldSeconds)) ? arrivalHoldSeconds : 0.0;
             if (w > 0.0)
             {
-                bool jointValid = !double.IsNaN(arrivalJointSecondaryPeriod)
-                    && !double.IsInfinity(arrivalJointSecondaryPeriod)
-                    && arrivalJointSecondaryPeriod > 0.0
-                    && arrivalJointMaxWholeHoldPeriods > 0
-                    && !double.IsNaN(arrivalHoldAtUT);
-                if (jointValid)
-                {
-                    double entryOffset0 = phaseAnchorUT
-                        + (CompressSpanUT(arrivalHoldAtUT, loiterCuts) - spanStartUT) - arrivalHoldAtUT;
-                    w = ComputePerLoopJointArrivalHoldSeconds(
-                        w, win - 1, cadence, arrivalAlignPeriod,
-                        arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
-                        entryOffset0, arrivalJointMaxWholeHoldPeriods);
-                }
-                else
-                {
-                    w = ComputePerLoopArrivalHoldSeconds(w, win - 1, cadence, arrivalAlignPeriod);
-                }
+                w = ResolvePerLoopArrivalHold(
+                    w, win - 1, cadence, arrivalAlignPeriod,
+                    phaseAnchorUT, spanStartUT, loiterCuts, arrivalHoldAtUT,
+                    arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
+                    arrivalJointMaxWholeHoldPeriods, out _);
             }
             if (w > 0.0 && compressedSpan + w > cadence)
                 w = Math.Max(0.0, cadence - compressedSpan);
@@ -1302,25 +1320,22 @@ namespace Parsek
                 // JOINT dispatch (D8 landing+station, post-M4c SolveArrivalWindow wiring): a unit
                 // carrying a valid joint secondary period re-solves the whole-station-period
                 // extension per loop so BOTH the station (exact, the align period) and the rotation
-                // (within its mode tolerance) recur - the entryOffset0 base makes the check absolute
-                // in N, never accumulating. Every other unit (NaN secondary / 0 budget) takes the
-                // shipped single-period path byte-identically.
-                bool jointValid = !double.IsNaN(arrivalJointSecondaryPeriod)
-                    && !double.IsInfinity(arrivalJointSecondaryPeriod)
-                    && arrivalJointSecondaryPeriod > 0.0
-                    && arrivalJointMaxWholeHoldPeriods > 0
-                    && !double.IsNaN(arrivalHoldAtUT);
+                // (within its mode tolerance) recur - the absolute entryOffset0 base (derived in
+                // the shared resolver) makes the check absolute in N, never accumulating. Every
+                // other unit (NaN secondary / 0 budget) takes the shipped single-period path
+                // byte-identically.
+                hold = ResolvePerLoopArrivalHold(
+                    w0, cycleIndex, cycleDuration, arrivalHoldAlignPeriod,
+                    phaseAnchorUT, spanStartUT, loiterCuts, arrivalHoldAtUT,
+                    arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
+                    arrivalJointMaxWholeHoldPeriods, out bool jointValid);
                 if (jointValid)
                 {
-                    double entryOffset0 = phaseAnchorUT
-                        + (CompressSpanUT(arrivalHoldAtUT, loiterCuts) - spanStartUT) - arrivalHoldAtUT;
-                    hold = ComputePerLoopJointArrivalHoldSeconds(
-                        w0, cycleIndex, cycleDuration, arrivalHoldAlignPeriod,
-                        arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
-                        entryOffset0, arrivalJointMaxWholeHoldPeriods);
                     // Never silent: the defensive bounded-best fallback (build gate guarantees a hit,
                     // so this should not fire) leaves a rotation residual past tolerance - warn once
                     // per mission so a playtest sees which loops carry it.
+                    double entryOffset0 = phaseAnchorUT
+                        + (CompressSpanUT(arrivalHoldAtUT, loiterCuts) - spanStartUT) - arrivalHoldAtUT;
                     double jointErr = MissionPeriodicity.CircularPhaseError(
                         entryOffset0 + cycleIndex * cycleDuration + hold, arrivalJointSecondaryPeriod);
                     if (jointErr > arrivalJointSecondaryTolerance)
@@ -1336,10 +1351,6 @@ namespace Parsek
                             $"budget={arrivalJointMaxWholeHoldPeriods.ToString(jic)} whole periods - " +
                             "station stays exact, rotation best-effort this loop");
                     }
-                }
-                else
-                {
-                    hold = ComputePerLoopArrivalHoldSeconds(w0, cycleIndex, cycleDuration, arrivalHoldAlignPeriod);
                 }
                 // The arrival hold is UNCHANGED by the launch alignment (borrow-at-launch / repay-at-SOI-exit):
                 // the SOI-exit repay nets to zero with the earlier launch, so the SOI entry occurs at the SAME

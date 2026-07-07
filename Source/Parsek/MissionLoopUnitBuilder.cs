@@ -777,16 +777,13 @@ namespace Parsek
                         if (destTrim.HasDestinationCut)
                             p4Cuts.Add(destTrim.DestinationCut);
                         loiterCuts = p4Cuts;
-                        arrivalHold = new ArrivalHoldPlanner.ArrivalHoldResult
-                        {
-                            HoldSeconds = destTrim.HoldSeconds,
-                            HoldAtUT = destTrim.HoldAtUT,
-                            AlignPeriodSeconds = destTrim.AlignPeriodSeconds,
-                            Applied = true,
-                            IsStationHold = false,
-                            AlignAnchorPid = 0,
-                            AmberReason = null,
-                        };
+                        // None-based construction so the joint-hold fields keep their documented
+                        // NaN/0 "not joint" sentinels (a bare object initializer would zero them).
+                        arrivalHold = ArrivalHoldPlanner.ArrivalHoldResult.None;
+                        arrivalHold.HoldSeconds = destTrim.HoldSeconds;
+                        arrivalHold.HoldAtUT = destTrim.HoldAtUT;
+                        arrivalHold.AlignPeriodSeconds = destTrim.AlignPeriodSeconds;
+                        arrivalHold.Applied = true;
                         if (!SuppressLogging)
                         {
                             var aic = CultureInfo.InvariantCulture;

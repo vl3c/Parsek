@@ -209,7 +209,7 @@ namespace Parsek.Reaim
         /// deferral), so the dual degrades to the plain station hold; a tidally-degenerate pair
         /// (T_station ~= T_rot) collapses the same way because aligning one aligns the other. Pure.
         /// </summary>
-        private static ArrivalHoldResult ComputeJointArrivalHold(
+        internal static ArrivalHoldResult ComputeJointArrivalHold(
             DestinationConstraintExtractor.DestinationConstraintSet destSet,
             string targetBody,
             double recordedArrivalUT,
@@ -370,8 +370,10 @@ namespace Parsek.Reaim
             // ENGAGE. The base hold is the station-lattice snap for the FIRST loop; the clock's
             // per-loop dispatch re-derives the snap and the whole-period extension for every loop
             // (ComputePerLoopJointArrivalHoldSeconds). A zero base (entry already station-aligned)
-            // substitutes one full station period so the clock's hold>0 gate stays engaged - the
-            // station stays exact (whole period) and the extension search still runs.
+            // substitutes one full station period so the clock's hold>0 gate stays engaged; this
+            // inserts NO spurious dead time - the per-loop formula mods the substituted w0 back to
+            // the true 0 base ((tSta - N*(C mod tSta)) mod tSta == 0 at N=0) and only the
+            // whole-period extension search runs on top of it.
             double liveEntryUT = phaseAnchorUT
                 + (GhostPlaybackLogic.CompressSpanUT(recordedArrivalUT, loiterCuts) - spanStartUT);
             double w0 = GhostPlaybackLogic.ComputeArrivalAlignHoldSeconds(recordedArrivalUT, liveEntryUT, tSta);
