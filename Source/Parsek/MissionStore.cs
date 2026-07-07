@@ -132,16 +132,25 @@ namespace Parsek
         internal static int ReconcileSelections(IEnumerable<RecordingTree> trees)
         {
             var byId = new Dictionary<string, RecordingTree>(StringComparer.Ordinal);
+            var allTreesList = new List<RecordingTree>();
             if (trees != null)
                 foreach (var tree in trees)
                     if (tree != null && !string.IsNullOrEmpty(tree.Id))
+                    {
                         byId[tree.Id] = tree;
+                        allTreesList.Add(tree);
+                    }
 
             var structureCache = new Dictionary<string, MissionStructure>(StringComparer.Ordinal);
             var viewCache = new Dictionary<string, MissionThroughLineView>(StringComparer.Ordinal);
             var intervalKeyCache = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            // M-MIS-8: derived cross-tree dock links per mission tree (reused across same-tree
+            // missions), and foreign composition roots per foreign tree.
+            var linksCache = new Dictionary<string, List<ForeignDockLink>>(StringComparer.Ordinal);
+            var compRootsCache = new Dictionary<string, List<MissionCompositionNode>>(StringComparer.Ordinal);
             int removedHeads = 0;
             int removedIntervals = 0;
+            int removedLinks = 0;
             int stamped = 0;
             int extendedMissions = 0;
             int extendedKeys = 0;
@@ -157,10 +166,63 @@ namespace Parsek
                 {
                     // Tree not committed yet (parked Limbo / restored later this OnLoad): defer
                     // the stamp so the @dock extension still runs once the tree is present.
+                    // M-MIS-8: link ids are likewise left untouched until the tree is present.
                     if (isLegacyGeneration)
                         stampDeferredNoTree++;
                     continue;
                 }
+
+                // M-MIS-8: validate included cross-tree dock links FIRST (they extend the
+                // valid-interval-key set below). A link that no longer derives (foreign tree /
+                // branch point gone, claim no longer matches) is dropped like any stale id;
+                // surviving links contribute their partner-journey selectable keys so a
+                // cross-seam exclusion is not wrongly dropped as stale.
+                HashSet<string> foreignValidKeys = null;
+                if (m.IncludedForeignDockLinkIds.Count > 0)
+                {
+                    if (!linksCache.TryGetValue(m.TreeId, out List<ForeignDockLink> links))
+                    {
+                        links = MissionCrossTreeDock.FindLinks(tree, allTreesList);
+                        linksCache[m.TreeId] = links;
+                    }
+                    var validLinkIds = new HashSet<string>(StringComparer.Ordinal);
+                    for (int l = 0; l < links.Count; l++)
+                        validLinkIds.Add(links[l].LinkId);
+                    removedLinks += RemoveStale(m.IncludedForeignDockLinkIds, validLinkIds.Contains);
+
+                    for (int l = 0; l < links.Count; l++)
+                    {
+                        ForeignDockLink link = links[l];
+                        if (!m.IncludedForeignDockLinkIds.Contains(link.LinkId)
+                            || !byId.TryGetValue(link.ForeignTreeId, out RecordingTree foreignTree))
+                            continue;
+                        if (!structureCache.TryGetValue(foreignTree.Id, out MissionStructure fs))
+                        {
+                            fs = MissionStructureBuilder.Build(foreignTree);
+                            structureCache[foreignTree.Id] = fs;
+                        }
+                        if (!viewCache.TryGetValue(foreignTree.Id, out MissionThroughLineView fv))
+                        {
+                            fv = MissionThroughLineBuilder.Build(fs);
+                            viewCache[foreignTree.Id] = fv;
+                        }
+                        if (!compRootsCache.TryGetValue(foreignTree.Id, out List<MissionCompositionNode> fRoots))
+                        {
+                            fRoots = MissionCompositionBuilder.Build(fs);
+                            compRootsCache[foreignTree.Id] = fRoots;
+                        }
+                        var journeySet = new HashSet<string>(
+                            MissionCrossTreeDock.ComputePartnerJourneyLegIds(foreignTree, link),
+                            StringComparer.Ordinal);
+                        var journeyWindows = MissionCrossTreeDock.ComputeJourneyWindowsByOwner(
+                            fs, fv, journeySet);
+                        if (foreignValidKeys == null)
+                            foreignValidKeys = new HashSet<string>(StringComparer.Ordinal);
+                        MissionCrossTreeDock.CollectJourneySelectableKeys(
+                            fRoots, journeyWindows, foreignValidKeys);
+                    }
+                }
+
                 bool hasHeadExcl = m.ExcludedThroughLineHeadIds.Count > 0;
                 bool hasIntervalExcl = m.ExcludedIntervalKeys.Count > 0;
 
@@ -210,7 +272,12 @@ namespace Parsek
                                         "whole structural interval, docked stretch included)");
                             }
                         }
-                        removedIntervals += RemoveStale(m.ExcludedIntervalKeys, validKeys.Contains);
+                        // M-MIS-8: a key is still valid when it is a current OWN-tree selectable
+                        // key OR a current partner-journey key of a surviving included link.
+                        HashSet<string> fKeys = foreignValidKeys;
+                        removedIntervals += RemoveStale(m.ExcludedIntervalKeys,
+                            key => validKeys.Contains(key)
+                                   || (fKeys != null && fKeys.Contains(key)));
                     }
                 }
 
@@ -234,12 +301,13 @@ namespace Parsek
                     $"extended with {extendedKeys} @dock key(s); {stampDeferredNoTree} deferred, " +
                     "tree not committed yet)");
 
-            int removed = removedHeads + removedIntervals;
+            int removed = removedHeads + removedIntervals + removedLinks;
             if (removed > 0 && !SuppressLogging)
                 ParsekLog.Warn("Mission",
                     $"ReconcileSelections: removed {removedHeads} stale through-line head id(s) + " +
-                    $"{removedIntervals} stale interval key(s) (no longer current after a topology " +
-                    "change; cleared to avoid silently dropping / mis-targeting segments)");
+                    $"{removedIntervals} stale interval key(s) + {removedLinks} stale cross-tree " +
+                    "dock link id(s) (no longer current after a topology change; cleared to avoid " +
+                    "silently dropping / mis-targeting segments)");
             return removed;
         }
 
@@ -310,24 +378,47 @@ namespace Parsek
         /// from the recording's start instead of resuming mid-phase. Disabling only clears the
         /// target's flag and leaves the stale anchor in place (the next enable overwrites it).
         /// </summary>
-        internal static void SetLoopEnabled(Mission target, bool on, double currentUT)
+        internal static void SetLoopEnabled(Mission target, bool on, double currentUT,
+            IReadOnlyList<RecordingTree> trees = null)
         {
             if (target == null)
                 return;
             if (on)
             {
+                // M-MIS-8: a mission with included cross-tree dock links SPANS its own tree plus
+                // every linked foreign tree (its members overlap those trees' committed indices),
+                // so enabling it must also clear looping missions whose spanned sets intersect.
+                // With no trees supplied (legacy callers / tests) the spanned set degenerates to
+                // the own tree and the behavior is unchanged.
+                HashSet<string> targetSpan = ComputeSpannedTreeIds(target, trees);
                 int clearedSameTree = 0;
+                int clearedCrossTree = 0;
                 for (int i = 0; i < missions.Count; i++)
                 {
                     Mission m = missions[i];
-                    if (m == null || ReferenceEquals(m, target))
+                    if (m == null || ReferenceEquals(m, target) || !m.LoopPlayback)
                         continue;
-                    // Only clear looping siblings on the SAME tree; concurrent loops on other
-                    // trees are allowed.
-                    if (m.LoopPlayback && string.Equals(m.TreeId, target.TreeId, StringComparison.Ordinal))
+                    // Only clear looping siblings whose spanned trees intersect; concurrent loops
+                    // on disjoint trees are allowed.
+                    if (string.Equals(m.TreeId, target.TreeId, StringComparison.Ordinal))
                     {
                         m.LoopPlayback = false;
                         clearedSameTree++;
+                        continue;
+                    }
+                    if (targetSpan.Count > 1 || m.IncludedForeignDockLinkIds.Count > 0)
+                    {
+                        HashSet<string> mSpan = ComputeSpannedTreeIds(m, trees);
+                        if (SpansIntersect(targetSpan, mSpan))
+                        {
+                            m.LoopPlayback = false;
+                            clearedCrossTree++;
+                            if (!SuppressLogging)
+                                ParsekLog.Info("Mission",
+                                    $"SetLoopEnabled: cleared looping mission '{m.Name}' " +
+                                    $"(tree={m.TreeId}) - its spanned trees intersect " +
+                                    $"'{target.Name}' via a cross-tree dock link");
+                        }
                     }
                 }
                 target.LoopPlayback = true;
@@ -336,7 +427,8 @@ namespace Parsek
                     ParsekLog.Info("Mission",
                         $"SetLoopEnabled: loop ON for '{target.Name}' (tree={target.TreeId}); " +
                         $"anchorUT={currentUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}; " +
-                        $"cleared {clearedSameTree} other looping mission(s) on the same tree (one loop per tree)");
+                        $"cleared {clearedSameTree} other looping mission(s) on the same tree (one loop per tree)" +
+                        (clearedCrossTree > 0 ? $" + {clearedCrossTree} on cross-tree-linked tree(s)" : ""));
             }
             else
             {
@@ -345,6 +437,43 @@ namespace Parsek
                     ParsekLog.Info("Mission",
                         $"SetLoopEnabled: loop OFF for '{target.Name}' (tree={target.TreeId})");
             }
+        }
+
+        // M-MIS-8: the set of tree ids a mission's loop unit spans - its own tree plus the
+        // foreign tree of every included dock link that still derives. With no trees supplied
+        // the set degenerates to the own tree (legacy behavior).
+        internal static HashSet<string> ComputeSpannedTreeIds(
+            Mission m, IReadOnlyList<RecordingTree> trees)
+        {
+            var span = new HashSet<string>(StringComparer.Ordinal);
+            if (m == null)
+                return span;
+            if (!string.IsNullOrEmpty(m.TreeId))
+                span.Add(m.TreeId);
+            if (trees == null || m.IncludedForeignDockLinkIds.Count == 0)
+                return span;
+            RecordingTree myTree = null;
+            for (int i = 0; i < trees.Count; i++)
+                if (trees[i] != null && string.Equals(trees[i].Id, m.TreeId, StringComparison.Ordinal))
+                {
+                    myTree = trees[i];
+                    break;
+                }
+            if (myTree == null)
+                return span;
+            List<ForeignDockLink> links = MissionCrossTreeDock.FindLinks(myTree, trees);
+            for (int i = 0; i < links.Count; i++)
+                if (m.IncludedForeignDockLinkIds.Contains(links[i].LinkId))
+                    span.Add(links[i].ForeignTreeId);
+            return span;
+        }
+
+        private static bool SpansIntersect(HashSet<string> a, HashSet<string> b)
+        {
+            foreach (string id in a)
+                if (b.Contains(id))
+                    return true;
+            return false;
         }
 
         /// <summary>

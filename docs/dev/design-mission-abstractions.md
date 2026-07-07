@@ -617,14 +617,14 @@ into stack "AB" and later undock:
    derived not serialized) and `MissionThroughLineBuilder.ContinuationSuccessor`
    prefers it among the children that already pass its non-anchored / non-EVA
    filter. No schema change (the child order is already serialized in the tree).
-4. **Cross-tree dock (foreign vessel) — deferred by design.** When A and B are
-   independent trees, the combined leg and the post-undock continuation land in
-   the *controller's* tree while the foreign partner's pre-dock flight stays in
-   its own tree, so "loop the whole shared docked journey from the foreign side"
-   spans two trees and is not a single contiguous selection. This is the
-   remaining half of open question 6; revisit after supply-routes v0 (it likely
-   wants the cross-tree dock link followed via the same PID-linking playback
-   already does in `GhostChainWalker`).
+4. **Cross-tree dock (foreign vessel) — RESOLVED (M-MIS-8, 2026-07-07).** When A
+   and B are independent trees, the shared docked journey is now loopable from
+   the partner's side via an explicit dock-link inclusion
+   (`Mission.IncludedForeignDockLinkIds`): the link and the partner journey
+   derive live via the same PID-linking playback already does in
+   `GhostChainWalker`, foreign members join the loop unit on one shared span
+   clock, and periodicity/re-aim fail closed to faithful for cross-tree units.
+   See `docs/dev/design-mission-crosstree-dock.md`.
 
 ---
 
@@ -714,9 +714,9 @@ into stack "AB" and later undock:
    does not pull in the co-parent. PARTIALLY RESOLVED: the docking/undocking effect on
    Mission structure and looping is settled in "Docking & undocking (v1)" above (no
    Mission-entity lifecycle; loopable segments are interval selections; four gaps
-   listed and deferred to after supply-routes v0). Still open: how the multi-path
-   (whole-mission) outline renders a reconvergence, and the cross-tree foreign dock
-   target (gap 4 there).
+   listed and deferred to after supply-routes v0; gap 4, the cross-tree foreign
+   dock, shipped as M-MIS-8 on 2026-07-07). Still open: how the multi-path
+   (whole-mission) outline renders a reconvergence.
 7. Overlapping looping Missions. RESOLVED (two parts):
    (a) SINGLE-mission self-overlap (DONE): a looping mission whose period is shorter than
    its span now overlaps ITSELF (relaunches every period, several staggered instances
