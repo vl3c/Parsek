@@ -391,6 +391,18 @@ namespace Parsek.Logistics
         public double RecordedDockUT = -1.0;
 
         /// <summary>
+        /// (M-MIS-5 P2b) Recorded ORIGIN UNDOCK UT lifted from the origin
+        /// connection window's <c>UndockUT</c> on a mid-tree docked-origin
+        /// (shuttle) route: the rendered span STARTS here instead of the
+        /// tree-root launch, and the M-MIS-9 freeze re-derives the start-side
+        /// UT trim from this value
+        /// (<c>RouteBackingMission.ComputeAutoExcludedNewIntervalKeys</c>
+        /// prong 2b). Default -1 (launch-rooted route, no start trim); sparse
+        /// in the codec (omitted at default).
+        /// </summary>
+        public double RecordedOriginUndockUT = -1.0;
+
+        /// <summary>
         /// Recording id of the leaf (dock-child) member that carries the
         /// delivery binding (the <c>RouteConnectionWindow</c> +
         /// <see cref="RecordedDockUT"/>). One of the

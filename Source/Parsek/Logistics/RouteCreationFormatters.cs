@@ -85,6 +85,23 @@ namespace Parsek.Logistics
                 return id;
             }
 
+            // (M-MIS-5 P2b) Mid-tree docked origin: classified off the analysis
+            // verdict like harvest above - the tree root proves neither KSC nor
+            // start-docked by definition, so the depot identity comes from the
+            // origin connection window's dock-time endpoint proof.
+            if (analysis.IsMidTreeDockedOrigin && analysis.OriginConnectionWindow != null)
+            {
+                id.Kind = RouteOriginKind.Depot;
+                // The endpoint captured at the origin window's dock is the same
+                // descriptor RouteBuilder builds Route.Origin from; fall back to
+                // the window's transfer-target pid when the descriptor is absent.
+                id.DepotVesselPid =
+                    analysis.OriginConnectionWindow.EndpointAtDock?.VesselPersistentId
+                    ?? analysis.OriginConnectionWindow.TransferTargetVesselPid;
+                id.BodyName = analysis.OriginConnectionWindow.EndpointAtDock?.BodyName;
+                return id;
+            }
+
             // Resolve the ORIGIN recording: the tree ROOT (the launch / the
             // recording that started the flight, which carries the launch site and
             // the start-docked depot proof) when it resolves, else the analysis
@@ -233,11 +250,13 @@ namespace Parsek.Logistics
                         + (string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")")
                         + ". The recorded loads, harvest, and deliveries cannot account for what was left aboard. Re-record so every resource that leaves the transport is matched by a recorded load, harvest, or delivery.";
                 case RouteAnalysisStatus.MidRecordingStartTrimUnsupported:
-                    // M-MIS-5 P2a: emitted by a real detector now; the detail
-                    // names the recognized docked-origin moment.
+// M-MIS-5 P2a detector + P2b acceptance: since P2b the well-formed
+                    // docked-origin-window start is ACCEPTED, so this status names the
+                    // family's remaining unsupported shapes; the detail names the
+                    // recognized docked-origin moment.
                     return "This run starts between two docks: an earlier docked stretch"
                         + (string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")")
-                        + " was recorded before the cargo run, but starting a route mid-recording at that dock is not supported yet. Until start-trimming ships, start the supply run docked at the origin depot, or launch it from KSC.";
+                        + " was recorded before the cargo run, but this shape is not supported yet. A mid-flight start works when the run begins at a fully recorded docked-origin window - dock at the origin depot, then undock, both recorded, before the first delivery dock. Otherwise start the supply run docked at the origin depot, or launch it from KSC.";
                 default:
                     return "Route source is not eligible (" + status + ").";
             }

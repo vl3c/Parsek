@@ -22,6 +22,16 @@ namespace Parsek.Logistics
         private const string Tag = "Route";
 
         /// <summary>
+        /// (M-MIS-5 P2b) Tolerance for the mid-tree-origin span check: the
+        /// derived selection span must match [originUndock .. lastDock] within
+        /// this many seconds. Loose enough to absorb a physics-frame of drift
+        /// between the recorded window UTs and the composition edge UTs; a real
+        /// mismatch (a pre-origin offshoot dragging the span start early) is
+        /// minutes or more.
+        /// </summary>
+        internal const double OriginSpanMatchToleranceSeconds = 1.0;
+
+        /// <summary>
         /// Player-controlled fields that the dialog collects before commit.
         /// Kept as a struct so call sites are explicit about what flows from
         /// the UI vs. what is derived from the analysis result.
@@ -133,6 +143,28 @@ namespace Parsek.Logistics
             // the root, so rootLaunchUT == source.StartUT.
             double rootLaunchUT = rootRec != null ? rootRec.StartUT : source.StartUT;
 
+            // (M-MIS-5 P2b) Mid-tree docked-origin (shuttle) runs span from the
+            // ORIGIN UNDOCK (OQ1 decision), not the tree-root launch: the route
+            // renders and loops the transit leg only, and the pre-origin stretch
+            // is start-trimmed via the excluded interval keys below. The analysis
+            // classifier only resolves this shape with a committed tree; a
+            // missing tree or origin window here means the inputs degraded
+            // between analysis and build - fail fast, never fall back to a
+            // launch-rooted span for a shape analysis accepted as mid-tree.
+            bool isMidTreeOrigin = analysis.IsMidTreeDockedOrigin;
+            if (isMidTreeOrigin
+                && (committedTree == null || analysis.OriginConnectionWindow == null))
+            {
+                ParsekLog.Info(Tag,
+                    $"BuildRoute rejected: origin-window-unresolvable source={source.RecordingId ?? "<none>"} " +
+                    $"tree={(committedTree != null ? committedTree.Id ?? "<none>" : "<null>")} " +
+                    $"originWindow={(analysis.OriginConnectionWindow != null ? analysis.OriginConnectionWindow.WindowId ?? "<none>" : "<null>")}");
+                return new RouteBuildOutcome { RejectReason = "origin-window-unresolvable" };
+            }
+            double spanStartUT = isMidTreeOrigin
+                ? analysis.OriginConnectionWindow.UndockUT
+                : rootLaunchUT;
+
             // M4a (plan D4): resolve the ordered per-stop collection. A1 fills
             // analysis.Stops ascending by DockUT (single entry on a single-window
             // run, N on a multi-window run). The pure-logic RouteBuilder tests
@@ -162,24 +194,27 @@ namespace Parsek.Logistics
                 ? lastAnalysisStop.ConnectionWindow.DockUT
                 : double.NaN;
 
-            // (must-fix #3) Transit duration is the RENDERED span (DOCK - root launch:
-            // the launch-to-dock outbound run), NOT the leaf-only
+            // (must-fix #3) Transit duration is the RENDERED span (DOCK - span
+            // start; the span start is the root launch, or the origin undock on a
+            // mid-tree docked-origin run), NOT the leaf-only
             // source.EndUT - source.StartUT and NOT the full launch-to-undock span.
             // Also the clamp reference for the DispatchInterval >= span pin below.
-            double transitDuration = recordedDockUT - rootLaunchUT;
+            double transitDuration = recordedDockUT - spanStartUT;
 
-            // Backing-mission-unresolvable reject: the [launch..dock] window must
+            // Backing-mission-unresolvable reject: the [spanStart..dock] window must
             // be finite and non-empty for the loop render + clock to work. The
             // undock must also be finite (used by the CRE-5 window-sanity check).
             if (double.IsNaN(recordedDockUT) || double.IsInfinity(recordedDockUT)
                 || double.IsNaN(undockUT) || double.IsInfinity(undockUT)
+                || double.IsNaN(spanStartUT) || double.IsInfinity(spanStartUT)
                 || double.IsNaN(rootLaunchUT) || double.IsInfinity(rootLaunchUT)
                 || transitDuration <= 0.0)
             {
                 ParsekLog.Info(Tag,
                     $"BuildRoute rejected: backing-mission-unresolvable source={source.RecordingId ?? "<none>"} " +
                     $"tree={(committedTree != null ? committedTree.Id ?? "<none>" : "<null>")} " +
-                    $"rootLaunchUT={rootLaunchUT.ToString("R", ic)} dockUT={recordedDockUT.ToString("R", ic)} " +
+                    $"rootLaunchUT={rootLaunchUT.ToString("R", ic)} spanStartUT={spanStartUT.ToString("R", ic)} " +
+                    $"dockUT={recordedDockUT.ToString("R", ic)} " +
                     $"undockUT={undockUT.ToString("R", ic)} span={transitDuration.ToString("R", ic)}");
                 return new RouteBuildOutcome { RejectReason = "backing-mission-unresolvable" };
             }
@@ -239,7 +274,12 @@ namespace Parsek.Logistics
             // interval is always >= span: it never undercuts the rendered span.
             dispatchInterval = cadenceMultiplier * transitDuration;
 
-            BuildRouteSourceRefs(committedTree, source, recordedDockUT, rootLaunchUT,
+            // (M-MIS-5 P2b) The origin window's carrier recording joins SourceRefs
+            // exactly like the delivery leaf: it holds the origin binding
+            // (endpoint proof + manifests) and must be revalidation-tracked even
+            // though the docked origin stretch is not rendered.
+            Recording originCarrier = isMidTreeOrigin ? analysis.OriginSourceRecording : null;
+            BuildRouteSourceRefs(committedTree, source, recordedDockUT, rootLaunchUT, originCarrier,
                 out List<RouteSourceRef> sourceRefs, out List<string> recordingIds);
 
             // Excluded interval keys for the backing-mission render trim. End at the
@@ -248,6 +288,34 @@ namespace Parsek.Logistics
             HashSet<string> excludedIntervalKeys = committedTree != null
                 ? RouteBackingMission.ComputeExcludedIntervalKeys(committedTree, recordedDockUT, rootLaunchUT)
                 : new HashSet<string>();
+
+            // (M-MIS-5 P2b) Start-side trim: exclude everything ending at/before
+            // the origin undock, then FAIL-CLOSED verify the selection's derived
+            // span actually comes out as [originUndock .. lastDock]. Any odd
+            // composition shape (a pre-origin offshoot branch outliving the
+            // origin undock, or a transit leg living on a peeled line) rejects
+            // here instead of building a wrong-span route.
+            if (isMidTreeOrigin)
+            {
+                excludedIntervalKeys.UnionWith(
+                    RouteBackingMission.ComputeStartExcludedIntervalKeys(committedTree, spanStartUT));
+                bool spanResolved = RouteBackingMission.TryComputeSelectionSpan(
+                    committedTree, excludedIntervalKeys,
+                    out double selectionStartUT, out double selectionEndUT);
+                if (!spanResolved
+                    || Math.Abs(selectionStartUT - spanStartUT) > OriginSpanMatchToleranceSeconds
+                    || Math.Abs(selectionEndUT - recordedDockUT) > OriginSpanMatchToleranceSeconds)
+                {
+                    ParsekLog.Info(Tag,
+                        $"BuildRoute rejected: origin-span-mismatch source={source.RecordingId ?? "<none>"} " +
+                        $"tree={committedTree.Id ?? "<none>"} " +
+                        $"expectedStart={spanStartUT.ToString("R", ic)} expectedEnd={recordedDockUT.ToString("R", ic)} " +
+                        $"derivedStart={(spanResolved ? selectionStartUT.ToString("R", ic) : "<none>")} " +
+                        $"derivedEnd={(spanResolved ? selectionEndUT.ToString("R", ic) : "<none>")} " +
+                        $"excludedKeys={excludedIntervalKeys.Count.ToString(ic)}");
+                    return new RouteBuildOutcome { RejectReason = "origin-span-mismatch" };
+                }
+            }
 
             if (TryResolveRouteOrigin(analysis, source, originRec,
                     out RouteEndpoint origin, out string originLabel,
@@ -294,8 +362,9 @@ namespace Parsek.Logistics
                     segmentIndexBefore = ResolveSegmentIndexBefore(recordingIds, a.SourceRecording);
                     // The scheduler/display projection per design 6.2 (the actual
                     // per-window firing keys on each window's DockUT through the
-                    // loop clock, Phase A3 - NOT this offset).
-                    deliveryOffsetSeconds = a.DockUT - rootLaunchUT;
+                    // loop clock, Phase A3 - NOT this offset). Offsets are
+                    // span-start-relative (the origin undock on a mid-tree run).
+                    deliveryOffsetSeconds = a.DockUT - spanStartUT;
                     // The per-stop firing phase (OQ3/D5; read at fire time in A3).
                     stopRecordedDockUT = a.DockUT;
                 }
@@ -352,23 +421,24 @@ namespace Parsek.Logistics
             // RouteOrchestrator.TryActivate.
 
             // (CRE-5) Validate the recorded dock UT lies strictly inside the source
-            // [rootLaunchUT .. undockUT] window: the dock must come AFTER launch (a
-            // non-empty rendered [launch..dock] segment) and BEFORE undock (a
+            // [spanStartUT .. undockUT] window: the dock must come AFTER the span
+            // start (the root launch, or the origin undock on a mid-tree run - a
+            // non-empty rendered [spanStart..dock] segment) and BEFORE undock (a
             // well-formed dock/undock pair). A malformed window (NaN dock,
-            // dock <= launch, or dock >= undock) would build a route whose loop
+            // dock <= spanStart, or dock >= undock) would build a route whose loop
             // clock can never fire a crossing (RouteLoopClock.IsDockUTInSpan false
             // forever -> a route that never delivers). Fail fast instead of
             // persisting a dead route.
-            if (!IsDockUTWithinSpan(recordedDockUT, rootLaunchUT, undockUT))
+            if (!IsDockUTWithinSpan(recordedDockUT, spanStartUT, undockUT))
             {
                 ParsekLog.Info(Tag,
                     $"BuildRoute rejected: dock-ut-out-of-span source={source.RecordingId ?? "<none>"} " +
-                    $"dockUT={recordedDockUT.ToString("R", ic)} rootLaunchUT={rootLaunchUT.ToString("R", ic)} " +
+                    $"dockUT={recordedDockUT.ToString("R", ic)} spanStartUT={spanStartUT.ToString("R", ic)} " +
                     $"undockUT={undockUT.ToString("R", ic)} span={transitDuration.ToString("R", ic)}");
                 return new RouteBuildOutcome { RejectReason = "dock-ut-out-of-span" };
             }
 
-            double loopAnchorUT = initialStatus == RouteStatus.Active ? rootLaunchUT : -1.0;
+            double loopAnchorUT = initialStatus == RouteStatus.Active ? spanStartUT : -1.0;
 
             // (M-MIS-9-R1) Creation-time tree-membership snapshot scoping the
             // recovery-credit sum: every recording id in the source tree RIGHT
@@ -403,10 +473,12 @@ namespace Parsek.Logistics
                 TransitDuration = transitDuration,
                 DispatchInterval = dispatchInterval,
                 CadenceMultiplier = cadenceMultiplier,
-                DispatchWindowEpochUT = rootLaunchUT,
+                // The span start: the root launch, or the origin undock on a
+                // mid-tree docked-origin run (M-MIS-5 P2b).
+                DispatchWindowEpochUT = spanStartUT,
                 DispatchWindowPeriod = 0.0,
                 // Placeholder until scheduler (Phase 6+) computes from epoch + interval.
-                NextDispatchUT = rootLaunchUT + dispatchInterval,
+                NextDispatchUT = spanStartUT + dispatchInterval,
                 KscDispatchFundsCost = 0.0,
                 CostManifest = costManifest,
                 InventoryCostManifest = inventoryCostManifest,
@@ -432,11 +504,15 @@ namespace Parsek.Logistics
                 // (A4 end-trim + MissionRouteStructureList resolve the dock
                 // window through DockMemberRecordingId).
                 DockMemberRecordingId = (lastAnalysisStop.SourceRecording ?? source).RecordingId,
+                // (M-MIS-5 P2b) Persisted origin-undock span start; -1 on
+                // launch-rooted routes (sparse in the codec). Anchors the
+                // M-MIS-9 start-side freeze prong.
+                RecordedOriginUndockUT = isMidTreeOrigin ? spanStartUT : -1.0,
                 LoopAnchorUT = loopAnchorUT,
                 LastObservedLoopCycleIndex = -1
             };
 
-            LogBuiltRoute(routeId, originLabel, origin, source, rootLaunchUT, undockUT,
+            LogBuiltRoute(routeId, originLabel, origin, source, spanStartUT, undockUT,
                 recordedDockUT, transitDuration, dispatchInterval, cadenceMultiplier,
                 recordingIds, excludedIntervalKeys, creationTreeRecordingIds, stops,
                 isMultiStop, mode, ic);
@@ -551,6 +627,31 @@ namespace Parsek.Logistics
                 originLabel =
                     "non-ksc:pid=" + origin.VesselPersistentId.ToString(CultureInfo.InvariantCulture);
             }
+            else if (analysis.IsMidTreeDockedOrigin
+                && analysis.OriginConnectionWindow != null
+                && analysis.OriginConnectionWindow.EndpointAtDock.HasValue)
+            {
+                // (M-MIS-5 P2b) Mid-tree docked origin: the tree root proves
+                // neither KSC nor start-docked, but the run begins at a recorded
+                // docked-origin window - the depot endpoint captured at that
+                // window's dock IS the origin (same real-coordinate quality as
+                // the M1 descriptor path; its pid resolves the live depot at
+                // dispatch time and the origin debit follows the M1 docked-origin
+                // contract).
+                RouteEndpoint originWindowEndpoint =
+                    analysis.OriginConnectionWindow.EndpointAtDock.Value;
+                origin = new RouteEndpoint
+                {
+                    VesselPersistentId = originWindowEndpoint.VesselPersistentId,
+                    BodyName = originWindowEndpoint.BodyName ?? string.Empty,
+                    Latitude = originWindowEndpoint.Latitude,
+                    Longitude = originWindowEndpoint.Longitude,
+                    Altitude = originWindowEndpoint.Altitude,
+                    IsSurface = originWindowEndpoint.IsSurface
+                };
+                originLabel =
+                    "midtree:pid=" + origin.VesselPersistentId.ToString(CultureInfo.InvariantCulture);
+            }
             else if (analysis.IsHarvestOrigin && analysis.FirstHarvestWindow != null)
             {
                 // M2 harvest origin (plan D7): the run started undocked but
@@ -632,6 +733,7 @@ namespace Parsek.Logistics
             Recording source,
             double recordedDockUT,
             double rootLaunchUT,
+            Recording originCarrier,
             out List<RouteSourceRef> sourceRefs,
             out List<string> recordingIds)
         {
@@ -675,6 +777,14 @@ namespace Parsek.Logistics
             // absent from both the member set and the tree (e.g. null tree path).
             if (!string.IsNullOrEmpty(source.RecordingId) && seenMembers.Add(source.RecordingId))
                 memberRecs.Add(source);
+            // (M-MIS-5 P2b) The origin window's carrier recording (the
+            // dock-merged child at the origin depot) joins the refs exactly like
+            // the delivery leaf: it holds the origin binding and must be
+            // revalidation-tracked even though the docked origin stretch is not
+            // rendered. Null on every launch-rooted route.
+            if (originCarrier != null && !string.IsNullOrEmpty(originCarrier.RecordingId)
+                && seenMembers.Add(originCarrier.RecordingId))
+                memberRecs.Add(originCarrier);
             memberRecs.Sort((a, b) =>
             {
                 int byOrder = a.TreeOrder.CompareTo(b.TreeOrder);
@@ -761,7 +871,7 @@ namespace Parsek.Logistics
             string originLabel,
             RouteEndpoint origin,
             Recording source,
-            double rootLaunchUT,
+            double spanStartUT,
             double undockUT,
             double recordedDockUT,
             double transitDuration,
@@ -798,7 +908,7 @@ namespace Parsek.Logistics
                 $"originLon={origin.Longitude.ToString("R", ic)} " +
                 $"originAlt={origin.Altitude.ToString("R", ic)} " +
                 $"tree={source.TreeId ?? "<none>"} " +
-                $"rootLaunchUT={rootLaunchUT.ToString("R", ic)} " +
+                $"spanStartUT={spanStartUT.ToString("R", ic)} " +
                 $"undockUT={undockUT.ToString("R", ic)} " +
                 $"dockUT={recordedDockUT.ToString("R", ic)} " +
                 $"span={transitDuration.ToString("R", ic)} " +

@@ -6,14 +6,15 @@ Status: RATIFIED with the build (this is the P2b mini-plan gate required by
 end-flip is the precedent for every span-geometry move here). File:line
 references verified against `main @ c99d55f` (2026-07-07).
 
-Stacking note: the parent plan phases P2a (honest detection) before P2b
-(acceptance). The `mmis5-p2a-starttrim-detect` branch was never pushed (no
-remote branch, no PR), so this branch bases on `main` and FOLDS THE P2a
-DETECTOR IN: the fail-closed target of every unsupported shape below IS the
-P2a reject (`MidRecordingStartTrimUnsupported = 9`), so acceptance cannot ship
-without the detector anyway. Both undocked-start gates are instrumented
-(verdict C6 satisfied). If a separate P2a lands first, the conflict is
-localized to the same two gate sites.
+Stacking note: this branch STACKS ON P2a (branch
+`claude/mmis5-p2a-start-trim-dqi3vb`, pushed 2026-07-07), whose
+`ClassifyStartTrimShuttle` detector at both undocked-start gates is the
+fail-closed target: P2b's acceptance predicate
+(`IsSupportedMidTreeDockedOrigin`) stands the gates down ONLY for the fully
+supported shape, and every other recognizably shuttle-shaped run falls through
+to the gates, where P2a keeps rejecting it as
+`MidRecordingStartTrimUnsupported = 9` (and the genuine undocked start as
+status 6). The PR targets the P2a branch.
 
 ## 0. Behavior change in one sentence
 
@@ -47,10 +48,11 @@ Recorded decision (parent plan §8 recommended ORIGIN UNDOCK; ratified here):
 
 ## 2. The supported shape (and only this shape)
 
-Analysis-side definition, checked by a new pure resolver
-`RouteAnalysisEngine.TryResolveMidTreeDockedOrigin` (internal static, directly
-tested), consulted ONLY when `IsUndockedStartOrigin(originRec)` is true (KSC
-and start-docked-rooted trees never reach it - byte-identity by construction):
+Analysis-side definition, checked by a new pure acceptance predicate
+`RouteAnalysisEngine.IsSupportedMidTreeDockedOrigin` (internal static,
+directly tested), consulted ONLY when `IsUndockedStartOrigin(originRec)` is
+true (KSC and start-docked-rooted trees never reach it - byte-identity by
+construction):
 
 - `ordered.Count >= 2` completed connection windows on the source path
   (ordered ascending by DockUT; the M4a ordering already rejects NaN /
@@ -64,15 +66,15 @@ and start-docked-rooted trees never reach it - byte-identity by construction):
 - `HasEndpointProof(W1)` (guaranteed by the earlier per-window endpoint-proof
   gate; kept as a defensive check).
 
-Resolver verdicts:
-- **Resolved** -> the run is accepted with origin = W1 (subject to all
-  remaining gates); `stops = ordered[1..]`.
-- **Degenerate family** (>= 2 windows but null tree / overlap / non-finite or
-  inverted UndockUT / missing endpoint proof) -> status 9 with a
-  `RejectDetail` naming the origin dock UT (the P2a contract).
-- **Not the family** (fewer than 2 windows) -> fall through to the existing
-  rejects unchanged (genuine undocked start stays status 6; the harvest gate
-  keeps its refined reject).
+Predicate outcomes:
+- **True** -> the run is accepted with origin = W1 (subject to all remaining
+  gates); `stops = ordered[1..]`; both undocked-start gates stand down.
+- **False** -> fall through to the existing gates UNCHANGED, where the P2a
+  `ClassifyStartTrimShuttle` detector routes the recognizable-but-unsupported
+  family (null tree, overlap, inverted origin window, the
+  mid-tree-origin-proof variant) to status 9 with a `RejectDetail` naming the
+  origin dock UT, and everything else to the existing rejects (genuine
+  undocked start stays status 6; the harvest gate keeps its refined reject).
 
 ## 3. Seams (the todo bullet's (a)-(e), made concrete)
 
@@ -145,12 +147,13 @@ When `analysis.IsMidTreeDockedOrigin` (else everything below keeps
 
 ### (c) Analysis origin gate - `RouteAnalysisEngine`
 
-- Hoist the resolver call ABOVE the non-harvest gate: when Resolved, BOTH
-  undocked-start rejects (`:538` and `:673`) are bypassed for this run (the
-  docked origin covers the un-launched / un-harvested delivery), and
-  `isHarvestOrigin` is NOT set. When Degenerate, return status 9 (both gates
-  covered by the single hoisted site - C6). When NotFamily, both gates run
-  byte-identically.
+- Hoist the acceptance predicate ABOVE the non-harvest gate: when true, BOTH
+  undocked-start rejects are bypassed for this run (the docked origin covers
+  the un-launched / un-harvested delivery), and `isHarvestOrigin` is NOT set -
+  the P2a in-gate detection never runs for an accepted run. When false, both
+  gates run byte-identically to P2a (status 9 for the recognizable family via
+  `ClassifyStartTrimShuttle`, status 6 / the harvest-refined reject
+  otherwise).
 - The origin window W1 is dropped from the STOPS and from the
   no-delivery-AND-no-load per-window gate (an empty/parked origin window is
   legitimate - it is the origin, not a stop); it KEEPS the unwitnessed
@@ -208,10 +211,11 @@ Audited (D4 precedent): NO clock or span-math edits needed.
 
 | Shape | Outcome |
 |---|---|
-| KSC-rooted or start-docked-rooted tree | Gates untouched (resolver never consulted) - byte-identical route |
-| Undocked root, < 2 windows | Status 6 (or the harvest-refined reject) - byte-identical |
-| Undocked root, >= 2 windows, null tree (`AnalyzeRecording`) | Status 9 |
-| Origin window overlaps the next stop (`UndockUT >= next DockUT`), non-finite / inverted UndockUT, missing endpoint proof | Status 9 |
+| KSC-rooted or start-docked-rooted tree | Gates untouched (predicate never consulted) - byte-identical route |
+| Undocked root, < 2 windows, no mid-tree origin proof | Status 6 (or the harvest-refined reject) - byte-identical to P2a |
+| Undocked root, >= 2 windows, null tree (`AnalyzeRecording`) | Status 9 (P2a signal 1 at the gate) |
+| Origin window overlaps the next stop (`UndockUT >= next DockUT` but `<= last DockUT`), inverted UndockUT | Status 9 (P2a signal 1 at the gate) |
+| Mid-tree-origin-proof variant (P2a signal 2) | Status 9 (unchanged from P2a; the segment-birth shape is not lifted) |
 | Supported shape but derived selection span != `[originUndock .. lastDock]` (odd composition, pre-origin offshoot outliving the undock) | Builder reject `origin-span-mismatch` |
 | Malformed span inputs at build (NaN, `dock <= originUndock`) | Existing `backing-mission-unresolvable` / CRE-5 `dock-ut-out-of-span` rejects, now over the lifted span |
 
@@ -244,9 +248,13 @@ No silent acceptance widening anywhere else; every reject logs with the
   (freeze byte-identity pin)
 - `RouteAnalysisEngineTests.StartDockedShuttle_WithOriginProof_Eligible`
   (parent-plan-named: the lifted acceptance, origin window out of the stops)
-- `RouteAnalysisEngineTests.ShuttleStart_DegenerateShape_EmitsMidRecordingStartTrim`
-  (status 9 + RejectDetail names the origin dock UT)
-- `RouteAnalysisEngineTests.GenuineUndockedStart_StillStatus6`
+- `RouteAnalysisEngineTests.IsSupportedMidTreeDockedOrigin_*` (predicate
+  Theory: supported shape true; null tree / < 2 windows / overlap / inverted
+  window false)
+- `RouteAnalysisEngineTests.ShuttleStart_OverlappingOriginWindow_StillStatus9`
+  (a degenerate family member keeps P2a's reject after the lift)
+- (P2a's existing `ShuttleStart_*` status-9 and `GenuineUndockedStart` status-6
+  tests stay green - the fail-closed pins)
 - `RouteAnalysisEngineTests.ShuttleStart_HarvestDataPath_AcceptedWithoutHarvestOrigin`
   (gate-2 coverage: modern recordings with complete run manifests)
 - `RouteBuilderTests.Build_MidTreeOrigin_SpanIsOriginUndockToDock`
