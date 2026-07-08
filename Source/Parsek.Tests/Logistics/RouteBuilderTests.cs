@@ -2150,6 +2150,290 @@ namespace Parsek.Tests.Logistics
             // No multi-stop summary line for a single-stop route via the list path.
             Assert.DoesNotContain(logLines, l => l.Contains("Built multi-stop route"));
         }
+
+        // -----------------------------------------------------------------
+        // M-MIS-5 P2b: mid-tree docked-origin (shuttle) builds
+        // -----------------------------------------------------------------
+
+        // Shuttle tree mirroring RouteBackingMissionTests.BuildShuttleOriginTree:
+        // mid-orbit root [0..1000] -> dockedA [1000..1500] (Dock@1000) ->
+        // origin undock@1500 (depotA [1500..2600] peels; transit [1500..2500]
+        // continues) -> dockedB [2500..3000] (Dock@2500) -> undock@3000
+        // (survivor [3000..3600]; payload [3000..3300] peels). The route spans
+        // [origin undock 1500 .. depot-B dock 2500].
+        private const double MidTreeOriginUndockUT = 1500.0;
+        private const double MidTreeDockBUT = 2500.0;
+
+        private static Recording MidTreeLeg(string id, int order, string chainId,
+            int chainIndex, double startUT, double endUT)
+        {
+            return new Recording
+            {
+                RecordingId = id,
+                TreeId = "tree-midtree",
+                TreeOrder = order,
+                ChainId = chainId,
+                ChainIndex = chainIndex,
+                StartBodyName = "Mun",
+                LaunchSiteName = null,
+                RouteOriginProof = null
+            }.WithUtSpan(startUT, endUT);
+        }
+
+        private static RecordingTree BuildMidTreeShuttleTree(
+            out Recording originCarrier, out Recording deliveryLeaf,
+            out RouteConnectionWindow originWindow)
+        {
+            Recording root = MidTreeLeg("root", 0, "C0", 0, 0.0, 1000.0);
+            originCarrier = MidTreeLeg("dockedA", 1, "C0", 1, 1000.0, 1500.0);
+            Recording transit = MidTreeLeg("transit", 2, "C0", 2, 1500.0, 2500.0);
+            Recording depotA = MidTreeLeg("depotA", 3, "C1", 0, 1500.0, 2600.0);
+            deliveryLeaf = MidTreeLeg("dockedB", 4, "C0", 3, 2500.0, 3000.0);
+            Recording survivor = MidTreeLeg("survivor", 5, "C0", 4, 3000.0, 3600.0);
+            Recording payload = MidTreeLeg("payload", 6, "C2", 0, 3000.0, 3300.0);
+
+            originWindow = new RouteConnectionWindow
+            {
+                WindowId = "w-origin",
+                DockUT = 1000.0,
+                UndockUT = MidTreeOriginUndockUT,
+                TransferTargetVesselPid = 777,
+                TransferKind = RouteConnectionKind.DockingPort,
+                EndpointAtDock = MakeMunEndpoint(pid: 777),
+                TransferEndpointSituation = 4
+            };
+            originCarrier.RouteConnectionWindows =
+                new List<RouteConnectionWindow> { originWindow };
+            deliveryLeaf.RouteConnectionWindows = new List<RouteConnectionWindow>
+                { MakeCompleteWindow(dockUT: MidTreeDockBUT, undockUT: 3000.0) };
+
+            var tree = new RecordingTree { Id = "tree-midtree", RootRecordingId = "root" };
+            foreach (Recording rec in new[]
+                { root, originCarrier, transit, depotA, deliveryLeaf, survivor, payload })
+                tree.AddOrReplaceRecording(rec);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "dockA-bp",
+                Type = BranchPointType.Dock,
+                UT = 1000.0,
+                ParentRecordingIds = new List<string> { "root" },
+                ChildRecordingIds = new List<string> { "dockedA" }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "origin-undock-bp",
+                Type = BranchPointType.Undock,
+                UT = 1500.0,
+                SplitCause = "UNDOCK",
+                ParentRecordingIds = new List<string> { "dockedA" },
+                ChildRecordingIds = new List<string> { "transit", "depotA" }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "dockB-bp",
+                Type = BranchPointType.Dock,
+                UT = 2500.0,
+                ParentRecordingIds = new List<string> { "transit" },
+                ChildRecordingIds = new List<string> { "dockedB" }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "undockB-bp",
+                Type = BranchPointType.Undock,
+                UT = 3000.0,
+                SplitCause = "UNDOCK",
+                ParentRecordingIds = new List<string> { "dockedB" },
+                ChildRecordingIds = new List<string> { "survivor", "payload" }
+            });
+            return tree;
+        }
+
+        private static RouteAnalysisResult MidTreeEligibleAnalysis(
+            Recording originCarrier, Recording deliveryLeaf, RouteConnectionWindow originWindow)
+        {
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(deliveryLeaf);
+            analysis.IsMidTreeDockedOrigin = true;
+            analysis.OriginConnectionWindow = originWindow;
+            analysis.OriginSourceRecording = originCarrier;
+            return analysis;
+        }
+
+        // catches: the span/geometry fields still rooting at the tree-root
+        // launch on a mid-tree docked-origin build - the rendered span, epoch,
+        // anchor, and the persisted origin-undock UT must all key on the
+        // ORIGIN UNDOCK (OQ1).
+        [Fact]
+        public void Build_MidTreeOrigin_SpanIsOriginUndockToDock()
+        {
+            RecordingTree tree = BuildMidTreeShuttleTree(
+                out Recording originCarrier, out Recording deliveryLeaf,
+                out RouteConnectionWindow originWindow);
+            RouteAnalysisResult analysis =
+                MidTreeEligibleAnalysis(originCarrier, deliveryLeaf, originWindow);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, tree, Inputs(interval: 1000.0), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Route route = outcome.Route;
+            // Span = dockB(2500) - origin undock(1500), NOT dockB - root(0).
+            Assert.Equal(1000.0, route.TransitDuration);
+            Assert.Equal(1000.0, route.DispatchInterval);
+            Assert.Equal(1, route.CadenceMultiplier);
+            Assert.Equal(MidTreeOriginUndockUT, route.DispatchWindowEpochUT);
+            Assert.Equal(MidTreeOriginUndockUT + 1000.0, route.NextDispatchUT);
+            Assert.Equal(MidTreeOriginUndockUT, route.LoopAnchorUT);
+            Assert.Equal(MidTreeOriginUndockUT, route.RecordedOriginUndockUT);
+            Assert.Equal(MidTreeDockBUT, route.RecordedDockUT);
+            Assert.Equal("dockedB", route.DockMemberRecordingId);
+        }
+
+        // catches: the origin endpoint not resolving from the ORIGIN WINDOW's
+        // dock-time endpoint proof (the tree root proves neither KSC nor
+        // start-docked on this shape).
+        [Fact]
+        public void Build_MidTreeOrigin_OriginEndpointFromOriginWindow()
+        {
+            RecordingTree tree = BuildMidTreeShuttleTree(
+                out Recording originCarrier, out Recording deliveryLeaf,
+                out RouteConnectionWindow originWindow);
+            RouteAnalysisResult analysis =
+                MidTreeEligibleAnalysis(originCarrier, deliveryLeaf, originWindow);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, tree, Inputs(interval: 1000.0), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.False(outcome.Route.IsKscOrigin);
+            Assert.False(outcome.Route.IsHarvestOrigin);
+            Assert.Equal(777u, outcome.Route.Origin.VesselPersistentId);
+            Assert.Equal("Mun", outcome.Route.Origin.BodyName);
+            Assert.Contains(logLines, l =>
+                l.Contains("Built route") && l.Contains("origin=midtree:pid=777"));
+            // CostManifest follows the docked-origin contract (the delivery
+            // manifest, debited from the depot at dispatch).
+            Assert.Equal(50.0, outcome.Route.CostManifest["LiquidFuel"]);
+        }
+
+        // catches: the start trim missing from the creation excluded set, or
+        // the pre-origin / offshoot intervals leaking into the rendered
+        // selection.
+        [Fact]
+        public void Build_MidTreeOrigin_ExcludedKeysIncludeStartTrim()
+        {
+            RecordingTree tree = BuildMidTreeShuttleTree(
+                out Recording originCarrier, out Recording deliveryLeaf,
+                out RouteConnectionWindow originWindow);
+            RouteAnalysisResult analysis =
+                MidTreeEligibleAnalysis(originCarrier, deliveryLeaf, originWindow);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, tree, Inputs(interval: 1000.0), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            HashSet<string> excluded = outcome.Route.ExcludedIntervalKeys;
+            // Start trim: the pre-origin lead, the docked-at-A stretch, and the
+            // depot-A offshoot.
+            Assert.Contains("root", excluded);
+            Assert.Contains("root@dock1", excluded);
+            Assert.Contains("depotA", excluded);
+            // End trim: the docked-at-B stretch and the post-undock tail.
+            Assert.Contains("root/seg1@dock1", excluded);
+            Assert.Contains("root/seg2", excluded);
+            Assert.Contains("payload", excluded);
+            // The transit leg stays rendered.
+            Assert.DoesNotContain("root/seg1", excluded);
+        }
+
+        // catches: the origin window's carrier recording missing from
+        // SourceRefs - it holds the origin binding and must be
+        // revalidation-tracked like the delivery leaf.
+        [Fact]
+        public void Build_MidTreeOrigin_SourceRefsIncludeOriginCarrier()
+        {
+            RecordingTree tree = BuildMidTreeShuttleTree(
+                out Recording originCarrier, out Recording deliveryLeaf,
+                out RouteConnectionWindow originWindow);
+            RouteAnalysisResult analysis =
+                MidTreeEligibleAnalysis(originCarrier, deliveryLeaf, originWindow);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, tree, Inputs(interval: 1000.0), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Contains("dockedA", outcome.Route.RecordingIds);
+            Assert.Contains("dockedB", outcome.Route.RecordingIds);
+            Assert.Contains(outcome.Route.SourceRefs, s => s.RecordingId == "dockedA");
+        }
+
+        // catches: a wrong-span route being built when the derived selection
+        // span disagrees with [originUndock .. lastDock] - here a pre-origin
+        // relay offshoot outlives the origin undock and drags the span start
+        // to 700; the build must fail closed.
+        [Fact]
+        public void Build_MidTreeOrigin_SpanMismatch_Rejected()
+        {
+            RecordingTree tree = BuildMidTreeShuttleTree(
+                out Recording originCarrier, out Recording deliveryLeaf,
+                out RouteConnectionWindow originWindow);
+            tree.AddOrReplaceRecording(MidTreeLeg("relay", 7, "C3", 0, 700.0, 2200.0));
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "relay-bp",
+                Type = BranchPointType.Undock,
+                UT = 700.0,
+                SplitCause = "UNDOCK",
+                ParentRecordingIds = new List<string> { "root" },
+                ChildRecordingIds = new List<string> { "relay" }
+            });
+            RouteAnalysisResult analysis =
+                MidTreeEligibleAnalysis(originCarrier, deliveryLeaf, originWindow);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, tree, Inputs(interval: 1000.0), Game.Modes.SANDBOX);
+
+            Assert.Null(outcome.Route);
+            Assert.Equal("origin-span-mismatch", outcome.RejectReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("BuildRoute rejected: origin-span-mismatch") &&
+                l.Contains("derivedStart=700"));
+        }
+
+        // catches: a mid-tree analysis result reaching the builder with a null
+        // tree (the inputs degraded between analysis and build) silently
+        // falling back to a launch-rooted span instead of failing fast.
+        [Fact]
+        public void Build_MidTreeOrigin_NullTree_Rejected()
+        {
+            RecordingTree tree = BuildMidTreeShuttleTree(
+                out Recording originCarrier, out Recording deliveryLeaf,
+                out RouteConnectionWindow originWindow);
+            _ = tree;
+            RouteAnalysisResult analysis =
+                MidTreeEligibleAnalysis(originCarrier, deliveryLeaf, originWindow);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, null, Inputs(interval: 1000.0), Game.Modes.SANDBOX);
+
+            Assert.Null(outcome.Route);
+            Assert.Equal("origin-window-unresolvable", outcome.RejectReason);
+        }
+
+        // catches (byte-identity pin): a launch-rooted KSC route gaining the
+        // origin-undock field - it must stay at the -1 default so the codec
+        // omits it and existing saves stay byte-identical.
+        [Fact]
+        public void Build_KscRooted_OriginUndockUTStaysDefault()
+        {
+            Recording source = MakeKscSource();
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Equal(-1.0, outcome.Route.RecordedOriginUndockUT);
+        }
     }
 
     /// <summary>

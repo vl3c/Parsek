@@ -624,7 +624,9 @@ namespace Parsek.InGameTests
                     memberStartUT, memberEndUT, out double _, out long _,
                     unit.RelaunchSchedule, unit.LoiterCuts,
                     unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds,
-                    unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT);
+                    unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT,
+                    unit.ArrivalJointSecondaryPeriodSeconds, unit.ArrivalJointSecondaryToleranceSeconds,
+                    unit.ArrivalJointMaxWholeHoldPeriods);
                 bool secondLive = decision == GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.Render;
                 if (!secondLive)
                     continue;
@@ -746,7 +748,9 @@ namespace Parsek.InGameTests
                     memberStartUT, memberEndUT, out double _, out long _,
                     unit.RelaunchSchedule, unit.LoiterCuts,
                     unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds,
-                    unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT);
+                    unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT,
+                    unit.ArrivalJointSecondaryPeriodSeconds, unit.ArrivalJointSecondaryToleranceSeconds,
+                    unit.ArrivalJointMaxWholeHoldPeriods);
                 if (decision != GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.Render)
                     continue;
                 checkedMembers++;

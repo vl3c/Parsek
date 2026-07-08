@@ -188,6 +188,153 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// (M-MIS-5 P2b) Start-side counterpart of
+        /// <see cref="ComputeExcludedIntervalKeys"/>: derives the interval keys to
+        /// EXCLUDE so the backing mission's rendered window STARTS at
+        /// <paramref name="segmentStartUT"/> (the route's ORIGIN UNDOCK, per the
+        /// P2b OQ1 decision) instead of the tree-root launch. Pure. Only invoked
+        /// for mid-tree docked-origin (shuttle) routes; launch-rooted routes never
+        /// call it (byte-identity). The caller UNIONs the result with the end-trim
+        /// set.
+        /// </summary>
+        /// <param name="tree">Source recording tree (read-only).</param>
+        /// <param name="segmentStartUT">Start of the route segment: the origin
+        /// window's UNDOCK UT. The origin undock is a structural peel edge, so the
+        /// docked origin stretch (<c>[originDock .. originUndock)</c>) ENDS exactly
+        /// here and is excluded; the transit leg STARTS here and is kept.</param>
+        /// <returns>
+        /// Excluded interval keys. Empty set on any guard failure (null tree, NaN
+        /// or non-positive <paramref name="segmentStartUT"/>, no composition
+        /// roots) — the whole segment renders, an honest fallback; the RouteBuilder
+        /// span check then rejects the mid-tree route rather than building a
+        /// wrong-span one.
+        /// </returns>
+        internal static HashSet<string> ComputeStartExcludedIntervalKeys(
+            RecordingTree tree, double segmentStartUT)
+        {
+            var excluded = new HashSet<string>();
+            var ic = CultureInfo.InvariantCulture;
+
+            if (tree == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    "ComputeStartExcludedIntervalKeys: tree=<null> -> empty (no start trim)");
+                return excluded;
+            }
+            if (double.IsNaN(segmentStartUT) || double.IsInfinity(segmentStartUT)
+                || segmentStartUT <= 0.0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ComputeStartExcludedIntervalKeys: bad segmentStartUT tree={tree.Id ?? "<null>"} " +
+                    $"segmentStartUT={segmentStartUT.ToString("R", ic)} -> empty (no start trim)");
+                return excluded;
+            }
+
+            MissionStructure structure = MissionStructureBuilder.Build(tree);
+            List<MissionCompositionNode> roots = MissionCompositionBuilder.Build(structure);
+            if (roots == null || roots.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ComputeStartExcludedIntervalKeys: no composition roots tree={tree.Id ?? "<null>"} " +
+                    "-> empty (no start trim)");
+                return excluded;
+            }
+
+            // The legs that separated at the ORIGIN undock (the Undock branch point
+            // nearest segmentStartUT — the same nearest-UT picker the end trim uses
+            // for its terminal undock). Through-line intervals key off the run HEAD
+            // and are never caught by this set, so the transport's own post-undock
+            // transit leg stays kept; what it catches is the depot-side offshoot
+            // line, which starts AT the origin undock (EndUT past the boundary) and
+            // would otherwise render a ghost depot on top of the live one. A shape
+            // where the window-carrying transit leg itself is the offshoot line
+            // (the recorder followed the depot) gets over-excluded here and is
+            // rejected by the RouteBuilder span check — fail closed.
+            var originUndockChildLegIds = CollectTerminalUndockChildLegIds(tree, segmentStartUT);
+
+            // Exclude every selectable interval that ENDS at/before the origin
+            // start (symmetric epsilon rule: an interval ending exactly at the
+            // origin undock — the docked origin stretch — is excluded; an interval
+            // STARTING there is kept).
+            int scanned = 0;
+            int excludedCount = 0;
+            int keptCount = 0;
+            double boundary = segmentStartUT + BoundaryEpsilonSeconds;
+            for (int i = 0; i < roots.Count; i++)
+            {
+                WalkAndClassifyStart(roots[i], boundary, originUndockChildLegIds, excluded,
+                    ref scanned, ref excludedCount, ref keptCount);
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"ComputeStartExcludedIntervalKeys: tree={tree.Id ?? "<null>"} " +
+                $"segmentStartUT={segmentStartUT.ToString("R", ic)} " +
+                $"scanned={scanned.ToString(ic)} excluded={excludedCount.ToString(ic)} " +
+                $"kept={keptCount.ToString(ic)} originUndockChildren={originUndockChildLegIds.Count.ToString(ic)}");
+            return excluded;
+        }
+
+        /// <summary>
+        /// (M-MIS-5 P2b) Derives the selection's rendered span — the min included
+        /// StartUT / max included EndUT across every selectable composition
+        /// interval whose key is NOT in <paramref name="excludedKeys"/> — the same
+        /// quantities <c>MissionLoopUnitBuilder</c> later derives from the trimmed
+        /// member windows. Pure. Used by RouteBuilder's fail-closed span check on
+        /// the mid-tree docked-origin path (a selection whose span does not come
+        /// out as <c>[originUndock .. lastDock]</c> rejects instead of building a
+        /// wrong-span route). Returns false when the tree yields no composition or
+        /// no interval is included.
+        /// </summary>
+        internal static bool TryComputeSelectionSpan(
+            RecordingTree tree, HashSet<string> excludedKeys,
+            out double spanStartUT, out double spanEndUT)
+        {
+            spanStartUT = double.PositiveInfinity;
+            spanEndUT = double.NegativeInfinity;
+
+            if (tree == null)
+                return false;
+
+            MissionStructure structure = MissionStructureBuilder.Build(tree);
+            List<MissionCompositionNode> roots = MissionCompositionBuilder.Build(structure);
+            if (roots == null || roots.Count == 0)
+                return false;
+
+            double minStart = double.PositiveInfinity;
+            double maxEnd = double.NegativeInfinity;
+            int included = 0;
+            for (int i = 0; i < roots.Count; i++)
+                AccumulateSelectionSpan(roots[i], excludedKeys, ref minStart, ref maxEnd, ref included);
+
+            if (included == 0 || double.IsInfinity(minStart) || double.IsInfinity(maxEnd))
+                return false;
+
+            spanStartUT = minStart;
+            spanEndUT = maxEnd;
+            return true;
+        }
+
+        private static void AccumulateSelectionSpan(
+            MissionCompositionNode node, HashSet<string> excludedKeys,
+            ref double minStart, ref double maxEnd, ref int included)
+        {
+            if (node == null)
+                return;
+
+            if (node.IsSelectable && !string.IsNullOrEmpty(node.HeadLegId)
+                && !string.IsNullOrEmpty(node.OwnerHeadId)
+                && (excludedKeys == null || !excludedKeys.Contains(node.HeadLegId)))
+            {
+                included++;
+                if (node.StartUT < minStart) minStart = node.StartUT;
+                if (node.EndUT > maxEnd) maxEnd = node.EndUT;
+            }
+
+            for (int i = 0; i < node.Children.Count; i++)
+                AccumulateSelectionSpan(node.Children[i], excludedKeys, ref minStart, ref maxEnd, ref included);
+        }
+
+        /// <summary>
         /// (must-fix #3) Derives the set of underlying recording ids in the route's
         /// rendered <c>[launchUT .. segmentEndUT]</c> member window — every recording
         /// that backs a KEPT (non-excluded) selectable composition interval. On a
@@ -496,11 +643,30 @@ namespace Parsek.Logistics
                     $"rootLaunchUT={rootLaunchUT.ToString("R", ic)})");
             }
 
+            // --- Prong 2b (M-MIS-5 P2b): UT START-trim re-derived the same way. ---
+            // Mid-tree docked-origin (shuttle) routes persist the origin undock UT;
+            // renumbered / minted base-known keys BEFORE the origin are re-excluded
+            // by UT regardless of their key string, mirroring the end trim above.
+            // Every route without a persisted RecordedOriginUndockUT (all
+            // launch-rooted routes) skips this prong — end-prong-only, byte-identical.
+            int startTrimAdded = 0;
+            if (route.RecordedOriginUndockUT > 0.0)
+            {
+                HashSet<string> startTrim =
+                    ComputeStartExcludedIntervalKeys(tree, route.RecordedOriginUndockUT);
+                foreach (string key in startTrim)
+                {
+                    if (!route.ExcludedIntervalKeys.Contains(key) && autoExcluded.Add(key))
+                        startTrimAdded++;
+                }
+            }
+
             ParsekLog.Verbose(Tag,
                 $"ComputeAutoExcludedNewIntervalKeys: route={route.Id ?? "<no-id>"} " +
                 $"tree={tree.Id ?? "<null>"} scanned={scanned.ToString(ic)} " +
                 $"known={knownCount.ToString(ic)} autoExcluded={autoExcludedCount.ToString(ic)} " +
-                $"utTrimAdded={utTrimAdded.ToString(ic)} total={autoExcluded.Count.ToString(ic)} " +
+                $"utTrimAdded={utTrimAdded.ToString(ic)} startTrimAdded={startTrimAdded.ToString(ic)} " +
+                $"total={autoExcluded.Count.ToString(ic)} " +
                 $"knownBases={knownBaseIds.Count.ToString(ic)}");
             return autoExcluded;
         }
@@ -569,6 +735,42 @@ namespace Parsek.Logistics
             for (int i = 0; i < node.Children.Count; i++)
             {
                 WalkAndClassify(node.Children[i], boundary, undockChildLegIds, excluded,
+                    ref scanned, ref excludedCount, ref keptCount);
+            }
+        }
+
+        // (M-MIS-5 P2b) Start-side mirror of WalkAndClassify. An interval is
+        // excluded (pre-origin) when it ENDS at/before the origin-undock boundary
+        // OR it roots at a leg that separated at the ORIGIN undock branch point
+        // (the depot-side offshoot, which starts AT the boundary and would evade
+        // the EndUT rule).
+        private static void WalkAndClassifyStart(
+            MissionCompositionNode node, double boundary, HashSet<string> originUndockChildLegIds,
+            HashSet<string> excluded, ref int scanned, ref int excludedCount, ref int keptCount)
+        {
+            if (node == null)
+                return;
+
+            if (node.IsSelectable && !string.IsNullOrEmpty(node.HeadLegId)
+                && !string.IsNullOrEmpty(node.OwnerHeadId))
+            {
+                scanned++;
+                bool preOrigin = node.EndUT <= boundary
+                    || RootsAtUndockChild(node.HeadLegId, originUndockChildLegIds);
+                if (preOrigin)
+                {
+                    excluded.Add(node.HeadLegId);
+                    excludedCount++;
+                }
+                else
+                {
+                    keptCount++;
+                }
+            }
+
+            for (int i = 0; i < node.Children.Count; i++)
+            {
+                WalkAndClassifyStart(node.Children[i], boundary, originUndockChildLegIds, excluded,
                     ref scanned, ref excludedCount, ref keptCount);
             }
         }

@@ -414,7 +414,7 @@ Shipped: `MissionCompositionBuilder.BuildNode` now emits an interval edge at eve
 Shipped: a mission whose vessel was docked by a foreign tree's vessel can include that link's PARTNER JOURNEY (the docked stretch + its post-undock offshoot in the foreign tree) via an explicit "Partner journey" affordance in the Missions window. The Mission stays single-tree and persists only the included dock-link ids (`Mission.IncludedForeignDockLinkIds`, sparse `foreignDockLink` codec key - pre-existing missions round-trip byte-identically); the link and journey derive live via the same PID + launch-guid claim rule `GhostChainWalker` uses (`MissionCrossTreeDock`). Foreign members join the loop unit on ONE shared span clock; periodicity / re-aim fail closed to faithful for cross-tree units (two trees = two launches). Design note: `dev/design-mission-crosstree-dock.md`.
 
 ### 14.4 Destination-SOI alignment generalization (re-aim Phase 4 tiers b/c)
-The shipped destination arrival hold covers a direct child of the Sun with at most one constrained moon, captured-then-deorbit. 2+-moon planets ("mini star systems" like Jool) and moons-of-planets / deep multi-hop chains are deferred / excluded upstream.
+The shipped destination arrival hold covers a direct child of the Sun with at most one constrained moon, captured-then-deorbit. The 2+-moon "mini star system" case (Jool) is now designed as M-MIS-6 — see `docs/dev/design-mission-multimoon-alignment.md` (joint configuration period T_config via the near-coincidence primitives, one per-loop hold, finite aligned horizon, incommensurate moons fail closed with amber). Moons-of-planets / deep multi-hop chains stay excluded upstream (M-MIS-7).
 
 ---
 

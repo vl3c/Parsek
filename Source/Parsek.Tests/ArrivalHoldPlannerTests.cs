@@ -11,9 +11,9 @@ namespace Parsek.Tests
     // returns the minimal forward hold. No engine wiring exercised here.
     public class ArrivalHoldPlannerTests
     {
-        private static PhaseConstraint Rotation(string body)
+        private static PhaseConstraint Rotation(string body, double period = 65000.0)
             => new PhaseConstraint { Kind = ConstraintKind.Rotation, BodyName = body,
-                PeriodSeconds = 65000.0, PhaseOffsetSeconds = 0.0, RelativeToParent = false };
+                PeriodSeconds = period, PhaseOffsetSeconds = 0.0, RelativeToParent = false };
 
         private static PhaseConstraint Orbital(string body)
             => new PhaseConstraint { Kind = ConstraintKind.Orbital, BodyName = body,
@@ -59,8 +59,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TwoConstrainedMoons_Unsupported_ReturnsNone()
+        public void TwoConstrainedMoons_NoWindowSpacing_DeclinesWithAmber()
         {
+            // M-MIS-6 (supersedes the pre-M-MIS-6 fail-closed pin): the 2+-moon shape now routes
+            // through the multi-moon configuration hold, whose window gate needs a valid synodic
+            // spacing - omitted here, so the shape declines EXPLICITLY with an amber (the config
+            // hold is never silent; the engage/decline fixtures live in MultiMoonAlignmentTests).
             var jool = new List<PhaseConstraint>
             {
                 Rotation("Jool"), Orbital("Jool"), Orbital("Laythe"), Orbital("Vall"),
@@ -68,6 +72,7 @@ namespace Parsek.Tests
             var r = ArrivalHoldPlanner.ComputeArrivalHold(
                 jool, "Jool", 1000.0, TransitedBodyRotationMode.Loose, 350.0, 0.0, null, new HoldFake());
             Assert.False(r.Applied);
+            Assert.NotNull(r.AmberReason);
         }
 
         [Fact]
@@ -170,26 +175,146 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DualLandingPlusStation_D8_NoneWithAmber()
+        public void DualLandingPlusStation_TidalPeriods_DegeneratesToStationHold()
         {
-            // M4c plan test 10a (design D8): landing + station has no single hold - None, with
-            // the extractor's reason carried as the arrival amber.
+            // Post-M4c joint wiring: with T_rot == T_station (the tidal-degenerate pair) aligning
+            // the station aligns the rotation for free, so the joint branch degenerates to the
+            // plain station hold - no joint fields, no amber. (This input was the old
+            // DualLandingPlusStation_D8_NoneWithAmber fixture; D8's fail-closed letter for shape
+            // (a) is superseded by the SolveArrivalWindow wiring.)
             var dual = new List<PhaseConstraint>
             {
-                Rotation("Duna"), Orbital("Duna"), Station("Duna"),
+                Rotation("Duna", period: 100.0), Orbital("Duna"), Station("Duna"),
             };
             var r = ArrivalHoldPlanner.ComputeArrivalHold(
                 dual, "Duna", 1000.0, TransitedBodyRotationMode.Loose, 350.0, 0.0, null, new HoldFake(100.0));
-            Assert.False(r.Applied);
-            Assert.Equal(0.0, r.HoldSeconds);
-            Assert.Contains("no single arrival hold", r.AmberReason);
+            Assert.True(r.Applied);
+            Assert.Equal(50.0, r.HoldSeconds, 9);
+            Assert.Equal(100.0, r.AlignPeriodSeconds, 9);
+            Assert.True(r.IsStationHold);
+            Assert.False(r.IsJointHold);
+            Assert.Null(r.AmberReason);
         }
 
         [Fact]
-        public void JoolClassNoStation_NoAmber()
+        public void DualLandingPlusStation_JointEngages_WhenLatticeFeasible()
         {
-            // M4c plan test 10b: the pre-existing no-station Jool-class fail-closed path gains NO
-            // new amber (M4c only surfaces amber for shapes it owns - those with a station).
+            // The headline post-M4c shape (a): landing rotation (T_rot 360, Loose tolerance 5s)
+            // + station (T_station 100). The station-lattice orbit i*100 mod 360 hits the
+            // rotation tolerance every 18th whole period (worst miss-run 17, well inside the 64
+            // budget), so the joint hold ENGAGES: station-exact base hold (same 50s geometry as
+            // the single-period tests), joint fields carrying T_rot + its tolerance + the budget.
+            var dual = new List<PhaseConstraint>
+            {
+                Rotation("Duna", period: 360.0), Orbital("Duna"), Station("Duna", period: 100.0),
+            };
+            var r = ArrivalHoldPlanner.ComputeArrivalHold(
+                dual, "Duna", 1000.0, TransitedBodyRotationMode.Loose, 350.0, 0.0, null,
+                new HoldFake(360.0),
+                windowSpacingSeconds: 12345.0, launchBodyName: "Kerbin");
+            Assert.True(r.Applied);
+            Assert.True(r.IsJointHold);
+            Assert.True(r.IsStationHold);
+            Assert.Equal(50.0, r.HoldSeconds, 9);              // station-lattice base, clock adds i_N
+            Assert.Equal(100.0, r.AlignPeriodSeconds, 9);      // station exact
+            Assert.Equal(360.0, r.JointSecondaryPeriodSeconds, 9);
+            Assert.Equal(360.0 * 5.0 / 360.0, r.JointSecondaryToleranceSeconds, 9); // Loose 5 deg
+            Assert.Equal(DestinationArrivalSolver.MaxJointHoldWholePeriods, r.JointMaxWholeHoldPeriods);
+            Assert.True(r.JointChosenWindowK >= 1);
+            Assert.Null(r.AmberReason);
+        }
+
+        [Fact]
+        public void DualLandingPlusStation_ToleranceEdge_LooseEngages_TightAmbers()
+        {
+            // The tolerance-edge decline, one lever: tSta=100 / tRot=3617.7 (incommensurate).
+            // Under Loose (5 deg -> 50.25s) the lattice's worst miss-run is 36 <= 64 -> engage;
+            // under Tight (0.25 deg -> 2.51s) it is 1627 > 64 -> fail closed with the amber
+            // naming the tolerance miss. Never a silent partial alignment.
+            var dual = new List<PhaseConstraint>
+            {
+                Rotation("Duna", period: 3617.7), Orbital("Duna"), Station("Duna", period: 100.0),
+            };
+            var loose = ArrivalHoldPlanner.ComputeArrivalHold(
+                dual, "Duna", 1000.0, TransitedBodyRotationMode.Loose, 350.0, 0.0, null,
+                new HoldFake(3617.7),
+                windowSpacingSeconds: 12345.0, launchBodyName: "Kerbin");
+            Assert.True(loose.Applied);
+            Assert.True(loose.IsJointHold);
+
+            var tight = ArrivalHoldPlanner.ComputeArrivalHold(
+                dual, "Duna", 1000.0, TransitedBodyRotationMode.Tight, 350.0, 0.0, null,
+                new HoldFake(3617.7),
+                windowSpacingSeconds: 12345.0, launchBodyName: "Kerbin");
+            Assert.False(tight.Applied);
+            Assert.Equal(0.0, tight.HoldSeconds);
+            Assert.Contains("misses tolerance", tight.AmberReason);
+        }
+
+        [Fact]
+        public void DualLandingPlusStation_IncommensuratePastBudget_NoneWithAmber()
+        {
+            // The fail-closed fixture: incommensurate periods whose joint lattice never reaches
+            // the Tight rotation tolerance within the whole-period budget (worst miss-run 1627 vs
+            // budget 64) - no hold, amber names the lattice miss + the budget.
+            var dual = new List<PhaseConstraint>
+            {
+                Rotation("Duna", period: 3617.7), Orbital("Duna"), Station("Duna", period: 100.0),
+            };
+            var r = ArrivalHoldPlanner.ComputeArrivalHold(
+                dual, "Duna", 1000.0, TransitedBodyRotationMode.Tight, 350.0, 0.0, null,
+                new HoldFake(3617.7),
+                windowSpacingSeconds: 12345.0, launchBodyName: "Kerbin");
+            Assert.False(r.Applied);
+            Assert.Contains("whole station periods", r.AmberReason);
+            Assert.Contains("budget", r.AmberReason);
+        }
+
+        [Fact]
+        public void DualLandingPlusStation_NoSlackBudget_NoneWithAmber()
+        {
+            // The builder-measured loop slack clamps the whole-period budget; a slack smaller
+            // than two station periods leaves no room for any joint extension - amber, honest.
+            var dual = new List<PhaseConstraint>
+            {
+                Rotation("Duna", period: 360.0), Orbital("Duna"), Station("Duna", period: 100.0),
+            };
+            var r = ArrivalHoldPlanner.ComputeArrivalHold(
+                dual, "Duna", 1000.0, TransitedBodyRotationMode.Loose, 350.0, 0.0, null,
+                new HoldFake(360.0),
+                windowSpacingSeconds: 12345.0, launchBodyName: "Kerbin", loopSlackSeconds: 150.0);
+            Assert.False(r.Applied);
+            Assert.Contains("loop slack", r.AmberReason);
+        }
+
+        [Fact]
+        public void DualLandingPlusStation_DestinationSideCut_NoneWithAmber()
+        {
+            // The L8 rigidity guard on the joint shape: a destination-side cut breaks the
+            // entry-referenced joint hold - amber (a station is involved), never a partial hold.
+            var destCut = new List<GhostPlaybackLogic.LoopCut>
+            {
+                new GhostPlaybackLogic.LoopCut { StartUT = 1100.0, LengthSeconds = 200.0 },
+            };
+            var dual = new List<PhaseConstraint>
+            {
+                Rotation("Duna", period: 360.0), Orbital("Duna"), Station("Duna", period: 100.0),
+            };
+            var r = ArrivalHoldPlanner.ComputeArrivalHold(
+                dual, "Duna", 1000.0, TransitedBodyRotationMode.Loose, 350.0, 0.0, destCut,
+                new HoldFake(360.0),
+                windowSpacingSeconds: 12345.0, launchBodyName: "Kerbin");
+            Assert.False(r.Applied);
+            Assert.Contains("destination-side loiter cut", r.AmberReason);
+        }
+
+        [Fact]
+        public void JoolClassNoStation_DeclineIsNeverSilent()
+        {
+            // M-MIS-6 (supersedes M4c plan test 10b): the no-station Jool-class decline is no
+            // longer silent - the multi-moon configuration hold owns the shape and every decline
+            // carries an amber reason (design D6). The engage polarity lives in
+            // MultiMoonAlignmentTests.
             var jool = new List<PhaseConstraint>
             {
                 Rotation("Jool"), Orbital("Jool"), Orbital("Laythe"), Orbital("Vall"),
@@ -197,7 +322,7 @@ namespace Parsek.Tests
             var r = ArrivalHoldPlanner.ComputeArrivalHold(
                 jool, "Jool", 1000.0, TransitedBodyRotationMode.Loose, 350.0, 0.0, null, new HoldFake());
             Assert.False(r.Applied);
-            Assert.Null(r.AmberReason);
+            Assert.NotNull(r.AmberReason);
         }
 
         [Fact]
@@ -211,7 +336,7 @@ namespace Parsek.Tests
             var r = ArrivalHoldPlanner.ComputeArrivalHold(
                 stationPlusMoon, "Jool", 1000.0, TransitedBodyRotationMode.Loose, 350.0, 0.0, null, new HoldFake());
             Assert.False(r.Applied);
-            Assert.Contains("no single arrival hold", r.AmberReason);
+            Assert.Contains("station+moon", r.AmberReason);
         }
 
         [Fact]
@@ -226,7 +351,7 @@ namespace Parsek.Tests
             var r = ArrivalHoldPlanner.ComputeArrivalHold(
                 moonStation, "Jool", 1000.0, TransitedBodyRotationMode.Loose, 350.0, 0.0, null, new HoldFake());
             Assert.False(r.Applied);
-            Assert.Contains("in-system station alignment deferred", r.AmberReason);
+            Assert.Contains("moon-orbiting station stays fail-closed", r.AmberReason);
         }
 
         [Fact]
@@ -244,19 +369,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Drop_DualLandingPlusStation_StillNoneWithAmber()
+        public void Drop_DualLandingPlusStation_DegeneratesToStationHold()
         {
-            // M4c plan test 12b: Drop does NOT rescue the dual case - D8's letter (dual -> fail
-            // closed) wins even though Drop disables the only conflicting alignment; making D8
-            // mode-aware is SolveArrivalWindow territory (post-M4c).
+            // Post-M4c joint wiring (supersedes the M4c "Drop does not rescue the dual" pin): the
+            // SolveArrivalWindow wiring makes shape (a) mode-aware exactly as the M4c deferral
+            // anticipated - under Drop the rotation alignment is the player's explicit "Off", so
+            // the dual degrades to the plain station hold (station-exact, no joint fields).
             var dual = new List<PhaseConstraint>
             {
-                Rotation("Duna"), Orbital("Duna"), Station("Duna"),
+                Rotation("Duna", period: 360.0), Orbital("Duna"), Station("Duna", period: 100.0),
             };
             var r = ArrivalHoldPlanner.ComputeArrivalHold(
-                dual, "Duna", 1000.0, TransitedBodyRotationMode.Drop, 350.0, 0.0, null, new HoldFake());
-            Assert.False(r.Applied);
-            Assert.Contains("no single arrival hold", r.AmberReason);
+                dual, "Duna", 1000.0, TransitedBodyRotationMode.Drop, 350.0, 0.0, null, new HoldFake(),
+                windowSpacingSeconds: 12345.0, launchBodyName: "Kerbin");
+            Assert.True(r.Applied);
+            Assert.Equal(50.0, r.HoldSeconds, 9);
+            Assert.Equal(100.0, r.AlignPeriodSeconds, 9);
+            Assert.True(r.IsStationHold);
+            Assert.False(r.IsJointHold);
+            Assert.Null(r.AmberReason);
         }
 
         [Fact]

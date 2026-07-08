@@ -1568,26 +1568,148 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Build_ReaimWithStationAndLanding_FailsClosedWithAmber()
+        public void Build_ReaimWithStationAndLanding_Loose_EngagesJointHold()
         {
-            // M4c D8 E2E (plan test 15): a destination with BOTH a landing rotation and a
-            // station has no single hold satisfying both periods - the hold stays zero, the
-            // unit carries the amber reason, and the transition logs SET once.
+            // Post-M4c SolveArrivalWindow wiring E2E (supersedes the M4c fail-closed pin for D8
+            // shape a): under Loose (the shipped default TransitedBodyRotationMode) the
+            // landing+station dual now ENGAGES the joint hold - the 1800s station lattice
+            // reaches the 65517.86s Duna rotation's 5-degree Loose tolerance within a worst
+            // miss-run of 36 whole station periods (inside the 64 budget). The unit carries the
+            // station-exact align period + the joint secondary (rotation) fields, no amber, and
+            // the ARRIVAL HOLD line logs kind=joint with the consumed window pick.
             var tree = ReaimStationTree(withDunaLanding: true);
             var committed = new List<Recording>(tree.Recordings.Values);
             var mission = LoopMissionFor("t", 1.2e6);
 
             var set = MissionLoopUnitBuilder.Build(
-                new[] { mission }, new[] { tree }, committed, 30.0, StationFake(body: "Duna"));
+                new[] { mission }, new[] { tree }, committed, 30.0, StationFake(body: "Duna"),
+                TransitedBodyRotationMode.Loose);
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.True(unit.IsReaim);
+            Assert.True(unit.ArrivalHoldSeconds > 0.0,
+                $"expected a joint hold, got {unit.ArrivalHoldSeconds}");
+            Assert.True(unit.ArrivalHoldSeconds <= StationPeriod + 1e-9); // station-lattice base
+            Assert.Equal(StationPeriod, unit.ArrivalAlignPeriodSeconds, 9);
+            Assert.Equal(65517.86, unit.ArrivalJointSecondaryPeriodSeconds, 6);
+            Assert.Equal(65517.86 * 5.0 / 360.0, unit.ArrivalJointSecondaryToleranceSeconds, 6);
+            Assert.True(unit.ArrivalJointMaxWholeHoldPeriods > 0);
+            Assert.Null(unit.ArrivalAmberReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Reaim]") && l.Contains("ARRIVAL HOLD") &&
+                l.Contains("kind=joint") && l.Contains("dest=Duna") && l.Contains("k="));
+            Assert.DoesNotContain(logLines, l => l.Contains("Arrival amber SET"));
+        }
+
+        [Fact]
+        public void Build_ReaimWithStationAndLanding_Tight_FailsClosedWithAmber()
+        {
+            // The tolerance-miss polarity of the joint wiring: under Tight (0.25 deg -> 45.5s)
+            // the same geometry's lattice needs thousands of whole station periods (past the 64
+            // budget), so the joint solve declines - hold zero, the unit carries the amber
+            // naming the miss, and the transition logs SET once. Never a silent partial
+            // alignment.
+            var tree = ReaimStationTree(withDunaLanding: true);
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var mission = LoopMissionFor("t", 1.2e6);
+
+            var set = MissionLoopUnitBuilder.Build(
+                new[] { mission }, new[] { tree }, committed, 30.0, StationFake(body: "Duna"),
+                TransitedBodyRotationMode.Tight);
 
             Assert.True(set.TryGetUnitForMember(0, out var unit));
             Assert.True(unit.IsReaim); // the transfer still re-aims; only the arrival is faithful
             Assert.Equal(0.0, unit.ArrivalHoldSeconds);
+            Assert.True(double.IsNaN(unit.ArrivalJointSecondaryPeriodSeconds));
             Assert.NotNull(unit.ArrivalAmberReason);
-            Assert.Contains("no single arrival hold", unit.ArrivalAmberReason);
+            Assert.Contains("misses tolerance", unit.ArrivalAmberReason);
             Assert.Contains(logLines, l =>
                 l.Contains("[Reaim]") && l.Contains("Arrival amber SET") &&
-                l.Contains("tree=t") && l.Contains("no single arrival hold"));
+                l.Contains("tree=t") && l.Contains("misses tolerance"));
+        }
+
+        // === M-MIS-6: the multi-moon (Jool-5) configuration hold ==========================
+
+        // Stock Jool-system values (docs/dev/design-mission-multimoon-alignment.md section 2).
+        private const double LaytheOrbit = 52980.9;
+        private const double VallOrbit = 105962.1;
+        private const double TyloOrbit = 211926.4;
+        private const double JoolOrbit = 104661432.0;
+
+        // StockFake extended with the Jool system: Jool as a Sun child plus the tidally locked
+        // resonant inner three (rotation == orbit period; SOI + velocity drive the Orbital
+        // constraint tolerance).
+        private static FakeBodyInfo JoolSystemFake()
+        {
+            var f = StockFake();
+            f.Orbit["Jool"] = JoolOrbit;
+            f.Rotation["Jool"] = 36000.0;
+            f.Parent["Jool"] = "Sun";
+            f.Soi["Jool"] = 2.4559852e9;
+            f.Velocity["Jool"] = 4129.0;
+            foreach (var (moon, period, soi, vel) in new[]
+            {
+                ("Laythe", LaytheOrbit, 3723645.8, 3223.8),
+                ("Vall", VallOrbit, 2406401.4, 2558.8),
+                ("Tylo", TyloOrbit, 10856518.0, 2030.9),
+            })
+            {
+                f.Orbit[moon] = period;
+                f.Rotation[moon] = period; // tidally locked
+                f.Parent[moon] = "Jool";
+                f.Soi[moon] = soi;
+                f.Velocity[moon] = vel;
+            }
+            return f;
+        }
+
+        // The looped "Jool-5" (inner-three) tour: Kerbin ascent + one journey member classified
+        // Kerbin parking -> Sun coast -> Jool arrival, then Laythe/Vall/Tylo SOI entries inside
+        // the Jool window. No Jool landing, no station.
+        private static RecordingTree ReaimJoolTourTree()
+        {
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var journey = OrbitLeg("o", 1100, 6000, "Kerbin");           // parking
+            WithSoiEntry(journey, 6000, 1000000, "Sun");                  // heliocentric coast
+            WithSoiEntry(journey, 1000000, 1005000, "Jool");              // arrival leg
+            WithSoiEntry(journey, 1005000, 1010000, "Laythe");
+            WithSoiEntry(journey, 1010000, 1015000, "Vall");
+            WithSoiEntry(journey, 1015000, 1020000, "Tylo");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            journey.ChainId = "C"; journey.ChainIndex = 1;
+            return TreeOf("t", ascent, journey);
+        }
+
+        [Fact]
+        public void Build_ReaimJoolMultiMoonTour_EngagesConfigHold()
+        {
+            // M-MIS-6 headline E2E (written FAILING before the implementation, the re-aim
+            // failing-test-first discipline): the resonant inner-three tour engages the
+            // configuration hold through the live Build if-chain - a plain single-period
+            // per-loop hold whose align period is the joint configuration period
+            // T_config = 2*P_Vall (~= T_Tylo; the smallest-duty anchor's lattice), no joint
+            // secondary fields (the clock runs the shipped single-period path), no amber.
+            // Pre-M-MIS-6 the extractor fails closed at 2+ moons and no hold applies.
+            var tree = ReaimJoolTourTree();
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var mission = LoopMissionFor("t", 1.2e6);
+
+            var set = MissionLoopUnitBuilder.Build(
+                new[] { mission }, new[] { tree }, committed, 30.0, JoolSystemFake(),
+                TransitedBodyRotationMode.Loose);
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.True(unit.IsReaim);
+            Assert.True(unit.ArrivalHoldSeconds > 0.0,
+                $"expected the multi-moon config hold, got {unit.ArrivalHoldSeconds}");
+            Assert.Equal(2.0 * VallOrbit, unit.ArrivalAlignPeriodSeconds, 3);
+            Assert.True(unit.ArrivalHoldSeconds <= 2.0 * VallOrbit + 1e-9); // W in (0, T_config]
+            Assert.True(double.IsNaN(unit.ArrivalJointSecondaryPeriodSeconds));
+            Assert.Null(unit.ArrivalAmberReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Reaim]") && l.Contains("ARRIVAL HOLD") &&
+                l.Contains("kind=config") && l.Contains("dest=Jool"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Arrival amber SET"));
         }
 
         [Fact]
@@ -2731,6 +2853,152 @@ namespace Parsek.Tests
             Assert.Null(anc);
             Assert.Empty(l2a);
             Assert.Empty(t2a);
+        }
+
+        // ===================== M-MIS-10 archetype 3: launch from a NON-Kerbin body =====================
+        // Every pre-existing extraction fixture in this file launches from KERBIN (the earliest
+        // surface/orbit body is always "Kerbin"; Mun/Minmus/Duna appear only as later SOI targets or
+        // transited landings). The extraction + scheduler are body-name-parametric by construction,
+        // but the 2026-07-06 verification sweep marked the off-Kerbin PAD launch AUTO-NONE. These
+        // run the REAL ExtractConstraints + TryBuildRelaunchSchedule on Mun-pad fixtures.
+
+        [Fact]
+        public void Extract_MunPadLaunch_EmitsRotationMunPad_LaunchBodyMun()
+        {
+            // Guards: a Mun surface ascent -> Mun orbit hand-off makes MUN the launch body and
+            // emits the Rotation(Mun) PAD constraint with Mun's own rotation period - never
+            // Kerbin's. The launch body's own orbit is not an SOI entry, so a bare ascent is a
+            // single-constraint config: no zero-drift schedule (free cadence), same as the
+            // equivalent Kerbin-only shape.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Mun");
+            var orbit = OrbitLeg("o", 1100, 1600, "Mun");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            orbit.ChainId = "C"; orbit.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, orbit);
+            var fake = StockFake();
+
+            var ex = Extract(tree, fake);
+
+            Assert.Equal("Mun", ex.LaunchBodyName);
+            Assert.Equal(Support.Supported, ex.Support);
+            PhaseConstraint pad = Assert.Single(ex.Constraints);
+            Assert.Equal(ConstraintKind.Rotation, pad.Kind);
+            Assert.Equal("Mun", pad.BodyName);
+            Assert.Equal(MunRotation, pad.PeriodSeconds);
+            Assert.NotEqual(KerbinRotation, pad.PeriodSeconds);
+            Assert.Equal(0.0, pad.PhaseOffsetSeconds);
+            Assert.False(pad.RelativeToParent);
+
+            bool ok = MissionPeriodicity.TryBuildRelaunchSchedule(
+                ex.Constraints, ex.Support, ex.UT0, ex.UT0, fake,
+                out MissionRelaunchSchedule schedule,
+                launchBodyName: ex.LaunchBodyName);
+            Assert.False(ok);       // single constraint -> fixed cadence, no drift schedule
+            Assert.Null(schedule);
+        }
+
+        [Fact]
+        public void Extract_MunPadStationResupply_ScheduleAnchorsToMunPadRotation()
+        {
+            // Guards the full off-Kerbin pad pipeline: a Mun surface launch rendezvousing with a
+            // station in MUN orbit (the supported same-parent VesselOrbital shape) extracts
+            // Rotation(Mun) pad + VesselOrbital(Mun), stays Supported, and the REAL zero-drift
+            // scheduler anchors on the MUN pad: every launch is an exact whole multiple of Mun's
+            // rotation period after UT0, and never lands on a Kerbin-rotation multiple.
+            // Hand-checkable: T_station=2500 -> tolerance 2500*(3/360) ~ 20.83s;
+            // k*138984.38 mod 2500 first falls within it at k=32 (residual 0.16s), and
+            // 32*138984.38 sits 8318.6s from the nearest Kerbin-rotation multiple.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Mun");
+            var rendezvous = OrbitLeg("o", 1100, 1600, "Mun");
+            WithRendezvous(rendezvous, 1200, 1500, StationPid);
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            rendezvous.ChainId = "C"; rendezvous.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, rendezvous);
+            var fake = StockFake();
+            fake.VesselOrbits[StationPid] = (2500.0, "Mun");    // low-Mun-orbit station
+
+            var ex = Extract(tree, fake);
+
+            Assert.Equal("Mun", ex.LaunchBodyName);
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.Null(ex.UnsupportedReason);
+            PhaseConstraint pad = ex.Constraints.Single(c => c.Kind == ConstraintKind.Rotation);
+            Assert.Equal("Mun", pad.BodyName);
+            Assert.Equal(MunRotation, pad.PeriodSeconds);
+            PhaseConstraint vo = ex.Constraints.Single(c => c.Kind == ConstraintKind.VesselOrbital);
+            Assert.Equal("Mun", vo.BodyName);                   // the ORBITED body is Mun
+            Assert.Equal(2500.0, vo.PeriodSeconds);
+            Assert.Equal(StationPid, vo.AnchorVesselPid);
+
+            // The tightest duty cycle is the Mun pad (0.25deg/360 < station 3deg/360).
+            int anchorIdx = MissionPeriodicity.SelectAnchorConstraintIndex(
+                ex.Constraints, fake, launchBodyName: ex.LaunchBodyName);
+            Assert.Equal(ConstraintKind.Rotation, ex.Constraints[anchorIdx].Kind);
+            Assert.Equal("Mun", ex.Constraints[anchorIdx].BodyName);
+
+            bool ok = MissionPeriodicity.TryBuildRelaunchSchedule(
+                ex.Constraints, ex.Support, ex.UT0, ex.UT0, fake,
+                out MissionRelaunchSchedule schedule,
+                launchBodyName: ex.LaunchBodyName);
+            Assert.True(ok);
+            Assert.NotNull(schedule);
+
+            double sinceUT0 = schedule.FirstLaunchUT - ex.UT0;
+            Assert.Equal(32.0 * MunRotation, sinceUT0, 3);
+            double munResidual = Math.Abs(Math.IEEERemainder(sinceUT0, MunRotation));
+            Assert.True(munResidual < 1e-3,
+                $"first launch must pin exactly to the Mun pad rotation (residual {munResidual})");
+            double kerbinRem = sinceUT0 % KerbinRotation;
+            double kerbinDist = Math.Min(kerbinRem, KerbinRotation - kerbinRem);
+            Assert.True(kerbinDist > 60.0,
+                $"the schedule must anchor on Mun's rotation, not Kerbin's (distance {kerbinDist}s)");
+        }
+
+        [Fact]
+        public void Extract_MunLaunchKerbinReturn_CrossParentUnsupported_ScheduleDeclines()
+        {
+            // Guards the Mun-launch + Kerbin-return shape: launching from the MUN pad and
+            // returning to a Kerbin landing makes Kerbin an SOI-entry Orbital target whose parent
+            // (Sun... via Kerbin's reference body) is NOT the launch body Mun, so the extraction
+            // classifies UnsupportedCrossParent (synodic, Phase 4 territory) and the zero-drift
+            // scheduler declines cleanly - it never mis-anchors the Mun pad to Kerbin's clock.
+            // Both rotation constraints (Mun pad + transited Kerbin landing) still extract with
+            // their own bodies' periods.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Mun");
+            var transfer = OrbitLeg("o", 1100, 1600, "Mun");
+            WithSoiEntry(transfer, 1600, 2000, "Kerbin");
+            var landing = SurfaceLeg("l", 2000, 2500, "Kerbin");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            landing.ChainId = "C"; landing.ChainIndex = 2;
+            var tree = TreeOf("t", ascent, transfer, landing);
+            var fake = StockFake();
+
+            var ex = Extract(tree, fake);
+
+            Assert.Equal("Mun", ex.LaunchBodyName);
+            Assert.Equal(Support.UnsupportedCrossParent, ex.Support);
+            Assert.Contains("Kerbin", ex.UnsupportedReason);
+            Assert.Contains("Mun", ex.UnsupportedReason);
+
+            PhaseConstraint orb = ex.Constraints.Single(c => c.Kind == ConstraintKind.Orbital);
+            Assert.Equal("Kerbin", orb.BodyName);
+            Assert.Equal(KerbinOrbit, orb.PeriodSeconds);
+            Assert.True(orb.RelativeToParent);                  // cross-parent SOI entry
+
+            var rotations = ex.Constraints.Where(c => c.Kind == ConstraintKind.Rotation).ToList();
+            Assert.Equal(2, rotations.Count);
+            Assert.Equal("Mun", rotations[0].BodyName);         // the pad, earliest surface start
+            Assert.Equal(MunRotation, rotations[0].PeriodSeconds);
+            Assert.Equal("Kerbin", rotations[1].BodyName);      // the transited landing
+            Assert.Equal(KerbinRotation, rotations[1].PeriodSeconds);
+
+            bool ok = MissionPeriodicity.TryBuildRelaunchSchedule(
+                ex.Constraints, ex.Support, ex.UT0, ex.UT0, fake,
+                out MissionRelaunchSchedule schedule,
+                launchBodyName: ex.LaunchBodyName);
+            Assert.False(ok);
+            Assert.Null(schedule);
         }
     }
 }
