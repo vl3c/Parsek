@@ -29,6 +29,13 @@ namespace Parsek
             /// <summary>"Next delivery {countdown}": a live next-dock-crossing
             /// countdown.</summary>
             NextDelivery = 2,
+
+            /// <summary>(M5 D8) "Next launch window {countdown}": a windowed
+            /// (zero-drift scheduled / re-aim synodic) route's countdown to the
+            /// next DELIVERABLE dispatch window's LAUNCH - the honest, stable
+            /// number for those bases (per-launch knob timings / loiter cuts
+            /// make the exact dock offset builder-internal).</summary>
+            NextWindow = 3,
         }
 
         /// <summary>
@@ -97,6 +104,32 @@ namespace Parsek
             double secondsToNextDockCrossing,
             double nowUT)
         {
+            return ResolveDetailCountdown(
+                status, nextEligibilityCheckUT, hasNextCrossing, secondsToNextDockCrossing,
+                hasNextWindow: false, secondsToNextWindow: 0.0, nowUT: nowUT);
+        }
+
+        /// <summary>
+        /// (M5 D8) Windowed-basis-aware overload: a windowed route (zero-drift
+        /// scheduled / re-aim synodic) shows the countdown to its next
+        /// DELIVERABLE dispatch window's LAUNCH (<paramref name="hasNextWindow"/>,
+        /// from <c>RouteOrchestrator.TryComputeSecondsToNextDispatchWindow</c>)
+        /// instead of the flat next-dock formula the H1 helper refuses for those
+        /// bases. Precedence: the wait-state retry countdown still wins (a
+        /// blocked route shows when it rechecks), then the window launch, then
+        /// the flat dock crossing. A flat route always presents
+        /// <paramref name="hasNextWindow"/> = false, so its branch selection is
+        /// byte-identical to the 5-arg overload. Pure.
+        /// </summary>
+        internal static CountdownDecision ResolveDetailCountdown(
+            RouteStatus status,
+            double? nextEligibilityCheckUT,
+            bool hasNextCrossing,
+            double secondsToNextDockCrossing,
+            bool hasNextWindow,
+            double secondsToNextWindow,
+            double nowUT)
+        {
             // Wait-state retry countdown takes precedence: a blocked route shows when
             // it will next recheck eligibility, not a next-delivery time it cannot
             // currently meet.
@@ -106,6 +139,10 @@ namespace Parsek
                 if (until > 0.0)
                     return new CountdownDecision(CountdownBranch.RechecksIn, until);
             }
+
+            // (M5 D8) Windowed next-dispatch-window launch countdown.
+            if (hasNextWindow && secondsToNextWindow > 0.0)
+                return new CountdownDecision(CountdownBranch.NextWindow, secondsToNextWindow);
 
             // Live next-dock-crossing countdown.
             if (hasNextCrossing && secondsToNextDockCrossing > 0.0)
@@ -129,6 +166,7 @@ namespace Parsek
             {
                 case CountdownBranch.NextDelivery:
                 case CountdownBranch.RechecksIn:
+                case CountdownBranch.NextWindow:
                     return string.IsNullOrEmpty(formattedCountdown) ? "-" : formattedCountdown;
                 case CountdownBranch.None:
                 default:
@@ -150,6 +188,8 @@ namespace Parsek
             {
                 case CountdownBranch.NextDelivery:
                     return $"Next delivery {formattedCountdown}";
+                case CountdownBranch.NextWindow:
+                    return $"Next launch window {formattedCountdown}";
                 case CountdownBranch.RechecksIn:
                     return $"Rechecks in {formattedCountdown}";
                 case CountdownBranch.None:
