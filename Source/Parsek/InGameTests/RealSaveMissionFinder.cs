@@ -79,6 +79,25 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// A committed mission whose loop unit, built by the REAL
+        /// <see cref="MissionLoopUnitBuilder"/> with the live body graph, resolved the JOINT
+        /// arrival hold (the D8 landing+station dual, the SolveArrivalWindow wiring): the unit
+        /// carries the joint fields (<see cref="GhostPlaybackLogic.LoopUnit.ArrivalJointSecondaryPeriodSeconds"/>
+        /// etc.) alongside the applied station-lattice hold.
+        /// </summary>
+        internal struct JointArrivalMissionMatch
+        {
+            /// <summary>The real committed mission (unmodified; the unit was built from a transient clone).</summary>
+            public Mission Mission;
+
+            /// <summary>The mission's recording tree.</summary>
+            public RecordingTree Tree;
+
+            /// <summary>The joint-hold loop unit the live builder produced.</summary>
+            public GhostPlaybackLogic.LoopUnit Unit;
+        }
+
+        /// <summary>
         /// Scans every committed mission for one whose trimmed member set, run through the REAL
         /// <see cref="MissionLoopUnitBuilder.Build"/> with <paramref name="bodyInfo"/> (the live
         /// <see cref="FlightGlobalsBodyInfo.Instance"/>), yields a loop unit with re-aim ENGAGED
@@ -152,6 +171,99 @@ namespace Parsek.InGameTests
 
             LogScanSummary("reaim", missions.Count, scanned, builtUnits, found);
             return found;
+        }
+
+        /// <summary>
+        /// (M-MIS-4 SolveArrivalWindow wiring, PR #1255) Scans every committed mission for one
+        /// whose loop unit - built by the REAL <see cref="MissionLoopUnitBuilder.Build"/> with
+        /// the live body graph, exactly like <see cref="TryFindReaimMission"/> - resolved the
+        /// JOINT arrival hold (a landing AND a station rendezvous at the same cross-parent
+        /// destination). Returns the first match. Non-mutating (transient loop-enabled clones);
+        /// logs a batch-counted scan summary so a caller's Skip is explainable ("scanned N
+        /// missions, none landing+station-shaped").
+        /// </summary>
+        internal static bool TryFindJointArrivalMission(
+            IBodyInfo bodyInfo,
+            double autoLoopIntervalSeconds,
+            TransitedBodyRotationMode transitedBodyRotationMode,
+            out JointArrivalMissionMatch match)
+        {
+            match = default;
+            IReadOnlyList<Mission> missions = MissionStore.Missions;
+            IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+            List<RecordingTree> trees = RecordingStore.CommittedTrees;
+            if (bodyInfo == null || missions == null || missions.Count == 0
+                || committed == null || committed.Count == 0 || trees == null)
+            {
+                LogScanSummary("joint-arrival", missions?.Count ?? 0, 0, 0, false);
+                return false;
+            }
+
+            int scanned = 0;
+            int builtUnits = 0;
+            bool found = false;
+            using (new FinderLogGuard())
+            {
+                for (int i = 0; i < missions.Count; i++)
+                {
+                    Mission mission = missions[i];
+                    if (mission == null || string.IsNullOrEmpty(mission.TreeId))
+                        continue;
+                    scanned++;
+
+                    RecordingTree tree = FindTree(trees, mission.TreeId);
+                    if (tree == null)
+                        continue;
+
+                    // Transient loop-enabled clone (the TryFindReaimMission contract): the
+                    // builder produces a unit regardless of the real mission's LoopPlayback
+                    // flag; the store is never touched.
+                    Mission probe = mission.Clone(mission.Id + "-jointprobe");
+                    probe.LoopPlayback = true;
+                    probe.LoopTimeUnit = LoopTimeUnit.Auto;
+
+                    GhostPlaybackLogic.LoopUnitSet set = MissionLoopUnitBuilder.Build(
+                        new List<Mission> { probe }, trees, committed,
+                        autoLoopIntervalSeconds, bodyInfo, transitedBodyRotationMode);
+                    if (set == null || set.Count == 0)
+                        continue;
+                    builtUnits++;
+
+                    foreach (var kv in set.UnitsByOwner)
+                    {
+                        GhostPlaybackLogic.LoopUnit unit = kv.Value;
+                        if (!unit.IsReaim || !IsJointHoldUnit(unit))
+                            continue;
+                        match = new JointArrivalMissionMatch { Mission = mission, Tree = tree, Unit = unit };
+                        found = true;
+                        break;
+                    }
+                    if (found)
+                        break;
+                }
+            }
+
+            LogScanSummary("joint-arrival", missions.Count, scanned, builtUnits, found);
+            return found;
+        }
+
+        /// <summary>
+        /// True when the built unit resolved the JOINT arrival hold (the D8 landing+station
+        /// dual): an APPLIED hold whose joint fields are valid - the same validity contract the
+        /// span clock's per-loop dispatch uses (finite positive secondary period, positive
+        /// whole-period budget, a finite hold-at UT). Sentinel-carrying units (NaN period / 0
+        /// budget - every single-constraint shape) return false. Pure (xUnit-tested in
+        /// <c>RealSaveMissionFinderTests</c>).
+        /// </summary>
+        internal static bool IsJointHoldUnit(GhostPlaybackLogic.LoopUnit unit)
+        {
+            return unit.ArrivalHoldSeconds > 0.0
+                && !double.IsInfinity(unit.ArrivalHoldSeconds)
+                && !double.IsNaN(unit.ArrivalHoldAtUT)
+                && !double.IsNaN(unit.ArrivalJointSecondaryPeriodSeconds)
+                && !double.IsInfinity(unit.ArrivalJointSecondaryPeriodSeconds)
+                && unit.ArrivalJointSecondaryPeriodSeconds > 0.0
+                && unit.ArrivalJointMaxWholeHoldPeriods > 0;
         }
 
         /// <summary>
@@ -264,7 +376,7 @@ namespace Parsek.InGameTests
             var ic = CultureInfo.InvariantCulture;
             ParsekLog.Info("RealSaveMissionFinder",
                 $"scan {shape}: missions={missionCount.ToString(ic)} scanned={scanned.ToString(ic)} " +
-                $"{(shape == "reaim" ? "builtUnits" : "extracted")}={read.ToString(ic)} " +
+                $"{(shape == "station" ? "extracted" : "builtUnits")}={read.ToString(ic)} " +
                 $"match={(found ? "yes" : "no")}");
         }
 

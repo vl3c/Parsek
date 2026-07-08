@@ -24,6 +24,7 @@ All notable changes to Parsek are documented here.
 
 ### Internals & Tests
 
+- The landing+station joint arrival alignment now has an automated in-game merge gate replacing the manual playtest: a synthetic dual-constraint destination is driven through the real mission loop builder with live ephemerides and both alignments are verified per loop, alongside a real-save joint-mission check that runs when such a mission exists in the loaded save.
 - Loop-unit API hardening on the Missions-to-Logistics seam, with no behavior change: supply routes now cache their built loop unit (rebuilt only when an input actually changes, instead of re-running the full builder pipeline every orchestrator tick and countdown call), the fire-once dock-crossing detection is centralized in one shared emitter, and the loop cycle index carries an explicit flat-vs-scheduled type so consumers cannot misread one as the other. Route firing, replay keys, escrow, and ledger rows are unchanged.
 
 ### Internals & Tests
