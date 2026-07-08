@@ -6524,6 +6524,13 @@ namespace Parsek
             string scene, int idx, double effUT, OrbitSegment? coveringSegment,
             bool segmentCoversEffUT, bool isStateVector, int effectiveSegmentCount)
         {
+            // With verbose off, the 3-4 string.Formats below are pure waste per reseeded index —
+            // and the flight reseed now runs up to once per frame at extreme warp (warp-scaled
+            // cadence). Skipping also skips the on-change registration: on enabling verbose
+            // mid-scene the next call registers as a change and emits once, which is fine for a
+            // transition diagnostic.
+            if (!ParsekLog.IsVerboseEnabled)
+                return;
             string coveringBody = coveringSegment.HasValue
                 ? (coveringSegment.Value.bodyName ?? "(null)")
                 : "GAP(no-segment)";
@@ -11901,13 +11908,22 @@ namespace Parsek
             // scan is computed only while warping + before the timer (so 1x is byte-identical + cost-free).
             //
             // Pass 2 gate + preamble stay HERE so the two early-returns keep skipping Pass 3.
+            // Warp-scaled cadence: cap the GAME time one reseed tick may span (the 2026-06-12
+            // reseed-lag icon jumps: a fixed 0.5 s REAL-time cadence spans ~170-500 game-s per tick
+            // at 344x-1000x, so the icon snaps ~1 Mm on reseed). Pure law; base-interval-identical
+            // at warp <= 1. The deadline clamp covers a warp STEP-UP mid-interval (an armed
+            // low-rate tick would otherwise still span base*newRate game-seconds once).
+            float mapReseedIntervalSec = ParsekPlaybackPolicy.ResolveMapOrbitReseedIntervalSec(
+                MapOrbitUpdateIntervalSec, TimeWarp.CurrentRate);
+            nextMapOrbitUpdateTime = ParsekPlaybackPolicy.ClampPendingReseedDeadline(
+                nextMapOrbitUpdateTime, UnityEngine.Time.time, mapReseedIntervalSec);
             bool mapReseedTimerElapsed = UnityEngine.Time.time >= nextMapOrbitUpdateTime;
             bool mapReseedHeadLeftSegment = !mapReseedTimerElapsed
                 && TimeWarp.CurrentRate > 1.0f
                 && GhostMapPresence.AnyGhostHeadLeftAppliedSegment(currentUT);
             if (!ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(mapReseedTimerElapsed, TimeWarp.CurrentRate, mapReseedHeadLeftSegment))
                 return;
-            nextMapOrbitUpdateTime = UnityEngine.Time.time + MapOrbitUpdateIntervalSec;
+            nextMapOrbitUpdateTime = UnityEngine.Time.time + mapReseedIntervalSec;
 
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null) return;

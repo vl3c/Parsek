@@ -2770,5 +2770,151 @@ namespace Parsek.Tests
             Assert.Empty(l2a);
             Assert.Empty(t2a);
         }
+
+        // ===================== M-MIS-10 archetype 3: launch from a NON-Kerbin body =====================
+        // Every pre-existing extraction fixture in this file launches from KERBIN (the earliest
+        // surface/orbit body is always "Kerbin"; Mun/Minmus/Duna appear only as later SOI targets or
+        // transited landings). The extraction + scheduler are body-name-parametric by construction,
+        // but the 2026-07-06 verification sweep marked the off-Kerbin PAD launch AUTO-NONE. These
+        // run the REAL ExtractConstraints + TryBuildRelaunchSchedule on Mun-pad fixtures.
+
+        [Fact]
+        public void Extract_MunPadLaunch_EmitsRotationMunPad_LaunchBodyMun()
+        {
+            // Guards: a Mun surface ascent -> Mun orbit hand-off makes MUN the launch body and
+            // emits the Rotation(Mun) PAD constraint with Mun's own rotation period - never
+            // Kerbin's. The launch body's own orbit is not an SOI entry, so a bare ascent is a
+            // single-constraint config: no zero-drift schedule (free cadence), same as the
+            // equivalent Kerbin-only shape.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Mun");
+            var orbit = OrbitLeg("o", 1100, 1600, "Mun");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            orbit.ChainId = "C"; orbit.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, orbit);
+            var fake = StockFake();
+
+            var ex = Extract(tree, fake);
+
+            Assert.Equal("Mun", ex.LaunchBodyName);
+            Assert.Equal(Support.Supported, ex.Support);
+            PhaseConstraint pad = Assert.Single(ex.Constraints);
+            Assert.Equal(ConstraintKind.Rotation, pad.Kind);
+            Assert.Equal("Mun", pad.BodyName);
+            Assert.Equal(MunRotation, pad.PeriodSeconds);
+            Assert.NotEqual(KerbinRotation, pad.PeriodSeconds);
+            Assert.Equal(0.0, pad.PhaseOffsetSeconds);
+            Assert.False(pad.RelativeToParent);
+
+            bool ok = MissionPeriodicity.TryBuildRelaunchSchedule(
+                ex.Constraints, ex.Support, ex.UT0, ex.UT0, fake,
+                out MissionRelaunchSchedule schedule,
+                launchBodyName: ex.LaunchBodyName);
+            Assert.False(ok);       // single constraint -> fixed cadence, no drift schedule
+            Assert.Null(schedule);
+        }
+
+        [Fact]
+        public void Extract_MunPadStationResupply_ScheduleAnchorsToMunPadRotation()
+        {
+            // Guards the full off-Kerbin pad pipeline: a Mun surface launch rendezvousing with a
+            // station in MUN orbit (the supported same-parent VesselOrbital shape) extracts
+            // Rotation(Mun) pad + VesselOrbital(Mun), stays Supported, and the REAL zero-drift
+            // scheduler anchors on the MUN pad: every launch is an exact whole multiple of Mun's
+            // rotation period after UT0, and never lands on a Kerbin-rotation multiple.
+            // Hand-checkable: T_station=2500 -> tolerance 2500*(3/360) ~ 20.83s;
+            // k*138984.38 mod 2500 first falls within it at k=32 (residual 0.16s), and
+            // 32*138984.38 sits 8318.6s from the nearest Kerbin-rotation multiple.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Mun");
+            var rendezvous = OrbitLeg("o", 1100, 1600, "Mun");
+            WithRendezvous(rendezvous, 1200, 1500, StationPid);
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            rendezvous.ChainId = "C"; rendezvous.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, rendezvous);
+            var fake = StockFake();
+            fake.VesselOrbits[StationPid] = (2500.0, "Mun");    // low-Mun-orbit station
+
+            var ex = Extract(tree, fake);
+
+            Assert.Equal("Mun", ex.LaunchBodyName);
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.Null(ex.UnsupportedReason);
+            PhaseConstraint pad = ex.Constraints.Single(c => c.Kind == ConstraintKind.Rotation);
+            Assert.Equal("Mun", pad.BodyName);
+            Assert.Equal(MunRotation, pad.PeriodSeconds);
+            PhaseConstraint vo = ex.Constraints.Single(c => c.Kind == ConstraintKind.VesselOrbital);
+            Assert.Equal("Mun", vo.BodyName);                   // the ORBITED body is Mun
+            Assert.Equal(2500.0, vo.PeriodSeconds);
+            Assert.Equal(StationPid, vo.AnchorVesselPid);
+
+            // The tightest duty cycle is the Mun pad (0.25deg/360 < station 3deg/360).
+            int anchorIdx = MissionPeriodicity.SelectAnchorConstraintIndex(
+                ex.Constraints, fake, launchBodyName: ex.LaunchBodyName);
+            Assert.Equal(ConstraintKind.Rotation, ex.Constraints[anchorIdx].Kind);
+            Assert.Equal("Mun", ex.Constraints[anchorIdx].BodyName);
+
+            bool ok = MissionPeriodicity.TryBuildRelaunchSchedule(
+                ex.Constraints, ex.Support, ex.UT0, ex.UT0, fake,
+                out MissionRelaunchSchedule schedule,
+                launchBodyName: ex.LaunchBodyName);
+            Assert.True(ok);
+            Assert.NotNull(schedule);
+
+            double sinceUT0 = schedule.FirstLaunchUT - ex.UT0;
+            Assert.Equal(32.0 * MunRotation, sinceUT0, 3);
+            double munResidual = Math.Abs(Math.IEEERemainder(sinceUT0, MunRotation));
+            Assert.True(munResidual < 1e-3,
+                $"first launch must pin exactly to the Mun pad rotation (residual {munResidual})");
+            double kerbinRem = sinceUT0 % KerbinRotation;
+            double kerbinDist = Math.Min(kerbinRem, KerbinRotation - kerbinRem);
+            Assert.True(kerbinDist > 60.0,
+                $"the schedule must anchor on Mun's rotation, not Kerbin's (distance {kerbinDist}s)");
+        }
+
+        [Fact]
+        public void Extract_MunLaunchKerbinReturn_CrossParentUnsupported_ScheduleDeclines()
+        {
+            // Guards the Mun-launch + Kerbin-return shape: launching from the MUN pad and
+            // returning to a Kerbin landing makes Kerbin an SOI-entry Orbital target whose parent
+            // (Sun... via Kerbin's reference body) is NOT the launch body Mun, so the extraction
+            // classifies UnsupportedCrossParent (synodic, Phase 4 territory) and the zero-drift
+            // scheduler declines cleanly - it never mis-anchors the Mun pad to Kerbin's clock.
+            // Both rotation constraints (Mun pad + transited Kerbin landing) still extract with
+            // their own bodies' periods.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Mun");
+            var transfer = OrbitLeg("o", 1100, 1600, "Mun");
+            WithSoiEntry(transfer, 1600, 2000, "Kerbin");
+            var landing = SurfaceLeg("l", 2000, 2500, "Kerbin");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            landing.ChainId = "C"; landing.ChainIndex = 2;
+            var tree = TreeOf("t", ascent, transfer, landing);
+            var fake = StockFake();
+
+            var ex = Extract(tree, fake);
+
+            Assert.Equal("Mun", ex.LaunchBodyName);
+            Assert.Equal(Support.UnsupportedCrossParent, ex.Support);
+            Assert.Contains("Kerbin", ex.UnsupportedReason);
+            Assert.Contains("Mun", ex.UnsupportedReason);
+
+            PhaseConstraint orb = ex.Constraints.Single(c => c.Kind == ConstraintKind.Orbital);
+            Assert.Equal("Kerbin", orb.BodyName);
+            Assert.Equal(KerbinOrbit, orb.PeriodSeconds);
+            Assert.True(orb.RelativeToParent);                  // cross-parent SOI entry
+
+            var rotations = ex.Constraints.Where(c => c.Kind == ConstraintKind.Rotation).ToList();
+            Assert.Equal(2, rotations.Count);
+            Assert.Equal("Mun", rotations[0].BodyName);         // the pad, earliest surface start
+            Assert.Equal(MunRotation, rotations[0].PeriodSeconds);
+            Assert.Equal("Kerbin", rotations[1].BodyName);      // the transited landing
+            Assert.Equal(KerbinRotation, rotations[1].PeriodSeconds);
+
+            bool ok = MissionPeriodicity.TryBuildRelaunchSchedule(
+                ex.Constraints, ex.Support, ex.UT0, ex.UT0, fake,
+                out MissionRelaunchSchedule schedule,
+                launchBodyName: ex.LaunchBodyName);
+            Assert.False(ok);
+            Assert.Null(schedule);
+        }
     }
 }

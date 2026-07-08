@@ -2098,6 +2098,23 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// PURE: the rotation-basis UT for anchored-leg point <paramref name="index"/> — the
+        /// point's own recorded UT when the leg carries a matching <c>recordedUTs</c> array, else
+        /// the leg start UT (legacy legs without per-point UTs; the anchor's Slerp falls back to
+        /// index-fraction there too). Evaluating each anchored point's longitude on its own
+        /// recorded basis (via <see cref="BodyFixedLongitudeAtUT"/>) freezes the leg in the
+        /// body-centred inertial frame, so <see cref="TryAnchorLegToConicSeam"/>'s calibration
+        /// rotation is time-constant and the drawn bridge shape stops morphing with the planet's
+        /// spin at warp (2026-06-12 high-warp residual 3). xUnit-testable (no Unity).
+        /// </summary>
+        internal static double ResolveAnchoredPointBasisUT(
+            double[] recordedUTs, int index, int pointCount, double legStartUT)
+            => recordedUTs != null && recordedUTs.Length == pointCount
+               && index >= 0 && index < pointCount
+                ? recordedUTs[index]
+                : legStartUT;
+
+        /// <summary>
         /// Diagnostic (Bug 2 / Root B): a polyline leg bracketed by an orbit on only ONE side stays
         /// body-fixed (launch ascent = after-only; descent-from-orbit = before-only). For the descent case
         /// this logs the TRUE geometric world gap + body-relative longitudes between the leg's body-fixed
@@ -2167,10 +2184,16 @@ namespace Parsek.Display
         /// ~identity, so this is a no-op there - it does NOT regress the regions the reverted longitude-
         /// lift broke.</para>
         ///
-        /// <para>Rotates <c>leg.scratchScaledSpace</c> in place (the array is shared with the cached leg,
-        /// so the rotation persists into the draw). Returns true when applied. The minimal
+        /// <para>Rewrites <c>leg.scratchScaledSpace</c> in place (the array is shared with the cached leg,
+        /// so the result persists into the draw). Returns true when applied. The minimal
         /// <c>FromToRotation</c> between the two same-latitude rays IS the spin-axis rotation, so this
         /// needs no explicit rotation-axis lookup.</para>
+        ///
+        /// <para>INERTIAL BASIS (2026-06-12 high-warp residual 3): on the anchored path the leg's points
+        /// are RE-EVALUATED on their own recorded rotation basis (<see cref="BodyFixedLongitudeAtUT"/>
+        /// per point) before the calibration, so the anchor rotation is time-constant and the drawn
+        /// bridge shape no longer morphs with the planet's spin at warp. Rejected / one-sided legs keep
+        /// the caller's live body-fixed capture untouched.</para>
         /// </summary>
         private static bool TryAnchorLegToConicSeam(
             Recording rec, LegPolyline leg, CelestialBody body, Transform scaledXform)
@@ -2244,8 +2267,45 @@ namespace Parsek.Display
                 return false; // leave the leg body-fixed; the marker rides the body-fixed head
             }
 
-            Quaternion rotStart = Quaternion.FromToRotation(relStart, cRelStart);
-            Quaternion rotEnd = Quaternion.FromToRotation(relEnd, cRelEnd);
+            // INERTIAL RE-CAPTURE (2026-06-12 high-warp residual 3, anchored-leg curvature morph):
+            // the caller's per-frame capture evaluates the recorded body-fixed lat/lon/alt at the
+            // LIVE body rotation, so the anchor's input endpoints rotate with the planet while the
+            // conic seam targets (getPositionAtUT at fixed recorded UTs) are inertially fixed.
+            // Re-deriving FromToRotation per frame keeps the ENDPOINTS glued to the seam, but the
+            // minimal-arc quaternions change as the planet turns (their axis is perpendicular to
+            // the input pair, NOT the spin axis), so the Slerp'd interior visibly morphs at warp
+            // (tracer: rotAngle drifting at exactly the body rotation rate). Re-evaluating every
+            // point on its own RECORDED rotation basis (BodyFixedLongitudeAtUT counter-rotates the
+            // longitude) freezes the leg in the body-centred inertial frame: the anchor inputs -
+            // and with them rotStart/rotEnd and the drawn shape - become time-constant by
+            // construction, and the drawn points are the TRUE recorded inertial path (each sample
+            // where it actually was at its own UT). Runs only on the anchored path (after the
+            // guard, which reads only rotation-invariant endpoint magnitudes), so rejected /
+            // one-sided legs keep the caller's live body-fixed capture byte-identical. Same
+            // strobe-safe stable-pieces construction as the caller's capture (scaled body centre
+            // + body-relative offset; see the "warp-strobe fix" comment in TryDrawLeg). COST
+            // (accepted): this duplicates the caller's m GetWorldSurfacePosition calls for
+            // anchored legs (m <= the per-leg point budget) — the anchor decision is not known
+            // before the caller's fill, and restructuring the strobe-sensitive capture loop to
+            // capture once risks the parity-lens/strobe regressions this file has burned on.
+            double liveUT = Planetarium.GetUniversalTime();
+            double rotationPeriod = body.rotationPeriod;
+            Vector3d bodyPos = body.position;
+            double invScale = ScaledSpace.InverseScaleFactor;
+            for (int i = 0; i < m; i++)
+            {
+                double basisUT = ResolveAnchoredPointBasisUT(leg.recordedUTs, i, m, leg.startUT);
+                double lonAtBasis = BodyFixedLongitudeAtUT(
+                    leg.lons[i], basisUT, liveUT, rotationPeriod);
+                Vector3d world = body.GetWorldSurfacePosition(
+                    leg.lats[i], lonAtBasis, leg.alts[i]);
+                leg.scratchScaledSpace[i] = center + (Vector3)((world - bodyPos) * invScale);
+            }
+            Vector3 relStartInertial = leg.scratchScaledSpace[0] - center;
+            Vector3 relEndInertial = leg.scratchScaledSpace[m - 1] - center;
+
+            Quaternion rotStart = Quaternion.FromToRotation(relStartInertial, cRelStart);
+            Quaternion rotEnd = Quaternion.FromToRotation(relEndInertial, cRelEnd);
 
             double t0 = leg.startUT, span = leg.endUT - leg.startUT;
             bool haveUTs = leg.recordedUTs != null && leg.recordedUTs.Length == m && span > 0.0;
@@ -2265,7 +2325,8 @@ namespace Parsek.Display
             float residEnd = Vector3.Distance(leg.scratchScaledSpace[m - 1], cAfter) * sf / 1000f;
             ParsekLog.VerboseRateLimited(Tag, "polyline.anchor." + rec.RecordingId,
                 string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "Anchor leg: rec={0} leg=[{1:F1},{2:F1}] body={3} anchored=true before=seg{4}(ecc={5:F3} sma={6:F0}) " +
+                    "Anchor leg: rec={0} leg=[{1:F1},{2:F1}] body={3} anchored=true basis=inertial " +
+                    "before=seg{4}(ecc={5:F3} sma={6:F0}) " +
                     "after=seg{7}(ecc={8:F3} sma={9:F0}) residualStart={10:F0}km residualEnd={11:F0}km " +
                     "rotAngleStart={12:F1} rotAngleEnd={13:F1}",
                     rec.RecordingId, leg.startUT, leg.endUT, leg.bodyName ?? "(null)",

@@ -196,6 +196,16 @@ namespace Parsek
             public string HoldText;
             public string HoldShort;
 
+            // M6 closeout (row-level hold treatment): the compact truncated
+            // "Held: <specific reason>" string shown IN the Status cell,
+            // replacing the generic per-status sentence while a displayable
+            // hold is recorded (non-Paused sections only; the Paused cell
+            // keeps its L1 New/Paused label). Null when no hold displays -
+            // the cell then falls back to StatusReason. Built on the ~1 Hz
+            // pass from the same persisted Route.LastHold* fields as
+            // HoldShort; the full clause stays in the tooltip.
+            public string HoldCellText;
+
             // M6 per-cycle flow: one compact line per recent completed cycle
             // ("Cycle 3 (2.1h ago): paid 500 funds at KSC; delivered 150.0
             // LiquidFuel to Munar Station"), newest first, bounded to the last
@@ -900,9 +910,11 @@ namespace Parsek
             // (cyan "New (not yet run)") from a deliberately-paused one (grey "Paused"),
             // reading the classification cached in the ~1 Hz legibility pass; the H3
             // Delivery badge column stays grey "Paused" for both.
-            // M6 hold reasons: when the ~1 Hz cache holds a one-clause hold
-            // description, the tooltip gains it on a second line under the raw
-            // enum name. Visible cell text and styles are unchanged.
+            // M6 hold reasons + closeout row-level treatment: while a
+            // displayable hold is recorded, the non-Paused cell carries the
+            // compact SPECIFIC reason ("Held: origin out of LiquidFuel",
+            // truncated) instead of the generic per-status sentence; the full
+            // clause rides the tooltip's second line under the raw enum name.
             if (section == RouteSection.Paused)
             {
                 GUIStyle pausedStyle = leg.PausedLabel == LogisticsDeliveryPresentation.PausedRouteLabel.New
@@ -915,10 +927,17 @@ namespace Parsek
             }
             else
             {
+                GUIStyle statusStyle = StatusStyleFor(route.Status);
+                // A held row never reads green: an Active loop route blocked at
+                // its last crossing (e.g. WaitingForPartner, escrow short) keeps
+                // Status=Active, so tint the held cell yellow. Red hard-broken
+                // statuses keep their red.
+                if (leg.HoldCellText != null && statusStyle == statusStyleGreen)
+                    statusStyle = statusStyleYellow;
                 GUILayout.Label(
-                    new GUIContent(StatusReason(route.Status),
+                    new GUIContent(leg.HoldCellText ?? StatusReason(route.Status),
                         LogisticsHoldPresentation.StatusCellTooltip(route.Status, leg.HoldShort)),
-                    StatusStyleFor(route.Status), GUILayout.Width(ColW_Status));
+                    statusStyle, GUILayout.Width(ColW_Status));
             }
 
             // H3 "Delivery" badge: the at-a-glance verdict (green Delivering /
@@ -2478,6 +2497,10 @@ namespace Parsek
             {
                 lastCandidateComputeRealtime = -1f;
                 lastLegibilityComputeRealtime = -1f;
+                // M6 Record-Supply-Run helper: the candidate was promoted to a
+                // route, so a still-pending main-window banner for this tree is
+                // stale - drop it.
+                RouteRunPrompt.ClearPendingPromptIfTree(cand?.Tree?.Id, "route-created");
             }
 
             ParsekLog.Info("UI",
@@ -2830,6 +2853,13 @@ namespace Parsek
                 leg.HoldText = LogisticsHoldPresentation.FormatHoldDetailLine(
                     leg.HoldShort,
                     route.LastHoldUT >= 0.0 ? currentUT - route.LastHoldUT : -1.0);
+                // M6 closeout (row-level treatment): the compact Status-cell
+                // override, same display gate and same ~1 Hz pass as the
+                // tooltip clause above. Paused rows compute it too but their
+                // cell keeps the L1 New/Paused label (the draw path only
+                // consumes this in the non-Paused sections).
+                leg.HoldCellText = LogisticsHoldPresentation.StatusCellText(
+                    route.LastHoldKind, route.LastHoldDetail, route.LastHoldShortfall);
             }
 
             return leg;
@@ -3245,9 +3275,12 @@ namespace Parsek
                 RouteLegibility leg = GetLegibility(route);
                 bool hasNext = leg.CountdownBranch
                     != LogisticsCountdownPresentation.CountdownBranch.None;
+                // M6 closeout: the held cell shows HoldCellText, so the Status
+                // sort key follows it - "a column sorts by exactly what the
+                // player sees" (the contract in this method's doc comment).
                 string statusText = route.Status == RouteStatus.Paused && leg.PausedLabelText != null
                     ? leg.PausedLabelText
-                    : StatusReason(route.Status);
+                    : (leg.HoldCellText ?? StatusReason(route.Status));
 
                 keys[route.Id] = new RouteSortKeys
                 {
