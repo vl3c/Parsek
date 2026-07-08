@@ -9606,12 +9606,42 @@ namespace Parsek.InGameTests
                 }
             }
 
+            // The stand-in must ALSO be absent from every visible recording
+            // snapshot's crew list: ResolveOrphanSeatFromSnapshots reverse-maps
+            // snapshot crew entries through crewReplacements, so a stand-in who
+            // appears in ANY committed snapshot (e.g. Jebediah recorded aboard
+            // this save's own Kerbal X) resolves a REAL seat for the fake
+            // orphan and the placement succeeds via name-fallback instead of
+            // deferring - the exact save-shape failure seen 2026-07-07 in the
+            // "orbital supply route" save.
+            var snapshotCrewNames = new HashSet<string>();
+            var visibleForCrew = EffectiveState.ComputeERS();
+            if (visibleForCrew != null)
+            {
+                for (int i = 0; i < visibleForCrew.Count; i++)
+                {
+                    var snap = visibleForCrew[i]?.GhostVisualSnapshot;
+                    if (snap == null) continue;
+                    var partNodes = snap.GetNodes("PART");
+                    for (int pn = 0; pn < partNodes.Length; pn++)
+                    {
+                        var crewValues = partNodes[pn].GetValues("crew");
+                        for (int cv = 0; cv < crewValues.Length; cv++)
+                        {
+                            if (!string.IsNullOrEmpty(crewValues[cv]))
+                                snapshotCrewNames.Add(crewValues[cv]);
+                        }
+                    }
+                }
+            }
+
             ProtoCrewMember standIn = null;
             foreach (ProtoCrewMember pcm in roster.Crew)
             {
                 if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Available
                     && pcm.type == ProtoCrewMember.KerbalType.Crew
-                    && !activeCrewNames.Contains(pcm.name))
+                    && !activeCrewNames.Contains(pcm.name)
+                    && !snapshotCrewNames.Contains(pcm.name))
                 {
                     standIn = pcm;
                     break;
@@ -9619,9 +9649,10 @@ namespace Parsek.InGameTests
             }
             if (standIn == null)
             {
-                InGameAssert.Skip("No Available crew kerbal in roster (not already on active vessel)");
+                InGameAssert.Skip("No Available crew kerbal in roster absent from both the active vessel and every visible snapshot crew list");
                 return;
             }
+            var savedStandInStatus = standIn.rosterStatus;
 
             uint missingPid = 4000000000u;
             bool pidCollision;
@@ -9720,6 +9751,29 @@ namespace Parsek.InGameTests
 
                 if (addedToCommitted)
                     RecordingStore.RemoveCommittedInternal(syntheticRecording);
+
+                // Defensive unseat: if the placement unexpectedly SUCCEEDED (premise
+                // violated), the stand-in is now seated on the active vessel with
+                // rosterStatus Assigned. Without this rollback the contamination
+                // cascades - the 2026-07-07 run left Jebediah Assigned-but-unseated
+                // after the batch restore and failed ReservedCrewNotAssigned two
+                // tests later. Unseat from whatever part received them and restore
+                // the saved roster status.
+                using (SuppressionGuard.Crew())
+                {
+                    for (int i = 0; i < av.parts.Count; i++)
+                    {
+                        var p = av.parts[i];
+                        if (p != null && p.protoModuleCrew.Contains(standIn))
+                        {
+                            p.RemoveCrewmember(standIn);
+                            ParsekLog.Info("TestRunner",
+                                $"Bug578 rollback: unseated stand-in '{standIn.name}' from '{p.partInfo?.title}' (placement premise was violated)");
+                            break;
+                        }
+                    }
+                    standIn.rosterStatus = savedStandInStatus;
+                }
 
                 InGameAssert.AreEqual(beforeCrewCount, unrelatedFreeSeatPart.protoModuleCrew.Count,
                     $"Rollback failed: unrelated free-seat part crew count not restored " +

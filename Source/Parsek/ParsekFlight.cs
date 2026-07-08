@@ -2780,6 +2780,18 @@ namespace Parsek
                         rehomeIds, $"AutoDiscardActiveTreeCore: {reason}");
             }
 
+            // Rec-3 observability (see RecordingStore.DiscardPendingTree): report any
+            // supply-route physical mutation that fired inside this discarded active-tree
+            // window and persists un-reversed (funds+cargo both kept). Behavior-neutral;
+            // rewind/RP-backed sessions are skipped inside the reporter. Read BEFORE
+            // activeTree is nulled below.
+            if (activeTree?.Recordings != null && activeTree.Recordings.Count > 0)
+                Parsek.Logistics.RouteDiscardObservability.ReportDiscardLeakForRecordings(
+                    activeTree.Recordings.Values,
+                    Ledger.Actions,
+                    ParsekScenario.IsReFlySessionActiveForQuickloadDiscard(),
+                    $"AutoDiscardActiveTreeCore: {reason}");
+
             // Mirror OnSceneChangeRequested's pre-finalize prep so any
             // active continuation / gloops / transient state is cleaned
             // up before we drop the recorder. The idle-on-pad call site
