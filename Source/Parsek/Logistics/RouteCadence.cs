@@ -129,6 +129,30 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// Production entry: applies a new cadence multiplier, resolving the
+        /// live UT defensively (mirrors <c>RouteOrchestrator.TryPause</c>) so
+        /// the M5 windowed-basis rebase can compute the current dock cycle. A
+        /// throw / pre-flight UT falls back to the flat -1 rebase inside the
+        /// UT-injected overload (safe: production in-flight never throws here,
+        /// and a windowed route cannot be cadence-edited outside a live scene).
+        /// </summary>
+        internal static bool ApplyMultiplier(Route route, int newMultiplier)
+        {
+            double ut = -1.0;
+            try
+            {
+                ut = Planetarium.GetUniversalTime();
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose("Route",
+                    $"RouteCadence.ApplyMultiplier: live UT resolution threw {ex.GetType().Name}: " +
+                    $"{ex.Message}; applying with the flat rebase");
+            }
+            return ApplyMultiplier(route, newMultiplier, ut);
+        }
+
+        /// <summary>
         /// Applies a new cadence multiplier to <paramref name="route"/>: clamps
         /// <c>N &gt;= 1</c>, sets <see cref="Route.CadenceMultiplier"/>, and
         /// recomputes <see cref="Route.DispatchInterval"/> = <c>N * TransitDuration</c>
@@ -136,8 +160,25 @@ namespace Parsek.Logistics
         /// <see cref="Route.DispatchInterval"/> unchanged). No-op (logs + returns
         /// false) when <paramref name="route"/> is null or the new value equals the
         /// current one. Info-logs the change so cadence edits are greppable.
+        ///
+        /// <para><b>M5 (D3 / review C4) windowed-basis rebase.</b> Under the
+        /// <c>ReaimWindows</c> basis the historical reset-to--1 would make the
+        /// already-delivered CURRENT window owed again under a FRESH
+        /// <c>cycle-{C+S}</c> id the ELS <c>(RouteId, cycleId, stopIndex)</c>
+        /// backstop cannot suppress - a duplicate delivery for a window whose
+        /// ghost does not re-fly, with the next real window a synodic period
+        /// away. So for a windowed route this re-baselines
+        /// <see cref="Route.LastObservedLoopCycleIndex"/> to the CURRENT dock
+        /// cycle index instead (per-stop cursors snapped against each stop's own
+        /// dock phase), while the modulo anchor still resets to -1 at all rebase
+        /// sites - the first crossing after the rebase re-anchors and delivers.
+        /// Flat / zero-drift routes keep the accepted F5 one-immediate-fire -1
+        /// reset byte-identically (their window index space genuinely changes
+        /// with <c>DispatchInterval</c>; a re-aim unit's does not - the build
+        /// discards the interval, so pre/post units index windows identically
+        /// and the pre-mutation basis probe is safe).</para>
         /// </summary>
-        internal static bool ApplyMultiplier(Route route, int newMultiplier)
+        internal static bool ApplyMultiplier(Route route, int newMultiplier, double currentUT)
         {
             if (route == null)
             {
@@ -153,10 +194,70 @@ namespace Parsek.Logistics
                 return false;
             }
 
+            // M5 (review C4): probe the window basis + loop state BEFORE mutating
+            // the interval (the resolved unit is signature-cached and cheap; for
+            // a ReaimWindows unit DispatchInterval is dead input, so the
+            // pre-mutation unit indexes windows identically to the post-mutation
+            // one). Only a resolvable ReaimWindows clock takes the windowed
+            // rebase; everything else (flat, zero-drift, unresolvable unit,
+            // pre-anchor clock, no live UT) keeps the flat -1 reset.
+            bool windowedRebase = false;
+            double loopUT = 0.0;
+            long cycleIndex = 0;
+            if (currentUT > 0.0 && route.IsLoopRoute)
+            {
+                GhostPlaybackLogic.LoopUnit? unitOpt =
+                    RouteOrchestrator.ResolveLoopUnit(route, currentUT);
+                if (unitOpt.HasValue
+                    && RouteLoopClock.DeriveWindowBasis(unitOpt.Value) == RouteWindowBasis.ReaimWindows)
+                {
+                    windowedRebase = RouteLoopClock.TryGetRouteLoopState(
+                        unitOpt.Value, currentUT, out loopUT, out cycleIndex, out _);
+                }
+            }
+
             int oldN = route.CadenceMultiplier;
             double oldInterval = route.DispatchInterval;
             route.CadenceMultiplier = clamped;
             route.DispatchInterval = DeriveDispatchInterval(clamped, route.TransitDuration);
+
+            long prevObserved = route.LastObservedLoopCycleIndex;
+            if (windowedRebase)
+            {
+                // M5 (D3 / review C4): re-baseline to the CURRENT dock cycle
+                // index - the already-delivered window stays consumed, the next
+                // window still fires (and re-anchors via D3 adoption).
+                long dockCycle = RouteLoopClock.ComputeDockCycleIndex(
+                    loopUT, cycleIndex, route.RecordedDockUT);
+                route.LastObservedLoopCycleIndex = dockCycle;
+                int stopsSnapped = 0;
+                if (route.Stops != null)
+                {
+                    for (int i = 0; i < route.Stops.Count; i++)
+                    {
+                        RouteStop s = route.Stops[i];
+                        if (s == null) continue;
+                        double stopDockUT = s.RecordedDockUT >= 0.0
+                            ? s.RecordedDockUT : route.RecordedDockUT;
+                        s.LastFiredCycleIndex = RouteLoopClock.ComputeDockCycleIndex(
+                            loopUT, cycleIndex, stopDockUT);
+                        stopsSnapped++;
+                    }
+                }
+                long prevAnchor = route.WindowAnchorCycleIndex;
+                route.WindowAnchorCycleIndex = -1;
+
+                ParsekLog.Info("Route",
+                    $"RouteCadence: route {ShortId(route.Id)} cadence {oldN}x->{clamped}x " +
+                    $"interval {FormatR(oldInterval)}->{FormatR(route.DispatchInterval)} " +
+                    $"span={FormatR(route.TransitDuration)} WINDOWED rebase (ReaimWindows): " +
+                    $"lastObservedLoopCycleIndex {prevObserved.ToString(System.Globalization.CultureInfo.InvariantCulture)}->" +
+                    $"{route.LastObservedLoopCycleIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"(current dock cycle; no duplicate delivery of the delivered window) " +
+                    $"anchor {prevAnchor.ToString(System.Globalization.CultureInfo.InvariantCulture)}->-1 " +
+                    $"stopsSnapped={stopsSnapped.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+                return true;
+            }
 
             // LST-3: rebase the loop clock when N actually changes. CadenceSeconds
             // derives from DispatchInterval, so the same UT now resolves to a
@@ -168,7 +269,6 @@ namespace Parsek.Logistics
             // cleanly: the next crossing inside the span fires exactly once, no
             // double-fire. We only reach here when N genuinely changed (the no-op
             // same-N path returned false above), so the reset is never spurious.
-            long prevObserved = route.LastObservedLoopCycleIndex;
             route.LastObservedLoopCycleIndex = -1;
 
             // M4a A3 (OQ3 / C1): the per-stop fire sub-gates rebase with the
@@ -178,6 +278,10 @@ namespace Parsek.Logistics
             // crossing. Resetting all stops to -1 re-anchors the clock cleanly: each
             // window's next in-span crossing fires exactly once, no double-fire.
             RouteOrchestrator.ResetStopFireState(route);
+
+            // M5 (D3): the modulo anchor resets alongside the cursor at every
+            // rebase site (a no-op for the flat routes that dominate this path).
+            route.WindowAnchorCycleIndex = -1;
 
             ParsekLog.Info("Route",
                 $"RouteCadence: route {ShortId(route.Id)} cadence {oldN}x->{clamped}x " +
