@@ -22,6 +22,15 @@ namespace Parsek
         private InGameTestRunner testRunner;
         private readonly HashSet<string> expandedTestCategories = new HashSet<string>();
         private List<KeyValuePair<string, List<InGameTestInfo>>> cachedTestGroups;
+        // Incremental search box. Filters the DISPLAYED category/test list only;
+        // the runner's actual run sets are never touched (Run All / Run category
+        // ignore the filter). The filtered view is cached and rebuilt only when
+        // the query text or the source group cache changes, not every frame.
+        private string testSearchQuery = string.Empty;
+        private string lastFilteredQuery;
+        private List<KeyValuePair<string, List<InGameTestInfo>>> cachedFilteredGroups;
+        private List<KeyValuePair<string, List<InGameTestInfo>>> filteredSourceGroups;
+        private const string TestSearchFieldName = "Parsek_TestRunnerSearchField";
         private bool testRunnerWasRunning;
         private bool isResizingTestRunnerWindow;
         private GUIStyle zeroHeightLabelStyle;
@@ -145,11 +154,37 @@ namespace Parsek
             cachedTestGroups = sorted;
         }
 
+        // Returns the category/test groups to DISPLAY for the current search
+        // query. Empty query -> the full cached list (byte-identical to no
+        // filter). The result is memoized and rebuilt only when the query or the
+        // source cache changes, so the common (idle) case allocates nothing.
+        private List<KeyValuePair<string, List<InGameTestInfo>>> GetGroupsForDisplay()
+        {
+            if (cachedFilteredGroups == null
+                || !ReferenceEquals(filteredSourceGroups, cachedTestGroups)
+                || !string.Equals(lastFilteredQuery, testSearchQuery, System.StringComparison.Ordinal))
+            {
+                cachedFilteredGroups = TestRunnerSearchFilter.FilterCategories(cachedTestGroups, testSearchQuery);
+                lastFilteredQuery = testSearchQuery;
+                filteredSourceGroups = cachedTestGroups;
+            }
+            return cachedFilteredGroups;
+        }
+
         private void DrawTestCategoryList()
         {
             EnsureLayoutStyles();
 
-            foreach (var group in cachedTestGroups)
+            var groupsForDisplay = GetGroupsForDisplay();
+            if (groupsForDisplay.Count == 0)
+            {
+                GUILayout.Label(
+                    $"No categories or tests match \"{testSearchQuery}\".",
+                    GUI.skin.label);
+                return;
+            }
+
+            foreach (var group in groupsForDisplay)
             {
                 var category = group.Key;
                 var testsInCategory = group.Value;
@@ -346,6 +381,28 @@ namespace Parsek
             {
                 GUILayout.Label(batchModeNotice, GUI.skin.label);
             }
+
+            // --- Search / filter bar ---
+            // Filters the displayed list live on each keystroke (IMGUI re-runs
+            // this method every frame, so reading the field value each pass is
+            // the update). Case-insensitive substring on category + test names.
+            // Does NOT change what Run All / Run category execute.
+            GUILayout.Space(SpacingSmall);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Search:", GUILayout.Width(48));
+            GUI.SetNextControlName(TestSearchFieldName);
+            testSearchQuery = GUILayout.TextField(testSearchQuery ?? string.Empty, GUILayout.ExpandWidth(true));
+            GUI.enabled = !string.IsNullOrEmpty(testSearchQuery);
+            if (GUILayout.Button(new GUIContent("x", "Clear the search filter."), GUILayout.Width(24)))
+            {
+                testSearchQuery = string.Empty;
+                // Drop focus so the cleared field re-renders empty immediately:
+                // an active IMGUI TextEditor otherwise keeps showing the old text.
+                if (GUI.GetNameOfFocusedControl() == TestSearchFieldName)
+                    GUIUtility.keyboardControl = 0;
+            }
+            GUI.enabled = true;
+            GUILayout.EndHorizontal();
 
             // --- Rebuild cached groups when run state changes ---
             bool running = testRunner.IsRunning;
