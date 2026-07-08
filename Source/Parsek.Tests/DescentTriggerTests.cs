@@ -701,7 +701,8 @@ namespace Parsek.Tests
         // [Deorbit, DescentEnd], plus a non-descent owner member 0. Drives the actual resolver seam — the
         // per-phase renderHidden/UT, the SpanClockUnresolved early-out, byte-identical-off for a sibling member,
         // and the R6 secondary suppression — none of which the pure-helper tests exercise.
-        private static GhostPlaybackLogic.LoopUnitSet BuildDescentUnit(bool engage)
+        // internal (not private): DescentTriggerEngineCoherenceTests below reuses the exact fixture.
+        internal static GhostPlaybackLogic.LoopUnitSet BuildDescentUnit(bool engage)
             => BuildDescentUnit(engage, overlapDescentWindows: false);
 
         // overlapDescentWindows: make the three descent members 49/50/51 ALL span [W1Start, W3End] (so the same
@@ -849,6 +850,55 @@ namespace Parsek.Tests
             Resolve(5, 27_000_000.0, Deorbit, tDescent, off, out bool hOff);
             Assert.False(hOff, "trigger OFF: no descent phase, so the transfer member is never hidden by the handoff");
         }
+
+        [Fact]
+        public void EngineHandoff_TransferMember_HiddenDuringDescent_CleanHandoffNoDoubleGhost()
+        {
+            // The FLIGHT-engine twin of Resolver_TransferMember_HiddenDuringDescent_CleanHandoffNoDoubleIcon:
+            // GhostPlaybackEngine.UpdateUnitMemberPlayback consumes the SAME pure decision
+            // (ShouldHideNonDescentMemberForDescentHandoff) the TS resolver uses, so the flight 3D ghost of a
+            // NON-descent member hides exactly while the unit-wide descent phase is Descent — one vessel at
+            // the handoff, no double ghost. All fixture times fall in cycle 0 (Cad = 6e7 dwarfs every UT here).
+            var units = BuildDescentUnit(engage: true);
+            Assert.True(units.TryGetUnitForMember(5, out GhostPlaybackLogic.LoopUnit unit));
+
+            // INERT (before the icon reaches the deorbit point): kept — no hide.
+            Assert.False(GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
+                unit, 5, EntryUT(0) - 10_000.0, 0, out DescentTrigger.DescentHeadPhase phInert));
+            Assert.Equal(DescentTrigger.DescentHeadPhase.Inert, phInert);
+
+            // LOITER (icon circling the shifted parking conic): kept — the transfer ghost carries the wait.
+            Assert.False(GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
+                unit, 5, EntryUT(0) + 100.0, 0, out DescentTrigger.DescentHeadPhase phLoiter));
+            Assert.Equal(DescentTrigger.DescentHeadPhase.Loiter, phLoiter);
+
+            // DESCENT PLAYING: HIDDEN — hand off to the descent member's ghost.
+            Assert.True(GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
+                unit, 5, TriggerUT(0) + 400.0, 0, out DescentTrigger.DescentHeadPhase phDescent));
+            Assert.Equal(DescentTrigger.DescentHeadPhase.Descent, phDescent);
+
+            // DONE (clip over, duration = DescentEnd - Deorbit = 2000s): kept again (the C2 continuation
+            // retire is a separate, map-side mechanism; the handoff hide is Descent-only by design).
+            Assert.False(GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
+                unit, 5, TriggerUT(0) + 2_100.0, 0, out DescentTrigger.DescentHeadPhase phDone));
+            Assert.Equal(DescentTrigger.DescentHeadPhase.Done, phDone);
+
+            // A DESCENT member never takes the handoff hide (it is governed by its own re-anchored head).
+            Assert.False(GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
+                unit, 49, TriggerUT(0) + 400.0, 0, out _));
+
+            // Trigger OFF: byte-identical — never hidden, phase reports Inert.
+            var off = BuildDescentUnit(engage: false);
+            Assert.True(off.TryGetUnitForMember(5, out GhostPlaybackLogic.LoopUnit offUnit));
+            Assert.False(GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
+                offUnit, 5, TriggerUT(0) + 400.0, 0, out DescentTrigger.DescentHeadPhase phOff));
+            Assert.Equal(DescentTrigger.DescentHeadPhase.Inert, phOff);
+        }
+
+        // NOTE: the engine-constructing LoopUnitSet coherence twin of this class's handoff tests lives in
+        // DescentTriggerEngineCoherenceTests below — GhostPlaybackEngine's constructor logs through the
+        // shared static ParsekLog, so that test needs [Collection("Sequential")] while this pure-math
+        // class stays parallelizable.
 
         [Fact]
         public void Resolver_TransferMember_LoiterGap_WrapsHeadWithinParkingPeriod()
@@ -2130,6 +2180,33 @@ namespace Parsek.Tests
             return new GhostPlaybackLogic.LoopUnitSet(
                 new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } },
                 new Dictionary<int, int> { { 0, 0 }, { 5, 0 }, { 7, 0 }, { 49, 0 }, { 50, 0 }, { 51, 0 } });
+        }
+    }
+
+    // Separate class because GhostPlaybackEngine's constructor logs through the shared static ParsekLog
+    // (repo rule: classes touching shared static state need [Collection("Sequential")]); keeping it out of
+    // DescentTriggerTests leaves that pure-math class parallelizable.
+    [Collection("Sequential")]
+    public class DescentTriggerEngineCoherenceTests
+    {
+        [Fact]
+        public void EngineAndMapResolver_ConsumeSameLoopUnitSet_AgreeOnHasDescentTrigger()
+        {
+            // LoopUnitSet coherence (the "owner=33 lacks HasDescentTrigger in the engine's set" suspicion
+            // from the 2026-06-20 13:34 investigation): in FLIGHT there is ONE set — ParsekFlight builds
+            // cachedLoopUnits and pushes it into the engine EVERY frame via SetLoopUnits, and every flight
+            // map surface reads the same object (CurrentCachedLoopUnits / Engine.CurrentLoopUnits). This
+            // pins the engine half: SetLoopUnits stores the REFERENCE (no copy, no re-derivation), so the
+            // engine's unit IS the map resolver's unit (reference identity is the agreement — no separate
+            // per-flag compare is possible to fail once Assert.Same holds). The wiring half (one build
+            // site, same-field reads) is pinned by the LoopUnitSetCoherenceTests source gates.
+            var set = DescentTriggerTests.BuildDescentUnit(engage: true);
+            var engine = new GhostPlaybackEngine(positioner: null);
+            engine.SetLoopUnits(set);
+
+            Assert.Same(set, engine.CurrentLoopUnits);
+            Assert.True(engine.CurrentLoopUnits.TryGetUnitForMember(5, out GhostPlaybackLogic.LoopUnit engineUnit));
+            Assert.True(engineUnit.HasDescentTrigger, "the engine's unit carries the descent trigger");
         }
     }
 }
