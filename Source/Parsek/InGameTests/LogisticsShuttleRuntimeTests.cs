@@ -372,6 +372,19 @@ namespace Parsek.InGameTests
             tree.Recordings["survivor"] = Leg("survivor", "C0", 4, DeliveryUndockUT, 3600, "Transport");
             tree.Recordings["payload"] = Leg("payload", "C2", 0, DeliveryUndockUT, 3300, "Payload");
 
+            // Production invariant: every recording in a tree carries
+            // TreeId = tree.Id (stamped by ChainSegmentManager at segment
+            // creation and re-stamped on tree load). The REAL RouteBuilder
+            // reads it off the delivery source recording
+            // (BackingMissionTreeId = source.TreeId), and ResolveLoopUnit's
+            // backing-mission derivation looks the tree up by that id - an
+            // unstamped fixture builds a route with a null tree id and the
+            // loop-unit resolve returns no unit (first live batch run,
+            // 2026-07-08: "MissionLoopUnit: ... treeId=<null> tree not
+            // found; no unit").
+            foreach (Recording rec in tree.Recordings.Values)
+                rec.TreeId = treeId;
+
             // The ORIGIN window on the depot-A dock-merged child: the transport
             // loads 40 Ore while docked (endpoint 40->0, transport 0->40).
             tree.Recordings["dockedA"].RouteConnectionWindows = new List<RouteConnectionWindow>
