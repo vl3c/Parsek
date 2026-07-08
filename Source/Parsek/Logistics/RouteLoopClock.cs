@@ -45,6 +45,72 @@ namespace Parsek.Logistics
     }
 
     /// <summary>
+    /// (M5 D1) Route-side WINDOW-BASIS classification of a resolved loop unit -
+    /// the RENDER-WINDOW semantics question ("which mechanism spaces the rendered
+    /// launch windows, and who consumed the route's CadenceMultiplier N?"), which
+    /// is a DIFFERENT question from <see cref="CycleIndexKind"/>'s index
+    /// arithmetic (a re-aim unit deliberately classifies
+    /// <see cref="CycleIndexKind.Flat"/> - truthful for the index math - while
+    /// its windows are synodic). Derived per tick from the resolved unit by
+    /// <see cref="RouteLoopClock.DeriveWindowBasis"/>; NEVER persisted (the
+    /// persisted <c>Route.ReaimWindowBasisEngaged</c> marker is flip-detector
+    /// memory only, not a basis cache).
+    /// </summary>
+    internal enum RouteWindowBasis
+    {
+        /// <summary>No schedule mechanism: the uniform flat cadence
+        /// (<c>DispatchInterval = N x TransitDuration</c>) spaces the windows, so
+        /// N is FULLY consumed by the cadence itself. The v0 same-body path and
+        /// the honest fallback for a declined cross-parent build (M5 D7). The
+        /// route-side residual modulo is OFF.</summary>
+        FlatInterval = 0,
+
+        /// <summary>Same-parent zero-drift <c>MissionRelaunchSchedule</c>
+        /// (identical population to <see cref="CycleIndexKind.Scheduled"/>). The
+        /// Missions-side schedule generator already throttles launches to
+        /// <c>minSpacing = cadence = DispatchInterval</c>, so N is FULLY consumed
+        /// Missions-side and the scheduled-launch index <c>sIdx</c> indexes the
+        /// THROTTLED list: the residual modulo is 1 (every rendered launch
+        /// delivers; a route-side modulo on <c>sIdx</c> would double-apply N).</summary>
+        ZeroDriftSchedule = 1,
+
+        /// <summary>Cross-parent re-aim: a supported <c>ReaimMissionPlan</c> +
+        /// valid synodic <c>ReaimWindowSchedule</c> (the builder discarded the
+        /// route's <c>DispatchInterval</c> on this path and renders EVERY synodic
+        /// window), so N survives as the route-side residual modulo on the
+        /// window index: deliver every Nth rendered window (M5 D2).</summary>
+        ReaimWindows = 2,
+    }
+
+    /// <summary>
+    /// (M5 D6) Basis-flip transition decision for one tick, produced by the pure
+    /// <see cref="RouteLoopClock.EvaluateWindowBasisTransition"/> from the
+    /// persisted flip-detector marker + the tick's derived basis. The
+    /// orchestrator-side applier owns the actual field re-baselines.
+    /// </summary>
+    internal enum WindowBasisTransitionKind
+    {
+        /// <summary>Steady state - marker and basis agree; nothing to do.</summary>
+        None = 0,
+
+        /// <summary>Marker false, basis <see cref="RouteWindowBasis.ReaimWindows"/>:
+        /// the build (re-)engaged re-aim. Re-baseline the cycle cursors DOWN into
+        /// window space (<c>dockCycleIndex - 1</c>: exactly the current window owed)
+        /// and reset the anchor, else a stale flat-space cursor exceeds every
+        /// future synodic index and the route silently never delivers again
+        /// (review C6, the permanent-skip blocker).</summary>
+        Engage = 1,
+
+        /// <summary>Marker true, basis NOT <see cref="RouteWindowBasis.ReaimWindows"/>:
+        /// the build declined to faithful. Re-baseline the cycle cursors to the
+        /// CURRENT index in the new space with NO fire this tick (fail-closed),
+        /// clear the marker, reset the anchor - a stale window-space cursor
+        /// compared against flat indices reads as a huge owed jump and would fire
+        /// a delivery the player never scheduled.</summary>
+        Decline = 2,
+    }
+
+    /// <summary>
     /// Loop-clock crossing detector for Supply Routes (design §0.4 / §0.5; plan
     /// Phase 4). Wraps the LOCKED Missions seam
     /// <see cref="GhostPlaybackLogic.TryComputeSpanLoopUT"/> so the route's
@@ -74,10 +140,13 @@ namespace Parsek.Logistics
     ///     rotation period -- the SAME values the ghost renders on, so delivery fires on
     ///     the relaunch UTs the player sees (the DEL-1 fix; before it the
     ///     <c>bodyInfo:null</c> delivery clock over-fired at the raw interval).</item>
-    ///   <item><b>Inter-body</b> (future): the unit carries a synodic / re-aimed
-    ///     <see cref="MissionRelaunchSchedule"/> built by the locked Missions layer, and
-    ///     delivery inherits it for free through the passthrough. v0 does NOT enable
-    ///     inter-body routes; the passthrough is only the seam.</item>
+    ///   <item><b>Inter-body</b> (M5, BUILT): the unit carries either the
+    ///     same-parent zero-drift <see cref="MissionRelaunchSchedule"/> or the
+    ///     cross-parent re-aim synodic schedule built by the locked Missions
+    ///     layer, and delivery fires on the SAME rendered windows through this
+    ///     passthrough, with <c>Route.CadenceMultiplier</c> applied as the
+    ///     RESIDUAL window modulo (<see cref="ResolveResidualCadence"/> /
+    ///     <see cref="DeriveWindowBasis"/>).</item>
     /// </list>
     /// All consumed fields are READ-ONLY (no Missions/engine file is edited). Phase 5's
     /// <c>RouteBuilder</c> clamps <c>DispatchInterval &gt;= backingMissionSpan</c> and
@@ -454,6 +523,141 @@ namespace Parsek.Logistics
 
             seconds = nextDockUT - nowUT;
             return true;
+        }
+
+        // ==================================================================
+        // M5 - inter-body window basis + residual modulo (pure predicates)
+        // ==================================================================
+
+        /// <summary>
+        /// (M5 D1) Derives the route-side window basis from the resolved unit.
+        /// Fail-closed pairs: a re-aim unit classifies
+        /// <see cref="RouteWindowBasis.ReaimWindows"/> ONLY on the full
+        /// BUILD-level verdict (plan present AND supported, schedule present AND
+        /// valid - the same conjunction as <c>LoopUnit.IsReaim</c>); any partial
+        /// shape (invalid schedule, unsupported plan, either half missing) falls
+        /// back to <see cref="RouteWindowBasis.FlatInterval"/>, today's honest
+        /// faithful path (D7). Resolver PER-WINDOW declines never null the unit's
+        /// schedule/plan, so they cannot flip the basis (D6, build-level-only
+        /// pin). Pure: no logging.
+        /// </summary>
+        internal static RouteWindowBasis DeriveWindowBasis(GhostPlaybackLogic.LoopUnit unit)
+        {
+            if (unit.RelaunchSchedule != null)
+                return RouteWindowBasis.ZeroDriftSchedule;
+            if (unit.ReaimPlan.HasValue && unit.ReaimPlan.Value.Supported
+                && unit.ReaimSchedule.HasValue && unit.ReaimSchedule.Value.Valid)
+                return RouteWindowBasis.ReaimWindows;
+            return RouteWindowBasis.FlatInterval;
+        }
+
+        /// <summary>
+        /// (M5 D2) The ONE route-side cadence rule: the residual part of
+        /// <paramref name="cadenceMultiplier"/> NOT already consumed by the
+        /// Missions-side build. 0 = modulo OFF (<see cref="RouteWindowBasis.FlatInterval"/>:
+        /// N is fully consumed by the flat cadence <c>DispatchInterval = N x span</c>);
+        /// 1 = every rendered window delivers
+        /// (<see cref="RouteWindowBasis.ZeroDriftSchedule"/>: N is fully consumed
+        /// Missions-side by the schedule's minSpacing throttle - a route-side
+        /// modulo on <c>sIdx</c> would double-apply N); N =
+        /// <see cref="RouteWindowBasis.ReaimWindows"/> (the build discarded
+        /// <c>DispatchInterval</c>; the ghost renders EVERY synodic window and
+        /// delivery fires on every Nth of those same rendered UTs). The
+        /// firing-path modulo gate is live only when the result is &gt; 1, which
+        /// is only possible under ReaimWindows - the behavior-identical-off
+        /// guarantee for flat and zero-drift routes. Pure: no logging.
+        /// </summary>
+        internal static int ResolveResidualCadence(RouteWindowBasis basis, int cadenceMultiplier)
+        {
+            switch (basis)
+            {
+                case RouteWindowBasis.ReaimWindows:
+                    return Route.ClampCadenceMultiplier(cadenceMultiplier);
+                case RouteWindowBasis.ZeroDriftSchedule:
+                    return 1;
+                default:
+                    return 0; // FlatInterval: modulo OFF
+            }
+        }
+
+        /// <summary>
+        /// (M5 D2/D3) True when window <paramref name="windowIndex"/> is
+        /// deliverable under the residual modulo:
+        /// <c>(windowIndex - anchor) % nResidual == 0</c> (Euclidean modulo, so
+        /// negative indices behave). A residual of 0 (off) or 1 makes every
+        /// window deliverable. An UNSET anchor (&lt; 0) also returns true: the
+        /// first owed crossing after creation / activation / rebase ALWAYS
+        /// delivers - the caller adopts <c>anchor = dockCycleIndex</c> on that
+        /// crossing (D3 anchor adoption). Pure: no logging.
+        /// </summary>
+        internal static bool IsDeliverableWindow(long windowIndex, long anchor, int nResidual)
+        {
+            if (nResidual <= 1)
+                return true;
+            if (anchor < 0)
+                return true; // anchor adoption: first crossing always delivers
+            long m = (windowIndex - anchor) % nResidual;
+            if (m < 0)
+                m += nResidual;
+            return m == 0;
+        }
+
+        /// <summary>
+        /// Sentinel returned by <see cref="ComputeHighestDeliverableWindow"/>
+        /// when no deliverable window lies in the owed range.
+        /// </summary>
+        internal const long NoDeliverableWindow = long.MinValue;
+
+        /// <summary>
+        /// (M5 D5) The warp rule under the residual modulo: the HIGHEST
+        /// deliverable window index in <c>(lastObserved, dockCycleIndex]</c>, or
+        /// <see cref="NoDeliverableWindow"/> when none is. The caller fires ONCE
+        /// for the returned window and snaps its marker to
+        /// <paramref name="dockCycleIndex"/> either way (never replaying skipped
+        /// cycles), so a warp tick that jumps K&gt;1 windows keeps the existing
+        /// fire-once-snap-forward semantics and the modulo can never pick a
+        /// non-deliverable window. An UNSET anchor (&lt; 0) makes the newest
+        /// window (<paramref name="dockCycleIndex"/>) deliverable (D3 anchor
+        /// adoption at the caller). Pure: no logging.
+        /// </summary>
+        internal static long ComputeHighestDeliverableWindow(
+            long lastObserved, long dockCycleIndex, long anchor, int nResidual)
+        {
+            if (dockCycleIndex <= lastObserved)
+                return NoDeliverableWindow; // nothing owed at all
+            if (nResidual <= 1 || anchor < 0)
+                return dockCycleIndex; // modulo off / every window / adoption
+            // Highest w <= dockCycleIndex with w ≡ anchor (mod nResidual).
+            long m = (dockCycleIndex - anchor) % nResidual;
+            if (m < 0)
+                m += nResidual;
+            long w = dockCycleIndex - m;
+            return w > lastObserved ? w : NoDeliverableWindow;
+        }
+
+        /// <summary>
+        /// (M5 D6) Pure basis-flip transition decision: compares the persisted
+        /// flip-detector marker (<c>Route.ReaimWindowBasisEngaged</c>) against
+        /// the tick's derived <paramref name="basis"/>.
+        /// <see cref="WindowBasisTransitionKind.Engage"/> when the marker is
+        /// false and the basis is <see cref="RouteWindowBasis.ReaimWindows"/>;
+        /// <see cref="WindowBasisTransitionKind.Decline"/> when the marker is
+        /// true and the basis is anything else;
+        /// <see cref="WindowBasisTransitionKind.None"/> otherwise. Flat &lt;-&gt;
+        /// zero-drift flips are deliberately invisible here (they exist pre-M5
+        /// and share one index arithmetic through the span clock; the marker
+        /// does not track them). Idempotent by construction: a second Engage /
+        /// Decline evaluation in the settled state returns None. Pure: no
+        /// logging (the orchestrator applier owns the transition Info lines).
+        /// </summary>
+        internal static WindowBasisTransitionKind EvaluateWindowBasisTransition(
+            bool reaimWindowBasisEngaged, RouteWindowBasis basis)
+        {
+            if (!reaimWindowBasisEngaged && basis == RouteWindowBasis.ReaimWindows)
+                return WindowBasisTransitionKind.Engage;
+            if (reaimWindowBasisEngaged && basis != RouteWindowBasis.ReaimWindows)
+                return WindowBasisTransitionKind.Decline;
+            return WindowBasisTransitionKind.None;
         }
 
         /// <summary>
