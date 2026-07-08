@@ -11403,6 +11403,27 @@ namespace Parsek.InGameTests
                 $"expected >= {floor:F2} (got {clamped.altitude:F2})");
         }
 
+        /// <summary>
+        /// Depth below current PQS terrain at which the explosion-anchor fixture parks its
+        /// ghost, so the engine's clamp has to fire. Any positive value works.
+        /// </summary>
+        private const double ExplosionAnchorFixtureBelowTerrainMeters = 1.0;
+
+        /// <summary>
+        /// Half-width of the skip band around the physics-bubble step in
+        /// <c>DistanceThresholds.GhostFlight.ComputeTerrainClearance</c>, which jumps
+        /// discontinuously from 0.5 m to 2.0 m of clearance as the ghost crosses it.
+        /// </summary>
+        private const double ExplosionAnchorClearanceKneeGuardMeters = 5.0;
+
+        /// <summary>Largest absolute axis of a scene-space position — the axis that sets its float grid step.</summary>
+        private static double MaxAbsAxis(Vector3 position)
+        {
+            return System.Math.Max(
+                System.Math.Abs((double)position.x),
+                System.Math.Max(System.Math.Abs((double)position.y), System.Math.Abs((double)position.z)));
+        }
+
         [InGameTest(Category = "TerrainClearance", Scene = GameScenes.FLIGHT,
             Description = "Loop explosion camera holds use the engine's terrain-clamped anchor instead of the buried raw root (#525)")]
         public void ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold()
@@ -11422,12 +11443,71 @@ namespace Parsek.InGameTests
             }
 
             var body = activeVessel.mainBody;
+
+            // ParsekFlight.TryResolveExplosionAnchorPosition returns the raw, buried root
+            // position untouched when the body carries no PQS terrain, so there is no clamp
+            // to observe from an orbit around a gas giant or the Sun.
+            if (body.pqsController == null)
+            {
+                InGameAssert.Skip(
+                    $"requires a body with PQS terrain for the landed-ghost clamp, " +
+                    $"got '{body.name}' (no pqsController)");
+                return;
+            }
+
             double lat = activeVessel.latitude;
             double lon = activeVessel.longitude;
+            // allowNegative: true, matching the engine's own sample. An ocean seabed
+            // (terrainAlt < 0, e.g. the ground track of a station over Kerbin's ocean) is a
+            // perfectly good fixture — the clamp is scale-free and sign-agnostic.
             double terrainAlt = body.TerrainAltitude(lat, lon, true);
-            Vector3 rawWorldPos = body.GetWorldSurfacePosition(lat, lon, terrainAlt - 1.0);
-            double expectedClearance = ParsekFlight.ComputeTerrainClearance(
-                Vector3d.Distance(rawWorldPos, activeVessel.GetWorldPos3D()));
+            Vector3 rawWorldPos = body.GetWorldSurfacePosition(
+                lat, lon, terrainAlt - ExplosionAnchorFixtureBelowTerrainMeters);
+
+            // Mirror the engine's own clearance basis: distance from the ghost's raw world
+            // position to the active vessel (ParsekFlight.TryResolveExplosionAnchorPosition).
+            double distanceToVessel = Vector3d.Distance(rawWorldPos, activeVessel.GetWorldPos3D());
+
+            // ComputeTerrainClearance steps discontinuously (0.5 m -> 2.0 m) as the ghost
+            // crosses the physics bubble. On that knee, the centimetre of float rounding
+            // between our distance and the engine's puts them on opposite sides of a 1.5 m
+            // jump, so the fixture cannot predict the clamp target.
+            double kneeOffset = System.Math.Abs(distanceToVessel - DistanceThresholds.PhysicsBubbleMeters);
+            if (kneeOffset < ExplosionAnchorClearanceKneeGuardMeters)
+            {
+                InGameAssert.Skip(
+                    $"requires the ghost anchor clear of the terrain-clearance knee: it sits " +
+                    $"{distanceToVessel.ToString("F1", CultureInfo.InvariantCulture)} m from the active vessel, " +
+                    $"within {ExplosionAnchorClearanceKneeGuardMeters.ToString("F1", CultureInfo.InvariantCulture)} m of the " +
+                    $"{DistanceThresholds.PhysicsBubbleMeters.ToString("F0", CultureInfo.InvariantCulture)} m physics-bubble step");
+                return;
+            }
+
+            double expectedClearance = ParsekFlight.ComputeTerrainClearance(distanceToVessel);
+
+            // The anchor rides a float Vector3 from the engine's clamp to this test, so the
+            // assertion band is the scene's float grid, not a fixed millimetre. KSP's floating
+            // origin tracks the active vessel, so the ghost's scene magnitude tracks its
+            // distance from that vessel: metres for a landed rocket, hundreds of kilometres for
+            // the ground track under an orbiting station. Take the grid from the raw (pre-clamp)
+            // position — the clamp moves the ghost a few metres, far too little to shift the
+            // grid step.
+            double sceneMagnitude = MaxAbsAxis(rawWorldPos);
+            double tolerance = InGameFixtureMath.SceneFloatGridToleranceMeters(sceneMagnitude);
+            double clampDisplacement = ExplosionAnchorFixtureBelowTerrainMeters + expectedClearance;
+
+            // Past ~1600 km from the floating origin a float grid step is metres, and the band
+            // would straddle the buried raw altitude the clamp is supposed to have left behind.
+            // Passing there would prove nothing.
+            if (!InGameFixtureMath.ToleranceResolvesSignal(tolerance, clampDisplacement))
+            {
+                InGameAssert.Skip(
+                    $"requires the ghost anchor close enough to the floating origin for the scene float grid " +
+                    $"to resolve the clamp: at {sceneMagnitude.ToString("F0", CultureInfo.InvariantCulture)} m the grid " +
+                    $"tolerance is {tolerance.ToString("F2", CultureInfo.InvariantCulture)} m against a " +
+                    $"{clampDisplacement.ToString("F2", CultureInfo.InvariantCulture)} m clamp");
+                return;
+            }
 
             var ghostRoot = new GameObject("ParsekTestGhost_Bug525ExplosionAnchor");
             runner.TrackForCleanup(ghostRoot);
@@ -11439,7 +11519,7 @@ namespace Parsek.InGameTests
                 ghost = ghostRoot,
                 loopCycleIndex = 0,
                 lastInterpolatedBodyName = body.name,
-                lastInterpolatedAltitude = terrainAlt - 1.0
+                lastInterpolatedAltitude = terrainAlt - ExplosionAnchorFixtureBelowTerrainMeters
             };
 
             var traj = new Recording
@@ -11467,7 +11547,7 @@ namespace Parsek.InGameTests
                 ut = 200.0,
                 latitude = lat,
                 longitude = lon,
-                altitude = terrainAlt - 1.0,
+                altitude = terrainAlt - ExplosionAnchorFixtureBelowTerrainMeters,
                 bodyName = body.name,
                 rotation = Quaternion.identity,
                 velocity = Vector3.zero,
@@ -11505,11 +11585,30 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(restartedEvents[0].ExplosionFired,
                 "Loop restart event must mark the boundary explosion as fired");
 
-            double eventAnchorAlt = body.GetAltitude(cameraEvents[0].AnchorPosition);
+            Vector3 anchorPos = cameraEvents[0].AnchorPosition;
+            double eventAnchorAlt = body.GetAltitude(anchorPos);
             double eventExplosionAlt = body.GetAltitude(restartedEvents[0].ExplosionPosition);
 
-            InGameAssert.IsGreaterThan(eventAnchorAlt, terrainAlt + expectedClearance - 0.001,
-                $"Explosion anchor must clamp above terrain+clearance before watch hold: expected >= {(terrainAlt + expectedClearance):F2}, got {eventAnchorAlt:F2}");
+            double expectedFloor = terrainAlt + expectedClearance;
+            var ic = CultureInfo.InvariantCulture;
+            ParsekLog.Info("TestRunner",
+                $"ExplosionAnchorPosition: body={body.name} " +
+                $"terrainAlt={terrainAlt.ToString("F2", ic)} " +
+                $"distToVessel={distanceToVessel.ToString("F0", ic)} " +
+                $"clearance={expectedClearance.ToString("F2", ic)} " +
+                $"expectedFloor={expectedFloor.ToString("F3", ic)} " +
+                $"anchorAlt={eventAnchorAlt.ToString("F3", ic)} " +
+                $"sceneMagnitude={sceneMagnitude.ToString("F0", ic)} " +
+                $"tolerance={tolerance.ToString("F3", ic)}");
+
+            InGameAssert.IsGreaterThan(eventAnchorAlt, expectedFloor - tolerance,
+                $"Explosion anchor must clamp above terrain+clearance before watch hold: " +
+                $"expected >= {expectedFloor.ToString("F3", ic)} (+/- {tolerance.ToString("F3", ic)} m of scene float grid " +
+                $"at magnitude {sceneMagnitude.ToString("F0", ic)}), got {eventAnchorAlt.ToString("F3", ic)}");
+            InGameAssert.IsLessThan(eventAnchorAlt, expectedFloor + tolerance,
+                $"Explosion anchor must clamp exactly to terrain+clearance, not overshoot it: " +
+                $"expected <= {expectedFloor.ToString("F3", ic)} (+/- {tolerance.ToString("F3", ic)} m of scene float grid " +
+                $"at magnitude {sceneMagnitude.ToString("F0", ic)}), got {eventAnchorAlt.ToString("F3", ic)}");
             InGameAssert.IsLessThan(
                 System.Math.Abs(eventAnchorAlt - eventExplosionAlt), 0.01,
                 "Loop camera hold and loop-restart explosion payloads must reuse the same terrain-clamped anchor");
@@ -11687,6 +11786,40 @@ namespace Parsek.InGameTests
             }
         }
 
+        /// <summary>
+        /// Padding <c>VesselSpawner.CheckSpawnCollisions</c> adds around the spawn bounds when
+        /// it calls <c>SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels</c>.
+        /// </summary>
+        private const float EvaSpawnOverlapPaddingMeters = 5f;
+
+        /// <summary>
+        /// Farthest any part origin sits from the vessel's centre of mass. An upper bound on
+        /// how far the EVA walkback has to back off before its spawn box stops touching the
+        /// parent's colliders — a pad rocket reaches ~10 m, an assembled station far more, and
+        /// the fixture has to be sized for whichever one the batch is flying.
+        /// </summary>
+        private static double ResolveParentReachMeters(Vessel vessel)
+        {
+            if (vessel == null || vessel.parts == null) return 0.0;
+
+            Vector3d com = vessel.CoMD;
+            double reach = 0.0;
+            int counted = 0;
+            for (int i = 0; i < vessel.parts.Count; i++)
+            {
+                Part part = vessel.parts[i];
+                if (part == null || part.transform == null) continue;
+                counted++;
+                double distance = Vector3d.Distance((Vector3d)part.transform.position, com);
+                if (distance > reach) reach = distance;
+            }
+
+            ParsekLog.Verbose("TestRunner",
+                $"ResolveParentReachMeters: '{vessel.vesselName}' parts={counted} " +
+                $"reach={reach.ToString("F1", CultureInfo.InvariantCulture)} m");
+            return reach;
+        }
+
         [InGameTest(Category = "EvaSpawnPosition", Scene = GameScenes.FLIGHT,
             Description = "EVA spawn walks back along trajectory when endpoint overlaps a loaded vessel")]
         public IEnumerator EvaSpawnWalkbackOnOverlap()
@@ -11702,6 +11835,35 @@ namespace Parsek.InGameTests
             if (body == null)
             {
                 InGameAssert.Skip("active vessel has no mainBody");
+                yield break;
+            }
+
+            // The end-of-recording EVA spawn is a SURFACE path. VesselSpawner clamps a Landed
+            // spawn against PQS terrain and TryWalkbackForEndOfRecordingSpawn snaps the
+            // walkback candidate with a downward raycast whose origin sits only
+            // WalkbackRaycastOriginOffsetMeters above the candidate — an altitude ceiling of
+            // ~1500 m AGL, documented on the constant. So the recorded endpoint lands on the
+            // terrain beneath the parent, and it can only overlap the parent's colliders when
+            // the parent is itself on the surface. Run the batch from an orbiting station and
+            // the endpoint is a couple hundred kilometres below it: no overlap, no walkback,
+            // and the test would silently measure nothing.
+            if (!activeVessel.LandedOrSplashed)
+            {
+                InGameAssert.Skip(
+                    $"requires a LANDED or SPLASHED active vessel — the end-of-recording EVA spawn puts " +
+                    $"its endpoint on the terrain under the parent, which can only overlap a parent that " +
+                    $"is itself on the surface, got {activeVessel.situation} at " +
+                    $"{activeVessel.altitude.ToString("F0", CultureInfo.InvariantCulture)} m altitude");
+                yield break;
+            }
+
+            // CheckOverlapAgainstLoadedVessels filters these vessel types out entirely, so
+            // such a parent can never register as the blocker the walkback needs.
+            if (Parsek.SpawnCollisionDetector.ShouldSkipVesselType(activeVessel.vesselType))
+            {
+                InGameAssert.Skip(
+                    $"requires an active vessel the spawn overlap check can see as a blocker, got " +
+                    $"vesselType={activeVessel.vesselType} (filtered by SpawnCollisionDetector.ShouldSkipVesselType)");
                 yield break;
             }
 
@@ -11723,23 +11885,82 @@ namespace Parsek.InGameTests
                 testKerbal.ChangeName(testCrewName);
                 testKerbal.rosterStatus = ProtoCrewMember.RosterStatus.Available;
 
-                // Start 100 m away from the active vessel, walk TOWARD it, terminating
-                // at the active vessel's current center-of-mass world position rather than
-                // its terrain contact point. That makes the test prove endpoint overlap
-                // up front instead of assuming the vessel bounds happen to reach the
-                // surface sample at latitude/longitude alone.
+                // Walk TOWARD the parent along a meridian and terminate on the terrain point
+                // directly beneath its centre of mass — the point VesselSpawner will actually
+                // resolve as the spawn position for this Landed EVA recording. Park the
+                // endpoint exactly on the spawner's own PQS safety floor so its
+                // ClampAltitudeForLanded is a no-op and the overlap we probe below is the
+                // overlap the spawner will see.
                 Vector3d targetWorldPos = activeVessel.CoMD;
                 double targetLat = body.GetLatitude(targetWorldPos);
                 double targetLon = body.GetLongitude(targetWorldPos);
-                double targetAlt = body.GetAltitude(targetWorldPos);
-                double latStepDeg = 5.0 / body.Radius * (180.0 / System.Math.PI);
-                double startLat = targetLat - (19 * latStepDeg);
+                double endpointAlt = body.TerrainAltitude(targetLat, targetLon)
+                    + Parsek.VesselSpawner.UndergroundSafetyFloorMeters;
 
                 int referenceBodyIndex = FlightGlobals.Bodies.IndexOf(body);
                 if (referenceBodyIndex < 0) referenceBodyIndex = 1;
 
-                // Snapshot at start position (far from parent); trajectory converges on parent.
-                double startAlt = body.TerrainAltitude(startLat, targetLon) + 0.5;
+                // Probe the spawn bounds first: they come from the snapshot's PART nodes and
+                // are independent of the position it carries, but the trajectory length below
+                // depends on them, and the trajectory length is what fixes the start position.
+                Bounds kerbalBounds = Parsek.SpawnCollisionDetector.ComputeVesselBounds(
+                    Parsek.InGameTests.Helpers.InGameKerbalEvaSnapshot.Build(
+                        testCrewName, targetLat, targetLon, endpointAlt, referenceBodyIndex, fakePid));
+                // A valid kerbalEVA snapshot yields a ~2.5 m cube. Falling into the 2 m
+                // no-parts fallback would silently undersize the fixture below.
+                InGameAssert.IsGreaterThan(kerbalBounds.size.magnitude, 1.0,
+                    "Snapshot ComputeVesselBounds should not be zero (PART pos missing?)");
+                InGameAssert.IsLessThan(kerbalBounds.size.magnitude, 6.0,
+                    "Snapshot ComputeVesselBounds should be a kerbal-sized cube (~4.33, not a multi-part vessel)");
+                double spawnBoundsExtent = System.Math.Max(
+                    kerbalBounds.extents.x,
+                    System.Math.Max(kerbalBounds.extents.y, kerbalBounds.extents.z));
+
+                // Size the fixture from the PARENT rather than from a hardcoded 100 m: the
+                // walkback has to escape the parent's colliders plus the overlap padding, and
+                // a station's reach dwarfs a pad rocket's.
+                double parentReach = ResolveParentReachMeters(activeVessel);
+                double clearanceBudget = InGameFixtureMath.ResolveWalkbackClearanceBudgetMeters(
+                    parentReach, spawnBoundsExtent, EvaSpawnOverlapPaddingMeters);
+                double trajectoryLength = InGameFixtureMath.ResolveWalkbackFixtureLengthMeters(
+                    parentReach, spawnBoundsExtent, EvaSpawnOverlapPaddingMeters);
+                double maxExpectedWalkback = InGameFixtureMath.ResolveMaxExpectedWalkbackMeters(
+                    parentReach, spawnBoundsExtent, EvaSpawnOverlapPaddingMeters);
+
+                if (!InGameFixtureMath.WalkbackFixtureCoversParent(
+                        trajectoryLength, clearanceBudget, InGameFixtureMath.WalkbackFixtureStepMeters))
+                {
+                    InGameAssert.Skip(
+                        $"requires an active vessel the walkback fixture can clear: '{activeVessel.vesselName}' " +
+                        $"reaches {parentReach.ToString("F0", CultureInfo.InvariantCulture)} m from its centre of mass, " +
+                        $"needing {clearanceBudget.ToString("F0", CultureInfo.InvariantCulture)} m of backtrack, but the " +
+                        $"fixture caps its trajectory at " +
+                        $"{InGameFixtureMath.WalkbackFixtureMaxLengthMeters.ToString("F0", CultureInfo.InvariantCulture)} m");
+                    yield break;
+                }
+
+                int pointCount = InGameFixtureMath.ResolveWalkbackFixturePointCount(
+                    trajectoryLength, InGameFixtureMath.WalkbackFixtureStepMeters);
+                int stepCount = pointCount - 1;
+                double metresPerDegLat = body.Radius * (System.Math.PI / 180.0);
+                double latStepDeg = InGameFixtureMath.WalkbackFixtureStepMeters / metresPerDegLat;
+                double latSpanDeg = stepCount * latStepDeg;
+
+                // March northward unless that would start the trajectory off the south pole.
+                double dirSign = (targetLat - latSpanDeg) >= -85.0 ? 1.0 : -1.0;
+                double startLat = targetLat - dirSign * latSpanDeg;
+                if (startLat < -89.9 || startLat > 89.9)
+                {
+                    InGameAssert.Skip(
+                        $"requires an active vessel away from the poles: a " +
+                        $"{trajectoryLength.ToString("F0", CultureInfo.InvariantCulture)} m meridian trajectory ending at " +
+                        $"latitude {targetLat.ToString("F3", CultureInfo.InvariantCulture)} runs off the pole");
+                    yield break;
+                }
+
+                // Snapshot at the start position (far from parent); trajectory converges on parent.
+                double startAlt = body.TerrainAltitude(startLat, targetLon)
+                    + Parsek.VesselSpawner.UndergroundSafetyFloorMeters;
                 var snapshot = Parsek.InGameTests.Helpers.InGameKerbalEvaSnapshot.Build(
                     testCrewName, startLat, targetLon, startAlt, referenceBodyIndex, fakePid);
 
@@ -11753,16 +11974,17 @@ namespace Parsek.InGameTests
                     TerminalStateValue = Parsek.TerminalState.Landed,
                 };
                 double ut0 = Planetarium.GetUniversalTime();
-                for (int i = 0; i < 20; i++)
+                for (int i = 0; i < pointCount; i++)
                 {
-                    double lat = startLat + (i * latStepDeg);
-                    double terrainAlt = body.TerrainAltitude(lat, targetLon) + 0.5;
+                    double lat = startLat + (dirSign * i * latStepDeg);
+                    double pointAlt = body.TerrainAltitude(lat, targetLon)
+                        + Parsek.VesselSpawner.UndergroundSafetyFloorMeters;
                     rec.Points.Add(new Parsek.TrajectoryPoint
                     {
                         ut = ut0 + i,
                         latitude = lat,
                         longitude = targetLon,
-                        altitude = terrainAlt,
+                        altitude = pointAlt,
                         bodyName = body.name,
                         rotation = Quaternion.identity,
                         velocity = Vector3.zero,
@@ -11770,13 +11992,33 @@ namespace Parsek.InGameTests
                 }
                 // (body name is already carried on each TrajectoryPoint)
 
-                Bounds kerbalBounds = Parsek.SpawnCollisionDetector.ComputeVesselBounds(snapshot);
-                Vector3d endpointWorldPos = body.GetWorldSurfacePosition(targetLat, targetLon, targetAlt);
+                ParsekLog.Info("TestRunner",
+                    $"EvaSpawnWalkbackOnOverlap fixture: parent='{activeVessel.vesselName}' " +
+                    $"parts={activeVessel.parts?.Count ?? 0} " +
+                    $"parentReach={parentReach.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"boundsExtent={spawnBoundsExtent.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"clearanceBudget={clearanceBudget.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"trajectoryLength={trajectoryLength.ToString("F1", CultureInfo.InvariantCulture)} " +
+                    $"points={pointCount} " +
+                    $"maxExpectedWalkback={maxExpectedWalkback.ToString("F1", CultureInfo.InvariantCulture)}");
+
+                Vector3d endpointWorldPos = body.GetWorldSurfacePosition(targetLat, targetLon, endpointAlt);
                 var (endpointOverlap, _, endpointBlockerName, _) =
                     Parsek.SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
-                        endpointWorldPos, kerbalBounds, 5f, skipActiveVessel: false);
-                InGameAssert.IsTrue(endpointOverlap,
-                    $"Test setup must force endpoint overlap before walkback (blocker='{endpointBlockerName ?? "none"}')");
+                        endpointWorldPos, kerbalBounds, EvaSpawnOverlapPaddingMeters, skipActiveVessel: false);
+                if (!endpointOverlap)
+                {
+                    // No blocker at the endpoint means the spawner will place the kerbal at the
+                    // recorded endpoint and never call the walkback. That is correct behavior;
+                    // it just leaves nothing for this test to measure.
+                    InGameAssert.Skip(
+                        $"requires the recorded EVA endpoint to overlap a loaded vessel: the terrain point " +
+                        $"under '{activeVessel.vesselName}' (lat={targetLat.ToString("F5", CultureInfo.InvariantCulture)}, " +
+                        $"lon={targetLon.ToString("F5", CultureInfo.InvariantCulture)}, " +
+                        $"alt={endpointAlt.ToString("F1", CultureInfo.InvariantCulture)}) is clear, so no walkback runs " +
+                        $"(blocker='{endpointBlockerName ?? "none"}')");
+                    yield break;
+                }
 
                 Parsek.VesselSpawner.SpawnOrRecoverIfTooClose(rec, 0);
 
@@ -11792,21 +12034,27 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(spawnedVessel,
                     "Spawned vessel should be findable after walkback");
 
+                var ic = CultureInfo.InvariantCulture;
                 double distFromParent = Vector3d.Distance(spawnedVessel.CoMD, activeVessel.CoMD);
-                ParsekLog.Info("TestRunner",
-                    $"EvaSpawnWalkbackOnOverlap: distFromParent={distFromParent:F1} m");
-
-                // Should land clearly outside the parent vessel but not walk all the way
-                // back to trajectory start (~100 m away). Allow a wide band because the
-                // actual distance depends on the parent vessel's computed bounds + 5 m
-                // padding and both vary from craft to craft.
-                InGameAssert.IsGreaterThan(distFromParent, 2.0,
-                    $"Walkback should have moved the spawn off the parent (was {distFromParent:F1} m)");
-                InGameAssert.IsLessThan(distFromParent, 100.0,
-                    $"Walkback should not have walked back to trajectory start (was {distFromParent:F1} m)");
                 double distFromEndpoint = Vector3d.Distance(spawnedVessel.CoMD, endpointWorldPos);
+                ParsekLog.Info("TestRunner",
+                    $"EvaSpawnWalkbackOnOverlap: distFromParent={distFromParent.ToString("F1", ic)} m " +
+                    $"distFromEndpoint={distFromEndpoint.ToString("F1", ic)} m " +
+                    $"maxExpectedWalkback={maxExpectedWalkback.ToString("F1", ic)} m");
+
+                // Should land clearly outside the parent but stop at the FIRST clear position,
+                // not run down the trajectory. The upper bound is derived from this parent's
+                // own reach plus the spawn box the collision detector tests with, so it holds
+                // for a pad rocket and an assembled station alike.
+                InGameAssert.IsGreaterThan(distFromParent, 2.0,
+                    $"Walkback should have moved the spawn off the parent (was {distFromParent.ToString("F1", ic)} m)");
+                InGameAssert.IsLessThan(distFromParent, maxExpectedWalkback,
+                    $"Walkback should stop at the first clear position, not run down the trajectory " +
+                    $"(was {distFromParent.ToString("F1", ic)} m; parent reach " +
+                    $"{parentReach.ToString("F1", ic)} m allows at most {maxExpectedWalkback.ToString("F1", ic)} m " +
+                    $"over a {trajectoryLength.ToString("F1", ic)} m fixture)");
                 InGameAssert.IsGreaterThan(distFromEndpoint, 1.0,
-                    $"Walkback should move the EVA off the overlapping endpoint (was {distFromEndpoint:F1} m)");
+                    $"Walkback should move the EVA off the overlapping endpoint (was {distFromEndpoint.ToString("F1", ic)} m)");
 
                 // Assert the runtime walkback path ran. The helper and the spawn wrapper
                 // emit separate lines; accept either so the test keys off behavior, not
