@@ -272,7 +272,7 @@ namespace Parsek.InGameTests
                     committedAdded.Add(rec);
                 }
 
-                Route route = BuildKscLoopRoute(routeId, routeTreeId, activeVessel);
+                Route route = BuildKscLoopRoute(routeId, routeTreeId, activeVessel, routeTree);
                 RouteStore.AddRoute(route);
                 routeAdded = RouteStore.TryGetRoute(routeId, out _);
                 InGameAssert.IsTrue(routeAdded, "Loop route was not stored");
@@ -608,7 +608,23 @@ namespace Parsek.InGameTests
         /// tree) delivering <see cref="DeliveryAmount"/> LiquidFuel onto the active
         /// vessel at the dock crossing. Mirrors the loop-fire harness route shape.
         /// </summary>
-        private static Route BuildKscLoopRoute(string routeId, string routeTreeId, Vessel destination)
+        private static RouteSourceRef BuildMirroredSourceRef(Recording rec)
+        {
+            return new RouteSourceRef
+            {
+                RecordingId = rec.RecordingId,
+                TreeId = rec.TreeId,
+                TreeOrder = rec.TreeOrder,
+                RecordingFormatVersion = rec.RecordingFormatVersion,
+                RecordingSchemaGeneration = rec.RecordingSchemaGeneration,
+                SidecarEpoch = rec.SidecarEpoch,
+                StartUT = rec.StartUT,
+                EndUT = rec.EndUT,
+                RouteProofHash = RouteProofHasher.ComputeRouteProofHashFromRecording(rec)
+            };
+        }
+
+        private static Route BuildKscLoopRoute(string routeId, string routeTreeId, Vessel destination, RecordingTree tree)
         {
             return new Route
             {
@@ -642,10 +658,15 @@ namespace Parsek.InGameTests
                     { LiquidFuelName, DeliveryAmount },
                 },
                 RecordingIds = new List<string> { LaunchRecId, DockedRecId },
+                // Source refs must mirror the member recordings field-for-field
+                // (RouteBuilder shape, incl. the proof hash): RevalidateSources
+                // compares EVERY field against a live ref rebuilt from the
+                // recording, and any hand-built partial ref reads as drift ->
+                // SourceChanged -> the route is skipped (2026-07-08 gate run).
                 SourceRefs = new List<RouteSourceRef>
                 {
-                    new RouteSourceRef { RecordingId = LaunchRecId, TreeId = routeTreeId },
-                    new RouteSourceRef { RecordingId = DockedRecId, TreeId = routeTreeId },
+                    BuildMirroredSourceRef(tree.Recordings[LaunchRecId]),
+                    BuildMirroredSourceRef(tree.Recordings[DockedRecId]),
                 },
                 Stops = new List<RouteStop>
                 {
@@ -790,7 +811,11 @@ namespace Parsek.InGameTests
         // 1000, undock 3000 (mirrors the loop-fire harness topology so ERS resolves
         // the launch + docked members). Ids carry the test-unique prefix so they can
         // never collide with recordings already in the loaded save (see the RecId
-        // constants for the failure this prevents).
+        // constants for the failure this prevents). Every recording carries TreeId:
+        // RouteStore.RevalidateSources (triggered by the Rec-1 Restore's
+        // state-version bump) mirrors rec.TreeId into the live comparison ref, and
+        // a null TreeId reads as tree-id drift -> SourceChanged -> re-fly skipped
+        // (second gate-run failure, 2026-07-08).
         private static RecordingTree BuildLaunchDockUndockTree(string treeId)
         {
             var tree = new RecordingTree { Id = treeId, RootRecordingId = LaunchRecId };
@@ -798,6 +823,8 @@ namespace Parsek.InGameTests
             tree.Recordings[DockedRecId] = Leg(DockedRecId, "C0", 1, 2000, 3000, "Transport");
             tree.Recordings[SurvivorRecId] = Leg(SurvivorRecId, "C0", 2, 3000, 4000, "Transport");
             tree.Recordings[PayloadRecId] = Leg(PayloadRecId, "C1", 0, 3000, 3500, "Payload");
+            foreach (var rec in tree.Recordings.Values)
+                rec.TreeId = treeId;
             tree.BranchPoints.Add(BP("dock-bp", BranchPointType.Dock,
                 new[] { LaunchRecId }, new[] { DockedRecId }, 2000));
             tree.BranchPoints.Add(BP("undock-bp", BranchPointType.Undock,
