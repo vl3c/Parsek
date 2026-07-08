@@ -811,7 +811,7 @@ namespace Parsek.Tests
             // At exactly budget/base the two branches meet: no cadence discontinuity.
             float threshold = ParsekPlaybackPolicy.MapOrbitReseedMaxGameSecondsPerTick / ReseedBase;
             Assert.Equal(ReseedBase,
-                ParsekPlaybackPolicy.ResolveMapOrbitReseedIntervalSec(ReseedBase, threshold), 6);
+                ParsekPlaybackPolicy.ResolveMapOrbitReseedIntervalSec(ReseedBase, threshold), precision: 6);
         }
 
         [Theory]
@@ -826,7 +826,7 @@ namespace Parsek.Tests
             Assert.True(interval > 0f && interval < ReseedBase);
             // The law's whole point: one tick spans at most the game-time budget.
             Assert.Equal(ParsekPlaybackPolicy.MapOrbitReseedMaxGameSecondsPerTick,
-                interval * warpRate, 3);
+                interval * warpRate, precision: 3);
         }
 
         [Fact]
@@ -849,7 +849,7 @@ namespace Parsek.Tests
             // At a steady rate the armed deadline never exceeds now + interval, so the clamp
             // must return it unchanged (1x byte-identity: the pre-fix timer behavior).
             Assert.Equal(100.4f,
-                ParsekPlaybackPolicy.ClampPendingReseedDeadline(100.4f, 100.0f, 0.5f), 6);
+                ParsekPlaybackPolicy.ClampPendingReseedDeadline(100.4f, 100.0f, 0.5f), precision: 6);
         }
 
         [Fact]
@@ -859,7 +859,7 @@ namespace Parsek.Tests
             // (current interval 0.03 s) must fire within the NEW game-time budget, not
             // ride out the stale 0.45 s (= ~450 game-s at the new rate).
             Assert.Equal(100.03f,
-                ParsekPlaybackPolicy.ClampPendingReseedDeadline(100.45f, 100.0f, 0.03f), 5);
+                ParsekPlaybackPolicy.ClampPendingReseedDeadline(100.45f, 100.0f, 0.03f), precision: 5);
         }
 
         [Fact]
@@ -868,7 +868,7 @@ namespace Parsek.Tests
             // A tick armed at extreme warp (deadline now+0.0003) with warp dropped to 1x
             // (interval 0.5 s) keeps its shorter armed deadline: one early reseed, harmless.
             Assert.Equal(100.0003f,
-                ParsekPlaybackPolicy.ClampPendingReseedDeadline(100.0003f, 100.0f, 0.5f), 5);
+                ParsekPlaybackPolicy.ClampPendingReseedDeadline(100.0003f, 100.0f, 0.5f), precision: 5);
         }
 
         // -----------------------------------------------------------------
