@@ -245,5 +245,67 @@ namespace Parsek.Tests
             Assert.Single(Ledger.Actions);
             Assert.Equal("a1", Ledger.Actions[0].ActionId);
         }
+
+        // ---- Rec-1: route-row retire on the SUCCESS restore path ----
+        // (logistics<->time-rewind determinism; plan
+        //  docs/dev/plans/fix-logistics-rewind-determinism.md)
+
+        private static GameAction MakeRouteAction(string actionId, double ut, GameActionType type)
+        {
+            return new GameAction
+            {
+                ActionId = actionId,
+                Type = type,
+                UT = ut,
+                RouteId = "route-1",
+            };
+        }
+
+        [Fact]
+        public void Restore_WithRouteCutoff_DropsFutureRouteRows_KeepsPastAndNonRoute()
+        {
+            MakeScenario();
+            // non-route future row (kept regardless of UT), past route row (<= cutoff, kept),
+            // three future route rows (> cutoff, dropped).
+            Ledger.AddAction(MakeAction("nonroute-future", 3000.0)); // FundsEarning
+            Ledger.AddAction(MakeRouteAction("route-past", 2000.0, GameActionType.RouteCargoDebited));
+            Ledger.AddAction(MakeRouteAction("route-disp", 3000.0, GameActionType.RouteDispatched));
+            Ledger.AddAction(MakeRouteAction("route-deliv", 3000.0, GameActionType.RouteCargoDelivered));
+            Ledger.AddAction(MakeRouteAction("route-credit", 3500.0, GameActionType.RouteRecoveryCredited));
+
+            var bundle = ReconciliationBundle.Capture();
+            // Capture is UNCHANGED: the bundle holds all five rows (so the failed-load
+            // rollback can restore them intact).
+            Assert.Equal(5, bundle.Actions.Count);
+
+            Ledger.Clear();
+            ReconciliationBundle.Restore(bundle, 2500.0);
+
+            // Three future route rows dropped; the non-route future row + the past route row kept.
+            Assert.Equal(2, Ledger.Actions.Count);
+            Assert.Contains(Ledger.Actions, a => a.ActionId == "nonroute-future");
+            Assert.Contains(Ledger.Actions, a => a.ActionId == "route-past");
+            Assert.DoesNotContain(Ledger.Actions, a => a.ActionId == "route-disp");
+            Assert.DoesNotContain(Ledger.Actions, a => a.ActionId == "route-deliv");
+            Assert.DoesNotContain(Ledger.Actions, a => a.ActionId == "route-credit");
+        }
+
+        [Fact]
+        public void Restore_Parameterless_KeepsAllRouteRows_RollbackContract()
+        {
+            MakeScenario();
+            Ledger.AddAction(MakeRouteAction("route-disp", 3000.0, GameActionType.RouteDispatched));
+            Ledger.AddAction(MakeAction("nonroute", 10.0));
+
+            var bundle = ReconciliationBundle.Capture();
+            Ledger.Clear();
+            // Parameterless overload = +inf cutoff = retire NOTHING (the failed-load
+            // rollback contract: the player stays in the pre-rewind world, so the
+            // pre-rewind route rows must be restored intact).
+            ReconciliationBundle.Restore(bundle);
+
+            Assert.Equal(2, Ledger.Actions.Count);
+            Assert.Contains(Ledger.Actions, a => a.ActionId == "route-disp");
+        }
     }
 }
