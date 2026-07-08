@@ -708,11 +708,32 @@ namespace Parsek
 
             // Step 1: reconcile. Runs now — it only touches scenario state and
             // does not depend on FlightGlobals.Vessels being populated.
+            // Rec-1 (logistics<->time-rewind determinism): pass the POST-LOAD live UT
+            // (= the loaded quicksave UT, computed just below) as the route-row retire
+            // cutoff so abandoned-future free-standing route ledger rows are dropped here
+            // (SUCCESS path only) — NOT rp.UT, which is a frame too early (see the inner
+            // comment / edge-case finding #4). The failed-load rollback (TryRestoreBundle)
+            // uses the parameterless overload, so it retires nothing and the pre-rewind
+            // ledger is restored intact.
             if (hasBundle)
             {
                 try
                 {
-                    ReconciliationBundle.Restore(bundle);
+                    // Rec-1 route-row retire cutoff = the UT the WORLD actually reverted
+                    // to (the loaded quicksave's UT), which at this post-load point IS the
+                    // live UT — the universe just loaded at it. This is preferred over
+                    // rp.UT: rp.UT is captured at RewindPointAuthor.Begin one frame BEFORE
+                    // the deferred quicksave save, so it is ~one frame EARLIER than the UT
+                    // the .sfs embeds; using it could drop a route row in the
+                    // (rp.UT, quicksaveUT] window whose physical effect IS in the reverted
+                    // world, which the re-fly would then double-apply (edge-case review
+                    // finding #4). Fall back to rp.UT if the live UT is unavailable
+                    // (SafeNow returns 0.0 on failure).
+                    double liveUT = SafeNow();
+                    double retireCutoffUT = liveUT > 0.0 ? liveUT : rp.UT;
+                    ParsekLog.Info(InvokeTag,
+                        $"ConsumePostLoad: restoring bundle with route-retire cutoffUT={retireCutoffUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} (liveUT={liveUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}, rp.UT={rp.UT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)})");
+                    ReconciliationBundle.Restore(bundle, retireCutoffUT);
                 }
                 catch (Exception ex)
                 {

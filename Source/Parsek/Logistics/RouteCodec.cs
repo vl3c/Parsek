@@ -167,6 +167,17 @@ namespace Parsek.Logistics
                 node.AddValue("lastObservedLoopCycleIndex",
                     route.LastObservedLoopCycleIndex.ToString(ic));
 
+            // (M5 D3/D6) Sparse windowed-basis state: the residual-modulo offset
+            // anchor (-1 = unset) and the basis flip-detector marker (false =
+            // never engaged). Both omitted at their defaults so every pre-M5 /
+            // flat / zero-drift route node stays byte-identical (mirrors the
+            // lastObservedLoopCycleIndex sparse convention above).
+            if (route.WindowAnchorCycleIndex != -1)
+                node.AddValue("windowAnchorCycleIndex",
+                    route.WindowAnchorCycleIndex.ToString(ic));
+            if (route.ReaimWindowBasisEngaged)
+                node.AddValue("reaimWindowBasisEngaged", route.ReaimWindowBasisEngaged.ToString());
+
             // Recovery-credit deferral marker (logistics-recovery-credit section 5.6).
             // Sparse: null cycle id / -1 dispatch UT are the "no credit owed"
             // defaults, so omit both. This is the credit's save/reload re-fire guard,
@@ -333,6 +344,12 @@ namespace Parsek.Logistics
                 out route.RecordedOriginUndockUT);
             TryParseDoubleWithDefault(node.GetValue("loopAnchorUT"), inv, ic, -1.0, out route.LoopAnchorUT);
             TryParseLong(node.GetValue("lastObservedLoopCycleIndex"), ic, -1L, out route.LastObservedLoopCycleIndex);
+
+            // (M5 D3/D6) Sparse windowed-basis state: missing anchor -> -1
+            // (unset; first crossing adopts), missing marker -> false (never
+            // engaged). Every pre-M5 save has neither key.
+            TryParseLong(node.GetValue("windowAnchorCycleIndex"), ic, -1L, out route.WindowAnchorCycleIndex);
+            TryParseBool(node.GetValue("reaimWindowBasisEngaged"), out route.ReaimWindowBasisEngaged);
 
             // Recovery-credit deferral marker (logistics-recovery-credit section 5.6).
             // Missing pendingRecoveryCreditCycleId -> null (no credit owed); missing

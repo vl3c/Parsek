@@ -114,9 +114,13 @@ namespace Parsek.Logistics
         /// clock still reads <see cref="DispatchInterval"/> directly (Phase 4
         /// unchanged); <see cref="CadenceMultiplier"/> is only the UI/derivation
         /// handle. Always clamp <c>&gt;= 1</c> on every write (UI, builder, codec).
-        /// Post-v0 inter-body: <c>N</c> becomes a modulo on the scheduled-launch index
-        /// rather than a multiplier on a fixed interval (the
-        /// <c>RouteLoopClock</c> schedule passthrough is the seam).
+        /// M5 inter-body: <c>N</c> applies as a RESIDUAL modulo on the window
+        /// index (<c>RouteLoopClock.ResolveResidualCadence</c>) - OFF for a
+        /// flat route (N lives in the interval, this v0 contract), 1 for a
+        /// zero-drift scheduled route (N is consumed Missions-side by the
+        /// schedule's minSpacing throttle), N for a re-aim synodic route
+        /// (deliver every Nth rendered window, anchored at
+        /// <see cref="WindowAnchorCycleIndex"/>).
         /// </summary>
         public int CadenceMultiplier = 1;
 
@@ -428,6 +432,41 @@ namespace Parsek.Logistics
         /// double-fire. Default -1 (no cycle observed yet).
         /// </summary>
         public long LastObservedLoopCycleIndex = -1;
+
+        /// <summary>
+        /// (M5 D3) Window index adopted on the FIRST owed crossing that ARRIVES
+        /// under the <c>RouteWindowBasis.ReaimWindows</c> basis - the offset
+        /// anchor of the residual cadence modulo (deliver every Nth window
+        /// counted from this). Adoption is on crossing ARRIVAL, not on a
+        /// successful fire: the anchor is set even when that crossing then
+        /// blocks on eligibility and emits nothing (the plan's literal adoption
+        /// rule - the anchor pins the window PHASE, not a delivery).
+        /// -1 = unset; when -1 and an owed crossing arrives on a ReaimWindows
+        /// unit, the crossing adopts <c>anchor = dockCycleIndex</c> and is
+        /// deliverable (the first crossing after creation / activation / rebase
+        /// is ALWAYS deliverable). Reset to -1 wherever <see cref="LastObservedLoopCycleIndex"/>
+        /// rebases (<c>RouteOrchestrator.TryActivate</c>,
+        /// <c>RouteCadence.ApplyMultiplier</c>, the <c>RouteBuilder</c> default)
+        /// and on every D6 basis transition. Never consulted for
+        /// <c>FlatInterval</c> / <c>ZeroDriftSchedule</c> routes (their residual
+        /// is off / 1). Sparse in the codec: omitted at -1 so pre-M5 route nodes
+        /// stay byte-identical.
+        /// </summary>
+        public long WindowAnchorCycleIndex = -1;
+
+        /// <summary>
+        /// (M5 D6) Persisted flip-detector marker: true while the route's last
+        /// evaluated tick derived the <c>RouteWindowBasis.ReaimWindows</c> basis.
+        /// NOT a basis cache (the basis is re-derived from the resolved unit
+        /// every tick); only the memory that lets the transition evaluator
+        /// detect a build-level engage/decline FLIP across ticks (and across
+        /// save/reload) and re-baseline the cycle cursors between the flat and
+        /// window index spaces - a stale cursor from one space compared in the
+        /// other either mis-fires (decline) or permanently silences the route
+        /// (re-engage, review C6). Sparse in the codec: omitted when false so
+        /// pre-M5 route nodes stay byte-identical.
+        /// </summary>
+        public bool ReaimWindowBasisEngaged;
 
         /// <summary>
         /// Recovery-credit deferral marker (logistics-recovery-credit, design doc
