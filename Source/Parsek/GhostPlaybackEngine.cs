@@ -400,7 +400,10 @@ namespace Parsek
                     unit.ArrivalAlignPeriodSeconds,
                     unit.LaunchBodyRotationPeriodSeconds,
                     unit.LaunchHoldEngaged,
-                    unit.RecordedSoiExitUT))
+                    unit.RecordedSoiExitUT,
+                    unit.ArrivalJointSecondaryPeriodSeconds,
+                    unit.ArrivalJointSecondaryToleranceSeconds,
+                    unit.ArrivalJointMaxWholeHoldPeriods))
             {
                 return false;
             }
@@ -1927,7 +1930,10 @@ namespace Parsek
                                 parentUnit.LoiterCuts, parentUnit.ArrivalHoldSeconds, parentUnit.ArrivalHoldAtUT,
                                 parentUnit.ArrivalAlignPeriodSeconds,
                                 parentUnit.LaunchBodyRotationPeriodSeconds, parentUnit.LaunchHoldEngaged,
-                                parentUnit.RecordedSoiExitUT))
+                                parentUnit.RecordedSoiExitUT,
+                                parentUnit.ArrivalJointSecondaryPeriodSeconds,
+                                parentUnit.ArrivalJointSecondaryToleranceSeconds,
+                                parentUnit.ArrivalJointMaxWholeHoldPeriods))
                         {
                             GhostRenderTrace.EmitGuardSkip(
                                 traj, i, ctx.currentUT, "parent-unit-span-clock-unresolved");
@@ -2330,7 +2336,9 @@ namespace Parsek
                 memberStartUT, memberEndUT, out double spanLoopUT, out long unitCycle,
                 out bool isInInterCycleTail, unit.RelaunchSchedule, unit.LoiterCuts,
                 unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds,
-                unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT);
+                unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT,
+                unit.ArrivalJointSecondaryPeriodSeconds, unit.ArrivalJointSecondaryToleranceSeconds,
+                unit.ArrivalJointMaxWholeHoldPeriods);
 
             // Cycle-wrap / camera-handoff diagnostics + watch retarget: the first member of the unit
             // to run this frame observes the unit-wide transition and acts once (rate-limited per
@@ -2417,6 +2425,57 @@ namespace Parsek
                 }
             }
 
+            // DESCENT HANDOFF hide (the engine side of the ResolveTrackingStationSampleUT transfer-member
+            // hide, via the SAME pure decision - ShouldHideNonDescentMemberForDescentHandoff - so flight and
+            // map/TS can never disagree): once the unit-wide descent phase is Descent, the re-anchored
+            // descent member's ghost is playing the approach clip, so a CURRENTLY-RENDERING non-descent
+            // member (the transfer/loiter member circling the shifted parking conic) must HIDE its flight
+            // 3D ghost - otherwise two vessels coexist at the handoff (the parking ghost + the descent
+            // ghost), the engine twin of the TS double-icon bug (2026-06-20 13:34 log). Gated identically
+            // to the TS site: HasDescentTrigger + decision==Render only, byte-identical everywhere else;
+            // Inert / Loiter / Done phases keep rendering (the loiter ghost is correct until the trigger
+            // fires). Checked BEFORE the loiter-gap clamp, matching the resolver's order (the handoff hide
+            // wins over the loiter wrap). The forced HiddenOutsideWindow routes through the existing (3)
+            // teardown, exactly like a descent member's own hide (watched-owner and boundary-secondary
+            // handling included).
+            bool hiddenForDescentHandoff = false;
+            if (!descentMember
+                && decision == GhostPlaybackLogic.UnitMemberRenderDecision.Render
+                && unit.HasDescentTrigger)
+            {
+                bool hideForDescentHandoff = GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
+                    unit, i, ctx.currentUT, unitCycle,
+                    out Parsek.Reaim.DescentTrigger.DescentHeadPhase unitDescentPhase);
+                var hdic = CultureInfo.InvariantCulture;
+                double handoffLiveUT = ctx.currentUT;
+                double handoffLoopUT = spanLoopUT;
+                ParsekLog.VerboseRateLimited(
+                    "ReaimDescent",
+                    // Bounded by mission x member x phase x action (NOT frame count), matching the resolver's
+                    // transfer-handoff key shape; "engine-" prefix keeps it distinct from the resolver line
+                    // (which the polyline Driver also reaches in FLIGHT) so the two surfaces correlate. The
+                    // MESSAGE goes through the deferring Func overload so the expensive ToString("R") body is
+                    // built only on the frames that actually emit (this line fires per rendering non-descent
+                    // member per frame; the key concat is unavoidable - it addresses the rate-limit state).
+                    "engine-transfer-handoff." + unit.PhaseAnchorUT.ToString("R", hdic) + "."
+                        + unit.SpanStartUT.ToString("R", hdic) + "." + i.ToString(hdic) + "."
+                        + unitDescentPhase + "." + hideForDescentHandoff,
+                    () => "engine transfer/loiter member=" + i.ToString(hdic)
+                        + " cycle=" + unitCycle.ToString(hdic)
+                        + " unitDescentPhase=" + unitDescentPhase
+                        + " baseDecision=Render liveUT=" + handoffLiveUT.ToString("R", hdic)
+                        + " loopUT=" + handoffLoopUT.ToString("R", hdic)
+                        + " -> " + (hideForDescentHandoff
+                            ? "HIDDEN (descent playing; hand off to descent member, no double ghost)"
+                            : "kept (loiter/normal ghost)"),
+                    5.0);
+                if (hideForDescentHandoff)
+                {
+                    hiddenForDescentHandoff = true;
+                    decision = GhostPlaybackLogic.UnitMemberRenderDecision.HiddenOutsideWindow;
+                }
+            }
+
             // Transfer-member loiter-gap clamp (the rogue-descent fix; the engine side of the
             // ResolveTrackingStationSampleUT clamp): the NON-descent destination transfer member's raw span clock
             // sweeps PAST the parking conic into the recorded deorbit -> descent arc while the LIVE descent trigger
@@ -2472,7 +2531,9 @@ namespace Parsek
                     memberStartUT, memberEndUT, out boundarySecondaryLoopUT, out boundarySecondaryCycle,
                     unit.RelaunchSchedule, unit.LoiterCuts,
                     unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds,
-                    unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT);
+                    unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT,
+                    unit.ArrivalJointSecondaryPeriodSeconds, unit.ArrivalJointSecondaryToleranceSeconds,
+                    unit.ArrivalJointMaxWholeHoldPeriods);
             }
             bool boundarySecondaryLive =
                 boundarySecondaryDecision == GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.Render;
@@ -2493,13 +2554,23 @@ namespace Parsek
                 }
                 else
                 {
+                    // The descent-handoff hide reaches here with an IN-window loopUT (the member was
+                    // Render before the forced hide), so name the real reason instead of the misleading
+                    // "outside its window". Distinct key too, so a genuine out-of-window hide of the same
+                    // member is never deduped away behind a handoff line (or vice versa).
                     ParsekLog.VerboseRateLimited(
-                        "Engine", unitKey + "-hide-" + i.ToString(CultureInfo.InvariantCulture),
+                        "Engine",
+                        unitKey + (hiddenForDescentHandoff ? "-handoff-hide-" : "-hide-")
+                            + i.ToString(CultureInfo.InvariantCulture),
                         "Chain-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
                             + " member #" + i.ToString(CultureInfo.InvariantCulture)
                             + " hidden: loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture)
-                            + " outside its window [" + memberStartUT.ToString("F2", CultureInfo.InvariantCulture)
-                            + "," + memberEndUT.ToString("F2", CultureInfo.InvariantCulture) + "]",
+                            + (hiddenForDescentHandoff
+                                ? " descent handoff (unit descent playing; window ["
+                                : " outside its window [")
+                            + memberStartUT.ToString("F2", CultureInfo.InvariantCulture)
+                            + "," + memberEndUT.ToString("F2", CultureInfo.InvariantCulture) + "]"
+                            + (hiddenForDescentHandoff ? ")" : ""),
                         5.0);
                 }
                 GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "mission-loop-unit-inactive");
@@ -2553,7 +2624,9 @@ namespace Parsek
                 }
                 if (ghostActive)
                 {
-                    DestroyGhost(i, traj, f, reason: "chain-loop unit member outside its window");
+                    DestroyGhost(i, traj, f, reason: hiddenForDescentHandoff
+                        ? "descent handoff hide (unit descent playing)"
+                        : "chain-loop unit member outside its window");
                     DestroyAllOverlapGhosts(i);
                 }
                 CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);

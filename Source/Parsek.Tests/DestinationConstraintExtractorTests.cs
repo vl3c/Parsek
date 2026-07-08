@@ -152,10 +152,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TwoConstrainedMoons_JoolClass_FailsClosed()
+        public void TwoConstrainedMoons_JoolClass_EmitsMultiMoonSet()
         {
-            // A Jool-class destination the recorded arc visits two moons of: detect and fail closed to
-            // faithful (no constraints), Supported == false with a reason.
+            // M-MIS-6 (supersedes the pre-M-MIS-6 fail-closed pin): a Jool-class destination the
+            // recorded arc visits two moons of EMITS the full multi-moon set - Supported, all
+            // MoonConfigs in Constraints (plus the DestRotation); the multi-moon configuration
+            // hold decides engage-vs-amber downstream in ArrivalHoldPlanner.
             var all = new List<PhaseConstraint>
             {
                 Rotation("Jool"),
@@ -167,10 +169,14 @@ namespace Parsek.Tests
 
             var r = DestinationConstraintExtractor.ExtractDestinationConstraints(all, "Jool", bodies);
 
-            Assert.False(r.Supported);
+            Assert.True(r.Supported);
+            Assert.Null(r.Reason);
             Assert.Equal(2, r.ConstrainedMoonCount);
-            Assert.Empty(r.Constraints);             // fail closed
-            Assert.Contains("2 constrained moons", r.Reason);
+            Assert.Equal(3, r.Constraints.Count);    // DestRotation(Jool) + 2 MoonConfigs
+            Assert.Contains(r.Constraints, c => c.Kind == ConstraintKind.Rotation && c.BodyName == "Jool");
+            Assert.Contains(r.Constraints, c => c.Kind == ConstraintKind.Orbital && c.BodyName == "Laythe");
+            Assert.Contains(r.Constraints, c => c.Kind == ConstraintKind.Orbital && c.BodyName == "Vall");
+            Assert.Empty(r.MoonRotations);           // no moon landing recorded here
         }
 
         [Fact]
@@ -218,12 +224,14 @@ namespace Parsek.Tests
         public void MoonRotation_NotCountedAsMoonConfig()
         {
             // A moon's ROTATION constraint must never be mistaken for a MoonConfig (which is an Orbital
-            // SOI entry). With Rotation(Ike) present, only the Orbital(Ike) counts as the moon; Ike's
-            // rotation is dropped, and DestRotation stays the target (Duna) rotation.
+            // SOI entry). With Rotation(Ike) present, only the Orbital(Ike) counts as the moon and the
+            // Constraints list is unchanged (DestRotation = the target rotation); since M-MIS-6 the
+            // moon's rotation is captured in the separate MoonRotations field (consumed only by the
+            // multi-moon configuration hold, so this 1-moon shape stays byte-identical).
             var all = new List<PhaseConstraint>
             {
                 Rotation("Duna"),
-                Rotation("Ike"),                       // a moon's rotation - must be ignored entirely
+                Rotation("Ike"),                       // a moon's rotation - never in Constraints
                 Orbital("Ike", period: 65518.0),       // the only thing that makes Ike a constrained moon
             };
             var bodies = Bodies(("Duna", "Sun"), ("Ike", "Duna"));
@@ -236,6 +244,8 @@ namespace Parsek.Tests
             Assert.Equal("Duna", r.Constraints[0].BodyName);   // DestRotation is the target's rotation
             Assert.Equal(ConstraintKind.Rotation, r.Constraints[0].Kind);
             Assert.DoesNotContain(r.Constraints, c => c.Kind == ConstraintKind.Rotation && c.BodyName == "Ike");
+            Assert.Single(r.MoonRotations);                    // M-MIS-6: captured for the config hold
+            Assert.Equal("Ike", r.MoonRotations[0].BodyName);
         }
 
         [Fact]
@@ -319,9 +329,10 @@ namespace Parsek.Tests
         [Fact]
         public void MoonOrbitingStation_FailsClosed_WithInSystemReason()
         {
-            // M4c plan test 7b: a station orbiting a MOON of the target (an Ike depot on a Duna
-            // mission) is in-system geometry the single-period hold cannot align - fail closed,
-            // HasStation set (so the arrival amber fires), reason names the shape.
+            // M4c plan test 7b, reason updated by the post-M4c joint wiring: a station orbiting
+            // a MOON of the target (an Ike depot on a Duna mission) is in-system geometry the
+            // joint solve does not cover - fail closed, HasStation set (so the arrival amber
+            // fires), reason names what is still unsupported.
             var all = new List<PhaseConstraint> { Orbital("Duna"), Station("Ike") };
             var bodies = Bodies(("Duna", "Sun"), ("Ike", "Duna"));
 
@@ -329,15 +340,18 @@ namespace Parsek.Tests
 
             Assert.False(r.Supported);
             Assert.True(r.HasStation);
-            Assert.Contains("in-system station alignment deferred", r.Reason);
+            Assert.Contains("moon-orbiting station stays fail-closed", r.Reason);
             Assert.Contains("Ike", r.Reason);
         }
 
         [Fact]
-        public void StationPlusLanding_D8_FailsClosed()
+        public void StationPlusLanding_JointCandidate_StaysSupported()
         {
-            // M4c plan test 8a (design D8): landing rotation + station at one destination has no
-            // single hold satisfying both periods - fail closed with the reason as the amber.
+            // Post-M4c SolveArrivalWindow wiring (supersedes the M4c fail-closed pin for D8
+            // shape a): landing rotation + station at one destination stays Supported and is
+            // flagged the JOINT candidate; ArrivalHoldPlanner's joint branch decides
+            // engage-vs-amber. The Constraints contract is unchanged (DestRotation only; the
+            // station rides the dedicated StationConstraint field).
             var all = new List<PhaseConstraint>
             {
                 Rotation("Duna"), Orbital("Duna"), Station("Duna"),
@@ -346,17 +360,23 @@ namespace Parsek.Tests
 
             var r = DestinationConstraintExtractor.ExtractDestinationConstraints(all, "Duna", bodies);
 
-            Assert.False(r.Supported);
+            Assert.True(r.Supported);
             Assert.True(r.HasStation);
             Assert.True(r.HasLandingRotation);
-            Assert.Contains("no single arrival hold aligns both periods", r.Reason);
+            Assert.True(r.IsJointLandingStation);
+            Assert.NotNull(r.StationConstraint);
+            Assert.Equal(ConstraintKind.VesselOrbital, r.StationConstraint.Value.Kind);
+            Assert.Single(r.Constraints);
+            Assert.Equal(ConstraintKind.Rotation, r.Constraints[0].Kind);
+            Assert.Null(r.Reason);
         }
 
         [Fact]
         public void StationPlusConstrainedMoon_D8Widened_FailsClosed()
         {
-            // M4c plan test 8b (the D8 widening): a constrained moon is a second destination-side
-            // period exactly like a landing rotation - station + moon fails closed the same way.
+            // M4c plan test 8b (the D8 widening), reason updated by the post-M4c joint wiring:
+            // a constrained moon is a THIRD destination-side period the landing+station joint
+            // solve does not cover - station + moon stays fail-closed.
             var all = new List<PhaseConstraint>
             {
                 Orbital("Duna"), Orbital("Ike", period: 65518.0), Station("Duna"),
@@ -367,8 +387,9 @@ namespace Parsek.Tests
 
             Assert.False(r.Supported);
             Assert.True(r.HasStation);
+            Assert.False(r.IsJointLandingStation);
             Assert.Equal(1, r.ConstrainedMoonCount);
-            Assert.Contains("no single arrival hold aligns both periods", r.Reason);
+            Assert.Contains("covers landing+station only", r.Reason);
         }
 
         [Fact]
@@ -387,16 +408,18 @@ namespace Parsek.Tests
             Assert.True(r.Supported);
             Assert.False(r.HasStation);
             Assert.True(r.HasLandingRotation);
+            Assert.False(r.IsJointLandingStation);
             Assert.Equal(1, r.ConstrainedMoonCount);
             Assert.Equal(2, r.Constraints.Count);
         }
 
         [Fact]
-        public void StationBearingJoolClass_JoolReasonWins_StationFieldsSurvive()
+        public void StationBearingJoolClass_StationMoonReasonWins_StationFieldsSurvive()
         {
-            // M4c plan test 8d: the Jool-class (2+ moons) early return stays FIRST and its reason
-            // wins, but the station fields are populated before the return so the arrival amber
-            // still fires for a station-bearing Jool destination.
+            // M4c plan test 8d, REVISED by M-MIS-6: with the 2+-moon early return gone, the
+            // station+moon reject owns the station-bearing Jool-class shape (still fail-closed -
+            // the config hold covers the NO-station multi-moon shape only), and the station
+            // fields are populated so the arrival amber still fires.
             var all = new List<PhaseConstraint>
             {
                 Orbital("Jool"), Orbital("Laythe", period: 52981.0), Orbital("Vall", period: 105962.0),
@@ -407,7 +430,7 @@ namespace Parsek.Tests
             var r = DestinationConstraintExtractor.ExtractDestinationConstraints(all, "Jool", bodies);
 
             Assert.False(r.Supported);
-            Assert.Contains("Jool-class", r.Reason);
+            Assert.Contains("station rendezvous + constrained moon SOI", r.Reason);
             Assert.True(r.HasStation);
             Assert.Equal(1800.0, r.StationPeriodSeconds, 9);
         }

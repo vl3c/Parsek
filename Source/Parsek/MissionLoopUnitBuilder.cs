@@ -188,6 +188,20 @@ namespace Parsek
             var memberWindowByIndex = ComputeTrimmedMemberWindows(
                 view, compRoots, committed, mission.ExcludedIntervalKeys, indexById,
                 out int vesselWindowCount, out int skippedNotCommitted);
+
+            // M-MIS-8: merge the included cross-tree PARTNER-JOURNEY members (the docked stretch
+            // + the partner's post-undock offshoot, derived from the foreign controller's tree
+            // via PID + launch-guid dock-link matching). First claimant wins on a duplicate
+            // committed index. All members ride ONE shared span clock, so the recorded dock
+            // alignment is preserved by construction.
+            int foreignMembers = 0;
+            if (mission.IncludedForeignDockLinkIds.Count > 0)
+            {
+                foreignMembers = MissionCrossTreeDock.MergeForeignMemberWindows(
+                    mission, tree, trees, committed, indexById, memberWindowByIndex,
+                    out int _, out int _);
+            }
+
             var memberIndices = new List<int>(memberWindowByIndex.Keys);
             if (memberIndices.Count == 0)
             {
@@ -324,7 +338,22 @@ namespace Parsek
             // Driver calls, so the C1 icon-ride gate engages exactly when that leg first draws. NaN keeps
             // every non-descent unit byte-identical.
             double descentFirstDeorbitLegStartUT = double.NaN;
-            if (bodyInfo != null)
+            // M-MIS-8 FAIL CLOSED: with cross-tree partner-journey members aboard, the
+            // periodicity extraction and the re-aim classifier only see the mission's OWN tree
+            // (two trees = two launches, two pads, two constraint sets), so a phase-locked
+            // anchor / zero-drift schedule / phasing knob / re-aimed transfer would be derived
+            // from half the members. Skip the whole block and keep the faithful base anchor +
+            // raw cadences; cross-tree phase-lock is future work (design note section 4).
+            if (bodyInfo != null && foreignMembers > 0)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Info("Mission",
+                        $"MissionLoopUnit: mission='{mission.Name}' tree={tree.Id} has " +
+                        $"{foreignMembers} cross-tree partner-journey member(s); " +
+                        "periodicity/re-aim fail closed to faithful (single-tree constraint " +
+                        "extraction cannot span two launches)");
+            }
+            else if (bodyInfo != null)
             {
                 ConstraintExtraction extraction = MissionPeriodicity.ExtractConstraints(
                     view, compRoots, committed, mission.ExcludedIntervalKeys, bodyInfo);
@@ -446,12 +475,16 @@ namespace Parsek
                 launchHoldRotationPeriod, launchHoldEngaged, launchHoldSoiExitUT,
                 descentMemberIndices, descentRecordedDeorbitUT, descentEndUT,
                 descentRotationPeriod, descentLoiterPeriod, descentCaptureShift,
-                descentParkingConicEndUT, transferMemberIndex, descentFirstDeorbitLegStartUT);
+                descentParkingConicEndUT, transferMemberIndex, descentFirstDeorbitLegStartUT,
+                arrivalHold.IsJointHold ? arrivalHold.JointSecondaryPeriodSeconds : double.NaN,
+                arrivalHold.IsJointHold ? arrivalHold.JointSecondaryToleranceSeconds : double.NaN,
+                arrivalHold.IsJointHold ? arrivalHold.JointMaxWholeHoldPeriods : 0);
 
             LogMissionUnitSummary(
                 mission, tree, memberArray, skippedNotCommitted, spanStartUT, spanEndUT, span,
                 effectiveCadence, effectiveOverlapCadence, ownerIndex, relaunchSchedule, phaseAnchorUT,
-                phaseLocked, scheduleRejectedForOverlap, baseAnchorUT, solution, cadence, bodyInfo);
+                phaseLocked, scheduleRejectedForOverlap, baseAnchorUT, solution, cadence, bodyInfo,
+                foreignMembers);
 
             return true;
         }
@@ -774,16 +807,13 @@ namespace Parsek
                         if (destTrim.HasDestinationCut)
                             p4Cuts.Add(destTrim.DestinationCut);
                         loiterCuts = p4Cuts;
-                        arrivalHold = new ArrivalHoldPlanner.ArrivalHoldResult
-                        {
-                            HoldSeconds = destTrim.HoldSeconds,
-                            HoldAtUT = destTrim.HoldAtUT,
-                            AlignPeriodSeconds = destTrim.AlignPeriodSeconds,
-                            Applied = true,
-                            IsStationHold = false,
-                            AlignAnchorPid = 0,
-                            AmberReason = null,
-                        };
+                        // None-based construction so the joint-hold fields keep their documented
+                        // NaN/0 "not joint" sentinels (a bare object initializer would zero them).
+                        arrivalHold = ArrivalHoldPlanner.ArrivalHoldResult.None;
+                        arrivalHold.HoldSeconds = destTrim.HoldSeconds;
+                        arrivalHold.HoldAtUT = destTrim.HoldAtUT;
+                        arrivalHold.AlignPeriodSeconds = destTrim.AlignPeriodSeconds;
+                        arrivalHold.Applied = true;
                         if (!SuppressLogging)
                         {
                             var aic = CultureInfo.InvariantCulture;
@@ -800,23 +830,46 @@ namespace Parsek
                     }
                     else
                     {
+                        // Loop slack budget for the JOINT hold (D8 landing+station): the idle gap the
+                        // per-loop hold can spend without the clock's defensive clamp truncating it.
+                        double jointSlackSeconds = effectiveCadence
+                            - (span - GhostPlaybackLogic.TotalCutLength(loiterCuts));
                         arrivalHold = ArrivalHoldPlanner.ComputeArrivalHold(
                             extraction.Constraints, plan.TargetBody, plan.RecordedArrivalUT,
-                            transitedBodyRotationMode, phaseAnchorUT, spanStartUT, loiterCuts, bodyInfo);
+                            transitedBodyRotationMode, phaseAnchorUT, spanStartUT, loiterCuts, bodyInfo,
+                            windowSpacingSeconds: sched.SynodicPeriodSeconds,
+                            launchBodyName: plan.LaunchBody,
+                            loopSlackSeconds: jointSlackSeconds);
                         if (arrivalHold.Applied && !SuppressLogging)
                         {
                             var aic = CultureInfo.InvariantCulture;
+                            string kind = arrivalHold.IsConfigHold
+                                ? "config"
+                                : arrivalHold.IsJointHold
+                                    ? "joint" : (arrivalHold.IsStationHold ? "station" : "rotation");
                             ParsekLog.Info("Reaim",
                                 $"MissionLoopUnit: mission='{mission.Name}' ARRIVAL HOLD dest={plan.TargetBody} " +
-                                $"kind={(arrivalHold.IsStationHold ? "station" : "rotation")} " +
+                                $"kind={kind} " +
                                 (arrivalHold.IsStationHold
                                     ? $"pid={arrivalHold.AlignAnchorPid.ToString(aic)} "
                                     : "") +
                                 $"Talign={arrivalHold.AlignPeriodSeconds.ToString("R", aic)}s " +
+                                (arrivalHold.IsJointHold
+                                    ? $"Trot={arrivalHold.JointSecondaryPeriodSeconds.ToString("R", aic)}s " +
+                                      $"rotTol={arrivalHold.JointSecondaryToleranceSeconds.ToString("F1", aic)}s " +
+                                      $"budget={arrivalHold.JointMaxWholeHoldPeriods.ToString(aic)} " +
+                                      $"k={arrivalHold.JointChosenWindowK.ToString(aic)} " +
+                                      $"residual={arrivalHold.JointResidualSeconds.ToString("F1", aic)}s "
+                                    : "") +
+                                (arrivalHold.IsConfigHold
+                                    ? $"moons={arrivalHold.ConfigMoonCount.ToString(aic)} " +
+                                      $"alignedWindows={arrivalHold.ConfigAlignedWindowHorizon.ToString(aic)} " +
+                                      $"window1Residual={arrivalHold.ConfigFirstWindowResidualSeconds.ToString("F1", aic)}s "
+                                    : "") +
                                 $"hold={arrivalHold.HoldSeconds.ToString("R", aic)}s at " +
                                 $"recordedArrivalUT={plan.RecordedArrivalUT.ToString("R", aic)} " +
-                                $"(aligns the {(arrivalHold.IsStationHold ? "station orbital" : "deorbit rotation")} " +
-                                $"phase, mode={transitedBodyRotationMode})");
+                                $"(aligns the {(arrivalHold.IsConfigHold ? "multi-moon configuration" : arrivalHold.IsJointHold ? "station orbital + landing rotation" : arrivalHold.IsStationHold ? "station orbital" : "deorbit rotation")} " +
+                                $"phase{(arrivalHold.IsJointHold || arrivalHold.IsConfigHold ? "s" : "")}, mode={transitedBodyRotationMode})");
                         }
                     }
 
@@ -1158,14 +1211,16 @@ namespace Parsek
             double baseAnchorUT,
             PeriodicitySolution solution,
             double cadence,
-            IBodyInfo bodyInfo)
+            IBodyInfo bodyInfo,
+            int foreignMembers = 0)
         {
             if (!SuppressLogging)
             {
                 var ic = CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("Mission",
                     $"MissionLoopUnit: mission='{mission.Name}' tree={tree.Id} " +
-                    $"members={memberArray.Length} skipped={skippedNotCommitted} " +
+                    $"members={memberArray.Length} foreignMembers={foreignMembers} " +
+                    $"skipped={skippedNotCommitted} " +
                     $"span=[{spanStartUT.ToString("R", ic)},{spanEndUT.ToString("R", ic)}] " +
                     $"spanDur={span.ToString("R", ic)} unit={mission.LoopTimeUnit} " +
                     $"cadence={effectiveCadence.ToString("R", ic)} " +
@@ -1408,6 +1463,34 @@ namespace Parsek
                     RecordingTree loopTree = FindTree(trees, m.TreeId);
                     sb.Append((loopTree?.BranchPoints?.Count ?? 0).ToString(ic)).Append('/');
                     sb.Append((loopTree?.Recordings?.Count ?? 0).ToString(ic)).Append('#');
+
+                    // M-MIS-8: included cross-tree dock links change the unit's members (the
+                    // partner journey joins from a FOREIGN tree), so fold the sorted link ids
+                    // plus every OTHER tree's topology counts in whenever any link is included -
+                    // a foreign-tree merge / re-fly can change the journey without touching this
+                    // mission's own tree. Link-free missions append nothing (byte-identical).
+                    if (m.IncludedForeignDockLinkIds.Count > 0)
+                    {
+                        sb.Append("XT:");
+                        var linkIds = new List<string>(m.IncludedForeignDockLinkIds);
+                        linkIds.Sort(StringComparer.Ordinal);
+                        for (int l = 0; l < linkIds.Count; l++)
+                            sb.Append(linkIds[l] ?? "").Append(',');
+                        sb.Append('~');
+                        if (trees != null)
+                        {
+                            for (int t = 0; t < trees.Count; t++)
+                            {
+                                RecordingTree other = trees[t];
+                                if (other == null || string.Equals(other.Id, m.TreeId, StringComparison.Ordinal))
+                                    continue;
+                                sb.Append(other.Id ?? "").Append(':');
+                                sb.Append((other.BranchPoints?.Count ?? 0).ToString(ic)).Append('/');
+                                sb.Append((other.Recordings?.Count ?? 0).ToString(ic)).Append(',');
+                            }
+                        }
+                        sb.Append('#');
+                    }
 
                     // Phase-lock constraint inputs: the looping tree's transited-body set + their
                     // live rotation/orbit periods. A body-geometry change (planet pack / different

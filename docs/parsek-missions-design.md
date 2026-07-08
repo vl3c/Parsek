@@ -206,6 +206,7 @@ TreeId: string                              - the recording tree this projects o
 Name: string                                - display name (kept in sync with the root group name)
 ExcludedThroughLineHeadIds: HashSet<string> - dropped through-lines (coarse selection)   (:18)
 ExcludedIntervalKeys: HashSet<string>       - dropped composition intervals (finer trim)  (:25)
+IncludedForeignDockLinkIds: HashSet<string> - included cross-tree dock links (M-MIS-8; foreign Dock/Board BranchPoint GUIDs)
 LoopPlayback: bool                          - loop on / off                                (:35)
 LoopIntervalSeconds: double = UntouchedLoopIntervalSentinel - period in seconds            (:36)
 LoopTimeUnit: LoopTimeUnit = Sec            - Sec / Min / Hour / Auto display unit          (:37)
@@ -263,7 +264,7 @@ The INDEX CONTRACT is the seam tying scenes together: `OwnerIndex` / `MemberIndi
 Mission state persists through `ParsekScenario` OnSave / OnLoad into the `.sfs` (lightweight; no sidecar). Derived read models are never serialized.
 
 - Save (`ParsekScenario.cs:980` -> `MissionStore.Save` `MissionStore.cs:364`): writes `missionHideArchived`, then one `MISSION` ConfigNode per mission via `Mission.Save` (`Mission.cs:75`).
-- Per-Mission keys (`Mission.cs:77`): `id`, `treeId`, `name`, `loopPlayback`, `loopIntervalSeconds` ("R" InvariantCulture), `loopTimeUnit` (enum name), `loopAnchorUT` ("R" InvariantCulture), `archived`, repeated `excludedHead`, repeated `excludedInterval`.
+- Per-Mission keys (`Mission.cs:77`): `id`, `treeId`, `name`, `loopPlayback`, `loopIntervalSeconds` ("R" InvariantCulture), `loopTimeUnit` (enum name), `loopAnchorUT` ("R" InvariantCulture), `archived`, repeated `excludedHead`, repeated `excludedInterval`, repeated `foreignDockLink` (M-MIS-8; SPARSE - written only when a cross-tree dock link is included).
 - Load (`ParsekScenario.cs:2768` -> `MissionStore.Load` `:382`): parses every `MISSION` node via `Mission.Load` (`:93`, every loop field defended with TryParse + field default; missing id -> fresh GUID), then runs the four lifecycle passes in order.
 
 ---
@@ -409,11 +410,11 @@ A genuinely new branch added after a Mission was defined (most realistically a r
 ### 14.2 Dock is not an interval boundary (RESOLVED - M-MIS-5 P1, 2026-07-04)
 Shipped: `MissionCompositionBuilder.BuildNode` now emits an interval edge at every Dock / Board MERGE UT on the continuing line (gated on the run member's `OriginBranchPointType`), so the docked stretch is its own selectable sub-interval, keyed `<parentIntervalKey>@dockM` so structural `/segN` keys never renumber. The docked interval's label rebases to the merge leg's own start-captured combined composition (undercount fixed; structural peels on a rebased base subtract the departing leg's crew too), and pre-M-MIS-5 selections are upgraded once via `Mission.SelectionSchemaGeneration` + the `MissionStore.ReconcileSelections` @dock exclusion extension. Route render windows now end at the last DOCK (the realized route cycle re-aligns to DispatchInterval). Remaining logistics lift (accepting undock-to-undock shuttle runs) is M-MIS-5 P2a/P2b; plan: `docs/dev/plan-mmis5-dock-interval-boundary.md`.
 
-### 14.3 Cross-tree foreign dock
-When A and B are independent trees, the combined leg and post-undock continuation land in the controller's tree while the foreign partner's pre-dock flight stays in its own tree, so "loop the whole shared docked journey from the foreign side" spans two trees and is not a single contiguous selection. Likely wants the cross-tree dock link followed via the same PID linking playback already does in `GhostChainWalker`.
+### 14.3 Cross-tree foreign dock (RESOLVED - M-MIS-8, 2026-07-07)
+Shipped: a mission whose vessel was docked by a foreign tree's vessel can include that link's PARTNER JOURNEY (the docked stretch + its post-undock offshoot in the foreign tree) via an explicit "Partner journey" affordance in the Missions window. The Mission stays single-tree and persists only the included dock-link ids (`Mission.IncludedForeignDockLinkIds`, sparse `foreignDockLink` codec key - pre-existing missions round-trip byte-identically); the link and journey derive live via the same PID + launch-guid claim rule `GhostChainWalker` uses (`MissionCrossTreeDock`). Foreign members join the loop unit on ONE shared span clock; periodicity / re-aim fail closed to faithful for cross-tree units (two trees = two launches). Design note: `dev/design-mission-crosstree-dock.md`.
 
 ### 14.4 Destination-SOI alignment generalization (re-aim Phase 4 tiers b/c)
-The shipped destination arrival hold covers a direct child of the Sun with at most one constrained moon, captured-then-deorbit. 2+-moon planets ("mini star systems" like Jool) and moons-of-planets / deep multi-hop chains are deferred / excluded upstream.
+The shipped destination arrival hold covers a direct child of the Sun with at most one constrained moon, captured-then-deorbit. The 2+-moon "mini star system" case (Jool) is now designed as M-MIS-6 — see `docs/dev/design-mission-multimoon-alignment.md` (joint configuration period T_config via the near-coincidence primitives, one per-loop hold, finite aligned horizon, incommensurate moons fail closed with amber). Moons-of-planets / deep multi-hop chains stay excluded upstream (M-MIS-7).
 
 ---
 
@@ -473,10 +474,10 @@ Re-aim carries its own non-`Mission*` test files (Lambert, window planner, loite
 | Name / group link | Mission name <-> root group sync | Done (PR #977) |
 | Interplanetary re-aim | Per-window Lambert transfer, loiter compression, pad-align, arrival hold | Done (PR #981 / #982, #1024 / #1026 / #1030) |
 | Dock as interval boundary | Isolate a docked stretch for looping | Done (14.2, M-MIS-5 P1) |
-| Cross-tree foreign dock | Loop a shared docked journey from the partner side | Deferred (14.3) |
+| Cross-tree foreign dock | Loop a shared docked journey from the partner side | Done (14.3, M-MIS-8) |
 | Destination-SOI generalization | 2+-moon / multi-hop arrival alignment | Deferred (14.4) |
 
-New source files: `Mission.cs`, `MissionStore.cs`, `MissionStructure.cs`, `MissionThroughLine.cs`, `MissionComposition.cs`, `MissionIntervalSelection.cs`, `MissionLoopUnitBuilder.cs`, `MissionPeriodicity.cs`, `MissionGroupLink.cs`, `UI/MissionsWindowUI.cs`, `Reaim/*`, plus the lifted span-clock additions to `GhostPlaybackLogic.cs` / `GhostPlaybackEngine.cs`.
+New source files: `Mission.cs`, `MissionStore.cs`, `MissionStructure.cs`, `MissionThroughLine.cs`, `MissionComposition.cs`, `MissionIntervalSelection.cs`, `MissionLoopUnitBuilder.cs`, `MissionPeriodicity.cs`, `MissionGroupLink.cs`, `MissionCrossTreeDock.cs`, `UI/MissionsWindowUI.cs`, `Reaim/*`, plus the lifted span-clock additions to `GhostPlaybackLogic.cs` / `GhostPlaybackEngine.cs`.
 
 ---
 

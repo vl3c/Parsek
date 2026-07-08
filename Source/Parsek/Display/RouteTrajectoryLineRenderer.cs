@@ -37,10 +37,19 @@ namespace Parsek.Display
     /// </para>
     ///
     /// <para>
-    /// v1 SCOPE: SAME-BODY routes only (<see cref="Route.DispatchWindowPeriod"/> == 0, the shipped
-    /// route shape). Inter-body route paths depend on the re-aimed transfer render (milestone M5,
-    /// PR #1238) and are a documented follow-up. Behind the <c>showRouteLines</c> setting
-    /// (default on).
+    /// SCOPE: same-body routes (<see cref="Route.DispatchWindowPeriod"/> == 0) draw their full
+    /// recorded non-orbital legs, byte-identical to the shipped M6 v1. INTER-BODY routes
+    /// (<see cref="Route.DispatchWindowPeriod"/> != 0, milestone M5) draw the recorded non-orbital
+    /// legs at the route's ENDPOINT bodies only — launch/ascent legs at the origin body,
+    /// approach/descent legs at the destination body, still clipped to
+    /// <see cref="Route.RecordedDockUT"/>. The transfer between them is deliberately NOT drawn
+    /// here: the heliocentric coast is orbital (never emitted as a polyline leg), and non-orbital
+    /// legs recorded in the TRANSFER frame (e.g. mid-course correction burns body-fixed to the
+    /// Sun) are dropped at build time (<see cref="FilterLegsToEndpointBodies"/>) because the M5
+    /// re-aim pipeline replaces the recorded transfer per launch window — a static draw of the
+    /// recorded transfer-frame geometry would show a path that never flies again. The re-aimed
+    /// transfer render belongs to the route's backing-mission ghost (conics / forward arcs), which
+    /// inter-body routes already get. Behind the <c>showRouteLines</c> setting (default on).
     /// </para>
     /// </summary>
     internal static class RouteTrajectoryLineRenderer
@@ -93,8 +102,22 @@ namespace Parsek.Display
             None = 0,
             NullRoute = 1,
             Disabled = 2,
-            NotSameBody = 3,
+            MalformedMixedBodies = 3,
             NoBackingRecordings = 4,
+        }
+
+        /// <summary>Drawable-scope classification of a committed route.</summary>
+        internal enum RouteLineScope
+        {
+            /// <summary>Period 0 with consistent member bodies: draw all recorded non-orbital legs.</summary>
+            SameBody = 0,
+
+            /// <summary>Non-zero synodic period (M5): draw the endpoint-body legs only.</summary>
+            InterBody = 1,
+
+            /// <summary>Period 0 but members on mixed bodies: malformed, declined rather than
+            /// drawing a cross-body chord.</summary>
+            MalformedMixedBodies = 2,
         }
 
         // ------------------------------------------------------------------
@@ -107,33 +130,41 @@ namespace Parsek.Display
             => settings == null ? DefaultShowRouteLines : settings.showRouteLines;
 
         /// <summary>
-        /// True when a route is same-body (v1 scope). <see cref="Route.DispatchWindowPeriod"/> is
-        /// the authoritative flag (0 = same-body, the synodic period for inter-body). When the
-        /// resolved member bodies are supplied they must all agree — a period of 0 with mixed
-        /// bodies is a malformed route we decline rather than draw a cross-body chord.
+        /// Classifies a route's render scope. <see cref="Route.DispatchWindowPeriod"/> is the
+        /// authoritative flag (0 = same-body, the synodic period for inter-body). A same-body
+        /// route's resolved member bodies must all agree when supplied — a period of 0 with mixed
+        /// bodies is malformed. An inter-body route's members are EXPECTED to span bodies, so no
+        /// consistency check applies there.
         /// </summary>
-        internal static bool IsSameBodyRoute(double dispatchWindowPeriod, IReadOnlyList<string> memberBodies)
+        internal static RouteLineScope ClassifyRouteScope(
+            double dispatchWindowPeriod, IReadOnlyList<string> memberBodies)
         {
-            if (dispatchWindowPeriod != 0.0) return false;
-            if (memberBodies == null || memberBodies.Count == 0) return true;
+            if (dispatchWindowPeriod != 0.0) return RouteLineScope.InterBody;
+            if (memberBodies == null || memberBodies.Count == 0) return RouteLineScope.SameBody;
             string first = null;
             for (int i = 0; i < memberBodies.Count; i++)
             {
                 string b = memberBodies[i];
                 if (string.IsNullOrEmpty(b)) continue;
                 if (first == null) first = b;
-                else if (!string.Equals(first, b, StringComparison.Ordinal)) return false;
+                else if (!string.Equals(first, b, StringComparison.Ordinal))
+                    return RouteLineScope.MalformedMixedBodies;
             }
-            return true;
+            return RouteLineScope.SameBody;
         }
+
+        /// <summary>True when a route classifies <see cref="RouteLineScope.SameBody"/>.</summary>
+        internal static bool IsSameBodyRoute(double dispatchWindowPeriod, IReadOnlyList<string> memberBodies)
+            => ClassifyRouteScope(dispatchWindowPeriod, memberBodies) == RouteLineScope.SameBody;
 
         /// <summary>Pure skip classification for a candidate route line.</summary>
         internal static RouteLineSkipReason ClassifyRouteLineSkip(
-            Route route, bool enabled, bool sameBody, int drawableMemberCount)
+            Route route, bool enabled, RouteLineScope scope, int drawableMemberCount)
         {
             if (route == null) return RouteLineSkipReason.NullRoute;
             if (!enabled) return RouteLineSkipReason.Disabled;
-            if (!sameBody) return RouteLineSkipReason.NotSameBody;
+            if (scope == RouteLineScope.MalformedMixedBodies)
+                return RouteLineSkipReason.MalformedMixedBodies;
             if (drawableMemberCount <= 0) return RouteLineSkipReason.NoBackingRecordings;
             return RouteLineSkipReason.None;
         }
@@ -159,14 +190,20 @@ namespace Parsek.Display
         /// clipped to the route's dock UT. Reuses the ghost leg builder verbatim (same body-fixed
         /// lat/lon/alt extraction, same downsample cap, same RELATIVE-frame handling) so route
         /// lines render identically to ghost trajectory lines. Members that do not resolve, or that
-        /// contribute no drawable leg, are dropped. READ-ONLY over the route + recording data.
+        /// contribute no drawable leg, are dropped. For an INTER-BODY route
+        /// (<see cref="Route.DispatchWindowPeriod"/> != 0) the endpoint-body filter then drops
+        /// every leg not on the route's origin or destination body
+        /// (<see cref="FilterLegsToEndpointBodies"/>; <paramref name="transferLegsDropped"/>
+        /// reports the count) — same-body routes are never filtered. READ-ONLY over the route +
+        /// recording data.
         /// </summary>
         internal static List<RouteMemberLegs> BuildRouteMemberLegs(
             Route route, Func<string, Recording> resolve,
-            out int resolvableMembers, out int totalLegs)
+            out int resolvableMembers, out int totalLegs, out int transferLegsDropped)
         {
             resolvableMembers = 0;
             totalLegs = 0;
+            transferLegsDropped = 0;
             var groups = new List<RouteMemberLegs>();
             if (route == null || route.RecordingIds == null || resolve == null)
                 return groups;
@@ -202,14 +239,115 @@ namespace Parsek.Display
                     legs = kept.ToArray(),
                 });
             }
+
+            // Inter-body scope: keep only the endpoint-body legs (origin + destination); the
+            // recorded transfer-frame legs are stale geometry under the M5 re-aim pipeline.
+            if (route.DispatchWindowPeriod != 0.0)
+            {
+                transferLegsDropped = FilterLegsToEndpointBodies(groups);
+                totalLegs -= transferLegsDropped;
+            }
             return groups;
         }
 
         /// <summary>
+        /// Resolves an inter-body route's endpoint bodies from its built legs across ALL members:
+        /// the body of the earliest leg (by start UT) is the origin (launch/ascent always records
+        /// non-orbital samples), the body of the latest leg (by end UT, inside the dock clip the
+        /// caller already applied) is the destination (the dock approach). False when no legs.
+        /// </summary>
+        internal static bool ResolveEndpointBodies(
+            List<RouteMemberLegs> groups, out string originBody, out string destinationBody)
+        {
+            originBody = null;
+            destinationBody = null;
+            if (groups == null) return false;
+            double earliest = double.MaxValue, latest = double.MinValue;
+            for (int g = 0; g < groups.Count; g++)
+            {
+                LegPolyline[] legs = groups[g].legs;
+                if (legs == null) continue;
+                for (int i = 0; i < legs.Length; i++)
+                {
+                    if (string.IsNullOrEmpty(legs[i].bodyName)) continue;
+                    if (legs[i].startUT < earliest)
+                    {
+                        earliest = legs[i].startUT;
+                        originBody = legs[i].bodyName;
+                    }
+                    if (legs[i].endUT > latest)
+                    {
+                        latest = legs[i].endUT;
+                        destinationBody = legs[i].bodyName;
+                    }
+                }
+            }
+            return originBody != null && destinationBody != null;
+        }
+
+        /// <summary>
+        /// Inter-body endpoint filter: keeps only legs on the route's origin or destination body
+        /// (resolved via <see cref="ResolveEndpointBodies"/> across all members) and drops
+        /// everything between — non-orbital burn legs recorded in the transfer frame (mid-course
+        /// corrections body-fixed to the transfer parent) and flyby legs. Those replay on re-aimed
+        /// per-window geometry owned by the backing mission's ghost render; a static draw of the
+        /// recorded ones would show a transfer that never flies again. Known heuristic limit
+        /// (documented, benign): a route with NO non-orbital destination legs — none recorded, or
+        /// all removed by an early dock clip — resolves its latest leg (possibly a transfer-frame
+        /// burn) as the destination and keeps it; in practice a docking approach always records
+        /// non-orbital ExoPropulsive samples at the destination before the dock.
+        /// Groups left empty are removed. Returns the dropped leg count. Build-time only (legs
+        /// carry no VectorLines yet).
+        /// </summary>
+        internal static int FilterLegsToEndpointBodies(List<RouteMemberLegs> groups)
+        {
+            if (!ResolveEndpointBodies(groups, out string originBody, out string destinationBody))
+                return 0;
+
+            // Round-trip stand-down: a recording that returns to its origin body (and carries no
+            // dock clip to cut the return) resolves origin == destination, and filtering on that
+            // pair would drop the ENTIRE far-body arc — the geometry the route exists to show.
+            // Keeping everything (including any transfer-frame burn legs) is the lesser error.
+            // The build log's transferDropped=0 records the stand-down.
+            if (string.Equals(originBody, destinationBody, StringComparison.Ordinal))
+                return 0;
+
+            int dropped = 0;
+            for (int g = groups.Count - 1; g >= 0; g--)
+            {
+                LegPolyline[] legs = groups[g].legs;
+                if (legs == null) continue;
+                List<LegPolyline> kept = null;
+                for (int i = 0; i < legs.Length; i++)
+                    if (IsEndpointBodyLeg(legs[i].bodyName, originBody, destinationBody))
+                        (kept ?? (kept = new List<LegPolyline>(legs.Length))).Add(legs[i]);
+                int keepCount = kept != null ? kept.Count : 0;
+                if (keepCount == legs.Length) continue;
+                dropped += legs.Length - keepCount;
+                if (keepCount == 0)
+                {
+                    groups.RemoveAt(g);
+                    continue;
+                }
+                var group = groups[g];
+                group.legs = kept.ToArray();
+                groups[g] = group;
+            }
+            return dropped;
+        }
+
+        private static bool IsEndpointBodyLeg(string legBody, string originBody, string destinationBody)
+            => string.Equals(legBody, originBody, StringComparison.Ordinal)
+               || string.Equals(legBody, destinationBody, StringComparison.Ordinal);
+
+        /// <summary>
         /// Content signature that gates a route-line rebuild. Folds the ordered recording ids, each
         /// resolvable member's polyline content hash (so an optimizer re-cut or supersede rebuild
-        /// invalidates the cached line), the dock-clip UT, and the same-body flag (so a route that
-        /// flips inter-body invalidates). Pure and stable across a save round-trip.
+        /// invalidates the cached line), and the dock-clip UT. An INTER-BODY route additionally
+        /// folds its window schedule (synodic period, window epoch, cadence multiplier) so a
+        /// schedule change rebuilds the line; a scope flip (period 0 &lt;-&gt; non-zero) invalidates
+        /// through the period fold, and a SAME-BODY route's signature computation is byte-identical
+        /// to the shipped v1 (period 0 folds nothing). Pure and stable across a save round-trip.
         /// </summary>
         internal static long ComputeRouteSignature(Route route, Func<string, Recording> resolve)
         {
@@ -228,7 +366,12 @@ namespace Parsek.Display
                     }
                 }
                 h ^= BitConverter.DoubleToInt64Bits(route.RecordedDockUT);
-                h ^= route.DispatchWindowPeriod != 0.0 ? 0x5bd1e9955bd1e995L : 0L;
+                if (route.DispatchWindowPeriod != 0.0)
+                {
+                    h = (h ^ BitConverter.DoubleToInt64Bits(route.DispatchWindowPeriod)) * 1099511628211L;
+                    h = (h ^ BitConverter.DoubleToInt64Bits(route.DispatchWindowEpochUT)) * 1099511628211L;
+                    h = (h ^ route.CadenceMultiplier) * 1099511628211L;
+                }
                 return h;
             }
         }
@@ -265,7 +408,7 @@ namespace Parsek.Display
             // removed route's VectorLines are freed even while the toggle is off).
             ReconcileCommittedRoutes();
 
-            int routesDrawn = 0, legsDrawn = 0, skippedOwned = 0, skippedInterBody = 0, skippedOther = 0;
+            int routesDrawn = 0, legsDrawn = 0, skippedOwned = 0, skippedMalformed = 0, skippedOther = 0;
             if (enabled)
             {
                 var routes = RouteStore.CommittedRoutes;
@@ -274,19 +417,21 @@ namespace Parsek.Display
                     Route route = routes[ri];
                     if (route == null || string.IsNullOrEmpty(route.Id)) continue;
 
-                    // Authoritative same-body quick gate: decline inter-body routes without
-                    // resolving any recording (v1 scope).
-                    if (route.DispatchWindowPeriod != 0.0) { skippedInterBody++; continue; }
-
                     RouteLineSet set = RefreshForRoute(route, ResolveRecording);
 
-                    // Defensive same-body cross-check on the resolved member bodies.
-                    if (!IsSameBodyRoute(route.DispatchWindowPeriod, CollectMemberBodies(set)))
-                    { skippedOther++; continue; }
+                    // Same-body routes get a defensive member-body consistency cross-check
+                    // (period 0 with mixed bodies is malformed); inter-body routes are expected
+                    // to span bodies, so skip the per-frame member-body collection entirely
+                    // (ClassifyRouteScope ignores it for a non-zero period).
+                    RouteLineScope scope = ClassifyRouteScope(
+                        route.DispatchWindowPeriod,
+                        route.DispatchWindowPeriod == 0.0 ? CollectMemberBodies(set) : null);
 
                     var skip = ClassifyRouteLineSkip(
-                        route, enabled: true, sameBody: true,
+                        route, enabled: true, scope,
                         drawableMemberCount: set.groups != null ? set.groups.Length : 0);
+                    if (skip == RouteLineSkipReason.MalformedMixedBodies)
+                    { skippedMalformed++; continue; }
                     if (skip != RouteLineSkipReason.None) { skippedOther++; continue; }
 
                     bool anyDrawn = false;
@@ -327,8 +472,8 @@ namespace Parsek.Display
             ParsekLog.VerboseRateLimited(Tag, "route-draw",
                 string.Format(CultureInfo.InvariantCulture,
                     "Route line draw: enabled={0} routesDrawn={1} legsDrawn={2} skippedOwned={3} " +
-                    "interBody={4} other={5} deact={6} cache={7} frame={8}",
-                    enabled, routesDrawn, legsDrawn, skippedOwned, skippedInterBody, skippedOther,
+                    "malformed={4} other={5} deact={6} cache={7} frame={8}",
+                    enabled, routesDrawn, legsDrawn, skippedOwned, skippedMalformed, skippedOther,
                     deactivated, routeCache.Count, frame),
                 2.0);
         }
@@ -361,14 +506,15 @@ namespace Parsek.Display
             if (routeCache.TryGetValue(route.Id, out RouteLineSet stale))
                 DestroyRouteLines(stale.groups);
 
-            var groups = BuildRouteMemberLegs(route, resolve, out int resolvable, out int totalLegs);
+            var groups = BuildRouteMemberLegs(
+                route, resolve, out int resolvable, out int totalLegs, out int transferDropped);
             var set = new RouteLineSet { groups = groups.ToArray(), signature = sig };
             routeCache[route.Id] = set;
             BuildInvocationCountForTesting++;
             ParsekLog.VerboseRateLimited(Tag, "route-build." + route.Id,
                 string.Format(CultureInfo.InvariantCulture,
-                    "Route line build: route={0} members={1} groups={2} legs={3}",
-                    RouteIds.Short(route.Id), resolvable, set.groups.Length, totalLegs),
+                    "Route line build: route={0} members={1} groups={2} legs={3} transferDropped={4}",
+                    RouteIds.Short(route.Id), resolvable, set.groups.Length, totalLegs, transferDropped),
                 5.0);
             return set;
         }

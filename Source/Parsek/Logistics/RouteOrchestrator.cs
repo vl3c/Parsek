@@ -2264,10 +2264,15 @@ namespace Parsek.Logistics
             bool prevCompSuppress = MissionCompositionBuilder.SuppressLogging;
             bool prevPeriodicitySuppress = MissionPeriodicity.SuppressLogging;
             bool prevLoopSuppress = MissionLoopUnitBuilder.SuppressLogging;
+            // M-MIS-8 parity with the UI display-mirror build: a synthesized backing mission
+            // never carries dock links today, but gate the fifth pipeline flag anyway so a
+            // future linked selection cannot flood this per-tick path.
+            bool prevCrossTreeSuppress = MissionCrossTreeDock.SuppressLogging;
             MissionStructureBuilder.SuppressLogging = true;
             MissionCompositionBuilder.SuppressLogging = true;
             MissionPeriodicity.SuppressLogging = true;
             MissionLoopUnitBuilder.SuppressLogging = true;
+            MissionCrossTreeDock.SuppressLogging = true;
             bool built;
             GhostPlaybackLogic.LoopUnit unit;
             try
@@ -2281,6 +2286,7 @@ namespace Parsek.Logistics
                 MissionCompositionBuilder.SuppressLogging = prevCompSuppress;
                 MissionPeriodicity.SuppressLogging = prevPeriodicitySuppress;
                 MissionLoopUnitBuilder.SuppressLogging = prevLoopSuppress;
+                MissionCrossTreeDock.SuppressLogging = prevCrossTreeSuppress;
             }
 
             route.CachedLoopUnit = built ? unit : (GhostPlaybackLogic.LoopUnit?)null;

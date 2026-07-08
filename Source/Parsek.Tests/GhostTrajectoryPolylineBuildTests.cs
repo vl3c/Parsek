@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Parsek.Display;
 using Parsek.Tests.Generators;
@@ -1508,6 +1509,97 @@ namespace Parsek.Tests
                 50.0,
                 GhostTrajectoryPolylineRenderer.BodyFixedLongitudeAtUT(50.0, 1000.0, 9999.0, period),
                 10);
+        }
+
+        // --- ResolveAnchoredPointBasisUT + inertial-basis constancy (2026-06-12 high-warp
+        // residual 3: the anchored-leg/bridge curvature morph). The conic anchor re-evaluates
+        // every anchored point on its own recorded rotation basis, so the calibration rotation is
+        // time-constant and the drawn bridge shape stops morphing with the planet's spin. ---
+
+        [Fact]
+        public void ResolveAnchoredPointBasisUT_MatchingRecordedUTs_ReturnsOwnUT()
+        {
+            var uts = new[] { 100.0, 150.0, 220.0 };
+            Assert.Equal(100.0,
+                GhostTrajectoryPolylineRenderer.ResolveAnchoredPointBasisUT(uts, 0, 3, 100.0), 10);
+            Assert.Equal(150.0,
+                GhostTrajectoryPolylineRenderer.ResolveAnchoredPointBasisUT(uts, 1, 3, 100.0), 10);
+            Assert.Equal(220.0,
+                GhostTrajectoryPolylineRenderer.ResolveAnchoredPointBasisUT(uts, 2, 3, 100.0), 10);
+        }
+
+        [Fact]
+        public void ResolveAnchoredPointBasisUT_NullOrMismatchedUTs_FallsBackToLegStart()
+        {
+            // Legacy legs built before recordedUTs existed (null) and defensive length-mismatch:
+            // every point uses the leg start basis (the anchor's Slerp falls back to
+            // index-fraction on the same condition).
+            Assert.Equal(100.0,
+                GhostTrajectoryPolylineRenderer.ResolveAnchoredPointBasisUT(null, 1, 3, 100.0), 10);
+            Assert.Equal(100.0,
+                GhostTrajectoryPolylineRenderer.ResolveAnchoredPointBasisUT(
+                    new[] { 100.0, 150.0 }, 1, 3, 100.0), 10);
+        }
+
+        [Fact]
+        public void ResolveAnchoredPointBasisUT_IndexOutOfRange_FallsBackToLegStart()
+        {
+            var uts = new[] { 100.0, 150.0, 220.0 };
+            Assert.Equal(100.0,
+                GhostTrajectoryPolylineRenderer.ResolveAnchoredPointBasisUT(uts, -1, 3, 100.0), 10);
+            Assert.Equal(100.0,
+                GhostTrajectoryPolylineRenderer.ResolveAnchoredPointBasisUT(uts, 3, 3, 100.0), 10);
+        }
+
+        [Fact]
+        public void AnchoredPointBasis_InertialEvaluationIsTimeConstant()
+        {
+            // The world azimuth GetWorldSurfacePosition renders is (longitude arg + the spin the
+            // body accrued by liveUT). With the basis counter-rotation the spin term cancels
+            // exactly: the anchored point's azimuth is the SAME at any live UT, so the anchor's
+            // input endpoints — and with them the FromToRotation calibration — cannot drift with
+            // the planet's rotation (the tracer-observed rotAngle 136.9->133.6 morph over ~200
+            // game-s was exactly the body rotation rate).
+            const double period = 21549.425; // Kerbin sidereal day
+            const double basisUT = 5000.0;
+            const double lon = 42.0;
+
+            double azimuthAt(double liveUT) =>
+                GhostTrajectoryPolylineRenderer.BodyFixedLongitudeAtUT(lon, basisUT, liveUT, period)
+                + liveUT * 360.0 / period;
+
+            double reference = azimuthAt(100000.0);
+            Assert.Equal(reference, azimuthAt(100200.0), 6); // the tracer's ~200 game-s window
+            Assert.Equal(reference, azimuthAt(100000.0 + period / 2.0), 6);
+            Assert.Equal(reference, azimuthAt(2000000.0), 5);
+        }
+
+        [Fact]
+        public void ConicAnchor_InertialRecapture_RunsOnlyOnAnchoredPath_SourceGate()
+        {
+            // Byte-identity pin for NON-anchored legs: the inertial re-capture
+            // (ResolveAnchoredPointBasisUT inside TryAnchorLegToConicSeam) must sit AFTER the
+            // seam-mismatch reject return, so a rejected / one-sided leg keeps the caller's live
+            // body-fixed capture untouched (launch ascents and descents stay glued to the
+            // rotating pad / landing site).
+            string root = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string source = File.ReadAllText(Path.Combine(
+                root, "Source", "Parsek", "Display", "GhostTrajectoryPolylineRenderer.cs"));
+
+            int method = source.IndexOf(
+                "private static bool TryAnchorLegToConicSeam(", StringComparison.Ordinal);
+            Assert.True(method >= 0, "TryAnchorLegToConicSeam must exist");
+
+            int reject = source.IndexOf(
+                "return false; // leave the leg body-fixed", method, StringComparison.Ordinal);
+            int recapture = source.IndexOf(
+                "ResolveAnchoredPointBasisUT(", method, StringComparison.Ordinal);
+            Assert.True(reject >= 0, "the seam-mismatch reject must keep its body-fixed comment");
+            Assert.True(recapture >= 0, "the anchored path must re-capture on the inertial basis");
+            Assert.True(reject < recapture,
+                "the inertial re-capture must run only AFTER the seam-mismatch reject, so "
+                + "non-anchored legs keep the live body-fixed capture byte-identical");
         }
 
         // --- Pan-stability: WillLegDraw (FIX 1 decide-pass will-draw predicate) ---

@@ -23,6 +23,7 @@ namespace Parsek.Logistics
         private const string RouteChildNodeName = "ROUTE";
         private const string DismissedCandidatesNodeName = "DISMISSED_ROUTE_CANDIDATES";
         private const string DismissedTreeIdValueName = "treeId";
+        private const string PromptedCandidatesNodeName = "PROMPTED_ROUTE_CANDIDATES";
 
         private static readonly List<Route> committedRoutes = new List<Route>();
 
@@ -144,6 +145,94 @@ namespace Parsek.Logistics
             ParsekLog.Verbose(Tag,
                 $"SweepStaleDismissedCandidates: swept={swept} " +
                 $"kept={dismissedCandidateTreeIds.Count} committedTrees={treeCount}");
+            return swept;
+        }
+
+        // -----------------------------------------------------------------
+        // M6 Record-Supply-Run helper: prompted route-candidate trees.
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// Tree ids the commit-time Record-Supply-Run prompt has already fired
+        /// for (M6 helper, design section 17: "v1 should automatically prompt
+        /// after eligible committed runs"). Guarantees the prompt fires AT MOST
+        /// ONCE per tree across sessions: a re-commit of the same tree (switch
+        /// segment merge, re-fly merge) never re-prompts. Mirrors the
+        /// dismissed-candidate set exactly: lives HERE in the consuming
+        /// logistics domain (NOT on the RecordingTree schema), persisted sparse
+        /// through <see cref="SaveRoutesTo"/> / <see cref="LoadRoutesFrom"/>
+        /// (an empty set writes nothing, so saves without prompts stay
+        /// byte-identical), stale ids swept at load via
+        /// <see cref="SweepStalePromptedCandidates"/>. Pure id-membership.
+        /// </summary>
+        private static readonly HashSet<string> promptedCandidateTreeIds =
+            new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Live view of the prompted candidate tree ids, consumed by
+        /// <see cref="RouteRunPrompt"/>'s decision predicate. Treat as
+        /// read-only: mutate ONLY through <see cref="MarkCandidatePrompted"/>
+        /// so every change is logged.
+        /// </summary>
+        internal static HashSet<string> PromptedCandidateTreeIds => promptedCandidateTreeIds;
+
+        /// <summary>True when the Record-Supply-Run prompt already fired for <paramref name="treeId"/>.</summary>
+        internal static bool IsCandidatePrompted(string treeId)
+        {
+            return !string.IsNullOrEmpty(treeId) && promptedCandidateTreeIds.Contains(treeId);
+        }
+
+        /// <summary>
+        /// Record that the Record-Supply-Run prompt fired for a tree so it
+        /// never fires again (persisted). Returns true when the id was newly
+        /// added; a null/empty id (Warn) or an already-recorded id (Verbose)
+        /// is a no-op returning false.
+        /// </summary>
+        internal static bool MarkCandidatePrompted(string treeId, string displayName)
+        {
+            if (string.IsNullOrEmpty(treeId))
+            {
+                ParsekLog.Warn(Tag, "MarkCandidatePrompted: null or empty tree id - ignored");
+                return false;
+            }
+            if (!promptedCandidateTreeIds.Add(treeId))
+            {
+                ParsekLog.Verbose(Tag, $"MarkCandidatePrompted: tree {treeId} already prompted - no-op");
+                return false;
+            }
+            ParsekLog.Info(Tag,
+                $"Candidate prompted treeId={treeId} name='{displayName ?? "<null>"}' " +
+                $"promptedCount={promptedCandidateTreeIds.Count}");
+            return true;
+        }
+
+        /// <summary>
+        /// Drop prompted-candidate ids whose tree no longer exists in
+        /// <paramref name="committedTrees"/> (deleted / pruned since the save
+        /// was written). Same contract and call site as
+        /// <see cref="SweepStaleDismissedCandidates"/>. Returns the number of
+        /// stale ids swept.
+        /// </summary>
+        internal static int SweepStalePromptedCandidates(IReadOnlyList<RecordingTree> committedTrees)
+        {
+            if (promptedCandidateTreeIds.Count == 0)
+                return 0;
+
+            var liveIds = new HashSet<string>(StringComparer.Ordinal);
+            int treeCount = committedTrees != null ? committedTrees.Count : 0;
+            for (int i = 0; i < treeCount; i++)
+            {
+                string id = committedTrees[i]?.Id;
+                if (!string.IsNullOrEmpty(id))
+                    liveIds.Add(id);
+            }
+
+            int before = promptedCandidateTreeIds.Count;
+            promptedCandidateTreeIds.RemoveWhere(id => !liveIds.Contains(id));
+            int swept = before - promptedCandidateTreeIds.Count;
+            ParsekLog.Verbose(Tag,
+                $"SweepStalePromptedCandidates: swept={swept} " +
+                $"kept={promptedCandidateTreeIds.Count} committedTrees={treeCount}");
             return swept;
         }
 
@@ -444,13 +533,16 @@ namespace Parsek.Logistics
             // reservation into the next test. Clear it here alongside the routes.
             int prevEscrowRoutes = cargoEscrow.Count;
             cargoEscrow.Clear();
-            // M6: the dismissed-candidate set is shared static state too - a
-            // test that dismisses must not leak the id into the next test.
+            // M6: the dismissed-candidate and prompted-candidate sets are
+            // shared static state too - a test that dismisses / prompts must
+            // not leak the id into the next test.
             int prevDismissed = dismissedCandidateTreeIds.Count;
             dismissedCandidateTreeIds.Clear();
+            int prevPrompted = promptedCandidateTreeIds.Count;
+            promptedCandidateTreeIds.Clear();
             ParsekLog.Verbose(Tag,
                 $"ResetForTesting prevCount={prevCount} prevEscrowRoutes={prevEscrowRoutes} " +
-                $"prevDismissedCandidates={prevDismissed}");
+                $"prevDismissedCandidates={prevDismissed} prevPromptedCandidates={prevPrompted}");
         }
 
         // -----------------------------------------------------------------
@@ -728,6 +820,7 @@ namespace Parsek.Logistics
             // stale entries would otherwise survive an empty-store save.
             parent.RemoveNodes(RoutesParentNodeName);
             parent.RemoveNodes(DismissedCandidatesNodeName);
+            parent.RemoveNodes(PromptedCandidatesNodeName);
 
             if (committedRoutes.Count == 0)
             {
@@ -761,6 +854,20 @@ namespace Parsek.Logistics
                 ParsekLog.Verbose(Tag,
                     $"SaveRoutesTo: wrote {ids.Count} dismissed candidate tree id(s)");
             }
+
+            // M6 Record-Supply-Run helper: sparse sibling node, same contract
+            // as the dismissed set - written only when at least one tree was
+            // prompted, sorted ordinal for deterministic save bytes.
+            if (promptedCandidateTreeIds.Count > 0)
+            {
+                ConfigNode promptedNode = parent.AddNode(PromptedCandidatesNodeName);
+                var ids = new List<string>(promptedCandidateTreeIds);
+                ids.Sort(StringComparer.Ordinal);
+                for (int i = 0; i < ids.Count; i++)
+                    promptedNode.AddValue(DismissedTreeIdValueName, ids[i]);
+                ParsekLog.Verbose(Tag,
+                    $"SaveRoutesTo: wrote {ids.Count} prompted candidate tree id(s)");
+            }
         }
 
         /// <summary>
@@ -779,6 +886,7 @@ namespace Parsek.Logistics
             // semantics so callers do not have to manage the reset themselves.
             committedRoutes.Clear();
             dismissedCandidateTreeIds.Clear();
+            promptedCandidateTreeIds.Clear();
 
             if (parent == null)
             {
@@ -789,8 +897,10 @@ namespace Parsek.Logistics
             // M6 candidate intent helper: the dismissed-candidate set is a
             // sparse SIBLING of ROUTES, so it loads before the ROUTES-node
             // check - a save with dismissals but zero routes must still
-            // restore the set.
+            // restore the set. Same for the prompted set (Record-Supply-Run
+            // helper).
             LoadDismissedCandidatesFrom(parent);
+            LoadPromptedCandidatesFrom(parent);
 
             ConfigNode routesNode = parent.GetNode(RoutesParentNodeName);
             if (routesNode == null)
@@ -854,6 +964,32 @@ namespace Parsek.Logistics
             // ParsekScenario loads routes AFTER recordings/trees, so the
             // committed trees are already in memory here.
             SweepStaleDismissedCandidates(RecordingStore.CommittedTrees);
+        }
+
+        /// <summary>
+        /// Loads the M6 Record-Supply-Run prompted tree ids from the sparse
+        /// <c>PROMPTED_ROUTE_CANDIDATES</c> sibling node (absent node = the
+        /// common "nothing ever prompted" path, stays quiet), then sweeps ids
+        /// of deleted / pruned trees. Mirrors
+        /// <see cref="LoadDismissedCandidatesFrom"/>.
+        /// </summary>
+        private static void LoadPromptedCandidatesFrom(ConfigNode parent)
+        {
+            ConfigNode promptedNode = parent.GetNode(PromptedCandidatesNodeName);
+            if (promptedNode == null)
+                return;
+
+            string[] ids = promptedNode.GetValues(DismissedTreeIdValueName);
+            int added = 0;
+            for (int i = 0; i < ids.Length; i++)
+            {
+                if (!string.IsNullOrEmpty(ids[i]) && promptedCandidateTreeIds.Add(ids[i]))
+                    added++;
+            }
+            ParsekLog.Verbose(Tag,
+                $"LoadRoutesFrom: loaded {added} prompted candidate tree id(s)");
+
+            SweepStalePromptedCandidates(RecordingStore.CommittedTrees);
         }
 
         private static string ShortId(string id)

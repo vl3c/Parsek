@@ -136,8 +136,12 @@ namespace Parsek.Reaim
                 return Fail("nan-input");
             // P4 is the rotation/landing pre-landing trim ONLY. Unsupported, station, orbit-only and
             // Drop-mode destinations stay on the shipped path (station holds, orbit-only None, the
-            // Drop A/B rotation gate) - byte-identical.
+            // Drop A/B rotation gate) - byte-identical. A multi-moon (2+ constrained moons) shape is
+            // ALSO excluded (M-MIS-6: it is Supported now, but a rotation-only trim would misalign
+            // the moon configuration; the config hold owns it, and its L8 guard ambers destination
+            // cuts) - the same outcome the pre-M-MIS-6 Unsupported flag produced here.
             if (!destSet.Supported || destSet.HasStation || !destSet.HasLandingRotation
+                || destSet.ConstrainedMoonCount >= 2
                 || mode == TransitedBodyRotationMode.Drop)
                 return Fail("not-a-trimmable-landing");
             if (double.IsNaN(rotationPeriod) || double.IsInfinity(rotationPeriod) || rotationPeriod <= 0.0)
