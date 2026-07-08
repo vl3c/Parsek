@@ -3726,6 +3726,15 @@ namespace Parsek.Display
             // cameras), but the map camera filter + this frame guard keep the
             // draw pass to exactly one run per frame.
             private int precullDrawnFrame = -1;
+            // Per-frame de-dupe for the INDEPENDENT route-overview draw slot
+            // (OnRouteLinePreCull). Route lines draw from their own cache in the same
+            // map-camera onPreCull event but AFTER the ghost draw, so they are decoupled
+            // from the ghost pendingDraws gate yet still see this frame's
+            // drewNonOrbitalLegRecordings (RouteTrajectoryLineRenderer).
+            private int routePrecullDrawnFrame = -1;
+            // Cached body-resolver delegate for the route-line draw, allocated once in Awake so the
+            // per-frame OnRouteLinePreCull never allocates a closure (playtest-12 discipline).
+            private System.Func<string, CelestialBody> routeBodyResolver;
             // The target layer the decide pass resolved; carried so the onPreCull
             // draw pass uses the identical value without re-deriving it.
             private int pendingTargetLayer = 31;
@@ -3751,6 +3760,12 @@ namespace Parsek.Display
                 // map camera commits its pan, so the mesh no longer lags the camera by one frame. The
                 // decide pass (ownership publish + head-UT gate) stays at -50 in LateUpdate.
                 Camera.onPreCull += OnMapCameraPreCull;
+                // Supply-route overview lines draw in the SAME map-camera onPreCull event but from
+                // their own cache (RouteTrajectoryLineRenderer). Subscribed AFTER the ghost handler so
+                // it runs after it: the ghost draw publishes drewNonOrbitalLegRecordings, then the route
+                // draw reads it to skip any recording the ghost is drawing this frame (no double-draw).
+                Camera.onPreCull += OnRouteLinePreCull;
+                routeBodyResolver = ResolveRouteBody;
                 ParsekLog.Verbose(DriverTag,
                     "GhostTrajectoryPolylineRenderer.Driver awake (DDOL singleton)");
             }
@@ -3763,10 +3778,40 @@ namespace Parsek.Display
                     GameEvents.onGameStateLoad.Remove(OnGameStateLoad);
                     GameEvents.onLevelWasLoaded.Remove(HandleLevelWasLoaded);
                     Camera.onPreCull -= OnMapCameraPreCull;
+                    Camera.onPreCull -= OnRouteLinePreCull;
                     ParsekLog.Verbose(DriverTag,
                         "GhostTrajectoryPolylineRenderer.Driver destroyed");
                 }
             }
+
+            /// <summary>
+            /// Independent map-camera onPreCull slot for the supply-route overview lines. Runs after
+            /// <see cref="OnMapCameraPreCull"/> in the same event (subscription order), so
+            /// <see cref="RouteTrajectoryLineRenderer"/> sees this frame's ghost draw ownership. Unlike
+            /// the ghost pass it does NOT gate on <c>pendingDrawsFrame</c>: a committed route draws its
+            /// static path whether or not a ghost was decided this frame. Same map-camera filter + a
+            /// dedicated per-frame de-dupe. Scene gate mirrors the ghost pass (FLIGHT + TRACKSTATION).
+            /// </summary>
+            private void OnRouteLinePreCull(Camera cam)
+            {
+                if (PlanetariumCamera.fetch == null || cam != PlanetariumCamera.Camera) return;
+                var scene = HighLogic.LoadedScene;
+                if (scene != GameScenes.TRACKSTATION && scene != GameScenes.FLIGHT) return;
+                int frame = Time.frameCount;
+                if (routePrecullDrawnFrame == frame) return;
+                routePrecullDrawnFrame = frame;
+
+                // Ensure the per-scene name->CelestialBody map is populated before resolving bodies
+                // (the ghost decide pass may have early-returned this frame without building it).
+                EnsureBodyMap(scene);
+                RouteTrajectoryLineRenderer.DrawAll(frame, pendingTargetLayer, routeBodyResolver);
+            }
+
+            // Cached-delegate target (routeBodyResolver): resolves a body name to a CelestialBody
+            // through the Driver's per-scene name map. Reads HighLogic.LoadedScene so the single
+            // cached delegate stays correct across scene switches.
+            private CelestialBody ResolveRouteBody(string name)
+                => ResolveBodyByName(HighLogic.LoadedScene, name);
 
             /// <summary>
             /// Drops the cached per-scene controller + body-name map on every
@@ -3819,6 +3864,9 @@ namespace Parsek.Display
                 ParsekLog.Verbose(DriverTag,
                     "Polyline driver: onGameStateLoad -> Clear() (cross-save flush)");
                 Clear();
+                // Route-overview lines share the cross-save flush: a next-loaded save's routes resolve
+                // different recordings, so drop the per-route cache + destroy its VectorLines here too.
+                RouteTrajectoryLineRenderer.Clear();
                 // Drop any half-decided draw handoff so the onPreCull pass cannot draw a freed leg into
                 // the next-loaded save before the next LateUpdate re-decides.
                 pendingDraws.Clear();

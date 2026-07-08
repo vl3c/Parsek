@@ -102,7 +102,7 @@ Design-concept to implementation-class mapping (names diverge):
 | Mission structure walk | `MissionStructureBuilder.Build` (`MissionStructure.cs:122`) |
 | Through-line collapse | `MissionThroughLineBuilder.Build` (`MissionThroughLine.cs:38`) |
 | Interval composition | `MissionCompositionBuilder.Build` (`MissionComposition.cs:63`) |
-| Mission -> loop units adapter | `MissionLoopUnitBuilder.Build` (`MissionLoopUnitBuilder.cs:38`) |
+| Mission -> loop units adapter | `MissionLoopUnitBuilder.Build` (`MissionLoopUnitBuilder.cs:38`); single-selection entry point `MissionLoopUnitBuilder.TryBuildLoopUnitForSelection` (M-MIS-11 item 1, consumed by `RouteOrchestrator.ResolveLoopUnit`) |
 | Span clock | `GhostPlaybackLogic.TryComputeSpanLoopUT` (`GhostPlaybackLogic.cs:7198`) |
 | Periodicity solve | `MissionPeriodicity` (`MissionPeriodicity.cs`) |
 | Re-aim | `Source/Parsek/Reaim/*` |

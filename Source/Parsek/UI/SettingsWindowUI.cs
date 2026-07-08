@@ -411,6 +411,16 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("UI", "ghostAudioVolume",
                     $"Ghost audio volume set to {newAudioVol:F2}", 1.0);
             }
+
+            bool showRouteLines = GUILayout.Toggle(s.showRouteLines,
+                new GUIContent(" Show supply route paths on map",
+                    "Draw each committed same-body supply route's recorded launch-to-dock path as a line on the flight map and Tracking Station, so you can see where a route runs"));
+            if (showRouteLines != s.showRouteLines)
+            {
+                s.showRouteLines = showRouteLines;
+                ParsekSettingsPersistence.RecordShowRouteLines(showRouteLines);
+                ParsekLog.Info("UI", $"Setting changed: showRouteLines={showRouteLines}");
+            }
         }
 
         private void DrawStockUiSettings(ParsekSettings s)
