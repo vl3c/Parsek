@@ -1540,12 +1540,14 @@ namespace Parsek
 
                 // Rebuild ORBIT subnode from position + velocity. When no caller-supplied
                 // orbit is passed (EVA / breakup / non-terminal-orbit respawn paths), the
-                // velocity argument is a recorder-frame Y-up world vector (TrajectoryPoint.velocity)
-                // and worldPos is an absolute Y-up world position. Orbit.UpdateFromStateVectors
+                // velocity argument is a recorder-frame Y-up world vector (TrajectoryPoint.velocity,
+                // or zero on the tipPoint-less walkback fallback, which is frame-invariant) and
+                // worldPos is an absolute Y-up world position. Orbit.UpdateFromStateVectors
                 // requires body-relative Zup inputs, so route through OrbitReseed rather than
-                // feeding the raw vectors (the bare call produces the ~500 k-sma garbage orbit
-                // OrbitReseed exists to correct; see OrbitReseed remarks + RuntimeTests
-                // TerminalOrbitFromTail_DerivesPostBurnEccentricOrbit).
+                // feeding the raw vectors (the bare call produces the sub-surface / ~500 k-sma
+                // garbage orbit OrbitReseed exists to correct; see OrbitReseed remarks. This
+                // no-override branch is regression-guarded in-game by
+                // RuntimeTests.SpawnAtPosition_NoOverrideStationAltitude_ReseedsInBand).
                 Orbit orbit = orbitOverride;
                 if (orbit == null)
                 {

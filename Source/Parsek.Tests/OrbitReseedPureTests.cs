@@ -210,15 +210,21 @@ namespace Parsek.Tests
             AssertVector(baseInputs.VelocityForUpdate, inputs.VelocityForUpdate);
         }
 
-        // === SpawnAtPosition no-override reseed contract ===
+        // === SpawnAtPosition no-override reseed: pure frame-conversion contract ===
         // VesselSpawner.SpawnAtPosition, on the EVA / breakup / non-terminal-orbit respawn
         // paths, used to feed an absolute Y-up worldPos and a recorder-frame Y-up velocity
         // straight into Orbit.UpdateFromStateVectors. That produced a physically-wrong orbit
         // (sma out of band, periapsis subsurface) — the live 2026-07-08 GrappleCapture spawn
         // that materialized off-position at a 214.7 km station and flipped SUB_ORBITAL a frame
-        // later. The fix routes that path through ComputeRecordedVelocityInputs (the pure core
-        // of OrbitReseed.FromWorldPosAndRecordedVelocity). This pins the two frame transforms
-        // the bare call omitted for a station-altitude spawn with a non-trivial body offset.
+        // later. The fix routes that path through OrbitReseed.FromWorldPosAndRecordedVelocity,
+        // whose pure core is ComputeRecordedVelocityInputs.
+        //
+        // SCOPE: this headless test guards the pure frame-conversion CONTRACT (subtract
+        // body.position, then .xzy both vectors) at station scale. It does NOT pin the
+        // VesselSpawner call site — the changed line and OrbitReseed.FromWorldPosAndRecordedVelocity
+        // are Unity-bound (Orbit.UpdateFromStateVectors / body.position). The call-site regression
+        // (reverting to the bare call) is caught by the in-game test
+        // RuntimeTests.SpawnAtPosition_NoOverrideStationAltitude_ReseedsInBand (SpawnTerminalOrbit).
 
         [Fact]
         public void RecordedVelocityInputs_StationAltitudeSpawn_SubtractsBodyOffsetAndFlipsFrame()
