@@ -239,6 +239,50 @@ namespace Parsek
             if (GUILayout.Button("Recordings"))
                 ToggleRecordingsWindow();
 
+            // --- M6 Record-Supply-Run helper banner ---
+            // Non-blocking prompt armed by RouteRunPrompt at commit time when an
+            // eligible route candidate landed. Drawn here (the main window)
+            // rather than as a modal so it never interrupts gameplay - the
+            // commit-time ScreenMessage announces it while the window is
+            // closed, and this banner carries the Open / Dismiss actions.
+            if (RouteRunPrompt.HasPendingPrompt)
+            {
+                // Staleness guard (cheap id-membership only): dismissed
+                // elsewhere (Logistics window row button) drops the banner.
+                // Cleared ONLY on the Layout event so the same frame's Repaint
+                // pass sees the identical control count (IMGUI stability).
+                if (Event.current.type == EventType.Layout
+                    && RouteStore.IsCandidateDismissed(RouteRunPrompt.PendingPromptTreeId))
+                {
+                    RouteRunPrompt.ClearPendingPrompt("dismissed-elsewhere");
+                }
+                if (RouteRunPrompt.HasPendingPrompt)
+                {
+                    GUILayout.Label(
+                        $"Supply Route candidate:\n'{RouteRunPrompt.PendingPromptLabel ?? "<unnamed>"}'",
+                        GUI.skin.box, GUILayout.ExpandWidth(true));
+                    GUILayout.BeginHorizontal();
+                    if (GUILayout.Button("Open Logistics"))
+                    {
+                        logisticsUI.IsOpen = true;
+                        ParsekLog.Info("UI",
+                            $"RouteRunPrompt banner: Open Logistics clicked tree={RouteRunPrompt.PendingPromptTreeId}");
+                        RouteRunPrompt.ClearPendingPrompt("opened-logistics");
+                    }
+                    if (GUILayout.Button("Dismiss"))
+                    {
+                        // Dismiss here also dismisses the candidate (the tree
+                        // leaves the Logistics Candidates section; reversible
+                        // from its "Dismissed (N)" subsection).
+                        RouteStore.DismissCandidateTree(
+                            RouteRunPrompt.PendingPromptTreeId, RouteRunPrompt.PendingPromptLabel);
+                        RouteRunPrompt.ClearPendingPrompt("dismissed-from-banner");
+                    }
+                    GUILayout.EndHorizontal();
+                    GUILayout.Space(SpacingSmall);
+                }
+            }
+
             // --- Logistics (v0, available in both Flight and KSC) ---
             // Grouped with Timeline + Recordings as the primary navigation set.
             // The whole button tints red when any route is hard-broken (EndpointLost /
@@ -261,6 +305,10 @@ namespace Parsek
             Color prevLogisticsColor = GUI.color;
             if (anyLogisticsBroken)
                 GUI.color = new Color(0.95f, 0.45f, 0.45f);
+            else if (RouteRunPrompt.HasPendingPrompt)
+                // M6 Record-Supply-Run helper: cyan highlight while the banner
+                // above is pending (broken-red wins - an error outranks a hint).
+                GUI.color = new Color(0.45f, 0.85f, 0.95f);
             try
             {
                 if (GUILayout.Button("Logistics"))

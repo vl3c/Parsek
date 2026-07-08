@@ -52,6 +52,16 @@ namespace Parsek.InGameTests
 
             /// <summary>The re-aim loop unit the live builder produced (<see cref="GhostPlaybackLogic.LoopUnit.IsReaim"/> true).</summary>
             public GhostPlaybackLogic.LoopUnit Unit;
+
+            /// <summary>
+            /// The full <see cref="GhostPlaybackLogic.LoopUnitSet"/> the builder produced for the
+            /// transient clone (contains exactly the matched unit; member indices are committed-list
+            /// indices). Carried so a test can drive the production per-member span-clock resolvers
+            /// (<see cref="GhostPlaybackLogic.ResolveTrackingStationSampleFrame"/> /
+            /// <c>GhostMapPresence.ResolveMapPresenceSampleUT</c>), which take the set, with the REAL
+            /// built set instead of hand-assembling one.
+            /// </summary>
+            public GhostPlaybackLogic.LoopUnitSet Units;
         }
 
         /// <summary>
@@ -95,6 +105,92 @@ namespace Parsek.InGameTests
 
             /// <summary>The joint-hold loop unit the live builder produced.</summary>
             public GhostPlaybackLogic.LoopUnit Unit;
+        }
+
+        /// <summary>
+        /// A committed mission whose periodicity extraction resolves a LAUNCH BODY that is not
+        /// the home body (an off-Kerbin pad launch: Mun surface -&gt; orbit, Eve return ascent,
+        /// Laythe spaceplane - M-MIS-10 archetype 3). Carries the full extraction so a test can
+        /// assert pad anchoring + phase-lock against the live body graph.
+        /// </summary>
+        internal struct OffHomeLaunchMissionMatch
+        {
+            /// <summary>The real committed mission.</summary>
+            public Mission Mission;
+
+            /// <summary>The mission's recording tree.</summary>
+            public RecordingTree Tree;
+
+            /// <summary>The full constraint extraction for the mission's trimmed config.</summary>
+            public ConstraintExtraction Extraction;
+        }
+
+        /// <summary>
+        /// Scans every committed mission for one whose periodicity extraction (the REAL
+        /// <see cref="MissionPeriodicity.ExtractConstraints"/> with <paramref name="bodyInfo"/>)
+        /// resolves a <see cref="ConstraintExtraction.LaunchBodyName"/> DIFFERENT from
+        /// <paramref name="homeBodyName"/> - a real off-Kerbin pad launch. Returns the first
+        /// match carrying the extraction. Read-only; logs a batch-counted scan summary so a
+        /// caller's Skip is explainable.
+        /// </summary>
+        internal static bool TryFindOffHomeLaunchMission(
+            IBodyInfo bodyInfo, string homeBodyName, out OffHomeLaunchMissionMatch match)
+        {
+            match = default;
+            IReadOnlyList<Mission> missions = MissionStore.Missions;
+            IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+            List<RecordingTree> trees = RecordingStore.CommittedTrees;
+            if (bodyInfo == null || string.IsNullOrEmpty(homeBodyName)
+                || missions == null || missions.Count == 0
+                || committed == null || committed.Count == 0 || trees == null)
+            {
+                LogScanSummary("offhome", missions?.Count ?? 0, 0, 0, false);
+                return false;
+            }
+
+            int scanned = 0;
+            int extracted = 0;
+            bool found = false;
+            using (new FinderLogGuard())
+            {
+                for (int i = 0; i < missions.Count; i++)
+                {
+                    Mission mission = missions[i];
+                    if (mission == null || string.IsNullOrEmpty(mission.TreeId))
+                        continue;
+                    scanned++;
+
+                    RecordingTree tree = FindTree(trees, mission.TreeId);
+                    if (tree == null)
+                        continue;
+
+                    MissionStructure structure = MissionStructureBuilder.Build(tree);
+                    MissionThroughLineView view = MissionThroughLineBuilder.Build(structure);
+                    List<MissionCompositionNode> compRoots = MissionCompositionBuilder.Build(structure);
+                    ConstraintExtraction extraction = MissionPeriodicity.ExtractConstraints(
+                        view, compRoots, committed, mission.ExcludedIntervalKeys, bodyInfo);
+                    if (extraction.Constraints == null)
+                        continue;
+                    extracted++;
+
+                    if (string.IsNullOrEmpty(extraction.LaunchBodyName)
+                        || string.Equals(extraction.LaunchBodyName, homeBodyName,
+                            System.StringComparison.Ordinal))
+                        continue;
+
+                    match = new OffHomeLaunchMissionMatch
+                    {
+                        Mission = mission,
+                        Tree = tree,
+                        Extraction = extraction,
+                    };
+                    found = true;
+                    break;
+                }
+            }
+
+            LogScanSummary("offhome", missions.Count, scanned, extracted, found);
+            return found;
         }
 
         /// <summary>
@@ -160,7 +256,7 @@ namespace Parsek.InGameTests
                         GhostPlaybackLogic.LoopUnit unit = kv.Value;
                         if (!unit.IsReaim)
                             continue;
-                        match = new ReaimMissionMatch { Mission = mission, Tree = tree, Unit = unit };
+                        match = new ReaimMissionMatch { Mission = mission, Tree = tree, Unit = unit, Units = set };
                         found = true;
                         break;
                     }

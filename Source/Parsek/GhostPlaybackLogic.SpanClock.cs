@@ -1967,13 +1967,13 @@ namespace Parsek
             // member that would otherwise render, so it is byte-identical everywhere else.
             if (unit.HasDescentTrigger && decision == UnitMemberRenderDecision.Render)
             {
-                Parsek.Reaim.DescentTrigger.DescentHeadPhase transferUnitPhase =
-                    Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead(
-                        liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
-                        unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
-                        unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out _);
-                bool hideForDescentHandoff =
-                    transferUnitPhase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Descent;
+                // Shared with the FLIGHT engine (UpdateUnitMemberPlayback) so the map/TS icon handoff and
+                // the flight 3D-ghost handoff can never disagree. This branch is only reachable for
+                // non-descent members (the descent branch above always returns), so the helper's own
+                // IsDescentMember guard is inert here.
+                bool hideForDescentHandoff = ShouldHideNonDescentMemberForDescentHandoff(
+                    unit, i, liveUT, unitCycle,
+                    out Parsek.Reaim.DescentTrigger.DescentHeadPhase transferUnitPhase);
                 var hdic = CultureInfo.InvariantCulture;
                 ParsekLog.VerboseRateLimited(
                     "ReaimDescent",
@@ -2114,6 +2114,35 @@ namespace Parsek
 
             return new DescentMemberEngineRender(
                 renderDescent, renderDescent ? descentHead : double.NaN, descentPhase, unitCycle);
+        }
+
+        /// <summary>
+        /// Descent HANDOFF hide for a NON-descent (transfer / loiter / launch / ride-along) member of a
+        /// descent-trigger unit - the ONE decision shared by the map/TS resolver
+        /// (<see cref="ResolveTrackingStationSampleUT"/>) and the FLIGHT engine
+        /// (<c>GhostPlaybackEngine.UpdateUnitMemberPlayback</c>), so the two scenes can never disagree on
+        /// when the transfer/loiter member hands off to the descent. While the unit-wide descent phase
+        /// (<see cref="Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead"/>) is <c>Descent</c> the
+        /// re-anchored descent member is playing the approach clip, so a currently-rendering non-descent
+        /// member must HIDE - otherwise two vessels coexist at the handoff (the parking icon/ghost + the
+        /// descent one, the 2026-06-20 13:34 double-icon bug). In Inert / Loiter / Done the member is left
+        /// untouched (the loiter icon/ghost is correct until the trigger fires). Returns false for descent
+        /// members and non-descent-trigger units (byte-identical everywhere else); callers gate on their
+        /// own decision==Render so a hidden member is never re-hidden. Pure: no Unity, no logging (each
+        /// call site owns its rate-limited "transfer/loiter member ... -> HIDDEN/kept" trace).
+        /// </summary>
+        internal static bool ShouldHideNonDescentMemberForDescentHandoff(
+            LoopUnit unit, int i, double liveUT, long unitCycle,
+            out Parsek.Reaim.DescentTrigger.DescentHeadPhase unitDescentPhase)
+        {
+            unitDescentPhase = Parsek.Reaim.DescentTrigger.DescentHeadPhase.Inert;
+            if (!unit.HasDescentTrigger || unit.IsDescentMember(i))
+                return false;
+            unitDescentPhase = Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead(
+                liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
+                unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
+                unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out _);
+            return unitDescentPhase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Descent;
         }
 
         /// <summary>

@@ -97,19 +97,27 @@ namespace Parsek
         /// </summary>
         internal static void EmitLifecycleSummary(string scope, double currentUT)
         {
-            GhostMapVisibilityCounters visibility = CollectMapVisibilityCounters();
-            ParsekLog.VerboseRateLimited(
-                Tag,
-                "gm-lifecycle-summary",
-                BuildLifecycleSummaryMessage(
-                    scope,
-                    visibility,
-                    lifecycleCreatedThisTick,
-                    lifecycleDestroyedThisTick,
-                    lifecycleUpdatedThisTick,
-                    currentUT,
-                    GetCurrentSceneName()),
-                5.0);
+            // The counter collect + message format run per tick BEFORE the rate-limiter decides
+            // to emit; with verbose off they are pure waste — and the flight tick now runs up to
+            // once per frame at extreme warp (the warp-scaled reseed cadence). Guarded like the
+            // seam CoMD summary (see the IsVerboseEnabled precedent in the state-vector reseed).
+            // The per-tick counter reset stays unconditional: it is the tick contract, not logging.
+            if (ParsekLog.IsVerboseEnabled)
+            {
+                GhostMapVisibilityCounters visibility = CollectMapVisibilityCounters();
+                ParsekLog.VerboseRateLimited(
+                    Tag,
+                    "gm-lifecycle-summary",
+                    BuildLifecycleSummaryMessage(
+                        scope,
+                        visibility,
+                        lifecycleCreatedThisTick,
+                        lifecycleDestroyedThisTick,
+                        lifecycleUpdatedThisTick,
+                        currentUT,
+                        GetCurrentSceneName()),
+                    5.0);
+            }
             lifecycleCreatedThisTick = 0;
             lifecycleDestroyedThisTick = 0;
             lifecycleUpdatedThisTick = 0;

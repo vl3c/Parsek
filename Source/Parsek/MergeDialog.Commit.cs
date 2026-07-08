@@ -131,6 +131,12 @@ namespace Parsek
 
             ClearPendingFlag("merge dialog commit button");
             OnTreeCommitted?.Invoke(tree);
+            // M6 Record-Supply-Run helper: one-time non-blocking prompt when
+            // this commit produced an eligible route candidate. After
+            // OnTreeCommitted so downstream state (ghost chains) is settled;
+            // internally gated (test batch, restore window, prompted-once,
+            // dismissed) and never throws into the commit path.
+            Logistics.RouteRunPrompt.NotifyTreeCommitted(tree);
             if (spawnCount > 0)
                 ParsekLog.ScreenMessage(
                     $"Merged - {spawnCount} vessel(s) will appear after ghost playback", 3f);
