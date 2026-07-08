@@ -25,11 +25,9 @@ All notable changes to Parsek are documented here.
 
 ### Internals & Tests
 
+- The landing+station joint arrival alignment now has an automated in-game merge gate replacing the manual playtest: a synthetic dual-constraint destination is driven through the real mission loop builder with live ephemerides and both alignments are verified per loop, alongside a real-save joint-mission check that runs when such a mission exists in the loaded save.
 - Added an automated in-game merge gate (`JoolConfigHoldInGameTest`) for the M-MIS-6 multi-moon configuration hold: it drives the real arrival-hold planner against the LIVE stock Jool body graph, asserting the resonant inner three (Laythe/Vall/Tylo) engage the T_config hold with every moon encounter aligned within its live SOI tolerance, and that adding incommensurate Bop fails the set closed to faithful with an amber - the live-body proof headless fixtures cannot give. Replaces the manual looped-Jool-tour playtest as the merge gate.
 - Loop-unit API hardening on the Missions-to-Logistics seam, with no behavior change: supply routes now cache their built loop unit (rebuilt only when an input actually changes, instead of re-running the full builder pipeline every orchestrator tick and countdown call), the fire-once dock-crossing detection is centralized in one shared emitter, and the loop cycle index carries an explicit flat-vs-scheduled type so consumers cannot misread one as the other. Route firing, replay keys, escrow, and ledger rows are unchanged.
-
-### Internals & Tests
-
 - Logistics / time-rewind determinism (Rec-3): a supply route that physically delivered or debited cargo inside a flight you then discard without a rewind stays in the surviving timeline, and both its funds row and its cargo persist so the career economy stays consistent. This persistence is intended (a route delivery is an ambient live career event, kept like other live-earned progress); it is now recorded as a behavior-neutral `[Rec-3 residual]` diagnostic warning naming the route, cycle, and amounts, and nothing is reversed or gated (see `docs/dev/plans/fix-logistics-rewind-determinism.md` Phase 4).
 
 ## 0.10.2
