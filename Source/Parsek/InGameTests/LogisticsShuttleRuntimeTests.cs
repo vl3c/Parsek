@@ -19,13 +19,32 @@ namespace Parsek.InGameTests
     /// start-trim excluded keys, the persisted origin-undock UT), and the REAL
     /// <see cref="RouteOrchestrator.ResolveLoopUnit"/> (the built unit's span
     /// starts at the ORIGIN UNDOCK - a non-launch span start - with only the
-    /// transit leg a member and the dock inside the lifted span).
+    /// transit leg a member, the dock inside the lifted span, the span END at
+    /// the delivery dock, and the whole post-delivery tail - the docked-at-B
+    /// stretch, the post-undock survivor, and the peeled payload - NON-members,
+    /// the D4 end-trim half of the P2b boundary contract
+    /// <c>[originUndock .. deliveryDock]</c>).
     ///
-    /// <para>The live two-delivery cadence firing stays with the manual shuttle
-    /// playtest (the PR merge gate) and the sibling
-    /// <see cref="LogisticsDockBoundaryDeliveryCadenceRuntimeTests"/> pattern;
-    /// the loop-clock phase for a raised span start is xUnit-pinned
-    /// (RouteLoopClockTests.DockPhase_RaisedSpanStart_CrossingFiresOncePerCycle).</para>
+    /// <para>The firing phase then drives TWO consecutive delivery cycles
+    /// through the LIVE <see cref="RouteOrchestrator.Tick(double, IRouteRuntimeEnvironment)"/>
+    /// crossing detector against the pinned REAL unit (the
+    /// <see cref="RouteInterBodyBuilderShapeInGameTest"/> pattern: the resolver
+    /// seam supplies the already-proven live-built unit so the clock is
+    /// deterministic; the crossing detector, eligibility, dispatch/debit rows,
+    /// and cycle bookkeeping are the real orchestrator; only the live-Vessel
+    /// row emission and the M1 depot origin debit are seam-faked). It asserts
+    /// a mid-transit tick fires NOTHING, each dock-phase tick fires exactly
+    /// one delivery + one dispatch + one depot origin debit, and the two
+    /// deliveries land exactly one DispatchInterval (== the transit span)
+    /// apart - the "ghost loops only the transit leg" playtest observation,
+    /// automated. The loop-clock phase math for a raised span start is also
+    /// xUnit-pinned (RouteLoopClockTests.DockPhase_RaisedSpanStart_CrossingFiresOncePerCycle).</para>
+    ///
+    /// <para>Batch-safe: every mutation (committed tree + recordings, the
+    /// route store - snapshotted and emptied for the firing window so the
+    /// synthetic ticks cannot touch a live route - the three orchestrator
+    /// seams, and the ledger rows the real dispatch path writes) is reverted
+    /// in the finally regardless of pass/fail/skip.</para>
     /// </summary>
     public sealed class LogisticsShuttleRuntimeTests
     {
@@ -41,7 +60,7 @@ namespace Parsek.InGameTests
         private const double TransitSpan = DeliveryDockUT - OriginUndockUT; // 1000
 
         [InGameTest(Category = "Logistics", Scene = GameScenes.FLIGHT,
-            Description = "M-MIS-5 P2b: an undock->undock shuttle tree (mid-flight root, recorded depot-A origin window) is ACCEPTED by the real analysis as a mid-tree docked origin, builds a route spanning [origin undock .. depot-B dock] with the depot-A endpoint as origin, and resolves a real loop unit whose span starts at the ORIGIN UNDOCK with only the transit leg a member")]
+            Description = "M-MIS-5 P2b: an undock->undock shuttle tree (mid-flight root, recorded depot-A origin window) is ACCEPTED by the real analysis as a mid-tree docked origin, builds a route spanning [origin undock .. depot-B dock] with the depot-A endpoint as origin, resolves a real loop unit whose span runs [ORIGIN UNDOCK .. delivery dock] with only the transit leg a member (pre-origin AND post-delivery legs non-members), and fires two consecutive deliveries through the live orchestrator exactly one DispatchInterval (= transit span) apart, each inside the trimmed window at the dock phase")]
         public void Shuttle_MidTreeOrigin_AnalyzesBuildsAndResolvesUnit()
         {
             if (Planetarium.fetch == null)
@@ -52,6 +71,14 @@ namespace Parsek.InGameTests
 
             bool treeAdded = false;
             var committedAdded = new List<Recording>();
+
+            // Firing-phase snapshots (restored in finally regardless of outcome).
+            var priorResolver = RouteOrchestrator.LoopUnitResolverForTesting;
+            var priorRowEmitter = RouteOrchestrator.DeliveryRowEmitterForTesting;
+            var priorOriginDebit = RouteOrchestrator.OriginDebitApplierForTesting;
+            bool routeStoreMutated = false;
+            var preExistingRoutes = new List<Route>();
+            string firingRouteId = null;
             try
             {
                 // ---- REAL analysis: the P2b acceptance -----------------------
@@ -124,6 +151,9 @@ namespace Parsek.InGameTests
                 int idxRoot = FindCommittedIndex(committed, "root");
                 int idxDockedA = FindCommittedIndex(committed, "dockedA");
                 int idxDepotA = FindCommittedIndex(committed, "depotA");
+                int idxDockedB = FindCommittedIndex(committed, "dockedB");
+                int idxSurvivor = FindCommittedIndex(committed, "survivor");
+                int idxPayload = FindCommittedIndex(committed, "payload");
                 InGameAssert.IsTrue(idxTransit >= 0 && idxRoot >= 0,
                     "fixture push failed: shuttle legs not found in CommittedRecordings");
                 InGameAssert.IsTrue(IsUnitMember(unit, idxTransit),
@@ -135,16 +165,181 @@ namespace Parsek.InGameTests
                 if (idxDepotA >= 0)
                     InGameAssert.IsFalse(IsUnitMember(unit, idxDepotA),
                         "P2b: the depot-A offshoot must be a NON-member (origin-undock scoping)");
+                // The END half of the P2b boundary contract [originUndock ..
+                // deliveryDock] (D4 symmetry: docked stretches excluded at BOTH
+                // ends): the post-delivery tail is trimmed, so the docked-at-B
+                // stretch, the post-undock survivor, and the peeled payload are
+                // all NON-members - the ghost retires at the delivery dock.
+                if (idxDockedB >= 0)
+                    InGameAssert.IsFalse(IsUnitMember(unit, idxDockedB),
+                        "P2b/D4: the docked-at-B delivery stretch must be a NON-member (end-trimmed at the dock)");
+                if (idxSurvivor >= 0)
+                    InGameAssert.IsFalse(IsUnitMember(unit, idxSurvivor),
+                        "P2b/D4: the post-undock survivor leg must be a NON-member (end-trimmed at the dock)");
+                if (idxPayload >= 0)
+                    InGameAssert.IsFalse(IsUnitMember(unit, idxPayload),
+                        "P2b/D4: the peeled payload must be a NON-member (end-trimmed at the dock)");
+
+                // Span geometry closure: the delivery dock sits at the span END
+                // (dockOffset == span length), so the loop clock fires the
+                // delivery exactly when the ghost retires - the cadence honesty
+                // point of the P2b plan (span == transit == DispatchInterval).
+                double dockOffset = route.RecordedDockUT - unit.SpanStartUT;
+                double spanLen = unit.SpanEndUT - unit.SpanStartUT;
+                InGameAssert.IsTrue(Math.Abs(dockOffset - spanLen) < 1.0,
+                    $"P2b: the delivery dock offset within the span ({dockOffset.ToString("R", IC)}) must equal the " +
+                    $"span length ({spanLen.ToString("R", IC)}) - the span END is the delivery dock; a larger span " +
+                    "means the post-delivery tail leaked into the rendered window");
+                InGameAssert.IsTrue(Math.Abs(unit.CadenceSeconds - TransitSpan) < 1.0,
+                    $"P2b: the unit cadence must be the transit span {TransitSpan.ToString("R", IC)} " +
+                    $"(DispatchInterval == span == transit), was {unit.CadenceSeconds.ToString("R", IC)}");
 
                 ParsekLog.Info("TestRunner",
-                    $"Shuttle_P2b_InGame: PASS status={analysis.Status} spanStart={unit.SpanStartUT.ToString("R", IC)} " +
+                    $"Shuttle_P2b_InGame: shape PASS status={analysis.Status} spanStart={unit.SpanStartUT.ToString("R", IC)} " +
                     $"spanEnd={unit.SpanEndUT.ToString("R", IC)} cadence={unit.CadenceSeconds.ToString("R", IC)} " +
                     $"originPid={route.Origin.VesselPersistentId.ToString(IC)} " +
                     $"originUndockUT={route.RecordedOriginUndockUT.ToString("R", IC)} " +
                     $"excludedKeys={route.ExcludedIntervalKeys.Count.ToString(IC)}");
+
+                // ---- FIRING GATE: two deliveries through the LIVE orchestrator ----
+                // Tick processes EVERY committed route, so snapshot + empty the
+                // route store for the firing window (the synthetic tick UTs could
+                // be owed crossings for a live route) and add only this route.
+                IReadOnlyList<Route> committedRoutes = RouteStore.CommittedRoutes;
+                for (int i = 0; i < committedRoutes.Count; i++)
+                    if (committedRoutes[i] != null)
+                        preExistingRoutes.Add(committedRoutes[i]);
+                RouteStore.ResetForTesting();
+                routeStoreMutated = true;
+                firingRouteId = route.Id;
+                // Built Paused (leak posture); the loop clock only ticks
+                // ghost-driving routes, so flip to Active for the firing window.
+                route.Status = RouteStatus.Active;
+                RouteStore.AddRoute(route);
+
+                // Pin the REAL resolved unit for THIS route only: the crossing
+                // detector, eligibility, dispatch/debit, and cycle bookkeeping
+                // stay fully live; the seam only makes the span clock
+                // deterministic (the live re-resolve floors the phase anchor
+                // against the drifting live UT).
+                GhostPlaybackLogic.LoopUnit firingUnit = unit;
+                RouteOrchestrator.LoopUnitResolverForTesting = (r, ut) =>
+                    r != null && string.Equals(r.Id, route.Id, StringComparison.Ordinal)
+                        ? firingUnit
+                        : (priorResolver != null ? priorResolver(r, ut) : (GhostPlaybackLogic.LoopUnit?)null);
+
+                // Real-path row emitter (the M4a lesson): the REAL ApplyDelivery
+                // runs its per-window ELS guard; only the live-Vessel row emission
+                // is faked, so a replay/suppression regression still goes red.
+                var deliveredCycleIds = new List<string>();
+                RouteOrchestrator.DeliveryRowEmitterForTesting =
+                    (r, rowUT, e, cycleId, stopIndex, bumpCompletedCycle) =>
+                    {
+                        Ledger.AddAction(new GameAction
+                        {
+                            Type = GameActionType.RouteCargoDelivered,
+                            UT = rowUT,
+                            RouteId = r.Id,
+                            RouteCycleId = cycleId,
+                            RouteStopIndex = stopIndex,
+                            Sequence = stopIndex * RouteOrchestrator.SeqStride + 3,
+                        });
+                        deliveredCycleIds.Add(cycleId);
+                    };
+
+                // M1 depot origin debit seam: the depot-A origin (pid 777) has no
+                // live vessel, so hand back a full debit of the route's cost
+                // manifest; the REAL EmitDispatchDebit builds the debited row
+                // from this outcome.
+                int originDebits = 0;
+                RouteOrchestrator.OriginDebitApplierForTesting = (r, debitUT, e) =>
+                {
+                    originDebits++;
+                    return new RouteOrchestrator.OriginDebitOutcome
+                    {
+                        ActualDebited = r.CostManifest != null
+                            ? new Dictionary<string, double>(r.CostManifest)
+                            : null,
+                        OriginVesselPid = 777u,
+                        Short = false,
+                        Unresolved = false,
+                    };
+                };
+
+                var env = new EligibleEnv();
+                double anchor = unit.PhaseAnchorUT;
+                double cadence = unit.CadenceSeconds;
+
+                // MID-TRANSIT tick (half way to the dock phase): the crossing
+                // detector must fire NOTHING - the delivery is gated on the loop
+                // clock reaching the recorded dock phase INSIDE the trimmed span,
+                // not on cycle entry.
+                RouteOrchestrator.Tick(anchor + 0.5 * dockOffset, env);
+                InGameAssert.AreEqual(0, deliveredCycleIds.Count,
+                    "P2b firing: a mid-transit tick (before the dock phase) must not deliver");
+                InGameAssert.AreEqual(0, CountRouteLedgerRows(route.Id, GameActionType.RouteDispatched),
+                    "P2b firing: a mid-transit tick must not dispatch");
+
+                // CYCLE 0: tick just past the dock phase (anchor + dockOffset).
+                // dockOffset == span end, so the fire lands exactly at the
+                // trimmed window's delivery boundary.
+                double fire0UT = anchor + dockOffset + 0.5;
+                RouteOrchestrator.Tick(fire0UT, env);
+                InGameAssert.AreEqual(1, deliveredCycleIds.Count,
+                    "P2b firing: the cycle-0 dock-phase tick must fire exactly one delivery");
+                InGameAssert.AreEqual(1, CountRouteLedgerRows(route.Id, GameActionType.RouteDispatched),
+                    "P2b firing: cycle 0 must dispatch exactly once");
+                InGameAssert.AreEqual(1, originDebits,
+                    "P2b firing: cycle 0 must debit the depot-A origin exactly once (the M1 docked-origin debit)");
+                Route afterCycle0;
+                InGameAssert.IsTrue(RouteStore.TryGetRoute(route.Id, out afterCycle0)
+                        && afterCycle0.CompletedCycles == 1,
+                    "P2b firing: cycle 0 must bump CompletedCycles to 1");
+
+                // CYCLE 1: exactly one cadence (== DispatchInterval == transit
+                // span) later. Two consecutive deliveries one DispatchInterval
+                // apart is the plan-named in-game acceptance for the lifted span.
+                double fire1UT = fire0UT + cadence;
+                RouteOrchestrator.Tick(fire1UT, env);
+                InGameAssert.AreEqual(2, deliveredCycleIds.Count,
+                    "P2b firing: the cycle-1 dock-phase tick (one cadence later) must fire the second delivery");
+                InGameAssert.AreEqual(2, CountRouteLedgerRows(route.Id, GameActionType.RouteDispatched),
+                    "P2b firing: cycle 1 must dispatch exactly once more");
+                InGameAssert.AreEqual(2, originDebits,
+                    "P2b firing: cycle 1 must debit the depot-A origin exactly once more");
+                InGameAssert.IsTrue(Math.Abs((fire1UT - fire0UT) - TransitSpan) < 1.0,
+                    $"P2b firing: the delivery-to-delivery gap {(fire1UT - fire0UT).ToString("R", IC)} must equal " +
+                    $"the transit span / DispatchInterval {TransitSpan.ToString("R", IC)} (the loop is ONLY the transit leg)");
+
+                ParsekLog.Info("TestRunner",
+                    $"Shuttle_P2b_InGame: firing PASS routeId={route.Id} cycles={deliveredCycleIds.Count.ToString(IC)} " +
+                    $"cycleIds={string.Join(",", deliveredCycleIds.ToArray())} originDebits={originDebits.ToString(IC)} " +
+                    $"gap={(fire1UT - fire0UT).ToString("R", IC)} cadence={cadence.ToString("R", IC)} " +
+                    $"dockOffset={dockOffset.ToString("R", IC)}");
             }
             finally
             {
+                // Restore the orchestrator seams FIRST so nothing else fires on them.
+                RouteOrchestrator.LoopUnitResolverForTesting = priorResolver;
+                RouteOrchestrator.DeliveryRowEmitterForTesting = priorRowEmitter;
+                RouteOrchestrator.OriginDebitApplierForTesting = priorOriginDebit;
+
+                // Restore the route store (drops the synthetic route, restores
+                // pre-existing routes untouched).
+                if (routeStoreMutated)
+                {
+                    RouteStore.ResetForTesting();
+                    for (int i = 0; i < preExistingRoutes.Count; i++)
+                        RouteStore.AddRoute(preExistingRoutes[i]);
+                }
+
+                // Drop every ledger row the firing phase appended (the real
+                // dispatch path wrote RouteDispatched + RouteCargoDebited; the
+                // fake emitter wrote RouteCargoDelivered) so the career ledger
+                // is left exactly as found.
+                if (firingRouteId != null)
+                    RemoveTestLedgerRows(firingRouteId);
+
                 for (int i = 0; i < committedAdded.Count; i++)
                     RecordingStore.RemoveCommittedInternal(committedAdded[i]);
                 if (treeAdded)
@@ -279,6 +474,60 @@ namespace Parsek.InGameTests
                 ParentRecordingIds = new List<string>(parents),
                 ChildRecordingIds = new List<string>(children)
             };
+        }
+
+        // An always-eligible runtime environment (no live vessel needed): mirrors
+        // the sibling RouteInterBodyBuilderShapeInGameTest.EligibleEnv so the
+        // depot-origin route fires on every owed crossing (origin cargo, endpoint
+        // resolution, capacity, and ERS sources all pass; IsCareer false keeps
+        // funds untouched).
+        private sealed class EligibleEnv : IRouteRuntimeEnvironment
+        {
+            public bool IsCareer { get; set; }
+            public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason) { reason = string.Empty; return true; }
+            public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason) { vessel = null; reason = string.Empty; return true; }
+            public bool OriginHasCargo(Route route, out string lackingResource) { lackingResource = string.Empty; return true; }
+            public bool KscFundsAvailable(Route route, out double shortfall) { shortfall = 0.0; return true; }
+            public bool DestinationHasCapacity(Route route, out string fullResource) { fullResource = string.Empty; return true; }
+            public bool RouteHasValidSourcesInErs(Route route) => true;
+        }
+
+        // Counts ledger rows of a given type tagged with the route id (whole-ledger
+        // scan; the synthetic route id is unique per run).
+        private static int CountRouteLedgerRows(string routeId, GameActionType type)
+        {
+            int count = 0;
+            var actions = Ledger.Actions;
+            if (actions == null) return 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                GameAction a = actions[i];
+                if (a != null && a.Type == type
+                    && string.Equals(a.RouteId, routeId, StringComparison.Ordinal))
+                    count++;
+            }
+            return count;
+        }
+
+        // Drops EVERY ledger row tagged with the synthetic route id (dispatch,
+        // debit, delivered - all of them), restoring the live career ledger.
+        // Walks back-to-front so RemoveActionAt indices stay valid as rows drop.
+        private static void RemoveTestLedgerRows(string routeId)
+        {
+            var actions = Ledger.Actions;
+            if (actions == null) return;
+            int removed = 0;
+            for (int i = actions.Count - 1; i >= 0; i--)
+            {
+                GameAction a = actions[i];
+                if (a != null && string.Equals(a.RouteId, routeId, StringComparison.Ordinal))
+                {
+                    Ledger.RemoveActionAt(i);
+                    removed++;
+                }
+            }
+            ParsekLog.Verbose("TestRunner",
+                $"Shuttle_P2b_InGame cleanup: removed {removed.ToString(IC)} ledger row(s) for route {routeId}");
         }
 
         private static int FindCommittedIndex(IReadOnlyList<Recording> committed, string recordingId)

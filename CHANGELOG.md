@@ -25,6 +25,7 @@ All notable changes to Parsek are documented here.
 ### Internals & Tests
 
 - Loop-unit API hardening on the Missions-to-Logistics seam, with no behavior change: supply routes now cache their built loop unit (rebuilt only when an input actually changes, instead of re-running the full builder pipeline every orchestrator tick and countdown call), the fire-once dock-crossing detection is centralized in one shared emitter, and the loop cycle index carries an explicit flat-vs-scheduled type so consumers cannot misread one as the other. Route firing, replay keys, escrow, and ledger rows are unchanged.
+- The undock-to-undock shuttle route lift ships with an automated in-game gate: a synthetic shuttle tree runs the real analysis, builder, and loop-unit pipeline and fires two consecutive deliveries through the live orchestrator one dispatch interval apart, so verifying the trimmed transit loop needs no hand-flown shuttle playtest.
 - Logistics / time-rewind determinism (Rec-3): a supply route that physically delivered or debited cargo inside a flight you then discard without a rewind stays in the surviving timeline, and both its funds row and its cargo persist so the career economy stays consistent. This persistence is intended (a route delivery is an ambient live career event, kept like other live-earned progress); it is now recorded as a behavior-neutral `[Rec-3 residual]` diagnostic warning naming the route, cycle, and amounts, and nothing is reversed or gated (see `docs/dev/plans/fix-logistics-rewind-determinism.md` Phase 4).
 
 ## 0.10.2
