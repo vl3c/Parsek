@@ -30,6 +30,13 @@ namespace Parsek.InGameTests
     /// (converter activation, the recording + its tree, time warp) is
     /// restored in <c>finally</c>, and the isolated-batch baseline restore
     /// quickloads the pre-test save afterwards.</para>
+    ///
+    /// <para><b>ALL-TESTS-AUTO self-setup.</b> The capture tests do not
+    /// require an operator to stop the flight session's auto-recording first:
+    /// <see cref="RequireIdleFlightWithVessel"/> discards it (see
+    /// <c>DiscardSessionRecordingForSelfSetup</c>). The discard itself is the
+    /// one mutation NOT undone in <c>finally</c> - the isolated tier's
+    /// baseline quickload restores the pre-batch world instead.</para>
     /// </summary>
     public sealed class LogisticsHarvestRuntimeTests
     {
@@ -521,10 +528,11 @@ namespace Parsek.InGameTests
         // ==================================================================
 
         /// <summary>
-        /// Common capture-test preconditions: a live ParsekFlight, a loaded +
-        /// unpacked active vessel, no recording in flight, and no live tree
-        /// (the test creates and discards its own). Skips with a named reason
-        /// otherwise.
+        /// Common capture-test preconditions: a live ParsekFlight and a loaded
+        /// + unpacked active vessel. Skips with a named reason when either is
+        /// missing. Any live session recording / tree is then discarded by
+        /// <see cref="DiscardSessionRecordingForSelfSetup"/> so the test starts
+        /// from the idle state it needs and creates + discards its own tree.
         /// </summary>
         private static ParsekFlight RequireIdleFlightWithVessel(out Vessel vessel)
         {
@@ -538,13 +546,83 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip(
                     $"Active vessel '{vessel.vesselName}' is not loaded+unpacked " +
                     $"(loaded={vessel.loaded}, packed={vessel.packed}); the harvest poll only runs off-rails");
-            if (flight.IsRecording)
-                InGameAssert.Skip("A recording is already active; this test starts and discards its own");
-            if (flight.ActiveTreeForSerialization != null)
-                InGameAssert.Skip(
-                    "A live recording tree already exists; this test creates and discards its own tree " +
-                    "and must not touch player data");
+            DiscardSessionRecordingForSelfSetup(flight);
             return flight;
+        }
+
+        /// <summary>
+        /// ALL-TESTS-AUTO self-setup, mirroring the GrappleCapture gate: flight
+        /// auto-records, so an active session recording / tree is the NORMAL
+        /// state of any ordinary session, not an operator error. Skipping on it
+        /// (as this helper used to) made every harvest capture test unrunnable.
+        /// Stop the recorder and discard the ephemeral session tree instead,
+        /// leaving the idle state the tests were written against.
+        ///
+        /// <para>The discard goes through the non-public
+        /// <c>ParsekFlight.DiscardActiveTreeForSuppressedSceneExit</c> - the
+        /// same reflection surface <c>RuntimeTests.DiscardActiveTreeForRuntimeTest</c>
+        /// uses - and NOT through the internal <c>AutoDiscardIdleActiveTree</c>:
+        /// the latter re-homes irreversible live gameplay economy onto the
+        /// direct ledger, runs a ledger recalc, and toasts the player, none of
+        /// which may touch committed player data from a test. The suppressed
+        /// scene-exit path is the pure in-memory teardown (force-stop the
+        /// recorder, drop the background recorder without persisting, null the
+        /// tree). It dereferences the active tree unconditionally, hence the
+        /// null-tree guard around it.</para>
+        ///
+        /// <para>All four tests in this class are isolated-tier
+        /// (<c>AllowBatchExecution=false</c>,
+        /// <c>RestoreBatchFlightBaselineAfterExecution=true</c>), so the
+        /// post-test baseline quickload restores the pre-test world and the
+        /// discarded session recording costs the player nothing.</para>
+        /// </summary>
+        private static void DiscardSessionRecordingForSelfSetup(ParsekFlight flight)
+        {
+            bool wasRecording = flight.IsRecording;
+            RecordingTree sessionTree = flight.ActiveTreeForSerialization;
+            if (!wasRecording && sessionTree == null)
+                return;
+
+            string sessionTreeId = sessionTree?.Id ?? "<none>";
+            if (sessionTree == null)
+            {
+                if (wasRecording)
+                    flight.StopRecording();
+            }
+            else
+            {
+                System.Reflection.MethodInfo discard = typeof(ParsekFlight).GetMethod(
+                    "DiscardActiveTreeForSuppressedSceneExit",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                if (discard == null)
+                    InGameAssert.Skip(
+                        "ParsekFlight.DiscardActiveTreeForSuppressedSceneExit reflection surface unavailable");
+                try
+                {
+                    discard.Invoke(flight, new object[]
+                    {
+                        HighLogic.LoadedScene,
+                        Planetarium.GetUniversalTime(),
+                        "LogisticsHarvest gate setup: discard the ephemeral auto-record session tree",
+                        false
+                    });
+                }
+                catch (System.Reflection.TargetInvocationException ex)
+                {
+                    InGameAssert.Fail(
+                        "setup: DiscardActiveTreeForSuppressedSceneExit threw " +
+                        $"{ex.InnerException?.GetType().Name ?? ex.GetType().Name}: " +
+                        $"{ex.InnerException?.Message ?? ex.Message}");
+                }
+            }
+
+            ParsekLog.Info("TestRunner",
+                "LogisticsHarvest setup: stopped/discarded the active auto-record session so the gate can run " +
+                $"(wasRecording={wasRecording} tree='{sessionTreeId}')");
+            InGameAssert.IsFalse(flight.IsRecording,
+                "setup: the session recording must be stopped before the gate starts its own");
+            InGameAssert.IsTrue(flight.ActiveTreeForSerialization == null,
+                "setup: the session tree must be discarded before the gate creates its own");
         }
 
         private static List<BaseConverter> FindConverters(Vessel vessel)
@@ -614,8 +692,9 @@ namespace Parsek.InGameTests
 
         /// <summary>
         /// Best-effort teardown of the recording + tree the test created:
-        /// stop the recorder if still live, then discard the active tree (the
-        /// precondition guaranteed none existed before the test).
+        /// stop the recorder if still live, then discard the active tree
+        /// (setup discarded any pre-existing session tree, so the only tree
+        /// standing here is the test's own).
         /// </summary>
         private static void CleanupRecordingAndTree(string label)
         {

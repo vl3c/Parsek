@@ -15,6 +15,7 @@ All notable changes to Parsek are documented here.
 
 - Fixed the undock-to-undock shuttle in-game gate (`LogisticsShuttleRuntimeTests`) failing its first live run: the synthetic tree's recordings never carried their tree id, so the built route could not derive its backing mission and the loop-unit resolve returned nothing. Test fixture only; production route behavior is unchanged.
 - Added an isolated-tier in-game canary (`MapRenderHighWarpCanaryInGameTest`, MapRender category) that automates the high-warp map-render validation recipe: with map-render tracing forced on and a real looped station/reaim ghost live on the map, it steps TimeWarp 50x to 1000x and back and asserts the probe fires zero icon-jump anomalies and any anchored bridge leg drew in the inertial basis. Run via Ctrl+Shift+T Run All + Isolated on the "orbital supply route" save in flight; it skips loudly when the save lacks a suitable mission, no ghost materializes, or high warp is unavailable.
+- The in-game harvest capture gates (`LogisticsHarvestRuntimeTests`) now discard the flight session's ephemeral auto-recording in setup instead of skipping on it. Flight auto-records, so the old "no recording is already active" precondition was never satisfiable and all three capture tests skipped in every ordinary session; the isolated tier's baseline quickload still restores the pre-test world afterwards.
 
 ## 0.10.3
 
