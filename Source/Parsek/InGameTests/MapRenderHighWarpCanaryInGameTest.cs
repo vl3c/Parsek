@@ -237,9 +237,12 @@ namespace Parsek.InGameTests
                         + "station clear of atmosphere.");
                 }
                 float highStart = Time.realtimeSinceStartup;
+                int highHoldGhostFrames = 0;
                 while (Time.realtimeSinceStartup - highStart < HighHoldWallSeconds)
                 {
                     drivenFrames++;
+                    if (GhostMapPresence.ghostMapVesselPids.Count > 0)
+                        highHoldGhostFrames++;
                     yield return null;
                 }
 
@@ -259,9 +262,20 @@ namespace Parsek.InGameTests
                 ParsekLog.Info("MapRenderCanary",
                     $"HighWarpIconJumpCanary: driven window done mission='{mission.Name}' shape={shapeLabel} "
                     + $"ghosts={ghostCount.ToString(IC)} drivenFrames={drivenFrames.ToString(IC)} "
+                    + $"highHoldGhostFrames={highHoldGhostFrames.ToString(IC)} "
                     + $"warpRates=[{rates[lowIdx].ToString("F0", IC)}x,{rates[highIdx].ToString("F0", IC)}x,1x] "
                     + $"iconJumps={iconJumpCount.ToString(IC)} anchorLegLines={anchorLegLines.ToString(IC)} "
                     + $"anchorLegNonInertial={anchorLegNonInertial.ToString(IC)}");
+
+                // Vacuity guard: zero anomalies proves nothing if no ghost was actually on the map
+                // during the high-warp hold (the mission window may have ended or loop playback torn
+                // the presence down mid-window). Loud-skip rather than pass vacuously.
+                if (highHoldGhostFrames == 0)
+                    InGameAssert.Skip(
+                        $"no ghost map presence was live during the {rates[highIdx].ToString("F0", IC)}x hold "
+                        + $"({drivenFrames.ToString(IC)} driven frames) - the zero-anomaly assertion would be "
+                        + "vacuous. Re-run on the 'orbital supply route' save with the looped station mission "
+                        + "mid-window.");
 
                 // Residual 2: the probe's own IsIconJump predicate is the oracle; zero icon-jump
                 // (icon-teleport) anomalies across the driven window is the tripwire.
