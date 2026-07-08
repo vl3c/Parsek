@@ -18,6 +18,13 @@ zero axial tilt, so the spin axis equals the orbital reference-plane normal and 
 exact rigid rotation implemented as a LAN advance on the Duna-bodied OrbitSegments (the shipped
 `ReaimSegmentAssembler.RotateLanForParkRephase` machinery, reused verbatim).
 
+FRAME NOTE (review finding, the PR #1196 .z-vs-.y trap): the .xzy-unswizzled vectors the resolver
+compares live in KSP's WORLD frame, whose reference-plane normal (world up, the zero-tilt spin
+axis) is +Y, NOT +Z. In-plane components are x and z; the prograde-positive bearing is
+atan2(-z, x), calibrated against the shipped park-rephase pairing (Cross(r, v_prograde) points +Y
+and a LAN advance of +D moves a prograde orbit's position +D in this sense - the same sense body
+spin advances a surface site, so the trigger-offset pairing holds).
+
 **The angle is PER-WINDOW, computed in the resolver, never at build time.** The re-aimed transfer's
 destination-relative entry bearing advances by the synodic angle every window (~48 deg for
 Kerbin-Duna), and on the parking (F2) path the synthesized transfer flies the geometric Hohmann tof
@@ -29,8 +36,9 @@ recordedEntryDir = ArrivalLeg orbit (plan.ArrivalLeg elements, parent = targetBo
                    .getRelativePositionAtUT(plan.RecordedArrivalUT).xzy          (dest-relative)
 newEntryDir      = transferOrbit.getRelativePositionAtUT(soiEntryUT).xzy
                    - targetBody.orbit.getRelativePositionAtUT(soiEntryUT).xzy    (dest-relative)
-theta_k          = signed in-plane angle recordedEntryDir -> newEntryDir about +z
-                   (the unswizzled Lambert frame's pole; pure helper, xUnit-tested)
+theta_k          = signed in-plane angle recordedEntryDir -> newEntryDir about +Y
+                   (the unswizzled WORLD frame's pole; pure helper, xUnit-tested; the live-frame
+                   sense is additionally pinned by the in-game canary)
 ```
 
 `theta_k` is applied to every non-predicted targetBody-bodied segment with
@@ -70,14 +78,21 @@ Engage is decided in `ReaimPlaybackResolver.BuildWindowSegments` (in-memory, loo
 cached per (member, window); recorded data is NEVER written). ALL of the following must hold, else
 `theta_k = 0` and every downstream consumer sees today's exact behavior:
 
-- `plan.ArrivalRestitchEligible` (new plan field): stamped by `MissionLoopUnitBuilder` ONLY inside
-  the descent-trigger engage success block, i.e. the Supported single-destination LANDING profile.
-  Orbit-only arrivals, station docks, Drop mode, unsupported destinations, chain shapes that
-  declined the trigger: never eligible, byte-identical by construction.
+- `plan.ArrivalRestitchEligible` (new plan field): stamped by `MissionLoopUnitBuilder` inside the
+  descent-trigger engage success block AND additionally gated on the LANDING discriminator
+  (destination constraint set Supported with `HasLandingRotation`, no station anchor, mode not
+  Drop) - the descent trigger alone also serves orbital dock/rendezvous approaches, which must
+  stay unstamped (their approach members carry no heliocentric leg and would render unrotated,
+  and a T_rot wait is meaningless for a station-phase target). Orbit-only arrivals, station
+  docks, Drop mode, unsupported destinations, chain shapes that declined the trigger: never
+  eligible, byte-identical by construction.
 - `hasDepartureOverride` (the F2 parking synth bundle fired this window): the rotation rides the
   same gate as captureShift, so a clocks-diverge / direct-path window stays byte-identical.
 - A usable `soiEntryUT` + encounter from the synthesizer, finite entry vectors, non-degenerate
-  in-plane projections (near-polar entry declines), and a valid `plan.ArrivalLeg`.
+  in-plane projections (near-polar entry declines), and a valid `plan.ArrivalLeg`. The
+  proximity-fallback `soiEntryUT` (first coarse sample inside the SOI, up to tof/96 late) is
+  REFINED to the actual SOI-sphere crossing by bisection, and an entry radius still far off the
+  sphere after refinement declines (the bearing there is flyby-depth-contaminated).
 
 Every decline logs `ParsekLog.Verbose("Reaim", "... S4 restitch declined (<reason>) ...")`; every
 engage logs one `ParsekLog.Info("Reaim", "S4 restitch ENGAGED ...")` per window build with

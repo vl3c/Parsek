@@ -107,6 +107,29 @@ namespace Parsek.InGameTests
             double congruence = (((trigger - deorbit - offset) % trot) + trot) % trot;
             InGameAssert.IsTrue(Math.Min(congruence, trot - congruence) < 1e-3,
                 "the trigger must be congruent to deorbit + offset (mod T_rot)");
+
+            // FRAME VALIDATION of the theta computation itself (the class of bug the headless suite
+            // cannot see: it encodes the same frame convention as the helper). Feed the pure
+            // ComputeRestitchRotationDeg exactly the vector class the resolver feeds it -
+            // .xzy-unswizzled body-relative positions from live KSP Orbits - for two orbits differing
+            // ONLY by LAN = +ThetaDeg, and require it to read back +ThetaDeg. A wrong pole (the
+            // PR #1196 .z-vs-.y trap) reads ~0 / ~180 / NaN here instead.
+            Vector3d entryLikeA = lan0.getRelativePositionAtUT(now).xzy;
+            Vector3d entryLikeB = lanT.getRelativePositionAtUT(now).xzy;
+            double measuredTheta = Parsek.Reaim.ArrivalRestitch.ComputeRestitchRotationDeg(
+                entryLikeA, entryLikeB, out double latA, out double latB);
+            ParsekLog.Info("TestRunner", string.Format(ic,
+                "S4 frame validation: ComputeRestitchRotationDeg on live LAN+{0:F1} orbit pair = {1:F4}deg "
+                + "(latA={2:F3} latB={3:F3})", ThetaDeg, measuredTheta, latA, latB));
+            InGameAssert.IsFalse(double.IsNaN(measuredTheta),
+                "the pure re-stitch rotation must accept live equatorial entry directions (a NaN here "
+                + "means the latitude gate is reading the wrong axis - the .z-vs-.y frame trap)");
+            InGameAssert.ApproxEqual(ThetaDeg, measuredTheta, 0.05,
+                "the pure re-stitch rotation must read a live LAN=+theta orbit pair as +theta "
+                + "(same frame and sense as the production resolver inputs)");
+            InGameAssert.IsTrue(Math.Abs(latA) < 1.0 && Math.Abs(latB) < 1.0,
+                "equatorial entry directions must read near-zero latitude (a large value here means "
+                + "the pole axis is wrong)");
         }
 
         private static double SignedAngleAboutAxis(Vector3d from, Vector3d to, Vector3d axis)

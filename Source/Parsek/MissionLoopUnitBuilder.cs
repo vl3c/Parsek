@@ -940,19 +940,43 @@ namespace Parsek
                         descentLoiterPeriod = descentRun.PeriodSeconds;
                         descentCaptureShift = descCaptureShift;
                         // S4 arrival re-stitch eligibility (docs/dev/plans/reaim-s4-arrival-restitch.md):
-                        // ONLY the Supported single-destination LANDING profile (this engage block) is
-                        // eligible - stamp the plan copy the LoopUnit stores (the resolver reads
-                        // unit.ReaimPlan, so the per-window rotation gate rides this flag), and record the
+                        // ONLY the Supported single-destination LANDING profile is eligible. The descent
+                        // trigger alone is NOT a landing discriminator - it also serves ORBITAL
+                        // rendezvous/dock approaches (SelectDescentMemberIndices covers both), and rotating
+                        // a dock arrival would tear at the approach members (they carry no heliocentric
+                        // leg, so the resolver leaves them UNROTATED) while a T_rot-based trigger offset is
+                        // meaningless for a station-phase target. Require a destination LANDING ROTATION
+                        // constraint (a recorded body-fixed surface arrival), no station anchor, and the
+                        // rotation-alignment mode not Drop - the same discriminators the arrival-hold path
+                        // uses. When eligible, stamp the plan copy the LoopUnit stores (the resolver reads
+                        // unit.ReaimPlan, so the per-window rotation gate rides this flag) and record the
                         // transfer member's recording id so the descent trigger reads the per-window
-                        // rotation back from the SAME resolver cache entry that renders it. Every
-                        // non-landing shape leaves both defaults (false / null) = byte-identical.
-                        plan.ArrivalRestitchEligible = true;
-                        reaimPlan = plan;
-                        transferMemberRecordingId =
-                            transferMemberIndex >= 0 && transferMemberIndex < committed.Count
-                            && committed[transferMemberIndex] != null
-                                ? committed[transferMemberIndex].RecordingId
-                                : null;
+                        // rotation back from the SAME resolver cache entry that renders it. Every other
+                        // shape leaves both defaults (false / null) = byte-identical shipped behavior.
+                        DestinationConstraintExtractor.DestinationConstraintSet s4DestSet =
+                            DestinationConstraintExtractor.ExtractDestinationConstraints(
+                                extraction.Constraints, plan.TargetBody, bodyInfo);
+                        bool s4LandingProfile = s4DestSet.Supported && s4DestSet.HasLandingRotation
+                            && !s4DestSet.HasStation
+                            && transitedBodyRotationMode != TransitedBodyRotationMode.Drop;
+                        if (s4LandingProfile)
+                        {
+                            plan.ArrivalRestitchEligible = true;
+                            reaimPlan = plan;
+                            transferMemberRecordingId =
+                                transferMemberIndex >= 0 && transferMemberIndex < committed.Count
+                                && committed[transferMemberIndex] != null
+                                    ? committed[transferMemberIndex].RecordingId
+                                    : null;
+                        }
+                        else if (!SuppressLogging)
+                        {
+                            ParsekLog.Verbose("Reaim",
+                                $"MissionLoopUnit: mission='{mission.Name}' S4 restitch NOT eligible " +
+                                $"(landing profile required: destSupported={s4DestSet.Supported} " +
+                                $"hasLandingRotation={s4DestSet.HasLandingRotation} hasStation={s4DestSet.HasStation} " +
+                                $"mode={transitedBodyRotationMode}) - shipped arrival render (descent trigger unaffected)");
+                        }
                         // PARKING-conic end (Layer A of the loiter-gap render fix): the SHIFTED
                         // destination loiter run end. A loiter run (ReaimLoiterCompressor.DetectRuns)
                         // ends at the first > 5% sma step, so descentRun.EndUT is the parking conic's

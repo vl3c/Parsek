@@ -15,8 +15,9 @@ namespace Parsek.Reaim
     /// the approach by theta is exactly compensated by waiting theta/omega_rot longer for the site
     /// to rotate under the rotated deorbit point. Any other axis would change the reachable
     /// latitude, i.e. move the landing site. In KSP all bodies have zero axial tilt, so the spin
-    /// axis equals the orbital reference-plane normal (+z in the unswizzled Lambert frame) and the
-    /// rotation is applied as a LAN advance on the destination-bodied OrbitSegments
+    /// axis equals the orbital reference-plane normal - which in the .xzy-unswizzled WORLD frame
+    /// is +Y, NOT +Z (the PR #1196 .z-vs-.y trap; see the frame note on TryBearingAndLatitude) -
+    /// and the rotation is applied as a LAN advance on the destination-bodied OrbitSegments
     /// (<see cref="ReaimSegmentAssembler.RotateLanForParkRephase"/>).</para>
     ///
     /// <para>All helpers are pure (no Unity) and xUnit-tested. The live entry-state extraction
@@ -36,9 +37,10 @@ namespace Parsek.Reaim
         /// The signed spin-axis rotation (degrees, in (-180, 180]) that carries the RECORDED
         /// destination-relative SOI-entry direction onto the RE-AIMED transfer's actual
         /// destination-relative SOI-entry direction: the in-plane bearing difference
-        /// <c>bearing(newEntry) - bearing(recordedEntry)</c> about +z of the unswizzled frame
-        /// (bearing = atan2(y, x); +z is the reference-plane normal = the body spin axis, zero
-        /// axial tilt). <paramref name="recordedLatitudeDeg"/> / <paramref name="newLatitudeDeg"/>
+        /// <c>bearing(newEntry) - bearing(recordedEntry)</c> about the reference-plane normal of
+        /// the .xzy-unswizzled (world) frame, which is <b>+Y</b> (= the zero-tilt body spin axis;
+        /// prograde-positive bearing = atan2(-z, x) - see the frame note on the private helper).
+        /// <paramref name="recordedLatitudeDeg"/> / <paramref name="newLatitudeDeg"/>
         /// report each direction's out-of-plane latitude (degrees; the residual a spin-axis
         /// rotation cannot and must not close - closing it would move the landing site).
         /// Returns NaN (decline, no rotation) when either vector is NaN / zero-projection or
@@ -101,9 +103,19 @@ namespace Parsek.Reaim
         }
 
         /// <summary>
-        /// In-plane bearing (degrees, atan2(y, x)) and out-of-plane latitude (degrees) of a direction
-        /// in the unswizzled frame (+z = the reference-plane normal / body spin axis). False on NaN /
-        /// infinite components or a degenerate (near-zero) in-plane projection. Pure.
+        /// In-plane bearing and out-of-plane latitude (degrees) of a direction in the
+        /// .xzy-unswizzled frame - which is KSP's WORLD frame, whose reference-plane normal (world
+        /// up, and with zero axial tilt every body's spin axis) is <b>+Y, NOT +Z</b>. This is the
+        /// same .z-vs-.y world-frame trap the plane-tilt achievability gate hit and fixed in
+        /// PR #1196 (see <see cref="ReaimTransferSynthesizer"/>'s AchievablePlaneInclinationDegrees
+        /// frame note): using z as "up" here would read the in-plane angle as "latitude" and
+        /// quantize every real bearing toward 0 / 180. In-plane components are x and z; the
+        /// PROGRADE-positive bearing is <c>atan2(-z, x)</c>, calibrated against the shipped
+        /// park-rephase pairing (for a prograde orbit <c>Cross(r, v)</c> points +Y and a LAN
+        /// advance of +D moves the position +D in this sense - the same sense the body spin
+        /// advances a surface site, so the <see cref="SiteAlignOffsetSeconds"/> pairing holds).
+        /// Latitude = <c>asin(y/|v|)</c>. False on NaN / infinite components or a degenerate
+        /// (near-zero) in-plane projection. Pure.
         /// </summary>
         private static bool TryBearingAndLatitude(Vector3d v, out double bearingDeg, out double latitudeDeg)
         {
@@ -112,12 +124,12 @@ namespace Parsek.Reaim
             if (double.IsNaN(v.x) || double.IsNaN(v.y) || double.IsNaN(v.z)
                 || double.IsInfinity(v.x) || double.IsInfinity(v.y) || double.IsInfinity(v.z))
                 return false;
-            double planar = Math.Sqrt(v.x * v.x + v.y * v.y);
-            double mag = Math.Sqrt(planar * planar + v.z * v.z);
+            double planar = Math.Sqrt(v.x * v.x + v.z * v.z);
+            double mag = Math.Sqrt(planar * planar + v.y * v.y);
             if (!(planar > 0.0) || !(mag > 0.0))
                 return false; // zero / axis-aligned vector: no bearing
-            bearingDeg = Math.Atan2(v.y, v.x) * 180.0 / Math.PI;
-            latitudeDeg = Math.Asin(v.z / mag) * 180.0 / Math.PI;
+            bearingDeg = Math.Atan2(-v.z, v.x) * 180.0 / Math.PI;
+            latitudeDeg = Math.Asin(v.y / mag) * 180.0 / Math.PI;
             return true;
         }
 

@@ -11,9 +11,10 @@ namespace Parsek.Tests
     // transfer's actual entry bearing, and the matching descent-trigger congruence offset that keeps
     // the touchdown at the RECORDED body-fixed site (the ratified product decision).
     //
-    // Frame convention under test: the unswizzled Lambert frame, +z = the reference-plane normal =
-    // the body spin axis (zero axial tilt in KSP); bearing = atan2(y, x) degrees; positive rotation
-    // is counterclockwise about +z, the same sense as prograde orbits and prograde body spin.
+    // Frame convention under test: the .xzy-unswizzled WORLD frame, whose reference-plane normal
+    // (= the zero-tilt body spin axis) is +Y, NOT +Z (the PR #1196 .z-vs-.y world-frame trap).
+    // In-plane components are x and z; prograde-positive bearing = atan2(-z, x) degrees; positive
+    // rotation is the prograde sense, shared by prograde orbits and prograde body spin.
     public class ArrivalRestitchTests
     {
         private const double DunaTrot = 65517.859375;
@@ -40,20 +41,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Rotation_QuarterTurnCounterClockwise_IsPlus90()
+        public void Rotation_QuarterTurnPrograde_IsPlus90()
         {
-            // recorded along +x, new along +y: +90 deg about +z carries recorded onto new.
+            // recorded along +x, new along -z: +90 deg prograde (about +Y) carries recorded onto
+            // new (for a prograde orbit at +x the velocity points -z: Cross(r, v) = +Y).
             double theta = ArrivalRestitch.ComputeRestitchRotationDeg(
-                new Vector3d(1.0e7, 0.0, 0.0), new Vector3d(0.0, 1.0e7, 0.0),
+                new Vector3d(1.0e7, 0.0, 0.0), new Vector3d(0.0, 0.0, -1.0e7),
                 out _, out _);
             Assert.Equal(90.0, theta, 9);
         }
 
         [Fact]
-        public void Rotation_QuarterTurnClockwise_IsMinus90()
+        public void Rotation_QuarterTurnRetrograde_IsMinus90()
         {
             double theta = ArrivalRestitch.ComputeRestitchRotationDeg(
-                new Vector3d(0.0, 1.0e7, 0.0), new Vector3d(1.0e7, 0.0, 0.0),
+                new Vector3d(0.0, 0.0, -1.0e7), new Vector3d(1.0e7, 0.0, 0.0),
                 out _, out _);
             Assert.Equal(-90.0, theta, 9);
         }
@@ -71,17 +73,17 @@ namespace Parsek.Tests
         public void Rotation_MagnitudesIrrelevant_OnlyBearingsCount()
         {
             double a = ArrivalRestitch.ComputeRestitchRotationDeg(
-                new Vector3d(1.0, 1.0, 0.0), new Vector3d(-5.0e8, 5.0e8, 0.0), out _, out _);
+                new Vector3d(1.0, 0.0, -1.0), new Vector3d(-5.0e8, 0.0, -5.0e8), out _, out _);
             Assert.Equal(90.0, a, 9);
         }
 
         [Fact]
         public void Rotation_ReportsOutOfPlaneLatitudes()
         {
-            // 45 deg out of plane on the new side; recorded in plane. The rotation is still the
-            // in-plane bearing difference; the latitude is reported as the residual diagnostic.
+            // 45 deg out of plane (+Y) on the new side; recorded in plane. The rotation is still
+            // the in-plane bearing difference; the latitude is reported as the residual diagnostic.
             double theta = ArrivalRestitch.ComputeRestitchRotationDeg(
-                new Vector3d(1.0e7, 0.0, 0.0), new Vector3d(1.0e7, 0.0, 1.0e7),
+                new Vector3d(1.0e7, 0.0, 0.0), new Vector3d(1.0e7, 1.0e7, 0.0),
                 out double latRec, out double latNew);
             Assert.Equal(0.0, theta, 9);
             Assert.Equal(0.0, latRec, 9);
@@ -113,9 +115,9 @@ namespace Parsek.Tests
         {
             // 80 deg latitude > MaxEntryLatitudeDeg (60): the in-plane bearing is ill-conditioned
             // and the profile is outside the Supported near-equatorial landing shape - fail closed.
-            double z = 1.0e7 * Math.Tan(80.0 * Math.PI / 180.0);
+            double y = 1.0e7 * Math.Tan(80.0 * Math.PI / 180.0);
             double theta = ArrivalRestitch.ComputeRestitchRotationDeg(
-                new Vector3d(1.0e7, 0.0, z), new Vector3d(1.0e7, 0.0, 0.0), out _, out _);
+                new Vector3d(1.0e7, y, 0.0), new Vector3d(1.0e7, 0.0, 0.0), out _, out _);
             Assert.True(double.IsNaN(theta));
         }
 
@@ -124,20 +126,22 @@ namespace Parsek.Tests
         [Fact]
         public void VelocityResidual_PerfectlyRotatedVelocity_IsZero()
         {
-            // new velocity = recorded velocity rotated by +90: residual after the +90 re-stitch is 0.
+            // new velocity = recorded velocity rotated by +90 prograde: residual after the +90
+            // re-stitch is 0.
             double r = ArrivalRestitch.VelocityBearingResidualDeg(
-                new Vector3d(0.0, -3000.0, 0.0), new Vector3d(3000.0, 0.0, 0.0), 90.0);
+                new Vector3d(3000.0, 0.0, 0.0), new Vector3d(0.0, 0.0, -3000.0), 90.0);
             Assert.Equal(0.0, r, 9);
         }
 
         [Fact]
         public void VelocityResidual_ReportsTheKink()
         {
-            // new velocity 30 deg past the rotated recorded velocity: residual +30.
+            // new velocity 30 deg past the rotated recorded velocity: residual +30 (bearing 120
+            // in the prograde atan2(-z, x) sense = x-component cos120, z-component -sin120).
             double vx = 3000.0 * Math.Cos(120.0 * Math.PI / 180.0);
-            double vy = 3000.0 * Math.Sin(120.0 * Math.PI / 180.0);
+            double vz = -3000.0 * Math.Sin(120.0 * Math.PI / 180.0);
             double r = ArrivalRestitch.VelocityBearingResidualDeg(
-                new Vector3d(3000.0, 0.0, 0.0), new Vector3d(vx, vy, 0.0), 90.0);
+                new Vector3d(3000.0, 0.0, 0.0), new Vector3d(vx, 0.0, vz), 90.0);
             Assert.Equal(30.0, r, 6);
         }
 

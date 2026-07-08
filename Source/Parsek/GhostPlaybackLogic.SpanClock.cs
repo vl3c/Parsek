@@ -1669,8 +1669,10 @@ namespace Parsek
                 rotationDeg, unit.DestinationBodyRotationPeriodSeconds);
             var oic = CultureInfo.InvariantCulture;
             ParsekLog.VerboseRateLimited("ReaimDescent",
-                // Bounded by unit x cycle (not frame count).
-                $"s4-offset.{unit.PhaseAnchorUT.ToString("R", oic)}.{unit.SpanStartUT.ToString("R", oic)}.{cycleIndex.ToString(oic)}",
+                // Keyed WITHOUT the cycle so the rate-limit key set stays bounded by unit count, not
+                // one entry per replayed loop (the arrival-hold logger's convention); the cycle rides
+                // in the message.
+                $"s4-offset.{unit.PhaseAnchorUT.ToString("R", oic)}.{unit.SpanStartUT.ToString("R", oic)}",
                 $"S4 site-align offset cycle={cycleIndex.ToString(oic)} rotation={rotationDeg.ToString("F3", oic)}deg " +
                 $"offset={offset.ToString("F1", oic)}s Trot={unit.DestinationBodyRotationPeriodSeconds.ToString("R", oic)} " +
                 $"member={unit.TransferMemberRecordingId} (trigger congruence shifts; descent clip + touchdown site unchanged)");

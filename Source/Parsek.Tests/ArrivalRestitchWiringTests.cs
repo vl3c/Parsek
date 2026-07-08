@@ -264,6 +264,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Builder_EligibilityRequiresTheLandingProfile_NotJustTheDescentTrigger()
+        {
+            // The descent trigger also serves ORBITAL rendezvous/dock approaches, so the engage block
+            // alone is NOT a landing discriminator: the stamp must additionally require a destination
+            // LANDING ROTATION constraint, no station anchor, and mode != Drop. A dock shape must stay
+            // unstamped (rotating its arrival would tear at the approach members, which carry no
+            // heliocentric leg and render unrotated).
+            string src = ReadParsekSource("MissionLoopUnitBuilder.cs");
+            int guard = src.IndexOf("bool s4LandingProfile =", StringComparison.Ordinal);
+            int stamp = src.IndexOf("plan.ArrivalRestitchEligible = true;", StringComparison.Ordinal);
+            Assert.True(guard >= 0 && stamp > guard, "the landing-profile guard must precede the stamp");
+            string guardText = src.Substring(guard, stamp - guard);
+            Assert.Contains("HasLandingRotation", guardText);
+            Assert.Contains("!s4DestSet.HasStation", guardText);
+            Assert.Contains("TransitedBodyRotationMode.Drop", guardText);
+            Assert.Contains("if (s4LandingProfile)", guardText);
+        }
+
+        [Fact]
         public void Resolver_GatesRotation_OnEligibilityAndParkingBundle()
         {
             string src = ReadParsekSource("Reaim/ReaimPlaybackResolver.cs");
