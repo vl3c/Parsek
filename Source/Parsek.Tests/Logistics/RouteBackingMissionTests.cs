@@ -977,17 +977,26 @@ namespace Parsek.Tests.Logistics
             // Prong 2 (end trim at 2500): the renumbered post-dock tail.
             Assert.Contains("root/seg2@dock1", auto);
             Assert.Contains("root/seg3", auto);
-            // Prong 2b (START trim at 1500): the renumbered PRE-ORIGIN keys.
+            // Prong 2b (START trim at 1500): the renumbered PRE-ORIGIN lead.
             Assert.Contains("root/seg1", auto);
-            Assert.Contains("root/seg1@dock1", auto);
-            Assert.Equal(5, auto.Count);
+            // The renumbered docked-origin stretch [1000..1500) now carries the
+            // key "root/seg1@dock1" - the SAME STRING the creation-time END trim
+            // persisted for the depot-B docked stretch [2500..3000). The plan's
+            // (d) rule ("creation-time keys filtered out": the derived set is
+            // genuinely NEW exclusions only) makes the prong skip it, and
+            // BuildMission's persisted-UNION-auto exclusion still covers the
+            // interval via the persisted string - so it must NOT re-surface in
+            // the auto set.
+            Assert.DoesNotContain("root/seg1@dock1", auto);
+            Assert.Contains("root/seg1@dock1", route.ExcludedIntervalKeys);
+            Assert.Equal(4, auto.Count);
             // The in-span transit interval ("root/seg2" post-renumbering) stays.
             Assert.DoesNotContain("root/seg2", auto);
 
             Assert.Contains(logLines, l =>
                 l.Contains("ComputeAutoExcludedNewIntervalKeys") &&
-                l.Contains("startTrimAdded=2") &&
-                l.Contains("total=5"));
+                l.Contains("startTrimAdded=1") &&
+                l.Contains("total=4"));
         }
 
         // catches (byte-identity pin): a route WITHOUT a persisted origin-undock
