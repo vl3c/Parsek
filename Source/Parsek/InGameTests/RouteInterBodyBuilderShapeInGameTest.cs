@@ -42,11 +42,11 @@ namespace Parsek.InGameTests
     ///
     /// <para><b>Isolation.</b> Mutates the shared <c>RecordingStore</c> (commits a
     /// synthetic tree) and <c>RouteStore</c> (adds a synthetic route), and sets the
-    /// <c>RouteOrchestrator</c> test seams, so it is <c>AllowBatchExecution = false</c>
-    /// (mirrors the neighboring <c>LogisticsRouteStoreRuntimeTests</c> /
-    /// <c>LogisticsRouteDispatchRuntimeTests</c> isolation reason). Every mutation is
+    /// <c>RouteOrchestrator</c> test seams. Every mutation is snapshotted and
     /// reverted in the <c>finally</c> block regardless of pass / fail / skip, so a
-    /// re-run leaves no synthetic route or committed tree behind.
+    /// run leaves no synthetic route or committed tree behind - which makes the
+    /// test batch-safe and ordinary-Run-All executable (all-tests-auto policy,
+    /// 2026-07-08; the earlier manual-only exclusion was conservatism).
     /// </summary>
     public sealed class RouteInterBodyBuilderShapeInGameTest
     {
@@ -69,9 +69,13 @@ namespace Parsek.InGameTests
         // next synodic window (not the raw span start).
         private const double LoopEnabledUT = 9_100_000.0;
 
+        // Batch-safe by construction (all-tests-auto policy, 2026-07-08): every
+        // mutation - the synthetic committed tree, the synthetic route, and both
+        // RouteOrchestrator test seams - is snapshotted up front and reverted in
+        // the finally regardless of pass/fail/skip, so the ordinary Run All batch
+        // can execute this test. The earlier manual-only exclusion was
+        // conservatism, not a real hazard.
         [InGameTest(Category = "Logistics", Scene = GameScenes.SPACECENTER,
-            AllowBatchExecution = false,
-            BatchSkipReason = "Isolated-run only - commits a synthetic tree into RecordingStore, adds a synthetic route to RouteStore, and sets RouteOrchestrator test seams; excluded from ordinary Run All / Run category. Use the row play button or Run All + Isolated.",
             Description = "M5 inter-body builder-shape gate: a REAL committed Kerbin->Duna transfer tree, promoted to a Route, resolves through the REAL MissionLoopUnitBuilder (live FlightGlobalsBodyInfo) into a re-aim LoopUnit that classifies ReaimWindows (not Flat), applies the residual modulo N, and fires delivery on the deliverable window while purely skipping the non-deliverable one")]
         public void InterBodyRoute_RealBuilder_ClassifiesReaimWindows_AndModuloFires()
         {
