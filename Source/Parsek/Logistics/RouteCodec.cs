@@ -14,7 +14,9 @@ namespace Parsek.Logistics
     /// null so saves stay lean.
     ///
     /// Backing-mission definition (Phase 1): <c>backingMissionTreeId</c>,
-    /// <c>dockMemberRecordingId</c>, <c>recordedDockUT</c>, <c>loopAnchorUT</c>,
+    /// <c>dockMemberRecordingId</c>, <c>recordedDockUT</c>, a sparse
+    /// <c>recordedOriginUndockUT</c> (M-MIS-5 P2b mid-tree docked-origin span
+    /// start, omitted when -1), <c>loopAnchorUT</c>,
     /// a sparse <c>lastObservedLoopCycleIndex</c> (omitted when -1), and an
     /// <c>EXCLUDED_INTERVALS</c> child node carrying repeated
     /// <c>excludedInterval</c> values (no node written for an empty set). A
@@ -155,6 +157,10 @@ namespace Parsek.Logistics
             if (!string.IsNullOrEmpty(route.DockMemberRecordingId))
                 node.AddValue("dockMemberRecordingId", route.DockMemberRecordingId);
             node.AddValue("recordedDockUT", route.RecordedDockUT.ToString("R", ic));
+            // Sparse (M-MIS-5 P2b): -1 = launch-rooted route (no start trim), omit.
+            if (route.RecordedOriginUndockUT != -1.0)
+                node.AddValue("recordedOriginUndockUT",
+                    route.RecordedOriginUndockUT.ToString("R", ic));
             node.AddValue("loopAnchorUT", route.LoopAnchorUT.ToString("R", ic));
             // Sparse: -1 (no cycle observed) is the default, so omit it.
             if (route.LastObservedLoopCycleIndex != -1)
@@ -334,6 +340,8 @@ namespace Parsek.Logistics
             route.DockMemberRecordingId = NullIfEmpty(node.GetValue("dockMemberRecordingId"));
             // Missing -> field default (-1), so seed the out-default to -1.
             TryParseDoubleWithDefault(node.GetValue("recordedDockUT"), inv, ic, -1.0, out route.RecordedDockUT);
+            TryParseDoubleWithDefault(node.GetValue("recordedOriginUndockUT"), inv, ic, -1.0,
+                out route.RecordedOriginUndockUT);
             TryParseDoubleWithDefault(node.GetValue("loopAnchorUT"), inv, ic, -1.0, out route.LoopAnchorUT);
             TryParseLong(node.GetValue("lastObservedLoopCycleIndex"), ic, -1L, out route.LastObservedLoopCycleIndex);
 

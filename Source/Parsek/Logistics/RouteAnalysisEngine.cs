@@ -45,22 +45,23 @@ namespace Parsek.Logistics
         /// </summary>
         FlowDoesNotClose = 8,
         /// <summary>
-        /// Documented-limitation rejection (M4a plan D9, detector wired by
-        /// M-MIS-5 P2a): an undock -> undock shuttle whose route BEGINS between
-        /// two docks - i.e. a docked origin window precedes the run start
-        /// MID-tree - cannot be START-trimmed yet (the start-side selection
-        /// lift is M-MIS-5 P2b). Emitted at BOTH undocked-start reject sites
-        /// (the non-harvest gate and the harvest-refined gate, verdict C6) by
-        /// <see cref="RouteAnalysisEngine.ClassifyStartTrimShuttle"/> when the
-        /// undocked-start family is recognizably shuttle-shaped: either an
-        /// EARLIER completed connection window (the witnessed dock boundary)
-        /// precedes the run's last transfer, or a mid-tree source-path leg
-        /// carries a <see cref="RouteOriginProof"/> (its recording session
-        /// started docked at a depot) before the run's first witnessed dock.
+        /// (M-MIS-5 P2a detection + P2b acceptance) The DEGENERATE remainder of
+        /// the undock -> undock shuttle family. The SUPPORTED shape - an
+        /// undocked-start tree whose run begins at a fully recorded docked-origin
+        /// window (dock, then undock, both recorded, strictly before the first
+        /// stop's dock) - is ACCEPTED since P2b
+        /// (<see cref="RouteAnalysisEngine.IsSupportedMidTreeDockedOrigin"/>
+        /// stands both undocked-start gates down). Every OTHER recognizably
+        /// shuttle-shaped run still rejects with this status, emitted at BOTH
+        /// undocked-start reject sites (the non-harvest gate and the
+        /// harvest-refined gate, verdict C6) by
+        /// <see cref="RouteAnalysisEngine.ClassifyStartTrimShuttle"/>: no
+        /// committed tree (the legacy single-recording analysis path cannot
+        /// derive the start trim), an origin window overlapping the next stop's
+        /// dock, or the mid-tree-origin-proof variant (a source-path leg that
+        /// started docked at a depot before the run's first witnessed dock).
         /// <see cref="RouteAnalysisResult.RejectDetail"/> names the recognized
-        /// origin dock UT. Every other undocked-start run keeps rejecting
-        /// <see cref="UndockedStartOrigin"/>. A reject stays a reject: no
-        /// admission widening. Append-only value; parses forward-compatibly.
+        /// origin dock UT. Append-only value; parses forward-compatibly.
         /// </summary>
         MidRecordingStartTrimUnsupported = 9
     }
@@ -195,6 +196,33 @@ namespace Parsek.Logistics
         /// fell inside the checked span.
         /// </summary>
         public RouteHarvestWindow FirstHarvestWindow;
+
+        /// <summary>
+        /// (M-MIS-5 P2b) True when the run's tree roots mid-flight (no KSC
+        /// launch, no start-docked proof) but the run begins at a recorded
+        /// docked-origin window - the undock-&gt;undock shuttle family. The
+        /// FIRST (min-DockUT) connection window is the ORIGIN, not a stop:
+        /// <see cref="Stops"/> excludes it, the route's rendered span starts
+        /// at its UndockUT (OQ1: ORIGIN UNDOCK), and the origin endpoint
+        /// resolves from its dock-time endpoint proof. False on every other
+        /// shape and every reject.
+        /// </summary>
+        public bool IsMidTreeDockedOrigin;
+
+        /// <summary>
+        /// (M-MIS-5 P2b) The origin connection window of a mid-tree
+        /// docked-origin run (the FIRST window, dropped from
+        /// <see cref="Stops"/>). Null unless <see cref="IsMidTreeDockedOrigin"/>.
+        /// </summary>
+        public RouteConnectionWindow OriginConnectionWindow;
+
+        /// <summary>
+        /// (M-MIS-5 P2b) The recording the origin connection window lives on
+        /// (the dock-merged child at the origin depot). RouteBuilder adds it to
+        /// the route's SourceRefs as the origin-binding carrier. Null unless
+        /// <see cref="IsMidTreeDockedOrigin"/>.
+        /// </summary>
+        public Recording OriginSourceRecording;
 
         public bool IsEligible => Status == RouteAnalysisStatus.Eligible;
     }
@@ -520,17 +548,51 @@ namespace Parsek.Logistics
                 });
             }
 
+            // (M-MIS-5 P2b) Mid-tree docked-origin ACCEPTANCE, consulted ONLY
+            // when the tree root proves neither KSC nor start-docked (every
+            // launch-rooted / start-docked-rooted run skips this entirely -
+            // byte-identity by construction). When the run's shape is the fully
+            // SUPPORTED shuttle profile, the FIRST window becomes the run's
+            // ORIGIN, not a stop: both undocked-start gates below stand down,
+            // the stops slice starts at index 1, and the scalar anchor re-points
+            // to the first STOP. Every OTHER shape falls through to the existing
+            // gates, where the P2a shuttle detector keeps rejecting the
+            // recognizable-but-unsupported family as status 9 (fail closed) and
+            // the genuine undocked start as status 6.
+            bool midTreeDockedOrigin = false;
+            if (IsUndockedStartOrigin(originRec))
+            {
+                var orderedWindows = new List<RouteConnectionWindow>(built.Count);
+                for (int i = 0; i < built.Count; i++)
+                    orderedWindows.Add(built[i].Window);
+                midTreeDockedOrigin =
+                    IsSupportedMidTreeDockedOrigin(orderedWindows, tree != null);
+                if (midTreeDockedOrigin)
+                {
+                    Diag(logMode,
+                        $"RouteAnalysis: mid-tree docked origin resolved " +
+                        $"originWindowSource={built[0].Source?.RecordingId ?? "<none>"} " +
+                        $"window={built[0].Window.WindowId ?? "<none>"} " +
+                        $"dockUT={built[0].Window.DockUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"undockUT={built[0].Window.UndockUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"stops={built.Count - 1}");
+                }
+            }
+            int stopStartIndex = midTreeDockedOrigin ? 1 : 0;
+
             // Two distinct anchors (plan D2/D3):
             //  - The SCALAR anchor (the FIRST / min-DockUT window) populates the
             //    run-level scalar result fields so every existing scalar consumer
             //    keeps compiling and a single-window run is byte-identical.
+            //    (M-MIS-5 P2b: on a mid-tree docked-origin run the anchor is the
+            //    first STOP - the origin window is not a stop.)
             //  - The GAIN anchor (the LAST / max-DockUT window) drives the
             //    run-level harvest gain check + flow closure: its source resolves
             //    the full lineage (deepest leg) and its dock holds the maximally-
             //    accumulated transport cargo, so an over-accumulation shows here.
             // For a single-window run first == last, so both collapse to the one
             // window and the analysis is byte-identical to pre-M4.
-            PerWindowManifests anchor = built[0];
+            PerWindowManifests anchor = built[stopStartIndex];
             PerWindowManifests gainAnchor = built[built.Count - 1];
 
             // M2 gain-side flow closure (plan D6 / D3): run the gain check ONCE
@@ -551,7 +613,9 @@ namespace Parsek.Logistics
             // an undocked-start run carries cargo whose source was never
             // witnessed. Ordering matches pre-M4: after build, before the
             // manifest-level direction gates. Deferred on the harvest-data path.
-            if (!harvestEngaged && IsUndockedStartOrigin(originRec))
+            // (M-MIS-5 P2b) A resolved mid-tree docked origin covers the
+            // un-launched cargo (the M1 depot convention), so the gate stands down.
+            if (!harvestEngaged && !midTreeDockedOrigin && IsUndockedStartOrigin(originRec))
             {
                 // M-MIS-5 P2a (verdict C6, site 1 of 2): the recognizable
                 // shuttle shape gets its own honest status instead of the
@@ -609,7 +673,12 @@ namespace Parsek.Logistics
 
                 // Gate fix (a) (plan D4): reject only when NO cargo flowed in
                 // EITHER direction at this window (a window that transferred
-                // nothing is not a stop).
+                // nothing is not a stop). (M-MIS-5 P2b) The resolved ORIGIN
+                // window is exempt: it is not a stop, and a parked origin window
+                // (docked with no transfer) is legitimate - it mirrors the M1
+                // start-docked shape, where no window exists at all.
+                if (midTreeDockedOrigin && i == 0)
+                    continue;
                 bool hasDelivery =
                     (w.Resources != null && w.Resources.Count > 0) ||
                     (w.Inventory != null && w.Inventory.Count > 0);
@@ -700,8 +769,13 @@ namespace Parsek.Logistics
             // here, checked against the ANCHOR window's delivery manifest (the
             // origin classification is a run-level property). A fully-harvest-
             // covered delivery becomes a HARVEST-ORIGIN run (D7).
+            // (M-MIS-5 P2b) A resolved mid-tree docked origin stands this gate
+            // down too (modern recordings carry complete run manifests, so
+            // harvestEngaged is true for them and THIS is their live gate); the
+            // un-harvested delivery is covered by the depot origin debit, and the
+            // run is a DOCKED-origin route, not a harvest-origin one.
             bool isHarvestOrigin = false;
-            if (harvestEngaged && IsUndockedStartOrigin(originRec))
+            if (harvestEngaged && !midTreeDockedOrigin && IsUndockedStartOrigin(originRec))
             {
                 // Checked against the gain-anchor (last) window's delivery
                 // manifest, consistent with the gain measurement. For N=1 this is
@@ -783,8 +857,10 @@ namespace Parsek.Logistics
                     $"window={anchor.Window.WindowId ?? "<none>"} undockUT={anchor.Window.UndockUT.ToString("R", CultureInfo.InvariantCulture)} " +
                     "(RouteBackingMission cannot derive the [launch..undock] trim; RouteBuilder will reject)");
 
-            var stops = new List<RouteAnalysisStop>(built.Count);
-            for (int i = 0; i < built.Count; i++)
+            // (M-MIS-5 P2b) On a mid-tree docked-origin run the ORIGIN window
+            // (index 0) is not a stop - the stops slice starts at index 1.
+            var stops = new List<RouteAnalysisStop>(built.Count - stopStartIndex);
+            for (int i = stopStartIndex; i < built.Count; i++)
             {
                 PerWindowManifests w = built[i];
                 bool wHasInventoryLoad = w.LoadInventory != null && w.LoadInventory.Count > 0;
@@ -811,7 +887,8 @@ namespace Parsek.Logistics
                 $"inventory={anchor.Inventory?.Count ?? 0} " +
                 $"inventoryLoad={anchor.LoadInventory?.Count ?? 0} " +
                 $"harvestData={(harvestEngaged ? "1" : "0")} " +
-                $"harvestOrigin={(isHarvestOrigin ? "1" : "0")}");
+                $"harvestOrigin={(isHarvestOrigin ? "1" : "0")} " +
+                $"midTreeOrigin={(midTreeDockedOrigin ? "1" : "0")}");
 
             bool anchorHasInventoryLoad = anchor.LoadInventory != null && anchor.LoadInventory.Count > 0;
             return new RouteAnalysisResult
@@ -832,8 +909,44 @@ namespace Parsek.Logistics
                 HarvestedManifest = harvestEngaged ? gainCheck.HarvestedManifest : null,
                 IsHarvestOrigin = isHarvestOrigin,
                 FirstHarvestWindow = harvestEngaged ? gainCheck.FirstHarvestWindow : null,
-                Stops = stops
+                Stops = stops,
+                IsMidTreeDockedOrigin = midTreeDockedOrigin,
+                OriginConnectionWindow = midTreeDockedOrigin ? built[0].Window : null,
+                OriginSourceRecording = midTreeDockedOrigin ? built[0].Source : null
             };
+        }
+
+        /// <summary>
+        /// (M-MIS-5 P2b) Acceptance predicate for the SUPPORTED mid-tree
+        /// docked-origin (shuttle) shape, consulted only when the tree root
+        /// proves neither a KSC launch nor a start-docked origin: at least two
+        /// completed windows, a committed tree (the start trim derives from tree
+        /// composition), and a first window whose UndockUT is finite, not before
+        /// its own DockUT, endpoint-proven, and STRICTLY before the next
+        /// window's dock (so every stop's dock phase lies inside the lifted span
+        /// and the loop clock can fire it). Pure. A false here does NOT reject
+        /// by itself - the run falls through to the undocked-start gates, where
+        /// the P2a <see cref="ClassifyStartTrimShuttle"/> detector routes the
+        /// recognizable-but-unsupported family to status 9 and everything else
+        /// to the existing rejects (fail closed).
+        /// </summary>
+        internal static bool IsSupportedMidTreeDockedOrigin(
+            List<RouteConnectionWindow> orderedWindows, bool hasTree)
+        {
+            if (!hasTree || orderedWindows == null || orderedWindows.Count < 2)
+                return false;
+
+            RouteConnectionWindow originWindow = orderedWindows[0];
+            if (originWindow == null || orderedWindows[1] == null)
+                return false;
+            if (double.IsNaN(originWindow.UndockUT) || double.IsInfinity(originWindow.UndockUT)
+                || originWindow.UndockUT < originWindow.DockUT)
+                return false;
+            // Defensive: the per-window endpoint-proof gate has already rejected
+            // proof-less windows before this predicate runs in production.
+            if (!HasEndpointProof(originWindow))
+                return false;
+            return originWindow.UndockUT < orderedWindows[1].DockUT;
         }
 
         /// <summary>
