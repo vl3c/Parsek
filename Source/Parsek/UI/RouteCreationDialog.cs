@@ -209,6 +209,14 @@ namespace Parsek
             {
                 rootLaunchUT = rootRec.StartUT;
             }
+            // (M-MIS-5 P2b) A mid-tree docked-origin run spans from the ORIGIN
+            // UNDOCK, not the tree root - mirror RouteBuilder's span start so the
+            // dialog default equals the built route's TransitDuration (N=1).
+            if (result != null && result.IsMidTreeDockedOrigin
+                && result.OriginConnectionWindow != null)
+            {
+                rootLaunchUT = result.OriginConnectionWindow.UndockUT;
+            }
             if (double.IsNaN(rootLaunchUT) || double.IsInfinity(rootLaunchUT))
                 return leafSpan;
 

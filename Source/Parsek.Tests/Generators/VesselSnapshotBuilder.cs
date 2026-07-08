@@ -73,6 +73,30 @@ namespace Parsek.Tests.Generators
             return b;
         }
 
+        /// <summary>
+        /// A post-claw-grab merged vessel (M-MIS-10 archetype 4): crewed pod + Advanced
+        /// Grabbing Unit + the grabbed PotatoRoid asteroid coupled through the claw.
+        /// Part names are the stock RUNTIME names ("GrapplingDevice" is the AGU cfg name;
+        /// "PotatoRoid" has no underscore so cfg and runtime names coincide).
+        /// </summary>
+        public static VesselSnapshotBuilder ClawedAsteroidShip(string name, string crew, uint pid)
+        {
+            var b = new VesselSnapshotBuilder();
+            b.name = name;
+            b.persistentId = pid;
+            b.AddPart("mk1pod.v2", crew);                                      // index 0: root
+            b.AddPart("GrapplingDevice", position: "0,-1.0,0");                // index 1: the claw
+            b.AddPart("PotatoRoid", position: "0,-3.2,0", parentIndex: 1);     // index 2: grabbed asteroid
+
+            var parts = b.partsContainer.GetNodes("PART");
+            parts[0].AddValue("attN", "bottom, 1");
+            parts[1].AddValue("attN", "top, 0");
+            // The asteroid has no attach nodes; KSP couples it through the claw's grapple
+            // joint, so only the parent index (1 = the claw) models the coupling here.
+
+            return b;
+        }
+
         public static VesselSnapshotBuilder ReentryCapsule(string name, string crew, uint pid)
         {
             var b = new VesselSnapshotBuilder();

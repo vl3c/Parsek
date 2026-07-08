@@ -358,6 +358,51 @@ namespace Parsek.Tests.Logistics
             Assert.True(roundTripped.IsLoopRoute);
         }
 
+        // catches (M-MIS-5 P2b): the sparse recordedOriginUndockUT key - the -1
+        // default (every launch-rooted route) must write NOTHING (byte-stable
+        // saves), a mid-tree-origin value must round-trip, absent must read
+        // back -1.
+        [Fact]
+        public void RoundTrip_RecordedOriginUndockUT_SparseDefaultMinusOne()
+        {
+            var leanStop = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 0.0
+            };
+
+            // Default (-1, launch-rooted): the key is omitted and reads back -1.
+            var plainRoute = new RouteFixtureBuilder()
+                .WithId("plain-origin-route")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(leanStop)
+                .Build();
+            var plainNode = new ConfigNode("ROUTE");
+            plainRoute.SerializeInto(plainNode);
+            Assert.False(plainNode.HasValue("recordedOriginUndockUT"),
+                "recordedOriginUndockUT must be omitted at the -1 default (sparse key)");
+            Route plainBack = Route.DeserializeFrom(plainNode);
+            Assert.NotNull(plainBack);
+            Assert.Equal(-1.0, plainBack.RecordedOriginUndockUT);
+
+            // Mid-tree docked-origin route: the key is written and round-trips.
+            var shuttleRoute = new RouteFixtureBuilder()
+                .WithId("shuttle-origin-route")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(leanStop)
+                .Build();
+            shuttleRoute.RecordedOriginUndockUT = 1500.25;
+            var shuttleNode = new ConfigNode("ROUTE");
+            shuttleRoute.SerializeInto(shuttleNode);
+            Assert.True(shuttleNode.HasValue("recordedOriginUndockUT"));
+            Route shuttleBack = Route.DeserializeFrom(shuttleNode);
+            Assert.NotNull(shuttleBack);
+            Assert.Equal(1500.25, shuttleBack.RecordedOriginUndockUT);
+        }
+
         // catches (M5 D3/D6): the sparse windowed-basis pair. Defaults (-1
         // anchor / false marker) must write NOTHING (pre-M5 route nodes stay
         // byte-identical); set values must round-trip; absent keys must read

@@ -428,6 +428,164 @@ namespace Parsek.Tests.Logistics
         }
 
         // ------------------------------------------------------------------
+        // StatusCellText / CompactHold (M6 closeout row-level treatment):
+        // the compact truncated "Held: <specific reason>" the Status cell
+        // shows in place of the generic per-status sentence. One test per
+        // token family, mirroring the DescribeHold table above.
+        // ------------------------------------------------------------------
+
+        // catches: a "no hold" kind rendering cell text (the draw path keys on
+        // null to fall back to the generic StatusReason).
+        [Fact]
+        public void StatusCellText_None_ReturnsNull()
+        {
+            Assert.Null(LogisticsHoldPresentation.StatusCellText(None, null, 0.0));
+            Assert.Null(LogisticsHoldPresentation.StatusCellText(None, "LiquidFuel", 5.0));
+        }
+
+        // catches: the funds cell losing the shortfall number (loop path) or
+        // rendering blank on the legacy zero-shortfall capture.
+        [Fact]
+        public void StatusCellText_Funds_BothShapes()
+        {
+            Assert.Equal("Held: short 500 funds",
+                LogisticsHoldPresentation.StatusCellText(FundsShort, "funds-short", 500.0));
+            Assert.Equal("Held: insufficient funds",
+                LogisticsHoldPresentation.StatusCellText(FundsShort, "funds-shortfall-99", 0.0));
+        }
+
+        // catches: the bare loop-path resource token or the legacy
+        // "origin-lacks-" wrapped token not naming the resource in the cell.
+        [Fact]
+        public void StatusCellText_OriginShort_BothTokenShapes()
+        {
+            Assert.Equal("Held: origin out of LiquidFuel",
+                LogisticsHoldPresentation.StatusCellText(OriginLacksCargo, "LiquidFuel", 0.0));
+            Assert.Equal("Held: origin out of LiquidFuel",
+                LogisticsHoldPresentation.StatusCellText(OriginLacksCargo, "origin-lacks-LiquidFuel", 0.0));
+        }
+
+        // catches: the "source:" pickup-source token losing the SHORT source
+        // vessel's name in the cell (which depot matters), or an inventory
+        // short rendering the opaque hash.
+        [Fact]
+        public void StatusCellText_PickupSourceShort_NamesVessel()
+        {
+            Assert.Equal("Held: Depot A out of Ore",
+                LogisticsHoldPresentation.StatusCellText(OriginLacksCargo,
+                    RoutePickupSourceGate.BuildHoldToken(40u, "Depot A", "Ore"), 0.0));
+            Assert.Equal("Held: Cargo Bay missing a stored part",
+                LogisticsHoldPresentation.StatusCellText(OriginLacksCargo,
+                    RoutePickupSourceGate.BuildHoldToken(50u, "Cargo Bay", "inventory:abc123"), 0.0));
+        }
+
+        // catches: the "source-reserved:" escrow token reading as an empty
+        // depot in the cell instead of naming the reserving route.
+        [Fact]
+        public void StatusCellText_ReservedPickupSource_NamesRoute()
+        {
+            Assert.Equal("Held: Ore reserved by 'Fuel Run Alpha'",
+                LogisticsHoldPresentation.StatusCellText(OriginLacksCargo,
+                    RoutePickupSourceGate.BuildReservedHoldToken(40u, "Depot A", "Ore", "Fuel Run Alpha"), 0.0));
+            // Malformed token degrades to a generic reserved clause, never blank.
+            Assert.Equal("Held: cargo reserved by another route",
+                LogisticsHoldPresentation.StatusCellText(OriginLacksCargo,
+                    "source-reserved:12:OnlyName", 0.0));
+        }
+
+        // catches: the origin inventory short rendering the opaque hash, and
+        // the unresolved-origin / unresolved-pickup-source tokens rendering the
+        // long clause (the cell names the category, the tooltip carries detail).
+        [Fact]
+        public void StatusCellText_InventoryAndUnresolvedTokens()
+        {
+            Assert.Equal("Held: origin missing a stored part",
+                LogisticsHoldPresentation.StatusCellText(OriginLacksCargo, "inventory:abc123def456", 0.0));
+            Assert.Equal("Held: origin vessel lost",
+                LogisticsHoldPresentation.StatusCellText(OriginLacksCargo, "origin-unresolved:pid-miss", 0.0));
+            Assert.Equal("Held: pickup source vessel lost",
+                LogisticsHoldPresentation.StatusCellText(OriginLacksCargo, "pickup-source-unresolved:pid-miss", 0.0));
+        }
+
+        // catches: DestinationFull losing the resource name in the cell.
+        [Fact]
+        public void StatusCellText_DestinationFull_BothShapes()
+        {
+            Assert.Equal("Held: no room for Ore",
+                LogisticsHoldPresentation.StatusCellText(DestinationFull, "destination-full-Ore", 0.0));
+            Assert.Equal("Held: destination full",
+                LogisticsHoldPresentation.StatusCellText(DestinationFull, null, 0.0));
+        }
+
+        // catches: the endpoint-lost cell not distinguishing origin loss from
+        // destination loss ("origin-*" names the origin resolver).
+        [Fact]
+        public void StatusCellText_EndpointLost_OriginVsDestination()
+        {
+            Assert.Equal("Held: origin vessel lost",
+                LogisticsHoldPresentation.StatusCellText(EndpointLost, "origin-body-unresolved", 0.0));
+            Assert.Equal("Held: destination vessel lost",
+                LogisticsHoldPresentation.StatusCellText(EndpointLost, "stop-0-no-surface-candidate", 0.0));
+        }
+
+        // catches: SourcesStale / WaitingForPartner cells rendering blank.
+        [Fact]
+        public void StatusCellText_SourcesStaleAndPartner()
+        {
+            Assert.Equal("Held: source recordings unavailable",
+                LogisticsHoldPresentation.StatusCellText(SourcesStale, "sources-stale", 0.0));
+            Assert.Equal("Held: waiting for 'Return Run'",
+                LogisticsHoldPresentation.StatusCellText(WaitingForPartner, "partner:Return Run", 0.0));
+            Assert.Equal("Held: waiting for linked route",
+                LogisticsHoldPresentation.StatusCellText(WaitingForPartner, null, 0.0));
+        }
+
+        // catches: an unknown future kind rendering blank in the cell (total
+        // fallback, mirrors DescribeHold's never-blank contract).
+        [Fact]
+        public void StatusCellText_UnknownKind_FallbackNeverBlank()
+        {
+            string cell = LogisticsHoldPresentation.StatusCellText(
+                (RouteDispatchEvaluator.EligibilityFailureKind)999, "tok", 0.0);
+            Assert.False(string.IsNullOrEmpty(cell));
+            Assert.StartsWith("Held: blocked (", cell);
+        }
+
+        // catches: a long vessel/route name blowing the cell width - the
+        // visible text is hard-capped with "..." while the FULL clause
+        // survives in the tooltip built from DescribeHold.
+        [Fact]
+        public void StatusCellText_LongName_TruncatedWithFullTooltip()
+        {
+            string longName = new string('X', 80);
+            string token = RoutePickupSourceGate.BuildHoldToken(40u, longName, "Ore");
+
+            string cell = LogisticsHoldPresentation.StatusCellText(OriginLacksCargo, token, 0.0);
+
+            Assert.Equal(LogisticsHoldPresentation.StatusCellMaxChars, cell.Length);
+            Assert.EndsWith("...", cell);
+            Assert.StartsWith("Held: " + longName.Substring(0, 10), cell);
+
+            // The tooltip clause (DescribeHold) keeps the full name.
+            string full = LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, token, 0.0);
+            Assert.Contains(longName, full);
+        }
+
+        // catches: the truncation helper corrupting short strings or
+        // mishandling null / degenerate caps.
+        [Fact]
+        public void TruncateForCell_PassthroughAndCap()
+        {
+            Assert.Null(LogisticsHoldPresentation.TruncateForCell(null, 60));
+            Assert.Equal("", LogisticsHoldPresentation.TruncateForCell("", 60));
+            Assert.Equal("short", LogisticsHoldPresentation.TruncateForCell("short", 60));
+            Assert.Equal("abcdef", LogisticsHoldPresentation.TruncateForCell("abcdef", 6));
+            Assert.Equal("abc...", LogisticsHoldPresentation.TruncateForCell("abcdefg", 6));
+            // Degenerate cap (<= 3): passthrough rather than a negative substring.
+            Assert.Equal("abcdefg", LogisticsHoldPresentation.TruncateForCell("abcdefg", 3));
+        }
+
+        // ------------------------------------------------------------------
         // Plain-ASCII guard (no em dashes, no special Unicode)
         // ------------------------------------------------------------------
 
@@ -466,6 +624,15 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.FormatHoldDetailLine("origin is out of LiquidFuel", -1.0),
                 LogisticsHoldPresentation.StatusCellTooltip(
                     RouteStatus.WaitingForFunds, "not enough funds at KSC for this dispatch"),
+                // M6 closeout: the compact Status-cell strings ride the same guard.
+                LogisticsHoldPresentation.StatusCellText(OriginLacksCargo, "LiquidFuel", 0.0),
+                LogisticsHoldPresentation.StatusCellText(OriginLacksCargo,
+                    RoutePickupSourceGate.BuildReservedHoldToken(40u, "Depot A", "Ore", "Fuel Run Alpha"), 0.0),
+                LogisticsHoldPresentation.StatusCellText(FundsShort, "funds-short", 1234.5),
+                LogisticsHoldPresentation.StatusCellText(WaitingForPartner, "partner:Return Run", 0.0),
+                LogisticsHoldPresentation.StatusCellText(EndpointLost, "stop-0-no-surface-candidate", 0.0),
+                LogisticsHoldPresentation.StatusCellText(
+                    (RouteDispatchEvaluator.EligibilityFailureKind)999, "tok", 0.0),
             };
 
             foreach (string s in samples)

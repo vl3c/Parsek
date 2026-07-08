@@ -950,6 +950,59 @@ namespace Parsek
             bool timerElapsed, float warpRate, bool anyGhostHeadLeftSegment)
             => timerElapsed || (warpRate > 1.0f && anyGhostHeadLeftSegment);
 
+        /// <summary>
+        /// Cap on how much GAME time may elapse between two map-orbit reseed ticks while
+        /// time-warping. The reseed timer is REAL-time (<c>Time.time</c>), so at extreme warp a
+        /// fixed 0.5 s real-time cadence spans warpRate/2 game-seconds per tick (~170-500 s at
+        /// 344x-1000x): the icon propagates on the stale applied conic between ticks while the
+        /// loop replay clock (knob cuts / sawtooth) diverges, then snaps ~1 Mm along-orbit on the
+        /// next reseed (the `2026-06-12_1756_m4b-icon-retest2` mid-cycle fromOrbit==toOrbit
+        /// icon-jump class). 30 game-seconds bounds the per-tick divergence to ~60-100 km at the
+        /// observed ~2-3 km/game-s drift rate — an order of magnitude under the
+        /// <c>MapRenderTrace.IsIconJump</c> 1000 km anomaly floor.
+        /// </summary>
+        internal const float MapOrbitReseedMaxGameSecondsPerTick = 30f;
+
+        /// <summary>
+        /// Pure warp-scaled reseed cadence law: the REAL-time interval to arm the next map-orbit
+        /// reseed tick with. At <paramref name="warpRate"/> &lt;= 1 (and for NaN) this returns
+        /// <paramref name="baseIntervalSec"/> unchanged, so 1x behavior is byte-identical to the
+        /// old fixed cadence. While warping, the interval shrinks so one tick never spans more
+        /// than <see cref="MapOrbitReseedMaxGameSecondsPerTick"/> of game time
+        /// (<c>interval * warpRate &lt;= budget</c>), never exceeding the base interval. The
+        /// threshold falls out of the constants: below budget/base (60x for 30/0.5) the base
+        /// cadence already meets the budget and is returned unchanged; above it the interval is
+        /// budget/warpRate, degrading gracefully to once-per-frame at extreme warp (Update-driven,
+        /// so a sub-frame interval reseeds every frame — the same per-frame cost class the
+        /// head-left-segment eager reseed already exercises under warp).
+        /// </summary>
+        internal static float ResolveMapOrbitReseedIntervalSec(float baseIntervalSec, float warpRate)
+        {
+            if (float.IsNaN(warpRate) || warpRate <= 1.0f)
+                return baseIntervalSec;
+            float warpScaled = MapOrbitReseedMaxGameSecondsPerTick / warpRate;
+            return warpScaled < baseIntervalSec ? warpScaled : baseIntervalSec;
+        }
+
+        /// <summary>
+        /// Pure companion to <see cref="ResolveMapOrbitReseedIntervalSec"/>: clamp an
+        /// already-armed reseed deadline to the interval the CURRENT warp rate allows. The
+        /// deadline is armed with the rate in force at arm time, so a warp STEP-UP mid-interval
+        /// would otherwise let that one pending tick still span up to base*warpRate game-seconds
+        /// (punch 50x -> 1000x and the armed 0.5 s tick spans ~500 game-s — the exact pre-fix
+        /// snap magnitude, once per warp increase). Clamping to <c>now + currentInterval</c>
+        /// every frame keeps the game-time budget honest across rate changes; at steady rate the
+        /// armed deadline never exceeds <c>now + interval</c>, so this is a no-op (1x stays
+        /// byte-identical). A warp step-DOWN leaves the shorter armed deadline in place — one
+        /// early reseed, harmless.
+        /// </summary>
+        internal static float ClampPendingReseedDeadline(
+            float pendingDeadline, float now, float currentIntervalSec)
+        {
+            float allowed = now + currentIntervalSec;
+            return pendingDeadline < allowed ? pendingDeadline : allowed;
+        }
+
         // Hysteresis thresholds for state-vector orbit creation/removal.
         // Higher thresholds to create, lower to remove — prevents churn for borderline altitudes.
         // On bodies with atmosphere, the atmosphere depth overrides these (orbit lines are
