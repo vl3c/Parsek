@@ -57,10 +57,14 @@ namespace Parsek.InGameTests
         private const string ClawPartName = "GrapplingDevice";
         private const string AsteroidPartName = "PotatoRoid";
 
-        // Both fixtures spawn east of the active vessel along the local
-        // parallel: the claw at +30 m, the asteroid at +45 m (15 m past the
-        // claw part it couples to, keeping the programmatic-couple joint's
-        // lever arm short while clearing both hulls).
+        // Both fixtures spawn ahead of the active vessel: the claw at +30 m,
+        // the asteroid at +45 m (15 m past the claw part it couples to,
+        // keeping the programmatic-couple joint's lever arm short while
+        // clearing both hulls). Landed/splashed anchors offset east along the
+        // local parallel (lat/lon placement is authoritative on the surface);
+        // every other anchor gets a CO-ORBITAL spawn - the anchor's own live
+        // orbit advanced by the offset along track - so the fixtures stay
+        // metres from the anchor instead of falling out of physics range.
         private const double ClawSpawnOffsetMeters = 30.0;
         private const double AsteroidSpawnOffsetMeters = 45.0;
         private const float SpawnLoadTimeoutSeconds = 30f;
@@ -109,9 +113,10 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip(
                     "Active vessel is an EVA kerbal; a couple involving it would be EVA-suppressed by design - " +
                     "run from a normal vessel");
-            if (Math.Abs(activeVessel.latitude) > 85.0)
+            if ((activeVessel.Landed || activeVessel.Splashed) && Math.Abs(activeVessel.latitude) > 85.0)
                 InGameAssert.Skip(
-                    "Active vessel is within 5 degrees of a pole; the longitude-offset spawn math is unreliable there");
+                    "Active vessel is landed/splashed within 5 degrees of a pole; the longitude-offset " +
+                    "surface spawn math is unreliable there (orbital anchors use the co-orbital path instead)");
             // ALL-TESTS-AUTO self-setup: flight auto-records, so an active session
             // recording/tree is the NORMAL batch state, not an operator error - a
             // skip here made this gate unrunnable in any ordinary session (first
@@ -389,25 +394,69 @@ namespace Parsek.InGameTests
 
         /// <summary>
         /// Spawns a single-part vessel near <paramref name="anchor"/> through
-        /// the production spawn path (VesselSpawner.SpawnAtPosition), offset
-        /// along the local parallel by <paramref name="offsetMeters"/> at the
-        /// anchor's altitude + 1 m, co-moving with the anchor. Returns the
-        /// spawned vessel pid, 0 on failure.
+        /// the production spawn path (VesselSpawner.SpawnAtPosition).
+        ///
+        /// <para>Landed/splashed anchors: offset east along the local parallel
+        /// by <paramref name="offsetMeters"/> at the anchor's altitude + 1 m
+        /// (lat/lon placement is authoritative for surface situations).</para>
+        ///
+        /// <para>All other anchors (orbit, sub-orbital, atmospheric flight):
+        /// CO-ORBITAL placement via <c>orbitOverride</c> - the anchor's own
+        /// live orbit with mean anomaly advanced by the along-track offset
+        /// (the UnloadedFuelVesselFixture orbitOverride pattern). Without the
+        /// override, SpawnAtPosition's internal position+velocity orbit
+        /// rebuild produces a wrong orbit for a spawn riding a moving anchor
+        /// (2026-07-08 live run from a 214.7 km station: sit=ORBITING at
+        /// spawn, SUB_ORBITAL one frame later, fixture out of physics range
+        /// before it could load+unpack, 30 s wait timeout). Sharing the
+        /// anchor's exact elements makes relative drift over the test's ~60 s
+        /// zero to first order.</para>
+        ///
+        /// Returns the spawned vessel pid, 0 on failure (callers skip loudly).
         /// </summary>
         private static uint SpawnSinglePartVessel(
             string partName, string vesselName, VesselType vtype, Vessel anchor, double offsetMeters)
         {
             CelestialBody body = anchor.mainBody;
+            double ut = Planetarium.GetUniversalTime();
             double lat = anchor.latitude;
+            double lon = anchor.longitude;
             double alt = anchor.altitude + 1.0;
-            double cosLat = Math.Cos(lat * Math.PI / 180.0);
-            double lonOffsetDeg = offsetMeters / ((body.Radius + alt) * cosLat) * (180.0 / Math.PI);
-            double lon = anchor.longitude + lonOffsetDeg;
+
+            // Surface anchors classify FLYING at low speed; the terminal-state
+            // override maps them back to LANDED/SPLASHED (the #176/#264 seam)
+            // and the east lon-offset is the authoritative placement (the
+            // pole-proximity precondition guards the cos(lat) division).
+            // Non-surface anchors ride a co-orbital clone of the anchor's live
+            // orbit; terminal=Orbiting keeps the spawn node orbital (lat/lon
+            // stay a situation hint only, so no lon offset) and KSP
+            // reclassifies on unpack.
+            TerminalState? terminal = null;
+            Orbit spawnOrbit = null;
+            if (anchor.Landed || anchor.Splashed)
+            {
+                double cosLat = Math.Cos(lat * Math.PI / 180.0);
+                double lonOffsetDeg = offsetMeters / ((body.Radius + alt) * cosLat) * (180.0 / Math.PI);
+                lon += lonOffsetDeg;
+                terminal = anchor.Landed ? TerminalState.Landed : TerminalState.Splashed;
+            }
+            else
+            {
+                spawnOrbit = BuildCoOrbitalSpawnOrbit(anchor, offsetMeters, ut, out string orbitFailReason);
+                if (spawnOrbit == null)
+                {
+                    ParsekLog.Warn("TestRunner",
+                        $"GrappleCapture spawn: cannot derive a co-orbital orbit for '{vesselName}' from " +
+                        $"anchor '{anchor.vesselName}' ({orbitFailReason}); returning pid=0 so the caller skips");
+                    return 0;
+                }
+                terminal = TerminalState.Orbiting;
+            }
 
             uint flightId = ShipConstruction.GetUniqueFlightID(HighLogic.CurrentGame.flightState);
             ConfigNode partNode = ProtoVessel.CreatePartNode(partName, flightId);
-            // Placeholder orbit for CreateVesselNode; SpawnAtPosition rebuilds
-            // the ORBIT node from position + velocity.
+            // Placeholder orbit for CreateVesselNode; SpawnAtPosition replaces
+            // the ORBIT node (co-orbital override or surface rebuild).
             Orbit orbit = new Orbit(
                 anchor.orbit.inclination, anchor.orbit.eccentricity, anchor.orbit.semiMajorAxis,
                 anchor.orbit.LAN, anchor.orbit.argumentOfPeriapsis, anchor.orbit.meanAnomalyAtEpoch,
@@ -432,21 +481,61 @@ namespace Parsek.InGameTests
                     vesselName, vtype, orbit, 0, new[] { partNode });
             }
 
-            // Surface anchors classify FLYING at low speed; the terminal-state
-            // override maps them back to LANDED/SPLASHED (the #176/#264 seam).
-            TerminalState? terminal = null;
-            if (anchor.Landed) terminal = TerminalState.Landed;
-            else if (anchor.Splashed) terminal = TerminalState.Splashed;
-
             uint pid = VesselSpawner.SpawnAtPosition(
                 vesselNode, body, lat, lon, alt,
-                anchor.obt_velocity, Planetarium.GetUniversalTime(),
-                terminalState: terminal);
+                anchor.obt_velocity, ut,
+                terminalState: terminal,
+                orbitOverride: spawnOrbit);
             ParsekLog.Info("TestRunner",
                 $"GrappleCapture spawn: part={partName} vessel='{vesselName}' pid={pid.ToString(IC)} " +
-                $"offset={offsetMeters.ToString("F0", IC)}m lat={lat.ToString("F4", IC)} " +
-                $"lon={lon.ToString("F4", IC)} alt={alt.ToString("F1", IC)} terminal={terminal?.ToString() ?? "<none>"}");
+                $"offset={offsetMeters.ToString("F0", IC)}m mode={(spawnOrbit != null ? "co-orbital" : "surface")} " +
+                $"lat={lat.ToString("F4", IC)} lon={lon.ToString("F4", IC)} alt={alt.ToString("F1", IC)} " +
+                $"terminal={terminal?.ToString() ?? "<none>"}");
             return pid;
+        }
+
+        /// <summary>
+        /// Clones the anchor's live orbit with mean anomaly at epoch advanced
+        /// by the along-track separation (pure math:
+        /// <see cref="TrajectoryMath.TryComputeCoOrbitalMeanAnomalyShift"/>,
+        /// dM = offset / speed * sqrt(mu / |sma|^3)), so the spawn sits
+        /// <paramref name="offsetMeters"/> ahead of the anchor ON THE SAME
+        /// orbit. Returns null (with a reason) when the anchor carries no
+        /// usable orbit - the caller skips loudly.
+        /// </summary>
+        private static Orbit BuildCoOrbitalSpawnOrbit(
+            Vessel anchor, double offsetMeters, double ut, out string failReason)
+        {
+            Orbit src = anchor.orbit;
+            if (src == null || src.referenceBody == null)
+            {
+                failReason = "anchor has no orbit / reference body";
+                return null;
+            }
+            if (!TrajectoryMath.TryComputeCoOrbitalMeanAnomalyShift(
+                    offsetMeters, anchor.obt_speed, src.semiMajorAxis,
+                    src.referenceBody.gravParameter, out double meanAnomalyShift))
+            {
+                failReason =
+                    $"degenerate anchor orbit (obtSpeed={anchor.obt_speed.ToString("F2", IC)}, " +
+                    $"sma={src.semiMajorAxis.ToString("F0", IC)}, " +
+                    $"mu={src.referenceBody.gravParameter.ToString("R", IC)})";
+                return null;
+            }
+
+            var orbit = new Orbit(
+                src.inclination, src.eccentricity, src.semiMajorAxis, src.LAN,
+                src.argumentOfPeriapsis, src.meanAnomalyAtEpoch + meanAnomalyShift,
+                src.epoch, src.referenceBody);
+            orbit.Init();
+            orbit.UpdateFromUT(ut);
+            ParsekLog.Verbose("TestRunner",
+                $"GrappleCapture co-orbital orbit: offset={offsetMeters.ToString("F0", IC)}m " +
+                $"dM={meanAnomalyShift.ToString("R", IC)}rad body={src.referenceBody.name} " +
+                $"sma={src.semiMajorAxis.ToString("F0", IC)} ecc={src.eccentricity.ToString("F4", IC)} " +
+                $"inc={src.inclination.ToString("F2", IC)}");
+            failReason = null;
+            return orbit;
         }
 
         /// <summary>
