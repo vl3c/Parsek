@@ -112,12 +112,53 @@ namespace Parsek.InGameTests
             if (Math.Abs(activeVessel.latitude) > 85.0)
                 InGameAssert.Skip(
                     "Active vessel is within 5 degrees of a pole; the longitude-offset spawn math is unreliable there");
-            if (flight.IsRecording)
-                InGameAssert.Skip("A recording is already active; this test starts and discards its own");
-            if (flight.ActiveTreeForSerialization != null)
-                InGameAssert.Skip(
-                    "A live recording tree already exists; this test creates and discards its own tree " +
-                    "and must not touch player data");
+            // ALL-TESTS-AUTO self-setup: flight auto-records, so an active session
+            // recording/tree is the NORMAL batch state, not an operator error - a
+            // skip here made this gate unrunnable in any ordinary session (first
+            // live batch, 2026-07-08). Stop and discard the ephemeral session
+            // recording instead, through the same surface the RuntimeTests
+            // cleanups use; the isolated tier's post-batch baseline quickload
+            // restores the pre-batch world regardless, so no player data is lost.
+            if (flight.IsRecording || flight.ActiveTreeForSerialization != null)
+            {
+                if (!flight.HasActiveTree)
+                {
+                    if (flight.IsRecording)
+                        flight.StopRecording();
+                }
+                else
+                {
+                    System.Reflection.MethodInfo discard = typeof(ParsekFlight).GetMethod(
+                        "DiscardActiveTreeForSuppressedSceneExit",
+                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                    if (discard == null)
+                        InGameAssert.Skip(
+                            "ParsekFlight.DiscardActiveTreeForSuppressedSceneExit reflection surface unavailable");
+                    try
+                    {
+                        discard.Invoke(flight, new object[]
+                        {
+                            HighLogic.LoadedScene,
+                            Planetarium.GetUniversalTime(),
+                            "GrappleCapture gate setup: discard the ephemeral auto-record session tree",
+                            false
+                        });
+                    }
+                    catch (System.Reflection.TargetInvocationException ex)
+                    {
+                        InGameAssert.Fail(
+                            "setup: DiscardActiveTreeForSuppressedSceneExit threw " +
+                            $"{ex.InnerException?.GetType().Name ?? ex.GetType().Name}: " +
+                            $"{ex.InnerException?.Message ?? ex.Message}");
+                    }
+                }
+                ParsekLog.Info("TestRunner",
+                    "GrappleCapture setup: stopped/discarded the active auto-record session so the gate can run");
+                InGameAssert.IsFalse(flight.IsRecording,
+                    "setup: the session recording must be stopped before the gate starts its own");
+                InGameAssert.IsTrue(flight.ActiveTreeForSerialization == null,
+                    "setup: the session tree must be discarded before the gate creates its own");
+            }
             if (PrefabPart(ClawPartName) == null)
                 InGameAssert.Skip($"Claw prefab '{ClawPartName}' not in PartLoader (part-pack-less install)");
             if (PrefabPart(AsteroidPartName) == null)
