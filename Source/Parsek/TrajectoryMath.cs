@@ -1120,5 +1120,51 @@ namespace Parsek
             }
             return false;
         }
+
+        /// <summary>
+        /// Mean-anomaly advance (radians) that places a co-orbital spawn
+        /// <paramref name="alongTrackMeters"/> ahead of its anchor on the SAME
+        /// orbit: dM = n * dt with dt = alongTrackMeters / orbitalSpeed and
+        /// mean motion n = sqrt(mu / |sma|^3) (elliptic and hyperbolic).
+        /// Because both craft share identical orbital elements, their relative
+        /// drift is zero to first order - the separation stays alongTrackMeters
+        /// for the lifetime of the orbit instead of diverging.
+        ///
+        /// For a circular orbit this reduces exactly to dM = alongTrackMeters / sma
+        /// (v = sqrt(mu/a), n = v/a). A negative offset places the spawn behind
+        /// the anchor. Returns false (shift 0) when any input is non-finite,
+        /// the speed or gravParameter is not positive, or |sma| is below
+        /// <see cref="MinUsableOrbitSemiMajorAxisMeters"/>.
+        ///
+        /// Pure function - no Unity dependencies, no side effects.
+        /// </summary>
+        internal static bool TryComputeCoOrbitalMeanAnomalyShift(
+            double alongTrackMeters,
+            double orbitalSpeedMetersPerSecond,
+            double semiMajorAxisMeters,
+            double gravParameter,
+            out double meanAnomalyShiftRadians)
+        {
+            meanAnomalyShiftRadians = 0.0;
+            if (double.IsNaN(alongTrackMeters) || double.IsInfinity(alongTrackMeters))
+                return false;
+            if (double.IsNaN(orbitalSpeedMetersPerSecond) || double.IsInfinity(orbitalSpeedMetersPerSecond)
+                || orbitalSpeedMetersPerSecond <= 0.0)
+                return false;
+            double absSma = Math.Abs(semiMajorAxisMeters);
+            if (double.IsNaN(absSma) || double.IsInfinity(absSma)
+                || absSma < MinUsableOrbitSemiMajorAxisMeters)
+                return false;
+            if (double.IsNaN(gravParameter) || double.IsInfinity(gravParameter) || gravParameter <= 0.0)
+                return false;
+
+            double meanMotion = Math.Sqrt(gravParameter / (absSma * absSma * absSma));
+            double shift = (alongTrackMeters / orbitalSpeedMetersPerSecond) * meanMotion;
+            if (double.IsNaN(shift) || double.IsInfinity(shift))
+                return false;
+
+            meanAnomalyShiftRadians = shift;
+            return true;
+        }
     }
 }

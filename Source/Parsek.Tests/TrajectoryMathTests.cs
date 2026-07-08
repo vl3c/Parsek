@@ -252,5 +252,100 @@ namespace Parsek.Tests
             Assert.Equal("deviation-too-large", reason);
             Assert.True(deviationMeters > 5.0);
         }
+
+        // ------------------------------------------------------------------
+        // TryComputeCoOrbitalMeanAnomalyShift — co-orbital spawn along-track
+        // separation (GrappleCaptureInGameTest fixture math). dM = dt * n with
+        // dt = offset / speed and n = sqrt(mu / |sma|^3).
+        // ------------------------------------------------------------------
+
+        // Kerbin: mu = 3.5316e12, R = 600 km; anchor at 214.7 km — the live
+        // context of the 2026-07-08 gate failure this math fixes.
+        private const double KerbinMu = 3.5316e12;
+        private const double KerbinStationSma = 814700.0; // 600 km + 214.7 km, circular
+
+        [Fact]
+        public void CoOrbitalShift_CircularOrbit_ReducesToOffsetOverSma()
+        {
+            // For a circular orbit v = sqrt(mu/a) and n = sqrt(mu/a^3), so
+            // dM = offset / a exactly, independent of mu.
+            double v = System.Math.Sqrt(KerbinMu / KerbinStationSma);
+
+            bool ok = TrajectoryMath.TryComputeCoOrbitalMeanAnomalyShift(
+                30.0, v, KerbinStationSma, KerbinMu, out double dM);
+
+            Assert.True(ok);
+            Assert.Equal(30.0 / KerbinStationSma, dM, 12);
+            // And the shift maps back to the requested arc length.
+            Assert.Equal(30.0, dM * KerbinStationSma, 9);
+        }
+
+        [Fact]
+        public void CoOrbitalShift_ScalesLinearlyWithOffset()
+        {
+            double v = System.Math.Sqrt(KerbinMu / KerbinStationSma);
+
+            Assert.True(TrajectoryMath.TryComputeCoOrbitalMeanAnomalyShift(
+                30.0, v, KerbinStationSma, KerbinMu, out double dM30));
+            Assert.True(TrajectoryMath.TryComputeCoOrbitalMeanAnomalyShift(
+                45.0, v, KerbinStationSma, KerbinMu, out double dM45));
+
+            Assert.Equal(1.5, dM45 / dM30, 12);
+        }
+
+        [Fact]
+        public void CoOrbitalShift_NegativeOffset_PlacesBehind()
+        {
+            double v = System.Math.Sqrt(KerbinMu / KerbinStationSma);
+
+            Assert.True(TrajectoryMath.TryComputeCoOrbitalMeanAnomalyShift(
+                -30.0, v, KerbinStationSma, KerbinMu, out double dM));
+            Assert.True(dM < 0.0);
+        }
+
+        [Fact]
+        public void CoOrbitalShift_ZeroOffset_YieldsZeroShift()
+        {
+            double v = System.Math.Sqrt(KerbinMu / KerbinStationSma);
+
+            Assert.True(TrajectoryMath.TryComputeCoOrbitalMeanAnomalyShift(
+                0.0, v, KerbinStationSma, KerbinMu, out double dM));
+            Assert.Equal(0.0, dM);
+        }
+
+        [Fact]
+        public void CoOrbitalShift_HyperbolicSma_UsesAbsoluteValue()
+        {
+            // Hyperbolic orbits carry a negative sma; mean motion uses |sma|.
+            Assert.True(TrajectoryMath.TryComputeCoOrbitalMeanAnomalyShift(
+                30.0, 3000.0, -KerbinStationSma, KerbinMu, out double dMHyper));
+            Assert.True(TrajectoryMath.TryComputeCoOrbitalMeanAnomalyShift(
+                30.0, 3000.0, KerbinStationSma, KerbinMu, out double dMEllip));
+
+            Assert.True(dMHyper > 0.0);
+            Assert.Equal(dMEllip, dMHyper, 15);
+        }
+
+        [Theory]
+        [InlineData(30.0, 0.0, KerbinStationSma, KerbinMu)]      // zero speed (stationary anchor)
+        [InlineData(30.0, -100.0, KerbinStationSma, KerbinMu)]   // negative speed
+        [InlineData(30.0, 2000.0, 0.0, KerbinMu)]                // sma below the usable floor
+        [InlineData(30.0, 2000.0, KerbinStationSma, 0.0)]        // non-positive gravParameter
+        [InlineData(30.0, 2000.0, KerbinStationSma, -1.0)]
+        [InlineData(double.NaN, 2000.0, KerbinStationSma, KerbinMu)]
+        [InlineData(double.PositiveInfinity, 2000.0, KerbinStationSma, KerbinMu)]
+        [InlineData(30.0, double.NaN, KerbinStationSma, KerbinMu)]
+        [InlineData(30.0, 2000.0, double.NaN, KerbinMu)]
+        [InlineData(30.0, 2000.0, double.PositiveInfinity, KerbinMu)]
+        [InlineData(30.0, 2000.0, KerbinStationSma, double.NaN)]
+        public void CoOrbitalShift_DegenerateInputs_ReturnFalseWithZeroShift(
+            double offset, double speed, double sma, double mu)
+        {
+            bool ok = TrajectoryMath.TryComputeCoOrbitalMeanAnomalyShift(
+                offset, speed, sma, mu, out double dM);
+
+            Assert.False(ok);
+            Assert.Equal(0.0, dM);
+        }
     }
 }
