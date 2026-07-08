@@ -24,6 +24,7 @@ All notable changes to Parsek are documented here.
 
 ### Internals & Tests
 
+- Cross-tree partner-journey missions now have an automated in-game merge gate: a synthetic two-tree dock fixture drives the real link discovery, spanned-set loop enforcement, shared-span loop-unit build with fail-closed periodicity, and mission save/load round-trip in one test-runner pass, replacing the manual two-vessel docking playtest.
 - Loop-unit API hardening on the Missions-to-Logistics seam, with no behavior change: supply routes now cache their built loop unit (rebuilt only when an input actually changes, instead of re-running the full builder pipeline every orchestrator tick and countdown call), the fire-once dock-crossing detection is centralized in one shared emitter, and the loop cycle index carries an explicit flat-vs-scheduled type so consumers cannot misread one as the other. Route firing, replay keys, escrow, and ledger rows are unchanged.
 
 ### Internals & Tests
