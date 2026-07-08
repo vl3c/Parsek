@@ -224,6 +224,13 @@ namespace Parsek.Logistics
             // DispatchInterval and CadenceMultiplier stay in LOCK-STEP (the UI later
             // recomputes the same way; one crossing == one cycle).
             //
+            // (M5) On a RE-AIM inter-body route the derived interval is dead input
+            // to the unit build (ApplyReaim discards it; the synodic cadence wins)
+            // and N instead applies as the residual window modulo at the firing
+            // path (RouteLoopClock.ResolveResidualCadence). The lock-step
+            // derivation here still runs unchanged - it keeps N/interval coherent
+            // for the flat fallback and the zero-drift minSpacing throttle.
+            //
             // LOCK-STEP INTENT (CRE-3): this round-then-rederive deliberately SNAPS
             // any player-entered interval to the nearest whole-span multiple. A
             // sub-2x interval (e.g. 1.4 x span) rounds to N=1 and is rewritten back
@@ -433,7 +440,12 @@ namespace Parsek.Logistics
                 // window through DockMemberRecordingId).
                 DockMemberRecordingId = (lastAnalysisStop.SourceRecording ?? source).RecordingId,
                 LoopAnchorUT = loopAnchorUT,
-                LastObservedLoopCycleIndex = -1
+                LastObservedLoopCycleIndex = -1,
+                // M5 (D3): a fresh route starts with the residual-modulo anchor
+                // unset - the first owed crossing on a windowed route adopts it
+                // and delivers. Explicit (matches the field default) so the
+                // creation-default contract is visible at the build site.
+                WindowAnchorCycleIndex = -1
             };
 
             LogBuiltRoute(routeId, originLabel, origin, source, rootLaunchUT, undockUT,
