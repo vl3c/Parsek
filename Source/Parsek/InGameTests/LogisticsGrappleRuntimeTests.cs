@@ -7,10 +7,13 @@ namespace Parsek.InGameTests
     /// (docs/dev/design-logistics-claw-producer.md section 6) that xUnit cannot
     /// prove without live KSP: classifier behavior on REAL part prefabs
     /// (module lists come from loaded parts), PotatoRoid PartLoader
-    /// resolution, and the live-recorded grapple window shape. The physics
-    /// half (a real claw contact capture at 0.06 m and the release) is
-    /// operator territory: those tests Skip with a runbook line when the save
-    /// carries no claw evidence yet.
+    /// resolution, and the live-recorded grapple window shape. The
+    /// couple/release EVENT pipeline, window stamping, ghost build, and
+    /// admission verdict are covered by the automated isolated-tier gate
+    /// (<see cref="GrappleCaptureInGameTest"/>); only the stock contact
+    /// capture itself (the 0.06 m raycast FSM) remains operator territory,
+    /// so the live-window check below Skips with a runbook line when the
+    /// save carries no claw evidence yet.
     /// </summary>
     public sealed class LogisticsGrappleRuntimeTests
     {
@@ -87,7 +90,10 @@ namespace Parsek.InGameTests
             if (found == null)
             {
                 InGameAssert.Skip(
-                    "No recorded Grapple window in this save. Operator runbook (label mmis10-claw): " +
+                    "No recorded Grapple window in this save. The automated gate " +
+                    "(GrappleCaptureInGameTest, isolated tier) stamps and asserts a live grapple window " +
+                    "in-session via the real couple/release primitives; this check stays as the " +
+                    "stock-contact-capture evidence hook. Operator runbook (label mmis10-claw): " +
                     "start recording, grab an asteroid or derelict with the Advanced Grabbing Unit, " +
                     "then re-run. Grep: 'OnPartCouple producer classified' and " +
                     "'Route proof dock window captured' with kind=Grapple.");
