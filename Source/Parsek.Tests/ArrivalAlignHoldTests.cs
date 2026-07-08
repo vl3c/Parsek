@@ -434,5 +434,94 @@ namespace Parsek.Tests
             Assert.Equal(2, cyc2);
             Assert.Equal(800.0, loop2, Tol);
         }
+
+        // === ComputePerLoopJointArrivalHoldSeconds (D8 landing+station, post-M4c wiring) ======
+
+        private static double CircErr(double delta, double period)
+            => MissionPeriodicity.CircularPhaseError(delta, period);
+
+        [Fact]
+        public void JointHold_StationExactAndRotationWithinTol_EveryCycle_NeverAccumulates()
+        {
+            // The zero-drift property of the joint per-loop hold: at EVERY cycle the total offset
+            // from the recorded arrival is a whole number of station periods (station phase exact)
+            // AND within the rotation tolerance - re-solved absolutely per cycle, so the check
+            // holds at cycle 300 exactly as at cycle 0 (a fixed cadence with two incommensurate
+            // periods would otherwise drift out within a loop or two). Geometry: T_sta 100 /
+            // T_rot 360 / tol 5 (worst lattice miss-run 17 << the 64 budget).
+            const double tSta = 100.0, tRot = 360.0, tol = 5.0;
+            const double cadence = 12345.67;
+            const double entryOffset0 = 1234.5;              // liveEntry_0 - recordedArrivalUT
+            double w0 = ((-entryOffset0) % tSta + tSta) % tSta; // the station-lattice base (65.5)
+
+            for (long n = 0; n < 300; n++)
+            {
+                double w = GhostPlaybackLogic.ComputePerLoopJointArrivalHoldSeconds(
+                    w0, n, cadence, tSta, tRot, tol, entryOffset0, 64);
+                double delta = entryOffset0 + n * cadence + w;
+                Assert.True(CircErr(delta, tSta) < 1e-6,
+                    $"cycle {n}: station phase error {CircErr(delta, tSta)} not exact");
+                Assert.True(CircErr(delta, tRot) <= tol + 1e-9,
+                    $"cycle {n}: rotation phase error {CircErr(delta, tRot)} > {tol}");
+                Assert.True(w >= 0.0 && w < 65 * tSta,
+                    $"cycle {n}: hold {w} outside the budget bound");
+            }
+        }
+
+        [Fact]
+        public void JointHold_DegenerateJointInputs_EqualSinglePeriodHold()
+        {
+            // NaN secondary period / zero budget / NaN base offset all degrade to the shipped
+            // single-period per-loop hold byte-identically (the non-joint unit fence).
+            const double w0 = 65.5, cadence = 12345.67, tSta = 100.0;
+            for (long n = 0; n < 5; n++)
+            {
+                double single = GhostPlaybackLogic.ComputePerLoopArrivalHoldSeconds(w0, n, cadence, tSta);
+                Assert.Equal(single, GhostPlaybackLogic.ComputePerLoopJointArrivalHoldSeconds(
+                    w0, n, cadence, tSta, double.NaN, 5.0, 1234.5, 64), 12);
+                Assert.Equal(single, GhostPlaybackLogic.ComputePerLoopJointArrivalHoldSeconds(
+                    w0, n, cadence, tSta, 360.0, 5.0, 1234.5, 0), 12);
+                Assert.Equal(single, GhostPlaybackLogic.ComputePerLoopJointArrivalHoldSeconds(
+                    w0, n, cadence, tSta, 360.0, 5.0, double.NaN, 64), 12);
+            }
+        }
+
+        [Fact]
+        public void JointHold_ZeroW0_OffFence_Unchanged()
+        {
+            // The 13b regression fence carries over: w0 <= 0 (alignment Off / Drop) never turns
+            // a zero hold nonzero, joint params present or not.
+            Assert.Equal(0.0, GhostPlaybackLogic.ComputePerLoopJointArrivalHoldSeconds(
+                0.0, 7, 12345.67, 100.0, 360.0, 5.0, 1234.5, 64));
+        }
+
+        [Fact]
+        public void SpanClock_JointHold_HoldsAtBoundaryThroughWholePeriodExtension()
+        {
+            // Integration through TryComputeSpanLoopUT: a joint unit whose cycle-0 station-exact
+            // base (45s) leaves the rotation misaligned extends by 17 whole station periods
+            // (base 45 + offset 55 -> delta 100; (100 + 100i) % 360 == 0 first at i=17), so at a
+            // probe 100s past the boundary the clock is still HELD at the boundary (loopUT ==
+            // holdAtUT) while the single-period clock has already resumed 55s downstream.
+            const double s0 = 0.0, s1 = 1000.0, holdAt = 800.0, tSta = 100.0, tRot = 360.0;
+            const double anchor = 55.0;      // liveEntry_0 = 55 + 800 = 855; entryOffset0 = 55
+            const double cad = 12345.0;
+            const double w0 = 45.0;          // (800 - 855) mod 100
+            double probe = anchor + 900.0;   // phase 900: 100s past the boundary at phase 800
+
+            Assert.True(GhostPlaybackLogic.TryComputeSpanLoopUT(
+                probe, anchor, s0, s1, cad, out double jointLoop, out _, out _,
+                schedule: null, loiterCuts: null, arrivalHoldSeconds: w0, arrivalHoldAtUT: holdAt,
+                arrivalHoldAlignPeriod: tSta,
+                arrivalJointSecondaryPeriod: tRot, arrivalJointSecondaryTolerance: 5.0,
+                arrivalJointMaxWholeHoldPeriods: 64));
+            Assert.Equal(holdAt, jointLoop, Tol); // held at the boundary through the extension
+
+            Assert.True(GhostPlaybackLogic.TryComputeSpanLoopUT(
+                probe, anchor, s0, s1, cad, out double singleLoop, out _, out _,
+                schedule: null, loiterCuts: null, arrivalHoldSeconds: w0, arrivalHoldAtUT: holdAt,
+                arrivalHoldAlignPeriod: tSta));
+            Assert.Equal(855.0, singleLoop, Tol); // 900 - 45: the single-period hold has resumed
+        }
     }
 }

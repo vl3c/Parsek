@@ -11,7 +11,10 @@ prime consumer. This note records the decisions; implementation follows in separ
 loiter knob) SHIPPED 2026-06-11 (branch `mission-loiter-knob`, plan
 `docs/dev/plans/mission-loiter-knob.md`); M4c (Tier 2, section 6) SHIPPED 2026-06-12 (branch
 `mission-station-arrival-hold`, plan `docs/dev/plans/mission-station-arrival-hold.md`; the
-section-8 anchor-orbit signature input, deferred from M4a, shipped with it).
+section-8 anchor-orbit signature input, deferred from M4a, shipped with it). The D8
+post-M4c follow-up (wiring `DestinationArrivalSolver.SolveArrivalWindow` for the
+landing+station dual) SHIPPED 2026-07-07 (branch `mmis4-solve-arrival-window`; see the D8
+row update and section 6).
 Parent doc: `docs/parsek-missions-design.md`
 (sections 7.4 / 7.5 / 14). Consumers: logistics supply routes
 (`docs/parsek-logistics-supply-routes-design.md`), M-MIS-2 P4 (the destination-loiter
@@ -56,7 +59,7 @@ Three coupled gaps, all forms of "the loop relaunches at an arbitrary phase":
 | D5 | Per-cycle kept-rev count k_N: a NEW small two-variable enumeration (pad window x kept revs) built ON the existing zero-drift primitives (anchor-pinned window scan + CircularPhaseError + schedule machinery); no new solver math; whole-rev quantization only (section 4.2) |
 | D6 | k_N bounds: cutting down to 1 rev AND extending past the recorded rev count are both allowed, extension capped (default +10 revs); unreachable phase within bounds = amber + faithful phase (section 4.3) |
 | D7 | Tier 1 = a new `VesselOrbital` constraint kind fed to the existing solver; `HasRendezvousWithinWindow` flips from blanket reject to extraction for the supported shape: exactly ONE same-parent closed-orbit vessel anchor; later same-vessel rendezvous events align automatically by timeline rigidity, which restricts knob cuts to before the FIRST rendezvous (sections 4.3, 5.2) |
-| D8 | Tier 2 = the shipped per-loop arrival hold with T_station substituted for T_rot; M4c SHIPS with dual-constraint (landing rotation + station) rejection; wiring `DestinationArrivalSolver.SolveArrivalWindow` is a post-M4c follow-up, its first justified consumer (section 6) |
+| D8 | Tier 2 = the shipped per-loop arrival hold with T_station substituted for T_rot; M4c SHIPPED with dual-constraint (landing rotation + station) rejection; the post-M4c follow-up then WIRED `DestinationArrivalSolver.SolveArrivalWindow` for that dual (SHIPPED 2026-07-07): a JOINT per-loop hold - station-lattice-exact plus up to 64 whole station periods until the rotation is within its mode tolerance, re-solved per loop (zero drift), engage-gated by the hold-aware window solve + the lattice run-length feasibility scan, mode-aware via the solver's Drop contract, fail-closed (amber naming the tolerance miss) otherwise; station+moon and moon-orbiting-station stay fail-closed (section 6) |
 | D9 | Build order: Tier 1 first (smallest, immediate logistics value), then the knob (lifts the rare-window + dead-time problems, shared with M-MIS-2 P4), then Tier 2 (section 9) |
 
 ## 3. The moving-target / anchor-lifecycle policy (decided first, per the milestone)
@@ -342,11 +345,22 @@ so the hold is cheap and achievable every window.
   entry-referenced hold, so Tier 2 BEFORE the P4 re-timer keeps the existing
   fail-closed-on-destination-cuts guard; after P4 the re-timer replaces the refusal.
 - A destination with BOTH a landing-rotation constraint AND a station constraint has no
-  single hold satisfying both periods (D8). M4c SHIPS with this case fail-closed (amber,
-  faithful); wiring `Reaim/DestinationArrivalSolver.SolveArrivalWindow` (built, unwired) as
-  the multi-constraint window pick is a post-M4c follow-up, and Tier 2's dual-constraint
-  case is its first justified consumer - do not wire it speculatively before that, and do
-  not block M4c's single-constraint value on it.
+  SINGLE hold satisfying both periods (D8). M4c SHIPPED with this case fail-closed (amber,
+  faithful). The post-M4c follow-up (SHIPPED 2026-07-07, branch `mmis4-solve-arrival-window`)
+  then wired `Reaim/DestinationArrivalSolver.SolveArrivalWindow` as its first justified
+  consumer and the dual now ALIGNS: the JOINT hold keeps the station-lattice snap exact
+  every loop (the shipped per-loop formula) and extends by whole station periods (bounded,
+  `MaxJointHoldWholePeriods = 64`, slack-clamped) until the rotation phase is within its
+  mode tolerance, with the extension re-solved per loop from the absolute offset so neither
+  alignment drifts and the synodic cadence is preserved. Engage is double-gated fail-closed:
+  the hold-aware `SolveArrivalWindow` pick must land within tolerance AND
+  `PlanJointHoldLattice` (the run-length coverage scan over `i*T_sta mod T_rot`) must prove
+  every loop offset reachable within the budget - a miss keeps the amber, naming the
+  measured tolerance miss. Drop degrades the dual to the plain station hold (the solver's
+  own rotation-scoped Drop contract - the mode-aware D8 resolution M4c deferred here); a
+  tidal pair collapses the same way. Station+moon and moon-orbiting-station remain
+  fail-closed (a third coupled period the joint model does not cover; their amber reasons
+  now name that scope).
 
 ## 7. What does NOT change
 

@@ -446,7 +446,10 @@ namespace Parsek
                 launchHoldRotationPeriod, launchHoldEngaged, launchHoldSoiExitUT,
                 descentMemberIndices, descentRecordedDeorbitUT, descentEndUT,
                 descentRotationPeriod, descentLoiterPeriod, descentCaptureShift,
-                descentParkingConicEndUT, transferMemberIndex, descentFirstDeorbitLegStartUT);
+                descentParkingConicEndUT, transferMemberIndex, descentFirstDeorbitLegStartUT,
+                arrivalHold.IsJointHold ? arrivalHold.JointSecondaryPeriodSeconds : double.NaN,
+                arrivalHold.IsJointHold ? arrivalHold.JointSecondaryToleranceSeconds : double.NaN,
+                arrivalHold.IsJointHold ? arrivalHold.JointMaxWholeHoldPeriods : 0);
 
             LogMissionUnitSummary(
                 mission, tree, memberArray, skippedNotCommitted, spanStartUT, spanEndUT, span,
@@ -774,16 +777,13 @@ namespace Parsek
                         if (destTrim.HasDestinationCut)
                             p4Cuts.Add(destTrim.DestinationCut);
                         loiterCuts = p4Cuts;
-                        arrivalHold = new ArrivalHoldPlanner.ArrivalHoldResult
-                        {
-                            HoldSeconds = destTrim.HoldSeconds,
-                            HoldAtUT = destTrim.HoldAtUT,
-                            AlignPeriodSeconds = destTrim.AlignPeriodSeconds,
-                            Applied = true,
-                            IsStationHold = false,
-                            AlignAnchorPid = 0,
-                            AmberReason = null,
-                        };
+                        // None-based construction so the joint-hold fields keep their documented
+                        // NaN/0 "not joint" sentinels (a bare object initializer would zero them).
+                        arrivalHold = ArrivalHoldPlanner.ArrivalHoldResult.None;
+                        arrivalHold.HoldSeconds = destTrim.HoldSeconds;
+                        arrivalHold.HoldAtUT = destTrim.HoldAtUT;
+                        arrivalHold.AlignPeriodSeconds = destTrim.AlignPeriodSeconds;
+                        arrivalHold.Applied = true;
                         if (!SuppressLogging)
                         {
                             var aic = CultureInfo.InvariantCulture;
@@ -800,23 +800,39 @@ namespace Parsek
                     }
                     else
                     {
+                        // Loop slack budget for the JOINT hold (D8 landing+station): the idle gap the
+                        // per-loop hold can spend without the clock's defensive clamp truncating it.
+                        double jointSlackSeconds = effectiveCadence
+                            - (span - GhostPlaybackLogic.TotalCutLength(loiterCuts));
                         arrivalHold = ArrivalHoldPlanner.ComputeArrivalHold(
                             extraction.Constraints, plan.TargetBody, plan.RecordedArrivalUT,
-                            transitedBodyRotationMode, phaseAnchorUT, spanStartUT, loiterCuts, bodyInfo);
+                            transitedBodyRotationMode, phaseAnchorUT, spanStartUT, loiterCuts, bodyInfo,
+                            windowSpacingSeconds: sched.SynodicPeriodSeconds,
+                            launchBodyName: plan.LaunchBody,
+                            loopSlackSeconds: jointSlackSeconds);
                         if (arrivalHold.Applied && !SuppressLogging)
                         {
                             var aic = CultureInfo.InvariantCulture;
+                            string kind = arrivalHold.IsJointHold
+                                ? "joint" : (arrivalHold.IsStationHold ? "station" : "rotation");
                             ParsekLog.Info("Reaim",
                                 $"MissionLoopUnit: mission='{mission.Name}' ARRIVAL HOLD dest={plan.TargetBody} " +
-                                $"kind={(arrivalHold.IsStationHold ? "station" : "rotation")} " +
+                                $"kind={kind} " +
                                 (arrivalHold.IsStationHold
                                     ? $"pid={arrivalHold.AlignAnchorPid.ToString(aic)} "
                                     : "") +
                                 $"Talign={arrivalHold.AlignPeriodSeconds.ToString("R", aic)}s " +
+                                (arrivalHold.IsJointHold
+                                    ? $"Trot={arrivalHold.JointSecondaryPeriodSeconds.ToString("R", aic)}s " +
+                                      $"rotTol={arrivalHold.JointSecondaryToleranceSeconds.ToString("F1", aic)}s " +
+                                      $"budget={arrivalHold.JointMaxWholeHoldPeriods.ToString(aic)} " +
+                                      $"k={arrivalHold.JointChosenWindowK.ToString(aic)} " +
+                                      $"residual={arrivalHold.JointResidualSeconds.ToString("F1", aic)}s "
+                                    : "") +
                                 $"hold={arrivalHold.HoldSeconds.ToString("R", aic)}s at " +
                                 $"recordedArrivalUT={plan.RecordedArrivalUT.ToString("R", aic)} " +
-                                $"(aligns the {(arrivalHold.IsStationHold ? "station orbital" : "deorbit rotation")} " +
-                                $"phase, mode={transitedBodyRotationMode})");
+                                $"(aligns the {(arrivalHold.IsJointHold ? "station orbital + landing rotation" : arrivalHold.IsStationHold ? "station orbital" : "deorbit rotation")} " +
+                                $"phase{(arrivalHold.IsJointHold ? "s" : "")}, mode={transitedBodyRotationMode})");
                         }
                     }
 

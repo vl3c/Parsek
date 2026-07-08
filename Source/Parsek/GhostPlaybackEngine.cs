@@ -400,7 +400,10 @@ namespace Parsek
                     unit.ArrivalAlignPeriodSeconds,
                     unit.LaunchBodyRotationPeriodSeconds,
                     unit.LaunchHoldEngaged,
-                    unit.RecordedSoiExitUT))
+                    unit.RecordedSoiExitUT,
+                    unit.ArrivalJointSecondaryPeriodSeconds,
+                    unit.ArrivalJointSecondaryToleranceSeconds,
+                    unit.ArrivalJointMaxWholeHoldPeriods))
             {
                 return false;
             }
@@ -1927,7 +1930,10 @@ namespace Parsek
                                 parentUnit.LoiterCuts, parentUnit.ArrivalHoldSeconds, parentUnit.ArrivalHoldAtUT,
                                 parentUnit.ArrivalAlignPeriodSeconds,
                                 parentUnit.LaunchBodyRotationPeriodSeconds, parentUnit.LaunchHoldEngaged,
-                                parentUnit.RecordedSoiExitUT))
+                                parentUnit.RecordedSoiExitUT,
+                                parentUnit.ArrivalJointSecondaryPeriodSeconds,
+                                parentUnit.ArrivalJointSecondaryToleranceSeconds,
+                                parentUnit.ArrivalJointMaxWholeHoldPeriods))
                         {
                             GhostRenderTrace.EmitGuardSkip(
                                 traj, i, ctx.currentUT, "parent-unit-span-clock-unresolved");
@@ -2330,7 +2336,9 @@ namespace Parsek
                 memberStartUT, memberEndUT, out double spanLoopUT, out long unitCycle,
                 out bool isInInterCycleTail, unit.RelaunchSchedule, unit.LoiterCuts,
                 unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds,
-                unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT);
+                unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT,
+                unit.ArrivalJointSecondaryPeriodSeconds, unit.ArrivalJointSecondaryToleranceSeconds,
+                unit.ArrivalJointMaxWholeHoldPeriods);
 
             // Cycle-wrap / camera-handoff diagnostics + watch retarget: the first member of the unit
             // to run this frame observes the unit-wide transition and acts once (rate-limited per
@@ -2523,7 +2531,9 @@ namespace Parsek
                     memberStartUT, memberEndUT, out boundarySecondaryLoopUT, out boundarySecondaryCycle,
                     unit.RelaunchSchedule, unit.LoiterCuts,
                     unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT, unit.ArrivalAlignPeriodSeconds,
-                    unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT);
+                    unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged, unit.RecordedSoiExitUT,
+                    unit.ArrivalJointSecondaryPeriodSeconds, unit.ArrivalJointSecondaryToleranceSeconds,
+                    unit.ArrivalJointMaxWholeHoldPeriods);
             }
             bool boundarySecondaryLive =
                 boundarySecondaryDecision == GhostPlaybackLogic.BoundaryOverlapSecondaryDecision.Render;

@@ -184,6 +184,103 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "Missions", Scene = GameScenes.FLIGHT,
+            Description = "A real landing+station dual-destination mission in the loaded save (a mission that both LANDS and rendezvouses with a station at the same cross-parent destination) resolves the JOINT arrival hold through the live builder - station-lattice-exact align period, live joint fields, and per-loop dual satisfaction (validates the M-MIS-4 SolveArrivalWindow wiring, PR #1255). Skips cleanly, naming the fixture needed, when the save has no such mission.")]
+        public void RealSave_JointArrivalMission_AlignsStationAndRotation()
+        {
+            if (!IsMissionStoreReady())
+                InGameAssert.Skip("Missions not loaded / FlightGlobals bodies not ready; load a save with recorded missions");
+
+            double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                             ?? LoopTiming.DefaultLoopIntervalSeconds;
+            TransitedBodyRotationMode tbrMode =
+                ParsekSettings.Current?.TransitedBodyRotationMode ?? TransitedBodyRotationMode.Loose;
+
+            if (!RealSaveMissionFinder.TryFindJointArrivalMission(
+                    FlightGlobalsBodyInfo.Instance, autoLoopIntervalSeconds, tbrMode,
+                    out RealSaveMissionFinder.JointArrivalMissionMatch match))
+            {
+                InGameAssert.Skip(
+                    "no landing+station dual-destination mission in the loaded save; the real-fixture leg of the "
+                    + "M-MIS-4 joint-arrival gate needs a save with a station AND a landing mission at the same "
+                    + "destination (the landing+station resupply-and-land profile, e.g. a Duna station rendezvous "
+                    + "+ Duna landing in one looped mission). The synthetic JointArrivalHoldInGameTest gate "
+                    + "covers the wiring on every save.");
+            }
+
+            GhostPlaybackLogic.LoopUnit unit = match.Unit;
+
+            // (1) The joint hold is coherent: applied, at a finite recorded-arrival boundary,
+            //     station-exact align period, live joint fields, budget within the constant cap,
+            //     and NO amber (engaged, not fail-closed).
+            InGameAssert.IsTrue(unit.ArrivalHoldSeconds > 0.0 && !double.IsInfinity(unit.ArrivalHoldSeconds),
+                $"the joint arrival hold must be applied (got {unit.ArrivalHoldSeconds.ToString("R", IC)}s)");
+            InGameAssert.IsTrue(!double.IsNaN(unit.ArrivalHoldAtUT),
+                "the joint hold must carry a finite hold-at UT (the recorded SOI-entry boundary)");
+            InGameAssert.IsTrue(
+                unit.ArrivalAlignPeriodSeconds > 0.0 && !double.IsNaN(unit.ArrivalAlignPeriodSeconds)
+                && !double.IsInfinity(unit.ArrivalAlignPeriodSeconds),
+                $"the align (station) period must be finite positive (got {unit.ArrivalAlignPeriodSeconds.ToString("R", IC)})");
+            InGameAssert.IsTrue(
+                unit.ArrivalJointSecondaryPeriodSeconds > 0.0
+                && !double.IsInfinity(unit.ArrivalJointSecondaryPeriodSeconds),
+                $"the joint secondary (rotation) period must be finite positive (got {unit.ArrivalJointSecondaryPeriodSeconds.ToString("R", IC)})");
+            InGameAssert.IsTrue(
+                unit.ArrivalJointSecondaryToleranceSeconds >= 0.0
+                && !double.IsNaN(unit.ArrivalJointSecondaryToleranceSeconds),
+                $"the joint secondary tolerance must be a valid mode band (got {unit.ArrivalJointSecondaryToleranceSeconds.ToString("R", IC)})");
+            InGameAssert.IsTrue(
+                unit.ArrivalJointMaxWholeHoldPeriods > 0
+                && unit.ArrivalJointMaxWholeHoldPeriods <= Parsek.Reaim.DestinationArrivalSolver.MaxJointHoldWholePeriods,
+                $"the whole-period budget must be positive and capped (got {unit.ArrivalJointMaxWholeHoldPeriods.ToString(IC)})");
+            InGameAssert.IsNull(unit.ArrivalAmberReason,
+                "an engaged joint hold must carry no arrival amber: " + (unit.ArrivalAmberReason ?? ""));
+
+            // (2) The rotation period must be the LIVE destination rotation (validated against the
+            //     live body graph, not a stored value).
+            string target = unit.ReaimPlan.HasValue ? unit.ReaimPlan.Value.TargetBody : null;
+            InGameAssert.IsTrue(!string.IsNullOrEmpty(target),
+                "a joint-hold unit must carry a re-aim plan with a target body");
+            double liveRot = FlightGlobalsBodyInfo.Instance.RotationPeriod(target);
+            InGameAssert.ApproxEqual(liveRot, unit.ArrivalJointSecondaryPeriodSeconds, 1e-6,
+                $"the joint secondary period must equal the LIVE {target} rotation period ({liveRot.ToString("R", IC)}s)");
+
+            // (3) Per-loop dual satisfaction with independent modular arithmetic (the same check
+            //     the synthetic gate runs): the production per-loop dispatch's hold lands every
+            //     checked loop EXACTLY on the station lattice and within the rotation tolerance.
+            double entryOffset0 = unit.PhaseAnchorUT
+                + (GhostPlaybackLogic.CompressSpanUT(unit.ArrivalHoldAtUT, unit.LoiterCuts) - unit.SpanStartUT)
+                - unit.ArrivalHoldAtUT;
+            for (long n = 0; n < 3; n++)
+            {
+                double holdN = GhostPlaybackLogic.ComputePerLoopJointArrivalHoldSeconds(
+                    unit.ArrivalHoldSeconds, n, unit.CadenceSeconds, unit.ArrivalAlignPeriodSeconds,
+                    unit.ArrivalJointSecondaryPeriodSeconds, unit.ArrivalJointSecondaryToleranceSeconds,
+                    entryOffset0, unit.ArrivalJointMaxWholeHoldPeriods);
+                double delta = entryOffset0 + n * unit.CadenceSeconds + holdN;
+                double mSta = delta % unit.ArrivalAlignPeriodSeconds;
+                if (mSta < 0.0) mSta += unit.ArrivalAlignPeriodSeconds;
+                double stationErr = System.Math.Min(mSta, unit.ArrivalAlignPeriodSeconds - mSta);
+                double mRot = delta % unit.ArrivalJointSecondaryPeriodSeconds;
+                if (mRot < 0.0) mRot += unit.ArrivalJointSecondaryPeriodSeconds;
+                double rotationErr = System.Math.Min(mRot, unit.ArrivalJointSecondaryPeriodSeconds - mRot);
+                InGameAssert.IsTrue(stationErr <= 1e-3,
+                    $"loop N={n.ToString(IC)}: the held arrival must land exactly on the station lattice "
+                    + $"(error {stationErr.ToString("R", IC)}s)");
+                InGameAssert.IsTrue(rotationErr <= unit.ArrivalJointSecondaryToleranceSeconds + 1e-3,
+                    $"loop N={n.ToString(IC)}: the held arrival must land within the rotation tolerance "
+                    + $"(error {rotationErr.ToString("F3", IC)}s vs {unit.ArrivalJointSecondaryToleranceSeconds.ToString("F3", IC)}s)");
+            }
+
+            ParsekLog.Info("RealSaveMissionTest",
+                $"RealSave_JointArrivalMission: PASS mission='{match.Mission.Name}' tree={match.Tree.Id} "
+                + $"target={target} Tsta={unit.ArrivalAlignPeriodSeconds.ToString("F1", IC)}s "
+                + $"Trot={unit.ArrivalJointSecondaryPeriodSeconds.ToString("F1", IC)}s "
+                + $"tol={unit.ArrivalJointSecondaryToleranceSeconds.ToString("F1", IC)}s "
+                + $"budget={unit.ArrivalJointMaxWholeHoldPeriods.ToString(IC)} "
+                + $"w0={unit.ArrivalHoldSeconds.ToString("F1", IC)}s");
+        }
+
+        [InGameTest(Category = "Missions", Scene = GameScenes.FLIGHT,
             Description = "A real OFF-KERBIN pad-launch mission in the loaded save (launch body != home body, e.g. a Mun surface->orbit mission) resolves its launch body through the live extractor, the pad Rotation constraint carries the LAUNCH body's own live rotation period (never the home body's), and the zero-drift scheduler - wired exactly as the live builder wires it - pins launches to the selected anchor (the off-Kerbin pad under Loose/Drop) or declines only for structural reasons (validates M-MIS-10 archetype 3). Skips cleanly when the save has no off-home launch; record e.g. a Mun ascent (runbook label mmis10-offkerbin).")]
         public void RealSave_OffKerbinLaunchMission_PadAnchorsToLaunchBodyRotation()
         {

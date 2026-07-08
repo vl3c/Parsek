@@ -309,5 +309,142 @@ namespace Parsek.Tests
             Assert.Contains("mode=", line);
             Assert.Contains("effConstraints=", line);
         }
+
+        // === Post-M4c joint wiring: hold-aware sampling + the joint-hold lattice ==============
+
+        private static PhaseConstraint Station(string orbitedBody, double period)
+            => new PhaseConstraint { Kind = ConstraintKind.VesselOrbital, BodyName = orbitedBody,
+                PeriodSeconds = period, PhaseOffsetSeconds = 0.0, AnchorVesselPid = 4242 };
+
+        [Fact]
+        public void HoldAware_StationExact_RotationWithinTol_PicksFirstWindow()
+        {
+            // Hold-aware sampling (the D8 landing+station joint model): the residual is no longer
+            // sampled at raw k*synodic - the hold snaps FORWARD onto the station lattice (station
+            // exact, residual 0) and extends by whole station periods until the rotation is within
+            // its Loose 5-deg band. Geometry: synodic 12345, T_sta 100, T_rot 360 (Loose tol 5s).
+            // At k=1: base snap 12345 -> 12400 (rot phase 160), i=1 -> 12500 (100), i=2 -> 12600 =
+            // 35*360 exactly -> residual 0. The pick is the FIRST window with i=2.
+            var cs = new List<PhaseConstraint> { Rotation("Duna", 360.0), Station("Duna", 100.0) };
+
+            var r = DestinationArrivalSolver.SolveArrivalWindow(
+                12345.0, cs, new NaNBody(), Launch, TransitedBodyRotationMode.Loose,
+                kStart: 1, lookaheadWindows: 8,
+                holdAlignPeriodSeconds: 100.0, maxWholeHoldPeriods: 64);
+
+            Assert.True(r.WithinTolerance);
+            Assert.Equal(1, r.ChosenWindowK);
+            Assert.Equal(2, r.ChosenHoldWholePeriods);
+            Assert.Equal(0.0, r.ResidualSeconds, 9);
+            Assert.Equal(2, r.EffectiveConstraintCount);
+            Assert.StartsWith("joint-hold", r.Method);
+        }
+
+        [Fact]
+        public void HoldAware_BudgetTooSmall_BoundedBest_NotWithin()
+        {
+            // The same geometry with a whole-period budget of 1: no window in the horizon reaches
+            // the 5s rotation band (the lattice needs up to 17 whole periods), so the solve falls
+            // to bounded-best and reports NOT within tolerance - the fail-closed signal the
+            // planner turns into the amber.
+            var cs = new List<PhaseConstraint> { Rotation("Duna", 360.0), Station("Duna", 100.0) };
+
+            var r = DestinationArrivalSolver.SolveArrivalWindow(
+                12345.0, cs, new NaNBody(), Launch, TransitedBodyRotationMode.Loose,
+                kStart: 1, lookaheadWindows: 8,
+                holdAlignPeriodSeconds: 100.0, maxWholeHoldPeriods: 1);
+
+            Assert.False(r.WithinTolerance);
+            Assert.True(r.ResidualSeconds > 5.0);
+            Assert.EndsWith("/bounded-best", r.Method);
+        }
+
+        [Fact]
+        public void HoldAware_TidalPeriods_HeldConstraintCollapses()
+        {
+            // T_rot == T_station: both constraints ride the hold lattice (period-equality match),
+            // every window is exact at i=0, and the honest count collapses to one (tidal).
+            var cs = new List<PhaseConstraint> { Rotation("Duna", 100.0), Station("Duna", 100.0) };
+
+            var r = DestinationArrivalSolver.SolveArrivalWindow(
+                12345.0, cs, new NaNBody(), Launch, TransitedBodyRotationMode.Loose,
+                kStart: 1, lookaheadWindows: 8,
+                holdAlignPeriodSeconds: 100.0, maxWholeHoldPeriods: 64);
+
+            Assert.True(r.WithinTolerance);
+            Assert.Equal(1, r.ChosenWindowK);
+            Assert.Equal(0, r.ChosenHoldWholePeriods);
+            Assert.Equal(0.0, r.ResidualSeconds, 9);
+            Assert.Equal(1, r.EffectiveConstraintCount);
+            Assert.StartsWith("tidal-collapse", r.Method);
+        }
+
+        [Fact]
+        public void HoldAware_OmittedParams_ByteIdenticalToRawGrid()
+        {
+            // Omitting the hold parameters (or passing the NaN sentinel) preserves the shipped
+            // raw-grid sampling byte-identically - the single-constraint consumers see no change.
+            const double synodic = 361000.0;
+            var cs = new List<PhaseConstraint> { Rotation("Duna", 360000.0) };
+
+            var omitted = DestinationArrivalSolver.SolveArrivalWindow(
+                synodic, cs, new NaNBody(), Launch, TransitedBodyRotationMode.Tight, 1, 400);
+            var nanPassed = DestinationArrivalSolver.SolveArrivalWindow(
+                synodic, cs, new NaNBody(), Launch, TransitedBodyRotationMode.Tight, 1, 400,
+                holdAlignPeriodSeconds: double.NaN, maxWholeHoldPeriods: 64);
+
+            Assert.Equal(omitted.ChosenWindowK, nanPassed.ChosenWindowK);
+            Assert.Equal(omitted.ResidualSeconds, nanPassed.ResidualSeconds, 12);
+            Assert.Equal(omitted.WithinTolerance, nanPassed.WithinTolerance);
+            Assert.Equal(omitted.Method, nanPassed.Method);
+            Assert.Equal(0, nanPassed.ChosenHoldWholePeriods);
+        }
+
+        [Fact]
+        public void PlanJointHoldLattice_Feasible_ReportsWorstMissRun()
+        {
+            // T_sta 100 / T_rot 360 / tol 5: the lattice orbit i*100 mod 360 hits the band every
+            // 18th point, so the worst run of consecutive misses is 17 - inside a 64 budget.
+            var plan = DestinationArrivalSolver.PlanJointHoldLattice(100.0, 360.0, 5.0, 64);
+
+            Assert.True(plan.Feasible);
+            Assert.Equal(17, plan.WorstMissRun);
+            Assert.Equal(65 * 100.0, plan.MaxHoldSeconds, 9);
+        }
+
+        [Fact]
+        public void PlanJointHoldLattice_IncommensurateTight_Infeasible()
+        {
+            // The fail-closed fixture: T_sta 100 / T_rot 3617.7 under the Tight 0.25-deg band
+            // (2.51s). The lattice's worst miss-run is in the thousands - far past any budget -
+            // so the plan is infeasible and the planner ambers instead of a partial alignment.
+            double tol = 3617.7 * 0.25 / 360.0;
+            var plan = DestinationArrivalSolver.PlanJointHoldLattice(100.0, 3617.7, tol, 64);
+
+            Assert.False(plan.Feasible);
+            Assert.True(plan.WorstMissRun > 64,
+                $"expected a miss-run past the budget, got {plan.WorstMissRun}");
+        }
+
+        [Fact]
+        public void PlanJointHoldLattice_TidalExact_FeasibleAtZeroBudget()
+        {
+            // Identical periods: every lattice point is exact, worst run 0 - feasible even with
+            // no whole-period budget at all.
+            var plan = DestinationArrivalSolver.PlanJointHoldLattice(100.0, 100.0, 0.0, 0);
+
+            Assert.True(plan.Feasible);
+            Assert.Equal(0, plan.WorstMissRun);
+        }
+
+        [Fact]
+        public void PlanJointHoldLattice_DegenerateInputs_Infeasible()
+        {
+            Assert.False(DestinationArrivalSolver.PlanJointHoldLattice(double.NaN, 360.0, 5.0, 64).Feasible);
+            Assert.False(DestinationArrivalSolver.PlanJointHoldLattice(100.0, 0.0, 5.0, 64).Feasible);
+            Assert.False(DestinationArrivalSolver.PlanJointHoldLattice(100.0, 360.0, double.NaN, 64).Feasible);
+            Assert.False(DestinationArrivalSolver.PlanJointHoldLattice(100.0, 360.0, 5.0, -1).Feasible);
+            Assert.False(DestinationArrivalSolver.PlanJointHoldLattice(-100.0, 360.0, 5.0, 64).Feasible);
+        }
     }
 }

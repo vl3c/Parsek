@@ -319,9 +319,10 @@ namespace Parsek.Tests
         [Fact]
         public void MoonOrbitingStation_FailsClosed_WithInSystemReason()
         {
-            // M4c plan test 7b: a station orbiting a MOON of the target (an Ike depot on a Duna
-            // mission) is in-system geometry the single-period hold cannot align - fail closed,
-            // HasStation set (so the arrival amber fires), reason names the shape.
+            // M4c plan test 7b, reason updated by the post-M4c joint wiring: a station orbiting
+            // a MOON of the target (an Ike depot on a Duna mission) is in-system geometry the
+            // joint solve does not cover - fail closed, HasStation set (so the arrival amber
+            // fires), reason names what is still unsupported.
             var all = new List<PhaseConstraint> { Orbital("Duna"), Station("Ike") };
             var bodies = Bodies(("Duna", "Sun"), ("Ike", "Duna"));
 
@@ -329,15 +330,18 @@ namespace Parsek.Tests
 
             Assert.False(r.Supported);
             Assert.True(r.HasStation);
-            Assert.Contains("in-system station alignment deferred", r.Reason);
+            Assert.Contains("moon-orbiting station stays fail-closed", r.Reason);
             Assert.Contains("Ike", r.Reason);
         }
 
         [Fact]
-        public void StationPlusLanding_D8_FailsClosed()
+        public void StationPlusLanding_JointCandidate_StaysSupported()
         {
-            // M4c plan test 8a (design D8): landing rotation + station at one destination has no
-            // single hold satisfying both periods - fail closed with the reason as the amber.
+            // Post-M4c SolveArrivalWindow wiring (supersedes the M4c fail-closed pin for D8
+            // shape a): landing rotation + station at one destination stays Supported and is
+            // flagged the JOINT candidate; ArrivalHoldPlanner's joint branch decides
+            // engage-vs-amber. The Constraints contract is unchanged (DestRotation only; the
+            // station rides the dedicated StationConstraint field).
             var all = new List<PhaseConstraint>
             {
                 Rotation("Duna"), Orbital("Duna"), Station("Duna"),
@@ -346,17 +350,23 @@ namespace Parsek.Tests
 
             var r = DestinationConstraintExtractor.ExtractDestinationConstraints(all, "Duna", bodies);
 
-            Assert.False(r.Supported);
+            Assert.True(r.Supported);
             Assert.True(r.HasStation);
             Assert.True(r.HasLandingRotation);
-            Assert.Contains("no single arrival hold aligns both periods", r.Reason);
+            Assert.True(r.IsJointLandingStation);
+            Assert.NotNull(r.StationConstraint);
+            Assert.Equal(ConstraintKind.VesselOrbital, r.StationConstraint.Value.Kind);
+            Assert.Single(r.Constraints);
+            Assert.Equal(ConstraintKind.Rotation, r.Constraints[0].Kind);
+            Assert.Null(r.Reason);
         }
 
         [Fact]
         public void StationPlusConstrainedMoon_D8Widened_FailsClosed()
         {
-            // M4c plan test 8b (the D8 widening): a constrained moon is a second destination-side
-            // period exactly like a landing rotation - station + moon fails closed the same way.
+            // M4c plan test 8b (the D8 widening), reason updated by the post-M4c joint wiring:
+            // a constrained moon is a THIRD destination-side period the landing+station joint
+            // solve does not cover - station + moon stays fail-closed.
             var all = new List<PhaseConstraint>
             {
                 Orbital("Duna"), Orbital("Ike", period: 65518.0), Station("Duna"),
@@ -367,8 +377,9 @@ namespace Parsek.Tests
 
             Assert.False(r.Supported);
             Assert.True(r.HasStation);
+            Assert.False(r.IsJointLandingStation);
             Assert.Equal(1, r.ConstrainedMoonCount);
-            Assert.Contains("no single arrival hold aligns both periods", r.Reason);
+            Assert.Contains("covers landing+station only", r.Reason);
         }
 
         [Fact]
@@ -387,6 +398,7 @@ namespace Parsek.Tests
             Assert.True(r.Supported);
             Assert.False(r.HasStation);
             Assert.True(r.HasLandingRotation);
+            Assert.False(r.IsJointLandingStation);
             Assert.Equal(1, r.ConstrainedMoonCount);
             Assert.Equal(2, r.Constraints.Count);
         }
