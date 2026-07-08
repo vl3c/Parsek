@@ -24,6 +24,7 @@ All notable changes to Parsek are documented here.
 
 ### Internals & Tests
 
+- The flight descent-handoff fix now has an automated in-game merge gate: a new batch-safe Missions test probes the real re-aim landing mission in the loaded save (s15 "Duna One") through the live builder and asserts the transfer/loiter member hides while the descent plays and exactly one ghost renders at the handoff, replacing the manual playtest gate.
 - Loop-unit API hardening on the Missions-to-Logistics seam, with no behavior change: supply routes now cache their built loop unit (rebuilt only when an input actually changes, instead of re-running the full builder pipeline every orchestrator tick and countdown call), the fire-once dock-crossing detection is centralized in one shared emitter, and the loop cycle index carries an explicit flat-vs-scheduled type so consumers cannot misread one as the other. Route firing, replay keys, escrow, and ledger rows are unchanged.
 
 ### Internals & Tests
