@@ -2845,6 +2845,40 @@ namespace Parsek
                 LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard(
                     idsToPurge, $"DiscardPendingTree '{pendingTree.TreeName}'");
 
+            // Rec-3 observability (plan Phase 4 / report risk #6): a supply route that
+            // physically fired inside this discarded window persists un-reversed in the
+            // surviving timeline (funds AND cargo both kept — economically consistent,
+            // but the discard did not undo it). Log the residual so it is greppable.
+            // Behavior-neutral: nothing is reversed, retired, or gated. Only on the
+            // genuine live-discard path — the abandon path (preserve=false) has already
+            // had its world reverted by the quickload/revert. Rewind/RP-backed sessions
+            // are skipped inside the reporter (the quicksave is their rollback).
+            if (preserveIrreversibleLiveGameplay)
+            {
+                // Scope the reported window to the recordings actually purged (idsToPurge),
+                // NOT the whole pending tree — committed-overlap recordings are preserved,
+                // not discarded, so their span must not widen the window (mirrors the
+                // idsToPurge scoping of PreserveIrreversibleLiveGameplayOnDiscard above and
+                // the owned-id resolution in TryDiscardActiveSwitchSegmentAttempt).
+                var discardedRecs = new List<Recording>(idsToPurge.Count);
+                if (pendingTree.Recordings != null)
+                {
+                    foreach (string purgeId in idsToPurge)
+                    {
+                        Recording drec;
+                        if (!string.IsNullOrEmpty(purgeId)
+                            && pendingTree.Recordings.TryGetValue(purgeId, out drec)
+                            && drec != null)
+                            discardedRecs.Add(drec);
+                    }
+                }
+                Parsek.Logistics.RouteDiscardObservability.ReportDiscardLeakForRecordings(
+                    discardedRecs,
+                    Ledger.Actions,
+                    ParsekScenario.IsReFlySessionActiveForQuickloadDiscard(),
+                    $"DiscardPendingTree '{pendingTree.TreeName}'");
+            }
+
             TreeDiscardPurge.PurgeTree(pendingTree, idsToPurge);
             if (idsToPurge.Count > 0)
                 GameStateStore.PurgeEventsForRecordings(idsToPurge, $"DiscardPendingTree '{pendingTree.TreeName}'");
@@ -3010,6 +3044,31 @@ namespace Parsek
             // been deleted in favor of this broader sweep.
             var ownedIds = CollectSwitchSegmentSubtreeRecordingIds(segmentTree, session);
             int ownedCount = ownedIds.Count;
+
+            // Rec-3 observability (see DiscardPendingTree): report any supply-route
+            // physical mutation that fired inside this discarded switch-segment subtree
+            // and persists un-reversed. Behavior-neutral; rewind/RP-backed sessions are
+            // skipped inside the reporter. Collected here while the subtree is still
+            // resolvable, before the purge/removal below.
+            {
+                var discardedRecs = new List<Recording>(ownedIds.Count);
+                if (segmentTree.Recordings != null)
+                {
+                    foreach (string oid in ownedIds)
+                    {
+                        Recording drec;
+                        if (!string.IsNullOrEmpty(oid)
+                            && segmentTree.Recordings.TryGetValue(oid, out drec)
+                            && drec != null)
+                            discardedRecs.Add(drec);
+                    }
+                }
+                Parsek.Logistics.RouteDiscardObservability.ReportDiscardLeakForRecordings(
+                    discardedRecs,
+                    Ledger.Actions,
+                    ParsekScenario.IsReFlySessionActiveForQuickloadDiscard(),
+                    $"SwitchSegment scoped discard sess={sessionIdStr}");
+            }
 
             // Snapshot session-authored branch point ids = current BPs minus
             // PreSessionBranchPointIds baseline. Mirrors the ReFly approach.

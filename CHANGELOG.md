@@ -16,6 +16,8 @@ All notable changes to Parsek are documented here.
 - A supply route held because another route reserved a shared depot's cargo for its own in-flight cycle now says so in the Logistics window, naming the reserving route, instead of wrongly claiming the depot is out of that resource.
 - A held supply route now names its specific blocker directly in its Status cell (for example "Held: Depot A out of Ore" or "Held: waiting for 'Return Run'") instead of a generic status sentence with the reason hidden in the tooltip. Long reasons are shortened in the cell; the full text stays in the tooltip and the detail panel.
 - Committing a flight that qualifies as a Supply Route now prompts you once: a screen message announces it and the Parsek window shows a small banner with Open Logistics / Dismiss buttons (Dismiss also hides the candidate, reversible from the Dismissed list). Each flight prompts at most once, and never during test runs.
+- Supply routes now work between planets: delivery follows the transfer windows the ghost flies, and the cadence setting delivers every Nth window.
+- A supply route that was dispatched and then rewound past no longer leaves the depot charged with the cargo undelivered: the abandoned-future route ledger entries are now dropped at the rewind so the re-flown route re-delivers exactly once and is charged exactly once.
 
 ### Fixes
 
@@ -25,6 +27,10 @@ All notable changes to Parsek are documented here.
 
 - The logistics legibility milestone (M6) is complete. Supply route recovery credits keep their fixed one-interval delay by decision (the evaluated per-run landing clock was ruled out: its timing drift is bounded per cycle and totals zero, so the simpler behavior is permanent).
 - Loop-unit API hardening on the Missions-to-Logistics seam, with no behavior change: supply routes now cache their built loop unit (rebuilt only when an input actually changes, instead of re-running the full builder pipeline every orchestrator tick and countdown call), the fire-once dock-crossing detection is centralized in one shared emitter, and the loop cycle index carries an explicit flat-vs-scheduled type so consumers cannot misread one as the other. Route firing, replay keys, escrow, and ledger rows are unchanged.
+
+### Internals & Tests
+
+- Logistics / time-rewind determinism (Rec-3): a supply route that physically delivered or debited cargo inside a flight you then discard without a rewind stays in the surviving timeline, and both its funds row and its cargo persist so the career economy stays consistent. This persistence is intended (a route delivery is an ambient live career event, kept like other live-earned progress); it is now recorded as a behavior-neutral `[Rec-3 residual]` diagnostic warning naming the route, cycle, and amounts, and nothing is reversed or gated (see `docs/dev/plans/fix-logistics-rewind-determinism.md` Phase 4).
 
 ## 0.10.2
 
