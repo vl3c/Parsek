@@ -183,6 +183,150 @@ namespace Parsek.InGameTests
                 + $"launchBody={extraction.LaunchBodyName ?? "?"}");
         }
 
+        [InGameTest(Category = "Missions", Scene = GameScenes.FLIGHT,
+            Description = "A real OFF-KERBIN pad-launch mission in the loaded save (launch body != home body, e.g. a Mun surface->orbit mission) resolves its launch body through the live extractor, the pad Rotation constraint carries the LAUNCH body's own live rotation period (never the home body's), and the zero-drift scheduler - wired exactly as the live builder wires it - pins launches to the selected anchor (the off-Kerbin pad under Loose/Drop) or declines only for structural reasons (validates M-MIS-10 archetype 3). Skips cleanly when the save has no off-home launch; record e.g. a Mun ascent (runbook label mmis10-offkerbin).")]
+        public void RealSave_OffKerbinLaunchMission_PadAnchorsToLaunchBodyRotation()
+        {
+            if (!IsMissionStoreReady())
+                InGameAssert.Skip("Missions not loaded / FlightGlobals bodies not ready; load a save with recorded missions");
+
+            CelestialBody home = FlightGlobals.GetHomeBody();
+            string homeBody = home != null ? home.bodyName : "Kerbin";
+            if (!RealSaveMissionFinder.TryFindOffHomeLaunchMission(
+                    FlightGlobalsBodyInfo.Instance, homeBody,
+                    out RealSaveMissionFinder.OffHomeLaunchMissionMatch match))
+            {
+                InGameAssert.Skip(
+                    $"no committed mission launches from a non-{homeBody} pad; fly+commit e.g. a Mun "
+                    + "surface->orbit mission (M-MIS-10 archetype 3, runbook label mmis10-offkerbin)");
+            }
+
+            ConstraintExtraction extraction = match.Extraction;
+            string launchBody = extraction.LaunchBodyName;
+
+            // (1) The off-home launch body resolves usable LIVE rotation data (the pad clock).
+            double liveRotation = FlightGlobalsBodyInfo.Instance.RotationPeriod(launchBody);
+            double homeRotation = FlightGlobalsBodyInfo.Instance.RotationPeriod(homeBody);
+            InGameAssert.IsTrue(
+                !double.IsNaN(liveRotation) && !double.IsInfinity(liveRotation) && liveRotation != 0.0,
+                $"launch body '{launchBody}' must resolve a usable live rotation period "
+                + $"(got {liveRotation.ToString("R", IC)})");
+
+            // (2) When the extraction emitted the PAD constraint (surface<->orbit hand-off present),
+            //     it must carry the LAUNCH body's own live rotation period - never the home body's.
+            //     (Retrograde rotation is stored by magnitude, hence the Abs.)
+            bool hasPad = false;
+            PhaseConstraint pad = default;
+            for (int i = 0; i < extraction.Constraints.Count; i++)
+            {
+                PhaseConstraint c = extraction.Constraints[i];
+                if (c.Kind == ConstraintKind.Rotation
+                    && string.Equals(c.BodyName, launchBody, System.StringComparison.Ordinal))
+                {
+                    pad = c;
+                    hasPad = true;
+                    break;
+                }
+            }
+            if (hasPad)
+            {
+                InGameAssert.ApproxEqual(System.Math.Abs(liveRotation), pad.PeriodSeconds, 0.5,
+                    $"the pad Rotation({launchBody}) period must be the launch body's own live rotation");
+                if (System.Math.Abs(System.Math.Abs(homeRotation) - System.Math.Abs(liveRotation)) > 1.0)
+                {
+                    InGameAssert.IsTrue(
+                        System.Math.Abs(pad.PeriodSeconds - System.Math.Abs(homeRotation)) > 1.0,
+                        $"the pad period must NOT be the home body's rotation "
+                        + $"({homeRotation.ToString("R", IC)}) - the off-Kerbin pad has its own clock");
+                }
+            }
+
+            // (3) The zero-drift scheduler, wired EXACTLY as the live builder wires it
+            //     (extraction constraints/support/UT0 + launchBodyName + the settings mode).
+            TransitedBodyRotationMode tbrMode =
+                ParsekSettings.Current?.TransitedBodyRotationMode ?? TransitedBodyRotationMode.Loose;
+            bool built = MissionPeriodicity.TryBuildRelaunchSchedule(
+                extraction.Constraints, extraction.Support, extraction.UT0, extraction.UT0,
+                FlightGlobalsBodyInfo.Instance, out MissionRelaunchSchedule schedule,
+                minSpacingSeconds: 0.0, launchBodyName: launchBody, mode: tbrMode);
+
+            string scheduleSummary;
+            if (built)
+            {
+                // Replicate the schedule's Drop pre-filter so the anchor is computed over the same
+                // effective list the builder anchored on.
+                var effective = new System.Collections.Generic.List<PhaseConstraint>();
+                for (int i = 0; i < extraction.Constraints.Count; i++)
+                {
+                    if (tbrMode == TransitedBodyRotationMode.Drop
+                        && MissionPeriodicity.IsTransitedBodyRotation(extraction.Constraints[i], launchBody))
+                        continue;
+                    effective.Add(extraction.Constraints[i]);
+                }
+                int anchorIdx = MissionPeriodicity.SelectAnchorConstraintIndex(
+                    effective, FlightGlobalsBodyInfo.Instance, launchBody, tbrMode);
+                PhaseConstraint anchor = effective[anchorIdx];
+
+                InGameAssert.IsTrue(schedule.FirstLaunchUT >= extraction.UT0 - 1e-6,
+                    "the first scheduled launch must be at/after the floor");
+                double sinceUT0 = schedule.FirstLaunchUT - extraction.UT0;
+                double residual = System.Math.Abs(System.Math.IEEERemainder(sinceUT0, anchor.PeriodSeconds));
+                InGameAssert.IsTrue(residual < 0.5,
+                    $"the first scheduled launch must pin EXACTLY to the anchor period "
+                    + $"({anchor.Kind}({anchor.BodyName}) T={anchor.PeriodSeconds.ToString("F1", IC)}s; "
+                    + $"residual {residual.ToString("F3", IC)}s)");
+
+                // Under the production-default Loose (and under Drop) the transited rotations are
+                // loosened/removed, so the OFF-KERBIN PAD is the tightest band and must be the
+                // anchor. (Under Tight a transited shorter-period rotation may legitimately win
+                // the tie-break - by-design, so not asserted there.)
+                if (hasPad && tbrMode != TransitedBodyRotationMode.Tight)
+                {
+                    InGameAssert.IsTrue(
+                        anchor.Kind == ConstraintKind.Rotation
+                        && string.Equals(anchor.BodyName, launchBody, System.StringComparison.Ordinal),
+                        $"under {tbrMode} the schedule must anchor on the off-Kerbin pad "
+                        + $"Rotation({launchBody}), got {anchor.Kind}({anchor.BodyName})");
+                }
+                scheduleSummary = $"built first={schedule.FirstLaunchUT.ToString("F0", IC)} "
+                    + $"anchor={anchor.Kind}({anchor.BodyName})@{anchor.PeriodSeconds.ToString("F0", IC)}s";
+            }
+            else
+            {
+                // A decline must be STRUCTURAL (unsupported shape / <2 constraints / no distinct
+                // period = tidal collapse), never a silent off-Kerbin failure of the machinery.
+                bool structuralDecline = extraction.Support != Support.Supported
+                    || extraction.Constraints.Count < 2;
+                if (!structuralDecline)
+                {
+                    double p0 = extraction.Constraints[0].PeriodSeconds;
+                    bool anyClearlyDistinct = false;
+                    for (int i = 1; i < extraction.Constraints.Count; i++)
+                    {
+                        double p = extraction.Constraints[i].PeriodSeconds;
+                        if (!double.IsNaN(p) && !double.IsInfinity(p) && p > 0.0
+                            && System.Math.Abs(p - p0) > 1.0)
+                        {
+                            anyClearlyDistinct = true;
+                            break;
+                        }
+                    }
+                    InGameAssert.IsFalse(anyClearlyDistinct,
+                        "a Supported off-Kerbin config with clearly-distinct constraint periods must "
+                        + "build a zero-drift schedule; a decline here means the scheduler broke on a "
+                        + $"non-{homeBody} pad (support={extraction.Support})");
+                }
+                scheduleSummary = $"declined (structural: support={extraction.Support} "
+                    + $"constraints={extraction.Constraints.Count.ToString(IC)})";
+            }
+
+            ParsekLog.Info("RealSaveMissionTest",
+                $"RealSave_OffKerbinLaunch: PASS mission='{match.Mission.Name}' tree={match.Tree.Id} "
+                + $"launchBody={launchBody} (home={homeBody}) "
+                + $"padRotation={(hasPad ? pad.PeriodSeconds.ToString("F0", IC) + "s" : "none (no surface<->orbit hand-off)")} "
+                + $"support={extraction.Support} schedule={scheduleSummary}");
+        }
+
         // The finder needs the mission store populated and the live body graph ready (the extractor +
         // builder read FlightGlobalsBodyInfo.Instance, which resolves bodies through FlightGlobals).
         // On a fresh scene with no missions, or before FlightGlobals is up, there is nothing to

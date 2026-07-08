@@ -137,8 +137,10 @@ namespace Parsek
         /// <summary>
         /// Status-cell tooltip: the raw enum name alone (the pre-M6 contract),
         /// or the enum name plus the one-clause hold description on a second
-        /// line. Visible cell text and styles are unchanged by M6 - only the
-        /// tooltip is augmented.
+        /// line. The tooltip always carries the FULL hold clause - the visible
+        /// cell text is the compact (possibly truncated)
+        /// <see cref="StatusCellText"/>, so the tooltip is where a truncated
+        /// reason is read in full (M6 closeout row-level treatment).
         /// </summary>
         internal static string StatusCellTooltip(RouteStatus status, string holdShort)
         {
@@ -264,6 +266,173 @@ namespace Parsek
             }
             return name + " has " + resource + " reserved by route '" + routeName
                 + "' - delivers when the reservation clears";
+        }
+
+        // ------------------------------------------------------------------
+        // M6 closeout: row-level hold treatment (Status cell)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Hard cap on the visible Status-cell hold text. The cell is 240 px
+        /// and wraps, so this bounds the row to roughly two wrapped lines even
+        /// with long vessel / route names; the FULL clause always survives in
+        /// the tooltip (<see cref="StatusCellTooltip"/>).
+        /// </summary>
+        internal const int StatusCellMaxChars = 60;
+
+        /// <summary>
+        /// The visible Status-cell text for a held route (M6 closeout: the
+        /// row-level treatment - the cell carries the compact SPECIFIC reason,
+        /// not the generic per-status sentence). "Held: " marker plus
+        /// <see cref="CompactHold"/>, truncated to
+        /// <see cref="StatusCellMaxChars"/> via <see cref="TruncateForCell"/>.
+        /// Returns null ONLY for kind None (no hold recorded) - the draw path
+        /// then falls back to the generic StatusReason text. Callers gate on
+        /// <see cref="ShouldDisplayHold"/> first, same as the tooltip/detail.
+        /// </summary>
+        internal static string StatusCellText(
+            RouteDispatchEvaluator.EligibilityFailureKind kind,
+            string detail,
+            double shortfall)
+        {
+            string compact = CompactHold(kind, detail, shortfall);
+            if (string.IsNullOrEmpty(compact))
+                return null;
+            return TruncateForCell("Held: " + compact, StatusCellMaxChars);
+        }
+
+        /// <summary>
+        /// One compact clause naming the specific blocker, for the Status cell
+        /// (the row, not the tooltip). Same total kind+token table as
+        /// <see cref="DescribeHold"/> - both token shapes, never throws, never
+        /// blank for a real hold, unknown kinds/tokens degrade to
+        /// "blocked ({kind})" - but drops the "delivers when ..." guidance
+        /// suffixes so the cell stays short; the full clause lives in the
+        /// tooltip. Returns null only for kind None.
+        /// </summary>
+        internal static string CompactHold(
+            RouteDispatchEvaluator.EligibilityFailureKind kind,
+            string detail,
+            double shortfall)
+        {
+            switch (kind)
+            {
+                case RouteDispatchEvaluator.EligibilityFailureKind.None:
+                    return null;
+
+                case RouteDispatchEvaluator.EligibilityFailureKind.OriginLacksCargo:
+                    return CompactOriginLacksCargo(detail);
+
+                case RouteDispatchEvaluator.EligibilityFailureKind.FundsShort:
+                    // Same shortfall contract as DescribeHold: the number comes
+                    // ONLY from the shortfall argument (legacy captures store 0
+                    // and render the generic text).
+                    return shortfall > 0.0
+                        ? string.Format(CultureInfo.InvariantCulture,
+                            "short {0:F0} funds", shortfall)
+                        : "insufficient funds";
+
+                case RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull:
+                {
+                    string resource = StripPrefix(detail, "destination-full-");
+                    return string.IsNullOrEmpty(resource)
+                        ? "destination full"
+                        : "no room for " + resource;
+                }
+
+                case RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost:
+                    return detail != null
+                        && detail.StartsWith("origin-", System.StringComparison.Ordinal)
+                        ? "origin vessel lost"
+                        : "destination vessel lost";
+
+                case RouteDispatchEvaluator.EligibilityFailureKind.SourcesStale:
+                    return "source recordings unavailable";
+
+                case RouteDispatchEvaluator.EligibilityFailureKind.WaitingForPartner:
+                {
+                    string partner = StripPrefix(detail, "partner:");
+                    return string.IsNullOrEmpty(partner)
+                        ? "waiting for linked route"
+                        : "waiting for '" + partner + "'";
+                }
+
+                default:
+                    return string.Format(CultureInfo.InvariantCulture,
+                        "blocked ({0})", kind);
+            }
+        }
+
+        // Compact variant of DescribeOriginLacksCargo: same token family, same
+        // strip-the-legacy-wrapper-first order, short phrasing.
+        private static string CompactOriginLacksCargo(string detail)
+        {
+            string token = StripPrefix(detail, "origin-lacks-");
+            if (token != null
+                && token.StartsWith("pickup-source-unresolved:", System.StringComparison.Ordinal))
+            {
+                return "pickup source vessel lost";
+            }
+            if (token != null
+                && token.StartsWith("source-reserved:", System.StringComparison.Ordinal))
+            {
+                // "source-reserved:<pid>:<name>:<resource>:<reservingRouteName>"
+                string body = token.Substring("source-reserved:".Length);
+                string[] parts = body.Split(new[] { ':' }, 4);
+                if (parts.Length < 4)
+                    return "cargo reserved by another route";
+                string resource = parts[2];
+                string routeName = string.IsNullOrEmpty(parts[3]) ? "another route" : parts[3];
+                return string.IsNullOrEmpty(resource)
+                    ? "cargo reserved by '" + routeName + "'"
+                    : resource + " reserved by '" + routeName + "'";
+            }
+            if (token != null
+                && token.StartsWith("source:", System.StringComparison.Ordinal))
+            {
+                // "source:<pid>:<name>:<short...>" - same 3-way split as
+                // DescribePickupSourceShort so an "inventory:<hash>" short
+                // keeps its colon in the tail.
+                string body = token.Substring("source:".Length);
+                string[] parts = body.Split(new[] { ':' }, 3);
+                if (parts.Length < 3)
+                    return "pickup source short of cargo";
+                string name = string.IsNullOrEmpty(parts[1]) ? "pickup source" : parts[1];
+                string shortToken = parts[2];
+                if (shortToken != null
+                    && shortToken.StartsWith("inventory:", System.StringComparison.Ordinal))
+                {
+                    return name + " missing a stored part";
+                }
+                return string.IsNullOrEmpty(shortToken)
+                    ? name + " short of cargo"
+                    : name + " out of " + shortToken;
+            }
+            if (token != null
+                && token.StartsWith("inventory:", System.StringComparison.Ordinal))
+            {
+                return "origin missing a stored part";
+            }
+            if (token != null
+                && token.StartsWith("origin-unresolved:", System.StringComparison.Ordinal))
+            {
+                return "origin vessel lost";
+            }
+            if (string.IsNullOrEmpty(token))
+                return "origin short of cargo";
+            return "origin out of " + token;
+        }
+
+        /// <summary>
+        /// Plain-ASCII hard truncation for the Status cell: text at or under
+        /// <paramref name="maxChars"/> passes through unchanged; longer text is
+        /// cut to <c>maxChars - 3</c> plus "...". Null/empty passes through.
+        /// </summary>
+        internal static string TruncateForCell(string text, int maxChars)
+        {
+            if (string.IsNullOrEmpty(text) || maxChars <= 3 || text.Length <= maxChars)
+                return text;
+            return text.Substring(0, maxChars - 3) + "...";
         }
 
         // Total fallback row: readable, never blank, never throws - new tokens

@@ -70,14 +70,14 @@ namespace Parsek.Tests.Logistics
             Assert.Contains("starts undocked", text);
         }
 
-        // catches (M4a, D9): the new mid-recording-start documented-limitation
-        // rejection not surfacing its workflow-guidance text. This is the player-
-        // facing SURFACE for the undock->undock shuttle shape whose run begins
-        // INSIDE a pre-dock recording (Missions locked-layer gap 1; the eventual
-        // lift is M-MIS-5). RESERVED reason: in M4a it is not yet emitted by a
-        // detector (such runs reject as UndockedStartOrigin), so this pins ONLY
-        // that the surface renders the canonical text verbatim, never blank / the
-        // generic fallback. ASCII only (no em-dash).
+        // catches (M4a D9 surface, detector wired by M-MIS-5 P2a): the
+        // mid-recording-start rejection not surfacing its workflow-guidance
+        // text. This is the player-facing SURFACE for the undock->undock
+        // shuttle shape whose run begins INSIDE a pre-dock recording; since
+        // M-MIS-5 P2a a REAL detector emits it at both undocked-start gate
+        // sites (the start-side selection lift is P2b). Pins that the surface
+        // renders the canonical text verbatim, never blank / the generic
+        // fallback. ASCII only (no em-dash).
         [Fact]
         public void DescribeNearMiss_MidRecordingStartTrimUnsupported_PassesThrough()
         {
@@ -91,6 +91,27 @@ namespace Parsek.Tests.Logistics
                 text);
             Assert.Contains("starts between two docks", text);
             Assert.Contains("not supported yet", text);
+        }
+
+        // catches (M-MIS-5 P2a): the shuttle-family near-miss row dropping the
+        // origin-dock detail at the presentation hop. Mirror of the
+        // UntrackedCargoGain / FlowDoesNotClose pass-throughs: the detail must
+        // reach FormatRejectMessage(status, detail) so the row names the
+        // recognized docked-origin moment.
+        [Fact]
+        public void DescribeNearMiss_MidRecordingStartTrim_PassesDetailThrough()
+        {
+            string detail = "docked origin recorded at UT 100";
+
+            string text = LogisticsRejectPresentation.DescribeNearMiss(
+                RouteAnalysisStatus.MidRecordingStartTrimUnsupported,
+                notSealed: false, reflyableCount: 0, rejectDetail: detail);
+
+            Assert.Equal(
+                RouteCreationFormatters.FormatRejectMessage(
+                    RouteAnalysisStatus.MidRecordingStartTrimUnsupported, detail),
+                text);
+            Assert.Contains("(docked origin recorded at UT 100)", text);
         }
 
         // catches (M2, finding 12): the near-miss row dropping the

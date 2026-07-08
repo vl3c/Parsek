@@ -402,5 +402,46 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(2, fires);
             Assert.Equal(new long[] { 0, 1 }, firedCycles.ToArray());
         }
+
+        // catches (M-MIS-5 P2b, seam (e)): the dock-crossing phase mis-deriving
+        // for a NON-LAUNCH span start. A mid-tree docked-origin (shuttle) route's
+        // span starts at the ORIGIN UNDOCK instead of a launch; every clock
+        // offset is SpanStartUT-relative, so the crossing must still fire exactly
+        // once per cycle with the dock at the raised span's end, and a dock UT
+        // before the raised start must read out-of-span.
+        [Fact]
+        public void DockPhase_RaisedSpanStart_CrossingFiresOncePerCycle()
+        {
+            // Shuttle geometry: span [5000, 6000] = [origin undock .. delivery
+            // dock], cadence == span (1000), anchor at the span start.
+            var unit = BuildUnit(spanStartUT: 5000.0, spanEndUT: 6000.0,
+                cadenceSeconds: 1000.0, phaseAnchorUT: 5000.0);
+            const double dockUT = 6000.0; // == SpanEndUT
+            Assert.True(RouteLoopClock.IsDockUTInSpan(unit, dockUT)); // end-inclusive
+            // A dock phase before the raised span start is OUT of span (the
+            // analysis acceptance guarantees every stop docks inside the lifted
+            // span; this pins the guard that protects it).
+            Assert.False(RouteLoopClock.IsDockUTInSpan(unit, 4500.0));
+
+            long lastObserved = -1;
+            var firedCycles = new System.Collections.Generic.List<long>();
+
+            // Walk cycles 0..2: mid cycle 0, just before the boundary, the exact
+            // boundary, early cycle 1, mid cycle 1, the next boundary, early cycle 2.
+            double[] samples = { 5500.0, 5999.5, 6000.0, 6100.0, 6800.0, 7000.0, 7050.0 };
+            foreach (double ut in samples)
+            {
+                Assert.True(RouteLoopClock.TryGetRouteLoopState(
+                    unit, ut, out double loopUT, out long cycleIndex, out _));
+                if (RouteLoopClock.IsDockCrossing(
+                        unit, loopUT, cycleIndex, dockUT, lastObserved, out long dockCycleIndex))
+                {
+                    firedCycles.Add(dockCycleIndex);
+                    lastObserved = dockCycleIndex; // the caller's snap-forward
+                }
+            }
+
+            Assert.Equal(new long[] { 0, 1 }, firedCycles.ToArray());
+        }
     }
 }
