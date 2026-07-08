@@ -156,5 +156,125 @@ namespace Parsek.Tests.Logistics
             Assert.Empty(kept);
             Assert.Equal(0, retired);
         }
+
+        // ==================================================================
+        // Rec-3 (non-rewind discard leak) — pure selection helpers.
+        // ==================================================================
+
+        private static GameAction PhysResource(GameActionType t, double ut, string routeId = "route-1")
+            => new GameAction
+            {
+                Type = t,
+                UT = ut,
+                RouteId = routeId,
+                RouteResourceManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+            };
+
+        [Fact]
+        public void IsPhysicalRouteMutation_TrueForRouteRowWithResourceManifest()
+        {
+            Assert.True(RouteLedgerRetire.IsPhysicalRouteMutation(
+                PhysResource(GameActionType.RouteCargoDelivered, 10.0)));
+            Assert.True(RouteLedgerRetire.IsPhysicalRouteMutation(
+                PhysResource(GameActionType.RouteCargoDebited, 10.0)));
+            Assert.True(RouteLedgerRetire.IsPhysicalRouteMutation(
+                PhysResource(GameActionType.RouteCargoPickedUp, 10.0)));
+        }
+
+        [Fact]
+        public void IsPhysicalRouteMutation_TrueForRouteRowWithInventoryManifest()
+        {
+            var a = new GameAction
+            {
+                Type = GameActionType.RouteCargoDelivered,
+                UT = 10.0,
+                RouteId = "route-1",
+                RouteInventoryManifest = new List<InventoryPayloadItem> { new InventoryPayloadItem() },
+            };
+            Assert.True(RouteLedgerRetire.IsPhysicalRouteMutation(a));
+        }
+
+        [Fact]
+        public void IsPhysicalRouteMutation_FalseForFundsOnlyAndMarkerRows()
+        {
+            // KSC-funds-only debit: RouteKscFundsCost set, no manifest -> not physical.
+            var fundsOnly = new GameAction
+            {
+                Type = GameActionType.RouteCargoDebited,
+                UT = 10.0,
+                RouteId = "route-1",
+                RouteKscFundsCost = 1234f,
+            };
+            Assert.False(RouteLedgerRetire.IsPhysicalRouteMutation(fundsOnly));
+
+            Assert.False(RouteLedgerRetire.IsPhysicalRouteMutation(Route(GameActionType.RouteDispatched, 10.0)));
+            Assert.False(RouteLedgerRetire.IsPhysicalRouteMutation(Route(GameActionType.RoutePaused, 10.0)));
+            Assert.False(RouteLedgerRetire.IsPhysicalRouteMutation(Route(GameActionType.RouteEndpointLost, 10.0)));
+            Assert.False(RouteLedgerRetire.IsPhysicalRouteMutation(Route(GameActionType.RouteRecoveryCredited, 10.0)));
+        }
+
+        [Fact]
+        public void IsPhysicalRouteMutation_FalseForNonRouteEmptyManifestAndNull()
+        {
+            Assert.False(RouteLedgerRetire.IsPhysicalRouteMutation(
+                new GameAction { Type = GameActionType.FundsEarning, UT = 10.0 }));
+
+            var emptyManifest = new GameAction
+            {
+                Type = GameActionType.RouteCargoDelivered,
+                UT = 10.0,
+                RouteId = "route-1",
+                RouteResourceManifest = new Dictionary<string, double>(),
+            };
+            Assert.False(RouteLedgerRetire.IsPhysicalRouteMutation(emptyManifest));
+
+            Assert.False(RouteLedgerRetire.IsPhysicalRouteMutation(null));
+        }
+
+        [Fact]
+        public void SelectInWindow_InclusiveBoundsAndOrderPreserved()
+        {
+            var src = new List<GameAction>
+            {
+                Route(GameActionType.RouteDispatched, 50.0),        // before window
+                Route(GameActionType.RouteCargoDelivered, 100.0),   // == min -> in
+                new GameAction { Type = GameActionType.FundsEarning, UT = 120.0 }, // non-route -> out
+                Route(GameActionType.RouteCargoDebited, 150.0),     // in
+                Route(GameActionType.RoutePaused, 200.0),           // == max -> in
+                Route(GameActionType.RouteCargoPickedUp, 250.0),    // after window
+            };
+
+            var sel = RouteLedgerRetire.SelectFreeStandingRouteActionsInWindow(src, 100.0, 200.0);
+
+            Assert.Equal(3, sel.Count);
+            Assert.Equal(100.0, sel[0].UT);
+            Assert.Equal(150.0, sel[1].UT);
+            Assert.Equal(200.0, sel[2].UT);
+        }
+
+        [Fact]
+        public void SelectInWindow_ExcludesEmptyRouteIdAndNonRoute()
+        {
+            var src = new List<GameAction>
+            {
+                Route(GameActionType.RouteCargoDelivered, 110.0),  // route + routeId -> in
+                new GameAction { Type = GameActionType.RouteCargoDelivered, UT = 120.0, RouteId = null }, // empty routeId -> out
+                new GameAction { Type = GameActionType.FundsEarning, UT = 130.0, RouteId = "route-1" },   // non-route type -> out
+            };
+
+            var sel = RouteLedgerRetire.SelectFreeStandingRouteActionsInWindow(src, 100.0, 200.0);
+
+            Assert.Single(sel);
+            Assert.Equal(110.0, sel[0].UT);
+        }
+
+        [Fact]
+        public void SelectInWindow_DegenerateWindowAndNullSourceReturnEmpty()
+        {
+            Assert.Empty(RouteLedgerRetire.SelectFreeStandingRouteActionsInWindow(null, 0.0, 100.0));
+
+            var src = new List<GameAction> { Route(GameActionType.RouteCargoDelivered, 50.0) };
+            Assert.Empty(RouteLedgerRetire.SelectFreeStandingRouteActionsInWindow(src, 200.0, 100.0)); // min > max
+        }
     }
 }

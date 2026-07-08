@@ -142,5 +142,75 @@ namespace Parsek.Logistics
             }
             return kept;
         }
+
+        // -------------------------------------------------------------------
+        // Rec-3 (the non-rewind discard leak) — pure selection helpers.
+        //
+        // Shared surface used by the Rec-3 discard-time OBSERVABILITY reporter
+        // (RouteDiscardObservability) and, later, the DEFERRED reverse-on-discard
+        // pass. Both need to know which free-standing route rows physically fired
+        // inside a discarded segment's UT window. Kept here (next to the Rec-1
+        // retire) because they share IsFreeStandingRouteAction / IsRouteActionType.
+        // Plan Phase 4; report risk #6.
+        // -------------------------------------------------------------------
+
+        /// <summary>
+        /// True when a free-standing route action carries an ACTUAL physical
+        /// world mutation — a non-empty resource manifest
+        /// (<see cref="GameAction.RouteResourceManifest"/>) or inventory manifest
+        /// (<see cref="GameAction.RouteInventoryManifest"/>). These are the rows the
+        /// three no-reverse writers (<c>LiveDeliveryWriters</c>,
+        /// <c>LiveOriginDebitWriters</c>, <c>LiveInventoryPickupWriter</c>) produce.
+        ///
+        /// <para>Funds-only and marker rows return false: <c>RouteDispatched</c>,
+        /// <c>RoutePaused</c>, <c>RouteEndpointLost</c>, <c>RouteRecoveryCredited</c>,
+        /// and the KSC-funds-only <c>RouteCargoDebited</c> variant (which sets
+        /// <see cref="GameAction.RouteKscFundsCost"/> instead of a manifest) mutate no
+        /// physical world state, so they have nothing to leak on a non-rewind discard.</para>
+        /// </summary>
+        internal static bool IsPhysicalRouteMutation(GameAction a)
+        {
+            return IsFreeStandingRouteAction(a)
+                   && (((a.RouteResourceManifest != null) && (a.RouteResourceManifest.Count > 0))
+                       || ((a.RouteInventoryManifest != null) && (a.RouteInventoryManifest.Count > 0)));
+        }
+
+        /// <summary>
+        /// True when a free-standing route action's <c>UT</c> falls inside the
+        /// INCLUSIVE window <c>[<paramref name="minUT"/>, <paramref name="maxUT"/>]</c>.
+        /// Inclusive on both ends: a route row stamped exactly at a discarded
+        /// recording's start/end UT physically fired during that segment.
+        /// </summary>
+        internal static bool IsFreeStandingRouteActionInWindow(
+            GameAction a, double minUT, double maxUT)
+        {
+            return IsFreeStandingRouteAction(a) && a.UT >= minUT && a.UT <= maxUT;
+        }
+
+        /// <summary>
+        /// Returns a NEW list of the free-standing route actions from
+        /// <paramref name="source"/> whose <c>UT</c> lands inside the inclusive window
+        /// <c>[<paramref name="minUT"/>, <paramref name="maxUT"/>]</c>, preserving order.
+        ///
+        /// <para>Pure list-&gt;list (does not touch the static <c>Ledger</c>), so it is
+        /// unit-testable in isolation and ERS/ELS-clean (the allowlisted caller passes
+        /// the ledger action list in). A degenerate window where
+        /// <paramref name="minUT"/> &gt; <paramref name="maxUT"/> selects nothing.</para>
+        /// </summary>
+        internal static List<GameAction> SelectFreeStandingRouteActionsInWindow(
+            IReadOnlyList<GameAction> source, double minUT, double maxUT)
+        {
+            var selected = new List<GameAction>();
+            if (source == null || minUT > maxUT)
+                return selected;
+
+            for (int i = 0; i < source.Count; i++)
+            {
+                GameAction a = source[i];
+                if (IsFreeStandingRouteActionInWindow(a, minUT, maxUT))
+                    selected.Add(a);
+            }
+            return selected;
+        }
     }
 }
