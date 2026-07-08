@@ -93,9 +93,43 @@ namespace Parsek.Tests
         [Fact]
         public void IsSameBody_NonZeroPeriod_False()
         {
-            // A non-zero synodic period means inter-body -> out of v1 scope.
+            // A non-zero synodic period means inter-body, never same-body.
             Assert.False(RouteTrajectoryLineRenderer.IsSameBodyRoute(
                 5000.0, new List<string> { "Kerbin", "Kerbin" }));
+        }
+
+        // --- ClassifyRouteScope ---
+
+        [Fact]
+        public void Scope_PeriodZeroConsistentBodies_SameBody()
+        {
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteLineScope.SameBody,
+                RouteTrajectoryLineRenderer.ClassifyRouteScope(0.0, null));
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteLineScope.SameBody,
+                RouteTrajectoryLineRenderer.ClassifyRouteScope(
+                    0.0, new List<string> { "Kerbin", "Kerbin" }));
+        }
+
+        [Fact]
+        public void Scope_PeriodZeroMixedBodies_Malformed()
+        {
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteLineScope.MalformedMixedBodies,
+                RouteTrajectoryLineRenderer.ClassifyRouteScope(
+                    0.0, new List<string> { "Kerbin", "Mun" }));
+        }
+
+        [Fact]
+        public void Scope_NonZeroPeriod_InterBody_RegardlessOfBodies()
+        {
+            // An inter-body route's members are EXPECTED to span bodies; no consistency check.
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteLineScope.InterBody,
+                RouteTrajectoryLineRenderer.ClassifyRouteScope(
+                    5000.0, new List<string> { "Kerbin", "Duna" }));
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteLineScope.InterBody,
+                RouteTrajectoryLineRenderer.ClassifyRouteScope(
+                    5000.0, new List<string> { "Kerbin", "Kerbin" }));
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteLineScope.InterBody,
+                RouteTrajectoryLineRenderer.ClassifyRouteScope(5000.0, null));
         }
 
         // --- ClassifyRouteLineSkip ---
@@ -104,7 +138,8 @@ namespace Parsek.Tests
         public void Classify_NullRoute_NullRoute()
         {
             Assert.Equal(RouteTrajectoryLineRenderer.RouteLineSkipReason.NullRoute,
-                RouteTrajectoryLineRenderer.ClassifyRouteLineSkip(null, true, true, 1));
+                RouteTrajectoryLineRenderer.ClassifyRouteLineSkip(
+                    null, true, RouteTrajectoryLineRenderer.RouteLineScope.SameBody, 1));
         }
 
         [Fact]
@@ -112,15 +147,27 @@ namespace Parsek.Tests
         {
             var route = new Route { Id = "r1" };
             Assert.Equal(RouteTrajectoryLineRenderer.RouteLineSkipReason.Disabled,
-                RouteTrajectoryLineRenderer.ClassifyRouteLineSkip(route, false, true, 1));
+                RouteTrajectoryLineRenderer.ClassifyRouteLineSkip(
+                    route, false, RouteTrajectoryLineRenderer.RouteLineScope.SameBody, 1));
         }
 
         [Fact]
-        public void Classify_NotSameBody_NotSameBody()
+        public void Classify_MalformedMixedBodies_Skipped()
         {
             var route = new Route { Id = "r1" };
-            Assert.Equal(RouteTrajectoryLineRenderer.RouteLineSkipReason.NotSameBody,
-                RouteTrajectoryLineRenderer.ClassifyRouteLineSkip(route, true, false, 1));
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteLineSkipReason.MalformedMixedBodies,
+                RouteTrajectoryLineRenderer.ClassifyRouteLineSkip(
+                    route, true, RouteTrajectoryLineRenderer.RouteLineScope.MalformedMixedBodies, 1));
+        }
+
+        [Fact]
+        public void Classify_InterBodyWithMembers_None()
+        {
+            // Inter-body routes are drawable (endpoint-body legs) since the M6 follow-up.
+            var route = new Route { Id = "r1" };
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteLineSkipReason.None,
+                RouteTrajectoryLineRenderer.ClassifyRouteLineSkip(
+                    route, true, RouteTrajectoryLineRenderer.RouteLineScope.InterBody, 1));
         }
 
         [Fact]
@@ -128,7 +175,11 @@ namespace Parsek.Tests
         {
             var route = new Route { Id = "r1" };
             Assert.Equal(RouteTrajectoryLineRenderer.RouteLineSkipReason.NoBackingRecordings,
-                RouteTrajectoryLineRenderer.ClassifyRouteLineSkip(route, true, true, 0));
+                RouteTrajectoryLineRenderer.ClassifyRouteLineSkip(
+                    route, true, RouteTrajectoryLineRenderer.RouteLineScope.SameBody, 0));
+            Assert.Equal(RouteTrajectoryLineRenderer.RouteLineSkipReason.NoBackingRecordings,
+                RouteTrajectoryLineRenderer.ClassifyRouteLineSkip(
+                    route, true, RouteTrajectoryLineRenderer.RouteLineScope.InterBody, 0));
         }
 
         [Fact]
@@ -136,7 +187,8 @@ namespace Parsek.Tests
         {
             var route = new Route { Id = "r1" };
             Assert.Equal(RouteTrajectoryLineRenderer.RouteLineSkipReason.None,
-                RouteTrajectoryLineRenderer.ClassifyRouteLineSkip(route, true, true, 2));
+                RouteTrajectoryLineRenderer.ClassifyRouteLineSkip(
+                    route, true, RouteTrajectoryLineRenderer.RouteLineScope.SameBody, 2));
         }
 
         // --- LegWithinDockClip ---
@@ -178,7 +230,7 @@ namespace Parsek.Tests
             var route = new Route { Id = "r1", RecordingIds = { "rec-a" } };
 
             var groups = RouteTrajectoryLineRenderer.BuildRouteMemberLegs(
-                route, Resolver(rec), out int resolvable, out int totalLegs);
+                route, Resolver(rec), out int resolvable, out int totalLegs, out _);
 
             Assert.Single(groups);
             Assert.Equal("rec-a", groups[0].memberRecordingId);
@@ -196,7 +248,7 @@ namespace Parsek.Tests
             var route = new Route { Id = "r1", RecordingIds = { "rec-a", "rec-b" } };
 
             var groups = RouteTrajectoryLineRenderer.BuildRouteMemberLegs(
-                route, Resolver(a, b), out int resolvable, out int totalLegs);
+                route, Resolver(a, b), out int resolvable, out int totalLegs, out _);
 
             Assert.Equal(2, groups.Count);
             Assert.Equal(2, resolvable);
@@ -210,7 +262,7 @@ namespace Parsek.Tests
             var route = new Route { Id = "r1", RecordingIds = { "rec-a", "rec-missing" } };
 
             var groups = RouteTrajectoryLineRenderer.BuildRouteMemberLegs(
-                route, Resolver(a), out int resolvable, out int totalLegs);
+                route, Resolver(a), out int resolvable, out int totalLegs, out _);
 
             Assert.Single(groups);
             Assert.Equal("rec-a", groups[0].memberRecordingId);
@@ -225,7 +277,7 @@ namespace Parsek.Tests
             var route = new Route { Id = "r1", RecordingIds = { "rec-a", "rec-a" } };
 
             var groups = RouteTrajectoryLineRenderer.BuildRouteMemberLegs(
-                route, Resolver(a), out int resolvable, out int totalLegs);
+                route, Resolver(a), out int resolvable, out int totalLegs, out _);
 
             Assert.Single(groups);
             Assert.Equal(1, resolvable);
@@ -246,7 +298,7 @@ namespace Parsek.Tests
             };
 
             var groups = RouteTrajectoryLineRenderer.BuildRouteMemberLegs(
-                route, Resolver(a, b), out int resolvable, out int totalLegs);
+                route, Resolver(a, b), out int resolvable, out int totalLegs, out _);
 
             Assert.Single(groups);
             Assert.Equal("rec-a", groups[0].memberRecordingId);
@@ -259,10 +311,172 @@ namespace Parsek.Tests
         public void Build_NullRouteOrResolver_Empty()
         {
             Assert.Empty(RouteTrajectoryLineRenderer.BuildRouteMemberLegs(
-                null, Resolver(), out _, out _));
+                null, Resolver(), out _, out _, out _));
             var route = new Route { Id = "r1", RecordingIds = { "rec-a" } };
             Assert.Empty(RouteTrajectoryLineRenderer.BuildRouteMemberLegs(
-                route, null, out _, out _));
+                route, null, out _, out _, out _));
+        }
+
+        // --- Inter-body endpoint-body filter ---
+
+        [Fact]
+        public void Build_SameBodyRoute_MultiBodyLegsNotFiltered_ByteIdentity()
+        {
+            // A period-0 route is NEVER endpoint-filtered at build time, even when a member's legs
+            // span bodies (the malformed-mixed-bodies guard handles that at draw classification).
+            // Pins the shipped same-body build path byte-identical.
+            var rec = InterBodyRecording("rec-a", 100.0);
+            var route = new Route { Id = "r1", RecordingIds = { "rec-a" }, DispatchWindowPeriod = 0.0 };
+
+            var groups = RouteTrajectoryLineRenderer.BuildRouteMemberLegs(
+                route, Resolver(rec), out _, out int totalLegs, out int transferDropped);
+
+            Assert.Single(groups);
+            Assert.Equal(3, groups[0].legs.Length); // Kerbin + Sun + Duna legs all kept
+            Assert.Equal(3, totalLegs);
+            Assert.Equal(0, transferDropped);
+        }
+
+        [Fact]
+        public void Build_InterBodyRoute_DropsTransferFrameLeg_KeepsEndpointLegs()
+        {
+            // Kerbin ascent -> Sun mid-course burn -> Duna approach: the Sun leg is transfer-frame
+            // geometry the M5 re-aim replaces per window, so the static route line drops it and
+            // keeps the origin + destination legs.
+            var rec = InterBodyRecording("rec-a", 100.0);
+            var route = new Route
+            { Id = "r1", RecordingIds = { "rec-a" }, DispatchWindowPeriod = 5000.0 };
+
+            var groups = RouteTrajectoryLineRenderer.BuildRouteMemberLegs(
+                route, Resolver(rec), out _, out int totalLegs, out int transferDropped);
+
+            Assert.Single(groups);
+            Assert.Equal(2, groups[0].legs.Length);
+            Assert.Equal("Kerbin", groups[0].legs[0].bodyName);
+            Assert.Equal("Duna", groups[0].legs[1].bodyName);
+            Assert.Equal(2, totalLegs);
+            Assert.Equal(1, transferDropped);
+        }
+
+        [Fact]
+        public void Build_InterBodyRoute_EndpointsResolvedAcrossMembers()
+        {
+            // Chain: member 1 ends on a Sun transfer-frame burn, member 2 is the Duna arrival.
+            // Endpoint bodies resolve across ALL members (origin=Kerbin, dest=Duna), so member 1's
+            // trailing Sun leg is dropped even though it is that member's own last leg.
+            var m1 = new Recording { RecordingId = "rec-1", StartBodyName = "Kerbin" };
+            m1.Points.Add(MakePoint(100.0, 0.0, -74.0, 5000.0));
+            m1.Points.Add(MakePoint(150.0, 0.5, -74.0, 45000.0));
+            m1.Points.Add(MakePoint(400.0, 10.0, 20.0, 2.0e9, "Sun"));
+            m1.Points.Add(MakePoint(450.0, 10.5, 20.5, 2.0e9, "Sun"));
+            var m2 = new Recording { RecordingId = "rec-2", StartBodyName = "Duna" };
+            m2.Points.Add(MakePoint(900.0, 5.0, 30.0, 40000.0, "Duna"));
+            m2.Points.Add(MakePoint(950.0, 5.5, 30.0, 20000.0, "Duna"));
+            var route = new Route
+            { Id = "r1", RecordingIds = { "rec-1", "rec-2" }, DispatchWindowPeriod = 5000.0 };
+
+            var groups = RouteTrajectoryLineRenderer.BuildRouteMemberLegs(
+                route, Resolver(m1, m2), out _, out int totalLegs, out int transferDropped);
+
+            Assert.Equal(2, groups.Count);
+            Assert.Single(groups[0].legs);
+            Assert.Equal("Kerbin", groups[0].legs[0].bodyName);
+            Assert.Single(groups[1].legs);
+            Assert.Equal("Duna", groups[1].legs[0].bodyName);
+            Assert.Equal(2, totalLegs);
+            Assert.Equal(1, transferDropped);
+        }
+
+        [Fact]
+        public void Build_InterBodyRoute_MemberLeftEmptyByFilter_Removed()
+        {
+            // A member contributing ONLY transfer-frame legs is dropped entirely.
+            var m1 = new Recording { RecordingId = "rec-1", StartBodyName = "Kerbin" };
+            m1.Points.Add(MakePoint(100.0, 0.0, -74.0, 5000.0));
+            m1.Points.Add(MakePoint(150.0, 0.5, -74.0, 45000.0));
+            var mid = new Recording { RecordingId = "rec-mid", StartBodyName = "Sun" };
+            mid.Points.Add(MakePoint(400.0, 10.0, 20.0, 2.0e9, "Sun"));
+            mid.Points.Add(MakePoint(450.0, 10.5, 20.5, 2.0e9, "Sun"));
+            var m2 = new Recording { RecordingId = "rec-2", StartBodyName = "Duna" };
+            m2.Points.Add(MakePoint(900.0, 5.0, 30.0, 40000.0, "Duna"));
+            m2.Points.Add(MakePoint(950.0, 5.5, 30.0, 20000.0, "Duna"));
+            var route = new Route
+            {
+                Id = "r1",
+                RecordingIds = { "rec-1", "rec-mid", "rec-2" },
+                DispatchWindowPeriod = 5000.0,
+            };
+
+            var groups = RouteTrajectoryLineRenderer.BuildRouteMemberLegs(
+                route, Resolver(m1, mid, m2), out int resolvable, out int totalLegs,
+                out int transferDropped);
+
+            Assert.Equal(3, resolvable);
+            Assert.Equal(2, groups.Count);
+            Assert.DoesNotContain(groups, g => g.memberRecordingId == "rec-mid");
+            Assert.Equal(2, totalLegs);
+            Assert.Equal(1, transferDropped);
+        }
+
+        [Fact]
+        public void Build_InterBodyRoute_DockClipStillApplies()
+        {
+            // The dock clip runs before the endpoint filter: a Duna leg starting at/after the dock
+            // UT is dropped by the clip, exactly as for same-body routes.
+            var rec = InterBodyRecording("rec-a", 100.0);
+            var route = new Route
+            {
+                Id = "r1",
+                RecordingIds = { "rec-a" },
+                DispatchWindowPeriod = 5000.0,
+                // Dock before the Duna leg's start (InterBodyRecording puts Duna at +800..+900).
+                RecordedDockUT = 100.0 + 700.0,
+            };
+
+            var groups = RouteTrajectoryLineRenderer.BuildRouteMemberLegs(
+                route, Resolver(rec), out _, out int totalLegs, out int transferDropped);
+
+            // Clip leaves Kerbin + Sun; endpoints resolve to Kerbin (origin) + Sun (latest) and
+            // nothing is between them, so both survive (documented degenerate heuristic).
+            Assert.Single(groups);
+            Assert.Equal(2, totalLegs);
+            Assert.Equal(0, transferDropped);
+            Assert.DoesNotContain(groups[0].legs, l => l.bodyName == "Duna");
+        }
+
+        [Fact]
+        public void Build_InterBodyRoundTrip_OriginEqualsDestination_FilterStandsDown()
+        {
+            // Kerbin -> Sun -> Duna -> Kerbin with no dock clip: endpoints resolve to the SAME
+            // body, and filtering on that pair would drop the entire far-body (Duna) arc — the
+            // geometry the route exists to show. The filter stands down and keeps everything.
+            var rec = new Recording { RecordingId = "rec-a", StartBodyName = "Kerbin" };
+            rec.Points.Add(MakePoint(100.0, 0.0, -74.0, 5000.0));
+            rec.Points.Add(MakePoint(150.0, 0.5, -74.0, 45000.0));
+            rec.Points.Add(MakePoint(400.0, 10.0, 20.0, 2.0e9, "Sun"));
+            rec.Points.Add(MakePoint(450.0, 10.5, 20.5, 2.0e9, "Sun"));
+            rec.Points.Add(MakePoint(800.0, 5.0, 30.0, 40000.0, "Duna"));
+            rec.Points.Add(MakePoint(900.0, 5.5, 30.0, 20000.0, "Duna"));
+            rec.Points.Add(MakePoint(1200.0, 1.0, -70.0, 30000.0));
+            rec.Points.Add(MakePoint(1300.0, 1.5, -70.0, 5000.0));
+            var route = new Route
+            { Id = "r1", RecordingIds = { "rec-a" }, DispatchWindowPeriod = 5000.0 };
+
+            var groups = RouteTrajectoryLineRenderer.BuildRouteMemberLegs(
+                route, Resolver(rec), out _, out int totalLegs, out int transferDropped);
+
+            Assert.Single(groups);
+            Assert.Equal(4, groups[0].legs.Length); // Kerbin + Sun + Duna + Kerbin, all kept
+            Assert.Equal(4, totalLegs);
+            Assert.Equal(0, transferDropped);
+        }
+
+        [Fact]
+        public void ResolveEndpointBodies_NoLegs_False()
+        {
+            Assert.False(RouteTrajectoryLineRenderer.ResolveEndpointBodies(
+                new List<RouteTrajectoryLineRenderer.RouteMemberLegs>(), out _, out _));
+            Assert.False(RouteTrajectoryLineRenderer.ResolveEndpointBodies(null, out _, out _));
         }
 
         // --- ComputeRouteSignature ---
@@ -330,6 +544,52 @@ namespace Parsek.Tests
             Assert.NotEqual(before, after);
         }
 
+        [Fact]
+        public void Signature_InterBody_ChangesOnScheduleChange()
+        {
+            // Window/schedule changes must rebuild an inter-body route's line.
+            var rec = FlatRecording("rec-a", 100.0, 200.0);
+            var route = new Route
+            {
+                Id = "r1", RecordingIds = { "rec-a" },
+                DispatchWindowPeriod = 5000.0, DispatchWindowEpochUT = 1000.0, CadenceMultiplier = 1,
+            };
+            long baseline = RouteTrajectoryLineRenderer.ComputeRouteSignature(route, Resolver(rec));
+
+            route.DispatchWindowPeriod = 6000.0;
+            long periodChanged = RouteTrajectoryLineRenderer.ComputeRouteSignature(route, Resolver(rec));
+            route.DispatchWindowPeriod = 5000.0;
+            route.DispatchWindowEpochUT = 2000.0;
+            long epochChanged = RouteTrajectoryLineRenderer.ComputeRouteSignature(route, Resolver(rec));
+            route.DispatchWindowEpochUT = 1000.0;
+            route.CadenceMultiplier = 3;
+            long cadenceChanged = RouteTrajectoryLineRenderer.ComputeRouteSignature(route, Resolver(rec));
+
+            Assert.NotEqual(baseline, periodChanged);
+            Assert.NotEqual(baseline, epochChanged);
+            Assert.NotEqual(baseline, cadenceChanged);
+        }
+
+        [Fact]
+        public void Signature_SameBody_IgnoresScheduleFields_ByteIdentity()
+        {
+            // A same-body route (period 0) folds NO schedule fields — its signature computation is
+            // byte-identical to the shipped v1 regardless of epoch / cadence values.
+            var rec = FlatRecording("rec-a", 100.0, 200.0);
+            var route = new Route
+            {
+                Id = "r1", RecordingIds = { "rec-a" },
+                DispatchWindowPeriod = 0.0, DispatchWindowEpochUT = 1000.0, CadenceMultiplier = 1,
+            };
+            long before = RouteTrajectoryLineRenderer.ComputeRouteSignature(route, Resolver(rec));
+
+            route.DispatchWindowEpochUT = 9999.0;
+            route.CadenceMultiplier = 5;
+            long after = RouteTrajectoryLineRenderer.ComputeRouteSignature(route, Resolver(rec));
+
+            Assert.Equal(before, after);
+        }
+
         // --- Cache lifecycle (headless: legs carry null VectorLines) ---
 
         [Fact]
@@ -364,6 +624,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Refresh_InterBodyScheduleChange_Rebuilds()
+        {
+            var rec = InterBodyRecording("rec-a", 100.0);
+            var route = new Route
+            {
+                Id = "r1", RecordingIds = { "rec-a" },
+                DispatchWindowPeriod = 5000.0, DispatchWindowEpochUT = 1000.0,
+            };
+
+            RouteTrajectoryLineRenderer.RefreshForRouteForTesting(route, Resolver(rec));
+            int buildsBefore = RouteTrajectoryLineRenderer.BuildInvocationCountForTesting;
+
+            route.DispatchWindowEpochUT = 2000.0;
+            RouteTrajectoryLineRenderer.RefreshForRouteForTesting(route, Resolver(rec));
+
+            Assert.True(RouteTrajectoryLineRenderer.BuildInvocationCountForTesting > buildsBefore);
+        }
+
+        [Fact]
         public void ReleaseForRoute_DropsCacheEntry()
         {
             var rec = FlatRecording("rec-a", 100.0, 200.0);
@@ -384,6 +663,23 @@ namespace Parsek.Tests
             foreach (var r in recs)
                 map[r.RecordingId] = r;
             return id => map.TryGetValue(id, out var rec) ? rec : null;
+        }
+
+        /// <summary>
+        /// An inter-body run shape: Kerbin ascent leg [t0, t0+100], Sun transfer-frame burn leg
+        /// [t0+400, t0+500], Duna approach leg [t0+800, t0+900]. Legs split on the body change, so
+        /// <c>BuildLegsForRecording</c> yields exactly three legs.
+        /// </summary>
+        private static Recording InterBodyRecording(string id, double t0)
+        {
+            var rec = new Recording { RecordingId = id, StartBodyName = "Kerbin" };
+            rec.Points.Add(MakePoint(t0, -0.1, -74.5, 70.0));
+            rec.Points.Add(MakePoint(t0 + 100.0, 0.5, -74.0, 45000.0));
+            rec.Points.Add(MakePoint(t0 + 400.0, 10.0, 20.0, 2.0e9, "Sun"));
+            rec.Points.Add(MakePoint(t0 + 500.0, 10.5, 20.5, 2.0e9, "Sun"));
+            rec.Points.Add(MakePoint(t0 + 800.0, 5.0, 30.0, 40000.0, "Duna"));
+            rec.Points.Add(MakePoint(t0 + 900.0, 5.5, 30.0, 20000.0, "Duna"));
+            return rec;
         }
 
         private static Recording FlatRecording(string id, double startUT, double endUT)
