@@ -25,6 +25,7 @@ All notable changes to Parsek are documented here.
 
 ### Internals & Tests
 
+- Added an automated in-game merge gate (`JoolConfigHoldInGameTest`) for the M-MIS-6 multi-moon configuration hold: it drives the real arrival-hold planner against the LIVE stock Jool body graph, asserting the resonant inner three (Laythe/Vall/Tylo) engage the T_config hold with every moon encounter aligned within its live SOI tolerance, and that adding incommensurate Bop fails the set closed to faithful with an amber - the live-body proof headless fixtures cannot give. Replaces the manual looped-Jool-tour playtest as the merge gate.
 - Loop-unit API hardening on the Missions-to-Logistics seam, with no behavior change: supply routes now cache their built loop unit (rebuilt only when an input actually changes, instead of re-running the full builder pipeline every orchestrator tick and countdown call), the fire-once dock-crossing detection is centralized in one shared emitter, and the loop cycle index carries an explicit flat-vs-scheduled type so consumers cannot misread one as the other. Route firing, replay keys, escrow, and ledger rows are unchanged.
 
 ### Internals & Tests
