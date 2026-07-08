@@ -813,8 +813,10 @@ namespace Parsek
                         if (arrivalHold.Applied && !SuppressLogging)
                         {
                             var aic = CultureInfo.InvariantCulture;
-                            string kind = arrivalHold.IsJointHold
-                                ? "joint" : (arrivalHold.IsStationHold ? "station" : "rotation");
+                            string kind = arrivalHold.IsConfigHold
+                                ? "config"
+                                : arrivalHold.IsJointHold
+                                    ? "joint" : (arrivalHold.IsStationHold ? "station" : "rotation");
                             ParsekLog.Info("Reaim",
                                 $"MissionLoopUnit: mission='{mission.Name}' ARRIVAL HOLD dest={plan.TargetBody} " +
                                 $"kind={kind} " +
@@ -829,10 +831,15 @@ namespace Parsek
                                       $"k={arrivalHold.JointChosenWindowK.ToString(aic)} " +
                                       $"residual={arrivalHold.JointResidualSeconds.ToString("F1", aic)}s "
                                     : "") +
+                                (arrivalHold.IsConfigHold
+                                    ? $"moons={arrivalHold.ConfigMoonCount.ToString(aic)} " +
+                                      $"alignedWindows={arrivalHold.ConfigAlignedWindowHorizon.ToString(aic)} " +
+                                      $"window1Residual={arrivalHold.ConfigFirstWindowResidualSeconds.ToString("F1", aic)}s "
+                                    : "") +
                                 $"hold={arrivalHold.HoldSeconds.ToString("R", aic)}s at " +
                                 $"recordedArrivalUT={plan.RecordedArrivalUT.ToString("R", aic)} " +
-                                $"(aligns the {(arrivalHold.IsJointHold ? "station orbital + landing rotation" : arrivalHold.IsStationHold ? "station orbital" : "deorbit rotation")} " +
-                                $"phase{(arrivalHold.IsJointHold ? "s" : "")}, mode={transitedBodyRotationMode})");
+                                $"(aligns the {(arrivalHold.IsConfigHold ? "multi-moon configuration" : arrivalHold.IsJointHold ? "station orbital + landing rotation" : arrivalHold.IsStationHold ? "station orbital" : "deorbit rotation")} " +
+                                $"phase{(arrivalHold.IsJointHold || arrivalHold.IsConfigHold ? "s" : "")}, mode={transitedBodyRotationMode})");
                         }
                     }
 

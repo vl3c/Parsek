@@ -25,11 +25,14 @@ namespace Parsek.Reaim
     // closed; any other VesselOrbital (launch-side depot) is skipped. The target's OWN Orbital
     // constraint (its heliocentric SOI-entry) is EXCLUDED: arrival alignment does not care WHERE the
     // ghost crosses the destination SOI edge, only the destination configuration at entry / landing.
-    // Fail-closed-to-faithful shapes: 2+ constrained moons (Jool-class, plan section 8b), and the
-    // still-deferred design-D8 duals (station+moon, a moon-orbiting station). The landing+station
-    // dual (D8 shape a) is Supported since the post-M4c SolveArrivalWindow wiring: it is flagged
-    // IsJointLandingStation and the hold-aware joint arrival solve decides engage-vs-amber in
-    // ArrivalHoldPlanner.
+    // Fail-closed-to-faithful shapes: the still-deferred design-D8 duals (station+moon, a
+    // moon-orbiting station) - which since M-MIS-6 also own the station-bearing Jool-class shape.
+    // The landing+station dual (D8 shape a) is Supported since the post-M4c SolveArrivalWindow
+    // wiring: it is flagged IsJointLandingStation and the hold-aware joint arrival solve decides
+    // engage-vs-amber in ArrivalHoldPlanner. The 2+-moon Jool-class shape is Supported since
+    // M-MIS-6 (docs/dev/design-mission-multimoon-alignment.md D7): all MoonConfigs are emitted
+    // (plus the constrained moons' landing rotations in MoonRotations) and the multi-moon
+    // configuration hold decides engage-vs-amber downstream in ArrivalHoldPlanner.
     internal static class DestinationConstraintExtractor
     {
         /// <summary>
@@ -38,16 +41,19 @@ namespace Parsek.Reaim
         /// </summary>
         internal struct DestinationConstraintSet
         {
-            /// <summary>DestRotation (the landing body's rotation) + 0/1 MoonConfig, in solver order.</summary>
+            /// <summary>DestRotation (the landing body's rotation) + 0..N MoonConfigs, in solver
+            /// order (0/1 for the shipped single-moon shapes; 2+ for the M-MIS-6 multi-moon
+            /// configuration shape).</summary>
             public List<PhaseConstraint> Constraints;
 
-            /// <summary>False => fail closed to faithful (the un-aligned render) - a Jool-class
-            /// destination with more constrained moons than this phase supports, or a still-deferred
-            /// M4c station-bearing dual shape (station+moon, a moon-orbiting station). The
-            /// landing+station dual (D8 shape a) is no longer refused here: it stays Supported with
-            /// <see cref="IsJointLandingStation"/> set and the JOINT arrival solve
-            /// (DestinationArrivalSolver.SolveArrivalWindow, hold-aware) decides engage-vs-amber
-            /// downstream in ArrivalHoldPlanner.</summary>
+            /// <summary>False => fail closed to faithful (the un-aligned render) - a still-deferred
+            /// M4c station-bearing dual shape (station+moon incl. the station-bearing Jool-class, a
+            /// moon-orbiting station). The landing+station dual (D8 shape a) is no longer refused
+            /// here: it stays Supported with <see cref="IsJointLandingStation"/> set and the JOINT
+            /// arrival solve (DestinationArrivalSolver.SolveArrivalWindow, hold-aware) decides
+            /// engage-vs-amber downstream in ArrivalHoldPlanner. The no-station 2+-moon Jool-class
+            /// shape is likewise Supported since M-MIS-6; the multi-moon configuration hold
+            /// (ArrivalHoldPlanner.ComputeMultiMoonConfigHold) decides engage-vs-amber.</summary>
             public bool Supported;
 
             /// <summary>Why unsupported (set only when <see cref="Supported"/> is false).</summary>
@@ -92,11 +98,16 @@ namespace Parsek.Reaim
             /// DestinationArrivalSolver. The other station-bearing duals (station+moon, a
             /// moon-orbiting station, station-bearing Jool-class) stay fail-closed with a reason.</summary>
             public bool IsJointLandingStation;
-        }
 
-        // The most constrained moons this phase handles (0 or 1). 2+ (a Jool-class mini star system)
-        // collapses the aligned-window rate toward the centuries-away regime and is deferred.
-        internal const int MaxConstrainedMoons = 1;
+            /// <summary>M-MIS-6: landing-rotation constraints on the CONSTRAINED moons (a Rotation
+            /// whose body is one of the MoonConfig moons - a moon landing in the tour). Kept OUT of
+            /// <see cref="Constraints"/> so every 0/1-moon consumer stays byte-identical; the
+            /// multi-moon configuration hold folds them into its joint recurrence scan (design D3:
+            /// a tidally locked moon's rotation equals its orbital period and collapses for free; a
+            /// non-locked one is another period the scan honestly declines when incommensurate).
+            /// Never null.</summary>
+            public List<PhaseConstraint> MoonRotations;
+        }
 
         /// <summary>
         /// Select the destination constraint set for a cross-parent re-aim arrival from the mission's
@@ -120,7 +131,8 @@ namespace Parsek.Reaim
                 StationPeriodSeconds = double.NaN,
                 StationAnchorPid = 0,
                 StationConstraint = null,
-                IsJointLandingStation = false
+                IsJointLandingStation = false,
+                MoonRotations = new List<PhaseConstraint>()
             };
 
             DestinationConstraintCollection collected =
@@ -146,6 +158,10 @@ namespace Parsek.Reaim
             int nonDestStations = 0;               // launch-side / other-system stations (skipped)
             var moonConfigs = new List<PhaseConstraint>();
             var seenMoons = new HashSet<string>();
+            // Rotation constraints on moons of the target (a moon landing in the tour), gathered as
+            // CANDIDATES here (a moon's Rotation may precede its Orbital in the list) and filtered
+            // to the CONSTRAINED moons at assemble time. M-MIS-6 (design D3).
+            var moonRotationCandidates = new List<PhaseConstraint>();
 
             int n = allConstraints?.Count ?? 0;
             for (int i = 0; i < n; i++)
@@ -193,9 +209,19 @@ namespace Parsek.Reaim
                 if (c.Kind == ConstraintKind.Rotation)
                 {
                     // DestRotation = the landing body's rotation = the TARGET body's rotation. The
-                    // launch-pad rotation and any other body's rotation are not arrival constraints.
-                    if (c.BodyName == targetBody && destRotation == null)
-                        destRotation = c;
+                    // launch-pad rotation and any other non-destination body's rotation are not
+                    // arrival constraints. A rotation on a MOON of the target (a moon landing in a
+                    // multi-moon tour) is a candidate for MoonRotations (M-MIS-6, design D3).
+                    if (c.BodyName == targetBody)
+                    {
+                        if (destRotation == null)
+                            destRotation = c;
+                    }
+                    else if (bodyInfo?.ReferenceBodyName(c.BodyName) == targetBody
+                        && !string.IsNullOrEmpty(targetBody))
+                    {
+                        moonRotationCandidates.Add(c);
+                    }
                     continue;
                 }
 
@@ -215,6 +241,7 @@ namespace Parsek.Reaim
                 MoonStationReason = moonStationReason,
                 NonDestStations = nonDestStations,
                 MoonConfigs = moonConfigs,
+                MoonRotationCandidates = moonRotationCandidates,
             };
         }
 
@@ -243,19 +270,31 @@ namespace Parsek.Reaim
             result.StationPeriodSeconds = station?.PeriodSeconds ?? double.NaN;
             result.StationAnchorPid = station?.AnchorVesselPid ?? 0;
             result.StationConstraint = station;
-
-            if (moonConfigs.Count > MaxConstrainedMoons)
+            // Rotations on CONSTRAINED moons only (a Rotation on a never-SOI-entered moon has no
+            // encounter to align). M-MIS-6 (design D3/D7): populated for every shape (new field,
+            // no 0/1-moon consumer reads it, so those shapes stay byte-identical); consumed by the
+            // multi-moon configuration hold's joint recurrence scan.
+            if (collected.MoonRotationCandidates != null)
             {
-                // Jool-class many-moon destination: detect and fail closed to faithful rather than
-                // attempt a joint solve whose duty-cycle product pushes the aligned window centuries out.
-                result.Supported = false;
-                result.Reason =
-                    moonConfigs.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                    + " constrained moons of '" + (targetBody ?? "?") + "' (Jool-class), deferred";
-                result.Constraints.Clear();
-                LogExtract(targetBody, result, nonDestStations);
-                return result;
+                for (int i = 0; i < collected.MoonRotationCandidates.Count; i++)
+                {
+                    PhaseConstraint mr = collected.MoonRotationCandidates[i];
+                    for (int j = 0; j < moonConfigs.Count; j++)
+                    {
+                        if (moonConfigs[j].BodyName == mr.BodyName)
+                        {
+                            result.MoonRotations.Add(mr);
+                            break;
+                        }
+                    }
+                }
             }
+
+            // The pre-M-MIS-6 2+-moon (Jool-class) early reject is GONE: the no-station multi-moon
+            // shape stays Supported with all MoonConfigs emitted and the multi-moon configuration
+            // hold (ArrivalHoldPlanner.ComputeMultiMoonConfigHold) decides engage-vs-amber
+            // downstream. Station-bearing multi-moon shapes fall through to the station+moon /
+            // moon-station rejects below (which now own the station-bearing Jool-class reason).
 
             // M4c fail-closed shapes (design D8 + the moon-station extension), REVISED by the
             // post-M4c SolveArrivalWindow wiring: the landing+station dual (D8 shape a) is now a
@@ -315,6 +354,7 @@ namespace Parsek.Reaim
             public string MoonStationReason;
             public int NonDestStations;
             public List<PhaseConstraint> MoonConfigs;
+            public List<PhaseConstraint> MoonRotationCandidates;
         }
 
         private static void LogExtract(string targetBody, DestinationConstraintSet r, int nonDestStations)
@@ -337,6 +377,7 @@ namespace Parsek.Reaim
                     : "none") +
                 " nonDestStations=" + nonDestStations.ToString(ic) +
                 " emitted=" + r.Constraints.Count +
+                " moonRotations=" + (r.MoonRotations?.Count ?? 0).ToString(ic) +
                 " supported=" + r.Supported +
                 " jointLandingStation=" + r.IsJointLandingStation +
                 (r.Supported ? "" : " reason='" + r.Reason + "'"));
