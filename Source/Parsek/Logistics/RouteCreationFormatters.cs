@@ -195,9 +195,14 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// Detail-carrying overload (M2, plan finding 12): when
-        /// <paramref name="detail"/> is non-empty it quantifies the rejection
-        /// (today only <see cref="RouteAnalysisStatus.UntrackedCargoGain"/>
-        /// carries one, e.g. <c>"Ore: 120.0 gained, 100.0 harvested"</c>).
+        /// <paramref name="detail"/> is non-empty it quantifies the rejection.
+        /// Three statuses carry one today:
+        /// <see cref="RouteAnalysisStatus.UntrackedCargoGain"/> (e.g.
+        /// <c>"Ore: 120.0 gained, 100.0 harvested"</c>),
+        /// <see cref="RouteAnalysisStatus.FlowDoesNotClose"/> (e.g.
+        /// <c>"Ore: 30.0 over-delivered"</c>), and
+        /// <see cref="RouteAnalysisStatus.MidRecordingStartTrimUnsupported"/>
+        /// (e.g. <c>"docked origin recorded at UT 100"</c>, M-MIS-5 P2a).
         /// Statuses without a detail render identically to the single-arg
         /// overload.
         /// </summary>
@@ -228,7 +233,11 @@ namespace Parsek.Logistics
                         + (string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")")
                         + ". The recorded loads, harvest, and deliveries cannot account for what was left aboard. Re-record so every resource that leaves the transport is matched by a recorded load, harvest, or delivery.";
                 case RouteAnalysisStatus.MidRecordingStartTrimUnsupported:
-                    return "This run starts between two docks. Routes must begin at launch or while docked to the origin; mid-flight start points are not supported yet.";
+                    // M-MIS-5 P2a: emitted by a real detector now; the detail
+                    // names the recognized docked-origin moment.
+                    return "This run starts between two docks: an earlier docked stretch"
+                        + (string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")")
+                        + " was recorded before the cargo run, but starting a route mid-recording at that dock is not supported yet. Until start-trimming ships, start the supply run docked at the origin depot, or launch it from KSC.";
                 default:
                     return "Route source is not eligible (" + status + ").";
             }

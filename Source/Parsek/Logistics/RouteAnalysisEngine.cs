@@ -45,24 +45,22 @@ namespace Parsek.Logistics
         /// </summary>
         FlowDoesNotClose = 8,
         /// <summary>
-        /// M4a documented-limitation rejection (plan D9): an undock -> undock
-        /// shuttle whose route BEGINS between two docks - i.e. inside a pre-dock
-        /// recording - cannot be START-trimmed because a dock MID-recording is
-        /// not a selectable interval boundary in the locked Missions layer
-        /// (composition renders a contiguous <c>[min-start, max-end]</c> window
-        /// per vessel; Missions gap 1). The eventual lift is M-MIS-5.
-        /// <para>
-        /// RESERVED documented-limitation reason: this is the player-facing
-        /// SURFACE text, not (yet) emitted by an analysis detector. In M4a most
-        /// such runs already reject as <see cref="UndockedStartOrigin"/> (they
-        /// start undocked with cargo aboard, no KSC launch / docked-origin
-        /// proof), and the "begins mid-recording between two docks" shape is NOT
-        /// cleanly distinguishable from the general undocked-start case without
-        /// the Missions-side dock-as-interval-boundary detection (M-MIS-5,
-        /// locked). Per plan D9 we add the surfaced reason + formatter text now
-        /// and do not force a fragile detector. Append-only value; parses
-        /// forward-compatibly.
-        /// </para>
+        /// Documented-limitation rejection (M4a plan D9, detector wired by
+        /// M-MIS-5 P2a): an undock -> undock shuttle whose route BEGINS between
+        /// two docks - i.e. a docked origin window precedes the run start
+        /// MID-tree - cannot be START-trimmed yet (the start-side selection
+        /// lift is M-MIS-5 P2b). Emitted at BOTH undocked-start reject sites
+        /// (the non-harvest gate and the harvest-refined gate, verdict C6) by
+        /// <see cref="RouteAnalysisEngine.ClassifyStartTrimShuttle"/> when the
+        /// undocked-start family is recognizably shuttle-shaped: either an
+        /// EARLIER completed connection window (the witnessed dock boundary)
+        /// precedes the run's last transfer, or a mid-tree source-path leg
+        /// carries a <see cref="RouteOriginProof"/> (its recording session
+        /// started docked at a depot) before the run's first witnessed dock.
+        /// <see cref="RouteAnalysisResult.RejectDetail"/> names the recognized
+        /// origin dock UT. Every other undocked-start run keeps rejecting
+        /// <see cref="UndockedStartOrigin"/>. A reject stays a reject: no
+        /// admission widening. Append-only value; parses forward-compatibly.
         /// </summary>
         MidRecordingStartTrimUnsupported = 9
     }
@@ -202,6 +200,22 @@ namespace Parsek.Logistics
     }
 
     /// <summary>
+    /// Result of <see cref="RouteAnalysisEngine.ClassifyStartTrimShuttle"/>
+    /// (M-MIS-5 P2a). <see cref="IsShuttleFamily"/> is true when an
+    /// undocked-start run is recognizably the shuttle shape (a docked origin
+    /// window preceding the run start, mid-tree);
+    /// <see cref="OriginDockUT"/> names the recognized docked-origin moment and
+    /// <see cref="Signal"/> the recognizer that fired
+    /// (<c>preceding-window</c> or <c>mid-tree-origin-proof</c>).
+    /// </summary>
+    internal sealed class StartTrimShuttleDetection
+    {
+        public bool IsShuttleFamily;
+        public double OriginDockUT = double.NaN;
+        public string Signal;
+    }
+
+    /// <summary>
     /// Result of <see cref="RouteAnalysisEngine.ComputeFlowClosure"/> (M3, plan
     /// D3). The full-run cargo balance per resource:
     /// <c>consumed := launched + Sum(loaded) + Sum(harvested) - Sum(delivered) - residual</c>.
@@ -296,7 +310,7 @@ namespace Parsek.Logistics
                 originRec = rootRec;
             }
 
-            return AnalyzeWindows(ordered, originRec, tree, logMode);
+            return AnalyzeWindows(ordered, originRec, tree, sourcePathIds, logMode);
         }
 
         /// <summary>
@@ -427,8 +441,9 @@ namespace Parsek.Logistics
             // Single-recording analysis: the recording IS the origin recording.
             // No tree: the M2 gain check engages only when the recording is its
             // own complete lineage (no parent links), else it degrades to the
-            // legacy path.
-            return AnalyzeWindows(ordered, recording, null, logMode);
+            // legacy path. No source path either - the mid-tree origin-proof
+            // shuttle signal cannot exist on a single recording.
+            return AnalyzeWindows(ordered, recording, null, null, logMode);
         }
 
         /// <summary>
@@ -468,6 +483,7 @@ namespace Parsek.Logistics
             List<WindowOnRecording> ordered,
             Recording originRec,
             RecordingTree tree,
+            HashSet<string> sourcePathIds,
             RouteAnalysisLogMode logMode)
         {
             // --- Per-window build + endpoint-proof (matches pre-M4 steps 1-2) ---
@@ -537,6 +553,21 @@ namespace Parsek.Logistics
             // manifest-level direction gates. Deferred on the harvest-data path.
             if (!harvestEngaged && IsUndockedStartOrigin(originRec))
             {
+                // M-MIS-5 P2a (verdict C6, site 1 of 2): the recognizable
+                // shuttle shape gets its own honest status instead of the
+                // generic undocked-start reject. A reject stays a reject.
+                StartTrimShuttleDetection shuttle =
+                    DetectStartTrimShuttleAtGate(built, tree, sourcePathIds, originRec);
+                if (shuttle.IsShuttleFamily)
+                {
+                    Diag(logMode,
+                        $"RouteAnalysis rejected: mid-recording start-trim unsupported (shuttle family) " +
+                        $"originRec={originRec?.RecordingId ?? "<none>"} signal={shuttle.Signal} " +
+                        $"originDockUT={shuttle.OriginDockUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"windows={built.Count}");
+                    return BuildStartTrimShuttleReject(shuttle, anchor);
+                }
+
                 Diag(logMode,
                     $"RouteAnalysis rejected: undocked-start origin originRec={originRec?.RecordingId ?? "<none>"} " +
                     $"launchSite={(string.IsNullOrEmpty(originRec?.LaunchSiteName) ? "<none>" : originRec.LaunchSiteName)} " +
@@ -701,6 +732,27 @@ namespace Parsek.Logistics
 
                 if (undockedRejectReason != null)
                 {
+                    // M-MIS-5 P2a (verdict C6, site 2 of 2): same shuttle
+                    // classification on the harvest-refined reject - a depot
+                    // pickup covering the delivery is a LOAD, not a harvest, so
+                    // the recorded shuttle lands exactly here. The status-9
+                    // result mirrors the status-6 result's harvest fields.
+                    StartTrimShuttleDetection shuttle =
+                        DetectStartTrimShuttleAtGate(built, tree, sourcePathIds, originRec);
+                    if (shuttle.IsShuttleFamily)
+                    {
+                        Diag(logMode,
+                            $"RouteAnalysis rejected: mid-recording start-trim unsupported (shuttle family, harvest-refined) " +
+                            $"originRec={originRec?.RecordingId ?? "<none>"} signal={shuttle.Signal} " +
+                            $"originDockUT={shuttle.OriginDockUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                            $"windows={built.Count} reason={undockedRejectReason}");
+                        RouteAnalysisResult shuttleReject =
+                            BuildStartTrimShuttleReject(shuttle, anchor);
+                        shuttleReject.HarvestedManifest = gainCheck.HarvestedManifest;
+                        shuttleReject.FirstHarvestWindow = gainCheck.FirstHarvestWindow;
+                        return shuttleReject;
+                    }
+
                     Diag(logMode,
                         $"RouteAnalysis rejected: undocked-start origin (harvest-refined) " +
                         $"originRec={originRec?.RecordingId ?? "<none>"} reason={undockedRejectReason}");
@@ -861,6 +913,178 @@ namespace Parsek.Logistics
         internal static bool IsUndockedStartOrigin(Recording originRec)
         {
             return !IsKscOriginRecording(originRec) && !HasDockedOriginProof(originRec);
+        }
+
+        /// <summary>
+        /// M-MIS-5 P2a shuttle-family classifier (plan D5 / verdict C6). Pure:
+        /// called only AFTER <see cref="IsUndockedStartOrigin"/> established the
+        /// generic undocked-start reject, it decides whether the run is the
+        /// RECOGNIZABLE shuttle shape - a docked origin window preceding the run
+        /// start, mid-tree - so the reject can carry the specific
+        /// <see cref="RouteAnalysisStatus.MidRecordingStartTrimUnsupported"/>
+        /// status instead of the generic
+        /// <see cref="RouteAnalysisStatus.UndockedStartOrigin"/>. Two signals,
+        /// checked in order:
+        /// <para>
+        /// 1. <c>preceding-window</c> (the dock boundary): with 2+ completed
+        /// windows in DockUT order, the FIRST window is an earlier witnessed
+        /// docked stretch that fully precedes the run's LAST transfer
+        /// (<c>first.UndockUT &lt;= last.DockUT</c>) - the undock -> undock
+        /// profile whose depot visit was recorded in-run.
+        /// </para>
+        /// <para>
+        /// 2. <c>mid-tree-origin-proof</c>: a NON-origin source-path leg whose
+        /// recording session started docked at a depot (it carries a
+        /// <see cref="RouteOriginProof"/>) strictly BEFORE the run's first
+        /// witnessed dock - the segment-birth variant of the same shape.
+        /// </para>
+        /// Anything else stays the generic undocked-start family (fail closed
+        /// to status 6; a reject stays a reject either way).
+        /// </summary>
+        internal static StartTrimShuttleDetection ClassifyStartTrimShuttle(
+            IReadOnlyList<RouteConnectionWindow> orderedWindows,
+            IReadOnlyList<double> midTreeDockedOriginProofStartUTs)
+        {
+            var detection = new StartTrimShuttleDetection();
+            if (orderedWindows == null || orderedWindows.Count == 0)
+                return detection;
+
+            RouteConnectionWindow first = orderedWindows[0];
+            RouteConnectionWindow last = orderedWindows[orderedWindows.Count - 1];
+            if (first == null || last == null)
+                return detection;
+
+            // Signal 1 - the dock boundary: an earlier completed window whose
+            // docked stretch fully precedes the run's last transfer. Defensive
+            // finite checks: TryOrderWindows already rejects non-finite DockUTs
+            // for 2+ windows, but this classifier is directly unit-testable.
+            if (orderedWindows.Count >= 2
+                && IsFiniteUT(first.DockUT)
+                && IsFiniteUT(first.UndockUT)
+                && IsFiniteUT(last.DockUT)
+                && first.UndockUT <= last.DockUT)
+            {
+                detection.IsShuttleFamily = true;
+                detection.OriginDockUT = first.DockUT;
+                detection.Signal = "preceding-window";
+                return detection;
+            }
+
+            // Signal 2 - a mid-tree docked-origin proof preceding the run's
+            // first witnessed dock. The earliest qualifying leg start is the
+            // recognized docked-origin moment.
+            if (midTreeDockedOriginProofStartUTs != null && IsFiniteUT(first.DockUT))
+            {
+                double earliest = double.NaN;
+                for (int i = 0; i < midTreeDockedOriginProofStartUTs.Count; i++)
+                {
+                    double startUT = midTreeDockedOriginProofStartUTs[i];
+                    if (!IsFiniteUT(startUT) || startUT >= first.DockUT)
+                        continue;
+                    if (double.IsNaN(earliest) || startUT < earliest)
+                        earliest = startUT;
+                }
+                if (!double.IsNaN(earliest))
+                {
+                    detection.IsShuttleFamily = true;
+                    detection.OriginDockUT = earliest;
+                    detection.Signal = "mid-tree-origin-proof";
+                }
+            }
+
+            return detection;
+        }
+
+        /// <summary>
+        /// Collects the start UTs of NON-origin source-path recordings carrying
+        /// a start-docked origin proof (<see cref="HasDockedOriginProof"/>) -
+        /// the mid-tree signal for <see cref="ClassifyStartTrimShuttle"/>.
+        /// Returns null when nothing qualifies (also the AnalyzeRecording case:
+        /// a single recording IS the origin, so no mid-tree legs exist).
+        /// </summary>
+        internal static List<double> CollectMidTreeDockedOriginProofStartUTs(
+            RecordingTree tree,
+            HashSet<string> sourcePathIds,
+            Recording originRec)
+        {
+            if (tree?.Recordings == null || sourcePathIds == null)
+                return null;
+
+            List<double> startUTs = null;
+            foreach (string recordingId in sourcePathIds)
+            {
+                if (string.IsNullOrEmpty(recordingId)
+                    || !tree.Recordings.TryGetValue(recordingId, out Recording rec)
+                    || rec == null
+                    || ReferenceEquals(rec, originRec)
+                    || !HasDockedOriginProof(rec))
+                {
+                    continue;
+                }
+
+                double startUT = rec.StartUT;
+                if (!IsFiniteUT(startUT))
+                    continue;
+
+                if (startUTs == null)
+                    startUTs = new List<double>();
+                startUTs.Add(startUT);
+            }
+            return startUTs;
+        }
+
+        private static bool IsFiniteUT(double ut)
+        {
+            return !double.IsNaN(ut) && !double.IsInfinity(ut);
+        }
+
+        /// <summary>
+        /// Gate-site wrapper for <see cref="ClassifyStartTrimShuttle"/>: extracts
+        /// the ordered window list from the built manifests and the mid-tree
+        /// origin-proof starts from the source path. Runs ONLY inside the two
+        /// undocked-start reject branches, so the eligible path pays nothing.
+        /// </summary>
+        private static StartTrimShuttleDetection DetectStartTrimShuttleAtGate(
+            List<PerWindowManifests> built,
+            RecordingTree tree,
+            HashSet<string> sourcePathIds,
+            Recording originRec)
+        {
+            var windows = new List<RouteConnectionWindow>(built.Count);
+            for (int i = 0; i < built.Count; i++)
+                windows.Add(built[i].Window);
+            List<double> proofStartUTs =
+                CollectMidTreeDockedOriginProofStartUTs(tree, sourcePathIds, originRec);
+            return ClassifyStartTrimShuttle(windows, proofStartUTs);
+        }
+
+        /// <summary>
+        /// Builds the status-9 reject result shared by both undocked-start gate
+        /// sites (verdict C6: both sites are instrumented). The RejectDetail
+        /// names the recognized origin dock UT for the player-facing text.
+        /// </summary>
+        private static RouteAnalysisResult BuildStartTrimShuttleReject(
+            StartTrimShuttleDetection detection,
+            PerWindowManifests anchor)
+        {
+            return new RouteAnalysisResult
+            {
+                Status = RouteAnalysisStatus.MidRecordingStartTrimUnsupported,
+                SourceRecording = anchor.Source,
+                ConnectionWindow = anchor.Window,
+                RejectDetail = FormatStartTrimShuttleDetail(detection.OriginDockUT)
+            };
+        }
+
+        /// <summary>
+        /// Player-facing detail naming the recognized docked-origin moment,
+        /// e.g. <c>"docked origin recorded at UT 100"</c>. Rendered
+        /// parenthetically by <c>RouteCreationFormatters.FormatRejectMessage</c>.
+        /// </summary>
+        internal static string FormatStartTrimShuttleDetail(double originDockUT)
+        {
+            return "docked origin recorded at UT "
+                + originDockUT.ToString("F0", CultureInfo.InvariantCulture);
         }
 
         private static bool HasEndpointProof(RouteConnectionWindow window)
