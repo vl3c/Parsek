@@ -1538,13 +1538,20 @@ namespace Parsek
                     terminalState,
                     surfaceRelativeRotation);
 
-                // Rebuild ORBIT subnode from position + velocity
+                // Rebuild ORBIT subnode from position + velocity. When no caller-supplied
+                // orbit is passed (EVA / breakup / non-terminal-orbit respawn paths), the
+                // velocity argument is a recorder-frame Y-up world vector (TrajectoryPoint.velocity)
+                // and worldPos is an absolute Y-up world position. Orbit.UpdateFromStateVectors
+                // requires body-relative Zup inputs, so route through OrbitReseed rather than
+                // feeding the raw vectors (the bare call produces the ~500 k-sma garbage orbit
+                // OrbitReseed exists to correct; see OrbitReseed remarks + RuntimeTests
+                // TerminalOrbitFromTail_DerivesPostBurnEccentricOrbit).
                 Orbit orbit = orbitOverride;
                 if (orbit == null)
                 {
                     orbit = new Orbit();
                     Vector3d worldPos = body.GetWorldSurfacePosition(lat, lon, alt);
-                    orbit.UpdateFromStateVectors(worldPos, velocity, body, ut);
+                    OrbitReseed.FromWorldPosAndRecordedVelocity(orbit, body, worldPos, velocity, ut);
                 }
                 spawnNode.RemoveNode("ORBIT");
                 ConfigNode orbitNode = new ConfigNode("ORBIT");
