@@ -55,6 +55,14 @@ namespace Parsek
 
         // Per-frame cache of the composition-over-time trees (one list of root nodes per tree id),
         // built from the same MissionStructure. Cleared alongside missionViewCache each frame.
+        // M-MIS-8: per-frame caches for the cross-tree partner-journey affordance - the derived
+        // dock links per mission tree, and each link's journey leg ids (keyed by link id).
+        // Cleared together with missionViewCache on the first lookup of a new frame.
+        private readonly Dictionary<string, List<ForeignDockLink>> foreignLinksCache =
+            new Dictionary<string, List<ForeignDockLink>>();
+        private readonly Dictionary<string, List<string>> journeyLegsCache =
+            new Dictionary<string, List<string>>();
+
         private readonly Dictionary<string, List<MissionCompositionNode>> compositionCache =
             new Dictionary<string, List<MissionCompositionNode>>();
 
@@ -398,6 +406,11 @@ namespace Parsek
                     rowCount += DrawCompositionNode(compRoots[r], mission, 1, isLast, false,
                         isLaunchRoot, periodicity);
                 }
+
+                // M-MIS-8: cross-tree partner-journey affordance - one row per derived foreign
+                // dock link on this tree's vessel(s), with the journey's intervals as child rows
+                // when the link is included (explicit player action; default off).
+                rowCount += DrawForeignDockLinkRows(mission, tree, trees);
             }
 
             GUILayout.EndVertical();
@@ -428,6 +441,8 @@ namespace Parsek
             {
                 missionViewCache.Clear();
                 compositionCache.Clear();
+                foreignLinksCache.Clear();
+                journeyLegsCache.Clear();
                 missionViewCacheFrame = frame;
             }
 
@@ -521,10 +536,15 @@ namespace Parsek
                 bool prevCompSuppress = MissionCompositionBuilder.SuppressLogging;
                 bool prevPeriodicitySuppress = MissionPeriodicity.SuppressLogging;
                 bool prevLoopSuppress = MissionLoopUnitBuilder.SuppressLogging;
+                bool prevCrossTreeSuppress = MissionCrossTreeDock.SuppressLogging;
                 MissionStructureBuilder.SuppressLogging = true;
                 MissionCompositionBuilder.SuppressLogging = true;
                 MissionPeriodicity.SuppressLogging = true;
                 MissionLoopUnitBuilder.SuppressLogging = true;
+                // M-MIS-8: Build resolves cross-tree dock links for linked looping missions,
+                // so the fifth pipeline flag must be gated too or the FindLinks / journey /
+                // member-merge Verbose lines flood once per frame.
+                MissionCrossTreeDock.SuppressLogging = true;
                 try
                 {
                     loopUnitSetCache = MissionLoopUnitBuilder.Build(
@@ -538,6 +558,7 @@ namespace Parsek
                     MissionCompositionBuilder.SuppressLogging = prevCompSuppress;
                     MissionPeriodicity.SuppressLogging = prevPeriodicitySuppress;
                     MissionLoopUnitBuilder.SuppressLogging = prevLoopSuppress;
+                    MissionCrossTreeDock.SuppressLogging = prevCrossTreeSuppress;
                 }
                 loopUnitSetCacheFrame = frame;
             }
@@ -729,6 +750,199 @@ namespace Parsek
             GUILayout.EndHorizontal();
         }
 
+        // ---- M-MIS-8: cross-tree partner-journey rows ----
+
+        // Derived cross-tree dock links for a mission tree, built at most once per frame per
+        // tree (the per-frame cache clears alongside missionViewCache). Derivation suppressed
+        // like the other per-frame builders so the Verbose summary does not flood.
+        private List<ForeignDockLink> GetForeignDockLinks(RecordingTree tree, List<RecordingTree> trees)
+        {
+            if (!foreignLinksCache.TryGetValue(tree.Id, out List<ForeignDockLink> links))
+            {
+                bool prev = MissionCrossTreeDock.SuppressLogging;
+                MissionCrossTreeDock.SuppressLogging = true;
+                try
+                {
+                    links = MissionCrossTreeDock.FindLinks(tree, trees);
+                }
+                finally
+                {
+                    MissionCrossTreeDock.SuppressLogging = prev;
+                }
+                foreignLinksCache[tree.Id] = links;
+            }
+            return links;
+        }
+
+        private List<string> GetJourneyLegIds(RecordingTree foreignTree, ForeignDockLink link)
+        {
+            if (!journeyLegsCache.TryGetValue(link.LinkId, out List<string> legs))
+            {
+                // Per-frame derivation: suppress the walk's Verbose summary (same rationale as
+                // GetForeignDockLinks above).
+                bool prev = MissionCrossTreeDock.SuppressLogging;
+                MissionCrossTreeDock.SuppressLogging = true;
+                try
+                {
+                    legs = MissionCrossTreeDock.ComputePartnerJourneyLegIds(foreignTree, link);
+                }
+                finally
+                {
+                    MissionCrossTreeDock.SuppressLogging = prev;
+                }
+                journeyLegsCache[link.LinkId] = legs;
+            }
+            return legs;
+        }
+
+        // One affordance row per derived link ("Partner journey - <vessel> (docked <date>)")
+        // with an include toggle bound to Mission.IncludedForeignDockLinkIds; when included,
+        // the journey's foreign intervals render as child rows with the normal per-interval
+        // checkboxes (same ExcludedIntervalKeys binding - keys are globally unique). Returns
+        // the number of rows drawn.
+        private int DrawForeignDockLinkRows(Mission mission, RecordingTree tree, List<RecordingTree> trees)
+        {
+            List<ForeignDockLink> links = GetForeignDockLinks(tree, trees);
+            if (links.Count == 0)
+                return 0;
+
+            int rows = 0;
+            for (int li = 0; li < links.Count; li++)
+            {
+                ForeignDockLink link = links[li];
+                bool included = mission.IncludedForeignDockLinkIds.Contains(link.LinkId);
+
+                GUILayout.BeginHorizontal(GUILayout.MinHeight(CompositionRowMinHeight));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Enable));
+                bool toggled = GUILayout.Toggle(included, "",
+                    GUILayout.Width(ColW_Index), GUILayout.ExpandHeight(true));
+                if (toggled != included)
+                {
+                    if (toggled) mission.IncludedForeignDockLinkIds.Add(link.LinkId);
+                    else mission.IncludedForeignDockLinkIds.Remove(link.LinkId);
+                    ParsekLog.Info("Mission",
+                        $"Mission '{mission.Name}' partner journey link={link.LinkId} " +
+                        $"(foreign tree={link.ForeignTreeId}, vessel='{link.ForeignVesselName}') " +
+                        $"included={toggled}");
+                    // Including a link on an ALREADY-LOOPING mission widens its spanned tree
+                    // set, which can newly conflict with a loop on the foreign tree; clear the
+                    // conflict now (SetLoopEnabled only runs this on loop-enable).
+                    if (toggled && mission.LoopPlayback)
+                        MissionStore.ClearLoopsConflictingWith(mission,
+                            RecordingStore.CommittedTrees, out int _, out int _,
+                            "PartnerJourneyInclude");
+                    included = toggled;
+                }
+
+                Color prevColor = GUI.color;
+                if (!included)
+                    GUI.color = DimColor;
+                string eventWord = link.ClaimType == BranchPointType.Board ? "Boarded" : "Docked";
+                float indent = RecordingsTableUI.SelfConnectorIndent(1);
+                if (indent > 0f)
+                    GUILayout.Space(indent);
+                GUILayout.Label(
+                    RecordingsTableUI.TreeConnector(li == links.Count - 1)
+                    + $"Partner journey - {link.ForeignVesselName}",
+                    compositionCellLabel, GUILayout.ExpandWidth(true));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
+                GUILayout.Label(KSPUtil.PrintDateCompact(link.DockUT, true),
+                    compositionCellLabel, GUILayout.Width(ColW_StartTime));
+                GUILayout.Label(eventWord, compositionCellLabel, GUILayout.Width(ColW_StartEvent));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndTime));
+                GUI.color = prevColor;
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_ReFly));
+                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Archive));
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+                GUILayout.EndHorizontal();
+                rows++;
+
+                if (!included)
+                    continue;
+
+                RecordingTree foreignTree = FindTree(trees, link.ForeignTreeId);
+                if (foreignTree == null)
+                    continue;
+                var (foreignStructure, foreignView) = GetMissionView(foreignTree);
+                List<MissionCompositionNode> foreignRoots = GetCompositionRoots(foreignTree);
+                var journeySet = new HashSet<string>(
+                    GetJourneyLegIds(foreignTree, link), System.StringComparer.Ordinal);
+                var journeyWindows = MissionCrossTreeDock.ComputeJourneyWindowsByOwner(
+                    foreignStructure, foreignView, journeySet);
+                for (int r = 0; r < foreignRoots.Count; r++)
+                    rows += DrawMaximalJourneyNodes(foreignRoots[r], mission, journeyWindows, 2);
+                // (journey leg derivation is suppressed + per-frame cached in GetJourneyLegIds;
+                // ComputeJourneyWindowsByOwner emits no diagnostics.)
+            }
+            return rows;
+        }
+
+        // Walks a foreign composition tree and draws every MAXIMAL partner-journey node (a
+        // journey node whose ancestors are not journey nodes) - typically the docked-stretch
+        // sub-interval and the partner's post-undock offshoot branch. Returns rows drawn.
+        private int DrawMaximalJourneyNodes(MissionCompositionNode node, Mission mission,
+            IReadOnlyDictionary<string, List<MissionIntervalSelection.RenderWindow>> journeyWindows,
+            int depth)
+        {
+            if (node == null)
+                return 0;
+            if (MissionCrossTreeDock.IsJourneyNode(node, journeyWindows))
+                return DrawForeignJourneyNode(node, mission, journeyWindows, depth, true);
+            int rows = 0;
+            for (int i = 0; i < node.Children.Count; i++)
+                rows += DrawMaximalJourneyNodes(node.Children[i], mission, journeyWindows, depth);
+            return rows;
+        }
+
+        // Renders one partner-journey interval row (reusing the standard composition row: same
+        // include checkbox bound to ExcludedIntervalKeys, greying, collapse) and recurses ONLY
+        // into children that are themselves journey nodes or roster atoms - the foreign
+        // vessel's own pre-dock / post-departure intervals never render here. Returns rows.
+        private int DrawForeignJourneyNode(MissionCompositionNode node, Mission mission,
+            IReadOnlyDictionary<string, List<MissionIntervalSelection.RenderWindow>> journeyWindows,
+            int depth, bool isLast)
+        {
+            var drawChildren = new List<MissionCompositionNode>();
+            for (int i = 0; i < node.Children.Count; i++)
+            {
+                MissionCompositionNode c = node.Children[i];
+                if (c == null)
+                    continue;
+                if (!c.IsSelectable || MissionCrossTreeDock.IsJourneyNode(c, journeyWindows))
+                    drawChildren.Add(c);
+            }
+
+            bool selfExcluded = mission.ExcludedIntervalKeys.Contains(node.HeadLegId);
+            bool hasChildren = drawChildren.Count > 0;
+            bool collapsed = hasChildren && collapsedLegs.Contains(CollapseKey(mission, node.HeadLegId));
+            DrawCompositionRow(node, mission, depth, isLast, true, selfExcluded, selfExcluded,
+                hasChildren, collapsed, false, default);
+            int rows = 1;
+
+            if (hasChildren && !collapsed)
+            {
+                for (int i = 0; i < drawChildren.Count; i++)
+                {
+                    MissionCompositionNode c = drawChildren[i];
+                    bool childLast = i == drawChildren.Count - 1;
+                    if (c.IsSelectable)
+                    {
+                        rows += DrawForeignJourneyNode(c, mission, journeyWindows, depth + 1, childLast);
+                    }
+                    else
+                    {
+                        // Roster atom: greys with its owning interval, no checkbox. Reuse the
+                        // standard recursion (its children, if any, are atoms too).
+                        rows += DrawCompositionNode(c, mission, depth + 1, childLast,
+                            selfExcluded, false, default);
+                    }
+                }
+            }
+            return rows;
+        }
+
         // Linear lookup of a committed recording by id (the Missions tab maps a composition row to
         // its recording for the Re-Fly cell). Returns false when the id is empty or not committed.
         // [ERS-exempt] reason: Re-Fly is keyed on the RAW committed index, same as the watch /
@@ -858,7 +1072,10 @@ namespace Parsek
                 }
                 else
                 {
-                    MissionStore.SetLoopEnabled(mission, loopNow, Planetarium.GetUniversalTime());
+                    // Trees passed so a cross-tree-linked mission also clears looping missions
+                    // on its linked foreign tree(s) (M-MIS-8 spanned-set rule).
+                    MissionStore.SetLoopEnabled(mission, loopNow, Planetarium.GetUniversalTime(),
+                        RecordingStore.CommittedTrees);
                     // Turning loop off disables the period field; end any in-progress edit on it.
                     if (!loopNow && loopPeriodFocusedMissionId == mission.Id)
                         loopPeriodFocusedMissionId = null;
