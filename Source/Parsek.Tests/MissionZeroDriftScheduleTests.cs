@@ -968,5 +968,92 @@ namespace Parsek.Tests
             Assert.True(fDrop < fLoose, $"Drop first window {fDrop} should be < Loose {fLoose}");
             Assert.True(fLoose < fTight, $"Loose first window {fLoose} should be < Tight {fTight}");
         }
+
+        // ===================== M-MIS-10 archetype 3: off-Kerbin (Mun) pad launch =====================
+        // Every pre-existing fixture in this file anchors on a KERBIN pad. The zero-drift scheduler is
+        // body-name-parametric by construction, but the 2026-07-06 verification sweep marked the
+        // off-Kerbin pad launch AUTO-NONE: no test ever ran the schedule with a NON-Kerbin launch pad.
+        // These pin the pad-anchoring contract for a Mun surface launch.
+
+        // Mun sidereal rotation: tidally locked, == its orbit period.
+        private const double MunRotation = 138984.38;
+
+        [Fact]
+        public void BuildSchedule_MunPad_LaunchesPinToMunRotationNotKerbinRotation()
+        {
+            // Guards: a Mun-pad mission (Rotation(Mun) pad + a station rendezvous in Mun orbit)
+            // anchors the zero-drift schedule on the MUN pad rotation - every launch is an exact
+            // whole multiple of Mun's rotation period, NOT of Kerbin's. Hand-checkable: with
+            // T_station=2500 the station tolerance is 2500*(3/360) ~ 20.83s and
+            // k*138984.38 mod 2500 first falls within it at k=32 (residual 0.16s), so the first
+            // launch is 32*138984.38 = 4447500.16 - which sits 8318.6s away from the nearest
+            // Kerbin-rotation multiple (a Kerbin-anchored schedule could never produce it).
+            var constraints = new List<PhaseConstraint>
+            {
+                Rotation("Mun", MunRotation),                 // the pad (launch body = Mun)
+                VesselOrbital("Mun", 2500.0)                  // a low-Mun-orbit station
+            };
+            var fake = new FakeBodyInfo();
+
+            // The pad rotation has the tightest duty cycle (0.25deg/360 < station 3deg/360), so it
+            // is the anchor regardless of ordering.
+            int anchorIdx = MissionPeriodicity.SelectAnchorConstraintIndex(
+                constraints, fake, launchBodyName: "Mun");
+            Assert.Equal(0, anchorIdx);
+
+            bool ok = MissionPeriodicity.TryBuildRelaunchSchedule(
+                constraints, Support.Supported, ut0: 0.0, floorUT: 1000.0, fake,
+                out MissionRelaunchSchedule schedule, minSpacingSeconds: 0.0,
+                launchBodyName: "Mun");
+            Assert.True(ok);
+            Assert.NotNull(schedule);
+            Assert.True(schedule.FirstLaunchUT >= 1000.0);
+
+            Assert.Equal(32.0 * MunRotation, schedule.FirstLaunchUT, 3);
+            Assert.True(schedule.AllLaunchesWithinTolerance);
+
+            // Successive launches stay pinned to exact Mun-rotation multiples (zero drift off the
+            // Mun pad), and never to Kerbin-rotation multiples.
+            double launch = schedule.FirstLaunchUT;
+            for (int i = 0; i < 3; i++)
+            {
+                double munResidual = Math.Abs(Math.IEEERemainder(launch, MunRotation));
+                Assert.True(munResidual < 1e-3,
+                    $"launch {launch} must be an exact Mun-rotation multiple (residual {munResidual})");
+
+                double kerbinRem = launch % KerbinRotation;
+                double kerbinDist = Math.Min(kerbinRem, KerbinRotation - kerbinRem);
+                Assert.True(kerbinDist > 60.0,
+                    $"launch {launch} must NOT sit on a Kerbin-rotation multiple " +
+                    $"(distance {kerbinDist}s) - the schedule anchors on the Mun pad");
+
+                launch = schedule.NextLaunchAfter(launch);
+            }
+        }
+
+        [Fact]
+        public void SelectAnchor_MunPadBeatsLooseTransitedKerbinRotation()
+        {
+            // Guards: for a Mun-launch mission that also lands on Kerbin (a TRANSITED Kerbin
+            // rotation constraint), the launchBodyName="Mun" wiring keeps the MUN pad as the
+            // anchor under the production-default Loose mode: the transited Kerbin rotation is
+            // loosened to 5 deg (duty 5/360) while the pad stays at 0.25 deg (duty 0.25/360), so
+            // the pad has the tightest band. Without the launch-body wiring (null), nothing is
+            // transited, both rotations tie on duty, and the tie-break to the SHORTER period would
+            // pick Kerbin - the exact off-Kerbin regression this pins against.
+            var constraints = new List<PhaseConstraint>
+            {
+                Rotation("Kerbin", KerbinRotation),           // transited landing rotation
+                Rotation("Mun", MunRotation),                 // the pad (launch body = Mun)
+                VesselOrbital("Mun", 2500.0)
+            };
+            var fake = new FakeBodyInfo();
+
+            int anchorIdx = MissionPeriodicity.SelectAnchorConstraintIndex(
+                constraints, fake, launchBodyName: "Mun", mode: TransitedBodyRotationMode.Loose);
+            Assert.Equal(1, anchorIdx);
+            Assert.Equal("Mun", constraints[anchorIdx].BodyName);
+            Assert.Equal(ConstraintKind.Rotation, constraints[anchorIdx].Kind);
+        }
     }
 }

@@ -137,6 +137,14 @@ namespace Parsek
             public LogisticsCountdownPresentation.CountdownBranch CountdownBranch;
             public double CountdownSeconds;
 
+            // M5 (D8): the route's derived window basis + the label appended
+            // after the cadence ("(Duna transfer)" / "(launch window schedule)";
+            // null for a flat route - drawn nowhere, flat rows unchanged).
+            // Computed on the ~1 Hz refresh so the per-frame stepper / row draw
+            // never resolves a LoopUnit.
+            public RouteWindowBasis Basis;
+            public string BasisLabel;
+
             // H2: realized delivery for the latest cycle + cumulative total.
             public bool HasDeliveries;
             public string LastCycleText;     // "delivered 40.0 of 150.0 LiquidFuel (110.0 did not fit)"
@@ -187,6 +195,16 @@ namespace Parsek
             // flashes a hold line.
             public string HoldText;
             public string HoldShort;
+
+            // M6 closeout (row-level hold treatment): the compact truncated
+            // "Held: <specific reason>" string shown IN the Status cell,
+            // replacing the generic per-status sentence while a displayable
+            // hold is recorded (non-Paused sections only; the Paused cell
+            // keeps its L1 New/Paused label). Null when no hold displays -
+            // the cell then falls back to StatusReason. Built on the ~1 Hz
+            // pass from the same persisted Route.LastHold* fields as
+            // HoldShort; the full clause stays in the tooltip.
+            public string HoldCellText;
 
             // M6 per-cycle flow: one compact line per recent completed cycle
             // ("Cycle 3 (2.1h ago): paid 500 funds at KSC; delivered 150.0
@@ -866,7 +884,7 @@ namespace Parsek
                 GUILayout.Label(GUIContent.none, GUILayout.Width(ColW_Interval));
             }
             else
-                DrawIntervalCell(route);
+                DrawIntervalCell(route, leg);
             // L2: the standalone Transit column was dropped to narrow the window; the
             // transit value now rides in the Interval cell's "Nx" tooltip (DrawIntervalCell)
             // and the expand-panel detail line, so no Transit cell is drawn here.
@@ -883,7 +901,7 @@ namespace Parsek
             // detail line names which.
             GUILayout.Label(
                 new GUIContent(NextDeliveryCellText(leg),
-                    "Time until this route's next scheduled delivery (next dock crossing). A blocked route shows when it next rechecks eligibility."),
+                    "Time until this route's next scheduled delivery (next dock crossing). A blocked route shows when it next rechecks eligibility. An inter-body route counts down to its next launch window."),
                 GUILayout.Width(ColW_NextDelivery));
 
             // Show the plain-English reason IN the cell; keep the raw enum name in
@@ -892,9 +910,11 @@ namespace Parsek
             // (cyan "New (not yet run)") from a deliberately-paused one (grey "Paused"),
             // reading the classification cached in the ~1 Hz legibility pass; the H3
             // Delivery badge column stays grey "Paused" for both.
-            // M6 hold reasons: when the ~1 Hz cache holds a one-clause hold
-            // description, the tooltip gains it on a second line under the raw
-            // enum name. Visible cell text and styles are unchanged.
+            // M6 hold reasons + closeout row-level treatment: while a
+            // displayable hold is recorded, the non-Paused cell carries the
+            // compact SPECIFIC reason ("Held: origin out of LiquidFuel",
+            // truncated) instead of the generic per-status sentence; the full
+            // clause rides the tooltip's second line under the raw enum name.
             if (section == RouteSection.Paused)
             {
                 GUIStyle pausedStyle = leg.PausedLabel == LogisticsDeliveryPresentation.PausedRouteLabel.New
@@ -907,10 +927,17 @@ namespace Parsek
             }
             else
             {
+                GUIStyle statusStyle = StatusStyleFor(route.Status);
+                // A held row never reads green: an Active loop route blocked at
+                // its last crossing (e.g. WaitingForPartner, escrow short) keeps
+                // Status=Active, so tint the held cell yellow. Red hard-broken
+                // statuses keep their red.
+                if (leg.HoldCellText != null && statusStyle == statusStyleGreen)
+                    statusStyle = statusStyleYellow;
                 GUILayout.Label(
-                    new GUIContent(StatusReason(route.Status),
+                    new GUIContent(leg.HoldCellText ?? StatusReason(route.Status),
                         LogisticsHoldPresentation.StatusCellTooltip(route.Status, leg.HoldShort)),
-                    StatusStyleFor(route.Status), GUILayout.Width(ColW_Status));
+                    statusStyle, GUILayout.Width(ColW_Status));
             }
 
             // H3 "Delivery" badge: the at-a-glance verdict (green Delivering /
@@ -997,7 +1024,7 @@ namespace Parsek
         /// <see cref="RouteCadence.ApplyMultiplier"/> DIRECTLY in
         /// <see cref="CommitIntervalEdit"/> (never via a frame-reset pending field).
         /// </summary>
-        private void DrawIntervalCell(Route route)
+        private void DrawIntervalCell(Route route, RouteLegibility leg)
         {
             string controlName = "LogiInterval_" + (route.Id ?? "<no-id>");
             bool editingThis = renamingRouteId == null
@@ -1079,14 +1106,27 @@ namespace Parsek
 
             // Compact "Nx" multiplier readout (the human duration moves to the tooltip
             // so the cell stays narrow); hovering shows the cadence + the transit time
-            // (which no longer has its own column after the L2 narrowing).
+            // (which no longer has its own column after the L2 narrowing). M5 (D8):
+            // for a WINDOWED basis the tooltip leads with the windowed wording
+            // ("2x (every 2nd window)") - interval arithmetic is actively
+            // misleading on synodic spacing - and a small basis label follows the
+            // Nx readout. Flat rows draw the pre-M5 content byte-identically.
+            bool windowed = RouteWindowBasisPresentation.IsWindowedBasis(leg.Basis);
+            string nxTooltip = windowed
+                ? string.Format(CultureInfo.InvariantCulture,
+                    "Dispatch cadence: {0} {1}. The route delivers on the launch windows its ghost flies; use -/+ to deliver every Nth window (1x is the floor).",
+                    RouteWindowBasisPresentation.FormatWindowedCadence(n),
+                    leg.BasisLabel ?? string.Empty)
+                : string.Format(CultureInfo.InvariantCulture,
+                    "Dispatch cadence = N x run duration (transit {0}). Type a target interval (e.g. 30m, 2h, 1d, or a plain number = seconds) in the field, or use -/+; the value snaps up to the next whole run-multiple (1x is the floor, the fastest the run allows).",
+                    FormatDuration(route.TransitDuration));
             GUILayout.Label(
                 new GUIContent(
                     string.Format(CultureInfo.InvariantCulture, "{0}x", n),
-                    string.Format(CultureInfo.InvariantCulture,
-                        "Dispatch cadence = N x run duration (transit {0}). Type a target interval (e.g. 30m, 2h, 1d, or a plain number = seconds) in the field, or use -/+; the value snaps up to the next whole run-multiple (1x is the floor, the fastest the run allows).",
-                        FormatDuration(route.TransitDuration))),
+                    nxTooltip),
                 GUILayout.Width(28f));
+            if (windowed && !string.IsNullOrEmpty(leg.BasisLabel))
+                GUILayout.Label(leg.BasisLabel, GUILayout.ExpandWidth(false));
 
             GUILayout.EndHorizontal();
         }
@@ -1428,7 +1468,10 @@ namespace Parsek
                 }
             }
 
-            DetailLine($"Interval: {FormatDuration(route.DispatchInterval)}   Transit: {FormatDuration(route.TransitDuration)}   Cycles: {route.CompletedCycles}");
+            // M5 (D8): the basis label rides the Interval line for a windowed
+            // route ("Interval: 14d (Duna transfer)"); flat routes unchanged.
+            string basisSuffix = string.IsNullOrEmpty(leg.BasisLabel) ? string.Empty : " " + leg.BasisLabel;
+            DetailLine($"Interval: {FormatDuration(route.DispatchInterval)}{basisSuffix}   Transit: {FormatDuration(route.TransitDuration)}   Cycles: {route.CompletedCycles}");
 
             // Run-cost (Phase 3, decision D3): one detail line + tooltip, drawn ONLY
             // when the cost applies (Career + KSC origin) AND is known (the source
@@ -1442,7 +1485,7 @@ namespace Parsek
                     LogisticsCostPresentation.FormatDetailTooltip(leg.RunCost)));
             }
 
-            DrawCadenceStepper(route);
+            DrawCadenceStepper(route, leg);
             DrawPriorityStepper(route);
 
             // H5: resolved recording / tree (mission) names instead of 8-char GUID
@@ -1980,9 +2023,13 @@ namespace Parsek
         // cadence multiplier (>= 1) and the human duration is N x the run span.
         // 1x is the floor (the route cannot dispatch faster). Records the edit into
         // the deferred-mutation fields; ApplyPendingActions recomputes the interval.
-        private void DrawCadenceStepper(Route route)
+        private void DrawCadenceStepper(Route route, RouteLegibility leg)
         {
             int n = Route.ClampCadenceMultiplier(route.CadenceMultiplier);
+            // M5 (D8/OQ2): a windowed basis swaps the readout to per-window
+            // wording ("2x (every 2nd window)") - the interval arithmetic is
+            // actively misleading on synodic spacing. Flat routes unchanged.
+            bool windowed = RouteWindowBasisPresentation.IsWindowedBasis(leg.Basis);
 
             GUILayout.BeginHorizontal();
             GUILayout.Space(24f);
@@ -2003,8 +2050,11 @@ namespace Parsek
             }
             GUI.enabled = true;
 
-            // Current N x + the resulting human cadence.
-            GUILayout.Label(FormatCadence(route), detailStyle, GUILayout.Width(110f));
+            // Current N x + the resulting human cadence (windowed wording for a
+            // windowed basis; wider cell to fit "2x (every 2nd window)").
+            GUILayout.Label(
+                windowed ? RouteWindowBasisPresentation.FormatWindowedCadence(n) : FormatCadence(route),
+                detailStyle, GUILayout.Width(windowed ? 170f : 110f));
 
             if (GUILayout.Button(new GUIContent("+", "Dispatch less often"), GUILayout.Width(24f)))
             {
@@ -2447,6 +2497,10 @@ namespace Parsek
             {
                 lastCandidateComputeRealtime = -1f;
                 lastLegibilityComputeRealtime = -1f;
+                // M6 Record-Supply-Run helper: the candidate was promoted to a
+                // route, so a still-pending main-window banner for this tree is
+                // stale - drop it.
+                RouteRunPrompt.ClearPendingPromptIfTree(cand?.Tree?.Id, "route-created");
             }
 
             ParsekLog.Info("UI",
@@ -2700,10 +2754,21 @@ namespace Parsek
             // allowlisted RouteOrchestrator accessor).
             bool hasCrossing = RouteOrchestrator.TryComputeSecondsToNextDockCrossing(
                 route, currentUT, out double secondsToCrossing);
+            // M5 (D8): basis-aware next-dispatch-window countdown for the
+            // windowed bases the flat helper refuses, plus the basis label. Both
+            // accessors share the signature-cached LoopUnit resolve, so this
+            // stays a ~1 Hz cost. A flat route yields hasWindow=false + a null
+            // label - its branch selection and cells are byte-identical.
+            bool hasWindow = RouteOrchestrator.TryComputeSecondsToNextDispatchWindow(
+                route, currentUT, out double secondsToWindow,
+                out RouteWindowBasis basis, out string targetBody);
+            leg.Basis = basis;
+            leg.BasisLabel = RouteWindowBasisPresentation.BasisLabel(basis, targetBody);
             LogisticsCountdownPresentation.CountdownDecision countdown =
                 LogisticsCountdownPresentation.ResolveDetailCountdown(
                     route.Status, route.NextEligibilityCheckUT,
-                    hasCrossing, secondsToCrossing, currentUT);
+                    hasCrossing, secondsToCrossing,
+                    hasWindow, secondsToWindow, currentUT);
             leg.CountdownBranch = countdown.Branch;
             leg.CountdownSeconds = countdown.Seconds;
 
@@ -2788,6 +2853,13 @@ namespace Parsek
                 leg.HoldText = LogisticsHoldPresentation.FormatHoldDetailLine(
                     leg.HoldShort,
                     route.LastHoldUT >= 0.0 ? currentUT - route.LastHoldUT : -1.0);
+                // M6 closeout (row-level treatment): the compact Status-cell
+                // override, same display gate and same ~1 Hz pass as the
+                // tooltip clause above. Paused rows compute it too but their
+                // cell keeps the L1 New/Paused label (the draw path only
+                // consumes this in the non-Paused sections).
+                leg.HoldCellText = LogisticsHoldPresentation.StatusCellText(
+                    route.LastHoldKind, route.LastHoldDetail, route.LastHoldShortfall);
             }
 
             return leg;
@@ -3054,9 +3126,11 @@ namespace Parsek
                         continue;
                     }
                     string name = TryResolveLiveVesselName(stop.Endpoint.VesselPersistentId);
-                    stopDestinations.Add(!string.IsNullOrEmpty(name)
+                    string destination = !string.IsNullOrEmpty(name)
                         ? name
-                        : LogisticsDeliveryPresentation.FormatEndpointCoords(stop.Endpoint));
+                        : LogisticsDeliveryPresentation.FormatEndpointCoords(stop.Endpoint);
+                    destination += RouteCreationFormatters.ConnectionKindSuffix(stop.ConnectionKind);
+                    stopDestinations.Add(destination);
                 }
             }
 
@@ -3203,9 +3277,12 @@ namespace Parsek
                 RouteLegibility leg = GetLegibility(route);
                 bool hasNext = leg.CountdownBranch
                     != LogisticsCountdownPresentation.CountdownBranch.None;
+                // M6 closeout: the held cell shows HoldCellText, so the Status
+                // sort key follows it - "a column sorts by exactly what the
+                // player sees" (the contract in this method's doc comment).
                 string statusText = route.Status == RouteStatus.Paused && leg.PausedLabelText != null
                     ? leg.PausedLabelText
-                    : StatusReason(route.Status);
+                    : (leg.HoldCellText ?? StatusReason(route.Status));
 
                 keys[route.Id] = new RouteSortKeys
                 {

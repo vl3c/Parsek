@@ -117,6 +117,9 @@ namespace Parsek
                 double parkingConicEndUT = double.NaN,
                 int transferMemberIndex = -1,
                 double firstDeorbitLegStartUT = double.NaN,
+                double arrivalJointSecondaryPeriodSeconds = double.NaN,
+                double arrivalJointSecondaryToleranceSeconds = double.NaN,
+                int arrivalJointMaxWholeHoldPeriods = 0,
                 string transferMemberRecordingId = null)
             {
                 OwnerIndex = ownerIndex;
@@ -147,6 +150,9 @@ namespace Parsek
                 ParkingConicEndUT = parkingConicEndUT;
                 TransferMemberIndex = transferMemberIndex;
                 FirstDeorbitLegStartUT = firstDeorbitLegStartUT;
+                ArrivalJointSecondaryPeriodSeconds = arrivalJointSecondaryPeriodSeconds;
+                ArrivalJointSecondaryToleranceSeconds = arrivalJointSecondaryToleranceSeconds;
+                ArrivalJointMaxWholeHoldPeriods = arrivalJointMaxWholeHoldPeriods;
                 TransferMemberRecordingId = transferMemberRecordingId;
             }
 
@@ -276,6 +282,25 @@ namespace Parsek
             /// skipped and the span clock stays byte-identical to the constant-hold behavior.
             /// </summary>
             internal double ArrivalAlignPeriodSeconds { get; }
+
+            /// <summary>
+            /// JOINT arrival hold (D8 landing+station, the post-M4c SolveArrivalWindow wiring): the
+            /// destination ROTATION period the per-loop hold must ALSO satisfy - the SECONDARY period
+            /// of <see cref="ComputePerLoopJointArrivalHoldSeconds"/>, while
+            /// <see cref="ArrivalAlignPeriodSeconds"/> carries the station period the hold keeps
+            /// EXACT. NaN (the "not joint" sentinel) on every other unit, in which case the clock's
+            /// single-period per-loop hold path is byte-identical. Runtime-only, never persisted.
+            /// </summary>
+            internal double ArrivalJointSecondaryPeriodSeconds { get; }
+
+            /// <summary>The mode tolerance (seconds) for the joint hold's secondary (rotation)
+            /// period. NaN when the unit is not a joint-hold unit.</summary>
+            internal double ArrivalJointSecondaryToleranceSeconds { get; }
+
+            /// <summary>The joint hold's whole-station-period extension budget (the slack-clamped
+            /// DestinationArrivalSolver.MaxJointHoldWholePeriods). 0 when not a joint-hold unit -
+            /// the per-loop joint dispatch degrades to the single-period hold on 0.</summary>
+            internal int ArrivalJointMaxWholeHoldPeriods { get; }
 
             /// <summary>
             /// The arrival-alignment AMBER reason for a re-aim unit whose destination-side alignment failed
@@ -686,6 +711,95 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The SHARED per-loop arrival-hold resolution used by BOTH the span clock's primary hold
+        /// dispatch and the launch-advance mirror (<see cref="ComputeCappedLaunchAdvanceSeconds"/>),
+        /// so the two stay identical by construction instead of by manual mirroring: dispatches to
+        /// the JOINT per-loop hold when the joint fields are valid (deriving entryOffset0 from the
+        /// compressed-span map), else the shipped single-period hold. Pure.
+        /// </summary>
+        private static double ResolvePerLoopArrivalHold(
+            double w0, long cycleIndex, double cadence,
+            double alignPeriod,
+            double phaseAnchorUT, double spanStartUT, IReadOnlyList<LoopCut> loiterCuts,
+            double arrivalHoldAtUT,
+            double jointSecondaryPeriod, double jointSecondaryTolerance, int jointMaxWholeHoldPeriods,
+            out bool jointValid)
+        {
+            jointValid = !double.IsNaN(jointSecondaryPeriod)
+                && !double.IsInfinity(jointSecondaryPeriod)
+                && jointSecondaryPeriod > 0.0
+                && jointMaxWholeHoldPeriods > 0
+                && !double.IsNaN(arrivalHoldAtUT);
+            if (!jointValid)
+                return ComputePerLoopArrivalHoldSeconds(w0, cycleIndex, cadence, alignPeriod);
+
+            double entryOffset0 = phaseAnchorUT
+                + (CompressSpanUT(arrivalHoldAtUT, loiterCuts) - spanStartUT) - arrivalHoldAtUT;
+            return ComputePerLoopJointArrivalHoldSeconds(
+                w0, cycleIndex, cadence, alignPeriod,
+                jointSecondaryPeriod, jointSecondaryTolerance,
+                entryOffset0, jointMaxWholeHoldPeriods);
+        }
+
+        /// <summary>
+        /// The PER-LOOP JOINT arrival hold W_N for the D8 landing+station dual (the post-M4c
+        /// SolveArrivalWindow wiring, docs/dev/design-mission-phasing-alignment.md D8): the
+        /// station-lattice base hold from <see cref="ComputePerLoopArrivalHoldSeconds"/> (the STATION
+        /// phase recurs EXACTLY every loop, zero drift - period <paramref name="stationPeriod"/> is
+        /// the unit's <c>ArrivalAlignPeriodSeconds</c>), EXTENDED by the smallest whole number of
+        /// station periods i in [0, <paramref name="maxWholeHoldPeriods"/>] that brings the
+        /// destination ROTATION phase error within <paramref name="secondaryToleranceSeconds"/>. The
+        /// rotation error is evaluated per loop from the ABSOLUTE offset
+        /// <c>entryOffset0 + N*cadence + baseHold + i*T_station</c> (entryOffset0 =
+        /// liveEntry_0 - recordedArrivalUT, the build-time base the caller derives from the
+        /// compressed-span map), so the check never accumulates - each loop re-solves its own i_N,
+        /// which is what makes a FIXED cadence compatible with two incommensurate periods. The
+        /// build-time lattice feasibility gate (DestinationArrivalSolver.PlanJointHoldLattice)
+        /// guarantees a within-tolerance i exists inside the budget; the bounded-best fallback here
+        /// is defensive only (station stays exact, rotation best-effort - the caller warn-logs it).
+        /// Degenerate joint inputs (NaN/non-positive secondary period, NaN offset, budget &lt;= 0)
+        /// return the plain single-period hold, keeping every non-joint unit byte-identical. Pure;
+        /// no Unity (xUnit-testable).
+        /// </summary>
+        internal static double ComputePerLoopJointArrivalHoldSeconds(
+            double w0, long cycleIndex, double cadence, double stationPeriod,
+            double secondaryPeriod, double secondaryToleranceSeconds,
+            double entryOffset0Seconds, int maxWholeHoldPeriods)
+        {
+            double baseHold = ComputePerLoopArrivalHoldSeconds(w0, cycleIndex, cadence, stationPeriod);
+            if (!(baseHold > 0.0) && !(w0 > 0.0))
+                return baseHold; // hold disabled (w0 <= 0): the shipped Off fence, byte-identical
+            if (double.IsNaN(stationPeriod) || double.IsInfinity(stationPeriod) || stationPeriod <= 0.0)
+                return baseHold;
+            if (double.IsNaN(secondaryPeriod) || double.IsInfinity(secondaryPeriod) || secondaryPeriod <= 0.0)
+                return baseHold;
+            if (double.IsNaN(secondaryToleranceSeconds) || secondaryToleranceSeconds < 0.0)
+                return baseHold;
+            if (double.IsNaN(entryOffset0Seconds) || double.IsNaN(cadence) || maxWholeHoldPeriods <= 0)
+                return baseHold;
+
+            // Absolute total shift from the recorded arrival at this loop's station-exact base point.
+            double delta = entryOffset0Seconds + cycleIndex * cadence + baseHold;
+            long bestI = 0;
+            double bestErr = double.PositiveInfinity;
+            for (long i = 0; i <= maxWholeHoldPeriods; i++)
+            {
+                double err = MissionPeriodicity.CircularPhaseError(delta + i * stationPeriod, secondaryPeriod);
+                if (err <= secondaryToleranceSeconds)
+                    return baseHold + i * stationPeriod;
+                if (err < bestErr)
+                {
+                    bestErr = err;
+                    bestI = i;
+                }
+            }
+            // Defensive bounded-best: the build gate guarantees a hit, so reaching here means the
+            // lattice drifted past the scanned horizon's structure. Station stays exact; the caller
+            // detects the residual and warn-logs it (never silent).
+            return baseHold + bestI * stationPeriod;
+        }
+
+        /// <summary>
         /// The PER-LOOP launch ADVANCE delta_N (seconds, in [0, T_sid)) to SUBTRACT from replayed loop
         /// <paramref name="cycleIndex"/> (N)'s nominal launch instant L_N so the launch body rotates to the
         /// SAME inertial orientation it had at the recorded launch DURING the in-SOI replay. Launching at
@@ -752,7 +866,11 @@ namespace Parsek
         internal static double ComputeCappedLaunchAdvanceSeconds(
             double phaseAnchorUT, double spanStartUT, double spanEndUT, double cadence, long win,
             double launchBodyRotationPeriod, IReadOnlyList<LoopCut> loiterCuts,
-            double arrivalHoldSeconds, double arrivalAlignPeriod)
+            double arrivalHoldSeconds, double arrivalAlignPeriod,
+            double arrivalHoldAtUT = double.NaN,
+            double arrivalJointSecondaryPeriod = double.NaN,
+            double arrivalJointSecondaryTolerance = double.NaN,
+            int arrivalJointMaxWholeHoldPeriods = 0)
         {
             double delta = ComputePerLoopLaunchAdvanceSeconds(
                 phaseAnchorUT, spanStartUT, win, cadence, launchBodyRotationPeriod);
@@ -764,10 +882,17 @@ namespace Parsek
             double compressedSpan = (totalCut > 0.0 && totalCut < span) ? span - totalCut : span;
 
             // W_{win-1}: the LAUNCHING cycle's per-loop arrival hold (the instance for window `win` launches in
-            // cycle win-1's idle tail). Mirror TryComputeSpanLoopUT's hold derivation + clamp EXACTLY.
+            // cycle win-1's idle tail). Mirror TryComputeSpanLoopUT's hold derivation + clamp EXACTLY,
+            // including the joint dispatch (D8 landing+station) when the joint fields are supplied.
             double w = (arrivalHoldSeconds > 0.0 && !double.IsInfinity(arrivalHoldSeconds)) ? arrivalHoldSeconds : 0.0;
             if (w > 0.0)
-                w = ComputePerLoopArrivalHoldSeconds(w, win - 1, cadence, arrivalAlignPeriod);
+            {
+                w = ResolvePerLoopArrivalHold(
+                    w, win - 1, cadence, arrivalAlignPeriod,
+                    phaseAnchorUT, spanStartUT, loiterCuts, arrivalHoldAtUT,
+                    arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
+                    arrivalJointMaxWholeHoldPeriods, out _);
+            }
             if (w > 0.0 && compressedSpan + w > cadence)
                 w = Math.Max(0.0, cadence - compressedSpan);
 
@@ -804,7 +929,11 @@ namespace Parsek
         internal static double ComputeBoundaryOverlapAdvanceSeconds(
             double phaseAnchorUT, double spanStartUT, double spanEndUT, double cadence, long win,
             double launchBodyRotationPeriod, IReadOnlyList<LoopCut> loiterCuts,
-            double arrivalHoldSeconds, double arrivalAlignPeriod)
+            double arrivalHoldSeconds, double arrivalAlignPeriod,
+            double arrivalHoldAtUT = double.NaN,
+            double arrivalJointSecondaryPeriod = double.NaN,
+            double arrivalJointSecondaryTolerance = double.NaN,
+            int arrivalJointMaxWholeHoldPeriods = 0)
         {
             double rawDelta = ComputePerLoopLaunchAdvanceSeconds(
                 phaseAnchorUT, spanStartUT, win, cadence, launchBodyRotationPeriod);
@@ -813,7 +942,9 @@ namespace Parsek
 
             double cappedDelta = ComputeCappedLaunchAdvanceSeconds(
                 phaseAnchorUT, spanStartUT, spanEndUT, cadence, win,
-                launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalAlignPeriod);
+                launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalAlignPeriod,
+                arrivalHoldAtUT, arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
+                arrivalJointMaxWholeHoldPeriods);
 
             // Boundary overlap engages ONLY when the cap actually bites (the residual-seam loops): then use the
             // full raw delta so the launch realigns; otherwise the value equals the capped advance (byte-identical
@@ -971,7 +1102,10 @@ namespace Parsek
             double arrivalHoldAlignPeriod = double.NaN,
             double launchBodyRotationPeriod = double.NaN,
             bool launchHoldEngaged = false,
-            double soiExitAtUT = double.NaN)
+            double soiExitAtUT = double.NaN,
+            double arrivalJointSecondaryPeriod = double.NaN,
+            double arrivalJointSecondaryTolerance = double.NaN,
+            int arrivalJointMaxWholeHoldPeriods = 0)
         {
             // PRIMARY-ONLY wrapper (docs/dev/plan-launch-boundary-overlap.md 2.1): returns only the continuing
             // instance N (the long-lived through-line the camera follows). The OPTIONAL boundary-overlap secondary
@@ -983,7 +1117,8 @@ namespace Parsek
             SpanLoopFrame frame = ComputeSpanLoopFrame(
                 currentUT, phaseAnchorUT, spanStartUT, spanEndUT, cadenceSeconds,
                 schedule, loiterCuts, arrivalHoldSeconds, arrivalHoldAtUT, arrivalHoldAlignPeriod,
-                launchBodyRotationPeriod, launchHoldEngaged, soiExitAtUT);
+                launchBodyRotationPeriod, launchHoldEngaged, soiExitAtUT,
+                arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance, arrivalJointMaxWholeHoldPeriods);
             loopUT = frame.LoopUT;
             cycleIndex = frame.CycleIndex;
             isInInterCycleTail = frame.IsInInterCycleTail;
@@ -1017,7 +1152,10 @@ namespace Parsek
             double arrivalHoldAlignPeriod = double.NaN,
             double launchBodyRotationPeriod = double.NaN,
             bool launchHoldEngaged = false,
-            double soiExitAtUT = double.NaN)
+            double soiExitAtUT = double.NaN,
+            double arrivalJointSecondaryPeriod = double.NaN,
+            double arrivalJointSecondaryTolerance = double.NaN,
+            int arrivalJointMaxWholeHoldPeriods = 0)
         {
             double loopUT = spanStartUT;
             long cycleIndex = 0;
@@ -1147,12 +1285,16 @@ namespace Parsek
             double cappedLaunchAdvance = launchHoldEngaged
                 ? ComputeCappedLaunchAdvanceSeconds(
                     phaseAnchorUT, spanStartUT, spanEndUT, cycleDuration, cycleIndex,
-                    launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalHoldAlignPeriod)
+                    launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalHoldAlignPeriod,
+                    arrivalHoldAtUT, arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
+                    arrivalJointMaxWholeHoldPeriods)
                 : 0.0;
             double launchAdvance = launchHoldEngaged
                 ? ComputeBoundaryOverlapAdvanceSeconds(
                     phaseAnchorUT, spanStartUT, spanEndUT, cycleDuration, cycleIndex,
-                    launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalHoldAlignPeriod)
+                    launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalHoldAlignPeriod,
+                    arrivalHoldAtUT, arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
+                    arrivalJointMaxWholeHoldPeriods)
                 : 0.0;
             // Whether the boundary overlap ENGAGES for the region-A instance N (the cap bit -> full raw delta used).
             // On an already-aligned loop launchAdvance == cappedLaunchAdvance and this is false (no secondary).
@@ -1188,7 +1330,41 @@ namespace Parsek
             if (hold > 0.0)
             {
                 double w0 = hold;
-                hold = ComputePerLoopArrivalHoldSeconds(w0, cycleIndex, cycleDuration, arrivalHoldAlignPeriod);
+                // JOINT dispatch (D8 landing+station, post-M4c SolveArrivalWindow wiring): a unit
+                // carrying a valid joint secondary period re-solves the whole-station-period
+                // extension per loop so BOTH the station (exact, the align period) and the rotation
+                // (within its mode tolerance) recur - the absolute entryOffset0 base (derived in
+                // the shared resolver) makes the check absolute in N, never accumulating. Every
+                // other unit (NaN secondary / 0 budget) takes the shipped single-period path
+                // byte-identically.
+                hold = ResolvePerLoopArrivalHold(
+                    w0, cycleIndex, cycleDuration, arrivalHoldAlignPeriod,
+                    phaseAnchorUT, spanStartUT, loiterCuts, arrivalHoldAtUT,
+                    arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
+                    arrivalJointMaxWholeHoldPeriods, out bool jointValid);
+                if (jointValid)
+                {
+                    // Never silent: the defensive bounded-best fallback (build gate guarantees a hit,
+                    // so this should not fire) leaves a rotation residual past tolerance - warn once
+                    // per mission so a playtest sees which loops carry it.
+                    double entryOffset0 = phaseAnchorUT
+                        + (CompressSpanUT(arrivalHoldAtUT, loiterCuts) - spanStartUT) - arrivalHoldAtUT;
+                    double jointErr = MissionPeriodicity.CircularPhaseError(
+                        entryOffset0 + cycleIndex * cycleDuration + hold, arrivalJointSecondaryPeriod);
+                    if (jointErr > arrivalJointSecondaryTolerance)
+                    {
+                        var jic = CultureInfo.InvariantCulture;
+                        ParsekLog.WarnRateLimited(
+                            "Reaim",
+                            $"joint-hold-residual.{phaseAnchorUT.ToString("R", jic)}.{spanStartUT.ToString("R", jic)}",
+                            $"per-loop JOINT arrival hold exceeded its budget (bounded-best fallback): " +
+                            $"cycleIndex={cycleIndex.ToString(jic)} WN={hold.ToString("R", jic)}s " +
+                            $"rotResidual={jointErr.ToString("R", jic)}s " +
+                            $"tol={arrivalJointSecondaryTolerance.ToString("R", jic)}s " +
+                            $"budget={arrivalJointMaxWholeHoldPeriods.ToString(jic)} whole periods - " +
+                            "station stays exact, rotation best-effort this loop");
+                    }
+                }
                 // The arrival hold is UNCHANGED by the launch alignment (borrow-at-launch / repay-at-SOI-exit):
                 // the SOI-exit repay nets to zero with the earlier launch, so the SOI entry occurs at the SAME
                 // live UT as baseline and W_N aligns the destination rotation phase correctly with no
@@ -1211,7 +1387,8 @@ namespace Parsek
                         $"perloop-hold.{phaseAnchorUT.ToString("R", hic)}.{spanStartUT.ToString("R", hic)}",
                         $"per-loop arrival hold: cycleIndex={cycleIndex.ToString(hic)} " +
                         $"W0={w0.ToString("R", hic)}s cadence={cycleDuration.ToString("R", hic)}s " +
-                        $"Talign={arrivalHoldAlignPeriod.ToString("R", hic)}s WN={hold.ToString("R", hic)}s");
+                        $"Talign={arrivalHoldAlignPeriod.ToString("R", hic)}s " +
+                        $"joint={jointValid} WN={hold.ToString("R", hic)}s");
                 }
             }
             // Defense-in-depth: never let the holds push the active span past the cadence (a mid-span cycle
@@ -1254,12 +1431,16 @@ namespace Parsek
             double cappedAdvNext = launchHoldEngaged
                 ? ComputeCappedLaunchAdvanceSeconds(
                     phaseAnchorUT, spanStartUT, spanEndUT, cycleDuration, cycleIndex + 1,
-                    launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalHoldAlignPeriod)
+                    launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalHoldAlignPeriod,
+                    arrivalHoldAtUT, arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
+                    arrivalJointMaxWholeHoldPeriods)
                 : 0.0;
             double advNext = launchHoldEngaged
                 ? ComputeBoundaryOverlapAdvanceSeconds(
                     phaseAnchorUT, spanStartUT, spanEndUT, cycleDuration, cycleIndex + 1,
-                    launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalHoldAlignPeriod)
+                    launchBodyRotationPeriod, loiterCuts, arrivalHoldSeconds, arrivalHoldAlignPeriod,
+                    arrivalHoldAtUT, arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
+                    arrivalJointMaxWholeHoldPeriods)
                 : 0.0;
             // Whether the boundary overlap ENGAGES for the next instance N+1 (the cap bit for it -> full raw delta).
             // The secondary is emitted ONLY when this is true (the residual-seam loops); on already-aligned loops
@@ -1367,6 +1548,9 @@ namespace Parsek
                     }
                     else
                     {
+                        // Diagnostic slack only; the single-period value is a lower bound on the joint
+                        // hold, so a joint unit's reported slack may read slightly high here. The
+                        // authoritative clamp above already used the real (joint) hold.
                         double wPrev = (arrivalHoldSeconds > 0.0 && !double.IsInfinity(arrivalHoldSeconds))
                             ? ComputePerLoopArrivalHoldSeconds(arrivalHoldSeconds, cycleIndex - 1, cycleDuration, arrivalHoldAlignPeriod)
                             : 0.0;
@@ -1616,7 +1800,10 @@ namespace Parsek
             double arrivalHoldAlignPeriod = double.NaN,
             double launchBodyRotationPeriod = double.NaN,
             bool launchHoldEngaged = false,
-            double soiExitAtUT = double.NaN)
+            double soiExitAtUT = double.NaN,
+            double arrivalJointSecondaryPeriod = double.NaN,
+            double arrivalJointSecondaryTolerance = double.NaN,
+            int arrivalJointMaxWholeHoldPeriods = 0)
         {
             spanLoopUT = spanStartUT;
             unitCycle = 0;
@@ -1626,7 +1813,9 @@ namespace Parsek
                     currentUT, phaseAnchorUT, spanStartUT, spanEndUT, cadenceSeconds, out spanLoopUT,
                     out unitCycle, out isInInterCycleTail, schedule, loiterCuts,
                     arrivalHoldSeconds, arrivalHoldAtUT, arrivalHoldAlignPeriod,
-                    launchBodyRotationPeriod, launchHoldEngaged, soiExitAtUT))
+                    launchBodyRotationPeriod, launchHoldEngaged, soiExitAtUT,
+                    arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
+                    arrivalJointMaxWholeHoldPeriods))
                 return UnitMemberRenderDecision.SpanClockUnresolved;
 
             // Inter-cycle tail (the "wait" between cycles when cadence > span): render nothing. Under the
@@ -1730,7 +1919,10 @@ namespace Parsek
                 unit.ArrivalAlignPeriodSeconds,
                 unit.LaunchBodyRotationPeriodSeconds,
                 unit.LaunchHoldEngaged,
-                unit.RecordedSoiExitUT);
+                unit.RecordedSoiExitUT,
+                unit.ArrivalJointSecondaryPeriodSeconds,
+                unit.ArrivalJointSecondaryToleranceSeconds,
+                unit.ArrivalJointMaxWholeHoldPeriods);
 
             // Descent trigger (re-aim looped arrival, docs/dev/plans/reaim-descent-trigger.md): the post-parking
             // body-fixed approach clip (deorbit->reentry->landing for a surface mission, OR the rendezvous/docking
@@ -1826,14 +2018,14 @@ namespace Parsek
             // member that would otherwise render, so it is byte-identical everywhere else.
             if (unit.HasDescentTrigger && decision == UnitMemberRenderDecision.Render)
             {
-                Parsek.Reaim.DescentTrigger.DescentHeadPhase transferUnitPhase =
-                    Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead(
-                        liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
-                        unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
-                        unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out _,
-                ResolveDescentSiteAlignOffsetSeconds(unit, unitCycle));
-                bool hideForDescentHandoff =
-                    transferUnitPhase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Descent;
+                // Shared with the FLIGHT engine (UpdateUnitMemberPlayback) so the map/TS icon handoff and
+                // the flight 3D-ghost handoff can never disagree. This branch is only reachable for
+                // non-descent members (the descent branch above always returns), so the helper's own
+                // IsDescentMember guard is inert here. The helper threads the S4 site-align offset
+                // internally so the unit descent phase matches the rotated-window trigger.
+                bool hideForDescentHandoff = ShouldHideNonDescentMemberForDescentHandoff(
+                    unit, i, liveUT, unitCycle,
+                    out Parsek.Reaim.DescentTrigger.DescentHeadPhase transferUnitPhase);
                 var hdic = CultureInfo.InvariantCulture;
                 ParsekLog.VerboseRateLimited(
                     "ReaimDescent",
@@ -1978,6 +2170,36 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Descent HANDOFF hide for a NON-descent (transfer / loiter / launch / ride-along) member of a
+        /// descent-trigger unit - the ONE decision shared by the map/TS resolver
+        /// (<see cref="ResolveTrackingStationSampleUT"/>) and the FLIGHT engine
+        /// (<c>GhostPlaybackEngine.UpdateUnitMemberPlayback</c>), so the two scenes can never disagree on
+        /// when the transfer/loiter member hands off to the descent. While the unit-wide descent phase
+        /// (<see cref="Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead"/>) is <c>Descent</c> the
+        /// re-anchored descent member is playing the approach clip, so a currently-rendering non-descent
+        /// member must HIDE - otherwise two vessels coexist at the handoff (the parking icon/ghost + the
+        /// descent one, the 2026-06-20 13:34 double-icon bug). In Inert / Loiter / Done the member is left
+        /// untouched (the loiter icon/ghost is correct until the trigger fires). Returns false for descent
+        /// members and non-descent-trigger units (byte-identical everywhere else); callers gate on their
+        /// own decision==Render so a hidden member is never re-hidden. Pure: no Unity, no logging (each
+        /// call site owns its rate-limited "transfer/loiter member ... -> HIDDEN/kept" trace).
+        /// </summary>
+        internal static bool ShouldHideNonDescentMemberForDescentHandoff(
+            LoopUnit unit, int i, double liveUT, long unitCycle,
+            out Parsek.Reaim.DescentTrigger.DescentHeadPhase unitDescentPhase)
+        {
+            unitDescentPhase = Parsek.Reaim.DescentTrigger.DescentHeadPhase.Inert;
+            if (!unit.HasDescentTrigger || unit.IsDescentMember(i))
+                return false;
+            unitDescentPhase = Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead(
+                liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
+                unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
+                unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out _,
+                ResolveDescentSiteAlignOffsetSeconds(unit, unitCycle));
+            return unitDescentPhase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Descent;
+        }
+
+        /// <summary>
         /// I1 (re-aim descent "renders disconnected from the loiter"): the re-anchored DEORBIT-tail head for the
         /// DESTINATION transfer member (<see cref="LoopUnit.TransferMemberIndex"/>) of a descent-trigger unit, so
         /// the transfer member's contiguous deorbit /
@@ -2022,7 +2244,8 @@ namespace Parsek
                 memberStartUT, memberEndUT, out _, out long unitCycle, out _,
                 unit.RelaunchSchedule, unit.LoiterCuts, unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT,
                 unit.ArrivalAlignPeriodSeconds, unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged,
-                unit.RecordedSoiExitUT);
+                unit.RecordedSoiExitUT, unit.ArrivalJointSecondaryPeriodSeconds,
+                unit.ArrivalJointSecondaryToleranceSeconds, unit.ArrivalJointMaxWholeHoldPeriods);
             if (decision == UnitMemberRenderDecision.SpanClockUnresolved)
                 return false; // the loop has not started this frame
 
@@ -2068,7 +2291,8 @@ namespace Parsek
                 memberStartUT, memberEndUT, out _, out long unitCycle, out _,
                 unit.RelaunchSchedule, unit.LoiterCuts, unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT,
                 unit.ArrivalAlignPeriodSeconds, unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged,
-                unit.RecordedSoiExitUT);
+                unit.RecordedSoiExitUT, unit.ArrivalJointSecondaryPeriodSeconds,
+                unit.ArrivalJointSecondaryToleranceSeconds, unit.ArrivalJointMaxWholeHoldPeriods);
             if (decision == UnitMemberRenderDecision.SpanClockUnresolved)
                 return false;
 
@@ -2187,7 +2411,8 @@ namespace Parsek
                 memberStartUT, memberEndUT, out _, out long unitCycle, out _,
                 unit.RelaunchSchedule, unit.LoiterCuts, unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT,
                 unit.ArrivalAlignPeriodSeconds, unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged,
-                unit.RecordedSoiExitUT);
+                unit.RecordedSoiExitUT, unit.ArrivalJointSecondaryPeriodSeconds,
+                unit.ArrivalJointSecondaryToleranceSeconds, unit.ArrivalJointMaxWholeHoldPeriods);
             if (decision == UnitMemberRenderDecision.SpanClockUnresolved)
                 return false; // the loop has not started this frame
 
@@ -2403,7 +2628,8 @@ namespace Parsek
                 memberStartUT, memberEndUT, out _, out long unitCycle, out _,
                 unit.RelaunchSchedule, unit.LoiterCuts, unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT,
                 unit.ArrivalAlignPeriodSeconds, unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged,
-                unit.RecordedSoiExitUT);
+                unit.RecordedSoiExitUT, unit.ArrivalJointSecondaryPeriodSeconds,
+                unit.ArrivalJointSecondaryToleranceSeconds, unit.ArrivalJointMaxWholeHoldPeriods);
             if (decision == UnitMemberRenderDecision.SpanClockUnresolved)
                 return false;
 
@@ -2441,7 +2667,8 @@ namespace Parsek
                 memberStartUT, memberEndUT, out _, out long unitCycle, out _,
                 unit.RelaunchSchedule, unit.LoiterCuts, unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT,
                 unit.ArrivalAlignPeriodSeconds, unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged,
-                unit.RecordedSoiExitUT);
+                unit.RecordedSoiExitUT, unit.ArrivalJointSecondaryPeriodSeconds,
+                unit.ArrivalJointSecondaryToleranceSeconds, unit.ArrivalJointMaxWholeHoldPeriods);
             if (decision == UnitMemberRenderDecision.SpanClockUnresolved)
                 return false;
 
@@ -2495,7 +2722,8 @@ namespace Parsek
                 memberStartUT, memberEndUT, out _, out unitCycle, out _,
                 unit.RelaunchSchedule, unit.LoiterCuts, unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT,
                 unit.ArrivalAlignPeriodSeconds, unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged,
-                unit.RecordedSoiExitUT);
+                unit.RecordedSoiExitUT, unit.ArrivalJointSecondaryPeriodSeconds,
+                unit.ArrivalJointSecondaryToleranceSeconds, unit.ArrivalJointMaxWholeHoldPeriods);
             return decision != UnitMemberRenderDecision.SpanClockUnresolved;
         }
 
@@ -2528,7 +2756,8 @@ namespace Parsek
                 memberStartUT, memberEndUT, out _, out long unitCycle, out _,
                 unit.RelaunchSchedule, unit.LoiterCuts, unit.ArrivalHoldSeconds, unit.ArrivalHoldAtUT,
                 unit.ArrivalAlignPeriodSeconds, unit.LaunchBodyRotationPeriodSeconds, unit.LaunchHoldEngaged,
-                unit.RecordedSoiExitUT);
+                unit.RecordedSoiExitUT, unit.ArrivalJointSecondaryPeriodSeconds,
+                unit.ArrivalJointSecondaryToleranceSeconds, unit.ArrivalJointMaxWholeHoldPeriods);
             if (decision == UnitMemberRenderDecision.SpanClockUnresolved)
                 return false;
 
@@ -2607,7 +2836,10 @@ namespace Parsek
             double arrivalHoldAlignPeriod = double.NaN,
             double launchBodyRotationPeriod = double.NaN,
             bool launchHoldEngaged = false,
-            double soiExitAtUT = double.NaN)
+            double soiExitAtUT = double.NaN,
+            double arrivalJointSecondaryPeriod = double.NaN,
+            double arrivalJointSecondaryTolerance = double.NaN,
+            int arrivalJointMaxWholeHoldPeriods = 0)
         {
             secondaryLoopUT = spanStartUT;
             secondaryCycleIndex = 0;
@@ -2615,7 +2847,9 @@ namespace Parsek
             SpanLoopFrame frame = ComputeSpanLoopFrame(
                 currentUT, phaseAnchorUT, spanStartUT, spanEndUT, cadenceSeconds,
                 schedule, loiterCuts, arrivalHoldSeconds, arrivalHoldAtUT, arrivalHoldAlignPeriod,
-                launchBodyRotationPeriod, launchHoldEngaged, soiExitAtUT);
+                launchBodyRotationPeriod, launchHoldEngaged, soiExitAtUT,
+                arrivalJointSecondaryPeriod, arrivalJointSecondaryTolerance,
+                arrivalJointMaxWholeHoldPeriods);
 
             if (!frame.Resolved || !frame.HasSecondary)
                 return BoundaryOverlapSecondaryDecision.NoSecondary;
@@ -2681,7 +2915,10 @@ namespace Parsek
                 unit.ArrivalAlignPeriodSeconds,
                 unit.LaunchBodyRotationPeriodSeconds,
                 unit.LaunchHoldEngaged,
-                unit.RecordedSoiExitUT);
+                unit.RecordedSoiExitUT,
+                unit.ArrivalJointSecondaryPeriodSeconds,
+                unit.ArrivalJointSecondaryToleranceSeconds,
+                unit.ArrivalJointMaxWholeHoldPeriods);
 
             if (secDecision == BoundaryOverlapSecondaryDecision.Render)
             {

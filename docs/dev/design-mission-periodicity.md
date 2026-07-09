@@ -882,7 +882,9 @@ destination (Eve, Moho, Dres) imposes a single `DestRotation` constraint and no
   regime; detect (destination has more than one constrained moon) and report "many-moon
   destination not yet supported," falling to destination-rotation-only or faithful. The
   cutoff is the COUNT of constrained moons: 0 or 1 in scope, 2+ detected-and-reported as
-  not-supported.
+  not-supported. **RESOLVED by M-MIS-6** — the resonant-configuration cut is designed in
+  `docs/dev/design-mission-multimoon-alignment.md` (T_config joint-configuration hold,
+  finite aligned horizon; incommensurate packs still fail closed with amber).
 - **Multi-hop / gravity assist and deep chains** (Ike via Duna). Already excluded upstream
   by `ReaimClassifier` (single-hop direct-child guard), so such a mission never reaches
   `DestinationArrivalAlign`. A recorded landing ON Ike (Ike as the destination) is

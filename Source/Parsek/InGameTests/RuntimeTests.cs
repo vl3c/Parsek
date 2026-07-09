@@ -9606,12 +9606,42 @@ namespace Parsek.InGameTests
                 }
             }
 
+            // The stand-in must ALSO be absent from every visible recording
+            // snapshot's crew list: ResolveOrphanSeatFromSnapshots reverse-maps
+            // snapshot crew entries through crewReplacements, so a stand-in who
+            // appears in ANY committed snapshot (e.g. Jebediah recorded aboard
+            // this save's own Kerbal X) resolves a REAL seat for the fake
+            // orphan and the placement succeeds via name-fallback instead of
+            // deferring - the exact save-shape failure seen 2026-07-07 in the
+            // "orbital supply route" save.
+            var snapshotCrewNames = new HashSet<string>();
+            var visibleForCrew = EffectiveState.ComputeERS();
+            if (visibleForCrew != null)
+            {
+                for (int i = 0; i < visibleForCrew.Count; i++)
+                {
+                    var snap = visibleForCrew[i]?.GhostVisualSnapshot;
+                    if (snap == null) continue;
+                    var partNodes = snap.GetNodes("PART");
+                    for (int pn = 0; pn < partNodes.Length; pn++)
+                    {
+                        var crewValues = partNodes[pn].GetValues("crew");
+                        for (int cv = 0; cv < crewValues.Length; cv++)
+                        {
+                            if (!string.IsNullOrEmpty(crewValues[cv]))
+                                snapshotCrewNames.Add(crewValues[cv]);
+                        }
+                    }
+                }
+            }
+
             ProtoCrewMember standIn = null;
             foreach (ProtoCrewMember pcm in roster.Crew)
             {
                 if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Available
                     && pcm.type == ProtoCrewMember.KerbalType.Crew
-                    && !activeCrewNames.Contains(pcm.name))
+                    && !activeCrewNames.Contains(pcm.name)
+                    && !snapshotCrewNames.Contains(pcm.name))
                 {
                     standIn = pcm;
                     break;
@@ -9619,9 +9649,10 @@ namespace Parsek.InGameTests
             }
             if (standIn == null)
             {
-                InGameAssert.Skip("No Available crew kerbal in roster (not already on active vessel)");
+                InGameAssert.Skip("No Available crew kerbal in roster absent from both the active vessel and every visible snapshot crew list");
                 return;
             }
+            var savedStandInStatus = standIn.rosterStatus;
 
             uint missingPid = 4000000000u;
             bool pidCollision;
@@ -9720,6 +9751,29 @@ namespace Parsek.InGameTests
 
                 if (addedToCommitted)
                     RecordingStore.RemoveCommittedInternal(syntheticRecording);
+
+                // Defensive unseat: if the placement unexpectedly SUCCEEDED (premise
+                // violated), the stand-in is now seated on the active vessel with
+                // rosterStatus Assigned. Without this rollback the contamination
+                // cascades - the 2026-07-07 run left Jebediah Assigned-but-unseated
+                // after the batch restore and failed ReservedCrewNotAssigned two
+                // tests later. Unseat from whatever part received them and restore
+                // the saved roster status.
+                using (SuppressionGuard.Crew())
+                {
+                    for (int i = 0; i < av.parts.Count; i++)
+                    {
+                        var p = av.parts[i];
+                        if (p != null && p.protoModuleCrew.Contains(standIn))
+                        {
+                            p.RemoveCrewmember(standIn);
+                            ParsekLog.Info("TestRunner",
+                                $"Bug578 rollback: unseated stand-in '{standIn.name}' from '{p.partInfo?.title}' (placement premise was violated)");
+                            break;
+                        }
+                    }
+                    standIn.rosterStatus = savedStandInStatus;
+                }
 
                 InGameAssert.AreEqual(beforeCrewCount, unrelatedFreeSeatPart.protoModuleCrew.Count,
                     $"Rollback failed: unrelated free-seat part crew count not restored " +
@@ -11629,6 +11683,127 @@ namespace Parsek.InGameTests
                 {
                     try { HighLogic.CurrentGame.CrewRoster.Remove(testKerbal); }
                     catch { /* best-effort */ }
+                }
+            }
+        }
+
+        [InGameTest(Category = "SpawnTerminalOrbit", Scene = GameScenes.FLIGHT,
+            Description = "SpawnAtPosition no-orbitOverride branch reseeds an in-band orbit at station altitude — under the pre-fix bare UpdateFromStateVectors the absolute worldPos is read as body-relative and the orbit comes out sub-surface / ~500k-sma garbage; this is the regression guard for the OrbitReseed.FromWorldPosAndRecordedVelocity routing")]
+        public IEnumerator SpawnAtPosition_NoOverrideStationAltitude_ReseedsInBand()
+        {
+            // The headless OrbitReseedPureTests guard the pure frame-conversion helper, but the
+            // changed call site (VesselSpawner.SpawnAtPosition no-orbitOverride branch ->
+            // OrbitReseed.FromWorldPosAndRecordedVelocity -> Orbit.UpdateFromStateVectors) is
+            // Unity-bound (body.GetWorldSurfacePosition / body.position / OrbitDriver) and can
+            // only be exercised live. This mirrors the 2026-07-08 live repro: a spawn at a
+            // ~214.7 km station that materialized off-position and flipped SUB_ORBITAL. It calls
+            // SpawnAtPosition directly with orbitOverride=null and a recorder-frame (Y-up world)
+            // circular velocity, then asserts the resulting orbit is in-band and near-circular.
+            // Under the reverted bare call the orbit is sub-surface (periapsis far below the
+            // surface), sma is out of band, and the orbit is non-circular, so this fails on revert.
+            Vessel active = FlightGlobals.ActiveVessel;
+            if (active == null)
+            {
+                InGameAssert.Skip("needs Flight scene with an active vessel to snapshot a donor");
+                yield break;
+            }
+            CelestialBody body = active.mainBody;
+            if (body == null)
+            {
+                InGameAssert.Skip("active vessel has no mainBody");
+                yield break;
+            }
+
+            const double stationAlt = 214700.0; // matches the live repro station altitude
+            Vessel spawnedVessel = null;
+            uint spawnedPid = 0u;
+
+            try
+            {
+                ConfigNode donor = Parsek.VesselSpawner.TryBackupSnapshot(active);
+                if (donor == null)
+                {
+                    InGameAssert.Skip("TryBackupSnapshot of the active vessel returned null; cannot build a donor");
+                    yield break;
+                }
+
+                double ut = Planetarium.GetUniversalTime();
+                double spawnLat = active.latitude;
+                double spawnLon = active.longitude;
+
+                // Recorder-frame velocity is Y-up world. Build a circular tangent velocity in
+                // that same frame so the reseed produces a near-circular orbit at stationAlt;
+                // FromWorldPosAndRecordedVelocity applies .xzy consistently to pos and vel.
+                Vector3d worldPos = body.GetWorldSurfacePosition(spawnLat, spawnLon, stationAlt);
+                Vector3d bodyRel = worldPos - body.position;
+                double bodyRelDist = bodyRel.magnitude;
+                Vector3d radial = bodyRel / bodyRelDist;
+                Vector3d refAxis = System.Math.Abs(Vector3d.Dot(radial, Vector3d.up)) > 0.99
+                    ? Vector3d.right
+                    : Vector3d.up;
+                Vector3d tangent = Vector3d.Cross(radial, refAxis).normalized;
+                double vCirc = System.Math.Sqrt(body.gravParameter / bodyRelDist);
+                Vector3d recorderVelYup = tangent * vCirc;
+
+                spawnedPid = Parsek.VesselSpawner.SpawnAtPosition(
+                    donor, body, spawnLat, spawnLon, stationAlt,
+                    recorderVelYup, ut,
+                    preserveIdentity: false,
+                    terminalState: Parsek.TerminalState.Orbiting,
+                    orbitOverride: null);
+
+                InGameAssert.IsGreaterThan((double)spawnedPid, 0.0,
+                    "SpawnAtPosition should return a non-zero pid on the no-override branch");
+
+                // One frame so the OrbitDriver populates; a sub-surface orbit would also let
+                // KSP's on-rails pressure/terrain check destroy the vessel here, which the
+                // findable assertion below would then catch.
+                yield return new WaitForFixedUpdate();
+
+                spawnedVessel = Parsek.FlightRecorder.FindVesselByPid(spawnedPid);
+                InGameAssert.IsNotNull(spawnedVessel,
+                    "Spawned vessel should be findable by persistentId (a sub-surface reseed would have been destroyed)");
+
+                Orbit orbit = spawnedVessel.orbit;
+                InGameAssert.IsNotNull(orbit, "Spawned vessel should have an orbit");
+
+                double expectedSma = body.Radius + stationAlt; // circular target
+                double sma = orbit.semiMajorAxis;
+                double peA = orbit.PeA;
+                ParsekLog.Info("TestRunner",
+                    $"SpawnAtPosition_NoOverrideStationAltitude: sma={sma:F1} (expected~{expectedSma:F1}) " +
+                    $"PeA={peA:F1} ApA={orbit.ApA:F1} ecc={orbit.eccentricity:F4} bodyRelDist={bodyRelDist:F1}");
+
+                // Under the fix the orbit is near-circular at stationAlt; under the reverted bare
+                // call the absolute worldPos (measured from the floating origin near the active
+                // vessel) is read as the body-relative radius, so sma falls out of band and the
+                // periapsis is sub-surface. The eccentricity check is the frame-independent guard:
+                // the bare call feeds an UNSWIZZLED velocity that is not tangent to the mis-framed
+                // position, so its orbit is not circular even if |worldPos| coincidentally lands
+                // near Radius+alt for some active-vessel altitude.
+                InGameAssert.IsGreaterThan(sma, expectedSma * 0.8,
+                    $"Orbit sma ({sma:F1}) should be near the station radius ({expectedSma:F1}); a much smaller sma means the absolute worldPos was read as body-relative (the frame bug)");
+                InGameAssert.IsLessThan(sma, expectedSma * 1.2,
+                    $"Orbit sma ({sma:F1}) should be near the station radius ({expectedSma:F1})");
+                InGameAssert.IsGreaterThan(peA, body.atmosphereDepth,
+                    $"Orbit periapsis altitude ({peA:F1}) should be above the atmosphere, not sub-surface (the frame bug produces a sub-surface periapsis)");
+                InGameAssert.IsLessThan(orbit.eccentricity, 0.05,
+                    $"Orbit eccentricity ({orbit.eccentricity:F4}) should be near-circular; the reverted bare call's unswizzled velocity is not tangent to the mis-framed position, so its orbit is not circular regardless of any sma coincidence");
+            }
+            finally
+            {
+                if (spawnedVessel != null && spawnedVessel.protoVessel != null)
+                {
+                    try
+                    {
+                        ShipConstruction.RecoverVesselFromFlight(
+                            spawnedVessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Warn("TestRunner",
+                            $"SpawnAtPosition_NoOverrideStationAltitude cleanup failed: {ex.Message}");
+                    }
                 }
             }
         }

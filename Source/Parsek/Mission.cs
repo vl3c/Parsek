@@ -22,7 +22,22 @@ namespace Parsek
         // a vessel's leading interval start-trims it (e.g. show the pod only after the decouple,
         // not the launch); dropping a peeled branch's interval drops that branch. Empty = nothing
         // trimmed. Consumed by MissionIntervalSelection to derive per-vessel render windows.
+        // M-MIS-8: when a foreign dock link is included (IncludedForeignDockLinkIds), this set
+        // also holds excluded FOREIGN partner-journey interval keys - the keys are
+        // recording-GUID-rooted, hence globally unique across trees, so one set serves both
+        // sides of the seam.
         public readonly HashSet<string> ExcludedIntervalKeys = new HashSet<string>();
+
+        // M-MIS-8 (design: docs/dev/design-mission-crosstree-dock.md): the set of INCLUDED
+        // cross-tree foreign dock links - each id is the claiming Dock/Board BranchPoint's GUID
+        // in the FOREIGN (controller's) tree whose TargetVesselPersistentId matches a vessel of
+        // this mission's tree. Including a link pulls the derived PARTNER JOURNEY (the docked
+        // stretch + the partner's post-undock offshoot in the foreign tree) into this mission's
+        // selection and loop unit. Everything about the link beyond its id is DERIVED live via
+        // PID + launch-guid matching (MissionCrossTreeDock, walker parity). Default OFF (empty);
+        // the codec writes the key only when non-empty so pre-existing missions round-trip
+        // byte-identically.
+        public readonly HashSet<string> IncludedForeignDockLinkIds = new HashSet<string>();
 
         // Mission-level loop configuration. Multiple Missions may loop concurrently, but at
         // most one per recording tree: MissionStore.SetLoopEnabled clears only looping
@@ -76,6 +91,8 @@ namespace Parsek
                 copy.ExcludedThroughLineHeadIds.Add(h);
             foreach (string k in ExcludedIntervalKeys)
                 copy.ExcludedIntervalKeys.Add(k);
+            foreach (string l in IncludedForeignDockLinkIds)
+                copy.IncludedForeignDockLinkIds.Add(l);
             copy.LoopPlayback = LoopPlayback;
             copy.LoopIntervalSeconds = LoopIntervalSeconds;
             copy.LoopTimeUnit = LoopTimeUnit;
@@ -105,6 +122,19 @@ namespace Parsek
                 node.AddValue("excludedHead", h ?? "");
             foreach (string k in ExcludedIntervalKeys)
                 node.AddValue("excludedInterval", k ?? "");
+            // M-MIS-8: SPARSE - written only when a link is included, so every pre-existing
+            // (link-free) mission's save output is byte-identical to pre-feature builds.
+            // Sorted: HashSet enumeration order is nondeterministic, and an unsorted write
+            // would churn the save bytes of a LINKED mission across sessions with no logical
+            // change.
+            if (IncludedForeignDockLinkIds.Count > 0)
+            {
+                var links = new List<string>(IncludedForeignDockLinkIds);
+                links.Sort(StringComparer.Ordinal);
+                for (int i = 0; i < links.Count; i++)
+                    if (!string.IsNullOrEmpty(links[i]))
+                        node.AddValue("foreignDockLink", links[i]);
+            }
         }
 
         public static Mission Load(ConfigNode node)
@@ -151,6 +181,10 @@ namespace Parsek
             for (int i = 0; i < intervals.Length; i++)
                 if (!string.IsNullOrEmpty(intervals[i]))
                     m.ExcludedIntervalKeys.Add(intervals[i]);
+            string[] foreignLinks = node.GetValues("foreignDockLink");
+            for (int i = 0; i < foreignLinks.Length; i++)
+                if (!string.IsNullOrEmpty(foreignLinks[i]))
+                    m.IncludedForeignDockLinkIds.Add(foreignLinks[i]);
             return m;
         }
     }

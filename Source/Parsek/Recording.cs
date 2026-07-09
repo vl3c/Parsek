@@ -259,7 +259,7 @@ namespace Parsek
 
         // Route-facing connection metadata. TransferTargetVesselPid is the
         // connected endpoint vessel PID at a logistics-relevant boundary;
-        // TransferKind identifies the producer contract (DockingPort only in v0).
+        // TransferKind identifies the producer contract (DockingPort or Grapple; Unknown fails closed at route admission).
         public uint TransferTargetVesselPid;
         internal RouteConnectionKind TransferKind;
 

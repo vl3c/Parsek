@@ -142,7 +142,8 @@ namespace Parsek.Logistics
             // not yet supported" - multi-stop windows are now accepted + ordered.
             int missingProof = 0, unorderableWindows = 0, missingEndpoint = 0,
                 mixedPickup = 0, noManifest = 0, undockedStart = 0, untrackedGain = 0,
-                flowNotClosed = 0;
+                flowNotClosed = 0, startTrimUnsupported = 0,
+                unsupportedKind = 0;
             for (int i = 0; i < committedTrees.Count; i++)
             {
                 RecordingTree tree = committedTrees[i];
@@ -181,6 +182,8 @@ namespace Parsek.Logistics
                         case RouteAnalysisStatus.UndockedStartOrigin: undockedStart++; break;
                         case RouteAnalysisStatus.UntrackedCargoGain: untrackedGain++; break;
                         case RouteAnalysisStatus.FlowDoesNotClose: flowNotClosed++; break;
+                        case RouteAnalysisStatus.MidRecordingStartTrimUnsupported: startTrimUnsupported++; break;
+                        case RouteAnalysisStatus.UnsupportedConnectionKind: unsupportedKind++; break;
                     }
                     continue;
                 }
@@ -201,7 +204,9 @@ namespace Parsek.Logistics
                 $"[missingProof={missingProof} unorderableWindows={unorderableWindows} " +
                 $"missingEndpoint={missingEndpoint} mixedPickup={mixedPickup} " +
                 $"noManifest={noManifest} undockedStart={undockedStart} " +
-                $"untrackedGain={untrackedGain} flowNotClosed={flowNotClosed}]");
+                $"untrackedGain={untrackedGain} flowNotClosed={flowNotClosed} " +
+                $"startTrimUnsupported={startTrimUnsupported} " +
+                $"unsupportedKind={unsupportedKind}]");
             return result;
         }
 
@@ -250,7 +255,8 @@ namespace Parsek.Logistics
             // genuinely-UNORDERABLE case (duplicate / NaN DockUT).
             int missingProof = 0, unorderableWindows = 0, missingEndpoint = 0,
                 mixedPickup = 0, noManifest = 0, undockedStart = 0, untrackedGain = 0,
-                flowNotClosed = 0;
+                flowNotClosed = 0, startTrimUnsupported = 0,
+                unsupportedKind = 0;
             for (int i = 0; i < committedTrees.Count; i++)
             {
                 RecordingTree tree = committedTrees[i];
@@ -299,6 +305,8 @@ namespace Parsek.Logistics
                         case RouteAnalysisStatus.UndockedStartOrigin: undockedStart++; break;
                         case RouteAnalysisStatus.UntrackedCargoGain: untrackedGain++; break;
                         case RouteAnalysisStatus.FlowDoesNotClose: flowNotClosed++; break;
+                        case RouteAnalysisStatus.MidRecordingStartTrimUnsupported: startTrimUnsupported++; break;
+                        case RouteAnalysisStatus.UnsupportedConnectionKind: unsupportedKind++; break;
                     }
                     result.Add(new RouteNearMiss
                     {
@@ -321,7 +329,9 @@ namespace Parsek.Logistics
                 $"[missingProof={missingProof} unorderableWindows={unorderableWindows} " +
                 $"missingEndpoint={missingEndpoint} mixedPickup={mixedPickup} " +
                 $"noManifest={noManifest} undockedStart={undockedStart} " +
-                $"untrackedGain={untrackedGain} flowNotClosed={flowNotClosed}]");
+                $"untrackedGain={untrackedGain} flowNotClosed={flowNotClosed} " +
+                $"startTrimUnsupported={startTrimUnsupported} " +
+                $"unsupportedKind={unsupportedKind}]");
             return result;
         }
 

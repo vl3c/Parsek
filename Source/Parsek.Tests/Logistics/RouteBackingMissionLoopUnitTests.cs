@@ -655,5 +655,103 @@ namespace Parsek.Tests.Logistics
             }
         }
 
+        // -----------------------------------------------------------------
+        // M-MIS-5 P2b: mid-tree docked-origin (shuttle) loop unit
+        // -----------------------------------------------------------------
+
+        // Shuttle tree (mirrors RouteBackingMissionTests.BuildShuttleOriginTree):
+        // mid-orbit root -> dock at depot A -> ORIGIN undock (depot-A offshoot
+        // peels) -> transit -> dock at depot B -> undock (payload peels).
+        // The route spans [origin undock 1500 .. depot-B dock 2500].
+        private static RecordingTree BuildShuttleOriginTree(string treeId)
+        {
+            return Tree(treeId, new[]
+                {
+                    Leg("root", "C0", 0, 0, 1000, vessel: "Transport"),
+                    Leg("dockedA", "C0", 1, 1000, 1500, vessel: "Transport"),
+                    Leg("transit", "C0", 2, 1500, 2500, vessel: "Transport"),
+                    Leg("depotA", "C1", 0, 1500, 2600, vessel: "DepotA"),
+                    Leg("dockedB", "C0", 3, 2500, 3000, vessel: "Transport"),
+                    Leg("survivor", "C0", 4, 3000, 3600, vessel: "Transport"),
+                    Leg("payload", "C2", 0, 3000, 3300, vessel: "Payload")
+                },
+                new[]
+                {
+                    BP("dockA-bp", BranchPointType.Dock,
+                        new[] { "root" }, new[] { "dockedA" }, ut: 1000),
+                    BP("origin-undock-bp", BranchPointType.Undock,
+                        new[] { "dockedA" }, new[] { "transit", "depotA" }, ut: 1500),
+                    BP("dockB-bp", BranchPointType.Dock,
+                        new[] { "transit" }, new[] { "dockedB" }, ut: 2500),
+                    BP("undockB-bp", BranchPointType.Undock,
+                        new[] { "dockedB" }, new[] { "survivor", "payload" }, ut: 3000)
+                });
+        }
+
+        // catches (M-MIS-5 P2b, seam (e)): the loop-unit span for a mid-tree
+        // docked-origin route not re-deriving from the start-trimmed selection -
+        // the span must START at the ORIGIN UNDOCK (a non-launch span start)
+        // and end at the delivery dock, with only the transit leg a member and
+        // the cadence equal to the transit span. No builder change: the excluded
+        // keys alone move the span, exactly like the D4 end flip.
+        [Fact]
+        public void RouteMission_MidTreeOrigin_SpanStartsAtOriginUndock_TrimmedToDock()
+        {
+            const string treeId = "tree-shuttle-loopunit";
+            RecordingTree tree = BuildShuttleOriginTree(treeId);
+            var committed = new List<Recording>(tree.Recordings.Values);
+            int idxRoot = committed.FindIndex(r => r.RecordingId == "root");
+            int idxDockedA = committed.FindIndex(r => r.RecordingId == "dockedA");
+            int idxTransit = committed.FindIndex(r => r.RecordingId == "transit");
+            int idxDepotA = committed.FindIndex(r => r.RecordingId == "depotA");
+            int idxDockedB = committed.FindIndex(r => r.RecordingId == "dockedB");
+            int idxSurvivor = committed.FindIndex(r => r.RecordingId == "survivor");
+            int idxPayload = committed.FindIndex(r => r.RecordingId == "payload");
+
+            // Creation-time exclusion union exactly as RouteBuilder derives it:
+            // end trim at depot B's dock + start trim at the origin undock.
+            HashSet<string> excluded = RouteBackingMission.ComputeExcludedIntervalKeys(
+                tree, segmentEndUT: 2500.0, launchUT: 0.0);
+            excluded.UnionWith(RouteBackingMission.ComputeStartExcludedIntervalKeys(
+                tree, segmentStartUT: 1500.0));
+
+            Route route = new RouteFixtureBuilder()
+                .WithId("route-shuttle-loopunit")
+                .WithName("Shuttle Loop Unit Route")
+                .WithBackingMissionTreeId(treeId)
+                .WithSchedule(1000.0, 1000.0)   // span [undockA..dockB] == interval
+                .WithLoopAnchorUT(1500.0)
+                .Build();
+            foreach (string key in excluded)
+                route.ExcludedIntervalKeys.Add(key);
+            route.RecordedOriginUndockUT = 1500.0;
+            Mission routeMission = RouteBackingMission.BuildMission(route, currentUT: 100000.0);
+
+            GhostPlaybackLogic.LoopUnitSet set = MissionLoopUnitBuilder.Build(
+                new List<Mission> { routeMission }, new[] { tree }, committed, AutoInterval);
+
+            Assert.Equal(1, set.Count);
+
+            // Only the transit leg loops; everything pre-origin, the depot-A
+            // offshoot, the docked-at-B stretch, and the post-undock structure
+            // are non-members.
+            Assert.True(set.IsMember(idxTransit), "transit leg must be a unit member");
+            Assert.False(set.IsMember(idxRoot), "pre-origin root leg must be trimmed");
+            Assert.False(set.IsMember(idxDockedA), "docked-at-A stretch must be trimmed");
+            Assert.False(set.IsMember(idxDepotA), "depot-A offshoot must be trimmed");
+            Assert.False(set.IsMember(idxDockedB), "docked-at-B stretch must be trimmed");
+            Assert.False(set.IsMember(idxSurvivor), "post-undock survivor must be trimmed");
+            Assert.False(set.IsMember(idxPayload), "post-undock payload must be trimmed");
+
+            // The span starts at the ORIGIN UNDOCK (non-launch span start) and
+            // ends at the delivery dock; the realized cadence is the transit span.
+            foreach (var kvp in set.UnitsByOwner)
+            {
+                Assert.Equal(1500.0, kvp.Value.SpanStartUT); // the origin undock
+                Assert.Equal(2500.0, kvp.Value.SpanEndUT);   // the delivery dock
+                Assert.Equal(1000.0, kvp.Value.CadenceSeconds);
+            }
+        }
+
     }
 }
