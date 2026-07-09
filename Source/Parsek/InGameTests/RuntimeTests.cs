@@ -11847,12 +11847,24 @@ namespace Parsek.InGameTests
             // the parent is itself on the surface. Run the batch from an orbiting station and
             // the endpoint is a couple hundred kilometres below it: no overlap, no walkback,
             // and the test would silently measure nothing.
-            if (!activeVessel.LandedOrSplashed)
+            //
+            // SPLASHED is deliberately excluded (not just airborne/orbit): the fixture builds a
+            // TerminalState.Landed recording, so TryWalkbackForEndOfRecordingSpawn takes the
+            // raycast-snap branch. Over water that raycast passes through the (collider-less)
+            // ocean and hits the SEABED, snapping the spawn to seabed+1 and injecting the water
+            // depth into the measured travel — over deep ocean that pushes distFromEndpoint past
+            // the overshoot bound and false-fails a walkback that behaved correctly. Require
+            // solid ground (landed or prelaunch on the pad), not merely LandedOrSplashed.
+            bool onSolidGround = !activeVessel.Splashed
+                && (activeVessel.Landed
+                    || activeVessel.situation == Vessel.Situations.PRELAUNCH);
+            if (!onSolidGround)
             {
                 InGameAssert.Skip(
-                    $"requires a LANDED or SPLASHED active vessel — the end-of-recording EVA spawn puts " +
-                    $"its endpoint on the terrain under the parent, which can only overlap a parent that " +
-                    $"is itself on the surface, got {activeVessel.situation} at " +
+                    $"requires a LANDED or PRELAUNCH active vessel on solid ground — the fixture's Landed EVA " +
+                    $"recording puts its endpoint on the terrain under the parent (only a parent on the surface " +
+                    $"overlaps it), and a SPLASHED parent makes the walkback raycast snap through the water to the " +
+                    $"seabed and contaminate the measured travel with the water depth, got {activeVessel.situation} at " +
                     $"{activeVessel.altitude.ToString("F0", CultureInfo.InvariantCulture)} m altitude");
                 yield break;
             }
@@ -12072,12 +12084,19 @@ namespace Parsek.InGameTests
             finally
             {
                 ParsekLog.TestObserverForTesting = prevObserver;
-                if (spawnedVessel != null && spawnedVessel.protoVessel != null)
+                // Recover the spawned vessel. spawnedVessel may still be null if an assertion
+                // between the spawn call and the FindVesselByPid assignment threw (e.g. on a
+                // regressed build), so fall back to the recorded spawn pid rather than leaking
+                // a real vessel the spawn actually created.
+                Vessel toRecover = spawnedVessel;
+                if (toRecover == null && rec != null && rec.SpawnedVesselPersistentId != 0)
+                    toRecover = Parsek.FlightRecorder.FindVesselByPid(rec.SpawnedVesselPersistentId);
+                if (toRecover != null && toRecover.protoVessel != null)
                 {
                     try
                     {
                         ShipConstruction.RecoverVesselFromFlight(
-                            spawnedVessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                            toRecover.protoVessel, HighLogic.CurrentGame.flightState, true);
                     }
                     catch (System.Exception ex)
                     {
