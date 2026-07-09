@@ -378,7 +378,7 @@ catch one of them:
 1. **Placeholder path.** Non-in-place Re-Fly: a fresh provisional
    recording is built and `MergeJournalOrchestrator.RunMerge`
    drives the supersede / tombstone / finalize / RpReap phases.
-2. **In-place continuation path.** [MergeDialog.cs:393-660](../Source/Parsek/MergeDialog.cs)
+2. **In-place continuation path.** [MergeDialog.cs:393-660](../../Source/Parsek/MergeDialog.cs)
    detects in-place continuation, runs its own
    `SupersedeCommit.AppendRelations` + `FlipMergeStateAndClearTransient`
    + RP reap + `persistent.sfs` durable save sequence, and returns

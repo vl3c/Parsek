@@ -3,7 +3,7 @@
 > **STATUS: CURRENT (Phase 0 DoD artifact).** This table is the migration plan's required
 > "scenario -> design-§11.5-matrix-row traceability" deliverable
 > ([`map-ts-render-overhaul-migration.md`](map-ts-render-overhaul-migration.md) §2). Every situation in
-> §11.5 of [`../design-map-ts-render-architecture.md`](../design-map-ts-render-architecture.md) maps to
+> §11.5 of [`../design-map-ts-render-architecture.md`](../../design-map-ts-render-architecture.md) maps to
 > EITHER a headless regression scenario (a named xUnit test), OR a dedicated in-game scenario/test, OR an
 > explicit out-of-scope entry with a one-line reason. No row is left unmapped, so coverage holes cannot
 > pass silently.

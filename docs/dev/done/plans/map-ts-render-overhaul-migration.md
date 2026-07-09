@@ -1,7 +1,7 @@
 # Migration Plan: Unified Trajectory & Map/TS Render Architecture
 
 > **STATUS: CURRENT plan.** The detailed, phased, parity-gated implementation sequence for
-> [`../design-map-ts-render-architecture.md`](../design-map-ts-render-architecture.md) (the unified
+> [`../design-map-ts-render-architecture.md`](../../design-map-ts-render-architecture.md) (the unified
 > design, landed in PR #1202). This expands §16 of that doc into an executable sequence. Each phase is a
 > separate worktree + PR, gated on the three non-negotiable acceptance criteria (no regression / full
 > `MapRenderTrace` logging / full unit + in-game tests). Reviewed clean-context before landing (the
