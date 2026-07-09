@@ -11698,9 +11698,9 @@ namespace Parsek.InGameTests
             // only be exercised live. This mirrors the 2026-07-08 live repro: a spawn at a
             // ~214.7 km station that materialized off-position and flipped SUB_ORBITAL. It calls
             // SpawnAtPosition directly with orbitOverride=null and a recorder-frame (Y-up world)
-            // circular velocity, then asserts the resulting orbit is in-band. Under the reverted
-            // bare call the orbit would be sub-surface (periapsis far below the surface) and the
-            // sma orders of magnitude off, so this fails on revert.
+            // circular velocity, then asserts the resulting orbit is in-band and near-circular.
+            // Under the reverted bare call the orbit is sub-surface (periapsis far below the
+            // surface), sma is out of band, and the orbit is non-circular, so this fails on revert.
             Vessel active = FlightGlobals.ActiveVessel;
             if (active == null)
             {
@@ -11775,14 +11775,20 @@ namespace Parsek.InGameTests
                     $"PeA={peA:F1} ApA={orbit.ApA:F1} ecc={orbit.eccentricity:F4} bodyRelDist={bodyRelDist:F1}");
 
                 // Under the fix the orbit is near-circular at stationAlt; under the reverted bare
-                // call sma is orders of magnitude off (it tracks the absolute |worldPos|, which
-                // near the floating origin is tiny) and periapsis is deep sub-surface.
+                // call the absolute worldPos (measured from the floating origin near the active
+                // vessel) is read as the body-relative radius, so sma falls out of band and the
+                // periapsis is sub-surface. The eccentricity check is the frame-independent guard:
+                // the bare call feeds an UNSWIZZLED velocity that is not tangent to the mis-framed
+                // position, so its orbit is not circular even if |worldPos| coincidentally lands
+                // near Radius+alt for some active-vessel altitude.
                 InGameAssert.IsGreaterThan(sma, expectedSma * 0.8,
                     $"Orbit sma ({sma:F1}) should be near the station radius ({expectedSma:F1}); a much smaller sma means the absolute worldPos was read as body-relative (the frame bug)");
                 InGameAssert.IsLessThan(sma, expectedSma * 1.2,
                     $"Orbit sma ({sma:F1}) should be near the station radius ({expectedSma:F1})");
                 InGameAssert.IsGreaterThan(peA, body.atmosphereDepth,
                     $"Orbit periapsis altitude ({peA:F1}) should be above the atmosphere, not sub-surface (the frame bug produces a sub-surface periapsis)");
+                InGameAssert.IsLessThan(orbit.eccentricity, 0.05,
+                    $"Orbit eccentricity ({orbit.eccentricity:F4}) should be near-circular; the reverted bare call's unswizzled velocity is not tangent to the mis-framed position, so its orbit is not circular regardless of any sma coincidence");
             }
             finally
             {
