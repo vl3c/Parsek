@@ -4,8 +4,8 @@
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how the game's resource state (everything except vessel trajectories) is tracked, reconciled, and kept consistent across rewinds.*
 
-**Version:** 0.5 (Phases 1-8 complete)
-**Status:** All phases implemented and tested (4700+ tests). Full ledger-based recalculation engine with 8 resource modules (Science, Funds, Reputation, Milestones, Contracts, Facilities, Strategies, Kerbals). KSP state patching for all resource types including contract restoration from ConfigNode snapshots and milestone reversal via reflection. Kerbal lifecycle management with reservation chains, stand-in generation, and retirement — fully integrated into the engine walk via IResourceModule (T42 complete). Contract deadline failure generation, rescue detection, warp facility patching, and MIA respawn override all complete. Remaining: mod compatibility testing (T43).
+**Version:** 0.6 (Phases 1-8 complete)
+**Status:** All phases implemented and tested (4700+ tests). Full ledger-based recalculation engine with 9 resource modules (Science, Funds, Reputation, Milestones, Contracts, Facilities, Strategies, Kerbals, Routes). KSP state patching for all resource types including contract restoration from ConfigNode snapshots and milestone reversal via reflection. Kerbal lifecycle management with reservation chains, stand-in generation, and retirement is fully integrated into the engine walk via IResourceModule (T42 complete): KerbalsModule is a registered first-tier module that consumes KerbalAssignment in ProcessAction and builds the replacement chains + retired set in PostWalk. Shipped since the earlier draft: contract deadline-expiry penalties (ContractsModule injects a synthetic ContractFail with funds + reputation penalties at the deadline UT), contract-completion science crediting (ScienceModule credits TransformedScienceReward), the second-tier RouteModule (logistics/supply routes, milestones M1-M6), rescue detection, warp facility-visual patching, and MIA respawn override. Verification tooling is shipped: the ledger ground-truth harness (CareerSaveParser / LedgerGroundTruthDiff / in-game LedgerGroundTruthHarness) diffs recalc output against the on-disk save, and the event-driven LedgerTrace tracer instruments the apply boundary. The re-fly work binds ledger state to recording lifecycle via EffectiveState ERS/ELS routing, RecordingSupersedeRelation rows, and recording-scoped LedgerTombstones.
 **Out of scope:** Vessel recording system, DAG structure, ghost rendering, distance zones. See `parsek-recording-system-design.md` for those.
 
 ---
@@ -71,6 +71,7 @@ The player never sees a broken state. If something goes truly wrong, KSP load (t
 | Career | Contracts | Accept/complete/fail/cancel lifecycle | Advance payments, completion rewards | Penalties on fail/cancel |
 | Career | Facilities | KSC building levels and destruction state | — | Upgrade cost, repair cost |
 | Career | Strategies | Resource conversion policies | Ongoing contract reward transforms | Setup cost |
+| Career | Routes | Logistics supply routes (dispatch/delivery cycles, pause, endpoint state) | Recovery credit observed (funds applied by FundsModule) | Dispatch/cargo debit (future integration) |
 
 ### 1.6 Example: a career Mun landing
 
@@ -166,7 +167,9 @@ The game actions system is a **standalone module** that tracks every resource-re
 
 ### 3.1 Coupling between systems
 
-The coupling between the two systems is exactly one field: `recordingId` on earning actions. When a recording is committed, its associated earning actions join the timeline. The recording system doesn't know about science values. The ledger doesn't know about trajectories. They share a key.
+The original coupling between the two systems was a single field: `recordingId` on earning actions. When a recording is committed, its associated earning actions join the timeline. The recording system doesn't know about science values. The ledger doesn't know about trajectories. They share a key.
+
+The re-fly work broadened this coupling beyond that one field. Ledger reads of committed recordings and ledger actions now route through `EffectiveState.ComputeERS` / `ComputeELS` (effective-recording-set / effective-ledger-set) rather than the raw stores, so ledger-derived state follows recording visibility. Re-fly also writes `RecordingSupersedeRelation` rows keyed by recording id and builds `LedgerTombstone`s scoped to superseded recording subtrees, so a recording's lifecycle (supersede, subtree closure) directly shapes which ledger actions are effective. See `SupersedeCommit.cs` and `LedgerTombstone.cs`.
 
 ### 3.2 API between systems
 
@@ -354,6 +357,9 @@ Each resource type is an independent module with its own earning/spending rules.
 | Career | Kerbals | Hiring, assignment, XP gain, death/MIA | Hiring cost (funds) |
 | Career | Facilities | — | Upgrade cost (funds), gates capabilities |
 | Career | Strategies | Ongoing resource conversion rates | — |
+| Career | Routes | Recovery credit observed (funds via FundsModule) | Dispatch/cargo debit (future integration) |
+
+The **Routes** module (`RouteModule`, second-tier, registered after `FundsModule`) tracks logistics supply routes across the walk: per-route dispatched cycles, delivered stops, pause state, and endpoint-resolution failures. It is observe-only today. It reads the route action stream (`RouteDispatched`, `RouteCargoDelivered`, `RouteRecoveryCredited`) fed by the engine and does not itself mutate stock funds/cargo (the recovery credit's funds effect is applied by `FundsModule`; RouteModule only observes the row). Affordability gating, KSC dispatch charging, cargo debit, and endpoint resolution are future integration work; the second-tier slot after `FundsModule` is locked in so RouteModule can later read `GameAction.Affordable` to gate KSC-origin dispatch. The route system (logistics milestones M1-M6) has its own design spec: see `docs/parsek-logistics-supply-routes-design.md`.
 
 ### 3.12 Module documentation template
 
@@ -482,7 +488,7 @@ The recalculation is pure — it reads the ledger and produces derived state. Th
 
 ### 15.3 Warp cycle
 
-**Status: NOT YET IMPLEMENTED.** The warp model below is designed but the implementation (facility visual updates during warp, event queue) is future work. The warp exit recalculation trigger IS wired.
+**Status: PARTIALLY IMPLEMENTED.** The warp exit recalculation trigger IS wired, and the facility-visual portion of the model IS wired. On warp start `ParsekFlight.OnTimeWarpRateChanged` calls `KspStatePatcher.PatchFacilities` so buildings render their correct (derived) level/destruction state during warp; on warp exit it runs the full recalculation and uses `LedgerOrchestrator.HasFacilityActionsInRange(warpStartUT, warpEndUT)` (true when any `FacilityUpgrade`, `FacilityDestruction`, or `FacilityRepair` action falls in the crossed range) to log facility crossings. What is NOT yet implemented: true real-time per-frame facility visual updates during warp (the current approach only patches to the final derived state at warp start and again at warp exit, not per crossed UT), the dedicated during-warp game-action event queue, and the warp-exit player-feedback summary described below. Those remain design-only.
 
 During time warp (fast-forward), the player is not in control. KSP state mutation is deferred until the player exits warp. The warp cycle follows the same collect-during-warp, process-on-exit pattern used for vessel spawning.
 
@@ -543,6 +549,14 @@ KSP LOAD:
 ```
 
 In most cases after a KSP load, the patched state will match what's already in the save. The recalculation is a verification step — it ensures consistency even if the save was edited or corrupted.
+
+### 15.6 Ledger ground-truth verification and apply-boundary tracing
+
+Two shipped subsystems verify and observe the patch pipeline described above.
+
+**Ledger ground-truth harness (non-circular).** `LedgerOrchestrator.RecalculateAndPatch` derives KSP state from the ledger; the ground-truth harness checks that derivation against KSP's own on-disk save rather than against live state after patching (which would be a tautology). Layer A is pure and headless-testable: `CareerSaveParser.Parse(ConfigNode)` independently parses a career `.sfs` GAME node (funds, science pool + per-subject, reputation, facility level fractions, contract guids, qualified milestone ids, per-vessel resource totals) into a `CareerSaveSnapshot`, and `LedgerGroundTruthDiff.Compare` diffs a `LedgerReconstructionSnapshot` against it per facet, producing a `LedgerDivergenceReport` (unit-tested in `LedgerGroundTruth{Parser,Diff}Tests.cs`). Layer B is the in-game `LedgerGroundTruthHarness` test (category `LedgerGroundTruth`, career + FLIGHT only): it quicksaves the live career, parses it via `CareerSaveParser`, runs a recalculation, and diffs the reconstruction against the parsed save. The seeded pools (funds/science/reputation) and guid-corroborated vessel-recovery consistency are hard-asserted; per-identity facets and phantoms are report-only by default. See `docs/dev/design-ledger-groundtruth-harness.md`.
+
+**Ledger apply-boundary tracer (`LedgerTrace`).** Gated, event-driven observability for the code that rewrites career scalars every recalc (off by default behind the `ledgerTracing` setting). Unlike the map render tracer it has no per-frame probe: the read-back reconcile runs synchronously inside each `KspStatePatcher.Patch*`. Three tiers: a per-recalc structural snapshot (Tier A, one grep-stable `phase=Structural funds/science/rep/facilities/...` line emitted from `ApplyRecalculatedStateToKsp`); per-identity change lines (Tier B, keyed `resource|id`); and a read-back `ledger-vs-truth` anomaly (Tier C, `Warn`) via pure predicates comparing the patched-in target against the value actually read back from KSP. A monotonic `recalcSeq` stamps every line so one recalc burst is grep-sliceable.
 
 ---
 
@@ -1405,7 +1419,7 @@ RecalculateContracts():
 
 ### 8.6 Deadline handling
 
-**Status: PARTIALLY IMPLEMENTED.** Deadline slot-freeing is implemented: `ContractsModule.CheckDeadlines` runs on every `ProcessAction` dispatch and removes expired contracts from `activeContracts` when the deadline UT is crossed. However, penalty application on deadline expiry is NOT implemented — the slot is freed silently without generating a synthetic `ContractFail` action with fund/rep penalties.
+**Status: IMPLEMENTED.** Both deadline slot-freeing and penalty application are implemented. `ContractsModule.CheckDeadlines` runs on every `ProcessAction` dispatch and removes expired contracts from `activeContracts` when the deadline UT is crossed. `ContractsModule.PrePass` scans accepted contracts for deadlines that expire without a prior completion or cancellation and injects a synthetic `ContractFail` action at the deadline UT carrying the contract's `FundsPenalty` and `RepPenalty`. The walk then applies the funds penalty through `FundsModule.ProcessContractFail` and the reputation penalty through `ReputationModule`. An explicit `ContractFail` / `ContractCancel` at or before the deadline suppresses the synthetic fail, so a contract is never double-penalized.
 
 Contracts with deadlines generate an automatic failure event when the deadline UT is crossed. During the recalculation walk, if an accepted contract's deadline UT is reached without a prior completion or cancellation, the walk inserts a `ContractFail` event at the deadline UT.
 
@@ -1859,13 +1873,11 @@ This means the total number of kerbals in KSP's roster can exceed the Astronaut 
 
 ### 15.15 Implementation Architecture (Post-Build)
 
-**The kerbals module does NOT participate in the unified recalculation walk.** Unlike all other modules, `KerbalsModule` is a separate static class with its own `Recalculate()` method that operates directly on `RecordingStore.CommittedRecordings` (vessel snapshots), not on `GameAction` entries from the ledger.
+**The kerbals module participates in the unified recalculation walk as a registered first-tier `IResourceModule`.** `KerbalsModule` implements `IResourceModule` and is registered at `RecalculationEngine.ModuleTier.FirstTier` in `LedgerOrchestrator.Initialize` (the migration tracked as T42 is complete). Its `ProcessAction` consumes `KerbalAssignment` actions during the walk, and its `PostWalk` builds the replacement chains and computes the retired stand-in set. It also reads crew presence from `RecordingStore.CommittedRecordings` (vessel snapshots) to drive reservation, because kerbal identity is anchored to which crew are on which vessel, not to discrete actions alone.
 
-**Why:** Kerbal reservation depends on crew presence in vessel snapshots (which crew members are on which vessel), not on discrete game actions. `KerbalAssignment` actions ARE now generated at commit time via `LedgerOrchestrator.CreateKerbalAssignmentActions` (from crew snapshot data), but they are not yet consumed by any module in the recalculation walk. `KerbalRescue` and `KerbalStandIn` action types exist in the `GameActionType` enum with full serialization but are not currently produced. `KerbalHire` IS produced by `GameStateEventConverter` and consumed by `FundsModule` (for hiring cost deduction).
+**Why:** Kerbal reservation depends on crew presence in vessel snapshots (which crew members are on which vessel), not on discrete game actions alone. `KerbalAssignment` actions are generated at commit time via `LedgerOrchestrator.CreateKerbalAssignmentActions` (from crew snapshot data) and are consumed by `KerbalsModule.ProcessAction` in the walk. `KerbalHire` IS produced by `GameStateEventConverter` and consumed by `FundsModule` (for hiring cost deduction). `KerbalRescue` and `KerbalStandIn` action types exist in the `GameActionType` enum with full serialization, reserved for future use.
 
 **Chain and reservation system:** Operates as designed (UT=0 reservation, replacement chains, retired pool, dismissal protection). Fully integrated into the engine walk as a first-tier IResourceModule (T42). ProcessAction consumes KerbalAssignment actions; PostWalk builds chains and retired set; ApplyToRoster called by orchestrator after the walk.
-
-**Future direction:** `KerbalAssignment` actions are already produced and persisted in the ledger. To complete the migration: register `KerbalsModule` as an `IResourceModule` and process kerbal actions in the walk (for kerbal-specific UI in the ledger actions list). The `KerbalRescue` and `KerbalStandIn` action types are ready for the same treatment when needed.
 
 ---
 
@@ -2127,7 +2139,7 @@ Edge cases and gaps discovered by simulating concrete KSP gameplay scenarios aga
 
 **~~Science and reputation wiped on mid-career Parsek install.~~** FIXED (v0.4). `Ledger.SeedInitialScience` and `Ledger.SeedInitialReputation` are called in `RecalculateAndPatch`, creating `ScienceInitial` and `ReputationInitial` seed actions alongside the existing `FundsInitial`.
 
-**Contract science rewards not credited.** Status unclear — `ScienceModule.ProcessAction` may need to handle `ContractComplete` actions by reading `TransformedScienceReward` when `Effective=true`. Needs verification.
+**~~Contract science rewards not credited.~~** FIXED. `ScienceModule.ProcessAction` dispatches `ContractComplete` to `ProcessContractScienceReward`, which credits `action.TransformedScienceReward` (the post-strategy-transform value) into effective earnings when `action.Effective == true` (the chronologically first completion gets the credit; later duplicate completions are skipped).
 
 ### 13.2 Edge Cases Discovered
 
@@ -2145,7 +2157,7 @@ Edge cases and gaps discovered by simulating concrete KSP gameplay scenarios aga
 
 ### 14.3 Performance Notes
 
-The recalculation walk is O(n log n) sort + O(n × m) dispatch (n=actions, m=7 modules). For 500 actions, this completes in well under 1ms. The most expensive per-action operation is the reputation curve evaluation (integer-step loop per nominal rep value), but even with 50 rep actions this is trivially fast. LINQ `SortActions` allocates a new list each call — minor GC pressure, could be optimized to sort in-place if needed.
+The recalculation walk is O(n log n) sort + O(n × m) dispatch (n=actions, m=9 modules). For 500 actions, this completes in well under 1ms. The most expensive per-action operation is the reputation curve evaluation (integer-step loop per nominal rep value), but even with 50 rep actions this is trivially fast. LINQ `SortActions` allocates a new list each call — minor GC pressure, could be optimized to sort in-place if needed.
 
 No batching for rapid commits: 10 quick commits = 10 full recalculations. Acceptable for typical gameplay (commits are rare events, not per-frame).
 
