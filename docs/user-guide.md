@@ -155,6 +155,40 @@ When a filter is active, the Recordings table shows a `Filtered: ...` line with 
 
 A recording with **Loop** checked replays on a fixed launch-to-launch period: the ghost relaunches every N seconds/minutes/hours regardless of how long the recording itself is. When the period is shorter than the recording duration, successive cycles overlap and multiple ghosts coexist. Edit the period inline in the Period column, or leave it on `auto` to inherit the default from Settings.
 
+### Missions
+
+Click the "Missions" button in the main Parsek window to open the Missions window. A mission groups a recording tree (a launch and everything that came off it - stages, undocks, EVAs, docks) into a single unit you can loop as a whole, instead of looping each recording on its own.
+
+- Each mission row is one continuous vessel through the tree. Branches (a booster, a separated probe, a docked partner) show as child rows with checkboxes; uncheck one to leave it out of the mission's render and loop.
+- **Loop** a mission and the whole thing replays together on one shared clock - in flight, the Space Center, and the Tracking Station - handing the camera from stage to stage as the shared clock crosses each boundary when you watch it.
+- If the loop period is shorter than the mission's length, the mission overlaps itself: it relaunches every period so several staggered replays of the whole mission fly at once.
+- Looped missions relaunch at the right time so the replay lines up with the live sky. A launch-and-orbit mission relaunches when the pad has rotated back under the recorded orbit; a Mun, Minmus, or interplanetary mission reschedules each relaunch to a real transfer or rendezvous window and re-times any parking loiter so it still reaches its target. A "Warp to..." button jumps to the next window. Atmospheric-only and surface missions loop continuously.
+- A mission that rendezvous with a station relaunches phase-locked to the station's live orbit; a mission to a re-aimable destination re-aims its transfer each cycle so the icon flies a real trajectory to the destination's current position, and one that both lands and docks aligns both. A shape that cannot align (for example a non-resonant multi-moon pack) loops at its faithful recorded cadence with an amber reason explaining why.
+- **Clone** a mission to make a differently-configured variant (different branches included, different loop settings) from the same tree.
+- **Log** opens a step-by-step run log (launch, staging, docks, deliveries, end) for the mission.
+
+Renaming a mission keeps its Recordings-tab group name in sync, and renaming the group renames the mission.
+
+### Logistics (Supply Routes)
+
+Click the "Logistics" button in the main Parsek window to open the Logistics window. A Supply Route turns a cargo run you flew once into a recurring automated delivery between bases.
+
+How to make one:
+
+1. Fly a cargo run: launch, travel to a destination, dock (or grab with the Advanced Grabbing Unit), transfer resources or stored inventory parts, and undock. A run can visit several stops, pick up as well as deliver, mine its own cargo, or start docked at a depot.
+2. Commit the flight. If it qualifies, Parsek prompts you with an Open Logistics / Dismiss banner.
+3. In the Logistics window the run appears as a **Candidate**. Click it to turn it into a **Supply Route**.
+
+Once created, a route replays the recorded run as a looped mission segment and delivers the same cargo at each dock every cycle. Route execution is pure math (deduct cargo at the origin, wait, add it at the destination), so no physical vessel is spawned in transit; the ghost is just the visual replay. Routes participate in rewind and re-fly like the rest of the timeline.
+
+- **Cadence** - set the dispatch interval in the route's detail panel. Inter-body routes deliver every Nth transfer window.
+- **Origins** - routes can start from KSC or from any docked depot, and chaining routes builds hub-and-spoke networks. KSC-origin Career routes charge a stock-realistic funds cost for the vessel and cargo and credit the recovered transport cost back one interval later.
+- **Reach** - routes work same-body and between planets; inter-body delivery follows the transfer windows the ghost flies.
+- **Legibility** - a route that is not delivering says why in its Status cell (origin out of a named resource, destination full, waiting on a linked partner, or cargo reserved by another route). The detail panel lists recent per-cycle cargo flow, committed routes draw their path on the map and Tracking Station (toggle with the "Show supply route paths on map" setting), and a **Log** button gives a step-by-step run log. Candidates you do not intend to run can be **Dismissed** and restored later.
+- **Round-trip** - two one-way routes can be linked into a round-trip pair so they alternate, modeling one reused transport flying out and back.
+
+See `docs/parsek-logistics-supply-routes-design.md` for the full feature design.
+
 ### Watch Mode
 
 Click **W** on a recording in either the Timeline or the Recordings Manager (or on a group header in the Recordings Manager) to enter watch mode — the KSP camera follows the ghost vessel instead of the active vessel. A watched row shows **W\*** and any group containing the watched recording also shows **W\***. Press `[`, `]`, or click W again to exit. Press **V** while watching to toggle the camera between Free Orbit (stock behavior) and Horizon-Locked (ground stays at the bottom of the screen; picked automatically near planetary surfaces, free in orbit).
