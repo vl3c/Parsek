@@ -297,16 +297,26 @@ faithfully; s15 was already 0-trees on disk when loaded, so the batch on it only
 an already-empty store.
 
 **Fix:** a new OnSave-side guard, `ParsekScenario.PreserveRecordingStateIfLoadFault`,
-runs after the tree + mission sections. When the fingerprint trips (0 RECORDING_TREE
-nodes being written AND stranded sidecars on disk - the same signal `CleanOrphanFiles`
-uses to refuse deletion), it re-hydrates the RECORDING_TREE + MISSION nodes from the
-on-disk `persistent.sfs` (which KSP has not overwritten yet at OnSave time) so the save
-keeps its state instead of being hollowed. Purely additive: it never touches a populated
-save, and a genuinely-empty save (recordings deleted, which also deletes their sidecars)
-has no stranded sidecars so the guard stays silent. Pure trigger + disk-rehydration are
-unit-tested headlessly in `OrphanCleanupSafetyGuardTests` (`PreserveGuard_*`). Does NOT
-recover a save that is ALREADY 0-trees on disk (persistent.sfs has nothing left to
-preserve); recover those from `quicksave.sfs` or a KSP backup, then the guard protects
+runs after the tree + mission sections. It fires ONLY on the load-fault fingerprint, all
+three conditions required (post-Opus-review hardening): (1) `initialLoadDone == false` - an
+INCOMPLETE cold load; a successful/fresh load OR an intentional player wipe/delete-all runs
+with `initialLoadDone == true`, so the guard can never resurrect deliberately-removed
+recordings even if a best-effort sidecar delete failed; (2) `RecordingStore.CommittedTrees.Count
+== 0` - gates on the COMMITTED count, not the total RECORDING_TREE node count, so an in-flight
+active/pending recording (which writes its own node) does not mask the loss of committed
+history; (3) stranded sidecars on disk (the same signal `CleanOrphanFiles` uses to refuse
+deletion). When it fires it re-hydrates the COMMITTED RECORDING_TREE + MISSION nodes from the
+on-disk `persistent.sfs` (which KSP has not overwritten yet at OnSave time) so the save keeps
+its state instead of being hollowed. Additive for trees: it appends the on-disk committed trees
+(skipping any on-disk active/pending marker) WITHOUT removing the caller's nodes, so a live
+in-flight recording is preserved and no second active node is introduced; missions are replaced
+with the on-disk set. Pure trigger + disk-rehydration (including the active-node-preservation,
+malformed-.sfs catch, and orphan-missions paths) are unit-tested headlessly in
+`OrphanCleanupSafetyGuardTests` (`PreserveGuard_*`). Reads the campaign persistent.sfs, so a
+save targeting a quicksave slot during the rare fault window re-injects the campaign's committed
+trees into that slot too (harmless - a quicksave is not the campaign save). Does NOT recover a
+save that is ALREADY 0-trees on disk (persistent.sfs has nothing left to preserve); recover
+those from `quicksave.sfs` or a KSP backup, then the guard protects
 them going forward.
 
 ## Dev - Logistics in-game tests: auto-spawn unloaded vessel (no manual second craft)
