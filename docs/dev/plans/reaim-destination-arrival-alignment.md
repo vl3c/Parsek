@@ -648,7 +648,11 @@ combination) into the objective.
 - Done: orbital-arrival alignment proven end to end. Deps: Phase 4. Review: full, extra
   attention (the literal Bug-2 surface).
 
-### Phase 6 - Tolerance UI + on-camera landing acceptance (gated on S4 / C2)
+### Phase 6 - Tolerance UI + on-camera landing acceptance (~~gated on S4 / C2~~ UNGATED:
+the S4 arrival re-stitch shipped 2026-07-07 on branch `reaim-s4-restitch`, plan
+`docs/dev/plans/reaim-s4-arrival-restitch.md`; the ratified product decision is rotate-the-
+approach-only, the landing always at the recorded site. The on-camera landing-coincidence
+canary is wired as the in-game `ReaimLandingCoincidenceInGameTest`.)
 - Widen the existing "Landing-body alignment" Off / Loose / Precise tooltip to name an
   interplanetary destination (no new control). The period cell / TTL / residual readout
   reuses the same-parent green / amber surfacing.

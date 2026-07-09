@@ -119,7 +119,8 @@ namespace Parsek
                 double firstDeorbitLegStartUT = double.NaN,
                 double arrivalJointSecondaryPeriodSeconds = double.NaN,
                 double arrivalJointSecondaryToleranceSeconds = double.NaN,
-                int arrivalJointMaxWholeHoldPeriods = 0)
+                int arrivalJointMaxWholeHoldPeriods = 0,
+                string transferMemberRecordingId = null)
             {
                 OwnerIndex = ownerIndex;
                 MemberIndices = memberIndices ?? System.Array.Empty<int>();
@@ -152,6 +153,7 @@ namespace Parsek
                 ArrivalJointSecondaryPeriodSeconds = arrivalJointSecondaryPeriodSeconds;
                 ArrivalJointSecondaryToleranceSeconds = arrivalJointSecondaryToleranceSeconds;
                 ArrivalJointMaxWholeHoldPeriods = arrivalJointMaxWholeHoldPeriods;
+                TransferMemberRecordingId = transferMemberRecordingId;
             }
 
             /// <summary>
@@ -440,6 +442,17 @@ namespace Parsek
             /// falls back to the legacy triggerUT − LoiterPeriodSeconds heuristic (byte-identical-off).
             /// </summary>
             internal double FirstDeorbitLegStartUT { get; }
+
+            /// <summary>
+            /// The DESTINATION transfer member's recording id (<c>Recording.RecordingId</c>) - the SAME
+            /// memberId the re-aim resolver caches windows under - or null when the descent trigger is
+            /// not engaged. The S4 arrival re-stitch trigger offset is resolved per cycle by reading the
+            /// resolver's cached rotation for (this id, cycle) via
+            /// <see cref="ResolveDescentSiteAlignOffsetSeconds"/>: the offset and the rendered rotation
+            /// come from ONE cache entry, so they can never disagree. Null keeps the offset 0
+            /// (byte-identical-off) on every non-descent-trigger unit.
+            /// </summary>
+            internal string TransferMemberRecordingId { get; }
 
             /// <summary>True only when this unit carries a fully-resolved descent trigger (a re-aim looped
             /// arrival with a non-empty descent member set, an early arrival, and valid periods).</summary>
@@ -1820,6 +1833,42 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The S4 arrival re-stitch site-align offset for one descent-trigger unit at one loop cycle
+        /// (docs/dev/plans/reaim-s4-arrival-restitch.md): the extra body-rotation congruence delay
+        /// that puts the RECORDED body-fixed landing site under the (rotated) deorbit point. Resolved
+        /// by reading the re-aim resolver's cached rotation for
+        /// (<see cref="LoopUnit.TransferMemberRecordingId"/>, <paramref name="cycleIndex"/>) - the
+        /// SAME cache entry that rendered the window's rotated arrival chain - so the offset and the
+        /// rotation can never disagree: a declined / faithful / uncached window yields 0 here AND an
+        /// unrotated render there (the shipped behavior, together). Returns 0 for every
+        /// non-descent-trigger unit, null id, negative cycle, or zero rotation (byte-identical-off).
+        /// Every production DescentTrigger head/timing call site of a descent-trigger unit MUST pass
+        /// this value (wiring pinned by ArrivalRestitchWiringTests).
+        /// </summary>
+        internal static double ResolveDescentSiteAlignOffsetSeconds(in LoopUnit unit, long cycleIndex)
+        {
+            if (!unit.HasDescentTrigger || cycleIndex < 0
+                || string.IsNullOrEmpty(unit.TransferMemberRecordingId))
+                return 0.0;
+            if (!Parsek.Reaim.ReaimPlaybackResolver.Shared.TryGetArrivalRestitchRotationDeg(
+                    unit.TransferMemberRecordingId, cycleIndex, out double rotationDeg)
+                || rotationDeg == 0.0)
+                return 0.0;
+            double offset = Parsek.Reaim.ArrivalRestitch.SiteAlignOffsetSeconds(
+                rotationDeg, unit.DestinationBodyRotationPeriodSeconds);
+            var oic = CultureInfo.InvariantCulture;
+            ParsekLog.VerboseRateLimited("ReaimDescent",
+                // Keyed WITHOUT the cycle so the rate-limit key set stays bounded by unit count, not
+                // one entry per replayed loop (the arrival-hold logger's convention); the cycle rides
+                // in the message.
+                $"s4-offset.{unit.PhaseAnchorUT.ToString("R", oic)}.{unit.SpanStartUT.ToString("R", oic)}",
+                $"S4 site-align offset cycle={cycleIndex.ToString(oic)} rotation={rotationDeg.ToString("F3", oic)}deg " +
+                $"offset={offset.ToString("F1", oic)}s Trot={unit.DestinationBodyRotationPeriodSeconds.ToString("R", oic)} " +
+                $"member={unit.TransferMemberRecordingId} (trigger congruence shifts; descent clip + touchdown site unchanged)");
+            return offset;
+        }
+
+        /// <summary>
         /// Tracking-Station per-recording effective sample UT under the shared mission clock.
         /// The TS scene has no playback engine: it positions ProtoVessel ghosts (orbit lines +
         /// icons) and OnGUI atmospheric markers at an explicit UT. This is the single seam that
@@ -1899,7 +1948,8 @@ namespace Parsek
                     unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
                     unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts,
                     memberStartUT, memberEndUT, out double descentHead,
-                    out Parsek.Reaim.DescentTrigger.DescentHeadPhase descentPhase);
+                    out Parsek.Reaim.DescentTrigger.DescentHeadPhase descentPhase,
+                ResolveDescentSiteAlignOffsetSeconds(unit, unitCycle));
 
                 var dic = CultureInfo.InvariantCulture;
                 ParsekLog.VerboseRateLimited(
@@ -1918,7 +1968,8 @@ namespace Parsek
                 Parsek.Reaim.DescentTrigger.ComputeDescentTiming(
                     unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT, unit.RecordedDeorbitUT,
                     unit.DestinationBodyRotationPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts,
-                    out _, out double dscEntryUT, out double dscTriggerUT);
+                    out _, out double dscEntryUT, out double dscTriggerUT,
+                ResolveDescentSiteAlignOffsetSeconds(unit, unitCycle));
                 Parsek.Reaim.DescentRenderTrace.Note(
                     $"{unit.PhaseAnchorUT.ToString("R", dic)}.{unit.SpanStartUT.ToString("R", dic)}",
                     i, unitCycle, descentPhase, liveUT, dscEntryUT, dscTriggerUT,
@@ -1970,7 +2021,8 @@ namespace Parsek
                 // Shared with the FLIGHT engine (UpdateUnitMemberPlayback) so the map/TS icon handoff and
                 // the flight 3D-ghost handoff can never disagree. This branch is only reachable for
                 // non-descent members (the descent branch above always returns), so the helper's own
-                // IsDescentMember guard is inert here.
+                // IsDescentMember guard is inert here. The helper threads the S4 site-align offset
+                // internally so the unit descent phase matches the rotated-window trigger.
                 bool hideForDescentHandoff = ShouldHideNonDescentMemberForDescentHandoff(
                     unit, i, liveUT, unitCycle,
                     out Parsek.Reaim.DescentTrigger.DescentHeadPhase transferUnitPhase);
@@ -2110,7 +2162,8 @@ namespace Parsek
                 unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
                 unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts,
                 memberStartUT, memberEndUT, out double descentHead,
-                out Parsek.Reaim.DescentTrigger.DescentHeadPhase descentPhase);
+                out Parsek.Reaim.DescentTrigger.DescentHeadPhase descentPhase,
+                ResolveDescentSiteAlignOffsetSeconds(unit, unitCycle));
 
             return new DescentMemberEngineRender(
                 renderDescent, renderDescent ? descentHead : double.NaN, descentPhase, unitCycle);
@@ -2141,7 +2194,8 @@ namespace Parsek
             unitDescentPhase = Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead(
                 liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
                 unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
-                unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out _);
+                unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out _,
+                ResolveDescentSiteAlignOffsetSeconds(unit, unitCycle));
             return unitDescentPhase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Descent;
         }
 
@@ -2201,7 +2255,8 @@ namespace Parsek
             return Parsek.Reaim.DescentTrigger.TryComputeTransferDeorbitHead(
                 liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
                 unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
-                unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out deorbitHead);
+                unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out deorbitHead,
+                ResolveDescentSiteAlignOffsetSeconds(unit, unitCycle));
         }
 
         /// <summary>
@@ -2245,7 +2300,8 @@ namespace Parsek
                 Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead(
                     liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
                     unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
-                    unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out _);
+                    unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out _,
+                ResolveDescentSiteAlignOffsetSeconds(unit, unitCycle));
             if (phase != Parsek.Reaim.DescentTrigger.DescentHeadPhase.Loiter)
                 return false; // the icon only descends the deorbit tail during the loiter's run-up to the trigger
 
@@ -2264,7 +2320,8 @@ namespace Parsek
             Parsek.Reaim.DescentTrigger.ComputeDescentTiming(
                 unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT, unit.RecordedDeorbitUT,
                 unit.DestinationBodyRotationPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts,
-                out _, out _, out double triggerUT);
+                out _, out _, out double triggerUT,
+                ResolveDescentSiteAlignOffsetSeconds(unit, unitCycle));
             if (double.IsNaN(triggerUT))
                 return false;
 
@@ -2290,7 +2347,8 @@ namespace Parsek
             return Parsek.Reaim.DescentTrigger.TryComputeTransferDeorbitHead(
                 liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
                 unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
-                unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out iconHead);
+                unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out iconHead,
+                ResolveDescentSiteAlignOffsetSeconds(unit, unitCycle));
         }
 
         /// <summary>
@@ -2362,7 +2420,8 @@ namespace Parsek
                 Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead(
                     liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
                     unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
-                    unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out _);
+                    unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out _,
+                ResolveDescentSiteAlignOffsetSeconds(unit, unitCycle));
 
             // After the seam (handed off / landed) -> retire. Inert/Loiter -> false -> the shifted parking
             // (loiter) conic keeps rendering through the resolver's unchanged covering-segment branch.
@@ -2577,7 +2636,8 @@ namespace Parsek
             Parsek.Reaim.DescentTrigger.ComputeDescentTiming(
                 unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT, unit.RecordedDeorbitUT,
                 unit.DestinationBodyRotationPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts,
-                out _, out _, out triggerUT);
+                out _, out _, out triggerUT,
+                ResolveDescentSiteAlignOffsetSeconds(unit, unitCycle));
             return !double.IsNaN(triggerUT);
         }
 
@@ -2615,7 +2675,8 @@ namespace Parsek
             phase = Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead(
                 liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
                 unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
-                unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out _);
+                unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out _,
+                ResolveDescentSiteAlignOffsetSeconds(unit, unitCycle));
             return true;
         }
 
@@ -2704,7 +2765,8 @@ namespace Parsek
                 liveUT, unitCycle, unit.PhaseAnchorUT, unit.CadenceSeconds, unit.SpanStartUT,
                 unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
                 unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts,
-                memberStartUT, memberEndUT, out _, out _);
+                memberStartUT, memberEndUT, out _, out _,
+                ResolveDescentSiteAlignOffsetSeconds(unit, unitCycle));
         }
 
         /// <summary>

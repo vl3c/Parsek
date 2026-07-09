@@ -338,6 +338,12 @@ namespace Parsek
             // Driver calls, so the C1 icon-ride gate engages exactly when that leg first draws. NaN keeps
             // every non-descent unit byte-identical.
             double descentFirstDeorbitLegStartUT = double.NaN;
+            // The transfer member's recording id (the re-aim resolver's memberId), set ONLY when the
+            // descent trigger engages: the S4 arrival re-stitch trigger offset is resolved per cycle by
+            // reading the resolver's cached rotation for (this id, cycle)
+            // (docs/dev/plans/reaim-s4-arrival-restitch.md). Null keeps the offset 0 (byte-identical)
+            // on every non-descent unit.
+            string transferMemberRecordingId = null;
             // M-MIS-8 FAIL CLOSED: with cross-tree partner-journey members aboard, the
             // periodicity extraction and the re-aim classifier only see the mission's OWN tree
             // (two trees = two launches, two pads, two constraint sets), so a phase-locked
@@ -452,7 +458,7 @@ namespace Parsek
                         ref launchHoldSoiExitUT, ref descentMemberIndices, ref descentRecordedDeorbitUT,
                         ref descentEndUT, ref descentRotationPeriod, ref descentLoiterPeriod,
                         ref descentCaptureShift, ref descentParkingConicEndUT, ref transferMemberIndex,
-                        ref descentFirstDeorbitLegStartUT);
+                        ref descentFirstDeorbitLegStartUT, ref transferMemberRecordingId);
                 }
             }
 
@@ -478,7 +484,8 @@ namespace Parsek
                 descentParkingConicEndUT, transferMemberIndex, descentFirstDeorbitLegStartUT,
                 arrivalHold.IsJointHold ? arrivalHold.JointSecondaryPeriodSeconds : double.NaN,
                 arrivalHold.IsJointHold ? arrivalHold.JointSecondaryToleranceSeconds : double.NaN,
-                arrivalHold.IsJointHold ? arrivalHold.JointMaxWholeHoldPeriods : 0);
+                arrivalHold.IsJointHold ? arrivalHold.JointMaxWholeHoldPeriods : 0,
+                transferMemberRecordingId);
 
             LogMissionUnitSummary(
                 mission, tree, memberArray, skippedNotCommitted, spanStartUT, spanEndUT, span,
@@ -536,7 +543,8 @@ namespace Parsek
             ref double descentCaptureShift,
             ref double descentParkingConicEndUT,
             ref int transferMemberIndex,
-            ref double descentFirstDeorbitLegStartUT)
+            ref double descentFirstDeorbitLegStartUT,
+            ref string transferMemberRecordingId)
         {
             // Classify across ALL members' segments (the mission's combined SOI chain): a real
             // interplanetary mission is usually a CHAIN (launch leg / transfer leg / arrival
@@ -984,6 +992,59 @@ namespace Parsek
                         descentRotationPeriod = descTrot;
                         descentLoiterPeriod = descentRun.PeriodSeconds;
                         descentCaptureShift = descCaptureShift;
+                        // S4 arrival re-stitch eligibility (docs/dev/plans/reaim-s4-arrival-restitch.md):
+                        // ONLY the Supported single-destination LANDING profile is eligible. The descent
+                        // trigger alone is NOT a landing discriminator - it also serves ORBITAL
+                        // rendezvous/dock approaches (SelectDescentMemberIndices covers both), and rotating
+                        // a dock arrival would tear at the approach members (they carry no heliocentric
+                        // leg, so the resolver leaves them UNROTATED) while a T_rot-based trigger offset is
+                        // meaningless for a station-phase target. Require a destination LANDING ROTATION
+                        // constraint (a recorded body-fixed surface arrival), no station anchor, and the
+                        // rotation-alignment mode not Drop - the same discriminators the arrival-hold path
+                        // uses. When eligible, stamp the plan copy the LoopUnit stores (the resolver reads
+                        // unit.ReaimPlan, so the per-window rotation gate rides this flag) and record the
+                        // transfer member's recording id so the descent trigger reads the per-window
+                        // rotation back from the SAME resolver cache entry that renders it. Every other
+                        // shape leaves both defaults (false / null) = byte-identical shipped behavior.
+                        DestinationConstraintExtractor.DestinationConstraintSet s4DestSet =
+                            DestinationConstraintExtractor.ExtractDestinationConstraints(
+                                extraction.Constraints, plan.TargetBody, bodyInfo);
+                        // The S4 rigid rotation acts ONLY on the target-body-bodied arrival segments
+                        // (ReplaceHeliocentricLeg gates on s.bodyName == targetBody). So it is geometrically
+                        // clean ONLY when the recorded arrival arc is ENTIRELY on the target body: anything
+                        // else in the destination system that sits in that arc gets left un-rotated, opening
+                        // a seam at its boundary.
+                        //   - A destination STATION (HasStation): its rendezvous is anchored / T_station-phased,
+                        //     not target-body-rotation-phased, and the joint hold (D8 dual) already aligns it;
+                        //     rotating by theta/360*T_rot would desync it. Exclude via !HasStation.
+                        //   - A SOI-ENTERED MOON (ConstrainedMoonCount > 0, e.g. Ike on a Duna landing that
+                        //     threads it): the moon-bodied encounter segments are NOT rotated by S4, so the
+                        //     rotated target approach would tear away from the recorded moon pass. Exclude via
+                        //     ConstrainedMoonCount == 0, so S4 engages only for a clean target-body-only arc.
+                        // Both are fail-closed-to-shipped: the arrival renders exactly as before.
+                        bool s4LandingProfile = s4DestSet.Supported && s4DestSet.HasLandingRotation
+                            && !s4DestSet.HasStation
+                            && s4DestSet.ConstrainedMoonCount == 0
+                            && transitedBodyRotationMode != TransitedBodyRotationMode.Drop;
+                        if (s4LandingProfile)
+                        {
+                            plan.ArrivalRestitchEligible = true;
+                            reaimPlan = plan;
+                            transferMemberRecordingId =
+                                transferMemberIndex >= 0 && transferMemberIndex < committed.Count
+                                && committed[transferMemberIndex] != null
+                                    ? committed[transferMemberIndex].RecordingId
+                                    : null;
+                        }
+                        else if (!SuppressLogging)
+                        {
+                            ParsekLog.Verbose("Reaim",
+                                $"MissionLoopUnit: mission='{mission.Name}' S4 restitch NOT eligible " +
+                                $"(clean target-body-only landing arc required: destSupported={s4DestSet.Supported} " +
+                                $"hasLandingRotation={s4DestSet.HasLandingRotation} hasStation={s4DestSet.HasStation} " +
+                                $"constrainedMoons={s4DestSet.ConstrainedMoonCount} " +
+                                $"mode={transitedBodyRotationMode}) - shipped arrival render (descent trigger unaffected)");
+                        }
                         // PARKING-conic end (Layer A of the loiter-gap render fix): the SHIFTED
                         // destination loiter run end. A loiter run (ReaimLoiterCompressor.DetectRuns)
                         // ends at the first > 5% sma step, so descentRun.EndUT is the parking conic's
