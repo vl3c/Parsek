@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## Unreleased
 
+### Features
+
+- The first time Parsek opens one of your existing saves, it now makes a one-time safety backup of that save, taken before Parsek changes anything, as a separate timestamped "pre-Parsek" entry in the Load menu, so you can always return to your career as it was before installing Parsek. It runs once per save, includes your saved craft, skips brand-new empty careers, and can be turned off under Settings > Data Management. Note: it can only protect saves whose first Parsek use happens after this version, and resuming a backup with Parsek installed lets Parsek manage it again.
+
 ### Fixes
 
 - A recorded vessel or EVA kerbal that re-materializes above the surface without a stored terminal orbit (breakup debris, an in-flight EVA, or a vessel left docked or coasting) no longer appears off-position and flips its situation a frame later. Its orbit was rebuilt by feeding an absolute world position and an unconverted velocity to KSP's state-vector API, which reads them in the wrong reference frame and produces an out-of-band orbit; the rebuild now converts them to the body-relative frame the API expects.

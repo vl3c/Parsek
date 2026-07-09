@@ -2690,6 +2690,19 @@ namespace Parsek
                 loadPhase = "supersede-rewind-reapply";
                 RecordingStore.ReapplyRewindSupersedeDropAfterLoad();
 
+                // Pre-Parsek safety backup: the first time Parsek cold-loads a save with no
+                // Parsek footprint, copy it (before any Parsek write, so the persistent.sfs is
+                // gameplay-pristine) into a timestamped sibling folder that shows up in KSP's
+                // Load menu. Cold-load-only (!initialLoadDone) so it never captures a
+                // post-autosave file on a later same-session OnLoad; runs before LoadExternalFiles
+                // (Parsek's first read/recalc). Idempotent via on-disk footprint + done-marker.
+                loadPhase = "pre-parsek-backup";
+                if (!initialLoadDone)
+                {
+                    PreParsekBackup.SweepOrphanStagingDirs();
+                    PreParsekBackup.MaybeBackupOnFirstColdContact();
+                }
+
                 // Game state recorder lifecycle — re-subscribe on every OnLoad (handles reverts)
                 loadPhase = "game-state-recorder";
                 stateRecorder?.Unsubscribe();

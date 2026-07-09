@@ -195,12 +195,14 @@ namespace Parsek
                 s.mapRenderTracing = false;
                 s.ledgerTracing = false;
                 s.writeReadableSidecarMirrors = defaults.WriteReadableSidecarMirrors;
+                s.autoBackupExistingSaves = defaults.AutoBackupExistingSaves;
                 s.SamplingDensityLevel = defaults.SamplingDensityLevel;
                 s.autoLoopIntervalSeconds = defaults.AutoLoopIntervalSeconds;
                 s.AutoLoopDisplayUnit = defaults.AutoLoopDisplayUnit;
                 s.showCommittedFutureOverlays = defaults.ShowCommittedFutureOverlays;
                 s.blockCommittedActions = defaults.BlockCommittedActions;
                 ParsekSettingsPersistence.RecordReadableSidecarMirrors(s.writeReadableSidecarMirrors);
+                ParsekSettingsPersistence.RecordAutoBackupExistingSaves(s.autoBackupExistingSaves);
                 ParsekSettingsPersistence.RecordShowCommittedFutureOverlays(s.showCommittedFutureOverlays);
                 ParsekSettingsPersistence.RecordBlockCommittedActions(s.blockCommittedActions);
                 ParsekSettingsPersistence.RecordGhostRenderTracing(s.ghostRenderTracing);
@@ -555,6 +557,16 @@ namespace Parsek
         private void DrawDataManagementSettings(ParsekSettings s)
         {
             GUILayout.Label("Data Management", parentUI.GetSectionHeaderStyle());
+
+            bool autoBackupExistingSaves = GUILayout.Toggle(s.autoBackupExistingSaves,
+                new GUIContent(" Auto-backup existing saves before first use",
+                    "The first time Parsek opens a save with no Parsek data yet, copy it to a separate timestamped 'pre-Parsek' entry in the Load menu, so you can return to your career as it was before installing Parsek. Runs once per save."));
+            if (autoBackupExistingSaves != s.autoBackupExistingSaves)
+            {
+                s.autoBackupExistingSaves = autoBackupExistingSaves;
+                ParsekSettingsPersistence.RecordAutoBackupExistingSaves(autoBackupExistingSaves);
+                ParsekLog.Info("UI", $"Setting changed: autoBackupExistingSaves={autoBackupExistingSaves}");
+            }
 
             // [ERS-exempt] reason: the wipe-all button reports the raw count of
             // stored recordings (including NotCommitted / superseded) because the
