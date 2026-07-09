@@ -30,6 +30,11 @@ namespace Parsek
         private string lastFilteredQuery;
         private List<KeyValuePair<string, List<InGameTestInfo>>> cachedFilteredGroups;
         private List<KeyValuePair<string, List<InGameTestInfo>>> filteredSourceGroups;
+        // Full (unfiltered) tests per category, so a category header can show the
+        // whole category's pass/total count even when a test-name filter has
+        // narrowed the visible rows. Memoized off cachedTestGroups.
+        private Dictionary<string, List<InGameTestInfo>> fullTestsByCategory;
+        private List<KeyValuePair<string, List<InGameTestInfo>>> fullTestsByCategorySource;
         private const string TestSearchFieldName = "Parsek_TestRunnerSearchField";
         private bool testRunnerWasRunning;
         private bool isResizingTestRunnerWindow;
@@ -171,6 +176,26 @@ namespace Parsek
             return cachedFilteredGroups;
         }
 
+        // Full (unfiltered) test list for a category, memoized off cachedTestGroups.
+        // The category header's pass/total count uses this so it describes the whole
+        // category (what Run / Run+ execute) even when a test-name filter has
+        // narrowed the visible rows to a subset.
+        private List<InGameTestInfo> GetFullCategoryTests(string category)
+        {
+            if (fullTestsByCategory == null || !ReferenceEquals(fullTestsByCategorySource, cachedTestGroups))
+            {
+                var map = new Dictionary<string, List<InGameTestInfo>>();
+                if (cachedTestGroups != null)
+                {
+                    foreach (var g in cachedTestGroups)
+                        map[g.Key] = g.Value;
+                }
+                fullTestsByCategory = map;
+                fullTestsByCategorySource = cachedTestGroups;
+            }
+            return fullTestsByCategory.TryGetValue(category, out var list) ? list : null;
+        }
+
         private void DrawTestCategoryList()
         {
             EnsureLayoutStyles();
@@ -178,9 +203,13 @@ namespace Parsek
             var groupsForDisplay = GetGroupsForDisplay();
             if (groupsForDisplay.Count == 0)
             {
-                GUILayout.Label(
-                    $"No categories or tests match \"{testSearchQuery}\".",
-                    GUI.skin.label);
+                // Only show the no-match message for an active query. An empty
+                // query with zero discovered tests just renders nothing, matching
+                // the pre-filter behavior (an empty foreach).
+                if (!string.IsNullOrWhiteSpace(testSearchQuery))
+                    GUILayout.Label(
+                        $"No categories or tests match \"{testSearchQuery}\".",
+                        GUI.skin.label);
                 return;
             }
 
@@ -191,11 +220,13 @@ namespace Parsek
 
                 bool expanded = expandedTestCategories.Contains(category);
 
-                // Category header
+                // Category header. The count reflects the FULL category (what
+                // Run / Run+ execute), not the filtered subset of rows shown below,
+                // so a test-name filter never makes the count disagree with Run.
                 GUILayout.BeginHorizontal();
                 string categoryLabel = TestRunnerPresentation.BuildCategoryButtonLabel(
                     category,
-                    testsInCategory,
+                    GetFullCategoryTests(category) ?? testsInCategory,
                     expanded);
                 if (GUILayout.Button(categoryLabel, GUI.skin.label))
                 {

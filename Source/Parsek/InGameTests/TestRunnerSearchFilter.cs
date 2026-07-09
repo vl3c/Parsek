@@ -65,13 +65,13 @@ namespace Parsek.InGameTests
             if (string.IsNullOrWhiteSpace(query))
                 return groups;
 
-            string trimmed = query.Trim();
+            // Matches trims internally, so pass query straight through.
             var result = new List<KeyValuePair<string, List<InGameTestInfo>>>();
 
             foreach (var group in groups)
             {
                 // Category name match keeps the entire group unchanged.
-                if (Matches(group.Key, trimmed))
+                if (Matches(group.Key, query))
                 {
                     result.Add(group);
                     continue;
@@ -85,7 +85,7 @@ namespace Parsek.InGameTests
                     for (int i = 0; i < tests.Count; i++)
                     {
                         var test = tests[i];
-                        if (Matches(GetSearchableTestName(test), trimmed))
+                        if (Matches(GetSearchableTestName(test), query))
                         {
                             if (matchingTests == null)
                                 matchingTests = new List<InGameTestInfo>();

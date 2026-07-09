@@ -225,15 +225,33 @@ namespace Parsek.Tests
             MethodInfo method = typeof(TestRunnerSearchFilterTests).GetMethod(
                 nameof(GraphicsSmokeTest),
                 BindingFlags.NonPublic | BindingFlags.Static);
-            var test = new InGameTestInfo { Name = "Fixture.GraphicsSmokeTest", Method = method };
+            // Name deliberately lacks "smoke" so ONLY the method name can match it;
+            // this proves method-name precedence, not a Name-substring coincidence.
+            var test = new InGameTestInfo { Name = "Fixture.Alpha", Method = method };
             var groups = Groups(new KeyValuePair<string, List<InGameTestInfo>>(
                 "Misc", new List<InGameTestInfo> { test }));
 
-            // "smoke" is only in the method name, not the category or Name prefix.
+            // "smoke" is only in the method name GraphicsSmokeTest.
             var filtered = TestRunnerSearchFilter.FilterCategories(groups, "smoke");
 
             Assert.Single(filtered);
             Assert.Same(test, filtered[0].Value[0]);
+        }
+
+        [Fact]
+        public void FilterCategories_CategoryNameMatch_ShowsAllTests_EvenWhenSomeTestsAlsoMatch()
+        {
+            var graphics = Category("Graphics", "GraphSample", "SaveLoad");
+            var groups = Groups(graphics);
+
+            // "graph" matches the category name AND one test name. The category-name
+            // branch must win and return the FULL inner list (same reference), not
+            // the test-name-filtered subset.
+            var filtered = TestRunnerSearchFilter.FilterCategories(groups, "graph");
+
+            Assert.Single(filtered);
+            Assert.Same(graphics.Value, filtered[0].Value);
+            Assert.Equal(2, filtered[0].Value.Count);
         }
 
         [Fact]
