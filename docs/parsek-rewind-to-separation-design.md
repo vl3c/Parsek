@@ -108,7 +108,7 @@ The same narrowness governs the v0.9.1 broadened predicate. The classifier auto-
 
 ### 2.4 Crash-recoverable merge
 
-Every staged-commit merge step is journaled through `MergeJournal.Phase` (`Source/Parsek/MergeJournal.cs:53`). Ten phase strings mark the merge's progress; on load, the finisher reads the phase and either rolls back (only `Begin`: disk still holds the pre-merge snapshot, in-memory changes evaporate) or drives to completion via idempotent re-run (every post-Begin phase: in-memory mutations of `Split` / `Supersede` / `Tombstone` / `Finalize` are recovered by re-running the same helpers, since each step is value-write idempotent or has its own dedup guard). The `Split` phase has its own DurableSave barrier between `Begin` and `Durable1Done`, so the post-durable forward-completion path starts at `Split`, not `Durable1Done`. The journal IS the durability barrier; the next natural `ScenarioModule.OnSave` flushes each phase's in-memory state to disk. Tests inject a synchronous save stub to exercise every window (see `MergeCrashRecoveryMatrixTests.cs`).
+Every staged-commit merge step is journaled through `MergeJournal.Phase` (`Source/Parsek/MergeJournal.cs:53`). Eleven phase strings mark the merge's progress; on load, the finisher reads the phase and either rolls back (only `Begin`: disk still holds the pre-merge snapshot, in-memory changes evaporate) or drives to completion via idempotent re-run (every post-Begin phase: in-memory mutations of `TreeMerge` / `Split` / `Supersede` / `Tombstone` / `Finalize` are recovered by re-running the same helpers, since each step is value-write idempotent or has its own dedup guard). Two post-Begin phases carry their own DurableSave barriers: `TreeMerge` (migrates the in-place-continuation fork into the committed tree, between `Begin` and `Split`) and `Split` (cuts the origin recording at the rewind UT). The post-durable forward-completion path therefore starts at `TreeMerge`, not `Durable1Done`. The journal IS the durability barrier; the next natural `ScenarioModule.OnSave` flushes each phase's in-memory state to disk. Tests inject a synchronous save stub to exercise every window (see `MergeCrashRecoveryMatrixTests.cs`).
 
 ### 2.5 Atomic provisional + marker write
 
@@ -152,7 +152,7 @@ This section fixes the vocabulary. Throughout the doc, "recording" (lowercase) i
 - **PidSlotMap** — `Dictionary<uint, int>` mapping `Vessel.persistentId` to `ChildSlot.SlotIndex`. Populated at quicksave-write time by `RewindPointAuthor.ExecuteDeferredBody` (`Source/Parsek/RewindPointAuthor.cs:202`). The authoritative primary match for the post-load strip.
 - **RootPartPidMap** — `Dictionary<uint, int>` mapping root-part `Part.persistentId` to `ChildSlot.SlotIndex`. Populated at the same time as PidSlotMap. Fallback match when KSP has reassigned a vessel-level persistentId between save and load. `Part.persistentId` is the stable cross-save/load identity for a physical part; `Part.flightID` is session-scoped and unstable.
 - **Finished recording** — a Recording with `MergeState == Immutable`.
-- **Unfinished Flight** — a Recording matching `EffectiveState.IsUnfinishedFlight` (see §5). Visible in the ERS, terminal state classified as Crashed, parent BranchPoint carries a non-null `RewindPointId`, and a live RewindPoint entry exists for that BranchPoint.
+- **Unfinished Flight** — a Recording matching `EffectiveState.IsUnfinishedFlight` (see §5). Visible in the ERS with a live RewindPoint entry on the parent BranchPoint (non-null `RewindPointId`), and a qualifying terminal state: Crashed, a non-focus Orbiting or SubOrbital stable leaf, or a stranded EVA kerbal (terminal not Boarded). See §5 for the full `EffectiveState.IsUnfinishedFlight` predicate.
 - **Re-fly session** — the period between a Rewind Point invocation and its merge / discard. Identified by a `SessionId` GUID generated at invocation (`RewindInvoker.cs:230`). Ends on merge, discard, retry (new SessionId), full-revert, or load-time validation failure.
 - **Session-provisional RP** — an RP whose `SessionProvisional` flag is `true`. Newly created RPs are session-provisional; the flag flips to `false` during the merge's `TagRpsForReap` step (`MergeJournalOrchestrator.cs:441`) for RPs whose `CreatingSessionId` matches the merging session. Load-time sweep discards session-provisional RPs only when they are session-scoped (`CreatingSessionId` non-empty) and not referenced by a valid marker; normal staging RPs created outside a re-fly session have `CreatingSessionId == null`, survive merge-dialog scene loads, and are promoted to persistent when the owning tree commits.
 - **Supersede** — an append-only relation `RecordingSupersedeRelation { RelationId, OldRecordingId, NewRecordingId, UT, CreatedRealTime }` stored in `ParsekScenario.RecordingSupersedes`. No Recording is mutated; `EffectiveState.IsVisible` filters via the list.
@@ -161,7 +161,7 @@ This section fixes the vocabulary. Throughout the doc, "recording" (lowercase) i
 - **Tombstone** — an append-only `LedgerTombstone { TombstoneId, ActionId, RetiringRecordingId, UT, CreatedRealTime }` in `ParsekScenario.LedgerTombstones`. Keyed by the retired `GameAction.ActionId`. Multiple tombstones for the same ActionId are tolerated; the ELS filter is "at least one tombstone exists." Defined in `Source/Parsek/GameActions/LedgerTombstone.cs`.
 - **ReFlySessionMarker** — the singleton marker persisted while a session is live. Seven fields total; six are validated on load (`MarkerValidator.Validate`), `InvokedRealTime` is informational and never fails a load. Defined in `Source/Parsek/ReFlySessionMarker.cs`.
 - **Provisional re-fly Recording** — the live Recording created at invocation with `MergeState == NotCommitted`, `CreatingSessionId` set to the session GUID, `SupersedeTargetId` set to the retired sibling's id, `ProvisionalForRpId` set to the invoked RP's id. Becomes `Immutable` or `CommittedProvisional` at merge.
-- **MergeJournal** — the singleton journal that carries the merge through ten phase strings (`Begin`, `Split`, `Supersede`, `Tombstone`, `Finalize`, `Durable1Done`, `RpReap`, `MarkerCleared`, `Durable2Done`, `Complete`). Its presence on load triggers the finisher. Defined in `Source/Parsek/MergeJournal.cs`.
+- **MergeJournal** — the singleton journal that carries the merge through eleven phase strings (`Begin`, `TreeMerge`, `Split`, `Supersede`, `Tombstone`, `Finalize`, `Durable1Done`, `RpReap`, `MarkerCleared`, `Durable2Done`, `Complete`). Its presence on load triggers the finisher. Defined in `Source/Parsek/MergeJournal.cs`.
 - **Effective Recording Set (ERS)** — the derived, read-only view of committed recordings that count right now. Computed by `EffectiveState.ComputeERS` (`Source/Parsek/EffectiveState.cs:236`). Filters out `NotCommitted`, superseded, and (during an active session) session-suppressed recordings.
 - **Effective Ledger Set (ELS)** — the derived, read-only view of ledger actions that count right now. Computed by `EffectiveState.ComputeELS` (`EffectiveState.cs:310`). Filters out actions whose `ActionId` appears in any `LedgerTombstone`. **The ONLY filter on ELS is the tombstone check.** Supersede affects ELS only through explicit tombstones; preserved rows are the ones the reviewed tombstone classifier leaves untouched, such as seeds, null-scoped KSC/system actions, rollout vessel-build costs, and unknown future action types.
 - **UF** — Unfinished Flight. A recording that satisfies `IsUnfinishedFlight(rec)` and is therefore visible in the Unfinished Flights virtual group.
@@ -977,7 +977,7 @@ Nested multi-controllable splits during the session create additional session-pr
 
 File: `Source/Parsek/MergeJournalOrchestrator.cs`.
 
-Triggered by `MergeDialog.MergeCommit` when `ActiveReFlySessionMarker` is non-null. The 14-step design-spec merge is consolidated into ten phase transitions:
+Triggered by `MergeDialog.MergeCommit` when `ActiveReFlySessionMarker` is non-null. The 14-step design-spec merge is consolidated into eleven phase transitions:
 
 1. **Journal write, phase = `Begin`** (`MergeJournalOrchestrator.cs:189`). `scenario.ActiveMergeJournal` assigned. Log `[MergeJournal] Info: sess=<sid> phase=Begin`.
 2. **Origin split at rewind UT** (`AdvancePhase → Split`). When the closure-root recording's lifetime strictly spans `marker.RewindPointUT`, `RecordingTreeSplitter.SplitOriginAtRewindUT(marker, scenario)` cuts it into HEAD (kept visible, pre-rewind half) + TIP (the post-rewind tail that the fork will supersede), and rewrites `marker.SupersedeTargetId = TIP.RecordingId` so the supersede write-set in step 3 retires TIP instead of the spanning origin. The splitter owns its own deep-clone snapshot + ChainIndex map + incremental retag ledger and rolls back transactionally on exception. A dedicated `DurableSave("split", persistSynchronously: true)` barrier sits between this step and step 3, isolating the in-memory split from the post-Begin forward-completion path. Idempotent on re-run: if TIP already exists (or the origin's lifetime does not span the rewind UT), the splitter exits via the existing-tip / not-yet-mutated arms without re-cutting. Log `[Supersede] Info: SplitOriginAtRewindUT: origin=<originId> rewindUT=<ut> head=<headId> tip=<tipId>` (or the existing-tip / not-spanning short-circuit log).
@@ -1786,7 +1786,7 @@ Per §6.22 migration concern + §7.72: legacy star-shaped supersede portions in 
 
 ### 10.1 ERS-exempt consumers (index-keyed state)
 
-Thirteen files are on the ERS-audit allowlist (`scripts/ers-els-audit-allowlist.txt`) with inline `[ERS-exempt — Phase 3]` comments and `TODO(phase 6+)` markers. These hold raw index-based state keyed by positions in `RecordingStore.CommittedRecordings`:
+The ERS-audit allowlist (`scripts/ers-els-audit-allowlist.txt`) now carries many more files than the original thirteen; the map/TS render rewrite and ledger-trace subsystems added exemptions, each with an inline `[ERS-exempt]` comment (live markers read `TODO(phase >=3)`). The thirteen enumerated below are the index-keyed subset holding raw state keyed by positions in `RecordingStore.CommittedRecordings`:
 
 - `Source/Parsek/GhostMapPresence.cs`
 - `Source/Parsek/WatchModeController.cs`
@@ -1812,13 +1812,16 @@ For BG-recorded splits that originate outside the focus vessel, the RP author co
 
 The broad reviewed-career tombstone scope has shipped for contracts, milestones,
 facilities, strategies, science, funds/reputation, and kerbal consequences.
-Remaining follow-up is runtime smoke coverage inside KSP for the stock systems
-that xUnit can only exercise through wrappers: Mission Control contract buckets,
-Astronaut Complex roster cleanup, R&D tech availability, and KSC facility levels.
+Runtime smoke coverage inside KSP for the stock systems xUnit can only exercise
+through wrappers is now partly shipped: `ContractTombstonesAcrossSupersedeTest`
+(Mission Control contract buckets), `KerbalRecoveryOnSupersedeTest` (Astronaut
+Complex roster cleanup), and the non-circular `LedgerGroundTruthHarness`
+(recalc-vs-on-disk-save diff). Remaining follow-up narrows to R&D tech
+availability and KSC facility levels.
 
 ### 10.4 Cross-tree supersedes
 
-`EffectiveState.EffectiveRecordingId` has an inline TODO (`EffectiveState.cs:76`) to halt the walk at cross-tree boundaries once cross-tree supersedes become producible. v1 does not produce them; the invariant is enforced by the merge logic (supersede relations are scoped to the session's tree).
+`EffectiveState.EffectiveRecordingId` has an inline TODO (`TODO(phase >=3)` in `EffectiveState.cs`) to halt the walk at cross-tree boundaries once cross-tree supersedes become producible. v1 does not produce them; the invariant is enforced by the merge logic (supersede relations are scoped to the session's tree).
 
 ### 10.5 End-to-end automated in-game RunInvoke test
 
@@ -2213,7 +2216,7 @@ The pre-impl spec's v0.5 sign-off condition was "crash recovery matrix covers ev
 5. Player opens Recordings Manager, finds A under Unfinished Flights, clicks **Rewind**. Dialog names the split UT and the supersede/recalculation advisory. Player clicks **Rewind**.
 6. Scene reloads into FLIGHT at the staging moment. A is the active vessel (live physics); B has been stripped and now plays back as a ghost from its committed recording. ABC plays back as a ghost up to the split moment, then terminates. Player's career state matches what it was immediately before Rewind (B's orbit entry + all milestones / contracts are intact).
 7. Player deploys A's parachute and lands it safely on the launch pad. Recorder finalizes A' with TerminalKind=Landed.
-8. Merge dialog → Merge to Timeline. `MergeJournalOrchestrator.RunMerge` drives through the ten phases. A → hidden (superseded); A' → Immutable + effective slot-1 representative. This example writes no tombstones because A has no reviewed recording-scoped career action rows to retire. RP-1 reap-eligible (both slots Immutable) → quicksave deleted, scenario entry removed, BranchPoint back-reference cleared.
+8. Merge dialog → Merge to Timeline. `MergeJournalOrchestrator.RunMerge` drives through the eleven phases. A → hidden (superseded); A' → Immutable + effective slot-1 representative. This example writes no tombstones because A has no reviewed recording-scoped career action rows to retire. RP-1 reap-eligible (both slots Immutable) → quicksave deleted, scenario entry removed, BranchPoint back-reference cleared.
 9. Unfinished Flights is now empty. The timeline shows B's orbit entry AND A's safe landing (the sealed slot points at `A'` via the supersede relation); both play back on any subsequent rewind-to-launch.
 
 ### A.2 EVA re-fly
