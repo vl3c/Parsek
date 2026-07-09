@@ -16,10 +16,10 @@ Recording `rec_f1363fc127ab47a28812ce4be6515453` ("Kerbal X Probe", Re-Fly fork 
 
 | Field | Value | Source |
 |---|---|---|
-| `terminalState` | `0` (Orbiting) | [persistent.sfs:1120](../../../logs/2026-05-10_2123/saves/s15/persistent.sfs:1120) |
-| `tOrbSma` / `tOrbEcc` | 4 547 677 m / 0.822 | [persistent.sfs:1126](../../../logs/2026-05-10_2123/saves/s15/persistent.sfs:1126) |
+| `terminalState` | `0` (Orbiting) | [persistent.sfs:1120](../../../../logs/2026-05-10_2123/saves/s15/persistent.sfs:1120) |
+| `tOrbSma` / `tOrbEcc` | 4 547 677 m / 0.822 | [persistent.sfs:1126](../../../../logs/2026-05-10_2123/saves/s15/persistent.sfs:1126) |
 | Periapsis from saved tOrb | sma·(1−ecc) − R = 4 547 677 · (1 − 0.82238) − 600 000 ≈ 207 760 m (≈ 208 km altitude) | derived |
-| Last absolute coast frame | `ut=453.66, lat=−0.021°, lon=−36.66°, alt=208 283 m, vel=(296.02, 3.84, −2806.12)` | [`rec_f1363fc…prec.txt`](../../../logs/2026-05-10_2123/parsek/Recordings/rec_f1363fc127ab47a28812ce4be6515453.prec.txt) |
+| Last absolute coast frame | `ut=453.66, lat=−0.021°, lon=−36.66°, alt=208 283 m, vel=(296.02, 3.84, −2806.12)` | [`rec_f1363fc…prec.txt`](../../../../logs/2026-05-10_2123/parsek/Recordings/rec_f1363fc127ab47a28812ce4be6515453.prec.txt) |
 | Last `OrbitSegment` (stale ascent) | `epoch=142.16, sma=512 941, ecc=0.575` (periAlt = −381 km, sub-surface) | same |
 
 Analytic check on the tail frame (Kerbin: μ = 3.5316 × 10¹² m³/s², R = 600 000 m):
@@ -33,7 +33,7 @@ sma = −μ/(2ε) = 4.54 × 10⁶ m   ✓ matches saved tOrbSma
 
 The state vector itself is consistent; the recording is correct.
 
-## What the spawn path actually does ([KSP.log:101040–101290](../../../logs/2026-05-10_2123/KSP.log))
+## What the spawn path actually does ([KSP.log:101040–101290](../../../../logs/2026-05-10_2123/KSP.log))
 
 1. `currentUT = 455.25` (1.59 s after `tailUT = 453.66`).
 2. `TryDeriveTerminalOrbitSeedFromTrajectoryTail` reseed (the relevant block):
