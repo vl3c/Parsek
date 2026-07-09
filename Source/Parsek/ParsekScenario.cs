@@ -988,6 +988,12 @@ namespace Parsek
                 SaveTreeRecordings(node);
                 savePhase = "missions";
                 MissionStore.Save(node);
+                // Data-loss guard: if the committed store is empty because the tree/mission load
+                // did not complete (committedTreeStateLoaded==false) while stranded sidecars remain
+                // on disk, preserve the on-disk save's committed trees + missions instead of
+                // hollowing the .sfs. Runs AFTER the mission write so it restores both surfaces here.
+                savePhase = "preserve-tree-state-guard";
+                PreserveRecordingStateIfLoadFault(node);
                 savePhase = "game-state";
                 PersistGameStateAndMilestones(node);
                 // Rewind-to-Staging Phase 1 (design sections 5.1-5.9). Persistence
@@ -1134,25 +1140,203 @@ namespace Parsek
             SaveActiveTreeIfAny(node);
             SavePendingTreeIfAny(node);
 
-            // Stranded-sidecar diagnostic: if SaveActiveTreeIfAny did not add an in-flight
-            // RECORDING_TREE either, we are about to write an .sfs with zero RECORDING_TREE
-            // nodes. When the recordings directory still holds live sidecar IDs that warns
-            // of a state-management bug — the next OnLoad would read 0 trees and
-            // CleanOrphanFiles' safety guard will refuse the deletion (preserving recovery
-            // options), but the bug itself needs investigation. This is a diagnostic only;
-            // we don't refuse the save (KSP scenario contracts make that fragile).
-            int treeNodeCount = node.GetNodes("RECORDING_TREE").Length;
-            if (treeNodeCount == 0)
+            // Zero-tree write over stranded sidecars is the "scenario load lost its tree
+            // state" fingerprint; it is handled protectively (not just diagnosed) by
+            // PreserveRecordingStateIfLoadFault, which OnSave invokes AFTER the mission
+            // section so it can re-hydrate both trees and missions. See that method.
+        }
+
+        /// <summary>Campaign save file whose tree/mission state the load-fault guard preserves.</summary>
+        internal const string PersistentSaveFileName = "persistent.sfs";
+
+        /// <summary>
+        /// Testing seam for <see cref="PreserveRecordingStateIfLoadFault"/>: when non-null,
+        /// the guard reads this path instead of resolving the campaign persistent.sfs via
+        /// <see cref="RecordingPaths.ResolveSaveScopedPath"/> (which needs a live Unity save
+        /// context). Production leaves it null.
+        /// </summary>
+        internal static string PersistentSavePathOverrideForTesting;
+
+        /// <summary>
+        /// Testing seam for <see cref="PreserveRecordingStateIfLoadFault"/>: lets tests drive the
+        /// committed-tree-state-loaded flag the guard reads. Production sets it only inside the
+        /// cold-load OnLoad (Unity-gated, so it never runs in the xUnit host — where it defaults
+        /// false, i.e. the fault path). Tests set true to pin the successful-load / wipe skip
+        /// path, and reset it in teardown.
+        /// </summary>
+        internal static bool CommittedTreeStateLoadedForTesting
+        {
+            get => committedTreeStateLoaded;
+            set => committedTreeStateLoaded = value;
+        }
+
+        /// <summary>
+        /// Load-fault data-loss guard (the OnSave-side partner of
+        /// <see cref="RecordingStore.CleanOrphanFiles"/>'s refuse-to-delete guard). Fires
+        /// ONLY on the "scenario load lost its tree state" fingerprint: an INCOMPLETE cold
+        /// load (<c>initialLoadDone == false</c>) left the COMMITTED store empty while the
+        /// recordings directory still holds stranded sidecar bulk data. All three conditions
+        /// matter:
+        /// <list type="bullet">
+        ///   <item><description><c>!committedTreeStateLoaded</c> — the committed tree/mission load
+        ///   did not complete. A successful/fresh load and every INTENTIONAL empty state (the
+        ///   player's "Wipe All" / delete-all runs against a fully-loaded store) leave
+        ///   <c>committedTreeStateLoaded == true</c>, so the guard can never resurrect
+        ///   deliberately-removed recordings. Only a throw DURING tree/mission load leaves it
+        ///   false. (initialLoadDone is unusable for this: it is set true at cold-start ENTRY,
+        ///   before the trees load, so a mid-load throw would leave it true.)</description></item>
+        ///   <item><description>committed count == 0 — the committed history is the surface
+        ///   that gets hollowed. Gating on the COMMITTED count (not the total RECORDING_TREE
+        ///   node count) means an in-flight active/pending recording — which writes its own
+        ///   node via <see cref="SaveActiveTreeIfAny"/>/<see cref="SavePendingTreeIfAny"/> —
+        ///   does NOT mask the loss of the committed trees.</description></item>
+        ///   <item><description>stranded sidecars &gt; 0 — deleting a recording removes its
+        ///   sidecars (<see cref="RecordingStore.RemoveRecordingAt"/> → <c>DeleteRecordingFiles</c>),
+        ///   so leftover sidecars corroborate that committed recordings existed and were lost,
+        ///   not that the save is genuinely empty.</description></item>
+        /// </list>
+        /// Writing 0 committed trees here would HOLLOW the campaign .sfs — dropping every
+        /// committed tree + mission while the recorded data survives only as orphaned sidecars
+        /// (the way a save is progressively emptied across sessions). Instead, re-hydrate the
+        /// committed RECORDING_TREE + MISSION nodes from the on-disk save (which KSP has NOT
+        /// overwritten yet at OnSave time) so the save keeps its state until the next load can
+        /// load it. Additive: it only ADDS the on-disk committed nodes, preserving any live
+        /// active/pending node the caller already wrote; it never touches a populated save.
+        /// Never throws. NOTE: it reads the campaign persistent.sfs; a save targeting a quicksave
+        /// slot during the (rare) fault window will re-inject the campaign's committed trees into
+        /// that slot too, which is harmless (a quicksave is not the campaign save).
+        /// </summary>
+        internal static void PreserveRecordingStateIfLoadFault(ConfigNode node)
+        {
+            if (node == null)
+                return;
+            // Cheap gates first (no disk I/O on the common path): a non-empty committed store is
+            // a normal populated save, and a completed tree/mission load (fresh career, populated
+            // save, or an intentional wipe against a loaded store) leaves committedTreeStateLoaded
+            // == true. Only a load that THREW during tree/mission load leaves it false — the case
+            // that can hollow the .sfs. NB: initialLoadDone is deliberately NOT used here; it is
+            // flipped true at cold-start entry (before the trees load), so it cannot distinguish a
+            // completed load from a mid-load fault.
+            if (RecordingStore.CommittedTrees.Count != 0 || committedTreeStateLoaded)
+                return;
+            var strandedIds = RecordingStore.CollectSidecarIdsOnDisk();
+            if (!ShouldPreserveCommittedTreeState(
+                    committedTreeStateLoaded, RecordingStore.CommittedTrees.Count, strandedIds.Count))
+                return;
+
+            string persistentPath = PersistentSavePathOverrideForTesting
+                ?? RecordingPaths.ResolveSaveScopedPath(PersistentSaveFileName);
+            int rehydratedTrees = TryRehydrateCommittedTreesAndMissionsFromDiskSave(
+                node, persistentPath, out int rehydratedMissions);
+
+            if (rehydratedTrees > 0)
             {
-                var diskIds = RecordingStore.CollectSidecarIdsOnDisk();
-                if (diskIds.Count > 0)
-                {
-                    ParsekLog.Warn("Scenario",
-                        $"OnSave: writing 0 RECORDING_TREE nodes but disk has {diskIds.Count} stranded sidecar " +
-                        $"recording ID(s). Likely state-management bug — sidecars preserved by CleanOrphanFiles " +
-                        $"safety guard on next load. Restore from quicksave.sfs or backup if recordings are missing.");
-                }
+                ParsekLog.Warn("Scenario",
+                    $"OnSave load-fault guard: committed store empty after an incomplete load, but {strandedIds.Count} "
+                    + "stranded sidecar recording ID(s) on disk indicate the scenario load lost its tree state. "
+                    + $"Re-hydrated {rehydratedTrees} committed RECORDING_TREE + {rehydratedMissions} MISSION node(s) "
+                    + "from the on-disk save so it was NOT hollowed. Investigate the originating load fault.");
             }
+            else
+            {
+                ParsekLog.Warn("Scenario",
+                    $"OnSave load-fault guard: writing 0 committed RECORDING_TREE nodes after an incomplete load; disk "
+                    + $"has {strandedIds.Count} stranded sidecar recording ID(s) but the on-disk save has no committed "
+                    + "tree metadata to preserve. Sidecars are preserved by CleanOrphanFiles; recover the trees from "
+                    + "quicksave.sfs or a backup.");
+            }
+        }
+
+        /// <summary>
+        /// Pure trigger for <see cref="PreserveRecordingStateIfLoadFault"/>: fires only on the
+        /// load-fault fingerprint — the committed tree/mission load did NOT complete
+        /// (<paramref name="committedTreeStateLoaded"/> == false) yet the committed store is empty
+        /// while stranded sidecars remain on disk. A successful/fresh load or an intentional wipe
+        /// runs with <paramref name="committedTreeStateLoaded"/> == true; a genuinely-empty save
+        /// has no stranded sidecars (deletion removes them).
+        /// </summary>
+        internal static bool ShouldPreserveCommittedTreeState(
+            bool committedTreeStateLoaded, int committedTreeCount, int strandedSidecarCount)
+        {
+            return !committedTreeStateLoaded && committedTreeCount == 0 && strandedSidecarCount > 0;
+        }
+
+        /// <summary>
+        /// Re-hydrates the COMMITTED RECORDING_TREE + MISSION nodes from an on-disk KSP save
+        /// file (<paramref name="persistentSavePath"/>, a *.sfs) into <paramref name="targetNode"/>
+        /// (the ParsekScenario node being written), reading the save's own ParsekScenario SCENARIO
+        /// node. Returns the number of committed RECORDING_TREE nodes copied (0 when the file is
+        /// missing / unparseable / has no ParsekScenario node / has no committed trees). ADDITIVE
+        /// for trees: it appends the on-disk COMMITTED trees (skipping any on-disk active/pending
+        /// marker) WITHOUT removing the caller's nodes, so a live in-flight active/pending node is
+        /// preserved and no second active node is introduced. Missions (which belong to the
+        /// restored committed trees, and are empty in a fault since MissionStore.Load runs after
+        /// LoadRecordingTrees) are replaced with the on-disk set. Deep-copies each node so the
+        /// discarded loaded document is not aliased. Never throws.
+        /// </summary>
+        internal static int TryRehydrateCommittedTreesAndMissionsFromDiskSave(
+            ConfigNode targetNode, string persistentSavePath, out int rehydratedMissions)
+        {
+            rehydratedMissions = 0;
+            if (targetNode == null || string.IsNullOrEmpty(persistentSavePath))
+                return 0;
+            try
+            {
+                if (!System.IO.File.Exists(persistentSavePath))
+                    return 0;
+                ConfigNode root = ConfigNode.Load(persistentSavePath);
+                if (root == null)
+                    return 0;
+                ConfigNode gameNode = root.GetNode("GAME") ?? root;
+                ConfigNode parsekNode = FindParsekScenarioNodeInGame(gameNode);
+                if (parsekNode == null)
+                    return 0;
+
+                // Add only the COMMITTED on-disk trees; skip any on-disk active/pending marker so
+                // a second active node is never introduced, and do NOT remove the caller's nodes so
+                // a live in-flight active/pending recording written this save is preserved.
+                int addedTrees = 0;
+                foreach (ConfigNode diskTree in parsekNode.GetNodes("RECORDING_TREE"))
+                {
+                    if (IsActiveTreeNode(diskTree) || IsPendingTreeNode(diskTree))
+                        continue;
+                    targetNode.AddNode(diskTree.CreateCopy());
+                    addedTrees++;
+                }
+                if (addedTrees == 0)
+                    return 0;
+
+                // Missions belong to the committed trees just restored; replace the (empty, from
+                // the faulted load) mission set with the on-disk one.
+                targetNode.RemoveNodes("MISSION");
+                foreach (ConfigNode diskMission in parsekNode.GetNodes("MISSION"))
+                {
+                    targetNode.AddNode(diskMission.CreateCopy());
+                    rehydratedMissions++;
+                }
+                return addedTrees;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Scenario",
+                    "OnSave load-fault guard: failed to re-hydrate tree/mission state from "
+                    + $"'{persistentSavePath}': {ex.Message}");
+                return 0;
+            }
+        }
+
+        /// <summary>Finds the ParsekScenario SCENARIO node inside a loaded GAME node, or null.</summary>
+        private static ConfigNode FindParsekScenarioNodeInGame(ConfigNode gameNode)
+        {
+            if (gameNode == null)
+                return null;
+            ConfigNode[] scenarios = gameNode.GetNodes("SCENARIO");
+            for (int i = 0; i < scenarios.Length; i++)
+            {
+                if (string.Equals(scenarios[i].GetValue("name"), nameof(ParsekScenario), StringComparison.Ordinal))
+                    return scenarios[i];
+            }
+            return null;
         }
 
         private static bool EnsureRecordingFilesCurrentForSave(Recording rec, string treeKind)
@@ -2188,6 +2372,7 @@ namespace Parsek
                 + "ResetForTesting set) so the deferred reload re-loads the ledger from the "
                 + "clean events.pgse");
             initialLoadDone = false;
+            committedTreeStateLoaded = false;
             budgetDeductionApplied = false;
             mergeDialogPending = false;
             pendingActiveTreeResumeRewindSave = null;
@@ -2386,6 +2571,15 @@ namespace Parsek
         // static list is the real source of truth within a session.
         // Reset on main menu transition to prevent stale data leaking between saves.
         private static bool initialLoadDone = false;
+        // Set true ONLY after a cold load's committed tree + mission state finishes loading
+        // (LoadRecordingTrees + MissionStore.Load). Distinct from initialLoadDone, which is
+        // flipped true at cold-start ENTRY — before the trees load — for branch-decision reasons
+        // and therefore does NOT distinguish a completed load from one that threw mid-load. The
+        // load-fault guard (PreserveRecordingStateIfLoadFault) gates on THIS: a throw during
+        // tree/mission load leaves it false so the guard fires, while a successful load or an
+        // intentional wipe leaves it true so the guard stays silent. Reset everywhere
+        // initialLoadDone is reset (each precedes a fresh cold load).
+        private static bool committedTreeStateLoaded = false;
         private static string lastSaveFolder = null;
         private static bool budgetDeductionApplied = false;
 
@@ -3255,6 +3449,11 @@ namespace Parsek
                 RecordingStore.SanitizeNonLoopableLoopPlayback();
                 loadPhase = "missions";
                 MissionStore.Load(node);
+                // The committed tree + mission state finished loading for this cold load, so the
+                // load-fault guard may now trust an empty committed store as legitimate. A throw
+                // in either call above leaves this false (guard fires on the next save); the later
+                // reconcile steps operate on already-loaded data and do not clear the store.
+                committedTreeStateLoaded = true;
                 // Protect missions whose tree is parked (a quickload-resume isActive / isPending
                 // node restored LATER in this OnLoad by TryRestoreActiveTreeNode, or an already
                 // stashed pending tree) so PruneOrphans does not strip the mission name + loop
@@ -4079,6 +4278,7 @@ namespace Parsek
             if (currentSave != lastSaveFolder)
             {
                 initialLoadDone = false;
+                committedTreeStateLoaded = false;
                 lastSaveFolder = currentSave;
                 // Genuine new-session boundary: re-arm the drawdown-guard clamp toast so a
                 // persistent leak in a DIFFERENT save toasts once again. A plain scene
@@ -4230,6 +4430,7 @@ namespace Parsek
 
             unsubscribeLiveRecorder?.Invoke();
             initialLoadDone = false;
+            committedTreeStateLoaded = false;
             budgetDeductionApplied = false;
             mergeDialogPending = false;
             pendingActiveTreeResumeRewindSave = null;
@@ -6808,6 +7009,7 @@ namespace Parsek
             if (newScene == GameScenes.MAINMENU)
             {
                 initialLoadDone = false;
+                committedTreeStateLoaded = false;
                 lastSaveFolder = null;
                 lastOnSaveScene = GameScenes.MAINMENU;
                 lastSceneChangeRequestedUT = -1.0;

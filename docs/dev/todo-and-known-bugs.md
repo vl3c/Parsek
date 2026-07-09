@@ -339,6 +339,48 @@ the parameterized `ScenarioGameEventHandlerContractTests.ScenarioGameEventHandle
 `ParsekScenario` handler subscribed to a KSP GameEvent may be `static`** — KSP's
 `EventData.Add` dereferences `evt.Target` (null for static).
 
+## Fixed - OnSave no longer hollows a save whose recording state failed to load (branch `fix-batch-baseline-store`)
+
+Defense-in-depth follow-up to the OnLoad-NRE index-wipe above. That fix removed ONE
+trigger (a static handler NRE), but the general hazard remained: ANY OnLoad fault (a
+throw before the trees load, a store reset, a botched load) leaves the in-memory store
+empty, and the next `ParsekScenario.OnSave` writes `0 RECORDING_TREE` nodes over
+`persistent.sfs`, progressively hollowing the campaign save while the recording data
+survives only as orphaned sidecars. Confirmed as the mechanism behind the s15 save's
+tree/mission loss (KSP.log 2026-07-09: s15 loaded `0 tree(s)` from an already-emptied
+`persistent.sfs`, then every subsequent OnSave re-wrote `0 RECORDING_TREE nodes ...
+1 stranded sidecar`). NOTE: the in-game test-runner batch machinery was ruled OUT as the
+cause - in the same log every batch baseline capture/restore preserved 4 trees + missions
+faithfully; s15 was already 0-trees on disk when loaded, so the batch on it only mirrored
+an already-empty store.
+
+**Fix:** a new OnSave-side guard, `ParsekScenario.PreserveRecordingStateIfLoadFault`,
+runs after the tree + mission sections. It fires ONLY on the load-fault fingerprint, all
+three conditions required (post-Opus-review hardening): (1) `committedTreeStateLoaded == false` -
+the cold-load tree/mission load did NOT complete. This is a DEDICATED flag set true only AFTER
+`LoadRecordingTrees` + `MissionStore.Load` succeed, NOT `initialLoadDone` (which a two-round Opus
+re-review caught being set true at cold-start ENTRY, before the trees load - so gating on it
+silently skipped the guard for the canonical mid-load throw, the very fault this targets). A
+successful/fresh load OR an intentional player wipe/delete-all runs with `committedTreeStateLoaded
+== true`, so the guard can never resurrect deliberately-removed recordings even if a best-effort
+sidecar delete failed; the flag is reset wherever `initialLoadDone` is (each precedes a fresh cold
+load). (2) `RecordingStore.CommittedTrees.Count == 0` - gates on the COMMITTED count, not the total
+RECORDING_TREE node count, so an in-flight active/pending recording (which writes its own node)
+does not mask the loss of committed history; (3) stranded sidecars on disk (the same signal
+`CleanOrphanFiles` uses to refuse deletion). When it fires it re-hydrates the COMMITTED RECORDING_TREE + MISSION nodes from the
+on-disk `persistent.sfs` (which KSP has not overwritten yet at OnSave time) so the save keeps
+its state instead of being hollowed. Additive for trees: it appends the on-disk committed trees
+(skipping any on-disk active/pending marker) WITHOUT removing the caller's nodes, so a live
+in-flight recording is preserved and no second active node is introduced; missions are replaced
+with the on-disk set. Pure trigger + disk-rehydration (including the active-node-preservation,
+malformed-.sfs catch, and orphan-missions paths) are unit-tested headlessly in
+`OrphanCleanupSafetyGuardTests` (`PreserveGuard_*`). Reads the campaign persistent.sfs, so a
+save targeting a quicksave slot during the rare fault window re-injects the campaign's committed
+trees into that slot too (harmless - a quicksave is not the campaign save). Does NOT recover a
+save that is ALREADY 0-trees on disk (persistent.sfs has nothing left to preserve); recover
+those from `quicksave.sfs` or a KSP backup, then the guard protects
+them going forward.
+
 ## Dev - Logistics in-game tests: auto-spawn unloaded vessel (no manual second craft)
 
 The 7 logistics FLIGHT in-game tests (origin-debit / pickup / multi-stop delivery,
