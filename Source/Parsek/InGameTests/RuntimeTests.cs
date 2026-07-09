@@ -11918,8 +11918,9 @@ namespace Parsek.InGameTests
                 Bounds kerbalBounds = Parsek.SpawnCollisionDetector.ComputeVesselBounds(
                     Parsek.InGameTests.Helpers.InGameKerbalEvaSnapshot.Build(
                         testCrewName, targetLat, targetLon, endpointAlt, referenceBodyIndex, fakePid));
-                // A valid kerbalEVA snapshot yields a ~2.5 m cube. Falling into the 2 m
-                // no-parts fallback would silently undersize the fixture below.
+                // Confirm ComputeVesselBounds produced sane kerbal-sized geometry (~4.33 m
+                // cube magnitude) before the fixture sizing reads spawnBoundsExtent from it:
+                // not a zero box (PART pos missing) and not an aggregated multi-part vessel.
                 InGameAssert.IsGreaterThan(kerbalBounds.size.magnitude, 1.0,
                     "Snapshot ComputeVesselBounds should not be zero (PART pos missing?)");
                 InGameAssert.IsLessThan(kerbalBounds.size.magnitude, 6.0,

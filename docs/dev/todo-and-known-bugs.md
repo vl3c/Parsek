@@ -34,7 +34,7 @@ Both date from April 2026 (`cb2c0e894`, `814fbf53a`) and both violate the all-te
 
 **PENDING OPERATOR (in-game pin, cannot run KSP headlessly).** Ctrl+Shift+T Run All in FLIGHT, twice:
 
-1. From a landed or PRELAUNCH crewed vessel (any save): both tests must PASS. Grep `KSP.log` for `EvaSpawnWalkbackOnOverlap fixture:` (confirms `parentReach` / `trajectoryLength` derived from the live craft) and `ExplosionAnchorPosition:` (confirms `tolerance` scaled to `sceneMagnitude`).
+1. From a landed crewed vessel (any save): both tests must PASS. (A PRELAUNCH pad vessel PASSES too on the stock flattened pad, or skips loudly on the endpoint-overlap check if its parts sit meaningfully above the PQS terrain under it - a skip there is acceptable and self-describing, not a failure.) Grep `KSP.log` for `EvaSpawnWalkbackOnOverlap fixture:` (confirms `parentReach` / `trajectoryLength` derived from the live craft) and `ExplosionAnchorPosition:` (confirms `tolerance` scaled to `sceneMagnitude`).
 2. From the orbiting station on the "orbital supply route" save: neither may FAIL. `EvaSpawnWalkbackOnOverlap` must SKIP with `parsek-test-results.txt` naming the required context (`requires a LANDED or PRELAUNCH active vessel on solid ground ...`). `ExplosionAnchorPosition_BelowTerrain_ClampsBeforeWatchHold` should PASS at 214 km (grid tolerance ~0.20 m against a 6 m clamp); a skip there means the station's ground track sits far enough out to trip the float-grid or physics-bubble-knee guard, which is also acceptable and self-describing.
 
 ---
