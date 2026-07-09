@@ -42,21 +42,24 @@ namespace Parsek.Tests
         // ------------------------------------------------------------------ ShouldBackup
 
         [Theory]
-        // isColdLoad, enabled, marker, footprint, isBackup, brandNew -> expected
-        [InlineData(true, true, false, false, false, false, true)]   // eligible
-        [InlineData(false, true, false, false, false, false, false)] // not cold load
-        [InlineData(true, false, false, false, false, false, false)] // disabled
-        [InlineData(true, true, true, false, false, false, false)]   // marker present
-        [InlineData(true, true, false, true, false, false, false)]   // footprint present
-        [InlineData(true, true, false, false, true, false, false)]   // is a backup folder
-        [InlineData(true, true, false, false, false, true, false)]   // brand-new empty
+        // isColdLoad, enabled, marker, footprint, isBackup, brandNew -> expected, expectedReason.
+        // The reason literals are grepped verbatim by the in-game runbook in
+        // docs/dev/todo-and-known-bugs.md, so they are pinned here - a rename must fail a test.
+        [InlineData(true, true, false, false, false, false, true, "eligible")]
+        [InlineData(false, true, false, false, false, false, false, "not-cold-load")]
+        [InlineData(true, false, false, false, false, false, false, "disabled")]
+        [InlineData(true, true, true, false, false, false, false, "marker-present")]
+        [InlineData(true, true, false, true, false, false, false, "already-parsek-footprint")]
+        [InlineData(true, true, false, false, true, false, false, "is-backup-folder")]
+        [InlineData(true, true, false, false, false, true, false, "brand-new-empty")]
         public void ShouldBackup_TruthTable(
-            bool cold, bool enabled, bool marker, bool footprint, bool isBackup, bool brandNew, bool expected)
+            bool cold, bool enabled, bool marker, bool footprint, bool isBackup, bool brandNew,
+            bool expected, string expectedReason)
         {
             bool actual = PreParsekBackup.ShouldBackup(
                 cold, enabled, marker, footprint, isBackup, brandNew, out string reason);
             Assert.Equal(expected, actual);
-            Assert.False(string.IsNullOrEmpty(reason));
+            Assert.Equal(expectedReason, reason);
         }
 
         [Fact]
@@ -76,6 +79,8 @@ namespace Parsek.Tests
         [InlineData("a:b*c?", "a_b_c_")]
         [InlineData("", "save")]
         [InlineData(null, "save")]
+        [InlineData("   ", "save")]
+        [InlineData(" MyCareer ", "MyCareer")]
         public void SanitizeSaveName_ReplacesInvalidChars(string input, string expected)
         {
             Assert.Equal(expected, PreParsekBackup.SanitizeSaveName(input));
@@ -177,6 +182,27 @@ namespace Parsek.Tests
         {
             ConfigNode root = BuildPersistent(addParsekScenario: false, populated: false);
             Assert.False(PreParsekBackup.HasParsekGameplayFootprint(root, parsekSubdirExists: false));
+        }
+
+        [Fact]
+        public void HasParsekGameplayFootprint_TrueForValueOnlyNode()
+        {
+            // A ParsekScenario node carrying a scalar value beyond name+scene but no child nodes
+            // must count as a footprint (the values.Count > 2 branch, distinct from the child-node
+            // branch the "populated" case exercises).
+            var root = new ConfigNode();
+            ConfigNode game = root.AddNode("GAME");
+            ConfigNode scn = game.AddNode("SCENARIO");
+            scn.AddValue("name", "ParsekScenario");
+            scn.AddValue("scene", "7, 5, 6, 8");
+            scn.AddValue("someState", "1");
+            Assert.True(PreParsekBackup.HasParsekGameplayFootprint(root, parsekSubdirExists: false));
+        }
+
+        [Fact]
+        public void HasParsekGameplayFootprint_FalseForNullRootWithoutSubdir()
+        {
+            Assert.False(PreParsekBackup.HasParsekGameplayFootprint(null, parsekSubdirExists: false));
         }
 
         private static ConfigNode BuildPersistent(bool addParsekScenario, bool populated)

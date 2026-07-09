@@ -270,6 +270,16 @@ namespace Parsek
                 string saveDir = Path.Combine(savesDir, saveName);
                 string persistentPath = Path.Combine(saveDir, PersistentSfsName);
 
+                // Nothing pristine to back up if there is no on-disk persistent.sfs (e.g. a save
+                // not yet flushed). Skip rather than fabricate a payload-less "backup" + permanent
+                // marker that would suppress every future retry.
+                if (!File.Exists(persistentPath))
+                {
+                    ParsekLog.Info(Tag,
+                        $"Skip: no on-disk persistent.sfs at '{persistentPath}' (nothing pristine to back up) save='{saveName}'");
+                    return;
+                }
+
                 bool isBackupFolder = IsParsekBackupFolder(saveDir, saveName);
                 bool parsekSubdir = Directory.Exists(Path.Combine(saveDir, ParsekSubdirName));
 
@@ -358,6 +368,13 @@ namespace Parsek
 
                 WriteSentinel(staging, saveName);
 
+                // Defense in depth: never publish a backup that failed to capture the pristine
+                // payload. CopyFileInto silently no-ops on a missing source, so a nonzero craft
+                // file count is NOT proof the sfs landed. If it is absent, throw so the catch
+                // cleans staging, warns, and writes no marker (retry next cold load).
+                if (!File.Exists(Path.Combine(staging, PersistentSfsName)))
+                    throw new IOException($"pristine persistent.sfs not captured into staging for save='{saveName}'");
+
                 if (Directory.Exists(finalPath))
                     throw new IOException($"backup folder '{finalName}' already exists");
                 Directory.Move(staging, finalPath);
@@ -394,7 +411,7 @@ namespace Parsek
                 string body =
                     "This folder is a Parsek pre-installation backup of your save.\r\n" +
                     $"Source save: {saveName}\r\n" +
-                    $"Created: {KSPUtil.SystemDateTime.DateTimeNow():yyyy-MM-dd HH:mm}\r\n" +
+                    $"Created: {KSPUtil.SystemDateTime.DateTimeNow().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)}\r\n" +
                     "Do not delete this file if you want Parsek to keep recognizing this folder as a backup.\r\n";
                 File.WriteAllText(Path.Combine(backupFolder, SentinelName), body);
             }
@@ -420,7 +437,7 @@ namespace Parsek
                 string body =
                     "Parsek made a one-time pre-Parsek backup of this save.\r\n" +
                     $"Backup folder: {backupFolderName}\r\n" +
-                    $"Written: {KSPUtil.SystemDateTime.DateTimeNow():yyyy-MM-dd HH:mm}\r\n";
+                    $"Written: {KSPUtil.SystemDateTime.DateTimeNow().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)}\r\n";
                 File.WriteAllText(path, body);
                 ParsekLog.Verbose(Tag, $"Wrote done-marker '{path}'");
             }

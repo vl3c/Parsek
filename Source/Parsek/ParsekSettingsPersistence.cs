@@ -140,6 +140,7 @@ namespace Parsek
                     $" showCommittedFutureOverlays={(storedShowCommittedFutureOverlays.HasValue ? storedShowCommittedFutureOverlays.Value.ToString() : "<default>")}" +
                     $" blockCommittedActions={(storedBlockCommittedActions.HasValue ? storedBlockCommittedActions.Value.ToString() : "<default>")}" +
                     $" showRouteLines={(storedShowRouteLines.HasValue ? storedShowRouteLines.Value.ToString() : "<default>")}" +
+                    $" autoBackupExistingSaves={(storedAutoBackupExistingSaves.HasValue ? storedAutoBackupExistingSaves.Value.ToString() : "<default>")}" +
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<default>")}" +
                     $" mapRenderTracing={(storedMapRenderTracing.HasValue ? storedMapRenderTracing.Value.ToString() : "<default>")}" +
                     $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<default>")}");
@@ -403,6 +404,7 @@ namespace Parsek
                     $" showCommittedFutureOverlays={(storedShowCommittedFutureOverlays.HasValue ? storedShowCommittedFutureOverlays.Value.ToString() : "<null>")}" +
                     $" blockCommittedActions={(storedBlockCommittedActions.HasValue ? storedBlockCommittedActions.Value.ToString() : "<null>")}" +
                     $" showRouteLines={(storedShowRouteLines.HasValue ? storedShowRouteLines.Value.ToString() : "<null>")}" +
+                    $" autoBackupExistingSaves={(storedAutoBackupExistingSaves.HasValue ? storedAutoBackupExistingSaves.Value.ToString() : "<null>")}" +
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<null>")}" +
                     $" mapRenderTracing={(storedMapRenderTracing.HasValue ? storedMapRenderTracing.Value.ToString() : "<null>")}" +
                     $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<null>")}");

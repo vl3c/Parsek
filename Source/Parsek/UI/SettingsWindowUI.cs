@@ -196,6 +196,7 @@ namespace Parsek
                 s.ledgerTracing = false;
                 s.writeReadableSidecarMirrors = defaults.WriteReadableSidecarMirrors;
                 s.autoBackupExistingSaves = defaults.AutoBackupExistingSaves;
+                s.showRouteLines = defaults.ShowRouteLines;
                 s.SamplingDensityLevel = defaults.SamplingDensityLevel;
                 s.autoLoopIntervalSeconds = defaults.AutoLoopIntervalSeconds;
                 s.AutoLoopDisplayUnit = defaults.AutoLoopDisplayUnit;
@@ -203,6 +204,7 @@ namespace Parsek
                 s.blockCommittedActions = defaults.BlockCommittedActions;
                 ParsekSettingsPersistence.RecordReadableSidecarMirrors(s.writeReadableSidecarMirrors);
                 ParsekSettingsPersistence.RecordAutoBackupExistingSaves(s.autoBackupExistingSaves);
+                ParsekSettingsPersistence.RecordShowRouteLines(s.showRouteLines);
                 ParsekSettingsPersistence.RecordShowCommittedFutureOverlays(s.showCommittedFutureOverlays);
                 ParsekSettingsPersistence.RecordBlockCommittedActions(s.blockCommittedActions);
                 ParsekSettingsPersistence.RecordGhostRenderTracing(s.ghostRenderTracing);
