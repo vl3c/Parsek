@@ -370,10 +370,21 @@ namespace Parsek.InGameTests
         {
             if (isRunning) return;
             ResetBatchIsolationState();
+            var single = new List<InGameTestInfo> { test };
             CaptureBatchBaseline(ClassifyBatchIsolationMode(
                 HighLogic.LoadedScene, HighLogic.CurrentGame != null,
                 !string.IsNullOrEmpty(HighLogic.SaveFolder), FlightGlobals.ActiveVessel != null));
-            activeCoroutine = coroutineHost.StartCoroutine(RunBatch(new List<InGameTestInfo> { test }));
+            // Mirror RunAllIncludingFlightRestore: a restore-after-run test must
+            // NOT execute when its baseline is unavailable (capture threw and was
+            // swallowed, or the scene classifies to disk-only / none), because it
+            // would mutate live FLIGHT state with nothing to revert it. Without
+            // this guard the row play button ran such a test on a null baseline
+            // and the post-test restore silently no-oped. PrepareBatchFlightRestoreExecution
+            // marks the test Skipped with the baseline-unavailable reason and
+            // drops it from the batch; a non-restore test passes through unchanged.
+            single = PrepareBatchFlightRestoreExecution(single);
+            RecountResults();
+            activeCoroutine = coroutineHost.StartCoroutine(RunBatch(single));
         }
 
         /// <summary>
