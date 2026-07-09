@@ -223,6 +223,18 @@ namespace Parsek.Logistics
         /// Statuses without a detail render identically to the single-arg
         /// overload.
         /// </summary>
+        /// <summary>
+        /// Claw producer (design-logistics-claw-producer.md 5): the one
+        /// player-facing label for a non-dock connection, shared by the
+        /// route-creation summary and the detail panel's per-stop destination.
+        /// Dock (and every other kind) returns an empty suffix so existing
+        /// routes render byte-identically.
+        /// </summary>
+        internal static string ConnectionKindSuffix(RouteConnectionKind kind)
+        {
+            return kind == RouteConnectionKind.Grapple ? " (grappled)" : string.Empty;
+        }
+
         internal static string FormatRejectMessage(RouteAnalysisStatus status, string detail)
         {
             switch (status)
@@ -257,6 +269,10 @@ namespace Parsek.Logistics
                     return "This run starts between two docks: an earlier docked stretch"
                         + (string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")")
                         + " was recorded before the cargo run, but this shape is not supported yet. A mid-flight start works when the run begins at a fully recorded docked-origin window - dock at the origin depot, then undock, both recorded, before the first delivery dock. Otherwise start the supply run docked at the origin depot, or launch it from KSC.";
+                case RouteAnalysisStatus.UnsupportedConnectionKind:
+                    return "This run's transfer used a connection type Parsek does not support for routes"
+                        + (string.IsNullOrEmpty(detail) ? "" : " (" + detail + ")")
+                        + ". Docked and claw-grappled transfers are supported.";
                 default:
                     return "Route source is not eligible (" + status + ").";
             }
@@ -339,7 +355,10 @@ namespace Parsek.Logistics
 
             sb.Append("Endpoint: ");
             if (analysis.ConnectionWindow != null && analysis.ConnectionWindow.EndpointAtDock.HasValue)
+            {
                 sb.Append(FormatEndpoint(analysis.ConnectionWindow.EndpointAtDock.Value));
+                sb.Append(ConnectionKindSuffix(analysis.ConnectionWindow.TransferKind));
+            }
             else
                 sb.Append("unknown");
             sb.Append('\n');
