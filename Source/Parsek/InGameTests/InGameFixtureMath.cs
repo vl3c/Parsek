@@ -102,20 +102,30 @@ namespace Parsek.InGameTests
         /// </summary>
         internal const double WalkbackFixtureMaxLengthMeters = 1000.0;
 
-        /// <summary>Margin added on top of the parent's own reach, absorbing collider extents past each part origin.</summary>
-        internal const double WalkbackFixtureSlackMeters = 20.0;
+        /// <summary>
+        /// Extra trajectory the fixture lays down BEYOND the clearance budget, giving the
+        /// walkback room to be measurably wrong. The distance-from-endpoint upper bound sits
+        /// partway up this runway (<see cref="MaxWalkbackTravelRunwayFraction"/>), so a
+        /// correct walkback (which stops at ~budget) passes while an overshoot that runs to
+        /// the trajectory start (~budget + runway) fails. Must be comfortably larger than the
+        /// post-spawn settle / surface-snap / rotating-frame drift the measurement carries.
+        /// </summary>
+        internal const double WalkbackFixtureRunwayMeters = 80.0;
 
         /// <summary>
-        /// The walkback backs off along the surface, but the spawned kerbal's distance is
-        /// measured to the parent's centre of mass, which sits off that arc. This scales
-        /// the arc bound into a straight-line bound.
+        /// Where in the runway the "did not overshoot" threshold sits, as a fraction from the
+        /// clearance budget (0) to the trajectory start (1). One half leaves a full
+        /// <c>0.5 * runway</c> (40 m) of headroom on each side: above the ~budget a correct
+        /// walkback lands at, and below the ~budget + runway an overshoot-to-start reaches.
         /// </summary>
-        internal const double WalkbackStraightLineFactor = 1.5;
+        internal const double MaxWalkbackTravelRunwayFraction = 0.5;
 
         /// <summary>
         /// Upper bound on the arc the walkback must cover before its spawn box stops
         /// touching the parent: the parent's own reach, plus the spawn box's half-extent,
-        /// plus the overlap padding the collision detector adds around it.
+        /// plus the overlap padding the collision detector adds around it. The walkback stops
+        /// at the FIRST clear position, so a correct walkback's travel from the recorded
+        /// endpoint is at most this.
         /// </summary>
         internal static double ResolveWalkbackClearanceBudgetMeters(
             double parentReachMeters, double spawnBoundsExtentMeters, double overlapPaddingMeters)
@@ -126,22 +136,30 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// Upper bound on the straight-line distance from the parent's centre of mass to a
-        /// correctly walked-back spawn. The walkback's contract is "stop at the FIRST clear
-        /// position", so exceeding this means it overshot (or never ran and the spawn simply
-        /// landed wherever the raw recording put it).
+        /// Upper bound on how far along the trajectory (measured from the recorded endpoint) a
+        /// correctly walked-back spawn may sit. The walkback's contract is "stop at the FIRST
+        /// clear position", so travel beyond this means it overshot (or never ran and the
+        /// spawn simply landed at the raw endpoint, ~0 travel — caught by the lower bound).
+        ///
+        /// <para>This is deliberately measured from the ENDPOINT, not from the parent's centre
+        /// of mass: endpoint-relative travel is a surface-to-surface arc bounded by the
+        /// trajectory length, whereas the straight-line distance to the parent's CoM also
+        /// carries the CoM's height above the surface, which for a tall craft can exceed the
+        /// trajectory length and make any CoM-relative upper bound either vacuous or
+        /// false-failing.</para>
         /// </summary>
-        internal static double ResolveMaxExpectedWalkbackMeters(
+        internal static double ResolveMaxWalkbackTravelMeters(
             double parentReachMeters, double spawnBoundsExtentMeters, double overlapPaddingMeters)
         {
             double budget = ResolveWalkbackClearanceBudgetMeters(
                 parentReachMeters, spawnBoundsExtentMeters, overlapPaddingMeters);
-            return budget * WalkbackStraightLineFactor + WalkbackFixtureSlackMeters;
+            return budget + WalkbackFixtureRunwayMeters * MaxWalkbackTravelRunwayFraction;
         }
 
         /// <summary>
-        /// Trajectory length for the fixture: long enough that a correct walkback finds its
-        /// clear position well before running out of points, clamped into
+        /// Trajectory length for the fixture: the clearance budget plus a full runway, so a
+        /// correct walkback finds its clear position with room to spare and an overshoot runs
+        /// out to a detectably larger travel. Clamped into
         /// [<see cref="WalkbackFixtureMinLengthMeters"/>, <see cref="WalkbackFixtureMaxLengthMeters"/>].
         /// </summary>
         internal static double ResolveWalkbackFixtureLengthMeters(
@@ -149,7 +167,7 @@ namespace Parsek.InGameTests
         {
             double needed = ResolveWalkbackClearanceBudgetMeters(
                 parentReachMeters, spawnBoundsExtentMeters, overlapPaddingMeters)
-                + WalkbackFixtureSlackMeters;
+                + WalkbackFixtureRunwayMeters;
 
             if (needed < WalkbackFixtureMinLengthMeters) needed = WalkbackFixtureMinLengthMeters;
             if (needed > WalkbackFixtureMaxLengthMeters) needed = WalkbackFixtureMaxLengthMeters;
@@ -157,15 +175,17 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// True when the fixture trajectory is long enough to contain the walkback the parent
-        /// demands, with at least one step of granularity to spare. False means the parent is
-        /// larger than <see cref="WalkbackFixtureMaxLengthMeters"/> can accommodate and the
-        /// test must skip rather than report a walkback exhaustion it manufactured itself.
+        /// True when the fixture trajectory carries the FULL runway past the clearance budget,
+        /// so the max-travel threshold sits strictly inside the trajectory and an
+        /// overshoot-to-start is detectably beyond it. False means the parent is larger than
+        /// <see cref="WalkbackFixtureMaxLengthMeters"/> can accommodate with a full runway, and
+        /// the test must skip rather than report a walkback exhaustion it manufactured itself,
+        /// or assert an upper bound the truncated trajectory cannot support.
         /// </summary>
         internal static bool WalkbackFixtureCoversParent(
-            double trajectoryLengthMeters, double clearanceBudgetMeters, double stepMeters)
+            double trajectoryLengthMeters, double clearanceBudgetMeters)
         {
-            return trajectoryLengthMeters > clearanceBudgetMeters + NonNegative(stepMeters);
+            return trajectoryLengthMeters >= NonNegative(clearanceBudgetMeters) + WalkbackFixtureRunwayMeters;
         }
 
         /// <summary>

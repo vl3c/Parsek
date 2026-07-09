@@ -11924,11 +11924,10 @@ namespace Parsek.InGameTests
                     parentReach, spawnBoundsExtent, EvaSpawnOverlapPaddingMeters);
                 double trajectoryLength = InGameFixtureMath.ResolveWalkbackFixtureLengthMeters(
                     parentReach, spawnBoundsExtent, EvaSpawnOverlapPaddingMeters);
-                double maxExpectedWalkback = InGameFixtureMath.ResolveMaxExpectedWalkbackMeters(
+                double maxWalkbackTravel = InGameFixtureMath.ResolveMaxWalkbackTravelMeters(
                     parentReach, spawnBoundsExtent, EvaSpawnOverlapPaddingMeters);
 
-                if (!InGameFixtureMath.WalkbackFixtureCoversParent(
-                        trajectoryLength, clearanceBudget, InGameFixtureMath.WalkbackFixtureStepMeters))
+                if (!InGameFixtureMath.WalkbackFixtureCoversParent(trajectoryLength, clearanceBudget))
                 {
                     InGameAssert.Skip(
                         $"requires an active vessel the walkback fixture can clear: '{activeVessel.vesselName}' " +
@@ -12000,7 +11999,7 @@ namespace Parsek.InGameTests
                     $"clearanceBudget={clearanceBudget.ToString("F1", CultureInfo.InvariantCulture)} " +
                     $"trajectoryLength={trajectoryLength.ToString("F1", CultureInfo.InvariantCulture)} " +
                     $"points={pointCount} " +
-                    $"maxExpectedWalkback={maxExpectedWalkback.ToString("F1", CultureInfo.InvariantCulture)}");
+                    $"maxWalkbackTravel={maxWalkbackTravel.ToString("F1", CultureInfo.InvariantCulture)}");
 
                 Vector3d endpointWorldPos = body.GetWorldSurfacePosition(targetLat, targetLon, endpointAlt);
                 var (endpointOverlap, _, endpointBlockerName, _) =
@@ -12040,21 +12039,26 @@ namespace Parsek.InGameTests
                 ParsekLog.Info("TestRunner",
                     $"EvaSpawnWalkbackOnOverlap: distFromParent={distFromParent.ToString("F1", ic)} m " +
                     $"distFromEndpoint={distFromEndpoint.ToString("F1", ic)} m " +
-                    $"maxExpectedWalkback={maxExpectedWalkback.ToString("F1", ic)} m");
+                    $"maxWalkbackTravel={maxWalkbackTravel.ToString("F1", ic)} m");
 
-                // Should land clearly outside the parent but stop at the FIRST clear position,
-                // not run down the trajectory. The upper bound is derived from this parent's
-                // own reach plus the spawn box the collision detector tests with, so it holds
-                // for a pad rocket and an assembled station alike.
+                // Moved clearly off both the parent and the overlapping endpoint (the walkback
+                // ran and displaced the spawn).
                 InGameAssert.IsGreaterThan(distFromParent, 2.0,
                     $"Walkback should have moved the spawn off the parent (was {distFromParent.ToString("F1", ic)} m)");
-                InGameAssert.IsLessThan(distFromParent, maxExpectedWalkback,
-                    $"Walkback should stop at the first clear position, not run down the trajectory " +
-                    $"(was {distFromParent.ToString("F1", ic)} m; parent reach " +
-                    $"{parentReach.ToString("F1", ic)} m allows at most {maxExpectedWalkback.ToString("F1", ic)} m " +
-                    $"over a {trajectoryLength.ToString("F1", ic)} m fixture)");
                 InGameAssert.IsGreaterThan(distFromEndpoint, 1.0,
                     $"Walkback should move the EVA off the overlapping endpoint (was {distFromEndpoint.ToString("F1", ic)} m)");
+
+                // Stopped at the FIRST clear position, not run down the trajectory. Measured as
+                // travel FROM the recorded endpoint (a surface-to-surface arc bounded by the
+                // trajectory length), so the parent's centre-of-mass height above the surface
+                // does not contaminate the bound. The threshold sits partway up the fixture's
+                // runway, so a correct walkback (~clearance budget) passes while an overshoot
+                // that runs to the trajectory start (~budget + runway) fails.
+                InGameAssert.IsLessThan(distFromEndpoint, maxWalkbackTravel,
+                    $"Walkback should stop at the first clear position, not run down the trajectory " +
+                    $"(travel from endpoint was {distFromEndpoint.ToString("F1", ic)} m; parent reach " +
+                    $"{parentReach.ToString("F1", ic)} m allows at most {maxWalkbackTravel.ToString("F1", ic)} m " +
+                    $"over a {trajectoryLength.ToString("F1", ic)} m fixture)");
 
                 // Assert the runtime walkback path ran. The helper and the spawn wrapper
                 // emit separate lines; accept either so the test keys off behavior, not

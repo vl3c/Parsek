@@ -141,48 +141,55 @@ namespace Parsek.Tests
         }
 
         // ─────────────────────────────────────────────────────────────
-        //  Max expected walkback
+        //  Max walkback travel (measured from the recorded endpoint)
         // ─────────────────────────────────────────────────────────────
 
         [Fact]
-        public void MaxExpectedWalkback_PadRocket_IsTensOfMetres()
+        public void MaxWalkbackTravel_ExceedsBudgetByHalfTheRunway()
         {
-            // A pad rocket reaches ~10 m from its CoM.
-            double bound = InGameFixtureMath.ResolveMaxExpectedWalkbackMeters(10.0, 1.25, 5.0);
+            // A correct walkback stops at ~budget; the threshold sits half a runway above it.
+            double budget = InGameFixtureMath.ResolveWalkbackClearanceBudgetMeters(30.0, 1.25, 5.0);
+            double bound = InGameFixtureMath.ResolveMaxWalkbackTravelMeters(30.0, 1.25, 5.0);
 
-            Assert.True(bound > 20.0 && bound < 60.0, $"expected a tens-of-metres bound for a pad rocket, got {bound}");
+            Assert.Equal(
+                budget + InGameFixtureMath.WalkbackFixtureRunwayMeters * InGameFixtureMath.MaxWalkbackTravelRunwayFraction,
+                bound,
+                precision: 6);
+            Assert.True(bound > budget, $"bound {bound} must exceed budget {budget}");
         }
 
         [Fact]
-        public void MaxExpectedWalkback_Station_ScalesWithReach()
+        public void MaxWalkbackTravel_Station_ScalesWithReach()
         {
-            double rocket = InGameFixtureMath.ResolveMaxExpectedWalkbackMeters(10.0, 1.25, 5.0);
-            double station = InGameFixtureMath.ResolveMaxExpectedWalkbackMeters(60.0, 1.25, 5.0);
+            double rocket = InGameFixtureMath.ResolveMaxWalkbackTravelMeters(10.0, 1.25, 5.0);
+            double station = InGameFixtureMath.ResolveMaxWalkbackTravelMeters(60.0, 1.25, 5.0);
 
             Assert.True(station > rocket, "a larger parent must widen the bound, not keep the pad rocket's");
         }
 
-        [Fact]
-        public void MaxExpectedWalkback_RejectsTheOrbitalRegression()
+        [Theory]
+        [InlineData(10.0)]    // pad rocket / lander
+        [InlineData(50.0)]    // small base
+        [InlineData(150.0)]   // large landed base
+        [InlineData(400.0)]   // absurd but still inside the cap
+        public void MaxWalkbackTravel_DiscriminatesOvershoot_ForEveryCoveredParent(double parentReach)
         {
-            // The failing 2026-07-08 batch spawned the kerbal 214,681 m from the station
-            // because the endpoint never overlapped it and no walkback ran. No parent reach
-            // this fixture will ever see makes that distance legitimate.
-            double bound = InGameFixtureMath.ResolveMaxExpectedWalkbackMeters(
-                InGameFixtureMath.WalkbackFixtureMaxLengthMeters, 1.25, 5.0);
+            // The regression the reviewers caught: the old CoM-relative bound went vacuous for
+            // parents past ~60 m of reach. The endpoint-relative bound must stay strictly below
+            // the trajectory length for EVERY parent the fixture accepts, so an overshoot that
+            // runs to the trajectory start is always caught.
+            double budget = InGameFixtureMath.ResolveWalkbackClearanceBudgetMeters(parentReach, 1.25, 5.0);
+            double length = InGameFixtureMath.ResolveWalkbackFixtureLengthMeters(parentReach, 1.25, 5.0);
+            double bound = InGameFixtureMath.ResolveMaxWalkbackTravelMeters(parentReach, 1.25, 5.0);
 
-            Assert.True(214_681.0 > bound, "the observed orbital-context distance must exceed even the widest bound");
-        }
-
-        [Fact]
-        public void MaxExpectedWalkback_ExceedsClearanceBudget()
-        {
-            // The straight-line distance to the parent's CoM is longer than the surface arc
-            // the walkback covers, so the bound must sit above the budget it derives from.
-            double budget = InGameFixtureMath.ResolveWalkbackClearanceBudgetMeters(30.0, 1.25, 5.0);
-            double bound = InGameFixtureMath.ResolveMaxExpectedWalkbackMeters(30.0, 1.25, 5.0);
-
-            Assert.True(bound > budget, $"bound {bound} must exceed budget {budget}");
+            Assert.True(InGameFixtureMath.WalkbackFixtureCoversParent(length, budget),
+                "sanity: these reaches must all be covered");
+            // A correct walkback (~budget) passes; an overshoot to the start (~length) fails.
+            Assert.True(bound > budget, $"correct walkback (~{budget}) must pass the bound {bound}");
+            Assert.True(bound < length, $"overshoot to start (~{length}) must fail the bound {bound}");
+            // With headroom on both sides so settle/snap/float noise cannot flip either verdict.
+            Assert.True(bound - budget >= 20.0, "at least 20 m headroom above the correct-walkback distance");
+            Assert.True(length - bound >= 20.0, "at least 20 m headroom below the overshoot-to-start distance");
         }
 
         // ─────────────────────────────────────────────────────────────
@@ -192,6 +199,7 @@ namespace Parsek.Tests
         [Fact]
         public void FixtureLength_SmallParent_UsesTheMinimum()
         {
+            // budget + runway = 16.25 + 80 = 96.25 < 120, so the minimum binds.
             Assert.Equal(
                 InGameFixtureMath.WalkbackFixtureMinLengthMeters,
                 InGameFixtureMath.ResolveWalkbackFixtureLengthMeters(10.0, 1.25, 5.0));
@@ -200,9 +208,10 @@ namespace Parsek.Tests
         [Fact]
         public void FixtureLength_LargeParent_GrowsPastTheMinimum()
         {
+            // budget + runway = 206.25 + 80 = 286.25.
             double length = InGameFixtureMath.ResolveWalkbackFixtureLengthMeters(200.0, 1.25, 5.0);
 
-            Assert.Equal(226.25, length, precision: 6);
+            Assert.Equal(286.25, length, precision: 6);
             Assert.True(length > InGameFixtureMath.WalkbackFixtureMinLengthMeters);
         }
 
@@ -222,26 +231,36 @@ namespace Parsek.Tests
         [InlineData(10.0)]    // pad rocket
         [InlineData(60.0)]    // assembled station
         [InlineData(400.0)]   // absurd but still inside the cap
+        [InlineData(900.0)]   // near the cap, full runway still fits
         public void FixtureCoversParent_HoldsForEveryParentInsideTheCap(double parentReach)
         {
             double budget = InGameFixtureMath.ResolveWalkbackClearanceBudgetMeters(parentReach, 1.25, 5.0);
             double length = InGameFixtureMath.ResolveWalkbackFixtureLengthMeters(parentReach, 1.25, 5.0);
 
-            Assert.True(InGameFixtureMath.WalkbackFixtureCoversParent(
-                length, budget, InGameFixtureMath.WalkbackFixtureStepMeters));
+            Assert.True(InGameFixtureMath.WalkbackFixtureCoversParent(length, budget));
         }
 
         [Fact]
-        public void FixtureCoversParent_FailsWhenTheParentOutgrowsTheCap()
+        public void FixtureCoversParent_FailsWhenTheRunwayDoesNotFit()
         {
-            // Beyond the trajectory cap the fixture would manufacture its own walkback
-            // exhaustion, so the test must skip rather than report a bug it caused.
+            // Beyond the trajectory cap the full runway no longer fits, so the max-travel
+            // threshold could not sit strictly inside the trajectory. The test must skip
+            // rather than report a bug it caused or assert an unsupportable bound.
             const double parentReach = 5_000.0;
             double budget = InGameFixtureMath.ResolveWalkbackClearanceBudgetMeters(parentReach, 1.25, 5.0);
             double length = InGameFixtureMath.ResolveWalkbackFixtureLengthMeters(parentReach, 1.25, 5.0);
 
+            Assert.False(InGameFixtureMath.WalkbackFixtureCoversParent(length, budget));
+        }
+
+        [Fact]
+        public void FixtureCoversParent_BoundaryIsExactlyBudgetPlusRunway()
+        {
+            double budget = 100.0;
+            Assert.True(InGameFixtureMath.WalkbackFixtureCoversParent(
+                budget + InGameFixtureMath.WalkbackFixtureRunwayMeters, budget));
             Assert.False(InGameFixtureMath.WalkbackFixtureCoversParent(
-                length, budget, InGameFixtureMath.WalkbackFixtureStepMeters));
+                budget + InGameFixtureMath.WalkbackFixtureRunwayMeters - 0.01, budget));
         }
 
         // ─────────────────────────────────────────────────────────────
