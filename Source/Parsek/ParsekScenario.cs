@@ -988,10 +988,10 @@ namespace Parsek
                 SaveTreeRecordings(node);
                 savePhase = "missions";
                 MissionStore.Save(node);
-                // Data-loss guard: if the committed store is empty due to an INCOMPLETE load
-                // (initialLoadDone==false) while stranded sidecars remain on disk, preserve the
-                // on-disk save's committed trees + missions instead of hollowing the .sfs. Runs
-                // AFTER the mission write so it can restore both surfaces in one place.
+                // Data-loss guard: if the committed store is empty because the tree/mission load
+                // did not complete (committedTreeStateLoaded==false) while stranded sidecars remain
+                // on disk, preserve the on-disk save's committed trees + missions instead of
+                // hollowing the .sfs. Runs AFTER the mission write so it restores both surfaces here.
                 savePhase = "preserve-tree-state-guard";
                 PreserveRecordingStateIfLoadFault(node);
                 savePhase = "game-state";
@@ -1158,6 +1158,19 @@ namespace Parsek
         internal static string PersistentSavePathOverrideForTesting;
 
         /// <summary>
+        /// Testing seam for <see cref="PreserveRecordingStateIfLoadFault"/>: lets tests drive the
+        /// committed-tree-state-loaded flag the guard reads. Production sets it only inside the
+        /// cold-load OnLoad (Unity-gated, so it never runs in the xUnit host — where it defaults
+        /// false, i.e. the fault path). Tests set true to pin the successful-load / wipe skip
+        /// path, and reset it in teardown.
+        /// </summary>
+        internal static bool CommittedTreeStateLoadedForTesting
+        {
+            get => committedTreeStateLoaded;
+            set => committedTreeStateLoaded = value;
+        }
+
+        /// <summary>
         /// Load-fault data-loss guard (the OnSave-side partner of
         /// <see cref="RecordingStore.CleanOrphanFiles"/>'s refuse-to-delete guard). Fires
         /// ONLY on the "scenario load lost its tree state" fingerprint: an INCOMPLETE cold
@@ -1165,11 +1178,13 @@ namespace Parsek
         /// recordings directory still holds stranded sidecar bulk data. All three conditions
         /// matter:
         /// <list type="bullet">
-        ///   <item><description><c>!initialLoadDone</c> — a successful/fresh load and every
-        ///   INTENTIONAL empty state (the player's "Wipe All" / delete-all runs against a
-        ///   fully-loaded store) leave <c>initialLoadDone == true</c>, so the guard can never
-        ///   resurrect deliberately-removed recordings. Only a load that threw before it
-        ///   finished leaves the flag false.</description></item>
+        ///   <item><description><c>!committedTreeStateLoaded</c> — the committed tree/mission load
+        ///   did not complete. A successful/fresh load and every INTENTIONAL empty state (the
+        ///   player's "Wipe All" / delete-all runs against a fully-loaded store) leave
+        ///   <c>committedTreeStateLoaded == true</c>, so the guard can never resurrect
+        ///   deliberately-removed recordings. Only a throw DURING tree/mission load leaves it
+        ///   false. (initialLoadDone is unusable for this: it is set true at cold-start ENTRY,
+        ///   before the trees load, so a mid-load throw would leave it true.)</description></item>
         ///   <item><description>committed count == 0 — the committed history is the surface
         ///   that gets hollowed. Gating on the COMMITTED count (not the total RECORDING_TREE
         ///   node count) means an in-flight active/pending recording — which writes its own
@@ -1195,14 +1210,18 @@ namespace Parsek
         {
             if (node == null)
                 return;
-            // Cheap gates first (no disk I/O on the common path): a non-empty committed store
-            // is a normal populated save, and a completed load (fresh career, populated save, or
-            // an intentional wipe) leaves initialLoadDone == true.
-            if (RecordingStore.CommittedTrees.Count != 0 || initialLoadDone)
+            // Cheap gates first (no disk I/O on the common path): a non-empty committed store is
+            // a normal populated save, and a completed tree/mission load (fresh career, populated
+            // save, or an intentional wipe against a loaded store) leaves committedTreeStateLoaded
+            // == true. Only a load that THREW during tree/mission load leaves it false — the case
+            // that can hollow the .sfs. NB: initialLoadDone is deliberately NOT used here; it is
+            // flipped true at cold-start entry (before the trees load), so it cannot distinguish a
+            // completed load from a mid-load fault.
+            if (RecordingStore.CommittedTrees.Count != 0 || committedTreeStateLoaded)
                 return;
             var strandedIds = RecordingStore.CollectSidecarIdsOnDisk();
             if (!ShouldPreserveCommittedTreeState(
-                    initialLoadDone, RecordingStore.CommittedTrees.Count, strandedIds.Count))
+                    committedTreeStateLoaded, RecordingStore.CommittedTrees.Count, strandedIds.Count))
                 return;
 
             string persistentPath = PersistentSavePathOverrideForTesting
@@ -1230,15 +1249,16 @@ namespace Parsek
 
         /// <summary>
         /// Pure trigger for <see cref="PreserveRecordingStateIfLoadFault"/>: fires only on the
-        /// load-fault fingerprint — an incomplete load (<paramref name="initialLoadDone"/> ==
-        /// false) that left the committed store empty while stranded sidecars remain on disk. A
-        /// successful/fresh load or an intentional wipe runs with <paramref name="initialLoadDone"/>
-        /// == true; a genuinely-empty save has no stranded sidecars (deletion removes them).
+        /// load-fault fingerprint — the committed tree/mission load did NOT complete
+        /// (<paramref name="committedTreeStateLoaded"/> == false) yet the committed store is empty
+        /// while stranded sidecars remain on disk. A successful/fresh load or an intentional wipe
+        /// runs with <paramref name="committedTreeStateLoaded"/> == true; a genuinely-empty save
+        /// has no stranded sidecars (deletion removes them).
         /// </summary>
         internal static bool ShouldPreserveCommittedTreeState(
-            bool initialLoadDone, int committedTreeCount, int strandedSidecarCount)
+            bool committedTreeStateLoaded, int committedTreeCount, int strandedSidecarCount)
         {
-            return !initialLoadDone && committedTreeCount == 0 && strandedSidecarCount > 0;
+            return !committedTreeStateLoaded && committedTreeCount == 0 && strandedSidecarCount > 0;
         }
 
         /// <summary>
@@ -2352,6 +2372,7 @@ namespace Parsek
                 + "ResetForTesting set) so the deferred reload re-loads the ledger from the "
                 + "clean events.pgse");
             initialLoadDone = false;
+            committedTreeStateLoaded = false;
             budgetDeductionApplied = false;
             mergeDialogPending = false;
             pendingActiveTreeResumeRewindSave = null;
@@ -2550,6 +2571,15 @@ namespace Parsek
         // static list is the real source of truth within a session.
         // Reset on main menu transition to prevent stale data leaking between saves.
         private static bool initialLoadDone = false;
+        // Set true ONLY after a cold load's committed tree + mission state finishes loading
+        // (LoadRecordingTrees + MissionStore.Load). Distinct from initialLoadDone, which is
+        // flipped true at cold-start ENTRY — before the trees load — for branch-decision reasons
+        // and therefore does NOT distinguish a completed load from one that threw mid-load. The
+        // load-fault guard (PreserveRecordingStateIfLoadFault) gates on THIS: a throw during
+        // tree/mission load leaves it false so the guard fires, while a successful load or an
+        // intentional wipe leaves it true so the guard stays silent. Reset everywhere
+        // initialLoadDone is reset (each precedes a fresh cold load).
+        private static bool committedTreeStateLoaded = false;
         private static string lastSaveFolder = null;
         private static bool budgetDeductionApplied = false;
 
@@ -3419,6 +3449,11 @@ namespace Parsek
                 RecordingStore.SanitizeNonLoopableLoopPlayback();
                 loadPhase = "missions";
                 MissionStore.Load(node);
+                // The committed tree + mission state finished loading for this cold load, so the
+                // load-fault guard may now trust an empty committed store as legitimate. A throw
+                // in either call above leaves this false (guard fires on the next save); the later
+                // reconcile steps operate on already-loaded data and do not clear the store.
+                committedTreeStateLoaded = true;
                 // Protect missions whose tree is parked (a quickload-resume isActive / isPending
                 // node restored LATER in this OnLoad by TryRestoreActiveTreeNode, or an already
                 // stashed pending tree) so PruneOrphans does not strip the mission name + loop
@@ -4243,6 +4278,7 @@ namespace Parsek
             if (currentSave != lastSaveFolder)
             {
                 initialLoadDone = false;
+                committedTreeStateLoaded = false;
                 lastSaveFolder = currentSave;
                 // Genuine new-session boundary: re-arm the drawdown-guard clamp toast so a
                 // persistent leak in a DIFFERENT save toasts once again. A plain scene
@@ -4394,6 +4430,7 @@ namespace Parsek
 
             unsubscribeLiveRecorder?.Invoke();
             initialLoadDone = false;
+            committedTreeStateLoaded = false;
             budgetDeductionApplied = false;
             mergeDialogPending = false;
             pendingActiveTreeResumeRewindSave = null;
@@ -6972,6 +7009,7 @@ namespace Parsek
             if (newScene == GameScenes.MAINMENU)
             {
                 initialLoadDone = false;
+                committedTreeStateLoaded = false;
                 lastSaveFolder = null;
                 lastOnSaveScene = GameScenes.MAINMENU;
                 lastSceneChangeRequestedUT = -1.0;

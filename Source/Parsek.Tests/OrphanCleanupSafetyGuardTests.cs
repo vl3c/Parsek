@@ -31,6 +31,9 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             RecordingStore.SkipSidecarCurrencyCheckForTesting = true;
+            // Default to the fault path (an incomplete cold load) so the guard fires; individual
+            // tests flip this true to exercise the successful-load / intentional-wipe skip path.
+            ParsekScenario.CommittedTreeStateLoadedForTesting = false;
         }
 
         public void Dispose()
@@ -38,6 +41,7 @@ namespace Parsek.Tests
             HighLogic.SaveFolder = originalSaveFolder;
             RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting = null;
             ParsekScenario.PersistentSavePathOverrideForTesting = null;
+            ParsekScenario.CommittedTreeStateLoadedForTesting = false;
             for (int i = 0; i < cleanupRoots.Count; i++)
             {
                 try
@@ -283,13 +287,11 @@ namespace Parsek.Tests
         [Fact]
         public void PreserveGuard_TriggerDecision_FiresOnlyOnLoadFaultFingerprint()
         {
-            // Pure trigger: fires iff the load did NOT complete (initialLoadDone == false) AND the
-            // committed store is empty AND stranded sidecars exist. A successful/fresh load or an
-            // intentional wipe (initialLoadDone == true) never trips, a non-empty committed store
-            // short-circuits, and a genuinely-empty save (0 sidecars — deletion removes them) is left alone.
+            // Pure trigger, first arg = committedTreeStateLoaded: fires iff the tree/mission load
+            // did NOT complete (false) AND the committed store is empty AND stranded sidecars exist.
             Assert.True(ParsekScenario.ShouldPreserveCommittedTreeState(false, 0, 1));
             Assert.True(ParsekScenario.ShouldPreserveCommittedTreeState(false, 0, 5));
-            // initialLoadDone == true: a completed load or a deliberate wipe — never resurrect.
+            // committedTreeStateLoaded == true: a completed load or a deliberate wipe — never resurrect.
             Assert.False(ParsekScenario.ShouldPreserveCommittedTreeState(true, 0, 1));
             Assert.False(ParsekScenario.ShouldPreserveCommittedTreeState(true, 0, 5));
             // committed store non-empty: normal populated save.
@@ -461,6 +463,30 @@ namespace Parsek.Tests
             ParsekScenario.PreserveRecordingStateIfLoadFault(node);
 
             Assert.Empty(node.GetNodes("RECORDING_TREE")); // disk trees NOT injected
+            Assert.Empty(node.GetNodes("MISSION"));
+            Assert.DoesNotContain(logLines, l => l.Contains("load-fault guard"));
+        }
+
+        [Fact]
+        public void PreserveGuard_NoOp_WhenCommittedTreeStateLoaded()
+        {
+            // The re-review regression fix: a COMPLETED tree/mission load (or an intentional
+            // Wipe All against a loaded store) leaves committedTreeStateLoaded == true. Even with
+            // the committed store empty AND stranded sidecars on disk AND on-disk trees available,
+            // the guard must NOT fire — otherwise it would resurrect a deliberate wipe. This pins
+            // the completed-load / wipe skip that the committedTreeStateLoaded gate provides (the
+            // fault path — flag false — is covered by the tests above).
+            string recordingsDir = CreateRecordingsDir("preserve-loaded-skip");
+            File.WriteAllText(Path.Combine(recordingsDir, "stranded-rec.prec"), "p");
+            ParsekScenario.PersistentSavePathOverrideForTesting = WriteTempPersistentSfs(
+                committedTreeIds: new[] { "disk-a", "disk-b" }, missionNames: new[] { "M1" });
+            ParsekScenario.CommittedTreeStateLoadedForTesting = true; // load completed / wipe
+
+            var node = new ConfigNode("ParsekScenario");
+            logLines.Clear();
+            ParsekScenario.PreserveRecordingStateIfLoadFault(node);
+
+            Assert.Empty(node.GetNodes("RECORDING_TREE")); // NOT re-injected — deliberate empty respected
             Assert.Empty(node.GetNodes("MISSION"));
             Assert.DoesNotContain(logLines, l => l.Contains("load-fault guard"));
         }

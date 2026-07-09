@@ -298,14 +298,18 @@ an already-empty store.
 
 **Fix:** a new OnSave-side guard, `ParsekScenario.PreserveRecordingStateIfLoadFault`,
 runs after the tree + mission sections. It fires ONLY on the load-fault fingerprint, all
-three conditions required (post-Opus-review hardening): (1) `initialLoadDone == false` - an
-INCOMPLETE cold load; a successful/fresh load OR an intentional player wipe/delete-all runs
-with `initialLoadDone == true`, so the guard can never resurrect deliberately-removed
-recordings even if a best-effort sidecar delete failed; (2) `RecordingStore.CommittedTrees.Count
-== 0` - gates on the COMMITTED count, not the total RECORDING_TREE node count, so an in-flight
-active/pending recording (which writes its own node) does not mask the loss of committed
-history; (3) stranded sidecars on disk (the same signal `CleanOrphanFiles` uses to refuse
-deletion). When it fires it re-hydrates the COMMITTED RECORDING_TREE + MISSION nodes from the
+three conditions required (post-Opus-review hardening): (1) `committedTreeStateLoaded == false` -
+the cold-load tree/mission load did NOT complete. This is a DEDICATED flag set true only AFTER
+`LoadRecordingTrees` + `MissionStore.Load` succeed, NOT `initialLoadDone` (which a two-round Opus
+re-review caught being set true at cold-start ENTRY, before the trees load - so gating on it
+silently skipped the guard for the canonical mid-load throw, the very fault this targets). A
+successful/fresh load OR an intentional player wipe/delete-all runs with `committedTreeStateLoaded
+== true`, so the guard can never resurrect deliberately-removed recordings even if a best-effort
+sidecar delete failed; the flag is reset wherever `initialLoadDone` is (each precedes a fresh cold
+load). (2) `RecordingStore.CommittedTrees.Count == 0` - gates on the COMMITTED count, not the total
+RECORDING_TREE node count, so an in-flight active/pending recording (which writes its own node)
+does not mask the loss of committed history; (3) stranded sidecars on disk (the same signal
+`CleanOrphanFiles` uses to refuse deletion). When it fires it re-hydrates the COMMITTED RECORDING_TREE + MISSION nodes from the
 on-disk `persistent.sfs` (which KSP has not overwritten yet at OnSave time) so the save keeps
 its state instead of being hollowed. Additive for trees: it appends the on-disk committed trees
 (skipping any on-disk active/pending marker) WITHOUT removing the caller's nodes, so a live
