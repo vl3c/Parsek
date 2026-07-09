@@ -988,6 +988,12 @@ namespace Parsek
                 SaveTreeRecordings(node);
                 savePhase = "missions";
                 MissionStore.Save(node);
+                // Data-loss guard: if the in-memory store is empty due to a load fault
+                // (0 trees written, but stranded sidecars remain on disk), preserve the
+                // on-disk save's trees + missions instead of hollowing the .sfs. Runs
+                // AFTER the mission write so it can restore both surfaces in one place.
+                savePhase = "preserve-tree-state-guard";
+                PreserveRecordingStateIfLoadFault(node);
                 savePhase = "game-state";
                 PersistGameStateAndMilestones(node);
                 // Rewind-to-Staging Phase 1 (design sections 5.1-5.9). Persistence
@@ -1134,25 +1140,156 @@ namespace Parsek
             SaveActiveTreeIfAny(node);
             SavePendingTreeIfAny(node);
 
-            // Stranded-sidecar diagnostic: if SaveActiveTreeIfAny did not add an in-flight
-            // RECORDING_TREE either, we are about to write an .sfs with zero RECORDING_TREE
-            // nodes. When the recordings directory still holds live sidecar IDs that warns
-            // of a state-management bug — the next OnLoad would read 0 trees and
-            // CleanOrphanFiles' safety guard will refuse the deletion (preserving recovery
-            // options), but the bug itself needs investigation. This is a diagnostic only;
-            // we don't refuse the save (KSP scenario contracts make that fragile).
+            // Zero-tree write over stranded sidecars is the "scenario load lost its tree
+            // state" fingerprint; it is handled protectively (not just diagnosed) by
+            // PreserveRecordingStateIfLoadFault, which OnSave invokes AFTER the mission
+            // section so it can re-hydrate both trees and missions. See that method.
+        }
+
+        /// <summary>Campaign save file whose tree/mission state the load-fault guard preserves.</summary>
+        internal const string PersistentSaveFileName = "persistent.sfs";
+
+        /// <summary>
+        /// Testing seam for <see cref="PreserveRecordingStateIfLoadFault"/>: when non-null,
+        /// the guard reads this path instead of resolving the campaign persistent.sfs via
+        /// <see cref="RecordingPaths.ResolveSaveScopedPath"/> (which needs a live Unity save
+        /// context). Production leaves it null.
+        /// </summary>
+        internal static string PersistentSavePathOverrideForTesting;
+
+        /// <summary>
+        /// Load-fault data-loss guard (the OnSave-side partner of
+        /// <see cref="RecordingStore.CleanOrphanFiles"/>'s refuse-to-delete guard). Fires
+        /// ONLY on the "scenario load lost its tree state" fingerprint: OnSave is about to
+        /// write ZERO RECORDING_TREE nodes, yet the recordings directory still holds stranded
+        /// sidecar bulk data. That combination is never a legitimate empty save — deleting a
+        /// recording removes its sidecars (<see cref="RecordingStore.RemoveRecordingAt"/> →
+        /// <c>DeleteRecordingFiles</c>), so stranded sidecars mean the in-memory store was
+        /// emptied by a load fault (e.g. an OnLoad that threw before loading the trees), not
+        /// by the player. Writing 0 trees here would HOLLOW the campaign .sfs — dropping every
+        /// tree + mission from persistent.sfs while the recorded data survives only as orphaned
+        /// sidecars (the exact way a save is progressively emptied across sessions). Instead of
+        /// warning and proceeding, re-hydrate the RECORDING_TREE + MISSION nodes from the
+        /// on-disk save (which KSP has NOT overwritten yet at OnSave time) so the save keeps its
+        /// state until the next load can load it. Purely additive: only writes nodes when the
+        /// store is empty AND the fingerprint trips; never touches a populated save. Never throws.
+        /// </summary>
+        internal static void PreserveRecordingStateIfLoadFault(ConfigNode node)
+        {
+            if (node == null)
+                return;
+            // Cheap gate first: only a zero-tree write can hollow the save, so a populated
+            // write (the common case) skips the disk scan entirely.
             int treeNodeCount = node.GetNodes("RECORDING_TREE").Length;
-            if (treeNodeCount == 0)
+            if (treeNodeCount != 0)
+                return;
+            var strandedIds = RecordingStore.CollectSidecarIdsOnDisk();
+            if (!ShouldPreserveRecordingStateOnEmptyWrite(treeNodeCount, strandedIds.Count))
+                return;
+
+            string persistentPath = PersistentSavePathOverrideForTesting
+                ?? RecordingPaths.ResolveSaveScopedPath(PersistentSaveFileName);
+            int rehydratedTrees = TryRehydrateTreeMissionNodesFromDiskSave(
+                node, persistentPath, out int rehydratedMissions);
+
+            if (rehydratedTrees > 0)
             {
-                var diskIds = RecordingStore.CollectSidecarIdsOnDisk();
-                if (diskIds.Count > 0)
-                {
-                    ParsekLog.Warn("Scenario",
-                        $"OnSave: writing 0 RECORDING_TREE nodes but disk has {diskIds.Count} stranded sidecar " +
-                        $"recording ID(s). Likely state-management bug — sidecars preserved by CleanOrphanFiles " +
-                        $"safety guard on next load. Restore from quicksave.sfs or backup if recordings are missing.");
-                }
+                ParsekLog.Warn("Scenario",
+                    $"OnSave load-fault guard: in-memory store was empty but {strandedIds.Count} stranded " +
+                    "sidecar recording ID(s) on disk indicate the scenario load lost its tree state. " +
+                    $"Re-hydrated {rehydratedTrees} RECORDING_TREE + {rehydratedMissions} MISSION node(s) " +
+                    "from the on-disk save so it was NOT hollowed. Investigate the originating load fault.");
             }
+            else
+            {
+                ParsekLog.Warn("Scenario",
+                    $"OnSave load-fault guard: writing 0 RECORDING_TREE nodes but disk has {strandedIds.Count} " +
+                    "stranded sidecar recording ID(s), and the on-disk save has no tree metadata to preserve. " +
+                    "Sidecars are preserved by CleanOrphanFiles; recover the trees from quicksave.sfs or a backup.");
+            }
+        }
+
+        /// <summary>
+        /// Pure trigger for <see cref="PreserveRecordingStateIfLoadFault"/>: fires only when
+        /// zero RECORDING_TREE nodes are being written yet stranded sidecars exist on disk. A
+        /// genuinely-empty save has no stranded sidecars (deletion removes them), so it never
+        /// trips; any populated write (committed / active / pending tree node present) short-circuits.
+        /// </summary>
+        internal static bool ShouldPreserveRecordingStateOnEmptyWrite(int treeNodeCount, int strandedSidecarCount)
+        {
+            return treeNodeCount == 0 && strandedSidecarCount > 0;
+        }
+
+        /// <summary>
+        /// Re-hydrates the RECORDING_TREE + MISSION nodes from an on-disk KSP save file
+        /// (<paramref name="persistentSavePath"/>, a *.sfs) into <paramref name="targetNode"/>
+        /// (the ParsekScenario node being written), reading the save's own ParsekScenario
+        /// SCENARIO node. Returns the number of RECORDING_TREE nodes copied (0 when the file is
+        /// missing / unparseable / has no ParsekScenario node / has no trees). Replaces any
+        /// existing (empty) RECORDING_TREE / MISSION nodes on the target with the on-disk set.
+        /// Deep-copies each node so the discarded loaded document is not aliased. Never throws.
+        /// </summary>
+        internal static int TryRehydrateTreeMissionNodesFromDiskSave(
+            ConfigNode targetNode, string persistentSavePath, out int rehydratedMissions)
+        {
+            rehydratedMissions = 0;
+            if (targetNode == null || string.IsNullOrEmpty(persistentSavePath))
+                return 0;
+            try
+            {
+                if (!System.IO.File.Exists(persistentSavePath))
+                    return 0;
+                ConfigNode root = ConfigNode.Load(persistentSavePath);
+                if (root == null)
+                    return 0;
+                ConfigNode gameNode = root.GetNode("GAME") ?? root;
+                ConfigNode parsekNode = FindParsekScenarioNodeInGame(gameNode);
+                if (parsekNode == null)
+                    return 0;
+                ConfigNode[] treeNodes = parsekNode.GetNodes("RECORDING_TREE");
+                if (treeNodes.Length == 0)
+                    return 0;
+
+                // Replace the empty tree/mission set the caller just wrote with the on-disk one.
+                targetNode.RemoveNodes("RECORDING_TREE");
+                targetNode.RemoveNodes("MISSION");
+                for (int i = 0; i < treeNodes.Length; i++)
+                {
+                    ConfigNode copy = treeNodes[i].CreateCopy();
+                    copy.name = "RECORDING_TREE";
+                    targetNode.AddNode(copy);
+                }
+                ConfigNode[] missionNodes = parsekNode.GetNodes("MISSION");
+                for (int i = 0; i < missionNodes.Length; i++)
+                {
+                    ConfigNode copy = missionNodes[i].CreateCopy();
+                    copy.name = "MISSION";
+                    targetNode.AddNode(copy);
+                }
+                rehydratedMissions = missionNodes.Length;
+                return treeNodes.Length;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Scenario",
+                    "OnSave load-fault guard: failed to re-hydrate tree/mission state from " +
+                    $"'{persistentSavePath}': {ex.Message}");
+                return 0;
+            }
+        }
+
+        /// <summary>Finds the ParsekScenario SCENARIO node inside a loaded GAME node, or null.</summary>
+        private static ConfigNode FindParsekScenarioNodeInGame(ConfigNode gameNode)
+        {
+            if (gameNode == null)
+                return null;
+            ConfigNode[] scenarios = gameNode.GetNodes("SCENARIO");
+            for (int i = 0; i < scenarios.Length; i++)
+            {
+                if (string.Equals(scenarios[i].GetValue("name"), nameof(ParsekScenario), StringComparison.Ordinal))
+                    return scenarios[i];
+            }
+            return null;
         }
 
         private static bool EnsureRecordingFilesCurrentForSave(Recording rec, string treeKind)

@@ -281,6 +281,34 @@ the parameterized `ScenarioGameEventHandlerContractTests.ScenarioGameEventHandle
 `ParsekScenario` handler subscribed to a KSP GameEvent may be `static`** — KSP's
 `EventData.Add` dereferences `evt.Target` (null for static).
 
+## Fixed - OnSave no longer hollows a save whose recording state failed to load (branch `fix-batch-baseline-store`)
+
+Defense-in-depth follow-up to the OnLoad-NRE index-wipe above. That fix removed ONE
+trigger (a static handler NRE), but the general hazard remained: ANY OnLoad fault (a
+throw before the trees load, a store reset, a botched load) leaves the in-memory store
+empty, and the next `ParsekScenario.OnSave` writes `0 RECORDING_TREE` nodes over
+`persistent.sfs`, progressively hollowing the campaign save while the recording data
+survives only as orphaned sidecars. Confirmed as the mechanism behind the s15 save's
+tree/mission loss (KSP.log 2026-07-09: s15 loaded `0 tree(s)` from an already-emptied
+`persistent.sfs`, then every subsequent OnSave re-wrote `0 RECORDING_TREE nodes ...
+1 stranded sidecar`). NOTE: the in-game test-runner batch machinery was ruled OUT as the
+cause - in the same log every batch baseline capture/restore preserved 4 trees + missions
+faithfully; s15 was already 0-trees on disk when loaded, so the batch on it only mirrored
+an already-empty store.
+
+**Fix:** a new OnSave-side guard, `ParsekScenario.PreserveRecordingStateIfLoadFault`,
+runs after the tree + mission sections. When the fingerprint trips (0 RECORDING_TREE
+nodes being written AND stranded sidecars on disk - the same signal `CleanOrphanFiles`
+uses to refuse deletion), it re-hydrates the RECORDING_TREE + MISSION nodes from the
+on-disk `persistent.sfs` (which KSP has not overwritten yet at OnSave time) so the save
+keeps its state instead of being hollowed. Purely additive: it never touches a populated
+save, and a genuinely-empty save (recordings deleted, which also deletes their sidecars)
+has no stranded sidecars so the guard stays silent. Pure trigger + disk-rehydration are
+unit-tested headlessly in `OrphanCleanupSafetyGuardTests` (`PreserveGuard_*`). Does NOT
+recover a save that is ALREADY 0-trees on disk (persistent.sfs has nothing left to
+preserve); recover those from `quicksave.sfs` or a KSP backup, then the guard protects
+them going forward.
+
 ## Dev - Logistics in-game tests: auto-spawn unloaded vessel (no manual second craft)
 
 The 7 logistics FLIGHT in-game tests (origin-debit / pickup / multi-stop delivery,

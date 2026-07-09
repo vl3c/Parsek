@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
+- A campaign save whose committed trees and missions failed to load (leaving the in-memory store empty while the recording sidecars still exist on disk) is no longer hollowed out by the next save: Parsek now detects that load fault and re-writes the trees and missions from the on-disk save instead of overwriting it with an empty set, so a one-time load failure can no longer progressively erase a save's committed recordings.
 - Map ghost icons no longer snap visibly along their orbit at extreme time-warp (roughly 344x and up): the map-orbit refresh ran on a fixed half-second real-time timer, which at those rates spans hundreds of game-seconds per tick, letting the icon ride a stale orbit and jump ~1 Mm on each refresh. The refresh cadence now scales with the warp rate so one tick never covers more than 30 game-seconds; behavior at normal speed is unchanged.
 - Rotated burn-leg trajectory lines on the map (the "bridge" arcs connecting two orbits, e.g. an escape burn after a phasing loiter) no longer slowly change shape while time passes at warp: the leg's points were re-read at the live planet rotation every frame and re-rotated onto the fixed orbit seam, visibly reshaping the arc's interior at exactly the planet's spin rate. Anchored legs are now drawn frozen in the non-rotating frame (each point where it actually was at its recorded time), so the bridge shape is rigid; launch ascents, descents, and other surface-glued legs keep rotating with the planet as before.
 

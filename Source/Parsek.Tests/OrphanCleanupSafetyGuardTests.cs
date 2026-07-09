@@ -6,11 +6,12 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Tests for the orphan-cleanup safety guard pair: <see cref="RecordingStore.CleanOrphanFiles"/>
+    /// Tests for the load-fault data-loss guard pair: <see cref="RecordingStore.CleanOrphanFiles"/>
     /// must refuse to delete sidecars when the scenario reports zero known recording IDs but
     /// the disk has live sidecar-shaped recording IDs (the "load lost its tree state" pattern),
-    /// and <c>ParsekScenario.SaveTreeRecordings</c> must warn when about to write zero
-    /// RECORDING_TREE nodes while disk holds stranded sidecars.
+    /// and <c>ParsekScenario.PreserveRecordingStateIfLoadFault</c> must re-hydrate the on-disk
+    /// save's RECORDING_TREE + MISSION nodes (rather than let OnSave hollow the .sfs) when the
+    /// in-memory store is empty while stranded sidecars remain on disk.
     /// </summary>
     [Collection("Sequential")]
     public class OrphanCleanupSafetyGuardTests : IDisposable
@@ -18,6 +19,7 @@ namespace Parsek.Tests
         private readonly List<string> logLines = new List<string>();
         private readonly string originalSaveFolder;
         private readonly List<string> cleanupRoots = new List<string>();
+        private readonly List<string> cleanupFiles = new List<string>();
 
         public OrphanCleanupSafetyGuardTests()
         {
@@ -35,12 +37,22 @@ namespace Parsek.Tests
         {
             HighLogic.SaveFolder = originalSaveFolder;
             RecordingStore.CleanOrphanFilesDirectoryOverrideForTesting = null;
+            ParsekScenario.PersistentSavePathOverrideForTesting = null;
             for (int i = 0; i < cleanupRoots.Count; i++)
             {
                 try
                 {
                     if (Directory.Exists(cleanupRoots[i]))
                         Directory.Delete(cleanupRoots[i], true);
+                }
+                catch { }
+            }
+            for (int i = 0; i < cleanupFiles.Count; i++)
+            {
+                try
+                {
+                    if (File.Exists(cleanupFiles[i]))
+                        File.Delete(cleanupFiles[i]);
                 }
                 catch { }
             }
@@ -260,60 +272,132 @@ namespace Parsek.Tests
             Assert.Empty(ids);
         }
 
-        // ----- ParsekScenario.SaveTreeRecordings stranded-sidecar warn -----
+        // ----- ParsekScenario load-fault preservation guard (empty-store OnSave over a
+        //       populated .sfs must NOT hollow the save) -----
 
         [Fact]
-        public void SaveTreeRecordings_WarnsWhenWritingZeroTrees_OverStrandedSidecars()
+        public void PreserveGuard_TriggerDecision_OnlyFires_OnZeroTreesWithStrandedSidecars()
         {
-            // Reproduces the upstream half of the data-loss chain: scenario state has 0
-            // committed trees but disk holds bulk data for prior recordings. Writing now
-            // produces an .sfs with 0 RECORDING_TREE nodes — a state-management bug whose
-            // damage CleanOrphanFiles would normally compound on next load.
-            string recordingsDir = CreateRecordingsDir("save-warns");
+            // Pure trigger: fires iff 0 tree nodes are being written AND stranded sidecars
+            // exist. A genuinely-empty save (0 sidecars — deletion removes them) never trips,
+            // and any populated write (>=1 tree node) short-circuits so a real save is never touched.
+            Assert.True(ParsekScenario.ShouldPreserveRecordingStateOnEmptyWrite(0, 1));
+            Assert.True(ParsekScenario.ShouldPreserveRecordingStateOnEmptyWrite(0, 5));
+            Assert.False(ParsekScenario.ShouldPreserveRecordingStateOnEmptyWrite(0, 0));
+            Assert.False(ParsekScenario.ShouldPreserveRecordingStateOnEmptyWrite(2, 3));
+            Assert.False(ParsekScenario.ShouldPreserveRecordingStateOnEmptyWrite(1, 0));
+        }
+
+        [Fact]
+        public void PreserveGuard_RehydratesTreesAndMissions_FromDiskSave_WhenStoreEmpty()
+        {
+            // The fix: an empty-store OnSave over a populated on-disk campaign save must NOT
+            // hollow it. With stranded sidecars present (the load-fault fingerprint) and the
+            // on-disk save still holding tree + mission metadata, the guard re-injects both
+            // surfaces into the node being written so persistent.sfs keeps its state.
+            string recordingsDir = CreateRecordingsDir("preserve-rehydrate");
             File.WriteAllText(Path.Combine(recordingsDir, "stranded-rec.prec"), "p");
             File.WriteAllText(Path.Combine(recordingsDir, "stranded-rec_vessel.craft"), "v");
-            File.WriteAllText(Path.Combine(recordingsDir, "stranded-rec_ghost.craft"), "g");
+
+            ParsekScenario.PersistentSavePathOverrideForTesting = WriteTempPersistentSfs(
+                treeIds: new[] { "tree-a", "tree-b" },
+                missionNames: new[] { "Mun Run", "Minmus Run", "Duna Run" });
+
+            var node = new ConfigNode("ParsekScenario"); // empty store => 0 trees, 0 missions
+            logLines.Clear();
+            ParsekScenario.PreserveRecordingStateIfLoadFault(node);
+
+            Assert.Equal(2, node.GetNodes("RECORDING_TREE").Length);
+            Assert.Equal(3, node.GetNodes("MISSION").Length);
+            Assert.Contains("tree-a", System.Array.ConvertAll(
+                node.GetNodes("RECORDING_TREE"), n => n.GetValue("id")));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]") && l.Contains("load-fault guard")
+                && l.Contains("Re-hydrated 2 RECORDING_TREE + 3 MISSION"));
+        }
+
+        [Fact]
+        public void PreserveGuard_Warns_WhenStrandedButOnDiskSaveHasNoTrees()
+        {
+            // Stranded sidecars but the on-disk save is itself already 0-trees (nothing left
+            // to preserve — the terminal hollowed state). The guard cannot recover it; it
+            // warns to steer recovery toward quicksave.sfs / a backup, and never throws.
+            string recordingsDir = CreateRecordingsDir("preserve-nothing-to-restore");
+            File.WriteAllText(Path.Combine(recordingsDir, "stranded-rec.prec"), "p");
+
+            ParsekScenario.PersistentSavePathOverrideForTesting = WriteTempPersistentSfs(
+                treeIds: new string[0], missionNames: new string[0]);
 
             var node = new ConfigNode("ParsekScenario");
             logLines.Clear();
-            ParsekScenario.SaveTreeRecordings(node);
+            ParsekScenario.PreserveRecordingStateIfLoadFault(node);
 
             Assert.Empty(node.GetNodes("RECORDING_TREE"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Scenario]") && l.Contains("writing 0 RECORDING_TREE nodes")
-                && l.Contains("1 stranded sidecar"));
+                && l.Contains("1 stranded sidecar") && l.Contains("no tree metadata to preserve"));
         }
 
         [Fact]
-        public void SaveTreeRecordings_DoesNotWarn_WhenDiskIsAlsoEmpty()
+        public void PreserveGuard_NoOp_WhenNoStrandedSidecars()
         {
-            // Genuinely-empty save (no trees in memory, no sidecars on disk) must not
-            // emit the stranded-sidecar warn.
-            CreateRecordingsDir("save-clean");
+            // Genuinely-empty save: no trees in memory, no sidecars on disk. The guard must
+            // stay silent and never touch the node — deleting all recordings is legitimate
+            // (it removes the sidecars too), so the on-disk save must not be re-injected.
+            CreateRecordingsDir("preserve-clean");
+            ParsekScenario.PersistentSavePathOverrideForTesting = WriteTempPersistentSfs(
+                treeIds: new[] { "should-not-be-read" }, missionNames: new string[0]);
 
             var node = new ConfigNode("ParsekScenario");
             logLines.Clear();
-            ParsekScenario.SaveTreeRecordings(node);
+            ParsekScenario.PreserveRecordingStateIfLoadFault(node);
 
-            Assert.DoesNotContain(logLines, l => l.Contains("stranded sidecar"));
+            Assert.Empty(node.GetNodes("RECORDING_TREE")); // untouched — guard never ran
+            Assert.DoesNotContain(logLines, l => l.Contains("load-fault guard"));
         }
 
         [Fact]
-        public void SaveTreeRecordings_DoesNotWarn_WhenWritingAtLeastOneTree()
+        public void PreserveGuard_NoOp_WhenTreeNodesAlreadyPresent()
         {
-            // When the in-memory state is consistent with disk (at least one tree being
-            // saved), the diagnostic stays quiet — this is the normal case.
-            string recordingsDir = CreateRecordingsDir("save-consistent");
-            var rec = new Recording { RecordingId = "live-rec", VesselName = "Live" };
-            RecordingStore.AddRecordingWithTreeForTesting(rec);
-            File.WriteAllText(Path.Combine(recordingsDir, "live-rec.prec"), "p");
+            // At least one tree node was written (consistent store) — the guard short-circuits
+            // even with stranded sidecars present, so it can never clobber a real save's data
+            // with a stale on-disk copy.
+            string recordingsDir = CreateRecordingsDir("preserve-consistent");
+            File.WriteAllText(Path.Combine(recordingsDir, "stranded-rec.prec"), "p");
+            ParsekScenario.PersistentSavePathOverrideForTesting = WriteTempPersistentSfs(
+                treeIds: new[] { "disk-tree" }, missionNames: new[] { "Disk Mission" });
 
             var node = new ConfigNode("ParsekScenario");
+            node.AddNode("RECORDING_TREE").AddValue("id", "in-memory-tree");
             logLines.Clear();
-            ParsekScenario.SaveTreeRecordings(node);
+            ParsekScenario.PreserveRecordingStateIfLoadFault(node);
 
-            Assert.NotEmpty(node.GetNodes("RECORDING_TREE"));
-            Assert.DoesNotContain(logLines, l => l.Contains("stranded sidecar"));
+            Assert.Single(node.GetNodes("RECORDING_TREE"));
+            Assert.Equal("in-memory-tree", node.GetNodes("RECORDING_TREE")[0].GetValue("id"));
+            Assert.Empty(node.GetNodes("MISSION")); // disk missions NOT injected
+            Assert.DoesNotContain(logLines, l => l.Contains("load-fault guard"));
+        }
+
+        // Writes a minimal KSP-shaped .sfs (GAME { SCENARIO { name = ParsekScenario ... } })
+        // with the requested RECORDING_TREE / MISSION children plus a decoy SCENARIO so the
+        // finder must match ParsekScenario by name. Tracked for cleanup.
+        private string WriteTempPersistentSfs(string[] treeIds, string[] missionNames)
+        {
+            var root = new ConfigNode();
+            var game = root.AddNode("GAME");
+            game.AddNode("SCENARIO").AddValue("name", "ContractSystem"); // decoy
+            var scenario = game.AddNode("SCENARIO");
+            scenario.AddValue("name", "ParsekScenario");
+            for (int i = 0; i < treeIds.Length; i++)
+                scenario.AddNode("RECORDING_TREE").AddValue("id", treeIds[i]);
+            for (int i = 0; i < missionNames.Length; i++)
+                scenario.AddNode("MISSION").AddValue("name", missionNames[i]);
+
+            string path = Path.Combine(Path.GetTempPath(),
+                "parsek-test-sfs-" + Guid.NewGuid().ToString("N") + ".sfs");
+            root.Save(path);
+            cleanupFiles.Add(path);
+            return path;
         }
 
         private string CreateRecordingsDir(string label)
