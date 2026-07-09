@@ -30,10 +30,50 @@ namespace Parsek.InGameTests
     /// (converter activation, the recording + its tree, time warp) is
     /// restored in <c>finally</c>, and the isolated-batch baseline restore
     /// quickloads the pre-test save afterwards.</para>
+    ///
+    /// <para><b>ALL-TESTS-AUTO self-setup.</b> Flight auto-records, so an
+    /// active recording / tree is the normal state of an ordinary session; the
+    /// three capture tests used to skip on it and so never ran. They now
+    /// self-discard that ephemeral session instead
+    /// (<see cref="DiscardSessionRecordingForSelfSetup"/>). The discard runs
+    /// only once each test's craft-capability check has passed (a converter
+    /// present, or a drill for the D5 gate) and BEFORE the log observer is
+    /// installed: a stock craft with no such part skips without touching the
+    /// player's recording, and the live recorder's teardown never pollutes the
+    /// captured log stream the assertions read. The discard is the one mutation
+    /// NOT undone in <c>finally</c>; the isolated tier's post-test baseline
+    /// quickload restores the pre-test world instead. That safety net is
+    /// load-bearing, so the runner refuses to execute a restore-backed test
+    /// when its baseline could not be captured (see
+    /// <c>InGameTestRunner.RunSingle</c> /
+    /// <c>PrepareBatchFlightRestoreExecution</c>) - the test skips rather than
+    /// discarding with nothing to bring the recording back.</para>
+    ///
+    /// <para><b>These are NOT run-on-any-vessel gates.</b> The converter-toggle
+    /// and warp tests need a <see cref="BaseConverter"/> on the active vessel (a
+    /// stock fuel cell suffices); the D5 catch-up test needs an activated
+    /// <see cref="BaseDrill"/> (a drill rig landed on ore); the analysis test
+    /// needs the injected synthetic tree <c>tree-drill-harvest-m2</c>. On a
+    /// plain stock craft they skip loudly with the missing prerequisite.</para>
     /// </summary>
     public sealed class LogisticsHarvestRuntimeTests
     {
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+
+        /// <summary>
+        /// The pure in-memory tree-teardown surface on ParsekFlight (force-stop
+        /// the recorder, drop the background recorder without persisting, null
+        /// the active tree). Non-public; resolved once via the same reflection
+        /// the RuntimeTests cleanups use. Deliberately NOT
+        /// <c>AutoDiscardIdleActiveTree</c>, whose ledger recalc + "idle on pad"
+        /// toast are wrong for both the ephemeral auto-record session (setup)
+        /// and the test's own synthetic tree (teardown). Null only if the method
+        /// is ever renamed - callers Skip (setup) or warn-log (teardown).
+        /// </summary>
+        private static readonly System.Reflection.MethodInfo DiscardSuppressedSceneExitMethod =
+            typeof(ParsekFlight).GetMethod(
+                "DiscardActiveTreeForSuppressedSceneExit",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
 
         private const double ResourceTolerance = 0.01;
         private const float RecordingStartTimeoutSeconds = 5f;
@@ -71,7 +111,7 @@ namespace Parsek.InGameTests
                 yield return unpackWait.Current;
 
             // PRECONDITIONS --------------------------------------------------
-            ParsekFlight flight = RequireIdleFlightWithVessel(out Vessel vessel);
+            ParsekFlight flight = RequireFlightWithUnpackedVessel(out Vessel vessel);
             List<BaseConverter> converters = FindConverters(vessel);
             if (converters.Count == 0)
                 InGameAssert.Skip(
@@ -84,6 +124,12 @@ namespace Parsek.InGameTests
 
             try
             {
+                // Self-discard the auto-record session now that the craft is
+                // confirmed to carry a converter (the capability skip above is
+                // non-destructive on a stock craft). Do it BEFORE installing the
+                // observer so the live player recorder's teardown never pollutes
+                // the captured stream the assertions read; finally restores it.
+                DiscardSessionRecordingForSelfSetup(flight);
                 ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
 
                 // Arrange: all converters idle so the recording start opens
@@ -181,7 +227,7 @@ namespace Parsek.InGameTests
                 yield return unpackWait.Current;
 
             // PRECONDITIONS --------------------------------------------------
-            ParsekFlight flight = RequireIdleFlightWithVessel(out Vessel vessel);
+            ParsekFlight flight = RequireFlightWithUnpackedVessel(out Vessel vessel);
             List<BaseConverter> converters = FindConverters(vessel);
             BaseConverter drill = converters.Find(c => c is BaseDrill);
             if (drill == null)
@@ -197,6 +243,13 @@ namespace Parsek.InGameTests
 
             try
             {
+                // Self-discard the auto-record session now that the vessel is
+                // confirmed to carry a drill (the capability skip above is
+                // non-destructive on a stock craft). Do it BEFORE the observer
+                // AND before activating the drill, so the live player recorder's
+                // teardown and the pre-record drill toggle never pollute the
+                // captured stream; finally restores the world.
+                DiscardSessionRecordingForSelfSetup(flight);
                 ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
 
                 // 1. Activate the drill BEFORE recording (already-active-at-
@@ -328,7 +381,7 @@ namespace Parsek.InGameTests
                 yield return unpackWait.Current;
 
             // PRECONDITIONS --------------------------------------------------
-            ParsekFlight flight = RequireIdleFlightWithVessel(out Vessel vessel);
+            ParsekFlight flight = RequireFlightWithUnpackedVessel(out Vessel vessel);
             if (TimeWarp.fetch == null)
                 InGameAssert.Skip("TimeWarp.fetch is null; cannot drive rails transitions");
             List<BaseConverter> converters = FindConverters(vessel);
@@ -345,6 +398,13 @@ namespace Parsek.InGameTests
 
             try
             {
+                // Self-discard the auto-record session now that the craft is
+                // confirmed to carry a converter (the capability skips above are
+                // non-destructive on a stock craft). Do it BEFORE the observer
+                // so the live player recorder's teardown never pollutes the
+                // captured stream; finally restores the world.
+                DiscardSessionRecordingForSelfSetup(flight);
+
                 // The rails-entry stays-open breadcrumb is VerboseRateLimited.
                 ParsekLog.VerboseOverrideForTesting = true;
                 ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
@@ -521,12 +581,14 @@ namespace Parsek.InGameTests
         // ==================================================================
 
         /// <summary>
-        /// Common capture-test preconditions: a live ParsekFlight, a loaded +
-        /// unpacked active vessel, no recording in flight, and no live tree
-        /// (the test creates and discards its own). Skips with a named reason
-        /// otherwise.
+        /// Common capture-test preconditions: a live ParsekFlight and a loaded
+        /// + unpacked active vessel. Skips with a named reason when either is
+        /// missing. Does NOT touch the live recording / tree - the caller does
+        /// the self-discard (<see cref="DiscardSessionRecordingForSelfSetup"/>)
+        /// only once it has confirmed the test can actually run, so a skip here
+        /// or at a craft-capability check never destroys the player's recording.
         /// </summary>
-        private static ParsekFlight RequireIdleFlightWithVessel(out Vessel vessel)
+        private static ParsekFlight RequireFlightWithUnpackedVessel(out Vessel vessel)
         {
             ParsekFlight flight = ParsekFlight.Instance;
             if (flight == null)
@@ -538,13 +600,94 @@ namespace Parsek.InGameTests
                 InGameAssert.Skip(
                     $"Active vessel '{vessel.vesselName}' is not loaded+unpacked " +
                     $"(loaded={vessel.loaded}, packed={vessel.packed}); the harvest poll only runs off-rails");
-            if (flight.IsRecording)
-                InGameAssert.Skip("A recording is already active; this test starts and discards its own");
-            if (flight.ActiveTreeForSerialization != null)
-                InGameAssert.Skip(
-                    "A live recording tree already exists; this test creates and discards its own tree " +
-                    "and must not touch player data");
             return flight;
+        }
+
+        /// <summary>
+        /// ALL-TESTS-AUTO self-setup: flight auto-records, so an active session
+        /// recording / tree is the NORMAL state of any ordinary session, not an
+        /// operator error. The tests used to skip on it and so never ran; each
+        /// test now calls this as the first statement of its recording body -
+        /// after the craft-capability check that would skip a stock craft, and
+        /// before the log observer - so the discard fires only when the test
+        /// will genuinely record and never pollutes the captured stream.
+        ///
+        /// <para>Discard goes through <see cref="StopAndDiscardActiveSession"/>
+        /// (the pure in-memory teardown), NOT <c>AutoDiscardIdleActiveTree</c>
+        /// (which re-homes irreversible live gameplay onto the ledger, runs a
+        /// recalc, and toasts the player). This is the one mutation NOT undone
+        /// in <c>finally</c>; the isolated tier's post-test baseline quickload
+        /// restores the pre-test world - and the runner refuses to run a
+        /// restore-backed test whose baseline could not be captured, so the
+        /// discard never happens with nothing to restore.</para>
+        /// </summary>
+        private static void DiscardSessionRecordingForSelfSetup(ParsekFlight flight)
+        {
+            bool wasRecording = flight.IsRecording;
+            RecordingTree sessionTree = flight.ActiveTreeForSerialization;
+            if (!wasRecording && sessionTree == null)
+                return;
+
+            string sessionTreeId = sessionTree?.Id ?? "<none>";
+            try
+            {
+                StopAndDiscardActiveSession(flight,
+                    "LogisticsHarvest gate setup: discard the ephemeral auto-record session tree");
+            }
+            catch (InvalidOperationException ex)
+            {
+                InGameAssert.Skip(ex.Message);
+            }
+            catch (System.Reflection.TargetInvocationException ex)
+            {
+                InGameAssert.Fail(
+                    "setup: DiscardActiveTreeForSuppressedSceneExit threw " +
+                    $"{ex.InnerException?.GetType().Name ?? ex.GetType().Name}: " +
+                    $"{ex.InnerException?.Message ?? ex.Message}");
+            }
+
+            ParsekLog.Info("TestRunner",
+                "LogisticsHarvest setup: stopped/discarded the active auto-record session so the gate can run " +
+                $"(wasRecording={wasRecording} tree='{sessionTreeId}')");
+            InGameAssert.IsFalse(flight.IsRecording,
+                "setup: the session recording must be stopped before the gate starts its own");
+            InGameAssert.IsTrue(flight.ActiveTreeForSerialization == null,
+                "setup: the session tree must be discarded before the gate creates its own");
+        }
+
+        /// <summary>
+        /// Stop the recorder and discard the current active tree through the
+        /// pure in-memory teardown <c>ParsekFlight.DiscardActiveTreeForSuppressedSceneExit</c>
+        /// (the reflection surface <c>RuntimeTests.DiscardActiveTreeForRuntimeTest</c>
+        /// also uses). Shared by setup (the auto-record session) and teardown
+        /// (the test's own tree). The suppressed path dereferences
+        /// <c>activeTree</c> unconditionally, so a bare recorder with no tree is
+        /// handled by a plain <c>StopRecording</c>. Throws
+        /// <see cref="InvalidOperationException"/> if the reflection surface is
+        /// missing, or <see cref="System.Reflection.TargetInvocationException"/>
+        /// if the underlying discard throws; callers translate that to a Skip /
+        /// Fail (setup) or a warn-log (teardown).
+        /// </summary>
+        private static void StopAndDiscardActiveSession(ParsekFlight flight, string reason)
+        {
+            if (flight == null)
+                return;
+            if (flight.ActiveTreeForSerialization == null)
+            {
+                if (flight.IsRecording)
+                    flight.StopRecording();
+                return;
+            }
+            if (DiscardSuppressedSceneExitMethod == null)
+                throw new InvalidOperationException(
+                    "ParsekFlight.DiscardActiveTreeForSuppressedSceneExit reflection surface unavailable");
+            DiscardSuppressedSceneExitMethod.Invoke(flight, new object[]
+            {
+                HighLogic.LoadedScene,
+                Planetarium.GetUniversalTime(),
+                reason,
+                false
+            });
         }
 
         private static List<BaseConverter> FindConverters(Vessel vessel)
@@ -613,9 +756,14 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// Best-effort teardown of the recording + tree the test created:
-        /// stop the recorder if still live, then discard the active tree (the
-        /// precondition guaranteed none existed before the test).
+        /// Best-effort teardown of the recording + tree the test created: stop
+        /// the recorder if still live, then discard the active tree. Uses the
+        /// same pure <see cref="StopAndDiscardActiveSession"/> path as setup -
+        /// NOT <c>AutoDiscardIdleActiveTree</c>, whose ledger recalc + "idle on
+        /// pad" toast are wrong for the test's synthetic tree (and would be
+        /// reverted by the baseline quickload anyway). A pre-existing session
+        /// tree, if any, was already discarded at setup, so the only tree
+        /// standing here is the test's own.
         /// </summary>
         private static void CleanupRecordingAndTree(string label)
         {
@@ -623,16 +771,14 @@ namespace Parsek.InGameTests
             {
                 ParsekFlight flight = ParsekFlight.Instance;
                 if (flight == null) return;
-                if (flight.IsRecording)
-                    flight.StopRecording();
-                if (flight.ActiveTreeForSerialization != null)
-                    flight.AutoDiscardIdleActiveTree($"{label} test cleanup");
+                StopAndDiscardActiveSession(flight, $"{label} test cleanup");
                 ParsekLog.Verbose("TestRunner", $"{label} cleanup: recording stopped + test tree discarded");
             }
             catch (Exception ex)
             {
+                Exception inner = (ex as System.Reflection.TargetInvocationException)?.InnerException ?? ex;
                 ParsekLog.Warn("TestRunner",
-                    $"{label} cleanup: recording/tree teardown failed ({ex.GetType().Name}: {ex.Message})");
+                    $"{label} cleanup: recording/tree teardown failed ({inner.GetType().Name}: {inner.Message})");
             }
         }
 

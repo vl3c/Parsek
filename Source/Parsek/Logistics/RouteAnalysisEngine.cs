@@ -63,7 +63,19 @@ namespace Parsek.Logistics
         /// <see cref="RouteAnalysisResult.RejectDetail"/> names the recognized
         /// origin dock UT. Append-only value; parses forward-compatibly.
         /// </summary>
-        MidRecordingStartTrimUnsupported = 9
+        MidRecordingStartTrimUnsupported = 9,
+        /// <summary>
+        /// Claw-producer rejection (design-logistics-claw-producer.md 2.2): a
+        /// completed connection window carries a <see cref="RouteConnectionKind"/>
+        /// that is neither <see cref="RouteConnectionKind.DockingPort"/> nor
+        /// <see cref="RouteConnectionKind.Grapple"/>. Capture stamps Unknown for
+        /// unrecognized (modded) coupling producers, and the codec yields Unknown
+        /// for unparseable stored values, so both fail closed here instead of
+        /// being analyzed as docks. The reject detail names the kind
+        /// (<see cref="RouteAnalysisResult.RejectDetail"/>). Pre-claw recordings
+        /// are stamped DockingPort and can never produce this. Append-only value.
+        /// </summary>
+        UnsupportedConnectionKind = 10
     }
 
     /// <summary>
@@ -521,20 +533,35 @@ namespace Parsek.Logistics
                 Recording source = ordered[i].Source;
                 RouteConnectionWindow window = ordered[i].Window;
 
-                if (!HasEndpointProof(window))
+                // Producer kind gate (design-logistics-claw-producer.md 2.2): only
+                // windows made by an admitted connection producer analyze. Capture
+                // stamps Unknown for unrecognized coupling producers and the codec
+                // yields Unknown for unparseable values; both name themselves here
+                // instead of passing as docks. Runs BEFORE endpoint proof so the
+                // reject reason is the producer, not a secondary proof gap. A None
+                // kind (evidence-less window) deliberately keeps flowing to the
+                // MissingEndpointProof gate below, its pre-claw reject reason.
+                if (IsUnsupportedConnectionKind(window.TransferKind))
                 {
                     Diag(logMode,
-                        $"RouteAnalysis rejected: missing endpoint proof source={source?.RecordingId ?? "<none>"} " +
-                        $"window={window.WindowId ?? "<none>"} targetPid={window.TransferTargetVesselPid} " +
-                        $"kind={window.TransferKind} situation={window.TransferEndpointSituation} " +
-                        $"endpointAtDock={(window.EndpointAtDock.HasValue ? "yes" : "no")}");
+                        $"RouteAnalysis rejected: unsupported connection kind " +
+                        $"kind={window.TransferKind} source={source?.RecordingId ?? "<none>"} " +
+                        $"window={window.WindowId ?? "<none>"}");
                     return new RouteAnalysisResult
                     {
-                        Status = RouteAnalysisStatus.MissingEndpointProof,
+                        Status = RouteAnalysisStatus.UnsupportedConnectionKind,
                         SourceRecording = source,
-                        ConnectionWindow = window
+                        ConnectionWindow = window,
+                        RejectDetail = window.TransferKind.ToString()
                     };
                 }
+
+                // NOTE (claw producer, review fix 3): the endpoint-proof gate
+                // moved BELOW the empty-grapple filter. A proof-less STRUCTURAL
+                // grab (endpoint capture failed at couple time, a warn-logged
+                // path in ParsekFlight) must be skippable as a non-stop instead
+                // of rejecting the whole run; dock windows always survive the
+                // filter, so their proof gate is unmoved in effect.
 
                 // M3 (plan D2/D4 item 1/6): build BOTH transfer directions up front.
                 built.Add(new PerWindowManifests
@@ -548,6 +575,113 @@ namespace Parsek.Logistics
                 });
             }
 
+            // Empty-Grapple filter (design-logistics-claw-producer.md 2.2 / 4.2):
+            // a grapple window that transferred nothing in either direction is a
+            // STRUCTURAL grab (asteroid capture, derelict tug), the normal claw
+            // shape, not a workflow smell - asteroids carry no PartResources, so
+            // drill gains are witnessed by harvest windows, never window corners.
+            // Drop such windows as non-stops BEFORE the anchors are chosen, so the
+            // scalar anchor, gain anchor, summed load, and stop list all see only
+            // stop-bearing windows. Empty DOCK windows keep rejecting below
+            // (unchanged v0..M6 behavior).
+            //
+            // Fail-closed pre-checks before a window may skip (review fixes 1-2):
+            //  - an unwitnessed transport INVENTORY gain rejects here exactly as
+            //    the per-window gate below would have (inventory never has
+            //    harvested provenance), so the skip cannot smuggle it past;
+            //  - an unmatched transport RESOURCE gain (gain with no matching
+            //    endpoint loss - the drilling-while-grappled shape) is noted and
+            //    the skip stays PROVISIONAL: it is only safe when the run-level
+            //    gain machinery is engaged (complete run manifests), checked
+            //    after the gain check below; on a legacy tree it fails closed.
+            // If nothing stop-bearing remains, the run transferred nothing
+            // anywhere: NoDeliveryManifest with the FIRST skipped window as
+            // context.
+            int skippedEmptyGrapple = 0;
+            PerWindowManifests firstSkipped = default;
+            PerWindowManifests unmatchedGainSkipped = default;
+            string unmatchedGainResource = null;
+            var stopBearing = new List<PerWindowManifests>(built.Count);
+            for (int i = 0; i < built.Count; i++)
+            {
+                PerWindowManifests w = built[i];
+                if (w.Window.TransferKind != RouteConnectionKind.Grapple || HasAnyCargo(w))
+                {
+                    stopBearing.Add(w);
+                    continue;
+                }
+
+                if (HasUnwitnessedInventoryGain(w.Window, out string grappleInventoryReason))
+                {
+                    Diag(logMode,
+                        $"RouteAnalysis rejected: unwitnessed inventory gain on structural grapple window " +
+                        $"source={w.Source?.RecordingId ?? "<none>"} " +
+                        $"window={w.Window.WindowId ?? "<none>"} {grappleInventoryReason}");
+                    return new RouteAnalysisResult
+                    {
+                        Status = RouteAnalysisStatus.MixedPickupDelivery,
+                        SourceRecording = w.Source,
+                        ConnectionWindow = w.Window
+                    };
+                }
+
+                if (unmatchedGainResource == null
+                    && TryFindUnmatchedTransportResourceGain(w.Window, out string gainedName))
+                {
+                    unmatchedGainResource = gainedName;
+                    unmatchedGainSkipped = w;
+                }
+
+                skippedEmptyGrapple++;
+                if (skippedEmptyGrapple == 1)
+                    firstSkipped = w;
+            }
+            if (skippedEmptyGrapple > 0)
+            {
+                built = stopBearing;
+                Diag(logMode,
+                    $"RouteAnalysis: skipped {skippedEmptyGrapple} empty grapple window(s) as non-stops " +
+                    $"(structural grabs); {built.Count} stop-bearing window(s) remain" +
+                    (unmatchedGainResource != null
+                        ? $"; unmatched transport gain noted resource={unmatchedGainResource}"
+                        : string.Empty));
+            }
+            if (built.Count == 0)
+            {
+                Diag(logMode,
+                    $"RouteAnalysis rejected: no stop-bearing window after empty-grapple skip " +
+                    $"source={firstSkipped.Source?.RecordingId ?? "<none>"} " +
+                    $"window={firstSkipped.Window?.WindowId ?? "<none>"}");
+                return new RouteAnalysisResult
+                {
+                    Status = RouteAnalysisStatus.NoDeliveryManifest,
+                    SourceRecording = firstSkipped.Source,
+                    ConnectionWindow = firstSkipped.Window
+                };
+            }
+
+            // Endpoint-proof gate (pre-claw step 2), now on the STOP-BEARING
+            // windows only: every window that is a stop must identify its
+            // endpoint; a skipped structural grab without proof is a non-stop
+            // and no longer rejects the run (review fix 3).
+            for (int i = 0; i < built.Count; i++)
+            {
+                PerWindowManifests w = built[i];
+                if (HasEndpointProof(w.Window))
+                    continue;
+                Diag(logMode,
+                    $"RouteAnalysis rejected: missing endpoint proof source={w.Source?.RecordingId ?? "<none>"} " +
+                    $"window={w.Window.WindowId ?? "<none>"} targetPid={w.Window.TransferTargetVesselPid} " +
+                    $"kind={w.Window.TransferKind} situation={w.Window.TransferEndpointSituation} " +
+                    $"endpointAtDock={(w.Window.EndpointAtDock.HasValue ? "yes" : "no")}");
+                return new RouteAnalysisResult
+                {
+                    Status = RouteAnalysisStatus.MissingEndpointProof,
+                    SourceRecording = w.Source,
+                    ConnectionWindow = w.Window
+                };
+            }
+
             // (M-MIS-5 P2b) Mid-tree docked-origin ACCEPTANCE, consulted ONLY
             // when the tree root proves neither KSC nor start-docked (every
             // launch-rooted / start-docked-rooted run skips this entirely -
@@ -559,6 +693,18 @@ namespace Parsek.Logistics
             // gates, where the P2a shuttle detector keeps rejecting the
             // recognizable-but-unsupported family as status 9 (fail closed) and
             // the genuine undocked start as status 6.
+            //
+            // Composition with the claw producer: this resolution runs on the
+            // FILTERED stop-bearing list, AFTER the empty-grapple filter above.
+            // An empty grapple window can therefore never BE the resolved
+            // origin - it was dropped as a structural non-stop before the
+            // origin is chosen. That is by design: the P2b lift exists for
+            // DOCK-origin shuttles (a parked depot window), while a
+            // grapple-origin run is served by the M1 docked-start origin
+            // proof path (design-logistics-claw-producer.md 4.1), never by
+            // the window lift; IsSupportedMidTreeDockedOrigin additionally
+            // requires a DockingPort origin window so a cargo-bearing grapple
+            // window stays a STOP instead of being lifted.
             bool midTreeDockedOrigin = false;
             if (IsUndockedStartOrigin(originRec))
             {
@@ -608,6 +754,31 @@ namespace Parsek.Logistics
                 RouteHarvestAnalysis.CheckTransportGains(
                     tree, gainAnchor.Source, gainAnchor.Window, logMode, summedLoad);
             bool harvestEngaged = gainCheck.Outcome != HarvestGainOutcome.LegacyFallback;
+
+            // Claw producer review fix 2: a skipped structural grapple window
+            // that carried an unmatched transport resource gain is only
+            // accountable when the run-level gain machinery is engaged (the
+            // gain shows at the gain anchor's dock corner and is checked
+            // against harvest windows there). On a legacy tree (incomplete /
+            // BG-voided run manifests) nothing downstream can witness that
+            // gain, so it fails closed - the M2 degrade posture ("run manifest
+            // voided, tree degrades to legacy analysis").
+            if (!harvestEngaged && unmatchedGainResource != null)
+            {
+                Diag(logMode,
+                    $"RouteAnalysis rejected: unmatched transport gain in skipped grapple window on legacy tree " +
+                    $"resource={unmatchedGainResource} " +
+                    $"source={unmatchedGainSkipped.Source?.RecordingId ?? "<none>"} " +
+                    $"window={unmatchedGainSkipped.Window?.WindowId ?? "<none>"}");
+                return new RouteAnalysisResult
+                {
+                    Status = RouteAnalysisStatus.UntrackedCargoGain,
+                    SourceRecording = unmatchedGainSkipped.Source,
+                    ConnectionWindow = unmatchedGainSkipped.Window,
+                    RejectDetail = unmatchedGainResource +
+                        ": gained across a structural grapple window with no complete run manifest to witness it"
+                };
+            }
 
             // M1 workflow gate (design D7), run-level on the origin recording:
             // an undocked-start run carries cargo whose source was never
@@ -673,19 +844,18 @@ namespace Parsek.Logistics
 
                 // Gate fix (a) (plan D4): reject only when NO cargo flowed in
                 // EITHER direction at this window (a window that transferred
-                // nothing is not a stop). (M-MIS-5 P2b) The resolved ORIGIN
-                // window is exempt: it is not a stop, and a parked origin window
-                // (docked with no transfer) is legitimate - it mirrors the M1
-                // start-docked shape, where no window exists at all.
+                // nothing is not a stop). Same predicate as the empty-grapple
+                // filter above (HasAnyCargo) so the two gates cannot diverge.
+                // (M-MIS-5 P2b) The resolved ORIGIN window is exempt: it is not
+                // a stop, and a parked origin window (docked with no transfer)
+                // is legitimate - it mirrors the M1 start-docked shape, where no
+                // window exists at all. The exemption and the empty-grapple
+                // filter never contend: an empty grapple window was dropped
+                // before origin resolution, so the exempted window here is
+                // always a DOCK window.
                 if (midTreeDockedOrigin && i == 0)
                     continue;
-                bool hasDelivery =
-                    (w.Resources != null && w.Resources.Count > 0) ||
-                    (w.Inventory != null && w.Inventory.Count > 0);
-                bool hasInventoryLoad = w.LoadInventory != null && w.LoadInventory.Count > 0;
-                bool hasLoad =
-                    (w.LoadResources != null && w.LoadResources.Count > 0) || hasInventoryLoad;
-                if (!hasDelivery && !hasLoad)
+                if (!HasAnyCargo(w))
                 {
                     Diag(logMode,
                         $"RouteAnalysis rejected: no delivery or load manifest source={w.Source?.RecordingId ?? "<none>"} " +
@@ -921,8 +1091,12 @@ namespace Parsek.Logistics
         /// docked-origin (shuttle) shape, consulted only when the tree root
         /// proves neither a KSC launch nor a start-docked origin: at least two
         /// completed windows, a committed tree (the start trim derives from tree
-        /// composition), and a first window whose UndockUT is finite, not before
-        /// its own DockUT, endpoint-proven, and STRICTLY before the next
+        /// composition), and a first window that is a DOCK window (claw-producer
+        /// composition: a grapple window is never lifted as an origin - a
+        /// cargo-bearing grapple window is a STOP, and a run that genuinely
+        /// starts grappled is served by the M1 docked-start origin proof,
+        /// design-logistics-claw-producer.md 4.1) whose UndockUT is finite, not
+        /// before its own DockUT, endpoint-proven, and STRICTLY before the next
         /// window's dock (so every stop's dock phase lies inside the lifted span
         /// and the loop clock can fire it). Pure. A false here does NOT reject
         /// by itself - the run falls through to the undocked-start gates, where
@@ -938,6 +1112,11 @@ namespace Parsek.Logistics
 
             RouteConnectionWindow originWindow = orderedWindows[0];
             if (originWindow == null || orderedWindows[1] == null)
+                return false;
+            // Claw-producer composition: the P2b lift is a DOCK-origin shape.
+            // A grapple window reaching index 0 is cargo-bearing (an empty one
+            // was already dropped as a structural non-stop) and stays a STOP.
+            if (originWindow.TransferKind != RouteConnectionKind.DockingPort)
                 return false;
             if (double.IsNaN(originWindow.UndockUT) || double.IsInfinity(originWindow.UndockUT)
                 || originWindow.UndockUT < originWindow.DockUT)
@@ -1026,6 +1205,79 @@ namespace Parsek.Logistics
         internal static bool IsUndockedStartOrigin(Recording originRec)
         {
             return !IsKscOriginRecording(originRec) && !HasDockedOriginProof(originRec);
+        }
+
+        /// <summary>
+        /// True when the window moved ANY admitted cargo in either direction
+        /// (resources or inventory, delivery or load). The single stop-vs-non-stop
+        /// predicate shared by the empty-grapple filter and the per-window
+        /// no-delivery-AND-no-load gate so the two can never diverge.
+        /// </summary>
+        private static bool HasAnyCargo(PerWindowManifests w)
+        {
+            return (w.Resources != null && w.Resources.Count > 0)
+                || (w.Inventory != null && w.Inventory.Count > 0)
+                || (w.LoadResources != null && w.LoadResources.Count > 0)
+                || (w.LoadInventory != null && w.LoadInventory.Count > 0);
+        }
+
+        /// <summary>
+        /// Claw producer review fix 2: detects a routable transport-side
+        /// resource GAIN across the window with no matching endpoint loss
+        /// (transportGain above epsilon while endpointLoss is not) - the shape
+        /// the load manifest deliberately refuses to admit. Uses the same
+        /// admission-direction exclusions as the manifest builders (EC /
+        /// IntakeAir and undefined names never trip it; they cannot route
+        /// anywhere downstream either). The drilling-while-grappled window is
+        /// the legitimate instance: its gain is witnessed by harvest windows
+        /// at run level, so callers must treat a hit as "needs the engaged
+        /// gain machinery", not as an immediate reject.
+        /// </summary>
+        internal static bool TryFindUnmatchedTransportResourceGain(
+            RouteConnectionWindow window, out string resourceName)
+        {
+            resourceName = null;
+            var names = new Dictionary<string, double>();
+            AddResourceDeliveryKeys(names, window.DockEndpointResources);
+            AddResourceDeliveryKeys(names, window.UndockEndpointResources);
+            AddResourceDeliveryKeys(names, window.DockTransportResources);
+            AddResourceDeliveryKeys(names, window.UndockTransportResources);
+
+            foreach (KeyValuePair<string, double> kvp in names)
+            {
+                string name = kvp.Key;
+                if (!ResourceTransferability.IsRoutableResource(name, out _))
+                    continue;
+
+                double transportGain =
+                    GetResourceAmount(window.UndockTransportResources, name) -
+                    GetResourceAmount(window.DockTransportResources, name);
+                double endpointLoss =
+                    GetResourceAmount(window.DockEndpointResources, name) -
+                    GetResourceAmount(window.UndockEndpointResources, name);
+
+                if (transportGain > ResourceEpsilon && endpointLoss <= ResourceEpsilon)
+                {
+                    resourceName = name;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Producer kind gate predicate (design-logistics-claw-producer.md 2.2):
+        /// true for a kind no admitted connection producer stamps. DockingPort
+        /// and Grapple are the two admitted producers; None is NOT flagged here
+        /// (an evidence-less window keeps its pre-claw MissingEndpointProof
+        /// reject); Unknown (unrecognized modded coupling, or an unparseable
+        /// stored value) and the reserved StockCrossfeed both fail closed.
+        /// </summary>
+        internal static bool IsUnsupportedConnectionKind(RouteConnectionKind kind)
+        {
+            return kind != RouteConnectionKind.None
+                && kind != RouteConnectionKind.DockingPort
+                && kind != RouteConnectionKind.Grapple;
         }
 
         /// <summary>

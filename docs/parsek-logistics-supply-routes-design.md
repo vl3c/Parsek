@@ -236,7 +236,7 @@ These principles govern every design decision in the logistics system. They are 
 
 **Route stop / endpoint** — the destination vessel and location for the route. v1 exposes one endpoint per Supply Route. The data model keeps a `Stops` list so multi-stop Supply Runs can be added later without replacing the save shape.
 
-**Stock connection window** — the bounded time interval where the transport is connected to the endpoint by a stock mechanism and cargo can move. Docking port dock/undock is the only v1 window. Claw/grapple and other stock transfer paths are future producers for the same interface once detection is proven.
+**Stock connection window**: the bounded time interval where the transport is connected to the endpoint by a stock mechanism and cargo can move. Two producers are wired through capture and analysis: docking-port dock/undock and claw/grapple couple/release (`ModuleGrappleNode`; the decompile proved both ride the same `Part.Couple` / `Part.Undock` event pair, see `docs/dev/research/claw-grapple-coupling-internals.md`). Other stock transfer paths (crossfeed/fuel-line) are not window-shaped and stay out (19.6 rule 10).
 
 **Endpoint** — origin or destination location of a route. Defined by body, coordinates, and the target vessel PID from the stock connection window. Surface endpoints can fall back to one nearest compatible vessel near the recorded coordinates. Orbital endpoints use PID only.
 
@@ -616,7 +616,7 @@ RESOURCE_MANIFEST
 
 ```csharp
 public uint TransferTargetVesselPid;       // PID of vessel connected to at this segment boundary (0 = no route-relevant connection)
-public RouteConnectionKind TransferKind;   // DockingPort only in v1; future-proofed for later producers
+public RouteConnectionKind TransferKind;   // DockingPort or Grapple (classified at capture); Unknown fails closed at admission
 ```
 
 For the first implementation, `TransferTargetVesselPid` is populated from the dock-merge path as the other vessel in the stock docking event, from the active recording's perspective. It must never fall back to the post-dock merged vessel PID: if the other vessel cannot be identified, store `0` and make route analysis reject the candidate as missing endpoint proof. Route analysis should consume the generic `TransferTargetVesselPid` / `TransferKind` contract, not reach into legacy `DockTargetVesselPid` directly.
@@ -1436,7 +1436,7 @@ Getting v0 fuel delivery working required a large stack of NEW systems behind th
 - **Multi-stop routes:** Needs the multi-WINDOW route data model `(shared)`: `RouteAnalysisEngine` must accept and order N delivery windows instead of rejecting multi-window runs, the scheduler / `RouteLoopClock` must fire a delivery at EACH window's dock phase in sequence, and `RouteEndpointResolver` must resolve one endpoint PER stop. The `Stops` list and `SegmentIndexBefore` / `DeliveryOffsetSeconds` fields are already reserved for this, so the codec is cheap; the analysis + multi-phase delivery clock is the real cost. This is the feature that pays for the shared multi-window model.
 - **Round-trip linking:** Needs a cross-route chain-constraint scheduler `(feature-specific)` that consumes the already-reserved `LinkedRouteId` so paired routes alternate (A completes, then B dispatches). Per the leverage note, it ALSO needs the reverse-direction model (pickup) and benefits from the multi-window model, so it is cheapest built AFTER pickup and multi-stop, when both shared foundations already exist; on their own the linking layer is thin.
 - **Inter-body re-aimed routes:** Needs the existing same-body delivery clock taught to use the Missions re-aim schedule `(feature-specific)`. The seam already exists and is a no-op in v0: `RouteLoopClock` threads the backing unit's `RelaunchSchedule` / `LoiterCuts` (null for same-body) into `GhostPlaybackLogic.TryComputeSpanLoopUT`. Wiring requires the route's backing Mission to carry the locked Missions layer's synodic / re-aim `MissionRelaunchSchedule` (the `bodyInfo` seam) and the delivery clock to phase-lock to the re-aimed launch UTs. No from-scratch transfer-window solver; it activates an existing seam over the locked `MissionPeriodicity` / re-aim layer.
-- **Non-docking connection producers (claw/grapple, stock crossfeed/fuel-line):** Needs a connection-producer abstraction `(KSP API investigation)` behind the existing `RouteConnectionKind` enum (today only `DockingPort` is wired through capture and analysis). Each producer needs its own detection of endpoint PID, connection start, connection end, and cargo delta, which requires KSP API spelunking before it can be scoped; `RouteProofCapture` and `RouteAnalysisEngine` would then consume producers through a common interface instead of the hardcoded dock path.
+- **Non-docking connection producers (claw/grapple, stock crossfeed/fuel-line):** CLAW SHIPPED (2026-07-07, branch `logistics-claw-producer`; design `docs/dev/design-logistics-claw-producer.md`, decompile findings `docs/dev/research/claw-grapple-coupling-internals.md`). The anticipated per-producer detection stack was not needed: the decompile proved `ModuleGrappleNode` couples via `Part.Couple` and releases via `Part.Undock`, the exact docking primitives, so the producer abstraction is a CLASSIFICATION seam (`ConnectionProducerClassifier` stamps `RouteConnectionKind` from the live `onPartCouple` parts) plus producer-aware admission (`UnsupportedConnectionKind` reject for unknown producers; empty Grapple windows skip as non-stops). Stock crossfeed/fuel-line remains OUT with a sharper reason: no couple event, no vessel merge, no window to corner-snapshot (19.6 rule 10).
 - **Crew delivery:** Needs a named-roster crew transfer system `(feature-specific)` that moves real KSP roster kerbals (not the generic kerbals the v0 manifests model) and integrates with Parsek's crew-reservation system so delivered crew are reserved/named correctly. Largest of the cargo extensions because it cannot reuse the resource/inventory transfer path; depends on the crew-reservation subsystem.
 
 **Tier 4**
@@ -1592,7 +1592,7 @@ Consequence accepted: **a crashed disposition still debits.** If the run loaded 
 | 7 | Interplanetary any-of-the-above | any | Re-aim seam activation (M5) |
 | 8 | Modded-resource versions of all of the above | any | Resource generality (M2) |
 
-Out of scope by doctrine: persisting-transport accumulation (19.2.3), module/vessel delivery (remote construction, deferred), crew delivery (cannot reuse the cargo path; orthogonal to the resource network; deferred), claw/grapple and fuel-line producers (open-ended KSP API investigation; docking covers the proof mechanic; revisit on demand), undocked-start origin proving (retired, 19.2.2).
+Out of scope by doctrine: persisting-transport accumulation (19.2.3), module/vessel delivery (remote construction, deferred), crew delivery (cannot reuse the cargo path; orthogonal to the resource network; deferred), stock crossfeed/fuel-line producers (continuous-flow, not window-shaped: no couple event or vessel merge means no corners to snapshot; revisit only with a new evidence mechanism), undocked-start origin proving (retired, 19.2.2). Claw/grapple was LIFTED from this list 2026-07-07 (greenlit revisit): the decompile showed it needs no new proof mechanic, and it shipped as the second connection producer (see 17.1 Tier 3 and `docs/dev/design-logistics-claw-producer.md`).
 
 ### 19.4 Milestones
 
@@ -1687,13 +1687,14 @@ Half of "no matter what the player does, it should work" is never leaving the pl
 | Inter-body re-aimed routes | M5 |
 | Structure list window; candidate intent helper; precise recovery landing | M6 |
 | Map view integration (§17 deferral, not in the tier list) | M6 |
-| Non-docking connection producers; crew delivery | Out of scope by doctrine (revisit on demand) |
+| Claw/grapple connection producer | SHIPPED 2026-07-07 (`docs/dev/design-logistics-claw-producer.md`) |
+| Crossfeed/fuel-line producers; crew delivery | Out of scope by doctrine (revisit on demand) |
 | "Dispatch now" | Already RETIRED (subsumed by Send Once), unchanged |
 | Dock-side-baseline edge case | Already SHIPPED in 0.10.1, unchanged |
 
 ### 19.5 Completeness test
 
-After M5, "complete" has a concrete form: any committed recording whose flows close (19.2.4) becomes a route — any provenance mix, any number of windows in either direction, any stops, any bodies, any defined resources — and any recording whose flows do not close is rejected with the specific unaccounted window named. Claw/grapple, crew delivery, persisting-transport materialization, and undocked-start origin proving remain out by doctrine, each with a stated reason, not by accident.
+After M5, "complete" has a concrete form: any committed recording whose flows close (19.2.4) becomes a route (any provenance mix, any number of windows in either direction, any stops, any bodies, any defined resources, across BOTH admitted connection producers: docking port and claw/grapple) and any recording whose flows do not close is rejected with the specific unaccounted window named. Crossfeed/fuel-line producers, crew delivery, persisting-transport materialization, and undocked-start origin proving remain out by doctrine, each with a stated reason, not by accident.
 
 ### 19.6 Doctrine summary (the rules that keep this small)
 
@@ -1706,6 +1707,7 @@ After M5, "complete" has a concrete form: any committed recording whose flows cl
 7. **Any defined resource routes;** background production is explicitly not logistics' problem (M2).
 8. **The locked Missions layer owns periodicity;** logistics activates seams, never edits Missions (M5).
 9. **Every non-dispatching route names its reason in player language** (M6).
+10. **Connection producers are classified, never inferred:** a window is stamped by the producer that made it (docking port or claw), unknown producers reject by name (`UnsupportedConnectionKind`), and every admitted producer passes the same flow-closure rule. Rule 4 reads unchanged with Grapple included: a grapple transport is still a ghost re-run. Continuous-flow paths (crossfeed/fuel-line) have no couple event and no window shape, so they stay out rather than getting a weaker evidence rule.
 
 ### 19.7 Verification results (2026-06-10)
 

@@ -3126,9 +3126,11 @@ namespace Parsek
                         continue;
                     }
                     string name = TryResolveLiveVesselName(stop.Endpoint.VesselPersistentId);
-                    stopDestinations.Add(!string.IsNullOrEmpty(name)
+                    string destination = !string.IsNullOrEmpty(name)
                         ? name
-                        : LogisticsDeliveryPresentation.FormatEndpointCoords(stop.Endpoint));
+                        : LogisticsDeliveryPresentation.FormatEndpointCoords(stop.Endpoint);
+                    destination += RouteCreationFormatters.ConnectionKindSuffix(stop.ConnectionKind);
+                    stopDestinations.Add(destination);
                 }
             }
 
