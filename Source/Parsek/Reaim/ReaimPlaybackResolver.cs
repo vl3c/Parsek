@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -34,6 +35,12 @@ namespace Parsek.Reaim
             // FX stay aligned with the shifted geometry. 0 on the direct path / decline / miss => no re-time.
             public double CaptureShiftSeconds;
             public double RecordedArrivalUT;    // the boundary above which a PartEvent is "in-capture"
+            // The S4 arrival re-stitch rotation applied to this window's in-SOI arrival chain
+            // (docs/dev/plans/reaim-s4-arrival-restitch.md). 0 on the direct path / decline / miss.
+            // The descent trigger derives its site-align congruence offset from THIS SAME entry
+            // (TryGetArrivalRestitchRotationDeg), so the rendered rotation and the trigger offset can
+            // never disagree: a declined / faithful window yields (no rotation, offset 0) together.
+            public double ArrivalRestitchRotationDeg;
         }
 
         // Keyed by (member recording id, synodic window) - the member id is stable across frames (the
@@ -73,6 +80,40 @@ namespace Parsek.Reaim
         internal void Clear()
         {
             cacheByMemberWindow.Clear();
+        }
+
+        /// <summary>
+        /// The S4 arrival re-stitch rotation the resolver applied to window
+        /// (<paramref name="memberId"/>, <paramref name="window"/>), or false when that window is not
+        /// cached / declined to faithful. The descent-trigger site-align offset MUST come from here
+        /// (the SAME cache entry that rendered the rotation) so the rotated arrival chain and the
+        /// trigger congruence can never disagree: on any miss both fall back together to the shipped
+        /// behavior (no rotation, offset 0). Read-only; never builds a window.
+        /// </summary>
+        internal bool TryGetArrivalRestitchRotationDeg(string memberId, long window, out double rotationDeg)
+        {
+            rotationDeg = 0.0;
+            if (string.IsNullOrEmpty(memberId))
+                return false;
+            if (!cacheByMemberWindow.TryGetValue((memberId, window), out CacheEntry entry)
+                || !entry.Resolved || entry.Segments == null)
+                return false;
+            rotationDeg = entry.ArrivalRestitchRotationDeg;
+            return true;
+        }
+
+        /// <summary>
+        /// Test-only: stamps the S4 rotation onto an ALREADY-RESOLVED cache entry so headless tests
+        /// can exercise the trigger-offset threading without the Unity-bound BuildWindowSegments
+        /// (which is the only production writer). No-op when the (member, window) entry is absent.
+        /// </summary>
+        internal void SetArrivalRestitchRotationForTesting(string memberId, long window, double rotationDeg)
+        {
+            var key = (memberId, window);
+            if (!cacheByMemberWindow.TryGetValue(key, out CacheEntry entry))
+                return;
+            entry.ArrivalRestitchRotationDeg = rotationDeg;
+            cacheByMemberWindow[key] = entry;
         }
 
         /// <summary>
@@ -188,20 +229,25 @@ namespace Parsek.Reaim
             if (!cacheByMemberWindow.TryGetValue(key, out CacheEntry entry) || !entry.Resolved)
             {
                 // BuilderOverrideForTesting is null in production => the real (Unity-bound) builder runs,
-                // byte-identical to before; only headless tests swap in a pure synthetic builder.
+                // byte-identical to before; only headless tests swap in a pure synthetic builder (the
+                // override path carries no S4 rotation - tests stamp it via
+                // SetArrivalRestitchRotationForTesting).
                 double captureShiftSeconds;
+                double arrivalRestitchRotationDeg = 0.0;
                 List<OrbitSegment> built = BuilderOverrideForTesting != null
                     ? BuilderOverrideForTesting(
                         memberId, memberSegments, plan, schedule, window, out captureShiftSeconds)
                     : BuildWindowSegments(
-                        memberId, memberSegments, plan, schedule, window, out captureShiftSeconds);
+                        memberId, memberSegments, plan, schedule, window, out captureShiftSeconds,
+                        out arrivalRestitchRotationDeg);
                 entry = new CacheEntry
                 {
                     Window = window,
                     Resolved = true,
                     Segments = built,
                     CaptureShiftSeconds = captureShiftSeconds,
-                    RecordedArrivalUT = plan.RecordedArrivalUT
+                    RecordedArrivalUT = plan.RecordedArrivalUT,
+                    ArrivalRestitchRotationDeg = arrivalRestitchRotationDeg
                 };
                 cacheByMemberWindow[key] = entry;
                 // Cap the dict: drop THIS member's windows outside the +-CacheWindowBandHalfWidth band
@@ -245,13 +291,15 @@ namespace Parsek.Reaim
         private static List<OrbitSegment> BuildWindowSegments(
             string memberId, IReadOnlyList<OrbitSegment> memberSegments, ReaimMissionPlan plan,
             ReaimWindowPlanner.ReaimWindowSchedule schedule, long windowIndex,
-            out double captureShiftSeconds)
+            out double captureShiftSeconds, out double arrivalRestitchRotationDeg)
         {
             var ic = CultureInfo.InvariantCulture;
             // Default 0 for every fail/decline/miss return below (definite-assignment-safe); set on the
             // success path so ResolveForFrame can re-time the in-capture PartEvents by the SAME shift the
-            // capture OrbitSegment moved (review FIX #2).
+            // capture OrbitSegment moved (review FIX #2). The S4 rotation likewise defaults 0 (no
+            // rotation, offset 0 downstream) on every fail/decline path.
             captureShiftSeconds = 0.0;
+            arrivalRestitchRotationDeg = 0.0;
             double nominalDepartureUT = schedule.DepartureUTForWindow(windowIndex);
 
             CelestialBody launchBody = FindBody(plan.LaunchBody);
@@ -509,11 +557,30 @@ namespace Parsek.Reaim
             double captureShift = hasDepartureOverride ? (newArrivalUT - plan.RecordedArrivalUT) : 0.0;
             double renderStartUT = hasDepartureOverride ? plan.RecordedDepartureUT : double.NaN;
             double renderEndUT = hasDepartureOverride ? newArrivalUT : double.NaN;
+
+            // S4 ARRIVAL RE-STITCH (docs/dev/plans/reaim-s4-arrival-restitch.md): rotate the recorded
+            // in-SOI arrival chain (approach hyperbola + capture + destination parking) rigidly about
+            // the destination's spin axis so the recorded approach connects to the re-aimed transfer's
+            // ACTUAL SOI-entry bearing this window. Gated on the Supported single-destination LANDING
+            // profile (plan.ArrivalRestitchEligible, stamped only when the descent trigger engaged) AND
+            // the F2 parking bundle (hasDepartureOverride - the same gate as captureShift), so every
+            // other shape stays byte-identical. Fails closed to 0 (shipped behavior) on any decline.
+            // The descent trigger reads THIS rotation back from the cache entry to derive its
+            // site-align congruence offset, keeping the landing at the RECORDED site (ratified).
+            double restitchDeg = 0.0;
+            string restitchEngageDetail = null;
+            if (plan.ArrivalRestitchEligible && hasDepartureOverride)
+            {
+                restitchDeg = ComputeArrivalRestitchRotationDeg(
+                    memberId, windowIndex, plan, targetBody, transferOrbit, soiEntryUT, encounterBody,
+                    usedTofSeconds, out restitchEngageDetail);
+            }
             List<OrbitSegment> assembled = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
                 memberSegments, transferSeg, plan.CommonAncestor,
                 plan.RecordedDepartureUT, plan.RecordedArrivalUT,
                 renderStartUT, renderEndUT, parkDeltaLonDeg,
-                captureShift, hasDepartureOverride ? plan.TargetBody : null);
+                captureShift, hasDepartureOverride ? plan.TargetBody : null,
+                restitchDeg);
             if (assembled == null || assembled.Count == 0)
             {
                 ParsekLog.Warn("ReaimPlayback",
@@ -550,7 +617,168 @@ namespace Parsek.Reaim
                       $"captureShift={captureShift.ToString("R", ic)}s (recordedArrival={plan.RecordedArrivalUT.ToString("R", ic)} -> newArrival={newArrivalUT.ToString("R", ic)})"
                     : $"renderSpan=full-recorded=[{plan.RecordedDepartureUT.ToString("R", ic)},{plan.RecordedArrivalUT.ToString("R", ic)}]"));
             captureShiftSeconds = captureShift; // success: the capture leg moved by this; PartEvents re-time the same
+            arrivalRestitchRotationDeg = restitchDeg; // success: the arrival chain turned by this; the trigger offset reads it back
+            // ENGAGED is logged only on the fully-successful path (after ReplaceHeliocentricLeg), so
+            // an "ENGAGED" line can never precede a same-window decline-to-faithful.
+            if (restitchDeg != 0.0 && restitchEngageDetail != null)
+                ParsekLog.Info("Reaim", restitchEngageDetail);
             return assembled;
+        }
+
+        // Live (Unity-bound) S4 arrival re-stitch rotation for one window: the signed spin-axis angle
+        // carrying the RECORDED destination-relative SOI-entry bearing (plan.ArrivalLeg evaluated at
+        // plan.RecordedArrivalUT) onto the RE-AIMED transfer's actual destination-relative entry bearing
+        // (transferOrbit vs targetBody.orbit at the refined SOI-entry UT, both parent-relative
+        // .xzy-unswizzled, so the difference is destination-relative in the same frame; the bearing math
+        // in ArrivalRestitch measures about the frame's +Y pole). soiEntryUT can come from the coarse
+        // proximity fallback (96 samples over the transfer - up to tof/96 late = deep inside the SOI),
+        // so it is REFINED to the actual SOI-sphere crossing by bisection first, and a residual radius
+        // far off the SOI declines rather than rotating on flyby-depth-contaminated bearing. Returns 0
+        // (decline, shipped behavior) on: no target encounter / mismatched encounter body, NaN
+        // soiEntryUT, a degenerate recorded arrival leg, NaN states, a near-polar entry, or an
+        // off-sphere entry radius. One-shot per window build (cached); declines log Verbose with the
+        // reason here, while the ENGAGED Info line is emitted by the CALLER only after the window's
+        // assembly fully succeeds (engageDetail carries the message).
+        private static double ComputeArrivalRestitchRotationDeg(
+            string memberId, long windowIndex, ReaimMissionPlan plan, CelestialBody targetBody,
+            Orbit transferOrbit, double soiEntryUT, CelestialBody encounterBody,
+            double usedTofSeconds, out string engageDetail)
+        {
+            engageDetail = null;
+            var ic = CultureInfo.InvariantCulture;
+            if (double.IsNaN(soiEntryUT) || encounterBody == null
+                || !string.Equals(encounterBody.bodyName, plan.TargetBody, StringComparison.Ordinal))
+            {
+                ParsekLog.Verbose("Reaim",
+                    $"member={memberId} window={windowIndex} S4 restitch declined (no target-SOI entry: " +
+                    $"soiEntryUT={soiEntryUT.ToString("R", ic)} encounter={(encounterBody != null ? encounterBody.bodyName : "<none>")}) " +
+                    "- shipped arrival render this window");
+                return 0.0;
+            }
+            OrbitSegment arrivalLeg = plan.ArrivalLeg;
+            if (arrivalLeg.bodyName != plan.TargetBody)
+            {
+                ParsekLog.Verbose("Reaim",
+                    $"member={memberId} window={windowIndex} S4 restitch declined (arrival leg body " +
+                    $"'{arrivalLeg.bodyName}' != target '{plan.TargetBody}') - shipped arrival render this window");
+                return 0.0;
+            }
+            try
+            {
+                // Recorded entry state: the arrival hyperbola (S3) evaluated at the recorded SOI entry,
+                // destination-relative by construction (its parent IS the target body). Same
+                // new Orbit(...) element contract as TryBuildParkEndState.
+                Orbit recorded = new Orbit(
+                    arrivalLeg.inclination, arrivalLeg.eccentricity, arrivalLeg.semiMajorAxis,
+                    arrivalLeg.longitudeOfAscendingNode, arrivalLeg.argumentOfPeriapsis,
+                    arrivalLeg.meanAnomalyAtEpoch, arrivalLeg.epoch, targetBody);
+                Vector3d recordedEntryPos = recorded.getRelativePositionAtUT(plan.RecordedArrivalUT).xzy;
+                Vector3d recordedEntryVel = recorded.getOrbitalVelocityAtUT(plan.RecordedArrivalUT).xzy;
+
+                // Refine the SOI-sphere crossing: the synthesizer's proximity fallback returns the
+                // FIRST coarse sample inside the SOI (up to usedTof/96 late), whose bearing is
+                // flyby-geometry-contaminated. Bisect back to |r| ~ SOI; the CalculatePatch path is
+                // already at the boundary, so refinement is a no-op there.
+                double soi = targetBody.sphereOfInfluence;
+                double entryUT = RefineSoiEntryUT(transferOrbit, targetBody, soiEntryUT, usedTofSeconds, soi);
+
+                // Re-aimed entry state: the synthesized transfer relative to the destination at the
+                // refined SOI-entry UT. Both orbits share the common-ancestor parent, so the difference
+                // of parent-relative states is the destination-relative state in the same frame.
+                Vector3d newEntryPos = transferOrbit.getRelativePositionAtUT(entryUT).xzy
+                    - targetBody.orbit.getRelativePositionAtUT(entryUT).xzy;
+                Vector3d newEntryVel = transferOrbit.getOrbitalVelocityAtUT(entryUT).xzy
+                    - targetBody.orbit.getOrbitalVelocityAtUT(entryUT).xzy;
+
+                // Residual radius sanity: after refinement the entry must sit near the SOI sphere; a
+                // still-deep (or far-outside) point means the crossing could not be bracketed and its
+                // bearing is not the entry bearing - fail closed to the shipped render.
+                if (!double.IsNaN(soi) && soi > 0.0)
+                {
+                    double rr = newEntryPos.magnitude;
+                    if (rr < 0.5 * soi || rr > 1.5 * soi)
+                    {
+                        ParsekLog.Verbose("Reaim",
+                            $"member={memberId} window={windowIndex} S4 restitch declined (entry radius " +
+                            $"{rr.ToString("F0", ic)}m off the SOI sphere {soi.ToString("F0", ic)}m after refinement; " +
+                            $"rawSoiEntryUT={soiEntryUT.ToString("R", ic)} refinedUT={entryUT.ToString("R", ic)}) " +
+                            "- shipped arrival render this window");
+                        return 0.0;
+                    }
+                }
+
+                double theta = ArrivalRestitch.ComputeRestitchRotationDeg(
+                    recordedEntryPos, newEntryPos, out double latRec, out double latNew);
+                if (double.IsNaN(theta))
+                {
+                    ParsekLog.Verbose("Reaim",
+                        $"member={memberId} window={windowIndex} S4 restitch declined (degenerate / near-polar " +
+                        $"entry: latRec={latRec.ToString("F2", ic)} latNew={latNew.ToString("F2", ic)} " +
+                        $"maxLat={ArrivalRestitch.MaxEntryLatitudeDeg.ToString("F0", ic)}) - shipped arrival render this window");
+                    return 0.0;
+                }
+
+                // Measure-first observability (never inputs): the out-of-plane residual the spin-axis
+                // rotation cannot close without moving the site, and the velocity-bearing kink left at
+                // the SOI seam after the rotation. The caller logs this at Info only after the window's
+                // assembly fully succeeds.
+                double velResidualDeg = ArrivalRestitch.VelocityBearingResidualDeg(
+                    recordedEntryVel, newEntryVel, theta);
+                engageDetail =
+                    $"member={memberId} window={windowIndex} S4 restitch ENGAGED theta={theta.ToString("F3", ic)}deg " +
+                    $"(recordedEntry |r|={recordedEntryPos.magnitude.ToString("F0", ic)}m lat={latRec.ToString("F2", ic)}deg; " +
+                    $"newEntry |r|={newEntryPos.magnitude.ToString("F0", ic)}m lat={latNew.ToString("F2", ic)}deg; " +
+                    $"outOfPlaneResidual={(latNew - latRec).ToString("F2", ic)}deg " +
+                    $"velBearingResidual={velResidualDeg.ToString("F2", ic)}deg " +
+                    $"soiEntryUT={soiEntryUT.ToString("R", ic)} refinedEntryUT={entryUT.ToString("R", ic)}); " +
+                    "arrival chain rotates about the spin axis; landing stays at the RECORDED site via the trigger offset";
+                return theta;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Reaim",
+                    $"member={memberId} window={windowIndex} S4 restitch declined (entry-state reconstruction threw: " +
+                    $"{ex.GetType().Name}) - shipped arrival render this window");
+                return 0.0;
+            }
+        }
+
+        // Bisects the transfer's actual SOI-sphere crossing UT. The proximity-fallback soiEntryUT is
+        // the first coarse sample INSIDE the SOI (up to usedTof/96 late); walk back by that step to
+        // bracket the crossing, then bisect |transfer - target| to the SOI radius. Returns the input
+        // unchanged when the input is already at/outside the sphere (the CalculatePatch exact path),
+        // the SOI is degenerate, or the crossing cannot be bracketed (the residual radius gate at the
+        // caller then decides). Distance magnitudes are swizzle-invariant, so no .xzy needed here.
+        private static double RefineSoiEntryUT(
+            Orbit transferOrbit, CelestialBody targetBody, double soiEntryUT, double usedTofSeconds,
+            double soi)
+        {
+            if (double.IsNaN(soi) || soi <= 0.0 || double.IsNaN(soiEntryUT))
+                return soiEntryUT;
+            double DistAt(double ut) =>
+                (transferOrbit.getRelativePositionAtUT(ut) - targetBody.orbit.getRelativePositionAtUT(ut)).magnitude;
+            double dAtInput = DistAt(soiEntryUT);
+            if (double.IsNaN(dAtInput) || dAtInput >= soi)
+                return soiEntryUT; // already at/outside the boundary - nothing to refine
+            double step = double.IsNaN(usedTofSeconds) || usedTofSeconds <= 0.0
+                ? 3600.0
+                : Math.Max(60.0, usedTofSeconds / 96.0);
+            double lo = soiEntryUT - step;
+            int widen = 0;
+            while (DistAt(lo) < soi && widen++ < 4)
+                lo -= step;
+            if (DistAt(lo) < soi)
+                return soiEntryUT; // cannot bracket the crossing - keep the sample, the radius gate decides
+            double hi = soiEntryUT;
+            for (int i = 0; i < 60; i++)
+            {
+                double mid = 0.5 * (lo + hi);
+                if (DistAt(mid) < soi)
+                    hi = mid;   // inside - the crossing is earlier
+                else
+                    lo = mid;   // outside - the crossing is later
+            }
+            return 0.5 * (lo + hi);
         }
 
         // The recorded heliocentric (common-ancestor) leg's inclination within the transfer window, or NaN

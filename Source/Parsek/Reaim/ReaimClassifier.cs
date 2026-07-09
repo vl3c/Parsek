@@ -49,6 +49,14 @@ namespace Parsek.Reaim
         // is purely diagnostic so the ReaimDiag log shows WHY a Sun-predecessor mission engaged.
         public bool DepartedFromHeliocentricPark;
 
+        // S4 arrival re-stitch eligibility (docs/dev/plans/reaim-s4-arrival-restitch.md). NOT set by
+        // the classifier: MissionLoopUnitBuilder stamps it true ONLY inside the descent-trigger engage
+        // success block (the Supported single-destination LANDING profile), then stores the stamped
+        // plan in the LoopUnit the resolver reads. Default false => ReaimPlaybackResolver never
+        // computes the arrival-chain rotation, byte-identical to the shipped behavior for orbit-only
+        // arrivals, station docks, Drop mode, unsupported destinations, and declined trigger shapes.
+        public bool ArrivalRestitchEligible;
+
         internal static ReaimMissionPlan Unsupported(string launchBody, string reason)
         {
             return new ReaimMissionPlan { Supported = false, LaunchBody = launchBody, Reason = reason };
