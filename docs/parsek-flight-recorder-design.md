@@ -30,7 +30,7 @@ This document specifies the full architecture of Parsek's flight recorder system
 - Rewind and fast-forward with ghost playback
 - Ghost implementation constraints
 - Recording file format
-- Error recovery and backward compatibility
+- Error recovery and schema compatibility
 
 Terminal-state and synthetic-tail reliability across scene exit, vessel unload/delete, crash, and background recording end paths is specified in [`parsek-recording-finalization-design.md`](parsek-recording-finalization-design.md). That companion document supersedes older scene-exit-only assumptions whenever a recording can end before a live vessel is available for finalization.
 
@@ -48,7 +48,7 @@ These principles govern every design decision in the flight recorder. They are l
 
 3. **Highest fidelity wins.** Multiple overlapping data sources are merged by selecting the best at each UT: active > background > checkpoint.
 
-4. **Additive format evolution.** Recording formats add fields, never remove or rename them. Old recordings play at reduced fidelity. New recordings carry extra data that old versions ignore.
+4. **Single current recording contract.** Pre-1.0, there is no additive format evolution and no backward compatibility. Every recording carries a format version and a schema-generation discriminator (`RecordingFormatVersion = 1`, `RecordingSchemaGeneration = 4`); loads reject any mismatched format version or older/newer generation via `RecordingStore.IsRecordingSchemaCompatible`. There are no migration or forward-tolerance paths - each generation bump deletes the prior generation's tolerance seams.
 
 ### 2.2 Ghost Chains and Paradox Prevention
 
@@ -175,11 +175,12 @@ Recording
   TreeId:                   string — which RecordingTree this belongs to
   VesselName:               string
   VesselPersistentId:       uint — KSP's vessel PID at recording time
-  RecordingFormatVersion:   int — sidecar file version (currently 6, 7 with ghost chain fields)
+  RecordingFormatVersion:   int - recording/sidecar format version (currently 1)
+  RecordingSchemaGeneration: int - clean-slate schema discriminator (currently 4); load rejects a mismatched format version or an older/newer generation
 
-  // Trajectory data (new format)
+  // Trajectory data (primary)
   TrackSections:            list of TrackSection — typed trajectory chunks (Section 6)
-  // Trajectory data (legacy format — dual-written for backward compat with pre-TrackSection v5 recordings)
+  // Trajectory data (flat legacy representation, dual-written alongside TrackSections)
   Points:                   list of TrajectoryPoint — flat trajectory
   OrbitSegments:            list of OrbitSegment — flat orbit segments
 
@@ -285,13 +286,15 @@ OrbitSegment
 ```
 TrackSection
   environment:                SegmentEnvironment (ATMOSPHERIC | EXO_PROPULSIVE | EXO_BALLISTIC |
-                                SURFACE_MOBILE | SURFACE_STATIONARY)
+                                SURFACE_MOBILE | SURFACE_STATIONARY | APPROACH)
   referenceFrame:             ReferenceFrame (ABSOLUTE | RELATIVE | ORBITAL_CHECKPOINT)
   source:                     TrackSectionSource (ACTIVE | BACKGROUND | CHECKPOINT)
   startUT:                    double
   endUT:                      double
-  anchorVesselId:             uint — set only for RELATIVE frame
-  frames:                     list of TrajectoryPoint — for ABSOLUTE and RELATIVE
+  anchorVesselId:             uint - RELATIVE frame: live-PID anchor (used by loop playback)
+  anchorRecordingId:          string - RELATIVE frame: recorded-anchor trajectory (used by non-loop playback)
+  frames:                     list of TrajectoryPoint - ABSOLUTE frames, or RELATIVE anchor-local metre offsets
+  bodyFixedFrames:            list of TrajectoryPoint - RELATIVE only: body-fixed world-coordinate primary playback surface for parent-anchored recordings
   checkpoints:                list of OrbitSegment — for ORBITAL_CHECKPOINT
   sampleRateHz:               float — actual recording sample rate
   boundaryDiscontinuityMeters: float — position gap vs previous section end
@@ -506,6 +509,7 @@ Determined automatically at recording time by vessel state. Changes trigger trac
 | EXO_BALLISTIC | Above atmosphere AND no engines producing thrust | Low (orbital checkpoints) | Keplerian, analytically propagable. |
 | SURFACE_MOBILE | Landed/splashed AND ground speed > 0.1 m/s | Medium (~5-10 Hz) | Rover driving, vessel repositioning. |
 | SURFACE_STATIONARY | Landed/splashed AND ground speed < 0.1 m/s for >3s | Minimal (~0.1 Hz or checkpoint) | Parked vessel, base module. Body-fixed coordinates. |
+| APPROACH | Airless body AND below the approach-altitude threshold AND not on the surface | High (~50 Hz physics tick) | Low-altitude descent/approach over airless terrain (powered or coasting; engine on/off does not fragment the segment). Load-bearing in the optimizer split predicate. |
 
 Transitions use hysteresis: 1 second for thrust toggle (prevents rapid toggling during pulsed burns), 3 seconds for surface speed threshold.
 
@@ -514,8 +518,10 @@ Transitions use hysteresis: 1 second for thrust toggle (prevents rapid toggling 
 | Reference Frame | When Used | Position Data | Playback |
 |---|---|---|---|
 | ABSOLUTE | Default for active flight | Body-fixed coordinates (body, lat, lon, alt, attitude) | Ghost placed at recorded coordinates. |
-| RELATIVE | Within physics bubble of a pre-existing persistent vessel | Offset from anchor vessel (dx, dy, dz in anchor's frame) | Ghost position computed from anchor vessel's current position. Tracks anchor precisely. |
+| RELATIVE | Close to an anchor vessel (a pre-existing persistent vessel, or a parent during separation) | Anchor-local metre offsets overloaded into the `latitude`/`longitude`/`altitude` fields of each `TrajectoryPoint` (not body-fixed lat/lon/alt); parent-anchored recordings also carry a body-fixed primary surface (see note) | Non-loop sections resolve against a recorded anchor trajectory; loop sections resolve against the live anchor PID. |
 | ORBITAL_CHECKPOINT | On-rails coasting, no physics | Keplerian elements at discrete timestamps | Ghost position computed by Kepler propagation to current UT. |
+
+**RELATIVE contract details:** There is one current RELATIVE contract; the legacy v5 world-offset RELATIVE path was purged in PR #916. A `TrackSection` carries BOTH `anchorVesselId` (live-PID anchor, used by loop playback) and `anchorRecordingId` (recorded-anchor trajectory, used by non-loop flight/map/KSC playback). The anchor-local offset is stored as metres along the anchor's local axes in the misleadingly named `latitude`/`longitude`/`altitude` fields, so those values commonly fall outside normal lat/lon ranges - any reader must resolve the section's reference frame before interpreting them. For parent-anchored recordings - genuine debris AND controlled-decoupled children (`IsDebris=false` probes/landers that come off a parent through a decoupler) - the PRIMARY playback surface is `TrackSection.bodyFixedFrames` (full body-fixed world-coordinate `TrajectoryPoint`s); the anchor-local offsets in `frames` are the secondary surface for loop-anchored chains and diagnostics.
 
 **Docking approach rule:** Any approach within docking range (~200m) of a pre-existing vessel uses RELATIVE reference frame to ensure positional accuracy for visually correct docking playback.
 
@@ -762,6 +768,7 @@ A single Recording can be split at a TrackSection boundary where the environment
 | Atmospheric | `"atmo"` |
 | SurfaceMobile | `"surface"` |
 | SurfaceStationary | `"surface"` |
+| Approach | `"approach"` |
 | All others | `"exo"` |
 
 #### Discovery Passes
@@ -1235,7 +1242,7 @@ Committed recordings are permanent — they survive rewind. Rewinding moves the 
 
 Each committed recording has an associated quicksave taken at its launch UT. This quicksave captures the game state needed to resume from that point.
 
-**Timeline immutability:** Individual recordings cannot be deleted after commit. The player's only decision point is at recording end: commit to timeline or discard. The entire timeline can be wiped, but individual recordings cannot be removed. This prevents time paradoxes — deleting a recording mid-timeline could orphan spawned vessels, break chain continuity, or create inconsistent ghost playback.
+**Timeline immutability (append-only):** Committed recordings are not edited or deleted in place. The player's decision at recording end is commit to timeline or discard. Immutability is append-only rather than absolute: a committed subtree can be superseded by a re-flown fork (Rewind-to-Separation, Section 14.9) - the original rows are retained and marked superseded, never mutated or removed. The entire timeline can still be wiped. In-place deletion is disallowed because it could orphan spawned vessels, break chain continuity, or create inconsistent ghost playback.
 
 ### 14.2 Rewind Procedure
 
@@ -1303,7 +1310,7 @@ BubbleSnapshot
 
 4. **Process spawn queue.** For every ghost whose chain tip was crossed during the jump: destroy the ghost, spawn the real vessel at the ghost's current position (which has not moved), apply bounding box overlap check. If overlap, ghost extension or trajectory walkback applies.
 
-5. **Process game actions.** Trigger recalculation for the new UT — science, funds, reputation, kerbals, facilities, contracts. Same as warp exit. (If the game actions system is not yet implemented, this step is skipped with a log warning.)
+5. **Process game actions.** Trigger recalculation for the new UT - science, funds, reputation, kerbals, facilities, contracts. Same as warp exit, routed through the ledger game-actions system.
 
 6. **Resume physics.** The player is at the target UT, at the same position and velocity relative to the now-real vessel, with the same approach geometry.
 
@@ -1394,6 +1401,15 @@ Rover A is 50m from ghost-base S on the Mun. Chain tip at T1. Player selects "Sp
 ### 14.8 Quicksave Pruning
 
 Deferred. All quicksaves are kept. Pruning is purely storage management with no architectural impact. When implemented: manual control (rewind-protected vs archive), auto-pruning policy (keep N most recent), cascading rewind (if quicksave pruned, rewind to nearest prior quicksave, then fast-forward).
+
+### 14.9 Rewind-to-Separation and Re-Fly (v0.9)
+
+Rewind-to-Separation lets the player roll a mission back to a decoupler/undock separation point and re-fly a fork of a committed subtree. This is the mechanism that makes recording immutability append-only (Section 14.1) rather than absolute: a committed subtree can be superseded by a re-flown fork, with the superseded rows retained and marked, never mutated. The full model - preconditions, crash-recovery journal, and effective-state resolution - lives in [`parsek-rewind-to-separation-design.md`](parsek-rewind-to-separation-design.md); the summary:
+
+- **Invocation** (`RewindInvoker`): a five-precondition gate captures a pre-load reconciliation bundle, copies a Rewind-Point (RP) quicksave to the save root, and on load restores/strips/activates state, writes an atomic provisional, and drops a `ReFlySessionMarker`.
+- **Subtree supersede** (`SupersedeCommit`, `RecordingTreeSplitter`): the re-flown fork appends `RecordingSupersedeRelation` rows for the superseded subtree, splitting the closure-root recording into a kept pre-rewind HEAD and a superseded post-rewind TIP. Superseded rows are retained, never deleted.
+- **Merge journal** (`MergeJournalOrchestrator`, `LoadTimeSweep`): the merge is driven through crash-recovery checkpoints; an OnLoad finisher rolls back or drives to completion, and a load-time sweep validates the marker and discards zombie provisionals.
+- **Effective state** (`EffectiveState`): visibility and ledger reads resolve through the Effective Recording Set / Effective Ledger Set (ERS/ELS), which walk supersede relations so only the winning fork is surfaced.
 
 ---
 
@@ -1538,11 +1554,11 @@ Committed timeline with recordings
 
 ### 17.1 Version Header
 
-Parsek versions its recording sidecar files. Each structural change bumps the version. Any code that reads recordings checks the version first. If unsupported, it fails with a clear message rather than attempting to parse unknown structures.
+Every recording carries two load-gating discriminators: `RecordingFormatVersion` (currently 1) and `RecordingSchemaGeneration` (currently 4). Any code that reads a recording or sidecar checks both first via `RecordingStore.IsRecordingSchemaCompatible`. A mismatched format version or an older/newer generation is rejected with a clear reason (`generation-missing`, `generation-older`, `generation-newer`, `format-version-mismatch`) rather than attempting to parse a shape it was not built for.
 
-### 17.2 Additive Format Evolution
+### 17.2 Single Current Contract - No Migration
 
-New fields are added, old fields are never renamed or removed. A reader encountering unknown fields safely ignores them and plays back what it understands. This provides forward tolerance: an older Parsek version encountering a newer recording with extra fields can still play back the base trajectory data at reduced fidelity.
+Pre-1.0, the recording format is a single clean-slate contract with no additive evolution, no forward tolerance, and no migration paths. Each schema-generation bump is a hard reset that deletes the prior generation's tolerance seams, so a loader never sees a shape it was not built for. Recordings written by a different generation are rejected on load, not partially parsed or played back at reduced fidelity.
 
 ### 17.3 Separation of Concerns
 
@@ -1613,8 +1629,8 @@ Ghost chain vessel conversion (Section 13.10) introduces the first modification 
 
 - **Corrupted sidecar:** Log warning, skip recording, show as "damaged" in recordings manager.
 - **Missing sidecar:** Log warning, show as "missing data." Timeline metadata preserved.
-- **Unknown version:** Fail with clear message ("requires Parsek X.Y+"). Do not attempt to parse.
-- **Partially readable:** Parse what is understood, ignore unknown fields. Reduced fidelity playback.
+- **Incompatible schema (format version or generation mismatch):** Reject on load via `RecordingStore.IsRecordingSchemaCompatible` with a clear reason (`generation-missing`/`generation-older`/`generation-newer`/`format-version-mismatch`). Do not attempt to parse - pre-1.0 there is no migration path.
+- **Partially readable:** Parse the intact portion; a sidecar that cannot be parsed structurally is skipped and shown as "damaged." There is no forward-tolerance path that ignores unknown fields and plays back at reduced fidelity.
 
 ### 19.3 DAG Structure Errors
 
@@ -1661,23 +1677,19 @@ Ghost chain vessel conversion (Section 13.10) introduces the first modification 
 
 ---
 
-## 20. Backward Compatibility
+## 20. Schema Compatibility
 
-### 20.1 Existing Saves
+### 20.1 Single Current Generation - No Migration
 
-Saves from before the ghost chain system have committed recordings without ghost chain metadata. The chain walker operates on the same recording data that already exists (BranchPoints, PartEvents, background recordings). Existing committed recordings will retroactively trigger ghosting if they contain MERGE/SPLIT events targeting pre-existing vessels. This is correct behavior — the paradox existed before, it just wasn't enforced.
+Pre-1.0, Parsek does not carry compatibility with older recordings. The recording schema is a single clean-slate contract: `RecordingFormatVersion = 1` plus a `RecordingSchemaGeneration` discriminator (currently 4). Loads reject any recording or sidecar whose format version differs, or whose generation is missing / older / newer, via `RecordingStore.IsRecordingSchemaCompatible`. There is no migration, no additive back-compat, and no retroactive re-interpretation of old payloads - each generation bump deletes the tolerance seams that only existed to read the prior generation (for example, generation 3 retired the last pre-reset seams, including the legacy v5 world-offset RELATIVE contract; generation 4 renamed the parent-anchor ConfigNode key). A save carrying recordings from a superseded generation is rejected on load rather than migrated.
 
-### 20.2 Recording Format
+### 20.2 Ghost Chain State Is Never Persisted
 
-Ghost chain features add `TerrainHeightAtEnd` (double, NaN default), `AntennaSpec` list (per-vessel antenna data for CommNet), and `SegmentEventType.TimeJump` as additive fields. Old recordings without these fields play back normally (NaN/null/absent = not applicable). Version bump from v6 to v7.
-
-Old recordings (v6 and below) are evaluated by the chain walker based on BranchPoints and PartEvents. No migration needed.
+Ghost chain state is not persisted - it is re-derived from committed recordings on every load. This guarantees deterministic behavior: the same committed recordings plus the current UT always produce the same chains.
 
 ### 20.3 Ghost Conversion of Quicksave Vessels
 
-On rewind, the quicksave loads vessels that existed at recording start. Claimed vessels are despawned from the quicksave state. The quicksave itself is never modified — it remains a full backup. Loading the quicksave directly (bypassing Parsek rewind) restores all vessels with no ghosting.
-
-Ghost chain state is not persisted — it is re-derived from committed recordings on every load. This guarantees deterministic behavior: the same committed recordings + current UT always produce the same chains.
+On rewind, the quicksave loads vessels that existed at recording start. Claimed vessels are despawned from the quicksave state. The quicksave itself is never modified - it remains a full backup. Loading the quicksave directly (bypassing Parsek rewind) restores all vessels with no ghosting.
 
 ---
 
@@ -1695,7 +1707,7 @@ The recording system core is fully implemented:
 
 ### 21.2 Phase 6: Vessel Interaction Paradox Extension — COMPLETE
 
-The ghost chain system, spawn safety, time jump, and ghost world presence are implemented. 381 new tests (2989 total). In-game testing pending for KSP runtime paths.
+The ghost chain system, spawn safety, time jump, and ghost world presence are implemented, covered by unit tests and the in-game test framework.
 
 | Phase | Scope | Status |
 |-------|-------|--------|
@@ -1706,7 +1718,7 @@ The ghost chain system, spawn safety, time jump, and ghost world presence are im
 | 6e — Relative-State Time Jump | Discrete UT skip, TIME_JUMP event | Done (27 tests) |
 | 6f — Ghost World Presence | Map view, tracking station, CommNet relay (stock API), antenna specs | Done (47 tests) |
 
-New source files: GhostingTriggerClassifier, GhostChain, GhostChainWalker, VesselGhoster, SpawnCollisionDetector, GhostExtender, TerrainCorrector, SpawnWarningUI, TimeJumpManager, GhostMapPresence, GhostCommNetRelay, AntennaSpec. Recording format version bumped to 7 (additive TerrainHeightAtEnd field).
+New source files: GhostingTriggerClassifier, GhostChain, GhostChainWalker, VesselGhoster, SpawnCollisionDetector, GhostExtender, TerrainCorrector, SpawnWarningUI, TimeJumpManager, GhostMapPresence, GhostCommNetRelay, AntennaSpec. The recording schema is a single clean-slate contract (`RecordingFormatVersion = 1`, `RecordingSchemaGeneration = 4`), not an additive versioned format.
 
 ### 21.3 Deferred Items
 
@@ -1717,6 +1729,16 @@ New source files: GhostingTriggerClassifier, GhostChain, GhostChainWalker, Vesse
 | Chain walker caching | Trivial cost for typical tree sizes. |
 | Manual placement UI for total trajectory overlap | Rare edge case. |
 | Quicksave pruning | Storage management only, no architectural impact. |
+
+### 21.4 Since-Shipped Subsystems
+
+Beyond the Phase 1-6 core above, later cycles shipped substantial subsystems not reflected in the original phase list:
+
+- **Missions and Logistics:** the mission abstraction (Missions tab, mission-tree fork) and the logistics route system (milestones M1-M6, including cross-tree docking and the claw producer).
+- **Re-aim solver stack:** Lambert-based re-aim / retargeting for transfers, arrival, and descent.
+- **Map / tracking-station render rewrite:** the Director-driven ghost polyline and orbit-line render pipeline with the render tracer (`MapRenderTrace`, `MapRenderProbe`).
+- **Ledger game-actions system:** fully implemented (`GameActions/`, `LedgerOrchestrator`, eight resource modules, `KspStatePatcher`) with the ground-truth verification harness and `LedgerTrace` observability.
+- **Rewind-to-Separation (v0.9):** re-fly of committed subtrees with append-only supersede (Section 14.9).
 
 ---
 
