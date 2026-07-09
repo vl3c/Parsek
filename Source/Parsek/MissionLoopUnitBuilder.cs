@@ -1009,8 +1009,22 @@ namespace Parsek
                         DestinationConstraintExtractor.DestinationConstraintSet s4DestSet =
                             DestinationConstraintExtractor.ExtractDestinationConstraints(
                                 extraction.Constraints, plan.TargetBody, bodyInfo);
+                        // The S4 rigid rotation acts ONLY on the target-body-bodied arrival segments
+                        // (ReplaceHeliocentricLeg gates on s.bodyName == targetBody). So it is geometrically
+                        // clean ONLY when the recorded arrival arc is ENTIRELY on the target body: anything
+                        // else in the destination system that sits in that arc gets left un-rotated, opening
+                        // a seam at its boundary.
+                        //   - A destination STATION (HasStation): its rendezvous is anchored / T_station-phased,
+                        //     not target-body-rotation-phased, and the joint hold (D8 dual) already aligns it;
+                        //     rotating by theta/360*T_rot would desync it. Exclude via !HasStation.
+                        //   - A SOI-ENTERED MOON (ConstrainedMoonCount > 0, e.g. Ike on a Duna landing that
+                        //     threads it): the moon-bodied encounter segments are NOT rotated by S4, so the
+                        //     rotated target approach would tear away from the recorded moon pass. Exclude via
+                        //     ConstrainedMoonCount == 0, so S4 engages only for a clean target-body-only arc.
+                        // Both are fail-closed-to-shipped: the arrival renders exactly as before.
                         bool s4LandingProfile = s4DestSet.Supported && s4DestSet.HasLandingRotation
                             && !s4DestSet.HasStation
+                            && s4DestSet.ConstrainedMoonCount == 0
                             && transitedBodyRotationMode != TransitedBodyRotationMode.Drop;
                         if (s4LandingProfile)
                         {
@@ -1026,8 +1040,9 @@ namespace Parsek
                         {
                             ParsekLog.Verbose("Reaim",
                                 $"MissionLoopUnit: mission='{mission.Name}' S4 restitch NOT eligible " +
-                                $"(landing profile required: destSupported={s4DestSet.Supported} " +
+                                $"(clean target-body-only landing arc required: destSupported={s4DestSet.Supported} " +
                                 $"hasLandingRotation={s4DestSet.HasLandingRotation} hasStation={s4DestSet.HasStation} " +
+                                $"constrainedMoons={s4DestSet.ConstrainedMoonCount} " +
                                 $"mode={transitedBodyRotationMode}) - shipped arrival render (descent trigger unaffected)");
                         }
                         // PARKING-conic end (Layer A of the loiter-gap render fix): the SHIFTED

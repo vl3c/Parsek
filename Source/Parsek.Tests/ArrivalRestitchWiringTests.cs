@@ -266,11 +266,12 @@ namespace Parsek.Tests
         [Fact]
         public void Builder_EligibilityRequiresTheLandingProfile_NotJustTheDescentTrigger()
         {
-            // The descent trigger also serves ORBITAL rendezvous/dock approaches, so the engage block
-            // alone is NOT a landing discriminator: the stamp must additionally require a destination
-            // LANDING ROTATION constraint, no station anchor, and mode != Drop. A dock shape must stay
-            // unstamped (rotating its arrival would tear at the approach members, which carry no
-            // heliocentric leg and render unrotated).
+            // The S4 rotation acts only on target-body segments, so it is clean ONLY for a
+            // target-body-only landing arc. The stamp must require a destination LANDING ROTATION
+            // constraint, NO station anchor (its rendezvous is T_station-phased, not rotation-phased),
+            // NO SOI-entered moon (a moon's encounter segments are not rotated, so the approach would
+            // tear away from them), and mode != Drop. Docks, land+station duals, and moon-threading
+            // landings must all stay unstamped (byte-identical shipped arrival).
             string src = ReadParsekSource("MissionLoopUnitBuilder.cs");
             int guard = src.IndexOf("bool s4LandingProfile =", StringComparison.Ordinal);
             int stamp = src.IndexOf("plan.ArrivalRestitchEligible = true;", StringComparison.Ordinal);
@@ -278,6 +279,7 @@ namespace Parsek.Tests
             string guardText = src.Substring(guard, stamp - guard);
             Assert.Contains("HasLandingRotation", guardText);
             Assert.Contains("!s4DestSet.HasStation", guardText);
+            Assert.Contains("s4DestSet.ConstrainedMoonCount == 0", guardText);
             Assert.Contains("TransitedBodyRotationMode.Drop", guardText);
             Assert.Contains("if (s4LandingProfile)", guardText);
         }

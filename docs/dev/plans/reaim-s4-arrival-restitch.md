@@ -79,13 +79,22 @@ cached per (member, window); recorded data is NEVER written). ALL of the followi
 `theta_k = 0` and every downstream consumer sees today's exact behavior:
 
 - `plan.ArrivalRestitchEligible` (new plan field): stamped by `MissionLoopUnitBuilder` inside the
-  descent-trigger engage success block AND additionally gated on the LANDING discriminator
-  (destination constraint set Supported with `HasLandingRotation`, no station anchor, mode not
-  Drop) - the descent trigger alone also serves orbital dock/rendezvous approaches, which must
-  stay unstamped (their approach members carry no heliocentric leg and would render unrotated,
-  and a T_rot wait is meaningless for a station-phase target). Orbit-only arrivals, station
-  docks, Drop mode, unsupported destinations, chain shapes that declined the trigger: never
-  eligible, byte-identical by construction.
+  descent-trigger engage success block AND gated on a CLEAN TARGET-BODY-ONLY LANDING ARC. The S4
+  rotation acts only on target-body-bodied segments (`ReplaceHeliocentricLeg` gates on
+  `bodyName == targetBody`), so it is geometrically clean only when the arrival arc carries nothing
+  else from the destination system. The gate = destination constraint set `Supported` with
+  `HasLandingRotation`, `!HasStation`, `ConstrainedMoonCount == 0`, and mode not Drop:
+  - the descent trigger alone also serves orbital dock/rendezvous approaches (a T_rot wait is
+    meaningless for a station-phase target, and the D8 land+station joint hold already aligns the
+    station on `T_station`) - excluded by `!HasStation`;
+  - a SOI-entered moon in the arrival arc (e.g. Ike on a Duna landing that threads it) records
+    moon-bodied encounter segments that S4 does NOT rotate, so the rotated target approach would
+    tear away from the recorded moon pass - excluded by `ConstrainedMoonCount == 0`.
+  Orbit-only arrivals, station docks, land+station duals, moon-threading landings, Drop mode,
+  unsupported destinations, and chain shapes that declined the trigger: never eligible,
+  byte-identical by construction. NOTE this may decline S4 on a moon-threading mission (Duna+Ike),
+  which is correct (a clean seam-free rotation is not possible there) but narrows where the feature
+  fires - the merge-gate playtest confirms whether the target test mission has a clean arc.
 - `hasDepartureOverride` (the F2 parking synth bundle fired this window): the rotation rides the
   same gate as captureShift, so a clocks-diverge / direct-path window stays byte-identical.
 - A usable `soiEntryUT` + encounter from the synthesizer, finite entry vectors, non-degenerate
