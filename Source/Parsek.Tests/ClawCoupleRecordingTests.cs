@@ -78,9 +78,11 @@ namespace Parsek.Tests
             Assert.Equal(bp.Id, mergedChild.ParentBranchPointId);
             Assert.Equal(MergedPid, mergedChild.VesselPersistentId);
             Assert.Equal(12345.0, mergedChild.ExplicitStartUT);
-            // The live CreateMergeBranch path passes RouteConnectionKind.DockingPort for any
-            // route-eligible partner (there is no claw-specific kind); the builder's fallback
-            // mirrors that, so a claw grab records the DockingPort transfer kind.
+            // This pins the BuildMergeBranchData DEFAULT-parameter fallback (None ->
+            // DockingPort for a route-eligible partner). Since the claw producer, the LIVE
+            // CreateMergeBranch path passes the CLASSIFIED kind explicitly
+            // (ConnectionProducerClassifier stamps Grapple for a claw grab); the builder
+            // default stays DockingPort for callers that do not classify.
             Assert.Equal(AsteroidPid, mergedChild.TransferTargetVesselPid);
             Assert.Equal(RouteConnectionKind.DockingPort, mergedChild.TransferKind);
         }
