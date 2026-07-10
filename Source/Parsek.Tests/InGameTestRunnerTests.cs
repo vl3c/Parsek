@@ -961,5 +961,70 @@ namespace Parsek.Tests
             Assert.False(InGameTestRunner.ShouldAttemptSpaceCenterBounce(
                 alreadyAttemptedThisBatch: false, exceptionsInSettleWindow: 1_000_000, threshold: -1));
         }
+
+        [Fact]
+        public void DescribeRestoreFailure_NullException_ReturnsPlaceholder()
+        {
+            Assert.Equal("(null exception)", InGameTestRunner.DescribeRestoreFailure(null));
+        }
+
+        [Fact]
+        public void DescribeRestoreFailure_PlainException_NamesTypeAndMessage()
+        {
+            var detail = InGameTestRunner.DescribeRestoreFailure(
+                new InvalidOperationException("stage manager missing"));
+
+            Assert.Contains("System.InvalidOperationException", detail);
+            Assert.Contains("stage manager missing", detail);
+        }
+
+        [Fact]
+        public void DescribeRestoreFailure_NestedInnerException_IncludesEveryLayer()
+        {
+            var detail = InGameTestRunner.DescribeRestoreFailure(
+                new InvalidOperationException(
+                    "outer wrapper",
+                    new IOException(
+                        "middle io",
+                        new NullReferenceException("innermost nre"))));
+
+            Assert.Contains("System.InvalidOperationException", detail);
+            Assert.Contains("outer wrapper", detail);
+            Assert.Contains("System.IO.IOException", detail);
+            Assert.Contains("middle io", detail);
+            Assert.Contains("System.NullReferenceException", detail);
+            Assert.Contains("innermost nre", detail);
+        }
+
+        [Fact]
+        public void DescribeRestoreFailure_ThrownAndCaughtException_IncludesStackFrames()
+        {
+            // The whole point of the helper: a thrown exception's detail must name
+            // the throwing statement, which ex.Message alone never did.
+            Exception caught = null;
+            try
+            {
+                ThrowDeliberateRestoreFailure();
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+
+            var detail = InGameTestRunner.DescribeRestoreFailure(caught);
+
+            Assert.Contains("System.NullReferenceException", detail);
+            Assert.Contains("deliberate prime failure", detail);
+            // Stack trace must name the throwing method and this test method.
+            Assert.Contains(nameof(ThrowDeliberateRestoreFailure), detail);
+            Assert.Contains(nameof(DescribeRestoreFailure_ThrownAndCaughtException_IncludesStackFrames), detail);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void ThrowDeliberateRestoreFailure()
+        {
+            throw new NullReferenceException("deliberate prime failure");
+        }
     }
 }

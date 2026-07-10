@@ -14,6 +14,24 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## OPEN - Batch baseline prime NRE (2026-07-10 verify run) - UNDIAGNOSED, diagnosability shipped (branch `fix-prime-diagnostics`)
+
+**Found by:** the 2026-07-10 verify run (`logs/2026-07-10_2220_verify-run-followup/KSP.log`). The FLIGHT batch's first isolated-test prime (`InGameTestRunner.PrimeBatchFlightBaselineBeforeFirstRestoreBackedTest` -> `RestoreBatchFlightBaselineCore`) failed with a bare `NullReferenceException` and aborted the batch at 383/441 captured results.
+
+**Evidence chain (why the site is unrecoverable from this log):** the prime ran before `DiscardEconomyPreservationInGameTest`; all 7 `ParsekScenario.PrepareForIsolatedBatchFlightBaselineRestore` prep resets logged cleanly; NO `onGameSceneLoadRequested` handler logs appeared (so the throw landed in the window between the prep returning and `HighLogic.LoadScene` firing); the pre-wipe rollback WARN followed 1ms later. Every catch site on that path logged only `ex.Message` ("Object reference not set to an instance of an object") with no exception type or stack trace, so the throwing statement was swallowed.
+
+**Null-safe-on-inspection candidates (all read clean, none confirmed):** `RevertDetector.ResetForTesting`, `FlightCameraReloadPin.Arm` argument interpolation, `StartAndFocusVessel` statics.
+
+**Regression suspicion:** the previous session primed the SAME test successfully on the pre-#1281/#1282 DLL, so a regression from those PRs cannot be excluded; no mechanism was found on inspection.
+
+**Shipped in this branch (diagnosability, not the fix):**
+1. Every restore/prime failure catch site in `InGameTestRunner` now ALSO logs a `ParsekLog.Error` line with the full exception detail (type + message + inner exceptions + stack trace) via the pure, xUnit-pinned `DescribeRestoreFailure(Exception)`; the test-result row keeps the short message. Sites: the prime wrapper, the per-test restore wrapper, `RestoreBatchBaselineWithRecovery` (attempt-1 retry + persistent failure; covers the final-restore and cancel-restore paths), the `PrepareBatchFlightRestoreExecution` catches, and the `CaptureBatchBaseline` isolation-capture catch.
+2. The green-sphere leak seen in the same run (a leftover fallback ghost sphere riding the vessel) was the abort path skipping scene cleanup: the `abortBatchAfterRestoreFailure` break skips both the per-test scene reload and the end-of-batch cleanup. Fixed in this same branch: `PerformPostAbortSceneCleanup` in RunBatch's always-runs batch-end region destroys the tracked `cleanupRegistry` objects and clears timeline ghost visuals (via the idempotent `PerformBetweenRunCleanup`), exception-safe, gated on the abort flag.
+
+**Next step:** re-run the FLIGHT batch. If the prime fails again, the new `ParsekLog.Error` "Batch baseline prime failure detail" line names the throwing statement; diagnose from there.
+
+---
+
 ## ~~FIXED~~ - Test-runner batch soft-freeze recurrence: late vessel switch destroys the FlightCamera after the pre-reload guard (2026-07-10, branch `fix-runner-reload-camera-pin`)
 
 **Found by:** the 2026-07-10 FLIGHT Run All + Isolated re-run (`logs/2026-07-10_2114_rerun-freeze`, KSP.log lines 50840-51260): KSP soft-froze at batch end (black background, no scene change possible, ~250k per-frame NREs, 107MB log). Same stock Bug #4803 class as the 2026-07-05 freeze, but through a NEW hole the existing prevention does not cover.
