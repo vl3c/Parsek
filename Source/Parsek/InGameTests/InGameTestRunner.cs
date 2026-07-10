@@ -490,6 +490,54 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// Scene-debris sweep for the abortBatchAfterRestoreFailure batch ending.
+        /// The abort break skips both the per-test scene reload and the final
+        /// in-memory restore, which are the paths that normally clear test debris,
+        /// so without this the live scene keeps leftover cleanupRegistry objects
+        /// and timeline ghost visuals until the next Run* entry (2026-07-10: a
+        /// green fallback ghost sphere was left riding the vessel). Destroys the
+        /// tracked cleanupRegistry objects (the same loop RunCleanup uses) and
+        /// delegates ghost teardown to the idempotent PerformBetweenRunCleanup
+        /// (watch-mode exit + DestroyAllTimelineGhosts + ghost-map reset). Runs
+        /// only from RunBatch's always-runs batch-end region, never mid-batch;
+        /// every step is exception-safe so a broken object cannot abort teardown.
+        /// </summary>
+        private void PerformPostAbortSceneCleanup(string reason)
+        {
+            int destroyed = 0;
+            try
+            {
+                foreach (var go in cleanupRegistry)
+                {
+                    if (go != null)
+                    {
+                        UnityEngine.Object.Destroy(go);
+                        destroyed++;
+                    }
+                }
+                cleanupRegistry.Clear();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Post-abort scene cleanup: cleanupRegistry destroy threw: {ex.Message}");
+            }
+
+            try
+            {
+                PerformBetweenRunCleanup("post-abort:" + reason);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Post-abort scene cleanup: PerformBetweenRunCleanup threw: {ex.Message}");
+            }
+
+            ParsekLog.Info(Tag,
+                $"Post-abort scene cleanup ({reason}): destroyed {destroyed} tracked object(s), ghosts cleared");
+        }
+
+        /// <summary>
         /// Pure gate for the facility force-close safety net. Stock Space Center
         /// facility buildings (R&amp;D / Astronaut Complex / Mission Control /
         /// Administration) can only be open in the SPACECENTER scene, so the
@@ -1083,14 +1131,23 @@ namespace Parsek.InGameTests
             }
             catch (InGameTestSkippedException skipEx)
             {
+                // Warn, not Error: a capture SKIP degrades gracefully (the
+                // restore-backed tests are skipped and the batch continues),
+                // unlike the prime / per-test restore failures that abort.
+                ParsekLog.Warn(Tag,
+                    "Batch baseline capture skip detail: " + DescribeRestoreFailure(skipEx));
                 return SkipBatchFlightRestoreTests(ordered, skipEx.Message);
             }
             catch (InGameTestFailedException failEx)
             {
+                ParsekLog.Error(Tag,
+                    "Batch baseline capture failure detail: " + DescribeRestoreFailure(failEx));
                 return SkipBatchFlightRestoreTests(ordered, failEx.Message);
             }
             catch (Exception ex)
             {
+                ParsekLog.Error(Tag,
+                    "Batch baseline capture failure detail: " + DescribeRestoreFailure(ex));
                 return SkipBatchFlightRestoreTests(ordered,
                     $"Automatic FLIGHT batch restore unavailable: {ex.Message}");
             }
@@ -1217,6 +1274,9 @@ namespace Parsek.InGameTests
             {
                 ParsekLog.Warn(Tag, "Batch isolation capture FAILED (mode=" + mode
                     + "); the campaign will NOT be auto-reverted this run: " + ex.Message);
+                ParsekLog.Error(Tag,
+                    "Batch isolation capture failure detail (mode=" + mode + "): "
+                    + DescribeRestoreFailure(ex));
                 batchFlightBaseline = null;
                 TryDeletePersistentSaveBackup(diskOnlyPersistentBackupPath);
                 diskOnlyPersistentBackupPath = null;
@@ -1674,6 +1734,18 @@ namespace Parsek.InGameTests
             // healthy batch the pin already disarmed at the reload's onLevelWasLoaded.
             Helpers.FlightCameraReloadPin.Disarm("batch-complete");
 
+            // Post-abort scene cleanup (2026-07-10 verify run): the
+            // abortBatchAfterRestoreFailure break skips both the per-test scene
+            // reload (whose post-reload PerformBetweenRunCleanup is the normal
+            // ghost sweep) and the final in-memory restore, so the live scene
+            // kept every prior test's debris (tracked cleanupRegistry objects +
+            // timeline ghost visuals; a green fallback ghost sphere was observed
+            // riding the vessel). Sweep it here in the always-runs batch-end
+            // region, BEFORE the flag resets below. Gated on the abort flag so
+            // the normal path stays byte-identical; exception-safe throughout.
+            if (abortBatchAfterRestoreFailure)
+                PerformPostAbortSceneCleanup("abort-after-restore-failure");
+
             // Piece 4 + 5: teardown by mode. InMemoryAndDisk reverts persistent.sfs
             // from the clean .bak + sweeps slot/loadmeta/bak/snapshot; DiskOnly
             // reverts + sweeps the .bak.
@@ -1829,6 +1901,16 @@ namespace Parsek.InGameTests
                     "post-batch-restore:" + test.Name),
                 ex => restoreFailure = ex));
 
+            if (restoreFailure != null)
+            {
+                // Full detail (type + message + inner exceptions + stack trace) to the
+                // log so the throwing statement is named; the result row keeps the
+                // short message below.
+                ParsekLog.Error(Tag,
+                    $"Batch baseline restore failure detail after {test.Name}: "
+                    + DescribeRestoreFailure(restoreFailure));
+            }
+
             if (restoreFailure is InGameTestSkippedException skipEx)
             {
                 FailAndAbortBatchAfterRestore(test,
@@ -1873,6 +1955,16 @@ namespace Parsek.InGameTests
                     previousFlightInstanceId,
                     "pre-batch-restore:" + test.Name),
                 ex => restoreFailure = ex));
+
+            if (restoreFailure != null)
+            {
+                // Full detail (type + message + inner exceptions + stack trace) to the
+                // log so the throwing statement is named; the result row keeps the
+                // short message below.
+                ParsekLog.Error(Tag,
+                    $"Batch baseline prime failure detail before {test.Name}: "
+                    + DescribeRestoreFailure(restoreFailure));
+            }
 
             if (restoreFailure is InGameTestSkippedException skipEx)
             {
@@ -1932,6 +2024,9 @@ namespace Parsek.InGameTests
             {
                 ParsekLog.Warn(Tag,
                     $"Batch baseline restore attempt 1 failed ({failure.Message}); retrying load once");
+                ParsekLog.Error(Tag,
+                    $"Batch baseline restore attempt 1 failure detail ({reason}): "
+                    + DescribeRestoreFailure(failure));
                 Exception retryFailure = null;
                 yield return coroutineHost.StartCoroutine(RunCoroutineSafely(
                     RestoreBatchFlightBaselineCore(baseline, previousFlightInstanceId, reason + ":attempt2"),
@@ -1951,6 +2046,9 @@ namespace Parsek.InGameTests
 
             // In-memory load failed (or skipped). Force the on-disk persistent.sfs +
             // Parsek/ sidecars back to baseline so the DISK save is always correct.
+            ParsekLog.Error(Tag,
+                $"Batch baseline restore failure detail ({reason}): "
+                + DescribeRestoreFailure(failure));
             DiskRevertResult disk = ForceRevertCampaignDiskToBaseline(baseline, reason + ":recover");
 
             if (disk.FullyReverted)
@@ -2855,6 +2953,34 @@ namespace Parsek.InGameTests
                 // IEnumerator that may or may not implement IDisposable
                 // (compiler-generated iterators always do).
                 (routine as IDisposable)?.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Full-detail formatter for batch-baseline restore / prime failures.
+        /// The 2026-07-10 verify run's prime NRE was undiagnosable because every
+        /// catch site logged only <c>ex.Message</c> ("Object reference not set...")
+        /// with no stack trace, so the throwing statement was unrecoverable.
+        /// <see cref="Exception.ToString"/> includes the exception type, message,
+        /// every inner exception, and the stack trace of the throw site; use this
+        /// at EVERY restore/prime failure report so the next occurrence names the
+        /// statement. Pure and null-tolerant. The short <c>ex.Message</c> stays in
+        /// the test-result row; this full detail goes to the log only.
+        /// </summary>
+        internal static string DescribeRestoreFailure(Exception ex)
+        {
+            if (ex == null)
+                return "(null exception)";
+            try
+            {
+                return ex.ToString();
+            }
+            catch (Exception formatEx)
+            {
+                // A pathological ToString override must never mask the original
+                // failure; fall back to the parts that cannot throw.
+                return ex.GetType().FullName + ": " + ex.Message
+                    + " (full detail unavailable: ToString threw " + formatEx.GetType().Name + ")";
             }
         }
 
