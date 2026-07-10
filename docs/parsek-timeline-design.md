@@ -23,7 +23,7 @@ The timeline is a unified, chronological view that pulls from recordings and gam
 
 ### 1.1 What the timeline is
 
-The timeline is a **read-only query layer**. It does not own data. Recordings remain in `RecordingStore`. Game actions remain in the `Ledger`. The timeline reads from both, constructs a flat list of entries, and presents it.
+The timeline is a **read-only query layer**. It does not own data. Recordings remain in `RecordingStore`. Game actions remain in the `Ledger`. The timeline does not read those raw stores directly - it feeds from `EffectiveState.ComputeERS()` and `EffectiveState.ComputeELS()`, the re-fly supersede/tombstone-filtered effective state, so superseded recordings and tombstoned ledger actions are already excluded before the builder runs. From that effective state it constructs a flat list of entries and presents it.
 
 This is analogous to a database view: it computes a result set from underlying tables. If a recording is committed or rewound, the timeline rebuilds. If a ledger action is added (facility upgrade, tech unlock), the timeline rebuilds. The timeline never modifies the data it reads.
 
@@ -67,14 +67,16 @@ Both windows can be open simultaneously. The GoTo button on timeline entries ope
 
 ### 1.5 Data sources
 
-**1. Recordings** (`RecordingStore.CommittedRecordings`)
+**1. Recordings** (`EffectiveState.ComputeERS()` over `RecordingStore.CommittedRecordings`)
 
 Each committed recording contributes:
 - A **launch event** at `rec.StartUT` with vessel name and MET duration. EVA recordings show `EVA: Kerbal from Vessel (MET 5s)`.
 - A **spawn event** at `rec.EndUT` with vessel situation context: `Spawn: Vessel (Landed on Mun)`. Boarded EVA kerbals show `Board: Kerbal (Vessel)`.
+- A **crew death entry** per dead kerbal (bug #229) at `rec.EndUT`, read from `Recording.CrewEndStates`: `Lost: Bob Kerman (Vessel)`.
+- A **separation entry** at the staging split point. A re-flyable slot emits an `UnfinishedFlightSeparation` row (`Unfinished Flight: Booster`) that carries Fly/Seal buttons so the player can re-fly the sibling or close the slot directly from the timeline; a post-merge or non-re-flyable split emits a plain `Separation` row (`Separation: Booster`) with only GoTo.
 - Debris recordings and hidden recordings are skipped.
 
-**2. Game actions** (`Ledger.Actions`)
+**2. Game actions** (`EffectiveState.ComputeELS()` over `Ledger.Actions`)
 
 Each ledger action is a single timeline entry. Display text is humanized: science subjects split and spaced (`Crew Report @ Kerbin Launchpad`), tech nodes capitalized (`Basic Rocketry`), milestones with spaces (`First Launch`), strategy names from lookup table (`Aggressive Negotiations`). Crew assignments include vessel name (`Assign: Jeb (Pilot) on Mun Lander`). EVA self-assignments (kerbal assigned to own EVA vessel) are filtered out.
 
@@ -125,14 +127,12 @@ The timeline lives in `UI/TimelineWindowUI.cs`, replacing `UI/ActionsWindowUI.cs
 ### 3.1 Coupling to other systems
 
 ```
-RecordingStore ──reads──→ TimelineBuilder ←──reads── Ledger
-                              ↑
-                          reads│ (legacy saves only)
-                              │
-                         MilestoneStore
+RecordingStore --+
+                 +-- EffectiveState.ComputeERS() / ComputeELS() --reads--> TimelineBuilder <--reads-- MilestoneStore
+Ledger ----------+     (supersede/tombstone-filtered effective state)                              (legacy saves only)
 ```
 
-The only side effect is through rewind/FF buttons, which delegate to `RecordingsTableUI.ShowRewindConfirmation()` and `ShowFastForwardConfirmation()`.
+The builder never reads `RecordingStore.CommittedRecordings` / `Ledger.Actions` directly; it reads the ERS/ELS effective state, which drops superseded recordings and tombstoned actions. Side effects run through the row and footer controls: rewind/FF delegate to `RecordingsTableUI.ShowRewindConfirmation()` / `ShowFastForwardConfirmation()`; the Watch button enters/exits watch mode via `WatchModeController`; Fly/Seal on Unfinished-Flight rows route through `RewindInvoker`; and the Warp-to-time row drives `WarpToTimeController`. The builder itself never mutates the data it reads.
 
 ### 3.2 TimelineEntry — the normalized event shape
 
@@ -154,33 +154,34 @@ TimelineEntry
 
 ### 3.3 TimelineEntryType
 
-**Recording lifecycle** (2 types):
-`RecordingStart`, `VesselSpawn`
+**Recording lifecycle** (5 types):
+`RecordingStart`, `VesselSpawn`, `CrewDeath`, `UnfinishedFlightSeparation`, `Separation`
 
-**Game actions** (23 types, 1:1 with `GameActionType`):
+**Game actions** (23 types, 1:1 with the non-route `GameActionType` members; the 7 route action types have no timeline entry):
 `ScienceEarning`, `ScienceSpending`, `FundsEarning`, `FundsSpending`, `ReputationEarning`, `ReputationPenalty`, `MilestoneAchievement`, `ContractAccept`, `ContractComplete`, `ContractFail`, `ContractCancel`, `KerbalAssignment`, `KerbalHire`, `KerbalRescue`, `KerbalStandIn`, `FacilityUpgrade`, `FacilityDestruction`, `FacilityRepair`, `StrategyActivate`, `StrategyDeactivate`, `FundsInitial`, `ScienceInitial`, `ReputationInitial`
 
 **Legacy** (1 type):
 `LegacyEvent`
 
-Total: 26 types.
+Total: 29 types.
 
 ### 3.4 Entry collection
 
-`TimelineBuilder.Build()` accepts data sources as parameters for testability:
+`TimelineBuilder.Build()` accepts data sources as parameters for testability. The window passes the ERS/ELS effective state (see 3.1) for the first two arguments:
 
 ```
 TimelineBuilder.Build(
-    IReadOnlyList<Recording> committedRecordings,
-    IReadOnlyList<GameAction> ledgerActions,
+    IReadOnlyList<Recording> committedRecordings,   // EffectiveState.ComputeERS()
+    IReadOnlyList<GameAction> ledgerActions,         // EffectiveState.ComputeELS()
     IReadOnlyList<Milestone> milestones,
-    Func<GameStateEvent, bool> isLegacyEventVisible
-) → List<TimelineEntry>
+    Func<GameStateEvent, bool> isLegacyEventVisible,
+    Game.Modes? currentMode = null
+) -> List<TimelineEntry>
 ```
 
-Three collectors then stable sort by UT:
+`currentMode` drives mode-based visibility: the initial funds and reputation seeds are hidden in sandbox and mission modes, and in science mode only the science seed shows. Three collectors run, then the merged list is stable-sorted by UT and post-processed: `CompactAdjacentMilestoneEntries` merges same-milestone rows within a 0.1s tolerance, and de-dup passes drop EVA-branch crew-reshuffle actions (bug #228) and legacy events that already appear as ledger actions.
 
-**Recording Collector** — emits `RecordingStart` (with MET duration, EVA detection, parent vessel resolution) and `VesselSpawn` at EndUT (with terminal state and VesselSituation). Skips hidden and debris recordings. Chain recordings show full chain duration. EVA detection via `EvaCrewName` or single-crew vessel name match.
+**Recording Collector** - emits `RecordingStart` (with MET duration, EVA detection, parent vessel resolution) and `VesselSpawn` at EndUT (with terminal state and VesselSituation), plus a `CrewDeath` row per dead kerbal (bug #229) and a `UnfinishedFlightSeparation` / `Separation` row at each staging split point. Skips hidden and debris recordings. Chain recordings show full chain duration. EVA detection via `EvaCrewName` or single-crew vessel name match.
 
 **Game Action Collector** — maps types 1:1, humanizes display text (science subjects, tech nodes, milestones, strategies, crew assignments with vessel name), classifies as Action or Event via `IsPlayerAction`, demotes ineffective T1 entries to T2, resolves vessel name from RecordingId.
 
@@ -206,21 +207,22 @@ Rebuilt on: recording commit, rewind, KSC spending, scene change, warp exit. Cur
 
 | Entry Type | Why T1 |
 |---|---|
-| RecordingStart | Mission launch — fundamental timeline anchor |
-| VesselSpawn | Vessel materialization with terminal state — the outcome |
+| RecordingStart | Mission launch - fundamental timeline anchor |
+| VesselSpawn | Vessel materialization with terminal state - the outcome |
+| CrewDeath | Crew fatality (bug #229) - permanent roster loss |
+| UnfinishedFlightSeparation | Re-flyable staging split - carries Fly/Seal buttons |
 | MilestoneAchievement | One-time progression gate, often with large rewards |
 | ContractComplete | Mission objective achieved |
 | ContractFail | Mission objective failed |
 | FacilityUpgrade | KSC progression |
 | FacilityDestruction | KSC regression |
-| KerbalHire | Roster expansion |
-| FundsInitial | Career start — baseline reference |
+| FundsInitial | Career start - baseline reference |
 | ScienceInitial | Career start |
 | ReputationInitial | Career start |
 
 ### 4.2 T2 — Detail
 
-All remaining entry types: resource transactions (science/funds/rep earning and spending), contract accept/cancel, crew assignment/rescue/stand-in, facility repair, strategy activate/deactivate, legacy events.
+All remaining entry types: resource transactions (science/funds/rep earning and spending), contract accept/cancel, kerbal hire, crew assignment/rescue/stand-in, plain (post-merge or non-re-flyable) `Separation` rows, facility repair, strategy activate/deactivate, legacy events.
 
 ### 4.3 Visibility rules
 
@@ -234,15 +236,19 @@ All remaining entry types: resource transactions (science/funds/rep earning and 
 
 ### 5.1 Window layout
 
-Four zones top to bottom:
+Zones, top to bottom:
 
-**Zone 1: Resource Budget** — reserved vs. available funds/science/reputation. Hidden in sandbox, science-only in science mode.
+**Zone 1: Resource Budget** - reserved vs. available funds/science/reputation. Hidden in sandbox, science-only in science mode.
 
-**Zone 2: Filter Bar** — tier selector (Overview / Detail), source toggles (Recordings / Actions / Events). All toggle states reflected in footer counts.
+**Zone 2: Filter Bar** - tier selector (Overview / Detail) plus two action-tier presets (Rewind/FF, Re-Fly) that restrict the list to rows carrying those buttons; source toggles (Recordings / Actions / Events). All toggle states reflected in footer counts.
 
-**Zone 3: Entry List** — flat chronological list with current-UT divider. Past entries in full color (green = earnings, red = penalties, light blue = player actions, white = recordings). Future entries dimmed. Each RecordingStart entry has R (past) or FF (future) button and GoTo button.
+**Zone 2b: Time-Range Filter** - preset buttons (Last Day / Last 7d / Last 30d / This Year / All) plus a Custom toggle that reveals From/To sliders for an arbitrary UT range.
 
-**Zone 4: Footer** — visible entry counts adapting to active filters ("5 Recordings, 8 Actions, 15 Events"), retired kerbals section, close button.
+**Zone 3: Entry List** - flat chronological list with current-UT divider. Past entries in full color (green = earnings, red = penalties, light blue = player actions, white = recordings). Future entries dimmed. In flight, each RecordingStart entry shows a W (Watch) button; every RecordingStart entry shows R (past) or FF (future) plus GoTo. UnfinishedFlightSeparation rows carry Fly/Seal plus GoTo; plain Separation rows carry only GoTo; CrewDeath rows have no action buttons.
+
+**Zone 4: Footer** - visible entry counts adapting to active filters ("5 Recordings, 8 Actions, 15 Events"), retired kerbals section, close button.
+
+**Warp-to-time row** - above the Close button: Year/Day/Hour/Minute inputs and a "Warp to time" button that jumps the game clock to the entered date (rewinding first when the target is in the past) via `WarpToTimeController`.
 
 ### 5.2 Entry display examples
 
@@ -261,9 +267,13 @@ Activate: Aggressive Negotiations (25% Funds→Rep)    — full strategy name
 Starting funds: 25000                                — career seed
 ```
 
-### 5.3 Rewind / Fast-Forward
+### 5.3 Row actions
 
-RecordingStart entries show R (past recordings with rewind save) or FF (future recordings). Both delegate to `RecordingsTableUI` methods — same confirmation dialogs and execution as the Recordings Manager.
+RecordingStart entries show R (past recordings with rewind save) or FF (future recordings); both delegate to `RecordingsTableUI` methods - same confirmation dialogs and execution as the Recordings Manager. In flight they also show a W (Watch) button that enters or exits watch mode on the recording's live ghost through `WatchModeController` (`EnterWatchMode` / `ExitWatchMode`).
+
+UnfinishedFlightSeparation entries show Fly and Seal buttons. Fly opens the re-fly dialog (`RewindInvoker.ShowDialog`) on the sibling slot; Seal closes the slot. Both resolve the rewind-point slot through the same `RecordingsTableUI.ResolveUnfinishedFlightRewindRoute` path the Recordings table uses.
+
+The Rewind/FF and Re-Fly presets in the filter bar restrict the list to rows that actually carry those buttons. The Warp-to-time row jumps the game clock to an entered Year/Day/Hour/Minute through `WarpToTimeController`, rewinding first when the target is in the past.
 
 ### 5.4 GoTo cross-link
 
