@@ -418,6 +418,60 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Pure predicate: does the reseeded orbit carry any non-finite Kepler element?
+        /// The failure shape this guards: a landed endpoint with EXACTLY zero velocity
+        /// reseeds to h=0 / ecc=1, and <c>Orbit.UpdateFromStateVectors</c> then computes
+        /// SMA = -semiLatusRectum/(ecc^2-1) = 0/0 = NaN. A float-residue near-zero
+        /// velocity instead yields a finite ~r/2 SMA, so the NaN appears run-to-run
+        /// flakily. Returns the offending element names (comma-joined) for logging.
+        /// </summary>
+        internal static bool HasNonFiniteOrbitElement(
+            double semiMajorAxis,
+            double eccentricity,
+            double inclination,
+            double argumentOfPeriapsis,
+            double lan,
+            double meanAnomalyAtEpoch,
+            double epoch,
+            out string nonFiniteElements)
+        {
+            var offenders = new System.Collections.Generic.List<string>(7);
+            if (!IsFinite(semiMajorAxis)) offenders.Add("SMA");
+            if (!IsFinite(eccentricity)) offenders.Add("ECC");
+            if (!IsFinite(inclination)) offenders.Add("INC");
+            if (!IsFinite(argumentOfPeriapsis)) offenders.Add("LPE");
+            if (!IsFinite(lan)) offenders.Add("LAN");
+            if (!IsFinite(meanAnomalyAtEpoch)) offenders.Add("MNA");
+            if (!IsFinite(epoch)) offenders.Add("EPH");
+
+            nonFiniteElements = offenders.Count > 0 ? string.Join(",", offenders) : null;
+            return offenders.Count > 0;
+        }
+
+        /// <summary>
+        /// Orbit-taking convenience wrapper over the pure element predicate.
+        /// A null orbit counts as non-finite (nothing usable to serialize).
+        /// </summary>
+        internal static bool HasNonFiniteOrbitElement(Orbit orbit, out string nonFiniteElements)
+        {
+            if (orbit == null)
+            {
+                nonFiniteElements = "(null orbit)";
+                return true;
+            }
+
+            return HasNonFiniteOrbitElement(
+                orbit.semiMajorAxis,
+                orbit.eccentricity,
+                orbit.inclination,
+                orbit.argumentOfPeriapsis,
+                orbit.LAN,
+                orbit.meanAnomalyAtEpoch,
+                orbit.epoch,
+                out nonFiniteElements);
+        }
+
         internal static double WrapLongitudeDegrees(double longitude)
         {
             if (!IsFinite(longitude))
