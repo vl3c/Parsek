@@ -115,7 +115,21 @@ Rewired tests: `OriginDebit_UnloadedOriginVessel_WritesProtoSnapshot`,
 inventory-pickup tests are unchanged (no unloaded variant; an unloaded inventory
 fixture would need a stored cargo part the pad rocket may lack). Pure piece unit-
 tested in `Source/Parsek.Tests/UnloadedFuelVesselFixtureTests.cs`. Test-infra only
-(no user-facing CHANGELOG line). LIVE validation via Ctrl+Shift+T is pending.
+(no user-facing CHANGELOG line).
+
+**LIVE validation DONE (2026-07-10 sweep, `logs/2026-07-10_1935_ingame-test-sweep`):**
+the full FLIGHT Run All + Isolated pass ran every rewired Logistics test green except
+`Escrow_CompetingRouteSeesReservation_Holds`, which failed on a STALE ASSERTION, not
+production: the test still pinned the pre-M6 physical hold token prefix (`source:`)
+while the gate correctly emits the M6 escrow-legibility token
+(`source-reserved:<pid>:<name>:<resource>:<reservingRoute>`, PR #1233 - the test was
+written on the M4b branch in parallel and never updated). Fixed on branch
+`fix-escrow-ingame-token`: the assertion now pins the M6 escrow contract (the
+`source-reserved:` prefix - this scenario is escrow-caused by construction - plus the
+pid and the reserving route A as the final token segment, with the two test route ids
+given prefixes distinct within `RouteIds.Short`'s 8 chars so the pin can tell A from
+B; both previously truncated to the same `ingame-e`). Test-only; re-verify with one
+isolated re-run of the test in FLIGHT.
 
 ## TODO - Missions feature completion milestones (M-MIS roadmap; investigated 2026-06-10)
 
