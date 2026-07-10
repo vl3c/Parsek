@@ -630,7 +630,9 @@ namespace Parsek.Reaim
         // plan.RecordedArrivalUT) onto the RE-AIMED transfer's actual destination-relative entry bearing
         // (transferOrbit vs targetBody.orbit at the refined SOI-entry UT, both parent-relative
         // .xzy-unswizzled, so the difference is destination-relative in the same frame; the bearing math
-        // in ArrivalRestitch measures about the frame's +Y pole). soiEntryUT can come from the coarse
+        // in ArrivalRestitch measures prograde-positive about the live-KSP-calibrated pole - see the
+        // frame note on TryBearingAndLatitude: prograde angular momentum points -Y in the world frame,
+        // so a live LAN=+theta advance reads +theta). soiEntryUT can come from the coarse
         // proximity fallback (96 samples over the transfer - up to tof/96 late = deep inside the SOI),
         // so it is REFINED to the actual SOI-sphere crossing by bisection first, and a residual radius
         // far off the SOI declines rather than rotating on flyby-depth-contaminated bearing. Returns 0
