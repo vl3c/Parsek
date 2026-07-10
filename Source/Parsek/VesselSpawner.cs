@@ -27,6 +27,19 @@ namespace Parsek
         internal const int MaxCollisionBlocks = 150;
         internal const int TerminalOrbitSpawnSafetyScanSteps = 180;
 
+        /// <summary>
+        /// Snapshot marker written by <see cref="OverrideSnapshotPosition(ConfigNode,double,double,double,int,string,string,Quaternion?,Quaternion?,string)"/>:
+        /// the snapshot's lat/lon/alt were deliberately rewritten by Parsek's spawn
+        /// position resolution (endpoint override, collision walkback, terminal orbit
+        /// propagation). The degraded-fallback repair
+        /// (<see cref="TryRepairSnapshotBodyProvenance"/>) honors this stamp and keeps
+        /// the deliberate coordinates instead of clobbering them back to the recorded
+        /// endpoint. Stripped from every spawn copy before ProtoVessel load
+        /// (<see cref="StripDeliberatePositionOverrideStamp"/>) so it never persists
+        /// into KSP save files.
+        /// </summary>
+        internal const string DeliberatePositionOverrideKey = "parsekDeliberatePosOverride";
+
         internal static ResolveBodyNameByIndexDelegate BodyNameResolverForTesting;
         internal static ResolveBodyByNameDelegate BodyResolverForTesting;
         internal static ResolveBodyIndexDelegate BodyIndexResolverForTesting;
@@ -1143,6 +1156,8 @@ namespace Parsek
                     return 0;
                 }
 
+                StripDeliberatePositionOverrideStamp(spawnNode, "RespawnVessel");
+
                 pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
                 pv.Load(HighLogic.CurrentGame.flightState);
@@ -1549,15 +1564,51 @@ namespace Parsek
                 // no-override branch is regression-guarded in-game by
                 // RuntimeTests.SpawnAtPosition_NoOverrideStationAltitude_ReseedsInBand).
                 Orbit orbit = orbitOverride;
+                bool orbitWasReseeded = false;
                 if (orbit == null)
                 {
                     orbit = new Orbit();
                     Vector3d worldPos = body.GetWorldSurfacePosition(lat, lon, alt);
                     OrbitReseed.FromWorldPosAndRecordedVelocity(orbit, body, worldPos, velocity, ut);
+                    orbitWasReseeded = true;
                 }
                 spawnNode.RemoveNode("ORBIT");
                 ConfigNode orbitNode = new ConfigNode("ORBIT");
-                SaveOrbitToNode(orbit, orbitNode, body);
+                // Deterministic landed reseed (#620 flake): a landed endpoint with an
+                // EXACTLY zero recorded velocity reseeds to h=0 / ecc=1, and KSP's
+                // Orbit.UpdateFromStateVectors then computes SMA = 0/0 = NaN, which the
+                // finite-metadata gate below rejects (a float-residue near-zero velocity
+                // yields a finite ~r/2 SMA instead, hence run-to-run flakiness). A
+                // landed/splashed vessel does not need the reseeded state-vector orbit at
+                // all: substitute the canonical surface orbit tuple, the same shape
+                // ApplySurfaceOrbitToSnapshot writes. Non-landed situations keep the
+                // reseeded orbit (rejecting a non-finite orbit is correct there).
+                bool substitutedSurfaceOrbit = false;
+                if (orbitWasReseeded
+                    && IsLandedLikeSituation(sit)
+                    && OrbitReseed.HasNonFiniteOrbitElement(orbit, out string nonFiniteOrbitElements))
+                {
+                    if (TryResolveBodyIndex(body, out int surfaceBodyIndex))
+                    {
+                        WriteCanonicalSurfaceOrbitValues(orbitNode, surfaceBodyIndex);
+                        substitutedSurfaceOrbit = true;
+                        ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
+                            "SpawnAtPosition: landed reseed produced non-finite orbit element(s) [{0}] " +
+                            "(sit={1}, body={2}, |vel|={3:F3}): substituting canonical surface orbit " +
+                            "(REF={4}); exactly-zero landed velocity reseeds to ecc=1/h=0 (NaN SMA)",
+                            nonFiniteOrbitElements, sit, body.name, velocity.magnitude, surfaceBodyIndex));
+                    }
+                    else
+                    {
+                        ParsekLog.Warn("Spawner", string.Format(CultureInfo.InvariantCulture,
+                            "SpawnAtPosition: landed reseed produced non-finite orbit element(s) [{0}] " +
+                            "(sit={1}, |vel|={2:F3}) but body index for '{3}' could not be resolved: " +
+                            "keeping reseeded orbit (finite-metadata validation will reject)",
+                            nonFiniteOrbitElements, sit, velocity.magnitude, body?.name ?? "(null)"));
+                    }
+                }
+                if (!substitutedSurfaceOrbit)
+                    SaveOrbitToNode(orbit, orbitNode, body);
                 spawnNode.AddNode(orbitNode);
                 if (sit == "ORBITING")
                     NormalizeOrbitalSpawnMetadata(spawnNode, ut);
@@ -1599,6 +1650,8 @@ namespace Parsek
                     LogMaterializationSnapshotRejected("SpawnAtPosition", materializationRejectionReason);
                     return 0;
                 }
+
+                StripDeliberatePositionOverrideStamp(spawnNode, "SpawnAtPosition");
 
                 pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
@@ -2002,10 +2055,14 @@ namespace Parsek
                 }
 
                 // SpawnAtPosition failed — fall through to RespawnVessel as last-resort.
-                // The earlier OverrideSnapshotPosition call on this path keeps the snapshot's
-                // lat/lon/alt pointing at the recorded endpoint so the fallback still produces
-                // a vessel at the right position on frame 0 (though the stale-orbit bug may
-                // re-appear on frame 1 — acceptable for a degraded fallback).
+                // The earlier OverrideSnapshotPosition call on this path wrote the resolved
+                // spawn coordinates (endpoint, or the collision-walkback correction) into the
+                // snapshot AND stamped it with the deliberate-override marker, so the fallback's
+                // landed-like repair (TryRepairSnapshotBodyProvenance) preserves those
+                // coordinates instead of clobbering them back to the recorded endpoint. The
+                // fallback still produces a vessel at the resolved position on frame 0 (though
+                // the stale-orbit bug may re-appear on frame 1, acceptable for a degraded
+                // fallback).
                 ParsekLog.Warn("Spawner",
                     $"SpawnAtPosition returned 0 for #{index} ({rec.VesselName}) — " +
                     $"falling through to validated snapshot respawn (degraded fallback)");
@@ -3277,6 +3334,11 @@ namespace Parsek
             snapshot.SetValue("lat", lat.ToString("R", CultureInfo.InvariantCulture), true);
             snapshot.SetValue("lon", lon.ToString("R", CultureInfo.InvariantCulture), true);
             snapshot.SetValue("alt", alt.ToString("R", CultureInfo.InvariantCulture), true);
+            // Stamp the deliberate override so the degraded-fallback repair
+            // (TryRepairSnapshotBodyProvenance) does not clobber a walkback/endpoint
+            // correction back to the raw recorded endpoint. Stripped before every
+            // ProtoVessel load so it never reaches KSP save files.
+            snapshot.SetValue(DeliberatePositionOverrideKey, "True", true);
 
             bool rotationRequested = surfaceRelativeRotation.HasValue;
             string rotationContext = $"Snapshot override #{index} ({vesselName})";
@@ -3294,7 +3356,38 @@ namespace Parsek
                 $"alt {oldAlt} → {alt.ToString("R", CultureInfo.InvariantCulture)}" +
                 (rotationUpdated
                     ? $" (rot updated from surface-relative frame{(!string.IsNullOrEmpty(rotationSource) ? $", source={rotationSource}" : "")})"
-                    : rotationRequested ? " (rot unchanged)" : ""));
+                    : rotationRequested ? " (rot unchanged)" : "") +
+                " [deliberate-override stamped]");
+        }
+
+        /// <summary>
+        /// True when the snapshot carries the deliberate position-override stamp
+        /// written by <see cref="OverrideSnapshotPosition(ConfigNode,double,double,double,int,string,string,Quaternion?,Quaternion?,string)"/>.
+        /// </summary>
+        internal static bool HasDeliberatePositionOverrideStamp(ConfigNode snapshot)
+        {
+            return snapshot != null
+                && string.Equals(
+                    snapshot.GetValue(DeliberatePositionOverrideKey),
+                    "True",
+                    StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Removes the deliberate position-override stamp from a spawn copy so the
+        /// Parsek-internal marker never rides a ProtoVessel load into KSP save files.
+        /// Tolerant of the key being absent. Returns true when a stamp was removed.
+        /// </summary>
+        internal static bool StripDeliberatePositionOverrideStamp(ConfigNode snapshot, string logContext)
+        {
+            if (snapshot == null || !snapshot.HasValue(DeliberatePositionOverrideKey))
+                return false;
+
+            snapshot.RemoveValue(DeliberatePositionOverrideKey);
+            ParsekLog.Verbose("Spawner",
+                $"Stripped deliberate position-override stamp for {logContext ?? "(unknown)"} " +
+                "(pre-ProtoVessel-load hygiene)");
+            return true;
         }
 
         /// <summary>
@@ -4251,6 +4344,11 @@ namespace Parsek
                 return null;
             }
 
+            // The stamp has served its purpose (the repair above consulted it);
+            // strip it from the validated copy so it never rides a ProtoVessel
+            // load into KSP save files.
+            StripDeliberatePositionOverrideStamp(snapshot, resolvedContext);
+
             return snapshot;
         }
 
@@ -4469,7 +4567,52 @@ namespace Parsek
             return RespawnVessel(snapshot, excludeCrew, preserveIdentity);
         }
 
-        private static bool TryRepairSnapshotBodyProvenance(
+        /// <summary>
+        /// Coordinate source chosen by the landed-like snapshot repair.
+        /// Public (not internal) only because xUnit theory methods must be public
+        /// and the exhaustive truth-table test takes it as a parameter.
+        /// </summary>
+        public enum SurfaceRepairCoordinateSource
+        {
+            /// <summary>No usable coordinates: reject the materialization.</summary>
+            Reject = 0,
+            /// <summary>Keep the snapshot's coordinates: they carry the deliberate
+            /// position-override stamp (walkback / endpoint correction).</summary>
+            StampedSnapshot,
+            /// <summary>Rewrite the snapshot to the recording endpoint coordinates
+            /// (the pre-stamp default; moves stale EVA-start snapshots to the endpoint).</summary>
+            Endpoint,
+            /// <summary>Keep the snapshot's coordinates: no endpoint coordinates exist
+            /// and the snapshot's position/body are usable.</summary>
+            Snapshot
+        }
+
+        /// <summary>
+        /// Pure decision: which coordinate source the landed-like snapshot repair uses.
+        /// A stamped snapshot with a finite position on a non-mismatched body keeps its
+        /// deliberately-overridden coordinates (the walkback correction must survive the
+        /// degraded fallback). Unstamped snapshots keep the historical endpoint-first
+        /// contract EXACTLY (that path exists to move stale EVA-start snapshots to the
+        /// trajectory endpoint). A stamp never blocks a genuine repair: with a missing or
+        /// non-finite snapshot position the endpoint repair still applies.
+        /// </summary>
+        internal static SurfaceRepairCoordinateSource DecideSurfaceRepairCoordinateSource(
+            bool hasDeliberateOverrideStamp,
+            bool hasSnapshotPos,
+            bool hasSnapshotBody,
+            bool hasEndpointCoords,
+            bool? bodyMismatch)
+        {
+            if (hasDeliberateOverrideStamp && hasSnapshotPos && bodyMismatch != true)
+                return SurfaceRepairCoordinateSource.StampedSnapshot;
+            if (hasEndpointCoords)
+                return SurfaceRepairCoordinateSource.Endpoint;
+            if (hasSnapshotPos && hasSnapshotBody && bodyMismatch != true)
+                return SurfaceRepairCoordinateSource.Snapshot;
+            return SurfaceRepairCoordinateSource.Reject;
+        }
+
+        internal static bool TryRepairSnapshotBodyProvenance(
             ConfigNode snapshot,
             Recording rec,
             double currentUT,
@@ -4544,25 +4687,28 @@ namespace Parsek
 
             if (landedLike)
             {
-                bool useEndpointCoords = hasEndpointCoords;
-                bool useSnapshotCoords = !useEndpointCoords
-                    && hasSnapshotPos
-                    && hasSnapshotBody
-                    && bodyMismatch != true;
+                bool hasDeliberateOverrideStamp = HasDeliberatePositionOverrideStamp(snapshot);
+                SurfaceRepairCoordinateSource coordsSource = DecideSurfaceRepairCoordinateSource(
+                    hasDeliberateOverrideStamp,
+                    hasSnapshotPos,
+                    hasSnapshotBody,
+                    hasEndpointCoords,
+                    bodyMismatch);
 
-                if (!useEndpointCoords && !useSnapshotCoords)
+                if (coordsSource == SurfaceRepairCoordinateSource.Reject)
                 {
                     rejectionReason =
                         "surface snapshot repair needs usable coordinates " +
                         $"(endpointCoords={hasEndpointCoords}, snapshotPos={hasSnapshotPos}, " +
-                        $"snapshotBody={snapshotBodyName ?? "(none)"}, endpointBody={endpointBodyName ?? "(none)"})";
+                        $"snapshotBody={snapshotBodyName ?? "(none)"}, endpointBody={endpointBodyName ?? "(none)"}, " +
+                        $"deliberateOverrideStamp={hasDeliberateOverrideStamp})";
                     ParsekLog.Error("Spawner",
                         $"Spawn validation failed for {logContext}: " +
                         rejectionReason);
                     return false;
                 }
 
-                if (useEndpointCoords)
+                if (coordsSource == SurfaceRepairCoordinateSource.Endpoint)
                 {
                     OverrideSnapshotPosition(
                         snapshot,
@@ -4574,9 +4720,16 @@ namespace Parsek
                 }
 
                 ApplySurfaceOrbitToSnapshot(snapshot, body, logContext);
+                string coordsSourceLabel =
+                    coordsSource == SurfaceRepairCoordinateSource.StampedSnapshot ? "stamped-override"
+                    : coordsSource == SurfaceRepairCoordinateSource.Endpoint ? "endpoint"
+                    : "snapshot";
                 ParsekLog.Warn("Spawner",
                     $"Spawn validation repaired snapshot for {logContext} " +
-                    $"using {(useEndpointCoords ? "endpoint" : "snapshot")} surface coordinates on body '{repairBodyName}'");
+                    $"using {coordsSourceLabel} surface coordinates on body '{repairBodyName}' " +
+                    $"(deliberateOverrideStamp={hasDeliberateOverrideStamp}, snapshotPos={hasSnapshotPos}, " +
+                    $"endpointCoords={hasEndpointCoords}, " +
+                    $"bodyMismatch={(bodyMismatch.HasValue ? bodyMismatch.Value.ToString() : "unknown")})");
                 return true;
             }
 
@@ -4758,14 +4911,7 @@ namespace Parsek
 
             snapshot.RemoveNode("ORBIT");
             ConfigNode orbitNode = new ConfigNode("ORBIT");
-            orbitNode.AddValue("SMA", "0");
-            orbitNode.AddValue("ECC", "1");
-            orbitNode.AddValue("INC", "0");
-            orbitNode.AddValue("LPE", "0");
-            orbitNode.AddValue("LAN", "0");
-            orbitNode.AddValue("MNA", "0");
-            orbitNode.AddValue("EPH", "0");
-            orbitNode.AddValue("REF", bodyIndex.ToString(CultureInfo.InvariantCulture));
+            WriteCanonicalSurfaceOrbitValues(orbitNode, bodyIndex);
             snapshot.AddNode(orbitNode);
             // VerboseRateLimited (not Info): this fires once per TryBackupSnapshot for
             // every landed/splashed-vessel snapshot. The recorder's periodic snapshot
@@ -4777,6 +4923,27 @@ namespace Parsek
                 $"{(string.IsNullOrEmpty(logContext) ? "snapshot" : logContext)} on body " +
                 $"'{DescribeBodyForLog(body)}' (REF={bodyIndex})");
             return true;
+        }
+
+        /// <summary>
+        /// Writes the canonical KSP surface orbit tuple (SMA=0, ECC=1, INC/LPE/LAN/MNA/EPH=0)
+        /// for a landed/splashed vessel into an ORBIT node. Single implementation shared by
+        /// <see cref="ApplySurfaceOrbitToSnapshot"/> and the SpawnAtPosition landed-reseed
+        /// substitution; keep the shape in sync with <see cref="HasCanonicalSurfaceOrbitSignature"/>.
+        /// </summary>
+        internal static void WriteCanonicalSurfaceOrbitValues(ConfigNode orbitNode, int bodyIndex)
+        {
+            if (orbitNode == null)
+                return;
+
+            orbitNode.AddValue("SMA", "0");
+            orbitNode.AddValue("ECC", "1");
+            orbitNode.AddValue("INC", "0");
+            orbitNode.AddValue("LPE", "0");
+            orbitNode.AddValue("LAN", "0");
+            orbitNode.AddValue("MNA", "0");
+            orbitNode.AddValue("EPH", "0");
+            orbitNode.AddValue("REF", bodyIndex.ToString(CultureInfo.InvariantCulture));
         }
 
         private static bool TryResolveBodyIndex(CelestialBody body, out int index)
@@ -6011,6 +6178,18 @@ namespace Parsek
                 node.SetValue(key, newPid.ToString(CultureInfo.InvariantCulture), true);
                 count++;
             }
+        }
+
+        /// <summary>
+        /// Pure decision: is this spawn situation string a landed-like surface state
+        /// (LANDED / SPLASHED)? Used by SpawnAtPosition to decide whether a non-finite
+        /// reseeded orbit may be substituted with the canonical surface orbit tuple.
+        /// </summary>
+        internal static bool IsLandedLikeSituation(string situation)
+        {
+            if (string.IsNullOrEmpty(situation)) return false;
+            return situation.Equals("LANDED", StringComparison.OrdinalIgnoreCase)
+                || situation.Equals("SPLASHED", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>

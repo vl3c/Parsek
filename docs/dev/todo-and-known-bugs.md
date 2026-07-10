@@ -26,6 +26,25 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~FIXED~~ - EVA spawn walkback clobbered by the degraded fallback + flaky zero-velocity landed reseed (found by the 2026-07-10 in-game sweep, branch `fix-spawn-walkback-fallback`)
+
+**Found by:** the 2026-07-10 re-run sweep (`logs/2026-07-10_2114_rerun-freeze`, KSP.log lines 14014-14094). `FlightIntegrationTests.EvaSpawnWalkbackOnOverlap` failed with "Walkback should move the EVA off the overlapping endpoint (was 0.0 m)": the walkback found a clear position (cleared at segment [21-22]) and `OverrideSnapshotPosition` wrote it into the snapshot, yet the EVA materialized exactly at the overlapping endpoint (distFromParent=17.3 m = the original overlap distance). The 1935 sweep had passed the same test - run-to-run flaky. Beyond the test this is a real product defect: on the degraded fallback path a vessel could materialize inside an overlap the walkback had just cleared (collision/explosion risk in real gameplay).
+
+**Root cause (two stacked):**
+
+1. *Flaky #620 rejection of the primary spawn.* `SpawnAtPosition` rebuilds the ORBIT node via `OrbitReseed.FromWorldPosAndRecordedVelocity` with the recorded endpoint velocity. A landed endpoint with EXACTLY zero recorded velocity reseeds to h=0 / ecc=1, and KSP's `Orbit.UpdateFromStateVectors` computes SMA = -semiLatusRectum/(ecc^2-1) = 0/0 = NaN; `TryValidateFiniteMaterializationMetadata` then rejects the spawn ("orbit metadata 'SMA' is missing or non-finite", #620) and `SpawnAtPosition` returns 0. A float-residue near-zero velocity yields a finite ~r/2 SMA instead - hence the run-to-run flakiness.
+2. *Endpoint clobber in the landed-like repair.* The caller fell through to the degraded fallback (`RespawnValidatedRecording` -> `BuildValidatedRespawnSnapshot` -> `TryRepairSnapshotBodyProvenance`). The landed-like repair branch unconditionally overrode the snapshot position with the recording ENDPOINT coordinates (`bool useEndpointCoords = hasEndpointCoords;`), clobbering the deliberate walkback correction.
+
+**Fix:**
+
+- *Deterministic landed reseed:* when the computed situation is LANDED/SPLASHED and the reseeded orbit carries any non-finite element (`OrbitReseed.HasNonFiniteOrbitElement`, pure + pinned), `SpawnAtPosition` substitutes the canonical surface orbit tuple instead (single implementation `WriteCanonicalSurfaceOrbitValues`, shared with `ApplySurfaceOrbitToSnapshot`). Non-landed situations keep the current rejection (correct there).
+- *Deliberate-override stamp:* `OverrideSnapshotPosition` stamps the snapshot with `parsekDeliberatePosOverride=True`; the landed-like repair dispatches through the pure decision predicate `DecideSurfaceRepairCoordinateSource(hasStamp, hasSnapshotPos, hasSnapshotBody, hasEndpointCoords, bodyMismatch?)` -> {StampedSnapshot, Endpoint, Snapshot, Reject}. A stamped snapshot with a finite position on a non-mismatched body keeps its coordinates (the orbit is still repaired); unstamped snapshots keep the endpoint-first contract EXACTLY (that path moves stale EVA-start snapshots to the trajectory endpoint); a stamp never blocks a genuine repair (missing/NaN coords or a body mismatch still get the endpoint repair). The stamp is stripped from every spawn copy before ProtoVessel load (`BuildValidatedRespawnSnapshot`, `SpawnAtPosition`, `RespawnVessel`) so it never persists into KSP save files.
+- Tests: exhaustive 48-row truth table for the decision predicate, non-finite-element pins, stamp lifecycle pins, and repair-precedence integration pins through `BuildValidatedRespawnSnapshot` (`SpawnWalkbackFallbackTests.cs`).
+
+**Verify:** isolated re-run of `FlightIntegrationTests.EvaSpawnWalkbackOnOverlap` in FLIGHT (Ctrl+Shift+T): distFromEndpoint must be > 0 and the #620 "orbit metadata 'SMA'" rejection must not appear on the landed EVA spawn (grep for the new "substituting canonical surface orbit" Info line instead).
+
+---
+
 ## Added (headless-verified, in-game pin pending) - Pre-Parsek save safety backup (branch `pre-parsek-save-backup`)
 
 **Feature.** The first time Parsek cold-loads a save with no Parsek footprint, it copies that save - before any Parsek write - into a sibling `saves/<Name> (pre-Parsek <local-ts>)/` folder that appears in KSP's Load menu, so a player who tries Parsek and uninstalls it can return to their pristine career. Runs once per save; skips brand-new empty careers; toggle under Settings > Data Management (`autoBackupExistingSaves`, default on).
