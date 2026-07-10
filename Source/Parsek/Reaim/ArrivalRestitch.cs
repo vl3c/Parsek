@@ -15,9 +15,10 @@ namespace Parsek.Reaim
     /// the approach by theta is exactly compensated by waiting theta/omega_rot longer for the site
     /// to rotate under the rotated deorbit point. Any other axis would change the reachable
     /// latitude, i.e. move the landing site. In KSP all bodies have zero axial tilt, so the spin
-    /// axis equals the orbital reference-plane normal - which in the .xzy-unswizzled WORLD frame
-    /// is +Y, NOT +Z (the PR #1196 .z-vs-.y trap; see the frame note on TryBearingAndLatitude) -
-    /// and the rotation is applied as a LAN advance on the destination-bodied OrbitSegments
+    /// axis line equals the orbital reference-plane normal - the Y axis of the .xzy-unswizzled
+    /// WORLD frame, NOT Z (the PR #1196 .z-vs-.y trap), with prograde angular momentum pointing
+    /// -Y (see the frame note on TryBearingAndLatitude) - and the rotation is applied as a LAN
+    /// advance on the destination-bodied OrbitSegments
     /// (<see cref="ReaimSegmentAssembler.RotateLanForParkRephase"/>).</para>
     ///
     /// <para>All helpers are pure (no Unity) and xUnit-tested. The live entry-state extraction
@@ -38,8 +39,8 @@ namespace Parsek.Reaim
         /// destination-relative SOI-entry direction onto the RE-AIMED transfer's actual
         /// destination-relative SOI-entry direction: the in-plane bearing difference
         /// <c>bearing(newEntry) - bearing(recordedEntry)</c> about the reference-plane normal of
-        /// the .xzy-unswizzled (world) frame, which is <b>+Y</b> (= the zero-tilt body spin axis;
-        /// prograde-positive bearing = atan2(-z, x) - see the frame note on the private helper).
+        /// the .xzy-unswizzled (world) frame (the zero-tilt body spin axis line is Y;
+        /// prograde-positive bearing = atan2(z, x) - see the frame note on the private helper).
         /// <paramref name="recordedLatitudeDeg"/> / <paramref name="newLatitudeDeg"/>
         /// report each direction's out-of-plane latitude (degrees; the residual a spin-axis
         /// rotation cannot and must not close - closing it would move the landing site).
@@ -105,15 +106,21 @@ namespace Parsek.Reaim
         /// <summary>
         /// In-plane bearing and out-of-plane latitude (degrees) of a direction in the
         /// .xzy-unswizzled frame - which is KSP's WORLD frame, whose reference-plane normal (world
-        /// up, and with zero axial tilt every body's spin axis) is <b>+Y, NOT +Z</b>. This is the
-        /// same .z-vs-.y world-frame trap the plane-tilt achievability gate hit and fixed in
-        /// PR #1196 (see <see cref="ReaimTransferSynthesizer"/>'s AchievablePlaneInclinationDegrees
-        /// frame note): using z as "up" here would read the in-plane angle as "latitude" and
-        /// quantize every real bearing toward 0 / 180. In-plane components are x and z; the
-        /// PROGRADE-positive bearing is <c>atan2(-z, x)</c>, calibrated against the shipped
-        /// park-rephase pairing (for a prograde orbit <c>Cross(r, v)</c> points +Y and a LAN
-        /// advance of +D moves the position +D in this sense - the same sense the body spin
-        /// advances a surface site, so the <see cref="SiteAlignOffsetSeconds"/> pairing holds).
+        /// up, and with zero axial tilt the LINE of every body's spin axis) is <b>Y, NOT Z</b>.
+        /// This is the same .z-vs-.y world-frame trap the plane-tilt achievability gate hit and
+        /// fixed in PR #1196 (see <see cref="ReaimTransferSynthesizer"/>'s
+        /// AchievablePlaneInclinationDegrees frame note): using z as "up" here would read the
+        /// in-plane angle as "latitude" and quantize every real bearing toward 0 / 180. In-plane
+        /// components are x and z; the PROGRADE-positive bearing is <c>atan2(z, x)</c>. The sense
+        /// is LIVE-KSP-CALIBRATED, not derived: KSP's world frame carries prograde angular momentum
+        /// along <b>-Y</b> (<c>CelestialBody.angularVelocity</c> points -Y for prograde rotators),
+        /// so a LAN advance of +D moves a prograde orbit's position +D in the <c>atan2(z, x)</c>
+        /// sense - the same sense the body spin advances a surface site, which keeps the
+        /// <see cref="SiteAlignOffsetSeconds"/> pairing intact. The in-game canary
+        /// <c>ReaimLandingCoincidenceInGameTest</c> measures both live rotations and this helper
+        /// against each other (the 2026-07-10 sweep caught the earlier <c>atan2(-z, x)</c> pole
+        /// choice reading every live LAN=+theta pair as -theta: the arrival chain rotated the
+        /// wrong way, a 2*theta tear at the SOI-entry seam).
         /// Latitude = <c>asin(y/|v|)</c>. False on NaN / infinite components or a degenerate
         /// (near-zero) in-plane projection. Pure.
         /// </summary>
@@ -128,7 +135,7 @@ namespace Parsek.Reaim
             double mag = Math.Sqrt(planar * planar + v.y * v.y);
             if (!(planar > 0.0) || !(mag > 0.0))
                 return false; // zero / axis-aligned vector: no bearing
-            bearingDeg = Math.Atan2(-v.z, v.x) * 180.0 / Math.PI;
+            bearingDeg = Math.Atan2(v.z, v.x) * 180.0 / Math.PI;
             latitudeDeg = Math.Asin(v.y / mag) * 180.0 / Math.PI;
             return true;
         }
