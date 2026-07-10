@@ -1737,7 +1737,7 @@ Beyond the Phase 1-6 core above, later cycles shipped substantial subsystems not
 - **Missions and Logistics:** the mission abstraction (Missions tab, mission-tree fork) and the logistics route system (milestones M1-M6, including cross-tree docking and the claw producer).
 - **Re-aim solver stack:** Lambert-based re-aim / retargeting for transfers, arrival, and descent.
 - **Map / tracking-station render rewrite:** the Director-driven ghost polyline and orbit-line render pipeline with the render tracer (`MapRenderTrace`, `MapRenderProbe`).
-- **Ledger game-actions system:** fully implemented (`GameActions/`, `LedgerOrchestrator`, eight resource modules, `KspStatePatcher`) with the ground-truth verification harness and `LedgerTrace` observability.
+- **Ledger game-actions system:** fully implemented (`GameActions/`, `LedgerOrchestrator`, nine resource modules, `KspStatePatcher`) with the ground-truth verification harness and `LedgerTrace` observability.
 - **Rewind-to-Separation (v0.9):** re-fly of committed subtrees with append-only supersede (Section 14.9).
 
 ---
