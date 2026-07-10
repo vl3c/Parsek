@@ -294,6 +294,16 @@ namespace Parsek.InGameTests.Helpers
         /// </summary>
         internal static void CommitValidatedGameLoad(ValidatedGameLoad load)
         {
+            // Stock Bug #4803 late-switch guard (2026-07-10 soft-freeze): arm BEFORE
+            // StartAndFocusVessel, which synchronously fires onGameSceneLoadRequested
+            // (stock FlightCamera.OnSceneSwitch re-pins the pivot onto the DDOL
+            // PSystemSetup root INSIDE this call). A vessel switch landing AFTER this
+            // call returns but before the old scene unloads re-parents the pivot under
+            // a doomed vessel; while armed, every onVesselChange immediately re-pins.
+            // Arming here (not at the call sites) covers ALL commit callers: the
+            // runner's batch baseline restores AND TriggerQuickload's quickload-resume
+            // tests. The window closes at the new scene's onLevelWasLoaded.
+            FlightCameraReloadPin.Arm($"CommitValidatedGameLoad:{load.SaveName}/{load.SlotName}");
             FlightDriver.StartAndFocusVessel(load.Game, load.ActiveVesselIdx);
             ParsekLog.Info("TestHelper",
                 $"CommitValidatedGameLoad: loading '{load.SaveName}/{load.SlotName}' via FlightDriver.StartAndFocusVessel(activeVesselIdx={load.ActiveVesselIdx})");
@@ -370,6 +380,16 @@ namespace Parsek.InGameTests.Helpers
             HighLogic.CurrentGame = game;
             GamePersistence.UpdateScenarioModules(HighLogic.CurrentGame);
             HighLogic.CurrentGame.startScene = scene;
+            // Stock Bug #4803 late-switch guard: the post-test non-flight restore runs
+            // FROM a FLIGHT scene (the test flew a vessel; this returns the player to
+            // the captured Tracking Station / Space Center), so the same
+            // commit-to-unload window exists here: a late vessel switch after
+            // Game.Start()'s LoadScene dispatch would re-parent the persistent
+            // FlightCamera pivot under a doomed old-scene vessel. The PRIME restore
+            // commits from the non-flight scene itself (TS->TS), where the window is a
+            // cheap no-op (no vessels to switch to, nothing to pin). Same arm/disarm
+            // contract as CommitValidatedGameLoad.
+            FlightCameraReloadPin.Arm($"CommitNonFlightSceneLoad:{slotName}->{scene}");
             HighLogic.CurrentGame.Start();
             ParsekLog.Info("TestHelper",
                 $"CommitNonFlightSceneLoad: loading '{HighLogic.SaveFolder}/{slotName}' into {scene} "

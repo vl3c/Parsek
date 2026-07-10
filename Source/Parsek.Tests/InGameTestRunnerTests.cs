@@ -883,5 +883,82 @@ namespace Parsek.Tests
             Assert.False(InGameTestRunner.ReloadStillFlooding(1_000_000, 0));
             Assert.False(InGameTestRunner.ReloadStillFlooding(1_000_000, -1));
         }
+
+        [Fact]
+        public void ShouldAttemptSpaceCenterBounce_FloodingAndNotYetAttempted_IsTrue()
+        {
+            // 2026-07-10 soft-freeze: the batch ends with the flood still active and no
+            // bounce attempted yet -> the one-shot recovery must fire.
+            Assert.True(InGameTestRunner.ShouldAttemptSpaceCenterBounce(
+                alreadyAttemptedThisBatch: false,
+                exceptionsInSettleWindow: InGameTestRunner.BaselineReloadFloodExceptionThreshold,
+                threshold: InGameTestRunner.BaselineReloadFloodExceptionThreshold));
+            Assert.True(InGameTestRunner.ShouldAttemptSpaceCenterBounce(
+                alreadyAttemptedThisBatch: false,
+                exceptionsInSettleWindow: 250_000,
+                threshold: InGameTestRunner.BaselineReloadFloodExceptionThreshold));
+        }
+
+        [Fact]
+        public void ShouldAttemptSpaceCenterBounce_AlreadyAttempted_IsFalseEvenWhileFlooding()
+        {
+            // EXACTLY ONE bounce per batch: retry loops are the disproven model
+            // (2026-07-05: the corruption is process-permanent; 4 reload retries all
+            // flooded). A still-flooding game after the one bounce gets the relaunch
+            // alert, never a second bounce.
+            Assert.False(InGameTestRunner.ShouldAttemptSpaceCenterBounce(
+                alreadyAttemptedThisBatch: true,
+                exceptionsInSettleWindow: 250_000,
+                threshold: InGameTestRunner.BaselineReloadFloodExceptionThreshold));
+        }
+
+        [Fact]
+        public void ShouldAttemptSpaceCenterBounce_CleanSettleWindow_IsFalse()
+        {
+            // A healthy batch end (settle window adds ~0 exceptions) never bounces.
+            Assert.False(InGameTestRunner.ShouldAttemptSpaceCenterBounce(
+                alreadyAttemptedThisBatch: false,
+                exceptionsInSettleWindow: 0,
+                threshold: InGameTestRunner.BaselineReloadFloodExceptionThreshold));
+            Assert.False(InGameTestRunner.ShouldAttemptSpaceCenterBounce(
+                alreadyAttemptedThisBatch: false,
+                exceptionsInSettleWindow: InGameTestRunner.BaselineReloadFloodExceptionThreshold - 1,
+                threshold: InGameTestRunner.BaselineReloadFloodExceptionThreshold));
+        }
+
+        [Fact]
+        public void ShouldSampleBatchEndCorruption_FlightBaselineOrStorm_Samples()
+        {
+            // A FLIGHT/TS-baseline batch performs scene reloads (each can trip stock
+            // Bug #4803), and a detected storm is the corruption signature regardless
+            // of isolation mode - both must run the batch-end settle-window check.
+            Assert.True(InGameTestRunner.ShouldSampleBatchEndCorruption(
+                hasFlightBaseline: true, stormDetected: false));
+            Assert.True(InGameTestRunner.ShouldSampleBatchEndCorruption(
+                hasFlightBaseline: false, stormDetected: true));
+            Assert.True(InGameTestRunner.ShouldSampleBatchEndCorruption(
+                hasFlightBaseline: true, stormDetected: true));
+        }
+
+        [Fact]
+        public void ShouldSampleBatchEndCorruption_NoReloadsAndNoStorm_Skips()
+        {
+            // A plain disk-only batch (SPACECENTER / EDITOR / FLIGHT-no-vessel) with no
+            // storm never reloads a scene; sampling would only add settle frames and
+            // risk bouncing on an unrelated mod's error flood.
+            Assert.False(InGameTestRunner.ShouldSampleBatchEndCorruption(
+                hasFlightBaseline: false, stormDetected: false));
+        }
+
+        [Fact]
+        public void ShouldAttemptSpaceCenterBounce_NonPositiveThreshold_DisablesRecovery()
+        {
+            // Inherits ReloadStillFlooding's semantics: a non-positive threshold
+            // disables the check so a misconfiguration cannot bounce every batch.
+            Assert.False(InGameTestRunner.ShouldAttemptSpaceCenterBounce(
+                alreadyAttemptedThisBatch: false, exceptionsInSettleWindow: 1_000_000, threshold: 0));
+            Assert.False(InGameTestRunner.ShouldAttemptSpaceCenterBounce(
+                alreadyAttemptedThisBatch: false, exceptionsInSettleWindow: 1_000_000, threshold: -1));
+        }
     }
 }
