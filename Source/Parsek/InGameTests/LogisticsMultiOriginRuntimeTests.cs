@@ -442,7 +442,7 @@ namespace Parsek.InGameTests
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = IsolatedOnlyBatchSkipReason,
-            Description = "Cargo escrow (B2/B3, 19.2.5): route A reserves a shared source's LiquidFuel via RouteStore.ReserveCargo at dispatch; a competing route B gating the SAME source in the gap sees its available amount netted down by A's reservation (OtherRoutesReservedFor) and HOLDS naming the source, instead of double-claiming it. Drives the live LiveRouteRuntimeEnvironment.OriginHasCargo gate against an auto-spawned shared source vessel; skips when it cannot be provided")]
+            Description = "Cargo escrow (B2/B3, 19.2.5): route A reserves a shared source's LiquidFuel via RouteStore.ReserveCargo at dispatch; a competing route B gating the SAME source in the gap sees its available amount netted down by A's reservation (OtherRoutesReservedFor) and HOLDS with the M6 escrow token (source-reserved:<pid>:<name>:<resource>:<reservingRoute>) naming the source AND the reserving route A, instead of double-claiming it or claiming the depot is physically empty. Drives the live LiveRouteRuntimeEnvironment.OriginHasCargo gate against an auto-spawned shared source vessel; skips when it cannot be provided")]
         public IEnumerator Escrow_CompetingRouteSeesReservation_Holds()
         {
             IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
@@ -480,8 +480,14 @@ namespace Parsek.InGameTests
                         $"Shared source holds {sourceStored.ToString("R", IC)} LF >= 2x the pickup; cannot demonstrate " +
                         "the competing-route net (it could cover both). Re-run with a smaller source");
 
-                string routeAId = "ingame-escrow-A-" + Guid.NewGuid().ToString("N").Substring(0, 8);
-                string routeBId = "ingame-escrow-B-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                // Prefixes distinct within RouteIds.Short's 8 chars: the escrow hold token's
+                // reserving-route segment resolves via RouteStore.TryGetRoute -> fallback
+                // RouteIds.Short(reservingRouteId) (neither test route is ADDED to the store,
+                // only reserved for), and the assertion below pins that it names route A
+                // specifically - a shared "ingame-escrow-" prefix would truncate A and B to
+                // the same 8 chars and the pin could not tell them apart.
+                string routeAId = "esc-A-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                string routeBId = "esc-B-" + Guid.NewGuid().ToString("N").Substring(0, 8);
 
                 var env = new LiveRouteRuntimeEnvironment();
                 Route routeA = BuildSingleSourcePickupRoute(routeAId, sharedSource, PickupAmountA);
@@ -514,11 +520,28 @@ namespace Parsek.InGameTests
                         $"source={sourceStored.ToString("R", IC)} reservedByA={PickupAmountA.ToString("R", IC)} " +
                         $"needB={PickupAmountA.ToString("R", IC)}");
                     InGameAssert.IsNotNull(lackAfter, "The held gate must report a lacking-resource token");
+                    // M6 escrow-hold legibility contract (PR #1233): this short is ESCROW-caused
+                    // by construction (raw stored covers B's need; only the netted availability
+                    // falls short, and A's reservation is resolvable), so the gate must emit the
+                    // escrow token 'source-reserved:<pid>:<name>:<resource>:<reservingRoute>'
+                    // (RoutePickupSourceGate.BuildReservedHoldToken) - NOT the physical
+                    // 'source:...' token that would claim the depot is physically empty.
                     InGameAssert.IsTrue(
-                        lackAfter.IndexOf("source:", StringComparison.Ordinal) >= 0
-                        && lackAfter.IndexOf(sharedSource.persistentId.ToString(IC), StringComparison.Ordinal) >= 0,
+                        lackAfter.StartsWith("source-reserved:", StringComparison.Ordinal),
+                        "The hold token must be the M6 escrow-caused variant 'source-reserved:...' " +
+                        $"(raw covers, only netted falls short); token was '{lackAfter}'");
+                    InGameAssert.IsTrue(
+                        lackAfter.IndexOf(sharedSource.persistentId.ToString(IC), StringComparison.Ordinal) >= 0,
                         $"The hold token must name the shared source (pid {sharedSource.persistentId.ToString(IC)}); " +
                         $"token was '{lackAfter}'");
+                    // The reserving-route segment must name route A (via the RouteIds.Short
+                    // store-fallback: neither test route is added to RouteStore), not route B
+                    // and not the evaluated route itself.
+                    string expectedReservingName = RouteIds.Short(routeAId);
+                    InGameAssert.IsTrue(
+                        lackAfter.EndsWith(":" + expectedReservingName, StringComparison.Ordinal),
+                        $"The hold token must name the RESERVING route A ('{expectedReservingName}') as its " +
+                        $"final segment; token was '{lackAfter}'");
 
                     ParsekLog.Info("TestRunner",
                         $"Escrow_CompetingHold: PASS sharedSource={sharedSource.vesselName} " +
