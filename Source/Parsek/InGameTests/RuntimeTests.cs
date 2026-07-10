@@ -6960,7 +6960,24 @@ namespace Parsek.InGameTests
             }
             finally
             {
-                ReFlySettleStabilityTracker.Reset();
+                // Root fix for the 2026-07-10 rerun2 orphaned green sphere: this
+                // test's PRIVATE engine spawns a sphere-fallback ghost visual
+                // ("Parsek_Timeline_0", the recording has no vessel snapshot)
+                // during UpdatePlayback. Abandoning the engine object without
+                // DestroyAllGhosts leaked that GameObject into the scene - the
+                // batch cleanup paths only tear down the LIVE ParsekFlight engine,
+                // so the sphere stayed riding the vessel. Destroy everything this
+                // engine spawned or was handed before discarding it; the runner's
+                // cleanupRegistry null check tolerates the already-destroyed
+                // primary/overlap test objects.
+                try
+                {
+                    engine.DestroyAllGhosts();
+                }
+                finally
+                {
+                    ReFlySettleStabilityTracker.Reset();
+                }
             }
         }
 

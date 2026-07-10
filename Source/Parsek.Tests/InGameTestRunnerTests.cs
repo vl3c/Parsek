@@ -1026,5 +1026,75 @@ namespace Parsek.Tests
         {
             throw new NullReferenceException("deliberate prime failure");
         }
+
+        [Fact]
+        public void DescribeRestoreFailure_ExceptionDispatchInfoRethrow_PreservesOriginalThrowingFrame()
+        {
+            // Pins the reload-guard rethrow contract: rethrowing a CAPTURED
+            // exception via ExceptionDispatchInfo.Capture(ex).Throw() must PRESERVE
+            // the original throwing frame. A bare `throw ex;` resets the stack to
+            // the rethrow site - the 2026-07-10 rerun2 log captured only the
+            // reload-guard wrapper's MoveNext frame that way, wiping the core NRE's
+            // real location.
+            Exception caught = null;
+            try
+            {
+                RethrowCapturedFailureViaExceptionDispatchInfo();
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+
+            var detail = InGameTestRunner.DescribeRestoreFailure(caught);
+
+            Assert.Contains("System.NullReferenceException", detail);
+            Assert.Contains("deliberate prime failure", detail);
+            // BOTH frames must survive: the original throwing helper proves the
+            // stack was preserved, the rethrowing wrapper proves the EDI rethrow
+            // site is APPENDED rather than substituted.
+            Assert.Contains(nameof(ThrowDeliberateRestoreFailure), detail);
+            Assert.Contains(nameof(RethrowCapturedFailureViaExceptionDispatchInfo), detail);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void RethrowCapturedFailureViaExceptionDispatchInfo()
+        {
+            // Mirrors RestoreBatchFlightBaselineCoreWithReloadGuard: the failure is
+            // CAPTURED into a variable (by RunCoroutineSafely's onFailure callback
+            // there), then rethrown later from a different frame.
+            Exception captured = null;
+            try
+            {
+                ThrowDeliberateRestoreFailure();
+            }
+            catch (Exception ex)
+            {
+                captured = ex;
+            }
+
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(captured).Throw();
+            // Unreachable: EDI.Throw always throws, but the compiler cannot see
+            // that (same shape as the production rethrow site).
+            throw captured;
+        }
+
+        [Theory]
+        [InlineData("Parsek_Timeline_0", true)]
+        [InlineData("Parsek_Timeline_42", true)]
+        [InlineData("Parsek_Timeline_", true)]
+        [InlineData("parsek_timeline_0", false)]   // ordinal, case-sensitive
+        [InlineData("Parsek_Timeline", false)]     // missing trailing underscore
+        [InlineData("XParsek_Timeline_0", false)]  // prefix match only, never substring
+        [InlineData("ParsekTestGhost_ReFlySettlePrimary", false)] // test scaffolding objects
+        [InlineData("cameraPivot", false)]         // ghost child objects (destroyed with root)
+        [InlineData("", false)]
+        [InlineData(null, false)]
+        public void IsOrphanedGhostMeshName_MatchesEngineGhostRootNamingConventionOnly(
+            string name, bool expected)
+        {
+            Assert.Equal(expected, InGameTestRunner.IsOrphanedGhostMeshName(name));
+        }
     }
 }

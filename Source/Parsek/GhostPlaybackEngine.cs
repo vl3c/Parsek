@@ -6250,6 +6250,36 @@ namespace Parsek
             return ghostStates.TryGetValue(index, out state);
         }
 
+        /// <summary>
+        /// Whether the given GameObject is a ghost mesh THIS engine currently
+        /// references (primary or overlap). Used by the test runner's post-abort
+        /// orphaned-ghost-mesh sweep to distinguish live "Parsek_Timeline_*"
+        /// meshes from abandoned ones (e.g. a mesh spawned by a test-private
+        /// engine instance discarded without DestroyAllGhosts, 2026-07-10 rerun2).
+        /// One-shot cleanup consumer only; not for per-frame use.
+        /// </summary>
+        internal bool OwnsGhostGameObject(GameObject go)
+        {
+            if (go == null)
+                return false;
+            foreach (var state in ghostStates.Values)
+            {
+                if (state != null && state.ghost == go)
+                    return true;
+            }
+            foreach (var list in overlapGhosts.Values)
+            {
+                if (list == null)
+                    continue;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (list[i] != null && list[i].ghost == go)
+                        return true;
+                }
+            }
+            return false;
+        }
+
         internal bool EnsureGhostVisualsLoadedForWatch(
             int index, IPlaybackTrajectory traj, double playbackUT,
             double currentUT,
