@@ -704,15 +704,19 @@ namespace Parsek.InGameTests
         /// <summary>
         /// True when the batch-end corruption check should sample the flood detector at
         /// all: only batches that could have corrupted the scene are eligible - a batch
-        /// with a FLIGHT/TS baseline performs scene reloads (each one can trip stock Bug
-        /// #4803), and a detected exception storm is the corruption signature regardless
-        /// of mode. A plain disk-only batch (SPACECENTER / EDITOR / FLIGHT-no-vessel)
-        /// with no storm never reloads a scene, so sampling would only add settle-window
-        /// frames and risk bouncing on an unrelated mod's error flood. Pure.
+        /// with an in-memory baseline (captured in FLIGHT or the Tracking Station)
+        /// performs scene reloads (each one can trip stock Bug #4803), and a detected
+        /// exception storm is the corruption signature regardless of mode. A plain
+        /// disk-only batch (SPACECENTER / EDITOR / FLIGHT-no-vessel) with no storm never
+        /// reloads a scene, so sampling would only add settle-window frames and risk
+        /// bouncing on an unrelated mod's error flood. Accepted coarseness: this keys on
+        /// "baseline captured", not "a reload actually happened", so an in-memory-
+        /// baseline batch with zero restores still samples; blast radius is one Space
+        /// Center visit. Pure.
         /// </summary>
-        internal static bool ShouldSampleBatchEndCorruption(bool hasFlightBaseline, bool stormDetected)
+        internal static bool ShouldSampleBatchEndCorruption(bool hasInMemoryBaseline, bool stormDetected)
         {
-            return hasFlightBaseline || stormDetected;
+            return hasInMemoryBaseline || stormDetected;
         }
 
         // Subscribe the batch unhandled-exception counter and reset the count so each batch starts

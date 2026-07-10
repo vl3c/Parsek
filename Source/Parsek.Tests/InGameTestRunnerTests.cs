@@ -927,17 +927,18 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldSampleBatchEndCorruption_FlightBaselineOrStorm_Samples()
+        public void ShouldSampleBatchEndCorruption_InMemoryBaselineOrStorm_Samples()
         {
-            // A FLIGHT/TS-baseline batch performs scene reloads (each can trip stock
-            // Bug #4803), and a detected storm is the corruption signature regardless
-            // of isolation mode - both must run the batch-end settle-window check.
+            // An in-memory-baseline batch (captured in FLIGHT or the Tracking Station)
+            // performs scene reloads (each can trip stock Bug #4803), and a detected
+            // storm is the corruption signature regardless of isolation mode - both
+            // must run the batch-end settle-window check.
             Assert.True(InGameTestRunner.ShouldSampleBatchEndCorruption(
-                hasFlightBaseline: true, stormDetected: false));
+                hasInMemoryBaseline: true, stormDetected: false));
             Assert.True(InGameTestRunner.ShouldSampleBatchEndCorruption(
-                hasFlightBaseline: false, stormDetected: true));
+                hasInMemoryBaseline: false, stormDetected: true));
             Assert.True(InGameTestRunner.ShouldSampleBatchEndCorruption(
-                hasFlightBaseline: true, stormDetected: true));
+                hasInMemoryBaseline: true, stormDetected: true));
         }
 
         [Fact]
@@ -947,7 +948,7 @@ namespace Parsek.Tests
             // storm never reloads a scene; sampling would only add settle frames and
             // risk bouncing on an unrelated mod's error flood.
             Assert.False(InGameTestRunner.ShouldSampleBatchEndCorruption(
-                hasFlightBaseline: false, stormDetected: false));
+                hasInMemoryBaseline: false, stormDetected: false));
         }
 
         [Fact]
