@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using UnityEngine;
 
 namespace Parsek.InGameTests
@@ -501,6 +502,22 @@ namespace Parsek.InGameTests
         /// (watch-mode exit + DestroyAllTimelineGhosts + ghost-map reset). Runs
         /// only from RunBatch's always-runs batch-end region, never mid-batch;
         /// every step is exception-safe so a broken object cannot abort teardown.
+        ///
+        /// The orphaned-ghost-mesh sweep runs BEFORE the live-engine teardown:
+        /// while the live engine still owns its ghosts, OwnsGhostGameObject
+        /// correctly skips them and only genuinely unowned orphans are swept
+        /// (review of PR #1286: DestroyAllGhosts clears ghostStates/overlapGhosts
+        /// immediately but Object.Destroy is end-of-frame-deferred, so a sweep
+        /// AFTER the teardown would see the live engine's still-enumerable
+        /// meshes as unowned, re-destroy them harmlessly, and pollute the
+        /// orphanedGhostMeshes counter with false positives). A ghost visual
+        /// spawned by a test-private GhostPlaybackEngine instance abandoned
+        /// without DestroyAllGhosts is unowned regardless of ordering
+        /// (2026-07-10 rerun2: the "Re-Fly Settle Anchor" sphere-fallback ghost
+        /// stayed riding the vessel while DestroyAllGhosts reported 0 entries).
+        /// The sweep scans root GameObjects for the engine's "Parsek_Timeline_"
+        /// naming convention; scene-scan cost is irrelevant here: post-abort,
+        /// one-shot, never per-frame.
         /// </summary>
         private void PerformPostAbortSceneCleanup(string reason)
         {
@@ -523,6 +540,19 @@ namespace Parsek.InGameTests
                     $"Post-abort scene cleanup: cleanupRegistry destroy threw: {ex.Message}");
             }
 
+            // Sweep orphans FIRST (see the ordering note in the doc comment): the
+            // live engine must still own its ghosts for the ownership skip to work.
+            int orphanedGhostMeshes = 0;
+            try
+            {
+                orphanedGhostMeshes = DestroyOrphanedGhostMeshes();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Post-abort scene cleanup: orphaned ghost mesh sweep threw: {ex.Message}");
+            }
+
             try
             {
                 PerformBetweenRunCleanup("post-abort:" + reason);
@@ -534,7 +564,50 @@ namespace Parsek.InGameTests
             }
 
             ParsekLog.Info(Tag,
-                $"Post-abort scene cleanup ({reason}): destroyed {destroyed} tracked object(s), ghosts cleared");
+                $"Post-abort scene cleanup ({reason}): destroyed {destroyed} tracked object(s), " +
+                $"ghosts cleared, orphanedGhostMeshes={orphanedGhostMeshes}");
+        }
+
+        /// <summary>
+        /// Pure name predicate for the post-abort orphaned-ghost-mesh sweep. The
+        /// playback engine names every ghost visual root (snapshot mesh AND sphere
+        /// fallback) "Parsek_Timeline_{index}" (GhostPlaybackEngine spawn path), so
+        /// a root GameObject with that prefix that no engine references is an
+        /// abandoned ghost visual. Ordinal, prefix-only: test scaffolding objects
+        /// ("ParsekTestGhost_...") and unrelated Parsek objects never match.
+        /// </summary>
+        internal static bool IsOrphanedGhostMeshName(string name)
+        {
+            return name != null
+                && name.StartsWith("Parsek_Timeline_", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Destroys root GameObjects that carry the engine's ghost-mesh naming
+        /// convention but are not referenced by the live engine. Post-abort
+        /// one-shot only (scene root scan); returns the destroyed count for the
+        /// cleanup summary line. Per-item Info logging is fine here: orphans are
+        /// rare (one leaked sphere per incident, not a per-frame population).
+        /// </summary>
+        private int DestroyOrphanedGhostMeshes()
+        {
+            var engine = ParsekFlight.Instance?.Engine;
+            int destroyedCount = 0;
+            GameObject[] roots =
+                UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects();
+            foreach (var go in roots)
+            {
+                if (go == null || !IsOrphanedGhostMeshName(go.name))
+                    continue;
+                if (engine != null && engine.OwnsGhostGameObject(go))
+                    continue;
+                ParsekLog.Info(Tag,
+                    $"Post-abort orphan sweep: destroying unreferenced ghost mesh '{go.name}' " +
+                    $"(active={go.activeSelf})");
+                UnityEngine.Object.Destroy(go);
+                destroyedCount++;
+            }
+            return destroyedCount;
         }
 
         /// <summary>
@@ -1852,6 +1925,20 @@ namespace Parsek.InGameTests
                 RestoreBatchFlightBaselineCore(baseline, previousFlightInstanceId, cleanupReason),
                 ex => coreFailure = ex));
 
+            // Capture-point logging: HERE the exception still carries the ORIGINAL
+            // stack (set at the throw inside the core, captured by RunCoroutineSafely's
+            // MoveNext catch). Log the full detail immediately so the diagnostics are
+            // immune to any downstream stack-eating rethrow - the 2026-07-10 rerun
+            // (logs/2026-07-10_2258_rerun2-fast) captured only this wrapper's MoveNext
+            // frame because the bare `throw coreFailure;` at the bottom of this method
+            // reset the stack to the rethrow site before any catch site logged it.
+            if (coreFailure != null)
+            {
+                ParsekLog.Error(Tag,
+                    "Restore core failure detail (captured at reload-guard, original stack): "
+                    + DescribeRestoreFailure(coreFailure));
+            }
+
             // Settle window: a clean reload adds ~0 unhandled exceptions across these frames; a
             // corrupted one floods hundreds. The post-settle rate (not a cumulative-since-reload count)
             // is the reliable signal.
@@ -1878,7 +1965,19 @@ namespace Parsek.InGameTests
             }
 
             if (coreFailure != null)
-                throw coreFailure; // caller's existing skip/fail/other handling is unchanged
+            {
+                // Stack-preserving rethrow: a bare `throw coreFailure;` RESETS the
+                // exception's stack trace to this rethrow site, wiping the core's
+                // frames (proven by the 2026-07-10 rerun log, where the captured
+                // stack showed only this method's MoveNext). EDI.Throw rethrows the
+                // SAME exception object with the original stack preserved and the
+                // rethrow site appended, so the caller's existing skip/fail/other
+                // handling is unchanged.
+                ExceptionDispatchInfo.Capture(coreFailure).Throw();
+                // Unreachable: EDI.Throw always throws, but the compiler cannot see
+                // that, so keep the canonical bare rethrow as the fallback shape.
+                throw coreFailure;
+            }
         }
 
         private IEnumerator RestoreBatchFlightBaselineAfterExecution(InGameTestInfo test)
