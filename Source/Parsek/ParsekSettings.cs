@@ -65,6 +65,10 @@ namespace Parsek
             toolTip = "When enabled, also write human-readable .txt mirrors of recording sidecars for debugging and binary/text comparison")]
         public bool writeReadableSidecarMirrors = true;
 
+        [GameParameters.CustomParameterUI("Auto-backup existing saves before first use",
+            toolTip = "When on, the first time Parsek opens a save that has no Parsek data yet, it copies that save to a separate timestamped 'pre-Parsek' entry in the Load menu, so you can always return to your career as it was before installing Parsek. Runs once per save.")]
+        public bool autoBackupExistingSaves = true;
+
         [GameParameters.CustomParameterUI("Show committed-future overlays in stock UI",
             toolTip = "When on, stock R&D, Astronaut Complex, and Mission Control screens show actions already committed on the timeline")]
         public bool showCommittedFutureOverlays = true;

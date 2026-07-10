@@ -6,8 +6,13 @@ All notable changes to Parsek are documented here.
 
 ## Unreleased
 
+### Features
+
+- The first time Parsek opens one of your existing saves, it now makes a one-time safety backup of that save, taken before Parsek changes anything, as a separate timestamped "pre-Parsek" entry in the Load menu, so you can always return to your career as it was before installing Parsek. It runs once per save, includes your saved craft, skips brand-new empty careers, and can be turned off under Settings > Data Management. Note: it can only protect saves whose first Parsek use happens after this version, and resuming a backup with Parsek installed lets Parsek manage it again.
+
 ### Fixes
 
+- The Settings "Defaults" button now also restores "Show supply route paths on map" to on; previously that single toggle was left unchanged while every other setting reset to its default.
 - A recorded vessel or EVA kerbal that re-materializes above the surface without a stored terminal orbit (breakup debris, an in-flight EVA, or a vessel left docked or coasting) no longer appears off-position and flips its situation a frame later. Its orbit was rebuilt by feeding an absolute world position and an unconverted velocity to KSP's state-vector API, which reads them in the wrong reference frame and produces an out-of-band orbit; the rebuild now converts them to the body-relative frame the API expects.
 - A campaign save whose committed trees and missions failed to load (leaving the in-memory store empty while the recording sidecars still exist on disk) is no longer hollowed out by the next save: Parsek now detects that load fault and re-writes the trees and missions from the on-disk save instead of overwriting it with an empty set, so a one-time load failure can no longer progressively erase a save's committed recordings.
 - Map ghost icons no longer snap visibly along their orbit at extreme time-warp (roughly 344x and up): the map-orbit refresh ran on a fixed half-second real-time timer, which at those rates spans hundreds of game-seconds per tick, letting the icon ride a stale orbit and jump ~1 Mm on each refresh. The refresh cadence now scales with the warp rate so one tick never covers more than 30 game-seconds; behavior at normal speed is unchanged.

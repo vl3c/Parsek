@@ -21,6 +21,8 @@ namespace Parsek
             internal bool AutoMerge;
             internal bool VerboseLogging;
             internal bool WriteReadableSidecarMirrors;
+            internal bool AutoBackupExistingSaves;
+            internal bool ShowRouteLines;
             internal SamplingDensity SamplingDensityLevel;
             internal float AutoLoopIntervalSeconds;
             internal LoopTimeUnit AutoLoopDisplayUnit;
@@ -60,6 +62,8 @@ namespace Parsek
                 AutoMerge = false,
                 VerboseLogging = true,
                 WriteReadableSidecarMirrors = true,
+                AutoBackupExistingSaves = true,
+                ShowRouteLines = true,
                 SamplingDensityLevel = SamplingDensity.Medium,
                 AutoLoopIntervalSeconds = (float)LoopTiming.DefaultLoopIntervalSeconds,
                 AutoLoopDisplayUnit = LoopTimeUnit.Sec,

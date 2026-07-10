@@ -14,6 +14,23 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Added (headless-verified, in-game pin pending) - Pre-Parsek save safety backup (branch `pre-parsek-save-backup`)
+
+**Feature.** The first time Parsek cold-loads a save with no Parsek footprint, it copies that save - before any Parsek write - into a sibling `saves/<Name> (pre-Parsek <local-ts>)/` folder that appears in KSP's Load menu, so a player who tries Parsek and uninstalls it can return to their pristine career. Runs once per save; skips brand-new empty careers; toggle under Settings > Data Management (`autoBackupExistingSaves`, default on).
+
+**Design.** Hook at the top of the cold-load path of `ParsekScenario.OnLoad` (gated `!initialLoadDone`, before `LoadExternalFiles`): a scenario module's `OnSave` cannot precede its own `OnLoad`, so the copied `persistent.sfs` is gameplay-state-pristine (no Parsek funds/science/crew/tech/contract/facility footprint - NOT byte-identical; the empty `SCENARIO{name=ParsekScenario}` KSP injects carries no gameplay data). Idempotency is measured from the on-disk footprint (`Parsek/` dir or a populated `ParsekScenario` node), not the in-memory OnLoad node, so a prior aborted session is caught; the marker file is only a fast-path. The copy is staged into a `.parsek-backup-staging-*` dir in the save folder (not under `Parsek/`, so a failed copy leaves no empty-`Parsek/` false footprint) and atomically `Directory.Move`d into `saves/` as the last step (a mid-copy failure never strands a half-save in the Load menu; orphan staging dirs are swept on load). Scope: persistent.sfs + loadmeta + Ships/ + Subassemblies/ (excludes quicksaves, `Parsek/`, KSP `Backup/`). Fail-open (any parse doubt backs up); fail-loud (Error + on-screen warning, no marker written -> retry next cold load). A missing on-disk persistent.sfs is skipped (and asserted before publish) so a capture failure never fabricates a payload-less "backup". Progress decision parses the on-disk file via `CareerSaveParser`, not fragile live singletons at cold OnLoad. `PreParsekBackup.cs` + `FileIOUtils.CopyDirectory`.
+
+**Tests.** 36 xUnit cases in `PreParsekBackupTests.cs` (ShouldBackup truth table with pinned reason literals incl. footprint-beats-brand-new, SanitizeSaveName, BuildBackupFolderName format + collision, IsBrandNewEmptySave fail-open, HasParsekGameplayFootprint empty/value-only/populated node, IsParsekBackupFolder sentinel/name, CopyDirectory tree/exclude/no-op/failure-warn, settings round-trip + defaults). Full settings suite green.
+
+**PENDING OPERATOR (in-game pin, cannot run KSP headlessly).** These KSP-runtime properties are not unit-testable:
+
+1. **V2/V3 (pristine timing).** Back up a real pre-existing career (make a manual copy of a `saves/<Name>` first), install this DLL, load that career once. Grep `KSP.log` for `[Backup] First-contact backup:` and `[Backup] Captured pre-Parsek backup:` and confirm both appear BEFORE the first Parsek OnSave line for that session. If instead you see `[Backup] Skip: reason=already-parsek-footprint` on a save you know never had Parsek, the OnLoad-before-OnSave assumption is wrong and needs the earliest-pre-write-seam fallback.
+2. **V1 (appears in Load list).** After step 1, open Resume Saved Game and confirm the `<Name> (pre-Parsek <ts>)` folder is listed and loads. Note whether its card shows the source save's title (copied `.loadmeta`); if that is confusing, regenerate the title or rely on the folder name.
+3. **Idempotency.** Reload the same save several times / quickload / revert: `[Backup]` must log `Skip: reason=marker-present` (or `already-parsek-footprint`) and create no second folder. Then resume the pre-Parsek backup itself: it must log `Skip: reason=is-backup-folder` and not back up the backup.
+4. **Disabled + brand-new.** With the setting off, a first-contact save logs `Skip: reason=disabled`. A brand-new empty career (Parsek installed) logs `Skip: reason=brand-new-empty` and gets no twin.
+
+---
+
 ## Backlog - prioritized "what to develop next" (compiled 2026-07-06, v0.10.3)
 
 Session-compiled prioritized development backlog (survey of git log / open PRs / roadmap / design docs / this file). Ordering doctrine: correctness-first, land-shipped-work-before-new, gameplay-value-per-effort. Two premises corrected during the survey: (1) `roadmap.md` §19.4 lags - logistics **M1-M4 are all SHIPPED** in 0.10.3 (only M5 inter-body + M6 legibility remain); (2) there is **no CI** on the repo (`get_status` = 0 checks), so "ready" PRs are review-gated only (suite run locally).

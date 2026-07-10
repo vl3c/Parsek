@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace Parsek
@@ -179,6 +180,63 @@ namespace Parsek
                 ParsekLog.Warn(tag,
                     $"SafeMove: File.Move('{src}' -> '{dst}') failed: {ex.Message}");
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Recursively copies the directory tree at <paramref name="src"/> into
+        /// <paramref name="dst"/>, returning the number of files and total bytes copied.
+        /// Top-level subdirectories whose name is in <paramref name="excludeTopLevelDirs"/>
+        /// (case-insensitive; pass a <see cref="StringComparer.OrdinalIgnoreCase"/> set) are
+        /// skipped; the exclusion applies only at the first level. A non-existent source is a
+        /// no-op success. Unlike <see cref="SafeMove"/>/<see cref="SafeWriteConfigNode"/> (which
+        /// re-throw), this returns <c>false</c> on any failure so the caller can stage-and-abort;
+        /// per-file logging is intentionally omitted (batch-counting convention) - the caller
+        /// logs the aggregate <c>files=N bytes=M</c> summary.
+        /// </summary>
+        internal static bool CopyDirectory(
+            string src, string dst, ISet<string> excludeTopLevelDirs, string tag,
+            out int filesCopied, out long bytesCopied)
+        {
+            filesCopied = 0;
+            bytesCopied = 0;
+            try
+            {
+                var di = new DirectoryInfo(src);
+                if (!di.Exists)
+                {
+                    ParsekLog.Verbose(tag, $"CopyDirectory: source '{src}' does not exist — skipped");
+                    return true;
+                }
+
+                Directory.CreateDirectory(dst);
+
+                foreach (FileInfo f in di.GetFiles())
+                {
+                    f.CopyTo(Path.Combine(dst, f.Name), false);
+                    filesCopied++;
+                    bytesCopied += f.Length;
+                }
+
+                foreach (DirectoryInfo sub in di.GetDirectories())
+                {
+                    if (excludeTopLevelDirs != null && excludeTopLevelDirs.Contains(sub.Name))
+                        continue;
+                    // Exclusion applies only at the top level: recurse with a null exclude set.
+                    if (!CopyDirectory(sub.FullName, Path.Combine(dst, sub.Name), null, tag,
+                            out int f2, out long b2))
+                        return false;
+                    filesCopied += f2;
+                    bytesCopied += b2;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(tag,
+                    $"CopyDirectory('{src}' -> '{dst}') failed: {ex.GetType().Name}:{ex.Message}");
+                return false;
             }
         }
     }
