@@ -125,7 +125,9 @@ namespace Parsek.InGameTests.Helpers
         /// through code paths other than onVesselChange. The caller (the restore core
         /// coroutine) yields WaitForEndOfFrame after the commit, then calls this; it
         /// pins if (and only if) the window is still armed. Exception-safe: runs during
-        /// scene teardown.
+        /// scene teardown. This backstop is restore-core-path-only by design: direct
+        /// TriggerQuickload callers are protected by the onVesselChange handler alone
+        /// (their tests leave no transient EVA vessels behind).
         /// </summary>
         internal static void PinNowIfArmed(string context)
         {
@@ -167,7 +169,10 @@ namespace Parsek.InGameTests.Helpers
         // under the switch target, which the imminent unload will destroy). Re-pin the
         // pivot straight back onto the DDOL root and log a Warn naming the vessel so
         // the late switch is diagnosable from KSP.log. Exception-safe: this runs during
-        // scene teardown.
+        // scene teardown. Accepted tradeoff: the TTL-expired AutoDisarm below
+        // self-removes this handler DURING onVesselChange dispatch, which can skip one
+        // co-subscriber for that single fire; confined to the degraded 60s-stale path
+        // and contained by the try/catch.
         private static void OnVesselChangeWhileArmed(Vessel vessel)
         {
             try
