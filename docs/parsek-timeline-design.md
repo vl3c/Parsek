@@ -157,7 +157,7 @@ TimelineEntry
 **Recording lifecycle** (5 types):
 `RecordingStart`, `VesselSpawn`, `CrewDeath`, `UnfinishedFlightSeparation`, `Separation`
 
-**Game actions** (23 types, 1:1 with `GameActionType`):
+**Game actions** (23 types, 1:1 with the non-route `GameActionType` members; the 7 route action types have no timeline entry):
 `ScienceEarning`, `ScienceSpending`, `FundsEarning`, `FundsSpending`, `ReputationEarning`, `ReputationPenalty`, `MilestoneAchievement`, `ContractAccept`, `ContractComplete`, `ContractFail`, `ContractCancel`, `KerbalAssignment`, `KerbalHire`, `KerbalRescue`, `KerbalStandIn`, `FacilityUpgrade`, `FacilityDestruction`, `FacilityRepair`, `StrategyActivate`, `StrategyDeactivate`, `FundsInitial`, `ScienceInitial`, `ReputationInitial`
 
 **Legacy** (1 type):
