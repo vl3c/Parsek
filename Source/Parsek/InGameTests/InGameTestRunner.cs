@@ -235,6 +235,12 @@ namespace Parsek.InGameTests
         private bool batchExceptionMonitorActive;
         private int batchUnhandledExceptionCount;
         private bool batchExceptionStormDetected;
+        // Once-per-batch guard for the post-corruption Space Center bounce recovery.
+        // Reset at RunBatch entry; set when the batch-end flood check decides to
+        // bounce. EXACTLY ONE bounce, never retried (2026-07-05: the corruption is
+        // process-permanent for the FLIGHT scene; a reload-retry loop is the
+        // disproven model - 4 retries all flooded and made a 469MB log).
+        private bool spaceCenterBounceAttempted;
 
         // Results summary
         public int Passed { get; private set; }
@@ -591,6 +597,11 @@ namespace Parsek.InGameTests
         {
             if (!isRunning) return;
             EndBatchExceptionMonitor(); // StopCoroutine below won't run RunBatch's normal-end teardown
+            // Same StopCoroutine-skips-teardown reasoning: a cancel mid-reload would
+            // otherwise leave the Bug #4803 camera re-pin handlers subscribed until
+            // their TTL fail-safe. Idempotent; the cancel-restore below re-arms it
+            // for its own reload commit.
+            Helpers.FlightCameraReloadPin.Disarm("test-run-cancelled");
             if (activeInnerCoroutine != null)
                 coroutineHost.StopCoroutine(activeInnerCoroutine);
             activeInnerCoroutine = null;
@@ -671,6 +682,37 @@ namespace Parsek.InGameTests
         internal static bool ReloadStillFlooding(int exceptionsInSettleWindow, int threshold)
         {
             return threshold > 0 && exceptionsInSettleWindow >= threshold;
+        }
+
+        /// <summary>
+        /// True when the one-shot post-batch Space Center bounce recovery should run:
+        /// the batch-end settle window still shows the stock Bug #4803 NRE flood AND no
+        /// bounce has been attempted this batch. EXACTLY ONE bounce per batch, never a
+        /// retry loop: the corruption is process-permanent for the FLIGHT scene
+        /// (confirmed in-game 2026-07-05; reload retries only multiply the flood) and a
+        /// single LoadScene(SPACECENTER) is the only in-process recovery. Pure; the
+        /// threshold semantics are <see cref="ReloadStillFlooding"/>'s (non-positive
+        /// threshold disables the check).
+        /// </summary>
+        internal static bool ShouldAttemptSpaceCenterBounce(
+            bool alreadyAttemptedThisBatch, int exceptionsInSettleWindow, int threshold)
+        {
+            return !alreadyAttemptedThisBatch
+                && ReloadStillFlooding(exceptionsInSettleWindow, threshold);
+        }
+
+        /// <summary>
+        /// True when the batch-end corruption check should sample the flood detector at
+        /// all: only batches that could have corrupted the scene are eligible - a batch
+        /// with a FLIGHT/TS baseline performs scene reloads (each one can trip stock Bug
+        /// #4803), and a detected exception storm is the corruption signature regardless
+        /// of mode. A plain disk-only batch (SPACECENTER / EDITOR / FLIGHT-no-vessel)
+        /// with no storm never reloads a scene, so sampling would only add settle-window
+        /// frames and risk bouncing on an unrelated mod's error flood. Pure.
+        /// </summary>
+        internal static bool ShouldSampleBatchEndCorruption(bool hasFlightBaseline, bool stormDetected)
+        {
+            return hasFlightBaseline || stormDetected;
         }
 
         // Subscribe the batch unhandled-exception counter and reset the count so each batch starts
@@ -1504,6 +1546,7 @@ namespace Parsek.InGameTests
         {
             isRunning = true;
             BeginBatchExceptionMonitor();
+            spaceCenterBounceAttempted = false; // once-per-batch recovery guard
             ParsekLog.Info(Tag, $"Starting test run: {tests.Count} tests");
             int sceneEligibilitySkipped = 0;
             var sceneEligibilitySkipsByRequiredScene = new Dictionary<GameScenes, int>();
@@ -1585,8 +1628,47 @@ namespace Parsek.InGameTests
                 ForceRevertCampaignDiskToBaseline(batchFlightBaseline, "abort-after-restore-failure");
             }
 
+            // Post-corruption one-shot recovery check (stock Bug #4803). The per-restore
+            // reload guard trips the storm-abort at prime/per-test restores, but BOTH
+            // batch endings can still leave the game NRE-flooding with no recovery: the
+            // batch's FINAL restore corrupting the scene (2026-07-10: the last isolated
+            // test's restore tripped the late-switch camera destruction and the operator
+            // got a soft-frozen game), and the storm-abort path itself (it only reverts
+            // the disk and tells the operator to relaunch). Sample the flood detector one
+            // more time over a settle window while the exception monitor is still active;
+            // the actual bounce is dispatched at the very END of RunBatch, after the disk
+            // teardown + results export, so the batch's disk state is fully settled
+            // before the scene change (there are no further yields in between, so the
+            // decision cannot go stale).
+            bool bounceToSpaceCenter = false;
+            int batchEndSettleDelta = 0;
+            if (ShouldSampleBatchEndCorruption(batchFlightBaseline != null, batchExceptionStormDetected))
+            {
+                int batchEndSettleStart = batchUnhandledExceptionCount;
+                for (int f = 0; f < BaselineReloadHealthSettleFrames; f++)
+                    yield return null;
+                batchEndSettleDelta = batchUnhandledExceptionCount - batchEndSettleStart;
+                bounceToSpaceCenter = ShouldAttemptSpaceCenterBounce(
+                    spaceCenterBounceAttempted, batchEndSettleDelta, BaselineReloadFloodExceptionThreshold);
+                if (bounceToSpaceCenter)
+                    spaceCenterBounceAttempted = true;
+                ParsekLog.Verbose(Tag,
+                    $"Batch-end corruption check: +{batchEndSettleDelta} exc/{BaselineReloadHealthSettleFrames}f -> "
+                    + (bounceToSpaceCenter ? "FLOODING (one-shot Space Center bounce armed)" : "healthy (no bounce)"));
+            }
+            else
+            {
+                ParsekLog.Verbose(Tag,
+                    "Batch-end corruption check skipped: no FLIGHT/TS baseline and no exception storm "
+                    + "(this batch performed no scene reloads)");
+            }
+
             isRunning = false;
             EndBatchExceptionMonitor();
+            // Mirror of EndBatchExceptionMonitor's placement: a Cancel() StopCoroutine
+            // skips this normal-end teardown, so Cancel() disarms too. Idempotent; on a
+            // healthy batch the pin already disarmed at the reload's onLevelWasLoaded.
+            Helpers.FlightCameraReloadPin.Disarm("batch-complete");
 
             // Piece 4 + 5: teardown by mode. InMemoryAndDisk reverts persistent.sfs
             // from the clean .bak + sweeps slot/loadmeta/bak/snapshot; DiskOnly
@@ -1626,6 +1708,50 @@ namespace Parsek.InGameTests
             // InGameTestInfo.ResultsByScene, which ResetResults preserves, so
             // the file accumulates across KSC / Flight / Tracking Station runs.
             ExportResultsFile();
+
+            // Last: the one-shot Space Center bounce recovery decided above. Dispatched
+            // only after teardown + export so the disk revert and the results file are
+            // complete before the scene changes (the RunBatch host is the DDOL
+            // TestRunnerShortcut, but a scene-scoped host would lose the coroutine at
+            // LoadScene, so nothing may follow this call).
+            if (bounceToSpaceCenter)
+                AttemptSpaceCenterBounceRecovery(batchEndSettleDelta);
+        }
+
+        // One-shot post-corruption recovery: the 2026-07-05 in-game sweeps proved the
+        // stock Bug #4803 corruption is PERMANENT for the FLIGHT scene within a process
+        // (reload retries only multiply the flood) and that a single Space Center bounce
+        // (LoadScene(SPACECENTER)) is the only in-process recovery. Dispatch exactly one
+        // bounce so the operator lands in a usable Space Center instead of a soft-frozen
+        // game. NEVER retried: a failed dispatch falls back to the relaunch alert.
+        private void AttemptSpaceCenterBounceRecovery(int settleDelta)
+        {
+            ParsekLog.Error(Tag,
+                $"Batch ended with the flight state still NRE-flooding (+{settleDelta} exc/"
+                + $"{BaselineReloadHealthSettleFrames}f - stock Bug #4803 camera corruption). Attempting the "
+                + "one-shot Space Center bounce recovery via HighLogic.LoadScene(SPACECENTER); no retries. "
+                + "If the Space Center does not come up usable, relaunch KSP.");
+            try
+            {
+                ScreenMessages.PostScreenMessage(
+                    "[Parsek] Flight state corrupted after the test batch: bouncing to Space Center to recover.",
+                    12f, ScreenMessageStyle.UPPER_CENTER);
+            }
+            catch
+            {
+                // ScreenMessages can be unavailable mid-corruption; the ERROR above is the durable record.
+            }
+            try
+            {
+                HighLogic.LoadScene(GameScenes.SPACECENTER);
+                ParsekLog.Info(Tag,
+                    "Space Center bounce dispatched (one-shot; batch disk teardown + results export completed beforehand)");
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(Tag,
+                    $"Space Center bounce dispatch FAILED ({ex.GetType().Name}: {ex.Message}); relaunch KSP to recover.");
+            }
         }
 
         // Corruption backstop around RestoreBatchFlightBaselineCore. A FLIGHT->FLIGHT baseline reload
@@ -1961,6 +2087,10 @@ namespace Parsek.InGameTests
             yield return coroutineHost.StartCoroutine(
                 RestoreBatchBaselineWithRecovery(baseline, previousFlightInstanceId, "cancelled-batch-restore"));
 
+            // The restore's commit re-armed the Bug #4803 re-pin window; on the normal
+            // path onLevelWasLoaded already disarmed it, but a failed/timed-out reload
+            // leaves it armed. Idempotent teardown mirror of RunBatch's normal end.
+            Helpers.FlightCameraReloadPin.Disarm("cancelled-batch-restore-complete");
             CleanupBatchFlightBaselineSave();
             ClearTestBatchMarker("cancel");
             batchFlightBaseline = null;
@@ -2253,7 +2383,15 @@ namespace Parsek.InGameTests
                     // FLIGHT: StartAndFocusVessel re-focuses the captured
                     // active vessel; wait for FLIGHT-ready + that vessel +
                     // (for a staged baseline) the stock stage manager.
+                    // The commit arms the Bug #4803 late-switch camera re-pin
+                    // window (FlightCameraReloadPin) which onVesselChange-driven
+                    // switches hit; the end-of-frame pin below covers same-frame
+                    // switches through code paths that do NOT fire onVesselChange
+                    // (2026-07-10: the late "Hudmy Kerman" switch's exact caller
+                    // was never identified, so the guard must not depend on it).
                     Helpers.QuickloadResumeHelpers.CommitValidatedGameLoad(validatedLoad);
+                    yield return new WaitForEndOfFrame();
+                    Helpers.FlightCameraReloadPin.PinNowIfArmed(cleanupReason + ":post-commit");
                     yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(
                         previousFlightInstanceId, timeoutSeconds: 15f);
                     yield return WaitForBatchBaselineVessel(baseline, timeoutSeconds: 10f);
@@ -2277,6 +2415,11 @@ namespace Parsek.InGameTests
                     int previousScenarioInstanceId = CurrentParsekScenarioInstanceId();
                     Helpers.QuickloadResumeHelpers.CommitNonFlightSceneLoad(
                         nonFlightGame, baseline.SlotName, baseline.CapturedScene);
+                    // Same Bug #4803 end-of-frame pin as the FLIGHT branch: the commit
+                    // armed the re-pin window; cover same-frame switches that bypass
+                    // onVesselChange before the old scene unloads.
+                    yield return new WaitForEndOfFrame();
+                    Helpers.FlightCameraReloadPin.PinNowIfArmed(cleanupReason + ":post-commit");
                     yield return WaitForBatchBaselineNonFlightScene(
                         baseline.CapturedScene, previousScenarioInstanceId, timeoutSeconds: 15f);
                     PerformBetweenRunCleanup(cleanupReason);
