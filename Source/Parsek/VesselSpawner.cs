@@ -34,9 +34,12 @@ namespace Parsek
         /// propagation). The degraded-fallback repair
         /// (<see cref="TryRepairSnapshotBodyProvenance"/>) honors this stamp and keeps
         /// the deliberate coordinates instead of clobbering them back to the recorded
-        /// endpoint. Stripped from every spawn copy before ProtoVessel load
-        /// (<see cref="StripDeliberatePositionOverrideStamp"/>) so it never persists
-        /// into KSP save files.
+        /// endpoint. Lifecycle: within-spawn-attempt marker only. It never reaches
+        /// persistent.sfs (stripped from every spawn copy before ProtoVessel load via
+        /// <see cref="StripDeliberatePositionOverrideStamp"/>), and it is stripped from
+        /// the durable rec.VesselSnapshot at spawn resolution
+        /// (<see cref="StripDeliberatePositionOverrideStampFromRecording"/>) so it
+        /// cannot ride a dirty &lt;id&gt;_vessel.craft sidecar save across sessions.
         /// </summary>
         internal const string DeliberatePositionOverrideKey = "parsekDeliberatePosOverride";
 
@@ -1921,191 +1924,208 @@ namespace Parsek
             spawnAlt = collision.alt;
             spawnPos = collision.pos;
 
-            ApplyResolvedSpawnStateOverrides(
-                rec,
-                index,
-                lastPt,
-                spawnLat,
-                spawnLon,
-                spawnAlt,
-                isEva,
-                isBreakupContinuous,
-                useRecordedTerminalOrbit);
-
-            // Dead crew guard: if ALL crew in the snapshot are dead, abandon spawn.
-            // Spawning a crewless command pod is worse than not spawning at all. (#170)
-            // Individual dead crew are already removed by RespawnVessel.RemoveDeadCrewFromSnapshot;
-            // this catches the case where the entire crew complement is dead.
-            if (!isEva && rec.VesselSnapshot != null)
+            try
             {
-                if (ShouldBlockSpawnForDeadCrewInSnapshot(rec.VesselSnapshot, out List<string> snapshotCrew))
-                {
-                    rec.VesselSpawned = true;
-                    rec.SpawnAbandoned = true;
-                    var classified = ClassifySnapshotCrew(snapshotCrew);
-                    ParsekLog.Warn("Spawner",
-                        $"Spawn ABANDONED for #{index} ({rec.VesselName}): no spawnable crew — " +
-                        FormatSpawnableClassificationSummary(classified));
-                    return;
-                }
-            }
-
-            // Find nearest vessel for spawn context logging
-            double closestDist = FindNearestVesselDistance(spawnPos, body);
-
-            LogSpawnContext(rec, closestDist);
-
-            // SpawnAtPosition dispatch: EVA and breakup-continuous paths rebuild the ORBIT
-            // subnode from the resolved spawn position + velocity. Orbiting paths now prefer
-            // the recording's stored terminal orbit propagated to the current spawn UT, so
-            // deferred high-warp spawns do not mix an old endpoint state vector with a later
-            // planet rotation.
-            //
-            // - Orbital/Docked (#171): raw snapshot orbit was captured during ascent
-            //   (suborbital), KSP's on-rails pressure check would destroy the vessel at
-            //   periapsis. SpawnAtPosition constructs a new orbit + correct sit from a
-            //   current-UT propagated orbital state when terminal orbit data is available.
-            // - EVA (#264): the snapshot's stale ORBIT subnode (captured when the kerbal
-            //   was on the parent ladder) causes OrbitDriver.updateFromParameters to
-            //   overwrite the corrected transform with the parent position on the first
-            //   physics frame after load. SpawnAtPosition rebuilds the ORBIT from the
-            //   walked endpoint so the kerbal stays where recorded.
-            // - Breakup-continuous (#224 follow-up via #264): same stale-ORBIT mechanism.
-            //   Rotation is preserved via the same surface-relative ProtoVessel.rot helper
-            //   used by snapshot-prep fallbacks.
-            //
-            // The earlier OverrideSnapshotPosition calls on the EVA and breakup-continuous
-            // paths remain as defense-in-depth for the RespawnVessel fallback below: if
-            // SpawnAtPosition returns 0, RespawnVessel still sees the corrected snapshot
-            // endpoint pose. For breakup-continuous surface/state-vector spawns that now
-            // includes the surface-relative ProtoVessel.rot rewrite, so the degraded
-            // fallback keeps the same KSP load-frame contract.
-            bool routeThroughSpawnAtPosition = ShouldRouteThroughSpawnAtPosition(rec);
-            if (routeThroughSpawnAtPosition)
-            {
-                ConfigNode validatedSpawnSnapshot = BuildValidatedRespawnSnapshot(
+                ApplyResolvedSpawnStateOverrides(
                     rec,
-                    spawnUT,
-                    $"{logContext} SpawnAtPosition",
-                    out string materializationRejectionReason);
-                if (validatedSpawnSnapshot == null)
+                    index,
+                    lastPt,
+                    spawnLat,
+                    spawnLon,
+                    spawnAlt,
+                    isEva,
+                    isBreakupContinuous,
+                    useRecordedTerminalOrbit);
+
+                // Dead crew guard: if ALL crew in the snapshot are dead, abandon spawn.
+                // Spawning a crewless command pod is worse than not spawning at all. (#170)
+                // Individual dead crew are already removed by RespawnVessel.RemoveDeadCrewFromSnapshot;
+                // this catches the case where the entire crew complement is dead.
+                if (!isEva && rec.VesselSnapshot != null)
                 {
-                    if (!string.IsNullOrEmpty(materializationRejectionReason))
+                    if (ShouldBlockSpawnForDeadCrewInSnapshot(rec.VesselSnapshot, out List<string> snapshotCrew))
                     {
-                        AbandonSpawnForInvalidMaterialization(
-                            rec,
-                            logContext,
-                            materializationRejectionReason);
+                        rec.VesselSpawned = true;
+                        rec.SpawnAbandoned = true;
+                        var classified = ClassifySnapshotCrew(snapshotCrew);
+                        ParsekLog.Warn("Spawner",
+                            $"Spawn ABANDONED for #{index} ({rec.VesselName}): no spawnable crew — " +
+                            FormatSpawnableClassificationSummary(classified));
+                        return;
+                    }
+                }
+
+                // Find nearest vessel for spawn context logging
+                double closestDist = FindNearestVesselDistance(spawnPos, body);
+
+                LogSpawnContext(rec, closestDist);
+
+                // SpawnAtPosition dispatch: EVA and breakup-continuous paths rebuild the ORBIT
+                // subnode from the resolved spawn position + velocity. Orbiting paths now prefer
+                // the recording's stored terminal orbit propagated to the current spawn UT, so
+                // deferred high-warp spawns do not mix an old endpoint state vector with a later
+                // planet rotation.
+                //
+                // - Orbital/Docked (#171): raw snapshot orbit was captured during ascent
+                //   (suborbital), KSP's on-rails pressure check would destroy the vessel at
+                //   periapsis. SpawnAtPosition constructs a new orbit + correct sit from a
+                //   current-UT propagated orbital state when terminal orbit data is available.
+                // - EVA (#264): the snapshot's stale ORBIT subnode (captured when the kerbal
+                //   was on the parent ladder) causes OrbitDriver.updateFromParameters to
+                //   overwrite the corrected transform with the parent position on the first
+                //   physics frame after load. SpawnAtPosition rebuilds the ORBIT from the
+                //   walked endpoint so the kerbal stays where recorded.
+                // - Breakup-continuous (#224 follow-up via #264): same stale-ORBIT mechanism.
+                //   Rotation is preserved via the same surface-relative ProtoVessel.rot helper
+                //   used by snapshot-prep fallbacks.
+                //
+                // The earlier OverrideSnapshotPosition calls on the EVA and breakup-continuous
+                // paths remain as defense-in-depth for the RespawnVessel fallback below: if
+                // SpawnAtPosition returns 0, RespawnVessel still sees the corrected snapshot
+                // endpoint pose. For breakup-continuous surface/state-vector spawns that now
+                // includes the surface-relative ProtoVessel.rot rewrite, so the degraded
+                // fallback keeps the same KSP load-frame contract.
+                bool routeThroughSpawnAtPosition = ShouldRouteThroughSpawnAtPosition(rec);
+                if (routeThroughSpawnAtPosition)
+                {
+                    ConfigNode validatedSpawnSnapshot = BuildValidatedRespawnSnapshot(
+                        rec,
+                        spawnUT,
+                        $"{logContext} SpawnAtPosition",
+                        out string materializationRejectionReason);
+                    if (validatedSpawnSnapshot == null)
+                    {
+                        if (!string.IsNullOrEmpty(materializationRejectionReason))
+                        {
+                            AbandonSpawnForInvalidMaterialization(
+                                rec,
+                                logContext,
+                                materializationRejectionReason);
+                            return;
+                        }
+
+                        LogSpawnFailure(rec, index, maxSpawnAttempts);
                         return;
                     }
 
-                    LogSpawnFailure(rec, index, maxSpawnAttempts);
-                    return;
+                    Vector3d velocity = useRecordedTerminalOrbit
+                        ? orbitalSpawnVelocity
+                        : new Vector3d(lastPt.velocity.x, lastPt.velocity.y, lastPt.velocity.z);
+                    Quaternion? surfaceRelativeRotationArg = null;
+                    if (!useRecordedTerminalOrbit
+                        && (isEva || isBreakupContinuous)
+                        && TryGetPreferredSpawnRotationFrame(
+                            rec, lastPt,
+                            out _,
+                            out Quaternion preferredSurfaceRelativeRotation,
+                            out _))
+                    {
+                        surfaceRelativeRotationArg = preferredSurfaceRelativeRotation;
+                    }
+
+                    string pathLabel;
+                    if (useRecordedTerminalOrbit) pathLabel = "Orbital";
+                    else if (isEva) pathLabel = "EVA";
+                    else if (isBreakupContinuous) pathLabel = "Breakup";
+                    else pathLabel = "Orbital";
+
+                    rec.SpawnedVesselPersistentId = SpawnAtPosition(
+                        validatedSpawnSnapshot, body, spawnLat, spawnLon, spawnAlt, velocity, spawnUT, excludeCrew,
+                        preserveIdentity: preserveIdentity,
+                        terminalState: rec.TerminalStateValue,
+                        surfaceRelativeRotation: surfaceRelativeRotationArg,
+                        orbitOverride: orbitalSpawnOrbit);
+                    rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
+                    if (rec.VesselSpawned)
+                    {
+                        ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
+                            "{0} vessel spawn for #{1} ({2}) pid={3} lat={4:F4} lon={5:F4} alt={6:F1} terminal={7}",
+                            pathLabel, index, rec.VesselName, rec.SpawnedVesselPersistentId,
+                            spawnLat, spawnLon, spawnAlt, rec.TerminalStateValue));
+                        if (terminalSpawnWasDeferred && useRecordedTerminalOrbit)
+                        {
+                            ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
+                                "Terminal spawn succeeded after defer: rec={0} idx={1} vessel=\"{2}\" " +
+                                "pid={3} currentUT={4:F2} alt={5:F1}",
+                                rec.RecordingId ?? "(null)",
+                                index,
+                                rec.VesselName ?? "(null)",
+                                rec.SpawnedVesselPersistentId,
+                                spawnUT,
+                                spawnAlt));
+                        }
+                        TerminalOrbitSpawnSafety.Clear(rec);
+                        ParsekLog.ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
+                        return;
+                    }
+
+                    // SpawnAtPosition failed — fall through to RespawnVessel as last-resort.
+                    // The earlier OverrideSnapshotPosition call on this path wrote the resolved
+                    // spawn coordinates (endpoint, or the collision-walkback correction) into the
+                    // snapshot AND stamped it with the deliberate-override marker, so the fallback's
+                    // landed-like repair (TryRepairSnapshotBodyProvenance) preserves those
+                    // coordinates instead of clobbering them back to the recorded endpoint. The
+                    // fallback still produces a vessel at the resolved position on frame 0 (though
+                    // the stale-orbit bug may re-appear on frame 1, acceptable for a degraded
+                    // fallback).
+                    ParsekLog.Warn("Spawner",
+                        $"SpawnAtPosition returned 0 for #{index} ({rec.VesselName}) — " +
+                        $"falling through to validated snapshot respawn (degraded fallback)");
                 }
 
-                Vector3d velocity = useRecordedTerminalOrbit
-                    ? orbitalSpawnVelocity
-                    : new Vector3d(lastPt.velocity.x, lastPt.velocity.y, lastPt.velocity.z);
-                Quaternion? surfaceRelativeRotationArg = null;
-                if (!useRecordedTerminalOrbit
-                    && (isEva || isBreakupContinuous)
-                    && TryGetPreferredSpawnRotationFrame(
-                        rec, lastPt,
-                        out _,
-                        out Quaternion preferredSurfaceRelativeRotation,
-                        out _))
-                {
-                    surfaceRelativeRotationArg = preferredSurfaceRelativeRotation;
-                }
-
-                string pathLabel;
-                if (useRecordedTerminalOrbit) pathLabel = "Orbital";
-                else if (isEva) pathLabel = "EVA";
-                else if (isBreakupContinuous) pathLabel = "Breakup";
-                else pathLabel = "Orbital";
-
-                rec.SpawnedVesselPersistentId = SpawnAtPosition(
-                    validatedSpawnSnapshot, body, spawnLat, spawnLon, spawnAlt, velocity, spawnUT, excludeCrew,
+                rec.SpawnedVesselPersistentId = RespawnValidatedRecording(
+                    rec,
+                    logContext,
+                    excludeCrew,
                     preserveIdentity: preserveIdentity,
-                    terminalState: rec.TerminalStateValue,
-                    surfaceRelativeRotation: surfaceRelativeRotationArg,
-                    orbitOverride: orbitalSpawnOrbit);
-                rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
-                if (rec.VesselSpawned)
+                    allowExistingSourceDuplicate: allowExistingSourceDuplicate);
+                rec.VesselSpawned = rec.SpawnAbandoned || rec.SpawnedVesselPersistentId != 0;
+                if (rec.SpawnedVesselPersistentId != 0)
                 {
-                    ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
-                        "{0} vessel spawn for #{1} ({2}) pid={3} lat={4:F4} lon={5:F4} alt={6:F1} terminal={7}",
-                        pathLabel, index, rec.VesselName, rec.SpawnedVesselPersistentId,
-                        spawnLat, spawnLon, spawnAlt, rec.TerminalStateValue));
-                    if (terminalSpawnWasDeferred && useRecordedTerminalOrbit)
+                    string lat = rec.VesselSnapshot.GetValue("lat") ?? "?";
+                    string lon = rec.VesselSnapshot.GetValue("lon") ?? "?";
+                    string alt = rec.VesselSnapshot.GetValue("alt") ?? "?";
+                    string sit = rec.VesselSnapshot.GetValue("sit") ?? "?";
+                    ParsekLog.Info("Spawner",
+                        $"Vessel spawn for #{index} ({rec.VesselName}) pid={rec.SpawnedVesselPersistentId} " +
+                        $"sit={sit} lat={lat} lon={lon} alt={alt}");
+                    if (terminalSpawnWasDeferred)
                     {
                         ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
                             "Terminal spawn succeeded after defer: rec={0} idx={1} vessel=\"{2}\" " +
-                            "pid={3} currentUT={4:F2} alt={5:F1}",
+                            "pid={3} currentUT={4:F2} alt={5}",
                             rec.RecordingId ?? "(null)",
                             index,
                             rec.VesselName ?? "(null)",
                             rec.SpawnedVesselPersistentId,
                             spawnUT,
-                            spawnAlt));
+                            alt));
                     }
                     TerminalOrbitSpawnSafety.Clear(rec);
                     ParsekLog.ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
+                }
+                else if (rec.SpawnAbandoned)
+                {
                     return;
                 }
-
-                // SpawnAtPosition failed — fall through to RespawnVessel as last-resort.
-                // The earlier OverrideSnapshotPosition call on this path wrote the resolved
-                // spawn coordinates (endpoint, or the collision-walkback correction) into the
-                // snapshot AND stamped it with the deliberate-override marker, so the fallback's
-                // landed-like repair (TryRepairSnapshotBodyProvenance) preserves those
-                // coordinates instead of clobbering them back to the recorded endpoint. The
-                // fallback still produces a vessel at the resolved position on frame 0 (though
-                // the stale-orbit bug may re-appear on frame 1, acceptable for a degraded
-                // fallback).
-                ParsekLog.Warn("Spawner",
-                    $"SpawnAtPosition returned 0 for #{index} ({rec.VesselName}) — " +
-                    $"falling through to validated snapshot respawn (degraded fallback)");
-            }
-
-            rec.SpawnedVesselPersistentId = RespawnValidatedRecording(
-                rec,
-                logContext,
-                excludeCrew,
-                preserveIdentity: preserveIdentity,
-                allowExistingSourceDuplicate: allowExistingSourceDuplicate);
-            rec.VesselSpawned = rec.SpawnAbandoned || rec.SpawnedVesselPersistentId != 0;
-            if (rec.SpawnedVesselPersistentId != 0)
-            {
-                string lat = rec.VesselSnapshot.GetValue("lat") ?? "?";
-                string lon = rec.VesselSnapshot.GetValue("lon") ?? "?";
-                string alt = rec.VesselSnapshot.GetValue("alt") ?? "?";
-                string sit = rec.VesselSnapshot.GetValue("sit") ?? "?";
-                ParsekLog.Info("Spawner",
-                    $"Vessel spawn for #{index} ({rec.VesselName}) pid={rec.SpawnedVesselPersistentId} " +
-                    $"sit={sit} lat={lat} lon={lon} alt={alt}");
-                if (terminalSpawnWasDeferred)
+                else
                 {
-                    ParsekLog.Info("Spawner", string.Format(CultureInfo.InvariantCulture,
-                        "Terminal spawn succeeded after defer: rec={0} idx={1} vessel=\"{2}\" " +
-                        "pid={3} currentUT={4:F2} alt={5}",
-                        rec.RecordingId ?? "(null)",
-                        index,
-                        rec.VesselName ?? "(null)",
-                        rec.SpawnedVesselPersistentId,
-                        spawnUT,
-                        alt));
+                    LogSpawnFailure(rec, index, maxSpawnAttempts);
                 }
-                TerminalOrbitSpawnSafety.Clear(rec);
-                ParsekLog.ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
             }
-            else if (rec.SpawnAbandoned)
+            finally
             {
-                return;
-            }
-            else
-            {
-                LogSpawnFailure(rec, index, maxSpawnAttempts);
+                // The deliberate-override stamp is a within-spawn-attempt marker:
+                // ApplyResolvedSpawnStateOverrides (above) writes it onto the DURABLE
+                // rec.VesselSnapshot so the same-call degraded fallback can honor the
+                // walkback correction. Strip it on every resolution exit (success,
+                // abandon, fallback failure) so a dirty-recording sidecar save
+                // (<id>_vessel.craft) can never carry it into a later session, where
+                // spawn paths that do not re-run the overrides first (KSC end spawn,
+                // ghost tip respawn) would mistake stale snapshot coordinates for a
+                // fresh deliberate override. persistent.sfs never sees the stamp; the
+                // transient spawn copies are stripped separately before ProtoVessel load.
+                StripDeliberatePositionOverrideStampFromRecording(rec, logContext);
             }
         }
 
@@ -3336,8 +3356,10 @@ namespace Parsek
             snapshot.SetValue("alt", alt.ToString("R", CultureInfo.InvariantCulture), true);
             // Stamp the deliberate override so the degraded-fallback repair
             // (TryRepairSnapshotBodyProvenance) does not clobber a walkback/endpoint
-            // correction back to the raw recorded endpoint. Stripped before every
-            // ProtoVessel load so it never reaches KSP save files.
+            // correction back to the raw recorded endpoint. Within-spawn-attempt
+            // marker: stripped from spawn copies before every ProtoVessel load (never
+            // reaches persistent.sfs) and from the durable rec.VesselSnapshot at spawn
+            // resolution (never rides the _vessel.craft sidecar across sessions).
             snapshot.SetValue(DeliberatePositionOverrideKey, "True", true);
 
             bool rotationRequested = surfaceRelativeRotation.HasValue;
@@ -3388,6 +3410,27 @@ namespace Parsek
                 $"Stripped deliberate position-override stamp for {logContext ?? "(unknown)"} " +
                 "(pre-ProtoVessel-load hygiene)");
             return true;
+        }
+
+        /// <summary>
+        /// Removes the deliberate position-override stamp from the DURABLE
+        /// <c>rec.VesselSnapshot</c> once a spawn attempt resolves. The stamp is a
+        /// within-spawn-attempt marker only: ApplyResolvedSpawnStateOverrides writes it
+        /// (via OverrideSnapshotPosition) onto the durable snapshot so the same-call
+        /// degraded fallback can honor the walkback correction, and this strip runs on
+        /// every resolution exit of SpawnOrRecoverIfTooClose so a dirty-recording
+        /// sidecar save (&lt;id&gt;_vessel.craft) can never carry the stamp into a later
+        /// session, where spawn paths that do not re-run the overrides first (KSC
+        /// end-of-recording spawn, ghost tip respawn) would mistake stale snapshot
+        /// coordinates for a fresh deliberate override. Delegates to the single
+        /// RemoveValue implementation in <see cref="StripDeliberatePositionOverrideStamp"/>;
+        /// tolerant of a null recording/snapshot and an absent key.
+        /// </summary>
+        internal static bool StripDeliberatePositionOverrideStampFromRecording(Recording rec, string logContext)
+        {
+            return StripDeliberatePositionOverrideStamp(
+                rec?.VesselSnapshot,
+                $"{logContext ?? "(unknown)"} durable snapshot (spawn resolved)");
         }
 
         /// <summary>

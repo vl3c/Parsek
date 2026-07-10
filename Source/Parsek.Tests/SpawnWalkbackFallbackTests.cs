@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using Xunit;
 
@@ -291,6 +292,76 @@ namespace Parsek.Tests
             var snapshot = new ConfigNode("VESSEL");
 
             Assert.False(VesselSpawner.StripDeliberatePositionOverrideStamp(snapshot, "strip-test"));
+        }
+
+        // --- Review follow-up (PR #1281 SHOULD-FIX): the stamp is a within-spawn-attempt
+        // marker on the DURABLE rec.VesselSnapshot. It must be stripped once the spawn
+        // attempt resolves so a dirty-recording sidecar save (<id>_vessel.craft) can never
+        // carry it into a later session, where spawn paths that do not re-run the resolved
+        // overrides first (KSC end spawn, ghost tip respawn) would mistake stale snapshot
+        // coordinates for a fresh deliberate override.
+
+        [Fact]
+        public void StripFromRecording_StampedDurableSnapshot_StripsAndReturnsTrue()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue(VesselSpawner.DeliberatePositionOverrideKey, "True");
+            var rec = new Recording { VesselSnapshot = snapshot };
+
+            bool stripped = VesselSpawner.StripDeliberatePositionOverrideStampFromRecording(
+                rec, "resolve-test");
+
+            Assert.True(stripped);
+            Assert.False(rec.VesselSnapshot.HasValue(VesselSpawner.DeliberatePositionOverrideKey));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Spawner]")
+                && l.Contains("Stripped deliberate position-override stamp")
+                && l.Contains("resolve-test")
+                && l.Contains("durable snapshot (spawn resolved)"));
+        }
+
+        [Fact]
+        public void StripFromRecording_NullRecordingOrSnapshot_Tolerant()
+        {
+            Assert.False(VesselSpawner.StripDeliberatePositionOverrideStampFromRecording(
+                null, "resolve-test"));
+            Assert.False(VesselSpawner.StripDeliberatePositionOverrideStampFromRecording(
+                new Recording { VesselSnapshot = null }, "resolve-test"));
+        }
+
+        [Fact]
+        public void StripFromRecording_UnstampedDurableSnapshot_ReturnsFalse()
+        {
+            var rec = new Recording { VesselSnapshot = new ConfigNode("VESSEL") };
+
+            Assert.False(VesselSpawner.StripDeliberatePositionOverrideStampFromRecording(
+                rec, "resolve-test"));
+        }
+
+        [Fact]
+        public void StripFromRecording_IsWiredAsResolutionFinallyInSpawnOrRecover()
+        {
+            // Source-text wiring gate (the codebase's wiring-test pattern): the
+            // durable-snapshot strip must run in a finally that covers every resolution
+            // exit of the spawn attempt, or a dirty sidecar save can persist the stamp.
+            string source = File.ReadAllText(FindSourceFile("VesselSpawner.cs"));
+            int callIdx = source.IndexOf(
+                "StripDeliberatePositionOverrideStampFromRecording(rec, logContext);",
+                StringComparison.Ordinal);
+            Assert.True(callIdx > 0,
+                "the spawn-resolution path must strip the durable-snapshot stamp");
+            string preceding = source.Substring(Math.Max(0, callIdx - 1200), 1200);
+            Assert.Contains("finally", preceding);
+        }
+
+        private static string FindSourceFile(string fileName)
+        {
+            // xUnit runs from Source/Parsek.Tests/bin/Debug/net472/ (5 segments to repo root).
+            string root = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
+            string path = Path.Combine(root, "Source", "Parsek", fileName);
+            Assert.True(File.Exists(path), $"source file not found: {path}");
+            return path;
         }
 
         #endregion
