@@ -1131,7 +1131,10 @@ namespace Parsek.InGameTests
             }
             catch (InGameTestSkippedException skipEx)
             {
-                ParsekLog.Error(Tag,
+                // Warn, not Error: a capture SKIP degrades gracefully (the
+                // restore-backed tests are skipped and the batch continues),
+                // unlike the prime / per-test restore failures that abort.
+                ParsekLog.Warn(Tag,
                     "Batch baseline capture skip detail: " + DescribeRestoreFailure(skipEx));
                 return SkipBatchFlightRestoreTests(ordered, skipEx.Message);
             }
