@@ -503,15 +503,21 @@ namespace Parsek.InGameTests
         /// only from RunBatch's always-runs batch-end region, never mid-batch;
         /// every step is exception-safe so a broken object cannot abort teardown.
         ///
-        /// Last step: an orphaned-ghost-mesh sweep. The live-engine teardown above
-        /// only destroys meshes the LIVE engine references; a ghost visual spawned
-        /// by a test-private GhostPlaybackEngine instance that was abandoned
-        /// without DestroyAllGhosts is invisible to it (2026-07-10 rerun2: the
-        /// "Re-Fly Settle Anchor" sphere-fallback ghost stayed riding the vessel
-        /// while DestroyAllGhosts reported 0 entries). The sweep scans root
-        /// GameObjects for the engine's "Parsek_Timeline_" naming convention and
-        /// destroys any the live engine does not own. Scene-scan cost is
-        /// irrelevant here: post-abort, one-shot, never per-frame.
+        /// The orphaned-ghost-mesh sweep runs BEFORE the live-engine teardown:
+        /// while the live engine still owns its ghosts, OwnsGhostGameObject
+        /// correctly skips them and only genuinely unowned orphans are swept
+        /// (review of PR #1286: DestroyAllGhosts clears ghostStates/overlapGhosts
+        /// immediately but Object.Destroy is end-of-frame-deferred, so a sweep
+        /// AFTER the teardown would see the live engine's still-enumerable
+        /// meshes as unowned, re-destroy them harmlessly, and pollute the
+        /// orphanedGhostMeshes counter with false positives). A ghost visual
+        /// spawned by a test-private GhostPlaybackEngine instance abandoned
+        /// without DestroyAllGhosts is unowned regardless of ordering
+        /// (2026-07-10 rerun2: the "Re-Fly Settle Anchor" sphere-fallback ghost
+        /// stayed riding the vessel while DestroyAllGhosts reported 0 entries).
+        /// The sweep scans root GameObjects for the engine's "Parsek_Timeline_"
+        /// naming convention; scene-scan cost is irrelevant here: post-abort,
+        /// one-shot, never per-frame.
         /// </summary>
         private void PerformPostAbortSceneCleanup(string reason)
         {
@@ -534,16 +540,8 @@ namespace Parsek.InGameTests
                     $"Post-abort scene cleanup: cleanupRegistry destroy threw: {ex.Message}");
             }
 
-            try
-            {
-                PerformBetweenRunCleanup("post-abort:" + reason);
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Warn(Tag,
-                    $"Post-abort scene cleanup: PerformBetweenRunCleanup threw: {ex.Message}");
-            }
-
+            // Sweep orphans FIRST (see the ordering note in the doc comment): the
+            // live engine must still own its ghosts for the ownership skip to work.
             int orphanedGhostMeshes = 0;
             try
             {
@@ -553,6 +551,16 @@ namespace Parsek.InGameTests
             {
                 ParsekLog.Warn(Tag,
                     $"Post-abort scene cleanup: orphaned ghost mesh sweep threw: {ex.Message}");
+            }
+
+            try
+            {
+                PerformBetweenRunCleanup("post-abort:" + reason);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Post-abort scene cleanup: PerformBetweenRunCleanup threw: {ex.Message}");
             }
 
             ParsekLog.Info(Tag,
