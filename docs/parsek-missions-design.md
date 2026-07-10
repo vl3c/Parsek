@@ -84,8 +84,8 @@ Turn Loop on with a period >= the span: one shared span clock sweeps `[earliest 
 | Through-line | The collapse of all legs of one continuous controlled vessel (env-split continuations + the vessel-continuation child at each branch) into one entry. `MissionThroughLine.cs` |
 | Composition node / interval | A physical vessel during one structural interval (ends only when a controller separates), labelled "pod x1, probe x1, crew x3". The unit of interval-level start / end trim. `MissionComposition.cs` |
 | Selection | The included set, DERIVED live from current topology as everything not excluded. Contiguous per path; choosing branches at each fork. |
-| Loop unit | The span-clock descriptor a looping Mission compiles to: owner index + member indices + span + two cadences + optional schedules / re-aim plan. `GhostPlaybackLogic.LoopUnit` |
-| Span clock | The single clock that sweeps a unit's whole span `[SpanStartUT, SpanEndUT]`, phased from `PhaseAnchorUT`, wrapping as a unit. `GhostPlaybackLogic.TryComputeSpanLoopUT` |
+| Loop unit | The span-clock descriptor a looping Mission compiles to: owner index + member indices + span + two cadences + optional schedules / re-aim plan. `LoopUnit` (`GhostPlaybackLogic.SpanClock.cs`) |
+| Span clock | The single clock that sweeps a unit's whole span `[SpanStartUT, SpanEndUT]`, phased from `PhaseAnchorUT`, wrapping as a unit. `TryComputeSpanLoopUT` (`GhostPlaybackLogic.SpanClock.cs`) |
 | Periodicity / P | The recurrence period at which the included config's celestial constraints all line up (best-fit within tolerance). The next faithful launch is the smallest `UT0 + k*P >= now`. `MissionPeriodicity.cs` |
 | UT0 | The recorded launch UT = the trimmed mission's span start (earliest included member start). |
 | Constraint | A phase requirement one included segment imposes: `Rotation(B)` (a surface segment must sit over its ground spot and connect to its inertial orbit) or `Orbital(C)` (an SOI entry must reach body C where C will be). |
@@ -103,7 +103,7 @@ Design-concept to implementation-class mapping (names diverge):
 | Through-line collapse | `MissionThroughLineBuilder.Build` (`MissionThroughLine.cs:38`) |
 | Interval composition | `MissionCompositionBuilder.Build` (`MissionComposition.cs:63`) |
 | Mission -> loop units adapter | `MissionLoopUnitBuilder.Build` (`MissionLoopUnitBuilder.cs:38`); single-selection entry point `MissionLoopUnitBuilder.TryBuildLoopUnitForSelection` (M-MIS-11 item 1, consumed by `RouteOrchestrator.ResolveLoopUnit`) |
-| Span clock | `GhostPlaybackLogic.TryComputeSpanLoopUT` (`GhostPlaybackLogic.cs:7198`) |
+| Span clock | `GhostPlaybackLogic.TryComputeSpanLoopUT` (`GhostPlaybackLogic.SpanClock.cs`) |
 | Periodicity solve | `MissionPeriodicity` (`MissionPeriodicity.cs`) |
 | Re-aim | `Source/Parsek/Reaim/*` |
 | Name <-> group sync | `MissionGroupLink` (`MissionGroupLink.cs`) |
@@ -233,13 +233,13 @@ All pure, rebuilt each build:
 - `MissionThroughLine` / `MissionThroughLineView` + `MissionThroughLineBuilder.Build` (`MissionThroughLine.cs:14`, `:38`) - through-line collapse.
 - `MissionCompositionNode` + `MissionCompositionBuilder.Build` (`MissionComposition.cs:28`, `:63`) - per-interval composition.
 
-### 6.4 Loop-unit types (`GhostPlaybackLogic.cs`)
+### 6.4 Loop-unit types (`GhostPlaybackLogic.SpanClock.cs`)
 
 ```
-LoopUnit (:6726)
+LoopUnit (internal readonly struct)
   OwnerIndex: int            - earliest-start member (camera / debris-parent representative)
   MemberIndices: int[]       - positional indices into RecordingStore.CommittedRecordings
-  MemberWindow (:6729)       - per-member trimmed [StartUT, EndUT]
+  MemberWindow               - per-member trimmed [StartUT, EndUT]
   SpanStartUT / SpanEndUT    - [min trimmed start, max trimmed end]
   PhaseAnchorUT              - cycle-0 reference (clamped to >= SpanEndUT: first-play floor)
   CadenceSeconds             - span-clock cadence (>= span)
@@ -247,10 +247,16 @@ LoopUnit (:6726)
   relaunchSchedule           - optional zero-drift non-uniform schedule
   reaimPlan / reaimSchedule  - optional re-aim per-window transfer plan
   loiterCuts / arrivalHold   - optional re-aim launch-loiter compression + arrival alignment
+  ArrivalHoldSeconds         - re-aim arrival hold amount inserted at the heliocentric->capture boundary (0 when none)
+  ArrivalHoldAtUT            - recorded-span UT the hold is inserted at (NaN when none)
+  ArrivalAlignPeriodSeconds  - per-loop destination-side align period: T_rot (landing), T_station
+                               (station rendezvous), or the M-MIS-6 config period T_config (2+-moon); NaN when none
+  DescentMemberIndices       - committed indices of the re-aim looped-landing descent-set members
+                               (S4 arrival re-stitch); null when the descent trigger is not engaged
 
-LoopUnitSet (:6963)          - immutable per-frame snapshot, one unit per looping Mission;
+LoopUnitSet                  - immutable per-frame snapshot, one unit per looping Mission;
                                OwnerByIndex maps each committed index to exactly one unit; Empty = nothing loops
-LoopCut (:7019)              - one excised [start, len] span (loiter compression)
+LoopCut                      - one excised [start, len] span (loiter compression)
 ```
 
 The INDEX CONTRACT is the seam tying scenes together: `OwnerIndex` / `MemberIndices` / `OwnerByIndex` are positional integer indices into `RecordingStore.CommittedRecordings`. Flight, KSC, and Tracking Station all key per-recording state on that same `int`, so one `LoopUnitSet` is valid in every scene.
@@ -365,7 +371,7 @@ The display computes periodicity via `ComputeMissionPeriodicity` (`:1199`) and t
 8. **Loop enabled mid-flight, before the span completes once.** The first-play floor clamps the anchor to `>= spanEndUT`, so the first relaunch waits for the first real play to finish.
 9. **Phase-lock config that is over-constrained.** The best-fit window's residual exceeds tolerance; reported amber, still launched on cadence (fail closed to faithful).
 10. **Cross-parent rendezvous / dock (`UnsupportedRendezvous`).** Not re-aimed; stays on the faithful path.
-11. **2+-moon destination or deep / multi-hop chain.** Excluded upstream by `ReaimClassifier`; faithful replay (deferred, Section 14).
+11. **2+-moon destination.** A 2+-moon RESONANT destination (Jool's inner three) is now SUPPORTED: it engages `ArrivalHoldPlanner.ComputeMultiMoonConfigHold` on the joint configuration period (M-MIS-6, Section 14.4). An incommensurate moon pack (Bop / Pol) finds no aligned window and ambers to the faithful replay. The retired 2+-moon reject was `DestinationConstraintExtractor`'s `MaxConstrainedMoons` gate, NOT `ReaimClassifier` (which only guards the heliocentric single-hop shape: the target must be a direct Sun child - Jool passes). A deep / multi-hop chain (target reached via another moon, or a second heliocentric leg) is still declined by `ReaimClassifier` and stays faithful (deferred, M-MIS-7).
 12. **Re-aim window where the Lambert solve does not converge.** `BuildWindowSegments` returns null; that window degrades to the un-aligned faithful (Bug-2) render, surfaced as a distinct state, never garbage.
 13. **Debris whose UT-covering leg is excluded while an overlapping leg is included.** It does not ride (it belongs to the leg it physically left). Acceptable v1; the adapter must not assume "parent leg" means the anchor parent.
 14. **Delete on the last Mission for a tree.** Blocked (`CanDelete`), so a committed tree always keeps at least one Mission.
@@ -387,10 +393,8 @@ The display computes periodicity via `ComputeMissionPeriodicity` (`:1199`) and t
 ## 12. Out of Scope
 
 - Supply runs and supply routes (logistics, the layer above Missions). Deferred to `docs/parsek-logistics-supply-routes-design.md`. Logistics consumes the Missions API read-only; the only mission-side coupling is the `RouteTreeGuard` mutual-exclusion check in the Loop toggle.
-- Dock as an interval boundary, and richer docked-composition labels (Open Questions; Section 14).
-- Cross-tree (foreign-vessel) docked-journey looping from the partner's side.
 - True concurrent rendering of ONE recording on several Mission clocks (one ghost per Mission of the same recording). One-loop-per-tree sidesteps the single-owner conflict; deferred to logistics.
-- Generalized destination-SOI alignment beyond a single constrained moon (2+-moon "mini star systems", moons-of-planets, multi-hop chains).
+- Generalized destination-SOI alignment beyond the 2+-moon "mini star system" case: moons-of-planets and multi-hop chains (M-MIS-7).
 
 ---
 
@@ -413,8 +417,8 @@ Shipped: `MissionCompositionBuilder.BuildNode` now emits an interval edge at eve
 ### 14.3 Cross-tree foreign dock (RESOLVED - M-MIS-8, 2026-07-07)
 Shipped: a mission whose vessel was docked by a foreign tree's vessel can include that link's PARTNER JOURNEY (the docked stretch + its post-undock offshoot in the foreign tree) via an explicit "Partner journey" affordance in the Missions window. The Mission stays single-tree and persists only the included dock-link ids (`Mission.IncludedForeignDockLinkIds`, sparse `foreignDockLink` codec key - pre-existing missions round-trip byte-identically); the link and journey derive live via the same PID + launch-guid claim rule `GhostChainWalker` uses (`MissionCrossTreeDock`). Foreign members join the loop unit on ONE shared span clock; periodicity / re-aim fail closed to faithful for cross-tree units (two trees = two launches). Design note: `dev/design-mission-crosstree-dock.md`.
 
-### 14.4 Destination-SOI alignment generalization (re-aim Phase 4 tiers b/c)
-The shipped destination arrival hold covers a direct child of the Sun with at most one constrained moon, captured-then-deorbit. The 2+-moon "mini star system" case (Jool) is now designed as M-MIS-6 — see `docs/dev/design-mission-multimoon-alignment.md` (joint configuration period T_config via the near-coincidence primitives, one per-loop hold, finite aligned horizon, incommensurate moons fail closed with amber). Moons-of-planets / deep multi-hop chains stay excluded upstream (M-MIS-7).
+### 14.4 Destination-SOI alignment generalization (RESOLVED - M-MIS-6, 2026-07-08)
+Shipped in 0.10.3 with `JoolConfigHoldInGameTest` as the automated merge gate: the 2+-moon "mini star system" case (Jool's resonant inner three) now aligns via a per-loop configuration hold, generalizing the earlier single-constrained-moon arrival hold. `DestinationConstraintExtractor` emits the full multi-moon set (all `MoonConfigs` plus the constrained moons' landing rotations in `MoonRotations`) instead of rejecting - the old `MaxConstrainedMoons` gate is retired - and `ArrivalHoldPlanner.ComputeMultiMoonConfigHold` owns the hold on the joint configuration period T_config (a whole number of anchor-moon periods, found by the joint recurrence scan) with the finite aligned horizon surfaced on engage. Incommensurate moon packs (Bop / Pol) find no aligned window and fail closed to the faithful replay with an AMBER arrival state (not a silent exclusion). Design note: `docs/dev/design-mission-multimoon-alignment.md`. Only moons-of-planets and deep multi-hop chains remain deferred (M-MIS-7).
 
 ---
 
@@ -475,9 +479,12 @@ Re-aim carries its own non-`Mission*` test files (Lambert, window planner, loite
 | Interplanetary re-aim | Per-window Lambert transfer, loiter compression, pad-align, arrival hold | Done (PR #981 / #982, #1024 / #1026 / #1030) |
 | Dock as interval boundary | Isolate a docked stretch for looping | Done (14.2, M-MIS-5 P1) |
 | Cross-tree foreign dock | Loop a shared docked journey from the partner side | Done (14.3, M-MIS-8) |
-| Destination-SOI generalization | 2+-moon / multi-hop arrival alignment | Deferred (14.4) |
+| Looped rendezvous / landing + station dual arrival | Joint arrival hold via `DestinationArrivalSolver.SolveArrivalWindow` / `ArrivalHoldPlanner.ComputeJointArrivalHold` | Done (M-MIS-4) |
+| Inclined / eccentric targets | Non-equatorial / eccentric destination arrival alignment | Done (M-MIS-3, code-complete) |
+| Destination-SOI 2+-moon alignment | Joint config-hold for a resonant "mini star system" (Jool) | Done (14.4, M-MIS-6) |
+| Destination-SOI multi-hop / moons-of-planets | Arrival alignment for deep / multi-hop chains | Deferred (M-MIS-7) |
 
-New source files: `Mission.cs`, `MissionStore.cs`, `MissionStructure.cs`, `MissionThroughLine.cs`, `MissionComposition.cs`, `MissionIntervalSelection.cs`, `MissionLoopUnitBuilder.cs`, `MissionPeriodicity.cs`, `MissionGroupLink.cs`, `MissionCrossTreeDock.cs`, `UI/MissionsWindowUI.cs`, `Reaim/*`, plus the lifted span-clock additions to `GhostPlaybackLogic.cs` / `GhostPlaybackEngine.cs`.
+New source files: `Mission.cs`, `MissionStore.cs`, `MissionStructure.cs`, `MissionThroughLine.cs`, `MissionComposition.cs`, `MissionIntervalSelection.cs`, `MissionLoopUnitBuilder.cs`, `MissionPeriodicity.cs`, `MissionGroupLink.cs`, `MissionCrossTreeDock.cs`, `UI/MissionsWindowUI.cs`, `Reaim/*`, plus the new span-clock partial `GhostPlaybackLogic.SpanClock.cs` (loop-unit types + `TryComputeSpanLoopUT`) and the loop-unit consumption additions to `GhostPlaybackEngine.cs`.
 
 ---
 
@@ -491,7 +498,7 @@ New source files: `Mission.cs`, `MissionStore.cs`, `MissionStructure.cs`, `Missi
 | Interval start / end trim | `MissionIntervalSelection.cs` (`ComputeRenderWindows` `:35`) |
 | Include / exclude selection cascade | `MissionSelection.cs` |
 | Mission -> loop units | `MissionLoopUnitBuilder.cs` (`Build` `:38`, `ComputeTrimmedMemberWindows` `:650`, `BuildSignature` `:717`) |
-| Span clock + loop-unit types | `GhostPlaybackLogic.cs` (`LoopUnit` `:6726`, `LoopUnitSet` `:6963`, `TryComputeSpanLoopUT` `:7198`) |
+| Span clock + loop-unit types | `GhostPlaybackLogic.SpanClock.cs` (`LoopUnit`, `LoopUnitSet`, `LoopCut`, `TryComputeSpanLoopUT`) |
 | Engine consumption | `GhostPlaybackEngine.cs` (`SetLoopUnits` `:254`, `UpdateUnitMemberPlayback` `:2119`) |
 | Periodicity | `MissionPeriodicity.cs` (`ExtractConstraints` `:283`, `Solve` `:561`, `TryBuildRelaunchSchedule` `:1049`) |
 | Re-aim | `Reaim/ReaimClassifier.cs`, `ReaimWindowPlanner.cs`, `ReaimLoiterCompressor.cs`, `ArrivalHoldPlanner.cs`, `ReaimPlaybackResolver.cs`, `ReaimedTrajectory.cs`, `UvLambert.cs` |
