@@ -12,9 +12,13 @@ namespace Parsek.Tests
     // the touchdown at the RECORDED body-fixed site (the ratified product decision).
     //
     // Frame convention under test: the .xzy-unswizzled WORLD frame, whose reference-plane normal
-    // (= the zero-tilt body spin axis) is +Y, NOT +Z (the PR #1196 .z-vs-.y world-frame trap).
-    // In-plane components are x and z; prograde-positive bearing = atan2(-z, x) degrees; positive
-    // rotation is the prograde sense, shared by prograde orbits and prograde body spin.
+    // (= the zero-tilt body spin axis LINE) is Y, NOT Z (the PR #1196 .z-vs-.y world-frame trap).
+    // In-plane components are x and z; prograde-positive bearing = atan2(z, x) degrees; positive
+    // rotation is the prograde sense, shared by prograde orbits and prograde body spin. The sense
+    // is LIVE-KSP-CALIBRATED by the in-game canary (ReaimLandingCoincidenceInGameTest): KSP's
+    // world frame carries prograde angular momentum along -Y, so a live LAN=+theta orbit pair
+    // measures +theta in the atan2(z, x) sense (the earlier atan2(-z, x) pole choice read it as
+    // -theta and rotated the arrival chain the wrong way - the 2026-07-10 sweep failure).
     public class ArrivalRestitchTests
     {
         private const double DunaTrot = 65517.859375;
@@ -43,10 +47,12 @@ namespace Parsek.Tests
         [Fact]
         public void Rotation_QuarterTurnPrograde_IsPlus90()
         {
-            // recorded along +x, new along -z: +90 deg prograde (about +Y) carries recorded onto
-            // new (for a prograde orbit at +x the velocity points -z: Cross(r, v) = +Y).
+            // recorded along +x, new along +z: +90 deg prograde carries recorded onto new (for a
+            // prograde orbit at +x the velocity points +z in KSP's world frame: a LAN advance of
+            // +90 moves the position from +x to +z, the canary-measured live contract; the
+            // prograde angular momentum Cross(r, v) points -Y).
             double theta = ArrivalRestitch.ComputeRestitchRotationDeg(
-                new Vector3d(1.0e7, 0.0, 0.0), new Vector3d(0.0, 0.0, -1.0e7),
+                new Vector3d(1.0e7, 0.0, 0.0), new Vector3d(0.0, 0.0, 1.0e7),
                 out _, out _);
             Assert.Equal(90.0, theta, 9);
         }
@@ -55,7 +61,7 @@ namespace Parsek.Tests
         public void Rotation_QuarterTurnRetrograde_IsMinus90()
         {
             double theta = ArrivalRestitch.ComputeRestitchRotationDeg(
-                new Vector3d(0.0, 0.0, -1.0e7), new Vector3d(1.0e7, 0.0, 0.0),
+                new Vector3d(0.0, 0.0, 1.0e7), new Vector3d(1.0e7, 0.0, 0.0),
                 out _, out _);
             Assert.Equal(-90.0, theta, 9);
         }
@@ -72,8 +78,10 @@ namespace Parsek.Tests
         [Fact]
         public void Rotation_MagnitudesIrrelevant_OnlyBearingsCount()
         {
+            // bearings: recorded atan2(1, 1) = +45, new atan2(5e8, -5e8) = +135: a +90 prograde
+            // quarter turn regardless of the wildly different magnitudes.
             double a = ArrivalRestitch.ComputeRestitchRotationDeg(
-                new Vector3d(1.0, 0.0, -1.0), new Vector3d(-5.0e8, 0.0, -5.0e8), out _, out _);
+                new Vector3d(1.0, 0.0, 1.0), new Vector3d(-5.0e8, 0.0, 5.0e8), out _, out _);
             Assert.Equal(90.0, a, 9);
         }
 
@@ -126,10 +134,10 @@ namespace Parsek.Tests
         [Fact]
         public void VelocityResidual_PerfectlyRotatedVelocity_IsZero()
         {
-            // new velocity = recorded velocity rotated by +90 prograde: residual after the +90
-            // re-stitch is 0.
+            // new velocity = recorded velocity rotated by +90 prograde (bearing 0 -> +90, i.e.
+            // +x -> +z): residual after the +90 re-stitch is 0.
             double r = ArrivalRestitch.VelocityBearingResidualDeg(
-                new Vector3d(3000.0, 0.0, 0.0), new Vector3d(0.0, 0.0, -3000.0), 90.0);
+                new Vector3d(3000.0, 0.0, 0.0), new Vector3d(0.0, 0.0, 3000.0), 90.0);
             Assert.Equal(0.0, r, 9);
         }
 
@@ -137,9 +145,9 @@ namespace Parsek.Tests
         public void VelocityResidual_ReportsTheKink()
         {
             // new velocity 30 deg past the rotated recorded velocity: residual +30 (bearing 120
-            // in the prograde atan2(-z, x) sense = x-component cos120, z-component -sin120).
+            // in the prograde atan2(z, x) sense = x-component cos120, z-component sin120).
             double vx = 3000.0 * Math.Cos(120.0 * Math.PI / 180.0);
-            double vz = -3000.0 * Math.Sin(120.0 * Math.PI / 180.0);
+            double vz = 3000.0 * Math.Sin(120.0 * Math.PI / 180.0);
             double r = ArrivalRestitch.VelocityBearingResidualDeg(
                 new Vector3d(3000.0, 0.0, 0.0), new Vector3d(vx, 0.0, vz), 90.0);
             Assert.Equal(30.0, r, 6);

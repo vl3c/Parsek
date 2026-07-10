@@ -12,6 +12,7 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
+- A re-aimed looped landing's arrival approach no longer rotates the wrong way around the destination body: the arrival re-stitch read its rotation angle with an inverted sign on live KSP, doubling the gap at the SOI-entry seam instead of closing it. The touchdown site was never affected; caught by the in-game landing-coincidence canary on the first full test sweep.
 - The Settings "Defaults" button now also restores "Show supply route paths on map" to on; previously that single toggle was left unchanged while every other setting reset to its default.
 - A recorded vessel or EVA kerbal that re-materializes above the surface without a stored terminal orbit (breakup debris, an in-flight EVA, or a vessel left docked or coasting) no longer appears off-position and flips its situation a frame later. Its orbit was rebuilt by feeding an absolute world position and an unconverted velocity to KSP's state-vector API, which reads them in the wrong reference frame and produces an out-of-band orbit; the rebuild now converts them to the body-relative frame the API expects.
 - A campaign save whose committed trees and missions failed to load (leaving the in-memory store empty while the recording sidecars still exist on disk) is no longer hollowed out by the next save: Parsek now detects that load fault and re-writes the trees and missions from the on-disk save instead of overwriting it with an empty set, so a one-time load failure can no longer progressively erase a save's committed recordings.

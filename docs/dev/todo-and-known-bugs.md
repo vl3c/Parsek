@@ -14,6 +14,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~FIXED~~ - S4 arrival re-stitch rotation sign inverted on live KSP (found by the 2026-07-10 in-game sweep, branch `fix-s4-restitch-bearing`)
+
+**Found by:** the first full Ctrl+Shift+T sweep on 0.10.3 main (`logs/2026-07-10_1935_ingame-test-sweep`, 5 scenes, 2 failures). `ReaimLandingCoincidenceInGameTest.S4Restitch_RotatedDeorbitPoint_MeetsRecordedSiteAtTrigger` - the exact canary the S4 PR added for the sign question headless tests cannot prove - measured `ComputeRestitchRotationDeg` reading a live LAN=+30 orbit pair as -30 (`S4 frame validation` log line; the physical LAN-advance and body-spin rotations both measured +30 about the live spin axis `(0,-1,0)`).
+
+**Root cause:** the adversarial-review commit (`26922fd28`, S4 BLOCKER 1) fixed the latitude AXIS (Y, not Z) but picked the bearing SENSE as `atan2(-z, x)` from the derivation "Cross(r, v_prograde) points +Y". Live KSP refutes the premise: prograde angular momentum points -Y in the world frame (`CelestialBody.angularVelocity` is -Y for prograde rotators), so `atan2(-z, x)` reads every prograde advance inverted. Production consequence: `RotateLanForParkRephase` turned the arrival chain by -theta instead of +theta (a 2*theta tear at the SOI-entry seam - the exact defect S4 exists to close); the landing site itself was never at risk (the rotation/trigger-offset pairing is sign-agnostic, so the touchdown stayed at the recorded site).
+
+**Fix:** `ArrivalRestitch.TryBearingAndLatitude` bearing = `atan2(z, x)` (live-KSP-calibrated by the canary, not re-derived); doc comments rewritten to name the canary as the calibration source; the four sign-sensitive `ArrivalRestitchTests` pins re-pinned to the corrected sense (quarter-turn prograde/retrograde, magnitude-irrelevance, both velocity-residual cases). The connectivity / recorded-site-invariant / assembler pins are sign-agnostic and unchanged.
+
+**Verify:** re-run the FLIGHT sweep (or just the Periodicity category) in-game: the canary must read +30/+30 with residual 0. The Duna One (s15) looped landing playtest remains the S4 merge-gate observation for the approach visibly connecting.
+
+---
+
 ## Added (headless-verified, in-game pin pending) - Pre-Parsek save safety backup (branch `pre-parsek-save-backup`)
 
 **Feature.** The first time Parsek cold-loads a save with no Parsek footprint, it copies that save - before any Parsek write - into a sibling `saves/<Name> (pre-Parsek <local-ts>)/` folder that appears in KSP's Load menu, so a player who tries Parsek and uninstalls it can return to their pristine career. Runs once per save; skips brand-new empty careers; toggle under Settings > Data Management (`autoBackupExistingSaves`, default on).
