@@ -56,6 +56,23 @@ namespace Parsek.InGameTests.Helpers
         private static string armContext;
         private static int rePinCount;
 
+        /// <summary>
+        /// Cached delegate instances for the GameEvents subscriptions. KSP's
+        /// <c>EventData&lt;T&gt;.Add</c> constructs an EvtDelegate whose ctor reads
+        /// <c>evt.Target.GetType().Name</c> (decompiled, KSP 1.12.5), so a delegate
+        /// to a STATIC method (null Target) throws NullReferenceException inside
+        /// Add - the 2026-07-10 batch-prime NRE: the arm never succeeded in-game and
+        /// every batch aborted at the first isolated restore (second occurrence of
+        /// this trap in the project; see the static-GameEvent-handler OnLoad wipe).
+        /// A non-capturing lambda's Target is the compiler's closure singleton
+        /// (non-null), so these cached instances subscribe safely, and using the
+        /// SAME instance for Add and Remove keeps Remove's delegate-equality match.
+        /// </summary>
+        private static readonly EventData<Vessel>.OnEvent VesselChangeHandler =
+            v => OnVesselChangeWhileArmed(v);
+        private static readonly EventData<GameScenes>.OnEvent LevelLoadedHandler =
+            s => OnLevelLoadedWhileArmed(s);
+
         internal static bool IsArmed => armed;
 
         /// <summary>What an armed-window event should do. Pure decision core.</summary>
@@ -88,10 +105,10 @@ namespace Parsek.InGameTests.Helpers
         /// </summary>
         internal static void Arm(string context)
         {
-            GameEvents.onVesselChange.Remove(OnVesselChangeWhileArmed);
-            GameEvents.onVesselChange.Add(OnVesselChangeWhileArmed);
-            GameEvents.onLevelWasLoaded.Remove(OnLevelLoadedWhileArmed);
-            GameEvents.onLevelWasLoaded.Add(OnLevelLoadedWhileArmed);
+            GameEvents.onVesselChange.Remove(VesselChangeHandler);
+            GameEvents.onVesselChange.Add(VesselChangeHandler);
+            GameEvents.onLevelWasLoaded.Remove(LevelLoadedHandler);
+            GameEvents.onLevelWasLoaded.Add(LevelLoadedHandler);
             armed = true;
             armedAtRealtime = Time.realtimeSinceStartup;
             armContext = context;
@@ -110,8 +127,8 @@ namespace Parsek.InGameTests.Helpers
         /// </summary>
         internal static void Disarm(string reason)
         {
-            GameEvents.onVesselChange.Remove(OnVesselChangeWhileArmed);
-            GameEvents.onLevelWasLoaded.Remove(OnLevelLoadedWhileArmed);
+            GameEvents.onVesselChange.Remove(VesselChangeHandler);
+            GameEvents.onLevelWasLoaded.Remove(LevelLoadedHandler);
             if (!armed)
                 return;
             armed = false;

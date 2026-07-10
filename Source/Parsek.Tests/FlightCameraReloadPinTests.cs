@@ -77,5 +77,59 @@ namespace Parsek.Tests
                     isArmed: true, armedAtRealtime: 0f, nowRealtime: 1_000_000f,
                     ttlSeconds: -1f));
         }
+
+        // ------------------------------------------------------------------
+        // KSP EventData static-handler trap pins (2026-07-10 batch-prime NRE).
+        // KSP's EventData<T>.Add constructs an EvtDelegate whose ctor reads
+        // evt.Target.GetType().Name (decompiled, 1.12.5), so a delegate to a
+        // STATIC method (null Target) throws NullReferenceException inside Add.
+        // FlightCameraReloadPin.Arm hit this on its very first in-game call:
+        // the pin window never armed and every batch aborted at the first
+        // isolated-restore prime. Second project occurrence of this trap (the
+        // first wiped a persistent.sfs index from a static OnLoad handler).
+        // EventData<T> itself is plain C# (no Unity natives), so the trap and
+        // the cached-lambda idiom are pinned headless here.
+        // ------------------------------------------------------------------
+
+        private static void StaticHandlerForTrapPin(int value) { }
+
+        [Fact]
+        public void KspEventDataAdd_StaticMethodDelegate_ThrowsNre_TheTrapThisFileMustAvoid()
+        {
+            var evt = new EventData<int>("parsekTestStaticTrap");
+            Assert.Throws<System.NullReferenceException>(
+                () => evt.Add(StaticHandlerForTrapPin));
+        }
+
+        [Fact]
+        public void KspEventDataAdd_NonCapturingLambda_SubscribesAndRemoves()
+        {
+            // The cached non-capturing-lambda idiom FlightCameraReloadPin uses:
+            // the lambda's Target is the compiler's closure singleton (non-null),
+            // so Add succeeds; reusing the SAME instance keeps Remove's
+            // delegate-equality match.
+            EventData<int>.OnEvent handler = v => StaticHandlerForTrapPin(v);
+            var evt = new EventData<int>("parsekTestLambdaIdiom");
+            evt.Add(handler);
+            evt.Remove(handler);
+        }
+
+        [Fact]
+        public void ArmSubscribesViaCachedLambdaFields_SourceGate()
+        {
+            // Source-text wiring gate: Arm/Disarm must subscribe through the
+            // cached delegate fields, never a naked static method group (which
+            // compiles to a null-Target delegate and NREs inside EventData.Add).
+            string path = System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                System.AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", "..", "..",
+                "Source", "Parsek", "InGameTests", "Helpers", "FlightCameraReloadPin.cs"));
+            Assert.True(System.IO.File.Exists(path), $"source file not found: {path}");
+            string source = System.IO.File.ReadAllText(path);
+            Assert.Contains(".Add(VesselChangeHandler)", source);
+            Assert.Contains(".Add(LevelLoadedHandler)", source);
+            Assert.DoesNotContain(".Add(OnVesselChangeWhileArmed)", source);
+            Assert.DoesNotContain(".Add(OnLevelLoadedWhileArmed)", source);
+        }
     }
 }
