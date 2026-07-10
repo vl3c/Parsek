@@ -26,7 +26,7 @@ The landed implementation includes:
 
 Known limitation:
 
-- `docs/dev/todo-and-known-bugs.md` item 639 tracks a patched-conic atmospheric-tail cache refresh that can flip from `Destroyed` to `Orbiting` from a far-future segment. The active-recorder destruction override no longer depends on that cache, but diagnostics and any path without that authoritative override still need the follow-up fix.
+- `docs/dev/done/todo-and-known-bugs-v5.md` item 639 tracked a patched-conic atmospheric-tail cache refresh that could flip from `Destroyed` to `Orbiting` from a far-future segment. It was closed 2026-05-10 as not-pursued: it is a diagnostic-only cache thrash, not a correctness bug, because the active-recorder `VesselDestroyedDuringRecording` override is authoritative. Reopen only if a future path comes to depend on that cache without the override.
 
 ## Problem
 

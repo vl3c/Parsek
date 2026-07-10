@@ -14,7 +14,7 @@ Historical note: the original 0.4.3-era architecture spec (class-level pseudo-co
          +---------------------------+-----------------------------+
          |                           |                             |
          v                           v                             v
-   ParsekFlight               ParsekKSC / ParsekTS            Stock KSP events
+   ParsekFlight               ParsekKSC / ParsekTrackingStation            Stock KSP events
   (Flight + Map scene)       (KSC + Tracking Station)         (contracts, funds,
                                                                parts, facilities,
                                                                crew, milestones)
@@ -30,14 +30,14 @@ Historical note: the original 0.4.3-era architecture spec (class-level pseudo-co
          |                               v                           |
          |                       +-------------------+                |
          |                       | LedgerOrchestrator|                |
-         |                       | + 8 modules:      |                |
+         |                       | + 9 modules:      |                |
          |                       |   Funds, Science, |----------------+
          |                       |   Reputation,     |
          |                       |   Contracts,      |
          |                       |   Strategies,     |
          |                       |   Facilities,     |
          |                       |   Milestones,     |
-         |                       |   Kerbals         |
+         |                       |   Kerbals, Routes |
          |                       +-------------------+
          |                               |
          v                               v
@@ -64,8 +64,9 @@ Historical note: the original 0.4.3-era architecture spec (class-level pseudo-co
 
     -------------------------- UI layer --------------------------
       ParsekUI (main window + button row)
-         -> Recordings Manager, Timeline, Kerbals, Career State,
-            Gloops Flight Recorder, Real Spawn Control, Settings
+         -> Recordings Manager, Timeline, Missions, Logistics,
+            Kerbals, Career State, Gloops Flight Recorder,
+            Real Spawn Control, Settings
 ```
 
 All UI windows are read-only views of the three stores above (`RecordingStore`, `Ledger`, `KerbalsModule`). Cache invalidation fans out through a single event (`LedgerOrchestrator.OnTimelineDataChanged`) after every recalculation walk.
@@ -80,7 +81,9 @@ Each of these is the authoritative source for its area. This index doesn't dupli
 - **Recording finalization reliability**: [`parsek-recording-finalization-design.md`](parsek-recording-finalization-design.md) — terminal-state and synthetic-tail contract for scene exit, crash, vessel unload/delete, background recordings, and Rewind-to-Separation dependencies.
 - **Timeline (entries + resource budget)**: [`parsek-timeline-design.md`](parsek-timeline-design.md) — timeline entry model, significance tiers, source toggles, time-range filter, resource-budget footer.
 - **Game actions & career resources**: [`parsek-game-actions-and-resources-recorder-design.md`](parsek-game-actions-and-resources-recorder-design.md) — how KSP career events become `GameAction` ledger entries, resource module semantics, recalculation engine, action replay.
-- **Logistics / Supply Routes**: [`parsek-logistics-supply-routes-design.md`](parsek-logistics-supply-routes-design.md) — stock-first Supply Runs, Supply Routes, dock/transfer/undock validation, and future round-trip linking.
+- **Logistics / Supply Routes**: [`parsek-logistics-supply-routes-design.md`](parsek-logistics-supply-routes-design.md) - stock-first Supply Runs and Supply Routes; dock / transfer / undock (and claw / grapple) validation, non-KSC origins, pickup and mixed windows, multi-stop / multi-origin / round-trip linking, and inter-body routes.
+- **Missions (whole-mission looping)**: [`parsek-missions-design.md`](parsek-missions-design.md) - group a recording tree into a mission and loop it as a unit; launch-window periodicity / phase-locking, interplanetary transfer re-aim, and destination-SOI arrival holds. Logistics routes are built on this layer.
+- **Map / Tracking-Station ghost rendering**: [`parsek-ghost-trajectory-rendering-design.md`](parsek-ghost-trajectory-rendering-design.md) - the flight-scene ghost-geometry pipeline (smoothing / anchor-correction / terrain / outlier); the map / Tracking-Station draw layer is covered by [`dev/design-map-ts-render-architecture.md`](dev/design-map-ts-render-architecture.md).
 - **Rewind to Separation (v0.9)**: [`parsek-rewind-to-separation-design.md`](parsek-rewind-to-separation-design.md) — re-fly unfinished sibling missions from a past multi-controllable split. Effective-state model (ERS / ELS), append-only supersede relations, session-suppressed subtree, journaled staged merge, post-load strip, broad reviewed-career tombstone scope.
 - **Career State window**: [`dev/done/plans/career-state-window.md`](dev/done/plans/career-state-window.md) — four-tab career-state view, current-vs-projected walk, slot math, companion Kerbals→Timeline scroll.
 
@@ -100,7 +103,7 @@ Completed design specs (now implementation-historical) live under [`dev/done/`](
 |---|---|---|
 | Flight / Map | `ParsekFlight` | Recorder, ghost playback engine, watch mode, UI, toolbar button |
 | KSC | `ParsekKSC` | UI, game-state recorder, toolbar button |
-| Tracking Station | `ParsekTS` | Ghost ProtoVessel + icon presence, UI |
+| Tracking Station | `ParsekTrackingStation` | Ghost ProtoVessel + icon presence, UI |
 | (save/load glue) | `ParsekScenario` | All persistence: committed recordings, game-action ledger, milestones, kerbal slots |
 
 The `KspStatePatcher` runs during save-load and after rewind to restore stock KSP state (funds, reputation, science, facilities, contracts, crew) to match the ledger's committed position.
@@ -116,7 +119,7 @@ The canonical, up-to-date list of source files + line counts + extraction histor
 ## Invariants worth remembering
 
 - `Ledger.Actions` is the single authoritative source of career-state truth per save. Modules hold terminal-state snapshots derived from walking the ledger.
-- Recording format v0 is a clean reset; no legacy migration paths exist (PR #114).
+- Recording format is version 1, schema generation 4, and any recording or sidecar with a mismatched format version or older/newer schema generation is rejected on load (`RecordingStore.IsRecordingSchemaCompatible`). There are no legacy migration or forward-compatibility paths pre-1.0; each generation bump deletes the prior generation's tolerance seams. The legacy v5 world-offset RELATIVE contract was purged in PR #916, leaving a single current RELATIVE contract.
 - All recordings are tree recordings; the standalone format was removed in PR #214.
 - Save-file writes go through sidecar files under `saves/<save>/Parsek/Recordings/` (`.prec`, `_vessel.craft`, `_ghost.craft`, `.pcrf`). Only lightweight metadata + mutable state live in `.sfs`.
-- KSP surface-frame rotation is unconditionally surface-relative since format v0 — orbital rotation is future work.
+- KSP surface-frame rotation is stored unconditionally surface-relative since the format reset.
