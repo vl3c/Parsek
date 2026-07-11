@@ -233,6 +233,19 @@ rule does NOT bump it (rules are data inside `findings`).
   `dotnet test` filtered to the analyzer entry point, and surfaces the report
   files. This keeps ONE execution path (the xUnit host) for all three run modes,
   so the harness and the human get identical verdicts.
+- `Source/Parsek.Tests/Analyzer/RecordingSectionDump.cs` is a permanent
+  `[Trait("Category","Manual")]` triage helper that extends the ad-hoc-triage
+  mode. Given `PARSEK_DUMP_SAVE` (+ optional `PARSEK_DUMP_RECORDING`) it loads the
+  same hydrated model via `SaveDirectoryLoader` and dumps each recording's
+  `TrackSection` `referenceFrame` / `environment` / `source` / `isBoundarySeam` /
+  span / frame-and-checkpoint counts plus the resolved rewind-save state
+  (`SAVES-PRESENT` / `SAVES-MISSING` / `no-rewind-save`), to a
+  `<save>/analysis/<id|all>.sectiondump.txt`. This is the ground-truth tool a human
+  uses to confirm an INV2 overlap or an INV9 missing-rewind finding against the
+  ACTUAL section kinds instead of guessing from the report line; it is how the
+  2026-07-11 tuning pass proved the INV2 overlaps were checkpoint-vs-checkpoint /
+  empty-physical double-cover and the INV9 "missing" saves were a wrong-directory
+  probe.
 
 ### Run modes
 
@@ -335,6 +348,24 @@ the LOADER-FAULT rule that turns loader parse failures into findings. Each is on
   `RecordingOptimizer.IsSplittableEnvOrBodyBoundary` (sections are disjoint
   producers) + `TrackSection.boundaryDiscontinuityMeters` + the on-rails
   no-TrackSection contract (`BackgroundRecorder` `BackgroundOnRailsState`).
+  **Uncovered-span tolerance floor (tuning 2026-07-11):** a section is built from
+  sampled frames, so its `startUT`/`endUT` are its first/last frame UT, and at a
+  section boundary the last frame of section A and the first frame of section B
+  are one sample apart. A sub-sample-step gap between `end(A)` and `start(B)` is a
+  legitimate boundary seam, not a coverage hole, and must NOT WARN. The
+  `INV2-UNCOVERED-SPAN` WARN is therefore gated on a floor of
+  `Inv2NoDoubleCover.UncoveredSpanToleranceSeconds = 8.0s`, the coarsest recorder
+  single-sample step (`ParsekSettings.GetMaxSampleInterval(SamplingDensity.Low)` =
+  8.0s; Medium 3.0s, High 1.0s). The floor is set at the coarsest cadence so it is
+  density-agnostic. This removed the bulk of the real-save WARN noise (0.04-0.28s
+  boundary seams across c1 / s15 / orbital-supply-route / mun); genuine coverage
+  gaps in flown saves are hundreds to millions of seconds (e.g. a stray far-future
+  `OrbitalCheckpoint` leaving a ~1.5M-second hole) and stay WARN. The double-cover
+  FAIL path is UNCHANGED and stays strict: the overlapping-checkpoint pattern
+  observed in real saves is a producer bug (`OrbitSegmentCheckpointBridge` clips
+  only against physical sections, not checkpoint-vs-checkpoint), not a legitimate
+  coarse/fine wrap, so no type-aware exemption is granted (see
+  `docs/dev/todo-and-known-bugs.md` "Overlapping / duplicate TrackSections").
 - **INV3 RELATIVE contract** (`RuleId INV3-RELATIVE-CONTRACT`). For a
   `ReferenceFrame.Relative` section: `anchorRecordingId` (non-loop) OR
   `anchorVesselId` (loop) must be present, and out-of-`[-90,90]`/`[-180,180]`
@@ -471,13 +502,39 @@ only evidence the check ran. The per-subject loader summary line
 `subjectSchemaGeneration` report field carry the "the analyzer ran and saw N
 recordings at generation G" signal instead, so the silent-clean policy does not
 lose the run-happened evidence; it only moves it out of the findings list.
-- **INV9 rewind-point + id validation** (`RuleId INV9-REWINDPOINT`). Every
-  `RewindPoint` id passes `RecordingPaths.ValidateRecordingId`, its
-  `Parsek/RewindPoints/<id>.sfs` exists and parses as a ConfigNode, and every
-  recording id in the tree passes `ValidateRecordingId`. An invalid id, a
-  missing referenced RP file, or an unparsable RP -> FAIL; an orphan RP file on
-  disk with no referencing slot -> WARN. CitedContract:
-  `RecordingPaths.ValidateRecordingId` + `RecordingPaths.BuildRewindPointRelativePath`.
+- **INV9 rewind-save + id validation** (`RuleId INV9-REWINDPOINT`). The field
+  this rule checks is `Recording.RewindSaveFileName` (the Rewind-to-Separation
+  quicksave captured at recording start), stored at `Parsek/Saves/<id>.sfs` via
+  `RecordingPaths.BuildRewindSaveRelativePath` with the `parsek_rw_` filename
+  prefix. Every recording id and every rewind id passes
+  `RecordingPaths.ValidateRecordingId` (path traversal / invalid chars) -> FAIL,
+  emitted BEFORE any filesystem access. A referenced rewind save whose
+  `Parsek/Saves/<id>.sfs` is missing -> WARN; present-but-unparsable -> FAIL. An
+  unreferenced `parsek_rw_*.sfs` on disk -> a single per-save INFO inventory line
+  (count). CitedContract: `RecordingPaths.ValidateRecordingId` +
+  `RecordingPaths.BuildRewindSaveRelativePath`.
+  **Tuning 2026-07-11 (three corrections after the first 8-save run):**
+  1. **Directory fix.** The rule previously probed `Parsek/RewindPoints/<id>.sfs`
+     (`BuildRewindPointRelativePath`, the rp_* RewindPoint system) for the
+     `parsek_rw_*` `RewindSaveFileName` field, which lives in `Parsek/Saves/`.
+     That flagged every present rewind save as missing (c1 18, l2 1, test career
+     10, mun 1 -- all files present on disk). Now routes through
+     `BuildRewindSaveRelativePath`. The rp_* RewindPoint system (referenced by
+     scenario `RewindPoints` slots / `BranchPoint`s) is NOT loaded by the offline
+     model, so it is out of INV9's scope.
+  2. **Missing -> WARN, not FAIL.** A missing rewind save is a dangling reference,
+     not proven corruption: `RecordingStore.DeleteRecordingFiles` deletes a rewind
+     save with a discarded recording WITHOUT reference-counting siblings that
+     share the same save via `ParsekFlight.CopyRewindSaveToRoot` ("first recorder
+     wins"), a sealed (`MergeState.Immutable`) recording can no longer be rewound,
+     and production treats a missing rewind hint as benign
+     (`ParsekScenario.ResolveLimboResumeRewindSave`). WARN surfaces it without
+     failing the run (s15 4, orbital supply route 4).
+  3. **Orphan -> INFO inventory.** An unreferenced `parsek_rw_*.sfs` is an EXPECTED
+     benign state (`ParsekFlight.cs`: "keep the on-disk parsek_rw_*.sfs but no
+     recording ever references it"), so it is one per-save INFO count line, not a
+     WARN. The prior orphan scan ran over `Parsek/RewindPoints/` and false-flagged
+     LIVE rp_* RewindPoints (which the model cannot resolve) as orphans.
 - **INV10 codec round-trips** (`RuleId INV10-CODEC-ROUNDTRIP`). For each loaded
   recording, re-serialize and re-deserialize at the CODEC seams and assert
   structural equality: `RecordingTreeRecordCodec.SaveRecordingInto` ->
@@ -772,13 +829,22 @@ and known-good builder output exposes wrong rules). Body resolution uses
 - **INV8 non-career**: a Sandbox save -> INV8 part (b) INFO (skipped); part (a)
   ELS consistency still runs. Fails if the ledger rule crashes or FAILs on a null
   `CareerSaveSnapshot`.
-- **INV9 positive**: valid RP ids + present RP files -> zero INV9 FAIL. Fails if
-  a valid `Parsek/RewindPoints/<id>.sfs` is flagged missing.
-- **INV9 violating (bad id)**: an RP id containing `..` -> INV9 FAIL via
+- **INV9 positive**: valid rewind ids + present `Parsek/Saves/<id>.sfs` files ->
+  zero INV9 findings. Fails if a valid, present rewind save is flagged missing
+  (the directory-fix regression: probing `Parsek/RewindPoints/` for a
+  `Parsek/Saves/` file).
+- **INV9 violating (bad id)**: a rewind id containing `..` -> INV9 FAIL via
   `RecordingPaths.ValidateRecordingId`, and the analyzer never opens the escaped
   path. Fails if path-traversal ids reach the filesystem (security regression).
-- **INV9 violating (missing RP)**: a slot referencing an absent RP file -> INV9
-  FAIL. Fails if a dangling RP reference passes (re-fly would fail at load).
+- **INV9 dangling (missing rewind save)**: a recording referencing an absent
+  `Parsek/Saves/<id>.sfs` -> INV9 WARN, NOT FAIL. A missing rewind save is a
+  dangling reference, often benign (shared rewind saves deleted with a discarded
+  sibling; sealed recordings cannot rewind), so it must not red the run. Fails if
+  it FAILs (the s15 / orbital-supply-route class) or is silently dropped.
+- **INV9 orphan inventory**: an unreferenced `parsek_rw_*.sfs` on disk -> one
+  per-save INFO count line (never WARN/FAIL). Fails if the orphan scan reverts to
+  `Parsek/RewindPoints/` (false-flagging live rp_* RewindPoints) or promotes the
+  benign orphan to WARN.
 - **INV10 positive**: every builder recording round-trips at
   `RecordingTreeRecordCodec` + `RecordingManifestCodec` + `TrajectorySidecarBinary`
   -> zero INV10 FAIL. Fails if a codec silently drops a field on save or load.

@@ -132,6 +132,54 @@ namespace Parsek.Tests.Analyzer.Rules
             Assert.DoesNotContain(findings, f => f.Level == VerdictLevel.Fail);
         }
 
+        // Guards (tolerance-floor regression): a sub-tolerance micro-gap between two
+        // sections (0.2s, well under the 8.0s coarsest-sample-step floor) is a
+        // legitimate section-boundary seam and emits NO finding. Fails if the rule
+        // reverts to flagging every fractional-second boundary gap, which produced
+        // the bulk of the INV2-UNCOVERED-SPAN false positives (0.04-0.28s seams
+        // across c1 / s15 / orbital-supply-route).
+        [Fact]
+        public void MicroGapBelowTolerance_NoFinding()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-microgap",
+                TrackSections = new List<TrackSection>
+                {
+                    Section(0, 100),
+                    Section(100.2, 200),
+                },
+            };
+
+            List<Finding> findings = Run(rec);
+
+            Assert.Empty(findings);
+        }
+
+        // Guards (tolerance-floor regression): a gap just ABOVE the floor still
+        // WARNs, so the floor suppresses seams without hiding real coverage holes.
+        // Fails if the floor is set so high it swallows genuine gaps (the real gaps
+        // in flown saves are hundreds to millions of seconds).
+        [Fact]
+        public void GapAboveTolerance_StillWarns()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-realgap",
+                TrackSections = new List<TrackSection>
+                {
+                    Section(0, 100),
+                    Section(100 + Inv2NoDoubleCover.UncoveredSpanToleranceSeconds + 1.0, 200),
+                },
+            };
+
+            List<Finding> findings = Run(rec);
+
+            Finding warn = Assert.Single(findings);
+            Assert.Equal(Inv2NoDoubleCover.UncoveredRuleId, warn.RuleId);
+            Assert.Equal(VerdictLevel.Warn, warn.Level);
+        }
+
         // Guards: sections that touch exactly at a UT boundary (a.end == b.start)
         // are NOT an overlap and NOT a gap. A regression using a non-strict
         // comparison would false-FAIL every adjacent optimizer split.
