@@ -2,6 +2,8 @@ using System.Linq;
 using Parsek.InGameTests;
 using Xunit;
 
+// GameScenes lives in Assembly-CSharp, referenced by the Tests project.
+
 namespace Parsek.Tests
 {
     // Pure-decision tests for the M-A3 autorun hooks (design
@@ -145,6 +147,105 @@ namespace Parsek.Tests
             Assert.Equal(a.Enabled, b.Enabled);
             Assert.Equal(a.ExitArmed, b.ExitArmed);
             Assert.Equal(a.Categories.ToArray(), b.Categories.ToArray());
+        }
+
+        // --- SceneSettleDecision (design edge cases 6, 7) ---
+
+        // A fully-settled FLIGHT scene fires. This is the "everything holds" baseline
+        // the negative cases below each perturb by one condition.
+        [Fact]
+        public void SceneSettle_FlightFullyReady_Fires()
+        {
+            Assert.True(AutorunHooks.SceneSettleDecision(
+                GameScenes.FLIGHT, gameNonNull: true, saveLoaded: true,
+                flightReady: true, vesselNonNull: true, vesselPacked: false,
+                settleFrames: 30, settleTarget: 30, reconcilePending: false));
+        }
+
+        // Guards edge 7: MainMenu / LOADING never fire (no save, not a game scene),
+        // even if the other flags are coincidentally true. Fails if H1 fires before a
+        // save is loaded and corrupts nothing but runs a meaningless batch.
+        [Theory]
+        [InlineData(GameScenes.MAINMENU)]
+        [InlineData(GameScenes.LOADING)]
+        [InlineData(GameScenes.PSYSTEM)]
+        [InlineData(GameScenes.CREDITS)]
+        public void SceneSettle_NonGameScene_NeverFires(GameScenes scene)
+        {
+            Assert.False(AutorunHooks.SceneSettleDecision(
+                scene, gameNonNull: true, saveLoaded: true,
+                flightReady: true, vesselNonNull: true, vesselPacked: false,
+                settleFrames: 30, settleTarget: 30, reconcilePending: false));
+        }
+
+        // Guards edge 7: a game scene with no loaded save (CurrentGame null or empty
+        // SaveFolder) does not fire.
+        [Theory]
+        [InlineData(false, true)]
+        [InlineData(true, false)]
+        [InlineData(false, false)]
+        public void SceneSettle_NoSaveLoaded_DoesNotFire(bool gameNonNull, bool saveLoaded)
+        {
+            Assert.False(AutorunHooks.SceneSettleDecision(
+                GameScenes.SPACECENTER, gameNonNull, saveLoaded,
+                flightReady: true, vesselNonNull: true, vesselPacked: false,
+                settleFrames: 30, settleTarget: 30, reconcilePending: false));
+        }
+
+        // Guards the FLIGHT physics gate: FLIGHT requires ready + a non-null,
+        // UNPACKED vessel. Any of not-ready / no-vessel / still-packed blocks the
+        // fire so tests never race the recorder or PartLoader.
+        [Theory]
+        [InlineData(false, true, false)]  // not ready
+        [InlineData(true, false, false)]  // no vessel
+        [InlineData(true, true, true)]    // still packed
+        public void SceneSettle_FlightHalfInitialized_DoesNotFire(
+            bool flightReady, bool vesselNonNull, bool vesselPacked)
+        {
+            Assert.False(AutorunHooks.SceneSettleDecision(
+                GameScenes.FLIGHT, gameNonNull: true, saveLoaded: true,
+                flightReady, vesselNonNull, vesselPacked,
+                settleFrames: 30, settleTarget: 30, reconcilePending: false));
+        }
+
+        // Guards: non-FLIGHT game scenes have NO vessel gate - SPACECENTER settles
+        // with no active vessel. Fails if the FLIGHT-only vessel gate leaks into
+        // other scenes and stalls a SPACECENTER autorun forever.
+        [Fact]
+        public void SceneSettle_SpaceCenter_NoVesselGate_Fires()
+        {
+            Assert.True(AutorunHooks.SceneSettleDecision(
+                GameScenes.SPACECENTER, gameNonNull: true, saveLoaded: true,
+                flightReady: false, vesselNonNull: false, vesselPacked: true,
+                settleFrames: 30, settleTarget: 30, reconcilePending: false));
+        }
+
+        // Guards the settle counter: the fire is held until settleFrames reaches the
+        // target, then fires. Fails if H1 fires on the first qualifying frame and
+        // races stock one-frame-late init.
+        [Theory]
+        [InlineData(0, false)]
+        [InlineData(29, false)]
+        [InlineData(30, true)]
+        [InlineData(31, true)]
+        public void SceneSettle_SettleCounterMustReachTarget(int settleFrames, bool expected)
+        {
+            Assert.Equal(expected, AutorunHooks.SceneSettleDecision(
+                GameScenes.FLIGHT, gameNonNull: true, saveLoaded: true,
+                flightReady: true, vesselNonNull: true, vesselPacked: false,
+                settleFrames, settleTarget: 30, reconcilePending: false));
+        }
+
+        // Guards edge 6: a pending crash-reconcile blocks the fire even when the scene
+        // is otherwise fully settled, so the baseline is captured against the reverted
+        // save, not the half-reverted one.
+        [Fact]
+        public void SceneSettle_ReconcilePending_Blocks()
+        {
+            Assert.False(AutorunHooks.SceneSettleDecision(
+                GameScenes.FLIGHT, gameNonNull: true, saveLoaded: true,
+                flightReady: true, vesselNonNull: true, vesselPacked: false,
+                settleFrames: 30, settleTarget: 30, reconcilePending: true));
         }
     }
 }

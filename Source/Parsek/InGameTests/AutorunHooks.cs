@@ -137,5 +137,65 @@ namespace Parsek.InGameTests
                 Warnings = new List<string>(),
             };
         }
+
+        /// <summary>
+        /// True for a game scene the runner can execute a batch in (mirrors
+        /// HighLogic.LoadedSceneIsGame). LOADING / MAINMENU / PSYSTEM / CREDITS /
+        /// SETTINGS are not game scenes, so H1 never fires there (edge case 7).
+        /// </summary>
+        internal static bool IsGameScene(GameScenes scene)
+        {
+            return scene == GameScenes.FLIGHT
+                || scene == GameScenes.SPACECENTER
+                || scene == GameScenes.TRACKSTATION
+                || scene == GameScenes.EDITOR;
+        }
+
+        /// <summary>
+        /// The concrete scene-settle gate (design "H1 - Scene-settle definition").
+        /// Returns true only when every condition holds on the same frame, so the
+        /// autorun batch never captures its baseline against a half-initialized scene
+        /// or a half-reverted crash-reconcile save. Pure: the caller supplies live
+        /// state each frame and advances/resets settleFrames itself.
+        ///
+        /// Conditions:
+        /// 1. <paramref name="scene"/> is a game scene (not LOADING/MainMenu) - edge 7.
+        /// 2. <paramref name="gameNonNull"/> (CurrentGame != null) AND
+        ///    <paramref name="saveLoaded"/> (non-empty SaveFolder) - a save is loaded, edge 7.
+        /// 3. FLIGHT only: <paramref name="flightReady"/> AND
+        ///    <paramref name="vesselNonNull"/> AND NOT <paramref name="vesselPacked"/>
+        ///    (physics-live vessel), so tests do not race the recorder / PartLoader.
+        ///    Non-FLIGHT game scenes have no vessel gate.
+        /// 4. <paramref name="settleFrames"/> has reached
+        ///    <paramref name="settleTarget"/> consecutive qualifying frames.
+        /// 5. NOT <paramref name="reconcilePending"/>: a prior killed batch's crash
+        ///    reconcile has fully completed (edge 6).
+        /// </summary>
+        internal static bool SceneSettleDecision(
+            GameScenes scene,
+            bool gameNonNull,
+            bool saveLoaded,
+            bool flightReady,
+            bool vesselNonNull,
+            bool vesselPacked,
+            int settleFrames,
+            int settleTarget,
+            bool reconcilePending)
+        {
+            if (!IsGameScene(scene))
+                return false;
+            if (!gameNonNull || !saveLoaded)
+                return false;
+            if (reconcilePending)
+                return false;
+            if (scene == GameScenes.FLIGHT)
+            {
+                if (!flightReady || !vesselNonNull || vesselPacked)
+                    return false;
+            }
+            if (settleFrames < settleTarget)
+                return false;
+            return true;
+        }
     }
 }
