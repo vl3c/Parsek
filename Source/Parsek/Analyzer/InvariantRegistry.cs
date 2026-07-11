@@ -1,22 +1,20 @@
-using System;
 using System.Collections.Generic;
-using Parsek;
 using Parsek.Analyzer.Rules;
 
-namespace Parsek.Tests.Analyzer
+namespace Parsek.Analyzer
 {
-    // The invariant registry and the pure Evaluate entry point (task 0.3).
+    // The invariant registry and the pure evaluator entry point.
     //
-    // Phase 0/1 ships the registry with an EMPTY rule set: the rules land in
-    // Phase 2+ under Analyzer/Rules/. The framework (Evaluate + verdict policy +
-    // the CitedContract-presence and core-purity gates) is proven now so every
-    // future rule slots in without reworking the harness.
+    // Both live in Parsek.dll (module M-A3 moved the pure core here) so the in-game
+    // H5 RecordingInvariants category can reuse the exact same rule set and verdict
+    // policy the offline analyzer uses. The offline orchestrator that loads a save
+    // directory and writes report files (OfflineAnalyzer.Run) stays in Parsek.Tests
+    // because it depends on the Tests-only loader/writer; this file is pure.
 
     internal static class InvariantRegistry
     {
         /// <summary>
-        /// The production rule set, in registration order. Concrete rules are
-        /// added here (and as Analyzer/Rules/*.cs files) from Phase 2 onward.
+        /// The production rule set, in registration order.
         /// </summary>
         internal static IReadOnlyList<IRecordingInvariant> AllRules { get; } = BuildRules();
 
@@ -52,24 +50,14 @@ namespace Parsek.Tests.Analyzer
         }
     }
 
-    internal static class Analyzer
+    /// <summary>
+    /// Pure evaluator: runs the invariant rule set over an already-built
+    /// <see cref="AnalyzerModel"/> and aggregates the findings into a report. Never
+    /// touches a file (the model builder already ran), so this is the exact code
+    /// path both the offline analyzer and the in-game H5 category reuse.
+    /// </summary>
+    internal static class InvariantEvaluator
     {
-        /// <summary>
-        /// End-to-end entry point shared by all run modes (design "Run modes"):
-        /// load the save directory, evaluate the production rule set, and write both
-        /// report files into <paramref name="resultsDir"/>. Both parameters are
-        /// required so a caller can never scatter reports next to a user's save.
-        /// Returns the report so a caller (the harness / a test) can read the counts.
-        /// </summary>
-        internal static AnalysisReport Run(
-            string saveDir, string resultsDir, Func<string, CelestialBody> bodyResolver)
-        {
-            AnalyzerModel model = SaveDirectoryLoader.Load(saveDir, bodyResolver);
-            AnalysisReport report = Evaluate(model);
-            ReportWriter.Write(report, resultsDir);
-            return report;
-        }
-
         /// <summary>Evaluates the production rule set over the loaded model.</summary>
         internal static AnalysisReport Evaluate(AnalyzerModel model)
         {
@@ -78,8 +66,7 @@ namespace Parsek.Tests.Analyzer
 
         /// <summary>
         /// Pure core: runs the given rules over the model and aggregates findings
-        /// into a report. Never touches a file (the loader already ran); this is the
-        /// exact code path the future in-game H5 category reuses.
+        /// into a report. Never touches a file.
         /// </summary>
         internal static AnalysisReport Evaluate(AnalyzerModel model, IReadOnlyList<IRecordingInvariant> rules)
         {
