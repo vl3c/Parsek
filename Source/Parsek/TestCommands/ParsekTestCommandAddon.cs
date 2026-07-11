@@ -157,6 +157,19 @@ namespace Parsek.TestCommands
         /// </summary>
         internal static bool IsArmed(string envValue) => envValue == ArmValue;
 
+        /// <summary>
+        /// [M-A3 correction G1] Mirror of
+        /// <see cref="Parsek.InGameTests.TestRunnerShortcut.ActiveRunnerForGating"/> for
+        /// the OTHER direction: the H1 autorun fire gate ORs this in so a settle-fire
+        /// never launches a second batch concurrent with an in-flight M-A2 command-seam
+        /// RunTests batch. The two runners share the campaign-isolation baseline
+        /// machinery, so overlapping an autorun batch with a seam batch could corrupt the
+        /// save under test. True while this addon's owned RunTests runner is running;
+        /// null-safe and false when the seam never ran a batch (or is unarmed).
+        /// </summary>
+        internal static bool CommandRunnerIsRunningForGating =>
+            instance != null && instance.ownedRunner != null && instance.ownedRunner.IsRunning;
+
         void Awake()
         {
             if (instance != null)
