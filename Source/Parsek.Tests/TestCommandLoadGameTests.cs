@@ -21,29 +21,39 @@ namespace Parsek.Tests
         public void Focusable_ValidGame_InRangeIdx()
         {
             Assert.True(TestCommandLoadGame.IsLoadedGameFocusable(
-                gamePresent: true, flightStatePresent: true, protoVesselsPresent: true,
+                gamePresent: true, compatible: true, flightStatePresent: true, protoVesselsPresent: true,
                 activeVesselIdx: 0, protoVesselCount: 3));
         }
 
         [Fact]
         public void NotFocusable_NullGame()
         {
-            Assert.False(TestCommandLoadGame.IsLoadedGameFocusable(false, false, false, 0, 0));
+            Assert.False(TestCommandLoadGame.IsLoadedGameFocusable(false, false, false, false, 0, 0));
+        }
+
+        [Fact]
+        public void NotFocusable_IncompatibleGame()
+        {
+            // A version-incompatible game (Game.compatible == false) is NOT focusable even
+            // though it parsed and has an in-range active vessel.
+            Assert.False(TestCommandLoadGame.IsLoadedGameFocusable(
+                gamePresent: true, compatible: false, flightStatePresent: true, protoVesselsPresent: true,
+                activeVesselIdx: 0, protoVesselCount: 3));
         }
 
         [Fact]
         public void NotFocusable_NullFlightState_OrProtoVessels()
         {
-            Assert.False(TestCommandLoadGame.IsLoadedGameFocusable(true, false, false, 0, 1));
-            Assert.False(TestCommandLoadGame.IsLoadedGameFocusable(true, true, false, 0, 1));
+            Assert.False(TestCommandLoadGame.IsLoadedGameFocusable(true, true, false, false, 0, 1));
+            Assert.False(TestCommandLoadGame.IsLoadedGameFocusable(true, true, true, false, 0, 1));
         }
 
         [Fact]
         public void NotFocusable_IdxOutOfRange()
         {
-            Assert.False(TestCommandLoadGame.IsLoadedGameFocusable(true, true, true, -1, 2));
-            Assert.False(TestCommandLoadGame.IsLoadedGameFocusable(true, true, true, 2, 2));
-            Assert.False(TestCommandLoadGame.IsLoadedGameFocusable(true, true, true, 5, 2));
+            Assert.False(TestCommandLoadGame.IsLoadedGameFocusable(true, true, true, true, -1, 2));
+            Assert.False(TestCommandLoadGame.IsLoadedGameFocusable(true, true, true, true, 2, 2));
+            Assert.False(TestCommandLoadGame.IsLoadedGameFocusable(true, true, true, true, 5, 2));
         }
 
         [Fact]

@@ -15,14 +15,17 @@ namespace Parsek.TestCommands
     internal static class TestCommandLoadGame
     {
         /// <summary>
-        /// True when the loaded game can be focused: it exists, has a flight state with
-        /// a proto-vessel list, and its active-vessel index is in range.
+        /// True when the loaded game can be focused: it exists, is version-COMPATIBLE
+        /// (<c>Game.compatible</c>, the gate v0.5.4 <c>TestingTools.LoadSave</c> applied), has
+        /// a flight state with a proto-vessel list, and its active-vessel index is in range.
+        /// An incompatible game (a save from a mismatched KSP / mod version) must fail with
+        /// <c>load-failed</c> rather than being flown into a broken scene.
         /// </summary>
         internal static bool IsLoadedGameFocusable(
-            bool gamePresent, bool flightStatePresent, bool protoVesselsPresent,
+            bool gamePresent, bool compatible, bool flightStatePresent, bool protoVesselsPresent,
             int activeVesselIdx, int protoVesselCount)
         {
-            if (!gamePresent || !flightStatePresent || !protoVesselsPresent)
+            if (!gamePresent || !compatible || !flightStatePresent || !protoVesselsPresent)
                 return false;
             return activeVesselIdx >= 0 && activeVesselIdx < protoVesselCount;
         }

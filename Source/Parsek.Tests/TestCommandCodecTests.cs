@@ -67,6 +67,23 @@ namespace Parsek.Tests
         }
 
         [Theory]
+        // Non-ASCII strings are built with \u escapes to keep the test SOURCE pure ASCII:
+        // \u00fc = u-umlaut, \u4e2d\u6587 = CJK, \u00e9 = e-acute, \u2192 = a right-arrow.
+        [InlineData("M\u00fcn")]
+        [InlineData("\u4e2d\u6587")]
+        [InlineData("caf\u00e9")]
+        [InlineData("Mun \u2192 orbit")] // mixed ASCII + a non-ASCII arrow + a space
+        public void Encode_NonAscii_ProducesPureAsciiAndRoundTrips(string literal)
+        {
+            string encoded = TestCommandProtocol.Encode(literal);
+            // Every non-ASCII byte is percent-encoded, so the wire token is pure ASCII.
+            foreach (char c in encoded)
+                Assert.True(c < 0x80, $"encoded token must be pure ASCII, saw U+{(int)c:X4}");
+            Assert.True(TestCommandProtocol.TryDecode(encoded, out string back));
+            Assert.Equal(literal, back);
+        }
+
+        [Theory]
         [InlineData("id=0001", "id", "0001")]
         [InlineData("name=mun%20landing", "name", "mun%20landing")]
         [InlineData("k=a=b", "k", "a=b")] // split at FIRST '=', value keeps the rest

@@ -1018,6 +1018,17 @@ namespace Parsek.TestCommands
             if (!alreadyLive)
                 flight.StartRecording();
 
+            // F4: ParsekFlight.StartRecording is void and can REFUSE (vessel not ready /
+            // packed / a guard blocked it) without going live. Re-sample the recorder truth so
+            // a refusal reports ERROR msg=start-refused instead of a false OK. (A vessel-ready
+            // Defer is the cleaner long-term fix; tracked in the design doc's deferred list.)
+            if (!ParsekFlight.HasLiveRecorderForTagging())
+            {
+                ParsekLog.Warn(Tag, $"startrecording start-refused (recorder not live after StartRecording) already={Bool(alreadyLive)}");
+                SetExecResult("ERROR", null, "start-refused");
+                return;
+            }
+
             string recordingId = ParsekFlight.GetActiveRecordingIdForTagging();
             ParsekLog.Info(Tag, $"startrecording recordingId={recordingId} already={Bool(alreadyLive)}");
             SetExecResult("OK", TestCommandRecordingVerbs.BuildStartPayload(alreadyLive, recordingId), null);
@@ -1097,6 +1108,7 @@ namespace Parsek.TestCommands
 
             bool focusable = TestCommandLoadGame.IsLoadedGameFocusable(
                 game != null,
+                game != null && game.compatible,
                 game != null && game.flightState != null,
                 game != null && game.flightState != null && game.flightState.protoVessels != null,
                 game != null && game.flightState != null ? game.flightState.activeVesselIdx : -1,

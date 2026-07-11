@@ -12,19 +12,21 @@ namespace Parsek.TestCommands
     /// type is exercised entirely by xUnit without a live Unity runtime.
     ///
     /// <para>Value encoding: a value that contains whitespace, <c>=</c>, <c>%</c>,
-    /// or a control character is percent-encoded (<c>%20</c> for space, <c>%25</c>
-    /// for <c>%</c>, <c>%3D</c> for <c>=</c>). Encoding is byte-oriented over the
-    /// UTF-8 form of the string, so a multibyte character that needs escaping
-    /// round-trips exactly. Numeric values use <see cref="CultureInfo.InvariantCulture"/>.</para>
+    /// a control character, or ANY non-ASCII byte (&gt;= 0x7F) is percent-encoded
+    /// (<c>%20</c> for space, <c>%25</c> for <c>%</c>, <c>%3D</c> for <c>=</c>).
+    /// Encoding is byte-oriented over the UTF-8 form of the string, so every non-ASCII
+    /// character is escaped and the encoded token is pure ASCII that round-trips
+    /// exactly. Numeric values use <see cref="CultureInfo.InvariantCulture"/>.</para>
     /// </summary>
     internal static class TestCommandProtocol
     {
         /// <summary>
         /// Percent-encodes <paramref name="value"/> for a single wire token.
-        /// Encodes <c>%</c>, <c>=</c>, ASCII space, control chars (&lt;= 0x20 and
-        /// 0x7F), and any other non-printable byte; all other bytes pass through
-        /// literally. Byte-oriented over the UTF-8 form so it round-trips with
-        /// <see cref="TryDecode"/>.
+        /// Encodes <c>%</c>, <c>=</c>, ASCII space and control chars (&lt;= 0x20),
+        /// and every byte &gt;= 0x7F (DEL plus all UTF-8 multibyte lead/continuation
+        /// bytes); only printable ASCII (0x21..0x7E, minus <c>%</c>/<c>=</c>) passes
+        /// through literally. Byte-oriented over the UTF-8 form so the encoded token is
+        /// pure ASCII and round-trips with <see cref="TryDecode"/>.
         /// </summary>
         internal static string Encode(string value)
         {
@@ -114,9 +116,12 @@ namespace Parsek.TestCommands
         private static bool NeedsEncoding(byte b)
         {
             // '%' (0x25) and '=' (0x3D) are the reserved delimiters; anything
-            // <= space (0x20, includes tab/newline/CR) or DEL (0x7F) is a control
-            // or whitespace byte that must not appear raw in a token.
-            return b == (byte)'%' || b == (byte)'=' || b <= 0x20 || b == 0x7F;
+            // <= space (0x20, includes tab/newline/CR) is a control or whitespace
+            // byte; and every byte >= DEL (0x7F) is either DEL or a UTF-8 multibyte
+            // lead/continuation byte. Encoding ALL of the latter keeps every wire
+            // token pure ASCII, so a non-ASCII value (a body name like "Mun" with a
+            // u-umlaut, CJK text) never rides raw and round-trips byte-for-byte.
+            return b == (byte)'%' || b == (byte)'=' || b <= 0x20 || b >= 0x7F;
         }
     }
 
