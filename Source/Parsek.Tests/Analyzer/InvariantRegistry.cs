@@ -26,6 +26,7 @@ namespace Parsek.Tests.Analyzer
                 new Inv5SchemaGate(),
                 new Inv4PartEventPid(),
                 new Inv6ResourceManifest(),
+                new Inv10CodecRoundtrip(),
             };
     }
 
