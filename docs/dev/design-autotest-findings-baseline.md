@@ -166,6 +166,15 @@ rule-id-embedded digits is harmless: the precise identity is carried by `RuleId`
 and `Target` separately, so the digest only needs to preserve the message's
 structural skeleton.
 
+The mask char `#` can collide with a literal `#` that a rule message itself emits
+(e.g. an INV3 message rendering a `target#section` reference): a message with a
+literal `#` and a message whose number masked to `#` can then produce the same
+digest. This is accepted, and the collision fails in the safe direction: it can only
+MERGE two digests within one already-fixed `(RuleId, Target, SectionIndex)` triple
+(the other three key components still separate everything else), and a merge only
+matters when a hand-authored entry exists for that exact triple. It cannot cross a
+rule / target / section boundary and therefore cannot silently un-red a fresh save.
+
 ### Changes to existing analyzer types
 
 Two additive changes to the report layer (these bump `AnalyzerVersion`, see
@@ -296,12 +305,15 @@ Two load-bearing facts underpin the key's stability:
   its presence and its digest are frozen run to run. This is what makes the primary
   case (the immutable INV2 five) permanently and losslessly baselinable: the key is
   computed over data that is definitionally stable.
-- **GUID-hex ids survive digit masking.** `NormalizeMessageDigest` masks numeric
-  runs, but a recordingId / treeId is a GUID hex string whose letters (a-f) are
-  preserved, so the id never collapses to `#` inside a message; and the id is
-  carried verbatim in `Target` regardless. A message that embeds two different GUID
-  ids therefore still produces two different digests, so the key never conflates
-  findings that differ only by id.
+- **GUID-hex ids are safe under digit masking because `Target` carries them
+  verbatim.** `NormalizeMessageDigest` masks numeric runs, and a GUID hex string's
+  letters (a-f) usually keep it from collapsing; but this is NOT absolute: a hex
+  segment shaped like `\d+[eE]\d+` (e.g. `12e34`) DOES match the numeric-run regex
+  (`e` binds as an exponent) and collapses to `#`, so a message embedding two
+  different ids can occasionally produce the same digest. The key stays fail-safe
+  regardless because the id is also carried VERBATIM in `Target`: two findings that
+  differ only by id differ in `Target` and never match, whether or not their digests
+  collapsed. The digest only needs to preserve message STRUCTURE, not id identity.
 
 **Placeholder-Target findings are never baselined.** Some findings carry a
 placeholder token as their Target instead of a concrete recordingId:
@@ -383,15 +395,22 @@ with its own entry point:
   harness verifier calls `OfflineAnalyzer.Run` with `BaselineMode.Forbid` on every
   fresh mission-produced save, so a smuggled baseline reds that run structurally.
 
-The five known historical saves have a dedicated recurring runner: a Manual xUnit
-theory (`[Theory]` over the historical save-list, one `[InlineData]` row per save)
-runs each in `Apply` mode and asserts the run is green (all its baked-in reds are
-baselined and no NEW finding surfaced). A new `scripts/analyze-historical-saves.ps1`
-loops the five saves, invoking that theory with `PARSEK_ANALYZER_BASELINE_MODE=apply`
-per save, so the historical corpus is a standing regression floor: green means "no
-new damage on any of the five", and any red is a genuinely new finding on top of the
-already-baselined INV2 overlaps. This is the concrete home for the two motivating
-situations in Problem case 1.
+The known historical saves have a dedicated recurring runner: a SINGLE Manual xUnit
+Fact (`Manual_HistoricalSaves_GreenUnderApply`) that reads a semicolon-separated
+`PARSEK_ANALYZER_HISTORICAL_SAVES` env list, loops each existing save in `Apply`
+mode, and asserts every one is green (all its baked-in reds are baselined and no NEW
+finding surfaced). A Fact over an env list is used instead of a `[Theory]` with
+baked-in `[InlineData]` rows because the save paths are machine-specific and not
+committable. `scripts/analyze-historical-saves.ps1` resolves the existing save dirs
+(from `-Saves` or the built-in `$DefaultSaves`), exports them as that env list, and
+drives the ONE Fact via `dotnet test --filter` (a single xUnit execution path,
+matching `analyze-recordings.ps1`'s design intent). The test writes each save's
+reports beside it (or under `PARSEK_ANALYZER_RESULTS`), and the script reports
+per-save GREEN/RED from each report's terminal `RED=` token (the same single gate
+source the aggregate assert is built from). So the historical corpus is a standing
+regression floor: green means "no new damage on any listed save", and any red is a
+genuinely new finding on top of the already-baselined INV2 overlaps. This is the
+concrete home for the two motivating situations in Problem case 1.
 
 ### Meta-findings emitted by the filter (Apply mode)
 
@@ -448,8 +467,10 @@ Baseline loading is `BaselineCodec.Load(path) -> (AnalysisBaseline, faults)`:
 - `baselineFormatVersion` greater than the analyzer understands ->
   `BASELINE-VERSION-FUTURE` FAIL. A future format cannot be safely applied.
 - `createdAtAnalyzerVersion` differing from the current report version -> still
-  applied (the KEY schema is independent of the REPORT schema) with a note folded
-  into a single INFO; only the baseline's own `baselineFormatVersion` gates hard.
+  applied (the KEY schema is independent of the REPORT schema); the difference is
+  folded into the one-shot baseline-load LOG line (the `createdAtVersion=` field),
+  NOT emitted as an INFO finding. Only the baseline's own `baselineFormatVersion`
+  gates hard.
 
 ### Authoring: `-WriteBaseline` (explicit, never automatic)
 
@@ -532,9 +553,10 @@ Each: scenario -> expected behavior -> v1 or deferred.
    with a `BASELINE-ENTRY-MALFORMED` WARN; the remaining entries apply. Partial
    damage does not void the whole baseline. v1.
 8. **Baseline from an older analyzer version.** -> `createdAtAnalyzerVersion`
-   differs from current; still applied (key schema is version-independent), folded
-   into an INFO. Only a newer `baselineFormatVersion` gates hard
-   (`BASELINE-VERSION-FUTURE` FAIL). v1.
+   differs from current; still applied (key schema is version-independent). The
+   difference is noted only in the one-shot baseline-load LOG line
+   (`createdAtVersion=`), not as an INFO finding. Only a newer `baselineFormatVersion`
+   gates hard (`BASELINE-VERSION-FUTURE` FAIL). v1.
 9. **Save copied / renamed WITH its baseline.** -> Keys use recordingId + ruleId +
    sectionIndex + digest, never the save NAME, and the baseline is loaded from the
    copy's own `analysis/baseline.cfg`. It matches unchanged; only the report's
@@ -649,8 +671,10 @@ line for the per-entry match sweep, plus bounded per-anomaly lines.
 - Parse fault: `Analyzer: baseline parse-fault path='<file>' reason=<r>` (Warn),
   mirroring the loader's loadFault line.
 - Write (`-WriteBaseline`): `Analyzer: baseline write save='<name>' entries=<n>
-  new=<a> preserved=<b> pruned=<c> skippedPlaceholder=<d> path='<file>'` (Info,
-  one-shot; `skippedPlaceholder` counts the S2 placeholder-Target findings not
+  new=<a> preserved=<b> pruned=<c> keptStale=<e> skippedPlaceholder=<d>
+  path='<file>'` (Info, one-shot; `keptStale` sits between `pruned` and
+  `skippedPlaceholder` and counts the `-KeepStaleBaselineEntries`-retained unmatched
+  entries; `skippedPlaceholder` counts the S2 placeholder-Target findings not
   captured, each also logged on its own Warn line).
 - IsRed recompute: `Analyzer: verdict red=<0|1> failNonBaselined=<n>
   staleNonBaselined=<s> failBaselined=<m>` (Info) so the baseline's effect on the
