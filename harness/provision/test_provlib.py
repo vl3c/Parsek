@@ -8,9 +8,72 @@ Each test names the regression it guards (design Test Plan). No pytest, no KSP,
 no network, no filesystem writes.
 """
 
+import os
+import tomllib
 import unittest
 
 import provlib
+
+
+PROFILES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "profiles")
+
+
+class RealProfileFileTests(unittest.TestCase):
+    """Guards BLOCKER 1: a bare `stackComponents` key placed AFTER a
+    `[[optionalMods]]` array-of-tables header binds to that table entry (not the
+    top level), silently leaving the profile with NO stack components -- a live
+    run would then install nothing while still writing a manifest. Loads the two
+    REAL on-disk profile files (not inline dicts, which cannot catch a TOML
+    placement bug) and asserts the top-level stack list + a non-empty
+    devSourcedMods for both."""
+
+    EXPECTED_STACK = ["krpc", "testingtools", "mechjeb2", "krpc_mechjeb", "parsek"]
+
+    def _load(self, name):
+        with open(os.path.join(PROFILES_DIR, name), "rb") as fh:
+            return tomllib.load(fh)
+
+    def test_stock_minimal_stack_and_devmods(self):
+        p = self._load("stock-minimal.toml")
+        self.assertEqual(p.get("stackComponents"), self.EXPECTED_STACK)
+        self.assertTrue(p.get("devSourcedMods"), "stock-minimal devSourcedMods must be non-empty")
+
+    def test_modded_compat_stack_and_devmods(self):
+        p = self._load("modded-compat.toml")
+        self.assertEqual(p.get("stackComponents"), self.EXPECTED_STACK)
+        self.assertTrue(p.get("devSourcedMods"), "modded-compat devSourcedMods must be non-empty")
+
+    def test_modded_compat_stack_not_swallowed_by_optionalmods(self):
+        # The precise BLOCKER 1 regression: the stack list must be top-level, and
+        # the optionalMods entry must NOT carry a stackComponents key.
+        p = self._load("modded-compat.toml")
+        for entry in p.get("optionalMods", []):
+            self.assertNotIn("stackComponents", entry)
+
+
+class PhaseInstallEmptyStackTests(unittest.TestCase):
+    """Guards reviewer 14 (the mask that hid BLOCKER 1): phase_install must WARN
+    loudly when a profile has no stackComponents instead of silently doing
+    nothing."""
+
+    def test_empty_stack_warns(self):
+        import provision
+        ctx = provision.ProvisionContext(
+            profile_name="broken", pins={}, profile={"stackComponents": []},
+            umbrella_root=".", dry_run=True, repair=False, parsek_dll_override=None)
+        provision.phase_install(ctx)
+        self.assertTrue(any("NO stackComponents" in l for l in ctx.log_lines),
+                        "empty stackComponents must produce a WARN")
+        self.assertTrue(any(l.startswith("[Provision][Warn][Install]") for l in ctx.log_lines))
+
+    def test_nonempty_stack_no_warn(self):
+        import provision
+        ctx = provision.ProvisionContext(
+            profile_name="ok", pins={},
+            profile={"stackComponents": ["krpc", "parsek"]},
+            umbrella_root=".", dry_run=True, repair=False, parsek_dll_override=None)
+        provision.phase_install(ctx)
+        self.assertFalse(any("NO stackComponents" in l for l in ctx.log_lines))
 
 
 class ResolvePinTests(unittest.TestCase):

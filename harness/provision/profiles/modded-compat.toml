@@ -27,6 +27,17 @@ devSourcedMods = [
   "DistantObject", "KSPTextureLoader", "HideEmptyTechTreeNodes",
 ]
 
+# Stack components installed by the script (not from dev GameData): kRPC,
+# TestingTools.dll, MechJeb2, KRPC.MechJeb, Parsek.
+#
+# MUST stay ABOVE the [[optionalMods]] array-of-tables below: TOML assigns every
+# bare key that follows a [[table]] header to THAT table entry, so a
+# stackComponents defined after [[optionalMods]] would silently become a key of
+# the PersistentRotation entry and leave the profile with NO stack components
+# (a live modded-compat run would install nothing while writing a manifest).
+# Guarded by test_provlib.RealProfileFileTests.
+stackComponents = ["krpc", "testingtools", "mechjeb2", "krpc_mechjeb", "parsek"]
+
 # Optional mods that may be absent from the dev GameData (GT-8 / EC-12).
 # required=false => absent is a WARN + `absent-source` manifest record, not an
 # abort. required=true => a genuinely missing source aborts.
@@ -34,8 +45,6 @@ devSourcedMods = [
 name = "PersistentRotation"
 required = false
 reason = "GT-8: not present in dev GameData; source a KSP-1.12 build separately or drop (O-4)."
-
-stackComponents = ["krpc", "testingtools", "mechjeb2", "krpc_mechjeb", "parsek"]
 
 # Same determinism-oriented settings deltas as stock-minimal (GT-8 keys).
 [settings]

@@ -492,7 +492,18 @@ def phase_deploy(ctx: ProvisionContext) -> Dict[str, object]:
 
 
 def phase_install(ctx: ProvisionContext) -> None:
-    for name in ctx.profile.get("stackComponents", []) or []:
+    stack = ctx.profile.get("stackComponents", []) or []
+    if not stack:
+        # An empty stack list is almost always a profile-TOML bug (a
+        # stackComponents key misplaced under a [[table]] header binds to that
+        # table and leaves the top-level list empty -- BLOCKER 1). Warn loudly
+        # rather than silently installing nothing.
+        log(ctx, "Warn", "Install",
+            "profile '%s' has NO stackComponents -- no stack payloads would be installed. "
+            "Check the profile TOML: a bare key placed after a [[table]] header silently "
+            "binds to that table and empties the top-level list." % ctx.profile_name)
+        return
+    for name in stack:
         if name == "parsek":
             continue
         log(ctx, "Info", "Install", "stack component %s -> GameData (hash into manifest)" % name)
