@@ -664,8 +664,8 @@ namespace Parsek.TestCommands
         // public members of the public MonoBehaviour. The pump dispatches via the interface
         // (InvokeExecutor casts this to ITestCommandExecutor).
         void ITestCommandExecutor.SetSetting(ParsedCommand cmd) => SetSettingImpl(cmd);
-        void ITestCommandExecutor.StartRecording(ParsedCommand cmd) => StubNotImplemented();
-        void ITestCommandExecutor.StopRecording(ParsedCommand cmd) => StubNotImplemented();
+        void ITestCommandExecutor.StartRecording(ParsedCommand cmd) => StartRecordingImpl(cmd);
+        void ITestCommandExecutor.StopRecording(ParsedCommand cmd) => StopRecordingImpl(cmd);
         void ITestCommandExecutor.CommitTree(ParsedCommand cmd) => StubNotImplemented();
         void ITestCommandExecutor.DiscardTree(ParsedCommand cmd) => StubNotImplemented();
         void ITestCommandExecutor.RecordingState(ParsedCommand cmd) => RecordingStateImpl(cmd);
@@ -811,6 +811,40 @@ namespace Parsek.TestCommands
             ParsekLog.Info(Tag,
                 $"recordingstate recording={Bool(hasFlight && isRecording)} tree={(hasFlight ? (treeId ?? string.Empty) : string.Empty)} points={Int(hasFlight ? points : 0)} scene={sceneName}{(hasFlight ? string.Empty : " (no-flight-instance)")}");
             SetExecResult("OK", payload, null);
+        }
+
+        // ----- StartRecording / StopRecording (P5.4, C1) -----
+        // Both underlying ParsekFlight methods return void, so the payload is derived
+        // from recorder-live state sampled around the call (C1). Dispatch guarantees
+        // FLIGHT, but the handlers are defensive against a null Instance.
+        private void StartRecordingImpl(ParsedCommand cmd)
+        {
+            bool alreadyLive = ParsekFlight.HasLiveRecorderForTagging();
+            ParsekFlight flight = ParsekFlight.Instance;
+            if (flight == null)
+            {
+                ParsekLog.Warn(Tag, "startrecording no-flight-instance");
+                SetExecResult("ERROR", null, "no-flight-instance");
+                return;
+            }
+
+            if (!alreadyLive)
+                flight.StartRecording();
+
+            string recordingId = ParsekFlight.GetActiveRecordingIdForTagging();
+            ParsekLog.Info(Tag, $"startrecording recordingId={recordingId} already={Bool(alreadyLive)}");
+            SetExecResult("OK", TestCommandRecordingVerbs.BuildStartPayload(alreadyLive, recordingId), null);
+        }
+
+        private void StopRecordingImpl(ParsedCommand cmd)
+        {
+            bool wasLive = ParsekFlight.HasLiveRecorderForTagging();
+            ParsekFlight flight = ParsekFlight.Instance;
+            if (wasLive && flight != null)
+                flight.StopRecording();
+
+            ParsekLog.Info(Tag, $"stoprecording stopped={Bool(wasLive)} idle={Bool(!wasLive)}");
+            SetExecResult("OK", TestCommandRecordingVerbs.BuildStopPayload(wasLive), null);
         }
 
         // ----- MissionMark (P5.3) -----
