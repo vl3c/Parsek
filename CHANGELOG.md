@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.4
 
+### Internals & Tests
+
+- The career recalculation walk now skips its redundant second action sort in the common case: each resource module's pre-pass reports whether it actually mutated the action list, and the engine re-sorts only when something changed (an expired-contract synthetic fail), instead of always re-sorting. Recalculated career values are unchanged. Ships with a `RecalculationFuzzer` acceptance harness (tens of thousands of randomized recalcs across cutoff shapes) plus unit coverage for the sort-count decision.
+
 ## 0.10.3
 
 ### Features
