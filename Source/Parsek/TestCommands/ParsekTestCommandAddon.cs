@@ -668,7 +668,7 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.StopRecording(ParsedCommand cmd) => StubNotImplemented();
         void ITestCommandExecutor.CommitTree(ParsedCommand cmd) => StubNotImplemented();
         void ITestCommandExecutor.DiscardTree(ParsedCommand cmd) => StubNotImplemented();
-        void ITestCommandExecutor.RecordingState(ParsedCommand cmd) => StubNotImplemented();
+        void ITestCommandExecutor.RecordingState(ParsedCommand cmd) => RecordingStateImpl(cmd);
         void ITestCommandExecutor.RunTests(ParsedCommand cmd) => StubNotImplemented();
         void ITestCommandExecutor.LoadGame(ParsedCommand cmd) => StubNotImplemented();
         void ITestCommandExecutor.MissionMark(ParsedCommand cmd) => StubNotImplemented();
@@ -784,6 +784,33 @@ namespace Parsek.TestCommands
                 case "RecordBlockCommittedActions": ParsekSettingsPersistence.RecordBlockCommittedActions(r.BoolValue); break;
                 case "RecordShowRouteLines": ParsekSettingsPersistence.RecordShowRouteLines(r.BoolValue); break;
             }
+        }
+
+        // ----- RecordingState (P5.2) -----
+        // Read-only recorder/tree snapshot, valid in ANY scene. With no live
+        // ParsekFlight (any non-flight scene, or flight not yet ready) the recorder is
+        // definitionally not recording, so recording=false with empty tree / zero points.
+        private void RecordingStateImpl(ParsedCommand cmd)
+        {
+            string sceneName = HighLogic.LoadedScene.ToString();
+            ParsekFlight flight = ParsekFlight.Instance;
+            bool hasFlight = flight != null;
+            bool isRecording = false;
+            string treeId = null;
+            int points = 0;
+            if (hasFlight)
+            {
+                RecorderStateSnapshot snap = flight.CaptureRecorderState();
+                isRecording = snap.isRecording;
+                treeId = snap.treeId;
+                points = snap.bufferedPoints;
+            }
+
+            List<KeyValuePair<string, string>> payload =
+                TestCommandRecordingState.BuildPayload(hasFlight, isRecording, treeId, points, sceneName);
+            ParsekLog.Info(Tag,
+                $"recordingstate recording={Bool(hasFlight && isRecording)} tree={(hasFlight ? (treeId ?? string.Empty) : string.Empty)} points={Int(hasFlight ? points : 0)} scene={sceneName}{(hasFlight ? string.Empty : " (no-flight-instance)")}");
+            SetExecResult("OK", payload, null);
         }
 
         private static string ReadLiveSettingForLog(string name)
