@@ -54,7 +54,7 @@ namespace Parsek.Tests.Logistics
         private sealed class CapturingWriters
         {
             public readonly List<(string Name, double Amount)> ResourceCalls = new List<(string, double)>();
-            public readonly List<(InventoryPayloadItem Item, int Slot)> InventoryCalls = new List<(InventoryPayloadItem, int)>();
+            public readonly List<(InventoryPayloadItem Item, int Slot, int Units)> InventoryCalls = new List<(InventoryPayloadItem, int, int)>();
             public readonly List<double> FundsDebits = new List<double>();
             public readonly List<GameAction> EmittedActions = new List<GameAction>();
 
@@ -69,9 +69,16 @@ namespace Parsek.Tests.Logistics
                 return total;
             }
 
-            public void WriteInventory(InventoryPayloadItem item, int slot) => InventoryCalls.Add((item, slot));
+            public void WriteInventory(InventoryPayloadItem item, int slot, int units) => InventoryCalls.Add((item, slot, units));
 
-            public int ReadInventoryActualCount() => InventoryCalls.Count;
+            /// <summary>Unit-accurate actual, mirroring the production contract (sum of stored units, not a line count).</summary>
+            public int ReadInventoryActualCount()
+            {
+                int total = 0;
+                for (int i = 0; i < InventoryCalls.Count; i++)
+                    total += InventoryCalls[i].Units;
+                return total;
+            }
 
             public void DebitFunds(double cost) => FundsDebits.Add(cost);
 
@@ -174,6 +181,47 @@ namespace Parsek.Tests.Logistics
         // ==================================================================
         // Tests
         // ==================================================================
+
+        // catches: inventory units not threaded through to the writer per planned
+        // line, skip lines (AssignedSlot -1) reaching the writer, or the actual
+        // count reverting to a LINE count (the pre-parity-fix semantics) instead
+        // of the unit-accurate sum.
+        [Fact]
+        public void InventoryLines_UnitsReachWriter_ActualIsUnitAccurate()
+        {
+            var route = BuildInTransitKscRoute();
+            var item = new InventoryPayloadItem
+            {
+                IdentityHash = "h-stack",
+                PartName = "evaRepairKit",
+                Quantity = 10,
+                SlotsTaken = 1,
+            };
+            var plan = new DeliveryPlan(
+                Array.Empty<ResourceDeliveryLine>(),
+                new List<InventoryDeliveryLine>
+                {
+                    new InventoryDeliveryLine(item, 0, 4),
+                    new InventoryDeliveryLine(item, 1, 4),
+                    new InventoryDeliveryLine(item, -1, 2), // skipped remainder
+                },
+                isPartial: true,
+                isZero: false);
+            var writers = new CapturingWriters();
+            var ctx = BuildContext(writers, isCareer: false, isKscOrigin: false, kscFundsCost: 0.0);
+
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, plan, ctx);
+
+            // Only the two assigned lines reach the writer, each with its units.
+            Assert.Equal(2, writers.InventoryCalls.Count);
+            Assert.Equal((0, 4), (writers.InventoryCalls[0].Slot, writers.InventoryCalls[0].Units));
+            Assert.Equal((1, 4), (writers.InventoryCalls[1].Slot, writers.InventoryCalls[1].Units));
+
+            // The delivery summary logs unit-accurate actual/attempted plus the
+            // planner-skipped remainder.
+            Assert.Contains(logLines, l => l.Contains("inventoryUnits=8/8") && l.Contains("inventoryUnitsSkipped=2"));
+            Assert.Equal(RouteStatus.Active, route.Status);
+        }
 
         // catches: missing funds debit OR wrong sign.
         [Fact]

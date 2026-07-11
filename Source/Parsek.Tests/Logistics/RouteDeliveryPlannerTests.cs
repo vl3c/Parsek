@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Parsek;
 using Parsek.Logistics;
@@ -55,6 +56,36 @@ namespace Parsek.Tests.Logistics
                     SlotQueue.RemoveAt(0);
                 }
             }
+
+            /// <summary>Prefab stackableQuantity fallback per part name; parts absent here report 1.</summary>
+            public Dictionary<string, int> StackableQuantityByPart = new Dictionary<string, int>();
+
+            /// <summary>
+            /// Optional volume/mass admission script: (item, requestedUnits) →
+            /// admitted units. Null = everything fits (the default so the
+            /// pre-existing slot-focused tests run unchanged).
+            /// </summary>
+            public Func<InventoryPayloadItem, int, int> UnitsThatFit;
+
+            /// <summary>Capacity consumptions the planner claimed, in call order.</summary>
+            public List<(string PartName, int Units)> ConsumedCapacity = new List<(string, int)>();
+
+            public int ProbeInventoryStackableQuantity(InventoryPayloadItem item)
+            {
+                if (item?.PartName == null) return 1;
+                int cap;
+                return StackableQuantityByPart.TryGetValue(item.PartName, out cap) && cap > 0 ? cap : 1;
+            }
+
+            public int ProbeInventoryUnitsThatFit(InventoryPayloadItem item, int requestedUnits)
+            {
+                return UnitsThatFit != null ? UnitsThatFit(item, requestedUnits) : requestedUnits;
+            }
+
+            public void ConsumeInventoryCapacity(InventoryPayloadItem item, int units)
+            {
+                ConsumedCapacity.Add((item?.PartName, units));
+            }
         }
 
         private static Route MakeRouteWithStop(RouteStop stop)
@@ -66,15 +97,30 @@ namespace Parsek.Tests.Logistics
             };
         }
 
-        private static InventoryPayloadItem MakeItem(string hash, string partName)
+        private static InventoryPayloadItem MakeItem(
+            string hash, string partName, int quantity = 1, ConfigNode snapshot = null)
         {
             return new InventoryPayloadItem
             {
                 IdentityHash = hash,
                 PartName = partName,
-                Quantity = 1,
+                Quantity = quantity,
                 SlotsTaken = 1,
+                StoredPartSnapshot = snapshot,
             };
+        }
+
+        /// <summary>Minimal STOREDPART wrapper carrying an explicit stackCapacity value.</summary>
+        private static ConfigNode MakeStoredPartSnapshot(string partName, int? stackCapacity = null)
+        {
+            var snapshot = new ConfigNode("STOREDPART");
+            snapshot.AddValue("partName", partName);
+            if (stackCapacity.HasValue)
+                snapshot.AddValue("stackCapacity", stackCapacity.Value.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture));
+            var partNode = snapshot.AddNode("PART");
+            partNode.AddValue("name", partName);
+            return snapshot;
         }
 
         // catches: clamp logic returning Available < Requested when there's headroom.
@@ -479,6 +525,248 @@ namespace Parsek.Tests.Logistics
 
             Assert.Single(plan.Resources);
             Assert.Equal("LiquidFuel", plan.Resources[0].Name);
+        }
+
+        // catches: over-compressed manifest (Quantity > stackCapacity) planned into
+        // ONE slot — the pre-fix behavior that persisted an invalid stock state
+        // (quantity=10 in a single non-stackable slot on the unloaded path) and
+        // silently dropped 9 of 10 units on the loaded path.
+        [Fact]
+        public void Inventory_QuantityAboveStackCapacity_SplitsAcrossSlots()
+        {
+            var stop = new RouteStop
+            {
+                InventoryDeliveryManifest = new List<InventoryPayloadItem>
+                {
+                    MakeItem("h-a", "partA", quantity: 10,
+                        snapshot: MakeStoredPartSnapshot("partA", stackCapacity: 4)),
+                },
+            };
+            var route = MakeRouteWithStop(stop);
+            var probe = new FakeDeliveryCapacityProbe
+            {
+                SlotQueue = new List<int> { 0, 1, 2, 3 },
+            };
+
+            var plan = RouteDeliveryPlanner.PrepareDelivery(route, 0, probe);
+
+            // ceil(10 / 4) = 3 slots: 4 + 4 + 2 units.
+            Assert.Equal(3, plan.Inventory.Count);
+            Assert.Equal(0, plan.Inventory[0].AssignedSlot);
+            Assert.Equal(4, plan.Inventory[0].Units);
+            Assert.Equal(1, plan.Inventory[1].AssignedSlot);
+            Assert.Equal(4, plan.Inventory[1].Units);
+            Assert.Equal(2, plan.Inventory[2].AssignedSlot);
+            Assert.Equal(2, plan.Inventory[2].Units);
+            Assert.Equal(new List<int> { 0, 1, 2 }, probe.ConsumedSlots);
+            // Every placed stack claimed its volume/mass budget.
+            Assert.Equal(3, probe.ConsumedCapacity.Count);
+            Assert.False(plan.IsPartial);
+            Assert.False(plan.IsZero);
+        }
+
+        // catches: non-stackable items (stackCapacity=1, e.g. resource-bearing cargo)
+        // packed multiple-per-slot instead of one slot per unit.
+        [Fact]
+        public void Inventory_NonStackable_OneSlotPerUnit()
+        {
+            var item = MakeItem("h-a", "partA", quantity: 3,
+                snapshot: MakeStoredPartSnapshot("partA", stackCapacity: 1));
+            var stop = new RouteStop
+            {
+                InventoryDeliveryManifest = new List<InventoryPayloadItem> { item },
+            };
+            var route = MakeRouteWithStop(stop);
+            var probe = new FakeDeliveryCapacityProbe
+            {
+                SlotQueue = new List<int> { 2, 5, 7 },
+            };
+
+            var plan = RouteDeliveryPlanner.PrepareDelivery(route, 0, probe);
+
+            Assert.Equal(3, plan.Inventory.Count);
+            foreach (var line in plan.Inventory)
+                Assert.Equal(1, line.Units);
+            Assert.Equal(new List<int> { 2, 5, 7 }, probe.ConsumedSlots);
+            Assert.False(plan.IsPartial);
+        }
+
+        // catches: slots running out mid-item not surfacing as a partial plan with
+        // the unplaced unit count.
+        [Fact]
+        public void Inventory_SlotsRunOutMidItem_RemainderSkippedAsPartial()
+        {
+            var stop = new RouteStop
+            {
+                InventoryDeliveryManifest = new List<InventoryPayloadItem>
+                {
+                    MakeItem("h-a", "partA", quantity: 10,
+                        snapshot: MakeStoredPartSnapshot("partA", stackCapacity: 4)),
+                },
+            };
+            var route = MakeRouteWithStop(stop);
+            var probe = new FakeDeliveryCapacityProbe
+            {
+                SlotQueue = new List<int> { 0, 1 }, // room for 8 of 10 units
+            };
+
+            var plan = RouteDeliveryPlanner.PrepareDelivery(route, 0, probe);
+
+            Assert.Equal(3, plan.Inventory.Count);
+            Assert.Equal(4, plan.Inventory[0].Units);
+            Assert.Equal(4, plan.Inventory[1].Units);
+            Assert.Equal(-1, plan.Inventory[2].AssignedSlot);
+            Assert.Equal(2, plan.Inventory[2].Units); // 2 units did not fit
+            Assert.True(plan.IsPartial);
+            Assert.False(plan.IsZero);
+        }
+
+        // catches: the unloaded-path volume/mass hole — an item the probe refuses
+        // (oversized for the container) must be SKIPPED by the planner, not handed
+        // to the writer to append anyway.
+        [Fact]
+        public void Inventory_VolumeRejected_ItemSkipped()
+        {
+            var stop = new RouteStop
+            {
+                InventoryDeliveryManifest = new List<InventoryPayloadItem>
+                {
+                    MakeItem("h-a", "hugePart", quantity: 1,
+                        snapshot: MakeStoredPartSnapshot("hugePart", stackCapacity: 1)),
+                },
+            };
+            var route = MakeRouteWithStop(stop);
+            var probe = new FakeDeliveryCapacityProbe
+            {
+                SlotQueue = new List<int> { 0 },       // an empty slot EXISTS
+                UnitsThatFit = (item, want) => 0,      // but the item does not fit
+            };
+
+            var plan = RouteDeliveryPlanner.PrepareDelivery(route, 0, probe);
+
+            Assert.Single(plan.Inventory);
+            Assert.Equal(-1, plan.Inventory[0].AssignedSlot);
+            Assert.Equal(1, plan.Inventory[0].Units);
+            Assert.Empty(probe.ConsumedSlots); // no slot burned on a rejected item
+            Assert.True(plan.IsPartial);
+            Assert.True(plan.IsZero);
+        }
+
+        // catches: partial volume admission (fewer units fit than a full stack)
+        // not clamping the stack or not marking the remainder skipped.
+        [Fact]
+        public void Inventory_VolumeAdmitsPartialStack_RestSkipped()
+        {
+            var stop = new RouteStop
+            {
+                InventoryDeliveryManifest = new List<InventoryPayloadItem>
+                {
+                    MakeItem("h-a", "partA", quantity: 10,
+                        snapshot: MakeStoredPartSnapshot("partA", stackCapacity: 4)),
+                },
+            };
+            var route = MakeRouteWithStop(stop);
+            int admissionCalls = 0;
+            var probe = new FakeDeliveryCapacityProbe
+            {
+                SlotQueue = new List<int> { 0, 1 },
+                // First stack: only 2 of 4 fit. After that the budget is gone.
+                UnitsThatFit = (item, want) => (++admissionCalls == 1) ? 2 : 0,
+            };
+
+            var plan = RouteDeliveryPlanner.PrepareDelivery(route, 0, probe);
+
+            Assert.Equal(2, plan.Inventory.Count);
+            Assert.Equal(0, plan.Inventory[0].AssignedSlot);
+            Assert.Equal(2, plan.Inventory[0].Units);
+            Assert.Equal(-1, plan.Inventory[1].AssignedSlot);
+            Assert.Equal(8, plan.Inventory[1].Units);
+            Assert.True(plan.IsPartial);
+            Assert.False(plan.IsZero);
+        }
+
+        // ==================================================================
+        // ResolveStackCapacity
+        // ==================================================================
+
+        // catches: wrapper stackCapacity (the recorded stock value) not winning.
+        [Fact]
+        public void ResolveStackCapacity_WrapperValue_Wins()
+        {
+            var snapshot = MakeStoredPartSnapshot("partA", stackCapacity: 6);
+            snapshot.GetNode("PART").AddValue("moduleCargoStackableQuantity", "9");
+            var item = MakeItem("h-a", "partA", quantity: 1, snapshot: snapshot);
+            var probe = new FakeDeliveryCapacityProbe
+            {
+                StackableQuantityByPart = { { "partA", 12 } },
+            };
+
+            Assert.Equal(6, RouteDeliveryPlanner.ResolveStackCapacity(item, probe));
+        }
+
+        // catches: the inner PART node's moduleCargoStackableQuantity fallback
+        // (stock ProtoPartSnapshot.Save writes it) being ignored.
+        [Fact]
+        public void ResolveStackCapacity_InnerPartValue_UsedWhenWrapperMissing()
+        {
+            var snapshot = MakeStoredPartSnapshot("partA");
+            snapshot.GetNode("PART").AddValue("moduleCargoStackableQuantity", "9");
+            var item = MakeItem("h-a", "partA", quantity: 1, snapshot: snapshot);
+            var probe = new FakeDeliveryCapacityProbe();
+
+            Assert.Equal(9, RouteDeliveryPlanner.ResolveStackCapacity(item, probe));
+        }
+
+        // catches: the live prefab fallback (ModuleCargoPart.stackableQuantity via
+        // the probe) being skipped when the payload has no snapshot at all.
+        [Fact]
+        public void ResolveStackCapacity_ProbeFallback_UsedOnlyWithoutSnapshot()
+        {
+            var probe = new FakeDeliveryCapacityProbe
+            {
+                StackableQuantityByPart = { { "partA", 8 } },
+            };
+
+            // No snapshot: prefab fallback applies.
+            var noSnapshot = MakeItem("h-a", "partA", quantity: 1);
+            Assert.Equal(8, RouteDeliveryPlanner.ResolveStackCapacity(noSnapshot, probe));
+
+            // Snapshot present but silent on stack values: the writers can
+            // only persist stack capacity 1 (loaded UpdateStackAmountAtSlot
+            // clamps to the snapshot-derived capacity, unloaded
+            // StoredPart.Load defaults to 1), so the prefab value must NOT
+            // widen the plan beyond that.
+            var silentSnapshot = MakeItem("h-a", "partA", quantity: 1,
+                snapshot: MakeStoredPartSnapshot("partA"));
+            Assert.Equal(1, RouteDeliveryPlanner.ResolveStackCapacity(silentSnapshot, probe));
+        }
+
+        // catches: resource-bearing cargo stacked above 1 — stock ModuleCargoPart
+        // forces stackableQuantity=1 for parts containing resources, so a bigger
+        // recorded value must not leak into the plan.
+        [Fact]
+        public void ResolveStackCapacity_ResourceBearing_ForcedToOne()
+        {
+            var item = MakeItem("h-a", "partA", quantity: 1,
+                snapshot: MakeStoredPartSnapshot("partA", stackCapacity: 4));
+            item.StoredResources = new Dictionary<string, ResourceAmount>
+            {
+                { "MonoPropellant", new ResourceAmount { amount = 5.0, maxAmount = 5.0 } },
+            };
+            var probe = new FakeDeliveryCapacityProbe();
+
+            Assert.Equal(1, RouteDeliveryPlanner.ResolveStackCapacity(item, probe));
+        }
+
+        // catches: null snapshot / null probe crashing the resolver instead of
+        // defaulting to 1.
+        [Fact]
+        public void ResolveStackCapacity_NoData_DefaultsToOne()
+        {
+            var item = MakeItem("h-a", "partA");
+            Assert.Equal(1, RouteDeliveryPlanner.ResolveStackCapacity(item, new FakeDeliveryCapacityProbe()));
+            Assert.Equal(1, RouteDeliveryPlanner.ResolveStackCapacity(item, null));
+            Assert.Equal(1, RouteDeliveryPlanner.ResolveStackCapacity(null, null));
         }
 
         // catches: negative capacity propagating into apply path (would cause negative resource writes).
