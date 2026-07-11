@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Parsek.Tests.Analyzer
+namespace Parsek.Analyzer
 {
     // Loader/core output for one analysis subject (design doc "Loader output and
     // report"). The report format is a frozen output contract: AnalyzerVersion is
