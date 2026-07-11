@@ -19,6 +19,7 @@ namespace Parsek.Tests.Analyzer
         internal static IReadOnlyList<IRecordingInvariant> AllRules { get; } =
             new List<IRecordingInvariant>
             {
+                new Inv1UtMonotonic(),
                 new Inv2NoDoubleCover(),
                 new Inv7TreeTopology(),
             };
