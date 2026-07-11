@@ -159,6 +159,8 @@ namespace Parsek.Logistics
                 node.AddValue("lastPartialDeliverySummary", route.LastPartialDeliverySummary);
             if (route.LastPartialDeliveryUT >= 0.0)
                 node.AddValue("lastPartialDeliveryUT", route.LastPartialDeliveryUT.ToString("R", ic));
+            if (!string.IsNullOrEmpty(route.LastPartialDeliveryCycleId))
+                node.AddValue("lastPartialDeliveryCycleId", route.LastPartialDeliveryCycleId);
 
             // --- Backing-mission definition (Phase 1) ---
             if (!string.IsNullOrEmpty(route.BackingMissionTreeId))
@@ -346,6 +348,7 @@ namespace Parsek.Logistics
             route.LastPartialDeliverySummary = NullIfEmpty(node.GetValue("lastPartialDeliverySummary"));
             TryParseDoubleWithDefault(node.GetValue("lastPartialDeliveryUT"), inv, ic, -1.0,
                 out route.LastPartialDeliveryUT);
+            route.LastPartialDeliveryCycleId = NullIfEmpty(node.GetValue("lastPartialDeliveryCycleId"));
 
             // --- Backing-mission definition (Phase 1) ---
             // A missing backing-mission definition does NOT reject the route —

@@ -179,7 +179,7 @@ namespace Parsek.Tests.Logistics
                 .WithLastHold(
                     RouteDispatchEvaluator.EligibilityFailureKind.FundsShort,
                     "funds-short", 1234.5, 257000.0)
-                .WithLastPartialDelivery("Oxidizer 60/120; evaJetpack 0/2 (no slot)", 258000.0)
+                .WithLastPartialDelivery("Oxidizer 60/120; evaJetpack 0/2 (no slot)", 258000.0, "cycle-7")
                 .Build();
         }
 
@@ -255,6 +255,7 @@ namespace Parsek.Tests.Logistics
             // Last-partial-delivery report (destination-capacity gate follow-up)
             Assert.Equal(original.LastPartialDeliverySummary, roundTripped.LastPartialDeliverySummary);
             Assert.Equal(original.LastPartialDeliveryUT, roundTripped.LastPartialDeliveryUT);
+            Assert.Equal(original.LastPartialDeliveryCycleId, roundTripped.LastPartialDeliveryCycleId);
 
             // Backing-mission definition (Phase 1)
             Assert.Equal(original.BackingMissionTreeId, roundTripped.BackingMissionTreeId);
@@ -851,6 +852,8 @@ namespace Parsek.Tests.Logistics
                 "lastPartialDeliverySummary must be omitted when null");
             Assert.False(node.HasValue("lastPartialDeliveryUT"),
                 "lastPartialDeliveryUT must be omitted when -1");
+            Assert.False(node.HasValue("lastPartialDeliveryCycleId"),
+                "lastPartialDeliveryCycleId must be omitted when null");
         }
 
         // catches (M6 hold reasons): a pre-M6 save shape (no lastHold* keys)

@@ -3983,21 +3983,32 @@ namespace Parsek.Logistics
             // so a partial HERE means capacity shrank between the gate and this
             // write - the undelivered remainder is lost (origin already debited,
             // the transport is a ghost) and the player must be able to see what.
-            // A FULL delivery clears any stale report so it never outlives the
-            // condition.
+            // Cycle-scoped: a multi-stop cycle fires several windows under ONE
+            // cycle id, so same-cycle partials APPEND into one report and a full
+            // window only clears a report from an EARLIER cycle (else window B's
+            // full delivery would erase window A's recorded loss mid-cycle).
+            bool sameCycleReport = string.Equals(
+                route.LastPartialDeliveryCycleId, ctx.CycleId, StringComparison.Ordinal);
             if (plan.IsPartial)
             {
-                route.LastPartialDeliverySummary = BuildPartialDeliverySummary(
+                string summary = BuildPartialDeliverySummary(
                     plan, ctx.ResourceActualReader, inventoryActual, inventoryLinesAttempted);
+                route.LastPartialDeliverySummary =
+                    sameCycleReport && !string.IsNullOrEmpty(route.LastPartialDeliverySummary)
+                        ? AppendPartialDeliverySummary(route.LastPartialDeliverySummary, summary)
+                        : summary;
                 route.LastPartialDeliveryUT = ctx.CurrentUT;
+                route.LastPartialDeliveryCycleId = ctx.CycleId;
                 ParsekLog.Warn(Tag,
                     $"Delivery: route {ShortIdForLog(route)} cycle={ctx.CycleId} PARTIAL - " +
                     $"undelivered remainder is lost: {route.LastPartialDeliverySummary}");
             }
-            else if (route.LastPartialDeliverySummary != null || route.LastPartialDeliveryUT >= 0.0)
+            else if (!sameCycleReport
+                && (route.LastPartialDeliverySummary != null || route.LastPartialDeliveryUT >= 0.0))
             {
                 route.LastPartialDeliverySummary = null;
                 route.LastPartialDeliveryUT = -1.0;
+                route.LastPartialDeliveryCycleId = null;
                 ParsekLog.Verbose(Tag,
                     $"Delivery: route {ShortIdForLog(route)} full delivery cleared the last-partial report");
             }
@@ -4041,6 +4052,22 @@ namespace Parsek.Logistics
                 $"inventory={inventoryActual.ToString(IC)}/{inventoryLinesAttempted.ToString(IC)} " +
                 $"partial={(plan.IsPartial ? "1" : "0")} " +
                 $"ut={ctx.CurrentUT.ToString("R", IC)}");
+        }
+
+        /// <summary>
+        /// Joins a same-cycle earlier window's partial summary with this
+        /// window's, capped at the same length bound as
+        /// <see cref="BuildPartialDeliverySummary"/> so a many-window partial
+        /// cycle cannot bloat the .sfs.
+        /// </summary>
+        internal static string AppendPartialDeliverySummary(string existing, string addition)
+        {
+            const int MaxSummaryChars = 240;
+            if (string.IsNullOrEmpty(existing)) return addition;
+            if (string.IsNullOrEmpty(addition)) return existing;
+            string combined = existing + "; " + addition;
+            if (combined.Length <= MaxSummaryChars) return combined;
+            return combined.Substring(0, MaxSummaryChars - 3) + "...";
         }
 
         /// <summary>

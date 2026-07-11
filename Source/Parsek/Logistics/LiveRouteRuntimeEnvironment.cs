@@ -226,13 +226,14 @@ namespace Parsek.Logistics
                 if (!inventoryCovered)
                 {
                     // Legible token (never the bare hash when the manifest can
-                    // name the part): "inventory:<partName>" for a genuinely
-                    // absent part, "inventory-state:<partName>" when the origin
-                    // holds the part under a DIFFERENT identity hash (near-miss:
-                    // charge / fuel / contents drifted from the recorded cargo).
+                    // name the part): "inventory:<partName>" for an absent or
+                    // under-stocked part, "inventory-state:<partName>" when the
+                    // origin holds EXTRA same-name parts under a DIFFERENT
+                    // identity hash (near-miss: charge / fuel / contents drifted
+                    // from the recorded cargo).
                     lackingResource = RouteOriginCargoCheck.BuildInventoryShortToken(
-                        route.InventoryCostManifest, shortIdentity,
-                        inventoryWriter.CountStoredByPartName, out int nearMissCount);
+                        route.InventoryCostManifest, shortIdentity, shortInventory,
+                        inventoryWriter.CountStoredByPartName, out int stateMismatchCount);
                     ParsekLog.VerboseRateLimited(Tag, "origin-inventory-short-" + route.Id,
                         $"OriginHasCargo: route {ShortIdForRoute(route)} " +
                         $"origin={originVessel.vesselName ?? "<none>"} " +
@@ -240,7 +241,7 @@ namespace Parsek.Logistics
                         $"short inventory identity={shortIdentity} " +
                         $"shortBy={shortInventory.ToString(IC)} " +
                         $"token={lackingResource} " +
-                        $"nearMissByName={nearMissCount.ToString(IC)} " +
+                        $"stateMismatchByName={stateMismatchCount.ToString(IC)} " +
                         $"path={(originIsLoaded ? "loaded" : "unloaded")}");
                     return false;
                 }
@@ -484,6 +485,13 @@ namespace Parsek.Logistics
 
             int resolvedStops = 0;
             int unresolvedStops = 0;
+            // One probe per resolved vessel PID, shared across stops that
+            // deliver to the same destination: the gate accumulates planned
+            // resource amounts per probe instance and the planner's consumed
+            // inventory slots live on the instance, so two windows to one
+            // station are checked against the COMBINED manifest (a fresh probe
+            // per stop would let the combined manifest overflow the tank).
+            var probeByPid = new Dictionary<uint, IDeliveryCapacityProbe>();
             bool hasCapacity = RouteDestinationCapacityCheck.HasCapacityForAllStops(
                 route,
                 stopIndex =>
@@ -497,10 +505,15 @@ namespace Parsek.Logistics
                         return null; // fail-open: endpoint gate owns this failure
                     }
                     resolvedStops++;
+                    uint pid = vessel.persistentId;
+                    if (probeByPid.TryGetValue(pid, out IDeliveryCapacityProbe cached))
+                        return cached;
                     // Capture the loaded gate ONCE per stop vessel, same
                     // contract as the delivery applier's destinationIsLoaded.
                     bool isLoaded = vessel.loaded && !vessel.packed;
-                    return new LiveDeliveryCapacityProbe(vessel, isLoaded);
+                    var probe = new LiveDeliveryCapacityProbe(vessel, isLoaded);
+                    probeByPid[pid] = probe;
+                    return probe;
                 },
                 out string fullToken,
                 out int fullStopIndex);

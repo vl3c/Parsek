@@ -210,6 +210,71 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(1, stopIndex);
         }
 
+        // catches: two stops delivering to the SAME destination each being
+        // checked against the full free capacity (fresh-probe hole): the
+        // caller returns the SAME probe instance per vessel and the gate must
+        // account the combined resource manifest against it.
+        [Fact]
+        public void SameDestination_TwoStops_CombinedResourcesGate()
+        {
+            var stopA = new RouteStop
+            {
+                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 60.0 } },
+            };
+            var stopB = new RouteStop
+            {
+                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 60.0 } },
+            };
+            var route = MakeRoute(stopA, stopB);
+            var shared = new FakeProbe
+            {
+                ResourceCapacity = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+            };
+
+            bool ok = RouteDestinationCapacityCheck.HasCapacityForAllStops(
+                route, _ => shared, out string token, out int stopIndex);
+
+            Assert.False(ok); // 60 + 60 > 100 even though each fits alone
+            Assert.Equal("LiquidFuel", token);
+            Assert.Equal(1, stopIndex);
+
+            // With 120 free, the combined manifest fits.
+            shared.ResourceCapacity["LiquidFuel"] = 120.0;
+            Assert.True(RouteDestinationCapacityCheck.HasCapacityForAllStops(
+                route, _ => shared, out _, out _));
+        }
+
+        // catches: two stops' stored parts each being offered the same single
+        // inventory slot (the shared probe's consumed-slot tracking must span
+        // stops).
+        [Fact]
+        public void SameDestination_TwoStops_SharedInventorySlots()
+        {
+            var stopA = new RouteStop
+            {
+                InventoryDeliveryManifest = new List<InventoryPayloadItem>
+                {
+                    MakeItem("hashA", "evaJetpack"),
+                },
+            };
+            var stopB = new RouteStop
+            {
+                InventoryDeliveryManifest = new List<InventoryPayloadItem>
+                {
+                    MakeItem("hashB", "sensorThermometer"),
+                },
+            };
+            var route = MakeRoute(stopA, stopB);
+            var shared = new FakeProbe { SlotQueue = new List<int> { 0 } }; // ONE slot
+
+            bool ok = RouteDestinationCapacityCheck.HasCapacityForAllStops(
+                route, _ => shared, out string token, out int stopIndex);
+
+            Assert.False(ok);
+            Assert.Equal("stored-part:sensorThermometer", token);
+            Assert.Equal(1, stopIndex);
+        }
+
         // catches: degenerate inputs throwing or holding (null route / stops /
         // factory all mean "nothing to gate").
         [Fact]

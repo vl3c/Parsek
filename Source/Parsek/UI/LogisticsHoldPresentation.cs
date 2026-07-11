@@ -59,7 +59,7 @@ namespace Parsek
                     // Destination-capacity gate: an inventory-slot shortfall
                     // names the stored part ("stored-part:<partName>"); a bare
                     // token is a resource name.
-                    string storedPart = TryStripPrefix(resource, "stored-part:");
+                    string storedPart = TryStripPrefix(resource, RouteDestinationCapacityCheck.StoredPartTokenPrefix);
                     if (storedPart != null)
                     {
                         return storedPart.Length == 0
@@ -220,7 +220,7 @@ namespace Parsek
             string inventoryName = TryStripPrefix(token, "inventory:");
             if (inventoryName != null)
             {
-                return inventoryName.Length == 0 || LooksLikeIdentityHash(inventoryName)
+                return inventoryName.Length == 0 || IsOpaqueInventoryTail(inventoryName)
                     ? "origin is missing a required stored part - delivers when the origin holds it"
                     : "origin is missing stored part '" + inventoryName
                         + "' - delivers when the origin holds it";
@@ -257,7 +257,7 @@ namespace Parsek
             string inventoryName = TryStripPrefix(shortToken, "inventory:");
             if (inventoryName != null)
             {
-                return inventoryName.Length == 0 || LooksLikeIdentityHash(inventoryName)
+                return inventoryName.Length == 0 || IsOpaqueInventoryTail(inventoryName)
                     ? name + " is missing a required stored part - delivers when it holds it"
                     : name + " is missing stored part '" + inventoryName
                         + "' - delivers when it holds it";
@@ -361,7 +361,7 @@ namespace Parsek
                 case RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull:
                 {
                     string resource = StripPrefix(detail, "destination-full-");
-                    string storedPart = TryStripPrefix(resource, "stored-part:");
+                    string storedPart = TryStripPrefix(resource, RouteDestinationCapacityCheck.StoredPartTokenPrefix);
                     if (storedPart != null)
                     {
                         return storedPart.Length == 0
@@ -435,7 +435,7 @@ namespace Parsek
                 string sourceInventoryName = TryStripPrefix(shortToken, "inventory:");
                 if (sourceInventoryName != null)
                 {
-                    return sourceInventoryName.Length == 0 || LooksLikeIdentityHash(sourceInventoryName)
+                    return sourceInventoryName.Length == 0 || IsOpaqueInventoryTail(sourceInventoryName)
                         ? name + " missing a stored part"
                         : name + " missing '" + sourceInventoryName + "'";
                 }
@@ -453,7 +453,7 @@ namespace Parsek
             string inventoryName = TryStripPrefix(token, "inventory:");
             if (inventoryName != null)
             {
-                return inventoryName.Length == 0 || LooksLikeIdentityHash(inventoryName)
+                return inventoryName.Length == 0 || IsOpaqueInventoryTail(inventoryName)
                     ? "origin missing a stored part"
                     : "origin missing '" + inventoryName + "'";
             }
@@ -530,6 +530,21 @@ namespace Parsek
                     return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// True when an <c>inventory:</c> token tail is NOT a part name and
+        /// must render the generic category text instead of being quoted as
+        /// one: a canonical identity hash (pre-legibility persisted holds) or
+        /// an internal gate marker (<c>null-stored-counter</c>, the defensive
+        /// null-reader branch of <c>RouteOriginCargoCheck.HasRequiredInventory</c>).
+        /// Quoting either as a "part name" would show the player an internal
+        /// code - the exact failure the legible tokens exist to remove.
+        /// </summary>
+        internal static bool IsOpaqueInventoryTail(string tail)
+        {
+            return LooksLikeIdentityHash(tail)
+                || string.Equals(tail, "null-stored-counter", System.StringComparison.Ordinal);
         }
 
         /// <summary>

@@ -295,6 +295,17 @@ namespace Parsek.Logistics
         /// </summary>
         public double LastPartialDeliveryUT = -1.0;
 
+        /// <summary>
+        /// Cycle id the partial report belongs to; null when unset. A
+        /// multi-stop cycle delivers several windows under ONE cycle id, so
+        /// the orchestrator APPENDS same-cycle partials into one report and a
+        /// full window only clears a report from an EARLIER cycle - without
+        /// this key, window B's full delivery would erase window A's recorded
+        /// loss inside the same cycle. Sparse in the codec (omitted when
+        /// null/empty).
+        /// </summary>
+        public string LastPartialDeliveryCycleId;
+
         // --- Backing-mission definition (design §0; Phase 1) ---
 
         /// <summary>

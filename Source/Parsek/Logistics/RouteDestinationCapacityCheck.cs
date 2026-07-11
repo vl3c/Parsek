@@ -51,6 +51,17 @@ namespace Parsek.Logistics
         /// the stop it was found at. Stops with no delivery manifest (pure
         /// pickup windows) and stops whose probe is null (unresolved vessel,
         /// fail-open) are skipped.
+        ///
+        /// <para><b>Same-destination stops share capacity.</b> The caller must
+        /// return the SAME probe instance for stops resolving to the same
+        /// vessel; this gate then accumulates planned RESOURCE amounts per
+        /// probe instance (via a cumulative wrapper) and inventory slots via
+        /// the planner's own <c>ConsumeInventorySlot</c> calls on the shared
+        /// instance, so two windows delivering to one station are checked
+        /// against the COMBINED manifest, not each against the full free
+        /// capacity. A fresh probe per stop would let the combined manifest
+        /// overflow (each stop sees the full tank) and re-open the exact
+        /// silent-loss hole this gate closes.</para>
         /// </summary>
         internal static bool HasCapacityForAllStops(
             Route route,
@@ -63,6 +74,11 @@ namespace Parsek.Logistics
 
             if (route == null || route.Stops == null || probeForStop == null)
                 return true; // nothing to gate
+
+            // One cumulative wrapper per DISTINCT underlying probe instance so
+            // planned resource amounts accumulate across same-destination stops
+            // (the caller returns the same instance per resolved vessel).
+            Dictionary<IDeliveryCapacityProbe, CumulativeCapacityProbe> wrappers = null;
 
             for (int i = 0; i < route.Stops.Count; i++)
             {
@@ -81,9 +97,25 @@ namespace Parsek.Logistics
                 if (probe == null)
                     continue; // unresolved destination - endpoint gate owns it (fail-open)
 
-                DeliveryPlan plan = RouteDeliveryPlanner.PrepareDelivery(route, i, probe);
+                if (wrappers == null)
+                    wrappers = new Dictionary<IDeliveryCapacityProbe, CumulativeCapacityProbe>();
+                if (!wrappers.TryGetValue(probe, out CumulativeCapacityProbe wrapper))
+                {
+                    wrapper = new CumulativeCapacityProbe(probe);
+                    wrappers[probe] = wrapper;
+                }
+
+                DeliveryPlan plan = RouteDeliveryPlanner.PrepareDelivery(route, i, wrapper);
                 if (!plan.IsPartial)
+                {
+                    // Reserve this stop's planned resource amounts against the
+                    // shared destination so a LATER stop to the same vessel
+                    // sees the reduced free capacity. (Inventory slots are
+                    // already reserved: the planner consumed them on the
+                    // wrapper, which forwards to the shared underlying probe.)
+                    wrapper.NotePlannedResources(plan);
                     continue; // full manifest fits this stop
+                }
 
                 fullToken = FirstShortToken(plan);
                 fullStopIndex = i;
@@ -91,6 +123,56 @@ namespace Parsek.Logistics
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Forwarding <see cref="IDeliveryCapacityProbe"/> that subtracts the
+        /// resource amounts EARLIER stops already planned against the same
+        /// destination from the underlying probe's free capacity. Slot calls
+        /// forward untouched - the underlying (shared) probe's own
+        /// consumed-slot tracking already spans stops.
+        /// </summary>
+        private sealed class CumulativeCapacityProbe : IDeliveryCapacityProbe
+        {
+            private readonly IDeliveryCapacityProbe inner;
+            private Dictionary<string, double> plannedByResource;
+
+            internal CumulativeCapacityProbe(IDeliveryCapacityProbe inner)
+            {
+                this.inner = inner;
+            }
+
+            public double ProbeResourceFreeCapacity(string resourceName)
+            {
+                double free = inner.ProbeResourceFreeCapacity(resourceName);
+                if (plannedByResource != null
+                    && resourceName != null
+                    && plannedByResource.TryGetValue(resourceName, out double planned))
+                {
+                    free -= planned;
+                }
+                return free > 0.0 ? free : 0.0;
+            }
+
+            public int ProbeFirstEmptyInventorySlot() => inner.ProbeFirstEmptyInventorySlot();
+
+            public void ConsumeInventorySlot(int slotIndex) => inner.ConsumeInventorySlot(slotIndex);
+
+            internal void NotePlannedResources(DeliveryPlan plan)
+            {
+                if (plan.Resources == null)
+                    return;
+                for (int i = 0; i < plan.Resources.Count; i++)
+                {
+                    ResourceDeliveryLine line = plan.Resources[i];
+                    if (string.IsNullOrEmpty(line.Name) || !(line.Available > 0.0))
+                        continue;
+                    if (plannedByResource == null)
+                        plannedByResource = new Dictionary<string, double>(StringComparer.Ordinal);
+                    plannedByResource.TryGetValue(line.Name, out double cur);
+                    plannedByResource[line.Name] = cur + line.Available;
+                }
+            }
         }
 
         /// <summary>

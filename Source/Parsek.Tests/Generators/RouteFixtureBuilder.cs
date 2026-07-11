@@ -57,6 +57,7 @@ namespace Parsek.Tests.Generators
         private double lastHoldUT = -1.0;
         private string lastPartialDeliverySummary;
         private double lastPartialDeliveryUT = -1.0;
+        private string lastPartialDeliveryCycleId;
 
         public RouteFixtureBuilder WithId(string newId)
         {
@@ -250,10 +251,11 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
-        public RouteFixtureBuilder WithLastPartialDelivery(string summary, double ut)
+        public RouteFixtureBuilder WithLastPartialDelivery(string summary, double ut, string cycleId = null)
         {
             lastPartialDeliverySummary = summary;
             lastPartialDeliveryUT = ut;
+            lastPartialDeliveryCycleId = cycleId;
             return this;
         }
 
@@ -296,7 +298,8 @@ namespace Parsek.Tests.Generators
                 LastHoldShortfall = lastHoldShortfall,
                 LastHoldUT = lastHoldUT,
                 LastPartialDeliverySummary = lastPartialDeliverySummary,
-                LastPartialDeliveryUT = lastPartialDeliveryUT
+                LastPartialDeliveryUT = lastPartialDeliveryUT,
+                LastPartialDeliveryCycleId = lastPartialDeliveryCycleId
             };
 
             foreach (string key in excludedIntervalKeys)

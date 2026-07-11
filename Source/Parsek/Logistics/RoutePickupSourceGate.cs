@@ -433,7 +433,7 @@ namespace Parsek.Logistics
                     // wiring it here would grow PickupSourceResolution + every
                     // test fake for a rarer case - deliberate scope choice.
                     string shortToken = RouteOriginCargoCheck.BuildInventoryShortToken(
-                        g.SummedInventoryManifest, shortIdentity,
+                        g.SummedInventoryManifest, shortIdentity, shortQuantity,
                         countByPartName: null, out _);
                     return new GateResult(
                         false, g.ResolvedPid, g.VesselName, shortToken,

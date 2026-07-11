@@ -604,6 +604,25 @@ namespace Parsek.Tests.Logistics
                 new string('a', 63) + "g"));
         }
 
+        // catches: an internal gate marker ("null-stored-counter") rendering
+        // quoted as a part name - the opaque-tail check must cover markers as
+        // well as hash-shaped tails.
+        [Fact]
+        public void OpaqueInventoryTails_MarkerRendersGeneric()
+        {
+            Assert.True(LogisticsHoldPresentation.IsOpaqueInventoryTail("null-stored-counter"));
+            Assert.True(LogisticsHoldPresentation.IsOpaqueInventoryTail(new string('a', 64)));
+            Assert.False(LogisticsHoldPresentation.IsOpaqueInventoryTail("evaJetpack"));
+
+            Assert.Equal(
+                "origin is missing a required stored part - delivers when the origin holds it",
+                LogisticsHoldPresentation.DescribeHold(
+                    OriginLacksCargo, "inventory:null-stored-counter", 0.0));
+            Assert.Equal("Held: origin missing a stored part",
+                LogisticsHoldPresentation.StatusCellText(
+                    OriginLacksCargo, "inventory:null-stored-counter", 0.0));
+        }
+
         // catches: the partial-delivery detail line losing its summary or the
         // age suffix contract drifting from FormatHoldDetailLine's.
         [Fact]

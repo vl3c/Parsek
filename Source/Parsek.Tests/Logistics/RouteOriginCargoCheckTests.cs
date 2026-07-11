@@ -209,11 +209,11 @@ namespace Parsek.Tests.Logistics
         public void BuildInventoryShortToken_AbsentPart_NamesPart()
         {
             string token = RouteOriginCargoCheck.BuildInventoryShortToken(
-                ManifestWith("hash-1", "evaJetpack"), "hash-1",
-                countByPartName: _ => 0, out int nearMiss);
+                ManifestWith("hash-1", "evaJetpack"), "hash-1", shortQuantity: 1,
+                countByPartName: _ => 0, out int stateMismatch);
 
             Assert.Equal("inventory:evaJetpack", token);
-            Assert.Equal(0, nearMiss);
+            Assert.Equal(0, stateMismatch);
         }
 
         // catches: a physically-present part with drifted state (different
@@ -221,12 +221,44 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void BuildInventoryShortToken_NearMiss_StateToken()
         {
+            // Required 1, stored-by-hash 0 (shortQuantity 1); 2 same-name parts
+            // exist -> both are state-drifted extras.
             string token = RouteOriginCargoCheck.BuildInventoryShortToken(
-                ManifestWith("hash-1", "evaJetpack"), "hash-1",
-                countByPartName: name => name == "evaJetpack" ? 2 : 0, out int nearMiss);
+                ManifestWith("hash-1", "evaJetpack"), "hash-1", shortQuantity: 1,
+                countByPartName: name => name == "evaJetpack" ? 2 : 0, out int stateMismatch);
 
             Assert.Equal("inventory-state:evaJetpack", token);
-            Assert.Equal(2, nearMiss);
+            Assert.Equal(2, stateMismatch);
+        }
+
+        // catches: a plain QUANTITY shortfall misclassified as state drift when
+        // the by-name count includes the exact-identity matches the gate DID
+        // find (required 2, one PERFECT copy stored: the depot is one unit
+        // short, nothing drifted - the token must say "missing", not "state
+        // differs").
+        [Fact]
+        public void BuildInventoryShortToken_QuantityShortWithExactMatches_NotStateToken()
+        {
+            var manifest = new List<InventoryPayloadItem>
+            {
+                new InventoryPayloadItem { IdentityHash = "hash-1", PartName = "battery", Quantity = 2 },
+            };
+            // Stored 1 exact match (shortQuantity = 2 - 1 = 1); by-name count 1
+            // (only the exact match itself).
+            string token = RouteOriginCargoCheck.BuildInventoryShortToken(
+                manifest, "hash-1", shortQuantity: 1,
+                countByPartName: name => name == "battery" ? 1 : 0, out int stateMismatch);
+
+            Assert.Equal("inventory:battery", token);
+            Assert.Equal(0, stateMismatch);
+
+            // With one EXTRA drifted same-name copy (by-name 2 > exact 1) the
+            // near-miss fires.
+            string driftToken = RouteOriginCargoCheck.BuildInventoryShortToken(
+                manifest, "hash-1", shortQuantity: 1,
+                countByPartName: name => name == "battery" ? 2 : 0, out int driftCount);
+            Assert.Equal("inventory-state:battery", driftToken);
+            Assert.Equal(1, driftCount);
         }
 
         // catches: an unresolvable identity (a special marker like
@@ -238,26 +270,26 @@ namespace Parsek.Tests.Logistics
             // Marker identity not present in the manifest: raw token survives.
             Assert.Equal("inventory:null-stored-counter",
                 RouteOriginCargoCheck.BuildInventoryShortToken(
-                    ManifestWith("hash-1", "evaJetpack"), "null-stored-counter",
+                    ManifestWith("hash-1", "evaJetpack"), "null-stored-counter", 1,
                     countByPartName: _ => 5, out _));
 
             // Null manifest: raw token.
             Assert.Equal("inventory:hash-1",
                 RouteOriginCargoCheck.BuildInventoryShortToken(
-                    null, "hash-1", countByPartName: _ => 5, out _));
+                    null, "hash-1", 1, countByPartName: _ => 5, out _));
 
             // Manifest item without a PartName: raw token (never a blank name).
             Assert.Equal("inventory:hash-1",
                 RouteOriginCargoCheck.BuildInventoryShortToken(
-                    ManifestWith("hash-1", null), "hash-1",
+                    ManifestWith("hash-1", null), "hash-1", 1,
                     countByPartName: _ => 5, out _));
 
             // Null probe: absent-part token, no near-miss classification.
             Assert.Equal("inventory:evaJetpack",
                 RouteOriginCargoCheck.BuildInventoryShortToken(
-                    ManifestWith("hash-1", "evaJetpack"), "hash-1",
-                    countByPartName: null, out int nearMiss));
-            Assert.Equal(0, nearMiss);
+                    ManifestWith("hash-1", "evaJetpack"), "hash-1", 1,
+                    countByPartName: null, out int stateMismatch));
+            Assert.Equal(0, stateMismatch);
         }
     }
 }

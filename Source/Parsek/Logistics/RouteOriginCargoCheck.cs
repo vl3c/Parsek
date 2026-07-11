@@ -145,26 +145,33 @@ namespace Parsek.Logistics
         /// <c>inventory:&lt;identityHash&gt;</c> token is not player-meaningful).
         /// Resolves <paramref name="shortIdentity"/> back to its manifest item
         /// and names the PART: <c>inventory:&lt;partName&gt;</c> when the part
-        /// is genuinely absent, or <c>inventory-state:&lt;partName&gt;</c> when
-        /// the optional <paramref name="countByPartName"/> probe reports the
-        /// part IS physically present under a different identity hash (the
-        /// NEAR-MISS case: same part, but its charge / fuel / module contents
-        /// differ from the recorded cargo - the most confusing hold to a player
-        /// staring at a depot that visibly holds the part). Falls back to the
-        /// raw <c>inventory:&lt;shortIdentity&gt;</c> token when the identity
+        /// is genuinely absent (or simply under-stocked), or
+        /// <c>inventory-state:&lt;partName&gt;</c> when the optional
+        /// <paramref name="countByPartName"/> probe reports MORE same-name
+        /// stored parts than the exact-identity matches the gate counted (the
+        /// NEAR-MISS case: extra copies exist whose charge / fuel / module
+        /// contents differ from the recorded cargo - the most confusing hold to
+        /// a player staring at a depot that visibly holds the part). The
+        /// comparison is against <c>required - shortQuantity</c> (the exact
+        /// matches the gate DID find), not a bare "any same-name part exists":
+        /// a depot holding 1 of 2 required PERFECT copies is a plain quantity
+        /// shortfall, not state drift. Falls back to the raw
+        /// <c>inventory:&lt;shortIdentity&gt;</c> token when the identity
         /// cannot be resolved to a manifest item (special markers like
         /// <c>null-stored-counter</c>). Pure - the classification NEVER relaxes
         /// admission, it only names the failure.
-        /// <paramref name="nearMissCount"/> reports the by-name count for the
-        /// caller's log line (0 when not probed or genuinely absent).
+        /// <paramref name="stateMismatchCount"/> reports the count of same-name
+        /// stored parts BEYOND the exact matches, for the caller's log line
+        /// (0 when not probed or genuinely absent).
         /// </summary>
         internal static string BuildInventoryShortToken(
             List<InventoryPayloadItem> inventoryManifest,
             string shortIdentity,
+            int shortQuantity,
             Func<string, int> countByPartName,
-            out int nearMissCount)
+            out int stateMismatchCount)
         {
-            nearMissCount = 0;
+            stateMismatchCount = 0;
             InventoryPayloadItem shortItem = null;
             if (inventoryManifest != null && !string.IsNullOrEmpty(shortIdentity))
             {
@@ -184,9 +191,15 @@ namespace Parsek.Logistics
                 return "inventory:" + (shortIdentity ?? string.Empty);
 
             if (countByPartName != null)
-                nearMissCount = countByPartName(shortItem.PartName);
+            {
+                int byName = countByPartName(shortItem.PartName);
+                int exactMatches = shortItem.Quantity - shortQuantity;
+                if (exactMatches < 0) exactMatches = 0;
+                stateMismatchCount = byName - exactMatches;
+                if (stateMismatchCount < 0) stateMismatchCount = 0;
+            }
 
-            return nearMissCount > 0
+            return stateMismatchCount > 0
                 ? "inventory-state:" + shortItem.PartName
                 : "inventory:" + shortItem.PartName;
         }
