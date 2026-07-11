@@ -102,6 +102,69 @@ namespace Parsek.Tests.Analyzer.Rules
                 && f.Message.Contains("kind=dangling"));
         }
 
+        // Guards: a supersede row whose OldRecordingId is absent from the model ->
+        // WARN (not FAIL), matching production LoadTimeSweep's orphan-supersede
+        // warn-log severity. Fails if a one-sided orphan supersede row goes
+        // unreported, or is wrongly escalated to FAIL.
+        [Fact]
+        public void OrphanSupersedeOldRecordingId_Warns()
+        {
+            var model = new AnalyzerModel
+            {
+                SaveName = "inv7",
+                Recordings = new List<Recording> { Rec("present") },
+                SupersedeRelations = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_old",
+                        OldRecordingId = "gone",       // absent from the model
+                        NewRecordingId = "present",
+                        UT = 10.0,
+                    },
+                },
+            };
+
+            List<Finding> findings = Run(model);
+
+            Finding warn = Assert.Single(findings);
+            Assert.Equal(Inv7TreeTopology.RuleIdConst, warn.RuleId);
+            Assert.Equal(VerdictLevel.Warn, warn.Level);
+            Assert.Equal("rsr_old", warn.Target);
+            Assert.Contains("field=SupersedeRelation.OldRecordingId", warn.Message);
+            Assert.Contains("target=gone", warn.Message);
+        }
+
+        // Guards: a supersede row whose NewRecordingId is absent from the model ->
+        // WARN. Fails if only the Old endpoint is validated (the New endpoint is the
+        // superseding recording; a missing one is an equally real orphan).
+        [Fact]
+        public void OrphanSupersedeNewRecordingId_Warns()
+        {
+            var model = new AnalyzerModel
+            {
+                SaveName = "inv7",
+                Recordings = new List<Recording> { Rec("present") },
+                SupersedeRelations = new List<RecordingSupersedeRelation>
+                {
+                    new RecordingSupersedeRelation
+                    {
+                        RelationId = "rsr_new",
+                        OldRecordingId = "present",
+                        NewRecordingId = "gone",       // absent from the model
+                        UT = 10.0,
+                    },
+                },
+            };
+
+            List<Finding> findings = Run(model);
+
+            Finding warn = Assert.Single(findings);
+            Assert.Equal(VerdictLevel.Warn, warn.Level);
+            Assert.Contains("field=SupersedeRelation.NewRecordingId", warn.Message);
+            Assert.Contains("target=gone", warn.Message);
+        }
+
         // Guards: a two-node parent cycle (a.parent=b, b.parent=a) -> FAIL AND the
         // walk terminates (the test itself would hang on an infinite loop). Fails
         // if the visited-set cycle guard regresses.

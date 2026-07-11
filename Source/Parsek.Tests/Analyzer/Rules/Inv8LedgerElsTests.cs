@@ -83,6 +83,27 @@ namespace Parsek.Tests.Analyzer.Rules
                 f.Level == VerdictLevel.Fail && f.Message.Contains("els-inconsistency"));
         }
 
+        // Guards (single-report policy): when the ledger file failed to load
+        // (LoadFault{FileKind="ledger"}), the RAW action list is incomplete, so
+        // every tombstone would look dangling. INV8(a) must skip the per-tombstone
+        // dangling check and defer to the LOADER-FAULT finding, mirroring INV5's
+        // tested faulted-trajectory skip. Fails if INV8 double-reports a corrupt
+        // ledger as an ELS inconsistency.
+        [Fact]
+        public void LedgerLoadFault_SuppressesDanglingCheck()
+        {
+            var model = ModelWith(
+                Enumerable.Empty<GameAction>(),          // raw actions lost to the fault
+                new[] { Tomb("t-bad", "act_missing") }); // would dangle absent the guard
+            model.LoadFaults = new List<LoadFault>
+            {
+                new LoadFault("/save/Parsek/GameState/ledger.pgld", "ledger", "configNode-load-returned-null", null),
+            };
+
+            Assert.DoesNotContain(Run(model), f =>
+                f.RuleId == Inv8Ledger.RuleIdConst && f.Message.Contains("dangling-tombstone"));
+        }
+
         // Guards: no tombstones -> zero findings, and the rule does not throw on an
         // empty / null ledger. Fails if the ELS reconstruction NREs on empty input.
         [Fact]

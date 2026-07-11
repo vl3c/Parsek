@@ -100,6 +100,39 @@ namespace Parsek.Tests.Analyzer.Rules
                     }
                 }
             }
+
+            // Supersede-relation endpoints. A row whose OldRecordingId or
+            // NewRecordingId is absent from the model is a one-sided orphan. This is
+            // WARN (not FAIL), matching production LoadTimeSweep's warn-log severity:
+            // the forward supersede walk terminates cleanly on a missing endpoint, so
+            // it is a maintenance signal rather than a broken invariant.
+            if (model.SupersedeRelations != null)
+            {
+                foreach (RecordingSupersedeRelation rel in model.SupersedeRelations)
+                {
+                    if (rel == null)
+                        continue;
+                    string relTarget = rel.RelationId ?? "<supersede>";
+                    MaybeOrphanSupersede(relTarget, "OldRecordingId", rel.OldRecordingId, idSet, findings);
+                    MaybeOrphanSupersede(relTarget, "NewRecordingId", rel.NewRecordingId, idSet, findings);
+                }
+            }
+        }
+
+        private static void MaybeOrphanSupersede(
+            string relTarget, string field, string value,
+            HashSet<string> idSet, List<Finding> findings)
+        {
+            if (string.IsNullOrEmpty(value) || idSet.Contains(value))
+                return;
+            findings.Add(new Finding(
+                RuleIdConst,
+                VerdictLevel.Warn,
+                relTarget,
+                -1,
+                Inv("INV7 badlink recording={0} field=SupersedeRelation.{1} target={2} kind=dangling",
+                    relTarget, field, value),
+                "EffectiveState.IsSupersededByRelation"));
         }
 
         private static void MaybeDangling(

@@ -146,6 +146,15 @@ namespace Parsek.Tests.Analyzer.Rules
                 Inv("INV8 els raw={0} tombstoned={1} els={2}",
                     rawActionIds.Count, tombstonedIds.Count, elsCount));
 
+            // Single-report policy (mirrors INV5's tested faulted-trajectory skip):
+            // when the ledger file itself failed to load, the RAW action list is
+            // incomplete or empty, so every tombstone would look dangling. That is
+            // not an ELS inconsistency -- it is a load failure the LOADER-FAULT rule
+            // already reports as the authoritative finding. Skip the per-tombstone
+            // dangling check so the corrupt ledger is reported exactly once.
+            if (HasLedgerFault(model))
+                return;
+
             if (model.Tombstones == null)
                 return;
 
@@ -164,6 +173,16 @@ namespace Parsek.Tests.Analyzer.Rules
                         t.TombstoneId ?? "<none>", t.ActionId),
                     "EffectiveState.ComputeELS"));
             }
+        }
+
+        private static bool HasLedgerFault(AnalyzerModel model)
+        {
+            if (model.LoadFaults == null)
+                return false;
+            foreach (LoadFault f in model.LoadFaults)
+                if (f.FileKind == "ledger")
+                    return true;
+            return false;
         }
 
         private static string Inv(string format, params object[] args) =>
