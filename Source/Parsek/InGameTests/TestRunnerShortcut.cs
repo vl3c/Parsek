@@ -1,4 +1,8 @@
+using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
+using Parsek.TestCommands;
 using UnityEngine;
 
 namespace Parsek.InGameTests
@@ -34,6 +38,35 @@ namespace Parsek.InGameTests
         private bool hasOpaqueStyleScene;
 
         private bool shortcutHeld;
+
+        // [M-A3 hook H1] Autorun state. autorunConfig is parsed ONCE in Awake (launch-time
+        // contract; a mid-process env mutation cannot change behavior, edge 14). All of
+        // Update's autorun work early-returns on the cached !autorunConfig.Enabled bool, so
+        // an unarmed process (normal play, normal dotnet test) does no per-frame work.
+        private AutorunConfig autorunConfig;
+        private bool autorunParsed;
+        // Consecutive qualifying frames toward the settle target; reset to 0 whenever any
+        // scene-settle condition regresses (design "Scene-settle definition", item 5).
+        private int autorunSettleFrames;
+        // Single-fire per scene-entry; reset on onGameSceneLoadRequested so a scene the
+        // orchestrator scripts re-arms, while autorunConsumedForProcess (never reset) keeps
+        // a FLIGHT->FLIGHT isolation reload from restarting the selector (edge 8).
+        private bool autorunFiredThisScene;
+        private bool autorunConsumedForProcess;
+        // A multi-category driver coroutine owns the run while true (single-fire is already
+        // consumed, but this stops Update from re-entering the fire path).
+        private bool autorunMultiDriving;
+        // Settle target: ~0.5 s at 60 fps for stock one-frame-late init (camera, UI,
+        // ScenarioModule OnLoad) to finish before the batch captures its baseline.
+        private const int AutorunSettleTarget = 30;
+        // No-game-scene timeout warn (edge 7): one-shot after a bounded wait so the log
+        // explains an eventual orchestrator-timeout kill when no save ever loaded.
+        private const float AutorunNoSceneWarnSeconds = 60f;
+        private float autorunArmedRealtime;
+        private bool autorunNoSceneWarned;
+        internal const string EnvTestsVar = "PARSEK_AUTORUN_TESTS";
+        internal const string EnvExitVar = "PARSEK_AUTORUN_EXIT";
+
         private static TestRunnerShortcut instance;
         private const float DefaultWindowWidth = 440f;
         private const float DefaultWindowHeight = 600f;
@@ -76,6 +109,32 @@ namespace Parsek.InGameTests
             // #269: InputLockManager locks are scene-scoped — KSP clears them on
             // scene transition but our flag persists. Reset on scene change.
             GameEvents.onGameSceneLoadRequested.Add(OnSceneChangeRequested);
+
+            ParseAutorunConfigOnce();
+        }
+
+        /// <summary>
+        /// [M-A3 hook H1] Parse the two autorun env vars ONCE at addon Awake into the
+        /// cached <see cref="autorunConfig"/> (design "Read-once caching", edge 14). Emit
+        /// the startup selector line that records the exact env contract the process
+        /// launched with, plus any misconfiguration warnings (edge 2 zero-categories, edge
+        /// 9 exit-without-tests). Never re-reads the environment.
+        /// </summary>
+        private void ParseAutorunConfigOnce()
+        {
+            string testsVar = Environment.GetEnvironmentVariable(EnvTestsVar);
+            string exitVar = Environment.GetEnvironmentVariable(EnvExitVar);
+            autorunConfig = AutorunHooks.Parse(testsVar, exitVar);
+            autorunParsed = true;
+            autorunArmedRealtime = Time.realtimeSinceStartup;
+
+            ParsekLog.Info(Tag,
+                $"autorun selector parsed: enabled={autorunConfig.Enabled} "
+                + $"selector='{autorunConfig.RawSelector ?? "(unset)"}' "
+                + $"categories=[{string.Join(",", autorunConfig.Categories)}] "
+                + $"exit={autorunConfig.ExitArmed}");
+            foreach (string warning in autorunConfig.Warnings)
+                ParsekLog.Warn(Tag, warning);
         }
 
         void Start()
@@ -97,6 +156,8 @@ namespace Parsek.InGameTests
                     $"Test runner toggled via shortcut: {(showWindow ? "open" : "closed")}");
             }
             shortcutHeld = pressed;
+
+            UpdateAutorun();
         }
 
         void OnGUI()
@@ -176,6 +237,14 @@ namespace Parsek.InGameTests
         private void OnSceneChangeRequested(GameScenes scene)
         {
             ResetSceneScopedWindowState();
+
+            // [M-A3 hook H1] Re-arm per scene: a new scene entry clears the fired-this-
+            // scene flag and the settle counter so H1 can fire in a scene the orchestrator
+            // scripts. The process-level autorunConsumedForProcess latch is NOT reset here,
+            // so a FLIGHT->FLIGHT isolation reload re-arms but never restarts the selector
+            // (edge 8; the !runner.IsRunning + consumed guards in the fire gate enforce it).
+            autorunFiredThisScene = false;
+            autorunSettleFrames = 0;
         }
 
         private void ResetSceneScopedWindowState()
@@ -285,7 +354,7 @@ namespace Parsek.InGameTests
             if (!destroyedBackgrounds.Add(id))
                 return;
 
-            Object.Destroy(background);
+            UnityEngine.Object.Destroy(background);
         }
         /// <summary>
         /// [M-A3 correction G2] The single lazy runner factory, extracted from the
@@ -545,6 +614,212 @@ namespace Parsek.InGameTests
                 case TestStatus.Running: return Color.yellow;
                 case TestStatus.Skipped: return Color.gray;
                 default:                 return Color.white;
+            }
+        }
+
+        // ----- [M-A3 hook H1] Autorun arm / settle / fire -----
+
+        /// <summary>
+        /// Per-frame autorun poll (design "H1 - Autorun batch trigger"). Cheap and inert
+        /// when the process is not armed: the first line early-returns on the cached
+        /// !autorunConfig.Enabled bool. When armed it counts scene-settle frames, logs the
+        /// stuck condition while waiting, and fires the runner exactly once per process
+        /// through the shared EnsureRunner factory once the scene settles and the
+        /// single-fire gate is clear.
+        /// </summary>
+        private void UpdateAutorun()
+        {
+            if (!autorunParsed || !autorunConfig.Enabled) return; // inert when unarmed
+            if (autorunConsumedForProcess || autorunMultiDriving) return; // selector already run/running
+            if (autorunFiredThisScene) return; // fired this scene entry; wait for re-arm
+
+            GameScenes scene = HighLogic.LoadedScene;
+            bool gameNonNull = HighLogic.CurrentGame != null;
+            bool saveLoaded = !string.IsNullOrEmpty(HighLogic.SaveFolder);
+            bool flightReady = FlightGlobals.ready;
+            Vessel av = FlightGlobals.ActiveVessel;
+            bool vesselNonNull = av != null;
+            bool vesselPacked = av != null && av.packed;
+
+            // Crash-reconcile gate (G3): hold fire until reconcile fully clears, so the
+            // autorun baseline is captured against the reverted save, not a half-reverted
+            // one (edge 6). reconcilePending feeds SceneSettleDecision as the negation.
+            bool reconcilePending = !AutorunHooks.ReconcileGateClear(
+                ParsekScenario.CrashReconcileInProgress, MarkerWouldReconcile());
+
+            // Reuse the pure predicate for the BASE conditions (everything but the frame
+            // count) by passing a satisfied frame count; the real frame count drives the
+            // actual fire below. This keeps the settle-counter advance/reset in lock-step
+            // with the fire gate instead of duplicating the condition logic.
+            bool baseQualifies = AutorunHooks.SceneSettleDecision(
+                scene, gameNonNull, saveLoaded, flightReady, vesselNonNull, vesselPacked,
+                settleFrames: AutorunSettleTarget, settleTarget: AutorunSettleTarget,
+                reconcilePending);
+            if (baseQualifies) autorunSettleFrames++;
+            else autorunSettleFrames = 0;
+
+            MaybeWarnNoScene(gameNonNull, saveLoaded);
+
+            ParsekLog.VerboseRateLimited(Tag, "autorun-settle",
+                $"autorun armed, waiting for settle: scene={scene} game={gameNonNull} "
+                + $"save={saveLoaded} flightReady={flightReady} vessel={vesselNonNull} "
+                + $"packed={vesselPacked} settleFrames={autorunSettleFrames}/{AutorunSettleTarget} "
+                + $"reconcilePending={reconcilePending}", 1f);
+
+            if (!baseQualifies || autorunSettleFrames < AutorunSettleTarget) return;
+
+            // Scene settled. Build the runner through the shared lazy factory (autorun
+            // opens no window, so the runner is otherwise null here) then check the
+            // single-fire gate (edge 5, 8; G1 command-seam runner check).
+            EnsureRunner();
+            bool commandRunnerRunning = ParsekTestCommandAddon.CommandRunnerIsRunningForGating;
+            if (!AutorunHooks.AutorunFireGate(
+                    runner.IsRunning, commandRunnerRunning,
+                    autorunConsumedForProcess, autorunFiredThisScene))
+            {
+                ParsekLog.Verbose(Tag,
+                    $"autorun fire blocked: runnerRunning={runner.IsRunning} "
+                    + $"commandRunner={commandRunnerRunning} consumed={autorunConsumedForProcess} "
+                    + $"firedThisScene={autorunFiredThisScene}");
+                return;
+            }
+
+            FireAutorun();
+        }
+
+        /// <summary>
+        /// Invokes the runner for the parsed selector (design "H1 - Fire"). Sets
+        /// autorunFiredThisScene up front so a re-entry this frame cannot double-fire, then
+        /// dispatches: "all" -> RunAll; a single category -> RunCategory; multiple
+        /// categories -> the sequential driver coroutine. All non-driver paths mark the
+        /// process latch so a per-scene re-arm never restarts the selector (edge 8).
+        /// </summary>
+        private void FireAutorun()
+        {
+            autorunFiredThisScene = true;
+            bool exitArmed = autorunConfig.ExitArmed;
+
+            if (autorunConfig.IsAll)
+            {
+                int eligible = runner.Tests.Count;
+                ParsekLog.Info(Tag,
+                    $"autorun FIRING: selector=all scene={HighLogic.LoadedScene} eligibleCount={eligible}");
+                runner.MarkNextBatchAutorun(exitArmed);
+                runner.RunAll();
+                autorunConsumedForProcess = true;
+                return;
+            }
+
+            if (autorunConfig.Categories.Count == 1)
+            {
+                string cat = autorunConfig.Categories[0];
+                int discovered = runner.Tests.Count(t => t.Category == cat);
+                if (discovered == 0)
+                    ParsekLog.Warn(Tag, $"autorun category '{cat}' matched 0 discovered tests");
+                ParsekLog.Info(Tag,
+                    $"autorun FIRING: selector={cat} scene={HighLogic.LoadedScene} eligibleCount={discovered}");
+                runner.MarkNextBatchAutorun(exitArmed);
+                runner.RunCategory(cat);
+                autorunConsumedForProcess = true;
+                return;
+            }
+
+            // Multi-category (Count > 1): the sequential driver owns the run.
+            autorunConsumedForProcess = true;
+            autorunMultiDriving = true;
+            StartCoroutine(AutorunMultiCategoryDriver(autorunConfig.Categories, exitArmed));
+        }
+
+        /// <summary>
+        /// Runs a multi-category selector by issuing RunCategory per token SEQUENTIALLY
+        /// (design "H1 - Multi-category selector"), waiting for !runner.IsRunning between
+        /// tokens so each category captures + tears down its own campaign-isolation
+        /// baseline independently. Each token emits its own BATCH_COMPLETE line (via the
+        /// runner's H3); the driver aggregates the per-category union counts and emits a
+        /// final category=multi:&lt;count&gt; summary line. Per-token batches are never
+        /// exit-armed (that would quit KSP mid-run); the aggregate exit is wired by H2 in
+        /// P5.1.
+        /// </summary>
+        private IEnumerator AutorunMultiCategoryDriver(IReadOnlyList<string> categories, bool exitArmed)
+        {
+            ParsekLog.Info(Tag,
+                $"autorun multi-category: running {categories.Count} tokens sequentially: "
+                + $"[{string.Join(",", categories)}]");
+
+            int total = 0, passed = 0, failed = 0, skipped = 0, batches = 0;
+            foreach (string cat in categories)
+            {
+                while (runner.IsRunning) yield return null;
+
+                int discovered = runner.Tests.Count(t => t.Category == cat);
+                if (discovered == 0)
+                    ParsekLog.Warn(Tag, $"autorun category '{cat}' matched 0 discovered tests");
+                ParsekLog.Info(Tag,
+                    $"autorun FIRING: selector={cat} scene={HighLogic.LoadedScene} eligibleCount={discovered}");
+
+                // Per-token batches never carry the exit arm (H2 must not quit mid-run).
+                runner.MarkNextBatchAutorun(false);
+                runner.RunCategory(cat);
+
+                while (runner.IsRunning) yield return null;
+
+                // Accumulate this category's union counts from its tests' final statuses.
+                var catTests = runner.Tests.Where(t => t.Category == cat).ToList();
+                passed += catTests.Count(t => t.Status == TestStatus.Passed);
+                failed += catTests.Count(t => t.Status == TestStatus.Failed);
+                skipped += catTests.Count(t => t.Status == TestStatus.Skipped);
+                total += catTests.Count(t => t.Status != TestStatus.NotRun);
+                batches++;
+            }
+
+            ParsekLog.Info(Tag, $"autorun multi-category complete: {batches} batches");
+            ParsekLog.Info(Tag, InGameTestRunner.FormatBatchCompleteLine(
+                total, passed, failed, skipped, $"multi:{batches}",
+                HighLogic.LoadedScene.ToString()));
+
+            autorunMultiDriving = false;
+        }
+
+        /// <summary>
+        /// Resolves whether the live TestBatchMarker would trigger a recovery reconcile on
+        /// load (design "H1 - Interaction with crash-reconcile"; feeds ReconcileGateClear).
+        /// Reads the same pure ShouldReconcileOnLoad decision OnLoad uses, so H1 holds fire
+        /// while a killed prior batch's marker still demands a revert. False (gate open)
+        /// when there is no scenario or no marker.
+        /// </summary>
+        private bool MarkerWouldReconcile()
+        {
+            ParsekScenario scenario = ParsekScenario.Instance;
+            TestBatchMarker marker = scenario != null ? scenario.ActiveTestBatchMarker : null;
+            if (marker == null) return false;
+            string reason;
+            return TestBatchMarker.ShouldReconcileOnLoad(
+                marker, ParsekProcess.ProcessSessionId.ToString("N"),
+                HighLogic.SaveFolder, out reason);
+        }
+
+        /// <summary>
+        /// One-shot WARN after a bounded wait when the process is armed but no game scene
+        /// with a loaded save ever settled (edge 7): the orchestrator's boot flag failed to
+        /// auto-load a save, so H1 will never fire and the orchestrator's timeout will
+        /// eventually reap the process. Logging it explains the eventual kill. The timer
+        /// resets whenever a save is present.
+        /// </summary>
+        private void MaybeWarnNoScene(bool gameNonNull, bool saveLoaded)
+        {
+            if (gameNonNull && saveLoaded)
+            {
+                autorunNoSceneWarned = false;
+                autorunArmedRealtime = Time.realtimeSinceStartup;
+                return;
+            }
+            if (autorunNoSceneWarned) return;
+            if (Time.realtimeSinceStartup - autorunArmedRealtime >= AutorunNoSceneWarnSeconds)
+            {
+                autorunNoSceneWarned = true;
+                ParsekLog.Warn(Tag,
+                    $"autorun armed but no game scene settled within {AutorunNoSceneWarnSeconds}s; "
+                    + "still waiting for orchestrator save load");
             }
         }
 
