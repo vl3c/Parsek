@@ -89,6 +89,25 @@ namespace Parsek.TestCommands
         // Set true while a LoadGame is in flight (P5.7); read now by the LoadGame guard.
         private bool loadInFlight = false;
 
+        // Two-phase verbs (RunTests P5.6 / LoadGame P5.7). The executor INITIATES the
+        // long-running side effect and returns PendingVerdict; the pump journals CLAIMED
+        // at initiation but defers EXECUTED + the terminal response until TryCompleteTwoPhase
+        // sees the operation settle (RunTests batch done / new game loaded). A crash between
+        // CLAIMED and completion leaves the id at CLAIMED -> INTERRUPTED on restart.
+        private const string PendingVerdict = "__PENDING__";
+        private bool awaitingCompletion;
+        private string completionId;
+        private string completionVerb;
+        private long completionSeq;
+        private double completionStartedAt;
+        private string loadGameSave;
+
+        // FlushAndQuit (P5.8): the response + journal DONE are written and flushed BEFORE
+        // Application.Quit, which is deferred one frame via a coroutine scheduled only
+        // after the DONE for the quit id lands.
+        private bool pendingQuit;
+        private string quitId;
+
         // The in-game test runner the addon owns for RunTests (P5.6). Null until then;
         // the batch-running safe-point gate reads it now so the pump never runs a command
         // mid-batch once RunTests is wired.
@@ -181,6 +200,17 @@ namespace Parsek.TestCommands
             // gating here avoids even reading the channel at an unsafe moment.)
             if (HighLogic.LoadedScene == GameScenes.LOADING) return;
             if (sceneTransitioning || settleCounter > 0) return;
+
+            // Two-phase completion (RunTests / LoadGame) is checked BEFORE the batch gate:
+            // RunTests must complete precisely when its owned batch stops running, which
+            // the IsBatchRunning early return below would otherwise mask. While a two-phase
+            // command awaits completion it holds the FIFO head, so no other command runs.
+            if (awaitingCompletion)
+            {
+                TryCompleteTwoPhase();
+                return;
+            }
+
             if (IsBatchRunning()) return;
 
             Pump();
@@ -415,12 +445,8 @@ namespace Parsek.TestCommands
             {
                 if (!AppendResponse(headPendingResponseLine, headPendingResponseId))
                     return; // still failing; try again next frame
-                WriteJournal(
-                    TestCommandJournal.FormatDone(headPendingResponseId, headPendingResponseSeq, headPendingResponseVerdict, WallClockSeconds()),
-                    headPendingResponseId, "DONE");
-                MarkProcessed(headPendingResponseId);
-                if (pending.Count > 0) pending.Dequeue();
                 headPendingResponse = false;
+                WriteDoneAndAdvance(headPendingResponseId, headPendingResponseSeq, headPendingResponseVerdict);
                 return;
             }
 
@@ -519,28 +545,147 @@ namespace Parsek.TestCommands
             InvokeExecutor(head);
             string verdict = execVerdict ?? "ERROR";
 
+            if (verdict == PendingVerdict)
+            {
+                // Two-phase (RunTests / LoadGame): the side effect was initiated; the
+                // terminal response + EXECUTED journal are deferred until the operation
+                // settles (TryCompleteTwoPhase). Journal stays at CLAIMED meanwhile, so a
+                // crash between here and completion reports INTERRUPTED on restart. Head
+                // stays in the queue (strict FIFO) so nothing else runs during the wait.
+                awaitingCompletion = true;
+                completionId = id;
+                completionSeq = seq;
+                completionVerb = head.Verb;
+                completionStartedAt = WallClockSeconds();
+                ParsekLog.Info(Tag, $"exec id={id} verdict=PENDING (two-phase awaiting completion)");
+                return;
+            }
+
+            EmitExecutedTerminal(id, seq, head.Verb, verdict, execPayload, execMsg);
+        }
+
+        // Shared single-phase terminal tail: journal EXECUTED, append the response, then
+        // (on a successful append) journal DONE + advance, else cache for a retry WITHOUT
+        // re-executing (id stays journalled EXECUTED). Used by ExecuteHead and by the
+        // two-phase completion.
+        private void EmitExecutedTerminal(
+            string id, long seq, string verb, string verdict,
+            List<KeyValuePair<string, string>> payload, string msg)
+        {
             WriteJournal(TestCommandJournal.FormatExecuted(id, seq, WallClockSeconds()), id, "EXECUTED");
 
             string line = TestCommandResponse.FormatResponseLine(
-                id, head.Verb, verdict, seq, CurrentUt(), execPayload, execMsg);
+                id, verb, verdict, seq, CurrentUt(), payload, msg);
             ParsekLog.Info(Tag, $"exec id={id} verdict={verdict}");
 
             if (AppendResponse(line, id))
             {
-                WriteJournal(TestCommandJournal.FormatDone(id, seq, verdict, WallClockSeconds()), id, "DONE");
-                MarkProcessed(id);
-                pending.Dequeue();
+                WriteDoneAndAdvance(id, seq, verdict);
             }
             else
             {
-                // Append exhausted this frame: cache for retry, leave head un-dequeued,
-                // do NOT re-run the side effect (id stays journalled EXECUTED).
                 headPendingResponse = true;
                 headPendingResponseLine = line;
                 headPendingResponseId = id;
                 headPendingResponseSeq = seq;
                 headPendingResponseVerdict = verdict;
             }
+        }
+
+        // Journal DONE, mark the id processed, advance the FIFO head, and (for
+        // FlushAndQuit) schedule the deferred quit now that the response + DONE are durable.
+        private void WriteDoneAndAdvance(string id, long seq, string verdict)
+        {
+            WriteJournal(TestCommandJournal.FormatDone(id, seq, verdict, WallClockSeconds()), id, "DONE");
+            MarkProcessed(id);
+            if (pending.Count > 0) pending.Dequeue();
+            MaybeScheduleQuit(id);
+        }
+
+        // ----- Two-phase completion (P5.6 RunTests / P5.7 LoadGame) -----
+
+        // Called each safe-point frame while a two-phase command awaits completion. When
+        // the operation has settled it builds the terminal payload, journals EXECUTED +
+        // response + DONE (advancing the head); otherwise it converts to TIMEOUT once the
+        // verb's budget expires so a never-settling operation cannot wedge the run.
+        private void TryCompleteTwoPhase()
+        {
+            double now = WallClockSeconds();
+            bool done = false;
+            string verdict = null;
+            List<KeyValuePair<string, string>> payload = null;
+            string msg = null;
+
+            if (completionVerb == "RunTests")
+            {
+                if (ownedRunner == null || !ownedRunner.IsRunning)
+                {
+                    int passed = ownedRunner != null ? ownedRunner.Passed : 0;
+                    int failed = ownedRunner != null ? ownedRunner.Failed : 0;
+                    int skipped = ownedRunner != null ? ownedRunner.Skipped : 0;
+                    payload = TestCommandRunTests.BuildResultPayload(passed, failed, skipped);
+                    verdict = "OK";
+                    done = true;
+                    ParsekLog.Info(Tag,
+                        $"runtests complete passed={passed} failed={failed} skipped={skipped} results={TestCommandRunTests.ResultsFileName}");
+                }
+            }
+            else if (completionVerb == "LoadGame")
+            {
+                if (HighLogic.CurrentGame != null)
+                {
+                    string sceneName = HighLogic.LoadedScene.ToString();
+                    payload = Payload(Kv("scene", sceneName), Kv("save", loadGameSave ?? string.Empty));
+                    verdict = "OK";
+                    done = true;
+                    loadInFlight = false;
+                    ParsekLog.Info(Tag,
+                        $"loadgame complete scene={sceneName} save={loadGameSave ?? string.Empty} game-loaded=true");
+                }
+            }
+
+            if (!done)
+            {
+                double budget = DeferralBudget.BudgetSeconds(completionVerb);
+                if (DeferralBudget.ShouldTimeout(completionStartedAt, now, budget))
+                {
+                    ParsekLog.Warn(Tag,
+                        $"timeout id={completionId} cmd={completionVerb} deferred={(now - completionStartedAt).ToString("F1", CultureInfo.InvariantCulture)}s reason=awaiting-completion");
+                    if (completionVerb == "LoadGame") loadInFlight = false;
+                    string tid = completionId; long tseq = completionSeq; string tverb = completionVerb;
+                    ClearTwoPhase();
+                    EmitExecutedTerminal(tid, tseq, tverb, "TIMEOUT", null, "awaiting-completion");
+                }
+                return;
+            }
+
+            string cid = completionId; long cseq = completionSeq; string cverb = completionVerb;
+            ClearTwoPhase();
+            EmitExecutedTerminal(cid, cseq, cverb, verdict, payload, msg);
+        }
+
+        private void ClearTwoPhase()
+        {
+            awaitingCompletion = false;
+            completionId = null;
+            completionVerb = null;
+        }
+
+        // Deferred one-frame quit for FlushAndQuit: scheduled only after the response +
+        // journal DONE are durable, so a killed process never loses the quit's ack.
+        private void MaybeScheduleQuit(string id)
+        {
+            if (!pendingQuit || id != quitId) return;
+            pendingQuit = false;
+            ParsekLog.Info(Tag, $"flushandquit: scheduling Application.Quit (deferred one frame) id={id}");
+            StartCoroutine(DeferredQuit());
+        }
+
+        private System.Collections.IEnumerator DeferredQuit()
+        {
+            yield return null;
+            ParsekLog.Info(Tag, "flushandquit: Application.Quit");
+            Application.Quit();
         }
 
         // A terminal outcome with NO side effect (REJECTED / TIMEOUT): journal
@@ -669,7 +814,7 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.CommitTree(ParsedCommand cmd) => CommitTreeImpl(cmd);
         void ITestCommandExecutor.DiscardTree(ParsedCommand cmd) => DiscardTreeImpl(cmd);
         void ITestCommandExecutor.RecordingState(ParsedCommand cmd) => RecordingStateImpl(cmd);
-        void ITestCommandExecutor.RunTests(ParsedCommand cmd) => StubNotImplemented();
+        void ITestCommandExecutor.RunTests(ParsedCommand cmd) => RunTestsImpl(cmd);
         void ITestCommandExecutor.LoadGame(ParsedCommand cmd) => StubNotImplemented();
         void ITestCommandExecutor.MissionMark(ParsedCommand cmd) => MissionMarkImpl(cmd);
         void ITestCommandExecutor.FlushAndQuit(ParsedCommand cmd) => StubNotImplemented();
@@ -845,6 +990,26 @@ namespace Parsek.TestCommands
 
             ParsekLog.Info(Tag, $"stoprecording stopped={Bool(wasLive)} idle={Bool(!wasLive)}");
             SetExecResult("OK", TestCommandRecordingVerbs.BuildStopPayload(wasLive), null);
+        }
+
+        // ----- RunTests (P5.6, two-phase) -----
+        // Owns an InGameTestRunner (the pump's IsBatchRunning gate reads it). Initiates
+        // RunAll() / RunCategory(category) and returns PendingVerdict; completion is
+        // deferred (TryCompleteTwoPhase) until the batch stops running, then reports
+        // passed/failed/skipped + the exported results filename.
+        private void RunTestsImpl(ParsedCommand cmd)
+        {
+            string category = ArgOrNull(cmd, "category");
+            if (ownedRunner == null)
+                ownedRunner = new InGameTestRunner(this);
+
+            if (string.IsNullOrEmpty(category))
+                ownedRunner.RunAll();
+            else
+                ownedRunner.RunCategory(category);
+
+            ParsekLog.Info(Tag, $"runtests start category={category ?? "all"}");
+            SetExecResult(PendingVerdict, null, null);
         }
 
         // ----- CommitTree / DiscardTree (P5.5, C1) -----
