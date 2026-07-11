@@ -2329,10 +2329,22 @@ namespace Parsek
             }
             else
             {
+                // [M-A3 FIX 2] The marker was already nulled above (step 4), so H1's
+                // MarkerWouldReconcile now reports false - but the on-disk save is only
+                // HALF reverted here (disk revert incomplete) and NO deferred reload will
+                // clean it. Leaving the H1 settle gate open would fire an autorun batch
+                // against the mutated save and capture a poisoned baseline. Set the
+                // in-progress flag so ReconcileGateClear holds fire FOREVER; unlike the
+                // reloadable path there is no deferred-reload completion to clear it, so
+                // the external orchestrator's timeout is the intended reaper.
+                CrashReconcileInProgress = true;
                 ParsekLog.Warn("TestBatch",
                     "crash-reconcile: disk revert incomplete "
                     + $"(persistent={diskReverted}, sidecars={sidecarsReverted}); skipping deferred "
-                    + "reload and preserving the .bak + snapshot for manual recovery");
+                    + "reload and preserving the .bak + snapshot for manual recovery. Holding the "
+                    + "autorun H1 gate closed indefinitely (no deferred reload will clear it; the "
+                    + "orchestrator timeout is the reaper) so no autorun batch runs against the "
+                    + "half-reverted save");
             }
         }
 

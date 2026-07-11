@@ -385,5 +385,63 @@ namespace Parsek.Tests
                 flightReady: true, vesselNonNull: true, vesselPacked: false,
                 settleFrames: 30, settleTarget: 30, reconcilePending));
         }
+
+        // Guards FIX 2 (crash-reconcile non-reloadable branch): when the disk revert is
+        // incomplete, RunTestBatchCrashReconcileCore nulls the marker (markerWouldReconcile
+        // becomes false) but SETS CrashReconcileInProgress=true so the H1 gate holds
+        // FOREVER against the un-reverted mutated save (the orchestrator timeout is the
+        // reaper). The gate must stay closed on the in-progress flag ALONE, with no marker.
+        [Fact]
+        public void ReconcileGateClear_NonReloadableBranch_HeldByInProgressFlagAlone()
+        {
+            // marker already nulled by the branch -> markerWouldReconcile=false, but the
+            // in-progress flag was set true, so the gate is NOT clear (reconcile pending).
+            Assert.False(AutorunHooks.ReconcileGateClear(
+                crashReconcileInProgress: true, markerWouldReconcile: false));
+        }
+
+        // --- AccumulateCategoryBatch (design "H1 - Multi-category selector"; FIX 1) ---
+
+        // Guards FIX 1: the aggregate summary line's counts are the UNION across every
+        // token, folded one category at a time. Each fold adds that category's own
+        // (per-token-reset) counts, so the final Total/Passed/Failed/Skipped are the sum
+        // of the per-category scoped batches and Batches counts the tokens. Fails if the
+        // driver's union math regresses (e.g. back to a cumulative double-count).
+        [Fact]
+        public void AccumulateCategoryBatch_FoldsUnionAcrossTokens()
+        {
+            var t0 = new AutorunHooks.MultiCategoryBatchTally();
+
+            // Token A: 5 considered, 4 passed, 1 failed, 0 skipped.
+            var t1 = AutorunHooks.AccumulateCategoryBatch(t0,
+                categoryConsidered: 5, categoryPassed: 4, categoryFailed: 1, categorySkipped: 0);
+            // Token B: 3 considered, 2 passed, 0 failed, 1 skipped.
+            var t2 = AutorunHooks.AccumulateCategoryBatch(t1,
+                categoryConsidered: 3, categoryPassed: 2, categoryFailed: 0, categorySkipped: 1);
+
+            Assert.Equal(8, t2.Total);
+            Assert.Equal(6, t2.Passed);
+            Assert.Equal(1, t2.Failed);
+            Assert.Equal(1, t2.Skipped);
+            Assert.Equal(2, t2.Batches);
+        }
+
+        // Guards: a zero-total token (unknown / scene-ineligible category) still counts as
+        // a batch and contributes nothing to the tallies, so the aggregate Batches reflects
+        // every token attempted while the counts stay exact.
+        [Fact]
+        public void AccumulateCategoryBatch_ZeroTotalToken_CountsAsBatchOnly()
+        {
+            var t0 = new AutorunHooks.MultiCategoryBatchTally { Total = 4, Passed = 4, Batches = 1 };
+
+            var t1 = AutorunHooks.AccumulateCategoryBatch(t0,
+                categoryConsidered: 0, categoryPassed: 0, categoryFailed: 0, categorySkipped: 0);
+
+            Assert.Equal(4, t1.Total);
+            Assert.Equal(4, t1.Passed);
+            Assert.Equal(0, t1.Failed);
+            Assert.Equal(0, t1.Skipped);
+            Assert.Equal(2, t1.Batches);
+        }
     }
 }

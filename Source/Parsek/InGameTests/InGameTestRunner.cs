@@ -355,6 +355,23 @@ namespace Parsek.InGameTests
             ParsekLog.Verbose(Tag, $"next batch marked autorun (exitAfterBatch={exitAfterBatch})");
         }
 
+        /// <summary>
+        /// [M-A3 NIT 5] Clears the pending autorun-mark latch WITHOUT starting a batch.
+        /// The H1 fire path calls <see cref="MarkNextBatchAutorun"/> immediately before
+        /// <c>RunAll</c> / <c>RunCategory</c>; if that start throws (the batch never runs),
+        /// the pending flags would otherwise leak onto the next batch - which could be a
+        /// human clicking Run All later - and wrongly latch it as autorun (edge 13). The
+        /// fire path's catch calls this to close that leak. Idempotent and inert when no
+        /// mark is pending.
+        /// </summary>
+        internal void ClearPendingAutorunMark()
+        {
+            if (!pendingAutorunBatch && !pendingAutorunExit) return;
+            pendingAutorunBatch = false;
+            pendingAutorunExit = false;
+            ParsekLog.Warn(Tag, "cleared pending autorun mark (fire path threw before the batch started)");
+        }
+
         public void RunAll()
         {
             if (isRunning) return;

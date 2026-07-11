@@ -684,7 +684,24 @@ namespace Parsek.InGameTests
                 return;
             }
 
-            FireAutorun();
+            // [M-A3 NIT 5] Guard the fire path: a throw out of MarkNextBatchAutorun ->
+            // RunAll / RunCategory / StartCoroutine must not leave the runner's pending
+            // autorun-mark latched onto a later human-initiated batch (edge 13). Clear the
+            // pending mark and drop the multi-driver flag so the process fails safe (the
+            // consumed latch stays set so a broken selector is not retry-looped; the
+            // orchestrator timeout reaps a process that never completed a batch).
+            try
+            {
+                FireAutorun();
+            }
+            catch (Exception ex)
+            {
+                runner?.ClearPendingAutorunMark();
+                autorunMultiDriving = false;
+                ParsekLog.Error(Tag,
+                    $"autorun fire threw: {ex.Message}; cleared pending autorun mark "
+                    + "(process will be reaped by the orchestrator timeout)");
+            }
         }
 
         /// <summary>
@@ -701,9 +718,9 @@ namespace Parsek.InGameTests
 
             if (autorunConfig.IsAll)
             {
-                int eligible = runner.Tests.Count;
+                int discovered = runner.Tests.Count;
                 ParsekLog.Info(Tag,
-                    $"autorun FIRING: selector=all scene={HighLogic.LoadedScene} eligibleCount={eligible}");
+                    $"autorun FIRING: selector=all scene={HighLogic.LoadedScene} discoveredCount={discovered}");
                 runner.MarkNextBatchAutorun(exitArmed);
                 runner.RunAll();
                 autorunConsumedForProcess = true;
@@ -717,7 +734,7 @@ namespace Parsek.InGameTests
                 if (discovered == 0)
                     ParsekLog.Warn(Tag, $"autorun category '{cat}' matched 0 discovered tests");
                 ParsekLog.Info(Tag,
-                    $"autorun FIRING: selector={cat} scene={HighLogic.LoadedScene} eligibleCount={discovered}");
+                    $"autorun FIRING: selector={cat} scene={HighLogic.LoadedScene} discoveredCount={discovered}");
                 runner.MarkNextBatchAutorun(exitArmed);
                 runner.RunCategory(cat);
                 autorunConsumedForProcess = true;
@@ -746,16 +763,26 @@ namespace Parsek.InGameTests
                 $"autorun multi-category: running {categories.Count} tokens sequentially: "
                 + $"[{string.Join(",", categories)}]");
 
-            int total = 0, passed = 0, failed = 0, skipped = 0, batches = 0;
+            var tally = new AutorunHooks.MultiCategoryBatchTally();
             foreach (string cat in categories)
             {
                 while (runner.IsRunning) yield return null;
+
+                // [M-A3 FIX 1] Reset the runner's live counts BEFORE each token so this
+                // token's own BATCH_COMPLETE line (emitted by RunBatch's H3) tallies THIS
+                // category alone, not the cumulative union of every category run so far.
+                // Every interactive Run path already resets before running; the driver was
+                // the sole caller that did not, so its per-token lines were cumulative.
+                // ResetResults preserves per-scene ResultsByScene history, so the exported
+                // results file still accumulates across tokens (verified: only the live
+                // Status / Passed / Failed / Skipped are cleared).
+                runner.ResetResults();
 
                 int discovered = runner.Tests.Count(t => t.Category == cat);
                 if (discovered == 0)
                     ParsekLog.Warn(Tag, $"autorun category '{cat}' matched 0 discovered tests");
                 ParsekLog.Info(Tag,
-                    $"autorun FIRING: selector={cat} scene={HighLogic.LoadedScene} eligibleCount={discovered}");
+                    $"autorun FIRING: selector={cat} scene={HighLogic.LoadedScene} discoveredCount={discovered}");
 
                 // Per-token batches never carry the exit arm (H2 must not quit mid-run).
                 runner.MarkNextBatchAutorun(false);
@@ -763,18 +790,21 @@ namespace Parsek.InGameTests
 
                 while (runner.IsRunning) yield return null;
 
-                // Accumulate this category's union counts from its tests' final statuses.
+                // Read this category's union counts from its tests' final statuses NOW,
+                // immediately after the batch settles and BEFORE the next iteration's
+                // ResetResults wipes them, then fold into the running aggregate.
                 var catTests = runner.Tests.Where(t => t.Category == cat).ToList();
-                passed += catTests.Count(t => t.Status == TestStatus.Passed);
-                failed += catTests.Count(t => t.Status == TestStatus.Failed);
-                skipped += catTests.Count(t => t.Status == TestStatus.Skipped);
-                total += catTests.Count(t => t.Status != TestStatus.NotRun);
-                batches++;
+                tally = AutorunHooks.AccumulateCategoryBatch(
+                    tally,
+                    categoryConsidered: catTests.Count(t => t.Status != TestStatus.NotRun),
+                    categoryPassed: catTests.Count(t => t.Status == TestStatus.Passed),
+                    categoryFailed: catTests.Count(t => t.Status == TestStatus.Failed),
+                    categorySkipped: catTests.Count(t => t.Status == TestStatus.Skipped));
             }
 
-            ParsekLog.Info(Tag, $"autorun multi-category complete: {batches} batches");
+            ParsekLog.Info(Tag, $"autorun multi-category complete: {tally.Batches} batches");
             ParsekLog.Info(Tag, InGameTestRunner.FormatBatchCompleteLine(
-                total, passed, failed, skipped, $"multi:{batches}",
+                tally.Total, tally.Passed, tally.Failed, tally.Skipped, $"multi:{tally.Batches}",
                 HighLogic.LoadedScene.ToString()));
 
             autorunMultiDriving = false;

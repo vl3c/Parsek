@@ -275,5 +275,46 @@ namespace Parsek.InGameTests
         {
             return !crashReconcileInProgress && !markerWouldReconcile;
         }
+
+        /// <summary>
+        /// Running aggregate for the multi-category driver (design "H1 - Multi-category
+        /// selector"). Each token runs its OWN batch (its own campaign-isolation baseline)
+        /// and emits its OWN per-token BATCH_COMPLETE line; the driver resets the runner
+        /// before each token so that per-token line is scoped to that category alone, then
+        /// folds the category's final counts into this tally for the single aggregate
+        /// summary line. Kept pure so the union math is xUnit-testable without a live runner.
+        /// </summary>
+        internal struct MultiCategoryBatchTally
+        {
+            public int Total;
+            public int Passed;
+            public int Failed;
+            public int Skipped;
+            public int Batches;
+        }
+
+        /// <summary>
+        /// Folds one completed category batch's final counts into the running aggregate
+        /// (design "H1 - Multi-category selector"). The caller reads each category's counts
+        /// off its own tests IMMEDIATELY after that token's batch settles and BEFORE the
+        /// next token's runner reset, so the union sum is exact even though the per-token
+        /// reset wipes the prior category's live statuses. Pure: no runner / Unity state.
+        /// </summary>
+        internal static MultiCategoryBatchTally AccumulateCategoryBatch(
+            MultiCategoryBatchTally running,
+            int categoryConsidered,
+            int categoryPassed,
+            int categoryFailed,
+            int categorySkipped)
+        {
+            return new MultiCategoryBatchTally
+            {
+                Total = running.Total + categoryConsidered,
+                Passed = running.Passed + categoryPassed,
+                Failed = running.Failed + categoryFailed,
+                Skipped = running.Skipped + categorySkipped,
+                Batches = running.Batches + 1,
+            };
+        }
     }
 }
