@@ -83,6 +83,20 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(4, fit);
         }
 
+        // catches: an EXACT fit floored one unit short by binary floating point
+        // (60 / 0.6 = 99.99999999999999) — stock's additive accounting admits it,
+        // so the probe must too.
+        [Fact]
+        public void ComputeUnitsThatFit_ExactFit_NotFlooredShort()
+        {
+            int fit = LiveDeliveryCapacityProbe.ComputeUnitsThatFit(
+                perUnitVolume: 0.6, perUnitMass: 0.0,
+                freeVolume: 60.0, freeMass: 0.0,
+                hasVolumeLimit: true, hasMassLimit: false,
+                requestedUnits: 100);
+            Assert.Equal(100, fit);
+        }
+
         // catches: non-positive request returning garbage.
         [Fact]
         public void ComputeUnitsThatFit_NonPositiveRequest_ReturnsZero()

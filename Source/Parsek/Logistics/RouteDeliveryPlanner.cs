@@ -203,12 +203,18 @@ namespace Parsek.Logistics
         /// the STOREDPART wrapper's <c>stackCapacity</c> value (stock
         /// <c>StoredPart.Save</c> writes it, so recorded payloads carry it),
         /// then the inner PART node's <c>moduleCargoStackableQuantity</c>
-        /// (stock <c>ProtoPartSnapshot.Save</c> writes it), then the probe's
-        /// live prefab lookup (<c>ModuleCargoPart.stackableQuantity</c>).
-        /// A resource-bearing payload is forced to 1 regardless — stock
-        /// <c>ModuleCargoPart.OnLoad</c> forces <c>stackableQuantity = 1</c>
-        /// for parts that contain resources, so a bigger recorded value would
-        /// desync from what stock enforces on the next load. Never below 1.
+        /// (stock <c>ProtoPartSnapshot.Save</c> writes it). The probe's live
+        /// prefab lookup (<c>ModuleCargoPart.stackableQuantity</c>) is
+        /// consulted ONLY when the item has no snapshot at all: when a
+        /// snapshot exists but carries neither value, both stock load paths
+        /// reconstruct it with stack capacity 1 (the loaded writer's
+        /// UpdateStackAmountAtSlot clamps to the snapshot-derived capacity
+        /// and the unloaded path's StoredPart.Load defaults to 1), so a
+        /// prefab value above 1 would desync the plan from what the writers
+        /// can actually persist. A resource-bearing payload is forced to 1
+        /// regardless — stock <c>ModuleCargoPart</c> forces
+        /// <c>stackableQuantity = 1</c> for parts that contain resources.
+        /// Never below 1.
         /// </summary>
         internal static int ResolveStackCapacity(InventoryPayloadItem item, IDeliveryCapacityProbe probe)
         {
@@ -217,21 +223,20 @@ namespace Parsek.Logistics
             if (item.StoredResources != null && item.StoredResources.Count > 0)
                 return 1;
 
-            int capacity = 0;
             ConfigNode wrapper = item.StoredPartSnapshot;
-            if (wrapper != null)
+            if (wrapper == null)
             {
-                capacity = ReadPositiveIntValue(wrapper, "stackCapacity");
-                if (capacity <= 0)
-                {
-                    ConfigNode partNode = wrapper.GetNode("PART");
-                    if (partNode != null)
-                        capacity = ReadPositiveIntValue(partNode, "moduleCargoStackableQuantity");
-                }
+                int prefabCapacity = probe != null ? probe.ProbeInventoryStackableQuantity(item) : 1;
+                return prefabCapacity > 0 ? prefabCapacity : 1;
             }
-            if (capacity <= 0 && probe != null)
-                capacity = probe.ProbeInventoryStackableQuantity(item);
 
+            int capacity = ReadPositiveIntValue(wrapper, "stackCapacity");
+            if (capacity <= 0)
+            {
+                ConfigNode partNode = wrapper.GetNode("PART");
+                if (partNode != null)
+                    capacity = ReadPositiveIntValue(partNode, "moduleCargoStackableQuantity");
+            }
             return capacity > 0 ? capacity : 1;
         }
 

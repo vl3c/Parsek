@@ -217,8 +217,9 @@ namespace Parsek.Tests.Logistics
             Assert.Equal((0, 4), (writers.InventoryCalls[0].Slot, writers.InventoryCalls[0].Units));
             Assert.Equal((1, 4), (writers.InventoryCalls[1].Slot, writers.InventoryCalls[1].Units));
 
-            // The delivery summary logs unit-accurate actual/attempted.
-            Assert.Contains(logLines, l => l.Contains("inventoryUnits=8/8"));
+            // The delivery summary logs unit-accurate actual/attempted plus the
+            // planner-skipped remainder.
+            Assert.Contains(logLines, l => l.Contains("inventoryUnits=8/8") && l.Contains("inventoryUnitsSkipped=2"));
             Assert.Equal(RouteStatus.Active, route.Status);
         }
 

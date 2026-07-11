@@ -3869,12 +3869,19 @@ namespace Parsek.Logistics
             // (stock StoreCargoPartAtSlot edge cases); the actual-count reader
             // returns the total UNITS actually stored.
             int inventoryUnitsAttempted = 0;
+            int inventoryUnitsSkipped = 0;
             if (plan.Inventory != null)
             {
                 for (int i = 0; i < plan.Inventory.Count; i++)
                 {
                     InventoryDeliveryLine line = plan.Inventory[i];
-                    if (line.AssignedSlot < 0) continue;
+                    if (line.AssignedSlot < 0)
+                    {
+                        // Planner skip (no empty slot / no volume-mass
+                        // headroom); Units carries the unplaced count.
+                        inventoryUnitsSkipped += line.Units;
+                        continue;
+                    }
                     if (line.Item == null) continue;
                     ctx.InventoryWriter(line.Item, line.AssignedSlot, line.Units);
                     inventoryUnitsAttempted += line.Units;
@@ -4016,6 +4023,7 @@ namespace Parsek.Logistics
                 $"Delivery: route {ShortIdForLog(route)} cycle={ctx.CycleId} " +
                 $"resources={resourceLinesApplied.ToString(IC)} " +
                 $"inventoryUnits={inventoryActual.ToString(IC)}/{inventoryUnitsAttempted.ToString(IC)} " +
+                $"inventoryUnitsSkipped={inventoryUnitsSkipped.ToString(IC)} " +
                 $"partial={(plan.IsPartial ? "1" : "0")} " +
                 $"ut={ctx.CurrentUT.ToString("R", IC)}");
         }

@@ -379,6 +379,12 @@ namespace Parsek.Logistics
         private int WriteInventoryUnloaded(InventoryPayloadItem item, int slot, int units)
         {
             if (item.StoredPartSnapshot == null) return 0;
+            // Branch parity with the loaded writer, which refuses a payload
+            // without an inner PART node (BuildProtoPartSnapshotForDelivery
+            // returns null). Appending it here would persist a PART-less
+            // STOREDPART that stock's StoredPart.Load reconstructs with a
+            // null snapshot.
+            if (item.StoredPartSnapshot.GetNode("PART") == null) return 0;
             ProtoVessel pv = vessel.protoVessel;
             if (pv == null || pv.protoPartSnapshots == null) return 0;
 

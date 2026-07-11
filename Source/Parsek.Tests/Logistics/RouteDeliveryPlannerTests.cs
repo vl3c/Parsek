@@ -718,18 +718,27 @@ namespace Parsek.Tests.Logistics
         }
 
         // catches: the live prefab fallback (ModuleCargoPart.stackableQuantity via
-        // the probe) being skipped when the payload carries no stack values.
+        // the probe) being skipped when the payload has no snapshot at all.
         [Fact]
-        public void ResolveStackCapacity_ProbeFallback_UsedWhenSnapshotSilent()
+        public void ResolveStackCapacity_ProbeFallback_UsedOnlyWithoutSnapshot()
         {
-            var item = MakeItem("h-a", "partA", quantity: 1,
-                snapshot: MakeStoredPartSnapshot("partA"));
             var probe = new FakeDeliveryCapacityProbe
             {
                 StackableQuantityByPart = { { "partA", 8 } },
             };
 
-            Assert.Equal(8, RouteDeliveryPlanner.ResolveStackCapacity(item, probe));
+            // No snapshot: prefab fallback applies.
+            var noSnapshot = MakeItem("h-a", "partA", quantity: 1);
+            Assert.Equal(8, RouteDeliveryPlanner.ResolveStackCapacity(noSnapshot, probe));
+
+            // Snapshot present but silent on stack values: the writers can
+            // only persist stack capacity 1 (loaded UpdateStackAmountAtSlot
+            // clamps to the snapshot-derived capacity, unloaded
+            // StoredPart.Load defaults to 1), so the prefab value must NOT
+            // widen the plan beyond that.
+            var silentSnapshot = MakeItem("h-a", "partA", quantity: 1,
+                snapshot: MakeStoredPartSnapshot("partA"));
+            Assert.Equal(1, RouteDeliveryPlanner.ResolveStackCapacity(silentSnapshot, probe));
         }
 
         // catches: resource-bearing cargo stacked above 1 — stock ModuleCargoPart
