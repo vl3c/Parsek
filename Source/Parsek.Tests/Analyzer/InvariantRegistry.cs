@@ -21,6 +21,7 @@ namespace Parsek.Tests.Analyzer
             {
                 new Inv1UtMonotonic(),
                 new Inv2NoDoubleCover(),
+                new Inv3RelativeContract(),
                 new Inv7TreeTopology(),
             };
     }
