@@ -396,6 +396,195 @@ namespace Parsek.InGameTests
             yield break;
         }
 
+        // ==================================================================
+        // Live probe volume/mass admission wiring (loaded/unloaded parity fix)
+        // ==================================================================
+
+        [InGameTest(Category = "Logistics", Scene = GameScenes.FLIGHT,
+            Description = "LiveDeliveryCapacityProbe admission wiring against the live container: admitted units match an independently computed prefab-limit budget, admission never overshoots the volume limit, ConsumeInventoryCapacity decrements follow-up admissions, an unresolvable item prefab admits 0 (fail closed), and the stackable-quantity probe reads the prefab. Read-only (probe internals only), batch-safe")]
+        public IEnumerator Delivery_Probe_AdmissionMatchesIndependentBudget()
+        {
+            // Post-restore unpack wait (see Delivery_LoadedVessel_AppliesResourceTransfer):
+            // without it, running right after an isolated restore would skip on
+            // the packed gate below.
+            IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
+            if (FlightGlobals.ActiveVessel == null)
+                InGameAssert.Skip("FlightGlobals.ActiveVessel is null; need a live vessel to probe");
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            if (!(activeVessel.loaded && !activeVessel.packed))
+                InGameAssert.Skip(
+                    $"Active vessel '{activeVessel.vesselName}' is not loaded+unpacked; this test exercises the loaded budget walk");
+
+            // Same module the probe's budget targets (and the writer stores into).
+            ModuleInventoryPart module = LiveDeliveryWriters.FindFirstInventoryModule(activeVessel);
+            if (module == null)
+                InGameAssert.Skip(
+                    "PRECONDITION: active vessel has no ModuleInventoryPart. Fly a craft with a cargo " +
+                    "container (e.g. an SEQ-3 storage unit) to run this test");
+
+            // INDEPENDENT budget: container limits from the part PREFAB module
+            // (the probe's contract) + occupancy recomputed stock-style. Same
+            // slot order and expressions as the probe so the comparison is
+            // float-exact.
+            ModuleInventoryPart prefabModule =
+                module.part != null && module.part.partInfo != null && module.part.partInfo.partPrefab != null
+                    ? module.part.partInfo.partPrefab.FindModuleImplementing<ModuleInventoryPart>()
+                    : null;
+            InGameAssert.IsNotNull(prefabModule,
+                "A live loaded inventory part must resolve its own prefab inventory module");
+            double volumeLimit = prefabModule.packedVolumeLimit;
+            double massLimit = prefabModule.massLimit;
+            double volumeOccupied = 0.0;
+            double massOccupied = 0.0;
+            int storedPartCount = 0;
+            for (int s = 0; s < module.InventorySlots; s++)
+            {
+                if (module.storedParts == null || !module.storedParts.ContainsKey(s)) continue;
+                StoredPart sp = module.storedParts[s];
+                if (sp == null || sp.quantity <= 0) continue;
+                if (!TryReadPrefabFootprint(sp.partName, out double storedVol, out double storedMass, out _))
+                    continue;
+                storedPartCount++;
+                volumeOccupied += storedVol * sp.quantity;
+                massOccupied += storedMass * sp.quantity;
+            }
+
+            // A storable cargo prefab to probe with (smallest packed volume so
+            // at least 2 units usually fit and the consumption leg can run).
+            if (!TryFindSmallestStorableCargoPrefab(out string cargoPartName,
+                    out double perUnitVolume, out double perUnitMass, out int prefabStackable))
+                InGameAssert.Skip(
+                    "PRECONDITION: PartLoader has no storable cargo prefab (ModuleCargoPart with packedVolume > 0)");
+
+            var item = new InventoryPayloadItem
+            {
+                IdentityHash = "probe-admission-check",
+                PartName = cargoPartName,
+                Quantity = 1,
+                SlotsTaken = 1,
+            };
+            var probe = new LiveDeliveryCapacityProbe(activeVessel, true);
+
+            // 1. Admission for a huge request matches the independent budget
+            //    run through the xUnit-pinned pure core.
+            const int hugeRequest = 100000;
+            int expected = LiveDeliveryCapacityProbe.ComputeUnitsThatFit(
+                perUnitVolume, perUnitMass,
+                volumeLimit - volumeOccupied,
+                massLimit - massOccupied,
+                volumeLimit > 0.0, massLimit > 0.0,
+                hugeRequest);
+            int admitted = probe.ProbeInventoryUnitsThatFit(item, hugeRequest);
+            InGameAssert.AreEqual(expected, admitted,
+                $"Probe admission must match the independently computed budget: part={cargoPartName} " +
+                $"perUnitVol={perUnitVolume.ToString("R", IC)} volLimit={volumeLimit.ToString("R", IC)} " +
+                $"volOccupied={volumeOccupied.ToString("R", IC)} massLimit={massLimit.ToString("R", IC)} " +
+                $"massOccupied={massOccupied.ToString("R", IC)} (expected={expected.ToString(IC)} admitted={admitted.ToString(IC)})");
+
+            // 2. Admission never overshoots a real volume limit (Gap B: the
+            //    pre-fix writer would append past it on the unloaded branch).
+            if (volumeLimit > 0.0 && perUnitVolume > 0.0)
+                InGameAssert.IsTrue(
+                    volumeOccupied + perUnitVolume * admitted <= volumeLimit + 1e-6,
+                    $"Admitted units must fit the container: {volumeOccupied.ToString("R", IC)} + " +
+                    $"{perUnitVolume.ToString("R", IC)} * {admitted.ToString(IC)} > {volumeLimit.ToString("R", IC)}");
+
+            // 3. Consuming capacity reduces the follow-up admission, matching
+            //    the pure core over the same expression the probe uses.
+            if (admitted >= 2)
+            {
+                probe.ConsumeInventoryCapacity(item, 1);
+                int expectedAfterConsume = LiveDeliveryCapacityProbe.ComputeUnitsThatFit(
+                    perUnitVolume, perUnitMass,
+                    volumeLimit - volumeOccupied - perUnitVolume * 1,
+                    massLimit - massOccupied - perUnitMass * 1,
+                    volumeLimit > 0.0, massLimit > 0.0,
+                    hugeRequest);
+                int admittedAfterConsume = probe.ProbeInventoryUnitsThatFit(item, hugeRequest);
+                InGameAssert.AreEqual(expectedAfterConsume, admittedAfterConsume,
+                    $"ConsumeInventoryCapacity(1) must shrink the next admission " +
+                    $"(before={admitted.ToString(IC)} after={admittedAfterConsume.ToString(IC)} expected={expectedAfterConsume.ToString(IC)})");
+            }
+
+            // 4. Unresolvable ITEM prefab fails closed.
+            var unknownItem = new InventoryPayloadItem
+            {
+                IdentityHash = "probe-unknown-part",
+                PartName = "parsekNonexistentCargoPart",
+                Quantity = 1,
+                SlotsTaken = 1,
+            };
+            InGameAssert.AreEqual(0, probe.ProbeInventoryUnitsThatFit(unknownItem, 5),
+                "An unresolvable item prefab must admit 0 units (fail closed)");
+
+            // 5. Stackable-quantity probe reads the prefab value.
+            int probedStackable = probe.ProbeInventoryStackableQuantity(item);
+            InGameAssert.AreEqual(prefabStackable > 0 ? prefabStackable : 1, probedStackable,
+                $"ProbeInventoryStackableQuantity must read the prefab's ModuleCargoPart.stackableQuantity " +
+                $"(prefab={prefabStackable.ToString(IC)} probed={probedStackable.ToString(IC)})");
+
+            ParsekLog.Info("TestRunner",
+                $"Delivery_ProbeAdmission: PASS vessel={activeVessel.vesselName} " +
+                $"container={module.part.partInfo.name} storedParts={storedPartCount.ToString(IC)} " +
+                $"probePart={cargoPartName} admitted={admitted.ToString(IC)}/{hugeRequest.ToString(IC)} " +
+                $"volLimit={volumeLimit.ToString("R", IC)} volOccupied={volumeOccupied.ToString("R", IC)}");
+            yield break;
+        }
+
+        /// <summary>
+        /// Prefab footprint read used by the independent-budget side of the
+        /// probe-admission test: per-unit packed volume + prefab mass
+        /// (stock's capacity accounting) + stackableQuantity. False when the
+        /// prefab is unresolvable or not storable cargo.
+        /// </summary>
+        private static bool TryReadPrefabFootprint(
+            string partName, out double perUnitVolume, out double perUnitMass, out int stackableQuantity)
+        {
+            perUnitVolume = 0.0;
+            perUnitMass = 0.0;
+            stackableQuantity = 1;
+            if (string.IsNullOrEmpty(partName)) return false;
+            AvailablePart info = PartLoader.getPartInfoByName(partName);
+            Part prefab = info != null ? info.partPrefab : null;
+            ModuleCargoPart cargo = prefab != null ? prefab.FindModuleImplementing<ModuleCargoPart>() : null;
+            if (cargo == null || cargo.packedVolume < 0f) return false;
+            perUnitVolume = cargo.packedVolume;
+            perUnitMass = prefab.mass + prefab.GetResourceMass();
+            stackableQuantity = cargo.stackableQuantity;
+            return true;
+        }
+
+        /// <summary>
+        /// Finds the storable cargo prefab (ModuleCargoPart, packedVolume &gt; 0)
+        /// with the SMALLEST packed volume in PartLoader, so the admission test
+        /// usually fits at least 2 units and can exercise the consumption leg.
+        /// </summary>
+        private static bool TryFindSmallestStorableCargoPrefab(
+            out string partName, out double perUnitVolume, out double perUnitMass, out int stackableQuantity)
+        {
+            partName = null;
+            perUnitVolume = 0.0;
+            perUnitMass = 0.0;
+            stackableQuantity = 1;
+            if (PartLoader.LoadedPartsList == null) return false;
+            for (int i = 0; i < PartLoader.LoadedPartsList.Count; i++)
+            {
+                AvailablePart info = PartLoader.LoadedPartsList[i];
+                Part prefab = info != null ? info.partPrefab : null;
+                ModuleCargoPart cargo = prefab != null ? prefab.FindModuleImplementing<ModuleCargoPart>() : null;
+                if (cargo == null || cargo.packedVolume <= 0f) continue;
+                if (partName != null && cargo.packedVolume >= perUnitVolume) continue;
+                partName = info.name;
+                perUnitVolume = cargo.packedVolume;
+                perUnitMass = prefab.mass + prefab.GetResourceMass();
+                stackableQuantity = cargo.stackableQuantity;
+            }
+            return partName != null;
+        }
+
         /// <summary>
         /// Finds any STACKABLE (stackCapacity &gt; 1) stored cargo part across
         /// the vessel's inventory modules and returns its canonical STOREDPART
