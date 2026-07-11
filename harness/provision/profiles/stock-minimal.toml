@@ -1,0 +1,41 @@
+schema = 1
+name = "stock-minimal"
+baseInstall = "Kerbal Space Program"       # dev install, relative to repo umbrella root
+instanceDir = "automation/stock-minimal"   # created by CLONE
+
+# Mods copied verbatim from the dev install's GameData (content-hashed into the
+# manifest). stock-minimal keeps only what the stack needs plus stock.
+#
+# NOTE: Squad + SquadExpansion are NOT listed here -- they are stock asset
+# payloads, JUNCTIONED (not copied) by the CLONE step and recorded as junction
+# targets in the manifest (stock, negligible drift risk). Only non-stock mod
+# folders are dev-sourced copies so a dev-GameData change cannot silently drift
+# an instance.
+devSourcedMods = [
+  "000_Harmony", "ModuleManager.4.2.3.dll",
+  "000_ClickThroughBlocker", "001_ToolbarControl",
+  "CommunityDeltaVMaps", "CommunityTechTree", "ProbesBeforeCrew",
+]
+
+# Stack components installed by the script (not from dev GameData): kRPC,
+# TestingTools.dll, MechJeb2, KRPC.MechJeb, Parsek.
+stackComponents = ["krpc", "testingtools", "mechjeb2", "krpc_mechjeb", "parsek"]
+
+# GT-8 verified keys. Delta = key -> pinned value; everything else copied from
+# the dev settings.cfg then overwritten here.
+[settings]
+PHYSICS_FRAME_DT_LIMIT = "0.03"    # tighter physics cap for determinism
+FRAMERATE_LIMIT = "60"             # cap CPU; automation window is small/low-detail
+QUALITY_PRESET = "0"
+TEXTURE_QUALITY = "3"              # lowest
+SHADOWS_QUALITY = "0"
+AERO_FX_QUALITY = "0"
+TERRAIN_SHADER_QUALITY = "0"
+UI_SCALE = "1.0"
+FULLSCREEN = "False"
+SCREEN_RESOLUTION_WIDTH = "1280"
+SCREEN_RESOLUTION_HEIGHT = "720"
+SIMULATE_IN_BACKGROUND = "True"    # MUST stay True: unattended runs lose focus
+AUTOSTRUT_SYMMETRY = "False"       # pin autostrut policy (plan section 2/10)
+CONIC_PATCH_DRAW_MODE = "3"
+CHECK_FOR_UPDATES = "False"        # suppress the launcher/update nag for unattended boots

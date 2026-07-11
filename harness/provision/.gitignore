@@ -1,0 +1,6 @@
+# Provisioner working dirs (never committed).
+__pycache__/
+.cache/
+.stage/
+# Provisioned instances (real runs) and any test-generated instance output.
+automation/

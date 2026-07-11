@@ -11,6 +11,21 @@ KRPC.MechJeb pairing, the dev-install inventory) inline as the authority for
 the setup script. Where a fact could only be confirmed by downloading a
 release artifact at install time, it is marked OPEN with the exact command.
 
+## Implementation Status (v1)
+
+v1 ships the `--dry-run` PLANNER and the pure decision library
+(`harness/provision/provlib.py`, fully unit-tested). The heavy live provisioning
+phases (BUILD-TT, CLONE, INSTALL, and the SETTINGS/DEPLOY/MM-CACHE/MANIFEST
+writes that follow them) and `--repair` are NOT yet implemented: a non-dry-run
+invocation aborts loudly at the first unimplemented phase (`EC-LIVE`) rather than
+half-provisioning an instance or writing a manifest that claims a completeness
+the run cannot back. The pure decisions each live phase will make (pin
+resolution, junction classification, settings-delta application, disk/path
+guards, dev-install aliasing, DLL-identity grep, lock arbitration) are already
+implemented and tested so live execution is assembly of vetted pieces. Live
+execution lands with the coordinated smoke-run task (see "Test Plan" and
+"Deferred to live execution").
+
 ---
 
 ## Ground Truth (verified 2026-07-11)
@@ -659,6 +674,14 @@ Each: trigger -> expected behavior -> v1 or deferred.
   delta names a key absent from the dev settings.cfg. Expected: settings-delta
   application APPENDS the key (KSP tolerates it) and logs it; a delta key that is
   a known typo (not in a validated key set) is a WARN. v1.
+- **EC-16 Instance dir aliases the dev install.** Trigger: a profile's
+  `instanceDir` resolves to the read-only dev install, or a parent/child of it,
+  or a path not under `automation/` (a hand-edited or mis-merged profile).
+  Expected: PREFLIGHT rejects it with the pure `check_instance_dir_alias`
+  predicate and ABORTS before any write. The live primitives overwrite
+  settings.cfg, copy the DLL, and DELETE the MM cache; aimed at the dev tree they
+  would corrupt the clone source. v1 (guard is live; the destructive primitives
+  it protects are the deferred live phases).
 
 ## What Doesn't Change
 
@@ -672,6 +695,43 @@ Each: trigger -> expected behavior -> v1 or deferred.
 - The harness's scenario/coverage machinery (M-A5) is out of scope; this module
   only produces the instances and manifests it consumes.
 - No changes to Parsek source, tests, or in-game hooks.
+
+## Deferred to live execution
+
+Reviewer findings deliberately deferred until the live provisioning phases land
+(the guards and pure decisions above already fence them; each is one bounded
+follow-up):
+
+- **R5 -- deploy default source hardcodes the worktree name.** `phase_deploy`'s
+  DEFAULT Parsek.dll path hardcodes `Parsek-autotest-provision/Source/...`. The
+  worktree-own `bin/Debug` build is preferred when present (via
+  `select_parsek_dll_source`), so this only bites a differently-named worktree
+  with no local build; fix by deriving the default from the umbrella layout /
+  requiring `--parsek-dll` when ambiguous.
+- **R8 -- `_ksp_running_against` coarseness.** The EC-1 check matches ANY
+  `KSP_x64.exe` process, not one bound to the target instance. Refine to the
+  instance's own exe path (or a per-instance mutex/lockfile heartbeat) so an
+  unrelated dev-install KSP does not block provisioning a different instance.
+- **R12 -- pre-EC-1 instance-local writes.** PREFLIGHT writes the `.provision.lock`
+  before the KSP-running check. The lockfile is now removed on completion (owned
+  locks only), but the ordering means one instance-local write precedes the EC-1
+  gate; move the KSP-running check ahead of the lock write for a strictly
+  no-write-before-gate PREFLIGHT.
+- **R13 -- long-path `\\?\` prefix for live CLONE.** `is_path_too_long` flags an
+  over-260-char instance path, but the live CLONE copy/junction primitives must
+  actually USE the extended-length `\\?\` prefix on Windows to copy deep KSP
+  asset trees; wire it when CLONE is implemented (EC-7).
+- **R15 -- `apply_settings` nested-key scope.** Delta application matches
+  top-level `KEY = value` lines only; a key that appears only inside a braced
+  node is treated as absent and APPENDED at top level. Acceptable for the flat
+  GT-8 keys pinned today; when a scoped/nested setting is ever targeted, extend
+  the matcher with node-path scope (EC-15).
+- **R11 (noted, kept).** The near-vacuous `test_capability_table_matches_design`
+  (it restates the hand-authored capability + missing-vs-master tuples) is KEPT:
+  it is a cheap guard against an accidental edit to the harness admission INPUT
+  table. The authoritative capability proof remains the BUILD-TT reflection smoke
+  over the real built assembly (already specced in the Test Plan); this unit
+  test does not pretend to replace it.
 
 ## Backward Compatibility
 
