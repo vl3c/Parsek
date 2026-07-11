@@ -35,7 +35,7 @@ namespace Parsek.Logistics
         // the destination transitions packed state mid-tick.
         internal readonly bool isLoaded;
         private readonly Dictionary<string, double> actualPerResource;
-        private int inventorySuccessCount;
+        private int inventoryUnitsStored;
 
         internal LiveDeliveryWriters(Route route, Vessel vessel, DeliveryPlan plan, bool isLoaded)
         {
@@ -45,7 +45,7 @@ namespace Parsek.Logistics
             this.isLoaded = isLoaded;
             this.actualPerResource = new Dictionary<string, double>(
                 plan.Resources?.Count ?? 0, StringComparer.Ordinal);
-            this.inventorySuccessCount = 0;
+            this.inventoryUnitsStored = 0;
         }
 
         internal void WriteResource(string resourceName, double amount)
@@ -188,11 +188,11 @@ namespace Parsek.Logistics
             return actualPerResource.TryGetValue(resourceName, out double v) ? v : 0.0;
         }
 
-        internal void WriteInventory(InventoryPayloadItem item, InventorySlotAddress slot)
+        internal void WriteInventory(InventoryPayloadItem item, InventorySlotAddress slot, int units)
         {
-            if (item == null || !slot.IsValid) return;
+            if (item == null || !slot.IsValid || units <= 0) return;
 
-            bool stored = false;
+            int storedUnits = 0;
             try
             {
                 // Use the orchestrator-captured isLoaded so probe/writer agree
@@ -201,34 +201,47 @@ namespace Parsek.Logistics
                 // here would race the probe's snapshot.
                 if (isLoaded)
                 {
-                    stored = WriteInventoryLoaded(item, slot);
+                    storedUnits = WriteInventoryLoaded(item, slot, units);
                 }
                 else
                 {
-                    stored = WriteInventoryUnloaded(item, slot);
+                    storedUnits = WriteInventoryUnloaded(item, slot, units);
                 }
             }
             catch (Exception ex)
             {
                 ParsekLog.Warn(Tag,
-                    $"WriteInventory(part={item.PartName}, slot={slot}) " +
+                    $"WriteInventory(part={item.PartName}, slot={slot}, units={units.ToString(IC)}) " +
                     $"threw {ex.GetType().Name}: {ex.Message}");
-                stored = false;
+                storedUnits = 0;
             }
 
-            if (stored) inventorySuccessCount++;
+            inventoryUnitsStored += storedUnits;
 
-            // Bounded (one line per manifest item per delivery), mirrors the
-            // pickup side's "Inventory remove" Info line so a cargo item's
-            // pickup + delivery are both traceable in the log.
+            // Bounded (a manifest holds a handful of lines per delivery),
+            // mirrors the pickup side's "Inventory remove" Info line so a cargo
+            // item's pickup and delivery are both traceable in the log; carries
+            // the module-qualified slot address and the units stored/planned.
             ParsekLog.Info(Tag,
                 $"Inventory store: route={route?.Id ?? "<none>"} dest={vessel?.vesselName ?? "<none>"} " +
                 $"pid={(vessel != null ? vessel.persistentId : 0u).ToString(IC)} " +
                 $"part={item.PartName ?? "<none>"} slot={slot} " +
-                $"stored={(stored ? "1" : "0")} path={(isLoaded ? "loaded" : "unloaded")}");
+                $"units={storedUnits.ToString(IC)}/{units.ToString(IC)} path={(isLoaded ? "loaded" : "unloaded")}");
+            if (storedUnits < units)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Inventory store: fewer units than planned part={item.PartName ?? "<none>"} " +
+                    $"slot={slot} planned={units.ToString(IC)} stored={storedUnits.ToString(IC)} " +
+                    $"path={(isLoaded ? "loaded" : "unloaded")}");
+            }
         }
 
-        internal int ReadInventoryActualCount() => inventorySuccessCount;
+        /// <summary>
+        /// Total UNITS actually stored across every inventory write of this
+        /// delivery (a planned line stores up to its stack size in one slot),
+        /// so the actual is unit-accurate, not a line count.
+        /// </summary>
+        internal int ReadInventoryActualCount() => inventoryUnitsStored;
 
         /// <summary>
         /// Distributes <paramref name="amount"/> across the destination
@@ -324,17 +337,37 @@ namespace Parsek.Logistics
         /// ConfigNode (see <see cref="VesselSpawner.BuildInventoryPayloadItem"/>),
         /// so we extract the inner PART node before constructing.
         /// </summary>
-        private bool WriteInventoryLoaded(InventoryPayloadItem item, InventorySlotAddress slot)
+        private int WriteInventoryLoaded(InventoryPayloadItem item, InventorySlotAddress slot, int units)
         {
-            if (item.StoredPartSnapshot == null) return false;
+            if (item.StoredPartSnapshot == null) return 0;
             ModuleInventoryPart module = ResolveLoadedInventoryModule(slot);
-            if (module == null) return false;
+            if (module == null) return 0;
 
             ProtoPartSnapshot pps = BuildProtoPartSnapshotForDelivery(
                 item.StoredPartSnapshot, vessel.protoVessel);
-            if (pps == null) return false;
+            if (pps == null) return 0;
 
-            return module.StoreCargoPartAtSlot(pps, slot.SlotIndex);
+            if (!module.StoreCargoPartAtSlot(pps, slot.SlotIndex)) return 0;
+
+            // Stock returns true even when nothing was stored (a null
+            // partInfo silently no-ops), so read the slot back for the real
+            // success signal instead of trusting the return value.
+            if (module.storedParts == null
+                || !module.storedParts.TryGetValue(slot.SlotIndex, out StoredPart storedPart)
+                || storedPart == null)
+            {
+                return 0;
+            }
+
+            // StoreCargoPartAtSlot always stores quantity 1; raise the stack
+            // to the planned unit count via the stock stack mutator, which
+            // clamps to the StoredPart's stackCapacity (taken from the
+            // snapshot's moduleCargoStackableQuantity) and fires the stock
+            // inventory-changed events. Read the resulting quantity back so
+            // the reported actual is what the slot really holds.
+            if (units > 1)
+                module.UpdateStackAmountAtSlot(slot.SlotIndex, units);
+            return storedPart.quantity > 0 ? storedPart.quantity : 0;
         }
 
         /// <summary>
@@ -377,13 +410,25 @@ namespace Parsek.Logistics
         /// the <c>slotIndex</c> value so stock's <c>OnLoad</c> (legacy and
         /// modern paths) restores the slot position when the vessel next loads.
         /// </summary>
-        private bool WriteInventoryUnloaded(InventoryPayloadItem item, InventorySlotAddress slot)
+        private int WriteInventoryUnloaded(InventoryPayloadItem item, InventorySlotAddress slot, int units)
         {
-            if (item.StoredPartSnapshot == null) return false;
-            ProtoPartModuleSnapshot mod = ResolveUnloadedInventoryModule(slot);
-            if (mod == null) return false;
+            if (item.StoredPartSnapshot == null) return 0;
+            // Branch parity with the loaded writer, which refuses a payload
+            // without an inner PART node (BuildProtoPartSnapshotForDelivery
+            // returns null). Appending it here would persist a PART-less
+            // STOREDPART that stock's StoredPart.Load reconstructs with a
+            // null snapshot.
+            if (item.StoredPartSnapshot.GetNode("PART") == null) return 0;
 
-            return StoreIntoUnloadedInventoryModule(mod.moduleValues, item.StoredPartSnapshot, slot.SlotIndex);
+            ProtoPartModuleSnapshot mod = ResolveUnloadedInventoryModule(slot);
+            if (mod == null) return 0;
+            ConfigNode mv = mod.moduleValues;
+            ConfigNode storedParts = mv.GetNode("STOREDPARTS");
+            if (storedParts == null) storedParts = mv.AddNode("STOREDPARTS");
+
+            storedParts.AddNode(BuildUnloadedStoredPartNode(
+                item.StoredPartSnapshot, slot.SlotIndex, units));
+            return units;
         }
 
         /// <summary>
@@ -426,28 +471,44 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Appends the STOREDPART payload under <paramref name="moduleValues"/>'
-        /// <c>STOREDPARTS</c> child with the planner-assigned
-        /// <paramref name="slotIndex"/>. Stock's StoredPart.Save writes
-        /// slotIndex as a value child of the STOREDPART node; our payload comes
-        /// from VesselSpawner which preserves the original slotIndex, so it is
-        /// overridden here so the STOREDPART lands in the assigned slot on next
-        /// OnLoad. Pure ConfigNode manipulation, internal for direct unit
-        /// testing of the module-targeted store.
+        /// Clones the recorded STOREDPART payload into the node the unloaded
+        /// writer appends under the proto module's <c>STOREDPARTS</c>:
+        /// <c>slotIndex</c> is overridden to the planner-assigned slot (the
+        /// payload preserves its origin slot) and <c>quantity</c> to the
+        /// per-slot unit count (the payload carries the whole manifest
+        /// quantity, which may span several slots). This is the exact shape
+        /// stock <c>StoredPart.Save</c> writes, so the next vessel load
+        /// reconstructs the stack via the normal <c>StoredPart.Load</c> path —
+        /// byte-symmetric with what the loaded writer's
+        /// StoreCargoPartAtSlot + UpdateStackAmountAtSlot pair persists.
         /// </summary>
-        internal static bool StoreIntoUnloadedInventoryModule(
-            ConfigNode moduleValues, ConfigNode storedPartSnapshot, int slotIndex)
+        internal static ConfigNode BuildUnloadedStoredPartNode(
+            ConfigNode storedPartSnapshot, int slot, int units)
         {
-            if (moduleValues == null || storedPartSnapshot == null || slotIndex < 0) return false;
-            ConfigNode storedParts = moduleValues.GetNode("STOREDPARTS");
-            if (storedParts == null) storedParts = moduleValues.AddNode("STOREDPARTS");
-
             ConfigNode storedPartCopy = storedPartSnapshot.CreateCopy();
             storedPartCopy.name = "STOREDPART";
             storedPartCopy.RemoveValues("slotIndex");
-            storedPartCopy.AddValue("slotIndex", slotIndex.ToString(IC));
-            storedParts.AddNode(storedPartCopy);
-            return true;
+            storedPartCopy.AddValue("slotIndex", slot.ToString(IC));
+            storedPartCopy.RemoveValues("quantity");
+            storedPartCopy.AddValue("quantity", units.ToString(IC));
+            return storedPartCopy;
+        }
+
+        // Internal so the in-game stack-store / probe-admission tests can pick
+        // a concrete inventory module to target on the live vessel.
+        internal static ModuleInventoryPart FindFirstInventoryModule(Vessel v)
+        {
+            if (v == null || v.parts == null) return null;
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null || p.Modules == null) continue;
+                for (int j = 0; j < p.Modules.Count; j++)
+                {
+                    if (p.Modules[j] is ModuleInventoryPart m) return m;
+                }
+            }
+            return null;
         }
 
         /// <summary>

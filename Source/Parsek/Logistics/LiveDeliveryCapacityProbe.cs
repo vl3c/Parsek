@@ -35,6 +35,37 @@ namespace Parsek.Logistics
         // exhausted every later manifest item can short-circuit instead of
         // re-scanning the whole vessel (and re-logging the same summary).
         private bool exhausted;
+
+        // Volume/mass claimed by earlier ConsumeInventoryCapacity calls in
+        // this planning pass, so a multi-item plan cannot collectively
+        // overshoot the vessel's summed packedVolumeLimit / massLimit even
+        // though each individual admission fit at probe time.
+        private double consumedPackedVolume;
+        private double consumedCargoMass;
+
+        // The container limits + pre-existing occupancy are invariant for
+        // the whole planning pass (the probe is created fresh per delivery
+        // and the writers only run after planning), so read them once and
+        // memoize — the budget walk costs a full parts/proto walk plus a
+        // prefab lookup per stored part.
+        private bool budgetRead;
+        private bool budgetValid;
+        private double cachedVolumeLimit;
+        private double cachedMassLimit;
+        private double cachedVolumeOccupied;
+        private double cachedMassOccupied;
+
+        // Per-part-name footprint memo: probe + consume + the budget walk all
+        // resolve the same prefabs repeatedly within one planning pass.
+        private readonly Dictionary<string, PartFootprint> footprintByPartName =
+            new Dictionary<string, PartFootprint>(StringComparer.Ordinal);
+
+        private struct PartFootprint
+        {
+            public bool Storable;
+            public double Volume;
+            public double Mass;
+        }
         // Injected by the orchestrator (ApplyDelivery) — captured once per
         // delivery and passed into BOTH the probe and the writer so the
         // free-capacity calculation and the resource-mutation path read
@@ -91,6 +122,356 @@ namespace Parsek.Logistics
         {
             if (!address.IsValid) return;
             consumedSlots.Add(address);
+        }
+
+        public int ProbeInventoryStackableQuantity(InventoryPayloadItem item)
+        {
+            if (item == null || string.IsNullOrEmpty(item.PartName)) return 1;
+            try
+            {
+                ModuleCargoPart cargo = FindPrefabCargoModule(item.PartName);
+                return cargo != null && cargo.stackableQuantity > 0 ? cargo.stackableQuantity : 1;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ProbeInventoryStackableQuantity(part={item.PartName}) threw {ex.GetType().Name}: {ex.Message}; returning 1");
+                return 1;
+            }
+        }
+
+        public int ProbeInventoryUnitsThatFit(InventoryPayloadItem item, int requestedUnits)
+        {
+            if (item == null || requestedUnits <= 0 || vessel == null) return 0;
+            try
+            {
+                // Per-unit footprint from the part prefab, mirroring stock's
+                // capacity accounting (ModuleInventoryPart.UpdateCapacityValues
+                // uses prefab packedVolume * quantity and GetPartMass(prefab)
+                // = prefab.mass + prefab.GetResourceMass()). An unresolvable
+                // prefab fails CLOSED: the loaded store would no-op on a null
+                // partInfo anyway, so admitting it would desync the branches.
+                if (!TryGetPerUnitFootprint(item.PartName, out double perUnitVolume, out double perUnitMass))
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"ProbeInventoryUnitsThatFit: part={item.PartName ?? "<none>"} has no resolvable " +
+                        "cargo prefab (packedVolume<0 or prefab missing); admitting 0 units");
+                    return 0;
+                }
+
+                if (!TryReadContainerBudget(out double volumeLimit, out double massLimit,
+                        out double volumeOccupied, out double massOccupied))
+                {
+                    return 0;
+                }
+
+                int fit = ComputeUnitsThatFit(
+                    perUnitVolume, perUnitMass,
+                    volumeLimit - volumeOccupied - consumedPackedVolume,
+                    massLimit - massOccupied - consumedCargoMass,
+                    volumeLimit > 0.0, massLimit > 0.0,
+                    requestedUnits);
+                if (fit < requestedUnits)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"ProbeInventoryUnitsThatFit: part={item.PartName} requested={requestedUnits.ToString(IC)} " +
+                        $"fit={fit.ToString(IC)} perUnitVol={perUnitVolume.ToString("R", IC)} " +
+                        $"perUnitMass={perUnitMass.ToString("R", IC)} volLimit={volumeLimit.ToString("R", IC)} " +
+                        $"volOccupied={(volumeOccupied + consumedPackedVolume).ToString("R", IC)} " +
+                        $"massLimit={massLimit.ToString("R", IC)} " +
+                        $"massOccupied={(massOccupied + consumedCargoMass).ToString("R", IC)} " +
+                        $"path={(isLoaded ? "loaded" : "unloaded")}");
+                }
+                return fit;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ProbeInventoryUnitsThatFit(part={item.PartName ?? "<none>"}) threw {ex.GetType().Name}: {ex.Message}; returning 0");
+                return 0;
+            }
+        }
+
+        public void ConsumeInventoryCapacity(InventoryPayloadItem item, int units)
+        {
+            if (item == null || units <= 0) return;
+            try
+            {
+                if (TryGetPerUnitFootprint(item.PartName, out double perUnitVolume, out double perUnitMass))
+                {
+                    consumedPackedVolume += perUnitVolume * units;
+                    consumedCargoMass += perUnitMass * units;
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ConsumeInventoryCapacity(part={item.PartName ?? "<none>"}) threw {ex.GetType().Name}: {ex.Message}; ignoring");
+            }
+        }
+
+        // Tolerance on the unit-count ratio: the free budget is computed by
+        // double subtraction and division, so an EXACT fit (e.g. 100 units of
+        // 0.6 L into a 60 L limit -> 60/0.6 = 99.99999999999999) would floor
+        // to one unit short without it. 1e-9 of a unit can never admit a
+        // genuinely non-fitting unit for real part footprints.
+        private const double UnitFitEpsilon = 1e-9;
+
+        /// <summary>
+        /// Pure admission core, unit-tested directly: how many of
+        /// <paramref name="requestedUnits"/> fit into the remaining free
+        /// volume/mass. A disabled limit (stock <c>HasPackedVolumeLimit</c> /
+        /// <c>HasMassLimit</c> false, i.e. limit &lt;= 0) does not constrain.
+        /// A zero per-unit footprint never constrains on that axis.
+        /// </summary>
+        internal static int ComputeUnitsThatFit(
+            double perUnitVolume, double perUnitMass,
+            double freeVolume, double freeMass,
+            bool hasVolumeLimit, bool hasMassLimit,
+            int requestedUnits)
+        {
+            if (requestedUnits <= 0) return 0;
+            int fit = requestedUnits;
+            if (hasVolumeLimit && perUnitVolume > 0.0)
+            {
+                double byVolume = Math.Floor(freeVolume / perUnitVolume + UnitFitEpsilon);
+                if (byVolume < fit) fit = byVolume < 0.0 ? 0 : (int)byVolume;
+            }
+            if (hasMassLimit && perUnitMass > 0.0)
+            {
+                double byMass = Math.Floor(freeMass / perUnitMass + UnitFitEpsilon);
+                if (byMass < fit) fit = byMass < 0.0 ? 0 : (int)byMass;
+            }
+            return fit;
+        }
+
+        /// <summary>
+        /// Per-unit packed volume + mass of the item's part prefab, memoized
+        /// per part name for the probe's lifetime (one planning pass). False
+        /// when the prefab cannot be resolved or the part is not storable
+        /// cargo (no ModuleCargoPart, or packedVolume &lt; 0 — stock's
+        /// <c>HasCapacity</c> refuses those outright).
+        /// </summary>
+        private bool TryGetPerUnitFootprint(string partName, out double perUnitVolume, out double perUnitMass)
+        {
+            perUnitVolume = 0.0;
+            perUnitMass = 0.0;
+            if (string.IsNullOrEmpty(partName)) return false;
+
+            if (!footprintByPartName.TryGetValue(partName, out PartFootprint footprint))
+            {
+                footprint = ResolvePartFootprint(partName);
+                footprintByPartName[partName] = footprint;
+            }
+            if (!footprint.Storable) return false;
+            perUnitVolume = footprint.Volume;
+            perUnitMass = footprint.Mass;
+            return true;
+        }
+
+        private static PartFootprint ResolvePartFootprint(string partName)
+        {
+            Part prefab = FindPrefabPart(partName);
+            if (prefab == null) return new PartFootprint { Storable = false };
+            ModuleCargoPart cargo = prefab.FindModuleImplementing<ModuleCargoPart>();
+            if (cargo == null || cargo.packedVolume < 0f) return new PartFootprint { Storable = false };
+            return new PartFootprint
+            {
+                Storable = true,
+                Volume = cargo.packedVolume,
+                Mass = prefab.mass + prefab.GetResourceMass(),
+            };
+        }
+
+        private static Part FindPrefabPart(string partName)
+        {
+            if (string.IsNullOrEmpty(partName)) return null;
+            AvailablePart info = PartLoader.getPartInfoByName(partName);
+            return info != null ? info.partPrefab : null;
+        }
+
+        private static ModuleCargoPart FindPrefabCargoModule(string partName)
+        {
+            Part prefab = FindPrefabPart(partName);
+            return prefab != null ? prefab.FindModuleImplementing<ModuleCargoPart>() : null;
+        }
+
+        /// <summary>
+        /// Reads the destination's volume/mass limits and current occupancy
+        /// SUMMED across ALL inventory modules on the captured branch
+        /// (loaded/unloaded), matching the multi-module slot probe and writers
+        /// (a full first container no longer blocks delivery, so the volume
+        /// budget must span every container too), memoized for the probe's
+        /// lifetime (one planning pass). Limits come from each container
+        /// part's PREFAB ModuleInventoryPart on BOTH branches (packedVolumeLimit
+        /// / massLimit are non-persistent KSPFields, so the proto module node
+        /// never carries them; reading the live module on the loaded branch
+        /// only would let admission diverge between branches for module-tweaked
+        /// containers). A module with a limit &lt;= 0 (stock "unlimited") makes
+        /// that axis unlimited vessel-wide. Occupancy is recomputed stock-style
+        /// from the stored parts (prefab per-unit footprint * quantity) across
+        /// every module. Returns false — admit nothing — when no inventory
+        /// module exists OR any container part's prefab cannot be resolved
+        /// (limits unknown; failing open would admit unbounded cargo into a
+        /// limited container).
+        ///
+        /// Residual imprecision (bounded, documented): the budget is at VESSEL
+        /// granularity (summed limits / summed occupancy) while stock enforces
+        /// packedVolumeLimit per-module. Because slot assignment and the volume
+        /// gate are decoupled, a specific container could individually over- or
+        /// under-fill; only the vessel TOTAL is bounded. Stock automated
+        /// delivery bypasses per-slot volume enforcement anyway, so the
+        /// meaningful guarantee (no gross total overshoot) holds. Per-container
+        /// budgets coordinated with slot placement are a deferred refinement.
+        /// </summary>
+        private bool TryReadContainerBudget(
+            out double volumeLimit, out double massLimit,
+            out double volumeOccupied, out double massOccupied)
+        {
+            if (!budgetRead)
+            {
+                budgetRead = true;
+                budgetValid = isLoaded ? ReadContainerBudgetLoaded() : ReadContainerBudgetUnloaded();
+            }
+            volumeLimit = cachedVolumeLimit;
+            massLimit = cachedMassLimit;
+            volumeOccupied = cachedVolumeOccupied;
+            massOccupied = cachedMassOccupied;
+            return budgetValid;
+        }
+
+        private bool ReadContainerBudgetLoaded()
+        {
+            if (vessel.parts == null) return false;
+            bool anyModule = false;
+            bool volumeUnlimited = false;
+            bool massUnlimited = false;
+            double volumeLimitSum = 0.0;
+            double massLimitSum = 0.0;
+
+            for (int i = 0; i < vessel.parts.Count; i++)
+            {
+                Part p = vessel.parts[i];
+                if (p == null || p.Modules == null) continue;
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    if (!(p.Modules[m] is ModuleInventoryPart module)) continue;
+                    anyModule = true;
+
+                    string containerName = module.part != null && module.part.partInfo != null
+                        ? module.part.partInfo.name : null;
+                    if (!TryResolveContainerLimits(containerName, out double vLimit, out double mLimit))
+                        return false; // fail closed: a container whose limits we can't read
+                    if (vLimit > 0.0) volumeLimitSum += vLimit; else volumeUnlimited = true;
+                    if (mLimit > 0.0) massLimitSum += mLimit; else massUnlimited = true;
+
+                    if (module.storedParts != null)
+                    {
+                        for (int s = 0; s < module.InventorySlots; s++)
+                        {
+                            if (!module.storedParts.ContainsKey(s)) continue;
+                            StoredPart sp = module.storedParts[s];
+                            if (sp == null || sp.quantity <= 0) continue;
+                            AccumulateStoredFootprint(sp.partName, sp.quantity);
+                        }
+                    }
+                }
+            }
+            if (!anyModule) return false;
+            cachedVolumeLimit = volumeUnlimited ? 0.0 : volumeLimitSum;
+            cachedMassLimit = massUnlimited ? 0.0 : massLimitSum;
+            return true;
+        }
+
+        private bool ReadContainerBudgetUnloaded()
+        {
+            ProtoVessel pv = vessel.protoVessel;
+            if (pv == null || pv.protoPartSnapshots == null) return false;
+            bool anyModule = false;
+            bool volumeUnlimited = false;
+            bool massUnlimited = false;
+            double volumeLimitSum = 0.0;
+            double massLimitSum = 0.0;
+
+            for (int i = 0; i < pv.protoPartSnapshots.Count; i++)
+            {
+                ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
+                if (pps == null || pps.modules == null) continue;
+                for (int m = 0; m < pps.modules.Count; m++)
+                {
+                    ProtoPartModuleSnapshot mod = pps.modules[m];
+                    if (mod == null || mod.moduleName != "ModuleInventoryPart") continue;
+                    anyModule = true;
+
+                    if (!TryResolveContainerLimits(pps.partName, out double vLimit, out double mLimit))
+                        return false;
+                    if (vLimit > 0.0) volumeLimitSum += vLimit; else volumeUnlimited = true;
+                    if (mLimit > 0.0) massLimitSum += mLimit; else massUnlimited = true;
+
+                    ConfigNode mv = mod.moduleValues;
+                    ConfigNode storedParts = mv != null ? mv.GetNode("STOREDPARTS") : null;
+                    if (storedParts != null)
+                    {
+                        ConfigNode[] sps = storedParts.GetNodes("STOREDPART");
+                        for (int s = 0; s < sps.Length; s++)
+                        {
+                            string storedName = sps[s].GetValue("partName");
+                            // Default-preserving parse (mirrors VesselSpawner's
+                            // manifest extraction): a malformed value counts as
+                            // 1 stored unit, never as 0, so its footprint is
+                            // not silently excluded from occupancy.
+                            int quantity = 1;
+                            string qtyStr = sps[s].GetValue("quantity");
+                            if (!string.IsNullOrEmpty(qtyStr)
+                                && int.TryParse(qtyStr, System.Globalization.NumberStyles.Integer, IC, out int parsedQty))
+                            {
+                                quantity = parsedQty;
+                            }
+                            if (quantity <= 0) continue;
+                            AccumulateStoredFootprint(storedName, quantity);
+                        }
+                    }
+                }
+            }
+            if (!anyModule) return false;
+            cachedVolumeLimit = volumeUnlimited ? 0.0 : volumeLimitSum;
+            cachedMassLimit = massUnlimited ? 0.0 : massLimitSum;
+            return true;
+        }
+
+        /// <summary>
+        /// Resolves one container part's prefab ModuleInventoryPart
+        /// packedVolumeLimit / massLimit. Fails (false) when the prefab or its
+        /// inventory module cannot be resolved, so the caller can fail the
+        /// whole budget closed (admit 0) rather than under-count the limits.
+        /// </summary>
+        private bool TryResolveContainerLimits(string containerPartName, out double volumeLimit, out double massLimit)
+        {
+            volumeLimit = 0.0;
+            massLimit = 0.0;
+            Part containerPrefab = FindPrefabPart(containerPartName);
+            ModuleInventoryPart prefabModule = containerPrefab != null
+                ? containerPrefab.FindModuleImplementing<ModuleInventoryPart>()
+                : null;
+            if (prefabModule == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"TryResolveContainerLimits: container part={containerPartName ?? "<none>"} has no resolvable " +
+                    $"prefab inventory module; failing closed (admit 0) path={(isLoaded ? "loaded" : "unloaded")}");
+                return false;
+            }
+            volumeLimit = prefabModule.packedVolumeLimit;
+            massLimit = prefabModule.massLimit;
+            return true;
+        }
+
+        private void AccumulateStoredFootprint(string partName, int quantity)
+        {
+            if (TryGetPerUnitFootprint(partName, out double perUnitVolume, out double perUnitMass))
+            {
+                cachedVolumeOccupied += perUnitVolume * quantity;
+                cachedMassOccupied += perUnitMass * quantity;
+            }
         }
 
         private double ProbeLoadedResourceFree(string resourceName)

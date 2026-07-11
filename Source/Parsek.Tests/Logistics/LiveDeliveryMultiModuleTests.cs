@@ -279,38 +279,35 @@ namespace Parsek.Tests.Logistics
             return node;
         }
 
-        // catches: missing STOREDPARTS child not being created, or the payload's
-        // original slotIndex leaking through instead of the assigned one.
+        // catches: the payload's original slotIndex/quantity leaking through
+        // instead of the planner-assigned slot + per-slot unit count.
         [Fact]
-        public void UnloadedStore_CreatesStoredPartsAndOverridesSlotIndex()
+        public void UnloadedStoredPartNode_OverridesSlotIndexAndQuantity()
         {
-            ConfigNode mv = MakeInventoryModuleValues(3);
             ConfigNode payload = MakeStoredPartPayload("smallPart", originalSlotIndex: 7);
 
-            bool stored = LiveDeliveryWriters.StoreIntoUnloadedInventoryModule(mv, payload, 2);
+            ConfigNode node = LiveDeliveryWriters.BuildUnloadedStoredPartNode(payload, slot: 2, units: 4);
 
-            Assert.True(stored);
-            ConfigNode storedParts = mv.GetNode("STOREDPARTS");
-            Assert.NotNull(storedParts);
-            ConfigNode[] nodes = storedParts.GetNodes("STOREDPART");
-            Assert.Single(nodes);
-            Assert.Equal("2", nodes[0].GetValue("slotIndex"));
-            Assert.Equal("smallPart", nodes[0].GetValue("partName"));
+            Assert.Equal("STOREDPART", node.name);
+            Assert.Equal("2", node.GetValue("slotIndex"));
+            Assert.Equal("4", node.GetValue("quantity"));
+            Assert.Equal("smallPart", node.GetValue("partName"));
             // Payload node itself must be untouched (the writer stores a copy).
             Assert.Equal("7", payload.GetValue("slotIndex"));
+            Assert.Equal("1", payload.GetValue("quantity"));
         }
 
-        // catches: the store clobbering existing STOREDPART children on the
-        // targeted module.
+        // catches: appending clobbering existing STOREDPART children on the
+        // targeted module (the writer appends the built node under STOREDPARTS).
         [Fact]
-        public void UnloadedStore_AppendsWithoutDisturbingExistingStoredParts()
+        public void UnloadedStoredPartNode_AppendsWithoutDisturbingExisting()
         {
             ConfigNode mv = MakeInventoryModuleValues(3, 0);
             ConfigNode payload = MakeStoredPartPayload("newPart", 0);
 
-            bool stored = LiveDeliveryWriters.StoreIntoUnloadedInventoryModule(mv, payload, 1);
+            ConfigNode storedParts = mv.GetNode("STOREDPARTS");
+            storedParts.AddNode(LiveDeliveryWriters.BuildUnloadedStoredPartNode(payload, slot: 1, units: 1));
 
-            Assert.True(stored);
             ConfigNode[] nodes = mv.GetNode("STOREDPARTS").GetNodes("STOREDPART");
             Assert.Equal(2, nodes.Length);
             Assert.Equal("0", nodes[0].GetValue("slotIndex"));
@@ -319,28 +316,15 @@ namespace Parsek.Tests.Logistics
             Assert.Equal("newPart", nodes[1].GetValue("partName"));
         }
 
-        // catches: null / negative-slot inputs silently "succeeding".
-        [Fact]
-        public void UnloadedStore_InvalidInputs_ReturnFalse()
-        {
-            ConfigNode mv = MakeInventoryModuleValues(3);
-            ConfigNode payload = MakeStoredPartPayload("p", 0);
-
-            Assert.False(LiveDeliveryWriters.StoreIntoUnloadedInventoryModule(null, payload, 0));
-            Assert.False(LiveDeliveryWriters.StoreIntoUnloadedInventoryModule(mv, null, 0));
-            Assert.False(LiveDeliveryWriters.StoreIntoUnloadedInventoryModule(mv, payload, -1));
-            Assert.Null(mv.GetNode("STOREDPARTS"));
-        }
-
         // ==================================================================
         // WriteInventory logging contract
         // ==================================================================
 
         // catches: the per-item "Inventory store" Info line losing the
-        // module-qualified slot address or the stored=0/1 outcome — the
+        // module-qualified slot address or the units stored/planned — the
         // pickup/delivery pair must stay traceable in KSP.log. Headless, so
         // the vessel is null and the store fails; the log line must still
-        // carry the full address and stored=0.
+        // carry the full address and units=0/N.
         [Fact]
         public void WriteInventory_LogsModuleQualifiedAddressAndOutcome()
         {
@@ -354,7 +338,7 @@ namespace Parsek.Tests.Logistics
                 StoredPartSnapshot = MakeStoredPartPayload("smallPart", 0),
             };
 
-            writers.WriteInventory(item, new InventorySlotAddress(1, 2, 3));
+            writers.WriteInventory(item, new InventorySlotAddress(1, 2, 3), 1);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Route]")
@@ -362,7 +346,7 @@ namespace Parsek.Tests.Logistics
                 && l.Contains("route=route-log-test")
                 && l.Contains("part=smallPart")
                 && l.Contains("slot=part1/mod2/slot3")
-                && l.Contains("stored=0")
+                && l.Contains("units=0/1")
                 && l.Contains("path=unloaded"));
             Assert.Equal(0, writers.ReadInventoryActualCount());
         }
@@ -379,7 +363,7 @@ namespace Parsek.Tests.Logistics
                 StoredPartSnapshot = MakeStoredPartPayload("smallPart", 0),
             };
 
-            writers.WriteInventory(item, InventorySlotAddress.None);
+            writers.WriteInventory(item, InventorySlotAddress.None, 1);
 
             Assert.DoesNotContain(logLines, l => l.Contains("Inventory store:"));
             Assert.Equal(0, writers.ReadInventoryActualCount());
