@@ -191,12 +191,32 @@ namespace Parsek.TestCommands
             }
             result.Id = pairs[0].Value;
 
+            // The id is the journal dedup key AND is written raw into journal/response
+            // lines. Reject any id that is not encoding-stable (decodes to a value that
+            // would itself need percent-encoding): a decoded space would journal-tokenize
+            // to a shorter id (a re-execution-after-restart hole where "a b" != "a"), and a
+            // decoded newline (id=a%0Ab) would forge a journal line. Encode(id) == id iff
+            // the id is safe to embed verbatim.
+            if (TestCommandProtocol.Encode(result.Id) != result.Id)
+            {
+                result.ParseError = "malformed-id";
+                return result;
+            }
+
             if (pairs.Count < 2 || pairs[1].Key != "cmd")
             {
                 result.ParseError = "missing-cmd";
                 return result;
             }
             result.Verb = pairs[1].Value;
+
+            // The verb is written raw into the CLAIMED journal line; reject a
+            // non-encoding-stable verb for the same journal-forgery / tokenization reason.
+            if (TestCommandProtocol.Encode(result.Verb) != result.Verb)
+            {
+                result.ParseError = "malformed-verb";
+                return result;
+            }
 
             for (int i = 2; i < pairs.Count; i++)
                 result.Args[pairs[i].Key] = pairs[i].Value; // unknown keys kept; last wins

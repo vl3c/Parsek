@@ -27,10 +27,33 @@ namespace Parsek.Tests
         [Fact]
         public void FormatExecuted_RoundTrips()
         {
-            string line = TestCommandJournal.FormatExecuted("0002", 2, 17390512.951);
+            string line = TestCommandJournal.FormatExecuted("0002", 2, 17390512.951, "OK", null, null);
             Assert.True(TestCommandJournal.TryParseLine(line, out JournalLine jl));
             Assert.Equal(JournalPhase.Executed, jl.Phase);
             Assert.Equal("0002", jl.Id);
+        }
+
+        [Fact]
+        public void FormatExecuted_CarriesVerdictPayloadMsg_RoundTrips()
+        {
+            var payload = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, string>>
+            {
+                new System.Collections.Generic.KeyValuePair<string, string>("recordingId", "abc123"),
+                new System.Collections.Generic.KeyValuePair<string, string>("scene", "FLIGHT"),
+            };
+            // A msg with a space and '=' must survive the double-encode (payload token) and
+            // per-value encode round-trip.
+            string line = TestCommandJournal.FormatExecuted("0006", 6, 17390512.951, "OK", payload, "note with=eq");
+            Assert.True(TestCommandJournal.TryParseLine(line, out JournalLine jl));
+            Assert.Equal("OK", jl.Verdict);
+            Assert.Equal("note with=eq", jl.Msg);
+            Assert.NotNull(jl.Payload);
+            Assert.Equal(2, jl.Payload.Count);
+            Assert.Equal("recordingId", jl.Payload[0].Key);
+            Assert.Equal("abc123", jl.Payload[0].Value);
+            Assert.Equal("FLIGHT", jl.Payload[1].Value);
+            // The whole EXECUTED line stays a single-line, ASCII wire token (no raw newline).
+            Assert.DoesNotContain("\n", line);
         }
 
         [Fact]

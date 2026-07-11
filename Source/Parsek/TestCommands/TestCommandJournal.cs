@@ -45,6 +45,14 @@ namespace Parsek.TestCommands
         public string Session;
         public string Verdict;
         public double T;
+
+        /// <summary>Decoded free-text message (EXECUTED lines, for true response rewrite);
+        /// null when the line carried no <c>msg=</c> token or it was empty.</summary>
+        public string Msg;
+
+        /// <summary>Decoded verb-specific payload pairs (EXECUTED lines, for true response
+        /// rewrite); null when the line carried no <c>payload=</c> token.</summary>
+        public List<KeyValuePair<string, string>> Payload;
     }
 
     /// <summary>
@@ -69,12 +77,57 @@ namespace Parsek.TestCommands
                 + " t=" + t.ToString("R", CultureInfo.InvariantCulture);
         }
 
-        internal static string FormatExecuted(string id, long seq, double t)
+        /// <summary>
+        /// The EXECUTED write-ahead line. It now carries the terminal
+        /// <paramref name="verdict"/> plus the percent-encoded <paramref name="payload"/> and
+        /// <paramref name="msg"/> so a crash-recovery replay at EXECUTED can re-emit the
+        /// ORIGINAL response line (true RewriteResponse) instead of a synthetic INTERRUPTED
+        /// ack. The <c>payload</c> token is the whole space-joined <c>key=encodedValue</c>
+        /// list percent-encoded once more so it survives as a single wire token.
+        /// </summary>
+        internal static string FormatExecuted(
+            string id, long seq, double t, string verdict,
+            List<KeyValuePair<string, string>> payload, string msg)
         {
             return "id=" + id
                 + " phase=EXECUTED"
                 + " seq=" + seq.ToString(CultureInfo.InvariantCulture)
-                + " t=" + t.ToString("R", CultureInfo.InvariantCulture);
+                + " t=" + t.ToString("R", CultureInfo.InvariantCulture)
+                + " verdict=" + TestCommandProtocol.Encode(verdict ?? string.Empty)
+                + " payload=" + TestCommandProtocol.Encode(SerializePayload(payload))
+                + " msg=" + TestCommandProtocol.Encode(msg ?? string.Empty);
+        }
+
+        // Serializes a payload list into one string of space-joined key=encodedValue pairs.
+        // Keys are literal identifiers (safe); values are percent-encoded. The whole result
+        // is percent-encoded again by the caller so it rides as a single journal token.
+        private static string SerializePayload(List<KeyValuePair<string, string>> payload)
+        {
+            if (payload == null || payload.Count == 0) return string.Empty;
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < payload.Count; i++)
+            {
+                if (i > 0) sb.Append(' ');
+                sb.Append(payload[i].Key).Append('=')
+                    .Append(TestCommandProtocol.Encode(payload[i].Value ?? string.Empty));
+            }
+            return sb.ToString();
+        }
+
+        // Inverse of SerializePayload: splits the (already once-decoded) payload string into
+        // key=value pairs, decoding each value. A malformed pair is skipped defensively.
+        private static List<KeyValuePair<string, string>> DeserializePayload(string s)
+        {
+            var list = new List<KeyValuePair<string, string>>();
+            if (string.IsNullOrEmpty(s)) return list;
+            string[] tokens = s.Split(new[] { ' ' }, System.StringSplitOptions.RemoveEmptyEntries);
+            foreach (string tok in tokens)
+            {
+                if (TestCommandProtocol.TrySplitToken(tok, out string key, out string rawVal)
+                    && TestCommandProtocol.TryDecode(rawVal, out string val))
+                    list.Add(new KeyValuePair<string, string>(key, val));
+            }
+            return list;
         }
 
         internal static string FormatDone(string id, long seq, string verdict, double t)
@@ -131,7 +184,18 @@ namespace Parsek.TestCommands
                         parsed.Session = value;
                         break;
                     case "verdict":
-                        parsed.Verdict = value;
+                        // Encoded on EXECUTED lines, raw on DONE lines; decode is identity for
+                        // the raw (encoding-safe verdict) case.
+                        if (TestCommandProtocol.TryDecode(value, out string verdictDec))
+                            parsed.Verdict = verdictDec;
+                        break;
+                    case "payload":
+                        if (TestCommandProtocol.TryDecode(value, out string payloadDec))
+                            parsed.Payload = DeserializePayload(payloadDec);
+                        break;
+                    case "msg":
+                        if (TestCommandProtocol.TryDecode(value, out string msgDec))
+                            parsed.Msg = msgDec;
                         break;
                     case "t":
                         if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double t))
@@ -253,6 +317,38 @@ namespace Parsek.TestCommands
             if (!TryParsePhase(phaseToken, out JournalPhase phase)) return;
             if (!map.TryGetValue(id, out JournalPhase existing) || phase > existing)
                 map[id] = phase;
+        }
+
+        /// <summary>
+        /// Recovers the ORIGINAL terminal response fields (verdict / payload / msg) stored on
+        /// the last whole EXECUTED line for <paramref name="id"/>, so a RewriteResponse
+        /// recovery re-emits the same response the pre-crash run would have (byte-equivalent in
+        /// verdict / payload / msg; only <c>seq</c> and <c>ut</c> legitimately differ). Returns
+        /// false when no EXECUTED line carries the enriched fields (a torn / pre-enrichment
+        /// line), so the caller can fall back. <paramref name="msg"/> is normalized empty -&gt;
+        /// null to match a null-msg original response exactly.
+        /// </summary>
+        internal static bool TryGetExecutedResponse(
+            IEnumerable<string> lines, string id,
+            out string verdict, out List<KeyValuePair<string, string>> payload, out string msg)
+        {
+            verdict = null;
+            payload = null;
+            msg = null;
+            if (lines == null || id == null) return false;
+
+            bool found = false;
+            foreach (string line in lines)
+            {
+                if (!TryParseLine(line, out JournalLine jl)) continue;
+                if (jl.Phase != JournalPhase.Executed || jl.Id != id) continue;
+                if (jl.Verdict == null) continue; // pre-enrichment EXECUTED line: no stored verdict
+                verdict = jl.Verdict;
+                payload = jl.Payload;
+                msg = string.IsNullOrEmpty(jl.Msg) ? null : jl.Msg;
+                found = true; // last EXECUTED line for the id wins
+            }
+            return found;
         }
 
         private static bool TryParsePhase(string value, out JournalPhase phase)

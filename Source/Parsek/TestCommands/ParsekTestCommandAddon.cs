@@ -287,15 +287,19 @@ namespace Parsek.TestCommands
                         break;
                     case RecoveryAction.RewriteResponse:
                         executed++;
-                        // Side effect ran but the response may not have landed and cannot
-                        // be reconstructed post-crash; re-ack with a distinct recovery msg
-                        // so the orchestrator (which treats the FIRST terminal line per id
-                        // as authoritative) is never left hanging.
-                        WriteRecoveryTerminal(id, verb, "INTERRUPTED", "recovered-executed");
+                        // Side effect ran; re-emit the ORIGINAL terminal response stored on the
+                        // EXECUTED line (true RewriteResponse) so the orchestrator sees the real
+                        // verdict/payload/msg, not a synthetic INTERRUPTED. A pre-enrichment /
+                        // torn EXECUTED line with no stored fields falls back to the old ack.
+                        if (TestCommandJournal.TryGetExecutedResponse(
+                                lines, id, out string exVerdict, out var exPayload, out string exMsg))
+                            WriteRecoveryTerminal(id, verb, exVerdict, exPayload, exMsg);
+                        else
+                            WriteRecoveryTerminal(id, verb, "INTERRUPTED", null, "recovered-executed");
                         break;
                     case RecoveryAction.Interrupted:
                         claimed++;
-                        WriteRecoveryTerminal(id, verb, "INTERRUPTED", "interrupted-claimed");
+                        WriteRecoveryTerminal(id, verb, "INTERRUPTED", null, "interrupted-claimed");
                         break;
                 }
                 processedIds.Add(id);
@@ -606,7 +610,9 @@ namespace Parsek.TestCommands
             string id, long seq, string verb, string verdict,
             List<KeyValuePair<string, string>> payload, string msg)
         {
-            WriteJournal(TestCommandJournal.FormatExecuted(id, seq, WallClockSeconds()), id, "EXECUTED");
+            WriteJournal(
+                TestCommandJournal.FormatExecuted(id, seq, WallClockSeconds(), verdict, payload, msg),
+                id, "EXECUTED");
 
             string line = TestCommandResponse.FormatResponseLine(
                 id, verb, verdict, seq, CurrentUt(), payload, msg);
@@ -730,7 +736,7 @@ namespace Parsek.TestCommands
             string verb = head.Verb ?? string.Empty;
             long seq = NextSeq();
             WriteJournal(TestCommandJournal.FormatClaimed(id, seq, verb, SessionId(), WallClockSeconds()), id, "CLAIMED");
-            WriteJournal(TestCommandJournal.FormatExecuted(id, seq, WallClockSeconds()), id, "EXECUTED");
+            WriteJournal(TestCommandJournal.FormatExecuted(id, seq, WallClockSeconds(), verdict, null, msg), id, "EXECUTED");
             string line = TestCommandResponse.FormatResponseLine(id, verb, verdict, seq, CurrentUt(), null, msg);
             AppendResponse(line, id);
             WriteJournal(TestCommandJournal.FormatDone(id, seq, verdict, WallClockSeconds()), id, "DONE");
@@ -753,12 +759,17 @@ namespace Parsek.TestCommands
         }
 
         // Startup crash-recovery terminal (from ReplayAndReconcile). No pending head to
-        // dequeue; just re-ack + DONE + processed-set seed happens in the caller.
-        private void WriteRecoveryTerminal(string id, string verb, string verdict, string msg)
+        // dequeue; just re-ack + DONE + processed-set seed happens in the caller. For the
+        // RewriteResponse (EXECUTED) case the ORIGINAL verdict/payload/msg are supplied so the
+        // rewritten line is byte-equivalent to the pre-crash response; the CLAIMED case keeps
+        // the synthetic interrupted-claimed ack.
+        private void WriteRecoveryTerminal(
+            string id, string verb, string verdict,
+            List<KeyValuePair<string, string>> payload, string msg)
         {
             long seq = NextSeq();
             string line = TestCommandResponse.FormatResponseLine(
-                id, verb ?? string.Empty, verdict, seq, CurrentUt(), null, msg);
+                id, verb ?? string.Empty, verdict, seq, CurrentUt(), payload, msg);
             AppendResponse(line, id);
             WriteJournal(TestCommandJournal.FormatDone(id, seq, verdict, WallClockSeconds()), id, "DONE");
         }

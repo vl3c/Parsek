@@ -125,5 +125,57 @@ namespace Parsek.Tests
             Assert.True(p.ParseOk);
             Assert.Equal("StopRecording", p.Verb);
         }
+
+        // ----- F2: encoding-unsafe id / verb rejected at parse time -----
+
+        [Fact]
+        public void EncodedSpaceId_IsRejected_MalformedId()
+        {
+            // id=a%20b decodes to "a b"; a raw space in the id would journal-tokenize to "a"
+            // (a re-execution-after-restart hole), so it is rejected.
+            var p = TestCommandParser.ParseLine("id=a%20b cmd=MissionMark", 1);
+            Assert.False(p.ParseOk);
+            Assert.Equal("malformed-id", p.ParseError);
+        }
+
+        [Fact]
+        public void NewlineId_IsRejected_MalformedId()
+        {
+            // id=a%0Ab decodes to "a\nb"; a raw newline in the id would forge a journal line.
+            var p = TestCommandParser.ParseLine("id=a%0Ab cmd=MissionMark", 1);
+            Assert.False(p.ParseOk);
+            Assert.Equal("malformed-id", p.ParseError);
+        }
+
+        [Fact]
+        public void EncodingUnsafeVerb_IsRejected_MalformedVerb()
+        {
+            var p = TestCommandParser.ParseLine("id=1 cmd=Bad%0AVerb", 1);
+            Assert.False(p.ParseOk);
+            Assert.Equal("malformed-verb", p.ParseError);
+            Assert.Equal("1", p.Id); // id salvaged for correlation
+        }
+
+        [Theory]
+        [InlineData("0001")]
+        [InlineData("run-3.cmd-42")]
+        [InlineData("a1b2c3d4e5f6")]
+        public void AcceptedId_RoundTripsThroughJournalFormatters_ByteStable(string id)
+        {
+            // An accepted (encoding-stable) id embeds verbatim into every journal formatter
+            // and parses back unchanged -> no tokenization drift for the dedup key.
+            var p = TestCommandParser.ParseLine("id=" + id + " cmd=StopRecording", 1);
+            Assert.True(p.ParseOk);
+            Assert.Equal(id, p.Id);
+
+            string claimed = TestCommandJournal.FormatClaimed(id, 1, "StopRecording", "s", 1);
+            string executed = TestCommandJournal.FormatExecuted(id, 1, 2, "OK", null, null);
+            string done = TestCommandJournal.FormatDone(id, 1, "OK", 3);
+            foreach (string line in new[] { claimed, executed, done })
+            {
+                Assert.True(TestCommandJournal.TryParseLine(line, out JournalLine jl));
+                Assert.Equal(id, jl.Id);
+            }
+        }
     }
 }

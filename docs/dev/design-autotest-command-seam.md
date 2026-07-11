@@ -144,8 +144,15 @@ Grammar rules:
   GUID). It is the ack correlation key and the journal dedup key. Ids must be unique
   across process restarts within one logical run; the orchestrator either uses
   monotonic-across-run ids or truncates the three channel files between runs (see
-  Backward Compatibility).
-- `cmd`: the verb. Case-sensitive, exact match against the known-verb table.
+  Backward Compatibility). The id MUST be encoding-stable: because it is embedded VERBATIM
+  (not re-encoded) into journal and response lines, a decoded id that would itself need
+  percent-encoding is rejected at parse time (`REJECTED msg=malformed-id`). This closes two
+  holes: a decoded space (`id=a%20b` -> "a b") would journal-tokenize to a shorter id "a" (a
+  re-execution-after-restart mismatch), and a decoded newline (`id=a%0Ab`) would forge a
+  journal line. In practice monotonic integers and GUIDs are always encoding-stable.
+- `cmd`: the verb. Case-sensitive, exact match against the known-verb table. Like the id it
+  must be encoding-stable (it is written raw into the `CLAIMED` journal line); an
+  encoding-unsafe verb is `REJECTED msg=malformed-verb`.
 - Optional `v=<n>`: protocol version, default `1`. Unknown keys are ignored (forward
   compatibility), so phase-3 verbs may add new keys freely.
 - **Value encoding**: a value that contains whitespace, `=`, `%`, or a control character
@@ -202,8 +209,10 @@ and BEFORE the journal `DONE` leaves the id at `EXECUTED`; on restart the addon 
 the response line from `EXECUTED` (it cannot know the first append survived). The
 orchestrator therefore treats the FIRST terminal response line for a given id as
 authoritative and IGNORES any later duplicate line for that same id -- later duplicates are
-crash-recovery rewrites, not new outcomes. (A rewritten line is byte-equivalent in verdict;
-only `seq` differs, since it is a fresh per-process counter.)
+crash-recovery rewrites, not new outcomes. (A rewritten line is byte-equivalent in verdict,
+payload, AND msg -- the recovery re-emits the ORIGINAL terminal outcome stored on the
+enriched `EXECUTED` journal line, see the Journal grammar -- only `seq` and `ut` differ, since
+`seq` is a fresh per-process counter and `ut` is re-sampled at recovery time.)
 
 ### Journal line grammar (WAL)
 
@@ -211,20 +220,31 @@ Append-only, newline terminated. One line per phase transition:
 
 ```
 id=0002 phase=CLAIMED seq=2 verb=StartRecording session=7f3a... t=17390512.884
-id=0002 phase=EXECUTED seq=2 t=17390512.951
+id=0002 phase=EXECUTED seq=2 t=17390512.951 verdict=OK payload=recordingId%3Dabc123 msg=
 id=0002 phase=DONE seq=2 verdict=OK t=17390512.960
 ```
 
 `session` is `ParsekProcess.ProcessSessionId` (the AppDomain-lifetime GUID) so a journal
 can be attributed to a specific process run. `t` is wall-clock seconds (InvariantCulture).
-On addon startup the journal is replayed into an in-memory map `id -> highest phase seen`:
+
+The `EXECUTED` line is ENRICHED: it stores the terminal `verdict`, the whole verb-specific
+`payload`, and any `msg` so a crash-recovery replay at `EXECUTED` can re-emit the ORIGINAL
+response line (true RewriteResponse), not a synthetic ack. The `payload` value is the
+space-joined `key=encodedValue` list percent-encoded ONCE MORE so the whole list rides as a
+single wire token (`payload=recordingId%3Dabc123`); an empty payload / msg is written as an
+empty token (`payload=` / `msg=`). Because ids and verbs are encoding-stable (rejected at
+parse time otherwise, see the command grammar), the id/verb embed verbatim and only the
+payload/msg/verdict fields are encoded. On addon startup the journal is replayed into an
+in-memory map `id -> highest phase seen`:
 
 - id at `DONE`  -> already fully handled; skip (no re-execute, no re-respond).
-- id at `EXECUTED` (no `DONE`) -> side effect ran; skip execution, (re)write the response
-  line, append `DONE`. This recovers a crash or an IO failure between side effect and
-  response.
+- id at `EXECUTED` (no `DONE`) -> side effect ran; skip execution, re-emit the ORIGINAL
+  terminal response from the stored `verdict`/`payload`/`msg` (byte-equivalent to the
+  pre-crash response modulo `seq`/`ut`), append `DONE`. This recovers a crash or an IO
+  failure between side effect and response. A pre-enrichment / torn `EXECUTED` line with no
+  stored verdict falls back to an `INTERRUPTED msg=recovered-executed` ack.
 - id at `CLAIMED` (no `EXECUTED`) -> crashed mid-execution; do NOT re-execute; write an
-  `INTERRUPTED` terminal response and append `DONE`.
+  `INTERRUPTED msg=interrupted-claimed` terminal response and append `DONE`.
 
 Journal replay tolerates a TORN TRAILING LINE: a crash mid-append can leave a final journal
 line without a terminating `\n`; replay ignores any trailing line that is not

@@ -61,7 +61,7 @@ namespace Parsek.Tests
         {
             string content =
                 TestCommandJournal.FormatClaimed("0002", 2, "StartRecording", "s", 1) + "\n"
-                + TestCommandJournal.FormatExecuted("0002", 2, 2) + "\n";
+                + TestCommandJournal.FormatExecuted("0002", 2, 2, "OK", null, null) + "\n";
             var map = TestCommandJournal.ReplayIntoPhaseMap(content);
             Assert.Equal(JournalPhase.Executed, map["0002"]);
             Assert.Equal(RecoveryAction.RewriteResponse, TestCommandJournal.DecideRecovery(map, "0002"));
@@ -72,7 +72,7 @@ namespace Parsek.Tests
         {
             string content =
                 TestCommandJournal.FormatClaimed("0002", 2, "StartRecording", "s", 1) + "\n"
-                + TestCommandJournal.FormatExecuted("0002", 2, 2) + "\n"
+                + TestCommandJournal.FormatExecuted("0002", 2, 2, "OK", null, null) + "\n"
                 + TestCommandJournal.FormatDone("0002", 2, "OK", 3) + "\n";
             var map = TestCommandJournal.ReplayIntoPhaseMap(content);
             Assert.Equal(JournalPhase.Done, map["0002"]);
@@ -102,7 +102,7 @@ namespace Parsek.Tests
         {
             string content =
                 TestCommandJournal.FormatClaimed("0006", 6, "LoadGame", "s", 1) + "\n"
-                + TestCommandJournal.FormatExecuted("0006", 6, 2) + "\n";
+                + TestCommandJournal.FormatExecuted("0006", 6, 2, "OK", null, null) + "\n";
             var map = TestCommandJournal.ReplayIntoPhaseMap(content);
             Assert.Equal(RecoveryAction.RewriteResponse, TestCommandJournal.DecideRecovery(map, "0006"));
         }
@@ -112,7 +112,7 @@ namespace Parsek.Tests
         {
             string content =
                 TestCommandJournal.FormatClaimed("0006", 6, "LoadGame", "s", 1) + "\n"
-                + TestCommandJournal.FormatExecuted("0006", 6, 2) + "\n"
+                + TestCommandJournal.FormatExecuted("0006", 6, 2, "OK", null, null) + "\n"
                 + TestCommandJournal.FormatDone("0006", 6, "OK", 3) + "\n";
             var map = TestCommandJournal.ReplayIntoPhaseMap(content);
             Assert.Equal(RecoveryAction.Skip, TestCommandJournal.DecideRecovery(map, "0006"));
@@ -125,7 +125,7 @@ namespace Parsek.Tests
         {
             // A DONE line followed by a stray earlier-phase line still resolves DONE.
             string content =
-                TestCommandJournal.FormatExecuted("0002", 2, 2) + "\n"
+                TestCommandJournal.FormatExecuted("0002", 2, 2, "OK", null, null) + "\n"
                 + TestCommandJournal.FormatDone("0002", 2, "OK", 3) + "\n"
                 + TestCommandJournal.FormatClaimed("0002", 2, "StartRecording", "s", 4) + "\n";
             var map = TestCommandJournal.ReplayIntoPhaseMap(content);
@@ -137,12 +137,63 @@ namespace Parsek.Tests
         {
             string content =
                 TestCommandJournal.FormatClaimed("a", 1, "SetSetting", "s", 1) + "\n"
-                + TestCommandJournal.FormatExecuted("b", 2, 2) + "\n"
+                + TestCommandJournal.FormatExecuted("b", 2, 2, "OK", null, null) + "\n"
                 + TestCommandJournal.FormatDone("c", 3, "OK", 3) + "\n";
             var map = TestCommandJournal.ReplayIntoPhaseMap(content);
             Assert.Equal(RecoveryAction.Interrupted, TestCommandJournal.DecideRecovery(map, "a"));
             Assert.Equal(RecoveryAction.RewriteResponse, TestCommandJournal.DecideRecovery(map, "b"));
             Assert.Equal(RecoveryAction.Skip, TestCommandJournal.DecideRecovery(map, "c"));
+        }
+
+        // ----- True RewriteResponse (Adjudication A): re-emit the original verdict -----
+
+        [Fact]
+        public void Executed_RewriteResponse_ReEmitsOriginalVerdictPayloadMsg()
+        {
+            // The EXECUTED line stores the original terminal outcome; a crash before DONE
+            // must rewrite THAT response, not a synthetic INTERRUPTED.
+            var payload = new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("recordingId", "abc123"),
+            };
+            string content =
+                TestCommandJournal.FormatClaimed("0002", 2, "StartRecording", "s", 1) + "\n"
+                + TestCommandJournal.FormatExecuted("0002", 2, 2, "OK", payload, null) + "\n";
+            var lines = TestCommandJournal.SplitCompleteLines(content);
+
+            Assert.Equal(RecoveryAction.RewriteResponse,
+                TestCommandJournal.DecideRecovery(TestCommandJournal.ReplayIntoPhaseMap(lines), "0002"));
+
+            Assert.True(TestCommandJournal.TryGetExecutedResponse(
+                lines, "0002", out string verdict, out var recovered, out string msg));
+            Assert.Equal("OK", verdict);
+            Assert.Null(msg); // stored empty msg normalizes back to null
+            Assert.NotNull(recovered);
+            Assert.Equal("recordingId", recovered[0].Key);
+            Assert.Equal("abc123", recovered[0].Value);
+        }
+
+        [Fact]
+        public void Executed_RewriteResponse_IsByteEquivalentToOriginalResponse()
+        {
+            // The rewritten response differs from the pre-crash one ONLY in seq/ut; the
+            // verdict + payload + msg reconstruct byte-for-byte. Holding seq + ut fixed here
+            // isolates that reconstruction.
+            var payload = new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("recordingId", "abc123"),
+            };
+            string original = TestCommandResponse.FormatResponseLine(
+                "0002", "StartRecording", "OK", 2, 1234.5, payload, null);
+
+            string content = TestCommandJournal.FormatExecuted("0002", 2, 2, "OK", payload, null) + "\n";
+            Assert.True(TestCommandJournal.TryGetExecutedResponse(
+                TestCommandJournal.SplitCompleteLines(content), "0002",
+                out string verdict, out var recovered, out string msg));
+            string rewritten = TestCommandResponse.FormatResponseLine(
+                "0002", "StartRecording", verdict, 2, 1234.5, recovered, msg);
+
+            Assert.Equal(original, rewritten);
         }
 
         // ----- Torn trailing line: never durably committed -----
@@ -154,7 +205,7 @@ namespace Parsek.Tests
             // so replay must keep the id at CLAIMED -> Interrupted, not RewriteResponse.
             string content =
                 TestCommandJournal.FormatClaimed("0002", 2, "StartRecording", "s", 1) + "\n"
-                + TestCommandJournal.FormatExecuted("0002", 2, 2); // torn: no trailing \n
+                + TestCommandJournal.FormatExecuted("0002", 2, 2, "OK", null, null); // torn: no trailing \n
             var map = TestCommandJournal.ReplayIntoPhaseMap(content);
             Assert.Equal(JournalPhase.Claimed, map["0002"]);
             Assert.Equal(RecoveryAction.Interrupted, TestCommandJournal.DecideRecovery(map, "0002"));
