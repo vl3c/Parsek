@@ -28,6 +28,8 @@ namespace Parsek.Tests.Analyzer
             var supersedes = new List<RecordingSupersedeRelation>();
             var loadFaults = new List<LoadFault>();
             var sidecarSchema = new Dictionary<string, (int, int)>(StringComparer.Ordinal);
+            var ledger = new List<GameAction>();
+            CareerSaveSnapshot careerSave = null;
 
             // Quiet the production sidecar/tree logging during load; the analyzer
             // is not a KSP session and should not spam KSP-style lines.
@@ -53,7 +55,17 @@ namespace Parsek.Tests.Analyzer
                             tombstones, LedgerTombstone.LoadFrom);
                         LoadSidecars(saveDir, recordings, sidecarSchema, loadFaults);
                     }
+
+                    // Career parse (task 1.3): only kept when the save is career
+                    // (Funding present). Non-career -> null, no fault (INV8 owns any
+                    // career-availability finding).
+                    careerSave = ParseCareer(root);
                 }
+
+                // RAW ledger (correction C1): parsed directly from ledger.pgld,
+                // NEVER through Ledger.LoadFromFile, which mutates the process static
+                // Ledger.actions. Unfiltered: INV8 computes the ELS filter itself.
+                LoadLedger(saveDir, ledger, loadFaults);
             }
             finally
             {
@@ -65,6 +77,8 @@ namespace Parsek.Tests.Analyzer
             model.Tombstones = tombstones;
             model.SupersedeRelations = supersedes;
             model.SidecarSchema = sidecarSchema;
+            model.Ledger = ledger;
+            model.CareerSave = careerSave;
             model.LoadFaults = loadFaults;
             return model;
         }
@@ -384,6 +398,66 @@ namespace Parsek.Tests.Analyzer
                     ? (probe.SchemaGeneration, probe.FormatVersion)
                     : (0, 0);
             }
+        }
+
+        // --- Ledger + career parse (task 1.3) ---
+
+        /// <summary>
+        /// Parses <c>saves/&lt;save&gt;/Parsek/GameState/ledger.pgld</c> directly into
+        /// a RAW, unfiltered action list (correction C1). Deliberately does NOT call
+        /// <c>Ledger.LoadFromFile</c> (which mutates the process-static
+        /// <c>Ledger.actions</c>), keeping the loader pure and Sequential-safe.
+        /// </summary>
+        private static void LoadLedger(string saveDir, List<GameAction> ledger, List<LoadFault> loadFaults)
+        {
+            if (string.IsNullOrEmpty(saveDir))
+                return;
+
+            string ledgerPath = Path.Combine(saveDir, RecordingPaths.BuildLedgerRelativePath());
+            if (!File.Exists(ledgerPath))
+                return; // No ledger file == empty ledger; not a fault.
+
+            ConfigNode loaded;
+            try
+            {
+                loaded = ConfigNode.Load(ledgerPath);
+            }
+            catch (Exception ex)
+            {
+                loadFaults.Add(new LoadFault(ledgerPath, "ledger", ex.GetType().Name + ": " + ex.Message, null));
+                return;
+            }
+
+            if (loaded == null)
+            {
+                loadFaults.Add(new LoadFault(ledgerPath, "ledger", "configNode-load-returned-null", null));
+                return;
+            }
+
+            foreach (ConfigNode actionNode in loaded.GetNodes("GAME_ACTION"))
+            {
+                try
+                {
+                    ledger.Add(GameAction.DeserializeFrom(actionNode));
+                }
+                catch (Exception ex)
+                {
+                    loadFaults.Add(new LoadFault(ledgerPath, "ledger", ex.GetType().Name + ": " + ex.Message, null));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Parses the career totals from the loaded save root, returning the snapshot
+        /// only when the save is career (Funding present). Non-career / unparsable ->
+        /// null, no fault (INV8 owns any career-availability finding).
+        /// </summary>
+        private static CareerSaveSnapshot ParseCareer(ConfigNode root)
+        {
+            CareerSaveSnapshot snapshot = CareerSaveParser.Parse(root);
+            if (snapshot != null && snapshot.Parsed && snapshot.HasFunds)
+                return snapshot;
+            return null;
         }
     }
 }
