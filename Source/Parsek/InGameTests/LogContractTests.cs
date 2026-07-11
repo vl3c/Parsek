@@ -140,6 +140,35 @@ namespace Parsek.InGameTests
             ParsekLog.Verbose("TestRunner", $"SES-002: SessionStart format valid, utc={utcNow}");
         }
 
+        // --- MSN-001: MissionMark correlation marker format ---
+
+        [InGameTest(Category = "LogContracts",
+            Description = "MSN-001: MissionMark line uses 'MISSIONMARK label=<label> ut=<ut>' format")]
+        public static void MissionMarkFormatValid()
+        {
+            // The external orchestrator greps this exact shape to correlate its own
+            // timeline against the KSP session, so (like SES-002 for SessionStart) it gets
+            // a dedicated contract test. Every other [TestCommands] line is covered by the
+            // generic structure/level contracts (FMT-001 / FMT-002).
+            string withUt = Parsek.TestCommands.TestCommandMissionMark.FormatMarkMessage("mun landing start", 1234.5);
+            string noGame = Parsek.TestCommands.TestCommandMissionMark.FormatMarkMessage("x", null);
+
+            var pattern = new Regex(@"^MISSIONMARK label=.* ut=(\d+(\.\d+)?|none)$");
+            InGameAssert.IsTrue(pattern.IsMatch(withUt),
+                $"MSN-001: MissionMark format invalid: {withUt}");
+            InGameAssert.IsTrue(pattern.IsMatch(noGame),
+                $"MSN-001: MissionMark (no game) format invalid: {noGame}");
+
+            // Spell out the exact expected lines so a format drift is caught, not masked
+            // by a permissive regex.
+            InGameAssert.AreEqual("MISSIONMARK label=mun landing start ut=1234.5", withUt,
+                "MSN-001: unexpected MissionMark line");
+            InGameAssert.AreEqual("MISSIONMARK label=x ut=none", noGame,
+                "MSN-001: unexpected MissionMark (no game) line");
+
+            ParsekLog.Verbose("TestRunner", "MSN-001: MissionMark correlation marker format valid");
+        }
+
         // --- RAT-001: Suppressed count format ---
 
         [InGameTest(Category = "LogContracts",

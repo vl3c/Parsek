@@ -144,8 +144,15 @@ Grammar rules:
   GUID). It is the ack correlation key and the journal dedup key. Ids must be unique
   across process restarts within one logical run; the orchestrator either uses
   monotonic-across-run ids or truncates the three channel files between runs (see
-  Backward Compatibility).
-- `cmd`: the verb. Case-sensitive, exact match against the known-verb table.
+  Backward Compatibility). The id MUST be encoding-stable: because it is embedded VERBATIM
+  (not re-encoded) into journal and response lines, a decoded id that would itself need
+  percent-encoding is rejected at parse time (`REJECTED msg=malformed-id`). This closes two
+  holes: a decoded space (`id=a%20b` -> "a b") would journal-tokenize to a shorter id "a" (a
+  re-execution-after-restart mismatch), and a decoded newline (`id=a%0Ab`) would forge a
+  journal line. In practice monotonic integers and GUIDs are always encoding-stable.
+- `cmd`: the verb. Case-sensitive, exact match against the known-verb table. Like the id it
+  must be encoding-stable (it is written raw into the `CLAIMED` journal line); an
+  encoding-unsafe verb is `REJECTED msg=malformed-verb`.
 - Optional `v=<n>`: protocol version, default `1`. Unknown keys are ignored (forward
   compatibility), so phase-3 verbs may add new keys freely.
 - **Value encoding**: a value that contains whitespace, `=`, `%`, or a control character
@@ -202,8 +209,10 @@ and BEFORE the journal `DONE` leaves the id at `EXECUTED`; on restart the addon 
 the response line from `EXECUTED` (it cannot know the first append survived). The
 orchestrator therefore treats the FIRST terminal response line for a given id as
 authoritative and IGNORES any later duplicate line for that same id -- later duplicates are
-crash-recovery rewrites, not new outcomes. (A rewritten line is byte-equivalent in verdict;
-only `seq` differs, since it is a fresh per-process counter.)
+crash-recovery rewrites, not new outcomes. (A rewritten line is byte-equivalent in verdict,
+payload, AND msg -- the recovery re-emits the ORIGINAL terminal outcome stored on the
+enriched `EXECUTED` journal line, see the Journal grammar -- only `seq` and `ut` differ, since
+`seq` is a fresh per-process counter and `ut` is re-sampled at recovery time.)
 
 ### Journal line grammar (WAL)
 
@@ -211,20 +220,31 @@ Append-only, newline terminated. One line per phase transition:
 
 ```
 id=0002 phase=CLAIMED seq=2 verb=StartRecording session=7f3a... t=17390512.884
-id=0002 phase=EXECUTED seq=2 t=17390512.951
+id=0002 phase=EXECUTED seq=2 t=17390512.951 verdict=OK payload=recordingId%3Dabc123 msg=
 id=0002 phase=DONE seq=2 verdict=OK t=17390512.960
 ```
 
 `session` is `ParsekProcess.ProcessSessionId` (the AppDomain-lifetime GUID) so a journal
 can be attributed to a specific process run. `t` is wall-clock seconds (InvariantCulture).
-On addon startup the journal is replayed into an in-memory map `id -> highest phase seen`:
+
+The `EXECUTED` line is ENRICHED: it stores the terminal `verdict`, the whole verb-specific
+`payload`, and any `msg` so a crash-recovery replay at `EXECUTED` can re-emit the ORIGINAL
+response line (true RewriteResponse), not a synthetic ack. The `payload` value is the
+space-joined `key=encodedValue` list percent-encoded ONCE MORE so the whole list rides as a
+single wire token (`payload=recordingId%3Dabc123`); an empty payload / msg is written as an
+empty token (`payload=` / `msg=`). Because ids and verbs are encoding-stable (rejected at
+parse time otherwise, see the command grammar), the id/verb embed verbatim and only the
+payload/msg/verdict fields are encoded. On addon startup the journal is replayed into an
+in-memory map `id -> highest phase seen`:
 
 - id at `DONE`  -> already fully handled; skip (no re-execute, no re-respond).
-- id at `EXECUTED` (no `DONE`) -> side effect ran; skip execution, (re)write the response
-  line, append `DONE`. This recovers a crash or an IO failure between side effect and
-  response.
+- id at `EXECUTED` (no `DONE`) -> side effect ran; skip execution, re-emit the ORIGINAL
+  terminal response from the stored `verdict`/`payload`/`msg` (byte-equivalent to the
+  pre-crash response modulo `seq`/`ut`), append `DONE`. This recovers a crash or an IO
+  failure between side effect and response. A pre-enrichment / torn `EXECUTED` line with no
+  stored verdict falls back to an `INTERRUPTED msg=recovered-executed` ack.
 - id at `CLAIMED` (no `EXECUTED`) -> crashed mid-execution; do NOT re-execute; write an
-  `INTERRUPTED` terminal response and append `DONE`.
+  `INTERRUPTED msg=interrupted-claimed` terminal response and append `DONE`.
 
 Journal replay tolerates a TORN TRAILING LINE: a crash mid-append can leave a final journal
 line without a terminating `\n`; replay ignores any trailing line that is not
@@ -346,8 +366,12 @@ recovery, above), and seed the in-memory processed-id set + command-file byte of
 
 1. If not armed, return. If `HighLogic.LoadedScene == LOADING`, `sceneTransitioning`, or
    the settle counter > 0, return (no safe point).
-2. If an in-game test batch is running (`InGameTestRunner.IsRunning` on the runner the
-   addon owns for `RunTests`), return - do not execute other commands mid-batch.
+2. If an in-game test batch is running, return - do not execute other commands mid-batch.
+   The gate is an OR of BOTH runners that can own a batch: the runner the addon owns for
+   `RunTests`, AND the interactive Ctrl+Shift+T runner (via
+   `TestRunnerShortcut.ActiveRunnerForGating`). Both share the campaign-isolation baseline
+   machinery, so a command overlapping either batch could corrupt the save under test; the
+   pure `DecideDispatch` re-checks this via `DispatchState.BatchRunning`.
 3. Read any whole new lines appended since the last byte offset. Parse each into the
    pending FIFO queue (skipping ids already terminal per the journal / processed set). The
    addon opens the command file for reading with `FileShare.ReadWrite` so the external
@@ -374,11 +398,11 @@ parsed, N deferred), with bounded per-command Info lines (command counts are sma
 | Verb | Scene/state precondition | Action | Success payload |
 |---|---|---|---|
 | `SetSetting` | game loaded (`ParsekSettings.Current != null`), any scene; else Defer | typed whitelist setter mutates `ParsekSettings.Current` | `name`, `value` echoed |
-| `StartRecording` | FLIGHT with a loaded, unpacked active vessel, not restoring/re-fly/merge-journal; else Defer | `ParsekFlight.StartRecording(...)` | `recordingId`, `already=true` if a recorder was live |
+| `StartRecording` | FLIGHT with a loaded, unpacked active vessel, not restoring/re-fly/merge-journal; else Defer | `ParsekFlight.StartRecording(...)`, then RE-SAMPLE `HasLiveRecorderForTagging()`; a refusal (vessel not ready / packed / guard blocked) is `ERROR msg=start-refused`, never a false OK (F4) | `recordingId`, `already=true` if a recorder was live |
 | `StopRecording` | FLIGHT; else Defer | `ParsekFlight.StopRecording()` (idempotent: OK with `idle=true` if no recorder) | `stopped` bool |
 | `CommitTree` | FLIGHT with `activeTree != null`; if no tree -> `ERROR msg=no-active-tree` (mirrors `CommitTreeFlight`'s guard) | `ParsekFlight.CommitTreeFlight()` | `committed=true` |
 | `DiscardTree` | FLIGHT; if no active tree -> OK `nothing=true` | stop recorder if live, then `ParsekFlight.AutoDiscardActiveTreeWithMessage(reason, screenMessage, ledgerRecalcReason)` (the wrong-context-caller entry point) with test-command-specific strings | `discarded` bool |
-| `RecordingState` | any scene (read-only) | snapshot recorder/tree state (reuses `ParsekLog.FormatRecState` inputs) | `recording`, `tree`, `points`, `scene` |
+| `RecordingState` | any scene (read-only) | snapshot recorder/tree state (reuses `ParsekLog.FormatRecState` inputs) | `recording`, `tree` (the `RecordingTree.Id` of the active tree, empty when none - adjudication B), `points`, `scene` |
 | `RunTests` | any scene the runner supports; else Defer | `InGameTestRunner.RunAll()` (no `category`) or `RunCategory(category)`; response deferred until `IsRunning` goes true->false and `ExportResultsFile` ran | `passed`, `failed`, `skipped`, `results=parsek-test-results.txt` |
 | `LoadGame` | any scene incl. MAINMENU (the BOOT CHANNEL); Reject if a recorder is live (`msg=recording-active`) or a load is already in flight (`msg=load-in-flight`) | long-running two-phase (like `RunTests`): journal `CLAIMED` -> initiate load (`HighLogic.SaveFolder = dir`; `GamePersistence.LoadGame(...)`; `FlightDriver.StartAndFocusVessel(...)` - the same Assembly-CSharp-only sequence as v0.5.4 `TestingTools.LoadSave`, no kRPC types); response deferred until the new scene settles with `HighLogic.CurrentGame != null`, then journal `EXECUTED` + terminal response; a null / incompatible game -> `ERROR msg=load-failed` | `scene`, `save` |
 | `MissionMark` | any scene | emit a stable `[Parsek][Info][TestCommands] MISSIONMARK label=<label> ut=<ut>` log line (H3-style correlation) | `label` echoed |
@@ -551,6 +575,54 @@ Exhaustive. Each: scenario -> expected behavior -> v1 or deferred.
     in-flight recording; the orchestrator must send `CommitTree` or `DiscardTree` first.
     A second `LoadGame` while one is already in flight is Rejected `msg=load-in-flight`.
     v1 (behavior documented, not a bug).
+
+## Deferred Items and Open Questions
+
+Tracked follow-ups deliberately NOT implemented in the M-A2 fix round (reviewer nits + a
+design deferral). None blocks the seam; each is recorded so it is not lost.
+
+- **Vessel-ready Defer for `StartRecording` (F4 follow-up).** The v1 handler contains a
+  refusal by RE-SAMPLING the recorder after `ParsekFlight.StartRecording` and returning
+  `ERROR msg=start-refused` (better than a false OK). The cleaner long-term fix is a new
+  `DispatchState` readiness bit (active vessel loaded + unpacked + not restoring/re-fly/
+  merge-journal) so the command DEFERS until FLIGHT is genuinely ready and only executes
+  when `StartRecording` will succeed, converting a transient refusal into a normal wait
+  rather than a terminal error. Deferred because it widens the dispatch state and wants its
+  own decision-matrix coverage; not done in this pass.
+- **N1: deferral-budget timing uses wall-clock.** `WallClockSeconds()` is
+  `DateTime.UtcNow`-based; an NTP / clock adjustment mid-run could distort a per-command
+  deferral budget. A monotonic source (`Stopwatch` / `Time.realtimeSinceStartup`) would be
+  more robust. Low impact on a dev PC; tracked.
+- **N2: `line#<n>` fallback id is per-process.** The `FallbackId(lineNumber)` correlation id
+  for an id-less malformed line resets its line counter each process, so the same
+  `line#<n>` can denote a different line across a restart. Only affects malformed, id-less
+  lines (which are REJECTED); tracked.
+- **N4: command-file byte offset is not persisted.** `commandByteOffset` is in-memory and
+  resets to 0 on restart, forcing one full command-file rescan on the first post-restart
+  poll (deduped by the processed-set, so correct, but O(file)). A persisted offset would
+  avoid the rescan on very long runs. Tracked.
+- **N5: startup multi-id recovery shares one retry slot.** The `headPendingResponse` slot
+  holds a single deferred ack; if several startup recovery acks fail their append in the
+  same session, only the last retries within that session (the rest are backstopped by
+  cross-restart re-recovery, since no `DONE` is written until the append lands). Acceptable
+  given the restart durability, but tracked.
+- **R1: LoadGame completion predicate is minimal.** Completion checks only
+  `HighLogic.CurrentGame != null` after the transition drains; safe today because
+  `HighLogic.LoadScene` raises the transition flag synchronously inside
+  `StartAndFocusVessel`. Requiring scene == FLIGHT or a seen-transition-since-initiation
+  bit would remove the brittleness. A post-initiation failure that dumps back to the menu
+  currently surfaces as TIMEOUT rather than load-failed.
+- **R2: lock Unknown-liveness tie-break effectively always reclaims.** When the pid probe
+  returns Unknown (e.g. access denied on a live foreign process), `DecideLockOwnership`
+  compares the existing lock's t against now, which an existing lock always loses, so the
+  channel can be stolen from a live-but-unprobeable instance. Acceptable on a single-user
+  dev box; an age threshold would harden it.
+- **R3: scenarioBudgetSeconds is never wired.** `DeferralBudget.BudgetSeconds` accepts a
+  scenario-spec budget parameter that no caller supplies yet; the design's
+  "budget from the scenario spec" is deferred to the M-A5 harness integration.
+- **R4: no strict-FIFO unit test.** The queue/timeout mechanics live in the MonoBehaviour;
+  the dispatch-decision half is pure-tested but head-only ordering itself is not. A future
+  pure pump-step extraction would make it unit-testable.
 
 ## What Doesn't Change
 

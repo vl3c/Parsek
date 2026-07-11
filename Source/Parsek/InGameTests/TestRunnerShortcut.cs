@@ -49,6 +49,16 @@ namespace Parsek.InGameTests
         /// instance alive. Used by in-game tests to verify bridge survival (#269).
         /// </summary>
         internal static TestRunnerShortcut Instance => instance;
+
+        /// <summary>
+        /// The interactive (Ctrl+Shift+T) test runner this shortcut owns, exposed so the
+        /// ParsekTestCommands addon's safe-point gate can OR its batch state into
+        /// <c>IsBatchRunning</c>: a command must never execute mid-batch even when the batch
+        /// was started from this UI rather than the addon's own <c>RunTests</c> runner. Null
+        /// until the window is first opened (the runner is lazily created in <c>OnGUI</c>).
+        /// </summary>
+        internal static InGameTestRunner ActiveRunnerForGating => instance != null ? instance.runner : null;
+
         internal bool HasOpaqueStyleForTesting => opaqueStyle != null;
         internal bool HasAllOpaqueStateBackgroundsForTesting => AreAllOpaqueStyleBackgroundsPresent(opaqueStyle);
         internal Texture2D OpaqueWindowBackgroundForTesting => opaqueStyle?.normal.background;
