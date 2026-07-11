@@ -1,6 +1,6 @@
 # Design: Per-Save Known-Findings Baseline (Module M-A1 follow-on)
 
-Status: DRAFT (2026-07-11). A reporting-layer extension of the Offline Recording
+Status: IMPLEMENTED (branch `autotest-baseline`, 2026-07-11). A reporting-layer extension of the Offline Recording
 Analyzer (`docs/dev/design-autotest-offline-analyzer.md`, module M-A1). This is the
 Step 3 design doc; the motivating facts are recorded below under Problem. Plain
 ASCII, no em dashes.
