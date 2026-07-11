@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading;
+using Parsek.InGameTests;
 using UnityEngine;
 
 namespace Parsek.TestCommands
@@ -28,7 +29,7 @@ namespace Parsek.TestCommands
     /// It is never shipped enabled and adds no Settings-UI toggle.</para>
     /// </summary>
     [KSPAddon(KSPAddon.Startup.Instantly, true)]
-    public class ParsekTestCommandAddon : MonoBehaviour
+    public class ParsekTestCommandAddon : MonoBehaviour, ITestCommandExecutor
     {
         private const string Tag = "TestCommands";
 
@@ -73,6 +74,46 @@ namespace Parsek.TestCommands
         private string journalFilePath;
         private string lockFilePath;
         private long commandByteOffset;
+
+        // Pump state (P4.4). pending is the strict-FIFO command queue; queuedIds /
+        // processedIds dedup ids (in-flight vs already-terminal). journalPhases is the
+        // startup-replayed phase map (feeds DispatchState.JournalPhase). lineCounter is
+        // the absolute file line position for the line#<n> fallback id. responseSeq is
+        // the per-process monotonic response/journal counter.
+        private readonly Queue<ParsedCommand> pending = new Queue<ParsedCommand>();
+        private readonly HashSet<string> queuedIds = new HashSet<string>();
+        private readonly HashSet<string> processedIds = new HashSet<string>();
+        private Dictionary<string, JournalPhase> journalPhases = new Dictionary<string, JournalPhase>();
+        private int lineCounter;
+        private long responseSeq;
+        // Set true while a LoadGame is in flight (P5.7); read now by the LoadGame guard.
+        private bool loadInFlight = false;
+
+        // The in-game test runner the addon owns for RunTests (P5.6). Null until then;
+        // the batch-running safe-point gate reads it now so the pump never runs a command
+        // mid-batch once RunTests is wired.
+        private InGameTestRunner ownedRunner = null;
+
+        // Head deferral tracking: the id currently deferring at the FIFO head and when it
+        // began, so a never-satisfiable head converts to TIMEOUT once its budget expires.
+        private string deferHeadId;
+        private double deferStartedAtSeconds;
+        private string lastDeferReason;
+
+        // A terminal response whose append exhausted its retries on a prior frame. The
+        // side effect already ran and is journaled EXECUTED, so this is re-appended
+        // WITHOUT re-executing until it lands, then journaled DONE.
+        private bool headPendingResponse;
+        private string headPendingResponseLine;
+        private string headPendingResponseId;
+        private long headPendingResponseSeq;
+        private string headPendingResponseVerdict;
+
+        // Executor result carrier: the ITestCommandExecutor methods are void, so a verb
+        // handler stashes its verdict/payload/msg here and the pump reads them back.
+        private string execVerdict;
+        private List<KeyValuePair<string, string>> execPayload;
+        private string execMsg;
 
         internal bool IsArmedForTesting => armed;
         internal bool SceneTransitioningForTesting => sceneTransitioning;
@@ -134,13 +175,22 @@ namespace Parsek.TestCommands
                 if (settleCounter == 0)
                     sceneTransitioning = false;
             }
+
+            // Safe-point gate: never pump during LOADING, a scene transition / settle, or
+            // an in-game test batch. (DecideDispatch re-checks these from DispatchState;
+            // gating here avoids even reading the channel at an unsafe moment.)
+            if (HighLogic.LoadedScene == GameScenes.LOADING) return;
+            if (sceneTransitioning || settleCounter > 0) return;
+            if (IsBatchRunning()) return;
+
+            Pump();
         }
 
-        // ----- Startup: channel paths + lock (P4.3) -----
+        // ----- Startup: channel paths + lock + journal reconcile (P4.3 / P4.4) -----
 
-        // Runs ONCE on the first armed frame. Resolves the four KSP-root channel paths and
-        // decides lock ownership; the journal replay + reconcile and offset/processed-set
-        // seed are wired on top of this in P4.4.
+        // Runs ONCE on the first armed frame. Resolves the four KSP-root channel paths,
+        // decides lock ownership, then (if we own the channel) replays the journal and
+        // reconciles crash-recovery leftovers and seeds the processed-id set.
         private void TryStartup()
         {
             startupDone = true;
@@ -151,6 +201,67 @@ namespace Parsek.TestCommands
             lockFilePath = Path.Combine(root, TestCommandChannelIo.LockFileName);
 
             AcquireLock(root);
+            if (disabled) return;
+
+            ReplayAndReconcile();
+        }
+
+        // Replays the journal into a per-id phase map and applies each crash-recovery
+        // action (DecideRecovery): DONE ids skip, EXECUTED ids re-ack, CLAIMED ids get an
+        // INTERRUPTED terminal. Every journalled id is seeded into the processed set so a
+        // re-read of its command line is a no-op. The command-file byte offset stays 0:
+        // ids are deduped by the processed set, so a full rescan on the first poll is
+        // correct and only happens once (steady state uses the offset + processed set).
+        private void ReplayAndReconcile()
+        {
+            string content = null;
+            try
+            {
+                if (File.Exists(journalFilePath))
+                    content = File.ReadAllText(journalFilePath, Utf8NoBom);
+            }
+            catch (IOException ex)
+            {
+                ParsekLog.Warn(Tag, $"journal read failed: {ex.Message}");
+            }
+
+            List<string> lines = TestCommandJournal.SplitCompleteLines(content ?? string.Empty);
+            journalPhases = TestCommandJournal.ReplayIntoPhaseMap(lines);
+
+            // Capture the verb per id from CLAIMED lines for nicer recovery responses/logs.
+            var verbs = new Dictionary<string, string>();
+            foreach (string l in lines)
+                if (TestCommandJournal.TryParseLine(l, out JournalLine jl) && !string.IsNullOrEmpty(jl.Verb))
+                    verbs[jl.Id] = jl.Verb;
+
+            int done = 0, executed = 0, claimed = 0;
+            foreach (KeyValuePair<string, JournalPhase> kv in journalPhases)
+            {
+                string id = kv.Key;
+                verbs.TryGetValue(id, out string verb);
+                switch (TestCommandJournal.DecideRecovery(id, kv.Value))
+                {
+                    case RecoveryAction.Skip:
+                        done++;
+                        break;
+                    case RecoveryAction.RewriteResponse:
+                        executed++;
+                        // Side effect ran but the response may not have landed and cannot
+                        // be reconstructed post-crash; re-ack with a distinct recovery msg
+                        // so the orchestrator (which treats the FIRST terminal line per id
+                        // as authoritative) is never left hanging.
+                        WriteRecoveryTerminal(id, verb, "INTERRUPTED", "recovered-executed");
+                        break;
+                    case RecoveryAction.Interrupted:
+                        claimed++;
+                        WriteRecoveryTerminal(id, verb, "INTERRUPTED", "interrupted-claimed");
+                        break;
+                }
+                processedIds.Add(id);
+            }
+
+            ParsekLog.Info(Tag,
+                $"journal replay: {done} done, {executed} executed-not-done (rewriting response), {claimed} claimed-not-executed (INTERRUPTED)");
         }
 
         // ----- Lock acquire / inspect (P4.3) -----
@@ -290,6 +401,339 @@ namespace Parsek.TestCommands
                 }
             }
             return false;
+        }
+
+        // ----- The pump (P4.4) -----
+
+        // One poll: retry a stuck response, then read+enqueue new command lines, then make
+        // and act on a single strict-FIFO head decision. Runs only at a safe point.
+        private void Pump()
+        {
+            // Retry a terminal response append that exhausted its retries on a prior frame.
+            // The side effect already ran (journalled EXECUTED), so this never re-executes.
+            if (headPendingResponse)
+            {
+                if (!AppendResponse(headPendingResponseLine, headPendingResponseId))
+                    return; // still failing; try again next frame
+                WriteJournal(
+                    TestCommandJournal.FormatDone(headPendingResponseId, headPendingResponseSeq, headPendingResponseVerdict, WallClockSeconds()),
+                    headPendingResponseId, "DONE");
+                MarkProcessed(headPendingResponseId);
+                if (pending.Count > 0) pending.Dequeue();
+                headPendingResponse = false;
+                return;
+            }
+
+            ReadAndEnqueue();
+
+            if (pending.Count == 0) return;
+
+            ParsedCommand head = pending.Peek();
+            DispatchState state = BuildDispatchState(head);
+            DispatchResult result = TestCommandDispatcher.DecideDispatch(head, state);
+
+            switch (result.Decision)
+            {
+                case DispatchDecision.Execute:
+                    ResetDeferTracking();
+                    ParsekLog.Info(Tag, $"dispatch id={head.Id} -> EXECUTE");
+                    ExecuteHead(head); // owns its dequeue (terminal / pending-response)
+                    break;
+                case DispatchDecision.Reject:
+                    ResetDeferTracking();
+                    ParsekLog.Warn(Tag, $"reject id={head.Id} cmd={head.Verb} reason={result.Reason}");
+                    WriteTerminalNoSideEffect(head, "REJECTED", result.Reason);
+                    pending.Dequeue();
+                    break;
+                case DispatchDecision.Interrupted:
+                    ResetDeferTracking();
+                    InterruptHead(head);
+                    pending.Dequeue();
+                    break;
+                case DispatchDecision.Defer:
+                    HandleDefer(head, result.Reason); // dequeues only on TIMEOUT
+                    break;
+            }
+        }
+
+        // Read new whole lines and enqueue parseable, not-yet-terminal commands (skipping
+        // blank/comment lines and duplicate ids). Batch-counting per the house convention:
+        // one rate-limited poll summary rather than a line per read.
+        private void ReadAndEnqueue()
+        {
+            List<string> newLines = ReadNewCommandLines();
+            int readCount = newLines.Count;
+            int parsedCount = 0;
+
+            foreach (string raw in newLines)
+            {
+                lineCounter++;
+                ParsedCommand parsed = TestCommandParser.ParseLine(raw, lineCounter);
+                if (parsed.Ignored) continue; // blank / comment: no response
+
+                // Normalize the correlation id (real id, or line#<n> for a missing/garbage id).
+                string id = parsed.Id ?? TestCommandParser.FallbackId(lineCounter);
+                parsed.Id = id;
+
+                if (processedIds.Contains(id) || queuedIds.Contains(id))
+                {
+                    ParsekLog.Warn(Tag, $"duplicate id={id} ignored");
+                    continue;
+                }
+
+                int argCount = parsed.Args != null ? parsed.Args.Count : 0;
+                ParsekLog.Info(Tag, $"recv id={id} cmd={parsed.Verb ?? "?"} args={argCount}");
+                queuedIds.Add(id);
+                pending.Enqueue(parsed);
+                parsedCount++;
+            }
+
+            if (readCount > 0 || pending.Count > 0)
+            {
+                string headVerb = pending.Count > 0 ? (pending.Peek().Verb ?? "?") : "none";
+                ParsekLog.VerboseRateLimited(Tag, "poll",
+                    $"poll: read={readCount} lines, parsed={parsedCount}, deferred-head={headVerb}", 5.0);
+            }
+        }
+
+        // Execute the head verb: journal CLAIMED -> run the (stub) handler -> journal
+        // EXECUTED -> append the terminal response -> journal DONE -> advance. At-most-once:
+        // the side effect runs ONLY after CLAIMED durably lands, and a failed response
+        // append is cached for retry WITHOUT re-executing.
+        private void ExecuteHead(ParsedCommand head)
+        {
+            string id = head.Id;
+            long seq = NextSeq();
+
+            if (!WriteJournal(
+                TestCommandJournal.FormatClaimed(id, seq, head.Verb ?? string.Empty, SessionId(), WallClockSeconds()),
+                id, "CLAIMED"))
+            {
+                // Could not durably claim; do NOT run the side effect. Leave the head and
+                // retry next frame (no side effect has run, so at-most-once holds).
+                return;
+            }
+
+            ParsekLog.Info(Tag, $"exec id={id} cmd={head.Verb} start");
+            ClearExecResult();
+            InvokeExecutor(head);
+            string verdict = execVerdict ?? "ERROR";
+
+            WriteJournal(TestCommandJournal.FormatExecuted(id, seq, WallClockSeconds()), id, "EXECUTED");
+
+            string line = TestCommandResponse.FormatResponseLine(
+                id, head.Verb, verdict, seq, CurrentUt(), execPayload, execMsg);
+            ParsekLog.Info(Tag, $"exec id={id} verdict={verdict}");
+
+            if (AppendResponse(line, id))
+            {
+                WriteJournal(TestCommandJournal.FormatDone(id, seq, verdict, WallClockSeconds()), id, "DONE");
+                MarkProcessed(id);
+                pending.Dequeue();
+            }
+            else
+            {
+                // Append exhausted this frame: cache for retry, leave head un-dequeued,
+                // do NOT re-run the side effect (id stays journalled EXECUTED).
+                headPendingResponse = true;
+                headPendingResponseLine = line;
+                headPendingResponseId = id;
+                headPendingResponseSeq = seq;
+                headPendingResponseVerdict = verdict;
+            }
+        }
+
+        // A terminal outcome with NO side effect (REJECTED / TIMEOUT): journal
+        // CLAIMED+EXECUTED+DONE around the response so a restart replay skips the id.
+        private void WriteTerminalNoSideEffect(ParsedCommand head, string verdict, string msg)
+        {
+            string id = head.Id;
+            string verb = head.Verb ?? string.Empty;
+            long seq = NextSeq();
+            WriteJournal(TestCommandJournal.FormatClaimed(id, seq, verb, SessionId(), WallClockSeconds()), id, "CLAIMED");
+            WriteJournal(TestCommandJournal.FormatExecuted(id, seq, WallClockSeconds()), id, "EXECUTED");
+            string line = TestCommandResponse.FormatResponseLine(id, verb, verdict, seq, CurrentUt(), null, msg);
+            AppendResponse(line, id);
+            WriteJournal(TestCommandJournal.FormatDone(id, seq, verdict, WallClockSeconds()), id, "DONE");
+            MarkProcessed(id);
+        }
+
+        // Crash-recovery INTERRUPTED at the live head (journal CLAIMED for this id). Mostly
+        // defensive: such ids are usually seeded into the processed set at startup and
+        // filtered before reaching dispatch.
+        private void InterruptHead(ParsedCommand head)
+        {
+            string id = head.Id;
+            ParsekLog.Info(Tag, $"dispatch id={id} -> INTERRUPTED (journal=CLAIMED)");
+            long seq = NextSeq();
+            string line = TestCommandResponse.FormatResponseLine(
+                id, head.Verb ?? string.Empty, "INTERRUPTED", seq, CurrentUt(), null, "interrupted-claimed");
+            AppendResponse(line, id);
+            WriteJournal(TestCommandJournal.FormatDone(id, seq, "INTERRUPTED", WallClockSeconds()), id, "DONE");
+            MarkProcessed(id);
+        }
+
+        // Startup crash-recovery terminal (from ReplayAndReconcile). No pending head to
+        // dequeue; just re-ack + DONE + processed-set seed happens in the caller.
+        private void WriteRecoveryTerminal(string id, string verb, string verdict, string msg)
+        {
+            long seq = NextSeq();
+            string line = TestCommandResponse.FormatResponseLine(
+                id, verb ?? string.Empty, verdict, seq, CurrentUt(), null, msg);
+            AppendResponse(line, id);
+            WriteJournal(TestCommandJournal.FormatDone(id, seq, verdict, WallClockSeconds()), id, "DONE");
+        }
+
+        // Head deferral + per-command TIMEOUT conversion. The head tracks when it first
+        // began deferring; once (now - start) exceeds the verb's budget it converts to a
+        // TIMEOUT terminal (carrying the last defer reason) and the pump advances so a
+        // never-satisfiable command never wedges the run.
+        private void HandleDefer(ParsedCommand head, string reason)
+        {
+            double now = WallClockSeconds();
+            if (deferHeadId != head.Id)
+            {
+                deferHeadId = head.Id;
+                deferStartedAtSeconds = now;
+                ParsekLog.Info(Tag, $"dispatch id={head.Id} -> DEFER reason={reason}");
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited(Tag, $"defer-{head.Id}",
+                    $"dispatch id={head.Id} -> DEFER reason={reason}", 5.0);
+            }
+            lastDeferReason = reason;
+
+            double budget = DeferralBudget.BudgetSeconds(head.Verb);
+            if (DeferralBudget.ShouldTimeout(deferStartedAtSeconds, now, budget))
+            {
+                ParsekLog.Warn(Tag,
+                    $"timeout id={head.Id} cmd={head.Verb} deferred={(now - deferStartedAtSeconds).ToString("F1", CultureInfo.InvariantCulture)}s reason={lastDeferReason}");
+                WriteTerminalNoSideEffect(head, "TIMEOUT", lastDeferReason);
+                pending.Dequeue();
+                ResetDeferTracking();
+            }
+        }
+
+        private void ResetDeferTracking() => deferHeadId = null;
+
+        private DispatchState BuildDispatchState(ParsedCommand head)
+        {
+            JournalPhase phase = JournalPhase.None;
+            if (journalPhases != null && head.Id != null)
+                journalPhases.TryGetValue(head.Id, out phase);
+
+            ParsekFlight flight = ParsekFlight.Instance;
+            return new DispatchState
+            {
+                Scene = MapScene(HighLogic.LoadedScene),
+                GameLoaded = HighLogic.CurrentGame != null,
+                SettingsPresent = ParsekSettings.Current != null,
+                Recording = ParsekFlight.HasLiveRecorderForTagging(),
+                HasTree = flight != null && flight.HasActiveTree,
+                Transitioning = sceneTransitioning,
+                SettleCounter = settleCounter,
+                BatchRunning = IsBatchRunning(),
+                LoadInFlight = loadInFlight,
+                JournalPhase = phase,
+            };
+        }
+
+        private bool IsBatchRunning() => ownedRunner != null && ownedRunner.IsRunning;
+
+        private static TestCommandScene MapScene(GameScenes scene)
+        {
+            switch (scene)
+            {
+                case GameScenes.LOADING: return TestCommandScene.Loading;
+                case GameScenes.MAINMENU: return TestCommandScene.MainMenu;
+                case GameScenes.SPACECENTER: return TestCommandScene.SpaceCenter;
+                case GameScenes.EDITOR: return TestCommandScene.Editor;
+                case GameScenes.FLIGHT: return TestCommandScene.Flight;
+                case GameScenes.TRACKSTATION: return TestCommandScene.TrackingStation;
+                default: return TestCommandScene.Other;
+            }
+        }
+
+        // ----- Executor: all ten v1 verbs as NOT-IMPLEMENTED-YET stubs (P4.4) -----
+        // The addon implements ITestCommandExecutor; the real verb bodies replace these
+        // stubs one at a time in P5.x. Each stub reports an ERROR verdict with msg=stub so
+        // the pump's journal / response / at-most-once machinery is fully exercised now.
+
+        // Explicit interface implementation: ParsedCommand is internal, so these cannot be
+        // public members of the public MonoBehaviour. The pump dispatches via the interface
+        // (InvokeExecutor casts this to ITestCommandExecutor).
+        void ITestCommandExecutor.SetSetting(ParsedCommand cmd) => StubNotImplemented();
+        void ITestCommandExecutor.StartRecording(ParsedCommand cmd) => StubNotImplemented();
+        void ITestCommandExecutor.StopRecording(ParsedCommand cmd) => StubNotImplemented();
+        void ITestCommandExecutor.CommitTree(ParsedCommand cmd) => StubNotImplemented();
+        void ITestCommandExecutor.DiscardTree(ParsedCommand cmd) => StubNotImplemented();
+        void ITestCommandExecutor.RecordingState(ParsedCommand cmd) => StubNotImplemented();
+        void ITestCommandExecutor.RunTests(ParsedCommand cmd) => StubNotImplemented();
+        void ITestCommandExecutor.LoadGame(ParsedCommand cmd) => StubNotImplemented();
+        void ITestCommandExecutor.MissionMark(ParsedCommand cmd) => StubNotImplemented();
+        void ITestCommandExecutor.FlushAndQuit(ParsedCommand cmd) => StubNotImplemented();
+
+        private void InvokeExecutor(ParsedCommand cmd)
+        {
+            ITestCommandExecutor exec = this;
+            switch (cmd.Verb)
+            {
+                case "SetSetting": exec.SetSetting(cmd); break;
+                case "StartRecording": exec.StartRecording(cmd); break;
+                case "StopRecording": exec.StopRecording(cmd); break;
+                case "CommitTree": exec.CommitTree(cmd); break;
+                case "DiscardTree": exec.DiscardTree(cmd); break;
+                case "RecordingState": exec.RecordingState(cmd); break;
+                case "RunTests": exec.RunTests(cmd); break;
+                case "LoadGame": exec.LoadGame(cmd); break;
+                case "MissionMark": exec.MissionMark(cmd); break;
+                case "FlushAndQuit": exec.FlushAndQuit(cmd); break;
+                default:
+                    // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
+                    SetExecResult("ERROR", null, "unknown-command");
+                    break;
+            }
+        }
+
+        private void StubNotImplemented() => SetExecResult("ERROR", null, "stub");
+
+        private void SetExecResult(string verdict, List<KeyValuePair<string, string>> payload, string msg)
+        {
+            execVerdict = verdict;
+            execPayload = payload;
+            execMsg = msg;
+        }
+
+        private void ClearExecResult()
+        {
+            execVerdict = "ERROR";
+            execPayload = null;
+            execMsg = null;
+        }
+
+        private void MarkProcessed(string id)
+        {
+            processedIds.Add(id);
+            queuedIds.Remove(id);
+        }
+
+        private long NextSeq() => ++responseSeq;
+
+        private static string SessionId() => ParsekProcess.ProcessSessionId.ToString("N");
+
+        private static double? CurrentUt()
+        {
+            if (HighLogic.CurrentGame == null) return null;
+            try { return Planetarium.GetUniversalTime(); }
+            catch (Exception) { return null; }
+        }
+
+        private bool WriteJournal(string line, string id, string phase)
+        {
+            bool ok = AppendJournal(line, id);
+            if (ok) ParsekLog.Verbose(Tag, $"journal id={id} phase={phase}");
+            return ok;
         }
 
         // ----- Small impl helpers -----
