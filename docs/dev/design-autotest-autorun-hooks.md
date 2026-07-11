@@ -754,3 +754,55 @@ Edge-case tests: one per numbered edge case above where a pure decision exists
 4, 10, 12, 15, 16 are covered by the in-game and log-assertion tests). Each
 reproduces the scenario against the pure decision method and asserts the
 documented behavior.
+
+## PENDING-OPERATOR Runbook
+
+The pure decision cores (env parse, scene-settle, fire gate, exit decision,
+reconcile-clear, H3 formatter, H5 verdict mapping) are all xUnit-covered, but the
+LIVE wiring runs only inside KSP and an agent cannot pilot the game. The following
+four items must be verified by an operator once, on a build with the M-A3 hooks,
+before the nightly pipeline is trusted. Each names the exact log evidence to grep
+for so the pass/fail is unambiguous from the KSP.log alone.
+
+1. **Killed-batch reconcile cycle (H1 x crash-reconcile, edge 6; correction G3).**
+   Launch KSP with `PARSEK_TEST_COMMANDS=1`, start any in-game batch (or drive one
+   via the command seam), then hard-kill the process mid-batch. Relaunch with
+   `PARSEK_AUTORUN_TESTS=RecordingInvariants` (a save that auto-loads into FLIGHT).
+   Expect, in order: `crash-reconcile in progress: <reason>` -> the deferred reload
+   -> `crash-reconcile complete; cleared`, and the H1 settle log
+   (`autorun armed, waiting for settle: ... reconcilePending=true`) holding fire
+   until the clear, THEN a single `autorun FIRING`. Fail if H1 fires while
+   `reconcilePending=true` (the baseline would capture a half-reverted save).
+
+2. **H1 live fire / settle / re-arm (edges 5, 7, 8).** Launch with
+   `PARSEK_AUTORUN_TESTS=RecordingInvariants` into a FLIGHT save. Confirm the
+   `autorun selector parsed:` startup line, the settle-waiting line naming the stuck
+   condition until the vessel unpacks, exactly ONE `autorun FIRING` per process, and
+   a single `BATCH_COMPLETE v1 ... category=RecordingInvariants`. Force a
+   FLIGHT->FLIGHT isolation reload (an `[isolated]` batch or a restore-backed test)
+   and confirm the per-scene re-arm log appears but NO second `autorun FIRING`
+   (the `autorunConsumedForProcess` latch + `!runner.IsRunning` guard hold). Also
+   boot into MainMenu (no save) and confirm the edge-7 no-scene WARN eventually
+   fires and no batch runs.
+
+3. **Real H2 process exit, clean + NRE-storm-abort variants (edges 11, 12).** With
+   `PARSEK_AUTORUN_TESTS=<cat>` and `PARSEK_AUTORUN_EXIT=1`: (a) clean batch --
+   confirm KSP quits after the `BATCH_COMPLETE` line and the
+   `autorun exit: teardown+export complete, quitting KSP cleanly` line is the last
+   durable record; (b) provoke or simulate an NRE-storm batch and confirm H2
+   supersedes the Space Center bounce (`autorun exit armed; skipping Space Center
+   bounce recovery`) and still quits, with the disk save already reverted by the
+   teardown. Confirm a human clicking Run All in the same env-armed process does
+   NOT quit (wasAutorunBatch=false).
+
+4. **H5 vs a real populated store + a malformed injection (edges 3, 15).** In a
+   FLIGHT career with a populated `RecordingStore`, run the `RecordingInvariants`
+   category (Ctrl+Shift+T or autorun). Confirm the `RecordingInvariants walk:
+   recordings=<n> trees=<m>` line and a PASS with zero Fail findings on a clean
+   store; confirm an empty store logs `recordings=0` and still PASSES (not
+   Skipped). Then inject a deliberately malformed recording (UT non-monotonic or a
+   dangling supersede target, e.g. via a hand-edited sidecar or the
+   `InjectAllRecordings` corpus plus a mutation) and confirm the test FAILS with a
+   `RecordingInvariants FAIL <ruleId> target=<t>` line carrying RuleId + Target +
+   Message, proving the raw-`CommittedRecordings` walk sees the superseded/broken
+   rows the ERS view would have hidden.
