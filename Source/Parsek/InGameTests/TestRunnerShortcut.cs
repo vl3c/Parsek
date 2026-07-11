@@ -778,6 +778,15 @@ namespace Parsek.InGameTests
                 HighLogic.LoadedScene.ToString()));
 
             autorunMultiDriving = false;
+
+            // [M-A3 hook H2] Multi-category exit is driven HERE (not by per-token H2) so all
+            // per-token BATCH_COMPLETE lines + the aggregate line are durable BEFORE the
+            // quit. Per-token batches are marked non-exit above, so the runner-side H2 never
+            // fires mid-run; the driver owns the single aggregate exit via the shared quit
+            // seam so ordering (aggregate line before quit) holds.
+            if (exitArmed)
+                InGameTestRunner.PerformAutorunExit(
+                    InGameTestRunner.QuitCallbackForTesting, HighLogic.LoadedScene.ToString());
         }
 
         /// <summary>

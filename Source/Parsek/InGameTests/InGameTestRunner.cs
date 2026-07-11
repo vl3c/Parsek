@@ -1058,6 +1058,44 @@ namespace Parsek.InGameTests
                 total, passed, failed, skipped, category, scene);
         }
 
+        /// <summary>
+        /// [M-A3 hook H2] Injectable quit seam (design "H2 - Quit mechanism"). Default is
+        /// the stock process-exit path: Application.Quit (KSP 1.12.5 exposes no
+        /// HighLogic.QuitGame, so the mechanism is always ApplicationQuit). xUnit injects a
+        /// recording no-op to assert the durable pre-quit line lands BEFORE the quit fires
+        /// and that a throwing quit is contained (edge 12). Reset to
+        /// <see cref="DefaultAutorunQuit"/> in the test's Dispose.
+        /// </summary>
+        internal static Action QuitCallbackForTesting = DefaultAutorunQuit;
+
+        private static void DefaultAutorunQuit() => Application.Quit();
+
+        /// <summary>
+        /// [M-A3 hook H2] The exit tail: log the durable pre-quit line, THEN invoke the
+        /// quit callback, wrapping it so a throwing quit logs an ERROR and returns (edge
+        /// 12; the orchestrator's timeout then reaps the process). Extracted so the
+        /// pre-quit-line-before-callback ordering is xUnit-testable with an injected
+        /// callback. Called from RunBatch's batch-end region only when
+        /// <see cref="AutorunHooks.H2ExitDecision"/> returns ShouldQuit, with no yield
+        /// between the teardown and the quit so the decision cannot go stale.
+        /// </summary>
+        internal static void PerformAutorunExit(Action quitCallback, string scene)
+        {
+            ParsekLog.Info(Tag,
+                "autorun exit: teardown+export complete, quitting KSP cleanly "
+                + $"(mechanism=ApplicationQuit) scene={scene}");
+            try
+            {
+                quitCallback?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(Tag,
+                    $"autorun exit quit call failed: {ex.GetType().Name}: {ex.Message}; "
+                    + "orchestrator timeout will reap the process");
+            }
+        }
+
         internal List<InGameTestInfo> FilterSceneEligibleBatchCandidates(
             IEnumerable<InGameTestInfo> tests)
         {
@@ -1939,6 +1977,26 @@ namespace Parsek.InGameTests
             ParsekLog.Info(Tag, FormatBatchCompleteLine(
                 considered, Passed, Failed, Skipped,
                 currentBatchSelector, HighLogic.LoadedScene.ToString()));
+
+            // H2 (module M-A3): exit-after-tests, evaluated AFTER the H3 emit so the last
+            // durable batch record (BATCH_COMPLETE) is written before the quit. Quits only
+            // when PARSEK_AUTORUN_EXIT was armed AND this was an autorun batch: a human
+            // clicking Run All in a process with the env set latched wasAutorunBatch=false
+            // and never quits under them (edge 13). When quitting, H2 supersedes the Space
+            // Center bounce (no operator to leave in a usable scene; the process is dying)
+            // and the disk save is already reverted by the teardown above, so skipping the
+            // bounce never risks the campaign (edge 11). No yield between here and the quit
+            // so the decision cannot go stale (same discipline as the bounce dispatch).
+            var h2 = AutorunHooks.H2ExitDecision(
+                autorunExitArmedThisBatch, wasAutorunBatch, bounceToSpaceCenter);
+            if (h2.ShouldQuit)
+            {
+                if (h2.SkipBounce && bounceToSpaceCenter)
+                    ParsekLog.Info(Tag,
+                        "autorun exit armed; skipping Space Center bounce recovery (process is quitting)");
+                PerformAutorunExit(QuitCallbackForTesting, HighLogic.LoadedScene.ToString());
+                yield break;
+            }
 
             // Last: the one-shot Space Center bounce recovery decided above. Dispatched
             // only after teardown + export so the disk revert and the results file are
