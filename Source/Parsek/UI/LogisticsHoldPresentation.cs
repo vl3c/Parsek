@@ -56,9 +56,21 @@ namespace Parsek
                 case RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull:
                 {
                     string resource = StripPrefix(detail, "destination-full-");
+                    // Destination-capacity gate: an inventory-slot shortfall
+                    // names the stored part ("stored-part:<partName>"); a bare
+                    // token is a resource name.
+                    string storedPart = TryStripPrefix(resource, RouteDestinationCapacityCheck.StoredPartTokenPrefix);
+                    if (storedPart != null)
+                    {
+                        return storedPart.Length == 0
+                            ? "destination has no free inventory slot for a stored part - delivers when it has room for the full manifest"
+                            : "destination has no free inventory slot for stored part '" + storedPart
+                                + "' - delivers when it has room for the full manifest";
+                    }
                     return string.IsNullOrEmpty(resource)
-                        ? "destination has no room for the delivery"
-                        : "destination has no room for " + resource;
+                        ? "destination has no room for the delivery - delivers when it has room for the full manifest"
+                        : "destination has no room for " + resource
+                            + " - delivers when it has room for the full manifest";
                 }
 
                 case RouteDispatchEvaluator.EligibilityFailureKind.EndpointLost:
@@ -191,16 +203,27 @@ namespace Parsek
             {
                 return DescribePickupSourceShort(token);
             }
-            // M3 Phase 5 (D7 carve-out lift): the inventory-origin debit is now
-            // supported, so a non-KSC origin short of a witnessed STORED PART
-            // holds with an "inventory:<identityHash>" short token instead of the
-            // retired "inventory-origin-debit-unsupported" deferral marker. Render
-            // it as a missing-stored-part hold (the hash is not player-meaningful,
-            // so name the category rather than the opaque hash).
-            if (token != null
-                && token.StartsWith("inventory:", System.StringComparison.Ordinal))
+            // Inventory shortfalls: the emit sites now name the PART
+            // ("inventory:<partName>"), with the raw identity hash only as a
+            // fallback for unresolvable markers; pre-existing persisted holds
+            // may still carry a hash, so a hash-shaped tail renders the generic
+            // category text. The "inventory-state:<partName>" variant is the
+            // near-miss: the origin physically holds the part but its state
+            // (charge, fuel, contents) differs from the recorded cargo.
+            string stateName = TryStripPrefix(token, "inventory-state:");
+            if (stateName != null)
             {
-                return "origin is missing a required stored part - delivers when the origin holds it";
+                return stateName.Length == 0
+                    ? "a stored part at the origin does not match the recorded cargo - its charge, fuel, or contents changed"
+                    : "stored part '" + stateName + "' at the origin does not match the recorded cargo - its charge, fuel, or contents changed";
+            }
+            string inventoryName = TryStripPrefix(token, "inventory:");
+            if (inventoryName != null)
+            {
+                return inventoryName.Length == 0 || IsOpaqueInventoryTail(inventoryName)
+                    ? "origin is missing a required stored part - delivers when the origin holds it"
+                    : "origin is missing stored part '" + inventoryName
+                        + "' - delivers when the origin holds it";
             }
             if (token != null
                 && token.StartsWith("origin-unresolved:", System.StringComparison.Ordinal))
@@ -231,10 +254,13 @@ namespace Parsek
                 return "a pickup source is missing required cargo - delivers when the source has the full amount";
             string name = string.IsNullOrEmpty(parts[1]) ? "a pickup source" : parts[1];
             string shortToken = parts[2];
-            if (shortToken != null
-                && shortToken.StartsWith("inventory:", System.StringComparison.Ordinal))
+            string inventoryName = TryStripPrefix(shortToken, "inventory:");
+            if (inventoryName != null)
             {
-                return name + " is missing a required stored part - delivers when it holds it";
+                return inventoryName.Length == 0 || IsOpaqueInventoryTail(inventoryName)
+                    ? name + " is missing a required stored part - delivers when it holds it"
+                    : name + " is missing stored part '" + inventoryName
+                        + "' - delivers when it holds it";
             }
             if (string.IsNullOrEmpty(shortToken))
                 return name + " is missing required cargo - delivers when it has the full amount";
@@ -335,6 +361,13 @@ namespace Parsek
                 case RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull:
                 {
                     string resource = StripPrefix(detail, "destination-full-");
+                    string storedPart = TryStripPrefix(resource, RouteDestinationCapacityCheck.StoredPartTokenPrefix);
+                    if (storedPart != null)
+                    {
+                        return storedPart.Length == 0
+                            ? "no free inventory slot"
+                            : "no slot for '" + storedPart + "'";
+                    }
                     return string.IsNullOrEmpty(resource)
                         ? "destination full"
                         : "no room for " + resource;
@@ -399,19 +432,30 @@ namespace Parsek
                     return "pickup source short of cargo";
                 string name = string.IsNullOrEmpty(parts[1]) ? "pickup source" : parts[1];
                 string shortToken = parts[2];
-                if (shortToken != null
-                    && shortToken.StartsWith("inventory:", System.StringComparison.Ordinal))
+                string sourceInventoryName = TryStripPrefix(shortToken, "inventory:");
+                if (sourceInventoryName != null)
                 {
-                    return name + " missing a stored part";
+                    return sourceInventoryName.Length == 0 || IsOpaqueInventoryTail(sourceInventoryName)
+                        ? name + " missing a stored part"
+                        : name + " missing '" + sourceInventoryName + "'";
                 }
                 return string.IsNullOrEmpty(shortToken)
                     ? name + " short of cargo"
                     : name + " out of " + shortToken;
             }
-            if (token != null
-                && token.StartsWith("inventory:", System.StringComparison.Ordinal))
+            string stateName = TryStripPrefix(token, "inventory-state:");
+            if (stateName != null)
             {
-                return "origin missing a stored part";
+                return stateName.Length == 0
+                    ? "stored part state differs at origin"
+                    : "'" + stateName + "' state differs at origin";
+            }
+            string inventoryName = TryStripPrefix(token, "inventory:");
+            if (inventoryName != null)
+            {
+                return inventoryName.Length == 0 || IsOpaqueInventoryTail(inventoryName)
+                    ? "origin missing a stored part"
+                    : "origin missing '" + inventoryName + "'";
             }
             if (token != null
                 && token.StartsWith("origin-unresolved:", System.StringComparison.Ordinal))
@@ -452,6 +496,76 @@ namespace Parsek
             return token.StartsWith(prefix, System.StringComparison.Ordinal)
                 ? token.Substring(prefix.Length)
                 : token;
+        }
+
+        // Prefix-DETECTING sibling of StripPrefix: null when the token does not
+        // carry the prefix (so callers can branch on the family), the stripped
+        // tail (possibly empty) when it does.
+        private static string TryStripPrefix(string token, string prefix)
+        {
+            if (string.IsNullOrEmpty(token))
+                return null;
+            return token.StartsWith(prefix, System.StringComparison.Ordinal)
+                ? token.Substring(prefix.Length)
+                : null;
+        }
+
+        /// <summary>
+        /// True when <paramref name="value"/> is shaped like a canonical
+        /// inventory payload identity hash (64 lowercase-hex chars, the SHA256
+        /// form <c>VesselSpawner.ComputeInventoryPayloadIdentityHash</c> emits).
+        /// Pre-legibility persisted holds carry the raw hash in their
+        /// <c>inventory:</c> token; rendering a hash as a "part name" would be
+        /// worse than the generic text, so the describe paths fall back on it.
+        /// </summary>
+        internal static bool LooksLikeIdentityHash(string value)
+        {
+            if (value == null || value.Length != 64)
+                return false;
+            for (int i = 0; i < value.Length; i++)
+            {
+                char c = value[i];
+                bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+                if (!hex)
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// True when an <c>inventory:</c> token tail is NOT a part name and
+        /// must render the generic category text instead of being quoted as
+        /// one: a canonical identity hash (pre-legibility persisted holds) or
+        /// an internal gate marker (<c>null-stored-counter</c>, the defensive
+        /// null-reader branch of <c>RouteOriginCargoCheck.HasRequiredInventory</c>).
+        /// Quoting either as a "part name" would show the player an internal
+        /// code - the exact failure the legible tokens exist to remove.
+        /// </summary>
+        internal static bool IsOpaqueInventoryTail(string tail)
+        {
+            return LooksLikeIdentityHash(tail)
+                || string.Equals(tail, "null-stored-counter", System.StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The detail-panel line for a partial delivery
+        /// (<c>Route.LastPartialDeliverySummary</c>): "Last delivery was
+        /// partial: {summary} (age ago)" - the destination-capacity gate makes
+        /// partials rare (mid-transit capacity changes only), so when one DOES
+        /// happen the player must see exactly what was lost. Same age-suffix
+        /// contract as <see cref="FormatHoldDetailLine"/>. Returns null when
+        /// no summary is recorded.
+        /// </summary>
+        internal static string FormatPartialDeliveryLine(string summary, double ageSeconds)
+        {
+            if (string.IsNullOrEmpty(summary))
+                return null;
+            if (ageSeconds < 0.0)
+                return "Last delivery was partial: " + summary;
+            string age = LogisticsWindowUI.FormatDuration(ageSeconds);
+            if (age == "-")
+                return "Last delivery was partial: " + summary;
+            return "Last delivery was partial: " + summary + " (" + age + " ago)";
         }
     }
 }

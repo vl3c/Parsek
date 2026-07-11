@@ -14,6 +14,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~FIXED~~ - Supply routes silently lost cargo when the destination was full (found in the 2026-07-11 logistics inventory review; branch `logistics-destfull-gate`)
+
+**Was:** `LiveRouteRuntimeEnvironment.DestinationHasCapacity` was the v0 always-true stub, so a cycle always dispatched, the origin was physically debited (or KSC funds charged) for the FULL manifest, and the apply-time partial fill dropped whatever did not fit - the remainder vanished (the transport is a ghost; nothing comes back) with only a "delivered-partial" status reason. The design doc's "implemented v0 gate" note even claimed a zero-capacity destination still blocked the cycle, which was never true.
+
+**Fix (all-or-nothing, per the 2026-07-11 maintainer decision):** the gate is un-stubbed via the pure `RouteDestinationCapacityCheck`: every stop's full delivery manifest (resources AND stored-part inventory slots) must fit its resolved destination - evaluated with the SAME planner+probe the delivery applier uses, so the gate cannot drift from the write - or the route holds `DestinationFull` naming the first item that does not fit (`stored-part:<partName>` for inventory slots). Unresolvable stop vessels fail OPEN (the endpoint gate owns them). The apply-time clamp stays as the backstop for capacity that shrinks mid-cycle; such a partial now records `Route.LastPartialDeliverySummary`/`UT`/`CycleId` (sparse in the codec; same-cycle partial windows APPEND into one report and only a LATER cycle's full delivery clears it, so a multi-stop cycle's later full window cannot erase an earlier window's loss) and the Logistics detail panel shows "Last delivery was partial: <actual/requested per short item>". Same-destination stops share one probe across the gate walk so their COMBINED manifest is checked (review fix - a fresh probe per stop let two windows to one station each claim the full tank).
+
+**Also in the branch (hold-reason legibility):** inventory shortfall holds name the PART instead of the identity hash (`inventory:<partName>`, origin + pickup-source gates; 64-hex tails from pre-legibility persisted holds keep the generic text), and a NEW near-miss token `inventory-state:<partName>` fires when the origin physically holds the part but its state (charge/fuel/contents) differs from the recorded cargo (`LiveInventoryPickupWriter.CountStoredByPartName`, classification only - admission stays hash-exact).
+
+**In-game verification pending (operator):** a route to a full destination must show "Held: no room for X" / "Held: no slot for 'part'" and not debit the origin; filling the destination mid-transit is not scriptable headless.
+
 ## ~~FIXED~~ - Supply-route inventory delivery loaded-vs-unloaded parity gaps: stacked quantity lost on the loaded path, no volume/mass admission on the unloaded path, non-stackable over-compression (branch `inventory-delivery-parity`)
 
 Three parity gaps in the inventory delivery writer bundle (`Logistics/LiveDeliveryWriters.cs` + `LiveDeliveryCapacityProbe.cs` + `RouteDeliveryPlanner.cs`), verified against decompiled stock (KSP 1.12.5):

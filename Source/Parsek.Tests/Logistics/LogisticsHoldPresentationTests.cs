@@ -51,24 +51,48 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "LiquidFuel", 0.0));
         }
 
-        // M3 Phase 5 (D7 carve-out lift): the inventory-origin debit is now
-        // supported, so a non-KSC origin short of a stored part holds with an
-        // "inventory:<identityHash>" short token. The presentation renders a
-        // missing-stored-part hold (the opaque hash is not surfaced), NOT the
-        // retired "unsupported" deferral text and NOT the raw resource text.
+        // Inventory-shortfall legibility: the emit sites now name the PART in
+        // the token ("inventory:<partName>"), so the presentation renders the
+        // part name; only a hash-shaped tail (a pre-legibility persisted hold)
+        // falls back to the generic category text.
         [Fact]
         public void DescribeHold_OriginMissingStoredPart()
         {
             Assert.Equal(
-                "origin is missing a required stored part - delivers when the origin holds it",
+                "origin is missing stored part 'evaJetpack' - delivers when the origin holds it",
                 LogisticsHoldPresentation.DescribeHold(
-                    OriginLacksCargo, "inventory:abc123def456", 0.0));
+                    OriginLacksCargo, "inventory:evaJetpack", 0.0));
             // The legacy "origin-lacks-" wrapper strips first, same as the
             // resource and origin-unresolved markers.
             Assert.Equal(
+                "origin is missing stored part 'evaJetpack' - delivers when the origin holds it",
+                LogisticsHoldPresentation.DescribeHold(
+                    OriginLacksCargo, "origin-lacks-inventory:evaJetpack", 0.0));
+            // A hash-shaped tail (64 lowercase hex - the pre-legibility
+            // persisted-hold shape) renders the generic text, never the hash.
+            string hash = new string('a', 32) + new string('1', 32);
+            Assert.Equal(
                 "origin is missing a required stored part - delivers when the origin holds it",
                 LogisticsHoldPresentation.DescribeHold(
-                    OriginLacksCargo, "origin-lacks-inventory:abc123def456", 0.0));
+                    OriginLacksCargo, "inventory:" + hash, 0.0));
+        }
+
+        // Near-miss legibility: the origin physically holds the part but its
+        // identity hash differs (charge / fuel / contents drifted). catches:
+        // the "inventory-state:" family falling through to the missing-part or
+        // fallback text - the player is staring at a depot that visibly holds
+        // the part, so "missing" would actively mislead.
+        [Fact]
+        public void DescribeHold_OriginStoredPartStateDiffers()
+        {
+            Assert.Equal(
+                "stored part 'evaJetpack' at the origin does not match the recorded cargo - its charge, fuel, or contents changed",
+                LogisticsHoldPresentation.DescribeHold(
+                    OriginLacksCargo, "inventory-state:evaJetpack", 0.0));
+            Assert.Equal(
+                "a stored part at the origin does not match the recorded cargo - its charge, fuel, or contents changed",
+                LogisticsHoldPresentation.DescribeHold(
+                    OriginLacksCargo, "inventory-state:", 0.0));
         }
 
         // catches: the origin-unresolved marker losing its raw token tail (the
@@ -97,15 +121,21 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, token, 0.0));
         }
 
-        // catches: an inventory-short pickup source rendering the opaque hash, or
-        // not naming the source.
+        // catches: an inventory-short pickup source not naming the source, or
+        // not naming the part now that the gate's token carries the part name.
         [Fact]
         public void DescribeHold_PickupSourceInventoryShort_NamesSource()
         {
-            string token = RoutePickupSourceGate.BuildHoldToken(50u, "Cargo Bay", "inventory:abc123");
+            string token = RoutePickupSourceGate.BuildHoldToken(50u, "Cargo Bay", "inventory:evaJetpack");
+            Assert.Equal(
+                "Cargo Bay is missing stored part 'evaJetpack' - delivers when it holds it",
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, token, 0.0));
+            // Hash-shaped tail (pre-legibility persisted hold): generic text.
+            string hash = new string('b', 64);
+            string hashToken = RoutePickupSourceGate.BuildHoldToken(50u, "Cargo Bay", "inventory:" + hash);
             Assert.Equal(
                 "Cargo Bay is missing a required stored part - delivers when it holds it",
-                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, token, 0.0));
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, hashToken, 0.0));
         }
 
         // M6 escrow-hold legibility: an escrow-caused pickup-source short renders
@@ -199,8 +229,27 @@ namespace Parsek.Tests.Logistics
         public void DescribeHold_DestinationFull_Named()
         {
             Assert.Equal(
-                "destination has no room for Ore",
+                "destination has no room for Ore - delivers when it has room for the full manifest",
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, "Ore", 0.0));
+        }
+
+        // Destination-capacity gate: an inventory-slot shortfall names the
+        // stored part via the "stored-part:<partName>" token. catches: the
+        // stored-part family rendering as a resource named "stored-part:X".
+        [Fact]
+        public void DescribeHold_DestinationFull_StoredPart()
+        {
+            Assert.Equal(
+                "destination has no free inventory slot for stored part 'evaJetpack' - delivers when it has room for the full manifest",
+                LogisticsHoldPresentation.DescribeHold(DestinationFull, "stored-part:evaJetpack", 0.0));
+            // Legacy-wrapped shape lands on the same text.
+            Assert.Equal(
+                LogisticsHoldPresentation.DescribeHold(DestinationFull, "stored-part:evaJetpack", 0.0),
+                LogisticsHoldPresentation.DescribeHold(DestinationFull, "destination-full-stored-part:evaJetpack", 0.0));
+            // Empty part tail: category text, never a broken quote.
+            Assert.Equal(
+                "destination has no free inventory slot for a stored part - delivers when it has room for the full manifest",
+                LogisticsHoldPresentation.DescribeHold(DestinationFull, "stored-part:", 0.0));
         }
 
         // catches: an empty token rendering a blank/broken sentence.
@@ -208,10 +257,10 @@ namespace Parsek.Tests.Logistics
         public void DescribeHold_DestinationFull_Unnamed()
         {
             Assert.Equal(
-                "destination has no room for the delivery",
+                "destination has no room for the delivery - delivers when it has room for the full manifest",
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, "", 0.0));
             Assert.Equal(
-                "destination has no room for the delivery",
+                "destination has no room for the delivery - delivers when it has room for the full manifest",
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, null, 0.0));
         }
 
@@ -474,9 +523,14 @@ namespace Parsek.Tests.Logistics
             Assert.Equal("Held: Depot A out of Ore",
                 LogisticsHoldPresentation.StatusCellText(OriginLacksCargo,
                     RoutePickupSourceGate.BuildHoldToken(40u, "Depot A", "Ore"), 0.0));
+            Assert.Equal("Held: Cargo Bay missing 'evaJetpack'",
+                LogisticsHoldPresentation.StatusCellText(OriginLacksCargo,
+                    RoutePickupSourceGate.BuildHoldToken(50u, "Cargo Bay", "inventory:evaJetpack"), 0.0));
+            // Hash-shaped tail (pre-legibility persisted hold): category text.
             Assert.Equal("Held: Cargo Bay missing a stored part",
                 LogisticsHoldPresentation.StatusCellText(OriginLacksCargo,
-                    RoutePickupSourceGate.BuildHoldToken(50u, "Cargo Bay", "inventory:abc123"), 0.0));
+                    RoutePickupSourceGate.BuildHoldToken(50u, "Cargo Bay",
+                        "inventory:" + new string('c', 64)), 0.0));
         }
 
         // catches: the "source-reserved:" escrow token reading as an empty
@@ -499,8 +553,15 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void StatusCellText_InventoryAndUnresolvedTokens()
         {
+            Assert.Equal("Held: origin missing 'evaJetpack'",
+                LogisticsHoldPresentation.StatusCellText(OriginLacksCargo, "inventory:evaJetpack", 0.0));
+            // Hash-shaped tail (pre-legibility persisted hold): category text.
             Assert.Equal("Held: origin missing a stored part",
-                LogisticsHoldPresentation.StatusCellText(OriginLacksCargo, "inventory:abc123def456", 0.0));
+                LogisticsHoldPresentation.StatusCellText(OriginLacksCargo,
+                    "inventory:" + new string('d', 64), 0.0));
+            // Near-miss family: the part is present but its state differs.
+            Assert.Equal("Held: 'evaJetpack' state differs at origin",
+                LogisticsHoldPresentation.StatusCellText(OriginLacksCargo, "inventory-state:evaJetpack", 0.0));
             Assert.Equal("Held: origin vessel lost",
                 LogisticsHoldPresentation.StatusCellText(OriginLacksCargo, "origin-unresolved:pid-miss", 0.0));
             Assert.Equal("Held: pickup source vessel lost",
@@ -515,6 +576,66 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.StatusCellText(DestinationFull, "destination-full-Ore", 0.0));
             Assert.Equal("Held: destination full",
                 LogisticsHoldPresentation.StatusCellText(DestinationFull, null, 0.0));
+            // Stored-part slot shortfall names the part compactly.
+            Assert.Equal("Held: no slot for 'evaJetpack'",
+                LogisticsHoldPresentation.StatusCellText(DestinationFull, "stored-part:evaJetpack", 0.0));
+            Assert.Equal("Held: no free inventory slot",
+                LogisticsHoldPresentation.StatusCellText(DestinationFull, "stored-part:", 0.0));
+        }
+
+        // catches: the hash-shape detector accepting non-hex / wrong-length
+        // strings (a real part name must never render as the generic text) or
+        // rejecting a genuine canonical hash.
+        [Fact]
+        public void LooksLikeIdentityHash_Shapes()
+        {
+            Assert.True(LogisticsHoldPresentation.LooksLikeIdentityHash(new string('a', 64)));
+            Assert.True(LogisticsHoldPresentation.LooksLikeIdentityHash(
+                new string('0', 32) + new string('f', 32)));
+            Assert.False(LogisticsHoldPresentation.LooksLikeIdentityHash(null));
+            Assert.False(LogisticsHoldPresentation.LooksLikeIdentityHash(""));
+            Assert.False(LogisticsHoldPresentation.LooksLikeIdentityHash("evaJetpack"));
+            Assert.False(LogisticsHoldPresentation.LooksLikeIdentityHash(new string('a', 63)));
+            Assert.False(LogisticsHoldPresentation.LooksLikeIdentityHash(new string('a', 65)));
+            // Uppercase hex is NOT the canonical form (the hasher emits x2).
+            Assert.False(LogisticsHoldPresentation.LooksLikeIdentityHash(new string('A', 64)));
+            // 64 chars with one non-hex char.
+            Assert.False(LogisticsHoldPresentation.LooksLikeIdentityHash(
+                new string('a', 63) + "g"));
+        }
+
+        // catches: an internal gate marker ("null-stored-counter") rendering
+        // quoted as a part name - the opaque-tail check must cover markers as
+        // well as hash-shaped tails.
+        [Fact]
+        public void OpaqueInventoryTails_MarkerRendersGeneric()
+        {
+            Assert.True(LogisticsHoldPresentation.IsOpaqueInventoryTail("null-stored-counter"));
+            Assert.True(LogisticsHoldPresentation.IsOpaqueInventoryTail(new string('a', 64)));
+            Assert.False(LogisticsHoldPresentation.IsOpaqueInventoryTail("evaJetpack"));
+
+            Assert.Equal(
+                "origin is missing a required stored part - delivers when the origin holds it",
+                LogisticsHoldPresentation.DescribeHold(
+                    OriginLacksCargo, "inventory:null-stored-counter", 0.0));
+            Assert.Equal("Held: origin missing a stored part",
+                LogisticsHoldPresentation.StatusCellText(
+                    OriginLacksCargo, "inventory:null-stored-counter", 0.0));
+        }
+
+        // catches: the partial-delivery detail line losing its summary or the
+        // age suffix contract drifting from FormatHoldDetailLine's.
+        [Fact]
+        public void FormatPartialDeliveryLine_Shapes()
+        {
+            Assert.Null(LogisticsHoldPresentation.FormatPartialDeliveryLine(null, 100.0));
+            Assert.Null(LogisticsHoldPresentation.FormatPartialDeliveryLine("", 100.0));
+            Assert.Equal(
+                "Last delivery was partial: LiquidFuel 120/200",
+                LogisticsHoldPresentation.FormatPartialDeliveryLine("LiquidFuel 120/200", -1.0));
+            string aged = LogisticsHoldPresentation.FormatPartialDeliveryLine("LiquidFuel 120/200", 3600.0);
+            Assert.StartsWith("Last delivery was partial: LiquidFuel 120/200 (", aged);
+            Assert.EndsWith(" ago)", aged);
         }
 
         // catches: the endpoint-lost cell not distinguishing origin loss from
@@ -611,6 +732,10 @@ namespace Parsek.Tests.Logistics
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, "Ore", 0.0),
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, "destination-full-Ore", 0.0),
                 LogisticsHoldPresentation.DescribeHold(DestinationFull, null, 0.0),
+                LogisticsHoldPresentation.DescribeHold(DestinationFull, "stored-part:evaJetpack", 0.0),
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "inventory:evaJetpack", 0.0),
+                LogisticsHoldPresentation.DescribeHold(OriginLacksCargo, "inventory-state:evaJetpack", 0.0),
+                LogisticsHoldPresentation.FormatPartialDeliveryLine("LiquidFuel 120/200; evaJetpack 0/1 (no slot)", 3600.0),
                 LogisticsHoldPresentation.DescribeHold(EndpointLost, "origin-body-unresolved", 0.0),
                 LogisticsHoldPresentation.DescribeHold(EndpointLost, "stop-0-no-surface-candidate", 0.0),
                 LogisticsHoldPresentation.DescribeHold(EndpointLost, "endpoint-destroyed-at-delivery:unknown", 0.0),

@@ -425,11 +425,20 @@ namespace Parsek.Logistics
                 if (!inventoryCovered)
                 {
                     // Inventory escrow is not wired (the deferred B3 seam), so an
-                    // inventory short is always physical.
+                    // inventory short is always physical. Name the PART, not the
+                    // hash: the summed manifest carries PartName through
+                    // SumInventoryManifestInto, so the token reads
+                    // "inventory:<partName>" (hash fallback for special markers).
+                    // The near-miss probe (inventory-state:) is origin-gate-only;
+                    // wiring it here would grow PickupSourceResolution + every
+                    // test fake for a rarer case - deliberate scope choice.
+                    string shortToken = RouteOriginCargoCheck.BuildInventoryShortToken(
+                        g.SummedInventoryManifest, shortIdentity, shortQuantity,
+                        countByPartName: null, out _);
                     return new GateResult(
-                        false, g.ResolvedPid, g.VesselName, "inventory:" + shortIdentity,
+                        false, g.ResolvedPid, g.VesselName, shortToken,
                         shortQuantity, inventoryShort: true,
-                        holdToken: BuildHoldToken(g.ResolvedPid, g.VesselName, "inventory:" + shortIdentity),
+                        holdToken: BuildHoldToken(g.ResolvedPid, g.VesselName, shortToken),
                         escrowShort: false, reservingRouteName: null,
                         shortRawStored: 0.0, shortNettedStored: 0.0);
                 }
@@ -619,10 +628,13 @@ namespace Parsek.Logistics
                 {
                     // Sum into a fresh item so we never mutate the caller's manifest
                     // (the route's stop payloads are immutable from the gate's view).
+                    // PartName rides along so an inventory short can name the part
+                    // in its hold token instead of the opaque identity hash.
                     accumulator.Add(new InventoryPayloadItem
                     {
                         IdentityHash = item.IdentityHash,
                         Quantity = item.Quantity,
+                        PartName = item.PartName,
                     });
                 }
             }
