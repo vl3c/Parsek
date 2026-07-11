@@ -671,7 +671,7 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.RecordingState(ParsedCommand cmd) => RecordingStateImpl(cmd);
         void ITestCommandExecutor.RunTests(ParsedCommand cmd) => StubNotImplemented();
         void ITestCommandExecutor.LoadGame(ParsedCommand cmd) => StubNotImplemented();
-        void ITestCommandExecutor.MissionMark(ParsedCommand cmd) => StubNotImplemented();
+        void ITestCommandExecutor.MissionMark(ParsedCommand cmd) => MissionMarkImpl(cmd);
         void ITestCommandExecutor.FlushAndQuit(ParsedCommand cmd) => StubNotImplemented();
 
         private void InvokeExecutor(ParsedCommand cmd)
@@ -811,6 +811,15 @@ namespace Parsek.TestCommands
             ParsekLog.Info(Tag,
                 $"recordingstate recording={Bool(hasFlight && isRecording)} tree={(hasFlight ? (treeId ?? string.Empty) : string.Empty)} points={Int(hasFlight ? points : 0)} scene={sceneName}{(hasFlight ? string.Empty : " (no-flight-instance)")}");
             SetExecResult("OK", payload, null);
+        }
+
+        // ----- MissionMark (P5.3) -----
+        // Emits the stable MISSIONMARK correlation line (any scene) and echoes the label.
+        private void MissionMarkImpl(ParsedCommand cmd)
+        {
+            string label = ArgOrNull(cmd, "label") ?? string.Empty;
+            TestCommandMissionMark.EmitMark(label, CurrentUt());
+            SetExecResult("OK", Payload(Kv("label", label)), null);
         }
 
         private static string ReadLiveSettingForLog(string name)
