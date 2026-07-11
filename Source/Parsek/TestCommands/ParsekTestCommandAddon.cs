@@ -818,7 +818,7 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.RunTests(ParsedCommand cmd) => RunTestsImpl(cmd);
         void ITestCommandExecutor.LoadGame(ParsedCommand cmd) => LoadGameImpl(cmd);
         void ITestCommandExecutor.MissionMark(ParsedCommand cmd) => MissionMarkImpl(cmd);
-        void ITestCommandExecutor.FlushAndQuit(ParsedCommand cmd) => StubNotImplemented();
+        void ITestCommandExecutor.FlushAndQuit(ParsedCommand cmd) => FlushAndQuitImpl(cmd);
 
         private void InvokeExecutor(ParsedCommand cmd)
         {
@@ -991,6 +991,37 @@ namespace Parsek.TestCommands
 
             ParsekLog.Info(Tag, $"stoprecording stopped={Bool(wasLive)} idle={Bool(!wasLive)}");
             SetExecResult("OK", TestCommandRecordingVerbs.BuildStopPayload(wasLive), null);
+        }
+
+        // ----- FlushAndQuit (P5.8) -----
+        // If a game is loaded, force a "persistent"-slot save so committed data is durable,
+        // THEN schedule Application.Quit deferred one frame. The quit is scheduled by
+        // MaybeScheduleQuit only AFTER the response + journal DONE are written and flushed
+        // (WriteDoneAndAdvance), so a killed process never loses this command's ack.
+        // Deliberately NEVER auto-commits an in-flight recorder (a bare quit never did).
+        private void FlushAndQuitImpl(ParsedCommand cmd)
+        {
+            bool gameLoaded = HighLogic.CurrentGame != null;
+            bool saveFolderPresent = !string.IsNullOrEmpty(HighLogic.SaveFolder);
+            bool saved = false;
+
+            if (TestCommandFlushAndQuit.ShouldSave(gameLoaded, saveFolderPresent))
+            {
+                try
+                {
+                    string result = GamePersistence.SaveGame("persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);
+                    saved = !string.IsNullOrEmpty(result);
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(Tag, $"flushandquit save failed: {ex.Message}");
+                }
+            }
+
+            ParsekLog.Info(Tag, $"flushandquit: saved={Bool(saved)} game-loaded={Bool(gameLoaded)}; quitting");
+            pendingQuit = true;
+            quitId = cmd.Id;
+            SetExecResult("OK", TestCommandFlushAndQuit.BuildPayload(saved), null);
         }
 
         // ----- LoadGame (P5.7, two-phase boot channel, C2) -----
