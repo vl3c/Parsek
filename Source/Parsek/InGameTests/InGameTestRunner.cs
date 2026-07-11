@@ -243,6 +243,15 @@ namespace Parsek.InGameTests
         // disproven model - 4 retries all flooded and made a 469MB log).
         private bool spaceCenterBounceAttempted;
 
+        // The selector that produced the current batch, threaded into the H3
+        // BATCH_COMPLETE line's category= token (module M-A3, correction G4). RunBatch
+        // has no selector of its own, so each public entry point sets this before it
+        // starts the coroutine: "all" for the run-all paths, the category name for the
+        // run-category paths, "single" for RunSingle. Read once in the batch-end
+        // region; defaults to "all" so a batch that somehow started without setting it
+        // still emits a non-stale token.
+        private string currentBatchSelector = "all";
+
         // Results summary
         public int Passed { get; private set; }
         public int Failed { get; private set; }
@@ -319,6 +328,7 @@ namespace Parsek.InGameTests
         public void RunAll()
         {
             if (isRunning) return;
+            currentBatchSelector = "all";
             ResetBatchIsolationState();
             PerformBetweenRunCleanup("run-all");
             var eligible = PrepareBatchExecution(FilterSceneEligibleBatchCandidates(allTests));
@@ -332,6 +342,7 @@ namespace Parsek.InGameTests
         public void RunAllIncludingFlightRestore()
         {
             if (isRunning) return;
+            currentBatchSelector = "all";
             ResetBatchIsolationState();
             PerformBetweenRunCleanup("run-all+restore");
             var eligible = PrepareBatchExecutionIncludingFlightRestore(
@@ -347,6 +358,7 @@ namespace Parsek.InGameTests
         public void RunCategory(string category)
         {
             if (isRunning) return;
+            currentBatchSelector = category ?? "(null)";
             ResetBatchIsolationState();
             PerformBetweenRunCleanup("run-category:" + (category ?? "(null)"));
             var eligible = PrepareBatchExecution(FilterSceneEligibleBatchCandidates(
@@ -361,6 +373,7 @@ namespace Parsek.InGameTests
         public void RunCategoryIncludingFlightRestore(string category)
         {
             if (isRunning) return;
+            currentBatchSelector = category ?? "(null)";
             ResetBatchIsolationState();
             PerformBetweenRunCleanup("run-category+restore:" + (category ?? "(null)"));
             var eligible = PrepareBatchExecutionIncludingFlightRestore(
@@ -376,6 +389,7 @@ namespace Parsek.InGameTests
         public void RunSingle(InGameTestInfo test)
         {
             if (isRunning) return;
+            currentBatchSelector = "single";
             ResetBatchIsolationState();
             var single = new List<InGameTestInfo> { test };
             CaptureBatchBaseline(ClassifyBatchIsolationMode(
@@ -1877,6 +1891,17 @@ namespace Parsek.InGameTests
             // InGameTestInfo.ResultsByScene, which ResetResults preserves, so
             // the file accumulates across KSC / Flight / Tracking Station runs.
             ExportResultsFile();
+
+            // H3 (module M-A3): emit the grep-stable BATCH_COMPLETE marker once per
+            // batch, immediately after export, so an external orchestrator can read
+            // the tally from the log without parsing the results file. total wires to
+            // `considered` (Status != NotRun, the same quantity the "Test run
+            // complete" summary logs), matching the per-scene accumulation. Placed
+            // here (after teardown + export, before the optional bounce) so the last
+            // durable batch record carries the machine-readable outcome.
+            ParsekLog.Info(Tag, FormatBatchCompleteLine(
+                considered, Passed, Failed, Skipped,
+                currentBatchSelector, HighLogic.LoadedScene.ToString()));
 
             // Last: the one-shot Space Center bounce recovery decided above. Dispatched
             // only after teardown + export so the disk revert and the results file are
