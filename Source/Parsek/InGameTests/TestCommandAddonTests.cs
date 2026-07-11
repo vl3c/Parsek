@@ -16,11 +16,17 @@ namespace Parsek.InGameTests
     /// in-game batch and therefore <see cref="InGameAssert.Skip"/> with a message naming
     /// the required context (house rule: a FLIGHT/boot test that cannot size itself must
     /// Skip, never assert against an assumed context). The reason they cannot run in the
-    /// batch is structural, not incidental: while an in-game test batch is running the
-    /// addon's pump is gated OFF (<c>Update</c> returns at the <c>IsBatchRunning</c>
-    /// gate), so no command written to the channel from inside a batch would ever be
-    /// consumed by the addon. The real end-to-end drive is performed by the EXTERNAL
-    /// Python orchestrator (M-A5) against a dedicated automation instance armed with
+    /// batch is structural, on two counts. FIRST and foremost is the ENV GATE: the addon
+    /// only arms when <c>PARSEK_TEST_COMMANDS=1</c>, and that value is read ONCE at process
+    /// start (<c>Awake</c>) and never re-read, so an in-game test - which runs long after
+    /// Awake, inside an already-launched process it cannot re-launch - can neither arm the
+    /// addon nor un-set the gate. An in-game test therefore has no way to reach a live pump
+    /// at all. SECOND (and only relevant once armed) is the BATCH GATE: while an in-game
+    /// test batch runs the pump is gated OFF (<c>Update</c> returns at the
+    /// <c>IsBatchRunning</c> gate, which post-F5 also covers the interactive Ctrl+Shift+T
+    /// runner), so a command written from inside a batch would not be consumed even in an
+    /// armed instance. The real end-to-end drive is performed by the EXTERNAL Python
+    /// orchestrator (M-A5) against a dedicated automation instance launched with
     /// <c>PARSEK_TEST_COMMANDS=1</c>, not by an in-game test.</para>
     ///
     /// <para>PENDING-OPERATOR RUNBOOK (external, one dedicated automation KSP instance):
@@ -84,8 +90,10 @@ namespace Parsek.InGameTests
             InGameAssert.Skip(
                 "TC-B PENDING-OPERATOR: the StartRecording->RecordingState->CommitTree->RecordingState "
                 + "round-trip via the file channel must be driven by the external orchestrator against an "
-                + "instance armed with PARSEK_TEST_COMMANDS=1. It cannot self-run in an in-game batch "
-                + "because the addon pump is gated off while a batch runs (IsBatchRunning). See the "
+                + "instance launched with PARSEK_TEST_COMMANDS=1. It cannot self-run in an in-game batch: "
+                + "the env gate is read once at process start so an in-game test can neither arm the addon "
+                + "nor reach a live pump, and even in an armed instance the pump is gated off while a batch "
+                + "runs (IsBatchRunning, which post-F5 also covers the Ctrl+Shift+T runner). See the "
                 + "PENDING-OPERATOR RUNBOOK in TestCommandAddonTests.");
         }
 
@@ -97,9 +105,11 @@ namespace Parsek.InGameTests
         {
             InGameAssert.Skip(
                 "TC-C PENDING-OPERATOR: the cold-boot LoadGame->RecordingState boot channel must be driven "
-                + "by the external orchestrator at process start (PARSEK_TEST_COMMANDS=1), issuing LoadGame "
-                + "as the first command from the main menu. It cannot self-run in an in-game batch. See the "
-                + "PENDING-OPERATOR RUNBOOK in TestCommandAddonTests.");
+                + "by the external orchestrator against an instance launched with PARSEK_TEST_COMMANDS=1, "
+                + "issuing LoadGame as the first command from the main menu. It cannot self-run in an in-game "
+                + "test: the env gate is read once at process start, so an in-game test can neither arm the "
+                + "addon nor re-launch the process, and the batch gate (post-F5) blocks the pump anyway. See "
+                + "the PENDING-OPERATOR RUNBOOK in TestCommandAddonTests.");
         }
     }
 }

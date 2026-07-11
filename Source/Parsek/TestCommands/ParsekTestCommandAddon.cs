@@ -121,13 +121,16 @@ namespace Parsek.TestCommands
         private string lastDeferReason;
 
         // A terminal response whose append exhausted its retries on a prior frame. The
-        // side effect already ran and is journaled EXECUTED, so this is re-appended
-        // WITHOUT re-executing until it lands, then journaled DONE.
+        // side effect already ran (or was a no-side-effect REJECTED/TIMEOUT/INTERRUPTED
+        // ack), so this is re-appended WITHOUT re-executing until it lands, then journaled
+        // DONE. headPendingResponseDequeues records whether landing advances the FIFO head
+        // (true for a queued head, false for a startup recovery ack with no queue entry).
         private bool headPendingResponse;
         private string headPendingResponseLine;
         private string headPendingResponseId;
         private long headPendingResponseSeq;
         private string headPendingResponseVerdict;
+        private bool headPendingResponseDequeues;
 
         // Executor result carrier: the ITestCommandExecutor methods are void, so a verb
         // handler stashes its verdict/payload/msg here and the pump reads them back.
@@ -463,13 +466,16 @@ namespace Parsek.TestCommands
         private void Pump()
         {
             // Retry a terminal response append that exhausted its retries on a prior frame.
-            // The side effect already ran (journalled EXECUTED), so this never re-executes.
+            // Covers EXECUTED single-phase acks AND the no-side-effect REJECTED/TIMEOUT/
+            // INTERRUPTED acks (F6): the side effect (if any) already ran, so this never
+            // re-executes. DONE is journaled only after the append finally lands.
             if (headPendingResponse)
             {
                 if (!AppendResponse(headPendingResponseLine, headPendingResponseId))
                     return; // still failing; try again next frame
                 headPendingResponse = false;
-                WriteDoneAndAdvance(headPendingResponseId, headPendingResponseSeq, headPendingResponseVerdict);
+                WriteDoneAndAdvance(headPendingResponseId, headPendingResponseSeq,
+                    headPendingResponseVerdict, headPendingResponseDequeues);
                 return;
             }
 
@@ -491,13 +497,14 @@ namespace Parsek.TestCommands
                 case DispatchDecision.Reject:
                     ResetDeferTracking();
                     TestCommandDiagnostics.DispatchReject(head.Id, head.Verb, result.Reason);
+                    // Dequeue is owned by the terminal completion (immediate, or deferred
+                    // via the headPendingResponse retry if the ack append fails) so a
+                    // REJECTED ack survives an append failure.
                     WriteTerminalNoSideEffect(head, "REJECTED", result.Reason);
-                    pending.Dequeue();
                     break;
                 case DispatchDecision.Interrupted:
                     ResetDeferTracking();
-                    InterruptHead(head);
-                    pending.Dequeue();
+                    InterruptHead(head); // owns its dequeue via the terminal completion
                     break;
                 case DispatchDecision.Defer:
                     HandleDefer(head, result.Reason); // dequeues only on TIMEOUT
@@ -578,7 +585,7 @@ namespace Parsek.TestCommands
                 // at-most-once (a restart replay sees EXECUTED and never re-runs it).
                 TestCommandExecution.ExceptionTerminal(ex.GetType().Name, out string exVerdict, out string exMsg);
                 ParsekLog.Error(Tag, $"exec threw id={id} cmd={head.Verb}: {ex.GetType().Name}: {ex.Message}");
-                EmitExecutedTerminal(id, seq, head.Verb, exVerdict, null, exMsg);
+                EmitExecutedTerminal(id, seq, head.Verb, exVerdict, null, exMsg, dequeueHead: true);
                 return;
             }
             string verdict = execVerdict ?? "ERROR";
@@ -599,16 +606,16 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            EmitExecutedTerminal(id, seq, head.Verb, verdict, execPayload, execMsg);
+            EmitExecutedTerminal(id, seq, head.Verb, verdict, execPayload, execMsg, dequeueHead: true);
         }
 
-        // Shared single-phase terminal tail: journal EXECUTED, append the response, then
-        // (on a successful append) journal DONE + advance, else cache for a retry WITHOUT
-        // re-executing (id stays journalled EXECUTED). Used by ExecuteHead and by the
-        // two-phase completion.
+        // Shared single-phase terminal tail: journal EXECUTED, then append the response and
+        // journal DONE + advance (or cache for retry WITHOUT re-executing). Used by
+        // ExecuteHead, the exception-containment path, WriteTerminalNoSideEffect, and the
+        // two-phase completion. dequeueHead is true when the id holds the FIFO head.
         private void EmitExecutedTerminal(
             string id, long seq, string verb, string verdict,
-            List<KeyValuePair<string, string>> payload, string msg)
+            List<KeyValuePair<string, string>> payload, string msg, bool dequeueHead)
         {
             WriteJournal(
                 TestCommandJournal.FormatExecuted(id, seq, WallClockSeconds(), verdict, payload, msg),
@@ -617,29 +624,41 @@ namespace Parsek.TestCommands
             string line = TestCommandResponse.FormatResponseLine(
                 id, verb, verdict, seq, CurrentUt(), payload, msg);
             TestCommandDiagnostics.ExecVerdict(id, verdict);
+            FinishTerminalResponse(id, seq, verdict, line, dequeueHead);
+        }
 
-            if (AppendResponse(line, id))
+        // Append a terminal response line; on success journal DONE + advance, else cache it in
+        // the headPendingResponse slot so the Pump-top retry re-appends it (WITHOUT
+        // re-executing) and journals DONE only once it lands. dequeueHead controls whether a
+        // successful landing advances the FIFO head (false for a startup recovery ack that was
+        // never queued). This is the single ack-durability path for EVERY terminal outcome -
+        // executed, no-side-effect REJECTED/TIMEOUT, INTERRUPTED, and startup recovery (F6).
+        private void FinishTerminalResponse(
+            string id, long seq, string verdict, string responseLine, bool dequeueHead)
+        {
+            if (AppendResponse(responseLine, id))
             {
                 TestCommandDiagnostics.ResponseAppended(id, verdict);
-                WriteDoneAndAdvance(id, seq, verdict);
+                WriteDoneAndAdvance(id, seq, verdict, dequeueHead);
             }
             else
             {
                 headPendingResponse = true;
-                headPendingResponseLine = line;
+                headPendingResponseLine = responseLine;
                 headPendingResponseId = id;
                 headPendingResponseSeq = seq;
                 headPendingResponseVerdict = verdict;
+                headPendingResponseDequeues = dequeueHead;
             }
         }
 
-        // Journal DONE, mark the id processed, advance the FIFO head, and (for
-        // FlushAndQuit) schedule the deferred quit now that the response + DONE are durable.
-        private void WriteDoneAndAdvance(string id, long seq, string verdict)
+        // Journal DONE, mark the id processed, advance the FIFO head (when it owns it), and
+        // (for FlushAndQuit) schedule the deferred quit now that the response + DONE are durable.
+        private void WriteDoneAndAdvance(string id, long seq, string verdict, bool dequeueHead)
         {
             WriteJournal(TestCommandJournal.FormatDone(id, seq, verdict, WallClockSeconds()), id, "DONE");
             MarkProcessed(id);
-            if (pending.Count > 0) pending.Dequeue();
+            if (dequeueHead && pending.Count > 0) pending.Dequeue();
             MaybeScheduleQuit(id);
         }
 
@@ -694,14 +713,14 @@ namespace Parsek.TestCommands
                     if (completionVerb == "LoadGame") loadInFlight = false;
                     string tid = completionId; long tseq = completionSeq; string tverb = completionVerb;
                     ClearTwoPhase();
-                    EmitExecutedTerminal(tid, tseq, tverb, "TIMEOUT", null, "awaiting-completion");
+                    EmitExecutedTerminal(tid, tseq, tverb, "TIMEOUT", null, "awaiting-completion", dequeueHead: true);
                 }
                 return;
             }
 
             string cid = completionId; long cseq = completionSeq; string cverb = completionVerb;
             ClearTwoPhase();
-            EmitExecutedTerminal(cid, cseq, cverb, verdict, payload, msg);
+            EmitExecutedTerminal(cid, cseq, cverb, verdict, payload, msg, dequeueHead: true);
         }
 
         private void ClearTwoPhase()
@@ -728,24 +747,23 @@ namespace Parsek.TestCommands
             Application.Quit();
         }
 
-        // A terminal outcome with NO side effect (REJECTED / TIMEOUT): journal
-        // CLAIMED+EXECUTED+DONE around the response so a restart replay skips the id.
+        // A terminal outcome with NO side effect (REJECTED / TIMEOUT): journal CLAIMED, then
+        // route through EmitExecutedTerminal (EXECUTED + response + DONE) so the ack survives an
+        // append failure via the headPendingResponse retry (F6) and DONE lands only after the
+        // response does. dequeueHead=true: the id owns the FIFO head.
         private void WriteTerminalNoSideEffect(ParsedCommand head, string verdict, string msg)
         {
             string id = head.Id;
             string verb = head.Verb ?? string.Empty;
             long seq = NextSeq();
             WriteJournal(TestCommandJournal.FormatClaimed(id, seq, verb, SessionId(), WallClockSeconds()), id, "CLAIMED");
-            WriteJournal(TestCommandJournal.FormatExecuted(id, seq, WallClockSeconds(), verdict, null, msg), id, "EXECUTED");
-            string line = TestCommandResponse.FormatResponseLine(id, verb, verdict, seq, CurrentUt(), null, msg);
-            AppendResponse(line, id);
-            WriteJournal(TestCommandJournal.FormatDone(id, seq, verdict, WallClockSeconds()), id, "DONE");
-            MarkProcessed(id);
+            EmitExecutedTerminal(id, seq, verb, verdict, null, msg, dequeueHead: true);
         }
 
-        // Crash-recovery INTERRUPTED at the live head (journal CLAIMED for this id). Mostly
-        // defensive: such ids are usually seeded into the processed set at startup and
-        // filtered before reaching dispatch.
+        // Crash-recovery INTERRUPTED at the live head (journal already CLAIMED for this id, so
+        // no EXECUTED is written). Routes the ack through FinishTerminalResponse so an append
+        // failure is retried and DONE lands only after the response (F6). Mostly defensive:
+        // such ids are usually seeded into the processed set at startup and filtered first.
         private void InterruptHead(ParsedCommand head)
         {
             string id = head.Id;
@@ -753,16 +771,15 @@ namespace Parsek.TestCommands
             long seq = NextSeq();
             string line = TestCommandResponse.FormatResponseLine(
                 id, head.Verb ?? string.Empty, "INTERRUPTED", seq, CurrentUt(), null, "interrupted-claimed");
-            AppendResponse(line, id);
-            WriteJournal(TestCommandJournal.FormatDone(id, seq, "INTERRUPTED", WallClockSeconds()), id, "DONE");
-            MarkProcessed(id);
+            FinishTerminalResponse(id, seq, "INTERRUPTED", line, dequeueHead: true);
         }
 
-        // Startup crash-recovery terminal (from ReplayAndReconcile). No pending head to
-        // dequeue; just re-ack + DONE + processed-set seed happens in the caller. For the
-        // RewriteResponse (EXECUTED) case the ORIGINAL verdict/payload/msg are supplied so the
-        // rewritten line is byte-equivalent to the pre-crash response; the CLAIMED case keeps
-        // the synthetic interrupted-claimed ack.
+        // Startup crash-recovery terminal (from ReplayAndReconcile). The id was never queued so
+        // dequeueHead=false, but the ack still routes through FinishTerminalResponse so an append
+        // failure is retried on the first Pump and DONE lands only after the response (F6). For
+        // the RewriteResponse (EXECUTED) case the ORIGINAL verdict/payload/msg are supplied so the
+        // rewritten line is byte-equivalent to the pre-crash response; the CLAIMED case keeps the
+        // synthetic interrupted-claimed ack.
         private void WriteRecoveryTerminal(
             string id, string verb, string verdict,
             List<KeyValuePair<string, string>> payload, string msg)
@@ -770,8 +787,7 @@ namespace Parsek.TestCommands
             long seq = NextSeq();
             string line = TestCommandResponse.FormatResponseLine(
                 id, verb ?? string.Empty, verdict, seq, CurrentUt(), payload, msg);
-            AppendResponse(line, id);
-            WriteJournal(TestCommandJournal.FormatDone(id, seq, verdict, WallClockSeconds()), id, "DONE");
+            FinishTerminalResponse(id, seq, verdict, line, dequeueHead: false);
         }
 
         // Head deferral + per-command TIMEOUT conversion. The head tracks when it first
@@ -797,8 +813,9 @@ namespace Parsek.TestCommands
             if (DeferralBudget.ShouldTimeout(deferStartedAtSeconds, now, budget))
             {
                 TestCommandDiagnostics.Timeout(head.Id, head.Verb, now - deferStartedAtSeconds, lastDeferReason);
+                // Dequeue is owned by the terminal completion (immediate or via the
+                // headPendingResponse retry), so the TIMEOUT ack survives an append failure.
                 WriteTerminalNoSideEffect(head, "TIMEOUT", lastDeferReason);
-                pending.Dequeue();
                 ResetDeferTracking();
             }
         }
@@ -827,7 +844,16 @@ namespace Parsek.TestCommands
             };
         }
 
-        private bool IsBatchRunning() => ownedRunner != null && ownedRunner.IsRunning;
+        // A command must never execute while ANY in-game test batch runs: the addon's own
+        // RunTests runner OR the interactive Ctrl+Shift+T shortcut runner (F5). The two runners
+        // share the campaign-isolation baseline machinery, so overlapping a command with either
+        // batch could corrupt the save under test.
+        private bool IsBatchRunning()
+        {
+            if (ownedRunner != null && ownedRunner.IsRunning) return true;
+            InGameTestRunner shortcutRunner = TestRunnerShortcut.ActiveRunnerForGating;
+            return shortcutRunner != null && shortcutRunner.IsRunning;
+        }
 
         private static TestCommandScene MapScene(GameScenes scene)
         {
