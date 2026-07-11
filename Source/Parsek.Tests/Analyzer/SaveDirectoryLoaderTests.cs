@@ -185,6 +185,30 @@ namespace Parsek.Tests.Analyzer
             Assert.Empty(model.Trees);
         }
 
+        // Guards: the loader parses a fixture-generation.txt stamp into
+        // model.FixtureStamp (order/whitespace tolerant); a save with no stamp file
+        // yields a null FixtureStamp (non-fixture subject -> STALE check skipped).
+        [Fact]
+        public void FixtureStamp_ParsedWhenPresent_NullWhenAbsent()
+        {
+            string stampedDir = NewSaveDir("stamped");
+            File.WriteAllText(Path.Combine(stampedDir, "persistent.sfs"),
+                "GAME\n{\n\tFLIGHTSTATE\n\t{\n\t\tversion = 1.12.5\n\t}\n}\n");
+            File.WriteAllText(Path.Combine(stampedDir, "fixture-generation.txt"),
+                "generation=3 provenance=harvested\n");
+
+            AnalyzerModel stamped = SaveDirectoryLoader.Load(stampedDir, NullResolver);
+            Assert.NotNull(stamped.FixtureStamp);
+            Assert.Equal(3, stamped.FixtureStamp.Value.SchemaGeneration);
+            Assert.Equal("harvested", stamped.FixtureStamp.Value.Provenance);
+
+            string plainDir = NewSaveDir("unstamped");
+            File.WriteAllText(Path.Combine(plainDir, "persistent.sfs"),
+                "GAME\n{\n\tFLIGHTSTATE\n\t{\n\t\tversion = 1.12.5\n\t}\n}\n");
+            AnalyzerModel plain = SaveDirectoryLoader.Load(plainDir, NullResolver);
+            Assert.Null(plain.FixtureStamp);
+        }
+
         // Guards: the loader restores RecordingStore.SuppressLogging to its prior
         // value even on the happy path, so it does not leak analyzer state into a
         // subsequent test or a live session.

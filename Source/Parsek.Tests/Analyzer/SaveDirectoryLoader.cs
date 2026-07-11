@@ -75,6 +75,7 @@ namespace Parsek.Tests.Analyzer
                 RecordingStore.SuppressLogging = prevSuppress;
             }
 
+            model.FixtureStamp = ParseFixtureStamp(saveDir);
             model.Recordings = recordings;
             model.Trees = trees;
             model.Tombstones = tombstones;
@@ -84,6 +85,48 @@ namespace Parsek.Tests.Analyzer
             model.CareerSave = careerSave;
             model.LoadFaults = loadFaults;
             return model;
+        }
+
+        /// <summary>
+        /// Reads the fixture corpus provenance stamp from
+        /// <c>&lt;saveDir&gt;/fixture-generation.txt</c> (one line:
+        /// <c>generation=&lt;n&gt; provenance=&lt;synthetic|harvested&gt;</c>).
+        /// Returns null for a non-fixture subject (no file), which skips the
+        /// STALE-FIXTURE check entirely. Tolerant of ordering / whitespace; a
+        /// malformed / unreadable file yields null (unstamped) rather than a fault.
+        /// </summary>
+        private static FixtureStamp? ParseFixtureStamp(string saveDir)
+        {
+            if (string.IsNullOrEmpty(saveDir))
+                return null;
+            string path = Path.Combine(saveDir, "fixture-generation.txt");
+            if (!File.Exists(path))
+                return null;
+
+            string text;
+            try { text = File.ReadAllText(path); }
+            catch { return null; }
+
+            int generation = 0;
+            string provenance = null;
+            foreach (string token in text.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                int eq = token.IndexOf('=');
+                if (eq <= 0)
+                    continue;
+                string key = token.Substring(0, eq);
+                string value = token.Substring(eq + 1);
+                if (string.Equals(key, "generation", StringComparison.Ordinal))
+                    int.TryParse(value, System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out generation);
+                else if (string.Equals(key, "provenance", StringComparison.Ordinal))
+                    provenance = value;
+            }
+
+            // A file with neither field parsed is treated as unstamped.
+            if (generation == 0 && string.IsNullOrEmpty(provenance))
+                return null;
+            return new FixtureStamp(generation, provenance ?? "synthetic");
         }
 
         private static string ResolveSaveName(string saveDir)

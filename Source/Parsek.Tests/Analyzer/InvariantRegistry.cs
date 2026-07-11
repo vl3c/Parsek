@@ -30,6 +30,7 @@ namespace Parsek.Tests.Analyzer
                 new Inv7bAnnotationStale(),
                 new Inv9RewindPoint(),
                 new Inv8Ledger(),
+                new FixtureStampRule(),
             };
     }
 
