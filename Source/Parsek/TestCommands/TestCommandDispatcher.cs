@@ -137,6 +137,61 @@ namespace Parsek.TestCommands
                 ["FlushAndQuit"] = VerbSceneRequirement.AnyScene,
             };
 
+        /// <summary>
+        /// Pure per-frame dispatch decision for the head command. Evaluation order
+        /// (per the design's dispatch matrix): (1) journal-phase crash recovery for
+        /// this id, (2) parse / verb-class rejects (no side effect), (3) the
+        /// scene/state gate (safe point, batch running, per-verb scene precondition),
+        /// (4) the LoadGame recording-active / load-in-flight guards. The pump only
+        /// ever calls this on the strict-FIFO head command.
+        /// </summary>
+        internal static DispatchResult DecideDispatch(ParsedCommand parsed, DispatchState state)
+        {
+            // 1. Journal-phase crash recovery for this id. A leftover CLAIMED means we
+            // claimed it then crashed mid-execution: do NOT re-execute. (EXECUTED /
+            // DONE ids are filtered by the processed-set upstream and never reach live
+            // dispatch; a fresh None id proceeds.)
+            if (state.JournalPhase == JournalPhase.Claimed)
+                return DispatchResult.Interrupted();
+
+            // 2. Parse / verb-class rejects (terminal REJECTED, no side effect).
+            if (!parsed.ParseOk)
+                return DispatchResult.Reject(parsed.ParseError); // malformed / missing-id / missing-cmd
+
+            TestCommandVerbClass verbClass = TestCommandVerbs.Classify(parsed.Verb);
+            if (verbClass == TestCommandVerbClass.Reserved)
+                return DispatchResult.Reject("not-implemented-v1");
+            if (verbClass == TestCommandVerbClass.Unknown)
+                return DispatchResult.Reject("unknown-command");
+
+            // 3. Scene / state gate.
+            // Safe point: never dispatch during LOADING, a scene transition, or the settle window.
+            if (state.Scene == TestCommandScene.Loading || state.Transitioning || state.SettleCounter > 0)
+                return DispatchResult.Defer("not-safe-point");
+            // No command executes while an in-game test batch runs.
+            if (state.BatchRunning)
+                return DispatchResult.Defer("batch-running");
+
+            VerbSceneRequirement req = RequirementFor(parsed.Verb);
+            if (req == VerbSceneRequirement.RequiresFlight && state.Scene != TestCommandScene.Flight)
+                return DispatchResult.Defer("not-in-flight");
+            if (req == VerbSceneRequirement.RequiresGameLoaded && !state.SettingsPresent)
+                return DispatchResult.Defer("game-not-loaded");
+
+            // 4. LoadGame guards: never silently discard an in-flight recording, and
+            // never overlap two loads.
+            if (parsed.Verb == "LoadGame")
+            {
+                if (state.Recording)
+                    return DispatchResult.Reject("recording-active");
+                if (state.LoadInFlight)
+                    return DispatchResult.Reject("load-in-flight");
+            }
+
+            // 5. Ready to execute.
+            return DispatchResult.Execute();
+        }
+
         /// <summary>The scene/state requirement for an implemented verb.</summary>
         internal static VerbSceneRequirement RequirementFor(string verb)
         {
