@@ -463,12 +463,12 @@ namespace Parsek.TestCommands
             {
                 case DispatchDecision.Execute:
                     ResetDeferTracking();
-                    ParsekLog.Info(Tag, $"dispatch id={head.Id} -> EXECUTE");
+                    TestCommandDiagnostics.DispatchExecute(head.Id);
                     ExecuteHead(head); // owns its dequeue (terminal / pending-response)
                     break;
                 case DispatchDecision.Reject:
                     ResetDeferTracking();
-                    ParsekLog.Warn(Tag, $"reject id={head.Id} cmd={head.Verb} reason={result.Reason}");
+                    TestCommandDiagnostics.DispatchReject(head.Id, head.Verb, result.Reason);
                     WriteTerminalNoSideEffect(head, "REJECTED", result.Reason);
                     pending.Dequeue();
                     break;
@@ -504,12 +504,12 @@ namespace Parsek.TestCommands
 
                 if (processedIds.Contains(id) || queuedIds.Contains(id))
                 {
-                    ParsekLog.Warn(Tag, $"duplicate id={id} ignored");
+                    TestCommandDiagnostics.Duplicate(id);
                     continue;
                 }
 
                 int argCount = parsed.Args != null ? parsed.Args.Count : 0;
-                ParsekLog.Info(Tag, $"recv id={id} cmd={parsed.Verb ?? "?"} args={argCount}");
+                TestCommandDiagnostics.Receipt(id, parsed.Verb, argCount);
                 queuedIds.Add(id);
                 pending.Enqueue(parsed);
                 parsedCount++;
@@ -541,7 +541,7 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            ParsekLog.Info(Tag, $"exec id={id} cmd={head.Verb} start");
+            TestCommandDiagnostics.ExecStart(id, head.Verb);
             ClearExecResult();
             InvokeExecutor(head);
             string verdict = execVerdict ?? "ERROR";
@@ -558,7 +558,7 @@ namespace Parsek.TestCommands
                 completionSeq = seq;
                 completionVerb = head.Verb;
                 completionStartedAt = WallClockSeconds();
-                ParsekLog.Info(Tag, $"exec id={id} verdict=PENDING (two-phase awaiting completion)");
+                TestCommandDiagnostics.ExecPending(id);
                 return;
             }
 
@@ -577,10 +577,11 @@ namespace Parsek.TestCommands
 
             string line = TestCommandResponse.FormatResponseLine(
                 id, verb, verdict, seq, CurrentUt(), payload, msg);
-            ParsekLog.Info(Tag, $"exec id={id} verdict={verdict}");
+            TestCommandDiagnostics.ExecVerdict(id, verdict);
 
             if (AppendResponse(line, id))
             {
+                TestCommandDiagnostics.ResponseAppended(id, verdict);
                 WriteDoneAndAdvance(id, seq, verdict);
             }
             else
@@ -650,8 +651,7 @@ namespace Parsek.TestCommands
                 double budget = DeferralBudget.BudgetSeconds(completionVerb);
                 if (DeferralBudget.ShouldTimeout(completionStartedAt, now, budget))
                 {
-                    ParsekLog.Warn(Tag,
-                        $"timeout id={completionId} cmd={completionVerb} deferred={(now - completionStartedAt).ToString("F1", CultureInfo.InvariantCulture)}s reason=awaiting-completion");
+                    TestCommandDiagnostics.Timeout(completionId, completionVerb, now - completionStartedAt, "awaiting-completion");
                     if (completionVerb == "LoadGame") loadInFlight = false;
                     string tid = completionId; long tseq = completionSeq; string tverb = completionVerb;
                     ClearTwoPhase();
@@ -710,7 +710,7 @@ namespace Parsek.TestCommands
         private void InterruptHead(ParsedCommand head)
         {
             string id = head.Id;
-            ParsekLog.Info(Tag, $"dispatch id={id} -> INTERRUPTED (journal=CLAIMED)");
+            TestCommandDiagnostics.DispatchInterrupted(id, JournalPhase.Claimed);
             long seq = NextSeq();
             string line = TestCommandResponse.FormatResponseLine(
                 id, head.Verb ?? string.Empty, "INTERRUPTED", seq, CurrentUt(), null, "interrupted-claimed");
@@ -741,20 +741,18 @@ namespace Parsek.TestCommands
             {
                 deferHeadId = head.Id;
                 deferStartedAtSeconds = now;
-                ParsekLog.Info(Tag, $"dispatch id={head.Id} -> DEFER reason={reason}");
+                TestCommandDiagnostics.DispatchDefer(head.Id, reason);
             }
             else
             {
-                ParsekLog.VerboseRateLimited(Tag, $"defer-{head.Id}",
-                    $"dispatch id={head.Id} -> DEFER reason={reason}", 5.0);
+                TestCommandDiagnostics.DispatchDeferRepeat(head.Id, reason);
             }
             lastDeferReason = reason;
 
             double budget = DeferralBudget.BudgetSeconds(head.Verb);
             if (DeferralBudget.ShouldTimeout(deferStartedAtSeconds, now, budget))
             {
-                ParsekLog.Warn(Tag,
-                    $"timeout id={head.Id} cmd={head.Verb} deferred={(now - deferStartedAtSeconds).ToString("F1", CultureInfo.InvariantCulture)}s reason={lastDeferReason}");
+                TestCommandDiagnostics.Timeout(head.Id, head.Verb, now - deferStartedAtSeconds, lastDeferReason);
                 WriteTerminalNoSideEffect(head, "TIMEOUT", lastDeferReason);
                 pending.Dequeue();
                 ResetDeferTracking();
