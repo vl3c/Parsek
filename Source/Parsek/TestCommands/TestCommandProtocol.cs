@@ -144,6 +144,11 @@ namespace Parsek.TestCommands
         internal static ParsedCommand ParseLine(string rawLine, int lineNumber)
         {
             string content = StripTrailingNewline(rawLine ?? string.Empty);
+            // N3: a UTF-8 BOM (U+FEFF) can lead the first line of a command file written by an
+            // editor / some tooling; strip it before tokenizing so the first command's id
+            // token is not prefixed with the BOM (which would otherwise fail the id check).
+            if (content.Length > 0 && content[0] == '\uFEFF')
+                content = content.Substring(1);
             var result = new ParsedCommand
             {
                 RawLine = content,

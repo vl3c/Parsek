@@ -126,6 +126,17 @@ namespace Parsek.Tests
             Assert.Equal("StopRecording", p.Verb);
         }
 
+        [Fact]
+        public void LeadingUtf8Bom_IsStripped_FirstCommandParses()
+        {
+            // N3: an editor / tooling can prepend a UTF-8 BOM (U+FEFF) to the file head; it
+            // must be stripped before tokenizing or the first command's id token fails.
+            var p = TestCommandParser.ParseLine("\uFEFFid=1 cmd=StopRecording", 1);
+            Assert.True(p.ParseOk);
+            Assert.Equal("1", p.Id);
+            Assert.Equal("StopRecording", p.Verb);
+        }
+
         // ----- F2: encoding-unsafe id / verb rejected at parse time -----
 
         [Fact]

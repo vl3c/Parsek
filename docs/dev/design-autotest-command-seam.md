@@ -366,8 +366,12 @@ recovery, above), and seed the in-memory processed-id set + command-file byte of
 
 1. If not armed, return. If `HighLogic.LoadedScene == LOADING`, `sceneTransitioning`, or
    the settle counter > 0, return (no safe point).
-2. If an in-game test batch is running (`InGameTestRunner.IsRunning` on the runner the
-   addon owns for `RunTests`), return - do not execute other commands mid-batch.
+2. If an in-game test batch is running, return - do not execute other commands mid-batch.
+   The gate is an OR of BOTH runners that can own a batch: the runner the addon owns for
+   `RunTests`, AND the interactive Ctrl+Shift+T runner (via
+   `TestRunnerShortcut.ActiveRunnerForGating`). Both share the campaign-isolation baseline
+   machinery, so a command overlapping either batch could corrupt the save under test; the
+   pure `DecideDispatch` re-checks this via `DispatchState.BatchRunning`.
 3. Read any whole new lines appended since the last byte offset. Parse each into the
    pending FIFO queue (skipping ids already terminal per the journal / processed set). The
    addon opens the command file for reading with `FileShare.ReadWrite` so the external
@@ -394,11 +398,11 @@ parsed, N deferred), with bounded per-command Info lines (command counts are sma
 | Verb | Scene/state precondition | Action | Success payload |
 |---|---|---|---|
 | `SetSetting` | game loaded (`ParsekSettings.Current != null`), any scene; else Defer | typed whitelist setter mutates `ParsekSettings.Current` | `name`, `value` echoed |
-| `StartRecording` | FLIGHT with a loaded, unpacked active vessel, not restoring/re-fly/merge-journal; else Defer | `ParsekFlight.StartRecording(...)` | `recordingId`, `already=true` if a recorder was live |
+| `StartRecording` | FLIGHT with a loaded, unpacked active vessel, not restoring/re-fly/merge-journal; else Defer | `ParsekFlight.StartRecording(...)`, then RE-SAMPLE `HasLiveRecorderForTagging()`; a refusal (vessel not ready / packed / guard blocked) is `ERROR msg=start-refused`, never a false OK (F4) | `recordingId`, `already=true` if a recorder was live |
 | `StopRecording` | FLIGHT; else Defer | `ParsekFlight.StopRecording()` (idempotent: OK with `idle=true` if no recorder) | `stopped` bool |
 | `CommitTree` | FLIGHT with `activeTree != null`; if no tree -> `ERROR msg=no-active-tree` (mirrors `CommitTreeFlight`'s guard) | `ParsekFlight.CommitTreeFlight()` | `committed=true` |
 | `DiscardTree` | FLIGHT; if no active tree -> OK `nothing=true` | stop recorder if live, then `ParsekFlight.AutoDiscardActiveTreeWithMessage(reason, screenMessage, ledgerRecalcReason)` (the wrong-context-caller entry point) with test-command-specific strings | `discarded` bool |
-| `RecordingState` | any scene (read-only) | snapshot recorder/tree state (reuses `ParsekLog.FormatRecState` inputs) | `recording`, `tree`, `points`, `scene` |
+| `RecordingState` | any scene (read-only) | snapshot recorder/tree state (reuses `ParsekLog.FormatRecState` inputs) | `recording`, `tree` (the `RecordingTree.Id` of the active tree, empty when none - adjudication B), `points`, `scene` |
 | `RunTests` | any scene the runner supports; else Defer | `InGameTestRunner.RunAll()` (no `category`) or `RunCategory(category)`; response deferred until `IsRunning` goes true->false and `ExportResultsFile` ran | `passed`, `failed`, `skipped`, `results=parsek-test-results.txt` |
 | `LoadGame` | any scene incl. MAINMENU (the BOOT CHANNEL); Reject if a recorder is live (`msg=recording-active`) or a load is already in flight (`msg=load-in-flight`) | long-running two-phase (like `RunTests`): journal `CLAIMED` -> initiate load (`HighLogic.SaveFolder = dir`; `GamePersistence.LoadGame(...)`; `FlightDriver.StartAndFocusVessel(...)` - the same Assembly-CSharp-only sequence as v0.5.4 `TestingTools.LoadSave`, no kRPC types); response deferred until the new scene settles with `HighLogic.CurrentGame != null`, then journal `EXECUTED` + terminal response; a null / incompatible game -> `ERROR msg=load-failed` | `scene`, `save` |
 | `MissionMark` | any scene | emit a stable `[Parsek][Info][TestCommands] MISSIONMARK label=<label> ut=<ut>` log line (H3-style correlation) | `label` echoed |
@@ -571,6 +575,37 @@ Exhaustive. Each: scenario -> expected behavior -> v1 or deferred.
     in-flight recording; the orchestrator must send `CommitTree` or `DiscardTree` first.
     A second `LoadGame` while one is already in flight is Rejected `msg=load-in-flight`.
     v1 (behavior documented, not a bug).
+
+## Deferred Items and Open Questions
+
+Tracked follow-ups deliberately NOT implemented in the M-A2 fix round (reviewer nits + a
+design deferral). None blocks the seam; each is recorded so it is not lost.
+
+- **Vessel-ready Defer for `StartRecording` (F4 follow-up).** The v1 handler contains a
+  refusal by RE-SAMPLING the recorder after `ParsekFlight.StartRecording` and returning
+  `ERROR msg=start-refused` (better than a false OK). The cleaner long-term fix is a new
+  `DispatchState` readiness bit (active vessel loaded + unpacked + not restoring/re-fly/
+  merge-journal) so the command DEFERS until FLIGHT is genuinely ready and only executes
+  when `StartRecording` will succeed, converting a transient refusal into a normal wait
+  rather than a terminal error. Deferred because it widens the dispatch state and wants its
+  own decision-matrix coverage; not done in this pass.
+- **N1: deferral-budget timing uses wall-clock.** `WallClockSeconds()` is
+  `DateTime.UtcNow`-based; an NTP / clock adjustment mid-run could distort a per-command
+  deferral budget. A monotonic source (`Stopwatch` / `Time.realtimeSinceStartup`) would be
+  more robust. Low impact on a dev PC; tracked.
+- **N2: `line#<n>` fallback id is per-process.** The `FallbackId(lineNumber)` correlation id
+  for an id-less malformed line resets its line counter each process, so the same
+  `line#<n>` can denote a different line across a restart. Only affects malformed, id-less
+  lines (which are REJECTED); tracked.
+- **N4: command-file byte offset is not persisted.** `commandByteOffset` is in-memory and
+  resets to 0 on restart, forcing one full command-file rescan on the first post-restart
+  poll (deduped by the processed-set, so correct, but O(file)). A persisted offset would
+  avoid the rescan on very long runs. Tracked.
+- **N5: startup multi-id recovery shares one retry slot.** The `headPendingResponse` slot
+  holds a single deferred ack; if several startup recovery acks fail their append in the
+  same session, only the last retries within that session (the rest are backstopped by
+  cross-restart re-recovery, since no `DONE` is written until the append lands). Acceptable
+  given the restart durability, but tracked.
 
 ## What Doesn't Change
 

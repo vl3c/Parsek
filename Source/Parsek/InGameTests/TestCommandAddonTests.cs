@@ -45,6 +45,18 @@ namespace Parsek.InGameTests
     /// <c>id=2 cmd=RecordingState</c>; assert id=1 verdict=OK with <c>scene=FLIGHT</c> and
     /// the echoed <c>save</c>, and id=2 verdict=OK reporting the loaded scene.</description></item>
     /// </list>
+    /// Operator notes:
+    /// <list type="bullet">
+    /// <item><description>N6: a boot save used by (c) MUST contain an ACTIVE VESSEL - LoadGame
+    /// resolves the save's <c>flightState.activeVesselIdx</c> and refuses (<c>load-failed</c>)
+    /// a save with no in-range active vessel, and <c>StartAndFocusVessel</c> needs one to land
+    /// in FLIGHT. A save parked at the Space Center with no active flight will not boot into
+    /// FLIGHT.</description></item>
+    /// <item><description>N7: ALWAYS send <c>CommitTree</c> or <c>DiscardTree</c> BEFORE a
+    /// <c>LoadGame</c> when a recorder may be live - LoadGame is Rejected
+    /// (<c>recording-active</c>) while a recorder is recording so it never silently discards an
+    /// in-flight recording. Sequence a clean commit/discard first (as in (b) before any (c)).</description></item>
+    /// </list>
     /// The addon's at-most-once journal (<c>parsek-test-commands.journal</c>) and lock
     /// (<c>parsek-test-commands.lock</c>) also live at the KSP root.</para>
     /// </summary>
