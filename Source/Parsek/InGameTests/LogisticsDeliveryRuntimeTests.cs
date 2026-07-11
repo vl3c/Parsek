@@ -295,6 +295,154 @@ namespace Parsek.InGameTests
             }
         }
 
+        // ==================================================================
+        // Loaded-path inventory stack store (loaded/unloaded parity fix)
+        // ==================================================================
+
+        [InGameTest(Category = "Logistics", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only - mutates a live ModuleInventoryPart slot under live KSP statics; excluded from ordinary Run All / Run category. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
+            Description = "LiveDeliveryWriters.WriteInventory with units>1 against the LOADED active vessel stores the payload via stock StoreCargoPartAtSlot AND raises the slot's stack to the planned unit count via UpdateStackAmountAtSlot; the actual-count reader reports the unit-accurate total. PENDING-OPERATOR precondition: the active vessel needs an inventory container holding at least one STACKABLE cargo part (e.g. an EVA Repair Kit) plus one empty slot")]
+        public IEnumerator Delivery_LoadedVessel_StacksInventoryQuantityIntoSlot()
+        {
+            // Post-restore unpack wait (see Delivery_LoadedVessel_AppliesResourceTransfer).
+            IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
+            if (FlightGlobals.ActiveVessel == null)
+                InGameAssert.Skip("FlightGlobals.ActiveVessel is null; need a live vessel to deliver onto");
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            if (!(activeVessel.loaded && !activeVessel.packed))
+                InGameAssert.Skip(
+                    $"Active vessel '{activeVessel.vesselName}' is not loaded+unpacked; this test exercises the loaded StoreCargoPartAtSlot + UpdateStackAmountAtSlot path");
+
+            // The production writer stores into the vessel's FIRST inventory
+            // module — target the same one so the assertion reads the slot the
+            // writer wrote.
+            ModuleInventoryPart module = LiveDeliveryWriters.FindFirstInventoryModule(activeVessel);
+            if (module == null)
+                InGameAssert.Skip(
+                    "PRECONDITION: active vessel has no ModuleInventoryPart. Fly a craft with a cargo " +
+                    "container (e.g. an SEQ-3 storage unit) to run this test");
+
+            // Payload: clone an existing STACKABLE stored cargo part from the
+            // vessel (same source pattern as the pickup runtime tests — the
+            // recorded payload shape is exactly StoredPart.Save's output).
+            if (!TryFindStackableStoredCargo(activeVessel, out ConfigNode payloadNode, out int stackCapacity))
+                InGameAssert.Skip(
+                    "PRECONDITION: no STACKABLE stored cargo part (stackCapacity > 1) on the active vessel. " +
+                    "Store a stackable cargo part (e.g. an EVA Repair Kit) in any inventory container to run this test");
+
+            int targetSlot = FirstEmptySlot(module);
+            if (targetSlot < 0)
+                InGameAssert.Skip(
+                    "PRECONDITION: the vessel's first inventory module has no empty slot. Free a slot to run this test");
+
+            int units = Math.Min(stackCapacity, 3);
+            InGameAssert.IsTrue(units > 1, "Stackable payload must allow units > 1 for a meaningful stack assertion");
+
+            var item = new InventoryPayloadItem
+            {
+                IdentityHash = VesselSpawner.ComputeInventoryPayloadIdentityHash(payloadNode),
+                PartName = payloadNode.GetValue("partName"),
+                VariantName = payloadNode.GetValue("variantName"),
+                Quantity = units,
+                SlotsTaken = 1,
+                StoredPartSnapshot = payloadNode,
+            };
+
+            bool stored = false;
+            try
+            {
+                var writers = new LiveDeliveryWriters(null, activeVessel, DeliveryPlan.Empty(), isLoaded: true);
+                writers.WriteInventory(item, targetSlot, units);
+                stored = module.storedParts != null && module.storedParts.ContainsKey(targetSlot);
+
+                InGameAssert.IsTrue(stored,
+                    $"WriteInventory(units={units.ToString(IC)}) should store the payload at slot {targetSlot.ToString(IC)}");
+                StoredPart storedPart = module.storedParts[targetSlot];
+                InGameAssert.IsNotNull(storedPart, "Stored slot must hold a StoredPart");
+                InGameAssert.AreEqual(units, storedPart.quantity,
+                    $"Loaded path must stack the planned unit count into the slot (Gap A: stock StoreCargoPartAtSlot alone stores quantity=1); got quantity={storedPart.quantity.ToString(IC)} expected {units.ToString(IC)}");
+                InGameAssert.AreEqual(units, writers.ReadInventoryActualCount(),
+                    $"Actual-count reader must be unit-accurate; got {writers.ReadInventoryActualCount().ToString(IC)} expected {units.ToString(IC)}");
+
+                ParsekLog.Info("TestRunner",
+                    $"Delivery_StacksInventory: PASS vessel={activeVessel.vesselName} " +
+                    $"part={item.PartName} slot={targetSlot.ToString(IC)} " +
+                    $"units={units.ToString(IC)} stackCapacity={stackCapacity.ToString(IC)}");
+            }
+            finally
+            {
+                // TEARDOWN: clear the delivered slot so the player's inventory
+                // is unchanged.
+                if (stored)
+                {
+                    try
+                    {
+                        bool cleared = module.ClearPartAtSlot(targetSlot);
+                        ParsekLog.Verbose("TestRunner",
+                            $"Delivery_StacksInventory cleanup: ClearPartAtSlot({targetSlot.ToString(IC)})={cleared}");
+                    }
+                    catch (Exception ex)
+                    {
+                        ParsekLog.Warn("TestRunner",
+                            $"Delivery_StacksInventory cleanup: ClearPartAtSlot threw {ex.GetType().Name}: {ex.Message}");
+                    }
+                }
+            }
+            yield break;
+        }
+
+        /// <summary>
+        /// Finds any STACKABLE (stackCapacity &gt; 1) stored cargo part across
+        /// the vessel's inventory modules and returns its canonical STOREDPART
+        /// payload (<see cref="StoredPart.Save"/> shape — exactly what the
+        /// recorder captures) plus the stack capacity.
+        /// </summary>
+        private static bool TryFindStackableStoredCargo(
+            Vessel vessel, out ConfigNode payloadNode, out int stackCapacity)
+        {
+            payloadNode = null;
+            stackCapacity = 0;
+            if (vessel == null || vessel.parts == null) return false;
+            for (int i = 0; i < vessel.parts.Count; i++)
+            {
+                Part p = vessel.parts[i];
+                if (p == null || p.Modules == null) continue;
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    if (!(p.Modules[m] is ModuleInventoryPart module) || module.storedParts == null)
+                        continue;
+                    for (int s = 0; s < module.InventorySlots; s++)
+                    {
+                        if (!module.storedParts.ContainsKey(s)) continue;
+                        StoredPart sp = module.storedParts[s];
+                        if (sp == null || sp.snapshot == null || sp.stackCapacity <= 1) continue;
+                        var node = new ConfigNode("STOREDPART");
+                        sp.Save(node);
+                        payloadNode = node;
+                        stackCapacity = sp.stackCapacity;
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /// <summary>First empty slot of <paramref name="module"/>, or -1 (mirrors the probe's walk).</summary>
+        private static int FirstEmptySlot(ModuleInventoryPart module)
+        {
+            for (int s = 0; s < module.InventorySlots; s++)
+            {
+                if (module.storedParts == null || !module.storedParts.ContainsKey(s))
+                    return s;
+            }
+            return -1;
+        }
+
         /// <summary>
         /// Finds the first <see cref="Part"/> on <paramref name="vessel"/> that
         /// carries a <c>LiquidFuel</c> resource entry. Mirrors the order the

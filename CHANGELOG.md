@@ -6,6 +6,11 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.4
 
+### Fixes
+
+- Supply-route inventory deliveries now deliver the full stacked quantity of a cargo item to a loaded destination instead of a single unit, and a manifest item is split across as many inventory slots as its stack size requires (one slot per unit for non-stackable items) so the delivered inventory is valid stock state on both the loaded and unloaded paths.
+- Supply-route inventory deliveries to an unloaded destination now respect the container's packed-volume and mass limits: an item that would not fit is skipped as not-fitting at planning time on both paths, instead of being written into an unloaded container that would refuse it when loaded.
+
 ## 0.10.3
 
 ### Features
