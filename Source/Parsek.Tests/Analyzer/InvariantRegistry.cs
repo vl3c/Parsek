@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Parsek.Tests.Analyzer.Rules;
 
@@ -36,6 +37,22 @@ namespace Parsek.Tests.Analyzer
 
     internal static class Analyzer
     {
+        /// <summary>
+        /// End-to-end entry point shared by all run modes (design "Run modes"):
+        /// load the save directory, evaluate the production rule set, and write both
+        /// report files into <paramref name="resultsDir"/>. Both parameters are
+        /// required so a caller can never scatter reports next to a user's save.
+        /// Returns the report so a caller (the harness / a test) can read the counts.
+        /// </summary>
+        internal static AnalysisReport Run(
+            string saveDir, string resultsDir, Func<string, CelestialBody> bodyResolver)
+        {
+            AnalyzerModel model = SaveDirectoryLoader.Load(saveDir, bodyResolver);
+            AnalysisReport report = Evaluate(model);
+            ReportWriter.Write(report, resultsDir);
+            return report;
+        }
+
         /// <summary>Evaluates the production rule set over the loaded model.</summary>
         internal static AnalysisReport Evaluate(AnalyzerModel model)
         {
