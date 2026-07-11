@@ -148,15 +148,16 @@ Delivery actuals are now unit-accurate: `LiveDeliveryWriters.ReadInventoryActual
 
 ## Backlog - prioritized "what to develop next" (compiled 2026-07-06, v0.10.3)
 
-Session-compiled prioritized development backlog (survey of git log / open PRs / roadmap / design docs / this file). Ordering doctrine: correctness-first, land-shipped-work-before-new, gameplay-value-per-effort. Two premises corrected during the survey: (1) `roadmap.md` §19.4 lags - logistics **M1-M4 are all SHIPPED** in 0.10.3 (only M5 inter-body + M6 legibility remain); (2) there is **no CI** on the repo (`get_status` = 0 checks), so "ready" PRs are review-gated only (suite run locally).
+Session-compiled prioritized development backlog (survey of git log / open PRs / roadmap / design docs / this file). Ordering doctrine: correctness-first, land-shipped-work-before-new, gameplay-value-per-effort. Two premises corrected during the survey: (1) `roadmap.md` §19.4 lags - logistics **M1-M4 are all SHIPPED** in 0.10.3 (M5 inter-body + M6 legibility were the last two, both since MERGED - see the Tier 1 CLEARED note below); (2) there is **no CI** on the repo (`get_status` = 0 checks), so "ready" PRs are review-gated only (suite run locally).
 
-### Tier 1 - NOW: clear the merge queue + protect the career
-- **#1242** (logistics Rec-1 rewind-redelivery, DRAFT) - the ONLY open correctness bug (HIGH: rewind past a route dispatch charges funds but never re-delivers cargo). Code-complete, headless-green; gated on one career+FLIGHT playtest. Land BEFORE #1238.
-- **#1237** (M-MIS-11 loop-unit API, ready) - keystone zero-behavior refactor; merging it auto-retargets #1238/#1239 to main. Merge first.
-- **#1239** (M-MIS-5 P1 dock-as-interval-boundary, ready) - merge right after #1237.
-- **#1238** (Logistics M5 inter-body, DRAFT merge-held) - last logistics "Reach" milestone; after #1237+#1242, run the re-aim + N=1 Kerbin->Duna window playtests, then merge.
-- **M6 legibility batch** #1234/#1233/#1235 (real UI wins) + #1232/#1236 (verify/memo) - all ready, base main; merge #1232/#1236 anytime, then #1234, then #1233/#1235 (share `RouteStore.cs`, rebase each).
-- **Close #1220/#1221** as superseded by #1242 (their docs ship inside it) once #1242 merges.
+### Tier 1 - CLEARED (2026-07-11): merge queue drained
+Every Tier 1 merge-queue item below LANDED on `main` (verified 2026-07-11 via `gh pr view`; `gh pr list --state open` returns 0 open PRs). Kept here for history:
+- **#1242** (logistics Rec-1 rewind-redelivery) - MERGED (gate playtest passed 2026-07-08). Was the one open correctness bug (rewind past a route dispatch charged funds but never re-delivered cargo).
+- **#1237** (M-MIS-11 loop-unit API) - MERGED. Keystone zero-behavior refactor.
+- **#1239** (M-MIS-5 P1 dock-as-interval-boundary) - MERGED.
+- **#1238** (Logistics M5 inter-body) - MERGED (gate passed in-game 2026-07-08). Last logistics "Reach" milestone.
+- **M6 legibility batch** #1232 / #1233 / #1234 / #1235 / #1236 - all MERGED.
+- **#1220 / #1221** - CLOSED as superseded by #1242 (their docs shipped inside it).
 
 ### Tier 2 - NEXT: highest value-per-effort new work
 - **Rec-3 reverse-on-discard** - RESOLVED (2026-07-06, option C): the observability slice SHIPPED (PR #1243, branch `claude/development-priorities-ftr2ye`, stacked on #1242) and both-persist is RATIFIED as correct; reverse writers are DECLINED, not built. The attribution blocker (ambient route rows carry no RecordingId, so a UT-window reverse would wrongly undo concurrent committed routes) plus the 0.10.2 preserve-live-earned-gameplay doctrine make keeping both funds + cargo the correct behavior. No further code work. See `docs/dev/plans/fix-logistics-rewind-determinism.md` Phase 4.
