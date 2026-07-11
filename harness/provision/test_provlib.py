@@ -76,6 +76,39 @@ class PhaseInstallEmptyStackTests(unittest.TestCase):
         self.assertFalse(any("NO stackComponents" in l for l in ctx.log_lines))
 
 
+class LiveUnimplementedTests(unittest.TestCase):
+    """Guards BLOCKER 3: a live run must abort at the first unimplemented heavy
+    phase (EC-LIVE) rather than half-provision; --dry-run is unaffected;
+    live --repair aborts up front."""
+
+    def _ctx(self, dry_run, repair=False):
+        import provision
+        return provision.ProvisionContext(
+            profile_name="x", pins={}, profile={}, umbrella_root=".",
+            dry_run=dry_run, repair=repair, parsek_dll_override=None)
+
+    def test_dry_run_phase_not_guarded(self):
+        import provision
+        ctx = self._ctx(dry_run=True)
+        self.assertFalse(provision._guard_live_unimplemented(ctx, "Build-TT"))
+        self.assertFalse(ctx.aborted)
+
+    def test_live_phase_aborts_ec_live(self):
+        import provision
+        ctx = self._ctx(dry_run=False)
+        self.assertTrue(provision._guard_live_unimplemented(ctx, "Build-TT"))
+        self.assertTrue(ctx.aborted)
+        self.assertIn("EC-LIVE", ctx.abort_reason)
+
+    def test_live_repair_aborts_in_run(self):
+        import provision
+        ctx = self._ctx(dry_run=False, repair=True)
+        code = provision.run(ctx)
+        self.assertEqual(code, 2)
+        self.assertTrue(ctx.aborted)
+        self.assertIn("EC-LIVE", ctx.abort_reason)
+
+
 class ResolvePinTests(unittest.TestCase):
     """Design: resolve_pin -- guards GT-1 retag/move. A moved tag (tag resolves
     to a commit != recorded) must be rejected."""

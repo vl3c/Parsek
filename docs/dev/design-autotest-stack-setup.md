@@ -11,6 +11,21 @@ KRPC.MechJeb pairing, the dev-install inventory) inline as the authority for
 the setup script. Where a fact could only be confirmed by downloading a
 release artifact at install time, it is marked OPEN with the exact command.
 
+## Implementation Status (v1)
+
+v1 ships the `--dry-run` PLANNER and the pure decision library
+(`harness/provision/provlib.py`, fully unit-tested). The heavy live provisioning
+phases (BUILD-TT, CLONE, INSTALL, and the SETTINGS/DEPLOY/MM-CACHE/MANIFEST
+writes that follow them) and `--repair` are NOT yet implemented: a non-dry-run
+invocation aborts loudly at the first unimplemented phase (`EC-LIVE`) rather than
+half-provisioning an instance or writing a manifest that claims a completeness
+the run cannot back. The pure decisions each live phase will make (pin
+resolution, junction classification, settings-delta application, disk/path
+guards, dev-install aliasing, DLL-identity grep, lock arbitration) are already
+implemented and tested so live execution is assembly of vetted pieces. Live
+execution lands with the coordinated smoke-run task (see "Test Plan" and
+"Deferred to live execution").
+
 ---
 
 ## Ground Truth (verified 2026-07-11)

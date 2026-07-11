@@ -20,6 +20,15 @@ already exists, but performs NO network access, downloads, builds, clones,
 junction creation, or writes outside harness/provision/. All pure decisions
 live in provlib.py so they are unit-tested without side effects.
 
+Status (v1): this module is the dry-run PLANNER plus the pure decision library
+(provlib.py). Live execution of the heavy provisioning phases (BUILD-TT, CLONE,
+INSTALL -- and by extension the SETTINGS/DEPLOY/MM-CACHE/MANIFEST writes that
+follow them) is NOT yet implemented: a non-dry-run invocation aborts loudly at
+the first unimplemented phase rather than half-provisioning an instance or
+writing a manifest that claims a completeness the run cannot back. --repair is
+likewise unimplemented and aborts. Live execution lands with the coordinated
+smoke-run task (design doc, "Test Plan" / "Deferred to live execution").
+
 stdlib only; ASCII only.
 """
 
@@ -109,6 +118,26 @@ def abort(ctx: ProvisionContext, step: str, ec: str, detail: str) -> None:
     ctx.aborted = True
     ctx.abort_reason = "%s %s" % (ec, detail)
     log(ctx, "Error", step, "%s %s" % (ec, detail))
+
+
+LIVE_UNIMPLEMENTED_MSG = (
+    "live provisioning not yet implemented for CLONE/BUILD-TT/INSTALL: "
+    "run with --dry-run; live support tracked in the design doc"
+)
+
+
+def _guard_live_unimplemented(ctx: ProvisionContext, step: str) -> bool:
+    """Abort a LIVE run at an unimplemented heavy provisioning phase.
+
+    Returns True (and marks the run aborted) on a live run so the caller returns
+    immediately; returns False under --dry-run so the planner runs unchanged.
+    BUILD-TT is the first of these phases in execution order, so a live run
+    aborts here before any of the write-bearing phases (SETTINGS/DEPLOY/
+    MM-CACHE/MANIFEST) can half-provision the instance."""
+    if ctx.dry_run:
+        return False
+    abort(ctx, step, "EC-LIVE", LIVE_UNIMPLEMENTED_MSG)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +280,16 @@ def phase_download(ctx: ProvisionContext) -> None:
                     "%s sha256 is OPEN -- a live run would download, print the hash, and ABORT (EC-13). "
                     "url=%s" % (name, url))
                 continue
+            # If the URL itself is still OPEN (e.g. mechjeb2 has no download URL
+            # yet), we cannot fetch anything to compute a hash. Fire EC-13
+            # directly instead of calling _download("OPEN") and aborting with a
+            # bogus EC-6 download-failed error.
+            if provlib.is_open_pin(url):
+                log(ctx, "Error", "Download",
+                    "%s downloadUrl is OPEN (EC-13): record both the URL and its sha256 "
+                    "in pins.toml and re-run." % name)
+                abort(ctx, "Download", "EC-13", "%s url+sha256 OPEN" % comp)
+                return
             # Live: download, compute, print, ABORT (never trust unverified bytes).
             data = _download(ctx, url)
             if data is None:
@@ -286,6 +325,8 @@ def phase_download(ctx: ProvisionContext) -> None:
 
 def phase_build_tt(ctx: ProvisionContext) -> None:
     """Build the 2-file TestingTools shim from the pinned kRPC ref (live only)."""
+    if _guard_live_unimplemented(ctx, "Build-TT"):
+        return
     tt = ctx.pins.get("testingtools", {})
     full = list(tt.get("fullSourceSetAtTag", provlib.TESTINGTOOLS_SHIM_SOURCES
                         + provlib.TESTINGTOOLS_DROPPED_SOURCES))
@@ -337,6 +378,8 @@ def phase_clone(ctx: ProvisionContext):
     dry-run) it is ``pending-hash`` for present mods and ``absent-source`` for an
     absent optional mod (EC-12).
     """
+    if _guard_live_unimplemented(ctx, "Clone"):
+        return {}, {}
     junctions: Dict[str, str] = {}
     dev_status: Dict[str, str] = {}
     for tree in provlib.STOCK_JUNCTION_TREES:
@@ -356,7 +399,10 @@ def phase_clone(ctx: ProvisionContext):
     for name in dev:
         log(ctx, "Info", "Clone", "copy GameData/%s (%s)"
             % (name, provlib.classify_gamedata_entry(name, dev)))
-        dev_status[name] = "pending-hash"
+        # "planned-copy": this is a dry-run plan preview. The real content
+        # tree-hash is computed only by the (unimplemented) live CLONE; do not
+        # record a forward-looking "pending-hash" the run cannot fill.
+        dev_status[name] = "planned-copy"
 
     # EC-12: optional mods (e.g. PersistentRotation) may be absent from the dev
     # GameData. required=false -> record absent-source + WARN; required=true and
@@ -368,7 +414,7 @@ def phase_clone(ctx: ProvisionContext):
         present = os.path.isdir(src)
         if present:
             log(ctx, "Info", "Clone", "optional mod %s present -> copy" % oname)
-            dev_status[oname] = "pending-hash"
+            dev_status[oname] = "planned-copy"
         elif required:
             abort(ctx, "Clone", "EC-12", "required mod %s absent from dev GameData" % oname)
             return junctions, dev_status
@@ -492,6 +538,8 @@ def phase_deploy(ctx: ProvisionContext) -> Dict[str, object]:
 
 
 def phase_install(ctx: ProvisionContext) -> None:
+    if _guard_live_unimplemented(ctx, "Install"):
+        return
     stack = ctx.profile.get("stackComponents", []) or []
     if not stack:
         # An empty stack list is almost always a profile-TOML bug (a
@@ -542,11 +590,13 @@ def phase_manifest(ctx: ProvisionContext, resolved: Dict[str, str],
             "krpc": {"kind": "release-zip", "tag": krpc.get("tag"),
                      "commit": resolved.get("krpc", krpc.get("commit")),
                      "sha256": krpc.get("releaseZipSha256")},
+            # NOTE: autoLoaderAbsent is deliberately NOT recorded here. It is a
+            # claim only the (unimplemented) BUILD-TT reflection smoke over the
+            # ACTUAL built assembly can back (S-4); a planner must not assert it.
             "testingtools": {"kind": "built-shim", "krpcRef": tt.get("sourceRepoRef"),
                              "sourceFiles": list(tt.get("sourceFiles", [])),
                              "capabilities": list(tt.get("capabilities", [])),
                              "bootChannel": tt.get("bootChannel"),
-                             "autoLoaderAbsent": True,
                              "missing": list(tt.get("missingVsMaster", []))},
             "mechjeb2": {"kind": "release", "buildNumber": mj.get("buildNumber"),
                          "sha256": mj.get("sha256")},
@@ -722,6 +772,15 @@ def print_action_plan(ctx: ProvisionContext) -> None:
 def run(ctx: ProvisionContext) -> int:
     if ctx.dry_run:
         print_action_plan(ctx)
+
+    # --repair converges drifted components in a live instance; that path is part
+    # of the unimplemented live execution, so a live --repair aborts up front
+    # rather than implying a convergence it cannot perform. (--dry-run --repair
+    # still prints the plan above.)
+    if ctx.repair and not ctx.dry_run:
+        abort(ctx, "Preflight", "EC-LIVE",
+              "--repair is part of the unimplemented live execution: " + LIVE_UNIMPLEMENTED_MSG)
+        return _finish(ctx, 2)
 
     phase_preflight(ctx)
     if ctx.aborted:
