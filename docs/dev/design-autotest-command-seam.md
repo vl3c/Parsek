@@ -606,6 +606,23 @@ design deferral). None blocks the seam; each is recorded so it is not lost.
   same session, only the last retries within that session (the rest are backstopped by
   cross-restart re-recovery, since no `DONE` is written until the append lands). Acceptable
   given the restart durability, but tracked.
+- **R1: LoadGame completion predicate is minimal.** Completion checks only
+  `HighLogic.CurrentGame != null` after the transition drains; safe today because
+  `HighLogic.LoadScene` raises the transition flag synchronously inside
+  `StartAndFocusVessel`. Requiring scene == FLIGHT or a seen-transition-since-initiation
+  bit would remove the brittleness. A post-initiation failure that dumps back to the menu
+  currently surfaces as TIMEOUT rather than load-failed.
+- **R2: lock Unknown-liveness tie-break effectively always reclaims.** When the pid probe
+  returns Unknown (e.g. access denied on a live foreign process), `DecideLockOwnership`
+  compares the existing lock's t against now, which an existing lock always loses, so the
+  channel can be stolen from a live-but-unprobeable instance. Acceptable on a single-user
+  dev box; an age threshold would harden it.
+- **R3: scenarioBudgetSeconds is never wired.** `DeferralBudget.BudgetSeconds` accepts a
+  scenario-spec budget parameter that no caller supplies yet; the design's
+  "budget from the scenario spec" is deferred to the M-A5 harness integration.
+- **R4: no strict-FIFO unit test.** The queue/timeout mechanics live in the MonoBehaviour;
+  the dispatch-decision half is pure-tested but head-only ordering itself is not. A future
+  pure pump-step extraction would make it unit-testable.
 
 ## What Doesn't Change
 
