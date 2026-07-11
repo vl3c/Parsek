@@ -527,6 +527,13 @@ Each: scenario -> expected behavior -> v1 or deferred.
     `ForceRevertCampaignDiskToBaseline`), H3 emits BATCH_COMPLETE with whatever
     counts were reached, and H2 quits instead of bouncing. The orchestrator sees a
     finished-with-failures batch and a clean process exit. -> v1.
+    NOTE (v1 accepted limitation): this bounce-suppression holds only for the
+    SINGLE-category and `all` selectors, whose batch IS the exit-armed autorun batch.
+    In a MULTI-category run the per-token batches are deliberately non-exit-armed (only
+    the driver's final aggregate exit quits KSP), so an NRE-storm token still runs the
+    normal Space Center bounce recovery mid-run before the driver continues to the next
+    token; the aggregate quit follows afterward. This is campaign-safe (the token's
+    teardown already reverted the disk) and accepted as-is for v1 rather than fixed.
 
 12. Exit fires but the quit call itself throws or the process lingers. -> H2
     wraps the quit in try/catch, logs an ERROR on failure, and does nothing
@@ -597,6 +604,15 @@ Each: scenario -> expected behavior -> v1 or deferred.
 - ERS/ELS routing and the grep gate: unchanged. H5 reads the raw committed list
   from an already-allowlisted directory; no allowlist edit, no new exemption.
 
+Deferred (accepted, not scheduled for M-A3 v1):
+- Multi-category NRE-storm bounce suppression (NIT-4): an exit-armed multi-category
+  run does not suppress the mid-run Space Center bounce after a storming token (see
+  edge case 11). Campaign-safe; deferred.
+- CitedContract gate coverage (NIT-7): the CitedContract scan currently reads only
+  `Parsek.dll`; contract citations that live in other assemblies (or the Tests
+  assembly) are not scanned. Widening the scan target is deferred; the current scope
+  covers the production hooks this module adds.
+
 ## Backward Compatibility
 
 No serialized data, so there is nothing to migrate. Saves written by a build
@@ -625,8 +641,9 @@ H1 (arm/fire):
   armed, waiting for settle: scene=<s> game=<b> save=<b> flightReady=<b>
   vessel=<b> packed=<b> settleFrames=<n>/<N> reconcilePending=<b>" - so a
   never-firing autorun shows exactly which condition is stuck.
-- Fire: `Info` "autorun FIRING: selector=<sel> scene=<s> eligibleCount=<n>" at the
-  moment `RunAll`/`RunCategory` is invoked.
+- Fire: `Info` "autorun FIRING: selector=<sel> scene=<s> discoveredCount=<n>" at the
+  moment `RunAll`/`RunCategory` is invoked (`discoveredCount` = tests discovered for
+  the selector, before scene-eligibility filtering).
 - Not-firing decisions: `Verbose` one-liners for each blocked reason: batch
   already running, reconcile pending, already-consumed latch, re-arm suppressed.
 - Malformed/empty selector: `Warn` "autorun selector parsed to zero categories;
