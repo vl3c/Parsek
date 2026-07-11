@@ -114,13 +114,7 @@ namespace Parsek.InGameTests
                 return;
             }
 
-            if (runner == null)
-            {
-                runner = new InGameTestRunner(this);
-                foreach (var t in runner.Tests)
-                    expandedCategories.Add(t.Category);
-                RebuildGroups();
-            }
+            EnsureRunner();
 
             if (windowRect.width < 1f)
                 windowRect = new Rect(20, 60, DefaultWindowWidth, DefaultWindowHeight);
@@ -293,6 +287,24 @@ namespace Parsek.InGameTests
 
             Object.Destroy(background);
         }
+        /// <summary>
+        /// [M-A3 correction G2] The single lazy runner factory, extracted from the
+        /// former OnGUI-inline construction so the H1 autorun fire path
+        /// (<see cref="Update"/>) and the interactive window-open path share ONE runner
+        /// lifecycle. Idempotent: returns immediately once the runner exists, so calling
+        /// it every settled frame is cheap. Without this, autorun (no window ever opened)
+        /// would either fire against a null runner or construct a second, isolation-blind
+        /// runner instance.
+        /// </summary>
+        private void EnsureRunner()
+        {
+            if (runner != null) return;
+            runner = new InGameTestRunner(this);
+            foreach (var t in runner.Tests)
+                expandedCategories.Add(t.Category);
+            RebuildGroups();
+        }
+
         private void DrawWindow(int windowID)
         {
             if (runner == null) { GUI.DragWindow(); return; }

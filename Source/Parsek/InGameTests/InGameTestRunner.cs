@@ -252,6 +252,19 @@ namespace Parsek.InGameTests
         // still emits a non-stale token.
         private string currentBatchSelector = "all";
 
+        // [M-A3 P4.1] Autorun handoff (design "wasAutorunBatch handoff mechanism").
+        // H1 calls MarkNextBatchAutorun IMMEDIATELY before RunAll / RunCategory; RunBatch
+        // latches the two pending flags into the per-batch wasAutorunBatch /
+        // autorunExitArmedThisBatch at batch start and clears the pending flags, so the
+        // mark applies to exactly the next batch and never leaks to a later
+        // human-initiated one (edge 13). The per-batch pair is read in the batch-end
+        // region by H2 (P5.1). A human clicking Run All never calls MarkNextBatchAutorun,
+        // so its batch latches wasAutorunBatch=false and H2 never quits KSP under them.
+        private bool pendingAutorunBatch;
+        private bool pendingAutorunExit;
+        private bool wasAutorunBatch;
+        private bool autorunExitArmedThisBatch;
+
         // Results summary
         public int Passed { get; private set; }
         public int Failed { get; private set; }
@@ -323,6 +336,23 @@ namespace Parsek.InGameTests
 
             allTests = OrderForBatchExecution(allTests);
             ParsekLog.Info(Tag, $"Discovered {allTests.Count} in-game tests");
+        }
+
+        /// <summary>
+        /// [M-A3 hooks H1/H2] Marks the NEXT batch as an autorun batch (design
+        /// "wasAutorunBatch handoff mechanism"). Called by TestRunnerShortcut's H1 fire
+        /// path immediately before RunAll / RunCategory. <paramref name="exitAfterBatch"/>
+        /// carries the parsed PARSEK_AUTORUN_EXIT arming so the batch-end H2 decision can
+        /// quit without the runner re-reading the environment. The mark is latched into
+        /// exactly the next batch at RunBatch start and cleared there, so a human clicking
+        /// Run All (which never calls this) latches wasAutorunBatch=false and never quits
+        /// KSP (edge 13). Inert when never called.
+        /// </summary>
+        internal void MarkNextBatchAutorun(bool exitAfterBatch)
+        {
+            pendingAutorunBatch = true;
+            pendingAutorunExit = exitAfterBatch;
+            ParsekLog.Verbose(Tag, $"next batch marked autorun (exitAfterBatch={exitAfterBatch})");
         }
 
         public void RunAll()
@@ -1716,6 +1746,13 @@ namespace Parsek.InGameTests
         private IEnumerator RunBatch(List<InGameTestInfo> tests)
         {
             isRunning = true;
+            // [M-A3 P4.1] Latch the pending autorun mark into THIS batch and clear the
+            // pending flag so it applies to exactly this batch, never a later
+            // human-initiated one (edge 13). Read in the batch-end region by H2 (P5.1).
+            wasAutorunBatch = pendingAutorunBatch;
+            autorunExitArmedThisBatch = pendingAutorunExit;
+            pendingAutorunBatch = false;
+            pendingAutorunExit = false;
             BeginBatchExceptionMonitor();
             spaceCenterBounceAttempted = false; // once-per-batch recovery guard
             ParsekLog.Info(Tag, $"Starting test run: {tests.Count} tests");
