@@ -197,5 +197,31 @@ namespace Parsek.InGameTests
                 return false;
             return true;
         }
+
+        /// <summary>
+        /// The single-fire gate (design "H1 - Single-fire per scene-entry", edge
+        /// cases 5, 8; correction G1). Returns true only when H1 may start a batch:
+        /// no runner batch is already in flight, no M-A2 command-seam batch is running
+        /// (G1: without this a settle-fire and a seam RunTests could launch two
+        /// concurrent batches and corrupt the campaign), the process latch has not
+        /// already consumed this selector, and H1 has not already fired for this
+        /// scene entry.
+        ///
+        /// The two "runner busy" inputs cover edge 5 (a human clicked Run All);
+        /// <paramref name="consumedForProcess"/> + <paramref name="firedThisScene"/>
+        /// together give edge 8 (the runner's FLIGHT->FLIGHT isolation reload
+        /// re-arms per scene but never double-fires).
+        /// </summary>
+        internal static bool AutorunFireGate(
+            bool isRunning,
+            bool commandRunnerRunning,
+            bool consumedForProcess,
+            bool firedThisScene)
+        {
+            return !isRunning
+                && !commandRunnerRunning
+                && !consumedForProcess
+                && !firedThisScene;
+        }
     }
 }

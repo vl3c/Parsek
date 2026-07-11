@@ -247,5 +247,57 @@ namespace Parsek.Tests
                 flightReady: true, vesselNonNull: true, vesselPacked: false,
                 settleFrames: 30, settleTarget: 30, reconcilePending: true));
         }
+
+        // --- AutorunFireGate (design edge cases 5, 8; correction G1) ---
+
+        // The only all-clear combination fires; every blocker below flips it false.
+        [Fact]
+        public void FireGate_AllClear_Fires()
+        {
+            Assert.True(AutorunHooks.AutorunFireGate(
+                isRunning: false, commandRunnerRunning: false,
+                consumedForProcess: false, firedThisScene: false));
+        }
+
+        // Guards edge 5: a runner batch already in flight (human clicked Run All)
+        // blocks the fire; H1 stays armed and re-checks next frame.
+        [Fact]
+        public void FireGate_RunnerRunning_Blocks()
+        {
+            Assert.False(AutorunHooks.AutorunFireGate(
+                isRunning: true, commandRunnerRunning: false,
+                consumedForProcess: false, firedThisScene: false));
+        }
+
+        // Guards correction G1: an M-A2 command-seam batch running blocks the fire,
+        // so a settle-fire cannot launch a second concurrent batch and corrupt the
+        // campaign. Fails if H1 ignores the seam runner.
+        [Fact]
+        public void FireGate_CommandRunnerRunning_Blocks()
+        {
+            Assert.False(AutorunHooks.AutorunFireGate(
+                isRunning: false, commandRunnerRunning: true,
+                consumedForProcess: false, firedThisScene: false));
+        }
+
+        // Guards edge 8: once the process latch has consumed the selector, a per-scene
+        // re-arm (FLIGHT->FLIGHT isolation reload) does not restart it.
+        [Fact]
+        public void FireGate_ConsumedForProcess_Blocks()
+        {
+            Assert.False(AutorunHooks.AutorunFireGate(
+                isRunning: false, commandRunnerRunning: false,
+                consumedForProcess: true, firedThisScene: false));
+        }
+
+        // Guards single-fire-per-scene: having fired this scene entry blocks a second
+        // fire until the next scene re-arm.
+        [Fact]
+        public void FireGate_FiredThisScene_Blocks()
+        {
+            Assert.False(AutorunHooks.AutorunFireGate(
+                isRunning: false, commandRunnerRunning: false,
+                consumedForProcess: false, firedThisScene: true));
+        }
     }
 }
