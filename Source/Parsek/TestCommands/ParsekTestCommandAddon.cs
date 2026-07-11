@@ -6,6 +6,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using Parsek.InGameTests;
+using Parsek.InGameTests.Helpers;
 using UnityEngine;
 
 namespace Parsek.TestCommands
@@ -635,7 +636,7 @@ namespace Parsek.TestCommands
                 if (HighLogic.CurrentGame != null)
                 {
                     string sceneName = HighLogic.LoadedScene.ToString();
-                    payload = Payload(Kv("scene", sceneName), Kv("save", loadGameSave ?? string.Empty));
+                    payload = TestCommandLoadGame.BuildCompletePayload(sceneName, loadGameSave);
                     verdict = "OK";
                     done = true;
                     loadInFlight = false;
@@ -815,7 +816,7 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.DiscardTree(ParsedCommand cmd) => DiscardTreeImpl(cmd);
         void ITestCommandExecutor.RecordingState(ParsedCommand cmd) => RecordingStateImpl(cmd);
         void ITestCommandExecutor.RunTests(ParsedCommand cmd) => RunTestsImpl(cmd);
-        void ITestCommandExecutor.LoadGame(ParsedCommand cmd) => StubNotImplemented();
+        void ITestCommandExecutor.LoadGame(ParsedCommand cmd) => LoadGameImpl(cmd);
         void ITestCommandExecutor.MissionMark(ParsedCommand cmd) => MissionMarkImpl(cmd);
         void ITestCommandExecutor.FlushAndQuit(ParsedCommand cmd) => StubNotImplemented();
 
@@ -990,6 +991,59 @@ namespace Parsek.TestCommands
 
             ParsekLog.Info(Tag, $"stoprecording stopped={Bool(wasLive)} idle={Bool(!wasLive)}");
             SetExecResult("OK", TestCommandRecordingVerbs.BuildStopPayload(wasLive), null);
+        }
+
+        // ----- LoadGame (P5.7, two-phase boot channel, C2) -----
+        // The boot channel: realises the .sfs into a KSP Game and focuses its active
+        // vessel via the same Assembly-CSharp-only sequence QuickloadResumeHelpers uses,
+        // INCLUDING FlightCameraReloadPin.Arm BEFORE StartAndFocusVessel (stock bug #4803
+        // guard). Dispatch already rejected recording-active / load-in-flight. A null /
+        // incompatible game or an out-of-range active-vessel index is a single-phase
+        // ERROR load-failed; a focusable game enters two-phase (PENDING), completing when
+        // the new scene settles with HighLogic.CurrentGame != null. save=<folder> maps to
+        // HighLogic.SaveFolder + the saveName param; name=<slot/file> maps to slotName.
+        private void LoadGameImpl(ParsedCommand cmd)
+        {
+            string save = ArgOrNull(cmd, "save");
+            string name = ArgOrNull(cmd, "name");
+            ParsekLog.Info(Tag,
+                $"loadgame start save={save ?? string.Empty} name={name ?? string.Empty} scene={HighLogic.LoadedScene}");
+
+            Game game;
+            try
+            {
+                if (!string.IsNullOrEmpty(save))
+                    HighLogic.SaveFolder = save;
+                game = GamePersistence.LoadGame(name, save, true, false);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(Tag, $"loadgame failed save={save ?? string.Empty}: {ex.Message}");
+                SetExecResult("ERROR", null, "load-failed");
+                return;
+            }
+
+            bool focusable = TestCommandLoadGame.IsLoadedGameFocusable(
+                game != null,
+                game != null && game.flightState != null,
+                game != null && game.flightState != null && game.flightState.protoVessels != null,
+                game != null && game.flightState != null ? game.flightState.activeVesselIdx : -1,
+                game != null && game.flightState != null && game.flightState.protoVessels != null
+                    ? game.flightState.protoVessels.Count : 0);
+
+            if (!focusable)
+            {
+                ParsekLog.Error(Tag, $"loadgame failed save={save ?? string.Empty}: game null/incompatible");
+                SetExecResult("ERROR", null, "load-failed");
+                return;
+            }
+
+            int idx = game.flightState.activeVesselIdx;
+            FlightCameraReloadPin.Arm($"TestCommandLoadGame:{save}/{name}");
+            FlightDriver.StartAndFocusVessel(game, idx);
+            loadInFlight = true;
+            loadGameSave = save;
+            SetExecResult(PendingVerdict, null, null);
         }
 
         // ----- RunTests (P5.6, two-phase) -----
