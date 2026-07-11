@@ -183,5 +183,18 @@ namespace Parsek.Tests.Analyzer
 
         /// <summary>Injected body resolver; TestBodyRegistry in xUnit.</summary>
         public Func<string, CelestialBody> BodyResolver { get; set; }
+
+        /// <summary>
+        /// The analyzed save directory, set by <c>SaveDirectoryLoader.Load</c>; null
+        /// for a purely in-memory model (the H5 in-game walker and the core-purity
+        /// test). The two file-scoped rules that must reach sidecars the loader does
+        /// not pre-materialize into the model -- INV7b (.pann annotation staleness,
+        /// probed against the paired .prec) and INV9 (RewindPoint quicksave
+        /// existence) -- read it and no-op when it is null, so the pure invariant
+        /// core stays reusable. It is the ONLY path-bearing field on the model; the
+        /// design's "no path on the model" ideal yields here to the plan's explicit
+        /// requirement that INV7b/INV9 probe files scoped to a save.
+        /// </summary>
+        public string SaveDirectory { get; set; }
     }
 }

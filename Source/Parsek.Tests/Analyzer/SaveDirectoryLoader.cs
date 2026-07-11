@@ -20,6 +20,9 @@ namespace Parsek.Tests.Analyzer
             {
                 SaveName = ResolveSaveName(saveDir),
                 BodyResolver = bodyResolver,
+                // File-scoped rules (INV7b / INV9) probe sidecars the loader does not
+                // pre-materialize; they read this and no-op when it is null.
+                SaveDirectory = saveDir,
             };
 
             var recordings = new List<Recording>();
