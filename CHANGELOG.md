@@ -11,6 +11,10 @@ All notable changes to Parsek are documented here.
 - Supply routes no longer lose cargo when the destination is full: a route now waits ("Held: no room for X" / "Held: no slot for 'part'") until the destination has room for the full delivery, instead of charging the origin and silently dropping whatever did not fit. If room disappears mid-cycle, the route's detail panel now reports exactly what was lost.
 - A supply route held on a missing stored part now names the part instead of showing an internal code, and says when the part is actually there but its charge, fuel, or contents no longer match the recorded cargo.
 
+### Internals & Tests
+
+- Career recalculation is slightly cheaper: the walk now skips a redundant re-sort of the action list when nothing changed it. Recalculated career values are unchanged.
+
 ## 0.10.3
 
 ### Features
