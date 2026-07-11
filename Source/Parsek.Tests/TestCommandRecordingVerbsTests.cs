@@ -57,5 +57,28 @@ namespace Parsek.Tests
             Assert.Equal("false", Val(p, "stopped"));
             Assert.Equal("true", Val(p, "idle"));
         }
+
+        [Fact]
+        public void Commit_PayloadIsCommittedTrue()
+        {
+            var p = TestCommandRecordingVerbs.BuildCommitPayload();
+            Assert.Equal("true", Val(p, "committed"));
+        }
+
+        [Fact]
+        public void Discard_WithTree_DiscardedTrue()
+        {
+            var p = TestCommandRecordingVerbs.BuildDiscardPayload(hadTree: true);
+            Assert.Equal("true", Val(p, "discarded"));
+            Assert.False(Has(p, "nothing"));
+        }
+
+        [Fact]
+        public void Discard_NoTree_NothingTrue()
+        {
+            var p = TestCommandRecordingVerbs.BuildDiscardPayload(hadTree: false);
+            Assert.Equal("true", Val(p, "nothing"));
+            Assert.False(Has(p, "discarded"));
+        }
     }
 }

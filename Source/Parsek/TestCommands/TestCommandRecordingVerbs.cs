@@ -43,5 +43,24 @@ namespace Parsek.TestCommands
                 p.Add(new KeyValuePair<string, string>("idle", "true"));
             return p;
         }
+
+        /// <summary>CommitTree success payload (only reached with an active tree).</summary>
+        internal static List<KeyValuePair<string, string>> BuildCommitPayload()
+            => new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("committed", "true"),
+            };
+
+        /// <summary>
+        /// DiscardTree payload: <c>discarded=true</c> when an active tree was torn down;
+        /// <c>nothing=true</c> when there was no active tree (idempotent no-op).
+        /// </summary>
+        internal static List<KeyValuePair<string, string>> BuildDiscardPayload(bool hadTree)
+            => new List<KeyValuePair<string, string>>
+            {
+                hadTree
+                    ? new KeyValuePair<string, string>("discarded", "true")
+                    : new KeyValuePair<string, string>("nothing", "true"),
+            };
     }
 }

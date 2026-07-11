@@ -666,8 +666,8 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.SetSetting(ParsedCommand cmd) => SetSettingImpl(cmd);
         void ITestCommandExecutor.StartRecording(ParsedCommand cmd) => StartRecordingImpl(cmd);
         void ITestCommandExecutor.StopRecording(ParsedCommand cmd) => StopRecordingImpl(cmd);
-        void ITestCommandExecutor.CommitTree(ParsedCommand cmd) => StubNotImplemented();
-        void ITestCommandExecutor.DiscardTree(ParsedCommand cmd) => StubNotImplemented();
+        void ITestCommandExecutor.CommitTree(ParsedCommand cmd) => CommitTreeImpl(cmd);
+        void ITestCommandExecutor.DiscardTree(ParsedCommand cmd) => DiscardTreeImpl(cmd);
         void ITestCommandExecutor.RecordingState(ParsedCommand cmd) => RecordingStateImpl(cmd);
         void ITestCommandExecutor.RunTests(ParsedCommand cmd) => StubNotImplemented();
         void ITestCommandExecutor.LoadGame(ParsedCommand cmd) => StubNotImplemented();
@@ -845,6 +845,48 @@ namespace Parsek.TestCommands
 
             ParsekLog.Info(Tag, $"stoprecording stopped={Bool(wasLive)} idle={Bool(!wasLive)}");
             SetExecResult("OK", TestCommandRecordingVerbs.BuildStopPayload(wasLive), null);
+        }
+
+        // ----- CommitTree / DiscardTree (P5.5, C1) -----
+        // CommitTree pre-checks HasActiveTree: with no tree it is ERROR msg=no-active-tree
+        // (the production CommitTreeFlight guard is only a screen toast, so we mirror it
+        // here as a real terminal verdict). DiscardTree with no tree is an idempotent
+        // OK nothing=true; otherwise stop a live recorder then discard via the
+        // wrong-context entry point with test-command-specific strings.
+        private void CommitTreeImpl(ParsedCommand cmd)
+        {
+            ParsekFlight flight = ParsekFlight.Instance;
+            if (flight == null || !flight.HasActiveTree)
+            {
+                ParsekLog.Warn(Tag, "committree no-active-tree");
+                SetExecResult("ERROR", null, "no-active-tree");
+                return;
+            }
+
+            flight.CommitTreeFlight();
+            ParsekLog.Info(Tag, "committree committed=true");
+            SetExecResult("OK", TestCommandRecordingVerbs.BuildCommitPayload(), null);
+        }
+
+        private void DiscardTreeImpl(ParsedCommand cmd)
+        {
+            ParsekFlight flight = ParsekFlight.Instance;
+            if (flight == null || !flight.HasActiveTree)
+            {
+                ParsekLog.Info(Tag, "discardtree nothing=true");
+                SetExecResult("OK", TestCommandRecordingVerbs.BuildDiscardPayload(hadTree: false), null);
+                return;
+            }
+
+            if (ParsekFlight.HasLiveRecorderForTagging())
+                flight.StopRecording();
+            flight.AutoDiscardActiveTreeWithMessage(
+                reason: "test-command-discard",
+                screenMessage: "Recording discarded (test command)",
+                ledgerRecalcReason: "test-command-discard");
+
+            ParsekLog.Info(Tag, "discardtree discarded=true");
+            SetExecResult("OK", TestCommandRecordingVerbs.BuildDiscardPayload(hadTree: true), null);
         }
 
         // ----- MissionMark (P5.3) -----
