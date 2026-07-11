@@ -805,10 +805,11 @@ namespace Parsek.TestCommands
             }
         }
 
-        // ----- Executor: all ten v1 verbs as NOT-IMPLEMENTED-YET stubs (P4.4) -----
-        // The addon implements ITestCommandExecutor; the real verb bodies replace these
-        // stubs one at a time in P5.x. Each stub reports an ERROR verdict with msg=stub so
-        // the pump's journal / response / at-most-once machinery is fully exercised now.
+        // ----- Executor: all ten v1 verbs (P5.1 - P5.8) -----
+        // The addon implements ITestCommandExecutor; each method delegates to its verb
+        // body (below). The bodies stash their verdict/payload/msg via SetExecResult (or
+        // the PENDING sentinel for the two-phase RunTests / LoadGame) and the pump reads
+        // them back to journal + append the terminal response.
 
         // Explicit interface implementation: ParsedCommand is internal, so these cannot be
         // public members of the public MonoBehaviour. The pump dispatches via the interface
@@ -845,8 +846,6 @@ namespace Parsek.TestCommands
                     break;
             }
         }
-
-        private void StubNotImplemented() => SetExecResult("ERROR", null, "stub");
 
         // ----- Shared verb-body helpers (P5.x) -----
 
