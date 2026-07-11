@@ -18,6 +18,31 @@ namespace Parsek.Analyzer
         /// </summary>
         internal static IReadOnlyList<IRecordingInvariant> AllRules { get; } = BuildRules();
 
+        /// <summary>
+        /// The pure-core subset the in-game H5 <c>RecordingInvariants</c> category runs
+        /// (module M-A3, design "H5 - RecordingInvariants in-game category"): INV1-INV8,
+        /// the rules that are pure over an <see cref="AnalyzerModel"/> with no
+        /// loader-supplied inputs. The loader-scoped rules (LoadFaultRule, INV7b, INV9,
+        /// INV10) depend on on-disk sidecar / rewind-point files + LoadFault data the
+        /// in-game builder does not populate, and FixtureStampRule is unreachable (the
+        /// in-game model carries a null FixtureStamp); excluding them keeps the in-game
+        /// findings identical to what the offline pure core emits over the same
+        /// live-sourced model. Because the set is shared, adding a pure-core invariant to
+        /// M-A1 automatically strengthens H5 with no M-A3 change.
+        /// </summary>
+        internal static IReadOnlyList<IRecordingInvariant> InGamePureCoreRules { get; } =
+            new List<IRecordingInvariant>
+            {
+                new Inv1UtMonotonic(),
+                new Inv2NoDoubleCover(),
+                new Inv3RelativeContract(),
+                new Inv4PartEventPid(),
+                new Inv5SchemaGate(),
+                new Inv6ResourceManifest(),
+                new Inv7TreeTopology(),
+                new Inv8Ledger(),
+            };
+
         private static IReadOnlyList<IRecordingInvariant> BuildRules()
         {
             var rules = new List<IRecordingInvariant>
