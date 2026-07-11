@@ -62,7 +62,7 @@ namespace Parsek.Tests
             }
         }
 
-        // Minimal module that never mutates the action list — used to measure the
+        // Minimal module that never mutates the action list; used to measure the
         // steady-state per-walk allocation of the cutoff path.
         private sealed class AllocationProbeModule : IResourceModule
         {
