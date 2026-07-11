@@ -29,6 +29,12 @@ namespace Parsek.Logistics
 
         private readonly Vessel vessel;
         private readonly HashSet<InventorySlotAddress> consumedSlots = new HashSet<InventorySlotAddress>();
+        // Set when a full walk found no empty slot. Within one probe's
+        // lifetime (one delivery) occupancy never decreases — consumedSlots
+        // only grows and nothing frees destination slots mid-apply — so once
+        // exhausted every later manifest item can short-circuit instead of
+        // re-scanning the whole vessel (and re-logging the same summary).
+        private bool exhausted;
         // Injected by the orchestrator (ApplyDelivery) — captured once per
         // delivery and passed into BOTH the probe and the writer so the
         // free-capacity calculation and the resource-mutation path read
@@ -63,13 +69,6 @@ namespace Parsek.Logistics
                 return 0.0;
             }
         }
-
-        // Set when a full walk found no empty slot. Within one probe's
-        // lifetime (one delivery) occupancy never decreases — consumedSlots
-        // only grows and nothing frees destination slots mid-apply — so once
-        // exhausted every later manifest item can short-circuit instead of
-        // re-scanning the whole vessel (and re-logging the same summary).
-        private bool exhausted;
 
         public InventorySlotAddress ProbeFirstEmptyInventorySlot()
         {
@@ -196,8 +195,15 @@ namespace Parsek.Logistics
                     ConfigNode mv = mod.moduleValues;
                     if (mv == null) continue;
                     modulesScanned++;
+                    // Only pay the prefab lookup when the proto module does
+                    // NOT carry a usable InventorySlots value (the helper
+                    // prefers the persisted value, so the fallback would be
+                    // dead weight otherwise).
+                    int slotCountFallback = TryGetPersistedSlotCount(mv, out _)
+                        ? 0
+                        : ResolveUnloadedSlotCountFallback(pps, m);
                     int slot = FindFirstEmptySlotInUnloadedModule(
-                        mv, ResolveUnloadedSlotCountFallback(pps, m), i, m,
+                        mv, slotCountFallback, i, m,
                         consumedSlots, out int occupied, out int consumed);
                     slotsOccupied += occupied;
                     slotsConsumed += consumed;
@@ -254,6 +260,24 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// Reads the module's persisted <c>InventorySlots</c> value. True only
+        /// when the value is present, parseable, and non-negative — a
+        /// present-but-unparseable value (mod/MM garbage) must NOT zero the
+        /// count via TryParse's out-param and report the module falsely full.
+        /// Single parse point shared by the scan helper and its caller so the
+        /// "is the fallback needed" decision cannot drift from the scan.
+        /// </summary>
+        internal static bool TryGetPersistedSlotCount(ConfigNode moduleValues, out int slotCount)
+        {
+            slotCount = 0;
+            if (moduleValues == null) return false;
+            string slotsStr = moduleValues.GetValue("InventorySlots");
+            return !string.IsNullOrEmpty(slotsStr)
+                && int.TryParse(slotsStr, System.Globalization.NumberStyles.Integer, IC, out slotCount)
+                && slotCount >= 0;
+        }
+
+        /// <summary>
         /// First empty slot index in one proto ModuleInventoryPart module's
         /// <paramref name="moduleValues"/>, or -1 when the module is full.
         /// A slot is empty when it is neither listed in the module's persisted
@@ -281,17 +305,9 @@ namespace Parsek.Logistics
             consumedCount = 0;
             if (moduleValues == null) return -1;
 
-            // Parse into a temp so a present-but-unparseable value (mod/MM
-            // garbage) falls back instead of TryParse zeroing the count and
-            // reporting the module full.
-            int slotCount = slotCountFallback;
-            string slotsStr = moduleValues.GetValue("InventorySlots");
-            if (!string.IsNullOrEmpty(slotsStr)
-                && int.TryParse(slotsStr, System.Globalization.NumberStyles.Integer, IC, out int parsedSlots)
-                && parsedSlots >= 0)
-            {
-                slotCount = parsedSlots;
-            }
+            int slotCount = TryGetPersistedSlotCount(moduleValues, out int persistedSlots)
+                ? persistedSlots
+                : slotCountFallback;
 
             // Build occupied set from existing STOREDPART children.
             HashSet<int> occupied = new HashSet<int>();

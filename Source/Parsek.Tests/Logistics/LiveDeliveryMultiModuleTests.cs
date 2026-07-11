@@ -62,6 +62,16 @@ namespace Parsek.Tests.Logistics
             Assert.False(uninitializedArrayElement[0].IsValid);
         }
 
+        // catches: equality treating the invalid default and the constructed
+        // (0,0,0) as interchangeable keys — two values whose IsValid differs
+        // must not compare equal.
+        [Fact]
+        public void SlotAddress_DefaultValue_NotEqualToConstructedZeroAddress()
+        {
+            Assert.False(default(InventorySlotAddress).Equals(new InventorySlotAddress(0, 0, 0)));
+            Assert.True(new InventorySlotAddress(0, 0, 0).Equals(new InventorySlotAddress(0, 0, 0)));
+        }
+
         // catches: consumed-set keying collapsing back to the bare slot index —
         // slot 0 of module A and slot 0 of module B must be DISTINCT keys, or
         // consuming one blocks the other and the second container is never used.

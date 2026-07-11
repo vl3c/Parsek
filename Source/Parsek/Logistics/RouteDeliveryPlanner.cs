@@ -42,9 +42,13 @@ namespace Parsek.Logistics
 
         public bool Equals(InventorySlotAddress other)
         {
+            // isSet participates so default(InventorySlotAddress) never
+            // compares equal to the constructed (0, 0, 0) — two values with
+            // different IsValid must not be interchangeable as keys.
             return PartIndex == other.PartIndex
                 && ModuleIndex == other.ModuleIndex
-                && SlotIndex == other.SlotIndex;
+                && SlotIndex == other.SlotIndex
+                && isSet == other.isSet;
         }
 
         public override bool Equals(object obj) => obj is InventorySlotAddress other && Equals(other);
@@ -56,13 +60,18 @@ namespace Parsek.Logistics
                 int hash = PartIndex;
                 hash = (hash * 397) ^ ModuleIndex;
                 hash = (hash * 397) ^ SlotIndex;
+                hash = (hash * 397) ^ (isSet ? 1 : 0);
                 return hash;
             }
         }
 
         public override string ToString()
         {
-            return IsValid ? $"part{PartIndex}/mod{ModuleIndex}/slot{SlotIndex}" : "<none>";
+            return IsValid
+                ? "part" + PartIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    + "/mod" + ModuleIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    + "/slot" + SlotIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : "<none>";
         }
     }
 

@@ -367,6 +367,10 @@ namespace Parsek.InGameTests
             InventorySlotAddress deliveredAddress = InventorySlotAddress.None;
             ModuleInventoryPart deliveredModule = null;
             ConfigNode payloadNode = null;
+            // Tracks the donor fill until it is cleared, so a Skip/throw
+            // between the donor store and the donor clear still tears it down.
+            ModuleInventoryPart pendingDonorModule = null;
+            int pendingDonorSlot = -1;
 
             try
             {
@@ -375,10 +379,14 @@ namespace Parsek.InGameTests
                     InGameAssert.Skip(
                         $"StoreCargoPartAtSlot('{fillPartName}', {donorSlot.ToString(IC)}) failed on the donor module; " +
                         "cannot build a delivery payload (volume/mass limit?)");
+                pendingDonorModule = donor;
+                pendingDonorSlot = donorSlot;
                 payloadNode = new ConfigNode("STOREDPART");
                 donor.storedParts[donorSlot].Save(payloadNode);
                 bool donorCleared = donor.ClearPartAtSlot(donorSlot);
                 InGameAssert.IsTrue(donorCleared, "ClearPartAtSlot failed to clear the payload-donor slot");
+                pendingDonorModule = null;
+                pendingDonorSlot = -1;
 
                 // ARRANGE: fill EVERY empty slot of the FIRST inventory module so
                 // the old first-module-only probe would report "no slot".
@@ -457,6 +465,12 @@ namespace Parsek.InGameTests
                 try
                 {
                     int cleared = 0;
+                    if (pendingDonorModule != null && pendingDonorSlot >= 0
+                        && pendingDonorModule.storedParts != null
+                        && pendingDonorModule.storedParts.ContainsKey(pendingDonorSlot))
+                    {
+                        if (pendingDonorModule.ClearPartAtSlot(pendingDonorSlot)) cleared++;
+                    }
                     if (deliveredModule != null && deliveredAddress.IsValid
                         && deliveredModule.storedParts != null
                         && deliveredModule.storedParts.ContainsKey(deliveredAddress.SlotIndex))
@@ -469,7 +483,9 @@ namespace Parsek.InGameTests
                     }
                     ParsekLog.Verbose("TestRunner",
                         $"Delivery_MultiModule cleanup: clearedSlots={cleared.ToString(IC)} " +
-                        $"(filled={filledFirstModuleSlots.Count.ToString(IC)} delivered={(deliveredAddress.IsValid ? 1 : 0).ToString(IC)})");
+                        $"(filled={filledFirstModuleSlots.Count.ToString(IC)} " +
+                        $"delivered={(deliveredAddress.IsValid ? 1 : 0).ToString(IC)} " +
+                        $"pendingDonor={(pendingDonorSlot >= 0 ? 1 : 0).ToString(IC)})");
                 }
                 catch (Exception ex)
                 {
