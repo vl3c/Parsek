@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Parsek;
 using Parsek.Tests.Analyzer.Rules;
 
 namespace Parsek.Tests.Analyzer
@@ -17,9 +18,13 @@ namespace Parsek.Tests.Analyzer
         /// The production rule set, in registration order. Concrete rules are
         /// added here (and as Analyzer/Rules/*.cs files) from Phase 2 onward.
         /// </summary>
-        internal static IReadOnlyList<IRecordingInvariant> AllRules { get; } =
-            new List<IRecordingInvariant>
+        internal static IReadOnlyList<IRecordingInvariant> AllRules { get; } = BuildRules();
+
+        private static IReadOnlyList<IRecordingInvariant> BuildRules()
+        {
+            var rules = new List<IRecordingInvariant>
             {
+                new LoadFaultRule(),
                 new Inv1UtMonotonic(),
                 new Inv2NoDoubleCover(),
                 new Inv3RelativeContract(),
@@ -33,6 +38,18 @@ namespace Parsek.Tests.Analyzer
                 new Inv8Ledger(),
                 new FixtureStampRule(),
             };
+
+            // Diagnostic logging (design "Diagnostic Logging"): every rule logs its
+            // CitedContract once at registration so the contract citations are
+            // visible in a run log, not just in source.
+            foreach (IRecordingInvariant rule in rules)
+            {
+                ParsekLog.Verbose("Analyzer",
+                    "rule " + rule.RuleId + " cites " + rule.CitedContract);
+            }
+
+            return rules;
+        }
     }
 
     internal static class Analyzer

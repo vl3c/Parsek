@@ -151,6 +151,16 @@ namespace Parsek.Tests.Analyzer
             Assert.Empty(model.Trees);
             Assert.Empty(model.Tombstones);
             Assert.Empty(model.SupersedeRelations);
+
+            // Blocker regression: the sfs fault must reach the report as a red run,
+            // not analyze GREEN. Route through the full Evaluate pipeline (not just
+            // the model) so the LOADER-FAULT rule + verdict policy are exercised.
+            AnalysisReport report = Analyzer.Evaluate(model);
+            Assert.True(report.IsRed);
+            Assert.Contains(report.Findings, f =>
+                f.RuleId == Parsek.Tests.Analyzer.Rules.LoadFaultRule.RuleIdConst
+                && f.Level == VerdictLevel.Fail
+                && f.Message.Contains("kind=sfs"));
         }
 
         // Guards: a save with no Parsek footprint (a non-Parsek SCENARIO, or no sfs
