@@ -54,7 +54,7 @@ namespace Parsek.Tests.Logistics
         private sealed class CapturingWriters
         {
             public readonly List<(string Name, double Amount)> ResourceCalls = new List<(string, double)>();
-            public readonly List<(InventoryPayloadItem Item, int Slot)> InventoryCalls = new List<(InventoryPayloadItem, int)>();
+            public readonly List<(InventoryPayloadItem Item, InventorySlotAddress Slot)> InventoryCalls = new List<(InventoryPayloadItem, InventorySlotAddress)>();
             public readonly List<double> FundsDebits = new List<double>();
             public readonly List<GameAction> EmittedActions = new List<GameAction>();
 
@@ -69,7 +69,7 @@ namespace Parsek.Tests.Logistics
                 return total;
             }
 
-            public void WriteInventory(InventoryPayloadItem item, int slot) => InventoryCalls.Add((item, slot));
+            public void WriteInventory(InventoryPayloadItem item, InventorySlotAddress slot) => InventoryCalls.Add((item, slot));
 
             public int ReadInventoryActualCount() => InventoryCalls.Count;
 

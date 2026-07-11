@@ -4,6 +4,62 @@ using System.Collections.Generic;
 namespace Parsek.Logistics
 {
     /// <summary>
+    /// Module-qualified inventory slot address on the destination vessel. A
+    /// bare slot index is ambiguous once the destination carries more than one
+    /// <c>ModuleInventoryPart</c> (multiple cargo containers, or a pod plus a
+    /// container), so the probe/planner/writer contract addresses a slot by
+    /// (part, module, slot). <see cref="PartIndex"/> / <see cref="ModuleIndex"/>
+    /// are positional indices into the SAME collections the probe walked —
+    /// <c>vessel.parts[i].Modules[m]</c> on the loaded branch,
+    /// <c>protoVessel.protoPartSnapshots[i].modules[m]</c> on the unloaded
+    /// branch — so the writer must resolve them on the same captured
+    /// <c>isLoaded</c> branch the probe reported against.
+    /// </summary>
+    internal readonly struct InventorySlotAddress : IEquatable<InventorySlotAddress>
+    {
+        public readonly int PartIndex;
+        public readonly int ModuleIndex;
+        public readonly int SlotIndex;
+
+        public InventorySlotAddress(int partIndex, int moduleIndex, int slotIndex)
+        {
+            PartIndex = partIndex;
+            ModuleIndex = moduleIndex;
+            SlotIndex = slotIndex;
+        }
+
+        /// <summary>Sentinel for "no empty slot available" (the old bare -1).</summary>
+        public static readonly InventorySlotAddress None = new InventorySlotAddress(-1, -1, -1);
+
+        public bool IsValid => PartIndex >= 0 && ModuleIndex >= 0 && SlotIndex >= 0;
+
+        public bool Equals(InventorySlotAddress other)
+        {
+            return PartIndex == other.PartIndex
+                && ModuleIndex == other.ModuleIndex
+                && SlotIndex == other.SlotIndex;
+        }
+
+        public override bool Equals(object obj) => obj is InventorySlotAddress other && Equals(other);
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hash = PartIndex;
+                hash = (hash * 397) ^ ModuleIndex;
+                hash = (hash * 397) ^ SlotIndex;
+                return hash;
+            }
+        }
+
+        public override string ToString()
+        {
+            return IsValid ? $"part{PartIndex}/mod{ModuleIndex}/slot{SlotIndex}" : "<none>";
+        }
+    }
+
+    /// <summary>
     /// Probe interface for destination capacity queries. The pure planner calls
     /// this for each resource and each inventory item; live KSP queries live
     /// behind it in Phase B's LiveDeliveryCapacityProbe.
@@ -13,11 +69,17 @@ namespace Parsek.Logistics
         /// <summary>Free capacity on the destination for the named resource, summed across all parts that hold it (and that have flowState=true).</summary>
         double ProbeResourceFreeCapacity(string resourceName);
 
-        /// <summary>Returns the slot index for the next empty inventory slot, or -1 if no slot is available.</summary>
-        int ProbeFirstEmptyInventorySlot();
+        /// <summary>
+        /// Returns the address of the next empty inventory slot across ALL
+        /// inventory modules on the destination (deterministic order: vessel
+        /// part order, then module order within the part, then ascending slot
+        /// index), or <see cref="InventorySlotAddress.None"/> if every module
+        /// is full.
+        /// </summary>
+        InventorySlotAddress ProbeFirstEmptyInventorySlot();
 
         /// <summary>Notify the probe that the given slot has been assigned, so subsequent ProbeFirstEmptyInventorySlot calls skip it.</summary>
-        void ConsumeInventorySlot(int slotIndex);
+        void ConsumeInventorySlot(InventorySlotAddress address);
     }
 
     internal readonly struct ResourceDeliveryLine
@@ -37,9 +99,9 @@ namespace Parsek.Logistics
     internal readonly struct InventoryDeliveryLine
     {
         public readonly InventoryPayloadItem Item;
-        public readonly int AssignedSlot; // -1 = skipped (no empty slot)
+        public readonly InventorySlotAddress AssignedSlot; // None (!IsValid) = skipped (no empty slot)
 
-        public InventoryDeliveryLine(InventoryPayloadItem item, int assignedSlot)
+        public InventoryDeliveryLine(InventoryPayloadItem item, InventorySlotAddress assignedSlot)
         {
             Item = item;
             AssignedSlot = assignedSlot;
@@ -124,10 +186,10 @@ namespace Parsek.Logistics
                 {
                     InventoryPayloadItem item = stop.InventoryDeliveryManifest[i];
                     if (item == null) continue;
-                    int slot = probe.ProbeFirstEmptyInventorySlot();
-                    if (slot < 0)
+                    InventorySlotAddress slot = probe.ProbeFirstEmptyInventorySlot();
+                    if (!slot.IsValid)
                     {
-                        inventory.Add(new InventoryDeliveryLine(item, -1));
+                        inventory.Add(new InventoryDeliveryLine(item, InventorySlotAddress.None));
                         anyInventoryPartial = true;
                         continue;
                     }

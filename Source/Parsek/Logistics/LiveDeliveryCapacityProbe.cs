@@ -8,9 +8,10 @@ namespace Parsek.Logistics
     /// Live <see cref="IDeliveryCapacityProbe"/> over the destination vessel.
     /// Picks the loaded or unloaded probe automatically based on
     /// <c>vessel.loaded</c> / <c>vessel.packed</c>. Tracks
-    /// <c>consumedSlots</c> across calls so the planner's per-item
-    /// inventory walk can ask for "next empty slot" without re-querying
-    /// the same module repeatedly.
+    /// <c>consumedSlots</c> (module-qualified <see cref="InventorySlotAddress"/>
+    /// keys) across calls so the planner's per-item inventory walk can ask for
+    /// "next empty slot" across ALL inventory modules without double-assigning
+    /// a slot it already handed out.
     /// </summary>
     /// <remarks>
     /// Extracted from <see cref="RouteOrchestrator"/> as a file-scope class so
@@ -27,7 +28,7 @@ namespace Parsek.Logistics
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         private readonly Vessel vessel;
-        private readonly HashSet<int> consumedSlots = new HashSet<int>();
+        private readonly HashSet<InventorySlotAddress> consumedSlots = new HashSet<InventorySlotAddress>();
         // Injected by the orchestrator (ApplyDelivery) — captured once per
         // delivery and passed into BOTH the probe and the writer so the
         // free-capacity calculation and the resource-mutation path read
@@ -63,9 +64,9 @@ namespace Parsek.Logistics
             }
         }
 
-        public int ProbeFirstEmptyInventorySlot()
+        public InventorySlotAddress ProbeFirstEmptyInventorySlot()
         {
-            if (vessel == null) return -1;
+            if (vessel == null) return InventorySlotAddress.None;
             try
             {
                 return isLoaded ? ProbeLoadedFirstEmpty() : ProbeUnloadedFirstEmpty();
@@ -73,15 +74,15 @@ namespace Parsek.Logistics
             catch (Exception ex)
             {
                 ParsekLog.Verbose(Tag,
-                    $"ProbeFirstEmptyInventorySlot threw {ex.GetType().Name}: {ex.Message}; returning -1");
-                return -1;
+                    $"ProbeFirstEmptyInventorySlot threw {ex.GetType().Name}: {ex.Message}; returning None");
+                return InventorySlotAddress.None;
             }
         }
 
-        public void ConsumeInventorySlot(int slotIndex)
+        public void ConsumeInventorySlot(InventorySlotAddress address)
         {
-            if (slotIndex < 0) return;
-            consumedSlots.Add(slotIndex);
+            if (!address.IsValid) return;
+            consumedSlots.Add(address);
         }
 
         private double ProbeLoadedResourceFree(string resourceName)
@@ -133,9 +134,12 @@ namespace Parsek.Logistics
             return total;
         }
 
-        private int ProbeLoadedFirstEmpty()
+        private InventorySlotAddress ProbeLoadedFirstEmpty()
         {
-            if (vessel.parts == null) return -1;
+            if (vessel.parts == null) return InventorySlotAddress.None;
+            int modulesScanned = 0;
+            int slotsOccupied = 0;
+            int slotsConsumed = 0;
             for (int i = 0; i < vessel.parts.Count; i++)
             {
                 Part p = vessel.parts[i];
@@ -143,26 +147,35 @@ namespace Parsek.Logistics
                 for (int m = 0; m < p.Modules.Count; m++)
                 {
                     if (!(p.Modules[m] is ModuleInventoryPart module)) continue;
+                    modulesScanned++;
                     // Walk slot indices [0, InventorySlots) in order so the
-                    // result is deterministic and matches stock's
-                    // FirstEmptySlot() contract; skip anything the planner
-                    // has already claimed this pass.
+                    // result is deterministic (vessel part order, then module
+                    // order within the part, then ascending slot index); skip
+                    // anything the planner has already claimed this pass and
+                    // keep walking into LATER modules when this one is full.
                     for (int s = 0; s < module.InventorySlots; s++)
                     {
-                        if (consumedSlots.Contains(s)) continue;
-                        if (module.storedParts != null && module.storedParts.ContainsKey(s)) continue;
-                        return s;
+                        var address = new InventorySlotAddress(i, m, s);
+                        if (consumedSlots.Contains(address)) { slotsConsumed++; continue; }
+                        if (module.storedParts != null && module.storedParts.ContainsKey(s)) { slotsOccupied++; continue; }
+                        return address;
                     }
-                    return -1;
                 }
             }
-            return -1;
+            ParsekLog.Verbose(Tag,
+                $"ProbeLoadedFirstEmpty: no empty slot on dest={vessel.vesselName ?? "<none>"} " +
+                $"modulesScanned={modulesScanned.ToString(IC)} slotsOccupied={slotsOccupied.ToString(IC)} " +
+                $"slotsConsumed={slotsConsumed.ToString(IC)}");
+            return InventorySlotAddress.None;
         }
 
-        private int ProbeUnloadedFirstEmpty()
+        private InventorySlotAddress ProbeUnloadedFirstEmpty()
         {
             ProtoVessel pv = vessel.protoVessel;
-            if (pv == null || pv.protoPartSnapshots == null) return -1;
+            if (pv == null || pv.protoPartSnapshots == null) return InventorySlotAddress.None;
+            int modulesScanned = 0;
+            int slotsOccupied = 0;
+            int slotsConsumed = 0;
             for (int i = 0; i < pv.protoPartSnapshots.Count; i++)
             {
                 ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
@@ -173,44 +186,82 @@ namespace Parsek.Logistics
                     if (mod == null || mod.moduleName != "ModuleInventoryPart") continue;
                     ConfigNode mv = mod.moduleValues;
                     if (mv == null) continue;
-
-                    // InventorySlots default is 9 (ModuleInventoryPart.InventorySlots).
-                    // The proto module's moduleValues may not carry the
-                    // value when the part hasn't been individually
-                    // configured (KSPField, not isPersistant by default),
-                    // so fall back to the stock default if missing.
-                    int slotCount = 9;
-                    string slotsStr = mv.GetValue("InventorySlots");
-                    if (!string.IsNullOrEmpty(slotsStr))
-                        int.TryParse(slotsStr, System.Globalization.NumberStyles.Integer, IC, out slotCount);
-
-                    // Build occupied set from existing STOREDPART children.
-                    HashSet<int> occupied = new HashSet<int>();
-                    ConfigNode storedParts = mv.GetNode("STOREDPARTS");
-                    if (storedParts != null)
-                    {
-                        ConfigNode[] sps = storedParts.GetNodes("STOREDPART");
-                        for (int s = 0; s < sps.Length; s++)
-                        {
-                            string idxStr = sps[s].GetValue("slotIndex");
-                            if (!string.IsNullOrEmpty(idxStr)
-                                && int.TryParse(idxStr, System.Globalization.NumberStyles.Integer, IC, out int idx))
-                            {
-                                occupied.Add(idx);
-                            }
-                        }
-                    }
-
-                    for (int s = 0; s < slotCount; s++)
-                    {
-                        if (consumedSlots.Contains(s)) continue;
-                        if (occupied.Contains(s)) continue;
-                        return s;
-                    }
-                    return -1;
+                    modulesScanned++;
+                    int slot = FindFirstEmptySlotInUnloadedModule(
+                        mv, i, m, consumedSlots, out int occupied, out int consumed);
+                    slotsOccupied += occupied;
+                    slotsConsumed += consumed;
+                    if (slot >= 0) return new InventorySlotAddress(i, m, slot);
                 }
             }
-            return -1;
+            ParsekLog.Verbose(Tag,
+                $"ProbeUnloadedFirstEmpty: no empty slot on dest={vessel.vesselName ?? "<none>"} " +
+                $"modulesScanned={modulesScanned.ToString(IC)} slotsOccupied={slotsOccupied.ToString(IC)} " +
+                $"slotsConsumed={slotsConsumed.ToString(IC)}");
+            return InventorySlotAddress.None;
+        }
+
+        /// <summary>
+        /// First empty slot index in one proto ModuleInventoryPart module's
+        /// <paramref name="moduleValues"/>, or -1 when the module is full.
+        /// A slot is empty when it is neither listed in the module's persisted
+        /// STOREDPARTS children nor already consumed by the planner at
+        /// (<paramref name="partIndex"/>, <paramref name="moduleIndex"/>).
+        /// Pure ConfigNode + set logic, internal for direct unit testing of the
+        /// multi-module walk (a live ProtoVessel cannot be built headlessly).
+        /// </summary>
+        internal static int FindFirstEmptySlotInUnloadedModule(
+            ConfigNode moduleValues,
+            int partIndex,
+            int moduleIndex,
+            HashSet<InventorySlotAddress> consumedSlots,
+            out int occupiedCount,
+            out int consumedCount)
+        {
+            occupiedCount = 0;
+            consumedCount = 0;
+            if (moduleValues == null) return -1;
+
+            // InventorySlots default is 9 (ModuleInventoryPart.InventorySlots).
+            // The proto module's moduleValues may not carry the
+            // value when the part hasn't been individually
+            // configured (KSPField, not isPersistant by default),
+            // so fall back to the stock default if missing.
+            int slotCount = 9;
+            string slotsStr = moduleValues.GetValue("InventorySlots");
+            if (!string.IsNullOrEmpty(slotsStr))
+                int.TryParse(slotsStr, System.Globalization.NumberStyles.Integer, IC, out slotCount);
+
+            // Build occupied set from existing STOREDPART children.
+            HashSet<int> occupied = new HashSet<int>();
+            ConfigNode storedParts = moduleValues.GetNode("STOREDPARTS");
+            if (storedParts != null)
+            {
+                ConfigNode[] sps = storedParts.GetNodes("STOREDPART");
+                for (int s = 0; s < sps.Length; s++)
+                {
+                    string idxStr = sps[s].GetValue("slotIndex");
+                    if (!string.IsNullOrEmpty(idxStr)
+                        && int.TryParse(idxStr, System.Globalization.NumberStyles.Integer, IC, out int idx))
+                    {
+                        occupied.Add(idx);
+                    }
+                }
+            }
+
+            int firstEmpty = -1;
+            for (int s = 0; s < slotCount; s++)
+            {
+                if (consumedSlots != null
+                    && consumedSlots.Contains(new InventorySlotAddress(partIndex, moduleIndex, s)))
+                {
+                    consumedCount++;
+                    continue;
+                }
+                if (occupied.Contains(s)) { occupiedCount++; continue; }
+                if (firstEmpty < 0) firstEmpty = s;
+            }
+            return firstEmpty;
         }
     }
 }

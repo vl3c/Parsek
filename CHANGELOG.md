@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.4
 
+### Fixes
+
+- Supply-route inventory delivery now uses every cargo container on the destination vessel: when the first container is full, items are delivered into the next container with a free slot instead of being reported as undelivered. Pickup already worked this way; delivery now matches it.
+
 ## 0.10.3
 
 ### Features

@@ -3861,19 +3861,19 @@ namespace Parsek.Logistics
                 }
             }
 
-            // Apply inventory writes. Items with AssignedSlot < 0 were skipped
-            // by the planner (no empty slot at probe time); the writer is only
-            // called for assigned slots. The writer may itself fail (stock
-            // <c>StoreCargoPartAtSlot</c> can return false on edge cases like
-            // mass-limit overruns); the actual-count reader returns how many
-            // writes succeeded.
+            // Apply inventory writes. Items with an invalid AssignedSlot were
+            // skipped by the planner (no empty slot at probe time); the writer
+            // is only called for assigned slots. The writer may itself fail
+            // (stock <c>StoreCargoPartAtSlot</c> can return false on edge cases
+            // like mass-limit overruns); the actual-count reader returns how
+            // many writes succeeded.
             int inventoryLinesAttempted = 0;
             if (plan.Inventory != null)
             {
                 for (int i = 0; i < plan.Inventory.Count; i++)
                 {
                     InventoryDeliveryLine line = plan.Inventory[i];
-                    if (line.AssignedSlot < 0) continue;
+                    if (!line.AssignedSlot.IsValid) continue;
                     if (line.Item == null) continue;
                     ctx.InventoryWriter(line.Item, line.AssignedSlot);
                     inventoryLinesAttempted++;
@@ -4537,7 +4537,7 @@ namespace Parsek.Logistics
             public double KscFundsCost;
             public Action<string, double> ResourceWriter;
             public Func<string, double> ResourceActualReader;
-            public Action<InventoryPayloadItem, int> InventoryWriter;
+            public Action<InventoryPayloadItem, InventorySlotAddress> InventoryWriter;
             public Func<int> InventoryActualCountReader;
             public Action<double> FundsDebiter;
             public Action<GameAction> LedgerEmitter;

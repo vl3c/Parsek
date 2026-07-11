@@ -236,7 +236,7 @@ namespace Parsek.Tests.Logistics
                 return total;
             }
 
-            public void WriteInventory(InventoryPayloadItem item, int slot) { }
+            public void WriteInventory(InventoryPayloadItem item, InventorySlotAddress slot) { }
             public int ReadInventoryActualCount() => 0;
             public void DebitFunds(double cost) => FundsDebits.Add(cost);
         }
