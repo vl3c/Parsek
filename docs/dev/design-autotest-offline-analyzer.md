@@ -298,14 +298,34 @@ does not spam KSP-style logs; the loader emits its own analyzer-tagged lines.
 
 ### The invariant rules
 
-Ten invariant families from plan section 7, plus 7b annotation staleness. Each
-is one `IRecordingInvariant` (or a small cluster sharing a `CitedContract`).
+Ten invariant families from plan section 7, plus 7b annotation staleness, plus
+the LOADER-FAULT rule that turns loader parse failures into findings. Each is one
+`IRecordingInvariant` (or a small cluster sharing a `CitedContract`).
 
+- **LOADER-FAULT** (`RuleId LOADER-FAULT`). A file the loader could not parse is
+  itself a finding, never a crash (design "The loader"). The loader records a
+  `LoadFault` per unparsable file and keeps going; this rule emits a FAIL for
+  every `LoadFault` whose `FileKind` is one of `{sfs, tree-node, ledger}`. Those
+  three kinds have no other owning rule, so before it existed a corrupt
+  `persistent.sfs`, a throwing RECORDING tree node, or an unparsable `ledger.pgld`
+  analyzed GREEN. The `trajectory` and `snapshot` kinds are deliberately EXCLUDED:
+  INV5 owns `.prec` faults and INV4 owns `_vessel/_ghost.craft` faults, each with
+  its own recording-scoped context, so a fault is reported exactly once. The
+  finding Target is the recording id when the fault carries one, else a
+  `<fileKind>` token; the message carries only the filename (not the absolute
+  path) so report bytes stay deterministic. CitedContract:
+  `SaveDirectoryLoader.Load` / `ConfigNode.Load`.
 - **INV1 UT monotonicity** (`RuleId INV1-UT-MONOTONIC`). Per `TrackSection`, the
   `frames` / `bodyFixedFrames` / `checkpoints` UT sequences are non-decreasing;
   the flat `Recording.Points` UT sequence is non-decreasing; per-section
-  `startUT <= endUT`. Violation = FAIL. CitedContract: `TrajectoryPoint.ut` +
-  `TrackSection.startUT/endUT` ordering assumed by `TrajectoryMath` sampling.
+  `startUT <= endUT`. Violation = FAIL. A NaN UT (any point UT, or a section
+  `startUT`/`endUT`) is also FAIL: `double.IsNaN` is checked explicitly because a
+  NaN never trips the strict back-step / ordering comparison (`NaN < x` and
+  `NaN > x` are both false), so a NaN-poisoned sidecar would otherwise analyze
+  GREEN and then break `TrajectoryMath`'s binary-search sampler at playback. One
+  NaN finding per sequence, same bounding style as the first-back-step reporting.
+  CitedContract: `TrajectoryPoint.ut` + `TrackSection.startUT/endUT` ordering
+  assumed by `TrajectoryMath` sampling.
 - **INV2 no double-cover** (`RuleId INV2-NO-DOUBLE-COVER`). No two sections'
   `[startUT,endUT]` spans overlap in interior UT. Gaps are allowed
   (on-rails BG spans emit no TrackSections;
@@ -334,13 +354,22 @@ is one `IRecordingInvariant` (or a small cluster sharing a `CitedContract`).
   (destroyed / showcase) -> INFO. CitedContract: `VesselSnapshotBuilder.AddPart`
   PID assignment + the ghost-event lookup contract (`.claude/CLAUDE.md` ghost
   event <-> snapshot PID).
-- **INV5 schema gate** (`RuleId INV5-SCHEMA-GATE`). Every recording +
-  trajectory sidecar passes `RecordingStore.IsRecordingSchemaCompatible`
-  (format 1, generation 4). A recording whose metadata and sidecar disagree, or
-  that fails the gate, -> FAIL with the exact reason string
-  (`generation-missing` / `generation-older` / `generation-newer` /
-  `format-version-mismatch`). The rule also inventories all generations seen as
-  INFO. CitedContract: `RecordingStore.IsRecordingSchemaCompatible`,
+- **INV5 schema gate** (`RuleId INV5-SCHEMA-GATE`, plus two sibling rule ids the
+  one rule emits under: `INV5-ORPHAN-SIDECAR` and `INV5-GENERATIONS`). Every
+  recording + trajectory sidecar passes
+  `RecordingStore.IsRecordingSchemaCompatible` (format 1, generation 4). A
+  recording whose metadata and sidecar disagree, or that fails the gate, -> FAIL
+  with the exact reason string (`generation-missing` / `generation-older` /
+  `generation-newer` / `format-version-mismatch`) under `INV5-SCHEMA-GATE`. A
+  `.prec` on disk with no matching tree recording -> WARN under
+  `INV5-ORPHAN-SIDECAR`. The generations inventory is emitted under
+  `INV5-GENERATIONS` and is CONDITIONAL-INFO: it fires only when informative
+  (more than one distinct generation is present, or the single generation present
+  is not the current one), so a homogeneous current-gen save stays finding-free
+  (the clean-data-is-green convention). The distinct rule ids let a triage grep /
+  the harness parser separate a hard schema reject (red) from an orphan (WARN) or
+  the inventory (INFO) without parsing the message body. CitedContract:
+  `RecordingStore.IsRecordingSchemaCompatible`,
   `RecordingStore.CurrentRecordingFormatVersion`,
   `RecordingStore.CurrentRecordingSchemaGeneration`.
 - **INV6 resource manifest consistency** (`RuleId INV6-RESOURCE-MANIFEST`).
@@ -363,9 +392,17 @@ is one `IRecordingInvariant` (or a small cluster sharing a `CitedContract`).
   (`ChainBranch > 0` = parallel ghost-only continuations, flight-recorder 9A.4)
   with a supersede-boundary exemption for HEAD/TIP splits. A dangling link or a
   cycle -> FAIL; a `(ChainId, ChainBranch)` index gap not explained by a
-  supersede boundary -> FAIL; a gap AT a supersede boundary -> INFO. CitedContract:
-  `Recording.ChainId/ChainIndex/ChainBranch` + `RecordingTreeSplitter` HEAD/TIP
-  split + `RecordingOptimizer.CanAutoMerge` supersede guard (verify against the
+  supersede boundary -> FAIL; a gap AT a supersede boundary -> INFO. The rule also
+  iterates `model.SupersedeRelations`: a row whose `OldRecordingId` or
+  `NewRecordingId` is absent from the model (a one-sided orphan) -> WARN, not FAIL.
+  This is WARN to match production `LoadTimeSweep`'s orphan-supersede warn-log
+  severity: the forward supersede walk terminates cleanly on a missing endpoint,
+  so it is a maintenance signal rather than a broken invariant (contrast the
+  `Recording.SupersedeTargetId` and tombstone `RetiringRecordingId` dangling
+  cases, which stay FAIL because they break visibility / retirement resolution).
+  CitedContract: `Recording.ChainId/ChainIndex/ChainBranch` +
+  `RecordingTreeSplitter` HEAD/TIP split + `RecordingOptimizer.CanAutoMerge`
+  supersede guard + `EffectiveState.IsSupersededByRelation` (verify against the
   optimizer's supersede guard before shipping, per plan section 7).
 - **INV7b annotation staleness** (`RuleId INV7B-ANNOTATION-STALE`). Where a
   `.pann` sidecar exists, its recorded source epoch matches the paired `.prec`
@@ -376,7 +413,10 @@ is one `IRecordingInvariant` (or a small cluster sharing a `CitedContract`).
   A `.pann` for a recording with no `.prec` -> WARN (orphan). CitedContract:
   `PannotationsSidecarBinary.TryProbe` (`SourceSidecarEpoch`) +
   `RecordingPaths.BuildAnnotationsRelativePath`.
-- **INV8 ledger** (`RuleId INV8-LEDGER`). Two parts, distinct severities.
+- **INV8 ledger** (`RuleId INV8-LEDGER` for part (a); part (b) emits under the
+  sibling id `INV8-CAREER-DIFF`). Two parts, distinct severities and distinct rule
+  ids so the harness can separate an ELS-consistency failure from a career-diff
+  observation.
   (a) ELS internal consistency, over the RAW model. The rule itself computes the
   ELS filter from `model.Ledger` (raw actions) plus `model.Tombstones` using the
   ELS definition cited in `EffectiveState.cs` (ELS = raw actions minus any action
@@ -384,7 +424,11 @@ is one `IRecordingInvariant` (or a small cluster sharing a `CitedContract`).
   `ActionId` resolves against the RAW action list. Because the input is the raw
   list, this check is non-vacuous: a tombstone pointing at an id absent from the
   raw actions is a real dangling reference. A dangling tombstone -> FAIL. This
-  part runs for every save (career or not).
+  part runs for every save (career or not). SINGLE-REPORT POLICY: when a
+  `LoadFault{FileKind="ledger"}` is present the RAW action list is incomplete, so
+  every tombstone would look dangling; part (a) then SKIPS the per-tombstone
+  dangling check and defers to the LOADER-FAULT finding (mirroring INV5's tested
+  faulted-trajectory skip), so a corrupt ledger is reported exactly once.
   (b) Career-diff reconstruction, career saves only, WARN severity in v1. When
   the save is career the rule reconstructs the ledger and diffs against the
   save's parsed career totals via `LedgerGroundTruthDiff.Compare`. Any divergence
@@ -400,9 +444,33 @@ is one `IRecordingInvariant` (or a small cluster sharing a `CitedContract`).
   belongs to the in-game H5 path, where the `LedgerGroundTruthHarness` seam
   already reconstructs against a live quicksave (module M-A3 / H5); there hard
   divergence (`report.HardFailures`) -> FAIL, report-only per-identity divergence
-  -> WARN. Non-career save -> INFO (part (b) skipped). CitedContract:
-  `EffectiveState.ComputeELS` (ELS definition) + `CareerSaveParser.Parse` +
-  `LedgerGroundTruthDiff.Compare` + `LedgerGroundTruthHarness` (in-game FAIL path).
+  -> WARN. A career save with no injected reconstruction reports
+  reconstruction-not-available INFO under `INV8-CAREER-DIFF`; a NON-CAREER save is
+  SILENT (no part-(b) finding at all, not INFO): the career diff carries no
+  information on a Sandbox / Science save, and staying finding-free preserves the
+  clean-data-is-green convention. CitedContract: `EffectiveState.ComputeELS` (ELS
+  definition) + `CareerSaveParser.Parse` + `LedgerGroundTruthDiff.Compare` +
+  `LedgerGroundTruthHarness` (in-game FAIL path).
+
+**Conditional-INFO policy (and its trade-off).** Three INFO sites are emitted
+ONLY when they carry information, deliberately preferring a finding-free clean
+report over an always-present inventory line:
+
+- an absent resource manifest (INV6) is SILENT (not even INFO) on the recording
+  kinds where a manifest is optional;
+- the INV5 generation inventory (`INV5-GENERATIONS`) fires only when more than the
+  single current generation is present;
+- the non-career INV8 part (b) is SILENT as described above.
+
+The trade-off: a clean current-gen save produces a byte-empty findings list,
+which is the clearest possible "all green" signal and keeps CI diffs quiet, but
+it means the report does NOT positively confirm "I looked at manifests /
+generations / the career diff and they were fine" -- absence of a finding is the
+only evidence the check ran. The per-subject loader summary line
+(`Analyzer: load save=... trees=n recordings=n loadFaults=n`) and the
+`subjectSchemaGeneration` report field carry the "the analyzer ran and saw N
+recordings at generation G" signal instead, so the silent-clean policy does not
+lose the run-happened evidence; it only moves it out of the findings list.
 - **INV9 rewind-point + id validation** (`RuleId INV9-REWINDPOINT`). Every
   `RewindPoint` id passes `RecordingPaths.ValidateRecordingId`, its
   `Parsek/RewindPoints/<id>.sfs` exists and parses as a ConfigNode, and every
@@ -516,8 +584,13 @@ Each: scenario -> expected behavior -> v1 or deferred.
     file the tree no longer references. Expected: WARN `INV5-ORPHAN-SIDECAR`
     (inventory), not FAIL. v1.
 21. **Empty save directory / no `ParsekScenario` node**. Scenario: a fresh save
-    or a non-Parsek save. Expected: one INFO
-    `Analyzer: no Parsek footprint`, zero FAIL, clean report. v1.
+    or a non-Parsek save. Expected: an EMPTY report -- zero findings of any level
+    (no synthetic "no Parsek footprint" INFO is emitted), zero FAIL, clean run.
+    The empty-findings state is itself the signal: the human-report header line
+    (`[Analyzer] save=... generation=0 FAIL=0 WARN=0 INFO=0 STALE=0`) and the
+    Verbose loader summary (`recordings=0 loadFaults=0`) carry the "analyzed, saw
+    nothing" evidence, consistent with the conditional-INFO / clean-data-is-green
+    policy (no findings-list line for a save that carries no Parsek data). v1.
 22. **Stale fixture corpus (generation bump landed, fixtures not regenerated)**.
     Scenario: corpus stamp gen 3, code gen 4. Expected: STALE-FIXTURE for every
     recording; CI red with the distinct STALE verdict, not FAIL (so the failure
@@ -740,12 +813,19 @@ and known-good builder output exposes wrong rules). Body resolution uses
 - **Text / pre-reset sidecar**: LoadFault with the exact production reason
   string, no crash. Fails if the analyzer diverges from the production reject
   path.
-- **Corrupt `.sfs` (unbalanced braces)**: single `sfs` LoadFault + empty model
-  + clean report, no crash. Fails if a malformed save takes down triage.
+- **Corrupt `.sfs` (unbalanced braces)**: single `sfs` LoadFault + empty model,
+  no crash, and the full Evaluate pipeline turns that fault into a `LOADER-FAULT`
+  FAIL so the report is RED (`IsRed`), not silently green. Fails if a malformed
+  save takes down triage, or if a corrupt sfs analyzes green.
+- **tree-node / ledger LoadFault**: a throwing RECORDING tree record or an
+  unparsable `ledger.pgld` each yield a `LOADER-FAULT` FAIL (red run). Fails if
+  either kind is dropped and analyzes green (the same blocker as the corrupt sfs).
 - **Missing snapshot for INV4**: INV4 downgrades to INFO + a snapshot-load WARN,
   no crash. Fails if a missing snapshot NREs the PID rule.
-- **Empty / non-Parsek save**: one INFO, zero FAIL, no crash. Fails if the
-  analyzer requires a Parsek footprint and errors on a vanilla save.
+- **Empty / non-Parsek save**: an EMPTY report (zero findings, zero FAIL), no
+  crash; the header zeros + loader summary carry the "analyzed, saw nothing"
+  signal (edge case 21). Fails if the analyzer requires a Parsek footprint and
+  errors on a vanilla save, or emits a spurious finding on a clean empty save.
 
 ### Report format stability tests
 
@@ -778,3 +858,44 @@ and known-good builder output exposes wrong rules). Body resolution uses
   implementations asserts a non-empty `CitedContract`. Fails if a new rule ships
   without naming the production member it checks, defeating the review gate that
   keeps wrong contracts out (plan section 7: "wrong contracts die in review").
+
+## Open Questions and Deferred Review NITs
+
+The INV8 part (b) headless-reconstruction seam is the one open question tracked
+inline (see the INV8 bullet's "OPEN QUESTION"): the offline career diff stays
+WARN-capped and reconstruction-not-available INFO until a Unity-free recalc seam
+plus a hardcoded facility-max-levels map are proven; the FAIL-severity variant
+lives on the in-game H5 path.
+
+The following smaller items were raised in review and CONSCIOUSLY DEFERRED (not
+fixed in this round). They are tracked here so they are not lost:
+
+- **Cycle-noise (INV7 parent/supersede cycles report one node, not the edge
+  set)**. A parent or supersede cycle emits a single FAIL at the node that closes
+  the loop and marks the whole visited path reported. That is enough to fail the
+  run and name a member, but the message does not enumerate the full cycle edge
+  set, so triage must walk the tree by hand to see every participant. Deferred:
+  the single finding is a correct red signal; richer cycle reporting is polish.
+- **Second out-edge supersede cycles**. `CheckSupersedeCycles` follows only the
+  FIRST `Old -> New` edge per node (`if (!next.ContainsKey(...)) next[old] = new`),
+  so a corrupt row set giving a node two distinct out-edges only has its first
+  edge walked; a cycle reachable exclusively through the second out-edge is not
+  detected. Deferred: the supersede graph is near-functional in practice (one
+  merge target per old id); multi-out-edge corruption is out of scope for v1.
+- **Double-report of an invalid recording id**. An id that fails
+  `ValidateRecordingId` can surface both as a loader `trajectory`
+  `invalid-recording-id` LoadFault (via INV5) and as an INV9 `badid` FAIL. Both
+  are FAIL and both are correct, but the same root cause is counted twice.
+  Deferred: over-reporting a real corruption is safe; de-duping across rules
+  needs a shared id-validity pass that is not worth the coupling yet.
+- **`BracesBalanced` value-brace false positive**. The corruption pre-check
+  counts every `{` / `}` in the raw sfs text, including braces that appear inside
+  a quoted / free-text VALUE (e.g. a vessel name or note containing a brace).
+  Such a value could tip the balance count and mis-flag a structurally valid save
+  as `unbalanced-braces`, or mask a real imbalance. Deferred: KSP sfs values
+  rarely carry literal braces and the check is a deterministic corruption signal
+  for the common case; a brace-aware tokenizer is a larger change.
+- **Numbered-sfs API**. The loader only reads `persistent.sfs`; the design's
+  "and any numbered `*.sfs` the caller names" (quicksaves / named saves) is not
+  wired to a parameter yet. Deferred: the harness and triage operate on
+  `persistent.sfs`; a caller-named-sfs overload lands when a run mode needs it.
