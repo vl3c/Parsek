@@ -79,6 +79,27 @@ namespace Parsek.Tests.Analyzer
             writer.WriteSidecarFiles(saveDir);
         }
 
+        // A corpus that REDS on a seeded INV2 overlap: two atmospheric TrackSections
+        // with overlapping interior UT spans on one recording (double-cover -> FAIL).
+        private void SynthesizeRedCorpus(string saveDir)
+        {
+            Directory.CreateDirectory(saveDir);
+            var writer = new ScenarioWriter().WithV3Format()
+                .AddRecordingAsTree(new RecordingBuilder("Red A")
+                    .WithRecordingId("red0")
+                    .AddPoint(100, 0, 0, 1000)
+                    .AddPoint(115, 0.01, 0.02, 1500)
+                    .AddAtmosphericSection(100, 110)
+                    .AddAtmosphericSection(105, 115) // overlaps [105,110] -> INV2 FAIL
+                    .WithVesselSnapshot(VesselSnapshotBuilder.FleaRocket("Red A", "Jeb", pid: 8101)));
+
+            string scenarioText = writer.SerializeConfigNode(writer.BuildScenarioNode(), "SCENARIO", 1);
+            string save =
+                "GAME\n{\n\tFLIGHTSTATE\n\t{\n\t\tversion = 1.12.5\n\t}\n" + scenarioText + "}\n";
+            File.WriteAllText(Path.Combine(saveDir, "persistent.sfs"), save);
+            writer.WriteSidecarFiles(saveDir);
+        }
+
         // Guards (CI regression floor): the full analyzer pipeline over a known-good
         // ScenarioWriter corpus is GREEN (zero FAIL, zero STALE) and writes both
         // report files. Fails if a rule false-alarms on valid builder output, if a
@@ -100,9 +121,100 @@ namespace Parsek.Tests.Analyzer
             Assert.True(File.Exists(Path.Combine(resultsDir, "corpus.analysis.txt")));
         }
 
+        // Guards: PARSEK_ANALYZER_BASELINE_MODE parse contract (case-insensitive;
+        // default ignore on unset / unrecognized).
+        // (expected passed as the enum NAME so the public test signature does not
+        // expose the internal BaselineMode type.)
+        [Theory]
+        [InlineData(null, "Ignore")]
+        [InlineData("", "Ignore")]
+        [InlineData("ignore", "Ignore")]
+        [InlineData("APPLY", "Apply")]
+        [InlineData(" Apply ", "Apply")]
+        [InlineData("Forbid", "Forbid")]
+        [InlineData("nonsense", "Ignore")]
+        public void ParseBaselineMode_MapsEnvValues(string value, string expectedName)
+        {
+            Assert.Equal(expectedName, OfflineAnalyzer.ParseBaselineMode(value).ToString());
+        }
+
+        // Guards (design "Write then use is green"): -WriteBaseline over a corpus that
+        // reds on a seeded INV2 overlap, then a subsequent Apply run over the same
+        // save, exits green. Fails if authored baselines do not actually green a
+        // subsequent gated run (the core user story).
+        [Fact]
+        public void WriteThenApply_RedCorpus_GoesGreen_FindingsRemain()
+        {
+            string saveDir = Path.Combine(tempDir, "redsave");
+            SynthesizeRedCorpus(saveDir);
+            string resultsDir = Path.Combine(tempDir, "results");
+
+            // No baseline yet: the seeded overlap reds under Ignore.
+            AnalysisReport before = OfflineAnalyzer.Run(saveDir, resultsDir, Resolver, BaselineMode.Ignore);
+            Assert.True(before.IsRed);
+            Assert.Contains(before.Findings, f => f.RuleId == "INV2-NO-DOUBLE-COVER" && f.Level == VerdictLevel.Fail);
+
+            // Author the baseline, then re-run gated in Apply.
+            OfflineAnalyzer.WriteBaselineForSave(saveDir, resultsDir, Resolver, keepStale: false);
+            Assert.True(File.Exists(OfflineAnalyzer.ResolveBaselinePath(saveDir)));
+
+            AnalysisReport after = OfflineAnalyzer.Run(saveDir, resultsDir, Resolver, BaselineMode.Apply);
+            Assert.False(after.IsRed);
+            Assert.True(after.Counts.Baselined > 0);
+            // The finding is still in the report, just accepted.
+            Assert.Contains(after.Findings, f => f.RuleId == "INV2-NO-DOUBLE-COVER" && f.Baselined);
+        }
+
+        // Guards: Forbid over a save that carries a baseline reds (BASELINE-FORBIDDEN),
+        // even though the seeded reds were baselined. The fresh-save guard is
+        // structural.
+        [Fact]
+        public void Forbid_OverBaselinedSave_Reds()
+        {
+            string saveDir = Path.Combine(tempDir, "redsave");
+            SynthesizeRedCorpus(saveDir);
+            string resultsDir = Path.Combine(tempDir, "results");
+            OfflineAnalyzer.WriteBaselineForSave(saveDir, resultsDir, Resolver, keepStale: false);
+
+            AnalysisReport report = OfflineAnalyzer.Run(saveDir, resultsDir, Resolver, BaselineMode.Forbid);
+            Assert.True(report.IsRed);
+            Assert.Contains(report.Findings, f => f.RuleId == BaselineFilter.ForbiddenRuleId);
+        }
+
+        // Guards: Forbid over a baseline-free GREEN corpus is a clean green no-op.
+        [Fact]
+        public void Forbid_NoBaseline_GreenCorpus_Clean()
+        {
+            string saveDir = Path.Combine(tempDir, "greensave");
+            SynthesizeCorpus(saveDir);
+            string resultsDir = Path.Combine(tempDir, "results");
+
+            AnalysisReport report = OfflineAnalyzer.Run(saveDir, resultsDir, Resolver, BaselineMode.Forbid);
+            Assert.False(report.IsRed);
+            Assert.DoesNotContain(report.Findings, f => f.RuleId == BaselineFilter.ForbiddenRuleId);
+        }
+
+        // Guards: Ignore over a save WITH a baseline never applies it; the seeded reds
+        // stay red and a PRESENT-NOT-APPLIED INFO is emitted (so WriteBaseline's
+        // internal Ignore pass sees the TRUE findings).
+        [Fact]
+        public void Ignore_OverBaselinedSave_LeavesRedsRed()
+        {
+            string saveDir = Path.Combine(tempDir, "redsave");
+            SynthesizeRedCorpus(saveDir);
+            string resultsDir = Path.Combine(tempDir, "results");
+            OfflineAnalyzer.WriteBaselineForSave(saveDir, resultsDir, Resolver, keepStale: false);
+
+            AnalysisReport report = OfflineAnalyzer.Run(saveDir, resultsDir, Resolver, BaselineMode.Ignore);
+            Assert.True(report.IsRed);
+            Assert.Equal(0, report.Counts.Baselined);
+            Assert.Contains(report.Findings, f => f.RuleId == BaselineFilter.PresentNotAppliedRuleId);
+        }
+
         // Harness post-run / ad hoc triage. Reads PARSEK_ANALYZER_SAVE; when unset
         // it skips cleanly (no-op) so the normal CI pass never runs it. When set, it
-        // runs the pipeline over that save and writes the reports into
+        // runs the pipeline over that save (in the PARSEK_ANALYZER_BASELINE_MODE the
+        // env resolves to; default ignore) and writes the reports into
         // PARSEK_ANALYZER_RESULTS (or the default analyzer-results dir). Malformed
         // input is expected to produce findings, never a stack trace.
         [Fact]
@@ -117,13 +229,93 @@ namespace Parsek.Tests.Analyzer
             if (string.IsNullOrEmpty(resultsDir))
                 resultsDir = DefaultResultsDir();
 
-            AnalysisReport report = OfflineAnalyzer.Run(saveDir, resultsDir, Resolver);
+            BaselineMode mode = OfflineAnalyzer.ParseBaselineMode(
+                Environment.GetEnvironmentVariable("PARSEK_ANALYZER_BASELINE_MODE"));
+
+            AnalysisReport report = OfflineAnalyzer.Run(saveDir, resultsDir, Resolver, mode);
 
             string baseName = string.IsNullOrEmpty(report.SaveName) ? "analysis" : report.SaveName;
             Assert.True(File.Exists(Path.Combine(resultsDir, baseName + ".analysis.json")),
                 "analyzer must write the machine report for a Manual run");
             Assert.True(File.Exists(Path.Combine(resultsDir, baseName + ".analysis.txt")),
                 "analyzer must write the human report for a Manual run");
+        }
+
+        // Authoring path for -WriteBaseline (design "Authoring: -WriteBaseline").
+        // Reads PARSEK_ANALYZER_SAVE; skips cleanly when unset. Refuses to run when
+        // PARSEK_ANALYZER_BASELINE_MODE=forbid is declared in the environment (a
+        // caller explicitly declaring a forbid context). PARSEK_ANALYZER_KEEP_STALE=1
+        // maps to -KeepStaleBaselineEntries. Runs the analyzer in ignore internally
+        // (to see the TRUE findings) then writes baseline.cfg beside the save.
+        [Fact]
+        [Trait("Category", "Manual")]
+        public void Manual_WriteBaselineForEnvSave()
+        {
+            string saveDir = Environment.GetEnvironmentVariable("PARSEK_ANALYZER_SAVE");
+            if (string.IsNullOrEmpty(saveDir))
+                return; // env unset -> skip cleanly (CI-safe)
+
+            // Structural refusal is the harness Forbid run; on top of that,
+            // -WriteBaseline itself refuses only when a forbid context is declared.
+            BaselineMode envMode = OfflineAnalyzer.ParseBaselineMode(
+                Environment.GetEnvironmentVariable("PARSEK_ANALYZER_BASELINE_MODE"));
+            Assert.False(envMode == BaselineMode.Forbid,
+                "-WriteBaseline refuses to run in a declared forbid context");
+
+            string resultsDir = Environment.GetEnvironmentVariable("PARSEK_ANALYZER_RESULTS");
+            if (string.IsNullOrEmpty(resultsDir))
+                resultsDir = DefaultResultsDir();
+
+            bool keepStale = string.Equals(
+                Environment.GetEnvironmentVariable("PARSEK_ANALYZER_KEEP_STALE"), "1", StringComparison.Ordinal);
+
+            AnalysisBaseline written = OfflineAnalyzer.WriteBaselineForSave(saveDir, resultsDir, Resolver, keepStale);
+
+            string baselinePath = OfflineAnalyzer.ResolveBaselinePath(saveDir);
+            Assert.True(File.Exists(baselinePath), "-WriteBaseline must write baseline.cfg beside the save");
+            Assert.NotNull(written);
+        }
+
+        // The five known historical saves regression floor (design "Plumbing"). A
+        // standing floor: green means "no new damage on any listed save"; any red is
+        // a genuinely new finding on top of the already-baselined INV2 overlaps.
+        //
+        // Smallest adaptation: a Manual Fact iterating a semicolon-separated
+        // PARSEK_ANALYZER_HISTORICAL_SAVES env list (set by
+        // scripts/analyze-historical-saves.ps1) instead of a [Theory] with baked-in
+        // [InlineData] rows, because the five save paths are machine-specific and not
+        // committable. Same contract: each existing save runs in Apply and must be
+        // green. Skips cleanly when the env var is unset.
+        [Fact]
+        [Trait("Category", "Manual")]
+        public void Manual_HistoricalSaves_GreenUnderApply()
+        {
+            string list = Environment.GetEnvironmentVariable("PARSEK_ANALYZER_HISTORICAL_SAVES");
+            if (string.IsNullOrEmpty(list))
+                return; // env unset -> skip cleanly
+
+            string resultsRoot = Environment.GetEnvironmentVariable("PARSEK_ANALYZER_RESULTS");
+            var reds = new System.Collections.Generic.List<string>();
+
+            foreach (string raw in list.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string save = raw.Trim();
+                if (string.IsNullOrEmpty(save) || !Directory.Exists(save))
+                    continue; // a missing listed save is skipped, not a red
+
+                string resultsDir = string.IsNullOrEmpty(resultsRoot)
+                    ? Path.Combine(save, "analysis")
+                    : Path.Combine(resultsRoot, Path.GetFileName(save.TrimEnd(
+                        Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
+
+                AnalysisReport report = OfflineAnalyzer.Run(save, resultsDir, Resolver, BaselineMode.Apply);
+                if (report.IsRed)
+                    reds.Add(save + " (failNonBaselined=" + report.Counts.FailNonBaselined
+                        + " staleNonBaselined=" + report.Counts.StaleNonBaselined + ")");
+            }
+
+            Assert.True(reds.Count == 0,
+                "historical saves with NEW (non-baselined) findings: " + string.Join(", ", reds));
         }
     }
 }
