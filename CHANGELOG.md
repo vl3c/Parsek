@@ -10,6 +10,10 @@ All notable changes to Parsek are documented here.
 
 - Supply-route inventory delivery now uses every cargo container on the destination vessel: when the first container is full, items are delivered into the next container with a free slot instead of being reported as undelivered. Pickup already worked this way; delivery now matches it.
 
+### Internals & Tests
+
+- Career recalculation is slightly cheaper: the walk now skips a redundant re-sort of the action list when nothing changed it. Recalculated career values are unchanged.
+
 ## 0.10.3
 
 ### Features

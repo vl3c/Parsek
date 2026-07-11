@@ -121,11 +121,12 @@ namespace Parsek
         /// numbers need to be computed up-front. Future versions may pre-compute
         /// per-route action counts to size lookup dicts or detect missing routes.
         /// </summary>
-        public void PrePass(List<GameAction> actions, double? walkNowUT = null)
+        public bool PrePass(List<GameAction> actions, double? walkNowUT = null)
         {
             // Intentionally empty. The skeleton's per-route counters are accumulated
             // during ProcessAction; there is no pre-pass aggregate that would change
             // dispatch ordering or affordability.
+            return false;
         }
 
         /// <summary>
