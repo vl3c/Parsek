@@ -27,6 +27,7 @@ namespace Parsek.Tests.Analyzer
             var tombstones = new List<LedgerTombstone>();
             var supersedes = new List<RecordingSupersedeRelation>();
             var loadFaults = new List<LoadFault>();
+            var sidecarSchema = new Dictionary<string, (int, int)>(StringComparer.Ordinal);
 
             // Quiet the production sidecar/tree logging during load; the analyzer
             // is not a KSP session and should not spam KSP-style lines.
@@ -50,6 +51,7 @@ namespace Parsek.Tests.Analyzer
                             supersedes, RecordingSupersedeRelation.LoadFrom);
                         LoadStagingEntries(scenario, "LEDGER_TOMBSTONES",
                             tombstones, LedgerTombstone.LoadFrom);
+                        LoadSidecars(saveDir, recordings, sidecarSchema, loadFaults);
                     }
                 }
             }
@@ -62,6 +64,7 @@ namespace Parsek.Tests.Analyzer
             model.Trees = trees;
             model.Tombstones = tombstones;
             model.SupersedeRelations = supersedes;
+            model.SidecarSchema = sidecarSchema;
             model.LoadFaults = loadFaults;
             return model;
         }
@@ -232,6 +235,154 @@ namespace Parsek.Tests.Analyzer
             {
                 foreach (ConfigNode entry in container.GetNodes("ENTRY"))
                     target.Add(loadFrom(entry));
+            }
+        }
+
+        // --- Sidecar hydration + probe capture (task 1.2) ---
+
+        private static void LoadSidecars(
+            string saveDir,
+            List<Recording> recordings,
+            Dictionary<string, (int, int)> sidecarSchema,
+            List<LoadFault> loadFaults)
+        {
+            var recordingIds = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (Recording rec in recordings)
+            {
+                if (string.IsNullOrEmpty(rec.RecordingId))
+                    continue;
+                recordingIds.Add(rec.RecordingId);
+
+                // Reject a malformed id BEFORE touching the filesystem (path traversal,
+                // invalid filename chars). ValidateRecordingId is the production gate.
+                if (!RecordingPaths.ValidateRecordingId(rec.RecordingId, RecordingIdValidationLogContext.Test))
+                {
+                    loadFaults.Add(new LoadFault(null, "trajectory", "invalid-recording-id", rec.RecordingId));
+                    continue;
+                }
+
+                string precPath = Path.Combine(saveDir, RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
+                LoadTrajectorySidecar(precPath, rec, sidecarSchema, loadFaults);
+                LoadSnapshotSidecar(
+                    Path.Combine(saveDir, RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId)),
+                    rec.RecordingId, loadFaults, node => rec.VesselSnapshot = node);
+                LoadSnapshotSidecar(
+                    Path.Combine(saveDir, RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId)),
+                    rec.RecordingId, loadFaults, node => rec.GhostVisualSnapshot = node);
+            }
+
+            InventoryOrphanSidecars(saveDir, recordingIds, sidecarSchema);
+        }
+
+        private static void LoadTrajectorySidecar(
+            string precPath,
+            Recording rec,
+            Dictionary<string, (int, int)> sidecarSchema,
+            List<LoadFault> loadFaults)
+        {
+            // A genuinely absent trajectory sidecar is not a loader fault (the
+            // recording simply has none on disk); INV5 owns any presence policy.
+            if (!File.Exists(precPath))
+                return;
+
+            TrajectorySidecarProbe probe;
+            bool probed = RecordingStore.TryProbeTrajectorySidecar(precPath, out probe);
+            if (!probed)
+            {
+                // Header could not be read at all (e.g. truncated before the magic).
+                loadFaults.Add(new LoadFault(precPath, "trajectory",
+                    string.IsNullOrEmpty(probe.FailureReason) ? "probe-failed" : probe.FailureReason,
+                    rec.RecordingId));
+                return;
+            }
+
+            // C2: capture the sidecar's reported (generation, formatVersion) for INV5.
+            sidecarSchema[rec.RecordingId] = (probe.SchemaGeneration, probe.FormatVersion);
+
+            if (!probe.Supported)
+            {
+                loadFaults.Add(new LoadFault(precPath, "trajectory",
+                    string.IsNullOrEmpty(probe.FailureReason) ? "unsupported" : probe.FailureReason,
+                    rec.RecordingId));
+                return;
+            }
+
+            try
+            {
+                if (!RecordingStore.LoadTrajectorySidecarForTesting(precPath, rec))
+                {
+                    loadFaults.Add(new LoadFault(precPath, "trajectory",
+                        string.IsNullOrEmpty(probe.FailureReason) ? "load-failed" : probe.FailureReason,
+                        rec.RecordingId));
+                }
+            }
+            catch (Exception ex)
+            {
+                loadFaults.Add(new LoadFault(precPath, "trajectory",
+                    ex.GetType().Name + ": " + ex.Message, rec.RecordingId));
+            }
+        }
+
+        private static void LoadSnapshotSidecar(
+            string path,
+            string recordingId,
+            List<LoadFault> loadFaults,
+            Action<ConfigNode> assign)
+        {
+            if (!File.Exists(path))
+                return; // Snapshots are optional (destroyed / showcase recordings).
+
+            try
+            {
+                ConfigNode node;
+                if (RecordingStore.LoadSnapshotSidecarForTesting(path, out node) && node != null)
+                {
+                    assign(node);
+                    return;
+                }
+
+                string reason = "snapshot-load-failed";
+                SnapshotSidecarProbe probe;
+                if (RecordingStore.TryProbeSnapshotSidecar(path, out probe)
+                    && !string.IsNullOrEmpty(probe.FailureReason))
+                {
+                    reason = probe.FailureReason;
+                }
+                loadFaults.Add(new LoadFault(path, "snapshot", reason, recordingId));
+            }
+            catch (Exception ex)
+            {
+                loadFaults.Add(new LoadFault(path, "snapshot",
+                    ex.GetType().Name + ": " + ex.Message, recordingId));
+            }
+        }
+
+        /// <summary>
+        /// Inventories orphan trajectory sidecars: a <c>.prec</c> on disk that no tree
+        /// recording references. Captured into <paramref name="sidecarSchema"/> (a key
+        /// with no matching recording) so INV5 can flag it later, without a dedicated
+        /// model field.
+        /// </summary>
+        private static void InventoryOrphanSidecars(
+            string saveDir,
+            HashSet<string> recordingIds,
+            Dictionary<string, (int, int)> sidecarSchema)
+        {
+            string recordingsDir = Path.Combine(saveDir, "Parsek", "Recordings");
+            if (!Directory.Exists(recordingsDir))
+                return;
+
+            foreach (string precFile in Directory.GetFiles(recordingsDir, "*.prec"))
+            {
+                string id = Path.GetFileNameWithoutExtension(precFile);
+                if (string.IsNullOrEmpty(id) || recordingIds.Contains(id) || sidecarSchema.ContainsKey(id))
+                    continue;
+
+                TrajectorySidecarProbe probe;
+                sidecarSchema[id] = RecordingStore.TryProbeTrajectorySidecar(precFile, out probe)
+                    ? (probe.SchemaGeneration, probe.FormatVersion)
+                    : (0, 0);
             }
         }
     }
