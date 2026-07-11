@@ -134,8 +134,19 @@ namespace Parsek.Tests.Analyzer
 
             string baseName = string.IsNullOrEmpty(report.SaveName) ? "analysis" : report.SaveName;
             var utf8NoBom = new UTF8Encoding(false);
-            File.WriteAllText(Path.Combine(resultsDir, baseName + ".analysis.json"), BuildJson(report), utf8NoBom);
+            string jsonPath = Path.Combine(resultsDir, baseName + ".analysis.json");
+            File.WriteAllText(jsonPath, BuildJson(report), utf8NoBom);
             File.WriteAllText(Path.Combine(resultsDir, baseName + ".analysis.txt"), BuildHumanSummary(report), utf8NoBom);
+
+            // Diagnostic logging (design "Diagnostic Logging"): one-shot report-write
+            // summary carrying the per-level counts + output path.
+            Parsek.ParsekLog.Info("Analyzer",
+                "report save='" + (report.SaveName ?? "") + "'"
+                + " FAIL=" + report.Counts.Fail.ToString(IC)
+                + " WARN=" + report.Counts.Warn.ToString(IC)
+                + " INFO=" + report.Counts.Info.ToString(IC)
+                + " STALE=" + report.Counts.StaleFixture.ToString(IC)
+                + " json='" + jsonPath + "'");
         }
 
         private static string JsonString(string value)

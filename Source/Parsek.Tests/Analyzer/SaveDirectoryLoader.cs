@@ -84,7 +84,35 @@ namespace Parsek.Tests.Analyzer
             model.Ledger = ledger;
             model.CareerSave = careerSave;
             model.LoadFaults = loadFaults;
+
+            LogLoadSummary(model, saveDir, loadFaults);
             return model;
+        }
+
+        /// <summary>
+        /// Diagnostic logging (design "Diagnostic Logging"): one per-subject summary
+        /// line at Verbose plus one Warn line per LoadFault. The per-fault Warn makes
+        /// the "a file that failed to parse is itself a finding" contract observable
+        /// in a run log. Emitted once at the end of a load (bounded: faults are few),
+        /// after RecordingStore.SuppressLogging is restored, so these analyzer-tagged
+        /// lines are not suppressed alongside the production sidecar logs.
+        /// </summary>
+        private static void LogLoadSummary(AnalyzerModel model, string saveDir, List<LoadFault> loadFaults)
+        {
+            ParsekLog.Verbose("Analyzer",
+                "load save='" + (model.SaveName ?? "") + "' path='" + (saveDir ?? "") + "'"
+                + " trees=" + model.Trees.Count
+                + " recordings=" + model.Recordings.Count
+                + " loadFaults=" + loadFaults.Count);
+
+            foreach (LoadFault f in loadFaults)
+            {
+                ParsekLog.Warn("Analyzer",
+                    "loadFault kind=" + (f.FileKind ?? "unknown")
+                    + " recording=" + (f.RecordingId ?? "<none>")
+                    + " path='" + (f.FilePath ?? "") + "'"
+                    + " reason=" + (f.Reason ?? "unknown"));
+            }
         }
 
         /// <summary>

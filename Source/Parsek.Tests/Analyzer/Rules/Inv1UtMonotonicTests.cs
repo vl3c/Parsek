@@ -120,6 +120,52 @@ namespace Parsek.Tests.Analyzer.Rules
                 f.Level == VerdictLevel.Fail && f.Message.Contains("seq=SectionSpan"));
         }
 
+        // Guards: a NaN point UT -> FAIL. A NaN never trips the strict back-step
+        // check (NaN < x is always false), so without an explicit IsNaN check a
+        // NaN-poisoned sidecar would analyze GREEN and then break TrajectoryMath's
+        // binary-search sampler at playback.
+        [Fact]
+        public void NaNPointUt_Fails()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-nan-pt",
+                Points = new List<TrajectoryPoint> { P(0), P(double.NaN), P(2) },
+                TrackSections = new List<TrackSection>(),
+            };
+
+            List<Finding> findings = Run(rec);
+
+            Finding fail = Assert.Single(findings);
+            Assert.Equal(Inv1UtMonotonic.RuleIdConst, fail.RuleId);
+            Assert.Equal(VerdictLevel.Fail, fail.Level);
+            Assert.Contains("nan", fail.Message);
+            Assert.Contains("seq=Points", fail.Message);
+        }
+
+        // Guards: a NaN section startUT -> FAIL. NaN > endUT is always false, so the
+        // ordering check silently passes; the explicit IsNaN branch reports it.
+        [Fact]
+        public void NaNSectionStartUt_Fails()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-nan-span",
+                Points = new List<TrajectoryPoint>(),
+                TrackSections = new List<TrackSection>
+                {
+                    Section(double.NaN, 10, 0, 5),
+                },
+            };
+
+            List<Finding> findings = Run(rec);
+
+            Assert.Contains(findings, f =>
+                f.Level == VerdictLevel.Fail
+                && f.Message.Contains("nan")
+                && f.Message.Contains("seq=SectionSpan"));
+        }
+
         // Guards: a back-stepping checkpoint startUT sequence -> FAIL. Fails if
         // orbital-checkpoint sections are not covered.
         [Fact]

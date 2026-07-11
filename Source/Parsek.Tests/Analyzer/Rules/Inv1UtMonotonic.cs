@@ -44,7 +44,23 @@ namespace Parsek.Tests.Analyzer.Rules
                 {
                     TrackSection s = rec.TrackSections[i];
 
-                    if (s.startUT > s.endUT)
+                    // NaN section bound (double.IsNaN): a NaN startUT/endUT makes
+                    // section dispatch and the > comparison ill-defined (NaN > x is
+                    // always false, so the ordering check silently passes). Report
+                    // it explicitly as one finding; the ordering check below is
+                    // mutually exclusive because a NaN bound can never satisfy >.
+                    if (double.IsNaN(s.startUT) || double.IsNaN(s.endUT))
+                    {
+                        findings.Add(new Finding(
+                            RuleIdConst,
+                            VerdictLevel.Fail,
+                            rec.RecordingId,
+                            i,
+                            Inv("INV1 nan recording={0} seq=SectionSpan section={1} startUT={2} endUT={3}",
+                                rec.RecordingId, i, s.startUT, s.endUT),
+                            "TrackSection.startUT/endUT"));
+                    }
+                    else if (s.startUT > s.endUT)
                     {
                         findings.Add(new Finding(
                             RuleIdConst,
@@ -68,7 +84,31 @@ namespace Parsek.Tests.Analyzer.Rules
         private static void CheckPointSequence(
             Recording rec, string seqName, int sectionIndex, List<double> uts, List<Finding> findings)
         {
-            if (uts == null || uts.Count < 2)
+            if (uts == null)
+                return;
+
+            // NaN UT: a NaN sample UT breaks TrajectoryMath's binary-search sampler
+            // (every comparison against NaN is false, so the sort/search silently
+            // misbehaves) and never trips the strict back-step check below. Report
+            // the first NaN per sequence, same bounding style as the back-step
+            // reporting (one finding per sequence).
+            for (int i = 0; i < uts.Count; i++)
+            {
+                if (double.IsNaN(uts[i]))
+                {
+                    findings.Add(new Finding(
+                        RuleIdConst,
+                        VerdictLevel.Fail,
+                        rec.RecordingId,
+                        sectionIndex,
+                        Inv("INV1 nan recording={0} seq={1} section={2} at={3}",
+                            rec.RecordingId, seqName, sectionIndex, i),
+                        "TrajectoryPoint.ut"));
+                    return;
+                }
+            }
+
+            if (uts.Count < 2)
                 return;
 
             for (int i = 1; i < uts.Count; i++)
