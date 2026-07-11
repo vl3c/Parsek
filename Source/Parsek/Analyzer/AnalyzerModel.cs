@@ -54,6 +54,16 @@ namespace Parsek.Analyzer
         /// <summary>Production member the rule checks (REQUIRED, never empty).</summary>
         public string CitedContract;
 
+        /// <summary>
+        /// Set by <c>BaselineFilter.Apply</c> when this finding matched a baseline
+        /// entry (module M-A follow-on, per-save known-findings baseline). Default
+        /// false. A baselined finding STAYS in the report (never silently dropped)
+        /// and still increments its own level count, but does NOT count toward RED
+        /// (see <see cref="Counts.FailNonBaselined"/> / <see cref="Counts.StaleNonBaselined"/>).
+        /// Not a verdict level: the level is unchanged; this is an orthogonal accept flag.
+        /// </summary>
+        public bool Baselined;
+
         public Finding(
             string ruleId,
             VerdictLevel level,
@@ -68,6 +78,7 @@ namespace Parsek.Analyzer
             SectionIndex = sectionIndex;
             Message = message;
             CitedContract = citedContract;
+            Baselined = false;
         }
     }
 

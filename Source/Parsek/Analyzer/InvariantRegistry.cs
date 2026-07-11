@@ -99,6 +99,9 @@ namespace Parsek.Analyzer
             {
                 SaveName = model?.SaveName,
                 SubjectSchemaGeneration = DiscoverSubjectSchemaGeneration(model),
+                // Runtime-only signal for BaselineFilter's stamped-fixture refusal;
+                // not serialized, so it does not touch the report schema.
+                SubjectIsStampedFixture = model?.FixtureStamp != null,
             };
 
             if (rules != null && model != null)

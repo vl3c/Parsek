@@ -15,7 +15,25 @@ namespace Parsek.Analyzer
         public int Info;
         public int StaleFixture;
 
-        /// <summary>Aggregates a finding list into per-level counts.</summary>
+        /// <summary>
+        /// Count of findings with <see cref="Finding.Baselined"/> == true (accepted
+        /// by a per-save baseline). A baselined FAIL still increments <see cref="Fail"/>
+        /// AND this, so the report shows "5 FAIL, of which 5 baselined" rather than
+        /// hiding them.
+        /// </summary>
+        public int Baselined;
+
+        /// <summary>FAIL findings with <see cref="Finding.Baselined"/> == false. Gate input.</summary>
+        public int FailNonBaselined;
+
+        /// <summary>STALE-FIXTURE findings with <see cref="Finding.Baselined"/> == false. Gate input.</summary>
+        public int StaleNonBaselined;
+
+        /// <summary>
+        /// Aggregates a finding list into per-level counts plus the baselined tally
+        /// and the non-baselined FAIL / STALE splits (the SINGLE source of truth for
+        /// the gate; see <see cref="AnalysisReport.IsRed"/>).
+        /// </summary>
         public static Counts From(IEnumerable<Finding> findings)
         {
             var c = new Counts();
@@ -25,11 +43,19 @@ namespace Parsek.Analyzer
             {
                 switch (f.Level)
                 {
-                    case VerdictLevel.Fail: c.Fail++; break;
+                    case VerdictLevel.Fail:
+                        c.Fail++;
+                        if (!f.Baselined) c.FailNonBaselined++;
+                        break;
                     case VerdictLevel.Warn: c.Warn++; break;
                     case VerdictLevel.Info: c.Info++; break;
-                    case VerdictLevel.StaleFixture: c.StaleFixture++; break;
+                    case VerdictLevel.StaleFixture:
+                        c.StaleFixture++;
+                        if (!f.Baselined) c.StaleNonBaselined++;
+                        break;
                 }
+                if (f.Baselined)
+                    c.Baselined++;
             }
             return c;
         }
@@ -40,8 +66,11 @@ namespace Parsek.Analyzer
         /// <summary>
         /// Frozen report-format version. Bumped ONLY on a .analysis.json schema
         /// change; the golden-JSON test fails if the schema drifts without a bump.
+        /// Bumped "1" -> "2" for the per-save baseline layer (Finding.baselined +
+        /// the Counts baselined / failNonBaselined / staleNonBaselined fields + the
+        /// .txt BASELINED= / terminal RED= tokens + the [baselined] line suffix).
         /// </summary>
-        public const string CurrentAnalyzerVersion = "1";
+        public const string CurrentAnalyzerVersion = "2";
 
         public string SaveName;
 
@@ -49,6 +78,16 @@ namespace Parsek.Analyzer
 
         /// <summary>Discovered from the analyzed data.</summary>
         public int SubjectSchemaGeneration;
+
+        /// <summary>
+        /// Runtime-only (never serialized into a report, so it does NOT bump the
+        /// report schema): true when the analyzed subject carried a FixtureStamp
+        /// (a stamped fixture corpus). <c>BaselineFilter.Apply</c> reads it to refuse
+        /// an Apply over a stamped subject wholesale (BASELINE-REFUSED-STAMPED),
+        /// keeping the fresh-managed STALE-FIXTURE gate un-softenable by a baseline.
+        /// Set by <c>InvariantEvaluator.Evaluate</c> from <c>AnalyzerModel.FixtureStamp</c>.
+        /// </summary>
+        public bool SubjectIsStampedFixture;
 
         /// <summary>
         /// Findings in insertion order. <see cref="ReportWriter"/> applies the
@@ -59,9 +98,14 @@ namespace Parsek.Analyzer
         public Counts Counts;
 
         /// <summary>
-        /// A run is red when it carries any FAIL or any STALE-FIXTURE (design run
-        /// modes: both fail the build; WARN/INFO never do).
+        /// A run is red when it carries a NON-baselined FAIL or a NON-baselined
+        /// STALE-FIXTURE. Baselined findings (accepted by a per-save baseline) stay
+        /// in the report but never gate. Reads the split counts, NOT the raw
+        /// <see cref="Counts.Fail"/> / <see cref="Counts.StaleFixture"/> totals (those
+        /// still include baselined findings). WARN/INFO never red. When no baseline
+        /// is applied, FailNonBaselined == Fail and StaleNonBaselined == StaleFixture,
+        /// so this reduces to the pre-feature gate.
         /// </summary>
-        public bool IsRed => Counts.Fail > 0 || Counts.StaleFixture > 0;
+        public bool IsRed => Counts.FailNonBaselined + Counts.StaleNonBaselined > 0;
     }
 }
