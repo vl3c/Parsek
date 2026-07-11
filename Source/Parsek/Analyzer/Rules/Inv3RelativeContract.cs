@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 
-namespace Parsek.Tests.Analyzer.Rules
+namespace Parsek.Analyzer.Rules
 {
     // INV3 RELATIVE contract (design doc "The invariant rules", edge cases 5 + 6).
     //

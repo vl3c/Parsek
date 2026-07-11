@@ -6,3 +6,4 @@
 // assembly under namespace Parsek.Tests.Analyzer(.Rules); these global usings let
 // them reference the moved core by simple name without a per-file using edit.
 global using Parsek.Analyzer;
+global using Parsek.Analyzer.Rules;

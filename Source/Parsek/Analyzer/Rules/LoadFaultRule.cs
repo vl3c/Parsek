@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 
-namespace Parsek.Tests.Analyzer.Rules
+namespace Parsek.Analyzer.Rules
 {
     // LOADER-FAULT rule (design doc "The invariant rules" / "The loader": a file
     // that fails to parse IS a finding, never a crash).

@@ -158,7 +158,7 @@ namespace Parsek.Tests.Analyzer
             AnalysisReport report = Analyzer.Evaluate(model);
             Assert.True(report.IsRed);
             Assert.Contains(report.Findings, f =>
-                f.RuleId == Parsek.Tests.Analyzer.Rules.LoadFaultRule.RuleIdConst
+                f.RuleId == Parsek.Analyzer.Rules.LoadFaultRule.RuleIdConst
                 && f.Level == VerdictLevel.Fail
                 && f.Message.Contains("kind=sfs"));
         }

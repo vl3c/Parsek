@@ -2,13 +2,14 @@ using System.Collections.Generic;
 using System.Globalization;
 using Parsek;
 
-namespace Parsek.Tests.Analyzer.Rules
+namespace Parsek.Analyzer.Rules
 {
     // INV8 ledger (design doc "The invariant rules" INV8, edge cases 16-18, 17b).
     //
-    // Two parts, distinct severities. Pure over the model; the loader materialized
-    // the RAW, unfiltered Ledger.Actions (correction C1) and the tombstone rows so
-    // this rule can reconstruct the ELS filter itself.
+    // Two parts, distinct severities. Pure over the model; the builder materialized
+    // the RAW, unfiltered ledger actions (correction C1) and the tombstone rows so
+    // this rule can reconstruct the ELS filter itself. This rule reads no store
+    // symbols -- it operates only on model.Ledger, the materialized list.
     //
     // Part (a) -- ELS internal consistency (FAIL, every save). The rule computes
     // the ELS filter internally from model.Ledger (raw actions) minus any action

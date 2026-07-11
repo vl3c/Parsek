@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 
-namespace Parsek.Tests.Analyzer.Rules
+namespace Parsek.Analyzer.Rules
 {
     // INV5 schema gate (design doc "The invariant rules" INV5, edge cases 1-4, 20, 22).
     //

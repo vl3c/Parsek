@@ -3,7 +3,7 @@ using System.Globalization;
 using System.IO;
 using Parsek;
 
-namespace Parsek.Tests.Analyzer.Rules
+namespace Parsek.Analyzer.Rules
 {
     // INV7b annotation staleness (design doc "The invariant rules" INV7b, edge
     // case 15).

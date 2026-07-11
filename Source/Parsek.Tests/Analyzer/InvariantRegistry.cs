@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Parsek;
-using Parsek.Tests.Analyzer.Rules;
+using Parsek.Analyzer.Rules;
 
 namespace Parsek.Tests.Analyzer
 {
