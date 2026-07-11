@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.4
 
+### Internals & Tests
+
+- Career recalculation is slightly cheaper: the walk now skips a redundant re-sort of the action list when nothing changed it. Recalculated career values are unchanged.
+
 ## 0.10.3
 
 ### Features
