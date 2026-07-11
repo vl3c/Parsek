@@ -29,6 +29,7 @@ namespace Parsek.Tests.Analyzer
                 new Inv10CodecRoundtrip(),
                 new Inv7bAnnotationStale(),
                 new Inv9RewindPoint(),
+                new Inv8Ledger(),
             };
     }
 
