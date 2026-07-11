@@ -239,6 +239,22 @@ namespace Parsek.TestCommands
             return DecideRecovery(id, phase);
         }
 
+        /// <summary>
+        /// Raises the replayed phase for <paramref name="id"/> in <paramref name="map"/> to the
+        /// phase named by <paramref name="phaseToken"/> (<c>CLAIMED</c> / <c>EXECUTED</c> /
+        /// <c>DONE</c>), keeping the highest phase seen. The addon mirrors every durable journal
+        /// write here so a same-process re-dispatch of an already-claimed id can never read
+        /// <see cref="JournalPhase.None"/> from the map (defense-in-depth at-most-once): an
+        /// unknown token or a lower phase is a no-op.
+        /// </summary>
+        internal static void MirrorPhaseIntoMap(Dictionary<string, JournalPhase> map, string id, string phaseToken)
+        {
+            if (map == null || string.IsNullOrEmpty(id)) return;
+            if (!TryParsePhase(phaseToken, out JournalPhase phase)) return;
+            if (!map.TryGetValue(id, out JournalPhase existing) || phase > existing)
+                map[id] = phase;
+        }
+
         private static bool TryParsePhase(string value, out JournalPhase phase)
         {
             switch (value)

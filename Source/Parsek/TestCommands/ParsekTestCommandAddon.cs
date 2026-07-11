@@ -95,7 +95,7 @@ namespace Parsek.TestCommands
         // at initiation but defers EXECUTED + the terminal response until TryCompleteTwoPhase
         // sees the operation settle (RunTests batch done / new game loaded). A crash between
         // CLAIMED and completion leaves the id at CLAIMED -> INTERRUPTED on restart.
-        private const string PendingVerdict = "__PENDING__";
+        private const string PendingVerdict = TestCommandExecution.PendingVerdict;
         private bool awaitingCompletion;
         private string completionId;
         private string completionVerb;
@@ -261,6 +261,10 @@ namespace Parsek.TestCommands
             {
                 ParsekLog.Warn(Tag, $"journal read failed: {ex.Message}");
             }
+            catch (UnauthorizedAccessException ex)
+            {
+                ParsekLog.Warn(Tag, $"journal read failed (access denied): {ex.Message}");
+            }
 
             List<string> lines = TestCommandJournal.SplitCompleteLines(content ?? string.Empty);
             journalPhases = TestCommandJournal.ReplayIntoPhaseMap(lines);
@@ -326,6 +330,10 @@ namespace Parsek.TestCommands
             {
                 ParsekLog.Warn(Tag, $"lock read failed: {ex.Message}");
             }
+            catch (UnauthorizedAccessException ex)
+            {
+                ParsekLog.Warn(Tag, $"lock read failed (access denied): {ex.Message}");
+            }
 
             string ownSession = ParsekProcess.ProcessSessionId.ToString("N");
             double ownT = WallClockSeconds();
@@ -355,6 +363,10 @@ namespace Parsek.TestCommands
             catch (IOException ex)
             {
                 ParsekLog.Warn(Tag, $"lock write failed: {ex.Message}");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                ParsekLog.Warn(Tag, $"lock write failed (access denied): {ex.Message}");
             }
         }
 
@@ -549,7 +561,22 @@ namespace Parsek.TestCommands
 
             TestCommandDiagnostics.ExecStart(id, head.Verb);
             ClearExecResult();
-            InvokeExecutor(head);
+            try
+            {
+                InvokeExecutor(head);
+            }
+            catch (Exception ex)
+            {
+                // An executor threw: contain it as a terminal ERROR so the id completes and
+                // the pump advances instead of the whole seam wedging on an unhandled throw.
+                // The side effect already ran to the point of the throw and is journalled
+                // CLAIMED; converting to a terminal (EXECUTED + response + DONE) preserves
+                // at-most-once (a restart replay sees EXECUTED and never re-runs it).
+                TestCommandExecution.ExceptionTerminal(ex.GetType().Name, out string exVerdict, out string exMsg);
+                ParsekLog.Error(Tag, $"exec threw id={id} cmd={head.Verb}: {ex.GetType().Name}: {ex.Message}");
+                EmitExecutedTerminal(id, seq, head.Verb, exVerdict, null, exMsg);
+                return;
+            }
             string verdict = execVerdict ?? "ERROR";
 
             if (verdict == PendingVerdict)
@@ -1211,7 +1238,15 @@ namespace Parsek.TestCommands
         private bool WriteJournal(string line, string id, string phase)
         {
             bool ok = AppendJournal(line, id);
-            if (ok) ParsekLog.Verbose(Tag, $"journal id={id} phase={phase}");
+            if (ok)
+            {
+                ParsekLog.Verbose(Tag, $"journal id={id} phase={phase}");
+                // Defense-in-depth: mirror the durable write into the in-memory phase map so a
+                // same-process re-dispatch of this id never reads JournalPhase.None for an
+                // already-claimed command (the durable at-most-once record and the live map
+                // stay in lock-step without waiting for a restart replay).
+                TestCommandJournal.MirrorPhaseIntoMap(journalPhases, id, phase);
+            }
             return ok;
         }
 

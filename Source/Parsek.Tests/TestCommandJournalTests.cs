@@ -88,5 +88,33 @@ namespace Parsek.Tests
             Assert.Empty(TestCommandJournal.SplitCompleteLines(null));
             Assert.Empty(TestCommandJournal.SplitCompleteLines(""));
         }
+
+        // ----- In-memory phase-map mirror (defense-in-depth at-most-once) -----
+
+        [Fact]
+        public void MirrorPhaseIntoMap_RaisesPhase_KeepsHighest()
+        {
+            var map = new System.Collections.Generic.Dictionary<string, JournalPhase>();
+            TestCommandJournal.MirrorPhaseIntoMap(map, "0002", "CLAIMED");
+            Assert.Equal(JournalPhase.Claimed, map["0002"]);
+            TestCommandJournal.MirrorPhaseIntoMap(map, "0002", "EXECUTED");
+            Assert.Equal(JournalPhase.Executed, map["0002"]);
+            TestCommandJournal.MirrorPhaseIntoMap(map, "0002", "DONE");
+            Assert.Equal(JournalPhase.Done, map["0002"]);
+            // A lower phase after a higher one never regresses the map.
+            TestCommandJournal.MirrorPhaseIntoMap(map, "0002", "CLAIMED");
+            Assert.Equal(JournalPhase.Done, map["0002"]);
+        }
+
+        [Fact]
+        public void MirrorPhaseIntoMap_UnknownToken_OrNullId_IsNoOp()
+        {
+            var map = new System.Collections.Generic.Dictionary<string, JournalPhase>();
+            TestCommandJournal.MirrorPhaseIntoMap(map, "x", "BOGUS");
+            Assert.False(map.ContainsKey("x"));
+            TestCommandJournal.MirrorPhaseIntoMap(map, null, "CLAIMED");
+            Assert.Empty(map);
+            TestCommandJournal.MirrorPhaseIntoMap(null, "x", "CLAIMED"); // null map: no throw
+        }
     }
 }
