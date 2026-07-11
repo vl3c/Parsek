@@ -380,34 +380,49 @@ namespace Parsek.Logistics
         private bool WriteInventoryUnloaded(InventoryPayloadItem item, InventorySlotAddress slot)
         {
             if (item.StoredPartSnapshot == null) return false;
-            ProtoVessel pv = vessel.protoVessel;
+            ProtoPartModuleSnapshot mod = ResolveUnloadedInventoryModule(slot);
+            if (mod == null) return false;
+
+            return StoreIntoUnloadedInventoryModule(mod.moduleValues, item.StoredPartSnapshot, slot.SlotIndex);
+        }
+
+        /// <summary>
+        /// Unloaded twin of <see cref="ResolveLoadedInventoryModule"/>: resolves
+        /// the probe-assigned (part index, module index) back to the proto
+        /// ModuleInventoryPart snapshot, on the SAME unloaded branch and
+        /// collections the probe walked. Returns null (with a Warn, the
+        /// delivery is then reported as a failed store) when the address no
+        /// longer resolves.
+        /// </summary>
+        private ProtoPartModuleSnapshot ResolveUnloadedInventoryModule(InventorySlotAddress slot)
+        {
+            ProtoVessel pv = vessel != null ? vessel.protoVessel : null;
             if (pv == null || pv.protoPartSnapshots == null
                 || slot.PartIndex >= pv.protoPartSnapshots.Count)
             {
                 ParsekLog.Warn(Tag,
-                    $"WriteInventoryUnloaded: proto part index out of range for slot={slot} " +
+                    $"ResolveUnloadedInventoryModule: proto part index out of range for slot={slot} " +
                     $"protoPartCount={(pv?.protoPartSnapshots != null ? pv.protoPartSnapshots.Count : 0).ToString(IC)}");
-                return false;
+                return null;
             }
 
             ProtoPartSnapshot pps = pv.protoPartSnapshots[slot.PartIndex];
             if (pps == null || pps.modules == null || slot.ModuleIndex >= pps.modules.Count)
             {
                 ParsekLog.Warn(Tag,
-                    $"WriteInventoryUnloaded: proto module index out of range for slot={slot} " +
+                    $"ResolveUnloadedInventoryModule: proto module index out of range for slot={slot} " +
                     $"part={pps?.partName ?? "<none>"}");
-                return false;
+                return null;
             }
             ProtoPartModuleSnapshot mod = pps.modules[slot.ModuleIndex];
             if (mod == null || mod.moduleName != "ModuleInventoryPart" || mod.moduleValues == null)
             {
                 ParsekLog.Warn(Tag,
-                    $"WriteInventoryUnloaded: proto module at slot={slot} is missing or not a " +
+                    $"ResolveUnloadedInventoryModule: proto module at slot={slot} is missing or not a " +
                     $"ModuleInventoryPart on part={pps.partName ?? "<none>"}");
-                return false;
+                return null;
             }
-
-            return StoreIntoUnloadedInventoryModule(mod.moduleValues, item.StoredPartSnapshot, slot.SlotIndex);
+            return mod;
         }
 
         /// <summary>

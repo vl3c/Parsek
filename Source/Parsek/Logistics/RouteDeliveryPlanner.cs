@@ -20,18 +20,25 @@ namespace Parsek.Logistics
         public readonly int PartIndex;
         public readonly int ModuleIndex;
         public readonly int SlotIndex;
+        // default(InventorySlotAddress) would otherwise read as the VALID
+        // address (0, 0, 0) — the root part's first slot — so a forgotten
+        // initialization anywhere downstream would silently target a real
+        // slot. The constructor is the only place that sets this, making the
+        // type's default value invalid by construction.
+        private readonly bool isSet;
 
         public InventorySlotAddress(int partIndex, int moduleIndex, int slotIndex)
         {
             PartIndex = partIndex;
             ModuleIndex = moduleIndex;
             SlotIndex = slotIndex;
+            isSet = true;
         }
 
         /// <summary>Sentinel for "no empty slot available" (the old bare -1).</summary>
         public static readonly InventorySlotAddress None = new InventorySlotAddress(-1, -1, -1);
 
-        public bool IsValid => PartIndex >= 0 && ModuleIndex >= 0 && SlotIndex >= 0;
+        public bool IsValid => isSet && PartIndex >= 0 && ModuleIndex >= 0 && SlotIndex >= 0;
 
         public bool Equals(InventorySlotAddress other)
         {
@@ -189,7 +196,7 @@ namespace Parsek.Logistics
                     InventorySlotAddress slot = probe.ProbeFirstEmptyInventorySlot();
                     if (!slot.IsValid)
                     {
-                        inventory.Add(new InventoryDeliveryLine(item, InventorySlotAddress.None));
+                        inventory.Add(new InventoryDeliveryLine(item, slot));
                         anyInventoryPartial = true;
                         continue;
                     }

@@ -64,12 +64,21 @@ namespace Parsek.Logistics
             }
         }
 
+        // Set when a full walk found no empty slot. Within one probe's
+        // lifetime (one delivery) occupancy never decreases — consumedSlots
+        // only grows and nothing frees destination slots mid-apply — so once
+        // exhausted every later manifest item can short-circuit instead of
+        // re-scanning the whole vessel (and re-logging the same summary).
+        private bool exhausted;
+
         public InventorySlotAddress ProbeFirstEmptyInventorySlot()
         {
-            if (vessel == null) return InventorySlotAddress.None;
+            if (vessel == null || exhausted) return InventorySlotAddress.None;
             try
             {
-                return isLoaded ? ProbeLoadedFirstEmpty() : ProbeUnloadedFirstEmpty();
+                InventorySlotAddress result = isLoaded ? ProbeLoadedFirstEmpty() : ProbeUnloadedFirstEmpty();
+                if (!result.IsValid) exhausted = true;
+                return result;
             }
             catch (Exception ex)
             {
@@ -188,7 +197,8 @@ namespace Parsek.Logistics
                     if (mv == null) continue;
                     modulesScanned++;
                     int slot = FindFirstEmptySlotInUnloadedModule(
-                        mv, i, m, consumedSlots, out int occupied, out int consumed);
+                        mv, ResolveUnloadedSlotCountFallback(pps, m), i, m,
+                        consumedSlots, out int occupied, out int consumed);
                     slotsOccupied += occupied;
                     slotsConsumed += consumed;
                     if (slot >= 0) return new InventorySlotAddress(i, m, slot);
@@ -202,16 +212,65 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// Slot count to assume for an unloaded proto inventory module whose
+        /// <c>moduleValues</c> does not carry <c>InventorySlots</c> (KSPField,
+        /// not isPersistant, so stock never persists it). The real count comes
+        /// from the part PREFAB's module at the same index — assuming the
+        /// stock default of 9 hands out phantom slot indices on smaller
+        /// containers (e.g. stock 3-slot SEQ containers), which the writer
+        /// would persist as UI-inaccessible stores. Falls back to 9 only when
+        /// the prefab cannot be resolved.
+        /// </summary>
+        private static int ResolveUnloadedSlotCountFallback(ProtoPartSnapshot pps, int moduleIndex)
+        {
+            const int stockDefault = 9;
+            try
+            {
+                AvailablePart ap = pps.partInfo ?? PartLoader.getPartInfoByName(pps.partName);
+                Part prefab = ap != null ? ap.partPrefab : null;
+                if (prefab == null || prefab.Modules == null) return stockDefault;
+                // Proto module order mirrors the prefab module order, so the
+                // same index is the right module; fall back to the first
+                // inventory module on the prefab if the indices ever skew.
+                if (moduleIndex < prefab.Modules.Count
+                    && prefab.Modules[moduleIndex] is ModuleInventoryPart atIndex)
+                {
+                    return atIndex.InventorySlots;
+                }
+                for (int j = 0; j < prefab.Modules.Count; j++)
+                {
+                    if (prefab.Modules[j] is ModuleInventoryPart firstInventory)
+                        return firstInventory.InventorySlots;
+                }
+                return stockDefault;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ResolveUnloadedSlotCountFallback(part={pps?.partName ?? "<none>"}) threw " +
+                    $"{ex.GetType().Name}: {ex.Message}; assuming {stockDefault.ToString(IC)}");
+                return stockDefault;
+            }
+        }
+
+        /// <summary>
         /// First empty slot index in one proto ModuleInventoryPart module's
         /// <paramref name="moduleValues"/>, or -1 when the module is full.
         /// A slot is empty when it is neither listed in the module's persisted
         /// STOREDPARTS children nor already consumed by the planner at
         /// (<paramref name="partIndex"/>, <paramref name="moduleIndex"/>).
-        /// Pure ConfigNode + set logic, internal for direct unit testing of the
-        /// multi-module walk (a live ProtoVessel cannot be built headlessly).
+        /// The slot count is the module's persisted <c>InventorySlots</c> when
+        /// present and parseable, else <paramref name="slotCountFallback"/>
+        /// (the prefab-resolved count from
+        /// <see cref="ResolveUnloadedSlotCountFallback"/>). The out counters
+        /// are only complete when the module is full (-1 return); the found
+        /// path returns early. Pure ConfigNode + set logic, internal for
+        /// direct unit testing of the multi-module walk (a live ProtoVessel
+        /// cannot be built headlessly).
         /// </summary>
         internal static int FindFirstEmptySlotInUnloadedModule(
             ConfigNode moduleValues,
+            int slotCountFallback,
             int partIndex,
             int moduleIndex,
             HashSet<InventorySlotAddress> consumedSlots,
@@ -222,15 +281,17 @@ namespace Parsek.Logistics
             consumedCount = 0;
             if (moduleValues == null) return -1;
 
-            // InventorySlots default is 9 (ModuleInventoryPart.InventorySlots).
-            // The proto module's moduleValues may not carry the
-            // value when the part hasn't been individually
-            // configured (KSPField, not isPersistant by default),
-            // so fall back to the stock default if missing.
-            int slotCount = 9;
+            // Parse into a temp so a present-but-unparseable value (mod/MM
+            // garbage) falls back instead of TryParse zeroing the count and
+            // reporting the module full.
+            int slotCount = slotCountFallback;
             string slotsStr = moduleValues.GetValue("InventorySlots");
-            if (!string.IsNullOrEmpty(slotsStr))
-                int.TryParse(slotsStr, System.Globalization.NumberStyles.Integer, IC, out slotCount);
+            if (!string.IsNullOrEmpty(slotsStr)
+                && int.TryParse(slotsStr, System.Globalization.NumberStyles.Integer, IC, out int parsedSlots)
+                && parsedSlots >= 0)
+            {
+                slotCount = parsedSlots;
+            }
 
             // Build occupied set from existing STOREDPART children.
             HashSet<int> occupied = new HashSet<int>();
@@ -249,7 +310,6 @@ namespace Parsek.Logistics
                 }
             }
 
-            int firstEmpty = -1;
             for (int s = 0; s < slotCount; s++)
             {
                 if (consumedSlots != null
@@ -259,9 +319,9 @@ namespace Parsek.Logistics
                     continue;
                 }
                 if (occupied.Contains(s)) { occupiedCount++; continue; }
-                if (firstEmpty < 0) firstEmpty = s;
+                return s;
             }
-            return firstEmpty;
+            return -1;
         }
     }
 }

@@ -51,6 +51,17 @@ namespace Parsek.Tests.Logistics
             Assert.False(new InventorySlotAddress(0, 0, -1).IsValid);
         }
 
+        // catches: default(InventorySlotAddress) reading as the VALID address
+        // (0,0,0) — a forgotten initialization would silently deliver into the
+        // root part's first slot instead of being skipped.
+        [Fact]
+        public void SlotAddress_DefaultValue_IsInvalid()
+        {
+            Assert.False(default(InventorySlotAddress).IsValid);
+            var uninitializedArrayElement = new InventorySlotAddress[1];
+            Assert.False(uninitializedArrayElement[0].IsValid);
+        }
+
         // catches: consumed-set keying collapsing back to the bare slot index —
         // slot 0 of module A and slot 0 of module B must be DISTINCT keys, or
         // consuming one blocks the other and the second container is never used.
@@ -107,7 +118,7 @@ namespace Parsek.Tests.Logistics
         public void UnloadedScan_NullModuleValues_ReturnsMinusOne()
         {
             int slot = LiveDeliveryCapacityProbe.FindFirstEmptySlotInUnloadedModule(
-                null, 0, 0, new HashSet<InventorySlotAddress>(), out _, out _);
+                null, 9, 0, 0, new HashSet<InventorySlotAddress>(), out _, out _);
             Assert.Equal(-1, slot);
         }
 
@@ -122,10 +133,56 @@ namespace Parsek.Tests.Logistics
                 consumed.Add(new InventorySlotAddress(0, 0, s));
 
             int slot = LiveDeliveryCapacityProbe.FindFirstEmptySlotInUnloadedModule(
-                mv, 0, 0, consumed, out _, out int consumedCount);
+                mv, 9, 0, 0, consumed, out _, out int consumedCount);
 
             Assert.Equal(-1, slot); // all 9 fallback slots consumed → full
             Assert.Equal(9, consumedCount);
+        }
+
+        // catches: assuming the stock 9-slot default for an unpersisted
+        // InventorySlots on a SMALLER container — the probe would hand out
+        // phantom slot indices past the real count, which the unloaded writer
+        // persists as UI-inaccessible stores.
+        [Fact]
+        public void UnloadedScan_SmallerPrefabFallback_NoPhantomSlots()
+        {
+            ConfigNode mv = MakeInventoryModuleValues(inventorySlots: null, 0, 1, 2);
+
+            // Prefab-resolved fallback of 3 (e.g. a stock SEQ container): all
+            // real slots occupied must mean FULL, not "slot 3 free".
+            int slot = LiveDeliveryCapacityProbe.FindFirstEmptySlotInUnloadedModule(
+                mv, 3, 0, 0, new HashSet<InventorySlotAddress>(), out int occupiedCount, out _);
+
+            Assert.Equal(-1, slot);
+            Assert.Equal(3, occupiedCount);
+        }
+
+        // catches: int.TryParse failure zeroing the slot count — a
+        // present-but-unparseable InventorySlots value (mod/MM garbage like
+        // "9.0") must fall back instead of reporting the module full.
+        [Fact]
+        public void UnloadedScan_UnparseableInventorySlots_UsesFallback()
+        {
+            ConfigNode mv = MakeInventoryModuleValues(inventorySlots: null, 0, 1);
+            mv.AddValue("InventorySlots", "9.0");
+
+            int slot = LiveDeliveryCapacityProbe.FindFirstEmptySlotInUnloadedModule(
+                mv, 3, 0, 0, new HashSet<InventorySlotAddress>(), out _, out _);
+
+            Assert.Equal(2, slot); // fallback of 3, slots 0-1 occupied
+        }
+
+        // catches: a negative persisted InventorySlots value being trusted.
+        [Fact]
+        public void UnloadedScan_NegativeInventorySlots_UsesFallback()
+        {
+            ConfigNode mv = MakeInventoryModuleValues(inventorySlots: null, 0);
+            mv.AddValue("InventorySlots", "-2");
+
+            int slot = LiveDeliveryCapacityProbe.FindFirstEmptySlotInUnloadedModule(
+                mv, 2, 0, 0, new HashSet<InventorySlotAddress>(), out _, out _);
+
+            Assert.Equal(1, slot);
         }
 
         // catches: occupied STOREDPART slots not being skipped, or the scan
@@ -136,7 +193,7 @@ namespace Parsek.Tests.Logistics
             ConfigNode mv = MakeInventoryModuleValues(3, 0, 1);
 
             int slot = LiveDeliveryCapacityProbe.FindFirstEmptySlotInUnloadedModule(
-                mv, 0, 0, new HashSet<InventorySlotAddress>(), out int occupiedCount, out _);
+                mv, 9, 0, 0, new HashSet<InventorySlotAddress>(), out int occupiedCount, out _);
 
             Assert.Equal(2, slot);
             Assert.Equal(2, occupiedCount);
@@ -150,7 +207,7 @@ namespace Parsek.Tests.Logistics
             ConfigNode mv = MakeInventoryModuleValues(3, 0, 1, 2);
 
             int slot = LiveDeliveryCapacityProbe.FindFirstEmptySlotInUnloadedModule(
-                mv, 0, 0, new HashSet<InventorySlotAddress>(), out int occupiedCount, out _);
+                mv, 9, 0, 0, new HashSet<InventorySlotAddress>(), out int occupiedCount, out _);
 
             Assert.Equal(-1, slot);
             Assert.Equal(3, occupiedCount);
@@ -169,9 +226,9 @@ namespace Parsek.Tests.Logistics
             };
 
             int slotThisModule = LiveDeliveryCapacityProbe.FindFirstEmptySlotInUnloadedModule(
-                mv, 0, 0, consumed, out _, out int consumedCount);
+                mv, 9, 0, 0, consumed, out _, out int consumedCount);
             int slotOtherModule = LiveDeliveryCapacityProbe.FindFirstEmptySlotInUnloadedModule(
-                mv, 0, 1, consumed, out _, out int consumedOther);
+                mv, 9, 0, 1, consumed, out _, out int consumedOther);
 
             Assert.Equal(1, slotThisModule);  // slot 0 consumed on (0,0)
             Assert.Equal(1, consumedCount);
@@ -190,9 +247,9 @@ namespace Parsek.Tests.Logistics
             var consumed = new HashSet<InventorySlotAddress>();
 
             int slotA = LiveDeliveryCapacityProbe.FindFirstEmptySlotInUnloadedModule(
-                moduleA, 0, 0, consumed, out _, out _);
+                moduleA, 9, 0, 0, consumed, out _, out _);
             int slotB = LiveDeliveryCapacityProbe.FindFirstEmptySlotInUnloadedModule(
-                moduleB, 1, 0, consumed, out _, out _);
+                moduleB, 9, 1, 0, consumed, out _, out _);
 
             Assert.Equal(-1, slotA);
             Assert.Equal(1, slotB);
