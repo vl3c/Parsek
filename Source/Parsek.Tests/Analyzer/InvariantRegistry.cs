@@ -24,6 +24,7 @@ namespace Parsek.Tests.Analyzer
                 new Inv3RelativeContract(),
                 new Inv7TreeTopology(),
                 new Inv5SchemaGate(),
+                new Inv4PartEventPid(),
             };
     }
 
