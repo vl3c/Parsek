@@ -187,13 +187,21 @@ namespace Parsek.Tests.Analyzer
         /// <summary>
         /// The analyzed save directory, set by <c>SaveDirectoryLoader.Load</c>; null
         /// for a purely in-memory model (the H5 in-game walker and the core-purity
-        /// test). The two file-scoped rules that must reach sidecars the loader does
-        /// not pre-materialize into the model -- INV7b (.pann annotation staleness,
+        /// test). Two SAVE-SCOPED rules read it to reach sidecars the loader does not
+        /// pre-materialize into the model -- INV7b (.pann annotation staleness,
         /// probed against the paired .prec) and INV9 (RewindPoint quicksave
-        /// existence) -- read it and no-op when it is null, so the pure invariant
-        /// core stays reusable. It is the ONLY path-bearing field on the model; the
-        /// design's "no path on the model" ideal yields here to the plan's explicit
+        /// existence) -- and no-op when it is null, so the pure invariant core stays
+        /// reusable. It is the ONLY path-bearing field on the model; the design's
+        /// "no path on the model" ideal yields here to the plan's explicit
         /// requirement that INV7b/INV9 probe files scoped to a save.
+        ///
+        /// Note these are not the only rules that touch the filesystem: INV10
+        /// round-trips the trajectory codec through a SCRATCH temp file (its own,
+        /// never save-scoped, so it does not read this field). The core-purity gate
+        /// (InvariantRegistryTests.CorePurity_AllRules_RunOverInMemoryModel_WithoutFileAccess)
+        /// therefore asserts NO RULE THROWS over an in-memory model (SaveDirectory
+        /// null), NOT that no rule performs any file I/O -- a rule may touch scratch
+        /// files as long as it stays exception-safe when the model carries no save.
         /// </summary>
         public string SaveDirectory { get; set; }
 
