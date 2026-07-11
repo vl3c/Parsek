@@ -6,17 +6,42 @@ using Parsek;
 
 namespace Parsek.Tests.Analyzer.Rules
 {
-    // INV9 rewind-point + id validation (design doc "The invariant rules" INV9,
+    // INV9 rewind-save + id validation (design doc "The invariant rules" INV9,
     // edge case 19).
     //
-    // Every recording id and every referenced RewindPoint id must pass
-    // RecordingPaths.ValidateRecordingId BEFORE any filesystem access, so a
-    // path-traversal id (../evil) is rejected by validation and never reaches the
-    // filesystem (a security regression if it did). A referenced RewindPoint's
-    // Parsek/RewindPoints/<id>.sfs must exist and parse as a ConfigNode, else
-    // FAIL; an RP quicksave on disk that no recording references -> WARN (orphan).
+    // The field this rule checks is Recording.RewindSaveFileName -- the
+    // Rewind-to-Separation quicksave captured at recording start. Production stores
+    // it at Parsek/Saves/<id>.sfs (RecordingPaths.BuildRewindSaveRelativePath; see
+    // FlightRecorder.CaptureRewindSave / CleanupOrphanedRewindSave and
+    // RecordingStore.DeleteRecordingFiles, all of which resolve the file through
+    // BuildRewindSaveRelativePath) with the fixed "parsek_rw_" filename prefix
+    // (FlightRecorder.cs `$"parsek_rw_{shortId}"`; ParsekScenario's stale-sweep
+    // globs "parsek_rw_*.sfs"). It is NOT the newer RewindPoint (rp_*) quicksave
+    // system under Parsek/RewindPoints/, which is referenced by scenario
+    // RewindPoints slots / BranchPoints that this offline model does not load.
     //
-    // File-scoped: existence / parse checks read model.SaveDirectory. Validation
+    // Verdicts:
+    //  - A recording id or rewind id that fails RecordingPaths.ValidateRecordingId
+    //    (path traversal / invalid chars) -> FAIL, emitted BEFORE any filesystem
+    //    access so a `../evil` id never reaches the disk.
+    //  - A referenced rewind save whose Parsek/Saves/<id>.sfs is MISSING -> WARN
+    //    (not FAIL). A missing rewind save is a dangling reference, not proven
+    //    corruption: RecordingStore.DeleteRecordingFiles deletes a rewind save with
+    //    the recording being discarded WITHOUT reference-counting sibling recordings
+    //    that share the same save via ParsekFlight.CopyRewindSaveToRoot ("first
+    //    recorder wins"), so a surviving sibling can legitimately carry a now-deleted
+    //    reference; a sealed (Immutable) recording can no longer be rewound at all;
+    //    and production treats a missing rewind hint as benign
+    //    (ParsekScenario.ResolveLimboResumeRewindSave: "a missing hint is benign").
+    //    WARN surfaces the dangling reference without failing the run.
+    //  - A referenced rewind save that exists but does NOT parse as a ConfigNode ->
+    //    FAIL (a corrupt present file would break the rewind restore).
+    //  - Unreferenced parsek_rw_*.sfs files on disk are an EXPECTED benign state
+    //    (ParsekFlight.cs: "keep the on-disk parsek_rw_*.sfs but no recording ever
+    //    references it"), so they are reported as a single per-save INFO inventory
+    //    line (count), never a WARN/FAIL.
+    //
+    // File-scoped: existence / orphan checks read model.SaveDirectory. Validation
     // FAILs are emitted regardless of SaveDirectory (they touch no file); the
     // existence / orphan checks no-op when SaveDirectory is null (a purely
     // in-memory model / the core-purity test). Never throws.
@@ -24,10 +49,23 @@ namespace Parsek.Tests.Analyzer.Rules
     {
         internal const string RuleIdConst = "INV9-REWINDPOINT";
 
+        // Production rewind-save filename prefix (FlightRecorder.cs
+        // `$"parsek_rw_{shortId}"`), used to scope the orphan inventory scan to
+        // genuine rewind saves and skip other Parsek/Saves/ entries such as
+        // parsek_career_start.sfs.
+        internal const string RewindSavePrefix = "parsek_rw_";
+
+        // Parsek/Saves/ is the durable home of RewindSaveFileName quicksaves
+        // (RecordingPaths.BuildRewindSaveRelativePath -> Path.Combine("Parsek",
+        // "Saves", ...)). Mirror the leading segment here for the orphan directory
+        // scan; the per-file existence check still routes through the production
+        // path builder.
+        private const string SavesSubdir = "Parsek/Saves";
+
         public string RuleId => RuleIdConst;
 
         public string CitedContract =>
-            "RecordingPaths.ValidateRecordingId / RecordingPaths.BuildRewindPointRelativePath";
+            "RecordingPaths.ValidateRecordingId / RecordingPaths.BuildRewindSaveRelativePath";
 
         public IEnumerable<Finding> Evaluate(AnalyzerModel model)
         {
@@ -35,7 +73,7 @@ namespace Parsek.Tests.Analyzer.Rules
             if (model?.Recordings == null)
                 return findings;
 
-            var referencedRpIds = new HashSet<string>(StringComparer.Ordinal);
+            var referencedRewindIds = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (Recording rec in model.Recordings)
             {
@@ -50,76 +88,90 @@ namespace Parsek.Tests.Analyzer.Rules
                         Inv("INV9 badid recording={0} field=RecordingId", rec.RecordingId)));
                 }
 
-                string rpId = rec.RewindSaveFileName;
-                if (string.IsNullOrEmpty(rpId))
+                string rwId = rec.RewindSaveFileName;
+                if (string.IsNullOrEmpty(rwId))
                     continue;
 
-                // Validate the RewindPoint id BEFORE touching the filesystem.
-                if (!RecordingPaths.ValidateRecordingId(rpId, RecordingIdValidationLogContext.Test))
+                // Validate the rewind-save id BEFORE touching the filesystem.
+                if (!RecordingPaths.ValidateRecordingId(rwId, RecordingIdValidationLogContext.Test))
                 {
-                    findings.Add(Fail(rec.RecordingId ?? rpId, -1,
+                    findings.Add(Fail(rec.RecordingId ?? rwId, -1,
                         Inv("INV9 badid recording={0} field=RewindSaveFileName rewindId={1}",
-                            rec.RecordingId ?? "<none>", rpId)));
+                            rec.RecordingId ?? "<none>", rwId)));
                     continue;
                 }
-                referencedRpIds.Add(rpId);
+                referencedRewindIds.Add(rwId);
 
                 if (string.IsNullOrEmpty(model.SaveDirectory))
                     continue;
 
-                string rel = RecordingPaths.BuildRewindPointRelativePath(rpId);
+                // RewindSaveFileName lives at Parsek/Saves/<id>.sfs, NOT under
+                // Parsek/RewindPoints/. Route through the production path builder.
+                string rel = RecordingPaths.BuildRewindSaveRelativePath(rwId);
                 if (rel == null)
                     continue; // validated above; defensive
-                string rpPath = Path.Combine(model.SaveDirectory, rel);
+                string rwPath = Path.Combine(model.SaveDirectory, rel);
 
-                if (!File.Exists(rpPath))
+                if (!File.Exists(rwPath))
                 {
-                    findings.Add(Fail(rec.RecordingId ?? rpId, -1,
-                        Inv("INV9 missing-rewindpoint recording={0} rewindId={1}",
-                            rec.RecordingId ?? "<none>", rpId)));
+                    // Dangling reference: WARN, not FAIL (see class comment).
+                    findings.Add(Warn(rec.RecordingId ?? rwId,
+                        Inv("INV9 missing-rewind-save recording={0} rewindId={1}",
+                            rec.RecordingId ?? "<none>", rwId)));
                     continue;
                 }
 
-                if (!ParsesAsConfigNode(rpPath))
+                if (!ParsesAsConfigNode(rwPath))
                 {
-                    findings.Add(Fail(rec.RecordingId ?? rpId, -1,
-                        Inv("INV9 unparsable-rewindpoint recording={0} rewindId={1}",
-                            rec.RecordingId ?? "<none>", rpId)));
+                    findings.Add(Fail(rec.RecordingId ?? rwId, -1,
+                        Inv("INV9 unparsable-rewind-save recording={0} rewindId={1}",
+                            rec.RecordingId ?? "<none>", rwId)));
                 }
             }
 
-            InventoryOrphanRewindPoints(model, referencedRpIds, findings);
+            InventoryOrphanRewindSaves(model, referencedRewindIds, findings);
             return findings;
         }
 
-        private static void InventoryOrphanRewindPoints(
-            AnalyzerModel model, HashSet<string> referencedRpIds, List<Finding> findings)
+        private static void InventoryOrphanRewindSaves(
+            AnalyzerModel model, HashSet<string> referencedRewindIds, List<Finding> findings)
         {
             if (string.IsNullOrEmpty(model.SaveDirectory))
                 return;
 
-            string rpDir = Path.Combine(model.SaveDirectory, RecordingPaths.RewindPointsSubdir);
-            if (!Directory.Exists(rpDir))
+            string savesDir = Path.Combine(model.SaveDirectory, SavesSubdir);
+            if (!Directory.Exists(savesDir))
                 return;
 
             string[] files;
             try
             {
-                files = Directory.GetFiles(rpDir, "*.sfs");
+                files = Directory.GetFiles(savesDir, RewindSavePrefix + "*.sfs");
             }
             catch
             {
                 return;
             }
 
+            int orphanCount = 0;
             foreach (string file in files)
             {
                 string id = Path.GetFileNameWithoutExtension(file);
-                if (string.IsNullOrEmpty(id) || referencedRpIds.Contains(id))
+                if (string.IsNullOrEmpty(id) || referencedRewindIds.Contains(id))
                     continue;
-                findings.Add(new Finding(RuleIdConst, VerdictLevel.Warn, id, -1,
-                    Inv("INV9 orphan-rewindpoint rewindId={0}", id),
-                    "RecordingPaths.BuildRewindPointRelativePath"));
+                orphanCount++;
+            }
+
+            // Unreferenced parsek_rw_*.sfs files are an expected benign state
+            // (ParsekFlight.cs). Emit one inventory INFO per save when any exist;
+            // stay silent (clean-data-is-green) when none do.
+            if (orphanCount > 0)
+            {
+                findings.Add(new Finding(RuleIdConst, VerdictLevel.Info,
+                    model.SaveName ?? "<save>", -1,
+                    Inv("INV9 orphan-rewind-saves count={0} (unreferenced parsek_rw_*; expected per ParsekFlight)",
+                        orphanCount),
+                    "RecordingPaths.BuildRewindSaveRelativePath"));
             }
         }
 
@@ -138,6 +190,10 @@ namespace Parsek.Tests.Analyzer.Rules
         private static Finding Fail(string target, int sectionIndex, string message) =>
             new Finding(RuleIdConst, VerdictLevel.Fail, target, sectionIndex, message,
                 "RecordingPaths.ValidateRecordingId");
+
+        private static Finding Warn(string target, string message) =>
+            new Finding(RuleIdConst, VerdictLevel.Warn, target, -1, message,
+                "RecordingPaths.BuildRewindSaveRelativePath");
 
         private static string Inv(string format, params object[] args) =>
             string.Format(CultureInfo.InvariantCulture, format, args);
