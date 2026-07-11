@@ -121,6 +121,108 @@ namespace Parsek.TestCommands
     }
 
     /// <summary>
+    /// Pure command-line envelope parser. Splits one command line into an
+    /// <see cref="ParsedCommand"/>: <c>id</c> must be the first token and
+    /// <c>cmd</c> the second; remaining <c>key=value</c> args come in any order.
+    /// Blank lines and <c>#</c> comments are flagged <see cref="ParsedCommand.Ignored"/>
+    /// (skipped, no response); everything else that fails the envelope is a
+    /// malformed / missing-id / missing-cmd reject.
+    /// </summary>
+    internal static class TestCommandParser
+    {
+        /// <summary>
+        /// Parses one command line. <paramref name="rawLine"/> may include a
+        /// trailing newline (stripped here); <paramref name="lineNumber"/> is the
+        /// 1-based file position, used for the <c>line#&lt;n&gt;</c> fallback id
+        /// when a malformed line has no usable <c>id</c> token.
+        /// </summary>
+        internal static ParsedCommand ParseLine(string rawLine, int lineNumber)
+        {
+            string content = StripTrailingNewline(rawLine ?? string.Empty);
+            var result = new ParsedCommand
+            {
+                RawLine = content,
+                LineNumber = lineNumber,
+                Args = new Dictionary<string, string>(),
+                ParseOk = false,
+            };
+
+            string trimmed = content.Trim();
+            if (trimmed.Length == 0)
+            {
+                result.Ignored = true;
+                return result;
+            }
+            if (trimmed[0] == '#')
+            {
+                result.Ignored = true;
+                return result;
+            }
+
+            string[] tokens = content.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+
+            var pairs = new List<KeyValuePair<string, string>>(tokens.Length);
+            bool malformed = false;
+            foreach (string token in tokens)
+            {
+                if (!TestCommandProtocol.TrySplitToken(token, out string key, out string rawValue)
+                    || !TestCommandProtocol.TryDecode(rawValue, out string value))
+                {
+                    malformed = true;
+                    break;
+                }
+                pairs.Add(new KeyValuePair<string, string>(key, value));
+                // Salvage the id early so a malformed line still correlates by its
+                // real id when the first token was a valid id=... token.
+                if (pairs.Count == 1 && key == "id")
+                    result.Id = value;
+            }
+
+            if (malformed)
+            {
+                result.ParseError = "malformed";
+                return result;
+            }
+
+            if (pairs.Count == 0 || pairs[0].Key != "id")
+            {
+                result.ParseError = "missing-id";
+                return result;
+            }
+            result.Id = pairs[0].Value;
+
+            if (pairs.Count < 2 || pairs[1].Key != "cmd")
+            {
+                result.ParseError = "missing-cmd";
+                return result;
+            }
+            result.Verb = pairs[1].Value;
+
+            for (int i = 2; i < pairs.Count; i++)
+                result.Args[pairs[i].Key] = pairs[i].Value; // unknown keys kept; last wins
+
+            result.ParseOk = true;
+            return result;
+        }
+
+        /// <summary>
+        /// The correlation id used in a response when a malformed line carries no
+        /// usable <c>id</c> token: <c>line#&lt;n&gt;</c> for the 1-based line number.
+        /// </summary>
+        internal static string FallbackId(int lineNumber)
+            => "line#" + lineNumber.ToString(CultureInfo.InvariantCulture);
+
+        private static string StripTrailingNewline(string s)
+        {
+            if (s.EndsWith("\r\n", StringComparison.Ordinal))
+                return s.Substring(0, s.Length - 2);
+            if (s.EndsWith("\n", StringComparison.Ordinal) || s.EndsWith("\r", StringComparison.Ordinal))
+                return s.Substring(0, s.Length - 1);
+            return s;
+        }
+    }
+
+    /// <summary>
     /// Pure result of parsing one command line (<see cref="TestCommandParser.ParseLine"/>).
     /// </summary>
     internal struct ParsedCommand
