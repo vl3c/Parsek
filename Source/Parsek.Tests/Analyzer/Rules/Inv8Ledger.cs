@@ -19,16 +19,43 @@ namespace Parsek.Tests.Analyzer.Rules
     // actions, and a tombstone pointing at an id absent from them is a real
     // dangling reference -> FAIL. Runs for career and non-career saves alike.
     //
-    // Part (b) -- career-diff reconstruction (WARN, career only). See the 5.2
-    // continuation below.
+    // Part (b) -- career-diff reconstruction (WARN, career only). The rule diffs a
+    // headless ledger reconstruction against the parsed career totals via
+    // LedgerGroundTruthDiff.Compare with a hardcoded stock facility-max-levels map
+    // (the live-KSP injection has no offline equivalent). ANY divergence -> WARN,
+    // NEVER FAIL offline: the FAIL-severity career diff is the in-game H5 path
+    // (module M-A3), where the LedgerGroundTruthHarness reconstructs against a live
+    // quicksave. In v1 no headless reconstruction is built (correction C5, the
+    // recalc seam is deferred), so a career save with no injected reconstruction
+    // reports reconstruction-not-available INFO. A non-career save skips part (b)
+    // entirely (silent: the career diff carries no information on a Sandbox save,
+    // and staying finding-free preserves the clean-data-is-green convention).
     internal sealed class Inv8Ledger : IRecordingInvariant
     {
         internal const string RuleIdConst = "INV8-LEDGER";
+        internal const string CareerDiffRuleId = "INV8-CAREER-DIFF";
 
         public string RuleId => RuleIdConst;
 
         public string CitedContract =>
             "EffectiveState.ComputeELS (ELS definition) / CareerSaveParser.Parse / LedgerGroundTruthDiff.Compare";
+
+        // Hardcoded stock facility-max-levels (0-based max index; stock facilities
+        // are 3-tier -> 2), standing in for the live-KSP injection the in-game path
+        // uses. Keys match the display facility ids CareerSaveParser records.
+        private static readonly IReadOnlyDictionary<string, int> StockFacilityMaxLevels =
+            new Dictionary<string, int>(System.StringComparer.Ordinal)
+            {
+                ["SpaceCenter/LaunchPad"] = 2,
+                ["SpaceCenter/Runway"] = 2,
+                ["SpaceCenter/VehicleAssemblyBuilding"] = 2,
+                ["SpaceCenter/SpaceplaneHangar"] = 2,
+                ["SpaceCenter/TrackingStation"] = 2,
+                ["SpaceCenter/AstronautComplex"] = 2,
+                ["SpaceCenter/MissionControl"] = 2,
+                ["SpaceCenter/AdministrationFacility"] = 2,
+                ["SpaceCenter/ResearchAndDevelopment"] = 2,
+            };
 
         public IEnumerable<Finding> Evaluate(AnalyzerModel model)
         {
@@ -37,7 +64,51 @@ namespace Parsek.Tests.Analyzer.Rules
                 return findings;
 
             EvaluateEls(model, findings);
+            EvaluateCareerDiff(model, findings);
             return findings;
+        }
+
+        // --- Part (b): career-diff reconstruction (WARN, career only) ---
+
+        private static void EvaluateCareerDiff(AnalyzerModel model, List<Finding> findings)
+        {
+            // Non-career -> skip (silent). Part (b) has nothing to compare on a
+            // Sandbox / Science save.
+            if (model.CareerSave == null)
+                return;
+
+            if (model.LedgerReconstruction == null)
+            {
+                // No headless reconstruction available offline (correction C5).
+                findings.Add(new Finding(
+                    CareerDiffRuleId,
+                    VerdictLevel.Info,
+                    model.SaveName ?? "<save>",
+                    -1,
+                    "INV8 career-diff reconstruction-not-available (headless recalc deferred)",
+                    "LedgerGroundTruthDiff.Compare"));
+                return;
+            }
+
+            LedgerDivergenceReport report = LedgerGroundTruthDiff.Compare(
+                model.CareerSave,
+                model.LedgerReconstruction,
+                FacetTolerances.Default,
+                StockFacilityMaxLevels);
+
+            if (report == null || report.All.Count == 0)
+                return; // clean reconstruction -> no finding
+
+            // ANY divergence (hard or report-only) -> WARN offline, never FAIL.
+            int hard = report.HardFailures(LedgerGroundTruthDiff.StrictPerIdentityForTesting).Count;
+            findings.Add(new Finding(
+                CareerDiffRuleId,
+                VerdictLevel.Warn,
+                model.SaveName ?? "<save>",
+                -1,
+                Inv("INV8 career-diff divergences={0} hard={1} reportOnly={2}",
+                    report.All.Count, hard, report.All.Count - hard),
+                "LedgerGroundTruthDiff.Compare"));
         }
 
         // --- Part (a): ELS internal consistency (RAW model, every save) ---

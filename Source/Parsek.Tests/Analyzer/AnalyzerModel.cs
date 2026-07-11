@@ -196,5 +196,16 @@ namespace Parsek.Tests.Analyzer
         /// requirement that INV7b/INV9 probe files scoped to a save.
         /// </summary>
         public string SaveDirectory { get; set; }
+
+        /// <summary>
+        /// Optional headless ledger reconstruction for INV8 part (b)'s career diff.
+        /// Null offline in v1: the full headless recalculation seam is deferred
+        /// (correction C5), so the loader never builds one and INV8(b) reports
+        /// reconstruction-not-available INFO for career saves. Present only when a
+        /// caller (a test, or a future headless recalc seam / the in-game H5 path)
+        /// supplies one, in which case INV8(b) diffs it via
+        /// <c>LedgerGroundTruthDiff.Compare</c>.
+        /// </summary>
+        public LedgerReconstructionSnapshot LedgerReconstruction { get; set; }
     }
 }
