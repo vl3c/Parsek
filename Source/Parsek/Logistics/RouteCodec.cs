@@ -151,6 +151,15 @@ namespace Parsek.Logistics
             if (route.LastHoldUT >= 0.0)
                 node.AddValue("lastHoldUT", route.LastHoldUT.ToString("R", ic));
 
+            // Sparse last-partial-delivery report (destination-capacity gate
+            // follow-up): null / -1 are the "no partial recorded" defaults,
+            // mirroring the lastHold convention above; a route whose deliveries
+            // were all full writes nothing.
+            if (!string.IsNullOrEmpty(route.LastPartialDeliverySummary))
+                node.AddValue("lastPartialDeliverySummary", route.LastPartialDeliverySummary);
+            if (route.LastPartialDeliveryUT >= 0.0)
+                node.AddValue("lastPartialDeliveryUT", route.LastPartialDeliveryUT.ToString("R", ic));
+
             // --- Backing-mission definition (Phase 1) ---
             if (!string.IsNullOrEmpty(route.BackingMissionTreeId))
                 node.AddValue("backingMissionTreeId", route.BackingMissionTreeId);
@@ -331,6 +340,12 @@ namespace Parsek.Logistics
             route.LastHoldDetail = NullIfEmpty(node.GetValue("lastHoldDetail"));
             TryParseDouble(node.GetValue("lastHoldShortfall"), inv, ic, out route.LastHoldShortfall);
             TryParseDoubleWithDefault(node.GetValue("lastHoldUT"), inv, ic, -1.0, out route.LastHoldUT);
+
+            // Sparse last-partial-delivery report: absent keys read the
+            // "no partial recorded" defaults (null / -1).
+            route.LastPartialDeliverySummary = NullIfEmpty(node.GetValue("lastPartialDeliverySummary"));
+            TryParseDoubleWithDefault(node.GetValue("lastPartialDeliveryUT"), inv, ic, -1.0,
+                out route.LastPartialDeliveryUT);
 
             // --- Backing-mission definition (Phase 1) ---
             // A missing backing-mission definition does NOT reject the route —

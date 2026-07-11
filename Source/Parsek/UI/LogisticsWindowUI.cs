@@ -196,6 +196,15 @@ namespace Parsek
             public string HoldText;
             public string HoldShort;
 
+            // Last-partial-delivery report (destination-capacity gate
+            // follow-up): the persisted Route.LastPartialDelivery* fields
+            // rendered on the ~1 Hz pass. The full detail-panel line
+            // ("Last delivery was partial: ... (age ago)"); null when the most
+            // recent delivery was full (the orchestrator clears the report) or
+            // none has happened. Displayed on every status - it reports a past
+            // physical loss, so no status makes it misleading.
+            public string PartialText;
+
             // M6 closeout (row-level hold treatment): the compact truncated
             // "Held: <specific reason>" string shown IN the Status cell,
             // replacing the generic per-status sentence while a displayable
@@ -1403,6 +1412,13 @@ namespace Parsek
             // the ~1 Hz cache and the live route drift apart.
             if (leg.HoldText != null)
                 DetailLine(leg.HoldText, statusStyleYellow);
+
+            // Last-partial-delivery report: what a mid-transit capacity shrink
+            // actually cost (the undelivered remainder is lost). Same
+            // cached-field-only conditioning as HoldText so the IMGUI control
+            // count stays stable across Layout/Repaint.
+            if (leg.PartialText != null)
+                DetailLine(leg.PartialText, statusStyleYellow);
 
             // M5: one-line ownership note whenever the route binds a tree (it always
             // does for a live route). Tells the player that creating this route
@@ -2838,6 +2854,15 @@ namespace Parsek
             // walk. Applicable / CostKnown are false outside Career + KSC origin, so
             // the detail draw path then renders nothing.
             leg.RunCost = ComputeRouteRunCost(route);
+
+            // Last-partial-delivery report: rendered on the same ~1 Hz pass.
+            // Not gated by ShouldDisplayHold - it reports a past physical loss
+            // (what a mid-transit capacity shrink actually cost), which no
+            // status makes misleading; the orchestrator clears it on the next
+            // full delivery.
+            leg.PartialText = LogisticsHoldPresentation.FormatPartialDeliveryLine(
+                route.LastPartialDeliverySummary,
+                route.LastPartialDeliveryUT >= 0.0 ? currentUT - route.LastPartialDeliveryUT : -1.0);
 
             // M6 hold reasons: render the persisted Route.LastHold* fields to
             // player language HERE on the ~1 Hz pass (never per IMGUI frame).

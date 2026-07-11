@@ -37,14 +37,21 @@ namespace Parsek.Logistics
     ///     <c>inventory:&lt;hash&gt;</c> short token (the retired
     ///     <c>inventory-origin-debit-unsupported</c> deferral is gone - the origin
     ///     debit now physically removes the stored part).</item>
-    ///   <item><c>DestinationHasCapacity</c>: returns <c>true</c> by design.
-    ///     v0 enforces capacity at apply time via
-    ///     <see cref="RouteDeliveryPlanner.PrepareDelivery"/> +
-    ///     <see cref="LiveDeliveryCapacityProbe"/>, which partial-fills
-    ///     each resource and records the actual-vs-requested split in the
-    ///     <c>RouteCargoDelivered</c> ledger row. The eligibility-gate stub
-    ///     stays so dispatch can always attempt; apply-time clamping is
-    ///     the real capacity contract.</item>
+    ///   <item><c>DestinationHasCapacity</c>: ALL-OR-NOTHING (the v0 stub is
+    ///     retired). Every stop's full delivery manifest (resources AND
+    ///     stored-part inventory) must fit its resolved destination, evaluated
+    ///     with the SAME planner+probe the delivery applier uses
+    ///     (<see cref="RouteDeliveryPlanner.PrepareDelivery"/> over
+    ///     <see cref="LiveDeliveryCapacityProbe"/>, via the pure
+    ///     <see cref="RouteDestinationCapacityCheck"/>). A short destination
+    ///     holds the route in <c>DestinationFull</c> naming the first item
+    ///     that does not fit, because dispatch debits the origin for the FULL
+    ///     manifest and a partial delivery would silently lose the remainder
+    ///     (the transport is a ghost). Unresolvable stop vessels fail OPEN
+    ///     (the endpoint gate owns that failure); the apply-time partial fill
+    ///     remains as the backstop for capacity that changes between the gate
+    ///     and the write, recorded in the <c>RouteCargoDelivered</c> ledger
+    ///     row and surfaced via <c>Route.LastPartialDelivery*</c>.</item>
     /// </list>
     /// </remarks>
     internal sealed class LiveRouteRuntimeEnvironment : IRouteRuntimeEnvironment
@@ -218,13 +225,22 @@ namespace Parsek.Logistics
                     out string shortIdentity, out int shortInventory);
                 if (!inventoryCovered)
                 {
-                    lackingResource = "inventory:" + shortIdentity;
+                    // Legible token (never the bare hash when the manifest can
+                    // name the part): "inventory:<partName>" for a genuinely
+                    // absent part, "inventory-state:<partName>" when the origin
+                    // holds the part under a DIFFERENT identity hash (near-miss:
+                    // charge / fuel / contents drifted from the recorded cargo).
+                    lackingResource = RouteOriginCargoCheck.BuildInventoryShortToken(
+                        route.InventoryCostManifest, shortIdentity,
+                        inventoryWriter.CountStoredByPartName, out int nearMissCount);
                     ParsekLog.VerboseRateLimited(Tag, "origin-inventory-short-" + route.Id,
                         $"OriginHasCargo: route {ShortIdForRoute(route)} " +
                         $"origin={originVessel.vesselName ?? "<none>"} " +
                         $"pid={originVessel.persistentId.ToString(IC)} " +
                         $"short inventory identity={shortIdentity} " +
                         $"shortBy={shortInventory.ToString(IC)} " +
+                        $"token={lackingResource} " +
+                        $"nearMissByName={nearMissCount.ToString(IC)} " +
                         $"path={(originIsLoaded ? "loaded" : "unloaded")}");
                     return false;
                 }
@@ -451,23 +467,62 @@ namespace Parsek.Logistics
 
         public bool DestinationHasCapacity(Route route, out string fullResource)
         {
-            // v0 contract: eligibility gate returns true unconditionally —
-            // capacity is enforced at apply time by RouteDeliveryPlanner +
-            // LiveDeliveryCapacityProbe, which partial-fills each resource
-            // and records the actual-vs-requested split in the
-            // RouteCargoDelivered ledger row. The stub stays so dispatch
-            // can always attempt; apply-time clamping is the real contract.
-            //
-            // Emit a per-route rate-limited breadcrumb so operators can
-            // see the v0 split in KSP.log alongside the matching apply-time
-            // partial-fill log — same shape as OriginHasCargo's stub above.
+            // All-or-nothing destination gate (the v0 always-true stub is
+            // retired): dispatch debits the origin for the FULL manifest, so a
+            // cycle only fires when every stop's full delivery manifest fits
+            // its destination. Fit is evaluated with the SAME planner+probe the
+            // delivery applier uses (RouteDeliveryPlanner over
+            // LiveDeliveryCapacityProbe) via the pure
+            // RouteDestinationCapacityCheck, so the gate cannot drift from
+            // what the write would actually fit. Per-stop resolution failures
+            // fail OPEN (null probe -> stop skipped): the eligibility chain's
+            // earlier endpoint check owns that failure mode, and the
+            // apply-time partial fill remains the backstop.
             fullResource = string.Empty;
-            string routeId = route?.Id ?? "<none>";
+            if (route == null)
+                return true;
+
+            int resolvedStops = 0;
+            int unresolvedStops = 0;
+            bool hasCapacity = RouteDestinationCapacityCheck.HasCapacityForAllStops(
+                route,
+                stopIndex =>
+                {
+                    RouteStop stop = route.Stops[stopIndex];
+                    bool resolved = RouteEndpointResolver.TryResolveEndpoint(
+                        stop.Endpoint, out Vessel vessel, out _);
+                    if (!resolved || vessel == null)
+                    {
+                        unresolvedStops++;
+                        return null; // fail-open: endpoint gate owns this failure
+                    }
+                    resolvedStops++;
+                    // Capture the loaded gate ONCE per stop vessel, same
+                    // contract as the delivery applier's destinationIsLoaded.
+                    bool isLoaded = vessel.loaded && !vessel.packed;
+                    return new LiveDeliveryCapacityProbe(vessel, isLoaded);
+                },
+                out string fullToken,
+                out int fullStopIndex);
+
+            if (hasCapacity)
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    "route-destcap-" + route.Id,
+                    $"DestinationHasCapacity: route {ShortIdForRoute(route)} full manifest fits " +
+                    $"(stopsResolved={resolvedStops.ToString(IC)} " +
+                    $"stopsUnresolved={unresolvedStops.ToString(IC)})");
+                return true;
+            }
+
+            fullResource = fullToken;
             ParsekLog.VerboseRateLimited(Tag,
-                "route-destcap-" + routeId,
-                $"DestinationHasCapacity: v0 eligibility-gate stub returns " +
-                $"true; capacity enforced at apply time; routeId={routeId}");
-            return true;
+                "route-destcap-full-" + route.Id,
+                $"DestinationHasCapacity: route {ShortIdForRoute(route)} destination FULL " +
+                $"stop={fullStopIndex.ToString(IC)} short={fullToken} " +
+                $"(stopsResolved={resolvedStops.ToString(IC)} " +
+                $"stopsUnresolved={unresolvedStops.ToString(IC)}) - holding cycle all-or-nothing");
+            return false;
         }
 
         public bool RouteHasValidSourcesInErs(Route route)

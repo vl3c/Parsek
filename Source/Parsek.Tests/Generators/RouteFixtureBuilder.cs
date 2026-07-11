@@ -55,6 +55,8 @@ namespace Parsek.Tests.Generators
         private string lastHoldDetail;
         private double lastHoldShortfall;
         private double lastHoldUT = -1.0;
+        private string lastPartialDeliverySummary;
+        private double lastPartialDeliveryUT = -1.0;
 
         public RouteFixtureBuilder WithId(string newId)
         {
@@ -248,6 +250,13 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        public RouteFixtureBuilder WithLastPartialDelivery(string summary, double ut)
+        {
+            lastPartialDeliverySummary = summary;
+            lastPartialDeliveryUT = ut;
+            return this;
+        }
+
         public Route Build()
         {
             var route = new Route
@@ -285,7 +294,9 @@ namespace Parsek.Tests.Generators
                 LastHoldKind = lastHoldKind,
                 LastHoldDetail = lastHoldDetail,
                 LastHoldShortfall = lastHoldShortfall,
-                LastHoldUT = lastHoldUT
+                LastHoldUT = lastHoldUT,
+                LastPartialDeliverySummary = lastPartialDeliverySummary,
+                LastPartialDeliveryUT = lastPartialDeliveryUT
             };
 
             foreach (string key in excludedIntervalKeys)

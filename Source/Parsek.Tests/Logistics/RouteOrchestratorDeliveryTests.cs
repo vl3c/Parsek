@@ -877,5 +877,102 @@ namespace Parsek.Tests.Logistics
             }
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }
+
+        // ==================================================================
+        // Last-partial-delivery report (destination-capacity gate follow-up)
+        // ==================================================================
+
+        // catches: a partial delivery not recording the loss report, or a
+        // subsequent FULL delivery leaving the stale report standing.
+        [Fact]
+        public void PartialDelivery_RecordsReport_FullDeliveryClearsIt()
+        {
+            var route = BuildInTransitKscRoute();
+            var partialPlan = new DeliveryPlan(
+                new[]
+                {
+                    new ResourceDeliveryLine("LiquidFuel", 100.0, 100.0),
+                    new ResourceDeliveryLine("Oxidizer", 120.0, 60.0),
+                },
+                Array.Empty<InventoryDeliveryLine>(),
+                isPartial: true,
+                isZero: false);
+            var writers = new CapturingWriters();
+            var ctx = BuildContext(writers, ut: 500.0);
+
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, partialPlan, ctx);
+
+            Assert.NotNull(route.LastPartialDeliverySummary);
+            Assert.Contains("Oxidizer", route.LastPartialDeliverySummary);
+            Assert.DoesNotContain("LiquidFuel", route.LastPartialDeliverySummary);
+            Assert.Equal(500.0, route.LastPartialDeliveryUT);
+
+            // The next FULL delivery clears the report.
+            route.PendingDeliveryUT = 150.0; // re-arm the fixture
+            var fullPlan = BuildFullFillPlan(new Dictionary<string, double>
+            {
+                { "LiquidFuel", 100.0 },
+            });
+            var writers2 = new CapturingWriters();
+            var ctx2 = BuildContext(writers2, cycleId: "cycle-1", ut: 600.0);
+
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, fullPlan, ctx2);
+
+            Assert.Null(route.LastPartialDeliverySummary);
+            Assert.Equal(-1.0, route.LastPartialDeliveryUT);
+        }
+
+        // catches: the summary including full-fill lines (noise), losing the
+        // actual/requested numbers, or missing the skipped-inventory clause.
+        [Fact]
+        public void BuildPartialDeliverySummary_Shapes()
+        {
+            var plan = new DeliveryPlan(
+                new[]
+                {
+                    new ResourceDeliveryLine("LiquidFuel", 100.0, 100.0), // full
+                    new ResourceDeliveryLine("Oxidizer", 120.0, 60.0),    // short
+                },
+                new[]
+                {
+                    new InventoryDeliveryLine(
+                        new InventoryPayloadItem { IdentityHash = "h", PartName = "evaJetpack", Quantity = 2 },
+                        -1), // skipped: no slot
+                    new InventoryDeliveryLine(
+                        new InventoryPayloadItem { IdentityHash = "h2", PartName = "sensorThermometer", Quantity = 1 },
+                        0), // stored
+                },
+                isPartial: true,
+                isZero: false);
+
+            string summary = RouteOrchestrator.BuildPartialDeliverySummary(
+                plan, name => name == "Oxidizer" ? 60.0 : 100.0,
+                inventoryActualCount: 1, inventoryLinesAttempted: 1);
+
+            Assert.Equal("Oxidizer 60/120; evaJetpack 0/2 (no slot)", summary);
+
+            // Rejected stored-part writes get their own clause.
+            string withRejects = RouteOrchestrator.BuildPartialDeliverySummary(
+                plan, name => name == "Oxidizer" ? 60.0 : 100.0,
+                inventoryActualCount: 0, inventoryLinesAttempted: 1);
+            Assert.Contains("1 stored-part write(s) rejected by the container", withRejects);
+
+            // Defensive: a partial plan with no identifiable short line still
+            // yields non-empty text.
+            string fallback = RouteOrchestrator.BuildPartialDeliverySummary(
+                DeliveryPlan.Empty(), _ => 0.0, 0, 0);
+            Assert.False(string.IsNullOrEmpty(fallback));
+
+            // Length cap: a pathological manifest cannot bloat the .sfs.
+            var manyLines = new List<ResourceDeliveryLine>();
+            for (int i = 0; i < 50; i++)
+                manyLines.Add(new ResourceDeliveryLine("Resource" + i, 100.0, 1.0));
+            var bigPlan = new DeliveryPlan(
+                manyLines, Array.Empty<InventoryDeliveryLine>(), isPartial: true, isZero: false);
+            string capped = RouteOrchestrator.BuildPartialDeliverySummary(
+                bigPlan, _ => 1.0, 0, 0);
+            Assert.True(capped.Length <= 243, $"summary length {capped.Length} exceeds cap");
+            Assert.EndsWith("...", capped);
+        }
     }
 }

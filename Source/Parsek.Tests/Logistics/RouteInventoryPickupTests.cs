@@ -581,5 +581,61 @@ namespace Parsek.Tests.Logistics
             module.AddValue("payloadMode", "packed");
             return storedPart;
         }
+
+        // ==============================================================
+        // CountStoredByPartNameInStoredPartsNode (the near-miss probe's
+        // pure ConfigNode core, behind the "inventory-state:" hold token)
+        // ==============================================================
+
+        // catches: the by-name count keying on identity hash (it must match by
+        // partName REGARDLESS of hash - that is the whole point of the
+        // near-miss probe), missing stack quantities, or counting other parts.
+        [Fact]
+        public void CountStoredByPartName_MatchesByNameAcrossIdentities()
+        {
+            // Two same-part nodes with DIFFERENT identity payloads (temps) plus
+            // one unrelated part.
+            ConfigNode a = StoredPartWithInnerPart(
+                cid: "cid-1", persistentId: "111", position: "0,0,0", temp: "290");
+            ConfigNode b = StoredPartWithInnerPart(
+                cid: "cid-2", persistentId: "222", position: "1,1,1", temp: "300");
+            b.SetValue("slotIndex", "1", true);
+            b.SetValue("quantity", "3", true); // stacked
+            ConfigNode other = StoredPartWithInnerPart(
+                cid: "cid-3", persistentId: "333", position: "2,2,2", temp: "290");
+            other.SetValue("slotIndex", "2", true);
+            other.SetValue("partName", "evaJetpack", true);
+
+            var storedParts = new ConfigNode("STOREDPARTS");
+            storedParts.AddNode(a);
+            storedParts.AddNode(b);
+            storedParts.AddNode(other);
+
+            Assert.Equal(4, LiveInventoryPickupWriter.CountStoredByPartNameInStoredPartsNode(
+                storedParts, "smallCargoContainer"));
+            Assert.Equal(1, LiveInventoryPickupWriter.CountStoredByPartNameInStoredPartsNode(
+                storedParts, "evaJetpack"));
+            Assert.Equal(0, LiveInventoryPickupWriter.CountStoredByPartNameInStoredPartsNode(
+                storedParts, "no-such-part"));
+        }
+
+        // catches: degenerate inputs throwing, or a missing quantity value not
+        // defaulting to 1 (stock omits it for unstacked slots).
+        [Fact]
+        public void CountStoredByPartName_Degenerates()
+        {
+            Assert.Equal(0, LiveInventoryPickupWriter.CountStoredByPartNameInStoredPartsNode(
+                null, "smallCargoContainer"));
+            var storedParts = new ConfigNode("STOREDPARTS");
+            Assert.Equal(0, LiveInventoryPickupWriter.CountStoredByPartNameInStoredPartsNode(
+                storedParts, null));
+
+            ConfigNode noQty = StoredPartWithInnerPart(
+                cid: "cid-1", persistentId: "111", position: "0,0,0", temp: "290");
+            noQty.RemoveValues("quantity");
+            storedParts.AddNode(noQty);
+            Assert.Equal(1, LiveInventoryPickupWriter.CountStoredByPartNameInStoredPartsNode(
+                storedParts, "smallCargoContainer"));
+        }
     }
 }

@@ -3978,6 +3978,30 @@ namespace Parsek.Logistics
 
             int inventoryActual = ctx.InventoryActualCountReader();
 
+            // Last-partial-delivery report (destination-capacity gate follow-up):
+            // the dispatch gate holds a cycle the destination cannot fully fit,
+            // so a partial HERE means capacity shrank between the gate and this
+            // write - the undelivered remainder is lost (origin already debited,
+            // the transport is a ghost) and the player must be able to see what.
+            // A FULL delivery clears any stale report so it never outlives the
+            // condition.
+            if (plan.IsPartial)
+            {
+                route.LastPartialDeliverySummary = BuildPartialDeliverySummary(
+                    plan, ctx.ResourceActualReader, inventoryActual, inventoryLinesAttempted);
+                route.LastPartialDeliveryUT = ctx.CurrentUT;
+                ParsekLog.Warn(Tag,
+                    $"Delivery: route {ShortIdForLog(route)} cycle={ctx.CycleId} PARTIAL - " +
+                    $"undelivered remainder is lost: {route.LastPartialDeliverySummary}");
+            }
+            else if (route.LastPartialDeliverySummary != null || route.LastPartialDeliveryUT >= 0.0)
+            {
+                route.LastPartialDeliverySummary = null;
+                route.LastPartialDeliveryUT = -1.0;
+                ParsekLog.Verbose(Tag,
+                    $"Delivery: route {ShortIdForLog(route)} full delivery cleared the last-partial report");
+            }
+
             // Honor PauseAfterCurrentCycle: a route armed by "Send Once" (or a
             // future user pause-after-cycle action) transitions to Paused
             // after its in-flight cycle completes, instead of looping back to
@@ -4017,6 +4041,89 @@ namespace Parsek.Logistics
                 $"inventory={inventoryActual.ToString(IC)}/{inventoryLinesAttempted.ToString(IC)} " +
                 $"partial={(plan.IsPartial ? "1" : "0")} " +
                 $"ut={ctx.CurrentUT.ToString("R", IC)}");
+        }
+
+        /// <summary>
+        /// Plain-ASCII actual-vs-requested summary of a PARTIAL delivery plan,
+        /// stored on <see cref="Route.LastPartialDeliverySummary"/> for the
+        /// Logistics window's detail panel. One clause per SHORT item only
+        /// (full-fill lines are noise here): resources as
+        /// "Name actual/requested", inventory as "partName 0/qty (no slot)"
+        /// for planner-skipped items, plus one trailing clause when stock
+        /// rejected attempted stored-part writes (per-line write success is not
+        /// tracked, only the aggregate). Length-capped so a pathological
+        /// manifest cannot bloat the .sfs / the detail panel. Pure; the actual
+        /// amounts come from the caller's reader (write-time truth, not the
+        /// plan's estimate).
+        /// </summary>
+        internal static string BuildPartialDeliverySummary(
+            DeliveryPlan plan,
+            Func<string, double> resourceActualReader,
+            int inventoryActualCount,
+            int inventoryLinesAttempted)
+        {
+            const int MaxSummaryChars = 240;
+            var sb = new System.Text.StringBuilder();
+            bool truncated = false;
+
+            if (plan.Resources != null)
+            {
+                for (int i = 0; i < plan.Resources.Count; i++)
+                {
+                    ResourceDeliveryLine line = plan.Resources[i];
+                    if (!(line.Available < line.Requested))
+                        continue; // full fill - not part of the loss report
+                    if (sb.Length >= MaxSummaryChars) { truncated = true; break; }
+                    double actual = resourceActualReader != null
+                        ? resourceActualReader(line.Name)
+                        : line.Available;
+                    if (sb.Length > 0) sb.Append("; ");
+                    sb.Append(line.Name).Append(' ')
+                        .Append(actual.ToString("0.##", IC))
+                        .Append('/')
+                        .Append(line.Requested.ToString("0.##", IC));
+                }
+            }
+
+            if (plan.Inventory != null)
+            {
+                for (int i = 0; i < plan.Inventory.Count; i++)
+                {
+                    InventoryDeliveryLine line = plan.Inventory[i];
+                    if (line.AssignedSlot >= 0 || line.Item == null)
+                        continue; // stored (or attempted) - only skips report here
+                    if (sb.Length >= MaxSummaryChars) { truncated = true; break; }
+                    if (sb.Length > 0) sb.Append("; ");
+                    sb.Append(string.IsNullOrEmpty(line.Item.PartName) ? "<unknown>" : line.Item.PartName)
+                        .Append(" 0/")
+                        .Append((line.Item.Quantity > 0 ? line.Item.Quantity : 1).ToString(IC))
+                        .Append(" (no slot)");
+                }
+            }
+
+            if (inventoryActualCount < inventoryLinesAttempted)
+            {
+                if (sb.Length >= MaxSummaryChars)
+                {
+                    truncated = true;
+                }
+                else
+                {
+                    if (sb.Length > 0) sb.Append("; ");
+                    sb.Append((inventoryLinesAttempted - inventoryActualCount).ToString(IC))
+                        .Append(" stored-part write(s) rejected by the container");
+                }
+            }
+
+            if (sb.Length == 0)
+                return "delivery fell short of the recorded manifest";
+            if (truncated || sb.Length > MaxSummaryChars)
+            {
+                int keep = Math.Min(sb.Length, MaxSummaryChars - 3);
+                sb.Length = keep;
+                sb.Append("...");
+            }
+            return sb.ToString();
         }
 
         /// <summary>

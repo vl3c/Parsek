@@ -190,5 +190,74 @@ namespace Parsek.Tests.Logistics
 
             Assert.False(RouteOriginCargoCheck.RequiresInventoryDebit(null));
         }
+
+        // ------------------------------------------------------------------
+        // BuildInventoryShortToken (hold-token legibility + near-miss)
+        // ------------------------------------------------------------------
+
+        private static List<InventoryPayloadItem> ManifestWith(string hash, string partName)
+        {
+            return new List<InventoryPayloadItem>
+            {
+                new InventoryPayloadItem { IdentityHash = hash, PartName = partName, Quantity = 1 },
+            };
+        }
+
+        // catches: the token carrying the opaque hash when the manifest can
+        // name the part (the player-legibility contract).
+        [Fact]
+        public void BuildInventoryShortToken_AbsentPart_NamesPart()
+        {
+            string token = RouteOriginCargoCheck.BuildInventoryShortToken(
+                ManifestWith("hash-1", "evaJetpack"), "hash-1",
+                countByPartName: _ => 0, out int nearMiss);
+
+            Assert.Equal("inventory:evaJetpack", token);
+            Assert.Equal(0, nearMiss);
+        }
+
+        // catches: a physically-present part with drifted state (different
+        // identity hash) reading as "missing" instead of the near-miss token.
+        [Fact]
+        public void BuildInventoryShortToken_NearMiss_StateToken()
+        {
+            string token = RouteOriginCargoCheck.BuildInventoryShortToken(
+                ManifestWith("hash-1", "evaJetpack"), "hash-1",
+                countByPartName: name => name == "evaJetpack" ? 2 : 0, out int nearMiss);
+
+            Assert.Equal("inventory-state:evaJetpack", token);
+            Assert.Equal(2, nearMiss);
+        }
+
+        // catches: an unresolvable identity (a special marker like
+        // "null-stored-counter", or a manifest mismatch) losing its raw token,
+        // and a null by-name probe throwing instead of skipping the near-miss.
+        [Fact]
+        public void BuildInventoryShortToken_Fallbacks()
+        {
+            // Marker identity not present in the manifest: raw token survives.
+            Assert.Equal("inventory:null-stored-counter",
+                RouteOriginCargoCheck.BuildInventoryShortToken(
+                    ManifestWith("hash-1", "evaJetpack"), "null-stored-counter",
+                    countByPartName: _ => 5, out _));
+
+            // Null manifest: raw token.
+            Assert.Equal("inventory:hash-1",
+                RouteOriginCargoCheck.BuildInventoryShortToken(
+                    null, "hash-1", countByPartName: _ => 5, out _));
+
+            // Manifest item without a PartName: raw token (never a blank name).
+            Assert.Equal("inventory:hash-1",
+                RouteOriginCargoCheck.BuildInventoryShortToken(
+                    ManifestWith("hash-1", null), "hash-1",
+                    countByPartName: _ => 5, out _));
+
+            // Null probe: absent-part token, no near-miss classification.
+            Assert.Equal("inventory:evaJetpack",
+                RouteOriginCargoCheck.BuildInventoryShortToken(
+                    ManifestWith("hash-1", "evaJetpack"), "hash-1",
+                    countByPartName: null, out int nearMiss));
+            Assert.Equal(0, nearMiss);
+        }
     }
 }

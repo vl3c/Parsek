@@ -139,5 +139,56 @@ namespace Parsek.Logistics
             }
             return true;
         }
+
+        /// <summary>
+        /// Legible hold token for an inventory shortfall (the raw
+        /// <c>inventory:&lt;identityHash&gt;</c> token is not player-meaningful).
+        /// Resolves <paramref name="shortIdentity"/> back to its manifest item
+        /// and names the PART: <c>inventory:&lt;partName&gt;</c> when the part
+        /// is genuinely absent, or <c>inventory-state:&lt;partName&gt;</c> when
+        /// the optional <paramref name="countByPartName"/> probe reports the
+        /// part IS physically present under a different identity hash (the
+        /// NEAR-MISS case: same part, but its charge / fuel / module contents
+        /// differ from the recorded cargo - the most confusing hold to a player
+        /// staring at a depot that visibly holds the part). Falls back to the
+        /// raw <c>inventory:&lt;shortIdentity&gt;</c> token when the identity
+        /// cannot be resolved to a manifest item (special markers like
+        /// <c>null-stored-counter</c>). Pure - the classification NEVER relaxes
+        /// admission, it only names the failure.
+        /// <paramref name="nearMissCount"/> reports the by-name count for the
+        /// caller's log line (0 when not probed or genuinely absent).
+        /// </summary>
+        internal static string BuildInventoryShortToken(
+            List<InventoryPayloadItem> inventoryManifest,
+            string shortIdentity,
+            Func<string, int> countByPartName,
+            out int nearMissCount)
+        {
+            nearMissCount = 0;
+            InventoryPayloadItem shortItem = null;
+            if (inventoryManifest != null && !string.IsNullOrEmpty(shortIdentity))
+            {
+                for (int i = 0; i < inventoryManifest.Count; i++)
+                {
+                    InventoryPayloadItem item = inventoryManifest[i];
+                    if (item != null && string.Equals(
+                            item.IdentityHash, shortIdentity, StringComparison.Ordinal))
+                    {
+                        shortItem = item;
+                        break;
+                    }
+                }
+            }
+
+            if (shortItem == null || string.IsNullOrEmpty(shortItem.PartName))
+                return "inventory:" + (shortIdentity ?? string.Empty);
+
+            if (countByPartName != null)
+                nearMissCount = countByPartName(shortItem.PartName);
+
+            return nearMissCount > 0
+                ? "inventory-state:" + shortItem.PartName
+                : "inventory:" + shortItem.PartName;
+        }
     }
 }
