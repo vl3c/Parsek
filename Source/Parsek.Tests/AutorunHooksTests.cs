@@ -350,5 +350,40 @@ namespace Parsek.Tests
             Assert.False(d.ShouldQuit);
             Assert.False(d.SkipBounce);
         }
+
+        // --- ReconcileGateClear (design edge case 6; correction G3) ---
+
+        // Guards edge 6: the settle gate is clear ONLY when the in-progress flag is
+        // false AND the marker would not reconcile. Either signal alone holds fire, so
+        // the autorun baseline is never captured against a half-reverted save. The
+        // clear (both-false) case is the only one that lets the settle counter advance.
+        [Theory]
+        [InlineData(false, false, true)]  // both clear -> gate clear
+        [InlineData(true, false, false)]  // reconcile in progress -> held
+        [InlineData(false, true, false)]  // marker would reconcile -> held
+        [InlineData(true, true, false)]   // both -> held
+        public void ReconcileGateClear_ClearOnlyWhenBothFalse(
+            bool crashReconcileInProgress, bool markerWouldReconcile, bool expectedClear)
+        {
+            Assert.Equal(expectedClear, AutorunHooks.ReconcileGateClear(
+                crashReconcileInProgress, markerWouldReconcile));
+        }
+
+        // Guards the wiring contract: reconcilePending (the SceneSettleDecision input)
+        // is the negation of the clear gate, and a pending reconcile blocks an
+        // otherwise fully-settled FLIGHT scene.
+        [Fact]
+        public void ReconcileGateClear_NegationFeedsSettleAsPending()
+        {
+            bool clear = AutorunHooks.ReconcileGateClear(
+                crashReconcileInProgress: true, markerWouldReconcile: false);
+            bool reconcilePending = !clear;
+
+            Assert.True(reconcilePending);
+            Assert.False(AutorunHooks.SceneSettleDecision(
+                GameScenes.FLIGHT, gameNonNull: true, saveLoaded: true,
+                flightReady: true, vesselNonNull: true, vesselPacked: false,
+                settleFrames: 30, settleTarget: 30, reconcilePending));
+        }
     }
 }

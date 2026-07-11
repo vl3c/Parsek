@@ -258,5 +258,22 @@ namespace Parsek.InGameTests
                 SkipBounce = shouldQuit,
             };
         }
+
+        /// <summary>
+        /// The crash-reconcile clear gate for H1's settle (design "H1 - Interaction
+        /// with crash-reconcile", correction G3). The settle counter may advance only
+        /// when the gate is CLEAR: <see cref="ParsekScenario.CrashReconcileInProgress"/>
+        /// is false AND the live TestBatchMarker would NOT trigger a recovery reconcile
+        /// (TestBatchMarker.ShouldReconcileOnLoad returns a non-recovery reason). Until
+        /// both hold, H1 stays armed and waits, so the autorun baseline is captured
+        /// against the reverted save, not a half-reverted one. Returns true when the
+        /// gate is clear (reconcile NOT pending); the H1 caller passes the negation as
+        /// SceneSettleDecision's reconcilePending input.
+        /// </summary>
+        internal static bool ReconcileGateClear(
+            bool crashReconcileInProgress, bool markerWouldReconcile)
+        {
+            return !crashReconcileInProgress && !markerWouldReconcile;
+        }
     }
 }
