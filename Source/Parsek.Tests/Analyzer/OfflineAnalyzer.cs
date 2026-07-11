@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 
 namespace Parsek.Tests.Analyzer
 {
@@ -7,12 +6,8 @@ namespace Parsek.Tests.Analyzer
     // Tests-only SaveDirectoryLoader + ReportWriter; the pure evaluate/registry
     // core it calls lives in Parsek.dll (Parsek.Analyzer.InvariantEvaluator /
     // InvariantRegistry, reachable via the GlobalUsings.cs global using).
-    //
-    // The Evaluate forwarders here are a transitional shim so P0.3 lands the
-    // registry split without touching call sites; P0.4 renames the call sites to
-    // InvariantEvaluator.Evaluate / OfflineAnalyzer.Run and drops the shim.
 
-    internal static class Analyzer
+    internal static class OfflineAnalyzer
     {
         /// <summary>
         /// End-to-end entry point shared by all offline run modes: load the save
@@ -29,13 +24,5 @@ namespace Parsek.Tests.Analyzer
             ReportWriter.Write(report, resultsDir);
             return report;
         }
-
-        /// <summary>Transitional forwarder to <c>InvariantEvaluator.Evaluate</c>.</summary>
-        internal static AnalysisReport Evaluate(AnalyzerModel model)
-            => InvariantEvaluator.Evaluate(model);
-
-        /// <summary>Transitional forwarder to <c>InvariantEvaluator.Evaluate</c>.</summary>
-        internal static AnalysisReport Evaluate(AnalyzerModel model, IReadOnlyList<IRecordingInvariant> rules)
-            => InvariantEvaluator.Evaluate(model, rules);
     }
 }

@@ -56,7 +56,7 @@ namespace Parsek.Tests.Analyzer.Rules
             });
 
             // Through the full pipeline: red via StaleFixture, not Fail.
-            AnalysisReport report = Analyzer.Evaluate(model, new List<IRecordingInvariant> { new FixtureStampRule() });
+            AnalysisReport report = InvariantEvaluator.Evaluate(model, new List<IRecordingInvariant> { new FixtureStampRule() });
             Assert.Equal(2, report.Counts.StaleFixture);
             Assert.Equal(0, report.Counts.Fail);
             Assert.True(report.IsRed);
