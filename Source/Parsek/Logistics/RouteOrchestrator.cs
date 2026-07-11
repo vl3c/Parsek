@@ -3987,6 +3987,41 @@ namespace Parsek.Logistics
 
             int inventoryActual = ctx.InventoryActualCountReader();
 
+            // Last-partial-delivery report (destination-capacity gate follow-up):
+            // the dispatch gate holds a cycle the destination cannot fully fit,
+            // so a partial HERE means capacity shrank between the gate and this
+            // write - the undelivered remainder is lost (origin already debited,
+            // the transport is a ghost) and the player must be able to see what.
+            // Cycle-scoped: a multi-stop cycle fires several windows under ONE
+            // cycle id, so same-cycle partials APPEND into one report and a full
+            // window only clears a report from an EARLIER cycle (else window B's
+            // full delivery would erase window A's recorded loss mid-cycle).
+            bool sameCycleReport = string.Equals(
+                route.LastPartialDeliveryCycleId, ctx.CycleId, StringComparison.Ordinal);
+            if (plan.IsPartial)
+            {
+                string summary = BuildPartialDeliverySummary(
+                    plan, ctx.ResourceActualReader, inventoryActual, inventoryUnitsAttempted);
+                route.LastPartialDeliverySummary =
+                    sameCycleReport && !string.IsNullOrEmpty(route.LastPartialDeliverySummary)
+                        ? AppendPartialDeliverySummary(route.LastPartialDeliverySummary, summary)
+                        : summary;
+                route.LastPartialDeliveryUT = ctx.CurrentUT;
+                route.LastPartialDeliveryCycleId = ctx.CycleId;
+                ParsekLog.Warn(Tag,
+                    $"Delivery: route {ShortIdForLog(route)} cycle={ctx.CycleId} PARTIAL - " +
+                    $"undelivered remainder is lost: {route.LastPartialDeliverySummary}");
+            }
+            else if (!sameCycleReport
+                && (route.LastPartialDeliverySummary != null || route.LastPartialDeliveryUT >= 0.0))
+            {
+                route.LastPartialDeliverySummary = null;
+                route.LastPartialDeliveryUT = -1.0;
+                route.LastPartialDeliveryCycleId = null;
+                ParsekLog.Verbose(Tag,
+                    $"Delivery: route {ShortIdForLog(route)} full delivery cleared the last-partial report");
+            }
+
             // Honor PauseAfterCurrentCycle: a route armed by "Send Once" (or a
             // future user pause-after-cycle action) transitions to Paused
             // after its in-flight cycle completes, instead of looping back to
@@ -4027,6 +4062,116 @@ namespace Parsek.Logistics
                 $"inventoryUnitsSkipped={inventoryUnitsSkipped.ToString(IC)} " +
                 $"partial={(plan.IsPartial ? "1" : "0")} " +
                 $"ut={ctx.CurrentUT.ToString("R", IC)}");
+        }
+
+        /// <summary>
+        /// Joins a same-cycle earlier window's partial summary with this
+        /// window's, capped at the same length bound as
+        /// <see cref="BuildPartialDeliverySummary"/> so a many-window partial
+        /// cycle cannot bloat the .sfs.
+        /// </summary>
+        internal static string AppendPartialDeliverySummary(string existing, string addition)
+        {
+            const int MaxSummaryChars = 240;
+            if (string.IsNullOrEmpty(existing)) return addition;
+            if (string.IsNullOrEmpty(addition)) return existing;
+            string combined = existing + "; " + addition;
+            if (combined.Length <= MaxSummaryChars) return combined;
+            return combined.Substring(0, MaxSummaryChars - 3) + "...";
+        }
+
+        /// <summary>
+        /// Plain-ASCII actual-vs-requested summary of a PARTIAL delivery plan,
+        /// stored on <see cref="Route.LastPartialDeliverySummary"/> for the
+        /// Logistics window's detail panel. One clause per SHORT item only
+        /// (full-fill lines are noise here): resources as
+        /// "Name actual/requested", inventory as "partName units/qty not placed"
+        /// for planner-skipped stored-part units (no slot / no volume-mass
+        /// headroom), plus one trailing clause when stock rejected attempted
+        /// stored-part writes (per-line write success is not tracked, only the
+        /// aggregate unit count). <paramref name="inventoryUnitsAttempted"/> is
+        /// the total UNITS the writer was asked to store (matching the
+        /// unit-accurate actual reader); <paramref name="inventoryActualCount"/>
+        /// is the total units actually stored. Length-capped so a pathological
+        /// manifest cannot bloat the .sfs / the detail panel. Pure; the actual
+        /// amounts come from the caller's reader (write-time truth, not the
+        /// plan's estimate).
+        /// </summary>
+        internal static string BuildPartialDeliverySummary(
+            DeliveryPlan plan,
+            Func<string, double> resourceActualReader,
+            int inventoryActualCount,
+            int inventoryUnitsAttempted)
+        {
+            const int MaxSummaryChars = 240;
+            var sb = new System.Text.StringBuilder();
+            bool truncated = false;
+
+            if (plan.Resources != null)
+            {
+                for (int i = 0; i < plan.Resources.Count; i++)
+                {
+                    ResourceDeliveryLine line = plan.Resources[i];
+                    if (!(line.Available < line.Requested))
+                        continue; // full fill - not part of the loss report
+                    if (sb.Length >= MaxSummaryChars) { truncated = true; break; }
+                    double actual = resourceActualReader != null
+                        ? resourceActualReader(line.Name)
+                        : line.Available;
+                    if (sb.Length > 0) sb.Append("; ");
+                    sb.Append(line.Name).Append(' ')
+                        .Append(actual.ToString("0.##", IC))
+                        .Append('/')
+                        .Append(line.Requested.ToString("0.##", IC));
+                }
+            }
+
+            if (plan.Inventory != null)
+            {
+                for (int i = 0; i < plan.Inventory.Count; i++)
+                {
+                    InventoryDeliveryLine line = plan.Inventory[i];
+                    // Only planner-SKIP lines report here (invalid AssignedSlot):
+                    // Units carries the unplaced unit count for that item
+                    // (a manifest item bigger than its stack capacity splits
+                    // into delivered lines plus at most one skip line).
+                    if (line.AssignedSlot.IsValid || line.Item == null || line.Units <= 0)
+                        continue;
+                    if (sb.Length >= MaxSummaryChars) { truncated = true; break; }
+                    int total = line.Item.Quantity > 0 ? line.Item.Quantity : line.Units;
+                    if (sb.Length > 0) sb.Append("; ");
+                    sb.Append(string.IsNullOrEmpty(line.Item.PartName) ? "<unknown>" : line.Item.PartName)
+                        .Append(' ')
+                        .Append(line.Units.ToString(IC))
+                        .Append('/')
+                        .Append(total.ToString(IC))
+                        .Append(" not placed (no room)");
+                }
+            }
+
+            if (inventoryActualCount < inventoryUnitsAttempted)
+            {
+                if (sb.Length >= MaxSummaryChars)
+                {
+                    truncated = true;
+                }
+                else
+                {
+                    if (sb.Length > 0) sb.Append("; ");
+                    sb.Append((inventoryUnitsAttempted - inventoryActualCount).ToString(IC))
+                        .Append(" stored-part unit(s) rejected by the container");
+                }
+            }
+
+            if (sb.Length == 0)
+                return "delivery fell short of the recorded manifest";
+            if (truncated || sb.Length > MaxSummaryChars)
+            {
+                int keep = Math.Min(sb.Length, MaxSummaryChars - 3);
+                sb.Length = keep;
+                sb.Append("...");
+            }
+            return sb.ToString();
         }
 
         /// <summary>

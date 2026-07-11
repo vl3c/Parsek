@@ -272,6 +272,40 @@ namespace Parsek.Logistics
         /// </summary>
         public double LastHoldUT = -1.0;
 
+        /// <summary>
+        /// Plain-ASCII summary of the most recent PARTIAL delivery
+        /// (actual-vs-requested per short item, built by
+        /// <c>RouteOrchestrator.BuildPartialDeliverySummary</c>); null when the
+        /// most recent delivery was full or none has happened. The
+        /// destination-capacity dispatch gate makes partials rare (capacity
+        /// that shrinks between the gate and the write), so when one DOES
+        /// happen the Logistics window must show exactly what was lost - the
+        /// undelivered remainder does not come back (the origin was debited in
+        /// full and the transport is a ghost). CLEARED by the next FULL
+        /// delivery so stale loss reports never outlive the condition. Sparse
+        /// in the codec (omitted when null/empty).
+        /// </summary>
+        public string LastPartialDeliverySummary;
+
+        /// <summary>
+        /// UT of the most recent partial delivery; -1 when
+        /// <see cref="LastPartialDeliverySummary"/> is unset. Drives the
+        /// display-side "{age} ago" suffix. Sparse in the codec (omitted when
+        /// &lt; 0).
+        /// </summary>
+        public double LastPartialDeliveryUT = -1.0;
+
+        /// <summary>
+        /// Cycle id the partial report belongs to; null when unset. A
+        /// multi-stop cycle delivers several windows under ONE cycle id, so
+        /// the orchestrator APPENDS same-cycle partials into one report and a
+        /// full window only clears a report from an EARLIER cycle - without
+        /// this key, window B's full delivery would erase window A's recorded
+        /// loss inside the same cycle. Sparse in the codec (omitted when
+        /// null/empty).
+        /// </summary>
+        public string LastPartialDeliveryCycleId;
+
         // --- Backing-mission definition (design §0; Phase 1) ---
 
         /// <summary>

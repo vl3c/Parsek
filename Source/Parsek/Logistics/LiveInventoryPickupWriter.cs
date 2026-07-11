@@ -165,6 +165,119 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// Count of stored parts on the source whose stock <c>partName</c>
+        /// equals <paramref name="partName"/> REGARDLESS of identity hash,
+        /// summed across every inventory module (loaded slots OR unloaded proto
+        /// STOREDPART nodes per the captured gate). The NEAR-MISS probe behind
+        /// the <c>inventory-state:</c> hold token: when the identity-hash gate
+        /// (<see cref="CountStored"/>) reports zero but this reports a positive
+        /// count, the origin physically holds the part and only its STATE
+        /// (charge, fuel, module contents) differs from the recorded cargo -
+        /// a legibility distinction only, never an admission relaxation.
+        /// </summary>
+        internal int CountStoredByPartName(string partName)
+        {
+            if (string.IsNullOrEmpty(partName))
+                return 0;
+            try
+            {
+                return isLoaded
+                    ? CountStoredByPartNameLoaded(partName)
+                    : CountStoredByPartNameUnloaded(partName);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"CountStoredByPartName({partName}) threw {ex.GetType().Name}: {ex.Message}; returning 0");
+                return 0;
+            }
+        }
+
+        private int CountStoredByPartNameLoaded(string partName)
+        {
+            if (vessel?.parts == null)
+                return 0;
+            int total = 0;
+            for (int i = 0; i < vessel.parts.Count; i++)
+            {
+                Part p = vessel.parts[i];
+                if (p?.Modules == null)
+                    continue;
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    if (!(p.Modules[m] is ModuleInventoryPart module) || module.storedParts == null)
+                        continue;
+                    for (int s = 0; s < module.InventorySlots; s++)
+                    {
+                        if (!module.storedParts.ContainsKey(s))
+                            continue;
+                        StoredPart sp = module.storedParts[s];
+                        if (sp == null || sp.quantity <= 0)
+                            continue;
+                        if (string.Equals(sp.partName, partName, StringComparison.Ordinal))
+                            total += sp.quantity;
+                    }
+                }
+            }
+            return total;
+        }
+
+        private int CountStoredByPartNameUnloaded(string partName)
+        {
+            ProtoVessel pv = vessel?.protoVessel;
+            if (pv?.protoPartSnapshots == null)
+                return 0;
+            int total = 0;
+            for (int i = 0; i < pv.protoPartSnapshots.Count; i++)
+            {
+                ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
+                if (pps?.modules == null)
+                    continue;
+                for (int m = 0; m < pps.modules.Count; m++)
+                {
+                    ProtoPartModuleSnapshot mod = pps.modules[m];
+                    if (mod == null || mod.moduleName != "ModuleInventoryPart")
+                        continue;
+                    ConfigNode storedParts = mod.moduleValues?.GetNode("STOREDPARTS");
+                    if (storedParts == null)
+                        continue;
+                    total += CountStoredByPartNameInStoredPartsNode(storedParts, partName);
+                }
+            }
+            return total;
+        }
+
+        /// <summary>
+        /// Pure ConfigNode core of the unloaded by-part-name count: sums the
+        /// <c>quantity</c> of every STOREDPART child whose <c>partName</c>
+        /// value matches. Internal for direct unit testing (the live proto
+        /// walk needs a Vessel and is pinned in-game).
+        /// </summary>
+        internal static int CountStoredByPartNameInStoredPartsNode(
+            ConfigNode storedParts, string partName)
+        {
+            if (storedParts == null || string.IsNullOrEmpty(partName))
+                return 0;
+            int total = 0;
+            ConfigNode[] nodes = storedParts.GetNodes("STOREDPART");
+            for (int i = 0; i < nodes.Length; i++)
+            {
+                ConfigNode node = nodes[i];
+                if (node == null)
+                    continue;
+                if (!string.Equals(node.GetValue("partName"), partName, StringComparison.Ordinal))
+                    continue;
+                int qty = 1;
+                string qtyStr = node.GetValue("quantity");
+                if (!string.IsNullOrEmpty(qtyStr))
+                    int.TryParse(qtyStr, NumberStyles.Integer, IC, out qty);
+                if (qty > 0)
+                    total += qty;
+            }
+            return total;
+        }
+
+        /// <summary>
         /// Removes ONE stored part matching <paramref name="item"/>'s
         /// <see cref="InventoryPayloadItem.IdentityHash"/> from the source
         /// endpoint, taking the lowest-index occupied slot (deterministic

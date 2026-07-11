@@ -927,5 +927,168 @@ namespace Parsek.Tests.Logistics
             }
             public bool RouteHasValidSourcesInErs(Route route) => true;
         }
+
+        // ==================================================================
+        // Last-partial-delivery report (destination-capacity gate follow-up)
+        // ==================================================================
+
+        // catches: a partial delivery not recording the loss report, or a
+        // subsequent FULL delivery leaving the stale report standing.
+        [Fact]
+        public void PartialDelivery_RecordsReport_FullDeliveryClearsIt()
+        {
+            var route = BuildInTransitKscRoute();
+            var partialPlan = new DeliveryPlan(
+                new[]
+                {
+                    new ResourceDeliveryLine("LiquidFuel", 100.0, 100.0),
+                    new ResourceDeliveryLine("Oxidizer", 120.0, 60.0),
+                },
+                Array.Empty<InventoryDeliveryLine>(),
+                isPartial: true,
+                isZero: false);
+            var writers = new CapturingWriters();
+            var ctx = BuildContext(writers, ut: 500.0);
+
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, partialPlan, ctx);
+
+            Assert.NotNull(route.LastPartialDeliverySummary);
+            Assert.Contains("Oxidizer", route.LastPartialDeliverySummary);
+            Assert.DoesNotContain("LiquidFuel", route.LastPartialDeliverySummary);
+            Assert.Equal(500.0, route.LastPartialDeliveryUT);
+
+            // The next FULL delivery clears the report.
+            route.PendingDeliveryUT = 150.0; // re-arm the fixture
+            var fullPlan = BuildFullFillPlan(new Dictionary<string, double>
+            {
+                { "LiquidFuel", 100.0 },
+            });
+            var writers2 = new CapturingWriters();
+            var ctx2 = BuildContext(writers2, cycleId: "cycle-1", ut: 600.0);
+
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, fullPlan, ctx2);
+
+            Assert.Null(route.LastPartialDeliverySummary);
+            Assert.Equal(-1.0, route.LastPartialDeliveryUT);
+            Assert.Null(route.LastPartialDeliveryCycleId);
+        }
+
+        // catches: a multi-stop cycle's LATER full window erasing an EARLIER
+        // window's recorded loss under the SAME cycle id, and same-cycle
+        // partials overwriting instead of appending.
+        [Fact]
+        public void PartialReport_SameCycle_FullWindowKeepsIt_SecondPartialAppends()
+        {
+            var route = BuildInTransitKscRoute();
+            var partialPlan = new DeliveryPlan(
+                new[] { new ResourceDeliveryLine("Oxidizer", 120.0, 60.0) },
+                Array.Empty<InventoryDeliveryLine>(),
+                isPartial: true, isZero: false);
+
+            // Window A (stop 0) partial under cycle-7.
+            var writersA = new CapturingWriters();
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, partialPlan,
+                BuildContext(writersA, cycleId: "cycle-7", ut: 500.0, bumpCompletedCycle: false));
+            string afterA = route.LastPartialDeliverySummary;
+            Assert.NotNull(afterA);
+            Assert.Equal("cycle-7", route.LastPartialDeliveryCycleId);
+
+            // Window B (same cycle) delivers FULL: the report must SURVIVE.
+            route.PendingDeliveryUT = 150.0;
+            var fullPlan = BuildFullFillPlan(new Dictionary<string, double> { { "LiquidFuel", 10.0 } });
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, fullPlan,
+                BuildContext(writersA, cycleId: "cycle-7", ut: 550.0, stopIndex: 1));
+            Assert.Equal(afterA, route.LastPartialDeliverySummary);
+            Assert.Equal(500.0, route.LastPartialDeliveryUT);
+
+            // Window C (same cycle) partial again: APPENDS, not overwrites.
+            route.PendingDeliveryUT = 150.0;
+            var partialPlanC = new DeliveryPlan(
+                new[] { new ResourceDeliveryLine("MonoPropellant", 40.0, 10.0) },
+                Array.Empty<InventoryDeliveryLine>(),
+                isPartial: true, isZero: false);
+            var writersC = new CapturingWriters();
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, partialPlanC,
+                BuildContext(writersC, cycleId: "cycle-7", ut: 600.0, stopIndex: 2, bumpCompletedCycle: false));
+            Assert.Contains("Oxidizer", route.LastPartialDeliverySummary);
+            Assert.Contains("MonoPropellant", route.LastPartialDeliverySummary);
+
+            // A full delivery in the NEXT cycle clears everything.
+            route.PendingDeliveryUT = 150.0;
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, fullPlan,
+                BuildContext(new CapturingWriters(), cycleId: "cycle-8", ut: 700.0));
+            Assert.Null(route.LastPartialDeliverySummary);
+            Assert.Equal(-1.0, route.LastPartialDeliveryUT);
+            Assert.Null(route.LastPartialDeliveryCycleId);
+        }
+
+        // catches: the same-cycle append losing either half or blowing the cap.
+        [Fact]
+        public void AppendPartialDeliverySummary_JoinsAndCaps()
+        {
+            Assert.Equal("a; b", RouteOrchestrator.AppendPartialDeliverySummary("a", "b"));
+            Assert.Equal("a", RouteOrchestrator.AppendPartialDeliverySummary("a", null));
+            Assert.Equal("b", RouteOrchestrator.AppendPartialDeliverySummary(null, "b"));
+            string capped = RouteOrchestrator.AppendPartialDeliverySummary(
+                new string('x', 200), new string('y', 200));
+            Assert.Equal(240, capped.Length);
+            Assert.EndsWith("...", capped);
+        }
+
+        // catches: the summary including full-fill lines (noise), losing the
+        // actual/requested numbers, or missing the skipped-inventory clause.
+        [Fact]
+        public void BuildPartialDeliverySummary_Shapes()
+        {
+            var plan = new DeliveryPlan(
+                new[]
+                {
+                    new ResourceDeliveryLine("LiquidFuel", 100.0, 100.0), // full
+                    new ResourceDeliveryLine("Oxidizer", 120.0, 60.0),    // short
+                },
+                new[]
+                {
+                    // Skip line: all 2 units of evaJetpack unplaced (Units = 2).
+                    new InventoryDeliveryLine(
+                        new InventoryPayloadItem { IdentityHash = "h", PartName = "evaJetpack", Quantity = 2 },
+                        InventorySlotAddress.None, 2),
+                    // Stored line: 1 unit of sensorThermometer in slot 0.
+                    new InventoryDeliveryLine(
+                        new InventoryPayloadItem { IdentityHash = "h2", PartName = "sensorThermometer", Quantity = 1 },
+                        new InventorySlotAddress(0, 0, 0), 1),
+                },
+                isPartial: true,
+                isZero: false);
+
+            string summary = RouteOrchestrator.BuildPartialDeliverySummary(
+                plan, name => name == "Oxidizer" ? 60.0 : 100.0,
+                inventoryActualCount: 1, inventoryUnitsAttempted: 1);
+
+            Assert.Equal("Oxidizer 60/120; evaJetpack 2/2 not placed (no room)", summary);
+
+            // Rejected stored-part writes (stock refused a call the planner
+            // assigned) get their own unit-count clause.
+            string withRejects = RouteOrchestrator.BuildPartialDeliverySummary(
+                plan, name => name == "Oxidizer" ? 60.0 : 100.0,
+                inventoryActualCount: 0, inventoryUnitsAttempted: 1);
+            Assert.Contains("1 stored-part unit(s) rejected by the container", withRejects);
+
+            // Defensive: a partial plan with no identifiable short line still
+            // yields non-empty text.
+            string fallback = RouteOrchestrator.BuildPartialDeliverySummary(
+                DeliveryPlan.Empty(), _ => 0.0, 0, 0);
+            Assert.False(string.IsNullOrEmpty(fallback));
+
+            // Length cap: a pathological manifest cannot bloat the .sfs.
+            var manyLines = new List<ResourceDeliveryLine>();
+            for (int i = 0; i < 50; i++)
+                manyLines.Add(new ResourceDeliveryLine("Resource" + i, 100.0, 1.0));
+            var bigPlan = new DeliveryPlan(
+                manyLines, Array.Empty<InventoryDeliveryLine>(), isPartial: true, isZero: false);
+            string capped = RouteOrchestrator.BuildPartialDeliverySummary(
+                bigPlan, _ => 1.0, 0, 0);
+            Assert.True(capped.Length <= 243, $"summary length {capped.Length} exceeds cap");
+            Assert.EndsWith("...", capped);
+        }
     }
 }
