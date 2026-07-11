@@ -20,6 +20,7 @@ namespace Parsek.Tests.Analyzer
             new List<IRecordingInvariant>
             {
                 new Inv2NoDoubleCover(),
+                new Inv7TreeTopology(),
             };
     }
 
