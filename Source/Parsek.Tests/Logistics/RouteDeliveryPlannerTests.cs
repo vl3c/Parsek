@@ -27,13 +27,14 @@ namespace Parsek.Tests.Logistics
             /// <summary>
             /// Scripted slot queue. Each <see cref="ProbeFirstEmptyInventorySlot"/>
             /// returns the next entry without dequeuing — the planner's
-            /// <see cref="ConsumeInventorySlot"/> call dequeues the head. -1
-            /// entries mean "no empty slot" (probe still doesn't dequeue).
+            /// <see cref="ConsumeInventorySlot"/> call dequeues the head. An
+            /// empty queue means "no empty slot" (probe returns None and
+            /// doesn't dequeue).
             /// </summary>
-            public List<int> SlotQueue = new List<int>();
+            public List<InventorySlotAddress> SlotQueue = new List<InventorySlotAddress>();
 
-            /// <summary>Slot indices the planner consumed, in call order.</summary>
-            public List<int> ConsumedSlots = new List<int>();
+            /// <summary>Slot addresses the planner consumed, in call order.</summary>
+            public List<InventorySlotAddress> ConsumedSlots = new List<InventorySlotAddress>();
 
             public double ProbeResourceFreeCapacity(string resourceName)
             {
@@ -42,16 +43,16 @@ namespace Parsek.Tests.Logistics
                 return ResourceCapacity.TryGetValue(resourceName, out cap) ? cap : 0.0;
             }
 
-            public int ProbeFirstEmptyInventorySlot()
+            public InventorySlotAddress ProbeFirstEmptyInventorySlot()
             {
-                if (SlotQueue.Count == 0) return -1;
+                if (SlotQueue.Count == 0) return InventorySlotAddress.None;
                 return SlotQueue[0];
             }
 
-            public void ConsumeInventorySlot(int slotIndex)
+            public void ConsumeInventorySlot(InventorySlotAddress address)
             {
-                ConsumedSlots.Add(slotIndex);
-                if (SlotQueue.Count > 0 && SlotQueue[0] == slotIndex)
+                ConsumedSlots.Add(address);
+                if (SlotQueue.Count > 0 && SlotQueue[0].Equals(address))
                 {
                     SlotQueue.RemoveAt(0);
                 }
@@ -87,6 +88,9 @@ namespace Parsek.Tests.Logistics
                 ConsumedCapacity.Add((item?.PartName, units));
             }
         }
+
+        /// <summary>Shorthand for a single-module slot address (part 0, module 0).</summary>
+        private static InventorySlotAddress Slot(int slotIndex) => new InventorySlotAddress(0, 0, slotIndex);
 
         private static Route MakeRouteWithStop(RouteStop stop)
         {
@@ -251,15 +255,54 @@ namespace Parsek.Tests.Logistics
             var route = MakeRouteWithStop(stop);
             var probe = new FakeDeliveryCapacityProbe
             {
-                SlotQueue = new List<int> { 0, 1 },
+                SlotQueue = new List<InventorySlotAddress> { Slot(0), Slot(1) },
             };
 
             var plan = RouteDeliveryPlanner.PrepareDelivery(route, 0, probe);
 
             Assert.Equal(2, plan.Inventory.Count);
-            Assert.Equal(0, plan.Inventory[0].AssignedSlot);
-            Assert.Equal(1, plan.Inventory[1].AssignedSlot);
-            Assert.Equal(new List<int> { 0, 1 }, probe.ConsumedSlots);
+            Assert.Equal(Slot(0), plan.Inventory[0].AssignedSlot);
+            Assert.Equal(Slot(1), plan.Inventory[1].AssignedSlot);
+            Assert.Equal(new List<InventorySlotAddress> { Slot(0), Slot(1) }, probe.ConsumedSlots);
+            Assert.False(plan.IsPartial);
+            Assert.False(plan.IsZero);
+        }
+
+        // catches: the planner or the line struct collapsing the module-qualified
+        // address back to a bare slot index — two modules re-using slot index 0
+        // must stay distinct addresses end-to-end.
+        [Fact]
+        public void Inventory_MultiModule_AddressesFromLaterModulesPropagate()
+        {
+            var stop = new RouteStop
+            {
+                InventoryDeliveryManifest = new List<InventoryPayloadItem>
+                {
+                    MakeItem("h-a", "partA"),
+                    MakeItem("h-b", "partB"),
+                    MakeItem("h-c", "partC"),
+                },
+            };
+            var route = MakeRouteWithStop(stop);
+            // First module (part 0, module 0) has one free slot; the next free
+            // slots live on a second module of the same part and on another part.
+            var probe = new FakeDeliveryCapacityProbe
+            {
+                SlotQueue = new List<InventorySlotAddress>
+                {
+                    new InventorySlotAddress(0, 0, 2),
+                    new InventorySlotAddress(0, 1, 0),
+                    new InventorySlotAddress(3, 0, 0),
+                },
+            };
+
+            var plan = RouteDeliveryPlanner.PrepareDelivery(route, 0, probe);
+
+            Assert.Equal(3, plan.Inventory.Count);
+            Assert.Equal(new InventorySlotAddress(0, 0, 2), plan.Inventory[0].AssignedSlot);
+            Assert.Equal(new InventorySlotAddress(0, 1, 0), plan.Inventory[1].AssignedSlot);
+            Assert.Equal(new InventorySlotAddress(3, 0, 0), plan.Inventory[2].AssignedSlot);
+            Assert.Equal(3, probe.ConsumedSlots.Count);
             Assert.False(plan.IsPartial);
             Assert.False(plan.IsZero);
         }
@@ -276,12 +319,12 @@ namespace Parsek.Tests.Logistics
                 },
             };
             var route = MakeRouteWithStop(stop);
-            var probe = new FakeDeliveryCapacityProbe(); // empty SlotQueue → -1
+            var probe = new FakeDeliveryCapacityProbe(); // empty SlotQueue → None
 
             var plan = RouteDeliveryPlanner.PrepareDelivery(route, 0, probe);
 
             Assert.Single(plan.Inventory);
-            Assert.Equal(-1, plan.Inventory[0].AssignedSlot);
+            Assert.False(plan.Inventory[0].AssignedSlot.IsValid);
             Assert.True(plan.IsPartial);
             Assert.True(plan.IsZero);
         }
@@ -301,14 +344,14 @@ namespace Parsek.Tests.Logistics
             var route = MakeRouteWithStop(stop);
             var probe = new FakeDeliveryCapacityProbe
             {
-                SlotQueue = new List<int> { 0 }, // only slot 0 available; second item gets -1
+                SlotQueue = new List<InventorySlotAddress> { Slot(0) }, // only slot 0 available; second item gets None
             };
 
             var plan = RouteDeliveryPlanner.PrepareDelivery(route, 0, probe);
 
             Assert.Equal(2, plan.Inventory.Count);
-            Assert.Equal(0, plan.Inventory[0].AssignedSlot);
-            Assert.Equal(-1, plan.Inventory[1].AssignedSlot);
+            Assert.Equal(Slot(0), plan.Inventory[0].AssignedSlot);
+            Assert.False(plan.Inventory[1].AssignedSlot.IsValid);
             Assert.True(plan.IsPartial);
             Assert.False(plan.IsZero);
         }
@@ -335,7 +378,7 @@ namespace Parsek.Tests.Logistics
                 {
                     { "LiquidFuel", 40.0 }, // partial
                 },
-                SlotQueue = new List<int> { 0 }, // inventory fits
+                SlotQueue = new List<InventorySlotAddress> { Slot(0) }, // inventory fits
             };
 
             var plan = RouteDeliveryPlanner.PrepareDelivery(route, 0, probe);
@@ -346,7 +389,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(40.0, plan.Resources[0].Available);
             Assert.Equal(100.0, plan.Resources[0].Requested);
             Assert.Single(plan.Inventory);
-            Assert.Equal(0, plan.Inventory[0].AssignedSlot);
+            Assert.Equal(Slot(0), plan.Inventory[0].AssignedSlot);
         }
 
         // catches: planner crashing on empty manifest.
@@ -545,20 +588,20 @@ namespace Parsek.Tests.Logistics
             var route = MakeRouteWithStop(stop);
             var probe = new FakeDeliveryCapacityProbe
             {
-                SlotQueue = new List<int> { 0, 1, 2, 3 },
+                SlotQueue = new List<InventorySlotAddress> { Slot(0), Slot(1), Slot(2), Slot(3) },
             };
 
             var plan = RouteDeliveryPlanner.PrepareDelivery(route, 0, probe);
 
             // ceil(10 / 4) = 3 slots: 4 + 4 + 2 units.
             Assert.Equal(3, plan.Inventory.Count);
-            Assert.Equal(0, plan.Inventory[0].AssignedSlot);
+            Assert.Equal(Slot(0), plan.Inventory[0].AssignedSlot);
             Assert.Equal(4, plan.Inventory[0].Units);
-            Assert.Equal(1, plan.Inventory[1].AssignedSlot);
+            Assert.Equal(Slot(1), plan.Inventory[1].AssignedSlot);
             Assert.Equal(4, plan.Inventory[1].Units);
-            Assert.Equal(2, plan.Inventory[2].AssignedSlot);
+            Assert.Equal(Slot(2), plan.Inventory[2].AssignedSlot);
             Assert.Equal(2, plan.Inventory[2].Units);
-            Assert.Equal(new List<int> { 0, 1, 2 }, probe.ConsumedSlots);
+            Assert.Equal(new List<InventorySlotAddress> { Slot(0), Slot(1), Slot(2) }, probe.ConsumedSlots);
             // Every placed stack claimed its volume/mass budget.
             Assert.Equal(3, probe.ConsumedCapacity.Count);
             Assert.False(plan.IsPartial);
@@ -579,7 +622,7 @@ namespace Parsek.Tests.Logistics
             var route = MakeRouteWithStop(stop);
             var probe = new FakeDeliveryCapacityProbe
             {
-                SlotQueue = new List<int> { 2, 5, 7 },
+                SlotQueue = new List<InventorySlotAddress> { Slot(2), Slot(5), Slot(7) },
             };
 
             var plan = RouteDeliveryPlanner.PrepareDelivery(route, 0, probe);
@@ -587,7 +630,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(3, plan.Inventory.Count);
             foreach (var line in plan.Inventory)
                 Assert.Equal(1, line.Units);
-            Assert.Equal(new List<int> { 2, 5, 7 }, probe.ConsumedSlots);
+            Assert.Equal(new List<InventorySlotAddress> { Slot(2), Slot(5), Slot(7) }, probe.ConsumedSlots);
             Assert.False(plan.IsPartial);
         }
 
@@ -607,7 +650,7 @@ namespace Parsek.Tests.Logistics
             var route = MakeRouteWithStop(stop);
             var probe = new FakeDeliveryCapacityProbe
             {
-                SlotQueue = new List<int> { 0, 1 }, // room for 8 of 10 units
+                SlotQueue = new List<InventorySlotAddress> { Slot(0), Slot(1) }, // room for 8 of 10 units
             };
 
             var plan = RouteDeliveryPlanner.PrepareDelivery(route, 0, probe);
@@ -615,7 +658,7 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(3, plan.Inventory.Count);
             Assert.Equal(4, plan.Inventory[0].Units);
             Assert.Equal(4, plan.Inventory[1].Units);
-            Assert.Equal(-1, plan.Inventory[2].AssignedSlot);
+            Assert.False(plan.Inventory[2].AssignedSlot.IsValid);
             Assert.Equal(2, plan.Inventory[2].Units); // 2 units did not fit
             Assert.True(plan.IsPartial);
             Assert.False(plan.IsZero);
@@ -638,14 +681,14 @@ namespace Parsek.Tests.Logistics
             var route = MakeRouteWithStop(stop);
             var probe = new FakeDeliveryCapacityProbe
             {
-                SlotQueue = new List<int> { 0 },       // an empty slot EXISTS
+                SlotQueue = new List<InventorySlotAddress> { Slot(0) },       // an empty slot EXISTS
                 UnitsThatFit = (item, want) => 0,      // but the item does not fit
             };
 
             var plan = RouteDeliveryPlanner.PrepareDelivery(route, 0, probe);
 
             Assert.Single(plan.Inventory);
-            Assert.Equal(-1, plan.Inventory[0].AssignedSlot);
+            Assert.False(plan.Inventory[0].AssignedSlot.IsValid);
             Assert.Equal(1, plan.Inventory[0].Units);
             Assert.Empty(probe.ConsumedSlots); // no slot burned on a rejected item
             Assert.True(plan.IsPartial);
@@ -669,7 +712,7 @@ namespace Parsek.Tests.Logistics
             int admissionCalls = 0;
             var probe = new FakeDeliveryCapacityProbe
             {
-                SlotQueue = new List<int> { 0, 1 },
+                SlotQueue = new List<InventorySlotAddress> { Slot(0), Slot(1) },
                 // First stack: only 2 of 4 fit. After that the budget is gone.
                 UnitsThatFit = (item, want) => (++admissionCalls == 1) ? 2 : 0,
             };
@@ -677,9 +720,9 @@ namespace Parsek.Tests.Logistics
             var plan = RouteDeliveryPlanner.PrepareDelivery(route, 0, probe);
 
             Assert.Equal(2, plan.Inventory.Count);
-            Assert.Equal(0, plan.Inventory[0].AssignedSlot);
+            Assert.Equal(Slot(0), plan.Inventory[0].AssignedSlot);
             Assert.Equal(2, plan.Inventory[0].Units);
-            Assert.Equal(-1, plan.Inventory[1].AssignedSlot);
+            Assert.False(plan.Inventory[1].AssignedSlot.IsValid);
             Assert.Equal(8, plan.Inventory[1].Units);
             Assert.True(plan.IsPartial);
             Assert.False(plan.IsZero);

@@ -20,7 +20,7 @@ namespace Parsek.Tests.Logistics
         private sealed class FakeProbe : IDeliveryCapacityProbe
         {
             public Dictionary<string, double> ResourceCapacity = new Dictionary<string, double>();
-            public List<int> SlotQueue = new List<int>();
+            public List<InventorySlotAddress> SlotQueue = new List<InventorySlotAddress>();
 
             public double ProbeResourceFreeCapacity(string resourceName)
             {
@@ -28,12 +28,12 @@ namespace Parsek.Tests.Logistics
                 return ResourceCapacity.TryGetValue(resourceName, out double cap) ? cap : 0.0;
             }
 
-            public int ProbeFirstEmptyInventorySlot()
-                => SlotQueue.Count == 0 ? -1 : SlotQueue[0];
+            public InventorySlotAddress ProbeFirstEmptyInventorySlot()
+                => SlotQueue.Count == 0 ? InventorySlotAddress.None : SlotQueue[0];
 
-            public void ConsumeInventorySlot(int slotIndex)
+            public void ConsumeInventorySlot(InventorySlotAddress address)
             {
-                if (SlotQueue.Count > 0 && SlotQueue[0] == slotIndex)
+                if (SlotQueue.Count > 0 && SlotQueue[0].Equals(address))
                     SlotQueue.RemoveAt(0);
             }
 
@@ -48,6 +48,8 @@ namespace Parsek.Tests.Logistics
 
             public void ConsumeInventoryCapacity(InventoryPayloadItem item, int units) { }
         }
+
+        private static InventorySlotAddress Slot(int slotIndex) => new InventorySlotAddress(0, 0, slotIndex);
 
         private static Route MakeRoute(params RouteStop[] stops)
         {
@@ -84,7 +86,7 @@ namespace Parsek.Tests.Logistics
             var probe = new FakeProbe
             {
                 ResourceCapacity = new Dictionary<string, double> { { "LiquidFuel", 200.0 } },
-                SlotQueue = new List<int> { 0 },
+                SlotQueue = new List<InventorySlotAddress> { Slot(0) },
             };
 
             bool ok = RouteDestinationCapacityCheck.HasCapacityForAllStops(
@@ -140,7 +142,7 @@ namespace Parsek.Tests.Logistics
             });
             var probe = new FakeProbe
             {
-                SlotQueue = new List<int> { 3 }, // one slot for two items
+                SlotQueue = new List<InventorySlotAddress> { Slot(3) }, // one slot for two items
             };
 
             bool ok = RouteDestinationCapacityCheck.HasCapacityForAllStops(
@@ -276,7 +278,7 @@ namespace Parsek.Tests.Logistics
                 },
             };
             var route = MakeRoute(stopA, stopB);
-            var shared = new FakeProbe { SlotQueue = new List<int> { 0 } }; // ONE slot
+            var shared = new FakeProbe { SlotQueue = new List<InventorySlotAddress> { Slot(0) } }; // ONE slot
 
             bool ok = RouteDestinationCapacityCheck.HasCapacityForAllStops(
                 route, _ => shared, out string token, out int stopIndex);
@@ -311,7 +313,7 @@ namespace Parsek.Tests.Logistics
             };
             var inventory = new List<InventoryDeliveryLine>
             {
-                new InventoryDeliveryLine(MakeItem("h", "evaJetpack"), -1, 1), // also short
+                new InventoryDeliveryLine(MakeItem("h", "evaJetpack"), InventorySlotAddress.None, 1), // also short
             };
             var partialPlan = new DeliveryPlan(resources, inventory, isPartial: true, isZero: false);
             Assert.Equal("Oxidizer", RouteDestinationCapacityCheck.FirstShortToken(partialPlan));

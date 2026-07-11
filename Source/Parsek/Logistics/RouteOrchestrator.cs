@@ -3861,11 +3861,12 @@ namespace Parsek.Logistics
                 }
             }
 
-            // Apply inventory writes. Lines with AssignedSlot < 0 were skipped
-            // by the planner (no empty slot / no volume-mass headroom at probe
-            // time); the writer is only called for assigned slots, storing
-            // line.Units into each (a manifest item bigger than its stack
-            // capacity spans several lines). The writer may itself fall short
+            // Apply inventory writes. Lines with an invalid AssignedSlot were
+            // skipped by the planner (no empty slot on ANY container, or no
+            // volume-mass headroom at probe time); the writer is only called
+            // for assigned slots, storing line.Units into the assigned
+            // (part, module, slot) — a manifest item bigger than its stack
+            // capacity spans several lines. The writer may itself fall short
             // (stock StoreCargoPartAtSlot edge cases); the actual-count reader
             // returns the total UNITS actually stored.
             int inventoryUnitsAttempted = 0;
@@ -3875,7 +3876,7 @@ namespace Parsek.Logistics
                 for (int i = 0; i < plan.Inventory.Count; i++)
                 {
                     InventoryDeliveryLine line = plan.Inventory[i];
-                    if (line.AssignedSlot < 0)
+                    if (!line.AssignedSlot.IsValid)
                     {
                         // Planner skip (no empty slot / no volume-mass
                         // headroom); Units carries the unplaced count.
@@ -4130,11 +4131,11 @@ namespace Parsek.Logistics
                 for (int i = 0; i < plan.Inventory.Count; i++)
                 {
                     InventoryDeliveryLine line = plan.Inventory[i];
-                    // Only planner-SKIP lines report here (AssignedSlot < 0):
+                    // Only planner-SKIP lines report here (invalid AssignedSlot):
                     // Units carries the unplaced unit count for that item
                     // (a manifest item bigger than its stack capacity splits
                     // into delivered lines plus at most one skip line).
-                    if (line.AssignedSlot >= 0 || line.Item == null || line.Units <= 0)
+                    if (line.AssignedSlot.IsValid || line.Item == null || line.Units <= 0)
                         continue;
                     if (sb.Length >= MaxSummaryChars) { truncated = true; break; }
                     int total = line.Item.Quantity > 0 ? line.Item.Quantity : line.Units;
@@ -4691,7 +4692,7 @@ namespace Parsek.Logistics
             public double KscFundsCost;
             public Action<string, double> ResourceWriter;
             public Func<string, double> ResourceActualReader;
-            public Action<InventoryPayloadItem, int, int> InventoryWriter; // (item, slot, units)
+            public Action<InventoryPayloadItem, InventorySlotAddress, int> InventoryWriter; // (item, slot-address, units)
             public Func<int> InventoryActualCountReader; // total UNITS stored, not lines
             public Action<double> FundsDebiter;
             public Action<GameAction> LedgerEmitter;

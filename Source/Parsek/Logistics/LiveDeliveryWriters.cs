@@ -188,9 +188,9 @@ namespace Parsek.Logistics
             return actualPerResource.TryGetValue(resourceName, out double v) ? v : 0.0;
         }
 
-        internal void WriteInventory(InventoryPayloadItem item, int slot, int units)
+        internal void WriteInventory(InventoryPayloadItem item, InventorySlotAddress slot, int units)
         {
-            if (item == null || slot < 0 || units <= 0) return;
+            if (item == null || !slot.IsValid || units <= 0) return;
 
             int storedUnits = 0;
             try
@@ -211,27 +211,29 @@ namespace Parsek.Logistics
             catch (Exception ex)
             {
                 ParsekLog.Warn(Tag,
-                    $"WriteInventory(part={item.PartName}, slot={slot.ToString(IC)}, units={units.ToString(IC)}) " +
+                    $"WriteInventory(part={item.PartName}, slot={slot}, units={units.ToString(IC)}) " +
                     $"threw {ex.GetType().Name}: {ex.Message}");
                 storedUnits = 0;
             }
 
-            // Bounded per delivery cycle (a manifest holds a handful of
-            // lines), so a per-line Verbose is within the logging convention.
-            ParsekLog.Verbose(Tag,
-                $"WriteInventory: route={route?.Id ?? "<none>"} dest={vessel?.vesselName ?? "<none>"} " +
-                $"part={item.PartName ?? "<none>"} slot={slot.ToString(IC)} " +
-                $"units={storedUnits.ToString(IC)}/{units.ToString(IC)} " +
-                $"path={(isLoaded ? "loaded" : "unloaded")}");
+            inventoryUnitsStored += storedUnits;
+
+            // Bounded (a manifest holds a handful of lines per delivery),
+            // mirrors the pickup side's "Inventory remove" Info line so a cargo
+            // item's pickup and delivery are both traceable in the log; carries
+            // the module-qualified slot address and the units stored/planned.
+            ParsekLog.Info(Tag,
+                $"Inventory store: route={route?.Id ?? "<none>"} dest={vessel?.vesselName ?? "<none>"} " +
+                $"pid={(vessel != null ? vessel.persistentId : 0u).ToString(IC)} " +
+                $"part={item.PartName ?? "<none>"} slot={slot} " +
+                $"units={storedUnits.ToString(IC)}/{units.ToString(IC)} path={(isLoaded ? "loaded" : "unloaded")}");
             if (storedUnits < units)
             {
                 ParsekLog.Warn(Tag,
-                    $"WriteInventory stored fewer units than planned: part={item.PartName ?? "<none>"} " +
-                    $"slot={slot.ToString(IC)} planned={units.ToString(IC)} stored={storedUnits.ToString(IC)} " +
+                    $"Inventory store: fewer units than planned part={item.PartName ?? "<none>"} " +
+                    $"slot={slot} planned={units.ToString(IC)} stored={storedUnits.ToString(IC)} " +
                     $"path={(isLoaded ? "loaded" : "unloaded")}");
             }
-
-            inventoryUnitsStored += storedUnits;
         }
 
         /// <summary>
@@ -318,8 +320,9 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Loaded-path inventory store. Locates the first
-        /// <see cref="ModuleInventoryPart"/> on the vessel, converts the
+        /// Loaded-path inventory store. Resolves the exact
+        /// <see cref="ModuleInventoryPart"/> the probe assigned (vessel part
+        /// index + module index, same loaded branch), converts the
         /// STOREDPART ConfigNode payload to a <see cref="ProtoPartSnapshot"/>
         /// via the canonical KSP <c>(ConfigNode, ProtoVessel, Game)</c>
         /// constructor (see B0 finding below), and delegates to stock
@@ -334,23 +337,23 @@ namespace Parsek.Logistics
         /// ConfigNode (see <see cref="VesselSpawner.BuildInventoryPayloadItem"/>),
         /// so we extract the inner PART node before constructing.
         /// </summary>
-        private int WriteInventoryLoaded(InventoryPayloadItem item, int slot, int units)
+        private int WriteInventoryLoaded(InventoryPayloadItem item, InventorySlotAddress slot, int units)
         {
             if (item.StoredPartSnapshot == null) return 0;
-            ModuleInventoryPart module = FindFirstInventoryModule(vessel);
+            ModuleInventoryPart module = ResolveLoadedInventoryModule(slot);
             if (module == null) return 0;
 
             ProtoPartSnapshot pps = BuildProtoPartSnapshotForDelivery(
                 item.StoredPartSnapshot, vessel.protoVessel);
             if (pps == null) return 0;
 
-            if (!module.StoreCargoPartAtSlot(pps, slot)) return 0;
+            if (!module.StoreCargoPartAtSlot(pps, slot.SlotIndex)) return 0;
 
             // Stock returns true even when nothing was stored (a null
             // partInfo silently no-ops), so read the slot back for the real
             // success signal instead of trusting the return value.
             if (module.storedParts == null
-                || !module.storedParts.TryGetValue(slot, out StoredPart storedPart)
+                || !module.storedParts.TryGetValue(slot.SlotIndex, out StoredPart storedPart)
                 || storedPart == null)
             {
                 return 0;
@@ -363,20 +366,51 @@ namespace Parsek.Logistics
             // inventory-changed events. Read the resulting quantity back so
             // the reported actual is what the slot really holds.
             if (units > 1)
-                module.UpdateStackAmountAtSlot(slot, units);
+                module.UpdateStackAmountAtSlot(slot.SlotIndex, units);
             return storedPart.quantity > 0 ? storedPart.quantity : 0;
         }
 
         /// <summary>
-        /// Unloaded-path inventory store. Appends a deep-cloned STOREDPART
-        /// ConfigNode under the first <see cref="ModuleInventoryPart"/>
-        /// module's persistent <c>STOREDPARTS</c> child, matching the
-        /// on-disk shape stock writes via <c>StoredPart.Save</c>. The slot
-        /// index is persisted as the <c>slotIndex</c> value so stock's
-        /// <c>OnLoad</c> (legacy and modern paths) restores the slot
-        /// position when the vessel next loads.
+        /// Resolves the probe-assigned (part index, module index) back to the
+        /// live <see cref="ModuleInventoryPart"/> instance, on the SAME loaded
+        /// branch and collections the probe walked. Returns null (with a Warn,
+        /// the delivery is then reported as a failed store) when the address
+        /// no longer resolves — a mid-tick part loss or module change between
+        /// probe and write.
         /// </summary>
-        private int WriteInventoryUnloaded(InventoryPayloadItem item, int slot, int units)
+        private ModuleInventoryPart ResolveLoadedInventoryModule(InventorySlotAddress slot)
+        {
+            if (vessel == null || vessel.parts == null
+                || slot.PartIndex >= vessel.parts.Count)
+            {
+                ParsekLog.Warn(Tag,
+                    $"ResolveLoadedInventoryModule: part index out of range for slot={slot} " +
+                    $"partCount={(vessel?.parts != null ? vessel.parts.Count : 0).ToString(IC)}");
+                return null;
+            }
+            Part p = vessel.parts[slot.PartIndex];
+            if (p == null || p.Modules == null || slot.ModuleIndex >= p.Modules.Count
+                || !(p.Modules[slot.ModuleIndex] is ModuleInventoryPart module))
+            {
+                ParsekLog.Warn(Tag,
+                    $"ResolveLoadedInventoryModule: module at slot={slot} is missing or not a " +
+                    $"ModuleInventoryPart on part={p?.partInfo?.name ?? "<none>"}");
+                return null;
+            }
+            return module;
+        }
+
+        /// <summary>
+        /// Unloaded-path inventory store. Appends a deep-cloned STOREDPART
+        /// ConfigNode under the probe-assigned proto
+        /// <see cref="ModuleInventoryPart"/> module's persistent
+        /// <c>STOREDPARTS</c> child (proto part index + module index, same
+        /// unloaded branch the probe walked), matching the on-disk shape stock
+        /// writes via <c>StoredPart.Save</c>. The slot index is persisted as
+        /// the <c>slotIndex</c> value so stock's <c>OnLoad</c> (legacy and
+        /// modern paths) restores the slot position when the vessel next loads.
+        /// </summary>
+        private int WriteInventoryUnloaded(InventoryPayloadItem item, InventorySlotAddress slot, int units)
         {
             if (item.StoredPartSnapshot == null) return 0;
             // Branch parity with the loaded writer, which refuses a payload
@@ -385,27 +419,55 @@ namespace Parsek.Logistics
             // STOREDPART that stock's StoredPart.Load reconstructs with a
             // null snapshot.
             if (item.StoredPartSnapshot.GetNode("PART") == null) return 0;
-            ProtoVessel pv = vessel.protoVessel;
-            if (pv == null || pv.protoPartSnapshots == null) return 0;
 
-            for (int i = 0; i < pv.protoPartSnapshots.Count; i++)
+            ProtoPartModuleSnapshot mod = ResolveUnloadedInventoryModule(slot);
+            if (mod == null) return 0;
+            ConfigNode mv = mod.moduleValues;
+            ConfigNode storedParts = mv.GetNode("STOREDPARTS");
+            if (storedParts == null) storedParts = mv.AddNode("STOREDPARTS");
+
+            storedParts.AddNode(BuildUnloadedStoredPartNode(
+                item.StoredPartSnapshot, slot.SlotIndex, units));
+            return units;
+        }
+
+        /// <summary>
+        /// Unloaded twin of <see cref="ResolveLoadedInventoryModule"/>: resolves
+        /// the probe-assigned (part index, module index) back to the proto
+        /// ModuleInventoryPart snapshot, on the SAME unloaded branch and
+        /// collections the probe walked. Returns null (with a Warn, the
+        /// delivery is then reported as a failed store) when the address no
+        /// longer resolves.
+        /// </summary>
+        private ProtoPartModuleSnapshot ResolveUnloadedInventoryModule(InventorySlotAddress slot)
+        {
+            ProtoVessel pv = vessel != null ? vessel.protoVessel : null;
+            if (pv == null || pv.protoPartSnapshots == null
+                || slot.PartIndex >= pv.protoPartSnapshots.Count)
             {
-                ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
-                if (pps == null || pps.modules == null) continue;
-                for (int m = 0; m < pps.modules.Count; m++)
-                {
-                    ProtoPartModuleSnapshot mod = pps.modules[m];
-                    if (mod == null || mod.moduleName != "ModuleInventoryPart") continue;
-                    ConfigNode mv = mod.moduleValues;
-                    if (mv == null) continue;
-                    ConfigNode storedParts = mv.GetNode("STOREDPARTS");
-                    if (storedParts == null) storedParts = mv.AddNode("STOREDPARTS");
-
-                    storedParts.AddNode(BuildUnloadedStoredPartNode(item.StoredPartSnapshot, slot, units));
-                    return units;
-                }
+                ParsekLog.Warn(Tag,
+                    $"ResolveUnloadedInventoryModule: proto part index out of range for slot={slot} " +
+                    $"protoPartCount={(pv?.protoPartSnapshots != null ? pv.protoPartSnapshots.Count : 0).ToString(IC)}");
+                return null;
             }
-            return 0;
+
+            ProtoPartSnapshot pps = pv.protoPartSnapshots[slot.PartIndex];
+            if (pps == null || pps.modules == null || slot.ModuleIndex >= pps.modules.Count)
+            {
+                ParsekLog.Warn(Tag,
+                    $"ResolveUnloadedInventoryModule: proto module index out of range for slot={slot} " +
+                    $"part={pps?.partName ?? "<none>"}");
+                return null;
+            }
+            ProtoPartModuleSnapshot mod = pps.modules[slot.ModuleIndex];
+            if (mod == null || mod.moduleName != "ModuleInventoryPart" || mod.moduleValues == null)
+            {
+                ParsekLog.Warn(Tag,
+                    $"ResolveUnloadedInventoryModule: proto module at slot={slot} is missing or not a " +
+                    $"ModuleInventoryPart on part={pps.partName ?? "<none>"}");
+                return null;
+            }
+            return mod;
         }
 
         /// <summary>
@@ -432,8 +494,8 @@ namespace Parsek.Logistics
             return storedPartCopy;
         }
 
-        // Internal so the in-game stack-store test targets the SAME module the
-        // production writer stores into.
+        // Internal so the in-game stack-store / probe-admission tests can pick
+        // a concrete inventory module to target on the live vessel.
         internal static ModuleInventoryPart FindFirstInventoryModule(Vessel v)
         {
             if (v == null || v.parts == null) return null;

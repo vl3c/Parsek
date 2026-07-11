@@ -54,7 +54,7 @@ namespace Parsek.Tests.Logistics
         private sealed class CapturingWriters
         {
             public readonly List<(string Name, double Amount)> ResourceCalls = new List<(string, double)>();
-            public readonly List<(InventoryPayloadItem Item, int Slot, int Units)> InventoryCalls = new List<(InventoryPayloadItem, int, int)>();
+            public readonly List<(InventoryPayloadItem Item, InventorySlotAddress Slot, int Units)> InventoryCalls = new List<(InventoryPayloadItem, InventorySlotAddress, int)>();
             public readonly List<double> FundsDebits = new List<double>();
             public readonly List<GameAction> EmittedActions = new List<GameAction>();
 
@@ -69,7 +69,7 @@ namespace Parsek.Tests.Logistics
                 return total;
             }
 
-            public void WriteInventory(InventoryPayloadItem item, int slot, int units) => InventoryCalls.Add((item, slot, units));
+            public void WriteInventory(InventoryPayloadItem item, InventorySlotAddress slot, int units) => InventoryCalls.Add((item, slot, units));
 
             /// <summary>Unit-accurate actual, mirroring the production contract (sum of stored units, not a line count).</summary>
             public int ReadInventoryActualCount()
@@ -201,9 +201,9 @@ namespace Parsek.Tests.Logistics
                 Array.Empty<ResourceDeliveryLine>(),
                 new List<InventoryDeliveryLine>
                 {
-                    new InventoryDeliveryLine(item, 0, 4),
-                    new InventoryDeliveryLine(item, 1, 4),
-                    new InventoryDeliveryLine(item, -1, 2), // skipped remainder
+                    new InventoryDeliveryLine(item, new InventorySlotAddress(0, 0, 0), 4),
+                    new InventoryDeliveryLine(item, new InventorySlotAddress(0, 0, 1), 4),
+                    new InventoryDeliveryLine(item, InventorySlotAddress.None, 2), // skipped remainder
                 },
                 isPartial: true,
                 isZero: false);
@@ -214,8 +214,10 @@ namespace Parsek.Tests.Logistics
 
             // Only the two assigned lines reach the writer, each with its units.
             Assert.Equal(2, writers.InventoryCalls.Count);
-            Assert.Equal((0, 4), (writers.InventoryCalls[0].Slot, writers.InventoryCalls[0].Units));
-            Assert.Equal((1, 4), (writers.InventoryCalls[1].Slot, writers.InventoryCalls[1].Units));
+            Assert.Equal(new InventorySlotAddress(0, 0, 0), writers.InventoryCalls[0].Slot);
+            Assert.Equal(4, writers.InventoryCalls[0].Units);
+            Assert.Equal(new InventorySlotAddress(0, 0, 1), writers.InventoryCalls[1].Slot);
+            Assert.Equal(4, writers.InventoryCalls[1].Units);
 
             // The delivery summary logs unit-accurate actual/attempted plus the
             // planner-skipped remainder.
@@ -1049,11 +1051,11 @@ namespace Parsek.Tests.Logistics
                     // Skip line: all 2 units of evaJetpack unplaced (Units = 2).
                     new InventoryDeliveryLine(
                         new InventoryPayloadItem { IdentityHash = "h", PartName = "evaJetpack", Quantity = 2 },
-                        -1, 2),
+                        InventorySlotAddress.None, 2),
                     // Stored line: 1 unit of sensorThermometer in slot 0.
                     new InventoryDeliveryLine(
                         new InventoryPayloadItem { IdentityHash = "h2", PartName = "sensorThermometer", Quantity = 1 },
-                        0, 1),
+                        new InventorySlotAddress(0, 0, 0), 1),
                 },
                 isPartial: true,
                 isZero: false);

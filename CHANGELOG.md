@@ -13,8 +13,9 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
+- Supply-route inventory delivery now uses every cargo container on the destination vessel: when the first container is full, items are delivered into the next container with a free slot instead of being reported as undelivered. Pickup already worked this way; delivery now matches it.
 - Supply-route inventory deliveries now deliver the full stacked quantity of a cargo item to a loaded destination instead of a single unit, and a manifest item is split across as many inventory slots as its stack size requires (one slot per unit for non-stackable items) so the delivered inventory is valid stock state on both the loaded and unloaded paths.
-- Supply-route inventory deliveries to an unloaded destination now respect the container's packed-volume and mass limits: an item that would not fit is skipped as not-fitting at planning time on both paths, instead of being written into an unloaded container that would refuse it when loaded.
+- Supply-route inventory deliveries now respect the containers' packed-volume and mass limits, summed across every cargo container on the destination: an item that would not fit is skipped as not-fitting at planning time on both the loaded and unloaded paths, instead of being written into a container that would refuse it.
 
 ### Internals & Tests
 

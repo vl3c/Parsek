@@ -154,9 +154,9 @@ namespace Parsek.Logistics
                 return free > 0.0 ? free : 0.0;
             }
 
-            public int ProbeFirstEmptyInventorySlot() => inner.ProbeFirstEmptyInventorySlot();
+            public InventorySlotAddress ProbeFirstEmptyInventorySlot() => inner.ProbeFirstEmptyInventorySlot();
 
-            public void ConsumeInventorySlot(int slotIndex) => inner.ConsumeInventorySlot(slotIndex);
+            public void ConsumeInventorySlot(InventorySlotAddress address) => inner.ConsumeInventorySlot(address);
 
             // Inventory admission (slots + volume/mass) is tracked ON the shared
             // inner probe, so forwarding these unchanged makes same-destination
@@ -222,7 +222,7 @@ namespace Parsek.Logistics
                 for (int i = 0; i < inventory.Count; i++)
                 {
                     InventoryDeliveryLine line = inventory[i];
-                    if (line.AssignedSlot < 0 && line.Item != null)
+                    if (!line.AssignedSlot.IsValid && line.Item != null)
                     {
                         return StoredPartTokenPrefix
                             + (string.IsNullOrEmpty(line.Item.PartName)

@@ -295,9 +295,223 @@ namespace Parsek.InGameTests
             }
         }
 
-        // ==================================================================
-        // Loaded-path inventory stack store (loaded/unloaded parity fix)
-        // ==================================================================
+
+        [InGameTest(Category = "Logistics", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only - fills and clears live ModuleInventoryPart slots on the active vessel; excluded from ordinary Run All / Run category. Use Run All + Isolated or the row play button in a disposable FLIGHT session with two cargo containers.",
+            Description = "Multi-module inventory delivery (loaded path): with the first inventory container full, the capacity probe hands out a slot on a LATER container and LiveDeliveryWriters stores the payload into exactly that (part, module, slot) address")]
+        public IEnumerator Delivery_MultiModule_FirstContainerFullSecondReceives()
+        {
+            // Post-restore unpack wait (same rationale as the resource test above).
+            IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
+            // PRECONDITION CHECKS -------------------------------------------------
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+                InGameAssert.Skip("FlightGlobals.ActiveVessel is null; need a live vessel with two cargo containers");
+            if (!(vessel.loaded && !vessel.packed))
+                InGameAssert.Skip(
+                    $"Active vessel '{vessel.vesselName}' is not loaded+unpacked " +
+                    $"(loaded={vessel.loaded}, packed={vessel.packed}); this test exercises the loaded probe/writer branch");
+
+            // Collect inventory modules in PROBE order: vessel part order, then
+            // module order within the part. Indices here are the exact
+            // InventorySlotAddress coordinates the probe/writer contract uses.
+            var moduleRefs = new List<(int PartIndex, int ModuleIndex, ModuleInventoryPart Module)>();
+            for (int i = 0; i < vessel.parts.Count; i++)
+            {
+                Part p = vessel.parts[i];
+                if (p == null || p.Modules == null) continue;
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    if (p.Modules[m] is ModuleInventoryPart module && module.InventorySlots > 0)
+                        moduleRefs.Add((i, m, module));
+                }
+            }
+            if (moduleRefs.Count < 2)
+                InGameAssert.Skip(
+                    $"Active vessel '{vessel.vesselName}' has {moduleRefs.Count.ToString(IC)} inventory module(s); " +
+                    "need at least two (e.g. a pod plus a cargo container) to prove the multi-module walk");
+
+            var first = moduleRefs[0];
+
+            // Resolve a small stock cargo part to fill slots with.
+            string fillPartName = null;
+            string[] candidates = { "evaRepairKit", "evaScience", "evaJetpack", "evaChute" };
+            for (int c = 0; c < candidates.Length; c++)
+            {
+                if (PartLoader.getPartInfoByName(candidates[c]) != null)
+                {
+                    fillPartName = candidates[c];
+                    break;
+                }
+            }
+            if (fillPartName == null)
+                InGameAssert.Skip("No known stock cargo part (evaRepairKit/evaScience/evaJetpack/evaChute) resolved via PartLoader");
+
+            // Find the payload-donor slot: any empty slot on any module. The
+            // stored part is immediately serialized to a STOREDPART node (the
+            // canonical Parsek payload shape) and the slot cleared again.
+            int donorModuleIdx = -1, donorSlot = -1;
+            for (int r = 0; r < moduleRefs.Count && donorModuleIdx < 0; r++)
+            {
+                int s = FirstProbeEmptySlot(moduleRefs[r].Module);
+                if (s >= 0) { donorModuleIdx = r; donorSlot = s; }
+            }
+            if (donorModuleIdx < 0)
+                InGameAssert.Skip("Every inventory module on the active vessel is already full; cannot build a delivery payload");
+
+            var filledFirstModuleSlots = new List<int>();
+            InventorySlotAddress deliveredAddress = InventorySlotAddress.None;
+            ModuleInventoryPart deliveredModule = null;
+            ConfigNode payloadNode = null;
+            // Tracks the donor fill until it is cleared, so a Skip/throw
+            // between the donor store and the donor clear still tears it down.
+            ModuleInventoryPart pendingDonorModule = null;
+            int pendingDonorSlot = -1;
+
+            try
+            {
+                ModuleInventoryPart donor = moduleRefs[donorModuleIdx].Module;
+                if (!donor.StoreCargoPartAtSlot(fillPartName, donorSlot))
+                    InGameAssert.Skip(
+                        $"StoreCargoPartAtSlot('{fillPartName}', {donorSlot.ToString(IC)}) failed on the donor module; " +
+                        "cannot build a delivery payload (volume/mass limit?)");
+                pendingDonorModule = donor;
+                pendingDonorSlot = donorSlot;
+                payloadNode = new ConfigNode("STOREDPART");
+                donor.storedParts[donorSlot].Save(payloadNode);
+                bool donorCleared = donor.ClearPartAtSlot(donorSlot);
+                InGameAssert.IsTrue(donorCleared, "ClearPartAtSlot failed to clear the payload-donor slot");
+                pendingDonorModule = null;
+                pendingDonorSlot = -1;
+
+                // ARRANGE: fill EVERY empty slot of the FIRST inventory module so
+                // the old first-module-only probe would report "no slot".
+                for (int s = 0; s < first.Module.InventorySlots; s++)
+                {
+                    if (first.Module.storedParts != null && first.Module.storedParts.ContainsKey(s)) continue;
+                    if (!first.Module.StoreCargoPartAtSlot(fillPartName, s))
+                        InGameAssert.Skip(
+                            $"Could not fill slot {s.ToString(IC)} of the first inventory module with '{fillPartName}' " +
+                            "(volume/mass limit?); cannot establish the full-first-container precondition");
+                    filledFirstModuleSlots.Add(s);
+                }
+                InGameAssert.IsTrue(FirstProbeEmptySlot(first.Module) < 0,
+                    "First inventory module still reports an empty slot after the fill");
+
+                // The EXPECTED address: first module after the (now full) first
+                // one with an empty slot, in probe order.
+                InventorySlotAddress expected = InventorySlotAddress.None;
+                ModuleInventoryPart expectedModule = null;
+                for (int r = 1; r < moduleRefs.Count; r++)
+                {
+                    int s = FirstProbeEmptySlot(moduleRefs[r].Module);
+                    if (s >= 0)
+                    {
+                        expected = new InventorySlotAddress(moduleRefs[r].PartIndex, moduleRefs[r].ModuleIndex, s);
+                        expectedModule = moduleRefs[r].Module;
+                        break;
+                    }
+                }
+                if (!expected.IsValid)
+                    InGameAssert.Skip("No later inventory module has an empty slot left; cannot prove the multi-module handoff");
+
+                // ACT 1: probe. The old single-module probe returned -1 here.
+                var probe = new LiveDeliveryCapacityProbe(vessel, isLoaded: true);
+                InventorySlotAddress address = probe.ProbeFirstEmptyInventorySlot();
+
+                InGameAssert.IsTrue(address.IsValid,
+                    "Probe returned None with the first container full but a later container empty - the multi-module walk regressed");
+                InGameAssert.IsFalse(
+                    address.PartIndex == first.PartIndex && address.ModuleIndex == first.ModuleIndex,
+                    $"Probe assigned a slot on the FULL first module: {address}");
+                InGameAssert.AreEqual(expected, address,
+                    $"Probe address {address} does not match the deterministic expectation {expected}");
+
+                // ACT 2: writer stores into exactly the assigned address.
+                var route = new Route { Id = "ingame-multimodule-" + Guid.NewGuid().ToString("N").Substring(0, 8) };
+                var writers = new LiveDeliveryWriters(route, vessel, DeliveryPlan.Empty(), isLoaded: true);
+                var item = new InventoryPayloadItem
+                {
+                    PartName = fillPartName,
+                    Quantity = 1,
+                    SlotsTaken = 1,
+                    StoredPartSnapshot = payloadNode,
+                };
+                writers.WriteInventory(item, address, 1);
+
+                deliveredAddress = address;
+                deliveredModule = expectedModule;
+                InGameAssert.AreEqual(1, writers.ReadInventoryActualCount(),
+                    "LiveDeliveryWriters did not report a successful store into the second container");
+                InGameAssert.IsTrue(
+                    expectedModule.storedParts != null && expectedModule.storedParts.ContainsKey(address.SlotIndex),
+                    $"Delivered payload is not present at the assigned address {address}");
+
+                ParsekLog.Info("TestRunner",
+                    $"Delivery_MultiModule_FirstContainerFullSecondReceives: PASS " +
+                    $"vessel={vessel.vesselName} fillPart={fillPartName} " +
+                    $"firstModule=part{first.PartIndex.ToString(IC)}/mod{first.ModuleIndex.ToString(IC)} " +
+                    $"filledSlots={filledFirstModuleSlots.Count.ToString(IC)} delivered={address}");
+            }
+            finally
+            {
+                // TEARDOWN: clear the delivered payload and every slot this test
+                // filled, so the vessel's inventories return to their pre-test
+                // occupancy.
+                try
+                {
+                    int cleared = 0;
+                    if (pendingDonorModule != null && pendingDonorSlot >= 0
+                        && pendingDonorModule.storedParts != null
+                        && pendingDonorModule.storedParts.ContainsKey(pendingDonorSlot))
+                    {
+                        if (pendingDonorModule.ClearPartAtSlot(pendingDonorSlot)) cleared++;
+                    }
+                    if (deliveredModule != null && deliveredAddress.IsValid
+                        && deliveredModule.storedParts != null
+                        && deliveredModule.storedParts.ContainsKey(deliveredAddress.SlotIndex))
+                    {
+                        if (deliveredModule.ClearPartAtSlot(deliveredAddress.SlotIndex)) cleared++;
+                    }
+                    for (int i = 0; i < filledFirstModuleSlots.Count; i++)
+                    {
+                        if (first.Module.ClearPartAtSlot(filledFirstModuleSlots[i])) cleared++;
+                    }
+                    ParsekLog.Verbose("TestRunner",
+                        $"Delivery_MultiModule cleanup: clearedSlots={cleared.ToString(IC)} " +
+                        $"(filled={filledFirstModuleSlots.Count.ToString(IC)} " +
+                        $"delivered={(deliveredAddress.IsValid ? 1 : 0).ToString(IC)} " +
+                        $"pendingDonor={(pendingDonorSlot >= 0 ? 1 : 0).ToString(IC)})");
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn("TestRunner",
+                        $"Delivery_MultiModule cleanup threw {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// First empty slot of one live inventory module using the SAME
+        /// occupancy rule the delivery capacity probe applies on the loaded
+        /// branch (ascending slot index, occupied = storedParts key present),
+        /// or -1 when full. Local mirror so the test's expectation is computed
+        /// independently of the probe under test.
+        /// </summary>
+        private static int FirstProbeEmptySlot(ModuleInventoryPart module)
+        {
+            for (int s = 0; s < module.InventorySlots; s++)
+            {
+                if (module.storedParts != null && module.storedParts.ContainsKey(s)) continue;
+                return s;
+            }
+            return -1;
+        }
 
         [InGameTest(Category = "Logistics", Scene = GameScenes.FLIGHT,
             AllowBatchExecution = false,
@@ -357,7 +571,10 @@ namespace Parsek.InGameTests
             try
             {
                 var writers = new LiveDeliveryWriters(null, activeVessel, DeliveryPlan.Empty(), isLoaded: true);
-                writers.WriteInventory(item, targetSlot, units);
+                // Address the SAME first module (part/module index in the
+                // probe's coordinate space) at the chosen empty slot.
+                InventorySlotAddress targetAddress = ResolveModuleAddress(activeVessel, module, targetSlot);
+                writers.WriteInventory(item, targetAddress, units);
                 stored = module.storedParts != null && module.storedParts.ContainsKey(targetSlot);
 
                 InGameAssert.IsTrue(stored,
@@ -425,32 +642,51 @@ namespace Parsek.InGameTests
                     "PRECONDITION: active vessel has no ModuleInventoryPart. Fly a craft with a cargo " +
                     "container (e.g. an SEQ-3 storage unit) to run this test");
 
-            // INDEPENDENT budget: container limits from the part PREFAB module
-            // (the probe's contract) + occupancy recomputed stock-style. Same
-            // slot order and expressions as the probe so the comparison is
-            // float-exact.
-            ModuleInventoryPart prefabModule =
-                module.part != null && module.part.partInfo != null && module.part.partInfo.partPrefab != null
-                    ? module.part.partInfo.partPrefab.FindModuleImplementing<ModuleInventoryPart>()
-                    : null;
-            InGameAssert.IsNotNull(prefabModule,
-                "A live loaded inventory part must resolve its own prefab inventory module");
-            double volumeLimit = prefabModule.packedVolumeLimit;
-            double massLimit = prefabModule.massLimit;
+            // INDEPENDENT budget mirroring the probe's multi-module
+            // aggregation: prefab container limits SUMMED across ALL inventory
+            // modules (any unlimited axis, limit <= 0, makes that axis
+            // unlimited vessel-wide, represented as limit 0) + occupancy
+            // recomputed stock-style across every module. Same expressions as
+            // the probe so the comparison is float-exact.
+            bool volumeUnlimited = false;
+            bool massUnlimited = false;
+            double volumeLimitSum = 0.0;
+            double massLimitSum = 0.0;
             double volumeOccupied = 0.0;
             double massOccupied = 0.0;
             int storedPartCount = 0;
-            for (int s = 0; s < module.InventorySlots; s++)
+            for (int pi = 0; pi < activeVessel.parts.Count; pi++)
             {
-                if (module.storedParts == null || !module.storedParts.ContainsKey(s)) continue;
-                StoredPart sp = module.storedParts[s];
-                if (sp == null || sp.quantity <= 0) continue;
-                if (!TryReadPrefabFootprint(sp.partName, out double storedVol, out double storedMass, out _))
-                    continue;
-                storedPartCount++;
-                volumeOccupied += storedVol * sp.quantity;
-                massOccupied += storedMass * sp.quantity;
+                Part invPart = activeVessel.parts[pi];
+                if (invPart == null || invPart.Modules == null) continue;
+                for (int mi = 0; mi < invPart.Modules.Count; mi++)
+                {
+                    if (!(invPart.Modules[mi] is ModuleInventoryPart mod)) continue;
+                    ModuleInventoryPart prefabModule =
+                        invPart.partInfo != null && invPart.partInfo.partPrefab != null
+                            ? invPart.partInfo.partPrefab.FindModuleImplementing<ModuleInventoryPart>()
+                            : null;
+                    InGameAssert.IsNotNull(prefabModule,
+                        "A live loaded inventory part must resolve its own prefab inventory module");
+                    if (prefabModule.packedVolumeLimit > 0.0) volumeLimitSum += prefabModule.packedVolumeLimit;
+                    else volumeUnlimited = true;
+                    if (prefabModule.massLimit > 0.0) massLimitSum += prefabModule.massLimit;
+                    else massUnlimited = true;
+                    for (int s = 0; s < mod.InventorySlots; s++)
+                    {
+                        if (mod.storedParts == null || !mod.storedParts.ContainsKey(s)) continue;
+                        StoredPart sp = mod.storedParts[s];
+                        if (sp == null || sp.quantity <= 0) continue;
+                        if (!TryReadPrefabFootprint(sp.partName, out double storedVol, out double storedMass, out _))
+                            continue;
+                        storedPartCount++;
+                        volumeOccupied += storedVol * sp.quantity;
+                        massOccupied += storedMass * sp.quantity;
+                    }
+                }
             }
+            double volumeLimit = volumeUnlimited ? 0.0 : volumeLimitSum;
+            double massLimit = massUnlimited ? 0.0 : massLimitSum;
 
             // A storable cargo prefab to probe with (smallest packed volume so
             // at least 2 units usually fit and the consumption leg can run).
@@ -631,6 +867,34 @@ namespace Parsek.InGameTests
             }
             return -1;
         }
+
+        /// <summary>
+        /// Module-qualified <see cref="InventorySlotAddress"/> for
+        /// (<paramref name="module"/>, <paramref name="slot"/>) in the probe's
+        /// coordinate space (vessel part index, then module index within the
+        /// part), so a test that located a live module by reference can address
+        /// the unified WriteInventory(item, address, units) contract.
+        /// </summary>
+        private static InventorySlotAddress ResolveModuleAddress(Vessel vessel, ModuleInventoryPart module, int slot)
+        {
+            int partIndex = vessel != null && vessel.parts != null ? vessel.parts.IndexOf(module.part) : -1;
+            int moduleIndex = -1;
+            if (module.part != null && module.part.Modules != null)
+            {
+                for (int m = 0; m < module.part.Modules.Count; m++)
+                {
+                    if (ReferenceEquals(module.part.Modules[m], module)) { moduleIndex = m; break; }
+                }
+            }
+            return new InventorySlotAddress(partIndex, moduleIndex, slot);
+        }
+
+        /// <summary>
+        /// Finds the first <see cref="Part"/> on <paramref name="vessel"/> that
+        /// carries a <c>LiquidFuel</c> resource entry. Mirrors the order the
+        /// delivery applier walks (vessel.parts ascending), so the test's
+        /// pre-drain / restore + the applier's fill all land on the same tank.
+        /// </summary>
 
         /// <summary>
         /// Finds the first <see cref="Part"/> on <paramref name="vessel"/> that
