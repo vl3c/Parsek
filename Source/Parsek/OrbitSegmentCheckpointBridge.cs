@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek
 {
@@ -12,8 +13,10 @@ namespace Parsek
         public int SkippedAfterPredicted;
         public int SkippedCovered;
         public int Clipped;
+        public int ReconciledEmptySections;
 
-        public bool Changed => Added > 0 || Clipped > 0 || SkippedCovered > 0;
+        public bool Changed => Added > 0 || Clipped > 0 || SkippedCovered > 0
+            || ReconciledEmptySections > 0;
     }
 
     /// <summary>
@@ -84,21 +87,51 @@ namespace Parsek
                 skipReason = "duplicate-last";
                 return false;
             }
-            if (TryAttachToLastEmptyCheckpointSection(rec.TrackSections, segment))
+
+            // Anti-double-cover: the incoming span may already be (partly) owned by
+            // existing physical or closed checkpoint sections — existing sections win
+            // and only the uncovered remainder(s) are appended. Without this a coarse
+            // on-rails close could add a checkpoint enveloping finer sections already
+            // in the list, leaving two sections covering the same UT.
+            List<OrbitSegment> uncoveredSegments =
+                BuildSegmentsOutsideCoveringSections(segment, rec.TrackSections);
+            if (uncoveredSegments.Count == 0)
             {
-                AppendFlatOrbitCache(rec, segment);
-                SortOrbitSegments(rec.OrbitSegments);
-                rec.CachedStats = null;
-                rec.CachedStatsPointCount = 0;
-                if (markDirty)
-                    rec.MarkFilesDirty();
-                return true;
+                skipReason = "covered";
+                return false;
+            }
+            bool clippedIncoming = uncoveredSegments.Count != 1
+                || !OrbitSegmentNearlyEquals(uncoveredSegments[0], segment);
+
+            bool addedNewSection = false;
+            for (int i = 0; i < uncoveredSegments.Count; i++)
+            {
+                OrbitSegment uncoveredSegment = uncoveredSegments[i];
+                if (TryAttachToLastEmptyCheckpointSection(rec.TrackSections, uncoveredSegment))
+                {
+                    AppendFlatOrbitCache(rec, uncoveredSegment);
+                    continue;
+                }
+
+                RemoveEmptyCheckpointSectionsMatching(rec.TrackSections, uncoveredSegment);
+                rec.TrackSections.Add(BuildClosedCheckpointSection(uncoveredSegment));
+                AppendFlatOrbitCache(rec, uncoveredSegment);
+                addedNewSection = true;
             }
 
-            RemoveEmptyCheckpointSectionsMatching(rec.TrackSections, segment);
-            rec.TrackSections.Add(BuildClosedCheckpointSection(segment));
-            AppendFlatOrbitCache(rec, segment);
-            SortTrackSections(rec.TrackSections);
+            int reconciledEmpty = ReconcileEmptySectionsAgainstPayloadCoverage(rec.TrackSections);
+            if ((clippedIncoming || reconciledEmpty > 0) && !RecordingStore.SuppressLogging)
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    $"TryAppendClosedCheckpointSection: reconciled overlap for recording={rec.RecordingId} " +
+                    $"span=[{segment.startUT.ToString("F2", CultureInfo.InvariantCulture)}," +
+                    $"{segment.endUT.ToString("F2", CultureInfo.InvariantCulture)}] " +
+                    $"appendedSegments={uncoveredSegments.Count} clipped={(clippedIncoming ? 1 : 0)} " +
+                    $"reconciledEmptySections={reconciledEmpty}");
+            }
+
+            if (addedNewSection || reconciledEmpty > 0)
+                SortTrackSections(rec.TrackSections);
             SortOrbitSegments(rec.OrbitSegments);
             rec.CachedStats = null;
             rec.CachedStatsPointCount = 0;
@@ -107,9 +140,19 @@ namespace Parsek
             return true;
         }
 
+        // reconcileEmptySections gates the empty-shell reconcile pass, which trims or
+        // removes EXISTING payload-less sections covered by payload-bearing ones.
+        // Producer/write contexts run it so every recording that gets (re)written is
+        // overlap-free. The sidecar READ sites pass false: committed recordings are
+        // immutable, and mutating their existing sections on the dirty-marking legacy
+        // flat-fallback read seam would rewrite (migrate) old on-disk data on the next
+        // save. The checkpoint-vs-checkpoint candidate clipping is NOT gated — it only
+        // constrains what this pass ADDS, and the read path must not re-create envelope
+        // double-cover from a stale flat cache either.
         internal static OrbitSegmentCheckpointBridgeStats EnsureCheckpointSectionsForTopLevelOrbitSegments(
             Recording rec,
-            bool markDirty)
+            bool markDirty,
+            bool reconcileEmptySections = true)
         {
             var stats = new OrbitSegmentCheckpointBridgeStats();
             if (rec == null || rec.OrbitSegments == null || rec.OrbitSegments.Count == 0)
@@ -168,20 +211,57 @@ namespace Parsek
                         skippedExistingAny = true;
                         continue;
                     }
-                    if (TryAttachToAnyEmptyCheckpointSection(rec.TrackSections, clippedSegment))
+
+                    // Anti-double-cover (checkpoint-vs-checkpoint): spans already owned
+                    // by CLOSED checkpoint sections win; only the uncovered remainder(s)
+                    // of the candidate are promoted. Without this a coarse flat envelope
+                    // segment [X,Z] would be added alongside existing finer checkpoint
+                    // sections [X,Y] + [Y,Z], double-covering the whole span.
+                    List<OrbitSegment> uncoveredSegments =
+                        BuildSegmentsOutsideClosedCheckpointSections(clippedSegment, rec.TrackSections);
+                    if (uncoveredSegments.Count == 0)
                     {
-                        stats.Added++;
-                        addedAny = true;
+                        // Fully covered by existing checkpoint sections (non-exact match):
+                        // count as covered so the flat cache is rebuilt from section
+                        // content and the next pass sees exact matches.
+                        stats.SkippedCovered++;
                         continue;
                     }
+                    if (uncoveredSegments.Count != 1
+                        || !OrbitSegmentNearlyEquals(uncoveredSegments[0], clippedSegment))
+                    {
+                        stats.Clipped++;
+                    }
 
-                    rec.TrackSections.Add(BuildClosedCheckpointSection(clippedSegment));
-                    stats.Added++;
-                    addedAny = true;
+                    for (int u = 0; u < uncoveredSegments.Count; u++)
+                    {
+                        OrbitSegment uncoveredSegment = uncoveredSegments[u];
+                        if (TryAttachToAnyEmptyCheckpointSection(rec.TrackSections, uncoveredSegment))
+                        {
+                            stats.Added++;
+                            addedAny = true;
+                            continue;
+                        }
+
+                        rec.TrackSections.Add(BuildClosedCheckpointSection(uncoveredSegment));
+                        stats.Added++;
+                        addedAny = true;
+                    }
                 }
 
                 if (!addedAny && skippedExistingAny)
                     stats.SkippedExisting++;
+            }
+
+            // Anti-double-cover (empty-shell reconcile): a payload-less section (no
+            // frames, no bodyFixedFrames, no checkpoints — e.g. an empty Absolute shell
+            // left by a split or an unattached open checkpoint shell) that is covered by
+            // payload-bearing sections is trimmed to the uncovered remainder, or removed
+            // when nothing remains. The payload sections own those spans.
+            if (reconcileEmptySections)
+            {
+                stats.ReconciledEmptySections +=
+                    ReconcileEmptySectionsAgainstPayloadCoverage(rec.TrackSections);
             }
 
             bool sorted = EnsureTrackSectionsSorted(rec.TrackSections);
@@ -325,6 +405,28 @@ namespace Parsek
             OrbitSegment segment,
             List<TrackSection> sections)
         {
+            return BuildSegmentsOutsideSections(segment, sections, isHigherPriorityPhysicalSection);
+        }
+
+        private static List<OrbitSegment> BuildSegmentsOutsideClosedCheckpointSections(
+            OrbitSegment segment,
+            List<TrackSection> sections)
+        {
+            return BuildSegmentsOutsideSections(segment, sections, isClosedCheckpointSection);
+        }
+
+        private static List<OrbitSegment> BuildSegmentsOutsideCoveringSections(
+            OrbitSegment segment,
+            List<TrackSection> sections)
+        {
+            return BuildSegmentsOutsideSections(segment, sections, isPhysicalOrClosedCheckpointSection);
+        }
+
+        private static List<OrbitSegment> BuildSegmentsOutsideSections(
+            OrbitSegment segment,
+            List<TrackSection> sections,
+            Func<TrackSection, bool> subtractsSpan)
+        {
             var result = new List<OrbitSegment>();
             if (!IsValidClosedSegment(segment))
                 return result;
@@ -339,7 +441,7 @@ namespace Parsek
                 for (int i = 0; i < sections.Count; i++)
                 {
                     TrackSection section = sections[i];
-                    if (!IsHigherPriorityPhysicalSection(section))
+                    if (!subtractsSpan(section))
                         continue;
 
                     SubtractRange(ranges, section.startUT, section.endUT);
@@ -361,6 +463,14 @@ namespace Parsek
             return result;
         }
 
+        // Cached delegates so per-call BuildSegmentsOutside* invocations do not allocate.
+        private static readonly Func<TrackSection, bool> isHigherPriorityPhysicalSection =
+            IsHigherPriorityPhysicalSection;
+        private static readonly Func<TrackSection, bool> isClosedCheckpointSection =
+            IsClosedCheckpointSection;
+        private static readonly Func<TrackSection, bool> isPhysicalOrClosedCheckpointSection =
+            s => IsHigherPriorityPhysicalSection(s) || IsClosedCheckpointSection(s);
+
         private static bool IsHigherPriorityPhysicalSection(TrackSection section)
         {
             return section.source < TrackSectionSource.Checkpoint
@@ -368,6 +478,96 @@ namespace Parsek
                 && section.endUT > section.startUT + UtTolerance
                 && ((section.frames != null && section.frames.Count > 0)
                     || (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0));
+        }
+
+        private static bool IsClosedCheckpointSection(TrackSection section)
+        {
+            return section.referenceFrame == ReferenceFrame.OrbitalCheckpoint
+                && section.endUT > section.startUT + UtTolerance
+                && section.checkpoints != null
+                && section.checkpoints.Count > 0;
+        }
+
+        private static bool HasSectionPayload(TrackSection section)
+        {
+            return (section.frames != null && section.frames.Count > 0)
+                || (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0)
+                || (section.checkpoints != null && section.checkpoints.Count > 0);
+        }
+
+        /// <summary>
+        /// A reconcilable empty shell: claims a non-degenerate UT span but carries no
+        /// playable payload and is not a producer-flagged boundary-seam artifact.
+        /// </summary>
+        private static bool IsReconcilableEmptySection(TrackSection section)
+        {
+            return !section.isBoundarySeam
+                && !HasSectionPayload(section)
+                && section.endUT > section.startUT + UtTolerance;
+        }
+
+        /// <summary>
+        /// Trims payload-less sections against the spans owned by payload-bearing
+        /// sections: an empty shell fully covered elsewhere is removed; a partly
+        /// covered shell is replaced by clone(s) spanning only the uncovered
+        /// remainder(s). Returns the number of shells removed or trimmed.
+        /// </summary>
+        internal static int ReconcileEmptySectionsAgainstPayloadCoverage(
+            List<TrackSection> sections)
+        {
+            if (sections == null || sections.Count < 2)
+                return 0;
+
+            int reconciled = 0;
+            for (int i = sections.Count - 1; i >= 0; i--)
+            {
+                TrackSection section = sections[i];
+                if (!IsReconcilableEmptySection(section))
+                    continue;
+
+                var ranges = new List<UtRange>
+                {
+                    new UtRange(section.startUT, section.endUT)
+                };
+                for (int j = 0; j < sections.Count && ranges.Count > 0; j++)
+                {
+                    if (j == i)
+                        continue;
+                    TrackSection other = sections[j];
+                    if (!HasSectionPayload(other))
+                        continue;
+
+                    SubtractRange(ranges, other.startUT, other.endUT);
+                }
+
+                if (ranges.Count == 1
+                    && NearlyEqual(ranges[0].StartUT, section.startUT, UtTolerance)
+                    && NearlyEqual(ranges[0].EndUT, section.endUT, UtTolerance))
+                {
+                    continue;
+                }
+
+                sections.RemoveAt(i);
+                for (int r = ranges.Count - 1; r >= 0; r--)
+                {
+                    TrackSection remainder = section;
+                    remainder.startUT = ranges[r].StartUT;
+                    remainder.endUT = ranges[r].EndUT;
+                    remainder.frames = section.frames != null
+                        ? new List<TrajectoryPoint>()
+                        : null;
+                    remainder.bodyFixedFrames = section.bodyFixedFrames != null
+                        ? new List<TrajectoryPoint>()
+                        : null;
+                    remainder.checkpoints = section.checkpoints != null
+                        ? new List<OrbitSegment>()
+                        : null;
+                    sections.Insert(i, remainder);
+                }
+                reconciled++;
+            }
+
+            return reconciled;
         }
 
         private static void SubtractRange(

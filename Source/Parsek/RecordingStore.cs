@@ -6402,11 +6402,12 @@ namespace Parsek
         internal static OrbitSegmentCheckpointBridgeStats EnsureCheckpointSectionsForTopLevelOrbitSegments(
             Recording rec,
             bool markDirty,
-            string context)
+            string context,
+            bool reconcileEmptySections = true)
         {
             OrbitSegmentCheckpointBridgeStats stats =
                 OrbitSegmentCheckpointBridge.EnsureCheckpointSectionsForTopLevelOrbitSegments(
-                    rec, markDirty);
+                    rec, markDirty, reconcileEmptySections);
 
             if (stats.Changed && !SuppressLogging)
             {
@@ -6415,7 +6416,8 @@ namespace Parsek
                     $"context={context} added={stats.Added} skippedExisting={stats.SkippedExisting} " +
                     $"skippedInvalid={stats.SkippedInvalid} skippedPredicted={stats.SkippedPredicted} " +
                     $"skippedAfterPredicted={stats.SkippedAfterPredicted} " +
-                    $"skippedCovered={stats.SkippedCovered} clipped={stats.Clipped}");
+                    $"skippedCovered={stats.SkippedCovered} clipped={stats.Clipped} " +
+                    $"reconciledEmptySections={stats.ReconciledEmptySections}");
             }
 
             return stats;

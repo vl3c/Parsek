@@ -325,10 +325,16 @@ namespace Parsek
                 if (!sectionAuthoritative &&
                     rec.TrackSections.Count > 0)
                 {
+                    // reconcileEmptySections: false — READ path. Committed recordings are
+                    // immutable; this legacy flat-fallback seam marks dirty, so mutating
+                    // existing sections here would rewrite (migrate) old on-disk data on
+                    // the next save. Only write/producer paths reconcile empty shells.
+                    // Candidate clipping still applies (it only constrains new adds).
                     RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
                         rec,
                         markDirty: true,
-                        context: "TrajectorySidecarBinary.Read");
+                        context: "TrajectorySidecarBinary.Read",
+                        reconcileEmptySections: false);
                     healedMalformedFlatFallback = RecordingStore.TryHealMalformedFlatFallbackTrajectoryFromTrackSections(
                         rec, allowRelativeSections: true);
                 }
