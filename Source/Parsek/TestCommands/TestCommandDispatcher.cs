@@ -203,4 +203,62 @@ namespace Parsek.TestCommands
         /// <summary>Read-only view of the precondition table (for coverage tests).</summary>
         internal static IReadOnlyDictionary<string, VerbSceneRequirement> PreconditionTable => Preconditions;
     }
+
+    /// <summary>
+    /// Pure per-command deferral-budget model. A command that sits at the head of the
+    /// queue in Defer longer than its budget is converted to a TIMEOUT terminal (with
+    /// the last defer reason as msg) and the pump advances, so a never-satisfiable
+    /// command never wedges the run. Budgets are wall-clock seconds measured from when
+    /// the command first reached the head and began deferring.
+    /// </summary>
+    internal static class DeferralBudget
+    {
+        /// <summary>Ordinary scene-settle / game-loaded waits.</summary>
+        internal const double DefaultSeconds = 60.0;
+
+        /// <summary>A cold LoadGame + scene settle can take minutes on a large save.</summary>
+        internal const double LoadGameSeconds = 300.0;
+
+        /// <summary>StartRecording may wait for FLIGHT with an unpacked active vessel;
+        /// sized to the scene-arrival wait rather than the fixed default. Chosen value
+        /// (the design specifies "scene-wait budget" without a number); revisit when the
+        /// scenario spec pins it.</summary>
+        internal const double StartRecordingSceneWaitSeconds = 180.0;
+
+        /// <summary>Fallback RunTests budget when the scenario spec supplies none. A full
+        /// in-game batch can run minutes; chosen value pending the scenario's declared
+        /// runtime budget (the authoritative source when provided).</summary>
+        internal const double RunTestsFallbackSeconds = 600.0;
+
+        /// <summary>
+        /// The deferral budget (seconds) for <paramref name="verb"/>. For RunTests the
+        /// scenario's declared runtime budget is authoritative when supplied via
+        /// <paramref name="scenarioBudgetSeconds"/>; otherwise the fallback applies.
+        /// </summary>
+        internal static double BudgetSeconds(string verb, double? scenarioBudgetSeconds = null)
+        {
+            switch (verb)
+            {
+                case "LoadGame":
+                    return LoadGameSeconds;
+                case "StartRecording":
+                    return StartRecordingSceneWaitSeconds;
+                case "RunTests":
+                    return scenarioBudgetSeconds ?? RunTestsFallbackSeconds;
+                default:
+                    return DefaultSeconds;
+            }
+        }
+
+        /// <summary>
+        /// True when a command that first began deferring at
+        /// <paramref name="firstDeferredAtSeconds"/> has, by
+        /// <paramref name="nowSeconds"/>, exceeded <paramref name="budgetSeconds"/> and
+        /// must be converted to a TIMEOUT terminal.
+        /// </summary>
+        internal static bool ShouldTimeout(double firstDeferredAtSeconds, double nowSeconds, double budgetSeconds)
+        {
+            return (nowSeconds - firstDeferredAtSeconds) >= budgetSeconds;
+        }
+    }
 }
