@@ -1,0 +1,84 @@
+schema = 1
+kspVersion = "1.12.5"
+
+# ---------------------------------------------------------------------------
+# Component pins for the M-A6 automation stack. Single source of truth for what
+# versions the stack targets. Hand-edited, reviewed, committed. See the design
+# doc docs/dev/design-autotest-stack-setup.md (Data Model + Ground Truth GT-1..9).
+#
+# OPEN fields require a web/download verification at first install; the exact
+# command is in the comment above each. DOWNLOAD aborts by design while any
+# consumed sha256 is still OPEN (EC-13), so filling these is a prerequisite for
+# a real provisioning run (never for --dry-run).
+# ---------------------------------------------------------------------------
+
+[krpc]
+# GT-1/GT-2: v0.5.4 is the release pin; it LACKS the auto-load flags/Quit/SetLanded.
+# GT-1 gotcha: v0.5.4 is an ANNOTATED tag. `git rev-parse v0.5.4` yields the tag
+# OBJECT sha (4e9dfbedd21409fb75c19f55f839d68520e752c1); the PIN step MUST peel
+# it with `git rev-parse v0.5.4^{commit}` to get the commit below. Verified
+# 2026-07-11 in mods/krpc.
+mode = "tag"                       # "tag" | "commit"
+tag = "v0.5.4"
+commit = "11f1f1366fa4301049f6eac6640604127a9d763b"
+tagObject = "4e9dfbedd21409fb75c19f55f839d68520e752c1"  # annotated-tag object sha (info)
+releaseZipUrl = "https://github.com/krpc/krpc/releases/download/v0.5.4/krpc-0.5.4.zip"
+# O-1/EC-13: fill after first download.
+#   curl -L -o krpc-0.5.4.zip <releaseZipUrl> && sha256sum krpc-0.5.4.zip
+releaseZipSha256 = "OPEN"
+localClone = "mods/krpc"
+# O-2/GT-5: confirm the zip layout at first download.
+#   unzip -l krpc-0.5.4.zip | grep -iE 'testingtools|KRPC.Core.dll|KRPC.SpaceCenter.dll|Google.Protobuf.dll'
+# Expect NO TestingTools.dll; expect the three compile references present.
+releaseCompileDlls = ["KRPC.Core.dll", "KRPC.SpaceCenter.dll", "Google.Protobuf.dll"]
+releaseRuntimeDlls = ["KRPC.dll", "KRPC.Core.dll", "KRPC.SpaceCenter.dll", "Google.Protobuf.dll", "KRPC.IO.Ports.dll"]
+mustNotContain = ["TestingTools.dll"]
+
+[testingtools]
+# Built from source at the same krpc ref via the standalone shim (BUILD-TT).
+buildFromSource = true
+# 2-FILE shim: only OrbitTools.cs + TestingTools.cs. AutoLoadGame.cs and
+# AutoSwitchVessel.cs are DROPPED: at v0.5.4 AutoLoadGame unconditionally fires
+# 15 frames after MAINMENU trying to load saves/default/persistent.sfs, which
+# would RACE the seam's boot (M-A2 LoadGame). BUILD-TT asserts the AutoLoadGame
+# type is ABSENT from the built assembly (S-4). Verified 2026-07-11 that
+# AutoLoadGame.cs at v0.5.4 hardcodes Game=>"default" Save=>"persistent".
+sourceRepoRef = "v0.5.4"
+sourceSubdir = "tools/TestingTools/src"
+sourceFiles = ["OrbitTools.cs", "TestingTools.cs"]
+droppedFiles = ["AutoLoadGame.cs", "AutoSwitchVessel.cs"]
+# Full source set at the tag (5 files), recorded so BUILD-TT can assert the
+# extraction saw exactly these before selecting the 2 shim files.
+fullSourceSetAtTag = ["AutoLoadGame.cs", "AutoSwitchVessel.cs", "OrbitTools.cs", "TestingTools.cs", "TestingTools.csproj"]
+# Recorded so the harness knows which control capabilities exist:
+capabilities = ["LoadSave", "RemoveOtherVessels", "SetCircularOrbit", "SetOrbit", "ClearRotation", "ApplyRotation"]
+# Boot is driven by the Parsek seam, NOT by TestingTools auto-load (which is dropped):
+bootChannel = "parsek-seam-LoadGame"
+missingVsMaster = ["autoLoadFlags", "Quit", "SetLanded"]   # GT-2/GT-3
+targetFramework = "net472"
+
+[mechjeb2]
+# GT-7: no git tags; pin is a downloaded build (MechJeb2 ships CI dev builds
+# numbered 2.15.x.x, not git refs; AssemblyInfo carries a 1.0.0.0 placeholder).
+mode = "release"
+# O-3: fill with the exact MJ 2.15 dev build chosen (KSP 1.12 line).
+#   source: MechJeb2 CI / SpaceDock / CurseForge; record buildNumber + downloadUrl,
+#   then: curl -L -o MechJeb2.zip <downloadUrl> && sha256sum MechJeb2.zip
+buildNumber = "2.15.x.x-OPEN"
+downloadUrl = "OPEN"
+sha256 = "OPEN"
+
+[krpc_mechjeb]
+# GT-6: genhis 0.7.1 pairs with kRPC 0.5.4 (CHANGELOG-proven: 0.7.1 "Updated for
+# kRPC 0.5.4"). v0.7.1 is a lightweight tag == HEAD commit below. Verified
+# 2026-07-11 in mods/KRPC.MechJeb (origin https://github.com/genhis/KRPC.MechJeb).
+fork = "genhis"                    # "genhis" | "darchambault"
+tag = "v0.7.1"
+commit = "398bc337492c5f725c83ab1aac85c32a1c0349ea"
+localClone = "mods/KRPC.MechJeb"
+pairedKrpcTag = "v0.5.4"           # asserted against [krpc].tag at PAIR
+pairedMechjebLine = "2.14.3+"      # from CHANGELOG 0.7.0/0.7.1
+# O-5/EC-14: only if a non-v0.5.4 kRPC is ever pinned -- confirm the fork+tag via
+#   https://github.com/Genhis/KRPC.MechJeb/releases
+#   https://github.com/darchambault/KRPC.MechJeb/releases
+# matching the "Updated for kRPC <ver>" line to the pinned kRPC + MJ build.

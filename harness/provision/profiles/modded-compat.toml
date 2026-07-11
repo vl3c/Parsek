@@ -1,0 +1,56 @@
+schema = 1
+name = "modded-compat"
+baseInstall = "Kerbal Space Program"        # dev install, relative to repo umbrella root
+instanceDir = "automation/modded-compat"    # created by CLONE
+
+# modded-compat = stock-minimal's dev-sourced set PLUS the visual/compat mod
+# stack (Waterfall + SWE, ReStock/+, BetterTimeWarp, Kopernicus, etc.). D17
+# scenarios and R25/R26 run only on modded-compat (plan section 10).
+#
+# Squad + SquadExpansion are junctioned stock payloads (see stock-minimal note),
+# not listed here.
+#
+# PersistentRotation is GT-8 OPEN: it is listed by the plan's modded-compat but
+# is NOT present in the dev GameData. It is declared here with required=false so
+# the script records `absent-source` and proceeds with a WARN (EC-12), rather
+# than silently omitting it. If a KSP-1.12 build is sourced separately, add its
+# pin+hash to pins.toml and flip required=true.
+devSourcedMods = [
+  # --- shared with stock-minimal ---
+  "000_Harmony", "ModuleManager.4.2.3.dll",
+  "000_ClickThroughBlocker", "001_ToolbarControl",
+  "CommunityDeltaVMaps", "CommunityTechTree", "ProbesBeforeCrew",
+  # --- modded-compat additions (present in dev GameData per GT-8) ---
+  "Waterfall", "WaterfallRestock", "RestockWaterfallExpansion",
+  "StockWaterfallEffects", "ReStock", "ReStockPlus", "BetterTimeWarp",
+  "Kopernicus", "ModularFlightIntegrator", "B9PartSwitch", "KSPCommunityFixes",
+  "DistantObject", "KSPTextureLoader", "HideEmptyTechTreeNodes",
+]
+
+# Optional mods that may be absent from the dev GameData (GT-8 / EC-12).
+# required=false => absent is a WARN + `absent-source` manifest record, not an
+# abort. required=true => a genuinely missing source aborts.
+[[optionalMods]]
+name = "PersistentRotation"
+required = false
+reason = "GT-8: not present in dev GameData; source a KSP-1.12 build separately or drop (O-4)."
+
+stackComponents = ["krpc", "testingtools", "mechjeb2", "krpc_mechjeb", "parsek"]
+
+# Same determinism-oriented settings deltas as stock-minimal (GT-8 keys).
+[settings]
+PHYSICS_FRAME_DT_LIMIT = "0.03"
+FRAMERATE_LIMIT = "60"
+QUALITY_PRESET = "0"
+TEXTURE_QUALITY = "3"
+SHADOWS_QUALITY = "0"
+AERO_FX_QUALITY = "0"
+TERRAIN_SHADER_QUALITY = "0"
+UI_SCALE = "1.0"
+FULLSCREEN = "False"
+SCREEN_RESOLUTION_WIDTH = "1280"
+SCREEN_RESOLUTION_HEIGHT = "720"
+SIMULATE_IN_BACKGROUND = "True"
+AUTOSTRUT_SYMMETRY = "False"
+CONIC_PATCH_DRAW_MODE = "3"
+CHECK_FOR_UPDATES = "False"
