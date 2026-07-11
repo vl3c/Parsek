@@ -663,7 +663,7 @@ namespace Parsek.TestCommands
         // Explicit interface implementation: ParsedCommand is internal, so these cannot be
         // public members of the public MonoBehaviour. The pump dispatches via the interface
         // (InvokeExecutor casts this to ITestCommandExecutor).
-        void ITestCommandExecutor.SetSetting(ParsedCommand cmd) => StubNotImplemented();
+        void ITestCommandExecutor.SetSetting(ParsedCommand cmd) => SetSettingImpl(cmd);
         void ITestCommandExecutor.StartRecording(ParsedCommand cmd) => StubNotImplemented();
         void ITestCommandExecutor.StopRecording(ParsedCommand cmd) => StubNotImplemented();
         void ITestCommandExecutor.CommitTree(ParsedCommand cmd) => StubNotImplemented();
@@ -697,6 +697,120 @@ namespace Parsek.TestCommands
         }
 
         private void StubNotImplemented() => SetExecResult("ERROR", null, "stub");
+
+        // ----- Shared verb-body helpers (P5.x) -----
+
+        private static string ArgOrNull(ParsedCommand cmd, string key)
+            => cmd.Args != null && cmd.Args.TryGetValue(key, out string v) ? v : null;
+
+        private static KeyValuePair<string, string> Kv(string key, string value)
+            => new KeyValuePair<string, string>(key, value);
+
+        private static List<KeyValuePair<string, string>> Payload(params KeyValuePair<string, string>[] items)
+            => new List<KeyValuePair<string, string>>(items);
+
+        private static string Bool(bool b) => b ? "true" : "false";
+
+        private static string Int(int n) => n.ToString(CultureInfo.InvariantCulture);
+
+        // ----- SetSetting (P5.1) -----
+        // Applies a whitelisted setting through the pure whitelist decision + the pure
+        // route dispatcher. An unknown name or out-of-range value is REJECTED here (the
+        // side effect is journalled so a restart replay skips the id); the field is never
+        // touched on a reject. The security boundary is SettingWhitelist: there is no
+        // reflective set, only a switch over the exact known names.
+        private void SetSettingImpl(ParsedCommand cmd)
+        {
+            string name = ArgOrNull(cmd, "name");
+            string value = ArgOrNull(cmd, "value");
+
+            SettingApplyResult result = SettingWhitelist.TryApply(name, value);
+            if (!result.Accepted)
+            {
+                ParsekLog.Warn(Tag,
+                    $"setting rejected name={name ?? "(none)"} reason={(result.RejectReason == "setting-not-whitelisted" ? "not-whitelisted" : "value-invalid")} raw={value ?? "(none)"}");
+                SetExecResult("REJECTED", null, $"{result.RejectReason} name={name ?? string.Empty}");
+                return;
+            }
+
+            string oldValue = ReadLiveSettingForLog(result.Name);
+            TestCommandSettingApplier.ApplySetting(result, SetLiveSettingField, InvokeRecordMethod);
+            string newValue = ReadLiveSettingForLog(result.Name);
+
+            ParsekLog.Info(Tag, $"setting name={result.Name} old={oldValue} new={newValue}");
+            SetExecResult("OK", Payload(Kv("name", result.Name), Kv("value", value ?? string.Empty)), null);
+        }
+
+        // Sets the live ParsekSettings.Current field for the accepted whitelist name.
+        // Guarded by the RequiresGameLoaded precondition (SettingsPresent), but null-safe.
+        private void SetLiveSettingField(SettingApplyResult r)
+        {
+            ParsekSettings s = ParsekSettings.Current;
+            if (s == null) return;
+            switch (r.Name)
+            {
+                case "autoRecordOnLaunch": s.autoRecordOnLaunch = r.BoolValue; break;
+                case "autoRecordOnEva": s.autoRecordOnEva = r.BoolValue; break;
+                case "autoRecordOnFirstModificationAfterSwitch": s.autoRecordOnFirstModificationAfterSwitch = r.BoolValue; break;
+                case "autoMerge": s.autoMerge = r.BoolValue; break;
+                case "verboseLogging": s.verboseLogging = r.BoolValue; break;
+                case "samplingDensity": s.samplingDensity = r.IntValue; break;
+                case "ghostAudioVolume": s.ghostAudioVolume = r.FloatValue; break;
+                case "transitedBodyRotationModeIndex": s.transitedBodyRotationModeIndex = r.IntValue; break;
+                case "ghostRenderTracing": s.ghostRenderTracing = r.BoolValue; break;
+                case "mapRenderTracing": s.mapRenderTracing = r.BoolValue; break;
+                case "ledgerTracing": s.ledgerTracing = r.BoolValue; break;
+                case "writeReadableSidecarMirrors": s.writeReadableSidecarMirrors = r.BoolValue; break;
+                case "autoBackupExistingSaves": s.autoBackupExistingSaves = r.BoolValue; break;
+                case "showCommittedFutureOverlays": s.showCommittedFutureOverlays = r.BoolValue; break;
+                case "blockCommittedActions": s.blockCommittedActions = r.BoolValue; break;
+                case "showRouteLines": s.showRouteLines = r.BoolValue; break;
+            }
+        }
+
+        // Invokes the exact ParsekSettingsPersistence.Record* member for a
+        // sidecar-tracked setting (mirrors UI/SettingsWindowUI). All 8 tracked settings
+        // are bools, so every Record* takes r.BoolValue.
+        private void InvokeRecordMethod(SettingApplyResult r)
+        {
+            switch (r.RecordMethod)
+            {
+                case "RecordGhostRenderTracing": ParsekSettingsPersistence.RecordGhostRenderTracing(r.BoolValue); break;
+                case "RecordMapRenderTracing": ParsekSettingsPersistence.RecordMapRenderTracing(r.BoolValue); break;
+                case "RecordLedgerTracing": ParsekSettingsPersistence.RecordLedgerTracing(r.BoolValue); break;
+                case "RecordReadableSidecarMirrors": ParsekSettingsPersistence.RecordReadableSidecarMirrors(r.BoolValue); break;
+                case "RecordAutoBackupExistingSaves": ParsekSettingsPersistence.RecordAutoBackupExistingSaves(r.BoolValue); break;
+                case "RecordShowCommittedFutureOverlays": ParsekSettingsPersistence.RecordShowCommittedFutureOverlays(r.BoolValue); break;
+                case "RecordBlockCommittedActions": ParsekSettingsPersistence.RecordBlockCommittedActions(r.BoolValue); break;
+                case "RecordShowRouteLines": ParsekSettingsPersistence.RecordShowRouteLines(r.BoolValue); break;
+            }
+        }
+
+        private static string ReadLiveSettingForLog(string name)
+        {
+            ParsekSettings s = ParsekSettings.Current;
+            if (s == null) return "?";
+            switch (name)
+            {
+                case "autoRecordOnLaunch": return Bool(s.autoRecordOnLaunch);
+                case "autoRecordOnEva": return Bool(s.autoRecordOnEva);
+                case "autoRecordOnFirstModificationAfterSwitch": return Bool(s.autoRecordOnFirstModificationAfterSwitch);
+                case "autoMerge": return Bool(s.autoMerge);
+                case "verboseLogging": return Bool(s.verboseLogging);
+                case "samplingDensity": return Int(s.samplingDensity);
+                case "ghostAudioVolume": return s.ghostAudioVolume.ToString("R", CultureInfo.InvariantCulture);
+                case "transitedBodyRotationModeIndex": return Int(s.transitedBodyRotationModeIndex);
+                case "ghostRenderTracing": return Bool(s.ghostRenderTracing);
+                case "mapRenderTracing": return Bool(s.mapRenderTracing);
+                case "ledgerTracing": return Bool(s.ledgerTracing);
+                case "writeReadableSidecarMirrors": return Bool(s.writeReadableSidecarMirrors);
+                case "autoBackupExistingSaves": return Bool(s.autoBackupExistingSaves);
+                case "showCommittedFutureOverlays": return Bool(s.showCommittedFutureOverlays);
+                case "blockCommittedActions": return Bool(s.blockCommittedActions);
+                case "showRouteLines": return Bool(s.showRouteLines);
+                default: return "?";
+            }
+        }
 
         private void SetExecResult(string verdict, List<KeyValuePair<string, string>> payload, string msg)
         {
