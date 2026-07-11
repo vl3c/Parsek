@@ -104,6 +104,42 @@ namespace Parsek.Tests.Analyzer
             Assert.Contains(faults, f => f.Kind == BaselineFaultKind.DuplicateEntry);
         }
 
+        // Guards (SF2): a hand-authored entry whose capturedLevel is "STALE" is
+        // REJECTED as an unparsable level -> ENTRY-MALFORMED, dropped from the
+        // baseline; and the matching FAIL stays UNBASELINED and gates. StaleFixture(3)
+        // > Fail(2), so a STALE capturedLevel would otherwise be an un-escalatable
+        // maximum that silently baselines a FAIL and never trips SEVERITY-ESCALATED.
+        // Fails if "STALE" is accepted as a level (the dangerous silent-mask).
+        [Fact]
+        public void Load_HandAuthoredStaleLevel_EntryMalformed_MatchingFailGates()
+        {
+            var fail = F("INV2-NO-DOUBLE-COVER", VerdictLevel.Fail, "rec", 3,
+                "INV2 overlap a=[1,2] b=[1,2]");
+            string digest = BaselineFilter.NormalizeMessageDigest(fail.Message);
+
+            string path = WriteRaw("baseline.cfg",
+                "baselineFormatVersion = 1\n"
+                + "ENTRY\n{\n  ruleId = INV2-NO-DOUBLE-COVER\n  target = rec\n  sectionIndex = 3\n"
+                + "  messageDigest = " + digest + "\n  capturedLevel = STALE\n}\n");
+
+            (AnalysisBaseline baseline, List<BaselineLoadFault> faults) = BaselineCodec.Load(path);
+
+            // Whole file parses, but the STALE entry is dropped as malformed.
+            Assert.NotNull(baseline);
+            Assert.Empty(baseline.Entries);
+            Assert.Contains(faults, f => f.Kind == BaselineFaultKind.EntryMalformed);
+
+            // Applying the (empty) baseline over the matching FAIL: not baselined, an
+            // ENTRY-MALFORMED WARN surfaces, and the run reds.
+            AnalysisReport report = Report(fail);
+            BaselineFilter.Apply(report, baseline, BaselineMode.Apply, true, faults);
+
+            Assert.False(report.Findings.First(f => f.RuleId == "INV2-NO-DOUBLE-COVER").Baselined);
+            Assert.Contains(report.Findings,
+                f => f.RuleId == BaselineFilter.EntryMalformedRuleId && f.Level == VerdictLevel.Warn);
+            Assert.True(report.IsRed);
+        }
+
         // Guards: a future baselineFormatVersion yields a VersionFuture fault + null
         // baseline. Fails if a future baseline is mis-applied.
         [Fact]

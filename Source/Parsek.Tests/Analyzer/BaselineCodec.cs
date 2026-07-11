@@ -194,7 +194,17 @@ namespace Parsek.Tests.Analyzer
             return fallback;
         }
 
-        /// <summary>Inverse of <see cref="ReportWriter.LevelToken"/>. Unknown -&gt; false.</summary>
+        /// <summary>
+        /// Inverse of <see cref="ReportWriter.LevelToken"/>, restricted to the three
+        /// baseline-eligible levels. "STALE" is deliberately REJECTED: StaleFixture is
+        /// excluded from the baseline scope entirely (the fresh-managed fixture scope
+        /// is never baselinable), and because StaleFixture(3) &gt; Fail(2) a
+        /// hand-authored STALE entry would be an un-escalatable maximum that silently
+        /// baselines a matching FAIL and never trips BASELINE-SEVERITY-ESCALATED. So a
+        /// "STALE" capturedLevel is treated as an unparsable level -&gt; ENTRY-MALFORMED
+        /// (the entry is dropped, the FAIL stays unbaselined and gates). Unknown
+        /// -&gt; false.
+        /// </summary>
         private static bool TryParseLevel(string token, out VerdictLevel level)
         {
             switch (token)
@@ -202,7 +212,6 @@ namespace Parsek.Tests.Analyzer
                 case "FAIL": level = VerdictLevel.Fail; return true;
                 case "WARN": level = VerdictLevel.Warn; return true;
                 case "INFO": level = VerdictLevel.Info; return true;
-                case "STALE": level = VerdictLevel.StaleFixture; return true;
                 default: level = VerdictLevel.Info; return false;
             }
         }

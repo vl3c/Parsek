@@ -149,7 +149,10 @@ if (Test-Path $txtPath) {
     $header = (Get-Content -LiteralPath $txtPath -TotalCount 1)
     if ($header) {
         Write-Host $header
-        $redMatch = [regex]::Match($header, 'RED=(\d+)')
+        # Anchor to end-of-line: RED= is the LAST token on the header, so a save
+        # leaf that itself contains a literal "RED=0" earlier in the line cannot
+        # false-green the gate. Trailing whitespace is tolerated.
+        $redMatch = [regex]::Match($header, 'RED=(\d+)\s*$')
         if ($redMatch.Success) {
             $reportIsRed = ([int]$redMatch.Groups[1].Value) -ne 0
         } else {

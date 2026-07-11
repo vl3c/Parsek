@@ -69,7 +69,35 @@ namespace Parsek.Tests.Analyzer
             string baselinePath = ResolveBaselinePath(saveDir);
             AnalysisBaseline existing = null;
             if (!string.IsNullOrEmpty(baselinePath) && File.Exists(baselinePath))
-                existing = BaselineCodec.Load(baselinePath).baseline;
+            {
+                (AnalysisBaseline loaded, List<BaselineLoadFault> loadFaults) = BaselineCodec.Load(baselinePath);
+                // A HARD fault (whole-file parse failure / future format version) on the
+                // EXISTING baseline must refuse the write, not silently rewrite it. A
+                // silent overwrite would destroy every human-authored reason in a file
+                // the operator likely wants to fix (a hand-edit syntax error) rather
+                // than regenerate. Fail loud with the fault detail; the operator fixes
+                // or deletes the file deliberately.
+                foreach (BaselineLoadFault fault in loadFaults)
+                {
+                    if (fault.IsHard)
+                    {
+                        ParsekLog.Warn("Analyzer",
+                            "baseline write REFUSED save='" + (report.SaveName ?? "")
+                            + "' existing baseline has hard fault kind=" + fault.Kind
+                            + " detail=" + fault.Detail + " path='" + baselinePath + "'");
+                        throw new InvalidOperationException(
+                            "refusing to overwrite baseline '" + baselinePath
+                            + "': existing file has a " + fault.Kind + " fault (" + fault.Detail
+                            + "). Fix or delete it deliberately before re-authoring.");
+                    }
+                    // Soft entry fault (malformed / duplicate entry): proceed, but name
+                    // it so the operator sees which entries were dropped on this update.
+                    ParsekLog.Warn("Analyzer",
+                        "baseline write proceeding despite soft fault in existing baseline kind="
+                        + fault.Kind + " detail=" + fault.Detail);
+                }
+                existing = loaded;
+            }
 
             return BaselineBuilder.BuildAndWrite(report, existing, keepStale, baselinePath);
         }

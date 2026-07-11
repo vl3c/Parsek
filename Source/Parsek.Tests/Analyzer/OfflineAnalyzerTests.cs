@@ -211,6 +211,36 @@ namespace Parsek.Tests.Analyzer
             Assert.Contains(report.Findings, f => f.RuleId == BaselineFilter.PresentNotAppliedRuleId);
         }
 
+        // Guards (SF4): -WriteBaseline over a save whose EXISTING baseline.cfg has a
+        // HARD load fault (a hand-edit syntax error) REFUSES the write and leaves the
+        // file byte-for-byte untouched, rather than silently rewriting it and
+        // destroying every human-authored reason. Fails if a corrupt existing baseline
+        // is silently clobbered.
+        [Fact]
+        public void WriteBaseline_ExistingBaselineHardFault_Refuses_FileUntouched()
+        {
+            string saveDir = Path.Combine(tempDir, "redsave");
+            SynthesizeRedCorpus(saveDir);
+            string resultsDir = Path.Combine(tempDir, "results");
+
+            // Author a valid baseline first, then corrupt it (unbalanced braces = a
+            // hard ParseFault) while preserving a human reason line.
+            OfflineAnalyzer.WriteBaselineForSave(saveDir, resultsDir, Resolver, keepStale: false);
+            string baselinePath = OfflineAnalyzer.ResolveBaselinePath(saveDir);
+            File.WriteAllText(baselinePath,
+                "baselineFormatVersion = 1\n"
+                + "reason = HUMAN: do not lose me\n"
+                + "ENTRY\n{\n  ruleId = INV2-NO-DOUBLE-COVER\n  target = red0\n"); // no closing brace
+            byte[] before = File.ReadAllBytes(baselinePath);
+
+            // The write is refused with the fault detail; the file is not rewritten.
+            Assert.Throws<InvalidOperationException>(() =>
+                OfflineAnalyzer.WriteBaselineForSave(saveDir, resultsDir, Resolver, keepStale: false));
+
+            byte[] after = File.ReadAllBytes(baselinePath);
+            Assert.Equal(before, after);
+        }
+
         // Harness post-run / ad hoc triage. Reads PARSEK_ANALYZER_SAVE; when unset
         // it skips cleanly (no-op) so the normal CI pass never runs it. When set, it
         // runs the pipeline over that save (in the PARSEK_ANALYZER_BASELINE_MODE the
@@ -276,16 +306,19 @@ namespace Parsek.Tests.Analyzer
             Assert.NotNull(written);
         }
 
-        // The five known historical saves regression floor (design "Plumbing"). A
-        // standing floor: green means "no new damage on any listed save"; any red is
-        // a genuinely new finding on top of the already-baselined INV2 overlaps.
+        // The known historical saves regression floor (design "Plumbing"). A standing
+        // floor: green means "no new damage on any listed save"; any red is a
+        // genuinely new finding on top of the already-baselined INV2 overlaps.
         //
-        // Smallest adaptation: a Manual Fact iterating a semicolon-separated
-        // PARSEK_ANALYZER_HISTORICAL_SAVES env list (set by
-        // scripts/analyze-historical-saves.ps1) instead of a [Theory] with baked-in
-        // [InlineData] rows, because the five save paths are machine-specific and not
-        // committable. Same contract: each existing save runs in Apply and must be
-        // green. Skips cleanly when the env var is unset.
+        // This is the SINGLE Manual test scripts/analyze-historical-saves.ps1 drives
+        // (via `dotnet test --filter`): the script resolves the existing save dirs and
+        // exports them as a semicolon-separated PARSEK_ANALYZER_HISTORICAL_SAVES list,
+        // and this Fact loops that list, running each save in Apply and collecting any
+        // red. A Fact over an env list (rather than a [Theory] with baked-in
+        // [InlineData] rows) is used because the save paths are machine-specific and
+        // not committable. Each save's reports are written beside it (or under
+        // PARSEK_ANALYZER_RESULTS), so the script reports per-save GREEN/RED from each
+        // report's terminal RED= token. Skips cleanly when the env var is unset.
         [Fact]
         [Trait("Category", "Manual")]
         public void Manual_HistoricalSaves_GreenUnderApply()
