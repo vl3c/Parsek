@@ -225,6 +225,10 @@ def phase_preflight(ctx: ProvisionContext) -> None:
         os.makedirs(ctx.parsek_gamedata, exist_ok=True)
         with open(lock_path, "w", encoding="utf-8") as fh:
             json.dump({"pid": os.getpid(), "timestamp": _now()}, fh)
+        # Record ownership so _finish removes ONLY a lock this run created (never
+        # a lock a concurrent live run holds, which we would have refused above).
+        ctx.lock_path = lock_path  # type: ignore[attr-defined]
+        ctx.lock_acquired = True  # type: ignore[attr-defined]
 
     # KSP-running check (EC-1). Best-effort: on a live run, refuse if the
     # instance exe is held open. Under dry-run we only log the intent.
@@ -365,14 +369,14 @@ def phase_pair(ctx: ProvisionContext) -> None:
     """Resolve KRPC.MechJeb against the pinned kRPC (GT-6 / EC-14)."""
     krpc_tag = ctx.pins.get("krpc", {}).get("tag", "")
     kmj = ctx.pins.get("krpc_mechjeb", {})
-    if krpc_tag == "v0.5.4":
-        ok = kmj.get("fork") == "genhis" and kmj.get("tag") == "v0.7.1" \
-            and kmj.get("pairedKrpcTag") == "v0.5.4"
-        log(ctx, "Info" if ok else "Error", "Pair",
+    decision = provlib.evaluate_krpc_mechjeb_pair(
+        krpc_tag, kmj.get("fork", ""), kmj.get("tag", ""), kmj.get("pairedKrpcTag", ""))
+    if not decision.requires_web_verify:
+        log(ctx, "Info" if decision.ok else "Error", "Pair",
             "krpc_mechjeb fork=%s tag=%s pairedKrpcTag=%s vs krpc %s %s"
             % (kmj.get("fork"), kmj.get("tag"), kmj.get("pairedKrpcTag"), krpc_tag,
-               "OK" if ok else "MISMATCH"))
-        if not ok:
+               "OK" if decision.ok else "MISMATCH"))
+        if not decision.ok:
             abort(ctx, "Pair", "EC-14", "genhis 0.7.1 pairing assertion failed for v0.5.4")
     else:
         log(ctx, "Amber", "Pair",
@@ -386,10 +390,11 @@ def phase_pair(ctx: ProvisionContext) -> None:
 def phase_clone(ctx: ProvisionContext):
     """Copy the mutable surface and junction the stock asset trees (live only).
 
-    Returns ``(junctionTargets, devSourcedMods_status)`` for the manifest. In a
-    live run each dev-sourced mod's status is its content tree-hash; here (and in
-    dry-run) it is ``pending-hash`` for present mods and ``absent-source`` for an
-    absent optional mod (EC-12).
+    Returns ``(junctionTargets, devSourcedMods_status)`` for the manifest. Live
+    execution (which would compute each dev-sourced mod's content tree-hash) is
+    unimplemented, so a live run aborts here; the dry-run plan records
+    ``planned-copy`` for present mods and ``absent-source`` for an absent
+    optional mod (EC-12).
     """
     if _guard_live_unimplemented(ctx, "Clone"):
         return {}, {}
@@ -507,12 +512,16 @@ def phase_settings(ctx: ProvisionContext) -> Dict[str, str]:
 
 def phase_deploy(ctx: ProvisionContext) -> Dict[str, object]:
     """Stage-then-install Parsek.dll with hash + UTF-16 grep (design DEPLOY)."""
-    source = ctx.parsek_dll_override or os.path.join(
+    # NOTE (reviewer 5, deferred): the default source hardcodes the worktree name
+    # "Parsek-autotest-provision"; the worktree-own build below is preferred when
+    # present, so this only bites when deploying from a differently-named tree.
+    default_dll = os.path.join(
         ctx.umbrella_root, "Parsek-autotest-provision", "Source", "Parsek", "bin", "Debug", "Parsek.dll")
-    # Prefer the current worktree's own build if present.
     worktree_dll = os.path.join(WORKTREE_ROOT, "Source", "Parsek", "bin", "Debug", "Parsek.dll")
-    if not ctx.parsek_dll_override and os.path.isfile(worktree_dll):
-        source = worktree_dll
+    sel = provlib.select_parsek_dll_source(
+        ctx.parsek_dll_override, worktree_dll, os.path.isfile(worktree_dll), default_dll)
+    source = sel.source
+    log(ctx, "Info", "Deploy", "parsek dll source=%s (%s)" % (source, sel.reason))
 
     info: Dict[str, object] = {"kind": "staged-build", "stagedFrom": source}
     if ctx.dry_run:
@@ -663,8 +672,15 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
         return True
 
     ok = True
-    # Junction resolution (EC-8).
-    dangling = provlib.verify_junctions(manifest, os.path.exists)
+    # Junction resolution (EC-8). Probe the LINK (realpath), not just the
+    # target's existence: a junction reports islink()==False, and a deleted or
+    # repointed junction must fail even when the old target still exists.
+    def _resolve_link(link_key: str) -> Optional[str]:
+        link_abs = os.path.join(ctx.instance_dir, link_key)
+        if not os.path.exists(link_abs):
+            return None
+        return os.path.realpath(link_abs)
+    dangling = provlib.verify_junctions(manifest, _resolve_link)
     if dangling:
         ok = False
         for link in dangling:
@@ -848,6 +864,16 @@ def run(ctx: ProvisionContext) -> int:
 
 
 def _finish(ctx: ProvisionContext, code: int) -> int:
+    # Release the instance lock this run acquired (live only). Only remove a lock
+    # we own; a lock held by another live run was refused, not written, here.
+    if getattr(ctx, "lock_acquired", False) and not ctx.dry_run:
+        lock_path = getattr(ctx, "lock_path", None)
+        if lock_path and os.path.isfile(lock_path):
+            try:
+                os.remove(lock_path)
+                log(ctx, "Info", "Summary", "released provision lock %s" % lock_path)
+            except OSError as exc:
+                log(ctx, "Warn", "Summary", "could not remove lock %s: %s" % (lock_path, exc))
     if ctx.aborted:
         log(ctx, "Error", "Summary", "ABORT: %s (exit=2)" % ctx.abort_reason)
         return 2

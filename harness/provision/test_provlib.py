@@ -79,34 +79,43 @@ class PhaseInstallEmptyStackTests(unittest.TestCase):
 class LiveUnimplementedTests(unittest.TestCase):
     """Guards BLOCKER 3: a live run must abort at the first unimplemented heavy
     phase (EC-LIVE) rather than half-provision; --dry-run is unaffected;
-    live --repair aborts up front."""
+    live --repair aborts up front.
 
-    def _ctx(self, dry_run, repair=False):
+    Live-mode ctxs use a throwaway umbrella tempdir: a non-dry-run abort() logs
+    through log(), which writes provision-log.txt under the instance dir, and
+    that must never land in the repo tree."""
+
+    def _ctx(self, umbrella, dry_run, repair=False):
         import provision
         return provision.ProvisionContext(
-            profile_name="x", pins={}, profile={}, umbrella_root=".",
+            profile_name="x", pins={}, profile={}, umbrella_root=umbrella,
             dry_run=dry_run, repair=repair, parsek_dll_override=None)
 
     def test_dry_run_phase_not_guarded(self):
         import provision
-        ctx = self._ctx(dry_run=True)
+        # dry-run log() writes nothing, so "." is safe here.
+        ctx = self._ctx(".", dry_run=True)
         self.assertFalse(provision._guard_live_unimplemented(ctx, "Build-TT"))
         self.assertFalse(ctx.aborted)
 
     def test_live_phase_aborts_ec_live(self):
+        import tempfile
         import provision
-        ctx = self._ctx(dry_run=False)
-        self.assertTrue(provision._guard_live_unimplemented(ctx, "Build-TT"))
-        self.assertTrue(ctx.aborted)
-        self.assertIn("EC-LIVE", ctx.abort_reason)
+        with tempfile.TemporaryDirectory() as umbrella:
+            ctx = self._ctx(umbrella, dry_run=False)
+            self.assertTrue(provision._guard_live_unimplemented(ctx, "Build-TT"))
+            self.assertTrue(ctx.aborted)
+            self.assertIn("EC-LIVE", ctx.abort_reason)
 
     def test_live_repair_aborts_in_run(self):
+        import tempfile
         import provision
-        ctx = self._ctx(dry_run=False, repair=True)
-        code = provision.run(ctx)
-        self.assertEqual(code, 2)
-        self.assertTrue(ctx.aborted)
-        self.assertIn("EC-LIVE", ctx.abort_reason)
+        with tempfile.TemporaryDirectory() as umbrella:
+            ctx = self._ctx(umbrella, dry_run=False, repair=True)
+            code = provision.run(ctx)
+            self.assertEqual(code, 2)
+            self.assertTrue(ctx.aborted)
+            self.assertIn("EC-LIVE", ctx.abort_reason)
 
 
 class ResolvePinTests(unittest.TestCase):
@@ -293,17 +302,25 @@ class JunctionTests(unittest.TestCase):
     not be reported OK. Plus junction-vs-copy classification (design CLONE)."""
 
     def test_dangling_junction_reported(self):
+        # The SquadExpansion LINK does not resolve (realpath returns None).
         manifest = {"junctionTargets": {
             "GameData/Squad": "/dev/Squad",
             "GameData/SquadExpansion": "/dev/SquadExpansion",
         }}
-        existing = {"/dev/Squad"}
-        dangling = provlib.verify_junctions(manifest, lambda p: p in existing)
+        resolved = {"GameData/Squad": "/dev/Squad"}
+        dangling = provlib.verify_junctions(manifest, lambda link: resolved.get(link))
         self.assertEqual(dangling, ["GameData/SquadExpansion"])
 
     def test_all_resolve_is_empty(self):
         manifest = {"junctionTargets": {"GameData/Squad": "/dev/Squad"}}
-        self.assertEqual(provlib.verify_junctions(manifest, lambda p: True), [])
+        self.assertEqual(provlib.verify_junctions(manifest, lambda link: "/dev/Squad"), [])
+
+    def test_repointed_junction_reported(self):
+        # The LINK exists but its realpath points somewhere other than the
+        # recorded target: must fail even though a target may still exist.
+        manifest = {"junctionTargets": {"GameData/Squad": "/dev/Squad"}}
+        dangling = provlib.verify_junctions(manifest, lambda link: "/other/Squad")
+        self.assertEqual(dangling, ["GameData/Squad"])
 
     def test_classify_stock_vs_devsourced_vs_stack(self):
         dev = ["000_Harmony", "CommunityTechTree"]
@@ -469,6 +486,96 @@ class LockTests(unittest.TestCase):
         lock = {"pid": 42, "timestamp": 1.0}
         d = provlib.acquire_lock(lock, pid=42, now=2.0, is_alive_fn=lambda p: True)
         self.assertTrue(d.acquired)
+
+    def test_malformed_holder_reclaimed_not_crash(self):
+        # A lockfile carrying an unparseable pid (None / non-integer) is stale,
+        # reclaimed, never a crash. (An entirely empty {} is a no-lock, handled
+        # by test_no_lock_acquires.)
+        for bad in ({"pid": "notapid"}, {"pid": None}):
+            d = provlib.acquire_lock(bad, pid=42, now=1.0, is_alive_fn=lambda p: True)
+            self.assertTrue(d.acquired, bad)
+            self.assertEqual(d.reason, "reclaimed-stale")
+
+
+class PairDecisionTests(unittest.TestCase):
+    """Reviewer 7: extracted PAIR assertion (GT-6 / EC-14)."""
+
+    def test_v054_genhis_071_matches(self):
+        d = provlib.evaluate_krpc_mechjeb_pair("v0.5.4", "genhis", "v0.7.1", "v0.5.4")
+        self.assertTrue(d.ok)
+        self.assertEqual(d.reason, "match")
+        self.assertFalse(d.requires_web_verify)
+
+    def test_v054_wrong_fork_mismatch(self):
+        d = provlib.evaluate_krpc_mechjeb_pair("v0.5.4", "darchambault", "v0.7.1", "v0.5.4")
+        self.assertFalse(d.ok)
+        self.assertEqual(d.reason, "mismatch")
+
+    def test_v054_wrong_paired_tag_mismatch(self):
+        d = provlib.evaluate_krpc_mechjeb_pair("v0.5.4", "genhis", "v0.7.1", "v0.5.3")
+        self.assertFalse(d.ok)
+        self.assertEqual(d.reason, "mismatch")
+
+    def test_nonv054_requires_web_verify(self):
+        d = provlib.evaluate_krpc_mechjeb_pair("master-abc123", "genhis", "v0.7.1", "v0.5.4")
+        self.assertFalse(d.ok)
+        self.assertTrue(d.requires_web_verify)
+        self.assertEqual(d.reason, "verify-required-nonv054")
+
+
+class DeploySourceTests(unittest.TestCase):
+    """Reviewer 7: extracted DEPLOY source selection."""
+
+    def test_override_always_wins(self):
+        d = provlib.select_parsek_dll_source("/x/over.dll", "/wt/Parsek.dll", True, "/def/Parsek.dll")
+        self.assertEqual(d.source, "/x/over.dll")
+        self.assertEqual(d.reason, "override")
+
+    def test_worktree_build_when_present(self):
+        d = provlib.select_parsek_dll_source(None, "/wt/Parsek.dll", True, "/def/Parsek.dll")
+        self.assertEqual(d.source, "/wt/Parsek.dll")
+        self.assertEqual(d.reason, "worktree-build")
+
+    def test_default_when_worktree_absent(self):
+        d = provlib.select_parsek_dll_source(None, "/wt/Parsek.dll", False, "/def/Parsek.dll")
+        self.assertEqual(d.source, "/def/Parsek.dll")
+        self.assertEqual(d.reason, "default")
+
+
+class LockfileReleaseTests(unittest.TestCase):
+    """Reviewer 10: a run removes ONLY a lockfile it created, on completion."""
+
+    def _ctx(self, umbrella):
+        import provision
+        return provision.ProvisionContext(
+            profile_name="x", pins={}, profile={}, umbrella_root=umbrella,
+            dry_run=False, repair=False, parsek_dll_override=None)
+
+    def test_owned_lock_removed_on_finish(self):
+        import json
+        import tempfile
+        import provision
+        with tempfile.TemporaryDirectory() as umbrella:
+            lock = os.path.join(umbrella, ".provision.lock")
+            with open(lock, "w") as fh:
+                json.dump({"pid": 1}, fh)
+            ctx = self._ctx(umbrella)
+            ctx.lock_path = lock
+            ctx.lock_acquired = True
+            provision._finish(ctx, 0)
+            self.assertFalse(os.path.exists(lock))
+
+    def test_unowned_lock_not_removed(self):
+        import json
+        import tempfile
+        import provision
+        with tempfile.TemporaryDirectory() as umbrella:
+            lock = os.path.join(umbrella, ".provision.lock")
+            with open(lock, "w") as fh:
+                json.dump({"pid": 999}, fh)
+            ctx = self._ctx(umbrella)  # lock_acquired never set: we do not own it
+            provision._finish(ctx, 0)
+            self.assertTrue(os.path.exists(lock))
 
 
 class OpenPinTests(unittest.TestCase):

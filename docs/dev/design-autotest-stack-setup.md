@@ -696,6 +696,43 @@ Each: trigger -> expected behavior -> v1 or deferred.
   only produces the instances and manifests it consumes.
 - No changes to Parsek source, tests, or in-game hooks.
 
+## Deferred to live execution
+
+Reviewer findings deliberately deferred until the live provisioning phases land
+(the guards and pure decisions above already fence them; each is one bounded
+follow-up):
+
+- **R5 -- deploy default source hardcodes the worktree name.** `phase_deploy`'s
+  DEFAULT Parsek.dll path hardcodes `Parsek-autotest-provision/Source/...`. The
+  worktree-own `bin/Debug` build is preferred when present (via
+  `select_parsek_dll_source`), so this only bites a differently-named worktree
+  with no local build; fix by deriving the default from the umbrella layout /
+  requiring `--parsek-dll` when ambiguous.
+- **R8 -- `_ksp_running_against` coarseness.** The EC-1 check matches ANY
+  `KSP_x64.exe` process, not one bound to the target instance. Refine to the
+  instance's own exe path (or a per-instance mutex/lockfile heartbeat) so an
+  unrelated dev-install KSP does not block provisioning a different instance.
+- **R12 -- pre-EC-1 instance-local writes.** PREFLIGHT writes the `.provision.lock`
+  before the KSP-running check. The lockfile is now removed on completion (owned
+  locks only), but the ordering means one instance-local write precedes the EC-1
+  gate; move the KSP-running check ahead of the lock write for a strictly
+  no-write-before-gate PREFLIGHT.
+- **R13 -- long-path `\\?\` prefix for live CLONE.** `is_path_too_long` flags an
+  over-260-char instance path, but the live CLONE copy/junction primitives must
+  actually USE the extended-length `\\?\` prefix on Windows to copy deep KSP
+  asset trees; wire it when CLONE is implemented (EC-7).
+- **R15 -- `apply_settings` nested-key scope.** Delta application matches
+  top-level `KEY = value` lines only; a key that appears only inside a braced
+  node is treated as absent and APPENDED at top level. Acceptable for the flat
+  GT-8 keys pinned today; when a scoped/nested setting is ever targeted, extend
+  the matcher with node-path scope (EC-15).
+- **R11 (noted, kept).** The near-vacuous `test_capability_table_matches_design`
+  (it restates the hand-authored capability + missing-vs-master tuples) is KEPT:
+  it is a cheap guard against an accidental edit to the harness admission INPUT
+  table. The authoritative capability proof remains the BUILD-TT reflection smoke
+  over the real built assembly (already specced in the Test Plan); this unit
+  test does not pretend to replace it.
+
 ## Backward Compatibility
 
 Greenfield module; no existing instances or manifests to migrate. Forward policy:

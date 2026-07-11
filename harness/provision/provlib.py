@@ -123,6 +123,64 @@ def resolve_pin(clone_ref_output: str, expected_commit: str) -> PinResolution:
 
 
 # ---------------------------------------------------------------------------
+# KRPC.MechJeb pairing (design PAIR / GT-6 / EC-14). Pure decision.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PairDecision:
+    ok: bool
+    reason: str  # "match" | "mismatch" | "verify-required-nonv054"
+    requires_web_verify: bool
+
+
+def evaluate_krpc_mechjeb_pair(krpc_tag: str, fork: str, tag: str, paired_krpc_tag: str) -> PairDecision:
+    """Decide whether the pinned KRPC.MechJeb pairs with the pinned kRPC (GT-6).
+
+    Under the v0.5.4 kRPC pin the only CHANGELOG-proven pair is genhis v0.7.1
+    (``pairedKrpcTag == v0.5.4``); any deviation is EC-14 ``mismatch``. Under a
+    non-v0.5.4 kRPC pin the pairing cannot be verified locally: return
+    ``verify-required-nonv054`` with ``requires_web_verify=True`` so the caller
+    refuses to guess and prints the web-verification procedure (EC-14 deferred
+    branch)."""
+    if krpc_tag != "v0.5.4":
+        return PairDecision(False, "verify-required-nonv054", True)
+    ok = fork == "genhis" and tag == "v0.7.1" and paired_krpc_tag == "v0.5.4"
+    return PairDecision(ok, "match" if ok else "mismatch", False)
+
+
+# ---------------------------------------------------------------------------
+# Parsek.dll deploy-source selection (design DEPLOY). Pure.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DeploySourceDecision:
+    source: str
+    reason: str  # "override" | "worktree-build" | "default"
+
+
+def select_parsek_dll_source(
+    override: Optional[str],
+    worktree_dll: str,
+    worktree_dll_exists: bool,
+    default_dll: str,
+) -> DeploySourceDecision:
+    """Pick the Parsek.dll source for DEPLOY.
+
+    An explicit ``--parsek-dll`` override always wins; otherwise the current
+    worktree's own ``bin/Debug`` build when it exists (so a build from this
+    worktree is preferred over a hardcoded sibling default); otherwise the
+    default path. ``worktree_dll_exists`` is injected so this stays pure over the
+    filesystem."""
+    if override:
+        return DeploySourceDecision(override, "override")
+    if worktree_dll_exists:
+        return DeploySourceDecision(worktree_dll, "worktree-build")
+    return DeploySourceDecision(default_dll, "default")
+
+
+# ---------------------------------------------------------------------------
 # Settings-delta application (design SETTINGS / EC-15). Pure, line-oriented.
 # ---------------------------------------------------------------------------
 
@@ -290,16 +348,25 @@ def classify_gamedata_entry(name: str, dev_sourced_mods: Sequence[str]) -> str:
     return "unknown"
 
 
-def verify_junctions(manifest: Dict, exists_fn: Callable[[str], bool]) -> List[str]:
-    """Return the list of junction LINK paths whose recorded TARGET no longer
-    resolves (EC-8). ``exists_fn(target_path) -> bool`` is injected so this is
-    pure over the filesystem. Empty list == all junctions resolve.
+def verify_junctions(manifest: Dict, resolve_fn: Callable[[str], Optional[str]]) -> List[str]:
+    """Return the junction LINK keys whose link no longer resolves to its
+    recorded TARGET (EC-8).
+
+    ``resolve_fn(link_key) -> realpath`` is injected (the orchestrator passes
+    ``os.path.realpath`` of the link path, or None/"" when the link is absent).
+    The check is on the LINK, not merely the target's existence: a directory
+    junction reports ``os.path.islink() == False``, so ``realpath`` of the link
+    is the correct probe. A link that is missing (dangling) OR repointed
+    (realpath != recorded target) fails; verifying only that the target exists
+    would pass a deleted or repointed junction. Empty list == all junctions
+    resolve to their recorded targets.
     """
     dangling: List[str] = []
     targets = manifest.get("junctionTargets", {}) or {}
-    for link_path, target_path in targets.items():
-        if not exists_fn(target_path):
-            dangling.append(link_path)
+    for link_key, target_path in targets.items():
+        actual = resolve_fn(link_key)
+        if not actual or _normcase_path(actual) != _normcase_path(target_path):
+            dangling.append(link_key)
     return dangling
 
 
@@ -465,9 +532,16 @@ def acquire_lock(
     holder = existing_lock.get("pid")
     if holder == pid:
         return LockDecision(True, "acquired-free", pid)
-    if is_alive_fn(int(holder)):
-        return LockDecision(False, "refused-live", holder)
-    return LockDecision(True, "reclaimed-stale", holder)
+    # A malformed holder pid (missing / None / non-integer -- a truncated or
+    # hand-corrupted lockfile) is treated as STALE and reclaimed, never a crash:
+    # a lockfile we cannot parse must not wedge every future run.
+    try:
+        holder_pid = int(holder)
+    except (TypeError, ValueError):
+        return LockDecision(True, "reclaimed-stale", None)
+    if is_alive_fn(holder_pid):
+        return LockDecision(False, "refused-live", holder_pid)
+    return LockDecision(True, "reclaimed-stale", holder_pid)
 
 
 # ---------------------------------------------------------------------------
