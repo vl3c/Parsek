@@ -23,6 +23,12 @@ namespace Parsek
         /// for the reservation system) compute it here. Called after Reset and
         /// before the first ProcessAction dispatch.
         /// </summary>
+        /// <returns>
+        /// <c>true</c> only when the module mutated the action list (e.g. injected a
+        /// synthetic action). The engine re-sorts the list after the pre-pass only when
+        /// at least one module returns <c>true</c>; a stable action list skips the
+        /// redundant second sort.
+        /// </returns>
         /// <param name="actions">The action list (already UT-cutoff-filtered by the engine).</param>
         /// <param name="walkNowUT">
         /// The effective "now" of the walk used for deadline-style comparisons.
@@ -35,7 +41,7 @@ namespace Parsek
         /// and the cutoff UT itself — otherwise deadline-expired contracts would leak
         /// past a rewind without firing their synthetic <c>ContractFail</c>.
         /// </param>
-        void PrePass(List<GameAction> actions, double? walkNowUT = null);
+        bool PrePass(List<GameAction> actions, double? walkNowUT = null);
 
         /// <summary>
         /// Processes a single game action during the recalculation walk.

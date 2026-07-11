@@ -1889,7 +1889,7 @@ namespace Parsek.Tests
             public readonly List<GameAction> ProcessedActions = new List<GameAction>();
 
             public void Reset() { ProcessedActions.Clear(); }
-            public void PrePass(List<GameAction> actions, double? walkNowUT = null) { }
+            public bool PrePass(List<GameAction> actions, double? walkNowUT = null) { return false; }
             public void ProcessAction(GameAction action) { ProcessedActions.Add(action); }
             public void PostWalk() { }
         }
@@ -1906,7 +1906,7 @@ namespace Parsek.Tests
                 ResetCalls++;
             }
 
-            public void PrePass(List<GameAction> actions, double? walkNowUT = null) { }
+            public bool PrePass(List<GameAction> actions, double? walkNowUT = null) { return false; }
 
             public void ProcessAction(GameAction action)
             {

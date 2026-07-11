@@ -64,9 +64,10 @@ namespace Parsek
         }
 
         /// <inheritdoc/>
-        public void PrePass(List<GameAction> actions, double? walkNowUT = null)
+        public bool PrePass(List<GameAction> actions, double? walkNowUT = null)
         {
             // No pre-pass needed for strategies; walkNowUT is ignored.
+            return false;
         }
 
         /// <summary>
