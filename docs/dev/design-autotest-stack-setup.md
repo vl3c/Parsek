@@ -674,6 +674,14 @@ Each: trigger -> expected behavior -> v1 or deferred.
   delta names a key absent from the dev settings.cfg. Expected: settings-delta
   application APPENDS the key (KSP tolerates it) and logs it; a delta key that is
   a known typo (not in a validated key set) is a WARN. v1.
+- **EC-16 Instance dir aliases the dev install.** Trigger: a profile's
+  `instanceDir` resolves to the read-only dev install, or a parent/child of it,
+  or a path not under `automation/` (a hand-edited or mis-merged profile).
+  Expected: PREFLIGHT rejects it with the pure `check_instance_dir_alias`
+  predicate and ABORTS before any write. The live primitives overwrite
+  settings.cfg, copy the DLL, and DELETE the MM cache; aimed at the dev tree they
+  would corrupt the clone source. v1 (guard is live; the destructive primitives
+  it protects are the deferred live phases).
 
 ## What Doesn't Change
 

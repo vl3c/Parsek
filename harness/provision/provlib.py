@@ -375,6 +375,63 @@ def is_path_too_long(path: str, limit: int = 260) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Dev-install aliasing guard (design EC-16). Pure string-path predicate over
+# already-absolute paths. Guards the destructive live primitives (settings
+# overwrite, DLL copy, MM-cache delete) from ever targeting the read-only dev
+# install or a path that overlaps it.
+# ---------------------------------------------------------------------------
+
+
+def _normcase_path(path: str) -> str:
+    """Case- and separator-normalize a path for boundary comparison.
+
+    Windows-targeted (KSP): fold case and unify separators to forward slashes,
+    strip a trailing slash. Pure string manipulation; no filesystem access.
+    """
+    return (path or "").replace("\\", "/").rstrip("/").lower()
+
+
+def is_path_within(child: str, parent: str) -> bool:
+    """True if ``child`` equals ``parent`` or is nested under it (path-boundary
+    aware: ``.../automation`` is NOT within ``.../auto``)."""
+    c = _normcase_path(child)
+    p = _normcase_path(parent)
+    if not p:
+        return False
+    return c == p or c.startswith(p + "/")
+
+
+@dataclass(frozen=True)
+class InstanceDirDecision:
+    ok: bool
+    reason: str  # "ok" | "equals-dev-install" | "nested-in-dev-install"
+                 # | "dev-install-nested-in-instance" | "not-under-automation"
+
+
+def check_instance_dir_alias(instance_dir: str, dev_install: str, instance_rel: str) -> InstanceDirDecision:
+    """Reject an instance dir that aliases or overlaps the dev install.
+
+    ``instance_dir`` / ``dev_install`` are absolute paths; ``instance_rel`` is
+    the profile's raw ``instanceDir`` value (which MUST live under
+    ``automation/`` so an instance can never be mistaken for the dev tree). The
+    live primitives overwrite settings.cfg, copy the DLL, and DELETE the MM
+    cache -- pointed at the dev install (or a parent/child of it) they would
+    corrupt the read-only clone source. Returns the first failing condition:
+    equal, instance nested in dev install, dev install nested in instance, or
+    the relative dir not under ``automation/``."""
+    if is_path_within(instance_dir, dev_install) and is_path_within(dev_install, instance_dir):
+        return InstanceDirDecision(False, "equals-dev-install")
+    if is_path_within(instance_dir, dev_install):
+        return InstanceDirDecision(False, "nested-in-dev-install")
+    if is_path_within(dev_install, instance_dir):
+        return InstanceDirDecision(False, "dev-install-nested-in-instance")
+    rel = (instance_rel or "").replace("\\", "/")
+    if not rel.startswith("automation/"):
+        return InstanceDirDecision(False, "not-under-automation")
+    return InstanceDirDecision(True, "ok")
+
+
+# ---------------------------------------------------------------------------
 # Lockfile acquire / reclaim (design EC-10). Pure over injected clock + pid +
 # liveness probe.
 # ---------------------------------------------------------------------------

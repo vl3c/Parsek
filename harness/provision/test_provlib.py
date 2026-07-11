@@ -362,6 +362,87 @@ class DiskAndPathGuardTests(unittest.TestCase):
         self.assertFalse(provlib.is_path_too_long("\\\\?\\C:/" + "a" * 300))
 
 
+class InstanceDirAliasTests(unittest.TestCase):
+    """Design EC-16 / reviewer 4: an instance dir that equals, nests inside, or
+    contains the read-only dev install (or is not under automation/) must be
+    rejected before any destructive live primitive runs."""
+
+    DEV = "C:/Code/Parsek/Kerbal Space Program"
+    GOOD = "C:/Code/Parsek/automation/stock-minimal"
+
+    def test_good_instance_dir(self):
+        d = provlib.check_instance_dir_alias(self.GOOD, self.DEV, "automation/stock-minimal")
+        self.assertTrue(d.ok)
+        self.assertEqual(d.reason, "ok")
+
+    def test_equal_rejected(self):
+        d = provlib.check_instance_dir_alias(self.DEV, self.DEV, "automation/x")
+        self.assertFalse(d.ok)
+        self.assertEqual(d.reason, "equals-dev-install")
+
+    def test_equal_rejected_case_and_sep_insensitive(self):
+        d = provlib.check_instance_dir_alias(
+            "c:\\code\\parsek\\kerbal space program", self.DEV, "automation/x")
+        self.assertFalse(d.ok)
+        self.assertEqual(d.reason, "equals-dev-install")
+
+    def test_nested_in_dev_install_rejected(self):
+        d = provlib.check_instance_dir_alias(
+            self.DEV + "/GameData/instance", self.DEV, "automation/x")
+        self.assertFalse(d.ok)
+        self.assertEqual(d.reason, "nested-in-dev-install")
+
+    def test_dev_install_nested_in_instance_rejected(self):
+        parent = "C:/Code/Parsek"
+        d = provlib.check_instance_dir_alias(parent, self.DEV, "automation/x")
+        self.assertFalse(d.ok)
+        self.assertEqual(d.reason, "dev-install-nested-in-instance")
+
+    def test_not_under_automation_rejected(self):
+        d = provlib.check_instance_dir_alias(
+            "C:/Code/Parsek/instances/x", self.DEV, "instances/x")
+        self.assertFalse(d.ok)
+        self.assertEqual(d.reason, "not-under-automation")
+
+    def test_prefix_sibling_is_not_nested(self):
+        # "automation" must not be treated as nested under "auto".
+        self.assertFalse(provlib.is_path_within("C:/x/automation", "C:/x/auto"))
+        self.assertTrue(provlib.is_path_within("C:/x/auto/child", "C:/x/auto"))
+
+
+class SettingsHashRoundTripTests(unittest.TestCase):
+    """Guards BLOCKER 2: settingsFinalSha256 must equal the hash of the bytes
+    actually written. Writing with newline='\\n' and recording the re-read hash
+    means a live VERIFY re-hash can never spuriously exit 3 DRIFT (the old code
+    hashed '\\n' text but wrote CRLF on Windows)."""
+
+    def test_written_settings_hash_matches_recorded_and_uses_lf(self):
+        import hashlib
+        import tempfile
+        import provision
+        with tempfile.TemporaryDirectory() as umbrella:
+            dev = os.path.join(umbrella, "Kerbal Space Program")
+            os.makedirs(dev)
+            # Dev file deliberately CRLF: proves the platform-translation trap.
+            with open(os.path.join(dev, "settings.cfg"), "wb") as fh:
+                fh.write(b"FRAMERATE_LIMIT = 120\r\nUI_SCALE = 1.2\r\n")
+            profile = {"baseInstall": "Kerbal Space Program",
+                       "instanceDir": "automation/x",
+                       "settings": {"FRAMERATE_LIMIT": "60", "NEW_KEY": "1"}}
+            ctx = provision.ProvisionContext(
+                profile_name="x", pins={}, profile=profile,
+                umbrella_root=umbrella, dry_run=False, repair=False,
+                parsek_dll_override=None)
+            provision.phase_settings(ctx)
+            written = os.path.join(ctx.instance_dir, "settings.cfg")
+            with open(written, "rb") as fh:
+                raw = fh.read()
+            self.assertNotIn(b"\r\n", raw, "instance settings.cfg must be LF-only")
+            on_disk = hashlib.sha256(raw).hexdigest()
+            self.assertEqual(on_disk, ctx.settings_final_sha,
+                             "recorded settingsFinalSha256 must equal the on-disk byte hash")
+
+
 class LockTests(unittest.TestCase):
     """Design: acquire_lock -- guards EC-10. A live lock must not be stolen; a
     stale (dead-pid) lock must be reclaimed."""

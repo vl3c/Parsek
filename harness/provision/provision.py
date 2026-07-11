@@ -194,6 +194,19 @@ def phase_preflight(ctx: ProvisionContext) -> None:
         abort(ctx, "Preflight", "EC-7", "instance dir path too long: %s" % ctx.instance_dir)
         return
 
+    # Dev-install aliasing guard (EC-16). The live primitives overwrite
+    # settings.cfg, copy the DLL, and DELETE the MM cache; an instance dir that
+    # equals, nests inside, or contains the read-only dev install (or is not
+    # under automation/) would corrupt the clone source. ABORT before any write.
+    inst_norm = os.path.normcase(os.path.normpath(ctx.instance_dir))
+    dev_norm = os.path.normcase(os.path.normpath(ctx.dev_install))
+    alias = provlib.check_instance_dir_alias(inst_norm, dev_norm, ctx.profile.get("instanceDir", ""))
+    if not alias.ok:
+        abort(ctx, "Preflight", "EC-16",
+              "instance dir aliases the dev install (%s): instance=%s dev=%s"
+              % (alias.reason, ctx.instance_dir, ctx.dev_install))
+        return
+
     # Lock decision (EC-10) -- pure logic; live acquisition writes the lockfile.
     lock_path = os.path.join(ctx.parsek_gamedata, ".provision.lock")
     existing = None
@@ -450,9 +463,14 @@ def phase_settings(ctx: ProvisionContext) -> Dict[str, str]:
         abort(ctx, "Settings", "EC-SET", "dev settings.cfg missing at %s" % dev_settings)
         return deltas
 
-    with open(dev_settings, "r", encoding="utf-8") as fh:
-        base_lines = fh.read().splitlines()
-    base_sha = sha256_bytes(("\n".join(base_lines)).encode("utf-8"))
+    # settingsBaseSha256 is over the RAW dev-file bytes exactly as read (line
+    # endings included), NOT a "\n"-rejoin of the split lines: it records what
+    # the dev settings.cfg actually was on disk, so a re-hash by any tool
+    # matches. splitlines() is only used to drive the line-oriented delta apply.
+    with open(dev_settings, "rb") as fh:
+        base_bytes = fh.read()
+    base_sha = sha256_bytes(base_bytes)
+    base_lines = base_bytes.decode("utf-8").splitlines()
     present = provlib.keys_present(base_lines, list(deltas))
     appended = [k for k in deltas if k not in present]
     log(ctx, "Info", "Settings", "settingsBaseSha256=%s" % base_sha)
@@ -466,13 +484,22 @@ def phase_settings(ctx: ProvisionContext) -> Dict[str, str]:
 
     new_lines = provlib.apply_settings(base_lines, deltas)
     final_text = "\n".join(new_lines) + "\n"
+    # Dry-run preview hash over the text we WOULD write.
     final_sha = sha256_bytes(final_text.encode("utf-8"))
-    log(ctx, "Info", "Settings", "settingsFinalSha256=%s" % final_sha)
 
     if not ctx.dry_run:
         os.makedirs(ctx.instance_dir, exist_ok=True)
-        with open(os.path.join(ctx.instance_dir, "settings.cfg"), "w", encoding="utf-8") as fh:
+        out_path = os.path.join(ctx.instance_dir, "settings.cfg")
+        # newline="\n": suppress the platform CRLF translation Python's text mode
+        # applies by default on Windows, so the on-disk bytes match final_text.
+        with open(out_path, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(final_text)
+        # Record settingsFinalSha256 over the bytes ACTUALLY on disk, not the
+        # in-memory text: VERIFY (and the harness) re-hash the raw file, so the
+        # recorded value must be that same raw-byte hash or every live run would
+        # exit 3 DRIFT on a platform that rewrote the line endings.
+        final_sha = sha256_file(out_path)
+    log(ctx, "Info", "Settings", "settingsFinalSha256=%s" % final_sha)
     ctx.settings_base_sha = base_sha  # type: ignore[attr-defined]
     ctx.settings_final_sha = final_sha  # type: ignore[attr-defined]
     return deltas
