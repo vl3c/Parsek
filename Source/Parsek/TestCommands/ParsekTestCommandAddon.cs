@@ -140,6 +140,12 @@ namespace Parsek.TestCommands
         internal int SettleCounterForTesting => settleCounter;
         internal bool DisabledForTesting => disabled;
 
+        /// <summary>True once the first armed frame resolved channel paths + touched the
+        /// lock/journal files. Stays false forever when unarmed (TryStartup is the only
+        /// file-touching startup and runs only behind the armed gate), so it is the
+        /// in-game inert-when-unarmed proof: no file access ever happened.</summary>
+        internal bool StartupDoneForTesting => startupDone;
+
         /// <summary>
         /// Pure fail-closed env-gate predicate: ONLY the literal <c>"1"</c> arms the
         /// addon. <c>null</c> (unset), <c>"0"</c>, <c>"true"</c>, and <c>""</c> all stay
