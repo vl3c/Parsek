@@ -8,7 +8,7 @@
 >
 > | Item | Status vs. main | Notes |
 > |---|---|---|
-> | 1 — Conditional second sort | **Still open** | Main re-sorts unconditionally after the prepass; a ready reference impl exists (see recipe below). Low risk. |
+> | 1 — Conditional second sort | **Implementation salvaged (PR #1291)** | Main re-sorts unconditionally after the prepass; the LOW-risk reference impl (recipe below) was ported to a code PR alongside this doc. |
 > | 2 — Reusable scratch buffers / stable sort | Still open, low value | Pure GC reduction; `SortActions` is still LINQ `OrderBy` (already stable, so the stability sub-problem is self-inflicted by switching to `List.Sort`). |
 > | 3 — Cache the ELS list allocation | Still open (3a already a no-op) | `ComputeELS()` already returns `IReadOnlyList`; only the wrapper alloc remains. Best bundled under Item 4. |
 > | 4 — 1 Hz wall-clock recalc tick during warp | **Still open, highest value** | The only user-facing item (live mid-warp top-bar funds/science/rep). Significant drift: main added 5+ recalc entry points and moved the warp handler to `OnTimeWarpRateChanged`; coalesce-eligibility must be re-audited across the larger entry-point set. |
