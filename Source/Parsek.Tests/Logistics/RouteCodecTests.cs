@@ -1310,6 +1310,49 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(before, after.ToString());
         }
 
+        // catches: the stack-quantity fields (item.Quantity plus the wrapper's
+        // quantity/stackCapacity values) drifting across a save/load round-trip —
+        // the planner's multi-slot split and the writers' per-slot unit override
+        // both read them, so a codec drop would silently re-open Gap C.
+        [Fact]
+        public void StackQuantityFields_RoundTrip()
+        {
+            ConfigNode snapshot = BuildStoredPartSnapshot();
+            snapshot.AddValue("quantity", "10");
+            snapshot.AddValue("stackCapacity", "4");
+            var item = new InventoryPayloadItem
+            {
+                IdentityHash = "stack-hash",
+                PartName = "evaRepairKit",
+                Quantity = 10,
+                SlotsTaken = 3,
+                StoredPartSnapshot = snapshot,
+            };
+            var stop = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                InventoryDeliveryManifest = new List<InventoryPayloadItem> { item },
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 0.0
+            };
+            var route = new RouteFixtureBuilder()
+                .WithId("stack-roundtrip-route")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(stop)
+                .Build();
+
+            var node = new ConfigNode("ROUTE");
+            route.SerializeInto(node);
+            Route roundTripped = Route.DeserializeFrom(node);
+
+            InventoryPayloadItem after = roundTripped.Stops[0].InventoryDeliveryManifest[0];
+            Assert.Equal(10, after.Quantity);
+            Assert.Equal(3, after.SlotsTaken);
+            Assert.Equal("10", after.StoredPartSnapshot.GetValue("quantity"));
+            Assert.Equal("4", after.StoredPartSnapshot.GetValue("stackCapacity"));
+        }
+
         // catches: forward-compat regression / silent enum drop.
         [Fact]
         public void Load_UnknownStatusValue_MapsToActiveAndWarns()

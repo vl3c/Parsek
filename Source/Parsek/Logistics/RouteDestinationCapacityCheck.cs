@@ -158,6 +158,22 @@ namespace Parsek.Logistics
 
             public void ConsumeInventorySlot(int slotIndex) => inner.ConsumeInventorySlot(slotIndex);
 
+            // Inventory admission (slots + volume/mass) is tracked ON the shared
+            // inner probe, so forwarding these unchanged makes same-destination
+            // stops see capacity earlier stops already claimed - the inventory
+            // analogue of the resource accumulation above. (Slots and
+            // volume/mass need no per-wrapper netting: the inner probe's own
+            // consumed-slot / consumed-capacity state already spans the gate's
+            // per-stop PrepareDelivery calls on this one instance.)
+            public int ProbeInventoryStackableQuantity(InventoryPayloadItem item)
+                => inner.ProbeInventoryStackableQuantity(item);
+
+            public int ProbeInventoryUnitsThatFit(InventoryPayloadItem item, int requestedUnits)
+                => inner.ProbeInventoryUnitsThatFit(item, requestedUnits);
+
+            public void ConsumeInventoryCapacity(InventoryPayloadItem item, int units)
+                => inner.ConsumeInventoryCapacity(item, units);
+
             internal void NotePlannedResources(DeliveryPlan plan)
             {
                 if (plan.Resources == null)

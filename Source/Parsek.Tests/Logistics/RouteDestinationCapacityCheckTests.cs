@@ -36,6 +36,17 @@ namespace Parsek.Tests.Logistics
                 if (SlotQueue.Count > 0 && SlotQueue[0] == slotIndex)
                     SlotQueue.RemoveAt(0);
             }
+
+            // Parity-fix probe surface: these tests gate on SLOT availability,
+            // so stack capacity is 1 (one unit per slot, matching the Quantity=1
+            // fixtures) and volume/mass admission is unlimited (everything the
+            // caller asks for fits) - the slot queue is the only limiter.
+            public int ProbeInventoryStackableQuantity(InventoryPayloadItem item) => 1;
+
+            public int ProbeInventoryUnitsThatFit(InventoryPayloadItem item, int requestedUnits)
+                => requestedUnits;
+
+            public void ConsumeInventoryCapacity(InventoryPayloadItem item, int units) { }
         }
 
         private static Route MakeRoute(params RouteStop[] stops)
@@ -300,7 +311,7 @@ namespace Parsek.Tests.Logistics
             };
             var inventory = new List<InventoryDeliveryLine>
             {
-                new InventoryDeliveryLine(MakeItem("h", "evaJetpack"), -1), // also short
+                new InventoryDeliveryLine(MakeItem("h", "evaJetpack"), -1, 1), // also short
             };
             var partialPlan = new DeliveryPlan(resources, inventory, isPartial: true, isZero: false);
             Assert.Equal("Oxidizer", RouteDestinationCapacityCheck.FirstShortToken(partialPlan));

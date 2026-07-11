@@ -18,6 +18,30 @@ namespace Parsek.Logistics
 
         /// <summary>Notify the probe that the given slot has been assigned, so subsequent ProbeFirstEmptyInventorySlot calls skip it.</summary>
         void ConsumeInventorySlot(int slotIndex);
+
+        /// <summary>
+        /// Fallback stack size for the item's part, read from the live
+        /// <c>ModuleCargoPart.stackableQuantity</c> on the part prefab.
+        /// Consulted only when the payload's STOREDPART wrapper carries no
+        /// <c>stackCapacity</c> value and its inner PART node no
+        /// <c>moduleCargoStackableQuantity</c>. Returns 1 when unknown.
+        /// </summary>
+        int ProbeInventoryStackableQuantity(InventoryPayloadItem item);
+
+        /// <summary>
+        /// Volume/mass admission for storing <paramref name="requestedUnits"/>
+        /// units of the item into the destination's inventory container,
+        /// mirroring stock <c>ModuleInventoryPart.HasCapacity</c>: per-unit
+        /// packed volume and prefab mass against <c>packedVolumeLimit</c> /
+        /// <c>massLimit</c> (a limit &lt;= 0 is unlimited), accounting for
+        /// what is already stored plus capacity consumed earlier in this
+        /// planning pass. Returns how many of the requested units fit
+        /// (0 when the item cannot be stored at all).
+        /// </summary>
+        int ProbeInventoryUnitsThatFit(InventoryPayloadItem item, int requestedUnits);
+
+        /// <summary>Notify the probe that capacity for the given units has been claimed, so subsequent ProbeInventoryUnitsThatFit calls see less headroom.</summary>
+        void ConsumeInventoryCapacity(InventoryPayloadItem item, int units);
     }
 
     internal readonly struct ResourceDeliveryLine
@@ -37,12 +61,21 @@ namespace Parsek.Logistics
     internal readonly struct InventoryDeliveryLine
     {
         public readonly InventoryPayloadItem Item;
-        public readonly int AssignedSlot; // -1 = skipped (no empty slot)
+        public readonly int AssignedSlot; // -1 = skipped (no empty slot / does not fit)
 
-        public InventoryDeliveryLine(InventoryPayloadItem item, int assignedSlot)
+        /// <summary>
+        /// Units to store in the assigned slot (a manifest item whose Quantity
+        /// exceeds its stack capacity splits into multiple lines). On a skipped
+        /// line (AssignedSlot = -1) this is the count of units that could NOT
+        /// be placed, for diagnostics; the writer never reads it there.
+        /// </summary>
+        public readonly int Units;
+
+        public InventoryDeliveryLine(InventoryPayloadItem item, int assignedSlot, int units)
         {
             Item = item;
             AssignedSlot = assignedSlot;
+            Units = units;
         }
     }
 
@@ -124,22 +157,97 @@ namespace Parsek.Logistics
                 {
                     InventoryPayloadItem item = stop.InventoryDeliveryManifest[i];
                     if (item == null) continue;
-                    int slot = probe.ProbeFirstEmptyInventorySlot();
-                    if (slot < 0)
+
+                    // The manifest compresses identical stored parts per
+                    // identity hash (Quantity is the delivered unit count),
+                    // but a slot holds at most stackCapacity units — split
+                    // into ceil(Quantity / stackCapacity) slot-sized stacks.
+                    int stackCapacity = ResolveStackCapacity(item, probe);
+                    int remaining = item.Quantity > 0 ? item.Quantity : 1;
+                    while (remaining > 0)
                     {
-                        inventory.Add(new InventoryDeliveryLine(item, -1));
-                        anyInventoryPartial = true;
-                        continue;
+                        int want = remaining < stackCapacity ? remaining : stackCapacity;
+                        // Volume/mass admission BEFORE claiming a slot, so an
+                        // oversized item is skipped identically on the loaded
+                        // and unloaded branches (stock StoreCargoPartAtSlot
+                        // never checks limits itself — its enforcement lives
+                        // in the storage UI, which automated delivery bypasses).
+                        int admitted = probe.ProbeInventoryUnitsThatFit(item, want);
+                        if (admitted <= 0) break;
+                        int slot = probe.ProbeFirstEmptyInventorySlot();
+                        if (slot < 0) break;
+                        probe.ConsumeInventorySlot(slot);
+                        probe.ConsumeInventoryCapacity(item, admitted);
+                        inventory.Add(new InventoryDeliveryLine(item, slot, admitted));
+                        anyInventoryDelivered = true;
+                        remaining -= admitted;
                     }
-                    probe.ConsumeInventorySlot(slot);
-                    inventory.Add(new InventoryDeliveryLine(item, slot));
-                    anyInventoryDelivered = true;
+                    if (remaining > 0)
+                    {
+                        // No empty slot or no volume/mass headroom for the
+                        // rest — record ONE skip line carrying the unplaced
+                        // unit count so the plan stays partial-aware.
+                        inventory.Add(new InventoryDeliveryLine(item, -1, remaining));
+                        anyInventoryPartial = true;
+                    }
                 }
             }
 
             bool isPartial = anyResourcePartial || anyInventoryPartial;
             bool isZero = !anyResourceDelivered && !anyInventoryDelivered;
             return new DeliveryPlan(resources, inventory, isPartial, isZero);
+        }
+
+        /// <summary>
+        /// Resolves the per-slot stack capacity for a manifest item. Priority:
+        /// the STOREDPART wrapper's <c>stackCapacity</c> value (stock
+        /// <c>StoredPart.Save</c> writes it, so recorded payloads carry it),
+        /// then the inner PART node's <c>moduleCargoStackableQuantity</c>
+        /// (stock <c>ProtoPartSnapshot.Save</c> writes it). The probe's live
+        /// prefab lookup (<c>ModuleCargoPart.stackableQuantity</c>) is
+        /// consulted ONLY when the item has no snapshot at all: when a
+        /// snapshot exists but carries neither value, both stock load paths
+        /// reconstruct it with stack capacity 1 (the loaded writer's
+        /// UpdateStackAmountAtSlot clamps to the snapshot-derived capacity
+        /// and the unloaded path's StoredPart.Load defaults to 1), so a
+        /// prefab value above 1 would desync the plan from what the writers
+        /// can actually persist. A resource-bearing payload is forced to 1
+        /// regardless — stock <c>ModuleCargoPart</c> forces
+        /// <c>stackableQuantity = 1</c> for parts that contain resources.
+        /// Never below 1.
+        /// </summary>
+        internal static int ResolveStackCapacity(InventoryPayloadItem item, IDeliveryCapacityProbe probe)
+        {
+            if (item == null) return 1;
+
+            if (item.StoredResources != null && item.StoredResources.Count > 0)
+                return 1;
+
+            ConfigNode wrapper = item.StoredPartSnapshot;
+            if (wrapper == null)
+            {
+                int prefabCapacity = probe != null ? probe.ProbeInventoryStackableQuantity(item) : 1;
+                return prefabCapacity > 0 ? prefabCapacity : 1;
+            }
+
+            int capacity = ReadPositiveIntValue(wrapper, "stackCapacity");
+            if (capacity <= 0)
+            {
+                ConfigNode partNode = wrapper.GetNode("PART");
+                if (partNode != null)
+                    capacity = ReadPositiveIntValue(partNode, "moduleCargoStackableQuantity");
+            }
+            return capacity > 0 ? capacity : 1;
+        }
+
+        private static int ReadPositiveIntValue(ConfigNode node, string valueName)
+        {
+            string raw = node.GetValue(valueName);
+            if (string.IsNullOrEmpty(raw)) return 0;
+            return int.TryParse(raw, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out int parsed) && parsed > 0
+                ? parsed
+                : 0;
         }
     }
 }

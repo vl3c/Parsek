@@ -3861,22 +3861,30 @@ namespace Parsek.Logistics
                 }
             }
 
-            // Apply inventory writes. Items with AssignedSlot < 0 were skipped
-            // by the planner (no empty slot at probe time); the writer is only
-            // called for assigned slots. The writer may itself fail (stock
-            // <c>StoreCargoPartAtSlot</c> can return false on edge cases like
-            // mass-limit overruns); the actual-count reader returns how many
-            // writes succeeded.
-            int inventoryLinesAttempted = 0;
+            // Apply inventory writes. Lines with AssignedSlot < 0 were skipped
+            // by the planner (no empty slot / no volume-mass headroom at probe
+            // time); the writer is only called for assigned slots, storing
+            // line.Units into each (a manifest item bigger than its stack
+            // capacity spans several lines). The writer may itself fall short
+            // (stock StoreCargoPartAtSlot edge cases); the actual-count reader
+            // returns the total UNITS actually stored.
+            int inventoryUnitsAttempted = 0;
+            int inventoryUnitsSkipped = 0;
             if (plan.Inventory != null)
             {
                 for (int i = 0; i < plan.Inventory.Count; i++)
                 {
                     InventoryDeliveryLine line = plan.Inventory[i];
-                    if (line.AssignedSlot < 0) continue;
+                    if (line.AssignedSlot < 0)
+                    {
+                        // Planner skip (no empty slot / no volume-mass
+                        // headroom); Units carries the unplaced count.
+                        inventoryUnitsSkipped += line.Units;
+                        continue;
+                    }
                     if (line.Item == null) continue;
-                    ctx.InventoryWriter(line.Item, line.AssignedSlot);
-                    inventoryLinesAttempted++;
+                    ctx.InventoryWriter(line.Item, line.AssignedSlot, line.Units);
+                    inventoryUnitsAttempted += line.Units;
                 }
             }
 
@@ -3992,7 +4000,7 @@ namespace Parsek.Logistics
             if (plan.IsPartial)
             {
                 string summary = BuildPartialDeliverySummary(
-                    plan, ctx.ResourceActualReader, inventoryActual, inventoryLinesAttempted);
+                    plan, ctx.ResourceActualReader, inventoryActual, inventoryUnitsAttempted);
                 route.LastPartialDeliverySummary =
                     sameCycleReport && !string.IsNullOrEmpty(route.LastPartialDeliverySummary)
                         ? AppendPartialDeliverySummary(route.LastPartialDeliverySummary, summary)
@@ -4049,7 +4057,8 @@ namespace Parsek.Logistics
             ParsekLog.Info(Tag,
                 $"Delivery: route {ShortIdForLog(route)} cycle={ctx.CycleId} " +
                 $"resources={resourceLinesApplied.ToString(IC)} " +
-                $"inventory={inventoryActual.ToString(IC)}/{inventoryLinesAttempted.ToString(IC)} " +
+                $"inventoryUnits={inventoryActual.ToString(IC)}/{inventoryUnitsAttempted.ToString(IC)} " +
+                $"inventoryUnitsSkipped={inventoryUnitsSkipped.ToString(IC)} " +
                 $"partial={(plan.IsPartial ? "1" : "0")} " +
                 $"ut={ctx.CurrentUT.ToString("R", IC)}");
         }
@@ -4075,10 +4084,14 @@ namespace Parsek.Logistics
         /// stored on <see cref="Route.LastPartialDeliverySummary"/> for the
         /// Logistics window's detail panel. One clause per SHORT item only
         /// (full-fill lines are noise here): resources as
-        /// "Name actual/requested", inventory as "partName 0/qty (no slot)"
-        /// for planner-skipped items, plus one trailing clause when stock
-        /// rejected attempted stored-part writes (per-line write success is not
-        /// tracked, only the aggregate). Length-capped so a pathological
+        /// "Name actual/requested", inventory as "partName units/qty not placed"
+        /// for planner-skipped stored-part units (no slot / no volume-mass
+        /// headroom), plus one trailing clause when stock rejected attempted
+        /// stored-part writes (per-line write success is not tracked, only the
+        /// aggregate unit count). <paramref name="inventoryUnitsAttempted"/> is
+        /// the total UNITS the writer was asked to store (matching the
+        /// unit-accurate actual reader); <paramref name="inventoryActualCount"/>
+        /// is the total units actually stored. Length-capped so a pathological
         /// manifest cannot bloat the .sfs / the detail panel. Pure; the actual
         /// amounts come from the caller's reader (write-time truth, not the
         /// plan's estimate).
@@ -4087,7 +4100,7 @@ namespace Parsek.Logistics
             DeliveryPlan plan,
             Func<string, double> resourceActualReader,
             int inventoryActualCount,
-            int inventoryLinesAttempted)
+            int inventoryUnitsAttempted)
         {
             const int MaxSummaryChars = 240;
             var sb = new System.Text.StringBuilder();
@@ -4117,18 +4130,25 @@ namespace Parsek.Logistics
                 for (int i = 0; i < plan.Inventory.Count; i++)
                 {
                     InventoryDeliveryLine line = plan.Inventory[i];
-                    if (line.AssignedSlot >= 0 || line.Item == null)
-                        continue; // stored (or attempted) - only skips report here
+                    // Only planner-SKIP lines report here (AssignedSlot < 0):
+                    // Units carries the unplaced unit count for that item
+                    // (a manifest item bigger than its stack capacity splits
+                    // into delivered lines plus at most one skip line).
+                    if (line.AssignedSlot >= 0 || line.Item == null || line.Units <= 0)
+                        continue;
                     if (sb.Length >= MaxSummaryChars) { truncated = true; break; }
+                    int total = line.Item.Quantity > 0 ? line.Item.Quantity : line.Units;
                     if (sb.Length > 0) sb.Append("; ");
                     sb.Append(string.IsNullOrEmpty(line.Item.PartName) ? "<unknown>" : line.Item.PartName)
-                        .Append(" 0/")
-                        .Append((line.Item.Quantity > 0 ? line.Item.Quantity : 1).ToString(IC))
-                        .Append(" (no slot)");
+                        .Append(' ')
+                        .Append(line.Units.ToString(IC))
+                        .Append('/')
+                        .Append(total.ToString(IC))
+                        .Append(" not placed (no room)");
                 }
             }
 
-            if (inventoryActualCount < inventoryLinesAttempted)
+            if (inventoryActualCount < inventoryUnitsAttempted)
             {
                 if (sb.Length >= MaxSummaryChars)
                 {
@@ -4137,8 +4157,8 @@ namespace Parsek.Logistics
                 else
                 {
                     if (sb.Length > 0) sb.Append("; ");
-                    sb.Append((inventoryLinesAttempted - inventoryActualCount).ToString(IC))
-                        .Append(" stored-part write(s) rejected by the container");
+                    sb.Append((inventoryUnitsAttempted - inventoryActualCount).ToString(IC))
+                        .Append(" stored-part unit(s) rejected by the container");
                 }
             }
 
@@ -4671,8 +4691,8 @@ namespace Parsek.Logistics
             public double KscFundsCost;
             public Action<string, double> ResourceWriter;
             public Func<string, double> ResourceActualReader;
-            public Action<InventoryPayloadItem, int> InventoryWriter;
-            public Func<int> InventoryActualCountReader;
+            public Action<InventoryPayloadItem, int, int> InventoryWriter; // (item, slot, units)
+            public Func<int> InventoryActualCountReader; // total UNITS stored, not lines
             public Action<double> FundsDebiter;
             public Action<GameAction> LedgerEmitter;
 
