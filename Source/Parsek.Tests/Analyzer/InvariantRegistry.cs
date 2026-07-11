@@ -23,6 +23,7 @@ namespace Parsek.Tests.Analyzer
                 new Inv2NoDoubleCover(),
                 new Inv3RelativeContract(),
                 new Inv7TreeTopology(),
+                new Inv5SchemaGate(),
             };
     }
 
