@@ -223,6 +223,55 @@ namespace Parsek.TestCommands
     }
 
     /// <summary>
+    /// Pure formatter for a terminal response line appended by the addon. Field
+    /// order is fixed and grep-stable: <c>id cmd verdict seq</c>, then <c>ut</c>
+    /// (only when a game is loaded), then verb-specific payload keys, then an
+    /// optional <c>msg</c>. Values are percent-encoded and numbers use
+    /// <see cref="CultureInfo.InvariantCulture"/>, matching the command grammar so
+    /// one reader handles both. The returned line carries NO trailing newline;
+    /// the append path adds it.
+    /// </summary>
+    internal static class TestCommandResponse
+    {
+        internal static string FormatResponseLine(
+            string id,
+            string cmd,
+            string verdict,
+            long seq,
+            double? ut,
+            IEnumerable<KeyValuePair<string, string>> payload,
+            string msg)
+        {
+            var sb = new StringBuilder();
+            sb.Append("id=").Append(TestCommandProtocol.Encode(id));
+            sb.Append(" cmd=").Append(TestCommandProtocol.Encode(cmd));
+            sb.Append(" verdict=").Append(TestCommandProtocol.Encode(verdict));
+            sb.Append(" seq=").Append(seq.ToString(CultureInfo.InvariantCulture));
+
+            if (ut.HasValue)
+            {
+                sb.Append(" ut=").Append(ut.Value.ToString("R", CultureInfo.InvariantCulture));
+            }
+
+            if (payload != null)
+            {
+                foreach (KeyValuePair<string, string> kv in payload)
+                {
+                    // Keys are literal identifiers; values are percent-encoded.
+                    sb.Append(' ').Append(kv.Key).Append('=').Append(TestCommandProtocol.Encode(kv.Value));
+                }
+            }
+
+            if (msg != null)
+            {
+                sb.Append(" msg=").Append(TestCommandProtocol.Encode(msg));
+            }
+
+            return sb.ToString();
+        }
+    }
+
+    /// <summary>
     /// Pure result of parsing one command line (<see cref="TestCommandParser.ParseLine"/>).
     /// </summary>
     internal struct ParsedCommand
