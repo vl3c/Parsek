@@ -223,5 +223,40 @@ namespace Parsek.InGameTests
                 && !consumedForProcess
                 && !firedThisScene;
         }
+
+        /// <summary>
+        /// The H2 exit decision (design "H2 - Exit after tests", edge cases 11, 13).
+        /// </summary>
+        internal struct H2Decision
+        {
+            /// <summary>Quit KSP as the last batch-end step.</summary>
+            public bool ShouldQuit;
+
+            /// <summary>Skip the post-corruption Space Center bounce recovery.</summary>
+            public bool SkipBounce;
+        }
+
+        /// <summary>
+        /// Decides whether the batch-end region quits KSP and whether it skips the
+        /// Space Center bounce. Quit only when PARSEK_AUTORUN_EXIT is armed AND this
+        /// was an autorun batch: a human clicking Run All in a process that happens to
+        /// have the env var set latches wasAutorunBatch=false and never quits under
+        /// them (edge 13). When quitting, the bounce is skipped - autorun has no
+        /// operator to leave in a usable scene and the process is about to die, so H2
+        /// takes precedence over the bounce (edge 11). The disk save is already
+        /// reverted by teardown regardless, so skipping the bounce never risks the
+        /// campaign. bounceArmed is passed for completeness/logging; skipBounce is
+        /// driven purely by shouldQuit (skipping an unarmed bounce is a harmless no-op).
+        /// </summary>
+        internal static H2Decision H2ExitDecision(
+            bool exitArmed, bool wasAutorunBatch, bool bounceArmed)
+        {
+            bool shouldQuit = exitArmed && wasAutorunBatch;
+            return new H2Decision
+            {
+                ShouldQuit = shouldQuit,
+                SkipBounce = shouldQuit,
+            };
+        }
     }
 }

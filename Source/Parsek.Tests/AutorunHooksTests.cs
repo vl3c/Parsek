@@ -299,5 +299,56 @@ namespace Parsek.Tests
                 isRunning: false, commandRunnerRunning: false,
                 consumedForProcess: false, firedThisScene: true));
         }
+
+        // --- H2ExitDecision (design edge cases 11, 13) ---
+
+        // Guards the core exit contract: quit only when exit is armed AND the batch
+        // was an autorun batch. Fails if exit fires on the wrong combination.
+        [Theory]
+        [InlineData(true, true, true)]     // armed + autorun -> quit
+        [InlineData(true, false, false)]   // armed but not autorun -> no quit (edge 13)
+        [InlineData(false, true, false)]   // autorun but not armed -> no quit
+        [InlineData(false, false, false)]  // neither -> no quit
+        public void H2Exit_QuitsOnlyWhenArmedAndAutorun(
+            bool exitArmed, bool wasAutorunBatch, bool expectedQuit)
+        {
+            var d = AutorunHooks.H2ExitDecision(exitArmed, wasAutorunBatch, bounceArmed: false);
+            Assert.Equal(expectedQuit, d.ShouldQuit);
+        }
+
+        // Guards edge 13: a human-initiated (button) batch never quits KSP under the
+        // developer even when both env vars are set, because its wasAutorunBatch latch
+        // is false.
+        [Fact]
+        public void H2Exit_ButtonBatch_NeverQuits()
+        {
+            var d = AutorunHooks.H2ExitDecision(
+                exitArmed: true, wasAutorunBatch: false, bounceArmed: true);
+            Assert.False(d.ShouldQuit);
+            Assert.False(d.SkipBounce);
+        }
+
+        // Guards edge 11: when H2 quits, it supersedes the Space Center bounce (no
+        // operator to leave in a usable scene; the process is dying). The disk is
+        // already reverted, so skipping the bounce is safe.
+        [Fact]
+        public void H2Exit_QuitSupersedesBounce()
+        {
+            var d = AutorunHooks.H2ExitDecision(
+                exitArmed: true, wasAutorunBatch: true, bounceArmed: true);
+            Assert.True(d.ShouldQuit);
+            Assert.True(d.SkipBounce);
+        }
+
+        // Guards: a non-quitting decision never suppresses the bounce, so a
+        // corruption-recovery bounce still runs for a human batch.
+        [Fact]
+        public void H2Exit_NoQuit_DoesNotSkipBounce()
+        {
+            var d = AutorunHooks.H2ExitDecision(
+                exitArmed: false, wasAutorunBatch: true, bounceArmed: true);
+            Assert.False(d.ShouldQuit);
+            Assert.False(d.SkipBounce);
+        }
     }
 }
