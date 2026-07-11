@@ -162,6 +162,38 @@ namespace Parsek.Tests
             Assert.Equal(TestStatus.NotRun, flight.Status);
         }
 
+        // H3 BATCH_COMPLETE contract (module M-A3). Fails if a code change silently
+        // alters the orchestrator contract (token names/order/spacing, or the v1
+        // version tag) without a deliberate version bump - the guard that makes the
+        // contract a contract. Mirror of the BAT-001 in-game LogContract test.
+        [Fact]
+        public void FormatBatchCompleteLine_ExactContractString()
+        {
+            string line = InGameTestRunner.FormatBatchCompleteLine(
+                total: 42, passed: 40, failed: 1, skipped: 1,
+                category: "RecordingInvariants", scene: "FLIGHT");
+
+            Assert.Equal(
+                "BATCH_COMPLETE v1 total=42 passed=40 failed=1 skipped=1 " +
+                "category=RecordingInvariants scene=FLIGHT",
+                line);
+        }
+
+        // Guards the all-zero / empty-scene edge (edge cases 3, 4): a total=0 batch
+        // (unknown category, or a scene with no eligible tests) still emits a
+        // well-formed line the orchestrator can read as a config signal.
+        [Fact]
+        public void FormatBatchCompleteLine_ZeroTotals_WellFormed()
+        {
+            string line = InGameTestRunner.FormatBatchCompleteLine(
+                total: 0, passed: 0, failed: 0, skipped: 0,
+                category: "all", scene: "SPACECENTER");
+
+            Assert.Equal(
+                "BATCH_COMPLETE v1 total=0 passed=0 failed=0 skipped=0 category=all scene=SPACECENTER",
+                line);
+        }
+
         [Fact]
         public void GetBatchExecutionNote_ReturnsRestoreNoteForIsolatedTests()
         {

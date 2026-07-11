@@ -994,6 +994,26 @@ namespace Parsek.InGameTests
                 byScene);
         }
 
+        /// <summary>
+        /// H3 BATCH_COMPLETE line (module M-A3, design "H3 line format"). The exact
+        /// token set + order is the versioned orchestrator contract: an external
+        /// nightly pipeline greps "BATCH_COMPLETE v1 " to read the batch tally
+        /// without parsing the whole results file. Any change to the tokens or their
+        /// meaning MUST bump v1 -> v2 and update the BAT-001 LogContract test.
+        ///
+        /// Pure and Unity-free: the caller passes HighLogic.LoadedScene.ToString() so
+        /// this stays xUnit-testable. Values never contain spaces (category is a
+        /// single token, scene is an enum name), keeping the line whitespace-split
+        /// friendly for a trivial grep/awk.
+        /// </summary>
+        internal static string FormatBatchCompleteLine(
+            int total, int passed, int failed, int skipped, string category, string scene)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "BATCH_COMPLETE v1 total={0} passed={1} failed={2} skipped={3} category={4} scene={5}",
+                total, passed, failed, skipped, category, scene);
+        }
+
         internal List<InGameTestInfo> FilterSceneEligibleBatchCandidates(
             IEnumerable<InGameTestInfo> tests)
         {
