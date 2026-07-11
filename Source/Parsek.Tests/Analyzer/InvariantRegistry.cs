@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Parsek.Tests.Analyzer.Rules;
 
 namespace Parsek.Tests.Analyzer
 {
@@ -16,7 +17,10 @@ namespace Parsek.Tests.Analyzer
         /// added here (and as Analyzer/Rules/*.cs files) from Phase 2 onward.
         /// </summary>
         internal static IReadOnlyList<IRecordingInvariant> AllRules { get; } =
-            new List<IRecordingInvariant>();
+            new List<IRecordingInvariant>
+            {
+                new Inv2NoDoubleCover(),
+            };
     }
 
     internal static class Analyzer

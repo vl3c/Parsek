@@ -101,12 +101,15 @@ namespace Parsek.Tests.Analyzer
             Assert.True(report.IsRed);
         }
 
-        // Guards: the shipped registry is empty in Phase 0/1, and Evaluate over the
-        // default rule set produces a clean, green report.
+        // Guards: the shipped registry carries the registered production rules, and
+        // Evaluate over the default rule set produces a clean, green report on a
+        // well-formed in-memory model (a rule that false-alarms on clean data would
+        // turn this red). Phase 0/1 asserted an empty registry; from Phase 2 the
+        // registry is non-empty and this pins "clean data -> no findings".
         [Fact]
-        public void Evaluate_DefaultRegistry_IsEmpty_AndClean()
+        public void Evaluate_DefaultRegistry_HasRules_AndCleanModelIsGreen()
         {
-            Assert.Empty(InvariantRegistry.AllRules);
+            Assert.NotEmpty(InvariantRegistry.AllRules);
 
             var report = Analyzer.Evaluate(InMemoryModel());
             Assert.Empty(report.Findings);
