@@ -1211,6 +1211,22 @@ namespace Parsek.TestCommands
             }
 
             int idx = game.flightState.activeVesselIdx;
+            // Adopt the freshly-loaded game as HighLogic.CurrentGame BEFORE the flight
+            // scene change. This is the cold-MAINMENU boot channel: unlike the in-flight
+            // quickload path (QuickloadResumeHelpers.CommitValidatedGameLoad), there is
+            // no already-running game here, so HighLogic.CurrentGame is null. Stock
+            // Game.Load() (invoked by FlightDriver.Start on the RESUME_SAVED_CACHE path)
+            // dereferences HighLogic.CurrentGame.Mode on its FIRST statement and only
+            // assigns HighLogic.CurrentGame = this LATER (decompiled Game.Load, KSP
+            // 1.12.5). With CurrentGame null, that first deref throws the
+            // NullReferenceException logged as `Game.Load () / FlightDriver.Start ()`,
+            // the active vessel never spawns, and the scene wedges (FlightAutoSave.Start
+            // /FlightGlobals.GetFoR NRE flood) until the load-timeout fires. The stock
+            // Load-menu / Resume flow sets CurrentGame before the flight scene loads;
+            // the in-flight quickload works because the OLD game keeps CurrentGame
+            // non-null. Setting it to the loaded game makes the first deref read the
+            // correct Mode and the later self-assignment a no-op.
+            HighLogic.CurrentGame = game;
             FlightCameraReloadPin.Arm($"TestCommandLoadGame:{save}/{name}");
             FlightDriver.StartAndFocusVessel(game, idx);
             loadInFlight = true;
