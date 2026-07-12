@@ -21,6 +21,7 @@ All notable changes to Parsek are documented here.
 
 - Career recalculation is slightly cheaper: the walk now skips a redundant re-sort of the action list when nothing changed it. Recalculated career values are unchanged.
 - Added a developer-only way to run in-game test batches unattended, driven entirely by launch-time environment variables, plus a new set of recording-integrity checks that run in-game. It is completely inert in a normal game and never changes anything Parsek saves.
+- The offline recording analyzer can now record a per-save baseline of already-known, accepted findings, so a gated run over a save with permanent already-filed issues fails only on genuinely new findings. The baseline never hides a finding from the report and never applies to a fresh mission save.
 
 ## 0.10.3
 

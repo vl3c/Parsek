@@ -62,7 +62,10 @@ namespace Parsek.Tests.Analyzer
             sb.Append("    \"fail\": ").Append(report.Counts.Fail.ToString(IC)).Append(",").Append(Nl);
             sb.Append("    \"warn\": ").Append(report.Counts.Warn.ToString(IC)).Append(",").Append(Nl);
             sb.Append("    \"info\": ").Append(report.Counts.Info.ToString(IC)).Append(",").Append(Nl);
-            sb.Append("    \"staleFixture\": ").Append(report.Counts.StaleFixture.ToString(IC)).Append(Nl);
+            sb.Append("    \"staleFixture\": ").Append(report.Counts.StaleFixture.ToString(IC)).Append(",").Append(Nl);
+            sb.Append("    \"baselined\": ").Append(report.Counts.Baselined.ToString(IC)).Append(",").Append(Nl);
+            sb.Append("    \"failNonBaselined\": ").Append(report.Counts.FailNonBaselined.ToString(IC)).Append(",").Append(Nl);
+            sb.Append("    \"staleNonBaselined\": ").Append(report.Counts.StaleNonBaselined.ToString(IC)).Append(Nl);
             sb.Append("  },").Append(Nl);
 
             List<Finding> sorted = SortFindings(report.Findings ?? new List<Finding>());
@@ -83,7 +86,8 @@ namespace Parsek.Tests.Analyzer
                     sb.Append("      \"target\": ").Append(JsonString(f.Target)).Append(",").Append(Nl);
                     sb.Append("      \"sectionIndex\": ").Append(f.SectionIndex.ToString(IC)).Append(",").Append(Nl);
                     sb.Append("      \"message\": ").Append(JsonString(f.Message)).Append(",").Append(Nl);
-                    sb.Append("      \"citedContract\": ").Append(JsonString(f.CitedContract)).Append(Nl);
+                    sb.Append("      \"citedContract\": ").Append(JsonString(f.CitedContract)).Append(",").Append(Nl);
+                    sb.Append("      \"baselined\": ").Append(f.Baselined ? "true" : "false").Append(Nl);
                     sb.Append("    }").Append(i == sorted.Count - 1 ? "" : ",").Append(Nl);
                 }
                 sb.Append("  ]").Append(Nl);
@@ -99,6 +103,13 @@ namespace Parsek.Tests.Analyzer
         /// </summary>
         internal static string BuildHumanSummary(AnalysisReport report)
         {
+            // Terminal RED token: the emitter's SINGLE reduction of the non-baselined
+            // splits (RED=1 iff failNonBaselined + staleNonBaselined > 0). It is the
+            // LAST token on the header line and the ONLY gate source a script reads;
+            // the earlier FAIL=/STALE= tokens remain raw totals that still include
+            // baselined findings, so a gate must never recompute red from them.
+            int red = (report.Counts.FailNonBaselined + report.Counts.StaleNonBaselined) > 0 ? 1 : 0;
+
             var sb = new StringBuilder();
             sb.Append("[Analyzer] save=").Append(report.SaveName ?? "")
                 .Append(" generation=").Append(report.SubjectSchemaGeneration.ToString(IC))
@@ -106,6 +117,8 @@ namespace Parsek.Tests.Analyzer
                 .Append(" WARN=").Append(report.Counts.Warn.ToString(IC))
                 .Append(" INFO=").Append(report.Counts.Info.ToString(IC))
                 .Append(" STALE=").Append(report.Counts.StaleFixture.ToString(IC))
+                .Append(" BASELINED=").Append(report.Counts.Baselined.ToString(IC))
+                .Append(" RED=").Append(red.ToString(IC))
                 .Append(Nl);
 
             foreach (Finding f in SortFindings(report.Findings ?? new List<Finding>()))
@@ -115,8 +128,12 @@ namespace Parsek.Tests.Analyzer
                     : (f.Target ?? "");
                 sb.Append(LevelToken(f.Level)).Append(" ")
                     .Append(f.RuleId ?? "").Append(" target=").Append(target)
-                    .Append(" ").Append(f.Message ?? "")
-                    .Append(Nl);
+                    .Append(" ").Append(f.Message ?? "");
+                // A baselined line is suffixed so a human scanning the text sees at a
+                // glance which reds are accepted.
+                if (f.Baselined)
+                    sb.Append(" [baselined]");
+                sb.Append(Nl);
             }
 
             return sb.ToString();
@@ -146,6 +163,8 @@ namespace Parsek.Tests.Analyzer
                 + " WARN=" + report.Counts.Warn.ToString(IC)
                 + " INFO=" + report.Counts.Info.ToString(IC)
                 + " STALE=" + report.Counts.StaleFixture.ToString(IC)
+                + " BASELINED=" + report.Counts.Baselined.ToString(IC)
+                + " RED=" + (report.IsRed ? "1" : "0")
                 + " json='" + jsonPath + "'");
         }
 

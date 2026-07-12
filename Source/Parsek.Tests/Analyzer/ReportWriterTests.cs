@@ -125,14 +125,17 @@ namespace Parsek.Tests.Analyzer
             string golden = string.Join("\n", new[]
             {
                 "{",
-                "  \"analyzerVersion\": \"1\",",
+                "  \"analyzerVersion\": \"2\",",
                 "  \"saveName\": \"testsave\",",
                 "  \"subjectSchemaGeneration\": 4,",
                 "  \"counts\": {",
                 "    \"fail\": 1,",
                 "    \"warn\": 1,",
                 "    \"info\": 0,",
-                "    \"staleFixture\": 0",
+                "    \"staleFixture\": 0,",
+                "    \"baselined\": 0,",
+                "    \"failNonBaselined\": 1,",
+                "    \"staleNonBaselined\": 0",
                 "  },",
                 "  \"findings\": [",
                 "    {",
@@ -141,7 +144,8 @@ namespace Parsek.Tests.Analyzer
                 "      \"target\": \"rec-b\",",
                 "      \"sectionIndex\": 2,",
                 "      \"message\": \"back-step at ut\",",
-                "      \"citedContract\": \"TrajectoryPoint.ut\"",
+                "      \"citedContract\": \"TrajectoryPoint.ut\",",
+                "      \"baselined\": false",
                 "    },",
                 "    {",
                 "      \"ruleId\": \"INV2-NO-DOUBLE-COVER\",",
@@ -149,7 +153,8 @@ namespace Parsek.Tests.Analyzer
                 "      \"target\": \"rec-a\",",
                 "      \"sectionIndex\": -1,",
                 "      \"message\": \"uncovered span\",",
-                "      \"citedContract\": \"TrackSection\"",
+                "      \"citedContract\": \"TrackSection\",",
+                "      \"baselined\": false",
                 "    }",
                 "  ]",
                 "}",
@@ -176,7 +181,7 @@ namespace Parsek.Tests.Analyzer
             string[] lines = summary.Split('\n');
 
             Assert.Equal(
-                "[Analyzer] save=testsave generation=4 FAIL=1 WARN=1 INFO=0 STALE=0",
+                "[Analyzer] save=testsave generation=4 FAIL=1 WARN=1 INFO=0 STALE=0 BASELINED=0 RED=1",
                 lines[0]);
             // Section-scoped finding carries #section.
             Assert.Equal(
@@ -204,7 +209,87 @@ namespace Parsek.Tests.Analyzer
             Assert.Contains("\"message\": \"line\\\\path\\tand\\\"quote\"", json);
         }
 
-        // Guards: IsRed policy - any FAIL or STALE is red; WARN/INFO alone is green.
+        private static Finding Baselined(Finding f)
+        {
+            f.Baselined = true;
+            return f;
+        }
+
+        private static List<Finding> FiveBaselinedFails()
+        {
+            var list = new List<Finding>();
+            for (int i = 0; i < 5; i++)
+            {
+                list.Add(Baselined(new Finding(
+                    "INV2-NO-DOUBLE-COVER", VerdictLevel.Fail, "rec" + i, i,
+                    "INV2 overlap recording=rec" + i + " a=[100,200] b=[150,250]",
+                    "RecordingOptimizer.IsSplittableEnvOrBodyBoundary")));
+            }
+            return list;
+        }
+
+        // Guards (design "Baselined flag + counts"): a report with 5 baselined FAILs
+        // shows Fail==5, Baselined==5, FailNonBaselined==0, each finding Baselined==true,
+        // and the JSON carries the flag + baselined=5 + failNonBaselined=0. Fails if a
+        // baselined finding is dropped from the report (silent suppression, the
+        // forbidden behavior) or its flag is lost.
+        [Fact]
+        public void Baselined_FiveFails_CountsSplitAndJsonCarryFlag()
+        {
+            AnalysisReport report = SampleReport(FiveBaselinedFails());
+
+            Assert.Equal(5, report.Counts.Fail);
+            Assert.Equal(5, report.Counts.Baselined);
+            Assert.Equal(0, report.Counts.FailNonBaselined);
+            Assert.False(report.IsRed);
+            Assert.All(report.Findings, f => Assert.True(f.Baselined));
+
+            string json = ReportWriter.BuildJson(report);
+            Assert.Contains("\"baselined\": 5", json);
+            Assert.Contains("\"failNonBaselined\": 0", json);
+            Assert.Contains("\"baselined\": true", json);
+            // Every finding line still present: nothing silently suppressed.
+            Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(json, "\"ruleId\"").Count);
+        }
+
+        // Guards (design "Human summary contract"): the header carries the terminal
+        // RED token, a five-baselined-FAIL report is RED=0, and every baselined line
+        // carries the [baselined] suffix. Fails if a grep-based triage script breaks
+        // on format drift or RED disagrees with the non-baselined splits.
+        [Fact]
+        public void HumanSummary_AllBaselined_IsRed0_WithBaselinedSuffix()
+        {
+            string summary = ReportWriter.BuildHumanSummary(SampleReport(FiveBaselinedFails()));
+            string[] lines = summary.Split('\n');
+
+            Assert.EndsWith(" RED=0", lines[0]);
+            Assert.Contains("BASELINED=5", lines[0]);
+            // Every finding line is a baselined FAIL and carries the suffix.
+            for (int i = 1; i < lines.Length && lines[i].Length > 0; i++)
+                Assert.EndsWith(" [baselined]", lines[i]);
+        }
+
+        // Guards (design "Human summary contract"): one extra NON-baselined FAIL on
+        // top of the five baselined FAILs flips the terminal token to RED=1. Fails if
+        // a baselined finding wrongly suppresses the gate for an unrelated red.
+        [Fact]
+        public void HumanSummary_OneExtraNonBaselinedFail_IsRed1()
+        {
+            var findings = FiveBaselinedFails();
+            findings.Add(new Finding("INV1-UT-MONOTONIC", VerdictLevel.Fail, "recNew", 0,
+                "back-step at ut", "TrajectoryPoint.ut"));
+
+            AnalysisReport report = SampleReport(findings);
+            Assert.True(report.IsRed);
+
+            string header = ReportWriter.BuildHumanSummary(report).Split('\n')[0];
+            Assert.EndsWith(" RED=1", header);
+            Assert.Contains("FAIL=6", header);
+            Assert.Contains("BASELINED=5", header);
+        }
+
+        // Guards: IsRed policy - any NON-baselined FAIL or STALE is red; WARN/INFO
+        // alone is green.
         [Fact]
         public void IsRed_TrueOnFailOrStale_FalseOnWarnInfoOnly()
         {
