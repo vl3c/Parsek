@@ -325,10 +325,12 @@ namespace Parsek
                 if (!sectionAuthoritative &&
                     rec.TrackSections.Count > 0)
                 {
-                    // reconcileEmptySections: false — READ path: loading must not mutate
-                    // the EXISTING sections of a committed recording. Candidate clipping
-                    // still applies (it only constrains what promotion ADDS). The overall
-                    // contract is normalize-on-rewrite, not byte-freeze: when a sanctioned
+                    // reconcileEmptySections: false — READ path: the empty-shell
+                    // reconcile never mutates a committed recording's sections at load.
+                    // Candidate clipping still applies (it only constrains what promotion
+                    // ADDS), and the pre-existing checkpoint-vs-physical clip of existing
+                    // sections also still runs here (legacy heal seam, predates the gate).
+                    // The overall contract is normalize-on-rewrite: when a sanctioned
                     // flow (re-fly merge, tail finalizer, this dirty-marking legacy seam,
                     // ...) marks the recording dirty, the next save rewrites the sidecar
                     // through the write-path Ensure, which reconciles under the current

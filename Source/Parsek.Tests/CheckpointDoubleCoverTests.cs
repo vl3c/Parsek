@@ -198,6 +198,31 @@ namespace Parsek.Tests
             Assert.Single(rec.TrackSections);
             AssertNoDoubleCover(rec);
 
+            // Trim-disorder variant (holistic-review finding): a shell straddling a
+            // physical section is replaced by TWO remainders inserted mid-list; the
+            // early path must re-sort or the disorder persists to disk.
+            var recTrim = new Recording
+            {
+                RecordingId = "no-orbit-segments-trim",
+                TrackSections = new List<TrackSection>
+                {
+                    EmptyAbsoluteSection(90, 200),
+                    PhysicalSection(95, 150)
+                },
+                OrbitSegments = new List<OrbitSegment>()
+            };
+            var trimStats = OrbitSegmentCheckpointBridge
+                .EnsureCheckpointSectionsForTopLevelOrbitSegments(recTrim, markDirty: false);
+            Assert.Equal(1, trimStats.ReconciledEmptySections);
+            Assert.Equal(3, recTrim.TrackSections.Count);
+            for (int i = 1; i < recTrim.TrackSections.Count; i++)
+            {
+                Assert.True(
+                    recTrim.TrackSections[i - 1].startUT <= recTrim.TrackSections[i].startUT,
+                    "TrackSections must stay sorted by startUT after the early-path reconcile");
+            }
+            AssertNoDoubleCover(recTrim);
+
             // Read-gate variant: same shape stays untouched with reconcile off.
             var recRead = new Recording
             {

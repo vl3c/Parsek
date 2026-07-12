@@ -159,14 +159,16 @@ namespace Parsek
         // reconcileEmptySections gates the empty-shell reconcile pass, which trims or
         // removes EXISTING payload-less sections covered by payload-bearing ones.
         // Producer/write contexts run it so every recording that gets (re)written is
-        // overlap-free. The sidecar READ sites pass false: loading must not mutate a
-        // committed recording's existing sections. The checkpoint-vs-checkpoint
-        // candidate clipping is NOT gated — it only constrains what promotion ADDS,
-        // and the read path must not re-create envelope double-cover from a stale
-        // flat cache either. Overall contract is normalize-on-rewrite, not
-        // byte-freeze: a recording dirtied by any sanctioned flow is rewritten
-        // through the write-path Ensure and comes out reconciled; files no flow
-        // dirties stay byte-identical.
+        // overlap-free. The sidecar READ sites pass false so THIS pass never mutates
+        // a committed recording's existing sections at load. Precise read-path scope:
+        // the checkpoint-vs-checkpoint candidate clipping is NOT gated (it only
+        // constrains what promotion ADDS, and the read path must not re-create
+        // envelope double-cover from a stale flat cache), and the pre-existing
+        // checkpoint-vs-PHYSICAL clip of existing sections also still runs there
+        // (legacy heal seam, predates this gate). Overall contract is
+        // normalize-on-rewrite, not byte-freeze: a recording dirtied by any
+        // sanctioned flow is rewritten through the write-path Ensure and comes out
+        // reconciled; files no flow dirties stay byte-identical.
         internal static OrbitSegmentCheckpointBridgeStats EnsureCheckpointSectionsForTopLevelOrbitSegments(
             Recording rec,
             bool markDirty,
@@ -189,6 +191,11 @@ namespace Parsek
                 }
                 if (stats.Changed)
                 {
+                    // A trimmed shell's remainders are inserted mid-list and can
+                    // land out of chronological order - re-sort, like the main
+                    // path does after its reconcile. Untouched recordings (no
+                    // reconcile changes) are deliberately left alone.
+                    EnsureTrackSectionsSorted(rec.TrackSections);
                     rec.CachedStats = null;
                     rec.CachedStatsPointCount = 0;
                     if (markDirty)
