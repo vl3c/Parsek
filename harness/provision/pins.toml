@@ -64,25 +64,19 @@ targetFramework = "net472"
 # GT-7: no git tags; pin is a downloaded build (MechJeb2 ships CI dev builds
 # numbered 2.15.x.x, not git refs; AssemblyInfo carries a 1.0.0.0 placeholder).
 mode = "release"
-# O-3 STILL OPEN (2026-07-12 web check): MechJeb2 has no durable binary release
-# asset to pin.
-#   - MuMech/MechJeb2 carries an annotated SOURCE tag v2.15.0 (tag object
-#     9f381a161a263b7b904a8ca41f6a7792731435b0) but NO GitHub "release" assets
-#     (the releases API is empty); the tag is source, and AssemblyInfo carries
-#     the 1.0.0.0 placeholder (real version injected at build), so a git ref is
-#     not a build pin.
-#   - Official binaries come from the community Jenkins CI
-#     (https://ksp.sarbian.com/jenkins/job/MechJeb2/) which numbers rolling
-#     2.15.x.x dev builds and garbage-collects old build artifacts, so a build
-#     number + URL there is not reproducibly re-fetchable.
-#   - SpaceDock hosts stable MechJeb2 releases (mod page under MuMech) and is the
-#     most durable source; pick a specific KSP-1.12 version there, then:
-#       curl -L -o MechJeb2.zip <spacedock download> && sha256sum MechJeb2.zip
-# Until a durable URL+sha256 is recorded here, DOWNLOAD aborts by design (EC-13),
-# which correctly blocks a live provision rather than pinning a rotating build.
-buildNumber = "2.15.x.x-OPEN"
-downloadUrl = "OPEN"
-sha256 = "OPEN"
+# O-3 RESOLVED (2026-07-12, EC-13 fill-and-commit): pinned via the CKAN-meta
+# record for MechJeb2 2.15.1.0 (KSP-CKAN/CKAN-meta/MechJeb2/MechJeb2-2.15.1.0.ckan,
+# ksp_version_max 1.12). The URL is the persistent MechJeb2-Release Jenkins job
+# artifact (distinct from the garbage-collected rolling dev job); content
+# identity is pinned by sha256, independently computed from a fresh download
+# AND matching CKAN-meta's recorded download_hash.sha256. If the URL ever
+# rots, re-fetch from the CKAN archive.org mirror:
+#   https://archive.org/download/MechJeb2-2.15.1.0/
+# Zip layout note: root is MechJeb2/ (no GameData/ prefix); MechJeb2/Plugins/
+# MechJeb2.dll et al. Install target: GameData/MechJeb2/.
+buildNumber = "2.15.1.0 (MechJeb2-Release #45)"
+downloadUrl = "https://ksp.sarbian.com/jenkins/job/MechJeb2-Release/45/artifact/MechJeb2-2.15.1.0.zip"
+sha256 = "3bd39e02c41a8e405eb980764aa14635af1ed50521119fe85c8a054d8cffc926"
 
 [krpc_mechjeb]
 # GT-6: genhis 0.7.1 pairs with kRPC 0.5.4 (CHANGELOG-proven: 0.7.1 "Updated for
