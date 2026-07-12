@@ -684,6 +684,17 @@ namespace Parsek.TestCommands
         private void TryCompleteTwoPhase()
         {
             double now = WallClockSeconds();
+
+            // LoadGame has its own bounded, observable completion (F2): a settled FLIGHT
+            // scene -> OK, a settle-back to MAINMENU -> ERROR load-failed-returned-to-menu,
+            // and the LoadGame budget -> ERROR load-timeout. It never falls through to the
+            // generic awaiting-completion TIMEOUT below.
+            if (completionVerb == "LoadGame")
+            {
+                TryCompleteLoadGame(now);
+                return;
+            }
+
             bool done = false;
             string verdict = null;
             List<KeyValuePair<string, string>> payload = null;
@@ -703,19 +714,6 @@ namespace Parsek.TestCommands
                         $"runtests complete passed={passed} failed={failed} skipped={skipped} results={TestCommandRunTests.ResultsFileName}");
                 }
             }
-            else if (completionVerb == "LoadGame")
-            {
-                if (HighLogic.CurrentGame != null)
-                {
-                    string sceneName = HighLogic.LoadedScene.ToString();
-                    payload = TestCommandLoadGame.BuildCompletePayload(sceneName, loadGameSave);
-                    verdict = "OK";
-                    done = true;
-                    loadInFlight = false;
-                    ParsekLog.Info(Tag,
-                        $"loadgame complete scene={sceneName} save={loadGameSave ?? string.Empty} game-loaded=true");
-                }
-            }
 
             if (!done)
             {
@@ -723,7 +721,6 @@ namespace Parsek.TestCommands
                 if (DeferralBudget.ShouldTimeout(completionStartedAt, now, budget))
                 {
                     TestCommandDiagnostics.Timeout(completionId, completionVerb, now - completionStartedAt, "awaiting-completion");
-                    if (completionVerb == "LoadGame") loadInFlight = false;
                     string tid = completionId; long tseq = completionSeq; string tverb = completionVerb;
                     ClearTwoPhase();
                     EmitExecutedTerminal(tid, tseq, tverb, "TIMEOUT", null, "awaiting-completion", dequeueHead: true);
@@ -734,6 +731,58 @@ namespace Parsek.TestCommands
             string cid = completionId; long cseq = completionSeq; string cverb = completionVerb;
             ClearTwoPhase();
             EmitExecutedTerminal(cid, cseq, cverb, verdict, payload, msg, dequeueHead: true);
+        }
+
+        // Bounded two-phase LoadGame completion (F2). Routes the settled scene / game-loaded
+        // / elapsed truth through the pure TestCommandLoadGame.DecideLoadCompletion so a
+        // failed load (NRE in FlightDriver.Start on an incompatible save that dumps back to
+        // MAINMENU) or a never-settling load produces a terminal ERROR the harness can
+        // classify as a driver-INVALID, instead of the completion hanging PENDING to the
+        // harness run budget. StillWaiting keeps holding the FIFO head.
+        private void TryCompleteLoadGame(double now)
+        {
+            double elapsed = now - completionStartedAt;
+            double budget = DeferralBudget.BudgetSeconds("LoadGame");
+            TestCommandScene scene = MapScene(HighLogic.LoadedScene);
+            bool gameLoaded = HighLogic.CurrentGame != null;
+            LoadCompletionDecision decision =
+                TestCommandLoadGame.DecideLoadCompletion(elapsed, scene, gameLoaded, budget);
+
+            if (decision == LoadCompletionDecision.StillWaiting)
+                return;
+
+            loadInFlight = false;
+            string id = completionId; long seq = completionSeq; string verb = completionVerb;
+            ClearTwoPhase();
+
+            switch (decision)
+            {
+                case LoadCompletionDecision.CompleteOk:
+                {
+                    string sceneName = HighLogic.LoadedScene.ToString();
+                    List<KeyValuePair<string, string>> payload =
+                        TestCommandLoadGame.BuildCompletePayload(sceneName, loadGameSave);
+                    ParsekLog.Info(Tag,
+                        $"loadgame complete scene={sceneName} save={loadGameSave ?? string.Empty} game-loaded=true");
+                    EmitExecutedTerminal(id, seq, verb, "OK", payload, null, dequeueHead: true);
+                    break;
+                }
+                case LoadCompletionDecision.LoadFailedMenu:
+                {
+                    ParsekLog.Error(Tag,
+                        $"loadgame failed-returned-to-menu save={loadGameSave ?? string.Empty} scene={scene} elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
+                    EmitExecutedTerminal(id, seq, verb, "ERROR", null, "load-failed-returned-to-menu", dequeueHead: true);
+                    break;
+                }
+                case LoadCompletionDecision.LoadTimeout:
+                {
+                    TestCommandDiagnostics.Timeout(id, verb, elapsed, "load-timeout");
+                    ParsekLog.Error(Tag,
+                        $"loadgame timeout save={loadGameSave ?? string.Empty} scene={scene} elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
+                    EmitExecutedTerminal(id, seq, verb, "ERROR", null, "load-timeout", dequeueHead: true);
+                    break;
+                }
+            }
         }
 
         private void ClearTwoPhase()
