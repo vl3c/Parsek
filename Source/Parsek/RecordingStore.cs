@@ -6402,20 +6402,26 @@ namespace Parsek
         internal static OrbitSegmentCheckpointBridgeStats EnsureCheckpointSectionsForTopLevelOrbitSegments(
             Recording rec,
             bool markDirty,
-            string context)
+            string context,
+            bool reconcileEmptySections = true)
         {
             OrbitSegmentCheckpointBridgeStats stats =
                 OrbitSegmentCheckpointBridge.EnsureCheckpointSectionsForTopLevelOrbitSegments(
-                    rec, markDirty);
+                    rec, markDirty, reconcileEmptySections);
 
             if (stats.Changed && !SuppressLogging)
             {
+                // reconcile=on/off distinguishes "empty-shell pass gated off (read
+                // seam)" from "ran and found nothing" - both print
+                // reconciledEmptySections=0 otherwise.
                 ParsekLog.Verbose("RecordingStore",
                     $"EnsureCheckpointSectionsForTopLevelOrbitSegments: recording={rec?.RecordingId} " +
                     $"context={context} added={stats.Added} skippedExisting={stats.SkippedExisting} " +
                     $"skippedInvalid={stats.SkippedInvalid} skippedPredicted={stats.SkippedPredicted} " +
                     $"skippedAfterPredicted={stats.SkippedAfterPredicted} " +
-                    $"skippedCovered={stats.SkippedCovered} clipped={stats.Clipped}");
+                    $"skippedCovered={stats.SkippedCovered} clipped={stats.Clipped} " +
+                    $"reconciledEmptySections={stats.ReconciledEmptySections} " +
+                    $"reconcile={(reconcileEmptySections ? "on" : "off")}");
             }
 
             return stats;
