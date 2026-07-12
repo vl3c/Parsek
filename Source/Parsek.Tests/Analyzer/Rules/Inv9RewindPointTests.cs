@@ -8,8 +8,9 @@ using Xunit;
 
 namespace Parsek.Tests.Analyzer.Rules
 {
-    // INV9 rewind-point + id validation. Loader-scoped fixtures write real
-    // RewindPoints/<id>.sfs quicksaves; the traversal-id case is pure in-memory to
+    // INV9 rewind-save + id validation. Loader-scoped fixtures write real
+    // Parsek/Saves/<id>.sfs rewind quicksaves (the RewindSaveFileName system, NOT
+    // the rp_* RewindPoints system); the traversal-id case is pure in-memory to
     // prove validation fires without a filesystem touch. Sequential because the
     // loader touches RecordingStore statics. Each test names the regression.
     [Collection("Sequential")]
@@ -50,11 +51,13 @@ namespace Parsek.Tests.Analyzer.Rules
             File.WriteAllText(Path.Combine(saveDir, "persistent.sfs"), save);
         }
 
-        private static void WriteRewindPoint(string saveDir, string rpId)
+        // Rewind saves live at Parsek/Saves/<id>.sfs (BuildRewindSaveRelativePath),
+        // NOT Parsek/RewindPoints/. Write a valid ConfigNode there.
+        private static void WriteRewindSave(string saveDir, string rewindId)
         {
-            string dir = Path.Combine(saveDir, RecordingPaths.RewindPointsSubdir);
+            string dir = Path.Combine(saveDir, "Parsek", "Saves");
             Directory.CreateDirectory(dir);
-            File.WriteAllText(Path.Combine(dir, rpId + ".sfs"),
+            File.WriteAllText(Path.Combine(dir, rewindId + ".sfs"),
                 "GAME\n{\n\tversion = 1.12.5\n}\n");
         }
 
@@ -74,16 +77,18 @@ namespace Parsek.Tests.Analyzer.Rules
             return new Inv9RewindPoint().Evaluate(model).ToList();
         }
 
-        // Guards: a valid RewindPoint id whose Parsek/RewindPoints/<id>.sfs exists
-        // and parses -> zero INV9 findings. Fails if a present, valid RP quicksave
-        // is flagged missing.
+        // Guards (directory-fix regression): a valid rewind id whose
+        // Parsek/Saves/<id>.sfs exists and parses -> zero INV9 findings. Fails if
+        // the rule reverts to probing Parsek/RewindPoints/ (the rp_* system), which
+        // flagged every present rewind save as missing (the c1/l2/test-career/mun
+        // false-positive class this fix removes).
         [Fact]
-        public void ValidRewindPoint_Present_NoFindings()
+        public void ValidRewindSave_PresentInSavesDir_NoFindings()
         {
             string saveDir = BuildSave("valid",
                 new RecordingBuilder("RP Craft").WithRecordingId("rp0")
-                    .AddPoint(100, 0, 0, 1000).WithRewindSave("rpfile0"));
-            WriteRewindPoint(saveDir, "rpfile0");
+                    .AddPoint(100, 0, 0, 1000).WithRewindSave("parsek_rw_rpfile0"));
+            WriteRewindSave(saveDir, "parsek_rw_rpfile0");
 
             Assert.Empty(Run(saveDir));
         }
@@ -113,35 +118,45 @@ namespace Parsek.Tests.Analyzer.Rules
             Assert.Contains("../evil", fail.Message);
         }
 
-        // Guards: a recording referencing an absent RP file -> FAIL. Fails if a
-        // dangling RewindPoint reference passes (re-fly would fail at load).
+        // Guards (severity-tuning regression): a recording referencing an absent
+        // rewind save -> WARN, NOT FAIL. A missing rewind save is a dangling
+        // reference, not proven corruption (RecordingStore.DeleteRecordingFiles
+        // deletes shared rewind saves without reference-counting siblings; sealed
+        // recordings can no longer rewind; production treats a missing hint as
+        // benign). Fails if a dangling rewind reference reds the run (the s15 /
+        // orbital-supply-route class), or if it is silently dropped.
         [Fact]
-        public void MissingRewindPoint_Fails()
+        public void MissingRewindSave_Warns_NotFails()
         {
             string saveDir = BuildSave("missing",
                 new RecordingBuilder("RP Craft").WithRecordingId("rp1")
-                    .AddPoint(100, 0, 0, 1000).WithRewindSave("rpfile-missing"));
+                    .AddPoint(100, 0, 0, 1000).WithRewindSave("parsek_rw_missing"));
 
             List<Finding> findings = Run(saveDir);
 
-            Finding fail = Assert.Single(findings, f => f.Level == VerdictLevel.Fail);
-            Assert.Contains("missing-rewindpoint", fail.Message);
+            Assert.Empty(findings.Where(f => f.Level == VerdictLevel.Fail));
+            Finding warn = Assert.Single(findings, f => f.Level == VerdictLevel.Warn);
+            Assert.Contains("missing-rewind-save", warn.Message);
         }
 
-        // Guards: an RP quicksave on disk that no recording references -> WARN.
-        // Fails if orphan rewind points are ignored.
+        // Guards (orphan-retarget regression): an unreferenced parsek_rw_*.sfs on
+        // disk is an EXPECTED benign state (ParsekFlight.cs), reported as a single
+        // per-save INFO inventory line, never a WARN/FAIL. Fails if the orphan scan
+        // reverts to Parsek/RewindPoints/ (which false-flagged live rp_* RewindPoints
+        // the model never loads), or promotes the benign orphan to WARN.
         [Fact]
-        public void OrphanRewindPoint_Warns()
+        public void OrphanRewindSave_ReportsInfoInventory_NotWarn()
         {
             string saveDir = BuildSave("orphan",
                 new RecordingBuilder("RP Craft").WithRecordingId("rp2").AddPoint(100, 0, 0, 1000));
-            WriteRewindPoint(saveDir, "stray-rp");
+            WriteRewindSave(saveDir, "parsek_rw_stray");
 
             List<Finding> findings = Run(saveDir);
 
-            Finding warn = Assert.Single(findings, f => f.Level == VerdictLevel.Warn);
-            Assert.Equal("stray-rp", warn.Target);
-            Assert.Contains("orphan-rewindpoint", warn.Message);
+            Assert.Empty(findings.Where(f => f.Level == VerdictLevel.Fail || f.Level == VerdictLevel.Warn));
+            Finding info = Assert.Single(findings, f => f.Level == VerdictLevel.Info);
+            Assert.Contains("orphan-rewind-saves", info.Message);
+            Assert.Contains("count=1", info.Message);
         }
     }
 }

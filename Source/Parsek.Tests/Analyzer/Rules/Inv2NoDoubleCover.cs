@@ -20,6 +20,21 @@ namespace Parsek.Tests.Analyzer.Rules
         internal const string OverlapRuleId = "INV2-NO-DOUBLE-COVER";
         internal const string UncoveredRuleId = "INV2-UNCOVERED-SPAN";
 
+        // Uncovered-span tolerance floor. Sections are built from sampled frames:
+        // a section's startUT/endUT are its first/last frame UT. At a section
+        // boundary the last frame of section A and the first frame of section B are
+        // one sample apart, so a sub-sample-step gap between end(A) and start(B) is
+        // a legitimate boundary seam, not a coverage hole. The recorder's coarsest
+        // single sample step is ParsekSettings.GetMaxSampleInterval(SamplingDensity.Low)
+        // = 8.0s (Medium 3.0s, High 1.0s); a gap at or below that is indistinguishable
+        // from one sparse sample and must not WARN. Real coverage gaps in flown saves
+        // are hundreds to millions of seconds (e.g. a stray far-future OrbitalCheckpoint
+        // that leaves a ~1.5M-second hole), far above this floor, so they still WARN.
+        // Chosen at the coarsest cadence (not per-section 1/sampleRateHz) so the floor
+        // is density-agnostic; the huge gap between the observed micro-seams (<= 0.3s)
+        // and the smallest real gap (hundreds of seconds) leaves ample margin.
+        internal const double UncoveredSpanToleranceSeconds = 8.0;
+
         public string RuleId => OverlapRuleId;
 
         // The disjoint-producer contract (sections are non-overlapping producers,
@@ -89,10 +104,12 @@ namespace Parsek.Tests.Analyzer.Rules
                             rec.RecordingId, coverStart, coverEnd, s.Start, s.End),
                         "RecordingOptimizer.IsSplittableEnvOrBodyBoundary"));
                 }
-                else if (s.Start > coverEnd)
+                else if (s.Start - coverEnd > UncoveredSpanToleranceSeconds)
                 {
-                    // Genuine gap. Legitimate unless nothing (section or orbit
-                    // coast) bridges it -> soft WARN, never FAIL.
+                    // Genuine gap beyond one sample step. Legitimate unless nothing
+                    // (section or orbit coast) bridges it -> soft WARN, never FAIL.
+                    // Sub-tolerance gaps are section-boundary seams, not holes, and
+                    // are suppressed by the guard condition above.
                     bool bridged = IntervalCovered(orbitCover, coverEnd, s.Start);
                     if (!bridged)
                     {
