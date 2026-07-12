@@ -633,7 +633,14 @@ Each: trigger -> expected behavior -> v1 or deferred.
 - **EC-3 GameData mod version drift between profiles / vs manifest.** Trigger: a
   dev-sourced mod folder changed since the instance was built. Expected: VERIFY
   compares the content tree-hash to the manifest; mismatch => drift report (or
-  `--repair` re-copies that folder). v1.
+  `--repair` re-copies that folder). v1. Two live-run revisions: (a) the tree-hash
+  prunes runtime-writable dirs (the `PluginData` convention,
+  `provlib.is_runtime_writable_dir`) because the game writes caches there on
+  every launch (KSPCommunityFixes/PluginData/TextureCache) and hashing them
+  would re-drift the instance per run; (b) both the CLONE-path copy and repair
+  scoped-delete a pre-existing instance mod DIRECTORY before re-copying, since
+  a merge-copy cannot remove injected extra files (single-file mods are exactly
+  replaced by the copy and skip the pre-clear).
 - **EC-4 TestingTools build failure vs KSP DLL version.** Trigger: BUILD-TT
   cannot resolve a reference or the source does not compile against the pinned
   KSP DLLs. Expected: ABORT with compiler output and the missing reference;

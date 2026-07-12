@@ -1555,6 +1555,15 @@ class TreeDigestTests(unittest.TestCase):
         b = provlib.canonical_tree_digest_input([("a.txt", "h1"), ("b.txt", "h1")])
         self.assertNotEqual(a, b)
 
+    def test_runtime_writable_dir_convention(self):
+        # EC-3 hash stability across game launches: PluginData is the KSP
+        # runtime-writable convention (KSPCommunityFixes/PluginData/TextureCache
+        # re-drifted the instance on every launch before this prune).
+        self.assertTrue(provlib.is_runtime_writable_dir("PluginData"))
+        self.assertTrue(provlib.is_runtime_writable_dir("plugindata"))
+        self.assertFalse(provlib.is_runtime_writable_dir("Plugins"))
+        self.assertFalse(provlib.is_runtime_writable_dir("PluginDataX"))
+
 
 class ShimCsprojTests(unittest.TestCase):
     """Design BUILD-TT / GT-4 / GT-9 / S-4: the shim csproj compiles ONLY the two

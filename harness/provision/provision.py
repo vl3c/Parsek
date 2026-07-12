@@ -651,7 +651,18 @@ def _copy_and_verify_dev_mod(ctx: ProvisionContext, name: str, src: str, dst: st
     a mismatch means a partial / failed copy, so it ABORTS (EC-3) and returns None
     rather than record a hash the instance does not actually carry. The recorded
     hash is the instance's (now == source's), so VERIFY re-hashes the same bytes
-    it will read back."""
+    it will read back.
+
+    A pre-existing instance copy is scoped-deleted first (same rationale as
+    _repair_dev_mods: a merge-copy cannot remove a file injected into the
+    instance copy -- e.g. runtime caches from a prior game launch -- so the
+    post-copy hash check would abort forever)."""
+    # Only a DIRECTORY needs the pre-clear: a single-file mod is exactly
+    # replaced by the copy (and rmtree cannot delete a file anyway).
+    if os.path.isdir(dst) and not _scoped_delete_instance_subtree(ctx, dst):
+        abort(ctx, "Clone", "EC-3",
+              "dev-sourced mod %s: stale instance copy could not be cleared: %s" % (name, dst))
+        return None
     if os.path.isdir(src):
         _copy_dir(ctx, src, dst)
     else:
@@ -1438,13 +1449,16 @@ def _content_tree_hash(root: str, ctx: Optional[ProvisionContext] = None) -> str
     """Deterministic content hash of a dev-sourced mod (folder or single file),
     via the pure canonical digest input (EC-3). Reparse-point subdirs are pruned
     (SF6b) so a junction inside a dev-sourced mod cannot pull a stock tree into
-    the hash."""
+    the hash. Runtime-writable dirs (the PluginData convention) are pruned too:
+    the drift contract covers the authored payload, and the game writes caches
+    there on every launch (provlib.is_runtime_writable_dir)."""
     entries: List[tuple] = []
     if os.path.isfile(root):
         entries.append((os.path.basename(root), sha256_file(root)))
     else:
         for r, dirs, names in os.walk(root):
             _prune_reparse_dirs(ctx, r, dirs)
+            dirs[:] = [d for d in dirs if not provlib.is_runtime_writable_dir(d)]
             for n in names:
                 p = os.path.join(r, n)
                 entries.append((os.path.relpath(p, root), sha256_file(p)))

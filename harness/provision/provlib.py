@@ -946,6 +946,17 @@ def to_extended_length_path(path: str) -> str:
     return EXTENDED_LENGTH_PREFIX + p
 
 
+def is_runtime_writable_dir(name: str) -> bool:
+    """True for directory names KSP mods use as their RUNTIME-WRITABLE area
+    (the ``PluginData`` convention: ModuleManager excludes it from GameDatabase,
+    and mods write caches/settings there at play time -- e.g.
+    KSPCommunityFixes/PluginData/TextureCache). Such dirs are pruned from the
+    dev-sourced-mod content tree-hash (EC-3): the drift contract covers the
+    AUTHORED payload, and hashing runtime writes would re-drift the instance on
+    every game launch."""
+    return name.lower() == "plugindata"
+
+
 def canonical_tree_digest_input(entries: Sequence[Tuple[str, str]]) -> str:
     """Build the canonical string a dev-sourced mod's content tree-hash is taken
     over (design EC-3 drift check). ``entries`` is ``(relpath, filehash)`` pairs
