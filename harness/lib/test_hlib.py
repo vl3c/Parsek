@@ -1137,3 +1137,277 @@ class SpecExpectsLiveRecordingTests(unittest.TestCase):
         self.assertTrue(hlib.spec_expects_live_recording(spec))
         prof = hlib.select_logvalidate_profile(True, False)
         self.assertFalse(prof.suppress_recording_rules)
+
+
+# ---------------------------------------------------------------------------
+# M-B1 autopilot spec validation (design "Spec-validation rules for kind =
+# autopilot"; Test Plan "Autopilot spec validation accept + each reject").
+# ---------------------------------------------------------------------------
+
+
+def _autopilot_spec():
+    """A well-formed kind='autopilot' spec (design B1 example, trimmed). Built
+    inline (no file I/O) so the accept/reject cells are self-contained."""
+    return {
+        "schema": 1,
+        "id": "B1-pad-hop",
+        "tier": "daily",
+        "instanceProfile": "stock-minimal",
+        "tags": ["B1", "flown"],
+        "fixture": {
+            "saveTemplate": "fixtures/saves/b1-pad-craft",
+            "injectedRecordings": "none",
+        },
+        "driver": {
+            "kind": "autopilot",
+            "mission": "b1_pad_hop",
+            "missionParams": {
+                "throttle": 1.0,
+                "apoapsisWindowMeters": {"min": 6000, "max": 30000},
+                "landedSituations": ["LANDED", "SPLASHED"],
+                "ascentTimeoutSeconds": 90,
+            },
+            "steps": [
+                {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+                 "expect": "OK", "budget": 240},
+                {"cmd": "SetSetting", "args": {"name": "autoRecordOnLaunch", "value": "true"},
+                 "expect": "OK"},
+                {"phase": "mission", "expect": "MISSION-OK", "budget": 600},
+                {"cmd": "CommitTree", "expect": "OK"},
+                {"cmd": "FlushAndQuit", "expect": "OK"},
+            ],
+        },
+        "expectations": {
+            "recordings": {"count": {"min": 1, "max": 1}},
+            "logContracts": {"required": ["Recording started", "Recording stopped"],
+                             "forbidden": [r"\[Parsek\]\[ERROR\]"]},
+        },
+        "runtime": {"budgetSeconds": 900},
+        "retry": {"policy": "once"},
+        "expectedFail": {"bugId": "", "subkind": ""},
+    }
+
+
+def _mission_schemas():
+    """The injected registry surface (design: parsed shell-side from
+    <mission>.schema.toml, passed pure)."""
+    return {
+        "b1_pad_hop": {
+            "params": {
+                "throttle": {"required": True, "type": "float", "min": 0.0, "max": 1.0},
+                "apoapsisWindowMeters": {"required": True, "type": "window"},
+                "ascentTimeoutSeconds": {"required": False, "type": "int", "min": 1},
+            }
+        }
+    }
+
+
+class AutopilotSpecValidationTests(unittest.TestCase):
+    """Guards (design Test Plan): a well-formed autopilot spec validates, and each
+    malformed one rejects with the right reason. A malformed autopilot spec that
+    slipped through would launch KSP and waste a boot on a mission that cannot run;
+    a valid one wrongly rejected blocks every flown scenario."""
+
+    _DEFAULT_SCHEMAS = object()  # sentinel: distinguish "use default" from explicit None
+
+    def _v(self, mutate=None, schemas=_DEFAULT_SCHEMAS):
+        spec = copy.deepcopy(_autopilot_spec())
+        if mutate is not None:
+            mutate(spec)
+        reg = _mission_schemas() if schemas is self._DEFAULT_SCHEMAS else schemas
+        return hlib.validate_spec(spec, {}, mission_schemas=reg)
+
+    def test_accept_well_formed(self):
+        v = self._v()
+        self.assertTrue(v.ok, "well-formed autopilot spec must validate; errors=%s" % (v.errors,))
+
+    def test_reject_a_unknown_mission(self):
+        v = self._v(lambda s: s["driver"].__setitem__("mission", "no_such_mission"))
+        self.assertFalse(v.ok)
+        self.assertTrue(any("unknown mission" in e for e in v.errors))
+
+    def test_reject_b_missing_required_param(self):
+        v = self._v(lambda s: s["driver"]["missionParams"].pop("throttle"))
+        self.assertFalse(v.ok)
+        self.assertTrue(any("throttle" in e and "required" in e for e in v.errors))
+
+    def test_reject_c_window_min_gt_max(self):
+        def m(s):
+            s["driver"]["missionParams"]["apoapsisWindowMeters"] = {"min": 30000, "max": 6000}
+        v = self._v(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("apoapsisWindowMeters" in e and "min" in e and "max" in e for e in v.errors))
+
+    def test_reject_c_window_min_gt_max_without_schema(self):
+        # Window well-formedness is schema-INDEPENDENT: it rejects even when the
+        # shell has injected no schema registry (mission_schemas=None defers the
+        # mission-existence check but the min > max window check is structural).
+        def m(s):
+            s["driver"]["missionParams"]["apoapsisWindowMeters"] = {"min": 30000, "max": 6000}
+        v = self._v(m, schemas=None)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("window min" in e for e in v.errors))
+
+    def test_reject_d_mission_step_before_loadgame(self):
+        def m(s):
+            steps = s["driver"]["steps"]
+            mission = [x for x in steps if x.get("phase") == "mission"][0]
+            steps.remove(mission)
+            steps.insert(0, mission)  # mission now at index 0, before LoadGame
+        v = self._v(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("must follow a LoadGame" in e for e in v.errors))
+
+    def test_reject_e_two_mission_steps(self):
+        def m(s):
+            s["driver"]["steps"].insert(3, {"phase": "mission", "expect": "MISSION-OK", "budget": 600})
+        v = self._v(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("exactly one mission-kind step" in e for e in v.errors))
+
+    def test_reject_f_mission_step_wrong_expect(self):
+        def m(s):
+            for x in s["driver"]["steps"]:
+                if x.get("phase") == "mission":
+                    x["expect"] = "OK"
+        v = self._v(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("mission step must be" in e and "MISSION-OK" in e for e in v.errors))
+
+    def test_mission_step_bad_budget_rejected(self):
+        def m(s):
+            for x in s["driver"]["steps"]:
+                if x.get("phase") == "mission":
+                    x["budget"] = 0
+        v = self._v(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("mission step budget" in e for e in v.errors))
+
+    def test_mission_step_under_seam_kind_rejected(self):
+        # A mission-kind step only belongs under an autopilot driver: a seam driver
+        # carrying one is malformed (guards against a half-converted spec).
+        def m(s):
+            s["driver"]["kind"] = "seam"
+        v = self._v(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("requires driver.kind 'autopilot'" in e for e in v.errors))
+
+    def test_seam_spec_still_validates_unchanged(self):
+        # The autopilot extension is ADDITIVE: a real seam spec still validates.
+        reg = load_registry()
+        spec = load_spec("B10-career-passive-safety.toml")
+        v = hlib.validate_spec(spec, reg)
+        self.assertTrue(v.ok, "seam spec must be unaffected by the autopilot addition; errors=%s" % (v.errors,))
+
+
+class ClassifyMissionStepTests(unittest.TestCase):
+    """Guards (design Test Plan "Mission-verdict -> harness classification"): each
+    mission verdict maps to the right (met, subkind) and every failure subkind is
+    retryable-once; and the orthogonality -- a MISSION-OK flight whose verifier
+    chain reds still classifies PARSEK-FAIL. Fails if an assertion miss poisons the
+    Parsek-defect bucket (INVALID(mission) misread as PARSEK-FAIL) or a mis-recorded
+    good flight is swallowed as a mission problem."""
+
+    def test_ok_is_met(self):
+        met, subkind = hlib.classify_mission_step("MISSION-OK")
+        self.assertTrue(met)
+        self.assertEqual(subkind, "")
+
+    def test_full_mapping_and_retryable(self):
+        cases = {
+            "MISSION-CONNECT-TIMEOUT": "tooling-krpc",
+            "MISSION-ASSERT-FAIL": "mission",
+            "MISSION-FLAKE": "autopilot-flake",
+            "MISSION-ERROR": "tooling-mission",
+        }
+        for verdict, subkind in cases.items():
+            met, sk = hlib.classify_mission_step(verdict)
+            self.assertFalse(met, verdict)
+            self.assertEqual(sk, subkind, verdict)
+            # Each failure subkind is retryable-once (feeds the driver-stage retry).
+            self.assertIn(sk, hlib.RETRYABLE_INVALID_SUBKINDS, verdict)
+            r = hlib.Verdict(hlib.VERDICT_INVALID, sk, True, "mission %s" % verdict)
+            self.assertTrue(hlib.should_retry(r, 1, "once"), verdict)
+
+    def test_none_or_unknown_fails_closed(self):
+        # Missing result / unknown verdict fails CLOSED to tooling-mission (edge 12),
+        # never a silent met.
+        for bad in (None, "MISSION-WAT", ""):
+            met, sk = hlib.classify_mission_step(bad)
+            self.assertFalse(met)
+            self.assertEqual(sk, "tooling-mission")
+
+    def test_orthogonality_mission_ok_but_parsek_mis_records_is_parsek_fail(self):
+        # A MISSION-OK flight (mission step MET, driver valid) whose verifier chain
+        # reds -- here the analyzer reds the produced recording -- is PARSEK-FAIL,
+        # NOT a mission INVALID. classify_mission_step gates the flight; the verifier
+        # chain gates whether Parsek recorded it right; the two are orthogonal.
+        met, _ = hlib.classify_mission_step("MISSION-OK")
+        self.assertTrue(met)
+        d, v = _clean_pass_facts()  # driver valid == the MET mission step
+        v["analyzer"] = hlib.AnalyzerVerdict("PARSEK-FAIL", "analyzer", "INV3")
+        r = hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once")
+        self.assertEqual(r.verdict, "PARSEK-FAIL")
+
+    def test_carveout_mission_ok_missing_recording_is_parsek_fail(self):
+        # Edge 13 carve-out: a MISSION-OK run whose recording EVIDENCE is missing
+        # (expectations.recordings.count.min unmet) is PARSEK-FAIL(expectation), a
+        # verdict-driving Parsek defect -- NOT a driver-INVALID a retry would paper
+        # over. A good flight Parsek failed to record is exactly what M-B1 catches.
+        met, _ = hlib.classify_mission_step("MISSION-OK")
+        self.assertTrue(met)
+        d, v = _clean_pass_facts()
+        v["expectation_mismatch"] = True
+        r = hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once")
+        self.assertEqual((r.verdict, r.subkind), ("PARSEK-FAIL", "expectation"))
+        self.assertFalse(hlib.should_retry(r, 1, "once"))
+
+
+class VenvAdmissionTests(unittest.TestCase):
+    """Guards (design Test Plan "Venv admission"): a matching stamp admits, a
+    missing stamp or a drifted pin refuses with the TERMINAL non-retryable
+    tooling-venv, checked at pre-launch ADMIT (no KSP boot). Fails if a stale /
+    absent kRPC client silently certifies a flight, or a venv fault is wrongly made
+    retryable (a retry cannot re-bootstrap a venv)."""
+
+    REQS = {"krpc": "0.5.4", "protobuf": "4.21.0"}
+
+    def test_admits_matching_stamp(self):
+        stamp = {"schema": 1, "pins": {"krpc": "0.5.4", "protobuf": "4.21.0"}, "freezeHash": "abc"}
+        ok, subkind = hlib.venv_admission(stamp, self.REQS)
+        self.assertTrue(ok)
+        self.assertEqual(subkind, "")
+
+    def test_missing_stamp_refused(self):
+        for absent in (None, {}):
+            ok, subkind = hlib.venv_admission(absent, self.REQS)
+            self.assertFalse(ok)
+            self.assertEqual(subkind, "tooling-venv")
+
+    def test_drifted_pin_refused(self):
+        stamp = {"pins": {"krpc": "0.5.3", "protobuf": "4.21.0"}}  # krpc drifted
+        ok, subkind = hlib.venv_admission(stamp, self.REQS)
+        self.assertFalse(ok)
+        self.assertEqual(subkind, "tooling-venv")
+
+    def test_stamp_missing_required_pin_refused(self):
+        stamp = {"pins": {"krpc": "0.5.4"}}  # protobuf pin absent from the stamp
+        ok, subkind = hlib.venv_admission(stamp, self.REQS)
+        self.assertFalse(ok)
+        self.assertEqual(subkind, "tooling-venv")
+
+    def test_provisional_extra_stamp_pin_tolerated(self):
+        # Before protobuf is promoted into requirements, the stamp may carry an
+        # extra resolved pin; only the committed requirements are enforced, so the
+        # venv is NOT falsely refused pre-promotion.
+        stamp = {"pins": {"krpc": "0.5.4", "protobuf": "4.21.0"}}
+        ok, subkind = hlib.venv_admission(stamp, {"krpc": "0.5.4"})
+        self.assertTrue(ok)
+        self.assertEqual(subkind, "")
+
+    def test_tooling_venv_is_terminal_non_retryable(self):
+        # The load-bearing guarantee: tooling-venv is NOT in the retryable set, so a
+        # venv fault terminates INVALID and is never retried.
+        self.assertNotIn("tooling-venv", hlib.RETRYABLE_INVALID_SUBKINDS)
+        r = hlib.Verdict(hlib.VERDICT_INVALID, "tooling-venv", False, "venv drift")
+        self.assertFalse(hlib.should_retry(r, 1, "once"))
