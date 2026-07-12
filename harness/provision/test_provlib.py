@@ -638,5 +638,213 @@ class ActionPlanTests(unittest.TestCase):
         self.assertFalse(any("GameData/parsek" in d for d in installs))
 
 
+class CloneToplevelTests(unittest.TestCase):
+    """Design CLONE: the mutable surface is copied, GameData is built
+    selectively, the KSP data dir is copied-except-junction, and mutable /
+    harness-owned trees (saves/Logs/settings.cfg) are skipped so no dev state
+    leaks into an automation instance."""
+
+    def test_gamedata_is_built(self):
+        self.assertEqual(provlib.clone_toplevel_disposition("GameData"), "build-gamedata")
+
+    def test_ksp_data_dir_copy_except_junction(self):
+        self.assertEqual(provlib.clone_toplevel_disposition("KSP_x64_Data"),
+                         "copy-tree-except-junction")
+
+    def test_settings_and_saves_skipped(self):
+        self.assertEqual(provlib.clone_toplevel_disposition("settings.cfg"), "skip")
+        self.assertEqual(provlib.clone_toplevel_disposition("saves"), "skip")
+        self.assertEqual(provlib.clone_toplevel_disposition("Logs"), "skip")
+
+    def test_exe_and_files_copied(self):
+        self.assertEqual(provlib.clone_toplevel_disposition("KSP_x64.exe"), "copy")
+        self.assertEqual(provlib.clone_toplevel_disposition("buildID64.txt"), "copy")
+        self.assertEqual(provlib.clone_toplevel_disposition("Internals"), "copy")
+
+    def test_streamingassets_is_the_only_junctioned_ksp_data_entry(self):
+        self.assertTrue(provlib.ksp_data_entry_is_junction("StreamingAssets"))
+        self.assertFalse(provlib.ksp_data_entry_is_junction("Managed"))
+        self.assertFalse(provlib.ksp_data_entry_is_junction("Resources"))
+
+
+class ExtendedLengthPathTests(unittest.TestCase):
+    """Design EC-7 / R13: the live CLONE copy/junction must use the \\\\?\\
+    extended-length prefix on Windows so deep KSP asset trees under a long
+    umbrella root do not overflow MAX_PATH."""
+
+    def test_local_path_prefixed(self):
+        self.assertEqual(provlib.to_extended_length_path("C:/a/b"), "\\\\?\\C:\\a\\b")
+
+    def test_backslash_input_prefixed(self):
+        self.assertEqual(provlib.to_extended_length_path("C:\\a\\b"), "\\\\?\\C:\\a\\b")
+
+    def test_unc_path_prefixed(self):
+        self.assertEqual(provlib.to_extended_length_path("\\\\srv\\share\\x"),
+                         "\\\\?\\UNC\\srv\\share\\x")
+
+    def test_already_prefixed_unchanged(self):
+        p = "\\\\?\\C:\\a"
+        self.assertEqual(provlib.to_extended_length_path(p), p)
+
+
+class TreeDigestTests(unittest.TestCase):
+    """Design EC-3: a dev-sourced mod's content tree-hash must be deterministic
+    regardless of walk order or OS separator so a re-run does not false-drift."""
+
+    def test_order_and_separator_independent(self):
+        a = provlib.canonical_tree_digest_input([("b/c.dll", "h2"), ("a.txt", "h1")])
+        b = provlib.canonical_tree_digest_input([("a.txt", "h1"), ("b\\c.dll", "h2")])
+        self.assertEqual(a, b)
+
+    def test_content_change_changes_digest(self):
+        a = provlib.canonical_tree_digest_input([("a.txt", "h1")])
+        b = provlib.canonical_tree_digest_input([("a.txt", "h2")])
+        self.assertNotEqual(a, b)
+
+    def test_added_file_changes_digest(self):
+        a = provlib.canonical_tree_digest_input([("a.txt", "h1")])
+        b = provlib.canonical_tree_digest_input([("a.txt", "h1"), ("b.txt", "h1")])
+        self.assertNotEqual(a, b)
+
+
+class ShimCsprojTests(unittest.TestCase):
+    """Design BUILD-TT / GT-4 / GT-9 / S-4: the shim csproj compiles ONLY the two
+    shim sources (default globbing off so a stray AutoLoadGame.cs cannot slip in),
+    targets net472, and HintPaths the KSP + kRPC references."""
+
+    def _render(self):
+        return provlib.render_testingtools_shim_csproj(
+            "C:/dev/KSP_x64_Data/Managed", "C:/cache/GameData/kRPC",
+            ["OrbitTools.cs", "TestingTools.cs"])
+
+    def test_net472_and_defaultcompile_off(self):
+        xml = self._render()
+        self.assertIn("<TargetFramework>net472</TargetFramework>", xml)
+        self.assertIn("<EnableDefaultCompileItems>false</EnableDefaultCompileItems>", xml)
+
+    def test_only_two_sources_plus_assemblyinfo(self):
+        xml = self._render()
+        self.assertIn('<Compile Include="OrbitTools.cs" />', xml)
+        self.assertIn('<Compile Include="TestingTools.cs" />', xml)
+        self.assertIn('<Compile Include="AssemblyInfo.cs" />', xml)
+        self.assertNotIn("AutoLoadGame.cs", xml)
+        self.assertNotIn("AutoSwitchVessel.cs", xml)
+
+    def test_references_ksp_and_krpc(self):
+        xml = self._render()
+        self.assertIn("Assembly-CSharp.dll", xml)
+        self.assertIn("UnityEngine.CoreModule.dll", xml)
+        self.assertIn("KRPC.Core.dll", xml)
+        self.assertIn("KRPC.SpaceCenter.dll", xml)
+        self.assertIn("Google.Protobuf.dll", xml)
+
+    def test_assemblyinfo_names_the_assembly(self):
+        info = provlib.render_testingtools_assemblyinfo()
+        self.assertIn("TestingTools", info)
+
+
+class BuildTtAssemblyTests(unittest.TestCase):
+    """Design S-4: the AutoLoadGame type must be ABSENT from the built shim (it
+    would race the seam's LoadGame boot) and a TestingTools type must be present
+    (a real build). Proxy is a UTF-8 metadata grep over the assembly bytes."""
+
+    def test_shim_assembly_passes(self):
+        # Simulate #Strings heap bytes: TestingTools present, AutoLoadGame absent.
+        buf = b"...OrbitTools.TestingTools.SetOrbit..."
+        r = provlib.evaluate_build_tt_assembly(buf)
+        self.assertTrue(r.ok)
+        self.assertEqual(r.autoloadgame_count, 0)
+        self.assertTrue(r.has_testingtools_type)
+
+    def test_autoloadgame_present_fails(self):
+        buf = b"...TestingTools.AutoLoadGame..."
+        r = provlib.evaluate_build_tt_assembly(buf)
+        self.assertFalse(r.ok)
+        self.assertEqual(r.reason, "autoloadgame-present")
+
+    def test_empty_build_fails(self):
+        r = provlib.evaluate_build_tt_assembly(b"nothing relevant here")
+        self.assertFalse(r.ok)
+        self.assertEqual(r.reason, "testingtools-type-absent")
+
+    def test_count_utf8(self):
+        self.assertEqual(provlib.count_utf8(b"abcabc", "abc"), 2)
+        self.assertEqual(provlib.count_utf8(b"abc", ""), 0)
+
+
+class ZipInstallPlanTests(unittest.TestCase):
+    """Design INSTALL / GT-5: the kRPC GameData/kRPC subtree lands as-is; only
+    the prebuilt KRPC.MechJeb.dll (+ .json) is taken from the KRPC.MechJeb release
+    root; directory entries and out-of-footprint files are skipped."""
+
+    def test_krpc_subtree_as_is(self):
+        names = ["GameData/kRPC/", "GameData/kRPC/KRPC.dll",
+                 "GameData/kRPC/KRPC.Core.dll", "other/thing.txt"]
+        plan = provlib.plan_zip_install("krpc", names)
+        dests = dict(plan)
+        self.assertEqual(dests["GameData/kRPC/KRPC.dll"], "GameData/kRPC/KRPC.dll")
+        self.assertNotIn("other/thing.txt", dests)
+        self.assertNotIn("GameData/kRPC/", dests)  # directory skipped
+
+    def test_krpc_mechjeb_only_dll_and_json(self):
+        names = ["KRPC.MechJeb.dll", "KRPC.MechJeb.json", "README.md",
+                 "C#/MechJeb.cs", "LICENSE"]
+        plan = dict(provlib.plan_zip_install("krpc_mechjeb", names))
+        self.assertEqual(plan["KRPC.MechJeb.dll"], "GameData/kRPC/KRPC.MechJeb.dll")
+        self.assertEqual(plan["KRPC.MechJeb.json"], "GameData/kRPC/KRPC.MechJeb.json")
+        self.assertNotIn("README.md", plan)
+        self.assertNotIn("C#/MechJeb.cs", plan)
+
+    def test_mechjeb2_gamedata_as_is_else_wrapped(self):
+        plan = dict(provlib.plan_zip_install(
+            "mechjeb2", ["GameData/MechJeb2/MechJeb2.dll", "bareroot.dll"]))
+        self.assertEqual(plan["GameData/MechJeb2/MechJeb2.dll"],
+                         "GameData/MechJeb2/MechJeb2.dll")
+        self.assertEqual(plan["bareroot.dll"], "GameData/bareroot.dll")
+
+    def test_krpc_installed_dll_names(self):
+        pin = {"releaseRuntimeDlls": ["KRPC.dll", "KRPC.Core.dll"]}
+        self.assertEqual(provlib.krpc_installed_dll_names(pin), ["KRPC.dll", "KRPC.Core.dll"])
+        self.assertEqual(provlib.krpc_installed_dll_names(
+            {"releaseCompileDlls": ["KRPC.Core.dll"]}), ["KRPC.Core.dll"])
+
+
+class RepairPlanTests(unittest.TestCase):
+    """Design --repair / EC-3: a VERIFY drift diff converges to the MINIMAL
+    targeted work set -- only the drifted component / dev mod / settings, and an
+    unmappable field is surfaced (never silently converged to nothing)."""
+
+    def _diff(self, field, kind="changed"):
+        return provlib.ManifestDiff(field, "e", "a", kind)
+
+    def test_component_of_field(self):
+        self.assertEqual(provlib.component_of_diff_field(
+            "components.krpc.installedDlls.KRPC.dll"), "krpc")
+        self.assertEqual(provlib.component_of_diff_field(
+            "components.parsek.dllSha256"), "parsek")
+        self.assertEqual(provlib.component_of_diff_field(
+            "settingsDeltasApplied.FRAMERATE_LIMIT"), provlib.SETTINGS_REPAIR_TOKEN)
+        self.assertEqual(provlib.component_of_diff_field(
+            "devSourcedMods.000_Harmony"), "devmod:000_Harmony")
+        self.assertIsNone(provlib.component_of_diff_field("kspVersion"))
+
+    def test_plan_targets_only_drifted(self):
+        plan = provlib.plan_repair([
+            self._diff("components.krpc.installedDlls.KRPC.dll"),
+            self._diff("components.parsek.dllSha256"),
+            self._diff("devSourcedMods.000_Harmony"),
+            self._diff("settingsDeltasApplied.UI_SCALE"),
+        ])
+        self.assertEqual(plan.components, ("krpc", "parsek"))
+        self.assertEqual(plan.dev_mods, ("000_Harmony",))
+        self.assertTrue(plan.settings)
+        self.assertEqual(plan.unrepairable, ())
+
+    def test_unrepairable_field_surfaced(self):
+        plan = provlib.plan_repair([self._diff("kspVersion")])
+        self.assertEqual(plan.unrepairable, ("kspVersion",))
+        self.assertEqual(plan.components, ())
+
+
 if __name__ == "__main__":
     unittest.main()

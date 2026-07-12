@@ -601,6 +601,327 @@ def is_open_pin(value: Optional[str]) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Live CLONE planning (design CLONE / EC-6 / EC-7). Pure over path strings and
+# directory-entry name lists; the orchestrator does the actual copy / junction.
+# ---------------------------------------------------------------------------
+
+GAMEDATA_DIR = "GameData"
+STREAMINGASSETS = "StreamingAssets"
+
+# The marker written FIRST (before any instance write) and cleared LAST (design
+# EC-6): its presence means the instance is a half-provision the harness must
+# refuse to admit (run.py reads it as `.provision-incomplete`).
+PROVISION_INCOMPLETE_MARKER = ".provision-incomplete"
+
+# Top-level dev-install entries never copied verbatim into a fresh instance:
+#   GameData      -- built selectively (junction stock, copy dev-sourced, install
+#                    stack, delete MM cache); handled by the GameData builder.
+#   settings.cfg  -- authored by the SETTINGS phase from the profile deltas.
+#   saves / Logs / Screenshots / temp -- mutable, harness- or run-owned; carrying
+#                    dev state into an automation instance would poison a run.
+CLONE_SKIP_TOPLEVEL: Tuple[str, ...] = (
+    GAMEDATA_DIR, "settings.cfg", "saves", "Logs", "Screenshots", "temp",
+)
+
+
+def clone_toplevel_disposition(name: str, ksp_data_dir_name: str = "KSP_x64_Data") -> str:
+    """Classify a top-level dev-install entry for CLONE.
+
+    Returns one of:
+      - ``build-gamedata``: the GameData dir (junction stock + copy dev-sourced;
+        the generic tree copy MUST skip it).
+      - ``copy-tree-except-junction``: the KSP data dir (copied, but its
+        ``StreamingAssets`` subtree is junctioned, not copied -- ``EC-6`` bulk).
+      - ``skip``: settings.cfg / saves / Logs / Screenshots / temp.
+      - ``copy``: everything else (exe, buildID64.txt, Internals, PDLauncher,
+        top-level files -- the small mutable surface).
+    """
+    if name == GAMEDATA_DIR:
+        return "build-gamedata"
+    if name == ksp_data_dir_name:
+        return "copy-tree-except-junction"
+    if name in CLONE_SKIP_TOPLEVEL:
+        return "skip"
+    return "copy"
+
+
+def ksp_data_entry_is_junction(name: str) -> bool:
+    """True if an entry directly under the KSP data dir is junctioned (the bulk
+    read-only ``StreamingAssets`` asset tree) rather than copied (design CLONE)."""
+    return name == STREAMINGASSETS
+
+
+def to_extended_length_path(path: str) -> str:
+    """Return ``path`` with the Windows extended-length ``\\\\?\\`` prefix (EC-7 / R13).
+
+    Deep KSP asset trees under a long umbrella root can exceed MAX_PATH (260); the
+    ``\\\\?\\`` prefix opts the copy/junction primitives out of that limit. A UNC
+    path (``\\\\server\\share``) becomes ``\\\\?\\UNC\\server\\share``. An already
+    prefixed path is returned unchanged. Pure string manipulation -- the caller
+    only applies it on Windows where a real path would overflow. The prefix
+    requires backslash separators, so forward slashes are normalized."""
+    if not path or path.startswith(EXTENDED_LENGTH_PREFIX):
+        return path
+    p = path.replace("/", "\\")
+    if p.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + p[2:]
+    return EXTENDED_LENGTH_PREFIX + p
+
+
+def canonical_tree_digest_input(entries: Sequence[Tuple[str, str]]) -> str:
+    """Build the canonical string a dev-sourced mod's content tree-hash is taken
+    over (design EC-3 drift check). ``entries`` is ``(relpath, filehash)`` pairs
+    (the orchestrator per-file-hashes; this stays pure). Deterministic: relpaths
+    are separator-normalized to ``/`` and sorted, so the same tree always yields
+    the same digest input regardless of walk order or OS separator. The caller
+    sha256s the returned string's UTF-8 bytes."""
+    norm = sorted((rel.replace("\\", "/"), h) for rel, h in entries)
+    return "\n".join("%s\0%s" % (rel, h) for rel, h in norm)
+
+
+# ---------------------------------------------------------------------------
+# BUILD-TT shim project generation (design BUILD-TT / GT-4 / GT-9 / S-4). Pure
+# string builders; the orchestrator writes them to a temp dir and runs dotnet.
+# ---------------------------------------------------------------------------
+
+# KSP-shipped managed DLLs the TestingTools shim references (GT-4 usings:
+# Assembly-CSharp for HighLogic/Vessel/FlightGlobals, UnityEngine[.CoreModule]
+# for Vector3/GameObject, PhysicsModule for rigidbody access). HintPathed into
+# the dev install's Managed dir (GT-9 pattern).
+TESTINGTOOLS_KSP_MANAGED_REFS: Tuple[str, ...] = (
+    "Assembly-CSharp",
+    "Assembly-CSharp-firstpass",
+    "UnityEngine",
+    "UnityEngine.CoreModule",
+    "UnityEngine.PhysicsModule",
+)
+
+# kRPC compile references (KRPC.Service attributes live in KRPC.Core;
+# Services.Vessel in KRPC.SpaceCenter; Google.Protobuf transitively). HintPathed
+# into the extracted release zip's GameData/kRPC/ (GT-4).
+TESTINGTOOLS_KRPC_REFS: Tuple[str, ...] = (
+    "KRPC.Core",
+    "KRPC.SpaceCenter",
+    "Google.Protobuf",
+)
+
+
+def render_testingtools_assemblyinfo(assembly_name: str = "TestingTools") -> str:
+    """Author the minimal AssemblyInfo.cs that replaces the bazel-generated one
+    (GT-4). Only the assembly title/product; kRPC service discovery keys off the
+    ``[KRPCService]`` attributes in the compiled types, not assembly metadata."""
+    return (
+        "using System.Reflection;\n"
+        '[assembly: AssemblyTitle("%s")]\n'
+        '[assembly: AssemblyProduct("%s")]\n'
+        '[assembly: AssemblyVersion("0.5.4.0")]\n'
+    ) % (assembly_name, assembly_name)
+
+
+def _csproj_reference(name: str, hint_path: str) -> str:
+    return (
+        '    <Reference Include="%s">\n'
+        "      <HintPath>%s</HintPath>\n"
+        "      <Private>false</Private>\n"
+        "    </Reference>\n"
+    ) % (name, hint_path)
+
+
+def render_testingtools_shim_csproj(
+    managed_dir: str,
+    krpc_gamedata_dir: str,
+    source_files: Sequence[str],
+    target_framework: str = "net472",
+    ksp_managed_refs: Sequence[str] = TESTINGTOOLS_KSP_MANAGED_REFS,
+    krpc_refs: Sequence[str] = TESTINGTOOLS_KRPC_REFS,
+    assemblyinfo_file: str = "AssemblyInfo.cs",
+) -> str:
+    """Author the standalone SDK-style TestingTools shim csproj (GT-4 / GT-9).
+
+    Compiles ONLY the explicitly listed ``source_files`` (the 2-file shim +
+    AssemblyInfo) by turning off default compile globbing, so an AutoLoadGame.cs
+    that happens to sit in the build dir can never be swept in (S-4 defense in
+    depth alongside the reflection assertion). References the KSP managed DLLs
+    from ``managed_dir`` and the kRPC compile DLLs from ``krpc_gamedata_dir``
+    via HintPath with ``<Private>false</Private>`` (output is TestingTools.dll
+    alone, no copied dependencies). ``TargetFramework`` is net472 (KSP's runtime).
+    """
+    refs = "".join(
+        _csproj_reference(r, "%s\\%s.dll" % (managed_dir, r)) for r in ksp_managed_refs
+    ) + "".join(
+        _csproj_reference(r, "%s\\%s.dll" % (krpc_gamedata_dir, r)) for r in krpc_refs
+    )
+    compiles = "".join('    <Compile Include="%s" />\n' % f for f in source_files)
+    compiles += '    <Compile Include="%s" />\n' % assemblyinfo_file
+    return (
+        '<Project Sdk="Microsoft.NET.Sdk">\n'
+        "  <PropertyGroup>\n"
+        "    <TargetFramework>%s</TargetFramework>\n"
+        "    <AssemblyName>TestingTools</AssemblyName>\n"
+        "    <RootNamespace>TestingTools</RootNamespace>\n"
+        "    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>\n"
+        "    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>\n"
+        "    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>\n"
+        "    <Deterministic>true</Deterministic>\n"
+        "    <NoWarn>0618</NoWarn>\n"
+        "  </PropertyGroup>\n"
+        "  <ItemGroup>\n"
+        "%s"
+        "  </ItemGroup>\n"
+        "  <ItemGroup>\n"
+        "%s"
+        "  </ItemGroup>\n"
+        "</Project>\n"
+    ) % (target_framework, refs, compiles)
+
+
+def count_utf8(data: bytes, s: str) -> int:
+    """Count UTF-8 occurrences of ``s`` in ``data``. ECMA-335 stores metadata
+    type/member names as UTF-8 in the ``#Strings`` heap, so a UTF-8 grep of the
+    built assembly's bytes is a dependency-free reflection proxy (S-4)."""
+    if not s:
+        return 0
+    return data.count(s.encode("utf-8"))
+
+
+@dataclass(frozen=True)
+class BuildTtAssertion:
+    ok: bool
+    autoloadgame_count: int
+    has_testingtools_type: bool
+    reason: str
+
+
+def evaluate_build_tt_assembly(dll_bytes: bytes) -> BuildTtAssertion:
+    """Assert the built TestingTools.dll is the 2-file shim (S-4 / GT-4).
+
+    Fails if the ``AutoLoadGame`` type name is present in the assembly metadata
+    (the dropped auto-loader that would race the seam's LoadGame boot) OR the
+    ``TestingTools`` type name is absent (a broken/empty build). Uses a UTF-8
+    metadata grep as a dependency-free reflection proxy over the ACTUAL built
+    bytes -- the design's authoritative capability guard, done without a .NET
+    runtime in Python."""
+    auto = count_utf8(dll_bytes, "AutoLoadGame")
+    has_tt = count_utf8(dll_bytes, "TestingTools") > 0
+    if auto > 0:
+        return BuildTtAssertion(False, auto, has_tt, "autoloadgame-present")
+    if not has_tt:
+        return BuildTtAssertion(False, auto, has_tt, "testingtools-type-absent")
+    return BuildTtAssertion(True, auto, has_tt, "ok")
+
+
+# ---------------------------------------------------------------------------
+# INSTALL zip-layout mapping (design INSTALL / GT-5). Pure over a zip namelist.
+# ---------------------------------------------------------------------------
+
+
+def _zip_dest(component: str, entry: str) -> Optional[str]:
+    """Map one zip entry to its instance-relative destination, or None to skip.
+
+    - kRPC: the whole ``GameData/kRPC/`` subtree lands as-is (the zip already
+      carries the GameData prefix, GT-5).
+    - KRPC.MechJeb: only the prebuilt ``KRPC.MechJeb.dll`` (+ its ``.json``
+      service definition) at the zip root, placed into ``GameData/kRPC/`` per its
+      README; the language-binding sources / README / LICENSE are dropped.
+    - MechJeb2: entries already under ``GameData/`` land as-is; a bare-rooted
+      zip is wrapped under ``GameData/`` (defensive -- MechJeb2's layout is
+      confirmed at first download, the pin is OPEN today).
+    """
+    e = entry.replace("\\", "/")
+    low = e.lower()
+    if component == "krpc":
+        return e if low.startswith("gamedata/krpc/") else None
+    if component == "krpc_mechjeb":
+        base = e.rsplit("/", 1)[-1]
+        if base in ("KRPC.MechJeb.dll", "KRPC.MechJeb.json"):
+            return "GameData/kRPC/" + base
+        return None
+    if component == "mechjeb2":
+        return e if low.startswith("gamedata/") else "GameData/" + e
+    return None
+
+
+def plan_zip_install(component: str, names: Sequence[str]) -> List[Tuple[str, str]]:
+    """Return the ordered ``(zip_entry, dest_relpath)`` extraction plan for a
+    stack component's release zip, skipping directory entries and anything
+    outside the component's GameData footprint (design INSTALL)."""
+    out: List[Tuple[str, str]] = []
+    for n in names:
+        if n.endswith("/"):
+            continue
+        dest = _zip_dest(component, n)
+        if dest:
+            out.append((n, dest))
+    return out
+
+
+def krpc_installed_dll_names(pin: Dict) -> List[str]:
+    """The kRPC runtime DLLs whose per-file hashes go into the manifest's
+    ``installedDlls`` (design manifest). Falls back to the compile-ref subset."""
+    return list(pin.get("releaseRuntimeDlls") or pin.get("releaseCompileDlls") or [])
+
+
+# ---------------------------------------------------------------------------
+# --repair convergence (design VERIFY / EC-3). Pure diff -> targeted work set.
+# ---------------------------------------------------------------------------
+
+
+SETTINGS_REPAIR_TOKEN = "__settings__"
+
+
+def component_of_diff_field(field: str) -> Optional[str]:
+    """Map a manifest-diff field path to the work item that repairs it.
+
+    ``components.<name>....`` -> the component name; ``settingsDeltasApplied....``
+    -> the settings sentinel; ``devSourcedMods.<name>`` -> ``devmod:<name>``.
+    Anything else -> None (not repairable by a targeted re-install; a full
+    re-provision is the fallback the caller logs)."""
+    parts = (field or "").split(".")
+    if len(parts) >= 2 and parts[0] == "components":
+        return parts[1]
+    if parts and parts[0] == "settingsDeltasApplied":
+        return SETTINGS_REPAIR_TOKEN
+    if len(parts) >= 2 and parts[0] == "devSourcedMods":
+        return "devmod:" + parts[1]
+    return None
+
+
+@dataclass(frozen=True)
+class RepairPlan:
+    components: Tuple[str, ...]      # stack/parsek components to re-install
+    dev_mods: Tuple[str, ...]       # dev-sourced mod folders to re-copy
+    settings: bool                  # re-apply settings deltas
+    unrepairable: Tuple[str, ...]   # diff fields with no targeted repair
+
+
+def plan_repair(diffs: Sequence["ManifestDiff"]) -> RepairPlan:
+    """Turn a VERIFY drift diff into the minimal targeted work set (design
+    --repair: re-install ONLY the drifted component, then re-VERIFY). A drift
+    field that maps to no work item is surfaced in ``unrepairable`` so the caller
+    can fall back to a full re-provision rather than silently converging nothing."""
+    components: set = set()
+    dev_mods: set = set()
+    settings = False
+    unrepairable: set = set()
+    for d in diffs:
+        item = component_of_diff_field(d.field)
+        if item is None:
+            unrepairable.add(d.field)
+        elif item == SETTINGS_REPAIR_TOKEN:
+            settings = True
+        elif item.startswith("devmod:"):
+            dev_mods.add(item[len("devmod:"):])
+        else:
+            components.add(item)
+    return RepairPlan(
+        components=tuple(sorted(components)),
+        dev_mods=tuple(sorted(dev_mods)),
+        settings=settings,
+        unrepairable=tuple(sorted(unrepairable)),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Dry-run action plan model (design --dry-run). Pure builder so the plan is
 # testable and identical whether printed or (in a live run) executed.
 # ---------------------------------------------------------------------------
