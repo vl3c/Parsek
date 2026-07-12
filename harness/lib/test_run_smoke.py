@@ -45,6 +45,7 @@ for _p in (HARNESS_ROOT, HERE):
         sys.path.insert(0, _p)
 
 import hlib  # noqa: E402
+import oracle  # noqa: E402
 import run  # noqa: E402
 
 FAKE_KSP = os.path.join(HERE, "_fake_ksp.py")
@@ -705,6 +706,163 @@ class MissionBudgetExpiryFinalReadTests(unittest.TestCase):
         self.assertEqual(hlib.MISSION_VERDICT_FLAKE, result.mission_step["missionVerdict"])
         self.assertEqual("autopilot-flake", result.mission_step["subkind"])
         self.assertIn("no result", result.mission_step.get("reason", ""))
+
+
+class LedgerOracleEndToEndTests(unittest.TestCase):
+    """M-B2 end-to-end (design Test Plan "End-to-end (fake save JSON, no KSP)" ~830):
+    the REAL ledger-oracle verifier path (run._run_ledger_oracle -> oracle
+    compute/diff/build) driven over a FABRICATED careerSave block + manifest, with
+    NO KSP. Covers the zero-drift PASS, the hard-facet drift -> PARSEK-FAIL(ledger),
+    the report-only drift (logged not red), the absent-block tooling failure, and
+    the empty-manifest cross-check catching an unenumerated award."""
+
+    SEED = {"funds": 25000.0, "science": 0.0, "reputation": 0.0}
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-ledger-e2e-")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        self.logger = run.HarnessLogger()
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _seed_capture(self, **overrides):
+        vals = dict(self.SEED)
+        vals.update(overrides)
+        seed = oracle.SeedBaseline(funds=vals["funds"], science=vals["science"],
+                                   reputation=vals["reputation"])
+        block = {"parsed": True, "hasFunds": True, "hasScience": True, "hasRep": True}
+        block.update({"funds": vals["funds"], "sciencePool": vals["science"],
+                      "reputation": vals["reputation"]})
+        return run.SeedCapture(seed, "ok", block)
+
+    def _career_block(self, funds=25000.0, science=0.0, reputation=0.0,
+                      subject_science=None, vessels=None):
+        return {"parsed": True,
+                "hasFunds": True, "funds": funds,
+                "hasScience": True, "sciencePool": science,
+                "hasRep": True, "reputation": reputation,
+                "subjectScience": subject_science or {},
+                "activeContractGuids": [],
+                "vessels": vessels or []}
+
+    def _ledger_block(self, manifest=None):
+        return {"seedFrom": "template", "tolerances": "default", "rec3CarveOut": False,
+                "manifest": manifest or []}
+
+    def _run(self, ledger_block, career_block, log_text="", world_block=None, seed_capture=None):
+        return run._run_ledger_oracle(
+            ledger_block, world_block, career_block,
+            seed_capture if seed_capture is not None else self._seed_capture(),
+            log_text, "e2e-run", self.logger)
+
+    def test_zero_drift_empty_manifest_passes(self):
+        # Empty manifest + a careerSave block equal to the seed -> PASS, no hard drift.
+        result, drift, tooling = self._run(self._ledger_block(), self._career_block())
+        self.assertEqual("PASS", result["status"])
+        self.assertEqual(0, result["hardDivergences"])
+        self.assertFalse(drift)
+        self.assertFalse(tooling)
+        # The accumulated manifest artifact landed (deterministic, empty entries).
+        mpath = os.path.join(run.RESULTS_DIR, "e2e-run.manifest.json")
+        self.assertTrue(os.path.isfile(mpath))
+        with open(mpath, "r", encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        self.assertEqual([], manifest["entries"])
+        self.assertEqual([], manifest["capturedRaw"])
+        self.assertEqual(25000.0, manifest["seed"]["funds"])
+
+    def test_hard_funds_drift_reds_ledger(self):
+        # The cold-load wipe (BUG-F) / economy drift (BUG-A): the produced save's
+        # funds moved beyond tolerance -> hard drift -> PARSEK-FAIL(ledger). This is
+        # the most dangerous silent pass this module exists to prevent.
+        result, drift, tooling = self._run(self._ledger_block(), self._career_block(funds=0.0))
+        self.assertEqual("FAIL", result["status"])
+        self.assertTrue(drift)
+        self.assertFalse(tooling)
+        self.assertGreaterEqual(result["hardDivergences"], 1)
+        # classify_verdict maps ledger_drift -> PARSEK-FAIL(ledger).
+        d, v = _clean_ledger_facts()
+        v["ledger_drift"] = True
+        verdict = hlib.classify_verdict(d, v, {"bugId": ""}, 1, "once")
+        self.assertEqual(("PARSEK-FAIL", "ledger"), (verdict.verdict, verdict.subkind))
+
+    def test_unexpected_award_reds_with_named_ut_window(self):
+        # Empty manifest but a stock award line fired at ut=500 -> unexpected award
+        # (economy-drift signal) -> hard drift with the UT window NAMED (edge 4). The
+        # save itself is clean; the capture cross-check is what reds.
+        log = ("[LOG] [Parsek][INFO][Recorder] tick ut=500.0\n"
+               "[LOG] ContractSystem: contract Foo completed guid=g-9 funds=1000\n")
+        result, drift, tooling = self._run(self._ledger_block(), self._career_block(), log_text=log)
+        self.assertEqual("FAIL", result["status"])
+        self.assertTrue(drift)
+        self.assertEqual([500.0, 500.0], result["utWindow"])
+        # capturedRaw records the fired award for audit.
+        with open(os.path.join(run.RESULTS_DIR, "e2e-run.manifest.json"), "r", encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        self.assertEqual(1, len(manifest["capturedRaw"]))
+
+    def test_report_only_drift_logged_not_red(self):
+        # A per-subject science difference is REPORT-ONLY (the false positive
+        # LedgerGroundTruthDiff avoids): logged, counted, never red. The hard pools
+        # match the seed.
+        career = self._career_block(subject_science={"crewReport@KerbinSrfLandedLaunchPad": 5.0})
+        result, drift, tooling = self._run(self._ledger_block(), career)
+        self.assertEqual("PASS", result["status"])   # no HARD drift
+        self.assertFalse(drift)
+        self.assertGreaterEqual(result["reportOnly"], 1)
+
+    def test_absent_career_block_is_tooling_invalid(self):
+        # An ACTIVE ledger verifier with an ABSENT careerSave block (old/broken
+        # analyzer) is INVALID(tooling), NEVER a silent pass (edge 13).
+        result, drift, tooling = self._run(self._ledger_block(), None)
+        self.assertEqual("INVALID", result["status"])
+        self.assertEqual("tooling", result["subkind"])
+        self.assertTrue(tooling)
+        self.assertFalse(drift)
+
+    def test_world_only_vessel_resource_drift_reds(self):
+        # A world-only activation (no ledger block, no seed): a guid-correlated vessel
+        # resource outside tolerance is a hard world mismatch -> PARSEK-FAIL(ledger).
+        career = self._career_block(vessels=[
+            {"pid": "v-guid-1", "persistentId": 100000, "name": "X", "type": "Ship",
+             "resourceTotals": {"LiquidFuel": 40.0}}])
+        world = {"vessels": {"entry": [
+            {"guid": "v-guid-1", "resources": {"LiquidFuel": {"expected": 90.0, "tol": 0.1}}}]}}
+        result, drift, tooling = run._run_ledger_oracle(
+            None, world, career, None, "", "e2e-world", self.logger)
+        self.assertEqual("FAIL", result["status"])
+        self.assertTrue(drift)
+        self.assertFalse(tooling)
+
+    def test_world_only_vessel_resource_within_tolerance_passes(self):
+        career = self._career_block(vessels=[
+            {"pid": "v-guid-1", "persistentId": 100000, "name": "X", "type": "Ship",
+             "resourceTotals": {"LiquidFuel": 90.05}}])
+        world = {"vessels": {"entry": [
+            {"guid": "v-guid-1", "resources": {"LiquidFuel": {"expected": 90.0, "tol": 0.1}}}]}}
+        result, drift, tooling = run._run_ledger_oracle(
+            None, world, career, None, "", "e2e-world-ok", self.logger)
+        self.assertEqual("PASS", result["status"])
+        self.assertFalse(drift)
+
+
+def _clean_ledger_facts():
+    """A clean driver-valid facts pair (mirrors test_hlib's _clean_pass_facts) with
+    every verifier PASS, so a single toggled verifier flag drives the verdict."""
+    driver = {"spec_valid": True, "admission_ok": True, "instance_lock_ok": True,
+              "instance_busy": False, "boot_crashed": False, "boot_crash_repeated": False,
+              "batch_crashed": False, "valid": True, "stage_subkind": ""}
+    verifiers = {"killed": False, "batch_expected": False, "batch_present": True,
+                 "analyzer": hlib.AnalyzerVerdict("PASS", "", None),
+                 "log_validate_failed": False, "results_failed": False,
+                 "results_mismatch": False, "anomaly_hit": False,
+                 "expectation_mismatch": False, "ledger_drift": False}
+    return driver, verifiers
 
 
 if __name__ == "__main__":

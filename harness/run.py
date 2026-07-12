@@ -44,6 +44,7 @@ for _p in (LIB_DIR, PROVISION_DIR):
         sys.path.insert(0, _p)
 
 import hlib  # noqa: E402
+import oracle  # noqa: E402
 import provlib  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -275,6 +276,19 @@ class Runtime:
                 "-SaveDir", save_dir, "-FailOnRed"]
         if fresh_gate:
             args.append("-FreshSaveGate")
+        return self._run(args, timeout, cwd=WORKTREE_ROOT)
+
+    def run_seed_analyzer(self, save_dir: str, out_dir: str, timeout: float) -> ToolResult:
+        """Pre-launch seed baseline (M-B2, design Terminology ~92): run the OFFLINE
+        analyzer over the STAGED template save and REDIRECT its report OUT of the
+        save tree (``-ResultsDir out_dir``, NEVER inside the save KSP will boot) so
+        no analyzer artifact rides into the launched save. No ``-FailOnRed`` /
+        ``-FreshSaveGate``: this run exists ONLY to parse the template's ``careerSave``
+        block for the seed (ONE parser produces both the seed and the produced-save
+        totals, so a parser drift can never desync the legs)."""
+        args = ["pwsh", "-NoProfile", "-File",
+                os.path.join(SCRIPTS_DIR, "analyze-recordings.ps1"),
+                "-SaveDir", save_dir, "-ResultsDir", out_dir]
         return self._run(args, timeout, cwd=WORKTREE_ROOT)
 
     def run_log_validate(self, log_path: str, killed: bool, no_recording: bool,
@@ -1098,8 +1112,238 @@ def grep_anomaly_tokens(log_text: str) -> List[str]:
     return hits
 
 
+# ---------------------------------------------------------------------------
+# Ledger oracle glue (M-B2, design "The ledger-oracle verifier" ~444). run.py owns
+# the I/O (seed subprocess, careerSave file read, manifest write); every DECISION
+# is oracle.py / hlib. The oracle NEVER reads a Parsek-computed number.
+# ---------------------------------------------------------------------------
+
+# The captured-award facet -> careerSave/diff pool name (oracle diff facet names).
+_AWARD_FACET_TO_DIFF = {"funds": "funds", "science": "sciencePool", "reputation": "reputation"}
+
+
+class SeedCapture:
+    """The pre-launch seed baseline outcome (design Terminology ~92 / edge 15).
+    ``status`` is one of: ``ok`` (seed parsed), ``skipped`` (non-ledger or world-only
+    scenario -- no seed needed), ``invalid-fixture`` (template parsed but no career
+    pools while [expectations.ledger] is declared -> INVALID(fixture-authoring)),
+    ``invalid-tooling`` (the analyzer threw / could not parse -> INVALID(tooling))."""
+
+    def __init__(self, seed, status: str, block: Optional[Dict]):
+        self.seed = seed          # oracle.SeedBaseline or None
+        self.status = status
+        self.block = block        # the raw seed careerSave dict or None
+
+
+def _capture_seed_baseline(spec: Dict, instance_dir: str, run_save_name: str,
+                           run_id: str, runtime: Runtime, logger: HarnessLogger) -> SeedCapture:
+    """Acquire the fixture seed baseline pre-launch (design ~92). Runs ONLY for a
+    scenario declaring ``[expectations.ledger]`` with ``seedFrom = "template"`` (a
+    world-only scenario needs no seed). Distinguishes edge-15 failure modes by the
+    seed careerSave block's ``parsed`` / ``hasX`` flags."""
+    expectations = spec.get("expectations", {}) or {}
+    ledger_block = expectations.get("ledger")
+    if ledger_block is None or (ledger_block.get("seedFrom", "template") != "template"):
+        return SeedCapture(None, "skipped", None)
+
+    save_dir = os.path.join(instance_dir, "saves", run_save_name)
+    seed_out = os.path.join(RESULTS_DIR, "%s.seed" % run_id)
+    os.makedirs(seed_out, exist_ok=True)
+    res = runtime.run_seed_analyzer(save_dir, seed_out, ANALYZER_TIMEOUT_SECONDS)
+    block = None
+    if res.ok:
+        leaf = os.path.basename(save_dir.rstrip("/\\"))
+        json_path = os.path.join(seed_out, "%s.analysis.json" % leaf)
+        if os.path.isfile(json_path):
+            try:
+                with open(json_path, "r", encoding="utf-8", errors="replace") as fh:
+                    block = hlib.parse_career_save_block(fh.read())
+            except OSError:
+                block = None
+    # Delete the seed artifact before boot (it is outside the save tree already;
+    # remove for tidiness so no stale seed report lingers, design ~98).
+    shutil.rmtree(seed_out, ignore_errors=True)
+
+    if block is None or not block.get("parsed", False):
+        logger.warn("Seed", "ledger-seed: template careerSave missing/parsed=false -> INVALID(tooling)")
+        return SeedCapture(None, "invalid-tooling", block)
+    has_any = bool(block.get("hasFunds") or block.get("hasScience") or block.get("hasRep"))
+    if not has_any:
+        logger.warn("Seed", "ledger-seed: template parsed but no career pools + [expectations.ledger] declared -> INVALID(fixture-authoring)")
+        return SeedCapture(None, "invalid-fixture", block)
+    seed = oracle.parse_seed_baseline(block)
+    logger.info("Seed", "ledger-seed template=%s via=analyzer parsed=True funds=%s science=%s rep=%s hasFunds=%s hasScience=%s hasRep=%s resultsRedirect=%s"
+                % (run_save_name, seed.funds, seed.science, seed.reputation,
+                   block.get("hasFunds"), block.get("hasScience"), block.get("hasRep"), seed_out))
+    return SeedCapture(seed, "ok", block)
+
+
+def _read_career_save_block(save_dir: str) -> Optional[Dict]:
+    """Read the produced save's ``careerSave`` block from the analyzer's
+    ``.analysis.json`` (verifier 3 already produced it). None => the block is ABSENT
+    (old/broken analyzer -> the ledger verifier treats it as INVALID(tooling),
+    edge 13). A ``{parsed:false}`` block is returned as-is (facet-absent)."""
+    leaf = os.path.basename(save_dir.rstrip("/\\"))
+    json_path = os.path.join(save_dir, "analysis", "%s.analysis.json" % leaf)
+    if not os.path.isfile(json_path):
+        return None
+    try:
+        with open(json_path, "r", encoding="utf-8", errors="replace") as fh:
+            return hlib.parse_career_save_block(fh.read())
+    except OSError:
+        return None
+
+
+def _manifest_entry_to_dict(e) -> Dict:
+    """Serialize an oracle.ManifestEntry to a stable-keyed dict for the accumulated
+    manifest artifact."""
+    return {"ut": e.ut, "seq": e.seq, "kind": e.kind, "funds": e.funds,
+            "science": e.science, "reputation": e.reputation, "repMode": e.rep_mode,
+            "subjectIds": list(e.subject_ids), "contractGuid": e.contract_guid,
+            "provenance": e.provenance, "rec3Row": e.rec3_row}
+
+
+def _write_accumulated_manifest(manifest: Dict, run_id: str, logger: HarnessLogger) -> None:
+    """Write ``harness/results/<runId>.manifest.json`` deterministically (design
+    ~262: sorted keys, ``\\n`` endings). Never raises: a write failure degrades to
+    an Error log (the verdict is still computed from the in-memory manifest)."""
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    path = os.path.join(RESULTS_DIR, "%s.manifest.json" % run_id)
+    text = json.dumps(manifest, sort_keys=True, indent=2).replace("\r\n", "\n") + "\n"
+    try:
+        with open(path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+        logger.info("Verify", "manifest written %s" % path)
+    except OSError as exc:
+        logger.error("Verify", "manifest write failed: %s" % exc)
+
+
+def _build_and_write_manifest(ledger_block: Dict, log_text: str, seed,
+                              run_id: str, logger: HarnessLogger) -> Tuple:
+    """Build leg A (design ~366): the seam-declared author-constant entries (the set
+    the oracle sums into EXPECTED) + the stock-log-captured awards (cross-checked as
+    corroborating / unexpected). Writes the accumulated ``<runId>.manifest.json``
+    (``entries`` = the oracle-consumed seam entries, ``capturedRaw`` = every matched
+    stock line). Returns ``(seam_entries, deduped_captured)``.
+
+    v1 reconciliation (design ambiguity resolved): the accumulated ``entries`` the
+    oracle CONSUMES for EXPECTED are the seam-declared author constants ONLY. The
+    Mental Model invariant (~199) is binding -- an empty-manifest B10 must compute
+    ``expected == seed`` so the save-diff catches an award the capture MISSED -- so
+    captured awards are NOT summed into expected; they are cross-checked
+    (corroborate a seam entry, or red as an unexpected award, edge 4). ``capturedRaw``
+    records every captured line for audit."""
+    raw_seam = ledger_block.get("manifest", []) or []
+    seam_parse = oracle.parse_manifest_entries(raw_seam)
+    for err in seam_parse.errors:
+        logger.warn("Verify", "manifest seam entry rejected: %s" % err)
+    seam_entries = seam_parse.entries
+
+    cap = hlib.parse_stock_award_lines(log_text)
+    deduped = hlib.dedupe_captured_awards(cap.captured)
+    logger.info("Verify", "manifest-capture stockLines=%d deduped=%d seamDeclared=%d accumulated=%d"
+                % (cap.stock_lines, len(deduped), len(seam_entries), len(seam_entries) + len(deduped)))
+
+    manifest = {
+        "schema": oracle.SCHEMA_VERSION,
+        "runId": run_id,
+        "seed": {"funds": seed.funds, "science": seed.science, "reputation": seed.reputation,
+                 "hasFunds": seed.has_funds, "hasScience": seed.has_science, "hasRep": seed.has_rep},
+        "entries": [_manifest_entry_to_dict(e) for e in seam_entries],
+        "capturedRaw": [dict(c.to_entry_dict(), rawLine=c.raw_line) for c in cap.captured],
+    }
+    _write_accumulated_manifest(manifest, run_id, logger)
+    return seam_entries, deduped
+
+
+def _world_declared_vessels(world_block: Dict) -> List[Dict]:
+    """The declared vessel entries under ``[[expectations.world.vessels.entry]]``
+    (design ~502)."""
+    vessels = (world_block or {}).get("vessels", {}) or {}
+    return vessels.get("entry", []) or []
+
+
+def _run_ledger_oracle(ledger_block: Optional[Dict], world_block: Optional[Dict],
+                       career_block: Optional[Dict], seed_capture: Optional[SeedCapture],
+                       log_text: str, run_id: str, logger: HarnessLogger) -> Tuple[Dict, bool, bool]:
+    """Run the ledger-oracle verifier (design ~444). Returns ``(ledgerOracle result
+    row, ledger_drift, tooling_invalid)``. Pure over its inputs apart from the leg-A
+    manifest write; the diff DECISIONS are all oracle.py.
+
+    Edge 13: an ABSENT careerSave block on an ACTIVE ledger verifier is
+    INVALID(tooling) (an active ledger check must never green on a missing input).
+    """
+    if career_block is None:
+        logger.warn("Verify", "verify ledgerOracle status=INVALID subkind=tooling: careerSave block absent from analysis.json")
+        return ({"status": oracle.ORACLE_STATUS_INVALID, "subkind": "tooling",
+                 "reason": "careerSave block absent from analysis.json",
+                 "hardDivergences": 0, "reportOnly": 0, "utWindow": [None, None]},
+                False, True)
+
+    tol = oracle.default_tolerances()
+    divergences: List = []
+
+    if ledger_block is not None:
+        seed = seed_capture.seed if seed_capture else None
+        if seed is None:
+            # Defensive: an active ledger verifier with no seed should have been a
+            # pre-launch terminal INVALID; fail closed rather than green.
+            logger.warn("Verify", "verify ledgerOracle status=INVALID subkind=tooling: no seed baseline for an active ledger verifier")
+            return ({"status": oracle.ORACLE_STATUS_INVALID, "subkind": "tooling",
+                     "reason": "no seed baseline", "hardDivergences": 0,
+                     "reportOnly": 0, "utWindow": [None, None]}, False, True)
+        rec3 = bool(ledger_block.get("rec3CarveOut", False))
+        rec3_whitelist = (ledger_block.get("rec3Whitelist", []) or []) if rec3 else []
+        seam_entries, captured = _build_and_write_manifest(ledger_block, log_text, seed, run_id, logger)
+        expected = oracle.compute_expected(seed, seam_entries, tol, rec3_whitelist)
+        logger.info("Verify", "oracle-expected funds=%s science=%s rep=%s subjects=%d activeContracts=%d rec3CarveOut=%s"
+                    % (expected.funds, expected.science, expected.reputation,
+                       len(expected.subject_science), len(expected.active_contract_guids), rec3))
+        for row in expected.rec3_residual_rows:
+            logger.info("Verify", "oracle: rec3 residual retained row=%s expecting [Rec-3 residual]" % row)
+        divergences += oracle.diff_expected_vs_parsed(expected, career_block, tol, rec3_whitelist)
+        # Zero-delta cross-check (design ~482 / edge 4): a captured award not
+        # explained by a seam entry is an unexpected stock award -> hard drift.
+        for c in hlib.unmatched_captured_awards(seam_entries, captured):
+            facet = _AWARD_FACET_TO_DIFF.get(c.facet, c.facet)
+            divergences.append(oracle.OracleDivergence(
+                facet=facet, kind="unexpected-award",
+                identity=(c.contract_guid or c.subject_id or ""),
+                expected=None, parsed=c.amount, ut_window=(c.ut, c.ut), hard=True,
+                detail="unexpected stock award kind=%s facet=%s amount=%r ut=%s line=%r"
+                       % (c.kind, c.facet, c.amount, c.ut, c.raw_line)))
+            logger.warn("Verify", "manifest-capture: unexpected stock award ut=%s kind=%s line='%s'"
+                        % (c.ut, c.kind, c.raw_line))
+
+    if world_block is not None:
+        declared = _world_declared_vessels(world_block)
+        parsed_vessels = career_block.get("vessels", []) if isinstance(career_block, dict) else []
+        world_divs = oracle.diff_world_vessels(declared, parsed_vessels, tol)
+        for d in world_divs:
+            logger.info("Verify", "world-vessel corr=%s kind=%s expected=%s parsed=%s hard=%s detail=%s"
+                        % (d.identity, d.kind, d.expected, d.parsed, d.hard, d.detail))
+        divergences += world_divs
+        logger.verbose("Verify", "world: roster sub-facet deferred (no CareerSaveSnapshot roster)")
+
+    for d in divergences:
+        if d.hard:
+            logger.warn("Verify", "ledger-drift facet=%s id=%s expected=%s parsed=%s utWindow=[%s,%s]"
+                        % (d.facet, d.identity, d.expected, d.parsed, d.ut_window[0], d.ut_window[1]))
+        else:
+            logger.info("Verify", "ledger-diff facet=%s id=%s expected=%s parsed=%s hard=False"
+                        % (d.facet, d.identity, d.expected, d.parsed))
+
+    result = oracle.build_oracle_result(divergences)
+    ledger_drift = oracle.has_hard_drift(divergences)
+    logger.info("Verify", "verify ledgerOracle status=%s hardDivergences=%d reportOnly=%d"
+                % (result["status"], result["hardDivergences"], result["reportOnly"]))
+    return result, ledger_drift, False
+
+
 def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
-                  drive: DriveResult, runtime: Runtime, logger: HarnessLogger) -> Dict:
+                  drive: DriveResult, runtime: Runtime, logger: HarnessLogger,
+                  seed_capture: Optional["SeedCapture"] = None,
+                  run_id: Optional[str] = None) -> Dict:
     """Run the ordered verifier chain and return the (driver, verifiers) fact dicts
     for hlib.classify_verdict plus a per-verifier detail record."""
     expectations = spec.get("expectations", {}) or {}
@@ -1215,7 +1459,12 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         detail["analyzer"] = {"status": "SKIPPED", "reason": "killed-torn-save"}
         detail["anomalySweep"] = {"status": "SKIPPED", "reason": "killed"}
         detail["expectations"] = {"status": "SKIPPED", "reason": "killed"}
-        detail["ledgerOracle"] = {"status": "SKIPPED", "reason": "mb2-not-landed"}
+        # The ledger-oracle verifier is SKIPPED on any KILLED attempt: a torn save is
+        # never ground truth (design edge 11), regardless of whether it was declared.
+        ledger_active_killed = (expectations.get("ledger") is not None
+                                or expectations.get("world") is not None)
+        detail["ledgerOracle"] = {"status": "SKIPPED",
+                                  "reason": "killed" if ledger_active_killed else "mb2-not-landed"}
         return {"driver": driver_facts, "verifiers": verifiers, "detail": detail,
                 "recordingCount": None}
 
@@ -1304,8 +1553,29 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     else:
         detail.setdefault("expectations", {"status": "SKIPPED", "reason": "short-circuit"})
 
-    # 8. Ledger oracle (M-B2): SKIPPED in v1.
-    detail["ledgerOracle"] = {"status": "SKIPPED", "reason": "mb2-not-landed"}
+    # 8. Ledger oracle (M-B2). Active iff the scenario declares [expectations.ledger]
+    # OR [expectations.world]; else SKIPPED(mb2-not-landed), the reserved contract.
+    # Runs after the analyzer (verifier 3) produced the .analysis.json careerSave
+    # block; independent of the later-verifier short-circuit (a ledger drift is its
+    # own signal). Gated on driver_valid: a driver-INVALID save is not ground truth.
+    ledger_block = expectations.get("ledger")
+    world_block = expectations.get("world")
+    if ledger_block is None and world_block is None:
+        detail["ledgerOracle"] = {"status": "SKIPPED", "reason": "mb2-not-landed"}
+    elif not driver_valid:
+        detail["ledgerOracle"] = {"status": "SKIPPED", "reason": "driver-invalid"}
+        logger.info("Verify", "verify ledgerOracle status=SKIPPED reason=driver-invalid")
+    else:
+        career_block = _read_career_save_block(save_dir)
+        led_detail, ledger_drift, ledger_tooling = _run_ledger_oracle(
+            ledger_block, world_block, career_block, seed_capture,
+            log_text, run_id or "", logger)
+        detail["ledgerOracle"] = led_detail
+        if ledger_tooling:
+            verifiers["tooling_invalid"] = True
+            verifiers["tooling_subkind"] = led_detail.get("subkind", "tooling")
+        if ledger_drift:
+            verifiers["ledger_drift"] = True
 
     return {"driver": driver_facts, "verifiers": verifiers, "detail": detail,
             "recordingCount": recording_count}
@@ -1489,6 +1759,21 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
                                                  False, reason),
                                     admission=admission_rec, logger=logger, run_id=run_id)
 
+        # ---- SEED BASELINE (M-B2, ledger scenarios) ----------------------
+        # Acquire the fixture seed pre-launch by running the analyzer over the STAGED
+        # save (design ~92). Edge 15: a template with no career pools (fixture bug)
+        # or an analyzer that could not parse it (tooling) is a TERMINAL INVALID with
+        # no boot -- there is nothing to assert against. Non-ledger / world-only
+        # scenarios skip this entirely.
+        seed_capture = _capture_seed_baseline(spec, instance_dir, run_save_name,
+                                              run_id, runtime, logger)
+        if seed_capture.status in ("invalid-fixture", "invalid-tooling"):
+            subkind = "fixture-authoring" if seed_capture.status == "invalid-fixture" else "tooling"
+            return _terminal_result(spec, profile, attempt, started, start_wall, runtime,
+                                    hlib.Verdict(hlib.VERDICT_INVALID, subkind, False,
+                                                 "ledger seed baseline %s" % seed_capture.status),
+                                    admission=admission_rec, logger=logger, run_id=run_id)
+
         # ---- LAUNCH ------------------------------------------------------
         env = dict(os.environ)
         env["PARSEK_TEST_COMMANDS"] = "1"
@@ -1510,7 +1795,8 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
                            run_budget, mission_ctx=mission_ctx, run_id=run_id)
 
         # ---- VERIFY ------------------------------------------------------
-        facts = run_verifiers(spec, instance_dir, run_save_name, drive, runtime, logger)
+        facts = run_verifiers(spec, instance_dir, run_save_name, drive, runtime, logger,
+                              seed_capture=seed_capture, run_id=run_id)
         driver_facts = facts["driver"]
         # NOTE (N4): v1 flags boot-crash-repeated on ANY second boot-crash. The S7
         # boot-crash SIGNATURE compare (exit code + last KSP.log lines) that would
@@ -1785,6 +2071,14 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
         print("  [STAGE  ] template=%s inject=%s craft=%d"
               % (fixture.get("saveTemplate"), fixture.get("injectedRecordings"),
                  len(fixture.get("craft", []) or [])))
+        # M-B2: a ledger scenario captures the seed baseline pre-launch (analyzer
+        # over the staged template, redirected OUT of the save tree).
+        exp = spec.get("expectations", {}) or {}
+        ledger_block = exp.get("ledger")
+        world_block = exp.get("world")
+        if ledger_block is not None and (ledger_block.get("seedFrom", "template") == "template"):
+            print("  [SEED   ] analyzer over staged template -> seed baseline "
+                  "(careerSave block; redirect out of save tree; terminal INVALID on edge-15 fixture/tooling fault)")
         print("  [LAUNCH ] %s/KSP_x64.exe budget=%ss"
               % (inst, (spec.get("runtime", {}) or {}).get("budgetSeconds")))
         for i, step in enumerate(steps):
@@ -1797,8 +2091,11 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
             else:
                 print("  [DRIVE  ] step=%d cmd=%s expect=%s budget=%s"
                       % (i, step.get("cmd"), step.get("expect", "OK"), step.get("budget", "-")))
-        print("  [VERIFY ] driverValidity, batchComplete, analyzer(-FreshSaveGate), "
-              "logValidate, results, anomalySweep, expectations")
+        verify_line = ("  [VERIFY ] driverValidity, batchComplete, analyzer(-FreshSaveGate), "
+                       "logValidate, results, anomalySweep, expectations")
+        if ledger_block is not None or world_block is not None:
+            verify_line += (", ledgerOracle(manifest-capture + oracle diff -> PARSEK-FAIL(ledger) on hard drift)")
+        print(verify_line)
         print("")
     print("=== end plan ===")
     print("")

@@ -16,6 +16,11 @@ Covered here (design docs/dev/design-autotest-harness-core.md):
   - verdict classification (``classify_verdict`` + ``should_retry`` +
     ``classify_expected_fail`` + ``resolve_terminal``)
   - expectations evaluation (``evaluate_expectations``)
+  - the M-B2 ledger-oracle PURE support: the ``[expectations.ledger]`` spec-surface
+    validator (``validate_ledger_expectations``), the produced-save ``careerSave``
+    block read (``parse_career_save_block``), and the leg-A stock-award capture
+    (``parse_stock_award_lines`` / ``dedupe_captured_awards`` /
+    ``unmatched_captured_awards``); the oracle MATH is the sibling ``oracle.py``
   - log-validation profile selection (``select_logvalidate_profile``)
   - budget arithmetic (``step_wait_ok`` / ``required_step_wait``)
   - instance admission reuse over provlib (``admit_instance`` / ``build_expected_admission``)
@@ -755,6 +760,12 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.append(
                 "driver.steps[%d]: mission-kind step requires driver.kind 'autopilot'" % (mi,))
 
+    # M-B2 ledger-oracle spec surface (design ~226): a malformed
+    # [expectations.ledger] block must never launch KSP. Structural only; the
+    # per-entry manifest validation runs at run time (oracle.parse_manifest_entries).
+    if "ledger" in expectations:
+        errors.extend(validate_ledger_expectations(expectations.get("ledger")))
+
     # Dimensions covered: every key + value present in the registry.
     dims = spec.get("dimensionsCovered", {}) or {}
     for dim, values in dims.items():
@@ -1002,7 +1013,11 @@ class ExpectationResult:
     reserved: Tuple[str, ...]
 
 
-RESERVED_EXPECTATION_BLOCKS: Tuple[str, ...] = ("world", "route", "rewind", "loop")
+# M-B2 (design ~495): on activation ``world`` LEAVES this tuple -- the ledger-oracle
+# verifier (chain slot 8) becomes its SOLE owner (vessel resource totals), so slot 7
+# STOPS recording it as reserved and there is exactly ONE owner (no double-count).
+# ``ledger`` was never reserved here (it is a tolerated-unknown block slot 7 ignores).
+RESERVED_EXPECTATION_BLOCKS: Tuple[str, ...] = ("route", "rewind", "loop")
 
 
 def evaluate_expectations(
@@ -1013,9 +1028,11 @@ def evaluate_expectations(
     v1 evaluates: ``recordings.count`` (min/max window) and
     ``logContracts.required`` / ``logContracts.forbidden`` (LITERAL KSP.log line
     regex patterns applied with ``re.search`` over the log body). A mismatch ->
-    FAIL (the caller reds PARSEK-FAIL expectation). The world/route/rewind/loop
-    blocks are RESERVED: parsed + recorded SKIPPED until their verifiers land
-    (M-B2/M-C2), so a scenario written now needs no format break then.
+    FAIL (the caller reds PARSEK-FAIL expectation). The route/rewind/loop blocks
+    are RESERVED: parsed + recorded SKIPPED until their verifiers land (M-C2), so a
+    scenario written now needs no format break then. ``world`` is NO LONGER reserved
+    here (M-B2 gave verifier 8 sole ownership, design ~495) and ``ledger`` is a
+    tolerated-unknown block this evaluator ignores (verifier 8 owns it).
     """
     expectations = expectations or {}
     mismatches: List[str] = []
@@ -1067,6 +1084,274 @@ def evaluate_anomaly_sweep(hit_tokens: Sequence[str], allowed_anomalies: Sequenc
     """
     allowed = set(allowed_anomalies or ())
     return [t for t in hit_tokens if t in ANOMALY_TOKENS and t not in allowed]
+
+
+# ---------------------------------------------------------------------------
+# Ledger-oracle support (design M-B2, docs/dev/design-autotest-ledger-oracle.md).
+# The PURE half of the leg-A manifest capture + the produced-save careerSave read.
+# The oracle MATH itself lives in the sibling ``oracle.py`` (parse / compute /
+# diff / build-result); run.py glues these two libraries together. Everything
+# here is side-effect-free over strings / dicts and imports NOTHING from oracle
+# (it emits the raw entry-dict shape oracle.parse_manifest_entries consumes, and
+# reads oracle-entry objects structurally via duck typing in the cross-check).
+# ---------------------------------------------------------------------------
+
+# The [expectations.ledger] spec-surface vocabulary (design Data Model ~226). v1
+# accepts exactly one value each; a literal {funds,science,reputation} seed and
+# non-default tolerance profiles are RESERVED (validate rejects an unknown value).
+LEDGER_SEED_FROM_VALUES: Tuple[str, ...] = ("template",)
+LEDGER_TOLERANCE_VALUES: Tuple[str, ...] = ("default",)
+
+
+def validate_ledger_expectations(ledger_block: Optional[Dict]) -> List[str]:
+    """Validate the ``[expectations.ledger]`` spec-surface block (design ~226).
+
+    Structural spec-surface only (a malformed ledger block must never launch KSP):
+    ``seedFrom`` in the accepted set, ``tolerances`` in the accepted set,
+    ``rec3CarveOut`` a bool, ``manifest`` an array. The per-ENTRY validation (the
+    ``kind`` enum, the every-amount-is-a-DELTA rule, the state-dependent-facet
+    author-constant rule) is oracle.parse_manifest_entries's job at RUN time (a
+    captured line can only be judged against the produced log), so this stays a
+    cheap pre-launch gate. Returns every failing rule (mirrors validate_spec)."""
+    if not isinstance(ledger_block, dict):
+        return ["expectations.ledger: must be a table"]
+    errs: List[str] = []
+    sf = ledger_block.get("seedFrom", "template")
+    if sf not in LEDGER_SEED_FROM_VALUES:
+        errs.append("expectations.ledger.seedFrom: %r not in %s (a literal seed is reserved)"
+                    % (sf, list(LEDGER_SEED_FROM_VALUES)))
+    tol = ledger_block.get("tolerances", "default")
+    if tol not in LEDGER_TOLERANCE_VALUES:
+        errs.append("expectations.ledger.tolerances: %r not in %s"
+                    % (tol, list(LEDGER_TOLERANCE_VALUES)))
+    r3 = ledger_block.get("rec3CarveOut", False)
+    if not isinstance(r3, bool):
+        errs.append("expectations.ledger.rec3CarveOut: %r must be a bool" % (r3,))
+    manifest = ledger_block.get("manifest", [])
+    if not isinstance(manifest, list):
+        errs.append("expectations.ledger.manifest: must be an array of entry tables")
+    return errs
+
+
+def parse_career_save_block(analysis_json) -> Optional[Dict]:
+    """Extract the ``careerSave`` block from a ``.analysis.json`` (string or dict).
+
+    Design verifier step 1 (~455): the ledger-oracle verifier reads the parsed
+    produced-save totals from THIS block. Returns the block dict when present (it
+    carries its own ``parsed`` / ``hasX`` facet flags, so facet-absence is read
+    from the flags, NEVER from a missing block). Returns None when the block is
+    ABSENT ENTIRELY (an old / broken analyzer -> the caller treats it as
+    INVALID(tooling), edge 13, NEVER a silent pass) or the JSON is unparseable. A
+    ``{parsed:false}`` block is returned AS-IS (facet-absent, not tooling-missing,
+    per the WRITER CONTRACT that the block is ALWAYS emitted when the analyzer ran).
+    """
+    obj = analysis_json
+    if isinstance(analysis_json, str):
+        try:
+            obj = json.loads(analysis_json)
+        except (ValueError, TypeError):
+            return None
+    if not isinstance(obj, dict):
+        return None
+    block = obj.get("careerSave")
+    if not isinstance(block, dict):
+        return None
+    return block
+
+
+@dataclass(frozen=True)
+class StockAwardPattern:
+    """One enumerated, EN-pinned stock KSP.log award-line pattern (design Behavior
+    "Manifest capture" ~372). ``facet`` is the career pool the award credits
+    (``funds`` / ``science`` / ``reputation``); ``kind`` is the manifest kind. The
+    ``regex`` MUST define a named group ``amount`` (the per-event DELTA) and MAY
+    define ``guid`` (contract identity) / ``subject`` (per-subject science id).
+    Every pattern CITES its stock emitter; a candidate NOT confirmed stable on the
+    EN instance is EXCLUDED (VERIFY-PENDING-OPERATOR) until an operator verifies it
+    against a live EN KSP.log before any NONZERO-delta L1 scenario trusts it. v1
+    (B10) is a ZERO-delta cross-check, so an incomplete/imperfect set is SAFE: a
+    captured award that MISSED the enumeration still moves the produced save, so
+    the save-diff reds anyway; a false-positive capture on B10 reds as an
+    unexpected award, cross-checked by the save-diff (design Mental Model ~199)."""
+    kind: str
+    facet: str
+    regex: "re.Pattern"
+    emitter: str
+
+
+# UT correlation source (design ~390): a stock award line is not self-stamped, so
+# the capture assigns ``ut`` by the NEAREST UT-stamped [Parsek] line at or before
+# it. Parsek log lines carry ``ut=<value>``.
+_STOCK_UT_RE = re.compile(r"\[Parsek\].*?\but=(?P<ut>-?\d+(?:\.\d+)?)")
+
+# The v1 EN-pinned candidate enumeration (design ~380, each VERIFY-PENDING-OPERATOR
+# before a NONZERO L1 scenario trusts it). Deliberately CONSERVATIVE: the B10
+# zero-delta cross-check makes an incomplete set safe. A candidate that is not
+# stable in EN KSP.log (message-system chatter, localized text) is NOT enumerated;
+# where stock is silent the capture falls to the RESERVED gameevents-captured
+# provenance (M-B3), NEVER to a Parsek recalc read.
+STOCK_AWARD_PATTERNS: Tuple[StockAwardPattern, ...] = (
+    # ResearchAndDevelopment science credit on transmit / recover (design ~384). A
+    # per-event DELTA line (``delta=``), never a running R&D pool balance.
+    StockAwardPattern(
+        "science-transmit", "science",
+        re.compile(r"\bResearchAndDevelopment\b.*?\bscience\b"
+                   r"(?:.*?\bsubject=(?P<subject>\S+))?.*?\bdelta=(?P<amount>-?\d+(?:\.\d+)?)"),
+        "ResearchAndDevelopment"),
+    # ContractSystem funds payout on completion (design ~383).
+    StockAwardPattern(
+        "contract-complete", "funds",
+        re.compile(r"\bContractSystem\b.*?\bcontract\b.*?\bcompleted\b"
+                   r"(?:.*?\bguid=(?P<guid>\S+))?.*?\bfunds=(?P<amount>-?\d+(?:\.\d+)?)"),
+        "ContractSystem"),
+    # ContractSystem reputation delta on completion (design ~383).
+    StockAwardPattern(
+        "contract-complete", "reputation",
+        re.compile(r"\bContractSystem\b.*?\bcontract\b.*?\bcompleted\b"
+                   r"(?:.*?\bguid=(?P<guid>\S+))?.*?\breputation=(?P<amount>-?\d+(?:\.\d+)?)"),
+        "ContractSystem"),
+)
+
+# A line reporting a post-grant running BALANCE (not a per-event DELTA) is
+# INADMISSIBLE (design ~398 / Mental Model ~196): admitting it would double-count
+# against the seed. Such a line is explicitly REJECTED (counted, never captured).
+BALANCE_LINE_PATTERNS: Tuple["re.Pattern", ...] = (
+    re.compile(r"\b(?:total|current|running|new)\s+funds\b", re.IGNORECASE),
+    re.compile(r"\bfunds\s+balance\b", re.IGNORECASE),
+    re.compile(r"\b(?:total|current|running|new)\s+science\b", re.IGNORECASE),
+    re.compile(r"\b(?:total|current|running|new)\s+reputation\b", re.IGNORECASE),
+)
+
+
+@dataclass(frozen=True)
+class CapturedAward:
+    """One ``stock-log-captured`` award (design ~85 / ~372). ``ut`` is the nearest
+    preceding UT-stamped [Parsek] line's UT, or None; ``seq`` is the log line
+    ordinal (the seqKey when ``ut`` is null). Every captured amount is a DELTA."""
+    kind: str
+    facet: str
+    amount: float
+    contract_guid: str
+    subject_id: str
+    ut: Optional[float]
+    seq: int
+    raw_line: str
+
+    @property
+    def seq_key(self):
+        """The dedupe / sort seqKey: ``ut`` when known, the line ordinal otherwise
+        (design ~394), mirroring oracle.ManifestEntry.seq_key."""
+        return self.ut if self.ut is not None else self.seq
+
+    def to_entry_dict(self) -> Dict:
+        """The raw entry-dict shape oracle.parse_manifest_entries consumes (a
+        ``stock-log-captured`` DELTA entry). Omits a facet key when the amount is
+        on a different pool (a missing facet key parses as a 0 delta there)."""
+        d: Dict = {
+            "kind": self.kind,
+            "provenance": "stock-log-captured",
+            "amountKind": "delta",
+            "seq": self.seq,
+            self.facet: self.amount,
+        }
+        if self.ut is not None:
+            d["ut"] = self.ut
+        if self.contract_guid:
+            d["contractGuid"] = self.contract_guid
+        if self.subject_id:
+            d["subjectIds"] = [self.subject_id]
+        return d
+
+
+@dataclass(frozen=True)
+class StockCaptureResult:
+    """Result of grepping the produced KSP.log for stock awards (design leg A)."""
+    captured: Tuple[CapturedAward, ...]
+    rejected_balance: int
+    stock_lines: int  # award lines matched (before dedupe)
+
+
+def parse_stock_award_lines(log_text: str) -> StockCaptureResult:
+    """Grep a produced KSP.log body for enumerated stock-award DELTA lines (pure).
+
+    Walks the log once, tracking the most recent UT-stamped [Parsek] line so each
+    award correlates to the nearest preceding UT (``ut = None`` + the line ordinal
+    ``seq`` as the seqKey when none is in range, design ~390). A running-BALANCE
+    line is explicitly REJECTED (counted, never captured; design ~398). At most one
+    award is captured per line (the first matching enumerated pattern). This is the
+    leg-A CAPTURE the oracle cross-checks against the produced save; a conservative
+    enumeration is SAFE for the zero-delta flagship (design Mental Model ~199)."""
+    captured: List[CapturedAward] = []
+    rejected = 0
+    last_ut: Optional[float] = None
+    for idx, line in enumerate((log_text or "").splitlines()):
+        m_ut = _STOCK_UT_RE.search(line)
+        if m_ut is not None:
+            try:
+                last_ut = float(m_ut.group("ut"))
+            except (TypeError, ValueError):
+                pass
+        if any(bp.search(line) for bp in BALANCE_LINE_PATTERNS):
+            rejected += 1
+            continue
+        for pat in STOCK_AWARD_PATTERNS:
+            m = pat.regex.search(line)
+            if m is None:
+                continue
+            try:
+                amount = float(m.group("amount"))
+            except (TypeError, ValueError):
+                continue
+            gd = m.groupdict()
+            captured.append(CapturedAward(
+                kind=pat.kind, facet=pat.facet, amount=amount,
+                contract_guid=str(gd.get("guid") or ""),
+                subject_id=str(gd.get("subject") or ""),
+                ut=last_ut, seq=idx, raw_line=line.strip()))
+            break
+    return StockCaptureResult(tuple(captured), rejected, len(captured))
+
+
+def dedupe_captured_awards(captured: Sequence[CapturedAward]) -> List[CapturedAward]:
+    """Dedupe captured awards on ``(seqKey, kind, contractGuid|subjectId,
+    roundedAmount)`` keeping the FIRST (design ~404 / edge 2). A stock line
+    re-emitted on a scene reload at the SAME seqKey is one effect; a genuine second
+    identical award at a DISTINCT seqKey survives (the seqKey is in the key).
+    ``roundedAmount`` is the amount to 3 decimals (design ~402) so float-format
+    jitter across re-emitted lines does not defeat the dedupe."""
+    seen = set()
+    out: List[CapturedAward] = []
+    for c in captured:
+        ident = c.contract_guid or c.subject_id
+        key = (c.seq_key, c.kind, ident, round(c.amount, 3))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(c)
+    return out
+
+
+def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward]
+                              ) -> List[CapturedAward]:
+    """Return captured awards NOT explained by a seam-declared entry (design edge 4).
+
+    A captured award is EXPECTED iff a seam-declared entry shares its
+    ``(seqKey, kind, identity)``; an UNMATCHED captured award is an UNEXPECTED
+    stock award. On the empty-manifest B10 (no seam entries) EVERY captured award
+    is unexpected, which is exactly the economy-drift signal the passive-safety
+    scenario reds on (an unexpected award fired during passive play). ``seam_entries``
+    are oracle.ManifestEntry objects, read structurally (``.seq_key`` / ``.kind`` /
+    ``.contract_guid`` / ``.subject_ids``) so this imports nothing from oracle."""
+    seam_keys = set()
+    for e in seam_entries or ():
+        ident = e.contract_guid or (e.subject_ids[0] if e.subject_ids else "")
+        seam_keys.add((e.seq_key, e.kind, ident))
+    out: List[CapturedAward] = []
+    for c in captured:
+        ident = c.contract_guid or c.subject_id
+        if (c.seq_key, c.kind, ident) not in seam_keys:
+            out.append(c)
+    return out
 
 
 # ---------------------------------------------------------------------------

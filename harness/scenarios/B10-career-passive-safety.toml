@@ -49,6 +49,25 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # anomaly sweep. Empty = the sweep must find zero anomaly lines.
 allowedAnomalies = []
 
+# The ledger-oracle (M-B2, chain slot 8). Its PRESENCE activates the oracle: the
+# harness captures the fixture's seed baseline pre-launch (the analyzer over the
+# staged template), accumulates the action manifest post-run, computes expected
+# career totals, and diffs them against the produced save's careerSave block. A
+# hard-pool drift (funds / science / reputation) reds PARSEK-FAIL(ledger).
+#
+# B10 is the flagship ZERO-delta scenario: the manifest is EMPTY, so expected ==
+# seed. The oracle proves the produced save's funds/science/reputation still equal
+# the seed within tolerance AND that no unexpected stock award fired (a nonempty
+# capture on an empty manifest is itself the economy-drift signal). This automates
+# the R2/BUG-F cold-load-wipe-at-UT=0 guard (the cold LoadGame) and the in-scene
+# no-op passivity guard (the RunTests batch must not move the economy).
+[expectations.ledger]
+seedFrom     = "template"   # parse the staged fixture save for the seed baseline.
+tolerances   = "default"    # FacetTolerances.Default (funds 1.0, science 0.1, rep 0.1).
+rec3CarveOut = false        # no route residual in a passive-safety scenario.
+# Declared career effects go under [[expectations.ledger.manifest]]; B10 declares
+# NONE (empty manifest = zero expected delta).
+
 [runtime]
 budgetSeconds = 600
 

@@ -879,9 +879,21 @@ class EvaluateExpectationsTests(unittest.TestCase):
         self.assertEqual(hlib.evaluate_expectations(exp, None, log).status, "FAIL")
 
     def test_reserved_blocks_recorded(self):
-        exp = {"world": {"vesselPid": 1}, "recordings": {"count": {"min": 0, "max": 0}}}
+        # route/rewind/loop stay reserved until their verifiers land (M-C2).
+        exp = {"route": {"x": 1}, "recordings": {"count": {"min": 0, "max": 0}}}
         r = hlib.evaluate_expectations(exp, 0, "")
-        self.assertIn("world", r.reserved)
+        self.assertIn("route", r.reserved)
+
+    def test_world_no_longer_reserved_after_mb2(self):
+        # M-B2 (design ~495): world LEFT RESERVED_EXPECTATION_BLOCKS -- verifier 8
+        # is its SOLE owner now, so slot 7 must NOT record it as reserved (no
+        # double-count). A world-only expectation therefore has no reserved block here.
+        exp = {"world": {"vessels": {"entry": []}}, "recordings": {"count": {"min": 0, "max": 0}}}
+        r = hlib.evaluate_expectations(exp, 0, "")
+        self.assertNotIn("world", r.reserved)
+        self.assertNotIn("world", hlib.RESERVED_EXPECTATION_BLOCKS)
+        # ledger was never reserved (it is a tolerated-unknown block slot 7 ignores).
+        self.assertNotIn("ledger", hlib.RESERVED_EXPECTATION_BLOCKS)
 
 
 class AnomalySweepTests(unittest.TestCase):
@@ -1467,3 +1479,202 @@ class VenvAdmissionTests(unittest.TestCase):
         self.assertNotIn("tooling-venv", hlib.RETRYABLE_INVALID_SUBKINDS)
         r = hlib.Verdict(hlib.VERDICT_INVALID, "tooling-venv", False, "venv drift")
         self.assertFalse(hlib.should_retry(r, 1, "once"))
+
+
+# ---------------------------------------------------------------------------
+# M-B2 ledger-oracle PURE support (design docs/dev/design-autotest-ledger-oracle.md).
+# The leg-A stock-award capture, the produced-save careerSave block read, the
+# manifest dedupe, the unexpected-award cross-check, and the ledger spec surface.
+# ---------------------------------------------------------------------------
+
+import oracle  # noqa: E402
+
+
+class StockAwardCaptureTests(unittest.TestCase):
+    """Guards the leg-A capture (design Test Plan "Stock-log capture + dedupe" ~786):
+    a scene-reload re-emit must not double-count, a genuine second award must not be
+    dropped, a null-UT entry must still order, and a running-balance line must NEVER
+    be admitted as a manifest amount (it would double-count against the seed)."""
+
+    def test_award_with_ut_stamped_parsek_neighbor(self):
+        log = (
+            "[LOG] [Parsek][INFO][Recorder] tick ut=12345.6\n"
+            "[LOG] ContractSystem: contract Foo completed guid=g-1 funds=50000\n")
+        res = hlib.parse_stock_award_lines(log)
+        self.assertEqual(1, len(res.captured))
+        c = res.captured[0]
+        self.assertEqual("funds", c.facet)
+        self.assertEqual(50000.0, c.amount)
+        self.assertEqual("g-1", c.contract_guid)
+        self.assertEqual(12345.6, c.ut)          # correlated to the nearest UT line.
+        self.assertEqual("contract-complete", c.kind)
+
+    def test_science_award_carries_subject_and_delta(self):
+        log = ("[LOG] [Parsek][INFO] ut=10.0\n"
+               "[LOG] ResearchAndDevelopment: science subject=crewReport@KerbinSrf delta=8.5\n")
+        res = hlib.parse_stock_award_lines(log)
+        self.assertEqual(1, len(res.captured))
+        c = res.captured[0]
+        self.assertEqual("science", c.facet)
+        self.assertEqual(8.5, c.amount)
+        self.assertEqual("crewReport@KerbinSrf", c.subject_id)
+
+    def test_null_ut_when_no_parsek_neighbor(self):
+        # No UT-stamped [Parsek] line precedes the award -> ut=None, seq=line ordinal
+        # (the seqKey), still ordered + deduped deterministically (design ~394).
+        log = "[LOG] ContractSystem: contract Foo completed guid=g-1 funds=50000\n"
+        res = hlib.parse_stock_award_lines(log)
+        self.assertEqual(1, len(res.captured))
+        c = res.captured[0]
+        self.assertIsNone(c.ut)
+        self.assertEqual(0, c.seq)               # first (0th) log line.
+        self.assertEqual(c.seq, c.seq_key)       # seqKey falls back to the ordinal.
+
+    def test_balance_line_rejected_not_captured(self):
+        # A running-BALANCE line is inadmissible (a post-grant balance would
+        # double-count against the seed, design ~398). It is counted, never captured.
+        log = ("[LOG] [Parsek][INFO] ut=10.0\n"
+               "[LOG] ResearchAndDevelopment: total science 128.0\n")
+        res = hlib.parse_stock_award_lines(log)
+        self.assertEqual(0, len(res.captured))
+        self.assertEqual(1, res.rejected_balance)
+
+    def test_scene_reload_reemit_same_seqkey_dedupes(self):
+        # The same award line re-emitted at the SAME seqKey (no new UT between) is ONE
+        # effect after dedupe (design edge 2).
+        log = ("[LOG] [Parsek][INFO] ut=100.0\n"
+               "[LOG] ContractSystem: contract A completed guid=g1 funds=1000\n"
+               "[LOG] ContractSystem: contract A completed guid=g1 funds=1000\n")
+        res = hlib.parse_stock_award_lines(log)
+        self.assertEqual(2, len(res.captured))            # both matched before dedupe
+        deduped = hlib.dedupe_captured_awards(res.captured)
+        self.assertEqual(1, len(deduped))                 # collapsed to one effect
+
+    def test_genuine_second_award_at_distinct_seqkey_survives(self):
+        # A genuine second identical award at a DISTINCT seqKey (a new UT between)
+        # survives the dedupe (design edge 2): the seqKey is part of the dedupe key.
+        log = ("[LOG] [Parsek][INFO] ut=100.0\n"
+               "[LOG] ContractSystem: contract A completed guid=g1 funds=1000\n"
+               "[LOG] [Parsek][INFO] ut=200.0\n"
+               "[LOG] ContractSystem: contract A completed guid=g1 funds=1000\n")
+        res = hlib.parse_stock_award_lines(log)
+        deduped = hlib.dedupe_captured_awards(res.captured)
+        self.assertEqual(2, len(deduped))
+        self.assertEqual({100.0, 200.0}, {c.ut for c in deduped})
+
+    def test_empty_log_captures_nothing(self):
+        res = hlib.parse_stock_award_lines("")
+        self.assertEqual(0, len(res.captured))
+        self.assertEqual(0, res.rejected_balance)
+
+
+class UnmatchedCapturedAwardTests(unittest.TestCase):
+    """Guards the unexpected-award cross-check (design edge 4): a captured award not
+    explained by a seam-declared entry is an unexpected stock award (the B10
+    economy-drift signal). A captured award matched by a seam entry is corroboration,
+    NOT a drift."""
+
+    def _captured(self, ut, kind, guid, amount, facet="funds"):
+        return hlib.CapturedAward(kind=kind, facet=facet, amount=amount,
+                                  contract_guid=guid, subject_id="", ut=ut, seq=0,
+                                  raw_line="line")
+
+    def test_empty_seam_all_captured_unexpected(self):
+        captured = [self._captured(100.0, "contract-complete", "g1", 1000.0)]
+        unmatched = hlib.unmatched_captured_awards((), captured)
+        self.assertEqual(1, len(unmatched))
+
+    def test_matching_seam_entry_corroborates_not_unexpected(self):
+        # A seam-declared author constant at the same (seqKey, kind, identity)
+        # EXPLAINS the captured award -> it is corroboration, not an unexpected award.
+        parse = oracle.parse_manifest_entries([
+            {"ut": 100.0, "kind": "contract-complete", "funds": 1000.0, "contractGuid": "g1"}])
+        self.assertEqual([], list(parse.errors))
+        captured = [self._captured(100.0, "contract-complete", "g1", 1000.0)]
+        unmatched = hlib.unmatched_captured_awards(parse.entries, captured)
+        self.assertEqual([], unmatched)
+
+    def test_seam_at_different_key_leaves_capture_unexpected(self):
+        parse = oracle.parse_manifest_entries([
+            {"ut": 999.0, "kind": "contract-complete", "funds": 1000.0, "contractGuid": "g1"}])
+        captured = [self._captured(100.0, "contract-complete", "g1", 1000.0)]
+        unmatched = hlib.unmatched_captured_awards(parse.entries, captured)
+        self.assertEqual(1, len(unmatched))
+
+
+class ParseCareerSaveBlockTests(unittest.TestCase):
+    """Guards the produced-save careerSave read (design verifier step 1 / edge 13):
+    a present block is returned with its own hasX flags; an ABSENT block is None
+    (tooling-missing, NEVER a silent pass); a {parsed:false} block is returned as-is
+    (facet-absent, not tooling-missing)."""
+
+    def test_present_block_returned(self):
+        js = ('{"counts": {"failNonBaselined": 0, "staleNonBaselined": 0}, '
+              '"careerSave": {"parsed": true, "hasFunds": true, "funds": 25000.0}}')
+        block = hlib.parse_career_save_block(js)
+        self.assertIsNotNone(block)
+        self.assertTrue(block["parsed"])
+        self.assertEqual(25000.0, block["funds"])
+
+    def test_absent_block_is_none(self):
+        # No careerSave key -> None (old/broken analyzer -> the caller INVALID(tooling)).
+        js = '{"counts": {"failNonBaselined": 0}, "findings": []}'
+        self.assertIsNone(hlib.parse_career_save_block(js))
+
+    def test_parsed_false_block_returned_as_is(self):
+        block = hlib.parse_career_save_block('{"careerSave": {"parsed": false}}')
+        self.assertIsNotNone(block)
+        self.assertFalse(block["parsed"])
+
+    def test_unparseable_json_is_none(self):
+        self.assertIsNone(hlib.parse_career_save_block("{not json"))
+
+    def test_accepts_already_parsed_dict(self):
+        block = hlib.parse_career_save_block({"careerSave": {"parsed": True, "hasFunds": True}})
+        self.assertTrue(block["hasFunds"])
+
+
+class LedgerSpecSurfaceValidationTests(unittest.TestCase):
+    """Guards the [expectations.ledger] spec surface (design ~226): a malformed
+    ledger block is a spec-invalid INVALID (no KSP boot). The empty-manifest B10
+    block validates; a bad seedFrom / tolerances / rec3CarveOut / manifest rejects."""
+
+    def test_empty_manifest_block_valid(self):
+        self.assertEqual([], hlib.validate_ledger_expectations(
+            {"seedFrom": "template", "tolerances": "default", "rec3CarveOut": False}))
+
+    def test_defaults_when_keys_omitted_valid(self):
+        self.assertEqual([], hlib.validate_ledger_expectations({}))
+
+    def test_bad_seed_from_rejected(self):
+        errs = hlib.validate_ledger_expectations({"seedFrom": "literal"})
+        self.assertTrue(any("seedFrom" in e for e in errs))
+
+    def test_bad_tolerances_rejected(self):
+        errs = hlib.validate_ledger_expectations({"tolerances": "loose"})
+        self.assertTrue(any("tolerances" in e for e in errs))
+
+    def test_non_bool_rec3_rejected(self):
+        errs = hlib.validate_ledger_expectations({"rec3CarveOut": "yes"})
+        self.assertTrue(any("rec3CarveOut" in e for e in errs))
+
+    def test_non_array_manifest_rejected(self):
+        errs = hlib.validate_ledger_expectations({"manifest": {"k": "v"}})
+        self.assertTrue(any("manifest" in e for e in errs))
+
+    def test_wired_into_validate_spec_rejects_bad_ledger(self):
+        reg = load_registry()
+        spec = load_spec("B10-career-passive-safety.toml")
+        spec["expectations"]["ledger"]["seedFrom"] = "literal"
+        v = hlib.validate_spec(spec, reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("seedFrom" in e for e in v.errors))
+
+    def test_b10_ledger_block_still_validates(self):
+        reg = load_registry()
+        spec = load_spec("B10-career-passive-safety.toml")
+        v = hlib.validate_spec(spec, reg)
+        self.assertTrue(v.ok, "B10 with [expectations.ledger] must still validate; errors=%s" % (v.errors,))
+        # The block is present with the expected v1 surface.
+        self.assertEqual("template", spec["expectations"]["ledger"]["seedFrom"])
+        self.assertEqual([], spec["expectations"]["ledger"].get("manifest", []))
