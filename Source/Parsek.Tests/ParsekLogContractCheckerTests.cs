@@ -204,5 +204,137 @@ namespace Parsek.Tests
             Assert.DoesNotContain(violations, v => v.Code == "REC-001");
             Assert.DoesNotContain(violations, v => v.Code == "REC-003");
         }
+
+        // ------------------------------------------------------------------
+        // Run-shape rule suppression (M-A5 PARSEK_LIVE_SUPPRESS_RULES contract).
+        // ------------------------------------------------------------------
+
+        // Guards: an empty/unset env value suppresses nothing (default behaviour
+        // unchanged) and never trips the illegal guard.
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void ParseSuppressionList_EmptyValue_SuppressesNothing(string env)
+        {
+            var parse = ParsekLogContractChecker.ParseSuppressionList(env);
+
+            Assert.True(parse.Ok);
+            Assert.Empty(parse.Suppressed);
+            Assert.Empty(parse.IllegalCodes);
+        }
+
+        // Guards the NoRecordingRun profile: exactly REC-001/REC-003 suppressed, ok.
+        [Fact]
+        public void ParseSuppressionList_NoRecordingRunList_SuppressesRecRules()
+        {
+            var parse = ParsekLogContractChecker.ParseSuppressionList("REC-001,REC-003");
+
+            Assert.True(parse.Ok);
+            Assert.Equal(new[] { "REC-001", "REC-003" }, parse.Suppressed);
+            Assert.Empty(parse.IllegalCodes);
+        }
+
+        // Guards the KilledRun profile: the four marker-pairing rules suppressed, ok,
+        // and returned in canonical order regardless of the env token order.
+        [Fact]
+        public void ParseSuppressionList_KilledRunList_SuppressesAllMarkerPairingRules()
+        {
+            var parse = ParsekLogContractChecker.ParseSuppressionList("REC-003, REC-001 ,SES-001,SES-000");
+
+            Assert.True(parse.Ok);
+            Assert.Equal(new[] { "SES-000", "SES-001", "REC-001", "REC-003" }, parse.Suppressed);
+            Assert.Empty(parse.IllegalCodes);
+        }
+
+        // Guards case/whitespace/duplicate tolerance so a harness formatting quirk
+        // does not spuriously fail the illegal guard.
+        [Fact]
+        public void ParseSuppressionList_CaseWhitespaceDuplicates_Normalized()
+        {
+            var parse = ParsekLogContractChecker.ParseSuppressionList(" rec-001 ,,REC-001, sES-000 ");
+
+            Assert.True(parse.Ok);
+            Assert.Equal(new[] { "SES-000", "REC-001" }, parse.Suppressed);
+            Assert.Empty(parse.IllegalCodes);
+        }
+
+        // THE cannot-mask guarantee: FMT/WRN rules are unsuppressable. A request to
+        // suppress them is illegal (not ok) and never lands in the suppressed set.
+        [Theory]
+        [InlineData("FMT-001")]
+        [InlineData("FMT-002")]
+        [InlineData("WRN-001")]
+        public void ParseSuppressionList_FmtWrnCode_IsIllegalAndNeverSuppressed(string code)
+        {
+            var parse = ParsekLogContractChecker.ParseSuppressionList(code);
+
+            Assert.False(parse.Ok);
+            Assert.Contains(code, parse.IllegalCodes);
+            Assert.Empty(parse.Suppressed);
+        }
+
+        // Guards: an unknown rule code is illegal (a typo cannot silently pass).
+        [Fact]
+        public void ParseSuppressionList_UnknownCode_IsIllegal()
+        {
+            var parse = ParsekLogContractChecker.ParseSuppressionList("XYZ-999");
+
+            Assert.False(parse.Ok);
+            Assert.Contains("XYZ-999", parse.IllegalCodes);
+            Assert.Empty(parse.Suppressed);
+        }
+
+        // Guards: a mix of a valid marker-pairing code and an illegal one is NOT ok
+        // (the whole request is rejected) and the illegal one never suppresses.
+        [Fact]
+        public void ParseSuppressionList_MixedValidAndIllegal_RejectsAndIsolates()
+        {
+            var parse = ParsekLogContractChecker.ParseSuppressionList("REC-001,FMT-001");
+
+            Assert.False(parse.Ok);
+            Assert.Equal(new[] { "REC-001" }, parse.Suppressed);
+            Assert.Contains("FMT-001", parse.IllegalCodes);
+        }
+
+        // Guards the killed-run behaviour end-to-end: suppressing the marker-pairing
+        // rules drops the missing recording start/stop violations, but an FMT-002
+        // level violation in the same session still surfaces (unsuppressable).
+        [Fact]
+        public void ValidateLatestSession_SuppressedRecRules_DropsRecButKeepsFmt()
+        {
+            var entries = ParsekKspLogParser.ParseLines(new[]
+            {
+                "[LOG] [Parsek][INFO][Init] SessionStart runUtc=4000",
+                "[LOG] [Parsek][TRACE][Recorder] a bad level line"
+            });
+
+            var suppressed = ParsekLogContractChecker.ParseSuppressionList(
+                "SES-000,SES-001,REC-001,REC-003").Suppressed;
+            var violations = ParsekLogContractChecker.ValidateLatestSession(entries, suppressed);
+
+            Assert.DoesNotContain(violations, v => v.Code == "REC-001");
+            Assert.DoesNotContain(violations, v => v.Code == "REC-003");
+            Assert.Contains(violations, v => v.Code == "FMT-002");
+        }
+
+        // Defence in depth: even if an FMT code is passed straight to the validator
+        // (bypassing ParseSuppressionList), it is filtered against the suppressible
+        // set and never masks the FMT violation.
+        [Fact]
+        public void ValidateLatestSession_FmtInSuppressList_StillNotMasked()
+        {
+            var entries = ParsekKspLogParser.ParseLines(new[]
+            {
+                "[LOG] [Parsek][INFO][Init] SessionStart runUtc=4001",
+                "[LOG] [Parsek][TRACE][Recorder] Recording started (physics-frame sampling)",
+                "[LOG] [Parsek][INFO][Recorder] Recording stopped. 4 points, 0 orbit segments over 3.0s"
+            });
+
+            var violations = ParsekLogContractChecker.ValidateLatestSession(
+                entries, new[] { "FMT-002" });
+
+            Assert.Contains(violations, v => v.Code == "FMT-002");
+        }
     }
 }
