@@ -3131,6 +3131,9 @@ namespace Parsek.InGameTests
         {
             float deadline = Time.time + timeoutSeconds;
             float stableMatchStarted = -1f;
+            ParsekLog.Verbose("TestRunner",
+                $"WaitForStockStageManagerReady: vesselExpectsStages={ActiveVesselExpectsStages()} " +
+                $"vessel={FlightGlobals.ActiveVessel?.vesselName ?? "<null>"} timeout={timeoutSeconds:F0}s");
             while (Time.time < deadline)
             {
                 var stageManager = KSP.UI.Screens.StageManager.Instance;
@@ -3175,6 +3178,7 @@ namespace Parsek.InGameTests
                 $"WaitForStockStageManagerReady timed out after {timeoutSeconds:F0}s " +
                 $"(hasInstance={timedOutHasInstance}, stageCount={timedOutStageCount}, " +
                 $"rebuildIndexes={timedOutRebuildIndexes}, hasSortRoutine={timedOutHasSortRoutine}, " +
+                $"vesselExpectsStages={ActiveVesselExpectsStages()}, " +
                 $"stableWindow={BatchBaselineStableMatchSeconds:F1}s)");
         }
 

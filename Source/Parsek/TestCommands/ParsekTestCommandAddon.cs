@@ -1225,8 +1225,17 @@ namespace Parsek.TestCommands
             // Load-menu / Resume flow sets CurrentGame before the flight scene loads;
             // the in-flight quickload works because the OLD game keeps CurrentGame
             // non-null. Setting it to the loaded game makes the first deref read the
-            // correct Mode and the later self-assignment a no-op.
-            HighLogic.CurrentGame = game;
+            // correct Mode and the later self-assignment a no-op. Scoped to the null
+            // case only (the NRE happens iff CurrentGame is null): a seam LoadGame
+            // issued mid-run from a live scene must not swap the running game out
+            // from under teardown-window readers (exit autosave, scenario OnSave,
+            // GameEvents handlers) before the old scene unloads.
+            if (HighLogic.CurrentGame == null)
+            {
+                ParsekLog.Info(Tag,
+                    $"loadgame cold-boot: adopting loaded game as HighLogic.CurrentGame save={save}");
+                HighLogic.CurrentGame = game;
+            }
             FlightCameraReloadPin.Arm($"TestCommandLoadGame:{save}/{name}");
             FlightDriver.StartAndFocusVessel(game, idx);
             loadInFlight = true;

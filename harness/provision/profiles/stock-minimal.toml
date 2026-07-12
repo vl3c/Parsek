@@ -14,6 +14,12 @@ instanceDir = "automation/stock-minimal"   # created by CLONE
 devSourcedMods = [
   "000_Harmony", "ModuleManager.4.2.3.dll",
   "000_ClickThroughBlocker", "001_ToolbarControl",
+  # KSPCommunityFixes: originally added on the (disproven) theory that it
+  # caused/masked the cold-boot Game.Load NRE (the real cause was the seam not
+  # setting HighLogic.CurrentGame; see LG1). Kept deliberately as stock-bugfix
+  # infrastructure: unattended runs have no operator to click past stock bugs
+  # (e.g. the Bug #4803 camera NRE class), and the dev install runs it too, so
+  # keeping it makes instance behavior match dev behavior.
   "KSPCommunityFixes",
   "CommunityDeltaVMaps", "CommunityTechTree", "ProbesBeforeCrew",
 ]
