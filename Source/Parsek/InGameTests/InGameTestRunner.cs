@@ -3115,7 +3115,13 @@ namespace Parsek.InGameTests
             for (int i = 0; i < v.parts.Count; i++)
             {
                 var part = v.parts[i];
-                if (part != null && part.stagingOn)
+                // stagingOn is constructor-true on EVERY part (decompiled
+                // Part..ctor), so it alone says nothing. A part contributes a
+                // stage icon only when its cfg/model authored a stagingIcon
+                // (hasStagingIcon) AND the player has not toggled its staging
+                // off. A bare mk1pod.v2 has no stagingIcon, so StageCount
+                // legitimately settles at 0.
+                if (part != null && part.hasStagingIcon && part.stagingOn)
                     return true;
             }
             return false;
