@@ -1020,9 +1020,23 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
 
 def _dll_install_path(ctx: ProvisionContext, comp: str, dll_name: str) -> str:
     """Resolve where a stack component's DLL lives in the instance GameData.
-    kRPC / TestingTools / KRPC.MechJeb share GameData/kRPC; MechJeb2 its own."""
+    kRPC / TestingTools / KRPC.MechJeb share GameData/kRPC; MechJeb2 its own.
+    Layouts differ per component (kRPC ships DLLs flat; MechJeb2 under
+    Plugins/ - the first live smoke false-drifted all four MechJeb2 DLLs
+    when this resolver assumed flat), so probe flat, then Plugins/, then a
+    bounded recursive search of the component subtree."""
     sub = "MechJeb2" if comp == "mechjeb2" else "kRPC"
-    return os.path.join(ctx.instance_dir, "GameData", sub, dll_name)
+    root = os.path.join(ctx.instance_dir, "GameData", sub)
+    flat = os.path.join(root, dll_name)
+    if os.path.isfile(flat):
+        return flat
+    plugins = os.path.join(root, "Plugins", dll_name)
+    if os.path.isfile(plugins):
+        return plugins
+    for walk_root, _dirs, files in os.walk(root):
+        if dll_name in files:
+            return os.path.join(walk_root, dll_name)
+    return flat  # missing: caller reports None-hash drift against this path
 
 
 def _verify_component_dll(ctx, comp, dll_name, exp_sha, drift_fn) -> None:
@@ -1302,11 +1316,15 @@ def _clone_mutable_surface(ctx: ProvisionContext) -> None:
 def _make_junction(link_abs: str, target_abs: str) -> subprocess.CompletedProcess:
     # Directory junctions need no admin. Remove any pre-existing link first for
     # idempotency (rmdir on a junction removes the link, never the target).
-    if os.path.isdir(link_abs) or os.path.islink(link_abs):
-        try:
-            os.rmdir(link_abs)
-        except OSError:
-            pass
+    # NOTE: os.path.exists/isdir/islink can ALL report False for an existing
+    # junction (observed on the second live smoke: lstat showed reparse tag
+    # 0xA0000003 while exists() was False, so the conditional pre-clear
+    # skipped and mklink failed with "already exists"). rmdir unconditionally
+    # and ignore absence.
+    try:
+        os.rmdir(link_abs)
+    except OSError:
+        pass
     # cmd parses forward slashes in the link/target as switches ("Invalid
     # switch" seen on the first live smoke when mixed separators reached
     # mklink), so normalize both to backslashes before invoking it.

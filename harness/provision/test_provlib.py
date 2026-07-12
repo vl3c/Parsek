@@ -1442,3 +1442,32 @@ class RepairPlanTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DllInstallPathLayoutTests(unittest.TestCase):
+    """Regression: the first live smoke false-drifted all four MechJeb2 DLLs
+    because the verify resolver assumed flat component layouts; MechJeb2
+    ships its DLLs under Plugins/. Fails if the resolver loses the
+    flat-then-Plugins-then-recursive probe order."""
+
+    def test_flat_then_plugins_then_recursive(self):
+        import provision as prov
+        with tempfile.TemporaryDirectory() as td:
+            ctx = prov.ProvisionContext.__new__(prov.ProvisionContext)
+            ctx.instance_dir = td
+            gd = os.path.join(td, "GameData")
+            os.makedirs(os.path.join(gd, "kRPC"))
+            os.makedirs(os.path.join(gd, "MechJeb2", "Plugins"))
+            os.makedirs(os.path.join(gd, "MechJeb2", "Parts", "Deep"))
+            open(os.path.join(gd, "kRPC", "KRPC.dll"), "wb").write(b"a")
+            open(os.path.join(gd, "MechJeb2", "Plugins", "MechJeb2.dll"), "wb").write(b"b")
+            open(os.path.join(gd, "MechJeb2", "Parts", "Deep", "Odd.dll"), "wb").write(b"c")
+            self.assertTrue(prov._dll_install_path(ctx, "krpc", "KRPC.dll").endswith(
+                os.path.join("kRPC", "KRPC.dll")))
+            self.assertTrue(prov._dll_install_path(ctx, "mechjeb2", "MechJeb2.dll").endswith(
+                os.path.join("Plugins", "MechJeb2.dll")))
+            self.assertTrue(prov._dll_install_path(ctx, "mechjeb2", "Odd.dll").endswith(
+                os.path.join("Deep", "Odd.dll")))
+            # missing file resolves to the flat path for None-hash drift reporting
+            self.assertTrue(prov._dll_install_path(ctx, "mechjeb2", "Absent.dll").endswith(
+                os.path.join("MechJeb2", "Absent.dll")))
