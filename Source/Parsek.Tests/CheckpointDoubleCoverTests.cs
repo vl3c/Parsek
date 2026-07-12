@@ -626,6 +626,36 @@ namespace Parsek.Tests
             Assert.False(rec.OrbitSegments[2].isPredicted);
         }
 
+        // --- split-boundary re-anchoring (SplitAtSection index safety) ---
+
+        // Guards: SplitAtSection re-anchors its boundary by startUT after its internal
+        // Ensure call, which can remove/insert sections and shift a pre-computed index.
+        [Fact]
+        public void RelocateSectionIndexForSplit_FindsExactShiftedAndFallbackAnchors()
+        {
+            var sections = new List<TrackSection>
+            {
+                PhysicalSection(0, 100),
+                PhysicalSection(100, 200),
+                PhysicalSection(200, 300)
+            };
+
+            // Exact match at a shifted position.
+            Assert.Equal(1, RecordingOptimizer.RelocateSectionIndexForSplit(sections, 100));
+            Assert.Equal(2, RecordingOptimizer.RelocateSectionIndexForSplit(sections, 200));
+
+            // Boundary section gone (e.g. reconciled shell at UT 150): anchor at the
+            // next section start.
+            Assert.Equal(2, RecordingOptimizer.RelocateSectionIndexForSplit(sections, 150));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]") && l.Contains("anchoring split at the next section start"));
+
+            // Requested boundary past every section start: fail-safe last index.
+            Assert.Equal(2, RecordingOptimizer.RelocateSectionIndexForSplit(sections, 999));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Optimizer]") && l.Contains("anchoring split at the last section"));
+        }
+
         // --- wrapper logging contract ---
 
         // Guards: the RecordingStore wrapper logs the reconcile counter so a KSP.log

@@ -930,16 +930,69 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Re-locates the split-boundary section after an Ensure pass mutated the
+        /// section list: exact startUT match first, then the first section starting
+        /// at or after the requested boundary, then (fail-safe, warned) the last
+        /// section. Never out of range for a non-empty list.
+        /// </summary>
+        internal static int RelocateSectionIndexForSplit(
+            List<TrackSection> sections,
+            double requestedSplitUT)
+        {
+            const double epsilon = EffectiveState.PidPeerStartUtEpsilonSeconds;
+            int firstAtOrAfter = -1;
+            for (int i = 0; i < sections.Count; i++)
+            {
+                if (Math.Abs(sections[i].startUT - requestedSplitUT) < epsilon)
+                    return i;
+                if (firstAtOrAfter < 0 && sections[i].startUT >= requestedSplitUT)
+                    firstAtOrAfter = i;
+            }
+
+            if (firstAtOrAfter >= 0)
+            {
+                ParsekLog.Warn("Optimizer",
+                    $"RelocateSectionIndexForSplit: exact boundary at UT=" +
+                    $"{requestedSplitUT.ToString("F2", CultureInfo.InvariantCulture)} gone after Ensure; " +
+                    $"anchoring split at the next section start (index {firstAtOrAfter.ToString(CultureInfo.InvariantCulture)})");
+                return firstAtOrAfter;
+            }
+
+            ParsekLog.Warn("Optimizer",
+                $"RelocateSectionIndexForSplit: no section starts at or after UT=" +
+                $"{requestedSplitUT.ToString("F2", CultureInfo.InvariantCulture)} after Ensure; " +
+                "anchoring split at the last section (fail-safe)");
+            return sections.Count - 1;
+        }
+
+        /// <summary>
         /// Splits a recording at the given TrackSection boundary index.
         /// Returns the new Recording (second half). The original is mutated to keep the first half.
         /// Caller must assign chain linkage, save files, and add to store.
         /// </summary>
         internal static Recording SplitAtSection(Recording original, int sectionIndex)
         {
+            // Capture the requested boundary BEFORE Ensure: its reconcile/clip passes
+            // can remove or insert sections, so a pre-computed index may not name the
+            // same section afterwards. Re-anchor by startUT after the call.
+            double requestedSplitUT = original.TrackSections[sectionIndex].startUT;
+
             RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
                 original,
                 markDirty: false,
                 context: "RecordingOptimizer.SplitAtSection");
+
+            int relocatedIndex = RelocateSectionIndexForSplit(
+                original.TrackSections, requestedSplitUT);
+            if (relocatedIndex != sectionIndex)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"SplitAtSection: boundary section re-anchored after Ensure for " +
+                    $"{original.RecordingId}: index {sectionIndex.ToString(CultureInfo.InvariantCulture)} -> " +
+                    $"{relocatedIndex.ToString(CultureInfo.InvariantCulture)} " +
+                    $"(requestedSplitUT={requestedSplitUT.ToString("F2", CultureInfo.InvariantCulture)})");
+                sectionIndex = relocatedIndex;
+            }
             double splitUT = original.TrackSections[sectionIndex].startUT;
             List<PartEvent> transientStateSeeds = BuildTransientStateSeeds(original.PartEvents, splitUT);
 
