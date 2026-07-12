@@ -621,3 +621,428 @@ def select_scenarios(specs: Sequence[Dict], expr: str) -> List[Dict]:
         return False
 
     return [s for s in specs if _matches(s)]
+
+
+# ---------------------------------------------------------------------------
+# Instance admission (design Instance admission, reusing the M-A6 provlib pure
+# functions so the harness and the provisioner diff the SAME projection).
+# ---------------------------------------------------------------------------
+
+import os as _os  # noqa: E402  (kept local to the admission/provlib coupling)
+import sys as _sys  # noqa: E402
+
+_PROVISION_DIR = _os.path.abspath(
+    _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "provision"))
+if _PROVISION_DIR not in _sys.path:
+    _sys.path.insert(0, _PROVISION_DIR)
+import provlib  # noqa: E402  (the M-A6 pure sibling; admission reuse, design)
+
+
+def build_expected_admission(
+    profile_name: str,
+    ksp_version: str,
+    components: Dict,
+    settings_deltas: Dict,
+    dev_sourced_mods: Dict,
+) -> Dict:
+    """Assemble the admission-relevant projection the harness expects for a run.
+
+    This is the PURE half of the S11 expected-manifest construction recipe: the
+    harness does NOT hand-author pins; run.py computes the hashed ``components``
+    (incl. the CURRENT build's Parsek.dll hash), the applied ``settings_deltas``,
+    and the ``dev_sourced_mods`` hashes exactly the way the provisioner stamps
+    the on-disk manifest (that hashing is I/O, done in the shell), then feeds
+    them here. The result is shaped so ``provlib.project_admission`` /
+    ``provlib.compare_manifest`` diff it against the on-disk manifest field for
+    field. Consequence (design policy): a Parsek rebuild changes the DLL hash, so
+    the instance must be re-provisioned before the harness runs or admission
+    correctly reds the run as drifted.
+    """
+    return {
+        "profile": profile_name,
+        "kspVersion": ksp_version,
+        "components": components,
+        "settingsDeltasApplied": settings_deltas,
+        "devSourcedMods": dev_sourced_mods,
+    }
+
+
+@dataclass(frozen=True)
+class AdmissionDecision:
+    admitted: bool
+    subkind: str  # "" | "manifest-missing" | "provision-incomplete" | "drift"
+    diff: Tuple  # provlib.ManifestDiff tuple
+
+
+def admit_instance(
+    expected: Dict,
+    actual_manifest: Optional[Dict],
+    incomplete_marker: bool = False,
+) -> AdmissionDecision:
+    """Admit (or refuse) an instance before any KSP launch (design edge 6).
+
+    A missing manifest, a ``.provision-incomplete`` marker beside it, or a
+    NONEMPTY field-level diff from ``provlib.compare_manifest`` means the instance
+    is not the one the scenario assumes -> refuse with INVALID(admission), NO
+    launch. Empty diff (and no marker/missing) -> admit. Classifying this INVALID
+    (not PARSEK-FAIL) keeps environment drift out of the Parsek-defect bucket.
+    """
+    if actual_manifest is None:
+        return AdmissionDecision(False, "manifest-missing", tuple())
+    if incomplete_marker:
+        return AdmissionDecision(False, "provision-incomplete", tuple())
+    diff = tuple(provlib.compare_manifest(expected, actual_manifest))
+    if diff:
+        return AdmissionDecision(False, "drift", diff)
+    return AdmissionDecision(True, "", tuple())
+
+
+# ---------------------------------------------------------------------------
+# Log-validation profile selection (design verifier 4 / B1 / S13). Pure.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class LogValidateProfile:
+    suppress_recording_rules: bool  # B1: count.max == 0 no-recording scenario
+    killed_run_mode: bool           # S13: a KILLED attempt truncates the tail
+    suppressed_rules: Tuple[str, ...]
+    mandatory_rules: Tuple[str, ...]
+
+
+def select_logvalidate_profile(recordings_count_max: Optional[int], killed: bool) -> LogValidateProfile:
+    """Select the two orthogonal log-validation suppression profiles by run shape.
+
+    - Recording-rules suppression (B1): IFF ``count.max == 0`` the harness
+      suppresses exactly REC-001/REC-003, so a legitimately recording-free run
+      (the flagship B10 daily loop) validates clean instead of redding on the
+      marker-pairing rules; SES/FMT/WRN stay mandatory. For ``count.max > 0`` the
+      REC rules stay mandatory (a dropped recording still reds).
+    - Killed-run mode (S13): a KILLED attempt adds ``-KilledRun``, suppressing the
+      marker-pairing rules SES-000/SES-001/REC-001/REC-003 (a kill legitimately
+      truncates the tail) while FMT/WRN stay mandatory.
+    The two are independent (a run can be in one, both, or neither).
+    """
+    suppress_rec = (recordings_count_max == 0)
+    suppressed: set = set()
+    if suppress_rec:
+        suppressed.update(LOGVALIDATE_RECORDING_RULES)
+    if killed:
+        suppressed.update(LOGVALIDATE_MARKER_PAIRING_RULES)
+    all_rules = set(LOGVALIDATE_MARKER_PAIRING_RULES) | set(LOGVALIDATE_ALWAYS_MANDATORY)
+    mandatory = sorted(all_rules - suppressed)
+    return LogValidateProfile(
+        suppress_recording_rules=suppress_rec,
+        killed_run_mode=bool(killed),
+        suppressed_rules=tuple(sorted(suppressed)),
+        mandatory_rules=tuple(mandatory),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Budget arithmetic (design Budget enforcement / S8). Pure.
+# ---------------------------------------------------------------------------
+
+
+def required_step_wait(seam_deferral_budget: float) -> float:
+    """The harness step-wait a deferred step REQUIRES: the seam's deferral budget
+    plus a 60s margin, so a genuine seam TIMEOUT is OBSERVED (a driver-INVALID,
+    distinct from a hang) rather than pre-empted by a harness kill (S8)."""
+    return float(seam_deferral_budget) + STEP_WAIT_MARGIN_SECONDS
+
+
+def step_wait_ok(harness_step_wait: float, seam_deferral_budget: float) -> bool:
+    """True iff ``harness_step_wait >= seam_deferral_budget + 60s`` (S8): the
+    harness always gives the seam a full deferral window plus slack."""
+    return float(harness_step_wait) >= required_step_wait(seam_deferral_budget)
+
+
+# ---------------------------------------------------------------------------
+# Expectations evaluation (design verifier 7 / evaluate_expectations). Pure.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ExpectationResult:
+    status: str  # "PASS" | "FAIL"
+    mismatches: Tuple[str, ...]
+    reserved: Tuple[str, ...]
+
+
+RESERVED_EXPECTATION_BLOCKS: Tuple[str, ...] = ("world", "route", "rewind", "loop")
+
+
+def evaluate_expectations(
+    expectations: Dict, recording_count: Optional[int], log_text: str
+) -> ExpectationResult:
+    """Evaluate the v1-EVALUATED expectation blocks with tolerances.
+
+    v1 evaluates: ``recordings.count`` (min/max window) and
+    ``logContracts.required`` / ``logContracts.forbidden`` (LITERAL KSP.log line
+    regex patterns applied with ``re.search`` over the log body). A mismatch ->
+    FAIL (the caller reds PARSEK-FAIL expectation). The world/route/rewind/loop
+    blocks are RESERVED: parsed + recorded SKIPPED until their verifiers land
+    (M-B2/M-C2), so a scenario written now needs no format break then.
+    """
+    expectations = expectations or {}
+    mismatches: List[str] = []
+
+    recordings = expectations.get("recordings", {}) or {}
+    count_spec = recordings.get("count")
+    if isinstance(count_spec, dict) and recording_count is not None:
+        cmin = count_spec.get("min", 0)
+        cmax = count_spec.get("max")
+        if isinstance(cmin, (int, float)) and recording_count < cmin:
+            mismatches.append("recordings.count %d < min %s" % (recording_count, cmin))
+        if isinstance(cmax, (int, float)) and recording_count > cmax:
+            mismatches.append("recordings.count %d > max %s" % (recording_count, cmax))
+
+    log_contracts = expectations.get("logContracts", {}) or {}
+    text = log_text or ""
+    for pat in log_contracts.get("required", []) or []:
+        try:
+            if re.search(pat, text) is None:
+                mismatches.append("logContracts.required not matched: %s" % (pat,))
+        except re.error:
+            mismatches.append("logContracts.required invalid regex: %s" % (pat,))
+    for pat in log_contracts.get("forbidden", []) or []:
+        try:
+            if re.search(pat, text) is not None:
+                mismatches.append("logContracts.forbidden matched: %s" % (pat,))
+        except re.error:
+            mismatches.append("logContracts.forbidden invalid regex: %s" % (pat,))
+
+    reserved = tuple(b for b in RESERVED_EXPECTATION_BLOCKS if b in expectations)
+    status = "PASS" if not mismatches else "FAIL"
+    return ExpectationResult(status, tuple(mismatches), reserved)
+
+
+# ---------------------------------------------------------------------------
+# Anomaly sweep (design verifier 6 / N2). Pure over pre-grepped hit tokens.
+# ---------------------------------------------------------------------------
+
+
+def evaluate_anomaly_sweep(hit_tokens: Sequence[str], allowed_anomalies: Sequence[str]) -> List[str]:
+    """Return the anomaly hits NOT in ``allowedAnomalies`` (design verifier 6).
+
+    ``hit_tokens`` is the set of harness-owned Tier-C anomaly tokens grepped from
+    the KSP.log; a scenario only ADDS known-benign exceptions via
+    ``allowedAnomalies`` (a DEDICATED field, never logContracts.forbidden), so
+    the harness-owned sweep set stays fixed. Any hit not allowed -> the caller
+    reds PARSEK-FAIL(anomaly). Unknown tokens (not in ANOMALY_TOKENS) are ignored
+    (the sweep set is fixed; a scenario cannot invent a new anomaly).
+    """
+    allowed = set(allowed_anomalies or ())
+    return [t for t in hit_tokens if t in ANOMALY_TOKENS and t not in allowed]
+
+
+# ---------------------------------------------------------------------------
+# Analyzer sub-classification (design verifier 3 / S1 / S2). Pure.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AnalyzerVerdict:
+    status: str    # "PASS" | "PARSEK-FAIL" | "INVALID"
+    subkind: str   # "" | "analyzer" | "analyzer-error" | "fixture-stale" | "fixture-authoring"
+    top_rule: Optional[str]
+
+
+def classify_analyzer(red: Optional[int], analysis_json: Optional[AnalysisJson]) -> AnalyzerVerdict:
+    """Classify an analyzer result from the GATE token + the JSON split (S1/S2).
+
+    The GATE is the terminal ``RED=`` token (the sole gate source). RED absent ->
+    INVALID(analyzer-error) (never a green pass). RED=0 -> PASS. RED=1 splits via
+    the JSON (never the txt header): a REAL non-BASELINE FAIL -> PARSEK-FAIL
+    (analyzer), and it WINS over any BASELINE-* fixture-authoring FAIL (S2);
+    BASELINE-*-only FAIL -> INVALID(fixture-authoring); stale-only
+    (staleNonBaselined>0, failNonBaselined==0) -> INVALID(fixture-stale). A RED=1
+    with no JSON detail falls back to PARSEK-FAIL (a red gate must never read green).
+    """
+    if red is None:
+        return AnalyzerVerdict("INVALID", "analyzer-error", None)
+    if red == 0:
+        return AnalyzerVerdict("PASS", "", None)
+    # red == 1 (or any nonzero): subclassify from the JSON.
+    if analysis_json is None:
+        return AnalyzerVerdict("PARSEK-FAIL", "analyzer", None)
+    real_fails = analysis_json.non_baseline_fail_findings()
+    if real_fails:
+        return AnalyzerVerdict("PARSEK-FAIL", "analyzer", real_fails[0].rule_id)
+    if analysis_json.fail_non_baselined > 0:
+        # failNonBaselined counts a fail the findings list did not surface a
+        # non-baseline entry for; a red fail must never read green -> analyzer defect.
+        return AnalyzerVerdict("PARSEK-FAIL", "analyzer", None)
+    baseline_fails = analysis_json.baseline_fail_findings()
+    if baseline_fails:
+        return AnalyzerVerdict("INVALID", "fixture-authoring", baseline_fails[0].rule_id)
+    if analysis_json.stale_non_baselined > 0:
+        return AnalyzerVerdict("INVALID", "fixture-stale", None)
+    # RED=1 but the JSON shows no non-baselined fail/stale: a gate/JSON
+    # disagreement; never read green -> treat as an analyzer defect.
+    return AnalyzerVerdict("PARSEK-FAIL", "analyzer", None)
+
+
+# ---------------------------------------------------------------------------
+# Verdict classification (design Verdict classification / classify_verdict). Pure.
+# ---------------------------------------------------------------------------
+
+VERDICT_PASS = "PASS"
+VERDICT_INVALID = "INVALID"
+VERDICT_KILLED = "KILLED"
+VERDICT_PARSEK_FAIL = "PARSEK-FAIL"
+VERDICT_EXPECTED_FAIL = "EXPECTED-FAIL"
+VERDICT_XPASS = "XPASS"
+
+VERDICTS: Tuple[str, ...] = (
+    VERDICT_PASS, VERDICT_PARSEK_FAIL, VERDICT_INVALID, VERDICT_KILLED,
+    VERDICT_EXPECTED_FAIL, VERDICT_XPASS,
+)
+
+# INVALID subkinds that are retry-once-then-INVALID for the driver/tooling
+# stages (design). Everything else (admission, instance-locked/busy, fixture-*,
+# spec-invalid, boot-crash-repeated) is a terminal INVALID.
+RETRYABLE_INVALID_SUBKINDS: Tuple[str, ...] = (
+    "boot-crash", "load-failed", "driver-verdict-mismatch", "driver-stage",
+    "seam-timeout", "tooling", "analyzer-error",
+)
+
+
+@dataclass(frozen=True)
+class Verdict:
+    verdict: str
+    subkind: str
+    retryable: bool
+    reason: str
+    expected_fail_matched: bool = False
+    note: str = ""
+
+
+def classify_expected_fail(base: Verdict, bug_id: str, signature_matched: bool) -> Verdict:
+    """Overlay the expected-fail semantics on a computed verdict (design N8/N11).
+
+    An ``expectedFail.bugId`` scenario is NEVER a plain PASS: a clean run is XPASS
+    (the guard must not silently drop). A PARSEK-FAIL whose SIGNATURE matches the
+    tracked bug is demoted to EXPECTED-FAIL (green-for-triage); a PARSEK-FAIL that
+    fails a DIFFERENT way stays PARSEK-FAIL (signature-based, not any-failure).
+    INVALID/KILLED are environment/tooling events, unaffected by the key.
+    """
+    if not bug_id:
+        return base
+    if base.verdict == VERDICT_PARSEK_FAIL and signature_matched:
+        return Verdict(VERDICT_EXPECTED_FAIL, base.subkind, False,
+                       "expected-fail signature matched bugId=%s" % bug_id, True, base.note)
+    if base.verdict == VERDICT_PASS:
+        return Verdict(VERDICT_XPASS, "", False,
+                       "expected-fail bugId=%s unexpectedly passed" % bug_id, False, base.note)
+    return base
+
+
+def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
+                     attempt: int, retry_policy: str) -> Verdict:
+    """Map a run attempt's facts to the taxonomy
+    {PASS, PARSEK-FAIL, INVALID, KILLED, EXPECTED-FAIL, XPASS} (design).
+
+    Precedence (first match wins), then the expected-fail overlay:
+      spec-invalid / admission / instance-locked / instance-busy -> INVALID (no retry)
+      watchdog KILL -> KILLED (no retry; torn save skipped)
+      boot-crash -> INVALID (retry once; repeated -> boot-crash-repeated, terminal)
+      post-boot self-exit w/ pending step OR expected-batch absent -> PARSEK-FAIL(batch-crashed)
+      driver stage failed -> INVALID (retry once)
+      verifier tooling timeout / analyzer-error -> INVALID (retry the subprocess)
+      analyzer RED=1 real fail -> PARSEK-FAIL; stale-only/baseline-only -> INVALID
+      log-contract / results / anomaly / expectation / ledger -> PARSEK-FAIL
+      else -> PASS
+    ``retryable`` is a recommendation; ``should_retry`` is the authority
+    combining attempt + policy.
+    """
+    def V(verdict, subkind, reason, retryable=False):
+        return Verdict(verdict, subkind, retryable, reason)
+
+    base: Optional[Verdict] = None
+
+    if not driver.get("spec_valid", True):
+        base = V(VERDICT_INVALID, "spec-invalid", "spec failed validation")
+    elif not driver.get("admission_ok", True):
+        base = V(VERDICT_INVALID, driver.get("admission_subkind", "admission"), "admission drift/missing")
+    elif not driver.get("instance_lock_ok", True):
+        base = V(VERDICT_INVALID, "instance-locked", "run lock held by a live sibling")
+    elif driver.get("instance_busy", False):
+        base = V(VERDICT_INVALID, "instance-busy", "a live KSP is bound to the instance")
+    elif verifiers.get("killed", False):
+        base = V(VERDICT_KILLED, "budget", "watchdog killed the process tree")
+    elif driver.get("boot_crashed", False):
+        if driver.get("boot_crash_repeated", False):
+            base = V(VERDICT_INVALID, "boot-crash-repeated", "deterministic boot crash on retry")
+        else:
+            base = V(VERDICT_INVALID, "boot-crash", "process exited during boot-wait", retryable=True)
+    elif driver.get("batch_crashed", False):
+        base = V(VERDICT_PARSEK_FAIL, "batch-crashed", "post-boot self-exit aborted the batch")
+    elif not driver.get("valid", True):
+        subkind = driver.get("stage_subkind", "driver-stage")
+        base = V(VERDICT_INVALID, subkind, "driver stage failed", retryable=True)
+    elif verifiers.get("batch_expected", False) and not verifiers.get("batch_present", True):
+        base = V(VERDICT_PARSEK_FAIL, "batch-crashed", "expected BATCH_COMPLETE absent")
+    elif verifiers.get("tooling_invalid", False):
+        base = V(VERDICT_INVALID, verifiers.get("tooling_subkind", "tooling"),
+                 "verifier subprocess tooling failure", retryable=True)
+    else:
+        analyzer = verifiers.get("analyzer")
+        if analyzer is not None:
+            if analyzer.status == "INVALID":
+                base = V(VERDICT_INVALID, analyzer.subkind, "analyzer %s" % analyzer.subkind,
+                         retryable=(analyzer.subkind == "analyzer-error"))
+            elif analyzer.status == "PARSEK-FAIL":
+                base = V(VERDICT_PARSEK_FAIL, analyzer.subkind,
+                         "analyzer red topRule=%s" % (analyzer.top_rule,))
+        if base is None:
+            if verifiers.get("log_validate_failed", False):
+                base = V(VERDICT_PARSEK_FAIL, "log-contract", "log validation failed")
+            elif verifiers.get("results_failed", False) or verifiers.get("results_mismatch", False):
+                base = V(VERDICT_PARSEK_FAIL, "results", "results FAIL rows or count mismatch")
+            elif verifiers.get("anomaly_hit", False):
+                base = V(VERDICT_PARSEK_FAIL, "anomaly", "unallowed Tier-C anomaly line")
+            elif verifiers.get("expectation_mismatch", False):
+                base = V(VERDICT_PARSEK_FAIL, "expectation", "expectations manifest mismatch")
+            elif verifiers.get("ledger_drift", False):
+                base = V(VERDICT_PARSEK_FAIL, "ledger", "world/ledger oracle drift")
+            else:
+                base = V(VERDICT_PASS, "", "driver valid, every verifier PASS/SKIPPED")
+
+    ef = expected_fail or {}
+    return classify_expected_fail(base, ef.get("bugId", "") or "", bool(ef.get("signature_matched", False)))
+
+
+def should_retry(verdict: Verdict, attempt: int, retry_policy: str) -> bool:
+    """Authority on whether to retry (design retry decision / edges 25/12/30).
+
+    Retry iff policy is ``once``, this is attempt 1, and the verdict is a
+    retryable INVALID subkind (driver/boot/tooling/analyzer-error). PARSEK-FAIL is
+    NEVER retried (a defect is a defect); KILLED is not retried by default (a hang
+    recurs); a terminal INVALID (admission, fixture-*, boot-crash-repeated,
+    spec-invalid) is not retried.
+    """
+    if retry_policy != "once":
+        return False
+    if attempt >= 2:
+        return False
+    if verdict.verdict != VERDICT_INVALID:
+        return False
+    return verdict.subkind in RETRYABLE_INVALID_SUBKINDS
+
+
+def resolve_terminal(attempts: Sequence[Verdict]) -> Verdict:
+    """Reduce an ordered list of attempt verdicts to the terminal result.
+
+    An attempt-1 INVALID followed by an attempt-2 PASS terminates PASS carrying a
+    ``flakedThenPassed`` note (there is no FLAKE verdict; the attempt-1 INVALID
+    still feeds the flake ledger numerator). Otherwise the last attempt's verdict
+    is terminal.
+    """
+    if not attempts:
+        return Verdict(VERDICT_INVALID, "no-attempts", False, "no attempts recorded")
+    last = attempts[-1]
+    if last.verdict == VERDICT_PASS and any(a.verdict == VERDICT_INVALID for a in attempts[:-1]):
+        return Verdict(last.verdict, last.subkind, last.retryable, last.reason,
+                       last.expected_fail_matched, "flakedThenPassed")
+    return last
