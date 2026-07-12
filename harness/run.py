@@ -789,8 +789,8 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # KILLED short-circuits the SAVE-reading verifiers (design edge 5): a torn save
     # is never ground truth. Only killed-run log validation + batch lines apply.
     if killed:
-        no_rec = (count_max == 0)
-        prof = hlib.select_logvalidate_profile(count_max, True)
+        prof = hlib.select_logvalidate_profile(hlib.spec_expects_live_recording(spec), True)
+        no_rec = prof.suppress_recording_rules
         lv = runtime.run_log_validate(log_path, killed=True, no_recording=no_rec,
                                       timeout=LOGVALIDATE_TIMEOUT_SECONDS)
         detail["logValidate"] = {
@@ -831,8 +831,8 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
 
     # 4. Log validation + LogContract.
     if driver_valid and not short_circuited:
-        no_rec = (count_max == 0)
-        prof = hlib.select_logvalidate_profile(count_max, False)
+        prof = hlib.select_logvalidate_profile(hlib.spec_expects_live_recording(spec), False)
+        no_rec = prof.suppress_recording_rules
         lv = runtime.run_log_validate(log_path, killed=False, no_recording=no_rec,
                                       timeout=LOGVALIDATE_TIMEOUT_SECONDS)
         if lv.timed_out:
@@ -849,7 +849,7 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
             if failed:
                 short_circuited = True
         logger.info("Verify", "verify logValidate status=%s recRulesSuppressed=%s killedRunMode=False"
-                    % (detail["logValidate"]["status"], (count_max == 0)))
+                    % (detail["logValidate"]["status"], prof.suppress_recording_rules))
     else:
         detail.setdefault("logValidate", {"status": "SKIPPED", "reason": "short-circuit"})
 

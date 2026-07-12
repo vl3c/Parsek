@@ -651,7 +651,18 @@ def _copy_and_verify_dev_mod(ctx: ProvisionContext, name: str, src: str, dst: st
     a mismatch means a partial / failed copy, so it ABORTS (EC-3) and returns None
     rather than record a hash the instance does not actually carry. The recorded
     hash is the instance's (now == source's), so VERIFY re-hashes the same bytes
-    it will read back."""
+    it will read back.
+
+    A pre-existing instance copy is scoped-deleted first (same rationale as
+    _repair_dev_mods: a merge-copy cannot remove a file injected into the
+    instance copy -- e.g. runtime caches from a prior game launch -- so the
+    post-copy hash check would abort forever)."""
+    # Only a DIRECTORY needs the pre-clear: a single-file mod is exactly
+    # replaced by the copy (and rmtree cannot delete a file anyway).
+    if os.path.isdir(dst) and not _scoped_delete_instance_subtree(ctx, dst):
+        abort(ctx, "Clone", "EC-3",
+              "dev-sourced mod %s: stale instance copy could not be cleared: %s" % (name, dst))
+        return None
     if os.path.isdir(src):
         _copy_dir(ctx, src, dst)
     else:
@@ -724,6 +735,17 @@ def phase_settings(ctx: ProvisionContext) -> Dict[str, str]:
     return deltas
 
 
+def _resolve_aux_payload(ctx: ProvisionContext) -> "provlib.ParsekAuxPayload":
+    """Resolve the Parsek DEPLOY aux payload (version + toolbar textures) for
+    this instance: worktree GameData/Parsek first, repo img/ next, dev install
+    GameData/Parsek last."""
+    return provlib.resolve_parsek_aux_payload(
+        os.path.join(WORKTREE_ROOT, "GameData", "Parsek"),
+        os.path.join(WORKTREE_ROOT, "img"),
+        os.path.join(ctx.dev_install, "GameData", "Parsek"),
+        os.path.isfile)
+
+
 def phase_deploy(ctx: ProvisionContext) -> Dict[str, object]:
     """Stage-then-install Parsek.dll with hash + UTF-16 grep (design DEPLOY)."""
     # SF8: no hardcoded sibling-worktree default. The override wins, else this
@@ -747,6 +769,14 @@ def phase_deploy(ctx: ProvisionContext) -> Dict[str, object]:
             "would copy %s -> .stage (hash) -> %s/GameData/Parsek/Plugins/Parsek.dll, "
             "re-hash + assert equal, UTF-16 grep %s"
             % (source, ctx.instance_dir, "/".join(PARSEK_SIGNATURE_STRINGS)))
+        payload = _resolve_aux_payload(ctx)
+        for f in payload.files:
+            log(ctx, "Info", "Deploy", "would install aux %s <- %s (%s), hash into manifest"
+                % (f.dest_rel, f.source, f.origin))
+        for dest in payload.missing_required:
+            log(ctx, "Amber", "Deploy", "required aux payload %s: NO source (a live run would ABORT EC-9)" % dest)
+        for dest in payload.missing_optional:
+            log(ctx, "Info", "Deploy", "optional aux payload %s: no source, skipped" % dest)
         return info
 
     if not sel.ok:
@@ -793,6 +823,27 @@ def phase_deploy(ctx: ProvisionContext) -> Dict[str, object]:
             return info
     info["dllSha256"] = installed_sha
     info["signatureStrings"] = sigs
+
+    # DEPLOY is not just the DLL: install the version file + toolbar textures in
+    # the same GameData/Parsek payload (their absence floods ToolbarControl.OnGUI
+    # with per-frame NREs). Hash each into the manifest so VERIFY re-hashes and
+    # --repair reconverges (field components.parsek.auxFiles.<dest>).
+    payload = _resolve_aux_payload(ctx)
+    for dest in payload.missing_required:
+        abort(ctx, "Deploy", "EC-9",
+              "required Parsek aux payload %s has no source (worktree GameData/Parsek, "
+              "repo img/, or dev install GameData/Parsek)" % dest)
+        return info
+    aux_hashes: Dict[str, str] = {}
+    for f in payload.files:
+        dst = os.path.join(ctx.parsek_gamedata, *f.dest_rel.split("/"))
+        _copy_file(f.source, dst)
+        sha = sha256_file(dst)
+        aux_hashes[f.dest_rel] = sha
+        log(ctx, "Info", "Deploy", "aux %s <- %s (%s) sha256=%s" % (f.dest_rel, f.source, f.origin, sha))
+    for dest in payload.missing_optional:
+        log(ctx, "Warn", "Deploy", "optional Parsek aux payload %s absent from all sources; skipped" % dest)
+    info["auxFiles"] = aux_hashes
     return info
 
 
@@ -933,14 +984,18 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
     # repointed junction must fail even when the old target still exists.
     def _resolve_link(link_key: str) -> Optional[str]:
         link_abs = os.path.join(ctx.instance_dir, link_key)
-        # os.path.exists() can report False for a healthy junction (observed
-        # on the live smoke alongside the same misreport in isdir/islink);
-        # lstat probes the LINK itself reparse-safely, and realpath reads the
-        # reparse target. A deleted link fails lstat -> dangling; a repointed
-        # link resolves to a different target -> dangling via the compare.
+        # CORRECTED (second live smoke): the earlier "exists() lies about
+        # junctions" reading was wrong - exists() was CORRECTLY reporting a
+        # junction whose target does not exist (the StreamingAssets entry
+        # pointed at a dir KSP 1.12.5 does not ship). Proper probe: lstat for
+        # LINK presence (deleted link -> None), then exists() for TARGET
+        # reachability (dangling junction -> None), then realpath for the
+        # repointed-target compare.
         try:
             os.lstat(link_abs)
         except OSError:
+            return None
+        if not os.path.exists(link_abs):
             return None
         return os.path.realpath(link_abs)
     dangling = provlib.verify_junctions(manifest, _resolve_link)
@@ -971,6 +1026,22 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
                 % (s, n, exp, "OK" if ok_sig else "DRIFT"))
             if not ok_sig:
                 _drift("components.parsek.signatureStrings.%s" % s, exp, n)
+
+    # Parsek aux payload (version + toolbar textures) re-hash. These live in the
+    # GameData/Parsek payload independent of the DLL; a missing texture is what
+    # floods ToolbarControl.OnGUI, so a dropped/edited aux file must drift.
+    for dest_rel, exp in (parsek.get("auxFiles", {}) or {}).items():
+        aux_path = os.path.join(ctx.parsek_gamedata, *dest_rel.split("/"))
+        if not os.path.isfile(aux_path):
+            log(ctx, "Error", "Verify", "parsek aux %s MISSING" % dest_rel)
+            _drift("components.parsek.auxFiles.%s" % dest_rel, exp, None)
+            continue
+        cur = sha256_file(aux_path)
+        ok_aux = cur == exp
+        log(ctx, "Info" if ok_aux else "Error", "Verify",
+            "parsek aux %s on-disk sha256 %s manifest" % (dest_rel, "==" if ok_aux else "!="))
+        if not ok_aux:
+            _drift("components.parsek.auxFiles.%s" % dest_rel, exp, cur)
 
     # Per-component installed DLL hashes (INSTALL / BUILD-TT).
     for comp in ("krpc", "testingtools", "krpc_mechjeb", "mechjeb2"):
@@ -1378,13 +1449,16 @@ def _content_tree_hash(root: str, ctx: Optional[ProvisionContext] = None) -> str
     """Deterministic content hash of a dev-sourced mod (folder or single file),
     via the pure canonical digest input (EC-3). Reparse-point subdirs are pruned
     (SF6b) so a junction inside a dev-sourced mod cannot pull a stock tree into
-    the hash."""
+    the hash. Runtime-writable dirs (the PluginData convention) are pruned too:
+    the drift contract covers the authored payload, and the game writes caches
+    there on every launch (provlib.is_runtime_writable_dir)."""
     entries: List[tuple] = []
     if os.path.isfile(root):
         entries.append((os.path.basename(root), sha256_file(root)))
     else:
         for r, dirs, names in os.walk(root):
             _prune_reparse_dirs(ctx, r, dirs)
+            dirs[:] = [d for d in dirs if not provlib.is_runtime_writable_dir(d)]
             for n in names:
                 p = os.path.join(r, n)
                 entries.append((os.path.relpath(p, root), sha256_file(p)))

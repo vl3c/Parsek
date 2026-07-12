@@ -1,12 +1,12 @@
 schema = 1
 id = "S1.4-injected-playback"
 tier = "daily"
-description = "Inject the 8 synthetic recordings, load, replay-observe ghost map presence + polyline; no render anomalies beyond a known-benign overlap."
+description = "Inject the full synthetic recording corpus, load, replay-observe ghost map presence + polyline; no render anomalies beyond a known-benign overlap."
 instanceProfile = "stock-minimal"
 tags = ["playback", "S1.4", "ghost", "R14"]
 
 [fixture]
-# The 8 synthetic recordings are injected via inject-recordings.ps1 with
+# The synthetic recording corpus is injected via inject-recordings.ps1 with
 # recording OFF by construction (plan 3.3), into the staged save named below.
 saveTemplate = "fixtures/saves/gloops-airshow"
 injectedRecordings = "all-synthetic"
@@ -16,6 +16,11 @@ craft = []
 kind = "seam"
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # Pin auto-record OFF: the fixture save carries autoRecordOnLaunch=True in its
+  # ParsekSettings, and spec_expects_live_recording classifies this run non-live
+  # (REC rules suppressed), so a save-setting-triggered live recording during a
+  # driven test would otherwise pass a dropped stop marker silently.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   # Enable the map-render tracer via a deliberate SetSetting so the anomaly sweep
   # has data to read (design: the sweep is only meaningful when tracing is pinned on).
   { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" }, expect = "OK" },
@@ -28,9 +33,13 @@ D6  = ["basic-playback", "ghost-map-presence", "non-orbital-polyline"]
 D16 = ["sidecar-prec", "sidecar-pcrf"]
 
 [expectations.recordings]
-# count.max > 0 keeps the REC-001/REC-003 rules mandatory: a dropped recording
-# in a recording scenario must still red.
-count = { min = 8, max = 8 }
+# Pinned to the InjectAllRecordings corpus size at this commit (272) ON the
+# stock-minimal profile; the corpus conditionally appends ReStock+ showcase
+# rows on modded installs, so a profile change moves this number too. A load
+# losing recordings reds. Update alongside corpus or profile changes.
+# (REC-rule suppression keys on live-recording expectation, not this count -
+# see the harness design revision note.)
+count = { min = 272, max = 272 }
 
 [expectations.logContracts]
 # ERROR is UPPERCASE in ParsekLog.Write and the patterns are case-sensitive.

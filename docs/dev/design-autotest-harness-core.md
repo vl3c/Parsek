@@ -773,6 +773,17 @@ retry re-runs only that verifier subprocess, not a fresh KSP boot).
    ledger block AND M-B2 has landed, run the world-diff verifier; drift ->
    PARSEK-FAIL (ledger). In v1 this is SKIPPED with a recorded reason.
 
+REVISION (post-first-live-run, 2026-07-12): the recording-rules suppression key
+is NOT `expectations.recordings.count.max == 0` as originally written. The
+first live S1.4 run proved that key wrong: injection-seeded scenarios carry
+recordings in the SAVE (count.max > 0) yet never record live, so REC-001 and
+REC-003 red-flagged a correct run. The implemented key is
+`hlib.spec_expects_live_recording(spec)`: the run expects live recording IFF
+the driver carries a StartRecording step or pins autoRecordOnLaunch=true via
+SetSetting. Every count.max-based suppression mention in this doc reads
+through that revision.
+
+
 On the FIRST verifier that produces a hard failure the harness records that
 verifier's detail and stops running later verifiers (they add cost, not signal),
 EXCEPT it always still parses BATCH_COMPLETE and the results file if reachable

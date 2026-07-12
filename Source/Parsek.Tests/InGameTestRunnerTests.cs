@@ -243,6 +243,22 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void StageManagerReady_ZeroStageVessel_ReadyWhenVesselExpectsNoStages()
+        {
+            // Regression: the first unattended harness run's single-pod fixture
+            // settles at StageCount == 0; the strict > 0 requirement timed the
+            // restore wait out on every zero-stage vessel. Fails if the
+            // vesselExpectsStages relaxation is lost.
+            Assert.True(InGameTestRunner.IsStageManagerReadyForActivateNextStage(
+                hasInstance: true, stageCount: 0, rebuildIndexes: false,
+                hasSortRoutine: false, vesselExpectsStages: false));
+            // Strict wait unchanged when stages are expected.
+            Assert.False(InGameTestRunner.IsStageManagerReadyForActivateNextStage(
+                hasInstance: true, stageCount: 0, rebuildIndexes: false,
+                hasSortRoutine: false, vesselExpectsStages: true));
+        }
+
+        [Fact]
         public void CreateBatchFlightParsekSaveSnapshotStaging_MissingSnapshot_DoesNotTouchCurrentDirectory()
         {
             string root = Path.Combine(Path.GetTempPath(), "parsek-staging-test-" + Guid.NewGuid().ToString("N"));

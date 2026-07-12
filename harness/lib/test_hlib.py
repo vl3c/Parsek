@@ -724,7 +724,7 @@ class LogValidateProfileTests(unittest.TestCase):
     and a killed run must not red on marker-pairing; the two profiles compose."""
 
     def test_no_recording_suppresses_rec_only(self):
-        p = hlib.select_logvalidate_profile(0, killed=False)
+        p = hlib.select_logvalidate_profile(False, killed=False)
         self.assertTrue(p.suppress_recording_rules)
         self.assertFalse(p.killed_run_mode)
         self.assertEqual(set(p.suppressed_rules), {"REC-001", "REC-003"})
@@ -732,19 +732,19 @@ class LogValidateProfileTests(unittest.TestCase):
         self.assertIn("FMT-001", p.mandatory_rules)
 
     def test_recording_scenario_no_suppression(self):
-        p = hlib.select_logvalidate_profile(8, killed=False)
+        p = hlib.select_logvalidate_profile(True, killed=False)
         self.assertFalse(p.suppress_recording_rules)
         self.assertEqual(p.suppressed_rules, ())
         self.assertIn("REC-001", p.mandatory_rules)
 
     def test_killed_suppresses_marker_pairing(self):
-        p = hlib.select_logvalidate_profile(8, killed=True)
+        p = hlib.select_logvalidate_profile(True, killed=True)
         self.assertTrue(p.killed_run_mode)
         self.assertEqual(set(p.suppressed_rules), {"SES-000", "SES-001", "REC-001", "REC-003"})
         self.assertEqual(set(p.mandatory_rules), {"FMT-001", "FMT-002", "WRN-001"})
 
     def test_both_profiles_compose(self):
-        p = hlib.select_logvalidate_profile(0, killed=True)
+        p = hlib.select_logvalidate_profile(False, killed=True)
         self.assertTrue(p.suppress_recording_rules and p.killed_run_mode)
         self.assertEqual(set(p.suppressed_rules), {"SES-000", "SES-001", "REC-001", "REC-003"})
 
@@ -1104,3 +1104,36 @@ class LogLineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SpecExpectsLiveRecordingTests(unittest.TestCase):
+    """Regression for the first live S1.4 run: REC-rule suppression keyed on
+    recordings.count.max==0 red-flagged REC-001/REC-003 on an injection-seeded
+    scenario that never records live. The key is now the spec's own
+    live-recording expectation. Fails if the derivation loses either trigger
+    (StartRecording step / autoRecordOnLaunch=true pin) or starts treating
+    injected-save recordings as live."""
+
+    def _spec(self, steps):
+        return {"driver": {"steps": steps}}
+
+    def test_injection_seeded_no_live_recording(self):
+        spec = self._spec([
+            {"cmd": "LoadGame", "args": {"save": "x", "name": "persistent"}},
+            {"cmd": "SetSetting", "args": {"name": "autoRecordOnLaunch", "value": "false"}},
+            {"cmd": "RunTests", "args": {"category": "RecordingInvariants"}},
+            {"cmd": "FlushAndQuit", "args": {}},
+        ])
+        self.assertFalse(hlib.spec_expects_live_recording(spec))
+        prof = hlib.select_logvalidate_profile(hlib.spec_expects_live_recording(spec), False)
+        self.assertTrue(prof.suppress_recording_rules)
+
+    def test_start_recording_step_expects_live(self):
+        spec = self._spec([{"cmd": "StartRecording", "args": {}}])
+        self.assertTrue(hlib.spec_expects_live_recording(spec))
+
+    def test_autorecord_pin_true_expects_live(self):
+        spec = self._spec([{"cmd": "SetSetting", "args": {"name": "autoRecordOnLaunch", "value": "true"}}])
+        self.assertTrue(hlib.spec_expects_live_recording(spec))
+        prof = hlib.select_logvalidate_profile(True, False)
+        self.assertFalse(prof.suppress_recording_rules)

@@ -3093,18 +3093,47 @@ namespace Parsek.InGameTests
             bool hasInstance,
             int stageCount,
             bool rebuildIndexes,
-            bool hasSortRoutine)
+            bool hasSortRoutine,
+            bool vesselExpectsStages = true)
         {
+            // A vessel with no staging-capable parts (e.g. a bare command pod)
+            // legitimately settles at StageCount == 0; requiring > 0 made the
+            // restore wait time out on every zero-stage vessel (found by the
+            // first unattended harness run against a single-pod fixture).
+            bool stageCountReady = vesselExpectsStages ? stageCount > 0 : stageCount >= 0;
             return hasInstance
-                && stageCount > 0
+                && stageCountReady
                 && !rebuildIndexes
                 && !hasSortRoutine;
+        }
+
+        internal static bool ActiveVesselExpectsStages()
+        {
+            var v = FlightGlobals.ActiveVessel;
+            if (v == null || v.parts == null)
+                return true; // unknown: keep the strict wait
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                var part = v.parts[i];
+                // stagingOn is constructor-true on EVERY part (decompiled
+                // Part..ctor), so it alone says nothing. A part contributes a
+                // stage icon only when its cfg/model authored a stagingIcon
+                // (hasStagingIcon) AND the player has not toggled its staging
+                // off. A bare mk1pod.v2 has no stagingIcon, so StageCount
+                // legitimately settles at 0.
+                if (part != null && part.hasStagingIcon && part.stagingOn)
+                    return true;
+            }
+            return false;
         }
 
         internal static IEnumerator WaitForStockStageManagerReady(float timeoutSeconds)
         {
             float deadline = Time.time + timeoutSeconds;
             float stableMatchStarted = -1f;
+            ParsekLog.Verbose("TestRunner",
+                $"WaitForStockStageManagerReady: vesselExpectsStages={ActiveVesselExpectsStages()} " +
+                $"vessel={FlightGlobals.ActiveVessel?.vesselName ?? "<null>"} timeout={timeoutSeconds:F0}s");
             while (Time.time < deadline)
             {
                 var stageManager = KSP.UI.Screens.StageManager.Instance;
@@ -3116,7 +3145,8 @@ namespace Parsek.InGameTests
                 bool hasSortRoutine = hasInstance
                     && StageManagerSortRoutineField?.GetValue(stageManager) is Coroutine;
                 bool ready = IsStageManagerReadyForActivateNextStage(
-                    hasInstance, stageCount, rebuildIndexes, hasSortRoutine);
+                    hasInstance, stageCount, rebuildIndexes, hasSortRoutine,
+                    ActiveVesselExpectsStages());
                 if (ready)
                 {
                     if (stableMatchStarted < 0f)
@@ -3148,6 +3178,7 @@ namespace Parsek.InGameTests
                 $"WaitForStockStageManagerReady timed out after {timeoutSeconds:F0}s " +
                 $"(hasInstance={timedOutHasInstance}, stageCount={timedOutStageCount}, " +
                 $"rebuildIndexes={timedOutRebuildIndexes}, hasSortRoutine={timedOutHasSortRoutine}, " +
+                $"vesselExpectsStages={ActiveVesselExpectsStages()}, " +
                 $"stableWindow={BatchBaselineStableMatchSeconds:F1}s)");
         }
 
