@@ -43,7 +43,7 @@ import subprocess
 import sys
 import tomllib
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 import provlib
 
@@ -286,9 +286,14 @@ def phase_download(ctx: ProvisionContext) -> None:
     """Fetch + verify the kRPC release zip and the MechJeb2 build (live only)."""
     krpc = ctx.pins.get("krpc", {})
     mj = ctx.pins.get("mechjeb2", {})
+    kmj = ctx.pins.get("krpc_mechjeb", {})
 
+    # Three pinned release artifacts. krpc_mechjeb ordered before mechjeb2 so its
+    # (resolved) download succeeds; the OPEN mechjeb2 pin then aborts DOWNLOAD by
+    # design (EC-13) until a durable build URL+sha256 is recorded.
     for comp, url, sha, name in (
         ("krpc", krpc.get("releaseZipUrl"), krpc.get("releaseZipSha256"), "krpc release zip"),
+        ("krpc_mechjeb", kmj.get("downloadUrl"), kmj.get("releaseZipSha256"), "krpc_mechjeb release zip"),
         ("mechjeb2", mj.get("downloadUrl"), mj.get("sha256"), "mechjeb2 build"),
     ):
         if provlib.is_open_pin(sha):
@@ -608,8 +613,8 @@ def phase_deploy(ctx: ProvisionContext) -> Dict[str, object]:
 
 
 def phase_install(ctx: ProvisionContext) -> None:
-    if _guard_live_unimplemented(ctx, "Install"):
-        return
+    """Extract the stack payloads into the instance GameData and hash every
+    installed DLL into the manifest (design INSTALL)."""
     stack = ctx.profile.get("stackComponents", []) or []
     if not stack:
         # An empty stack list is almost always a profile-TOML bug (a
@@ -629,6 +634,8 @@ def phase_install(ctx: ProvisionContext) -> None:
         log(ctx, "Info", "Install",
             "would extract kRPC into GameData/kRPC, drop TestingTools.dll + KRPC.MechJeb.dll "
             "alongside, extract MechJeb2 into GameData/MechJeb2, hash every DLL")
+        return
+    _install_stack(ctx, stack)
 
 
 def phase_mm_cache(ctx: ProvisionContext) -> None:
@@ -682,6 +689,14 @@ def phase_manifest(ctx: ProvisionContext, resolved: Dict[str, str],
         "settingsFinalSha256": getattr(ctx, "settings_final_sha", None),
         "buildId64Sha256": _buildid64_sha(ctx),
     }
+    # Merge the live per-component installed-DLL hashes INSTALL/BUILD-TT computed
+    # (installedDlls per kRPC/MechJeb2, dllSha256 per TestingTools/KRPC.MechJeb).
+    # These are the "real hashes replace the planned-copy markers" (design
+    # MANIFEST); the field names (dllSha256, installedDlls) match what
+    # hlib.admit_instance / build_expected_admission diff.
+    for comp, fields in getattr(ctx, "component_extra", {}).items():
+        if comp in manifest["components"]:
+            manifest["components"][comp].update({k: v for k, v in fields.items() if v is not None})
     if ctx.dry_run:
         log(ctx, "Info", "Manifest",
             "would atomically write provision-manifest.json (components=%d, junctions=%d, deltas=%d)"
@@ -1119,6 +1134,94 @@ def _build_testingtools(ctx: ProvisionContext, sel, tt: Dict) -> None:
     ctx.testingtools_dll = cached  # type: ignore[attr-defined]
     ctx.testingtools_sha = tt_sha  # type: ignore[attr-defined]
     log(ctx, "Info", "Build-TT", "build OK dll-sha256=%s cached=%s" % (tt_sha, cached))
+
+
+# --- INSTALL live helpers (design INSTALL). Never run under dry-run. ---
+
+
+def _extra(ctx: ProvisionContext) -> Dict[str, Dict]:
+    """Per-component manifest fields (installed DLL hashes) populated by INSTALL
+    and merged into the manifest by phase_manifest."""
+    if not hasattr(ctx, "component_extra"):
+        ctx.component_extra = {}  # type: ignore[attr-defined]
+    return ctx.component_extra  # type: ignore[attr-defined]
+
+
+def _extract_zip_plan(ctx: ProvisionContext, comp: str, zip_path: str) -> List[str]:
+    """Extract a component's release zip into the instance per plan_zip_install;
+    returns the list of instance-relative destinations written."""
+    import zipfile
+    written: List[str] = []
+    with zipfile.ZipFile(zip_path) as zf:
+        plan = provlib.plan_zip_install(comp, zf.namelist())
+        for entry, dest_rel in plan:
+            dest_abs = os.path.join(ctx.instance_dir, dest_rel.replace("/", os.sep))
+            os.makedirs(_long(os.path.dirname(dest_abs)), exist_ok=True)
+            with zf.open(entry) as src, open(_long(dest_abs), "wb") as dst:
+                dst.write(src.read())
+            written.append(dest_rel)
+    return written
+
+
+def _hash_installed_dlls(ctx: ProvisionContext, rel_paths: Sequence[str]) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    for rel in rel_paths:
+        if not rel.lower().endswith(".dll"):
+            continue
+        p = os.path.join(ctx.instance_dir, rel.replace("/", os.sep))
+        if os.path.isfile(p):
+            out[os.path.basename(rel)] = sha256_file(p)
+    return out
+
+
+def _install_stack(ctx: ProvisionContext, stack: Sequence[str]) -> None:
+    extra = _extra(ctx)
+
+    # kRPC release zip -> GameData/kRPC/ (subtree as-is, GT-5).
+    if "krpc" in stack:
+        zip_path = _cached_zip_path(ctx, "krpc", "releaseZipUrl")
+        if not zip_path or not os.path.isfile(zip_path):
+            abort(ctx, "Install", "EC-4", "kRPC zip not cached: %s" % zip_path)
+            return
+        written = _extract_zip_plan(ctx, "krpc", zip_path)
+        want = provlib.krpc_installed_dll_names(ctx.pins.get("krpc", {}))
+        hashes = _hash_installed_dlls(ctx, [w for w in written if os.path.basename(w) in want])
+        extra["krpc"] = {"installedDlls": hashes}
+        log(ctx, "Info", "Install", "kRPC extracted files=%d hashed-dlls=%d" % (len(written), len(hashes)))
+
+    # Built TestingTools.dll dropped alongside kRPC.
+    if "testingtools" in stack:
+        cached = getattr(ctx, "testingtools_dll", None)
+        if not cached or not os.path.isfile(cached):
+            abort(ctx, "Install", "EC-4", "TestingTools.dll not built/cached (BUILD-TT must run first)")
+            return
+        dest = os.path.join(ctx.instance_dir, "GameData", "kRPC", "TestingTools.dll")
+        os.makedirs(_long(os.path.dirname(dest)), exist_ok=True)
+        _copy_file(cached, _long(dest))
+        extra["testingtools"] = {"dllSha256": sha256_file(dest)}
+        log(ctx, "Info", "Install", "TestingTools.dll installed sha256=%s" % extra["testingtools"]["dllSha256"])
+
+    # KRPC.MechJeb prebuilt DLL (+ json) from its release zip -> GameData/kRPC/.
+    if "krpc_mechjeb" in stack:
+        zip_path = _cached_zip_path(ctx, "krpc_mechjeb", "downloadUrl")
+        if not zip_path or not os.path.isfile(zip_path):
+            abort(ctx, "Install", "EC-4", "KRPC.MechJeb zip not cached: %s" % zip_path)
+            return
+        written = _extract_zip_plan(ctx, "krpc_mechjeb", zip_path)
+        hashes = _hash_installed_dlls(ctx, written)
+        extra["krpc_mechjeb"] = {"dllSha256": hashes.get("KRPC.MechJeb.dll")}
+        log(ctx, "Info", "Install", "KRPC.MechJeb installed dll-sha256=%s" % extra["krpc_mechjeb"]["dllSha256"])
+
+    # MechJeb2 release zip -> GameData/MechJeb2/ (pin OPEN today; guarded above by
+    # DOWNLOAD's EC-13, so this only runs once a durable build is pinned).
+    if "mechjeb2" in stack:
+        zip_path = _cached_zip_path(ctx, "mechjeb2", "downloadUrl")
+        if zip_path and os.path.isfile(zip_path):
+            written = _extract_zip_plan(ctx, "mechjeb2", zip_path)
+            extra["mechjeb2"] = {"installedDlls": _hash_installed_dlls(ctx, written)}
+            log(ctx, "Info", "Install", "MechJeb2 extracted files=%d" % len(written))
+        else:
+            log(ctx, "Warn", "Install", "MechJeb2 zip not cached (pin OPEN); skipped")
 
 
 def _git_head(repo: str) -> str:

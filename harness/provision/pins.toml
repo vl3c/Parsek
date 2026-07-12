@@ -23,9 +23,12 @@ tag = "v0.5.4"
 commit = "11f1f1366fa4301049f6eac6640604127a9d763b"
 tagObject = "4e9dfbedd21409fb75c19f55f839d68520e752c1"  # annotated-tag object sha (info)
 releaseZipUrl = "https://github.com/krpc/krpc/releases/download/v0.5.4/krpc-0.5.4.zip"
-# O-1/EC-13: fill after first download.
-#   curl -L -o krpc-0.5.4.zip <releaseZipUrl> && sha256sum krpc-0.5.4.zip
-releaseZipSha256 = "OPEN"
+# O-1/EC-13 RESOLVED 2026-07-12: downloaded from releaseZipUrl (official kRPC
+# GitHub release), sha256sum over the 703528-byte zip. GT-5/O-2 also confirmed at
+# the same download: the zip ships KRPC.Core.dll + KRPC.SpaceCenter.dll +
+# Google.Protobuf.dll (the three compile refs) under GameData/kRPC/ and does NOT
+# ship TestingTools.dll.
+releaseZipSha256 = "b09dddf5f3b921b65ea666e6710183af0f8ba33d8238b8c9c89548f6999a983e"
 localClone = "mods/krpc"
 # O-2/GT-5: confirm the zip layout at first download.
 #   unzip -l krpc-0.5.4.zip | grep -iE 'testingtools|KRPC.Core.dll|KRPC.SpaceCenter.dll|Google.Protobuf.dll'
@@ -61,9 +64,22 @@ targetFramework = "net472"
 # GT-7: no git tags; pin is a downloaded build (MechJeb2 ships CI dev builds
 # numbered 2.15.x.x, not git refs; AssemblyInfo carries a 1.0.0.0 placeholder).
 mode = "release"
-# O-3: fill with the exact MJ 2.15 dev build chosen (KSP 1.12 line).
-#   source: MechJeb2 CI / SpaceDock / CurseForge; record buildNumber + downloadUrl,
-#   then: curl -L -o MechJeb2.zip <downloadUrl> && sha256sum MechJeb2.zip
+# O-3 STILL OPEN (2026-07-12 web check): MechJeb2 has no durable binary release
+# asset to pin.
+#   - MuMech/MechJeb2 carries an annotated SOURCE tag v2.15.0 (tag object
+#     9f381a161a263b7b904a8ca41f6a7792731435b0) but NO GitHub "release" assets
+#     (the releases API is empty); the tag is source, and AssemblyInfo carries
+#     the 1.0.0.0 placeholder (real version injected at build), so a git ref is
+#     not a build pin.
+#   - Official binaries come from the community Jenkins CI
+#     (https://ksp.sarbian.com/jenkins/job/MechJeb2/) which numbers rolling
+#     2.15.x.x dev builds and garbage-collects old build artifacts, so a build
+#     number + URL there is not reproducibly re-fetchable.
+#   - SpaceDock hosts stable MechJeb2 releases (mod page under MuMech) and is the
+#     most durable source; pick a specific KSP-1.12 version there, then:
+#       curl -L -o MechJeb2.zip <spacedock download> && sha256sum MechJeb2.zip
+# Until a durable URL+sha256 is recorded here, DOWNLOAD aborts by design (EC-13),
+# which correctly blocks a live provision rather than pinning a rotating build.
 buildNumber = "2.15.x.x-OPEN"
 downloadUrl = "OPEN"
 sha256 = "OPEN"
@@ -78,6 +94,16 @@ commit = "398bc337492c5f725c83ab1aac85c32a1c0349ea"
 localClone = "mods/KRPC.MechJeb"
 pairedKrpcTag = "v0.5.4"           # asserted against [krpc].tag at PAIR
 pairedMechjebLine = "2.14.3+"      # from CHANGELOG 0.7.0/0.7.1
+# INSTALL sources the PREBUILT KRPC.MechJeb.dll from the genhis v0.7.1 GitHub
+# release zip (which ships a ready binary + KRPC.MechJeb.json at the zip root)
+# rather than compiling from mods/KRPC.MechJeb: the release is the reproducible,
+# ABI-matched artifact and avoids a second from-source shim build. The git
+# tag+commit above remain the pin IDENTITY (asserted read-only at PIN).
+# RESOLVED 2026-07-12: downloaded from the official Genhis release; sha256sum
+# over the 156159-byte zip. Layout confirmed: KRPC.MechJeb.dll + KRPC.MechJeb.json
+# at the zip root (dropped into GameData/kRPC/ per its README).
+downloadUrl = "https://github.com/Genhis/KRPC.MechJeb/releases/download/v0.7.1/krpc-mechjeb-0.7.1.zip"
+releaseZipSha256 = "5922a6d73d77093999f1ff485688c739cf6157f56f61086050a54dbd8bb83246"
 # O-5/EC-14: only if a non-v0.5.4 kRPC is ever pinned -- confirm the fork+tag via
 #   https://github.com/Genhis/KRPC.MechJeb/releases
 #   https://github.com/darchambault/KRPC.MechJeb/releases
