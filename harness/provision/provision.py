@@ -325,15 +325,18 @@ def phase_download(ctx: ProvisionContext) -> None:
             _assert_krpc_zip_layout(ctx, data)
 
 
-def phase_build_tt(ctx: ProvisionContext) -> None:
+def phase_build_tt(ctx: ProvisionContext, resolved: Dict[str, str]) -> None:
     """Build the 2-file TestingTools shim from the pinned kRPC ref (design BUILD-TT).
 
-    Exports OrbitTools.cs + TestingTools.cs via ``git show`` at the pin (NEVER a
-    working-tree build, GT-1; AutoLoadGame.cs / AutoSwitchVessel.cs deliberately
-    dropped, GT-4), authors a standalone SDK-style net472 shim csproj + minimal
+    Exports OrbitTools.cs + TestingTools.cs via ``git show`` at the PEEL-VERIFIED
+    kRPC commit (``resolved['krpc']``, N12 -- not the mutable tag name, so a
+    retagged ref cannot silently change the shim source), NEVER a working-tree
+    build (GT-1); AutoLoadGame.cs / AutoSwitchVessel.cs deliberately dropped
+    (GT-4). Authors a standalone SDK-style net472 shim csproj + minimal
     AssemblyInfo (GT-9 HintPaths into the dev Managed dir + the extracted release
     kRPC binaries), ``dotnet build -c Release``, asserts the AutoLoadGame type is
-    ABSENT from the built assembly (S-4), then hashes + caches TestingTools.dll.
+    ABSENT and the six control-capability RPCs are PRESENT in the built assembly
+    (S-4 / N17), then hashes + caches TestingTools.dll.
     """
     tt = ctx.pins.get("testingtools", {})
     full = list(tt.get("fullSourceSetAtTag", provlib.TESTINGTOOLS_SHIM_SOURCES
@@ -342,17 +345,20 @@ def phase_build_tt(ctx: ProvisionContext) -> None:
     if not sel.ok:
         abort(ctx, "Build-TT", "EC-4", "shim source selection failed: %s" % sel.reason)
         return
+    # N12: build from the peeled commit, not the tag. Falls back to the tag only
+    # when a dry-run without the clone left resolved['krpc'] unpopulated.
+    build_ref = resolved.get("krpc") or tt.get("sourceRepoRef", "v0.5.4")
     log(ctx, "Info", "Build-TT",
-        "shim sources=%s dropped=%s autoloader-excluded=%s"
-        % (",".join(sel.included), ",".join(sel.dropped), sel.autoloader_excluded))
+        "shim sources=%s dropped=%s autoloader-excluded=%s build-ref=%s"
+        % (",".join(sel.included), ",".join(sel.dropped), sel.autoloader_excluded, build_ref))
     if ctx.dry_run:
         log(ctx, "Info", "Build-TT",
             "would git-show %s from %s@%s, author TestingTools.shim.csproj "
             "(net472, HintPaths into devInstall Managed + release kRPC), dotnet build -c Release, "
-            "hash + cache; assert AutoLoadGame type ABSENT (S-4)"
-            % (",".join(sel.included), tt.get("localClone", "mods/krpc"), tt.get("sourceRepoRef", "v0.5.4")))
+            "hash + cache; assert AutoLoadGame type ABSENT + six capability RPCs PRESENT (S-4)"
+            % (",".join(sel.included), tt.get("localClone", "mods/krpc"), build_ref))
         return
-    _build_testingtools(ctx, sel, tt)
+    _build_testingtools(ctx, sel, tt, build_ref)
 
 
 def phase_pair(ctx: ProvisionContext) -> None:
@@ -461,14 +467,36 @@ def phase_clone(ctx: ProvisionContext):
         if not os.path.exists(src):
             abort(ctx, "Clone", "EC-3", "dev-sourced mod %s vanished mid-run: %s" % (name, src))
             return junctions, dev_status
-        if os.path.isdir(src):
-            _copy_dir(ctx, src, dst)
-        else:
-            _copy_one(src, dst)
-        tree_hash = _content_tree_hash(src)
-        dev_status[name] = tree_hash
-        log(ctx, "Info", "Clone", "copied GameData/%s tree-hash=%s" % (name, tree_hash))
+        dst_hash = _copy_and_verify_dev_mod(ctx, name, src, dst)
+        if ctx.aborted:
+            return junctions, dev_status
+        dev_status[name] = dst_hash
+        log(ctx, "Info", "Clone",
+            "copied GameData/%s tree-hash=%s (instance-verified)" % (name, dst_hash))
     return junctions, dev_status
+
+
+def _copy_and_verify_dev_mod(ctx: ProvisionContext, name: str, src: str, dst: str) -> Optional[str]:
+    """Copy one dev-sourced mod into the instance and return its INSTANCE
+    content-tree hash (BLOCKER 1).
+
+    Hashes the SOURCE (canonical expectation) AND the just-written instance copy;
+    a mismatch means a partial / failed copy, so it ABORTS (EC-3) and returns None
+    rather than record a hash the instance does not actually carry. The recorded
+    hash is the instance's (now == source's), so VERIFY re-hashes the same bytes
+    it will read back."""
+    if os.path.isdir(src):
+        _copy_dir(ctx, src, dst)
+    else:
+        _copy_one(src, dst)
+    src_hash = _content_tree_hash(src)
+    dst_hash = _content_tree_hash(dst)
+    if src_hash != dst_hash:
+        abort(ctx, "Clone", "EC-3",
+              "dev-sourced mod %s partial copy: source-hash=%s instance-hash=%s"
+              % (name, src_hash, dst_hash))
+        return None
+    return dst_hash
 
 
 def phase_settings(ctx: ProvisionContext) -> Dict[str, str]:
@@ -531,25 +559,34 @@ def phase_settings(ctx: ProvisionContext) -> Dict[str, str]:
 
 def phase_deploy(ctx: ProvisionContext) -> Dict[str, object]:
     """Stage-then-install Parsek.dll with hash + UTF-16 grep (design DEPLOY)."""
-    # NOTE (reviewer 5, deferred): the default source hardcodes the worktree name
-    # "Parsek-autotest-provision"; the worktree-own build below is preferred when
-    # present, so this only bites when deploying from a differently-named tree.
-    default_dll = os.path.join(
-        ctx.umbrella_root, "Parsek-autotest-provision", "Source", "Parsek", "bin", "Debug", "Parsek.dll")
+    # SF8: no hardcoded sibling-worktree default. The override wins, else this
+    # worktree's own bin/Debug build; absent both, DEPLOY aborts demanding
+    # --parsek-dll rather than deploying an unrelated worktree's DLL.
     worktree_dll = os.path.join(WORKTREE_ROOT, "Source", "Parsek", "bin", "Debug", "Parsek.dll")
     sel = provlib.select_parsek_dll_source(
-        ctx.parsek_dll_override, worktree_dll, os.path.isfile(worktree_dll), default_dll)
+        ctx.parsek_dll_override, worktree_dll, os.path.isfile(worktree_dll))
     source = sel.source
     log(ctx, "Info", "Deploy", "parsek dll source=%s (%s)" % (source, sel.reason))
 
     info: Dict[str, object] = {"kind": "staged-build", "stagedFrom": source}
     if ctx.dry_run:
+        if not sel.ok:
+            log(ctx, "Amber", "Deploy",
+                "no worktree bin/Debug Parsek.dll at %s and no --parsek-dll: a live run would ABORT "
+                "(EC-9) demanding --parsek-dll (build this worktree: cd Source/Parsek && dotnet build)"
+                % worktree_dll)
+            return info
         log(ctx, "Info", "Deploy",
             "would copy %s -> .stage (hash) -> %s/GameData/Parsek/Plugins/Parsek.dll, "
             "re-hash + assert equal, UTF-16 grep %s"
             % (source, ctx.instance_dir, "/".join(PARSEK_SIGNATURE_STRINGS)))
         return info
 
+    if not sel.ok:
+        abort(ctx, "Deploy", "EC-9",
+              "no Parsek.dll to deploy: build this worktree (cd Source/Parsek && dotnet build) "
+              "or pass --parsek-dll")
+        return info
     if not os.path.isfile(source):
         abort(ctx, "Deploy", "EC-9", "Parsek.dll source not found: %s (use --parsek-dll)" % source)
         return info
@@ -648,8 +685,9 @@ def phase_manifest(ctx: ProvisionContext, resolved: Dict[str, str],
                      "commit": resolved.get("krpc", krpc.get("commit")),
                      "sha256": krpc.get("releaseZipSha256")},
             # NOTE: autoLoaderAbsent is deliberately NOT recorded here. It is a
-            # claim only the (unimplemented) BUILD-TT reflection smoke over the
-            # ACTUAL built assembly can back (S-4); a planner must not assert it.
+            # claim only the BUILD-TT reflection smoke over the ACTUAL built
+            # assembly can back (S-4 -- AutoLoadGame absent + the six capability
+            # RPCs present); a dry-run planner has no built bytes to assert it.
             "testingtools": {"kind": "built-shim", "krpcRef": tt.get("sourceRepoRef"),
                              "sourceFiles": list(tt.get("sourceFiles", [])),
                              "capabilities": list(tt.get("capabilities", [])),
@@ -780,6 +818,26 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
             "buildId64Sha256 re-hash %s" % ("OK" if match else "DRIFT"))
         if not match:
             _drift("buildId64Sha256", b64, cur)
+
+    # Dev-sourced mod content-tree hashes (BLOCKER 1). Re-hash each recorded
+    # instance GameData/<mod> and compare to the manifest: this is the ONLY
+    # instance-side check on a dev-sourced copy, catching a swapped DLL or an
+    # injected extra file that a plain re-copy would miss. Non-hash statuses
+    # ("absent-source", the dry-run "planned-copy") are skipped.
+    for name, recorded in (manifest.get("devSourcedMods", {}) or {}).items():
+        if not recorded or recorded in ("absent-source", "planned-copy"):
+            continue
+        modpath = os.path.join(ctx.instance_dir, "GameData", name)
+        if not os.path.exists(modpath):
+            log(ctx, "Error", "Verify", "dev-sourced mod %s MISSING from instance GameData" % name)
+            _drift("devSourcedMods.%s" % name, recorded, None)
+            continue
+        cur = _content_tree_hash(modpath)
+        match = cur == recorded
+        log(ctx, "Info" if match else "Error", "Verify",
+            "dev-sourced mod %s content-hash %s manifest" % (name, "==" if match else "!="))
+        if not match:
+            _drift("devSourcedMods.%s" % name, recorded, cur)
 
     ctx.verify_drift = drift  # type: ignore[attr-defined]
     ok = not drift
@@ -1129,9 +1187,8 @@ def _extract_krpc_refs(ctx: ProvisionContext, dest: str) -> bool:
     return True
 
 
-def _build_testingtools(ctx: ProvisionContext, sel, tt: Dict) -> None:
+def _build_testingtools(ctx: ProvisionContext, sel, tt: Dict, ref: str) -> None:
     krpc_clone = os.path.join(ctx.umbrella_root, ctx.pins.get("krpc", {}).get("localClone", "mods/krpc"))
-    ref = tt.get("sourceRepoRef", "v0.5.4")
     subdir = tt.get("sourceSubdir", "tools/TestingTools/src")
     build_dir = os.path.join(CACHE_DIR, "testingtools-build")
     src_dir = os.path.join(build_dir, "src")
@@ -1182,6 +1239,22 @@ def _build_testingtools(ctx: ProvisionContext, sel, tt: Dict) -> None:
         % ("OK" if assertion.ok else "FAIL", assertion.autoloadgame_count, assertion.has_testingtools_type))
     if not assertion.ok:
         abort(ctx, "Build-TT", "EC-4", "S-4 assertion failed: %s" % assertion.reason)
+        return
+
+    # N17: assert the six control-capability RPC method names are PRESENT in the
+    # built assembly (UTF-8 metadata grep, same dependency-free reflection proxy).
+    # A shim that compiled but exposes none of the capabilities the harness boots
+    # against is as useless as one carrying AutoLoadGame.
+    missing_caps = [c for c in provlib.TESTINGTOOLS_CAPABILITIES
+                    if provlib.count_utf8(dll_bytes, c) == 0]
+    log(ctx, "Info" if not missing_caps else "Error", "Build-TT",
+        "capability RPCs present=%d/%d%s"
+        % (len(provlib.TESTINGTOOLS_CAPABILITIES) - len(missing_caps),
+           len(provlib.TESTINGTOOLS_CAPABILITIES),
+           "" if not missing_caps else " MISSING=%s" % ",".join(missing_caps)))
+    if missing_caps:
+        abort(ctx, "Build-TT", "EC-4",
+              "S-4 capability RPCs absent from built assembly: %s" % ",".join(missing_caps))
         return
 
     cached = os.path.join(CACHE_DIR, "TestingTools.dll")
@@ -1332,7 +1405,7 @@ def run(ctx: ProvisionContext) -> int:
     if ctx.aborted:
         return _finish(ctx, 2)
 
-    phase_build_tt(ctx)
+    phase_build_tt(ctx, resolved)
     if ctx.aborted:
         return _finish(ctx, 2)
 
@@ -1398,18 +1471,56 @@ def _repair_and_reverify(ctx: ProvisionContext, manifest: Dict, resolved: Dict,
 
 
 def _repair_dev_mods(ctx: ProvisionContext, names: Sequence[str]) -> None:
-    gd = os.path.join(ctx.instance_dir, "GameData")
     for name in names:
         src = os.path.join(ctx.dev_install, "GameData", name)
-        dst = os.path.join(gd, name)
+        dst = os.path.join(ctx.instance_dir, "GameData", name)
         if not os.path.exists(src):
             log(ctx, "Warn", "Repair", "dev-sourced mod %s absent at source; skip" % name)
+            continue
+        # A plain re-copy overwrites same-named files but CANNOT remove a file
+        # injected into the instance copy, so drift from an injected extra file
+        # would never converge. Scoped-delete the instance mod dir first (fenced
+        # behind the EC-16 alias guard + strict instance-GameData containment),
+        # then re-copy from the dev source.
+        if not _scoped_delete_instance_subtree(ctx, dst):
             continue
         if os.path.isdir(src):
             _copy_dir(ctx, src, dst)
         else:
             _copy_one(src, dst)
-        log(ctx, "Info", "Repair", "re-copied GameData/%s" % name)
+        log(ctx, "Info", "Repair", "re-copied GameData/%s (scoped-delete + copy)" % name)
+
+
+def _scoped_delete_instance_subtree(ctx: ProvisionContext, target: str) -> bool:
+    """Delete a subtree that MUST live strictly inside the instance GameData,
+    behind the EC-16 dev-install alias fence. Returns False (and logs) without
+    deleting if either guard trips, so a misconfigured instanceDir can never
+    rmtree into the read-only dev install."""
+    import shutil
+    gd_instance = os.path.join(ctx.instance_dir, "GameData")
+    inst_norm = os.path.normcase(os.path.normpath(ctx.instance_dir))
+    dev_norm = os.path.normcase(os.path.normpath(ctx.dev_install))
+    alias = provlib.check_instance_dir_alias(inst_norm, dev_norm, ctx.profile.get("instanceDir", ""))
+    if not alias.ok:
+        log(ctx, "Error", "Repair",
+            "EC-16 refuse scoped delete: instance aliases dev install (%s)" % alias.reason)
+        return False
+    # Strict containment: target must be nested UNDER instance GameData, never
+    # equal to it and never outside it.
+    strictly_inside = (provlib.is_path_within(target, gd_instance)
+                       and not provlib.is_path_within(gd_instance, target))
+    if not strictly_inside:
+        log(ctx, "Error", "Repair",
+            "refuse scoped delete of %s: not strictly inside instance GameData %s"
+            % (target, gd_instance))
+        return False
+    if os.path.exists(target):
+        try:
+            shutil.rmtree(_long(target))
+        except OSError as exc:
+            log(ctx, "Warn", "Repair", "scoped delete failed %s: %s" % (target, exc))
+            return False
+    return True
 
 
 def _finish(ctx: ProvisionContext, code: int) -> int:

@@ -156,28 +156,30 @@ def evaluate_krpc_mechjeb_pair(krpc_tag: str, fork: str, tag: str, paired_krpc_t
 
 @dataclass(frozen=True)
 class DeploySourceDecision:
-    source: str
-    reason: str  # "override" | "worktree-build" | "default"
+    source: Optional[str]
+    reason: str  # "override" | "worktree-build" | "missing-no-source"
+    ok: bool
 
 
 def select_parsek_dll_source(
     override: Optional[str],
     worktree_dll: str,
     worktree_dll_exists: bool,
-    default_dll: str,
 ) -> DeploySourceDecision:
     """Pick the Parsek.dll source for DEPLOY.
 
     An explicit ``--parsek-dll`` override always wins; otherwise the current
-    worktree's own ``bin/Debug`` build when it exists (so a build from this
-    worktree is preferred over a hardcoded sibling default); otherwise the
-    default path. ``worktree_dll_exists`` is injected so this stays pure over the
-    filesystem."""
+    worktree's own ``bin/Debug`` build when it exists. There is NO hardcoded
+    sibling-worktree fallback (SF8): a differently-named worktree with no local
+    build and no override yields ``ok=False`` (source None) so DEPLOY aborts
+    demanding ``--parsek-dll`` rather than silently deploying some other
+    worktree's DLL. ``worktree_dll_exists`` is injected so this stays pure over
+    the filesystem."""
     if override:
-        return DeploySourceDecision(override, "override")
+        return DeploySourceDecision(override, "override", True)
     if worktree_dll_exists:
-        return DeploySourceDecision(worktree_dll, "worktree-build")
-    return DeploySourceDecision(default_dll, "default")
+        return DeploySourceDecision(worktree_dll, "worktree-build", True)
+    return DeploySourceDecision(None, "missing-no-source", False)
 
 
 # ---------------------------------------------------------------------------

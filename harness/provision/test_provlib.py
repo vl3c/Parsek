@@ -106,6 +106,183 @@ class LivePhasesImplementedTests(unittest.TestCase):
             self.assertIn("EC-13", ctx.abort_reason)
 
 
+class DevSourcedModVerifyTests(unittest.TestCase):
+    """BLOCKER 1: dev-sourced mods are verified INSTANCE-side. phase_clone hashes
+    the instance copy (partial-copy detection), phase_verify re-hashes the
+    instance GameData/<mod> against the manifest (swapped-DLL / injected-file
+    drift), and --repair scoped-deletes + re-copies so an INJECTED extra file --
+    which a plain overwrite-only re-copy can never remove -- converges.
+
+    Live-mode ctxs use a throwaway umbrella tempdir under automation/ (so the
+    EC-16 fence + provision-log writes stay out of the repo)."""
+
+    def _ctx(self, umbrella):
+        import provision
+        os.makedirs(os.path.join(umbrella, "Kerbal Space Program", "GameData"), exist_ok=True)
+        profile = {"instanceDir": "automation/test", "baseInstall": "Kerbal Space Program",
+                   "devSourcedMods": ["MyMod"]}
+        return provision.ProvisionContext(
+            profile_name="t", pins={}, profile=profile, umbrella_root=umbrella,
+            dry_run=False, repair=False, parsek_dll_override=None)
+
+    def _make_src_mod(self, ctx, files):
+        src = os.path.join(ctx.dev_install, "GameData", "MyMod")
+        for rel, data in files.items():
+            p = os.path.join(src, rel.replace("/", os.sep))
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "wb") as fh:
+                fh.write(data)
+        return src
+
+    def _manifest(self, dev_status):
+        return {"components": {}, "junctionTargets": {}, "devSourcedMods": dev_status}
+
+    def _full_copy(self, ctx):
+        import provision
+        src = self._make_src_mod(ctx, {"a.dll": b"aaaa", "sub/b.cfg": b"bbbb"})
+        dst = os.path.join(ctx.instance_dir, "GameData", "MyMod")
+        h = provision._copy_and_verify_dev_mod(ctx, "MyMod", src, dst)
+        return src, dst, h
+
+    def test_partial_copy_aborts_ec3(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            src = self._make_src_mod(ctx, {"a.dll": b"aaaa", "sub/b.cfg": b"bbbb"})
+            dst = os.path.join(ctx.instance_dir, "GameData", "MyMod")
+            orig = provision._copy_dir
+
+            def partial(c, s, d, skip_top=None):
+                os.makedirs(d, exist_ok=True)
+                with open(os.path.join(d, "a.dll"), "wb") as fh:
+                    fh.write(b"aaaa")  # only ONE of the two source files
+                return 1, 4
+
+            provision._copy_dir = partial
+            try:
+                res = provision._copy_and_verify_dev_mod(ctx, "MyMod", src, dst)
+            finally:
+                provision._copy_dir = orig
+            self.assertIsNone(res)
+            self.assertTrue(ctx.aborted)
+            self.assertIn("EC-3", ctx.abort_reason)
+            self.assertTrue(any("partial copy" in l for l in ctx.log_lines))
+
+    def test_full_copy_verifies_clean(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            _src, _dst, h = self._full_copy(ctx)
+            self.assertTrue(h)
+            self.assertFalse(ctx.aborted)
+            ok = provision.phase_verify(ctx, self._manifest({"MyMod": h}))
+            self.assertTrue(ok)
+            self.assertEqual(getattr(ctx, "verify_drift", []), [])
+
+    def test_swapped_dll_detected_and_repaired(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            _src, dst, h = self._full_copy(ctx)
+            # Swap the installed DLL for different bytes (post-clone clobber).
+            with open(os.path.join(dst, "a.dll"), "wb") as fh:
+                fh.write(b"EVIL")
+            ok = provision.phase_verify(ctx, self._manifest({"MyMod": h}))
+            self.assertFalse(ok)
+            self.assertTrue(any(d.field == "devSourcedMods.MyMod" for d in ctx.verify_drift))
+            # Repair -> re-copy from source -> converges.
+            provision._repair_dev_mods(ctx, ["MyMod"])
+            ok2 = provision.phase_verify(ctx, self._manifest({"MyMod": h}))
+            self.assertTrue(ok2)
+
+    def test_injected_extra_file_removed_by_repair(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            _src, dst, h = self._full_copy(ctx)
+            injected = os.path.join(dst, "sub", "evil.dll")
+            with open(injected, "wb") as fh:
+                fh.write(b"injected")
+            ok = provision.phase_verify(ctx, self._manifest({"MyMod": h}))
+            self.assertFalse(ok, "an injected extra file must drift")
+            provision._repair_dev_mods(ctx, ["MyMod"])
+            self.assertFalse(os.path.exists(injected),
+                             "scoped-delete + re-copy must remove the injected file")
+            ok2 = provision.phase_verify(ctx, self._manifest({"MyMod": h}))
+            self.assertTrue(ok2)
+
+    def test_missing_instance_mod_drifts(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            _src, dst, h = self._full_copy(ctx)
+            import shutil
+            shutil.rmtree(dst)
+            ok = provision.phase_verify(ctx, self._manifest({"MyMod": h}))
+            self.assertFalse(ok)
+            self.assertTrue(any(d.field == "devSourcedMods.MyMod" and d.actual is None
+                                for d in ctx.verify_drift))
+
+    def test_scoped_delete_refuses_outside_instance_gamedata(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            # A target OUTSIDE the instance GameData must never be deleted.
+            outside = os.path.join(ctx.dev_install, "GameData", "MyMod")
+            self._make_src_mod(ctx, {"a.dll": b"aaaa"})
+            self.assertTrue(os.path.isdir(outside))
+            ok = provision._scoped_delete_instance_subtree(ctx, outside)
+            self.assertFalse(ok)
+            self.assertTrue(os.path.isdir(outside), "dev-install path must survive")
+
+
+class DeployAbortTests(unittest.TestCase):
+    """SF8: with no --parsek-dll override and no worktree bin/Debug build, a LIVE
+    DEPLOY aborts EC-9 demanding --parsek-dll (never deploys an unrelated
+    worktree's DLL); a dry-run only warns and exits cleanly."""
+
+    def _ctx(self, um, dry_run):
+        import provision
+        return provision.ProvisionContext(
+            profile_name="t", pins={}, profile={"instanceDir": "automation/test"},
+            umbrella_root=um, dry_run=dry_run, repair=False, parsek_dll_override=None)
+
+    def test_live_deploy_aborts_when_no_source(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            saved = provision.WORKTREE_ROOT
+            provision.WORKTREE_ROOT = os.path.join(um, "empty-worktree")
+            try:
+                ctx = self._ctx(um, dry_run=False)
+                provision.phase_deploy(ctx)
+            finally:
+                provision.WORKTREE_ROOT = saved
+            self.assertTrue(ctx.aborted)
+            self.assertIn("EC-9", ctx.abort_reason)
+            self.assertTrue(any("--parsek-dll" in l for l in ctx.log_lines))
+
+    def test_dry_run_no_source_warns_not_abort(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            saved = provision.WORKTREE_ROOT
+            provision.WORKTREE_ROOT = os.path.join(um, "empty-worktree")
+            try:
+                ctx = self._ctx(um, dry_run=True)
+                provision.phase_deploy(ctx)
+            finally:
+                provision.WORKTREE_ROOT = saved
+            self.assertFalse(ctx.aborted)
+            self.assertTrue(any("would ABORT" in l for l in ctx.log_lines))
+
+
 class ResolvePinTests(unittest.TestCase):
     """Design: resolve_pin -- guards GT-1 retag/move. A moved tag (tag resolves
     to a commit != recorded) must be rejected."""
@@ -512,22 +689,32 @@ class PairDecisionTests(unittest.TestCase):
 
 
 class DeploySourceTests(unittest.TestCase):
-    """Reviewer 7: extracted DEPLOY source selection."""
+    """Reviewer 7: extracted DEPLOY source selection. SF8: no hardcoded
+    sibling-worktree default -- absent an override AND a worktree build, the
+    selection is not-ok so DEPLOY aborts demanding --parsek-dll."""
 
     def test_override_always_wins(self):
-        d = provlib.select_parsek_dll_source("/x/over.dll", "/wt/Parsek.dll", True, "/def/Parsek.dll")
+        d = provlib.select_parsek_dll_source("/x/over.dll", "/wt/Parsek.dll", True)
         self.assertEqual(d.source, "/x/over.dll")
         self.assertEqual(d.reason, "override")
+        self.assertTrue(d.ok)
 
     def test_worktree_build_when_present(self):
-        d = provlib.select_parsek_dll_source(None, "/wt/Parsek.dll", True, "/def/Parsek.dll")
+        d = provlib.select_parsek_dll_source(None, "/wt/Parsek.dll", True)
         self.assertEqual(d.source, "/wt/Parsek.dll")
         self.assertEqual(d.reason, "worktree-build")
+        self.assertTrue(d.ok)
 
-    def test_default_when_worktree_absent(self):
-        d = provlib.select_parsek_dll_source(None, "/wt/Parsek.dll", False, "/def/Parsek.dll")
-        self.assertEqual(d.source, "/def/Parsek.dll")
-        self.assertEqual(d.reason, "default")
+    def test_no_source_when_worktree_absent_and_no_override(self):
+        d = provlib.select_parsek_dll_source(None, "/wt/Parsek.dll", False)
+        self.assertIsNone(d.source)
+        self.assertEqual(d.reason, "missing-no-source")
+        self.assertFalse(d.ok)
+
+    def test_override_wins_even_without_worktree_build(self):
+        d = provlib.select_parsek_dll_source("/x/over.dll", "/wt/Parsek.dll", False)
+        self.assertEqual(d.source, "/x/over.dll")
+        self.assertTrue(d.ok)
 
 
 class LockfileReleaseTests(unittest.TestCase):
