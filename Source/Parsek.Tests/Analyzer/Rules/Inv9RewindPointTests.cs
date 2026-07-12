@@ -61,6 +61,18 @@ namespace Parsek.Tests.Analyzer.Rules
                 "GAME\n{\n\tversion = 1.12.5\n}\n");
         }
 
+        // Writes an existing-but-unparsable rewind save at Parsek/Saves/<id>.sfs:
+        // present on disk (so it passes the missing-file check) but not parseable as
+        // a ConfigNode. Whitespace-only content makes KSP's ConfigNode.Load return
+        // null deterministically (the pre-format yields no structure), which is what
+        // Inv9RewindPoint.ParsesAsConfigNode reads as "does not parse".
+        private static void WriteGarbageRewindSave(string saveDir, string rewindId, string content)
+        {
+            string dir = Path.Combine(saveDir, "Parsek", "Saves");
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, rewindId + ".sfs"), content);
+        }
+
         private string BuildSave(string name, RecordingBuilder builder)
         {
             string saveDir = Path.Combine(tempDir, name);
@@ -137,6 +149,117 @@ namespace Parsek.Tests.Analyzer.Rules
             Assert.Empty(findings.Where(f => f.Level == VerdictLevel.Fail));
             Finding warn = Assert.Single(findings, f => f.Level == VerdictLevel.Warn);
             Assert.Contains("missing-rewind-save", warn.Message);
+        }
+
+        // Guards (F1 severity-split): a CommittedProvisional recording (a recent /
+        // still-active slot) whose own rewind save is missing -> FAIL, distinct
+        // token "missing-rewind-save-provisional". This is a triage-severity heuristic,
+        // not a production contract (rewindability is MergeState-agnostic): a dangling
+        // Rewind-to-Launch save on an open provisional slot is far likelier a live bug
+        // than the shared-delete residue tolerated on sealed rows. In-memory model with
+        // a real (empty) SaveDirectory so the file is genuinely absent; the rewind id
+        // validates, so it reaches the existence check.
+        [Fact]
+        public void MissingRewindSave_Provisional_Fails_DistinctToken()
+        {
+            var model = new AnalyzerModel
+            {
+                SaveName = "prov-dangling",
+                SaveDirectory = tempDir,
+                Recordings = new List<Recording>
+                {
+                    new Recording
+                    {
+                        RecordingId = "recProv",
+                        RewindSaveFileName = "parsek_rw_prov",
+                        MergeState = MergeState.CommittedProvisional,
+                    },
+                },
+            };
+
+            List<Finding> findings = new Inv9RewindPoint().Evaluate(model).ToList();
+
+            Finding fail = Assert.Single(findings, f => f.Level == VerdictLevel.Fail);
+            Assert.Contains("missing-rewind-save-provisional", fail.Message);
+            Assert.Contains("recProv", fail.Message);
+            Assert.Empty(findings.Where(f => f.Level == VerdictLevel.Warn));
+        }
+
+        // Guards (F1 severity-split): an Immutable (sealed / no-longer-rewindable)
+        // recording whose rewind save is missing stays WARN, NOT FAIL. Same in-memory
+        // shape as the provisional case but sealed -> the WARN token, so a genuine
+        // dangling reference on canon never reds the run.
+        [Fact]
+        public void MissingRewindSave_Immutable_Warns_NotFails()
+        {
+            var model = new AnalyzerModel
+            {
+                SaveName = "immutable-dangling",
+                SaveDirectory = tempDir,
+                Recordings = new List<Recording>
+                {
+                    new Recording
+                    {
+                        RecordingId = "recSealed",
+                        RewindSaveFileName = "parsek_rw_sealed",
+                        MergeState = MergeState.Immutable,
+                    },
+                },
+            };
+
+            List<Finding> findings = new Inv9RewindPoint().Evaluate(model).ToList();
+
+            Finding warn = Assert.Single(findings, f => f.Level == VerdictLevel.Warn);
+            Assert.Contains("missing-rewind-save", warn.Message);
+            Assert.DoesNotContain("provisional", warn.Message);
+            Assert.Empty(findings.Where(f => f.Level == VerdictLevel.Fail));
+        }
+
+        // Guards (F1 severity-split): a CommittedProvisional recording whose rewind
+        // save IS present and parses -> zero findings. The FAIL is scoped to the
+        // MISSING file, not to the provisional state itself.
+        [Fact]
+        public void PresentRewindSave_Provisional_NoFindings()
+        {
+            WriteRewindSave(tempDir, "parsek_rw_provok");
+            var model = new AnalyzerModel
+            {
+                SaveName = "prov-present",
+                SaveDirectory = tempDir,
+                Recordings = new List<Recording>
+                {
+                    new Recording
+                    {
+                        RecordingId = "recProvOk",
+                        RewindSaveFileName = "parsek_rw_provok",
+                        MergeState = MergeState.CommittedProvisional,
+                    },
+                },
+            };
+
+            Assert.Empty(new Inv9RewindPoint().Evaluate(model).ToList());
+        }
+
+        // Guards (F2): a rewind save that EXISTS but does not parse as a ConfigNode
+        // -> FAIL (token "unparsable-rewind-save"). This is the only file-state FAIL
+        // in the rule and was previously untested. A present-but-corrupt rewind save
+        // would break the rewind restore, so it must red the run regardless of
+        // MergeState (the recording here defaults to Immutable through the loader).
+        [Fact]
+        public void UnparsableRewindSave_Fails()
+        {
+            string saveDir = BuildSave("unparsable",
+                new RecordingBuilder("RP Craft").WithRecordingId("rp3")
+                    .AddPoint(100, 0, 0, 1000).WithRewindSave("parsek_rw_garbage"));
+            // Whitespace-only: present on disk but ConfigNode.Load returns null.
+            WriteGarbageRewindSave(saveDir, "parsek_rw_garbage", "   \n  \n");
+
+            List<Finding> findings = Run(saveDir);
+
+            Finding fail = Assert.Single(findings, f => f.Level == VerdictLevel.Fail);
+            Assert.Contains("unparsable-rewind-save", fail.Message);
+            Assert.Contains("rp3", fail.Message);
+            Assert.Empty(findings.Where(f => f.Level == VerdictLevel.Warn));
         }
 
         // Guards (orphan-retarget regression): an unreferenced parsek_rw_*.sfs on
