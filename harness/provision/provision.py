@@ -925,7 +925,14 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
     # repointed junction must fail even when the old target still exists.
     def _resolve_link(link_key: str) -> Optional[str]:
         link_abs = os.path.join(ctx.instance_dir, link_key)
-        if not os.path.exists(link_abs):
+        # os.path.exists() can report False for a healthy junction (observed
+        # on the live smoke alongside the same misreport in isdir/islink);
+        # lstat probes the LINK itself reparse-safely, and realpath reads the
+        # reparse target. A deleted link fails lstat -> dangling; a repointed
+        # link resolves to a different target -> dangling via the compare.
+        try:
+            os.lstat(link_abs)
+        except OSError:
             return None
         return os.path.realpath(link_abs)
     dangling = provlib.verify_junctions(manifest, _resolve_link)
