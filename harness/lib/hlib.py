@@ -64,6 +64,25 @@ RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
 # verdict is never observed) and is therefore NOT a valid `expect`.
 SEAM_EXPECT_VERDICTS: Tuple[str, ...] = ("OK", "ERROR", "REJECTED", "TIMEOUT")
 
+# M-B1 autopilot driver (design "Scenario spec [driver] extension"). validate_spec
+# now accepts kind == "autopilot" as a SUPERSET of the seam driver; the mission
+# step's `expect` is a fixed token, distinct from the seam verdicts above.
+DRIVER_KINDS: Tuple[str, ...] = ("seam", "autopilot")
+MISSION_STEP_EXPECT = "MISSION-OK"
+
+# The mission subprocess's terminal verdicts (design Mission verdict). MISSION-OK
+# is the met signal; the other four are DRIVER-VALIDITY INVALIDs mapped by
+# classify_mission_step into retryable INVALID subkinds.
+MISSION_VERDICT_OK = "MISSION-OK"
+MISSION_VERDICT_ASSERT_FAIL = "MISSION-ASSERT-FAIL"
+MISSION_VERDICT_CONNECT_TIMEOUT = "MISSION-CONNECT-TIMEOUT"
+MISSION_VERDICT_FLAKE = "MISSION-FLAKE"
+MISSION_VERDICT_ERROR = "MISSION-ERROR"
+MISSION_VERDICTS: Tuple[str, ...] = (
+    MISSION_VERDICT_OK, MISSION_VERDICT_CONNECT_TIMEOUT, MISSION_VERDICT_ASSERT_FAIL,
+    MISSION_VERDICT_FLAKE, MISSION_VERDICT_ERROR,
+)
+
 # Seam known-verb table (consumed contract, design-autotest-command-seam.md).
 IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     "SetSetting", "StartRecording", "StopRecording", "CommitTree", "DiscardTree",
@@ -454,7 +473,92 @@ def _registry_values(registry: Dict, dimension: str) -> Optional[List[str]]:
     return [str(v) for v in vals]
 
 
-def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] = None) -> SpecValidation:
+# A mission ref (design [driver].mission) becomes a `harness/missions/<mission>.py`
+# filename leaf, so it gets filename discipline: alphanumerics, dash, underscore
+# ONLY. Dots are EXCLUDED so "."/".." (and any dotted traversal token) cannot pass;
+# the "+" rejects "". Mirrors _SAVE_NAME_RE's stance for the same reason.
+_MISSION_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]*$")
+
+
+def _check_param_type(name: str, value, decl: Dict) -> List[str]:
+    """Type/range check one declared missionParam value against its schema entry
+    (pure). ``decl`` is the mission schema's per-param table
+    ``{"type": "<t>", "min": <num?>, "max": <num?>}``; only the declared facets are
+    enforced. bool is rejected where a number is declared (Python ``bool`` is an
+    ``int`` subclass, so an unguarded numeric check would silently accept True/False
+    as 1/0)."""
+    errs: List[str] = []
+    ptype = decl.get("type")
+    lo, hi = decl.get("min"), decl.get("max")
+    if ptype in ("float", "int", "number"):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            errs.append("missionParams.%s: expected %s, got %r" % (name, ptype, value))
+            return errs
+        if ptype == "int" and not isinstance(value, int):
+            errs.append("missionParams.%s: expected int, got %r" % (name, value))
+        if isinstance(lo, (int, float)) and value < lo:
+            errs.append("missionParams.%s: %r < min %r" % (name, value, lo))
+        if isinstance(hi, (int, float)) and value > hi:
+            errs.append("missionParams.%s: %r > max %r" % (name, value, hi))
+    elif ptype == "window":
+        if not (isinstance(value, dict)
+                and isinstance(value.get("min"), (int, float))
+                and isinstance(value.get("max"), (int, float))):
+            errs.append("missionParams.%s: expected a window {min,max}, got %r" % (name, value))
+        # min <= max is enforced structurally by _validate_mission_params below.
+    elif ptype == "list":
+        if not isinstance(value, (list, tuple)):
+            errs.append("missionParams.%s: expected a list, got %r" % (name, value))
+    elif ptype == "string":
+        if not isinstance(value, str):
+            errs.append("missionParams.%s: expected a string, got %r" % (name, value))
+    elif ptype == "bool":
+        if not isinstance(value, bool):
+            errs.append("missionParams.%s: expected a bool, got %r" % (name, value))
+    return errs
+
+
+def _validate_mission_params(params: Dict, schema: Optional[Dict]) -> List[str]:
+    """Validate a ``missionParams`` block (design "Spec-validation rules").
+
+    PURE / SHELL split: the mission's declared param schema lives in
+    ``harness/missions/<mission>.schema.toml`` and is parsed SHELL-SIDE (I/O), then
+    injected here as ``schema``. When ``schema`` is None ONLY the schema-INDEPENDENT
+    structural check runs -- every window-shaped value (a table carrying ``min`` and
+    ``max``) must have ``min <= max``. When a schema IS provided, its ``params``
+    declaration additionally drives required-key presence and per-value type/range
+    checks. A missing required param or a window with ``min > max`` -> reject.
+
+    Declared-schema shape (parsed shell-side):
+        {"params": {"<name>": {"required": bool, "type": "<t>",
+                                "min": <num?>, "max": <num?>}}}
+    where ``<t>`` in {float, int, number, window, list, string, bool}; a ``window``
+    param value is a table ``{"min": <num>, "max": <num>}``.
+    """
+    errs: List[str] = []
+    params = params or {}
+    # Structural (schema-independent): any window-shaped value must be min <= max.
+    for pname, val in params.items():
+        if isinstance(val, dict) and "min" in val and "max" in val:
+            lo, hi = val.get("min"), val.get("max")
+            if isinstance(lo, (int, float)) and isinstance(hi, (int, float)) and lo > hi:
+                errs.append("missionParams.%s: window min %r > max %r (ill-formed)" % (pname, lo, hi))
+    if schema is None:
+        return errs
+    declared = (schema.get("params", {}) or {}) if isinstance(schema, dict) else {}
+    for pname, decl in declared.items():
+        decl = decl or {}
+        present = pname in params
+        if bool(decl.get("required", False)) and not present:
+            errs.append("missionParams.%s: required param missing" % (pname,))
+            continue
+        if present:
+            errs.extend(_check_param_type(pname, params[pname], decl))
+    return errs
+
+
+def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] = None,
+                  mission_schemas: Optional[Dict] = None) -> SpecValidation:
     """Validate a parsed scenario spec against the design rules + the registry.
 
     Returns every failing rule (not just the first) so a spec author sees the
@@ -462,6 +566,19 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     never launched); an unresolvable ``expectedFail.bugId`` is a WARNING only
     (a scenario may land just ahead of its todo-doc row, design).
     ``bug_ids`` is the injected set of resolvable todo-doc bug ids (I/O-free).
+
+    M-B1 autopilot (design "Spec-validation rules for kind = autopilot"): a
+    ``kind = "autopilot"`` spec is a SUPERSET of the seam driver -- the seam-step
+    rules above still apply to its ``cmd``-kind steps, and it ADDS a mission ref,
+    a ``missionParams`` block, and exactly one ``mission``-kind handoff step.
+    ``mission_schemas`` is the injected registry of parsed
+    ``harness/missions/<mission>.schema.toml`` bodies (mission name -> schema
+    dict); it is the PURE half of the mission-ref / param check. SHELL-SIDE (I/O,
+    NOT here): confirming the mission ``.py`` resolves on disk and reading the
+    schema toml. When ``mission_schemas`` is None the mission-existence /
+    declared-schema content checks are DEFERRED to the shell (only the
+    structural mission-step / window checks run); when provided, an unknown
+    mission and a param that violates its declared schema reject.
     """
     errors: List[str] = []
     warnings: List[str] = []
@@ -511,8 +628,9 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
 
     driver = spec.get("driver", {}) or {}
     kind = driver.get("kind")
-    if kind != "seam":
-        errors.append("driver.kind: %r must be 'seam' (autopilot RESERVED for M-B1)" % (kind,))
+    if kind not in DRIVER_KINDS:
+        errors.append("driver.kind: %r must be 'seam' or 'autopilot'" % (kind,))
+    is_autopilot = kind == "autopilot"
 
     steps = driver.get("steps", []) or []
     autorun = driver.get("autorun")
@@ -534,9 +652,30 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                     % (save_arg, RUN_SAVE_TOKEN, run_save_name))
 
     run_tests_steps = 0
+    mission_step_indices: List[int] = []
+    first_loadgame_index: Optional[int] = None
     for i, step in enumerate(steps):
         step = step or {}
+        # A mission-kind step (design M-B1) is a HARNESS-SIDE handoff, NOT a seam
+        # command: it writes nothing to the channel, so it is EXEMPT from the
+        # seam-verb / reserved-verb / seam-expect checks (which apply only to
+        # cmd-kind steps). It carries its own fixed expect (MISSION-OK) and an
+        # optional positive budget bounding the mission subprocess wall-clock.
+        if step.get("phase") == "mission":
+            mission_step_indices.append(i)
+            m_expect = step.get("expect", MISSION_STEP_EXPECT)
+            if m_expect != MISSION_STEP_EXPECT:
+                errors.append(
+                    "driver.steps[%d].expect: mission step must be %r, got %r"
+                    % (i, MISSION_STEP_EXPECT, m_expect))
+            m_budget = step.get("budget")
+            if m_budget is not None and (not isinstance(m_budget, (int, float)) or m_budget <= 0):
+                errors.append(
+                    "driver.steps[%d].budget: mission step budget %r must be > 0" % (i, m_budget))
+            continue
         cmd = step.get("cmd")
+        if cmd == "LoadGame" and first_loadgame_index is None:
+            first_loadgame_index = i
         if cmd in RESERVED_SEAM_VERBS:
             errors.append("driver.steps[%d].cmd: %r is RESERVED, not v1-drivable" % (i, cmd))
         elif cmd not in IMPLEMENTED_SEAM_VERBS:
@@ -576,6 +715,45 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         errors.append("QUIT owner: both FlushAndQuit and autorun.exit declared (exactly one allowed)")
     if quit_owners == 0:
         errors.append("QUIT owner: neither FlushAndQuit nor autorun.exit declared")
+
+    # --- M-B1 autopilot driver rules (pure half; design "Spec-validation rules
+    # for kind = autopilot"). The seam-kind rules above still apply to the seam
+    # steps. A mission-kind step is exempt from the seam-verb / batch-owner /
+    # quit-owner checks (it is neither a seam verb nor a BATCH/QUIT owner).
+    mission = driver.get("mission")
+    if is_autopilot:
+        # EXACTLY ONE mission-kind step marks the handoff.
+        if len(mission_step_indices) != 1:
+            errors.append(
+                "driver: kind 'autopilot' requires exactly one mission-kind step (found %d)"
+                % (len(mission_step_indices),))
+        # Mission ref present + filename-safe (a .py leaf; dots / traversal rejected).
+        if not isinstance(mission, str) or not mission or not _MISSION_RE.match(mission):
+            errors.append("driver.mission: missing or not filename-safe: %r" % (mission,))
+        elif mission_schemas is not None and mission not in mission_schemas:
+            # Unknown mission (the injected registry has no declared schema for it):
+            # a boot would be wasted launching KSP for a mission that cannot run.
+            # When mission_schemas is None this existence check is deferred to the
+            # shell (the .py resolution is I/O).
+            errors.append("driver.mission: unknown mission %r (no declared schema)" % (mission,))
+        # Each mission step must FOLLOW a LoadGame (the FLIGHT handoff owner): the
+        # mission cannot connect before KSP is in FLIGHT, so a mission step at index
+        # 0 or before the first LoadGame is rejected.
+        for mi in mission_step_indices:
+            if first_loadgame_index is None or mi <= first_loadgame_index:
+                errors.append(
+                    "driver.steps[%d]: mission step must follow a LoadGame step "
+                    "(no preceding LoadGame)" % (mi,))
+        # missionParams: windows well-formed (min <= max) is structural and always
+        # checked; required-keys + type/range are checked against the declared
+        # schema only when it is injected (see _validate_mission_params).
+        mission_schema = (mission_schemas or {}).get(mission) if isinstance(mission, str) else None
+        errors.extend(_validate_mission_params(driver.get("missionParams", {}) or {}, mission_schema))
+    else:
+        # A mission-kind step only belongs under an autopilot driver.
+        for mi in mission_step_indices:
+            errors.append(
+                "driver.steps[%d]: mission-kind step requires driver.kind 'autopilot'" % (mi,))
 
     # Dimensions covered: every key + value present in the registry.
     dims = spec.get("dimensionsCovered", {}) or {}
@@ -968,6 +1146,11 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
 RETRYABLE_INVALID_SUBKINDS: Tuple[str, ...] = (
     "boot-crash", "load-failed", "driver-verdict-mismatch", "driver-stage",
     "seam-timeout", "tooling", "analyzer-error",
+    # M-B1 mission subkinds (design "hlib additions"): the FOUR retryable mission
+    # verdicts join the driver/tooling retry set. tooling-venv is TERMINAL and is
+    # deliberately NOT here (a missing / drifted venv is a provisioning fault a
+    # retry cannot fix, caught at pre-launch ADMIT before any KSP boot).
+    "mission", "tooling-krpc", "tooling-mission", "autopilot-flake",
 )
 
 
@@ -1124,6 +1307,83 @@ def resolve_terminal(attempts: Sequence[Verdict]) -> Verdict:
         return Verdict(last.verdict, last.subkind, last.retryable, last.reason,
                        last.expected_fail_matched, "flakedThenPassed")
     return last
+
+
+# ---------------------------------------------------------------------------
+# Mission step classification + venv admission (design M-B1 "hlib additions").
+# Pure; feeds the EXISTING driver-validity stage. run.py maps the mission
+# subprocess's verdict through classify_mission_step and admits the mission venv
+# via venv_admission at the pre-launch ADMIT phase (alongside instance admission).
+# ---------------------------------------------------------------------------
+
+# Mission verdict -> INVALID subkind map (design Failure taxonomy mapping table).
+# MISSION-OK has NO subkind (it is the met signal). All four failure subkinds are
+# RETRYABLE (they are in RETRYABLE_INVALID_SUBKINDS); venv drift is handled
+# separately by venv_admission and maps to the TERMINAL tooling-venv.
+MISSION_VERDICT_SUBKINDS: Dict[str, str] = {
+    MISSION_VERDICT_CONNECT_TIMEOUT: "tooling-krpc",
+    MISSION_VERDICT_ASSERT_FAIL: "mission",
+    MISSION_VERDICT_FLAKE: "autopilot-flake",
+    MISSION_VERDICT_ERROR: "tooling-mission",
+}
+
+# The terminal (non-retryable) venv-admission subkind (design edge 4). Deliberately
+# ABSENT from RETRYABLE_INVALID_SUBKINDS: should_retry therefore never retries it.
+VENV_INVALID_SUBKIND = "tooling-venv"
+
+
+def classify_mission_step(mission_verdict: Optional[str]) -> Tuple[bool, str]:
+    """Map a mission subprocess verdict to ``(met, INVALID subkind)`` (design table).
+
+    ``MISSION-OK`` -> ``(True, "")``: the mission step is MET; run.py proceeds into
+    the seam teardown and the FULL verifier chain runs. That verifier chain is
+    ORTHOGONAL to this gate -- a MISSION-OK flight that Parsek then mis-records is
+    still PARSEK-FAIL, decided by ``classify_verdict`` over the produced save, NOT
+    here (the mission-validity gate only answers "did we get a valid flight to test
+    against"). Each non-OK verdict -> ``(False, subkind)``: CONNECT-TIMEOUT ->
+    ``tooling-krpc``, ASSERT-FAIL -> ``mission``, FLAKE -> ``autopilot-flake``,
+    ERROR -> ``tooling-mission``; all four are retryable-once. A None / unknown
+    verdict FAILS CLOSED to ``(False, "tooling-mission")`` -- the design's
+    missing-result fallback (edge 12): a mission that never wrote a readable verdict
+    is a tooling INVALID, never a silent met.
+    """
+    if mission_verdict == MISSION_VERDICT_OK:
+        return True, ""
+    subkind = MISSION_VERDICT_SUBKINDS.get(mission_verdict or "")
+    if subkind is None:
+        return False, "tooling-mission"
+    return False, subkind
+
+
+def venv_admission(stamp: Optional[Dict], requirements: Optional[Dict]) -> Tuple[bool, str]:
+    """Admit (or refuse) the mission venv before any KSP launch (design edge 4).
+
+    Mirrors ``admit_instance`` for the mission venv: run at the pre-launch ADMIT
+    phase. The venv is admitted only when its ``.venv-stamp.json`` records a pin set
+    that MATCHES the committed ``requirements.txt`` pins; a MISSING stamp (never
+    bootstrapped) or a DRIFTED pin (requirements changed without a re-bootstrap) is
+    refused. A refusal ALWAYS carries the TERMINAL, non-retryable ``tooling-venv``
+    subkind (absent from RETRYABLE_INVALID_SUBKINDS, so ``should_retry`` never
+    retries it): a retry cannot re-bootstrap a venv, and a stale / absent kRPC
+    client must never silently certify a flight.
+
+    PURE / SHELL split: the caller reads the stamp JSON and parses
+    ``requirements.txt`` (I/O); both arrive here already parsed. ``stamp`` is
+    None / empty when the stamp file is absent. ``requirements`` maps distribution
+    name -> pinned version (e.g. ``{"krpc": "0.5.4", "protobuf": "4.21.0"}``); the
+    stamp's frozen resolved pins live under ``stamp["pins"]`` (same shape). Only the
+    COMMITTED requirements are enforced -- an extra pin in the stamp not yet promoted
+    into ``requirements`` (the PROVISIONAL protobuf line before the first verified
+    bootstrap) is tolerated, so the venv is not falsely refused pre-promotion.
+    """
+    if not stamp:
+        return False, VENV_INVALID_SUBKIND
+    reqs = requirements or {}
+    stamp_pins = stamp.get("pins", {}) or {}
+    for dist, want in reqs.items():
+        if str(stamp_pins.get(dist)) != str(want):
+            return False, VENV_INVALID_SUBKIND
+    return True, ""
 
 
 # ---------------------------------------------------------------------------

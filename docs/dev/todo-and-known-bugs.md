@@ -14,6 +14,17 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## M-B1 - Mission library: kRPC/MechJeb flown scenarios [BUILT, branch `autotest-mb1-impl`]
+
+Implements `docs/dev/design-autotest-mission-library.md` (merged #1310). All pure logic + shells + orchestrator wiring headless-tested: hlib autopilot spec validation / classify_mission_step / venv_admission, mlib phase machines + assertion evaluators (PEAK-apoapsis gate, not frames-in-window) + debounce + connect-retry + warp guard + post-connect-exception split + result round-trip, mission shells + fake-telemetry integration + bootstrap pure parts, run.py handoff smokes over the real loop with a fake mission subprocess. The COMMITTED specs `B1-pad-hop.toml` / `B2-lko-ascent.toml` are validated through the REAL path by a round-trip test (`test_hlib.CommittedSpecValidationTests`: parse each `scenarios/*.toml`, resolve mission schemas via `run.resolve_mission_schemas`, run `hlib.validate_spec`), so a committed-spec regression (e.g. a `steps` array mis-scoped under `[driver.missionParams]`) can never escape; both also `--dry-run` clean.
+
+**PENDING-OPERATOR (live items, per the design's runbook section):**
+1. Bootstrap the mission venv (`python harness/missions/bootstrap_venv.py`): confirm krpc==0.5.4 resolves via pip, the import + generated-code smoke passes, the resolved protobuf version freezes into the stamp, then promote the protobuf pin into requirements.txt.
+2. Create the two fixture saves (pure stock): `fixtures/saves/b1-pad-craft` (pod + SRB + chute on the pad) and `fixtures/saves/b2-lko-craft` (two-stage LKO-capable rocket on the pad).
+3. Live B1 pad-hop run, live B2 LKO-ascent run, and the deliberate flake/assert-fail captures proving INVALID(mission)/INVALID(autopilot-flake) never poison the PARSEK-FAIL bucket.
+
+**Deferred (design "Deferred Items"):** the budget-arithmetic spec-validation cross-check; kOS secondary stack; VAB craft-file flow (v1 uses pre-placed fixture vessels).
+
 ## M-A3 - Autorun in-game test hooks + RecordingInvariants in-game category [LANDED, branch `autotest-hooks`]
 
 - ~~Env-gated autorun hooks (`PARSEK_AUTORUN_TESTS` selector, `PARSEK_AUTORUN_EXIT` quit-after) so an external orchestrator can run in-game test batches unattended and read a grep-stable `BATCH_COMPLETE v1` line per batch.~~ DONE. Inert by default (both env vars unset = zero per-frame work, no behavior change, nothing written to any save). Design: `docs/dev/design-autotest-autorun-hooks.md`.

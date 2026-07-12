@@ -1,0 +1,70 @@
+schema = 1
+id = "B1-pad-hop"
+tier = "daily"
+description = "Pad hop: pre-placed craft, throttle+stage, coast, chute, land; assert apoapsis window + landed."
+instanceProfile = "stock-minimal"
+tags = ["B1", "S0.1", "flown"]
+
+[fixture]
+# The pre-placed vessel rides IN the fixture save (no VAB flow in v1). LoadGame
+# drops straight into FLIGHT with this vessel on the pad. PENDING-OPERATOR: the
+# fixture save (pure-stock pod + SRB + chute on the pad) does not exist yet -
+# see the operator runbook's M-B1 section.
+saveTemplate       = "fixtures/saves/b1-pad-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b1_pad_hop"
+
+# `steps` MUST stay in the [driver] table, so it is declared ABOVE the
+# [driver.missionParams] header (a key after the sub-table header would be scoped
+# to driver.missionParams.steps and the spec would validate as having zero steps).
+# Budget arithmetic (design invariant): missionBudget 600 >= 30 connect +
+# (90+180+240) phases + margin; runtime 900 >= 240 LoadGame + 600 mission + margin.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 600 },
+  { cmd = "CommitTree",                                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                        expect = "OK" },
+]
+
+# Mission parameters are TOLERANCES / WINDOWS, never golden trajectories
+# (plan section 10); validated against b1_pad_hop.schema.toml.
+[driver.missionParams]
+throttle              = 1.0
+apoapsisWindowMeters  = { min = 6000, max = 30000 }
+chuteDeployAltMeters  = 2500
+landedSituations      = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds  = 90
+coastTimeoutSeconds   = 180
+descentTimeoutSeconds = 240
+
+[dimensionsCovered]
+D1  = ["auto-record-launch"]
+D4  = ["atmospheric"]
+D14 = ["kerbin"]
+
+# A flown scenario PRODUCES a recording, so recordings are expected. count.min>=1
+# keeps the REC-001/REC-003 log rules MANDATORY (M-A5 verifier 4): a dropped
+# recording reds. The analyzer (Forbid) over the produced recording is the
+# Parsek correctness gate.
+[expectations.recordings]
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required  = ["Recording started", "Recording stopped"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

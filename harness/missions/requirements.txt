@@ -1,0 +1,17 @@
+# harness/missions/requirements.txt  --  the ONLY third-party python in harness/.
+#
+# Installed by bootstrap_venv.py into harness/missions/.venv ONLY (never onto the
+# base/dev interpreter). run.py / hlib / provlib / mlib stay stdlib-only; the kRPC
+# client + its protobuf dependency are confined to the mission subprocess venv
+# (design "The dependency decision").
+#
+# krpc pinned to match the provisioned kRPC 0.5.4 SERVER (pins.toml [krpc].tag).
+krpc==0.5.4
+# PROVISIONAL (unverifiable offline in this environment): the krpc pin above AND the
+# protobuf pin below are BOTH unconfirmed until the first verified bootstrap. The
+# bootstrap installs krpc==0.5.4 through pip's OWN resolver with NO hand-pinned
+# protobuf (0.5.x-era kRPC may target a protobuf 4.x-era range, so a hand-pinned
+# 3.20.3 would be an unverified guess), verifies `import krpc` + a generated-code
+# smoke, freezes the RESOLVED protobuf version into the .venv-stamp, and only THEN is
+# that resolved version promoted to the committed pin here.
+# protobuf==<RESOLVED>   # PROVISIONAL: filled in from the .venv-stamp after the first verified bootstrap by bootstrap_venv.py --promote; do NOT hand-pin before that.

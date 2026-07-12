@@ -1,0 +1,7 @@
+# Mission venv + bootstrap working dirs (never committed; design "The dependency
+# decision": .venv and .cache are gitignored like the provisioner's, only
+# requirements.txt + the bootstrap are committed).
+.venv/
+.cache/
+__pycache__/
+*.pyc

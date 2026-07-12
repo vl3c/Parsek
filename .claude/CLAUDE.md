@@ -120,9 +120,10 @@ harness/                    # Automated-testing harness (Python; M-A5/M-A6). run
 ```
 
 **harness/ layout (Python automated-testing pipeline).** A pure-decision-library +
-thin-I/O-shell split mirrored across two modules; stdlib only (`tomllib` for all
-`.toml`), no third-party deps. Run its tests with the stdlib runner:
-`cd harness && python -m unittest discover -s lib -q AND discover -s provision -q`.
+thin-I/O-shell split mirrored across three modules; stdlib only (`tomllib` for all
+`.toml`), no third-party deps on the base interpreter. Run its tests with the
+stdlib runner: `cd harness && python -m unittest discover -s lib -q AND discover
+-s provision -q AND discover -s missions/lib -q`.
 
 - `harness/lib/hlib.py` - the M-A5 pure decision library (spec validation, scenario
   selection, seam response-stream evaluation, the named line parsers, verdict
@@ -165,10 +166,30 @@ thin-I/O-shell split mirrored across two modules; stdlib only (`tomllib` for all
   `Source/Parsek/bin/Debug/Parsek.dll` (or `--parsek-dll`) or it aborts EC-9 (no
   hardcoded sibling-worktree fallback). Module boundary enumerated in
   `docs/dev/design-autotest-stack-setup.md` + `harness/README.md`.
+- `harness/missions/` - the M-B1 mission library: `lib/mlib.py` (pure mission
+  decisions: B1/B2 phase state machines with per-phase flake budgets, inclusive
+  tolerance-window assertion evaluators with K-consecutive debounce, bounded
+  connect-retry, deterministic mission-result JSON) + `mission_runner.py` (the
+  injectable MissionControl seam; the REAL kRPC wrapper lazy-imports krpc inside
+  open() so base-interpreter discovery never needs the venv) + `b1_pad_hop.py` /
+  `b2_lko_ascent.py` shells + `<name>.schema.toml` param schemas +
+  `requirements.txt` (krpc==0.5.4; protobuf PROVISIONAL until the bootstrap
+  freezes the resolved version) + `bootstrap_venv.py` (creates the gitignored
+  `.venv/`, runs the import smoke, writes the stamp `hlib.venv_admission`
+  consumes). run.py's autopilot driver: spec admission resolves the schema
+  registry, venv admission at pre-launch ADMIT (terminal tooling-venv INVALID),
+  the mission step spawns the venv-python subprocess (bounded by the mission
+  budget inside the run budget), reads the `<runId>_mission.json` result
+  fail-closed, and maps it via `hlib.classify_mission_step` (MISSION-OK -> met;
+  assert-fail/connect-timeout/flake/error -> retryable INVALID subkinds).
+  Mission-vs-Parsek orthogonality: a mission that did not fly is driver-INVALID,
+  never PARSEK-FAIL; post-mission seam steps are non-gating on a MISSION-OK run
+  so a mis-recorded good flight reds through the verifier chain.
 - Design authorities (binding): `docs/dev/design-autotest-harness-core.md` (M-A5),
   `design-autotest-command-seam.md` (M-A2), `design-autotest-autorun-hooks.md` (M-A3),
   `design-autotest-offline-analyzer.md` / `design-autotest-findings-baseline.md` (M-A1),
-  `design-autotest-stack-setup.md` (M-A6).
+  `design-autotest-stack-setup.md` (M-A6), `design-autotest-mission-library.md` (M-B1),
+  `design-autotest-ledger-oracle.md` (M-B2, not yet implemented).
 
 Two dev-script seams the harness passes (additive, inert by default):
 `scripts/analyze-recordings.ps1 -FreshSaveGate` (programmatic analyzer Forbid;

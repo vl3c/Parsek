@@ -9,9 +9,14 @@ same path. Keep it that way.
 Everything the harness fetches or generates lives UNDER `harness/`:
 
 - Code: `run.py`, `lib/` (`hlib.py` pure decision library), `provision/`
-  (`provlib.py` pure, `provision.py` shell), and their `test_*.py`.
+  (`provlib.py` pure, `provision.py` shell), `missions/` (M-B1: mission shells
+  + `lib/mlib.py` pure mission decisions + `bootstrap_venv.py`), and their
+  `test_*.py`. run.py drives seam-only scenarios AND autopilot scenarios (the
+  mission handoff spawns the mission subprocess with the venv python; venv
+  admission runs at pre-launch ADMIT).
 - Declarative inputs: `scenarios/*.toml`, `coverage/registry.toml`,
-  `provision/pins.toml`, `provision/profiles/*.toml`.
+  `provision/pins.toml`, `provision/profiles/*.toml`,
+  `missions/<name>.schema.toml` + `missions/requirements.txt`.
 - Caches + scratch (gitignored): `provision/.cache/` (release zips, the
   module-owned git source clones `krpc-src` / `krpc_mechjeb-src`, kRPC compile
   refs, the built `TestingTools.dll`) and `provision/.stage/`.
@@ -46,9 +51,15 @@ readiness"), cross-referenced from `docs/dev/design-autotest-harness-core.md`.
 cd harness
 python -m unittest discover -s lib -q
 python -m unittest discover -s provision -q
+python -m unittest discover -s missions/lib -q
 ```
 
-Stdlib only (no pytest, no third-party deps). A `--dry-run` provision needs no
+Stdlib only (no pytest, no third-party deps) on the BASE interpreter: the
+mission shells lazy-import krpc inside their connect function, so all three
+discovery roots run with no venv. The ONLY third-party python lives in the
+mission venv (`missions/requirements.txt`, bootstrapped by
+`missions/bootstrap_venv.py`, gitignored `.venv/`), used exclusively by the
+mission subprocess at flight time. A `--dry-run` provision needs no
 network, downloads, or writes outside `harness/`:
 
 ```

@@ -1,0 +1,48 @@
+# Declared param schema for mission b1_pad_hop (design M-B1
+# "Scenario spec [driver] extension" + "Mission B1: pad-hop").
+#
+# hlib.validate_spec does NOT read this file itself: run.py (shell / I/O) parses
+# every harness/missions/<mission>.schema.toml with tomllib into a registry
+# { mission-name -> schema-dict } and INJECTS it as validate_spec's
+# `mission_schemas` argument. hlib's PURE validator (_validate_mission_params)
+# then drives required-key presence and per-value type/range checks from the
+# `params` table below. Shape consumed by hlib:
+#   {"params": {"<name>": {"required": bool, "type": "<t>", "min": <num?>, "max": <num?>}}}
+# where <t> in {float, int, number, window, list, string, bool}. A `window` value
+# in the spec is a table {min, max}; hlib additionally enforces min <= max
+# structurally. Every value here is a WINDOW / tolerance / budget, never a golden
+# trajectory (design "Determinism guardrails").
+
+[params.throttle]
+required = true
+type = "float"
+min = 0.0
+max = 1.0
+
+[params.apoapsisWindowMeters]
+required = true
+type = "window"
+
+[params.chuteDeployAltMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.landedSituations]
+required = true
+type = "list"
+
+[params.ascentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.coastTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.descentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
