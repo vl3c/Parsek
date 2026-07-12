@@ -1,0 +1,5 @@
+# Generated per-run result records + rolling summary (never committed).
+*.json
+summary.txt
+*.log
+.pending/

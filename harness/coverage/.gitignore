@@ -1,0 +1,5 @@
+# Generated coverage/flake artifacts (never committed). registry.toml IS committed.
+coverage.json
+coverage.txt
+flake.json
+__pycache__/
