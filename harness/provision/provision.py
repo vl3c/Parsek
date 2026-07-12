@@ -341,9 +341,15 @@ def phase_download(ctx: ProvisionContext) -> None:
 
 
 def phase_build_tt(ctx: ProvisionContext) -> None:
-    """Build the 2-file TestingTools shim from the pinned kRPC ref (live only)."""
-    if _guard_live_unimplemented(ctx, "Build-TT"):
-        return
+    """Build the 2-file TestingTools shim from the pinned kRPC ref (design BUILD-TT).
+
+    Exports OrbitTools.cs + TestingTools.cs via ``git show`` at the pin (NEVER a
+    working-tree build, GT-1; AutoLoadGame.cs / AutoSwitchVessel.cs deliberately
+    dropped, GT-4), authors a standalone SDK-style net472 shim csproj + minimal
+    AssemblyInfo (GT-9 HintPaths into the dev Managed dir + the extracted release
+    kRPC binaries), ``dotnet build -c Release``, asserts the AutoLoadGame type is
+    ABSENT from the built assembly (S-4), then hashes + caches TestingTools.dll.
+    """
     tt = ctx.pins.get("testingtools", {})
     full = list(tt.get("fullSourceSetAtTag", provlib.TESTINGTOOLS_SHIM_SOURCES
                         + provlib.TESTINGTOOLS_DROPPED_SOURCES))
@@ -356,13 +362,12 @@ def phase_build_tt(ctx: ProvisionContext) -> None:
         % (",".join(sel.included), ",".join(sel.dropped), sel.autoloader_excluded))
     if ctx.dry_run:
         log(ctx, "Info", "Build-TT",
-            "would git-archive %s from %s@%s, author TestingTools.shim.csproj "
+            "would git-show %s from %s@%s, author TestingTools.shim.csproj "
             "(net472, HintPaths into devInstall Managed + release kRPC), dotnet build -c Release, "
             "hash + cache; assert AutoLoadGame type ABSENT (S-4)"
             % (",".join(sel.included), tt.get("localClone", "mods/krpc"), tt.get("sourceRepoRef", "v0.5.4")))
         return
-    # Live build is a real dotnet invocation; kept out of the smoke path.
-    log(ctx, "Info", "Build-TT", "(live build would run here; see design BUILD-TT)")
+    _build_testingtools(ctx, sel, tt)
 
 
 def phase_pair(ctx: ProvisionContext) -> None:
@@ -1003,6 +1008,117 @@ def _clear_incomplete_marker(ctx: ProvisionContext) -> None:
             log(ctx, "Info", "Verify", "cleared %s" % provlib.PROVISION_INCOMPLETE_MARKER)
         except OSError as exc:
             log(ctx, "Warn", "Verify", "could not clear incomplete marker: %s" % exc)
+
+
+# --- BUILD-TT live helpers (design BUILD-TT). Never run under dry-run. ---
+
+
+def _cached_zip_path(ctx: ProvisionContext, comp: str, url_key: str) -> Optional[str]:
+    url = ctx.pins.get(comp, {}).get(url_key)
+    if not url or provlib.is_open_pin(url):
+        return None
+    return os.path.join(CACHE_DIR, os.path.basename(url))
+
+
+def _git_show_file(clone_dir: str, ref: str, repo_path: str) -> Optional[bytes]:
+    """Read one file's bytes at a git ref, read-only (never checks the clone
+    out). ``git show <ref>:<path>``; returns None on failure."""
+    out = subprocess.run(
+        ["git", "-C", clone_dir, "show", "%s:%s" % (ref, repo_path)],
+        capture_output=True,
+    )
+    if out.returncode != 0:
+        return None
+    return out.stdout
+
+
+def _extract_krpc_refs(ctx: ProvisionContext, dest: str) -> bool:
+    """Extract the kRPC compile-reference DLLs from the cached release zip into
+    ``dest`` so BUILD-TT can HintPath them. Returns False (and aborts) if the
+    cached zip is missing (DOWNLOAD must run first)."""
+    import zipfile
+    zip_path = _cached_zip_path(ctx, "krpc", "releaseZipUrl")
+    if not zip_path or not os.path.isfile(zip_path):
+        abort(ctx, "Build-TT", "EC-4",
+              "kRPC release zip not cached at %s (DOWNLOAD must run first)" % zip_path)
+        return False
+    os.makedirs(dest, exist_ok=True)
+    refs = provlib.TESTINGTOOLS_KRPC_REFS
+    with zipfile.ZipFile(zip_path) as zf:
+        for name in zf.namelist():
+            base = name.rsplit("/", 1)[-1]
+            if base.endswith(".dll") and any(base == "%s.dll" % r for r in refs):
+                with zf.open(name) as src, open(os.path.join(dest, base), "wb") as dst:
+                    dst.write(src.read())
+    missing = [r for r in refs if not os.path.isfile(os.path.join(dest, "%s.dll" % r))]
+    if missing:
+        abort(ctx, "Build-TT", "EC-4",
+              "kRPC zip missing compile refs: %s" % ", ".join(missing))
+        return False
+    return True
+
+
+def _build_testingtools(ctx: ProvisionContext, sel, tt: Dict) -> None:
+    krpc_clone = os.path.join(ctx.umbrella_root, ctx.pins.get("krpc", {}).get("localClone", "mods/krpc"))
+    ref = tt.get("sourceRepoRef", "v0.5.4")
+    subdir = tt.get("sourceSubdir", "tools/TestingTools/src")
+    build_dir = os.path.join(CACHE_DIR, "testingtools-build")
+    src_dir = os.path.join(build_dir, "src")
+    refs_dir = os.path.join(CACHE_DIR, "krpc-refs", "GameData", "kRPC")
+    os.makedirs(src_dir, exist_ok=True)
+
+    # Export the 2 shim sources at the pin (git show, never a working-tree read).
+    for fname in sel.included:
+        data = _git_show_file(krpc_clone, ref, "%s/%s" % (subdir, fname))
+        if data is None:
+            abort(ctx, "Build-TT", "EC-4", "git show %s:%s/%s failed" % (ref, subdir, fname))
+            return
+        with open(os.path.join(src_dir, fname), "wb") as fh:
+            fh.write(data)
+    log(ctx, "Info", "Build-TT", "exported %s from %s@%s" % (",".join(sel.included), krpc_clone, ref))
+
+    if not _extract_krpc_refs(ctx, refs_dir):
+        return
+
+    managed = os.path.join(ctx.dev_install, _find_ksp_data_dir(ctx.dev_install), "Managed")
+    csproj = provlib.render_testingtools_shim_csproj(
+        managed, refs_dir, list(sel.included),
+        target_framework=tt.get("targetFramework", "net472"))
+    with open(os.path.join(src_dir, "TestingTools.shim.csproj"), "w", encoding="utf-8") as fh:
+        fh.write(csproj)
+    with open(os.path.join(src_dir, "AssemblyInfo.cs"), "w", encoding="utf-8") as fh:
+        fh.write(provlib.render_testingtools_assemblyinfo())
+
+    out_dir = os.path.join(build_dir, "out")
+    cmd = ["dotnet", "build", os.path.join(src_dir, "TestingTools.shim.csproj"),
+           "-c", "Release", "-o", out_dir, "--nologo", "-v", "minimal"]
+    log(ctx, "Info", "Build-TT", "build: %s" % " ".join(cmd))
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        tail = "\n".join((res.stdout or "").splitlines()[-25:])
+        abort(ctx, "Build-TT", "EC-4", "dotnet build failed:\n%s" % tail)
+        return
+
+    built = os.path.join(out_dir, "TestingTools.dll")
+    if not os.path.isfile(built):
+        abort(ctx, "Build-TT", "EC-4", "build reported success but TestingTools.dll absent")
+        return
+    with open(built, "rb") as fh:
+        dll_bytes = fh.read()
+    assertion = provlib.evaluate_build_tt_assembly(dll_bytes)
+    log(ctx, "Info" if assertion.ok else "Error", "Build-TT",
+        "AutoLoadGame-absent %s (autoloadGame=%d testingToolsType=%s)"
+        % ("OK" if assertion.ok else "FAIL", assertion.autoloadgame_count, assertion.has_testingtools_type))
+    if not assertion.ok:
+        abort(ctx, "Build-TT", "EC-4", "S-4 assertion failed: %s" % assertion.reason)
+        return
+
+    cached = os.path.join(CACHE_DIR, "TestingTools.dll")
+    _copy_file(built, cached)
+    tt_sha = sha256_bytes(dll_bytes)
+    ctx.testingtools_dll = cached  # type: ignore[attr-defined]
+    ctx.testingtools_sha = tt_sha  # type: ignore[attr-defined]
+    log(ctx, "Info", "Build-TT", "build OK dll-sha256=%s cached=%s" % (tt_sha, cached))
 
 
 def _git_head(repo: str) -> str:
