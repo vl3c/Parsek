@@ -383,10 +383,11 @@ namespace Parsek.Tests
 
         // --- live append path (BackgroundRecorder CloseOrbitSegment) ---
 
-        // Guards: a live on-rails close whose span envelopes an existing checkpoint
-        // section is clipped to the uncovered remainder instead of double-covering.
+        // Guards newest-wins: a live close enveloping an existing checkpoint section
+        // (carrying different, older elements) replaces it entirely - the fresh close
+        // is the newer truth, and the span must not be double-covered.
         [Fact]
-        public void TryAppend_SegmentOverlappingExistingCheckpoint_IsClippedToRemainder()
+        public void TryAppend_NewestWins_FullyCoveredExistingSection_IsReplaced()
         {
             OrbitSegment existing = Segment(2000, 3000);
             var rec = new Recording
@@ -399,37 +400,75 @@ namespace Parsek.Tests
                 OrbitSegments = new List<OrbitSegment> { existing }
             };
 
+            OrbitSegment fresh = Segment(1000, 3000, sma: 800000);
             bool appended = OrbitSegmentCheckpointBridge.TryAppendClosedCheckpointSection(
-                rec, Segment(1000, 3000, sma: 800000), markDirty: false, out string skipReason);
+                rec, fresh, markDirty: false, out string skipReason);
 
             Assert.True(appended);
             Assert.Null(skipReason);
-            Assert.Equal(2, rec.TrackSections.Count);
-            TrackSection added = rec.TrackSections.Single(
-                s => s.startUT < 1500);
-            Assert.Equal(1000, added.startUT, 6);
-            Assert.Equal(2000, added.endUT, 6);
+            TrackSection only = Assert.Single(rec.TrackSections);
+            Assert.Equal(1000, only.startUT, 6);
+            Assert.Equal(3000, only.endUT, 6);
+            Assert.Equal(800000, only.checkpoints[0].semiMajorAxis, 3);
             AssertNoDoubleCover(rec);
+            // Flat cache rebuilt to match sections: the stale entry is gone.
+            OrbitSegment onlyFlat = Assert.Single(rec.OrbitSegments);
+            Assert.Equal(800000, onlyFlat.semiMajorAxis, 3);
             Assert.Contains(logLines, l =>
                 l.Contains("[RecordingStore]")
                 && l.Contains("TryAppendClosedCheckpointSection: reconciled overlap")
-                && l.Contains("recording=append-clip"));
+                && l.Contains("recording=append-clip")
+                && l.Contains("clippedExistingSections=1"));
         }
 
-        // Guards: a live close whose span is already fully owned skips with an explicit
-        // reason instead of appending a duplicate.
+        // Guards newest-wins: a fresh close landing INSIDE a stale coarse envelope
+        // splits the envelope around it; the fresh elements own the middle span.
+        // Pre-fix (sections-win) the fresh close was discarded entirely, losing the
+        // newly recorded orbit.
         [Fact]
-        public void TryAppend_FullyCoveredSegment_SkipsWithCoveredReason()
+        public void TryAppend_NewestWins_InsideStaleEnvelope_SplitsEnvelopeAroundFreshClose()
         {
-            OrbitSegment existing = Segment(1000, 3000);
+            OrbitSegment envelope = Segment(1000, 3000);
+            var rec = new Recording
+            {
+                RecordingId = "append-split",
+                TrackSections = new List<TrackSection>
+                {
+                    OrbitSegmentCheckpointBridge.BuildClosedCheckpointSection(envelope)
+                },
+                OrbitSegments = new List<OrbitSegment> { envelope }
+            };
+
+            bool appended = OrbitSegmentCheckpointBridge.TryAppendClosedCheckpointSection(
+                rec, Segment(1500, 2500, sma: 800000), markDirty: false, out string skipReason);
+
+            Assert.True(appended);
+            Assert.Null(skipReason);
+            Assert.Equal(3, rec.TrackSections.Count);
+            Assert.Equal(1000, rec.TrackSections[0].startUT, 6);
+            Assert.Equal(1500, rec.TrackSections[0].endUT, 6);
+            Assert.Equal(1500, rec.TrackSections[1].startUT, 6);
+            Assert.Equal(2500, rec.TrackSections[1].endUT, 6);
+            Assert.Equal(800000, rec.TrackSections[1].checkpoints[0].semiMajorAxis, 3);
+            Assert.Equal(2500, rec.TrackSections[2].startUT, 6);
+            Assert.Equal(3000, rec.TrackSections[2].endUT, 6);
+            AssertNoDoubleCover(rec);
+            Assert.Equal(3, rec.OrbitSegments.Count);
+        }
+
+        // Guards: physical sections (real recorded frames) still own their spans -
+        // a live close fully inside physical coverage skips with an explicit reason.
+        [Fact]
+        public void TryAppend_CoveredByPhysicalSection_SkipsWithCoveredReason()
+        {
             var rec = new Recording
             {
                 RecordingId = "append-covered",
                 TrackSections = new List<TrackSection>
                 {
-                    OrbitSegmentCheckpointBridge.BuildClosedCheckpointSection(existing)
+                    PhysicalSection(1000, 3000)
                 },
-                OrbitSegments = new List<OrbitSegment> { existing }
+                OrbitSegments = new List<OrbitSegment>()
             };
 
             bool appended = OrbitSegmentCheckpointBridge.TryAppendClosedCheckpointSection(
@@ -438,6 +477,32 @@ namespace Parsek.Tests
             Assert.False(appended);
             Assert.Equal("covered", skipReason);
             Assert.Single(rec.TrackSections);
+        }
+
+        // Guards idempotence under newest-wins: an exact re-append of an existing
+        // (non-last) checkpoint must skip, not churn the section it duplicates.
+        [Fact]
+        public void TryAppend_ExactDuplicateOfNonLastSection_SkipsAsDuplicate()
+        {
+            OrbitSegment first = Segment(1000, 2000);
+            OrbitSegment last = Segment(3000, 4000, sma: 800000);
+            var rec = new Recording
+            {
+                RecordingId = "append-dup-nonlast",
+                TrackSections = new List<TrackSection>
+                {
+                    OrbitSegmentCheckpointBridge.BuildClosedCheckpointSection(first),
+                    OrbitSegmentCheckpointBridge.BuildClosedCheckpointSection(last)
+                },
+                OrbitSegments = new List<OrbitSegment> { first, last }
+            };
+
+            bool appended = OrbitSegmentCheckpointBridge.TryAppendClosedCheckpointSection(
+                rec, first, markDirty: false, out string skipReason);
+
+            Assert.False(appended);
+            Assert.Equal("duplicate", skipReason);
+            Assert.Equal(2, rec.TrackSections.Count);
         }
 
         // Guards: the pre-existing exact-duplicate fast path is unchanged.
@@ -517,6 +582,48 @@ namespace Parsek.Tests
             Assert.Contains(rec.TrackSections,
                 s => s.referenceFrame == ReferenceFrame.Absolute
                     && (s.frames == null || s.frames.Count == 0));
+        }
+
+        // Guards the flat-cache rebuild's preservation rule: flat-only segments
+        // (a predicted terminal tail AND a real segment sitting after it) whose spans
+        // no payload section covers must survive the rebuild. The old pure-suffix
+        // rule (FindPredictedTailStart) returned -1 for the interleaved
+        // [real, predicted, real] shape and silently dropped both.
+        [Fact]
+        public void Ensure_RebuildPreservesUncoveredPredictedTailAndTrailingFlatSegment()
+        {
+            OrbitSegment sectioned = Segment(1000, 2000);
+            OrbitSegment coveredCandidate = Segment(1000, 1500, sma: 800000);
+            var predictedTail = Segment(5000, 6000, sma: 900000);
+            predictedTail.isPredicted = true;
+            OrbitSegment trailingReal = Segment(7000, 8000, sma: 950000);
+
+            var rec = new Recording
+            {
+                RecordingId = "rebuild-preserve",
+                TrackSections = new List<TrackSection>
+                {
+                    OrbitSegmentCheckpointBridge.BuildClosedCheckpointSection(sectioned)
+                },
+                // coveredCandidate triggers SkippedCovered -> flat rebuild;
+                // predictedTail + trailingReal form the interleaved tail shape.
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    coveredCandidate, predictedTail, trailingReal
+                }
+            };
+
+            var stats = OrbitSegmentCheckpointBridge
+                .EnsureCheckpointSectionsForTopLevelOrbitSegments(rec, markDirty: false);
+
+            Assert.True(stats.SkippedCovered > 0);
+            Assert.Equal(3, rec.OrbitSegments.Count);
+            Assert.Equal(1000, rec.OrbitSegments[0].startUT, 6);
+            Assert.Equal(2000, rec.OrbitSegments[0].endUT, 6);
+            Assert.True(rec.OrbitSegments[1].isPredicted);
+            Assert.Equal(5000, rec.OrbitSegments[1].startUT, 6);
+            Assert.Equal(7000, rec.OrbitSegments[2].startUT, 6);
+            Assert.False(rec.OrbitSegments[2].isPredicted);
         }
 
         // --- wrapper logging contract ---

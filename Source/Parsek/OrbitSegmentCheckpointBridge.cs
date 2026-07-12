@@ -87,14 +87,20 @@ namespace Parsek
                 skipReason = "duplicate-last";
                 return false;
             }
+            if (AnyCheckpointMatches(rec.TrackSections, segment))
+            {
+                skipReason = "duplicate";
+                return false;
+            }
 
-            // Anti-double-cover: the incoming span may already be (partly) owned by
-            // existing physical or closed checkpoint sections — existing sections win
-            // and only the uncovered remainder(s) are appended. Without this a coarse
-            // on-rails close could add a checkpoint enveloping finer sections already
-            // in the list, leaving two sections covering the same UT.
+            // Anti-double-cover, newest-wins: a live on-rails close is fresher truth
+            // than any checkpoint section already in the list. Physical sections
+            // (real recorded frames) still own their spans — the incoming segment is
+            // clipped to the remainder outside them — but overlapping CLOSED
+            // checkpoint sections are clipped AGAINST the incoming span, so stale
+            // coarse envelopes cannot swallow newly recorded orbital elements.
             List<OrbitSegment> uncoveredSegments =
-                BuildSegmentsOutsideCoveringSections(segment, rec.TrackSections);
+                BuildSegmentsOutsidePhysicalSections(segment, rec.TrackSections);
             if (uncoveredSegments.Count == 0)
             {
                 skipReason = "covered";
@@ -102,6 +108,9 @@ namespace Parsek
             }
             bool clippedIncoming = uncoveredSegments.Count != 1
                 || !OrbitSegmentNearlyEquals(uncoveredSegments[0], segment);
+
+            int clippedExisting = ClipExistingCheckpointSectionsAgainstSpans(
+                rec.TrackSections, uncoveredSegments);
 
             bool addedNewSection = false;
             for (int i = 0; i < uncoveredSegments.Count; i++)
@@ -120,18 +129,25 @@ namespace Parsek
             }
 
             int reconciledEmpty = ReconcileEmptySectionsAgainstPayloadCoverage(rec.TrackSections);
-            if ((clippedIncoming || reconciledEmpty > 0) && !RecordingStore.SuppressLogging)
+            if ((clippedIncoming || clippedExisting > 0 || reconciledEmpty > 0)
+                && !RecordingStore.SuppressLogging)
             {
                 ParsekLog.Verbose("RecordingStore",
                     $"TryAppendClosedCheckpointSection: reconciled overlap for recording={rec.RecordingId} " +
                     $"span=[{segment.startUT.ToString("F2", CultureInfo.InvariantCulture)}," +
                     $"{segment.endUT.ToString("F2", CultureInfo.InvariantCulture)}] " +
-                    $"appendedSegments={uncoveredSegments.Count} clipped={(clippedIncoming ? 1 : 0)} " +
-                    $"reconciledEmptySections={reconciledEmpty}");
+                    $"appendedSegments={uncoveredSegments.Count} clippedIncoming={(clippedIncoming ? 1 : 0)} " +
+                    $"clippedExistingSections={clippedExisting} reconciledEmptySections={reconciledEmpty}");
             }
 
-            if (addedNewSection || reconciledEmpty > 0)
+            if (addedNewSection || clippedExisting > 0 || reconciledEmpty > 0)
                 SortTrackSections(rec.TrackSections);
+            if (clippedExisting > 0)
+            {
+                // Existing sections lost span to the incoming close; the flat cache
+                // entries mirroring them are stale — rebuild from section content.
+                RebuildFlatOrbitCacheFromCheckpointSectionsPreservingUncoveredFlat(rec);
+            }
             SortOrbitSegments(rec.OrbitSegments);
             rec.CachedStats = null;
             rec.CachedStatsPointCount = 0;
@@ -291,7 +307,7 @@ namespace Parsek
             if (stats.Changed || sorted)
             {
                 if (stats.Clipped > 0 || stats.SkippedCovered > 0)
-                    RebuildFlatOrbitCacheFromCheckpointSectionsPreservingPredictedTail(rec);
+                    RebuildFlatOrbitCacheFromCheckpointSectionsPreservingUncoveredFlat(rec);
                 rec.CachedStats = null;
                 rec.CachedStatsPointCount = 0;
                 if (markDirty && (stats.Changed || sorted))
@@ -404,6 +420,65 @@ namespace Parsek
             return changed;
         }
 
+        /// <summary>
+        /// Newest-wins clip for the live append path: subtracts the given fresh
+        /// span(s) from every CLOSED checkpoint section, replacing each section with
+        /// clone(s) covering only the UT outside the spans (a section fully inside
+        /// is removed). Physical and empty sections are untouched. Returns the
+        /// number of sections changed.
+        /// </summary>
+        private static int ClipExistingCheckpointSectionsAgainstSpans(
+            List<TrackSection> sections,
+            List<OrbitSegment> spans)
+        {
+            if (sections == null || sections.Count == 0 || spans == null || spans.Count == 0)
+                return 0;
+
+            int changed = 0;
+            for (int i = sections.Count - 1; i >= 0; i--)
+            {
+                TrackSection section = sections[i];
+                if (section.referenceFrame != ReferenceFrame.OrbitalCheckpoint
+                    || section.checkpoints == null
+                    || section.checkpoints.Count == 0)
+                {
+                    continue;
+                }
+
+                var replacements = new List<TrackSection>();
+                for (int c = 0; c < section.checkpoints.Count; c++)
+                {
+                    OrbitSegment checkpoint = section.checkpoints[c];
+                    var ranges = new List<UtRange>
+                    {
+                        new UtRange(checkpoint.startUT, checkpoint.endUT)
+                    };
+                    for (int s = 0; s < spans.Count && ranges.Count > 0; s++)
+                        SubtractRange(ranges, spans[s].startUT, spans[s].endUT);
+
+                    for (int r = 0; r < ranges.Count; r++)
+                    {
+                        OrbitSegment clipped;
+                        if (TryTrimOrbitSegmentToRange(
+                                checkpoint, ranges[r].StartUT, ranges[r].EndUT, out clipped))
+                        {
+                            replacements.Add(BuildClosedCheckpointSection(clipped));
+                        }
+                    }
+                }
+
+                if (CheckpointReplacementIsUnchanged(section, replacements))
+                    continue;
+
+                sections.RemoveAt(i);
+                for (int r = replacements.Count - 1; r >= 0; r--)
+                    sections.Insert(i, replacements[r]);
+                changed++;
+            }
+
+            return changed;
+        }
+
         private static bool CheckpointReplacementIsUnchanged(
             TrackSection original,
             List<TrackSection> replacements)
@@ -436,13 +511,6 @@ namespace Parsek
             List<TrackSection> sections)
         {
             return BuildSegmentsOutsideSections(segment, sections, isClosedCheckpointSection);
-        }
-
-        private static List<OrbitSegment> BuildSegmentsOutsideCoveringSections(
-            OrbitSegment segment,
-            List<TrackSection> sections)
-        {
-            return BuildSegmentsOutsideSections(segment, sections, isPhysicalOrClosedCheckpointSection);
         }
 
         private static List<OrbitSegment> BuildSegmentsOutsideSections(
@@ -491,8 +559,6 @@ namespace Parsek
             IsHigherPriorityPhysicalSection;
         private static readonly Func<TrackSection, bool> isClosedCheckpointSection =
             IsClosedCheckpointSection;
-        private static readonly Func<TrackSection, bool> isPhysicalOrClosedCheckpointSection =
-            s => IsHigherPriorityPhysicalSection(s) || IsClosedCheckpointSection(s);
 
         private static bool IsHigherPriorityPhysicalSection(TrackSection section)
         {
@@ -673,7 +739,15 @@ namespace Parsek
             return true;
         }
 
-        private static void RebuildFlatOrbitCacheFromCheckpointSectionsPreservingPredictedTail(
+        /// <summary>
+        /// Rebuilds the flat OrbitSegments cache from checkpoint-section content,
+        /// preserving every original flat segment (predicted or real) whose span is
+        /// NOT fully covered by payload sections. Coverage-based preservation
+        /// replaced the old pure-predicted-suffix rule (FindPredictedTailStart),
+        /// which silently dropped the predicted tail plus trailing segments for
+        /// interleaved [real, predicted, real] shapes.
+        /// </summary>
+        private static void RebuildFlatOrbitCacheFromCheckpointSectionsPreservingUncoveredFlat(
             Recording rec)
         {
             if (rec == null)
@@ -700,56 +774,62 @@ namespace Parsek
                         OrbitSegment segment = section.checkpoints[j];
                         if (segment.isPredicted)
                             continue;
-                        if (rebuilt.Count > 0
-                            && OrbitSegmentNearlyEquals(rebuilt[rebuilt.Count - 1], segment))
-                        {
-                            continue;
-                        }
 
                         rebuilt.Add(segment);
                     }
                 }
             }
 
-            int predictedTailStart = FindPredictedTailStart(originalOrbitSegments);
-            if (predictedTailStart >= 0)
+            // Preserve flat-only data: any original segment not fully owned by
+            // payload sections (checkpoint or physical) exists nowhere else —
+            // dropping it would lose predicted terminal tails and recorder-authored
+            // flat-only segments.
+            for (int i = 0; i < originalOrbitSegments.Count; i++)
             {
-                for (int i = predictedTailStart; i < originalOrbitSegments.Count; i++)
-                {
-                    OrbitSegment segment = originalOrbitSegments[i];
-                    if (rebuilt.Count > 0
-                        && OrbitSegmentNearlyEquals(rebuilt[rebuilt.Count - 1], segment))
-                    {
-                        continue;
-                    }
+                OrbitSegment original = originalOrbitSegments[i];
+                if (!IsValidClosedSegment(original))
+                    continue;
+                if (IsSpanFullyCoveredByPayloadSections(original, rec.TrackSections))
+                    continue;
 
-                    rebuilt.Add(segment);
-                }
+                rebuilt.Add(original);
+            }
+
+            SortOrbitSegments(rebuilt);
+            for (int i = rebuilt.Count - 1; i > 0; i--)
+            {
+                if (OrbitSegmentNearlyEquals(rebuilt[i - 1], rebuilt[i]))
+                    rebuilt.RemoveAt(i);
             }
 
             rec.OrbitSegments = rebuilt;
         }
 
-        private static int FindPredictedTailStart(List<OrbitSegment> segments)
+        private static bool IsSpanFullyCoveredByPayloadSections(
+            OrbitSegment segment,
+            List<TrackSection> sections)
         {
-            if (segments == null || segments.Count == 0)
-                return -1;
-
-            for (int i = 0; i < segments.Count; i++)
+            var ranges = new List<UtRange>
             {
-                if (!segments[i].isPredicted)
-                    continue;
+                new UtRange(segment.startUT, segment.endUT)
+            };
 
-                for (int j = i + 1; j < segments.Count; j++)
+            if (sections != null)
+            {
+                for (int i = 0; i < sections.Count && ranges.Count > 0; i++)
                 {
-                    if (!segments[j].isPredicted)
-                        return -1;
-                }
+                    TrackSection section = sections[i];
+                    if (!IsClosedCheckpointSection(section)
+                        && !IsHigherPriorityPhysicalSection(section))
+                    {
+                        continue;
+                    }
 
-                return i;
+                    SubtractRange(ranges, section.startUT, section.endUT);
+                }
             }
 
-            return -1;
+            return ranges.Count == 0;
         }
 
         private static void RemoveEmptyCheckpointSectionsMatching(
