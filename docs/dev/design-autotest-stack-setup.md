@@ -432,6 +432,7 @@ manifest, log, and lock never become phantom config nodes or get parsed by KSP.
   "settingsDeltasApplied": { "FRAMERATE_LIMIT": "60", "QUALITY_PRESET": "0", "...": "..." },
   "settingsBaseSha256": "<hash of dev settings.cfg the deltas were applied over>",
   "settingsFinalSha256": "<sha256 of the instance settings.cfg as written; VERIFY re-hashes it>",
+  "krpcSettingsSha256": "<sha256 of the stamped GameData/kRPC/PluginData/settings.cfg (F3 hands-free stamp); VERIFY re-hashes it>",
   "buildId64Sha256": "<sha256 of the instance KSP_x64_Data/../buildID64.txt; asserts actual KSP version vs pins.kspVersion>",
   "verify": { "utf16GrepPassed": true, "dllHashMatchesStaging": true, "settingsFinalHashMatches": true, "buildId64Matches": true, "kspRunningAtProvision": false }
 }
@@ -576,6 +577,15 @@ Steps run in this order; each is idempotent and logged.
   `<instanceDir>/GameData/kRPC/`; drop the built `TestingTools.dll` alongside;
   extract MechJeb2 into `GameData/MechJeb2/`; drop `KRPC.MechJeb.dll` into
   `GameData/kRPC/` (per its README). Hash every installed DLL into the manifest.
+  Then STAMP `GameData/kRPC/PluginData/settings.cfg` for unattended operation
+  (F3): kRPC ships it with `autoStartServers=False` / `autoAcceptConnections=False`
+  / `confirmRemoveClient=True`, which force a manual in-game click every launch;
+  the stamp flips those three flat keys to `True` / `True` / `False` (editing the
+  shipped file in place, or synthesizing a minimal `KRPCConfiguration { ... }` node
+  when the zip carried no settings.cfg), leaves every other key untouched, and
+  records `krpcSettingsSha256` over the written bytes so a later manual kRPC
+  settings edit is caught as VERIFY drift. The stamped file is NOT a DLL, so it is
+  outside the `installedDlls` hash set (no double-count).
 
 - **MM CACHE.** Delete the copied `ModuleManager.ConfigCache`, `ConfigSHA`,
   `ModuleManager.Physics`, `ModuleManager.TechTree` from the instance GameData so
@@ -594,7 +604,9 @@ Steps run in this order; each is idempotent and logged.
   just-written manifest: every recorded DLL hash matches the on-disk file; the
   UTF-16 grep still passes; junction targets resolve; `settings.cfg` contains the
   deltas AND its full-file sha256 matches `settingsFinalSha256` (catches a manual
-  edit outside the delta keys, N-4); and the instance `buildID64.txt` sha256
+  edit outside the delta keys, N-4); the stamped kRPC `PluginData/settings.cfg`
+  sha256 matches `krpcSettingsSha256` (F3, catches a manual kRPC settings change);
+  and the instance `buildID64.txt` sha256
   matches `buildId64Sha256`, which pins the ACTUAL instance KSP version against
   `pins.kspVersion` (catches an instance built from a different KSP build than the
   pin claims, N-5). This catches a mid-run clobber (EC-10). On `--repair`, a

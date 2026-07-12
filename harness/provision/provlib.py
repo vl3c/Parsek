@@ -271,6 +271,83 @@ def apply_settings(base_lines: Sequence[str], deltas: Dict[str, str]) -> List[st
 
 
 # ---------------------------------------------------------------------------
+# kRPC settings stamp (design SETTINGS / F3). Pure, ConfigNode-line-oriented.
+#
+# kRPC ships GameData/kRPC/PluginData/settings.cfg with autoStartServers=False /
+# autoAcceptConnections=False / confirmRemoveClient=True, which force a manual
+# in-game click every launch and defeat unattended operation. The provisioner
+# stamps the three keys hands-free. The shipped file is a ConfigNode
+# ``KRPCConfiguration { ... }`` with the three keys as FLAT children, so present
+# keys are rewritten in place (reusing settings_key_of / _rewrite_settings_value)
+# and any absent key is inserted just before the node's closing brace (NOT
+# appended at file end, which would land it OUTSIDE the node). An entirely absent
+# file synthesizes a minimal node carrying only the three keys.
+# ---------------------------------------------------------------------------
+
+# The three hands-free kRPC settings (order-stable for the synth + insert paths).
+KRPC_SETTINGS_DELTAS: Tuple[Tuple[str, str], ...] = (
+    ("autoStartServers", "True"),
+    ("autoAcceptConnections", "True"),
+    ("confirmRemoveClient", "False"),
+)
+
+
+def _synth_krpc_settings_lines() -> List[str]:
+    """Minimal KRPCConfiguration node carrying only the three hands-free keys
+    (used when the kRPC zip shipped no PluginData/settings.cfg)."""
+    lines = ["KRPCConfiguration", "{"]
+    for key, value in KRPC_SETTINGS_DELTAS:
+        lines.append("\t%s = %s" % (key, value))
+    lines.append("}")
+    return lines
+
+
+def _insert_krpc_keys_before_last_brace(lines: List[str], missing: Sequence[str]) -> List[str]:
+    """Insert the given missing keys just before the LAST closing-brace line (the
+    KRPCConfiguration node close), so an absent key lands INSIDE the node rather
+    than after it. Falls back to appending when no closing brace is found."""
+    deltas = dict(KRPC_SETTINGS_DELTAS)
+    inserts = ["\t%s = %s" % (k, deltas[k]) for k in missing]
+    idx = None
+    for i in range(len(lines) - 1, -1, -1):
+        if lines[i].strip() == "}":
+            idx = i
+            break
+    if idx is None:
+        return list(lines) + inserts
+    return list(lines[:idx]) + inserts + list(lines[idx:])
+
+
+def stamp_krpc_settings(shipped_text: Optional[str]) -> str:
+    """Return the stamped kRPC settings.cfg text with the three hands-free keys set.
+
+    ``shipped_text`` is the kRPC-shipped PluginData/settings.cfg contents, or None
+    (or blank) when the zip carried no such file. Present keys are rewritten in
+    place (order / comments / unrelated keys preserved, EC-15 style); absent keys
+    are inserted before the KRPCConfiguration node's closing brace; an absent file
+    synthesizes a minimal node. Idempotent: re-stamping already-stamped text
+    yields the same text. Only the three keys are touched -- no other key's value
+    is hardcoded. The returned text is LF-terminated (the caller writes it
+    newline='\\n' so the on-disk hash matches)."""
+    deltas = dict(KRPC_SETTINGS_DELTAS)
+    if shipped_text is None or not shipped_text.strip():
+        return "\n".join(_synth_krpc_settings_lines()) + "\n"
+    result: List[str] = []
+    seen: set = set()
+    for line in shipped_text.splitlines():
+        key = settings_key_of(line)
+        if key is not None and key in deltas:
+            result.append(_rewrite_settings_value(line, deltas[key]))
+            seen.add(key)
+        else:
+            result.append(line)
+    missing = [k for k, _ in KRPC_SETTINGS_DELTAS if k not in seen]
+    if missing:
+        result = _insert_krpc_keys_before_last_brace(result, missing)
+    return "\n".join(result) + "\n"
+
+
+# ---------------------------------------------------------------------------
 # Manifest drift diffing (design VERIFY / EC-3 / EC-5). Pure.
 # ---------------------------------------------------------------------------
 
@@ -1105,6 +1182,12 @@ def build_action_plan(pins: Dict, profile: Dict) -> List[PlannedAction]:
             "%s -> %s/%s (stack component)"
             % (name, instance_dir, stack_component_install_folder(name))))
 
+    if "krpc" in (profile.get("stackComponents", []) or []):
+        plan.append(PlannedAction("INSTALL", "WRITE",
+            "%s/GameData/kRPC/PluginData/settings.cfg hands-free stamp "
+            "(autoStartServers=True, autoAcceptConnections=True, confirmRemoveClient=False)"
+            % instance_dir))
+
     for cache in MM_CACHE_FILES:
         plan.append(PlannedAction("MM-CACHE", "DELETE",
             "%s/GameData/%s (regenerate on first boot)" % (instance_dir, cache)))
@@ -1112,5 +1195,6 @@ def build_action_plan(pins: Dict, profile: Dict) -> List[PlannedAction]:
     plan.append(PlannedAction("MANIFEST", "WRITE",
         "%s/GameData/Parsek/provision-manifest.json (atomic tmp+rename)" % instance_dir))
     plan.append(PlannedAction("VERIFY", "VERIFY",
-        "re-read instance; cross-check DLL hashes, UTF-16 grep, junctions, settingsFinalSha256, buildId64Sha256"))
+        "re-read instance; cross-check DLL hashes, UTF-16 grep, junctions, settingsFinalSha256, "
+        "krpcSettingsSha256, buildId64Sha256"))
     return plan

@@ -641,6 +641,150 @@ class SettingsDeltaTests(unittest.TestCase):
         self.assertEqual(present, {"FULLSCREEN"})
 
 
+class KrpcSettingsStampTests(unittest.TestCase):
+    """F3: kRPC ships settings.cfg with autoStartServers=False /
+    autoAcceptConnections=False / confirmRemoveClient=True, forcing a manual
+    in-game click every launch. stamp_krpc_settings rewrites the three keys for
+    unattended operation: edit-in-place when the shipped file is present, synth a
+    minimal node when absent, idempotent on re-stamp, and touch nothing else."""
+
+    EXPECTED = {"autoStartServers": "True",
+                "autoAcceptConnections": "True",
+                "confirmRemoveClient": "False"}
+
+    def _keys(self, text):
+        """Parse the flat KEY = value children into a dict (ignores braces)."""
+        out = {}
+        for line in text.splitlines():
+            k = provlib.settings_key_of(line)
+            if k is not None:
+                out[k] = line.split("=", 1)[1].strip()
+        return out
+
+    def test_three_exact_key_value_pairs(self):
+        self.assertEqual(
+            provlib.KRPC_SETTINGS_DELTAS,
+            (("autoStartServers", "True"),
+             ("autoAcceptConnections", "True"),
+             ("confirmRemoveClient", "False")))
+
+    def test_shipped_file_present_edit_in_place(self):
+        shipped = (
+            "KRPCConfiguration\n"
+            "{\n"
+            "\tmainWindowVisible = True\n"
+            "\tautoStartServers = False\n"
+            "\tautoAcceptConnections = False\n"
+            "\tconfirmRemoveClient = True\n"
+            "\trpcPort = 50000\n"
+            "}\n")
+        out = provlib.stamp_krpc_settings(shipped)
+        keys = self._keys(out)
+        for k, v in self.EXPECTED.items():
+            self.assertEqual(keys[k], v)
+        # Unrelated keys are preserved untouched (no other value hardcoded).
+        self.assertEqual(keys["mainWindowVisible"], "True")
+        self.assertEqual(keys["rpcPort"], "50000")
+        # Structure preserved: still a single-node config, keys inside the braces.
+        self.assertTrue(out.startswith("KRPCConfiguration\n{"))
+        self.assertTrue(out.endswith("}\n"))
+
+    def test_absent_file_synth_minimal_node(self):
+        for absent in (None, "", "   \n\t"):
+            out = provlib.stamp_krpc_settings(absent)
+            self.assertTrue(out.startswith("KRPCConfiguration\n{"))
+            self.assertTrue(out.rstrip().endswith("}"))
+            self.assertEqual(self._keys(out), self.EXPECTED)
+
+    def test_idempotent_restamp(self):
+        shipped = (
+            "KRPCConfiguration\n{\n"
+            "\tautoStartServers = False\n"
+            "\tautoAcceptConnections = False\n"
+            "\tconfirmRemoveClient = True\n}\n")
+        once = provlib.stamp_krpc_settings(shipped)
+        twice = provlib.stamp_krpc_settings(once)
+        self.assertEqual(once, twice)
+        # And a synth is idempotent too.
+        s1 = provlib.stamp_krpc_settings(None)
+        self.assertEqual(s1, provlib.stamp_krpc_settings(s1))
+
+    def test_missing_key_inserted_inside_node_not_appended(self):
+        # A shipped file that only carries one of the three keys: the other two
+        # must land BEFORE the closing brace, never after it (outside the node).
+        shipped = "KRPCConfiguration\n{\n\tautoStartServers = False\n}\n"
+        out = provlib.stamp_krpc_settings(shipped)
+        lines = out.splitlines()
+        brace_idx = max(i for i, l in enumerate(lines) if l.strip() == "}")
+        for k in self.EXPECTED:
+            key_idx = next(i for i, l in enumerate(lines) if provlib.settings_key_of(l) == k)
+            self.assertLess(key_idx, brace_idx, "%s must be inside the node" % k)
+        self.assertEqual(self._keys(out), self.EXPECTED)
+
+
+class KrpcSettingsStampShellTests(unittest.TestCase):
+    """F3 shell wiring: _stamp_krpc_settings edits the on-disk kRPC settings.cfg,
+    records krpcSettingsSha256 over the LF-written bytes, and VERIFY re-hashes it
+    (drift on a later manual edit), mirroring settingsFinalSha256."""
+
+    def _ctx(self, um):
+        import provision
+        return provision.ProvisionContext(
+            profile_name="t", pins={}, profile={"instanceDir": "automation/test"},
+            umbrella_root=um, dry_run=False, repair=False, parsek_dll_override=None)
+
+    def test_stamp_writes_lf_and_records_matching_sha(self):
+        import hashlib
+        import tempfile
+        import provision
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            path = provision._krpc_settings_path(ctx)
+            os.makedirs(os.path.dirname(path))
+            # Shipped default (CRLF) with the three hands-blocking values.
+            with open(path, "wb") as fh:
+                fh.write(b"KRPCConfiguration\r\n{\r\n\tautoStartServers = False\r\n"
+                         b"\tautoAcceptConnections = False\r\n\tconfirmRemoveClient = True\r\n}\r\n")
+            provision._stamp_krpc_settings(ctx)
+            with open(path, "rb") as fh:
+                raw = fh.read()
+            self.assertNotIn(b"\r\n", raw, "stamped kRPC settings.cfg must be LF-only")
+            text = raw.decode("utf-8")
+            self.assertIn("autoStartServers = True", text)
+            self.assertIn("autoAcceptConnections = True", text)
+            self.assertIn("confirmRemoveClient = False", text)
+            self.assertEqual(hashlib.sha256(raw).hexdigest(), ctx.krpc_settings_sha)
+
+    def test_stamp_synths_when_zip_shipped_no_settings(self):
+        import tempfile
+        import provision
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            provision._stamp_krpc_settings(ctx)  # no file present -> synth
+            path = provision._krpc_settings_path(ctx)
+            self.assertTrue(os.path.isfile(path))
+            with open(path, "r", encoding="utf-8") as fh:
+                text = fh.read()
+            self.assertIn("autoStartServers = True", text)
+            self.assertTrue(ctx.krpc_settings_sha)
+
+    def test_verify_drifts_on_later_manual_krpc_settings_edit(self):
+        import tempfile
+        import provision
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            provision._stamp_krpc_settings(ctx)
+            manifest = {"components": {}, "junctionTargets": {}, "devSourcedMods": {},
+                        "krpcSettingsSha256": ctx.krpc_settings_sha}
+            self.assertTrue(provision.phase_verify(ctx, manifest))
+            self.assertEqual(getattr(ctx, "verify_drift", []), [])
+            # A manual kRPC settings change AFTER provisioning must drift.
+            with open(provision._krpc_settings_path(ctx), "a", encoding="utf-8") as fh:
+                fh.write("\tmanualEdit = True\n")
+            self.assertFalse(provision.phase_verify(ctx, manifest))
+            self.assertTrue(any(d.field == "krpcSettingsSha256" for d in ctx.verify_drift))
+
+
 class ManifestDiffTests(unittest.TestCase):
     """Design: compare_manifest -- guards EC-3/EC-5 silent admission of a
     drifted instance. A changed hash, changed tag/commit, missing component, or
@@ -1213,6 +1357,16 @@ class ActionPlanTests(unittest.TestCase):
         plan = provlib.build_action_plan(self.PINS, self.PROFILE)
         installs = [a.detail for a in plan if a.step == "INSTALL"]
         self.assertFalse(any("GameData/parsek" in d for d in installs))
+
+    def test_plan_stamps_krpc_settings_hands_free(self):
+        # F3: the plan must include the kRPC settings hands-free stamp WRITE.
+        plan = provlib.build_action_plan(self.PINS, self.PROFILE)
+        writes = [a.detail for a in plan if a.step == "INSTALL" and a.verb == "WRITE"]
+        self.assertTrue(any("PluginData/settings.cfg" in d and "autoStartServers=True" in d
+                            for d in writes))
+        # A profile without kRPC in the stack must NOT emit the stamp line.
+        plan2 = provlib.build_action_plan({}, {"stackComponents": ["parsek"]})
+        self.assertFalse(any("PluginData/settings.cfg" in a.detail for a in plan2))
 
     def test_install_labels_use_real_gamedata_folders(self):
         # N11: INSTALL plan labels name the real on-disk folder, not the pin id.

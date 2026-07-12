@@ -819,6 +819,11 @@ def phase_install(ctx: ProvisionContext) -> None:
         log(ctx, "Info", "Install",
             "would extract kRPC into GameData/kRPC, drop TestingTools.dll + KRPC.MechJeb.dll "
             "alongside, extract MechJeb2 into GameData/MechJeb2, hash every DLL")
+        if "krpc" in stack:
+            log(ctx, "Info", "Install",
+                "would stamp GameData/kRPC/PluginData/settings.cfg "
+                "(autoStartServers=True/autoAcceptConnections=True/confirmRemoveClient=False) "
+                "and record krpcSettingsSha256")
         return
     _install_stack(ctx, stack)
 
@@ -873,6 +878,9 @@ def phase_manifest(ctx: ProvisionContext, resolved: Dict[str, str],
         "settingsDeltasApplied": deltas,
         "settingsBaseSha256": getattr(ctx, "settings_base_sha", None),
         "settingsFinalSha256": getattr(ctx, "settings_final_sha", None),
+        # F3: hash of the stamped kRPC PluginData/settings.cfg, re-hashed in VERIFY
+        # (mirrors settingsFinalSha256) so a later manual kRPC settings edit drifts.
+        "krpcSettingsSha256": getattr(ctx, "krpc_settings_sha", None),
         "buildId64Sha256": _buildid64_sha(ctx),
     }
     # Merge the live per-component installed-DLL hashes INSTALL/BUILD-TT computed
@@ -912,7 +920,7 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
         log(ctx, "Info", "Verify",
             "would re-read instance: per-component DLL hashes vs manifest, Parsek "
             "UTF-16 grep, junction resolution, settingsFinalSha256 re-hash, "
-            "buildId64Sha256 re-hash")
+            "krpcSettingsSha256 re-hash, buildId64Sha256 re-hash")
         return True
 
     drift: List[provlib.ManifestDiff] = []
@@ -982,6 +990,18 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
             "settingsFinalSha256 re-hash %s" % ("OK" if match else "DRIFT"))
         if not match:
             _drift("settingsDeltasApplied", final, cur)
+
+    # krpcSettingsSha256 re-hash (F3): the stamped kRPC PluginData/settings.cfg
+    # must still carry the hands-free keys; a manual kRPC settings change drifts.
+    krpc_settings = manifest.get("krpcSettingsSha256")
+    krpc_settings_path = _krpc_settings_path(ctx)
+    if krpc_settings and os.path.isfile(krpc_settings_path):
+        cur = sha256_file(krpc_settings_path)
+        match = cur == krpc_settings
+        log(ctx, "Info" if match else "Error", "Verify",
+            "krpcSettingsSha256 re-hash %s" % ("OK" if match else "DRIFT"))
+        if not match:
+            _drift("krpcSettingsSha256", krpc_settings, cur)
 
     # buildId64Sha256 re-hash (N-5): pins the ACTUAL instance KSP version.
     b64 = manifest.get("buildId64Sha256")
@@ -1608,6 +1628,11 @@ def _install_stack(ctx: ProvisionContext, stack: Sequence[str]) -> None:
         hashes = _hash_installed_dlls(ctx, [w for w in written if os.path.basename(w) in want])
         extra["krpc"] = {"installedDlls": hashes}
         log(ctx, "Info", "Install", "kRPC extracted files=%d hashed-dlls=%d" % (len(written), len(hashes)))
+        # F3: stamp GameData/kRPC/PluginData/settings.cfg for unattended operation
+        # (autoStartServers/autoAcceptConnections/confirmRemoveClient) so every
+        # provisioned instance is hands-free. Recorded as krpcSettingsSha256 +
+        # re-hashed in VERIFY so a later manual kRPC settings change is caught as drift.
+        _stamp_krpc_settings(ctx)
 
     # Built TestingTools.dll dropped alongside kRPC.
     if "testingtools" in stack:
@@ -1642,6 +1667,33 @@ def _install_stack(ctx: ProvisionContext, stack: Sequence[str]) -> None:
             log(ctx, "Info", "Install", "MechJeb2 extracted files=%d" % len(written))
         else:
             log(ctx, "Warn", "Install", "MechJeb2 zip not cached (pin OPEN); skipped")
+
+
+def _krpc_settings_path(ctx: ProvisionContext) -> str:
+    return os.path.join(ctx.instance_dir, "GameData", "kRPC", "PluginData", "settings.cfg")
+
+
+def _stamp_krpc_settings(ctx: ProvisionContext) -> None:
+    """F3: rewrite the kRPC PluginData/settings.cfg so the RPC server starts and
+    accepts connections without a per-launch in-game click. Edits the shipped file
+    in place when present, else writes a minimal node with just the three keys; the
+    pure transform is provlib.stamp_krpc_settings. Records ctx.krpc_settings_sha
+    over the ACTUAL on-disk bytes (LF-written) so VERIFY re-hashes the same bytes."""
+    path = _krpc_settings_path(ctx)
+    shipped = None
+    if os.path.isfile(path):
+        with open(path, "r", encoding="utf-8") as fh:
+            shipped = fh.read()
+    stamped = provlib.stamp_krpc_settings(shipped)
+    os.makedirs(_long(os.path.dirname(path)), exist_ok=True)
+    # newline="\n": no CRLF translation, so the on-disk bytes match the hash.
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(stamped)
+    sha = sha256_file(path)
+    ctx.krpc_settings_sha = sha  # type: ignore[attr-defined]
+    log(ctx, "Info", "Install",
+        "kRPC settings stamped %s (autoStartServers/autoAcceptConnections/confirmRemoveClient) sha256=%s"
+        % ("in-place" if shipped is not None else "synth-minimal", sha))
 
 
 def _git_head(repo: str) -> str:
