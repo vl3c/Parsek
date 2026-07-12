@@ -646,6 +646,50 @@ class ExpectedFailOverlayTests(unittest.TestCase):
         self.assertEqual(r.verdict, "INVALID")
 
 
+class ExpectedFailSignatureMatchTests(unittest.TestCase):
+    """Guards S2: expectedFail.subkind narrows the signature match to one PARSEK-FAIL
+    class, so an expected-fail scenario that fails a DIFFERENT way (subkind mismatch)
+    stays PARSEK-FAIL rather than being demoted to EXPECTED-FAIL; an empty subkind is
+    bugId-only (any PARSEK-FAIL matches). The design's own regression row is the
+    same-scenario-different-subkind case."""
+
+    def test_empty_subkind_matches_any_parsek_fail(self):
+        self.assertTrue(hlib.expected_fail_signature_matched("PARSEK-FAIL", "analyzer", ""))
+        self.assertTrue(hlib.expected_fail_signature_matched("PARSEK-FAIL", "log-contract", ""))
+
+    def test_matching_subkind_matches(self):
+        self.assertTrue(hlib.expected_fail_signature_matched("PARSEK-FAIL", "analyzer", "analyzer"))
+
+    def test_different_subkind_does_not_match(self):
+        # The design's regression row: same scenario, tracked subkind=analyzer, but
+        # this run failed on log-contract -> NOT a signature match -> stays PARSEK-FAIL.
+        self.assertFalse(hlib.expected_fail_signature_matched("PARSEK-FAIL", "log-contract", "analyzer"))
+        base = hlib.Verdict(hlib.VERDICT_PARSEK_FAIL, "log-contract", False, "log validation failed")
+        matched = hlib.expected_fail_signature_matched(base.verdict, base.subkind, "analyzer")
+        overlaid = hlib.classify_expected_fail(base, "R10-reaim", matched)
+        self.assertEqual(overlaid.verdict, hlib.VERDICT_PARSEK_FAIL)
+
+    def test_non_parsek_fail_never_matches(self):
+        self.assertFalse(hlib.expected_fail_signature_matched("PASS", "", ""))
+        self.assertFalse(hlib.expected_fail_signature_matched("INVALID", "boot-crash", ""))
+
+    def test_unknown_subkind_rejected_by_spec_validation(self):
+        reg = load_registry()
+        spec = load_spec("B10-career-passive-safety.toml")
+        spec["expectedFail"]["subkind"] = "not-a-subkind"
+        v = hlib.validate_spec(spec, reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("expectedFail.subkind" in e for e in v.errors))
+
+    def test_known_subkind_accepted_by_spec_validation(self):
+        reg = load_registry()
+        spec = load_spec("B10-career-passive-safety.toml")
+        spec["expectedFail"]["bugId"] = "R10-reaim"
+        spec["expectedFail"]["subkind"] = "analyzer"
+        v = hlib.validate_spec(spec, reg, bug_ids=["R10-reaim"])
+        self.assertTrue(v.ok, "a known PARSEK-FAIL subkind must validate; errors=%s" % (v.errors,))
+
+
 class ResolveTerminalTests(unittest.TestCase):
     """Guards: a flaked-then-passed pair must terminate PASS with the note (no
     FLAKE verdict), while its attempt-1 INVALID stays visible for the ledger."""

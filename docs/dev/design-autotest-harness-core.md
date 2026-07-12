@@ -283,10 +283,20 @@ budgetSeconds = 600                  # wall-clock; watchdog kills on exceed -> K
 policy = "once"                      # once | none  (retry-once-then-INVALID for driver stages)
 
 [expectedFail]
-# Non-empty -> this scenario targets an in-flux subsystem tracked by a todo-doc
-# bug id (plan section 10). A PARSEK-FAIL whose signature matches is demoted to
-# EXPECTED-FAIL and does not poison triage; an unexpected PASS becomes XPASS.
-bugId = ""                           # e.g. "R10-reaim-heliocentric-in-plane"
+# Non-empty bugId -> this scenario targets an in-flux subsystem tracked by a
+# todo-doc bug id (plan section 10). A PARSEK-FAIL whose signature matches is
+# demoted to EXPECTED-FAIL and does not poison triage; an unexpected PASS becomes
+# XPASS. The OPTIONAL subkind narrows the signature match to ONE PARSEK-FAIL class
+# (S2): when set, only a PARSEK-FAIL carrying that exact subkind is demoted, so an
+# expected-fail scenario that fails a DIFFERENT way (a different subkind) still
+# surfaces as PARSEK-FAIL instead of being silently swallowed. When subkind is
+# EMPTY the match is bugId-only (ANY PARSEK-FAIL on the scenario demotes -- the v1
+# adaptation the harness Warn-logs at demotion time). subkind must be one of the
+# classifier's PARSEK-FAIL subkinds:
+# {batch-crashed, analyzer, log-contract, results, anomaly, expectation, ledger};
+# an unknown subkind fails spec validation.
+bugId   = ""                         # e.g. "R10-reaim-heliocentric-in-plane"
+subkind = ""                         # e.g. "analyzer" to match only an analyzer PARSEK-FAIL
 ```
 
 Spec-validation rules (pure, `hlib.validate_spec`): `id` unique + filename-safe;

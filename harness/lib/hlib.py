@@ -603,6 +603,12 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     bug_id = exp_fail.get("bugId", "") or ""
     if bug_id and bug_ids is not None and bug_id not in bug_ids:
         warnings.append("expectedFail.bugId: %r not resolvable in the todo doc (dangling key)" % (bug_id,))
+    # Optional expectedFail.subkind narrows the signature match to one PARSEK-FAIL
+    # class (S2); an unknown subkind is a hard error (it could never match).
+    ef_subkind = exp_fail.get("subkind", "") or ""
+    if ef_subkind and ef_subkind not in PARSEK_FAIL_SUBKINDS:
+        errors.append("expectedFail.subkind: %r not in %s"
+                      % (ef_subkind, list(PARSEK_FAIL_SUBKINDS)))
 
     return SpecValidation(len(errors) == 0, tuple(errors), tuple(warnings))
 
@@ -925,6 +931,14 @@ VERDICTS: Tuple[str, ...] = (
     VERDICT_EXPECTED_FAIL, VERDICT_XPASS,
 )
 
+# The PARSEK-FAIL subkinds classify_verdict can assign (the analyzer PARSEK-FAIL
+# path carries subkind "analyzer"). An expectedFail.subkind, when present, must
+# name one of these so the signature match is against a real failure class (S2).
+PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
+    "batch-crashed", "analyzer", "log-contract", "results", "anomaly",
+    "expectation", "ledger",
+)
+
 # INVALID subkinds that are retry-once-then-INVALID for the driver/tooling
 # stages (design). Everything else (admission, instance-locked/busy, fixture-*,
 # spec-invalid, boot-crash-repeated) is a terminal INVALID.
@@ -942,6 +956,21 @@ class Verdict:
     reason: str
     expected_fail_matched: bool = False
     note: str = ""
+
+
+def expected_fail_signature_matched(base_verdict: str, base_subkind: str,
+                                    ef_subkind: str) -> bool:
+    """Decide whether a computed verdict matches the tracked expected-fail signature
+    (S2). Only a PARSEK-FAIL can match. When ``ef_subkind`` is empty the match is
+    bugId-only (ANY PARSEK-FAIL matches -- the v1 adaptation the run.py caller warns
+    about at demotion time); when set, the base verdict's subkind must equal it, so
+    an expected-fail scenario that fails a DIFFERENT way (subkind mismatch) stays
+    PARSEK-FAIL instead of being demoted to EXPECTED-FAIL."""
+    if base_verdict != VERDICT_PARSEK_FAIL:
+        return False
+    if not ef_subkind:
+        return True
+    return base_subkind == ef_subkind
 
 
 def classify_expected_fail(base: Verdict, bug_id: str, signature_matched: bool) -> Verdict:

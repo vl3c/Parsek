@@ -576,14 +576,28 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
         logger.info("Drive", "drive step=%d id=%s cmd=%s expect=%s"
                     % (i, step_id, verb, record_step["expect"]))
 
-        # Per-step wait: a deferred verb (RunTests/LoadGame) needs the seam's
-        # deferral window + 60s margin (S8); others resolve fast.
+        # Per-step wait (S5/N1): a deferred verb (RunTests/LoadGame) can park at the
+        # seam head up to the seam's OWN 600s fallback deferral ceiling before it
+        # self-emits a TIMEOUT verdict, so the harness must out-wait the LARGER of
+        # the spec's per-step budget and that 600s ceiling, plus the 60s margin, so a
+        # genuine seam TIMEOUT is OBSERVED (a retryable driver-INVALID) instead of
+        # being pre-empted by a harness KILL. The wait is capped at the run budget
+        # (the hard ceiling); when the cap bites below the seam window the run is too
+        # tight to surface a seam TIMEOUT and would KILL instead -- warned once.
         step_budget = step.get("budget")
         if step_budget is None:
             step_budget = (DEFAULT_BOOT_BUDGET_SECONDS if verb == "LoadGame"
                            else DEFAULT_STEP_BUDGET_SECONDS)
-        step_wait = (hlib.required_step_wait(step_budget)
-                     if verb in hlib.DEFERRED_SEAM_VERBS else step_budget)
+        if verb in hlib.DEFERRED_SEAM_VERBS:
+            seam_deferral = max(float(step_budget), float(hlib.SEAM_FALLBACK_DEFERRAL_SECONDS))
+            step_wait = hlib.required_step_wait(seam_deferral)
+            if step_wait > run_budget:
+                step_wait = run_budget
+                if not hlib.step_wait_ok(step_wait, seam_deferral):
+                    logger.warn("Budget", "deferred step %s: step-wait %.0fs capped by run budget is below seam deferral %.0fs + margin; a seam TIMEOUT may KILL instead of surfacing driver-INVALID"
+                                % (verb, step_wait, seam_deferral))
+        else:
+            step_wait = step_budget
         step_start = runtime.now()
         polls = 0
 
@@ -1019,11 +1033,18 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         # ---- CLASSIFY ----------------------------------------------------
         ef = spec.get("expectedFail", {}) or {}
         bug_id = ef.get("bugId", "") or ""
-        # v1 signature match: without a per-signature spec field, an expected-fail
-        # scenario's PARSEK-FAIL is treated as the tracked signature (bugId-scoped).
+        ef_subkind = ef.get("subkind", "") or ""
         base = hlib.classify_verdict(driver_facts, facts["verifiers"], {}, attempt,
                                      (spec.get("retry", {}) or {}).get("policy", "once"))
-        signature_matched = base.verdict == hlib.VERDICT_PARSEK_FAIL
+        # Signature match (S2): expectedFail.subkind narrows the demotion to one
+        # PARSEK-FAIL class; an empty subkind falls back to bugId-only matching (any
+        # PARSEK-FAIL demotes), warned here at demotion time so the bugId-only scope
+        # is visible in the log.
+        signature_matched = hlib.expected_fail_signature_matched(
+            base.verdict, base.subkind, ef_subkind)
+        if bug_id and base.verdict == hlib.VERDICT_PARSEK_FAIL and not ef_subkind:
+            logger.warn("Classify", "expected-fail bugId=%s has no subkind; matching on bugId only (any PARSEK-FAIL demotes to EXPECTED-FAIL)"
+                        % bug_id)
         verdict = hlib.classify_expected_fail(base, bug_id, signature_matched)
         logger.info("Classify", "verdict=%s scenario=%s attempt=%d reason=%s"
                     % (verdict.verdict, scenario_id, attempt, verdict.reason))
