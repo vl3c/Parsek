@@ -388,16 +388,19 @@ def phase_pair(ctx: ProvisionContext) -> None:
 
 
 def phase_clone(ctx: ProvisionContext):
-    """Copy the mutable surface and junction the stock asset trees (live only).
+    """Copy the mutable surface and junction the stock asset trees (design CLONE).
 
-    Returns ``(junctionTargets, devSourcedMods_status)`` for the manifest. Live
-    execution (which would compute each dev-sourced mod's content tree-hash) is
-    unimplemented, so a live run aborts here; the dry-run plan records
-    ``planned-copy`` for present mods and ``absent-source`` for an absent
-    optional mod (EC-12).
+    Returns ``(junctionTargets, devSourcedMods_status)`` for the manifest. In a
+    live run this writes the ``.provision-incomplete`` marker FIRST, pre-checks
+    free space (EC-6), copies the mutable surface (exe, KSP data dir minus the
+    junctioned ``StreamingAssets``, Internals, top-level files -- extended-length
+    paths for deep trees, EC-7), junctions the stock asset payloads
+    (``StreamingAssets`` + ``Squad`` + ``SquadExpansion``, mklink /J), and copies
+    each dev-sourced mod folder recording its content tree-hash (EC-3). The marker
+    is cleared LAST, only on VERIFY success. The dry-run plan records
+    ``planned-copy`` for present mods and ``absent-source`` for an absent optional
+    mod (EC-12).
     """
-    if _guard_live_unimplemented(ctx, "Clone"):
-        return {}, {}
     junctions: Dict[str, str] = {}
     dev_status: Dict[str, str] = {}
     for tree in provlib.STOCK_JUNCTION_TREES:
@@ -414,17 +417,11 @@ def phase_clone(ctx: ProvisionContext):
         kind = (provlib.classify_gamedata_entry(os.path.basename(link), dev)
                 if link.startswith("GameData/") else "junction-stock-tree")
         log(ctx, "Info", "Clone", "junction %s -> %s (%s)" % (link, target, kind))
-    for name in dev:
-        log(ctx, "Info", "Clone", "copy GameData/%s (%s)"
-            % (name, provlib.classify_gamedata_entry(name, dev)))
-        # "planned-copy": this is a dry-run plan preview. The real content
-        # tree-hash is computed only by the (unimplemented) live CLONE; do not
-        # record a forward-looking "pending-hash" the run cannot fill.
-        dev_status[name] = "planned-copy"
 
     # EC-12: optional mods (e.g. PersistentRotation) may be absent from the dev
     # GameData. required=false -> record absent-source + WARN; required=true and
-    # absent -> ABORT.
+    # absent -> ABORT. Present ones join the copy set.
+    copy_mods: List[str] = list(dev)
     for opt in ctx.profile.get("optionalMods", []) or []:
         oname = opt.get("name", "")
         required = bool(opt.get("required", False))
@@ -432,7 +429,7 @@ def phase_clone(ctx: ProvisionContext):
         present = os.path.isdir(src)
         if present:
             log(ctx, "Info", "Clone", "optional mod %s present -> copy" % oname)
-            dev_status[oname] = "planned-copy"
+            copy_mods.append(oname)
         elif required:
             abort(ctx, "Clone", "EC-12", "required mod %s absent from dev GameData" % oname)
             return junctions, dev_status
@@ -443,12 +440,44 @@ def phase_clone(ctx: ProvisionContext):
             dev_status[oname] = "absent-source"
 
     if ctx.dry_run:
+        for name in copy_mods:
+            log(ctx, "Info", "Clone", "copy GameData/%s (%s)"
+                % (name, provlib.classify_gamedata_entry(name, dev)))
+            # "planned-copy": a dry-run plan preview. The real content tree-hash is
+            # computed only by the live CLONE; do not record a forward-looking
+            # "pending-hash" the run cannot fill.
+            dev_status[name] = "planned-copy"
         log(ctx, "Info", "Clone",
-            "would copy mutable surface (exe, Managed, settings.cfg, Internals, "
-            "top-level) and create %d junctions via mklink /J" % len(junctions))
+            "would copy mutable surface (exe, KSP data dir, Internals, top-level) "
+            "and create %d junctions via mklink /J" % len(junctions))
         return junctions, dev_status
-    # Live copy + junction creation is kept out of the smoke path (design CLONE).
-    log(ctx, "Info", "Clone", "(live copy + junctions would run here)")
+
+    # LIVE. Marker first (EC-6): any abort past this point leaves a half-provision
+    # the harness refuses to admit; VERIFY clears it only on success.
+    _write_incomplete_marker(ctx)
+    if not _precheck_free_space(ctx):
+        return junctions, dev_status
+    _clone_mutable_surface(ctx)
+    if ctx.aborted:
+        return junctions, dev_status
+    _create_junctions(ctx, junctions)
+    if ctx.aborted:
+        return junctions, dev_status
+    gd_instance = os.path.join(ctx.instance_dir, "GameData")
+    os.makedirs(_long(gd_instance), exist_ok=True)
+    for name in copy_mods:
+        src = os.path.join(ctx.dev_install, "GameData", name)
+        dst = os.path.join(gd_instance, name)
+        if not os.path.exists(src):
+            abort(ctx, "Clone", "EC-3", "dev-sourced mod %s vanished mid-run: %s" % (name, src))
+            return junctions, dev_status
+        if os.path.isdir(src):
+            _copy_dir(ctx, src, dst)
+        else:
+            _copy_one(src, dst)
+        tree_hash = _content_tree_hash(src)
+        dev_status[name] = tree_hash
+        log(ctx, "Info", "Clone", "copied GameData/%s tree-hash=%s" % (name, tree_hash))
     return junctions, dev_status
 
 
@@ -708,6 +737,10 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
             "settingsFinalSha256 re-hash %s" % ("OK" if match else "DRIFT"))
         ok = ok and match
 
+    if ok:
+        # Marker cleared LAST: a present manifest + no marker == a completed,
+        # verified provision the harness may admit (design EC-6).
+        _clear_incomplete_marker(ctx)
     log(ctx, "Info" if ok else "Error", "Verify",
         "instance=%s result=%s" % (ctx.profile_name, "OK" if ok else "DRIFT"))
     return ok
@@ -774,6 +807,202 @@ def _assert_krpc_zip_layout(ctx: ProvisionContext, data: bytes) -> None:
 def _copy_file(src: str, dst: str) -> None:
     import shutil
     shutil.copyfile(src, dst)
+
+
+# --- CLONE live helpers (design CLONE / EC-6 / EC-7). Never run under dry-run. ---
+
+
+def _long(path: str) -> str:
+    """Windows extended-length form of an absolute path (EC-7); a no-op elsewhere
+    or when the path is already prefixed. Deep KSP asset trees under a long
+    umbrella root overflow MAX_PATH without it."""
+    if os.name == "nt":
+        return provlib.to_extended_length_path(os.path.abspath(path))
+    return path
+
+
+def _find_ksp_data_dir(dev_install: str) -> str:
+    for cand in ("KSP_x64_Data", "KSP_Data"):
+        if os.path.isdir(os.path.join(dev_install, cand)):
+            return cand
+    return "KSP_x64_Data"
+
+
+def _copy_one(src: str, dst: str) -> None:
+    import shutil
+    os.makedirs(_long(os.path.dirname(dst)), exist_ok=True)
+    shutil.copyfile(_long(src), _long(dst))
+
+
+def _copy_dir(ctx: ProvisionContext, src: str, dst: str, skip_top=None):
+    """Recursive tree copy honoring extended-length paths, optionally skipping
+    top-level child names (used to junction StreamingAssets instead of copying
+    it). Returns (files, bytes)."""
+    files = 0
+    total = 0
+    for root, dirs, names in os.walk(src):
+        rel = os.path.relpath(root, src)
+        if rel == "." and skip_top is not None:
+            dirs[:] = [d for d in dirs if not skip_top(d)]
+        target_root = dst if rel == "." else os.path.join(dst, rel)
+        os.makedirs(_long(target_root), exist_ok=True)
+        for n in names:
+            _copy_one(os.path.join(root, n), os.path.join(target_root, n))
+            files += 1
+            try:
+                total += os.path.getsize(os.path.join(root, n))
+            except OSError:
+                pass
+    return files, total
+
+
+def _dir_bytes(root: str, skip_top=None) -> int:
+    total = 0
+    for r, dirs, names in os.walk(root):
+        if skip_top is not None and os.path.relpath(r, root) == ".":
+            dirs[:] = [d for d in dirs if not skip_top(d)]
+        for n in names:
+            try:
+                total += os.path.getsize(os.path.join(r, n))
+            except OSError:
+                pass
+    return total
+
+
+def _measure_copy_bytes(ctx: ProvisionContext, copy_mods: List[str]) -> int:
+    """Sum the bytes CLONE will actually copy (mirrors the copy plan): the
+    top-level copy set minus the junctioned StreamingAssets, plus each
+    dev-sourced mod folder. Junctioned stock trees cost ~0."""
+    dev = ctx.dev_install
+    ksp_data = _find_ksp_data_dir(dev)
+    total = 0
+    for name in os.listdir(dev):
+        disp = provlib.clone_toplevel_disposition(name, ksp_data)
+        src = os.path.join(dev, name)
+        if disp == "copy-tree-except-junction":
+            total += _dir_bytes(src, skip_top=provlib.ksp_data_entry_is_junction)
+        elif disp == "copy":
+            total += _dir_bytes(src) if os.path.isdir(src) else _safe_size(src)
+    for name in copy_mods:
+        src = os.path.join(dev, "GameData", name)
+        if os.path.isdir(src):
+            total += _dir_bytes(src)
+        elif os.path.isfile(src):
+            total += _safe_size(src)
+    return total
+
+
+def _safe_size(path: str) -> int:
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return 0
+
+
+def _precheck_free_space(ctx: ProvisionContext) -> bool:
+    """EC-6: refuse before CLONE if the intended copy would not fit."""
+    import shutil
+    copy_mods = list(ctx.profile.get("devSourcedMods", []) or [])
+    for opt in ctx.profile.get("optionalMods", []) or []:
+        if os.path.isdir(os.path.join(ctx.dev_install, "GameData", opt.get("name", ""))):
+            copy_mods.append(opt.get("name", ""))
+    est = _measure_copy_bytes(ctx, copy_mods)
+    parent = os.path.dirname(os.path.abspath(ctx.instance_dir)) or ctx.instance_dir
+    os.makedirs(parent, exist_ok=True)
+    free = shutil.disk_usage(parent).free
+    margin = 512 * 1024 * 1024
+    if provlib.is_over_budget(est, free, margin):
+        abort(ctx, "Clone", "EC-6",
+              "insufficient free space: estimate=%d margin=%d free=%d" % (est, margin, free))
+        return False
+    log(ctx, "Info", "Clone", "free-space pre-check estimate=%d free=%d OK" % (est, free))
+    return True
+
+
+def _clone_mutable_surface(ctx: ProvisionContext) -> None:
+    dev = ctx.dev_install
+    inst = ctx.instance_dir
+    ksp_data = _find_ksp_data_dir(dev)
+    os.makedirs(_long(inst), exist_ok=True)
+    files = 0
+    total = 0
+    for name in sorted(os.listdir(dev)):
+        disp = provlib.clone_toplevel_disposition(name, ksp_data)
+        if disp in ("skip", "build-gamedata"):
+            continue
+        src = os.path.join(dev, name)
+        dst = os.path.join(inst, name)
+        if disp == "copy-tree-except-junction":
+            f, b = _copy_dir(ctx, src, dst, skip_top=provlib.ksp_data_entry_is_junction)
+        elif os.path.isdir(src):
+            f, b = _copy_dir(ctx, src, dst)
+        else:
+            _copy_one(src, dst)
+            f, b = 1, _safe_size(src)
+        files += f
+        total += b
+    log(ctx, "Info", "Clone", "mutable surface copied files=%d bytes=%d" % (files, total))
+
+
+def _make_junction(link_abs: str, target_abs: str) -> subprocess.CompletedProcess:
+    # Directory junctions need no admin. Remove any pre-existing link first for
+    # idempotency (rmdir on a junction removes the link, never the target).
+    if os.path.isdir(link_abs) or os.path.islink(link_abs):
+        try:
+            os.rmdir(link_abs)
+        except OSError:
+            pass
+    return subprocess.run(
+        ["cmd", "/c", "mklink", "/J", link_abs, target_abs],
+        capture_output=True, text=True,
+    )
+
+
+def _create_junctions(ctx: ProvisionContext, junctions: Dict[str, str]) -> None:
+    for link_rel, target in junctions.items():
+        link_abs = os.path.join(ctx.instance_dir, link_rel)
+        os.makedirs(_long(os.path.dirname(link_abs)), exist_ok=True)
+        res = _make_junction(link_abs, target)
+        if res.returncode != 0:
+            abort(ctx, "Clone", "EC-8",
+                  "junction failed %s -> %s: %s" % (link_rel, target, (res.stderr or res.stdout).strip()))
+            return
+        log(ctx, "Info", "Clone", "junctioned %s -> %s" % (link_rel, target))
+
+
+def _content_tree_hash(root: str) -> str:
+    """Deterministic content hash of a dev-sourced mod (folder or single file),
+    via the pure canonical digest input (EC-3)."""
+    entries: List[tuple] = []
+    if os.path.isfile(root):
+        entries.append((os.path.basename(root), sha256_file(root)))
+    else:
+        for r, _dirs, names in os.walk(root):
+            for n in names:
+                p = os.path.join(r, n)
+                entries.append((os.path.relpath(p, root), sha256_file(p)))
+    return sha256_bytes(provlib.canonical_tree_digest_input(entries).encode("utf-8"))
+
+
+def _incomplete_marker_path(ctx: ProvisionContext) -> str:
+    return os.path.join(ctx.parsek_gamedata, provlib.PROVISION_INCOMPLETE_MARKER)
+
+
+def _write_incomplete_marker(ctx: ProvisionContext) -> None:
+    os.makedirs(ctx.parsek_gamedata, exist_ok=True)
+    with open(_incomplete_marker_path(ctx), "w", encoding="utf-8") as fh:
+        fh.write("provisioning in progress pid=%d %s\n" % (os.getpid(), _utcnow_iso()))
+    log(ctx, "Info", "Clone", "wrote %s (cleared on VERIFY success)" % provlib.PROVISION_INCOMPLETE_MARKER)
+
+
+def _clear_incomplete_marker(ctx: ProvisionContext) -> None:
+    path = _incomplete_marker_path(ctx)
+    if os.path.isfile(path):
+        try:
+            os.remove(path)
+            log(ctx, "Info", "Verify", "cleared %s" % provlib.PROVISION_INCOMPLETE_MARKER)
+        except OSError as exc:
+            log(ctx, "Warn", "Verify", "could not clear incomplete marker: %s" % exc)
 
 
 def _git_head(repo: str) -> str:
