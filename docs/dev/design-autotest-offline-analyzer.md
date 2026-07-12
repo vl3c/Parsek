@@ -509,9 +509,13 @@ lose the run-happened evidence; it only moves it out of the findings list.
   prefix. Every recording id and every rewind id passes
   `RecordingPaths.ValidateRecordingId` (path traversal / invalid chars) -> FAIL,
   emitted BEFORE any filesystem access. A referenced rewind save whose
-  `Parsek/Saves/<id>.sfs` is missing -> WARN; present-but-unparsable -> FAIL. An
-  unreferenced `parsek_rw_*.sfs` on disk -> a single per-save INFO inventory line
-  (count). CitedContract: `RecordingPaths.ValidateRecordingId` +
+  `Parsek/Saves/<id>.sfs` is missing -> severity splits by the recording's
+  `MergeState`: a `CommittedProvisional` recording (an OPEN / still-rewindable
+  slot) whose own rewind save is gone -> FAIL (token
+  `missing-rewind-save-provisional`); an `Immutable` (sealed) or any other
+  recording -> WARN (token `missing-rewind-save`). A present-but-unparsable rewind
+  save -> FAIL. An unreferenced `parsek_rw_*.sfs` on disk -> a single per-save INFO
+  inventory line (count). CitedContract: `RecordingPaths.ValidateRecordingId` +
   `RecordingPaths.BuildRewindSaveRelativePath`.
   **Tuning 2026-07-11 (three corrections after the first 8-save run):**
   1. **Directory fix.** The rule previously probed `Parsek/RewindPoints/<id>.sfs`
@@ -522,14 +526,20 @@ lose the run-happened evidence; it only moves it out of the findings list.
      `BuildRewindSaveRelativePath`. The rp_* RewindPoint system (referenced by
      scenario `RewindPoints` slots / `BranchPoint`s) is NOT loaded by the offline
      model, so it is out of INV9's scope.
-  2. **Missing -> WARN, not FAIL.** A missing rewind save is a dangling reference,
-     not proven corruption: `RecordingStore.DeleteRecordingFiles` deletes a rewind
-     save with a discarded recording WITHOUT reference-counting siblings that
-     share the same save via `ParsekFlight.CopyRewindSaveToRoot` ("first recorder
-     wins"), a sealed (`MergeState.Immutable`) recording can no longer be rewound,
-     and production treats a missing rewind hint as benign
-     (`ParsekScenario.ResolveLimboResumeRewindSave`). WARN surfaces it without
-     failing the run (s15 4, orbital supply route 4).
+  2. **Missing -> severity split by `MergeState` (F1 refinement).** A missing
+     rewind save on a sealed (`MergeState.Immutable`) recording is a dangling
+     reference, not proven corruption: `RecordingStore.DeleteRecordingFiles`
+     deletes a rewind save with a discarded recording WITHOUT reference-counting
+     siblings that share the same save via `ParsekFlight.CopyRewindSaveToRoot`
+     ("first recorder wins"), a sealed recording can no longer be rewound, and
+     production treats a missing rewind hint as benign
+     (`ParsekScenario.ResolveLimboResumeRewindSave`). That class stays WARN and
+     does not red the run (s15 4, orbital supply route 4 -- all `Immutable`). But a
+     `CommittedProvisional` recording is an OPEN / still-rewindable slot: its own
+     rewind save going missing means a real Rewind-to-Separation would fail to find
+     its quicksave, so that narrower class is FAIL (token
+     `missing-rewind-save-provisional`). The original blanket WARN downgrade
+     blurred exactly this distinction.
   3. **Orphan -> INFO inventory.** An unreferenced `parsek_rw_*.sfs` is an EXPECTED
      benign state (`ParsekFlight.cs`: "keep the on-disk parsek_rw_*.sfs but no
      recording ever references it"), so it is one per-save INFO count line, not a
@@ -836,11 +846,18 @@ and known-good builder output exposes wrong rules). Body resolution uses
 - **INV9 violating (bad id)**: a rewind id containing `..` -> INV9 FAIL via
   `RecordingPaths.ValidateRecordingId`, and the analyzer never opens the escaped
   path. Fails if path-traversal ids reach the filesystem (security regression).
-- **INV9 dangling (missing rewind save)**: a recording referencing an absent
-  `Parsek/Saves/<id>.sfs` -> INV9 WARN, NOT FAIL. A missing rewind save is a
-  dangling reference, often benign (shared rewind saves deleted with a discarded
-  sibling; sealed recordings cannot rewind), so it must not red the run. Fails if
-  it FAILs (the s15 / orbital-supply-route class) or is silently dropped.
+- **INV9 dangling (missing rewind save), sealed**: an `Immutable` recording
+  referencing an absent `Parsek/Saves/<id>.sfs` -> INV9 WARN, NOT FAIL. A missing
+  rewind save on canon is a dangling reference, often benign (shared rewind saves
+  deleted with a discarded sibling; sealed recordings cannot rewind), so it must
+  not red the run. Fails if it FAILs (the s15 / orbital-supply-route class) or is
+  silently dropped.
+- **INV9 dangling (missing rewind save), provisional (F1)**: a
+  `CommittedProvisional` recording (an OPEN / still-rewindable slot) referencing an
+  absent `Parsek/Saves/<id>.sfs` -> INV9 FAIL (token
+  `missing-rewind-save-provisional`). A rewindable recording missing its own
+  rewind quicksave is a real defect, not a benign dangle. Fails if it is downgraded
+  to WARN (the pre-F1 blanket behavior that blurred this class).
 - **INV9 orphan inventory**: an unreferenced `parsek_rw_*.sfs` on disk -> one
   per-save INFO count line (never WARN/FAIL). Fails if the orphan scan reverts to
   `Parsek/RewindPoints/` (false-flagging live rp_* RewindPoints) or promotes the

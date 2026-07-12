@@ -27,6 +27,7 @@ All notable changes to Parsek are documented here.
 - Implemented the developer-only automation-stack provisioner's live phases: it clones a pinned KSP instance, builds the kRPC TestingTools shim from source, installs the pinned kRPC / KRPC.MechJeb / Parsek stack, and verifies (and can self-repair) the instance against a manifest. It never writes to your KSP install and never changes anything Parsek saves.
 - The automation-stack provisioner now stamps the kRPC server settings so a provisioned instance starts and accepts connections without a manual in-game click, and treats a later change to those settings as instance drift. Developer-only tooling; no gameplay change.
 - Added the developer-only automated-testing harness that runs in-game test scenarios start to finish with no human in the loop and classifies each run (pass, real failure, environment-invalid, or killed-on-timeout), with a coverage ledger tracking what got tested. It never touches a normal game install and changes nothing Parsek saves.
+- The offline recording analyzer now distinguishes a still-rewindable recording whose rewind save is missing (a real defect, flagged as a failure) from a sealed recording's missing rewind save (a benign dangling reference, still only a warning). Developer-only tooling; no gameplay change.
 
 ## 0.10.3
 

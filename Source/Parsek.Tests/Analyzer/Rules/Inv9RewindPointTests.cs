@@ -139,6 +139,94 @@ namespace Parsek.Tests.Analyzer.Rules
             Assert.Contains("missing-rewind-save", warn.Message);
         }
 
+        // Guards (F1 severity-split): a CommittedProvisional recording (an OPEN /
+        // still-rewindable slot) whose own rewind save is missing -> FAIL, distinct
+        // token "missing-rewind-save-provisional". The blanket WARN downgrade blurred
+        // exactly this class: this recording can still be rewound and a real
+        // Rewind-to-Separation would fail to find its quicksave. In-memory model with
+        // a real (empty) SaveDirectory so the file is genuinely absent; the rewind id
+        // validates, so it reaches the existence check.
+        [Fact]
+        public void MissingRewindSave_Provisional_Fails_DistinctToken()
+        {
+            var model = new AnalyzerModel
+            {
+                SaveName = "prov-dangling",
+                SaveDirectory = tempDir,
+                Recordings = new List<Recording>
+                {
+                    new Recording
+                    {
+                        RecordingId = "recProv",
+                        RewindSaveFileName = "parsek_rw_prov",
+                        MergeState = MergeState.CommittedProvisional,
+                    },
+                },
+            };
+
+            List<Finding> findings = new Inv9RewindPoint().Evaluate(model).ToList();
+
+            Finding fail = Assert.Single(findings, f => f.Level == VerdictLevel.Fail);
+            Assert.Contains("missing-rewind-save-provisional", fail.Message);
+            Assert.Contains("recProv", fail.Message);
+            Assert.Empty(findings.Where(f => f.Level == VerdictLevel.Warn));
+        }
+
+        // Guards (F1 severity-split): an Immutable (sealed / no-longer-rewindable)
+        // recording whose rewind save is missing stays WARN, NOT FAIL. Same in-memory
+        // shape as the provisional case but sealed -> the WARN token, so a genuine
+        // dangling reference on canon never reds the run.
+        [Fact]
+        public void MissingRewindSave_Immutable_Warns_NotFails()
+        {
+            var model = new AnalyzerModel
+            {
+                SaveName = "immutable-dangling",
+                SaveDirectory = tempDir,
+                Recordings = new List<Recording>
+                {
+                    new Recording
+                    {
+                        RecordingId = "recSealed",
+                        RewindSaveFileName = "parsek_rw_sealed",
+                        MergeState = MergeState.Immutable,
+                    },
+                },
+            };
+
+            List<Finding> findings = new Inv9RewindPoint().Evaluate(model).ToList();
+
+            Finding warn = Assert.Single(findings, f => f.Level == VerdictLevel.Warn);
+            Assert.Contains("missing-rewind-save", warn.Message);
+            Assert.DoesNotContain("provisional", warn.Message);
+            Assert.Empty(findings.Where(f => f.Level == VerdictLevel.Fail));
+        }
+
+        // Guards (F1 severity-split): a CommittedProvisional recording whose rewind
+        // save IS present and parses -> zero findings. The FAIL is scoped to the
+        // MISSING file, not to the provisional state itself.
+        [Fact]
+        public void PresentRewindSave_Provisional_NoFindings()
+        {
+            WriteRewindSave(tempDir, "parsek_rw_provok");
+            var model = new AnalyzerModel
+            {
+                SaveName = "prov-present",
+                SaveDirectory = tempDir,
+                Recordings = new List<Recording>
+                {
+                    new Recording
+                    {
+                        RecordingId = "recProvOk",
+                        RewindSaveFileName = "parsek_rw_provok",
+                        MergeState = MergeState.CommittedProvisional,
+                    },
+                },
+            };
+
+            Assert.Empty(new Inv9RewindPoint().Evaluate(model).ToList());
+        }
+
         // Guards (orphan-retarget regression): an unreferenced parsek_rw_*.sfs on
         // disk is an EXPECTED benign state (ParsekFlight.cs), reported as a single
         // per-save INFO inventory line, never a WARN/FAIL. Fails if the orphan scan
