@@ -1,0 +1,120 @@
+# Dimension registry (M-A5). Committed materialization of the scenario-catalog
+# section 1 (docs/dev/automated-testing-scenario-catalog.md) dimension space
+# D1-D18. AUTHORITATIVE machine source of the dimension value set: spec
+# validation (hlib.validate_spec) and the coverage denominator (hlib.compute_coverage)
+# both read THIS file, nothing else. The catalog markdown stays a narrative
+# companion kept in sync by a human in the same PR that adds a value (design N9).
+#
+# One table per dimension; each `values` list is token-per-value, kebab-case.
+# A spec citing a (dimension, value) absent here fails validation, and an
+# uncovered value here surfaces as the visible backlog in the coverage report.
+#
+# Growth rule (plan section 4 item 5): a new Parsek feature adds its dimension
+# values here in the SAME PR, so the coverage report immediately shows the gap.
+# Plain ASCII.
+
+schema = 1
+
+[D1]  # recording lifecycle
+values = ["auto-record-launch", "auto-record-eva", "auto-record-first-mod-switch",
+          "manual-gloops", "stop-on-switch", "commit-revert-merge", "commit-scene-exit",
+          "commit-abort", "discard-rollback", "auto-merge", "sub-2-point-drop",
+          "switch-segment", "switch-segment-noop-discard", "scene-exit-finalization",
+          "ballistic-extrapolation", "finalization-cache"]
+
+[D2]  # sampling
+values = ["density-presets", "proximity-cadence-bg", "structural-event-snapshots",
+          "threshold-debounce"]
+
+[D3]  # reference frames (per TrackSection)
+values = ["absolute", "surface-body-fixed", "orbital-checkpoint",
+          "relative-anchored-nonloop", "relative-loop", "parent-anchored-debris",
+          "boundary-seam"]
+
+[D4]  # environment classification / optimizer
+values = ["atmospheric", "exo-propulsive", "exo-ballistic", "surface-mobile",
+          "surface-stationary", "hysteresis", "env-body-split", "surface-graze-suppression",
+          "cohesive-cross-body-coast", "tail-trim", "seed-event-split", "split-at-ut"]
+
+[D5]  # tree / chain topology
+values = ["single-node", "undock-split", "staging-debris-ttl", "staging-debris-promotion",
+          "eva-branch", "controlled-decoupled-child", "dock-merge-same-tree",
+          "cross-tree-foreign-dock", "chain-continuation-switch", "crash-coalescing",
+          "bg-recording", "bg-on-rails"]
+
+[D6]  # playback / ghost engine
+values = ["basic-playback", "loop-period-modes", "self-overlap", "overlap-expiry-soft-caps",
+          "zone-transitions", "watch-mode-retarget-explosion-hold", "spawn-at-end-pid-dedup",
+          "ghost-map-presence", "non-orbital-polyline", "reentry-fx", "attitude-preservation",
+          "soi-crossing-playback", "time-jump", "commnet-relay", "ghost-audio"]
+
+[D7]  # part events
+values = ["decouple-stage-destroy", "engine-fx-legacy", "engine-fx-effects",
+          "engine-fx-waterfall-fallback", "rcs", "chute-two-phase", "chute-cut", "shroud",
+          "fairing", "panels-antennas-radiators", "gear", "bays", "lights", "dock-undock",
+          "inventory-place-remove", "flag-plant"]
+
+[D8]  # ledger / economy (9 modules + infra)
+values = ["science", "funds", "reputation", "milestones", "kerbals", "facilities",
+          "contracts", "strategies", "route", "recalc-engine", "orchestrator",
+          "ksp-state-patcher", "tombstones", "ers-els-routing", "ground-truth-harness",
+          "action-blocking", "epoch-isolation", "recalc-from-ut0"]
+
+[D9]  # rewind / re-fly
+values = ["rewind-to-launch", "fast-forward", "rewind-to-separation", "refly-gate",
+          "unfinished-flights-stash", "seal-stash-fly", "supersede-relation", "tombstones",
+          "merge-journal", "head-tip-split", "terminal-kind-classify", "load-time-sweep",
+          "rp-disk-reaper", "revert-during-refly-dialog", "read-back-guard",
+          "reconciliation-bundle"]
+
+[D10]  # logistics / routes
+values = ["candidate-detection", "ksc-origin", "docked-depot-origin", "dock-producer",
+          "claw-producer", "delivery", "pickup", "mixed-direction", "resource-cargo",
+          "inventory-cargo", "harvest-provenance", "multi-stop", "multi-origin-escrow",
+          "round-trip-pair", "inter-body-nth-window", "dispatch-cadence", "hold-reasons",
+          "destination-full-gate", "route-map-lines", "route-x-rewind"]
+
+[D11]  # missions / periodicity / re-aim
+values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "clone",
+          "phase-lock", "zero-drift-schedule", "reaim-lambert", "loiter-compression",
+          "arrival-hold", "eccentric-inclined-targets", "heliocentric-parking-departure",
+          "station-phase-lock", "multi-moon-config-hold", "land-dock-dual-constraint",
+          "partner-journey", "s4-arrival-restitch", "fail-closed-to-faithful"]
+
+[D12]  # crew / kerbals
+values = ["reservation-auto-hire", "stand-ins", "seat-matching", "rescue-marker",
+          "dead-crew-strip", "tombstone-rep-penalty", "missed-endut-auto-free", "crew-swap",
+          "hire-dismiss-patches"]
+
+[D13]  # spawn safety
+values = ["proximity-offset", "bbox-block", "trajectory-walkback", "terrain-correction",
+          "ksc-exclusion", "situation-correction", "surface-orbit-reseed", "pid-dedup",
+          "three-cycle-abandon", "terminal-orbit-safety", "real-spawn-control"]
+
+[D14]  # environment axes (multipliers)
+values = ["kerbin", "mun", "minmus", "moho", "eve", "gilly", "duna", "ike", "dres",
+          "jool", "laythe", "vall", "tylo", "bop", "pol", "eeloo",
+          "atmosphere", "situation", "soi-count",
+          "warp-1x", "warp-phys", "warp-rails", "warp-high",
+          "scene-flight", "scene-map", "scene-ts", "scene-ksc", "scene-editor",
+          "career", "science-mode", "sandbox", "cold-load-ut0"]
+
+[D15]  # UI surfaces (OUT OF SCOPE except the one honest automated cell)
+values = ["timeline-projection"]
+
+[D16]  # storage / format
+values = ["sidecar-prec", "sidecar-craft", "sidecar-pcrf", "sidecar-pann",
+          "rp-quicksaves", "deflate-snapshots", "txt-mirrors", "alias-mode",
+          "sfs-scenario-node", "schema-gate", "path-validation", "safe-write",
+          "pre-parsek-backup"]
+
+[D17]  # mod compatibility (modded-compat instance profile only)
+values = ["waterfall-swe-fallback", "restock", "persistent-rotation", "better-time-warp",
+          "remotetech-commnet", "making-history"]
+
+[D18]  # ghost chains / paradox prevention
+values = ["committed-interaction-claiming", "ghost-conversion-quicksave",
+          "intermediate-spawn-suppression", "chain-tip-original-pid",
+          "cross-tree-chain-linking", "ghost-extension-past-endut", "background-event-claims",
+          "chain-terminated-destruction-recovery", "chain-state-rederived",
+          "time-jump-observables", "rewind-strip-respawn-cycle", "loop-first-run-is-real"]
