@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 SCHEMA_VERSION = 1
@@ -1046,3 +1046,281 @@ def resolve_terminal(attempts: Sequence[Verdict]) -> Verdict:
         return Verdict(last.verdict, last.subkind, last.retryable, last.reason,
                        last.expected_fail_matched, "flakedThenPassed")
     return last
+
+
+# ---------------------------------------------------------------------------
+# Result record serialization + schema gate (design Result record). Pure.
+# ---------------------------------------------------------------------------
+
+
+def check_schema(obj: Dict, expected: int = SCHEMA_VERSION) -> Tuple[bool, str]:
+    """Gate a persisted artifact's top-level ``schema`` (design Backward Compat).
+
+    A future schema is REFUSED with a clear message (not mis-parsed): a schema
+    bump must make the harness refuse an old/new artifact rather than silently
+    mis-admit it. Returns (ok, message).
+    """
+    got = (obj or {}).get("schema")
+    if got == expected:
+        return True, "schema %d ok" % expected
+    if isinstance(got, int) and got > expected:
+        return False, "schema %d newer than supported %d; refusing" % (got, expected)
+    return False, "schema %r != expected %d" % (got, expected)
+
+
+def serialize_result(result: Dict) -> str:
+    """Serialize a result record deterministically (stable key order, no volatile
+    absolute paths in the compared fields, floats via repr through json).
+
+    Byte-identical output for identical inputs, so results diff cleanly and the
+    coverage tool parses them without guessing (design determinism test). Uses
+    ``\\n`` line endings explicitly so a record written on Windows and Linux is
+    byte-identical.
+    """
+    text = json.dumps(result, sort_keys=True, indent=2, ensure_ascii=True)
+    return text.replace("\r\n", "\n") + "\n"
+
+
+def deserialize_result(text: str) -> Dict:
+    """Parse a serialized result record back to a dict (round-trip partner of
+    ``serialize_result``)."""
+    return json.loads(text)
+
+
+# ---------------------------------------------------------------------------
+# Coverage computation (design Coverage + flake generation / compute_coverage).
+# ---------------------------------------------------------------------------
+
+# Result verdicts that count as a GREEN for coverage (design: PASS or
+# EXPECTED-FAIL for a scenario that covers the value).
+GREEN_VERDICTS: Tuple[str, ...] = (VERDICT_PASS, VERDICT_EXPECTED_FAIL)
+
+
+def _result_utc(result: Dict) -> str:
+    """The comparable UTC timestamp of a result (endedUtc preferred, else
+    startedUtc, else empty). UTC ISO-8601 string compare is immune to tz/DST
+    (design edge 26)."""
+    return str(result.get("endedUtc") or result.get("startedUtc") or "")
+
+
+@dataclass(frozen=True)
+class CoverageValue:
+    dimension: str
+    value: str
+    covered_by: Tuple[str, ...]
+    last_green: Optional[str]
+    status: str  # "" | "UNCOVERED" | "EXPECTED-FAIL:<bugId>"
+
+
+@dataclass(frozen=True)
+class CoverageReport:
+    values: Tuple[CoverageValue, ...]
+    uncovered: Tuple[str, ...]           # "<D>/<value>" tokens
+    expected_fail_table: Dict            # bugId -> [(scenarioId, latestVerdict)]
+    rollup: Dict
+
+
+def _registry_pairs(registry: Dict) -> List[Tuple[str, str]]:
+    pairs: List[Tuple[str, str]] = []
+    for dim in sorted(k for k in registry if k != "schema"):
+        vals = _registry_values(registry, dim)
+        if vals is None:
+            continue
+        for v in vals:
+            pairs.append((dim, v))
+    return pairs
+
+
+def _latest_result_by_scenario(results: Sequence[Dict]) -> Dict[str, Dict]:
+    latest: Dict[str, Dict] = {}
+    for r in results:
+        sid = r.get("scenarioId")
+        if sid is None:
+            continue
+        prev = latest.get(sid)
+        if prev is None or _result_utc(r) >= _result_utc(prev):
+            latest[sid] = r
+    return latest
+
+
+def compute_coverage(specs: Sequence[Dict], results: Sequence[Dict], registry: Dict) -> CoverageReport:
+    """Map every registry ``(dimension, value)`` to its covering scenarios + last
+    green run, plus the uncovered list, the expected-fail table, and a rollup.
+
+    A value's ``last_green`` is the newest result (UTC string compare) whose
+    verdict is PASS or EXPECTED-FAIL for a scenario that covers it; a value with
+    zero covering scenarios is UNCOVERED; a value covered ONLY by expected-fail
+    scenarios is tagged EXPECTED-FAIL:<bugId>. Deterministic given the inputs
+    (sorted iteration), so coverage diffs are readable (design stability test):
+    a red run must never count as coverage (false "exhaustive" signal), and a
+    genuinely covered value must never show uncovered.
+    """
+    # scenario id -> its expectedFail bugId (from the spec)
+    spec_bug: Dict[str, str] = {}
+    covered_by: Dict[Tuple[str, str], List[str]] = {}
+    for spec in specs:
+        sid = spec.get("id")
+        if sid is None:
+            continue
+        spec_bug[sid] = (spec.get("expectedFail", {}) or {}).get("bugId", "") or ""
+        dims = spec.get("dimensionsCovered", {}) or {}
+        for dim, values in dims.items():
+            for v in values or []:
+                covered_by.setdefault((dim, v), []).append(sid)
+
+    # newest green result per scenario id
+    green_utc: Dict[str, str] = {}
+    for r in results:
+        if r.get("verdict") in GREEN_VERDICTS:
+            sid = r.get("scenarioId")
+            u = _result_utc(r)
+            if sid is not None and (sid not in green_utc or u >= green_utc[sid]):
+                green_utc[sid] = u
+
+    values: List[CoverageValue] = []
+    uncovered: List[str] = []
+    covered_count = 0
+    ef_value_count = 0
+    for dim, val in _registry_pairs(registry):
+        scenarios = sorted(covered_by.get((dim, val), []))
+        last_green: Optional[str] = None
+        for sid in scenarios:
+            u = green_utc.get(sid)
+            if u and (last_green is None or u > last_green):
+                last_green = u
+        if not scenarios:
+            status = "UNCOVERED"
+            uncovered.append("%s/%s" % (dim, val))
+        elif all(spec_bug.get(sid) for sid in scenarios):
+            # covered only by expected-fail scenarios
+            bug = next((spec_bug[sid] for sid in scenarios if spec_bug.get(sid)), "")
+            status = "EXPECTED-FAIL:%s" % bug
+            ef_value_count += 1
+            covered_count += 1
+        else:
+            status = ""
+            covered_count += 1
+        values.append(CoverageValue(dim, val, tuple(scenarios), last_green, status))
+
+    # expected-fail table: bugId -> [(scenarioId, latestVerdict)]
+    latest = _latest_result_by_scenario(results)
+    ef_table: Dict[str, List[Tuple[str, str]]] = {}
+    for sid, bug in sorted(spec_bug.items()):
+        if not bug:
+            continue
+        latest_verdict = (latest.get(sid, {}) or {}).get("verdict", "never")
+        ef_table.setdefault(bug, []).append((sid, latest_verdict))
+
+    rollup = {
+        "values": len(values),
+        "covered": covered_count,
+        "uncovered": len(uncovered),
+        "expectedFailValues": ef_value_count,
+        "xpass": sum(1 for sid in spec_bug if spec_bug[sid]
+                     and (latest.get(sid, {}) or {}).get("verdict") == VERDICT_XPASS),
+    }
+    return CoverageReport(tuple(values), tuple(uncovered), ef_table, rollup)
+
+
+def coverage_to_json_obj(report: CoverageReport) -> Dict:
+    """Deterministic JSON-serializable projection of a CoverageReport (stable key
+    order via json.dumps sort_keys; design coverage stability test)."""
+    return {
+        "schema": SCHEMA_VERSION,
+        "rollup": report.rollup,
+        "values": [
+            {
+                "dimension": cv.dimension,
+                "value": cv.value,
+                "coveredBy": list(cv.covered_by),
+                "lastGreen": cv.last_green,
+                "status": cv.status,
+            }
+            for cv in report.values
+        ],
+        "uncovered": list(report.uncovered),
+        "expectedFail": {bug: [list(t) for t in rows]
+                         for bug, rows in report.expected_fail_table.items()},
+    }
+
+
+def coverage_to_txt(report: CoverageReport) -> str:
+    """Grep-friendly coverage report, one line per value (design):
+    ``<D> <value> coveredBy=<n> lastGreen=<utc|never> [UNCOVERED|EXPECTED-FAIL:<bugId>]``."""
+    lines: List[str] = []
+    for cv in report.values:
+        tag = (" " + cv.status) if cv.status else ""
+        lines.append("%s %s coveredBy=%d lastGreen=%s%s" % (
+            cv.dimension, cv.value, len(cv.covered_by),
+            cv.last_green if cv.last_green else "never", tag))
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+# ---------------------------------------------------------------------------
+# Flake computation + quarantine (design Coverage + flake generation / N4). Pure.
+# ---------------------------------------------------------------------------
+
+from datetime import datetime, timedelta  # noqa: E402
+
+QUARANTINE_RATE = 0.20
+FLAKE_WINDOW_DAYS = 7
+
+# Attempt outcomes that count toward the flake (quarantine) rate: KILLED counts
+# too (N4) -- a scenario that keeps timing out is as unusable in nightly as one
+# that keeps going INVALID.
+FLAKE_NUMERATOR_VERDICTS: Tuple[str, ...] = (VERDICT_INVALID, VERDICT_KILLED)
+
+
+@dataclass(frozen=True)
+class FlakeResult:
+    total: int
+    numerator: int  # INVALID + KILLED within the window
+    rate: float
+    quarantined: bool
+
+
+def _parse_iso(ts: str) -> Optional[datetime]:
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+def compute_flake(
+    attempts: Sequence[Dict],
+    now: Optional[str] = None,
+    prior_quarantined: bool = False,
+    window_days: int = FLAKE_WINDOW_DAYS,
+) -> FlakeResult:
+    """Compute the rolling flake rate + quarantine for one (scenario, stage).
+
+    ``attempts`` are per-attempt records ``{"utc": iso, "outcome": verdict}``.
+    rate = (INVALID + KILLED) / attempts over the trailing ``window_days``
+    (KILLED counts, N4). ``> 0.20`` sets ``quarantined = True``. Quarantine is
+    STICKY and human-only: ``prior_quarantined`` carries forward regardless of a
+    subsequent quiet window (a benched scenario runs 0 attempts, so its window
+    cannot self-heal; only a human spec edit unquarantines it). A flakedThenPassed
+    PASS still contributes its attempt-1 INVALID to the numerator (the caller
+    records both attempts).
+    """
+    cutoff: Optional[datetime] = None
+    now_dt = _parse_iso(now) if now else None
+    if now_dt is not None:
+        cutoff = now_dt - timedelta(days=window_days)
+
+    total = 0
+    numerator = 0
+    for a in attempts:
+        if cutoff is not None:
+            adt = _parse_iso(str(a.get("utc", "")))
+            if adt is not None and adt < cutoff:
+                continue
+        total += 1
+        if a.get("outcome") in FLAKE_NUMERATOR_VERDICTS:
+            numerator += 1
+
+    rate = (numerator / total) if total else 0.0
+    quarantined = bool(prior_quarantined) or rate > QUARANTINE_RATE
+    return FlakeResult(total, numerator, rate, quarantined)

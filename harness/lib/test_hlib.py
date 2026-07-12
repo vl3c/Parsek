@@ -815,5 +815,215 @@ class AdmissionTests(unittest.TestCase):
         self.assertIn("components", exp)
 
 
+# ---------------------------------------------------------------------------
+# Result record serialization + schema gate.
+# ---------------------------------------------------------------------------
+
+
+class ResultSerializationTests(unittest.TestCase):
+    """Guards: a result must round-trip to an equal object and serialize
+    byte-identically for identical inputs (else diffs churn or a field drops and
+    the coverage parser breaks); a future schema must be refused, not mis-parsed."""
+
+    def _result(self):
+        return {
+            "schema": 1, "runId": "2026-07-12_1830_B10", "scenarioId": "B10",
+            "verdict": "PASS", "wallSeconds": 412,
+            "verifiers": {"analyzer": {"status": "PASS", "red": 0}},
+        }
+
+    def test_round_trip(self):
+        r = self._result()
+        self.assertEqual(hlib.deserialize_result(hlib.serialize_result(r)), r)
+
+    def test_byte_identical(self):
+        a = hlib.serialize_result(self._result())
+        # a freshly-built equal dict with keys inserted in a different order
+        r2 = {}
+        r2["verdict"] = "PASS"
+        r2["schema"] = 1
+        r2["scenarioId"] = "B10"
+        r2["runId"] = "2026-07-12_1830_B10"
+        r2["wallSeconds"] = 412
+        r2["verifiers"] = {"analyzer": {"red": 0, "status": "PASS"}}
+        self.assertEqual(a, hlib.serialize_result(r2))
+
+    def test_schema_ok(self):
+        ok, _ = hlib.check_schema({"schema": 1})
+        self.assertTrue(ok)
+
+    def test_future_schema_refused(self):
+        ok, msg = hlib.check_schema({"schema": 2})
+        self.assertFalse(ok)
+        self.assertIn("newer", msg)
+
+    def test_missing_schema_refused(self):
+        ok, _ = hlib.check_schema({})
+        self.assertFalse(ok)
+
+
+# ---------------------------------------------------------------------------
+# Coverage computation.
+# ---------------------------------------------------------------------------
+
+
+class CoverageTests(unittest.TestCase):
+    """Guards: a red run must never count as coverage (false 'exhaustive'
+    signal), a genuinely covered value must not show uncovered, an XPASS surfaces
+    its amber, and the report is deterministic (unreadable diffs otherwise)."""
+
+    REGISTRY = {
+        "schema": 1,
+        "D8": {"values": ["funds", "science", "reputation"]},
+        "D14": {"values": ["career"]},
+    }
+
+    def _specs(self):
+        return [
+            {"id": "B10", "dimensionsCovered": {"D8": ["funds", "science"], "D14": ["career"]},
+             "expectedFail": {"bugId": ""}},
+            {"id": "R10", "dimensionsCovered": {"D8": ["reputation"]},
+             "expectedFail": {"bugId": "R10-reaim"}},
+        ]
+
+    def test_pass_run_shows_last_green(self):
+        results = [{"scenarioId": "B10", "verdict": "PASS", "endedUtc": "2026-07-12T18:00:00Z"}]
+        rep = hlib.compute_coverage(self._specs(), results, self.REGISTRY)
+        funds = next(cv for cv in rep.values if cv.value == "funds")
+        self.assertEqual(funds.last_green, "2026-07-12T18:00:00Z")
+        self.assertIn("B10", funds.covered_by)
+
+    def test_parsek_fail_is_not_coverage(self):
+        results = [{"scenarioId": "B10", "verdict": "PARSEK-FAIL", "endedUtc": "2026-07-12T18:00:00Z"}]
+        rep = hlib.compute_coverage(self._specs(), results, self.REGISTRY)
+        funds = next(cv for cv in rep.values if cv.value == "funds")
+        self.assertIsNone(funds.last_green)
+
+    def test_uncovered_value(self):
+        rep = hlib.compute_coverage([self._specs()[0]], [], self.REGISTRY)
+        rep_vals = {cv.value: cv for cv in rep.values}
+        self.assertEqual(rep_vals["reputation"].status, "UNCOVERED")
+        self.assertIn("D8/reputation", rep.uncovered)
+
+    def test_expected_fail_only_value_tagged(self):
+        rep = hlib.compute_coverage(self._specs(), [], self.REGISTRY)
+        rep_vals = {cv.value: cv for cv in rep.values}
+        self.assertEqual(rep_vals["reputation"].status, "EXPECTED-FAIL:R10-reaim")
+
+    def test_xpass_surfaced_in_rollup(self):
+        results = [{"scenarioId": "R10", "verdict": "XPASS", "endedUtc": "2026-07-12T18:00:00Z"}]
+        rep = hlib.compute_coverage(self._specs(), results, self.REGISTRY)
+        self.assertEqual(rep.rollup["xpass"], 1)
+        self.assertIn("R10-reaim", rep.expected_fail_table)
+
+    def test_deterministic_json(self):
+        results = [{"scenarioId": "B10", "verdict": "PASS", "endedUtc": "2026-07-12T18:00:00Z"}]
+        a = hlib.coverage_to_json_obj(hlib.compute_coverage(self._specs(), results, self.REGISTRY))
+        b = hlib.coverage_to_json_obj(hlib.compute_coverage(self._specs(), results, self.REGISTRY))
+        import json
+        self.assertEqual(json.dumps(a, sort_keys=True), json.dumps(b, sort_keys=True))
+
+    def test_txt_lines(self):
+        rep = hlib.compute_coverage(self._specs(), [], self.REGISTRY)
+        txt = hlib.coverage_to_txt(rep)
+        self.assertTrue(any("D8 reputation coveredBy=1 lastGreen=never EXPECTED-FAIL:R10-reaim" in l
+                            for l in txt.splitlines()))
+
+    def test_real_registry_denominator(self):
+        # Every real registry value appears exactly once in the coverage output.
+        reg = load_registry()
+        rep = hlib.compute_coverage([], [], reg)
+        pairs = [(cv.dimension, cv.value) for cv in rep.values]
+        self.assertEqual(len(pairs), len(set(pairs)))
+        self.assertIn(("D15", "timeline-projection"), pairs)
+        self.assertEqual(len([p for p in pairs if p[0] == "D15"]), 1)
+
+
+# ---------------------------------------------------------------------------
+# Flake computation + quarantine.
+# ---------------------------------------------------------------------------
+
+
+class FlakeTests(unittest.TestCase):
+    """Guards: the 20% threshold must not be mis-evaluated, KILLED must count
+    toward the rate (a KILLED-heavy scenario cannot escape quarantine), and a
+    benched scenario must not auto-unquarantine on a window it never ran in."""
+
+    def _attempts(self, outcomes, base="2026-07-12T00:00:00Z"):
+        return [{"utc": base, "outcome": o} for o in outcomes]
+
+    def test_three_of_ten_invalid_quarantines(self):
+        att = self._attempts(["INVALID"] * 3 + ["PASS"] * 7)
+        r = hlib.compute_flake(att)
+        self.assertAlmostEqual(r.rate, 0.30)
+        self.assertTrue(r.quarantined)
+
+    def test_one_of_ten_not_quarantined(self):
+        att = self._attempts(["INVALID"] * 1 + ["PASS"] * 9)
+        r = hlib.compute_flake(att)
+        self.assertFalse(r.quarantined)
+
+    def test_killed_counts_toward_rate(self):
+        att = self._attempts(["INVALID"] * 2 + ["KILLED"] * 1 + ["PASS"] * 7)
+        r = hlib.compute_flake(att)
+        self.assertAlmostEqual(r.rate, 0.30)
+        self.assertTrue(r.quarantined)
+
+    def test_quarantine_is_sticky(self):
+        # A subsequent quiet (all-PASS) window must stay quarantined (human-only).
+        att = self._attempts(["PASS"] * 10)
+        r = hlib.compute_flake(att, prior_quarantined=True)
+        self.assertTrue(r.quarantined)
+
+    def test_out_of_window_attempts_dropped(self):
+        old = self._attempts(["INVALID"] * 5, base="2026-06-01T00:00:00Z")
+        recent = self._attempts(["PASS"] * 5, base="2026-07-12T00:00:00Z")
+        r = hlib.compute_flake(old + recent, now="2026-07-13T00:00:00Z")
+        self.assertEqual(r.total, 5)  # only the recent window
+        self.assertFalse(r.quarantined)
+
+
+# ---------------------------------------------------------------------------
+# Log-line format (log-assertion support).
+# ---------------------------------------------------------------------------
+
+
+class LogLineTests(unittest.TestCase):
+    """Guards: every classify branch carries a non-empty reason so the harness
+    log ([Harness][LEVEL][Step]) can reconstruct why a run was classified (an
+    undebuggable unattended run is the whole failure the harness log prevents)."""
+
+    def test_format_shape(self):
+        self.assertEqual(hlib.format_log_line("Info", "Classify", "verdict=PASS"),
+                         "[Harness][Info][Classify] verdict=PASS")
+
+    def test_every_verdict_branch_has_a_reason(self):
+        d, v = _clean_pass_facts()
+        cases = [
+            (dict(d), dict(v)),  # PASS
+        ]
+        # exercise a spread of branches and assert each reason is non-empty
+        for mutate in [
+            lambda dd, vv: dd.__setitem__("admission_ok", False),
+            lambda dd, vv: vv.__setitem__("killed", True),
+            lambda dd, vv: dd.__setitem__("boot_crashed", True),
+            lambda dd, vv: dd.__setitem__("batch_crashed", True),
+            lambda dd, vv: vv.__setitem__("log_validate_failed", True),
+        ]:
+            dd, vv = _clean_pass_facts()
+            mutate(dd, vv)
+            r = hlib.classify_verdict(dd, vv, {"bugId": ""}, 1, "once")
+            self.assertTrue(r.reason, "verdict %s must carry a reason" % r.verdict)
+            line = hlib.format_log_line("Info", "Classify",
+                                        "verdict=%s reason=%s" % (r.verdict, r.reason))
+            self.assertTrue(line.startswith("[Harness][Info][Classify]"))
+
+    def test_xpass_amber_reason(self):
+        d, v = _clean_pass_facts()
+        r = hlib.classify_verdict(d, v, {"bugId": "R10-reaim", "signature_matched": False}, 1, "once")
+        self.assertEqual(r.verdict, "XPASS")
+        self.assertIn("R10-reaim", r.reason)
+
+
 if __name__ == "__main__":
     unittest.main()
