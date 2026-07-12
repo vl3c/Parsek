@@ -76,46 +76,34 @@ class PhaseInstallEmptyStackTests(unittest.TestCase):
         self.assertFalse(any("NO stackComponents" in l for l in ctx.log_lines))
 
 
-class LiveUnimplementedTests(unittest.TestCase):
-    """Guards BLOCKER 3: a live run must abort at the first unimplemented heavy
-    phase (EC-LIVE) rather than half-provision; --dry-run is unaffected;
-    live --repair aborts up front.
+class LivePhasesImplementedTests(unittest.TestCase):
+    """M-A6.1: the heavy live phases are implemented, so the old EC-LIVE guard is
+    gone. A live run now genuinely provisions; it aborts at DOWNLOAD when a
+    consumed sha256 is still OPEN (the mechjeb2 pin, EC-13, no-network guard), and
+    a live --repair is no longer blocked up front.
 
     Live-mode ctxs use a throwaway umbrella tempdir: a non-dry-run abort() logs
-    through log(), which writes provision-log.txt under the instance dir, and
-    that must never land in the repo tree."""
+    through log(), which writes provision-log.txt under the instance dir, and that
+    must never land in the repo tree."""
 
-    def _ctx(self, umbrella, dry_run, repair=False):
+    def test_ec_live_guard_removed(self):
         import provision
-        return provision.ProvisionContext(
-            profile_name="x", pins={}, profile={}, umbrella_root=umbrella,
-            dry_run=dry_run, repair=repair, parsek_dll_override=None)
+        self.assertFalse(hasattr(provision, "_guard_live_unimplemented"),
+                         "the EC-LIVE unimplemented-phase guard must be gone once live phases land")
 
-    def test_dry_run_phase_not_guarded(self):
-        import provision
-        # dry-run log() writes nothing, so "." is safe here.
-        ctx = self._ctx(".", dry_run=True)
-        self.assertFalse(provision._guard_live_unimplemented(ctx, "Build-TT"))
-        self.assertFalse(ctx.aborted)
-
-    def test_live_phase_aborts_ec_live(self):
+    def test_live_download_open_pin_aborts_ec13_no_network(self):
         import tempfile
         import provision
         with tempfile.TemporaryDirectory() as umbrella:
-            ctx = self._ctx(umbrella, dry_run=False)
-            self.assertTrue(provision._guard_live_unimplemented(ctx, "Build-TT"))
+            ctx = provision.ProvisionContext(
+                profile_name="x",
+                pins={"krpc": {"releaseZipUrl": "OPEN", "releaseZipSha256": "OPEN"},
+                      "krpc_mechjeb": {}, "mechjeb2": {"downloadUrl": "OPEN", "sha256": "OPEN"}},
+                profile={}, umbrella_root=umbrella, dry_run=False, repair=False,
+                parsek_dll_override=None)
+            provision.phase_download(ctx)  # must not touch the network
             self.assertTrue(ctx.aborted)
-            self.assertIn("EC-LIVE", ctx.abort_reason)
-
-    def test_live_repair_aborts_in_run(self):
-        import tempfile
-        import provision
-        with tempfile.TemporaryDirectory() as umbrella:
-            ctx = self._ctx(umbrella, dry_run=False, repair=True)
-            code = provision.run(ctx)
-            self.assertEqual(code, 2)
-            self.assertTrue(ctx.aborted)
-            self.assertIn("EC-LIVE", ctx.abort_reason)
+            self.assertIn("EC-13", ctx.abort_reason)
 
 
 class ResolvePinTests(unittest.TestCase):

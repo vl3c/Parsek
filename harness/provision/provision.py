@@ -120,26 +120,6 @@ def abort(ctx: ProvisionContext, step: str, ec: str, detail: str) -> None:
     log(ctx, "Error", step, "%s %s" % (ec, detail))
 
 
-LIVE_UNIMPLEMENTED_MSG = (
-    "live provisioning not yet implemented for CLONE/BUILD-TT/INSTALL: "
-    "run with --dry-run; live support tracked in the design doc"
-)
-
-
-def _guard_live_unimplemented(ctx: ProvisionContext, step: str) -> bool:
-    """Abort a LIVE run at an unimplemented heavy provisioning phase.
-
-    Returns True (and marks the run aborted) on a live run so the caller returns
-    immediately; returns False under --dry-run so the planner runs unchanged.
-    BUILD-TT is the first of these phases in execution order, so a live run
-    aborts here before any of the write-bearing phases (SETTINGS/DEPLOY/
-    MM-CACHE/MANIFEST) can half-provision the instance."""
-    if ctx.dry_run:
-        return False
-    abort(ctx, step, "EC-LIVE", LIVE_UNIMPLEMENTED_MSG)
-    return True
-
-
 # ---------------------------------------------------------------------------
 # Small I/O helpers (skipped entirely under --dry-run by their callers)
 # ---------------------------------------------------------------------------
@@ -713,14 +693,27 @@ def phase_manifest(ctx: ProvisionContext, resolved: Dict[str, str],
 
 
 def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
-    """Re-read the instance and cross-check the just-written manifest."""
+    """Re-read the instance from scratch and cross-check the just-written manifest.
+
+    Checks (design VERIFY): junction realpath resolution (EC-8), every recorded
+    component DLL hash vs on-disk (EC-9/EC-10 mid-run clobber), the Parsek UTF-16
+    signature re-grep, settingsFinalSha256 (N-4), and buildId64Sha256 (N-5). Each
+    mismatch is recorded as a structured drift field on ``ctx.verify_drift`` so
+    --repair can converge only the drifted component. Returns True == no drift;
+    on success the .provision-incomplete marker is cleared LAST.
+    """
     if ctx.dry_run:
         log(ctx, "Info", "Verify",
-            "would re-read instance: DLL hashes vs manifest, UTF-16 grep, junction "
-            "resolution, settingsFinalSha256 re-hash, buildId64Sha256 re-hash")
+            "would re-read instance: per-component DLL hashes vs manifest, Parsek "
+            "UTF-16 grep, junction resolution, settingsFinalSha256 re-hash, "
+            "buildId64Sha256 re-hash")
         return True
 
-    ok = True
+    drift: List[provlib.ManifestDiff] = []
+
+    def _drift(field: str, expected, actual) -> None:
+        drift.append(provlib.ManifestDiff(field, expected, actual, "changed"))
+
     # Junction resolution (EC-8). Probe the LINK (realpath), not just the
     # target's existence: a junction reports islink()==False, and a deleted or
     # repointed junction must fail even when the old target still exists.
@@ -731,9 +724,9 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
         return os.path.realpath(link_abs)
     dangling = provlib.verify_junctions(manifest, _resolve_link)
     if dangling:
-        ok = False
         for link in dangling:
             log(ctx, "Error", "Verify", "junction DANGLING %s (EC-8)" % link)
+            _drift("junctionTargets.%s" % link, manifest.get("junctionTargets", {}).get(link), None)
     else:
         log(ctx, "Info", "Verify", "junctions resolve OK (%d)" % len(manifest.get("junctionTargets", {})))
 
@@ -741,11 +734,30 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
     parsek = manifest["components"].get("parsek", {})
     installed = os.path.join(ctx.parsek_gamedata, "Plugins", "Parsek.dll")
     if parsek.get("dllSha256") and os.path.isfile(installed):
-        cur = sha256_file(installed)
+        with open(installed, "rb") as fh:
+            dll_bytes = fh.read()
+        cur = sha256_bytes(dll_bytes)
         match = cur == parsek["dllSha256"]
         log(ctx, "Info" if match else "Error", "Verify",
             "parsek dll on-disk sha256 %s manifest" % ("==" if match else "!="))
-        ok = ok and match
+        if not match:
+            _drift("components.parsek.dllSha256", parsek["dllSha256"], cur)
+        for s, exp in (parsek.get("signatureStrings", {}) or {}).items():
+            n = provlib.count_utf16(dll_bytes, s)
+            ok_sig = n == exp
+            log(ctx, "Info" if ok_sig else "Error", "Verify",
+                "parsek UTF-16 grep string=%s count=%d expected=%d %s"
+                % (s, n, exp, "OK" if ok_sig else "DRIFT"))
+            if not ok_sig:
+                _drift("components.parsek.signatureStrings.%s" % s, exp, n)
+
+    # Per-component installed DLL hashes (INSTALL / BUILD-TT).
+    for comp in ("krpc", "testingtools", "krpc_mechjeb", "mechjeb2"):
+        cdata = manifest["components"].get(comp, {})
+        for dll_name, exp_sha in (cdata.get("installedDlls", {}) or {}).items():
+            _verify_component_dll(ctx, comp, dll_name, exp_sha, _drift)
+        if cdata.get("dllSha256"):
+            _verify_component_named_dll(ctx, comp, cdata["dllSha256"], _drift)
 
     # settingsFinalSha256 re-hash (N-4).
     final = manifest.get("settingsFinalSha256")
@@ -755,15 +767,59 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
         match = cur == final
         log(ctx, "Info" if match else "Error", "Verify",
             "settingsFinalSha256 re-hash %s" % ("OK" if match else "DRIFT"))
-        ok = ok and match
+        if not match:
+            _drift("settingsDeltasApplied", final, cur)
 
+    # buildId64Sha256 re-hash (N-5): pins the ACTUAL instance KSP version.
+    b64 = manifest.get("buildId64Sha256")
+    b64_path = os.path.join(ctx.instance_dir, "buildID64.txt")
+    if b64 and os.path.isfile(b64_path):
+        cur = sha256_file(b64_path)
+        match = cur == b64
+        log(ctx, "Info" if match else "Error", "Verify",
+            "buildId64Sha256 re-hash %s" % ("OK" if match else "DRIFT"))
+        if not match:
+            _drift("buildId64Sha256", b64, cur)
+
+    ctx.verify_drift = drift  # type: ignore[attr-defined]
+    ok = not drift
     if ok:
         # Marker cleared LAST: a present manifest + no marker == a completed,
         # verified provision the harness may admit (design EC-6).
         _clear_incomplete_marker(ctx)
     log(ctx, "Info" if ok else "Error", "Verify",
-        "instance=%s result=%s" % (ctx.profile_name, "OK" if ok else "DRIFT"))
+        "instance=%s result=%s drift=%d" % (ctx.profile_name, "OK" if ok else "DRIFT", len(drift)))
     return ok
+
+
+def _dll_install_path(ctx: ProvisionContext, comp: str, dll_name: str) -> str:
+    """Resolve where a stack component's DLL lives in the instance GameData.
+    kRPC / TestingTools / KRPC.MechJeb share GameData/kRPC; MechJeb2 its own."""
+    sub = "MechJeb2" if comp == "mechjeb2" else "kRPC"
+    return os.path.join(ctx.instance_dir, "GameData", sub, dll_name)
+
+
+def _verify_component_dll(ctx, comp, dll_name, exp_sha, drift_fn) -> None:
+    path = _dll_install_path(ctx, comp, dll_name)
+    cur = sha256_file(path) if os.path.isfile(path) else None
+    match = cur == exp_sha
+    log(ctx, "Info" if match else "Error", "Verify",
+        "%s %s on-disk sha256 %s manifest" % (comp, dll_name, "==" if match else "!="))
+    if not match:
+        drift_fn("components.%s.installedDlls.%s" % (comp, dll_name), exp_sha, cur)
+
+
+def _verify_component_named_dll(ctx, comp, exp_sha, drift_fn) -> None:
+    dll_name = {"testingtools": "TestingTools.dll", "krpc_mechjeb": "KRPC.MechJeb.dll"}.get(comp)
+    if not dll_name:
+        return
+    path = _dll_install_path(ctx, comp, dll_name)
+    cur = sha256_file(path) if os.path.isfile(path) else None
+    match = cur == exp_sha
+    log(ctx, "Info" if match else "Error", "Verify",
+        "%s %s on-disk sha256 %s manifest" % (comp, dll_name, "==" if match else "!="))
+    if not match:
+        drift_fn("components.%s.dllSha256" % comp, exp_sha, cur)
 
 
 # ---------------------------------------------------------------------------
@@ -1264,15 +1320,6 @@ def run(ctx: ProvisionContext) -> int:
     if ctx.dry_run:
         print_action_plan(ctx)
 
-    # --repair converges drifted components in a live instance; that path is part
-    # of the unimplemented live execution, so a live --repair aborts up front
-    # rather than implying a convergence it cannot perform. (--dry-run --repair
-    # still prints the plan above.)
-    if ctx.repair and not ctx.dry_run:
-        abort(ctx, "Preflight", "EC-LIVE",
-              "--repair is part of the unimplemented live execution: " + LIVE_UNIMPLEMENTED_MSG)
-        return _finish(ctx, 2)
-
     phase_preflight(ctx)
     if ctx.aborted:
         return _finish(ctx, 2)
@@ -1305,10 +1352,64 @@ def run(ctx: ProvisionContext) -> int:
         return _finish(ctx, 2)
 
     phase_install(ctx)
+    if ctx.aborted:
+        return _finish(ctx, 2)
     phase_mm_cache(ctx)
     manifest = phase_manifest(ctx, resolved, junctions, deltas, parsek_info, dev_status)
     verified = phase_verify(ctx, manifest)
+    if not verified and ctx.repair and not ctx.dry_run:
+        verified = _repair_and_reverify(ctx, manifest, resolved, deltas, parsek_info)
     return _finish(ctx, 0 if verified else 3)
+
+
+def _repair_and_reverify(ctx: ProvisionContext, manifest: Dict, resolved: Dict,
+                         deltas: Dict, parsek_info: Dict) -> bool:
+    """--repair: converge ONLY the drifted components (design VERIFY --repair),
+    then re-VERIFY once. The drift set comes from the pure plan_repair over the
+    VERIFY diff; an unrepairable field is logged (a targeted re-install cannot fix
+    it) and the run stays non-zero."""
+    drift = getattr(ctx, "verify_drift", [])
+    plan = provlib.plan_repair(drift)
+    log(ctx, "Info", "Repair",
+        "drift=%d -> components=%s devMods=%s settings=%s unrepairable=%s"
+        % (len(drift), ",".join(plan.components) or "-", ",".join(plan.dev_mods) or "-",
+           plan.settings, ",".join(plan.unrepairable) or "-"))
+    for f in plan.unrepairable:
+        log(ctx, "Warn", "Repair", "field %s has no targeted repair (needs a full re-provision)" % f)
+
+    stack_repair = [c for c in plan.components if c in provlib.STACK_COMPONENT_NAMES and c != "parsek"]
+    if stack_repair:
+        log(ctx, "Info", "Repair", "re-installing stack components: %s" % ",".join(stack_repair))
+        _install_stack(ctx, stack_repair)
+    if "parsek" in plan.components:
+        log(ctx, "Info", "Repair", "re-deploying Parsek.dll")
+        parsek_info = phase_deploy(ctx)
+    if plan.dev_mods:
+        _repair_dev_mods(ctx, plan.dev_mods)
+    if plan.settings:
+        log(ctx, "Info", "Repair", "re-applying settings deltas")
+        phase_settings(ctx)
+    if ctx.aborted:
+        return False
+    # Re-stamp the manifest with any refreshed component hashes, then re-VERIFY.
+    manifest = phase_manifest(ctx, resolved, manifest.get("junctionTargets", {}),
+                              deltas, parsek_info, manifest.get("devSourcedMods", {}))
+    return phase_verify(ctx, manifest)
+
+
+def _repair_dev_mods(ctx: ProvisionContext, names: Sequence[str]) -> None:
+    gd = os.path.join(ctx.instance_dir, "GameData")
+    for name in names:
+        src = os.path.join(ctx.dev_install, "GameData", name)
+        dst = os.path.join(gd, name)
+        if not os.path.exists(src):
+            log(ctx, "Warn", "Repair", "dev-sourced mod %s absent at source; skip" % name)
+            continue
+        if os.path.isdir(src):
+            _copy_dir(ctx, src, dst)
+        else:
+            _copy_one(src, dst)
+        log(ctx, "Info", "Repair", "re-copied GameData/%s" % name)
 
 
 def _finish(ctx: ProvisionContext, code: int) -> int:

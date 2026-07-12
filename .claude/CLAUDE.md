@@ -144,8 +144,17 @@ thin-I/O-shell split mirrored across two modules; stdlib only (`tomllib` for all
   `harness/results/<runId>.json` + `summary.txt` are generated per-run (gitignored).
 - `harness/provision/` - the M-A6 stack provisioner: `provlib.py` (pure; admission
   diff `compare_manifest`/`project_admission`, lockfile `acquire_lock`, settings/pin
-  logic - reused by the M-A5 harness for admission + run-lock) + `provision.py` (shell)
-  + `pins.toml` / `profiles/*.toml`.
+  logic - reused by the M-A5 harness for admission + run-lock; plus the M-A6.1
+  live-phase decisions: `clone_toplevel_disposition`, `to_extended_length_path`,
+  `canonical_tree_digest_input`, `render_testingtools_shim_csproj`,
+  `evaluate_build_tt_assembly`/`count_utf8`, `plan_zip_install`, `plan_repair`) +
+  `provision.py` (shell) + `pins.toml` / `profiles/*.toml`. **M-A6.1 landed the live
+  phases** (CLONE/BUILD-TT/INSTALL/VERIFY + `--repair`); the old `EC-LIVE` guard is
+  gone, so a non-dry-run genuinely provisions - it aborts at DOWNLOAD's `EC-13` while
+  `[mechjeb2]` stays an OPEN pin (no durable MechJeb2 binary URL). `.cache/` (downloads
+  + git-show exports + the built TestingTools.dll) and `.stage/` are gitignored. Live
+  BUILD-TT needs `dotnet` + the dev KSP install; a full live run needs the mechjeb2 pin
+  filled from a durable SpaceDock URL+sha256.
 - Design authorities (binding): `docs/dev/design-autotest-harness-core.md` (M-A5),
   `design-autotest-command-seam.md` (M-A2), `design-autotest-autorun-hooks.md` (M-A3),
   `design-autotest-offline-analyzer.md` / `design-autotest-findings-baseline.md` (M-A1),
