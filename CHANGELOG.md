@@ -32,6 +32,7 @@ All notable changes to Parsek are documented here.
 - The automation-stack provisioner now stamps the kRPC server settings so a provisioned instance starts and accepts connections without a manual in-game click, and treats a later change to those settings as instance drift. Developer-only tooling; no gameplay change.
 - Added the developer-only automated-testing harness that runs in-game test scenarios start to finish with no human in the loop and classifies each run (pass, real failure, environment-invalid, or killed-on-timeout), with a coverage ledger tracking what got tested. It never touches a normal game install and changes nothing Parsek saves.
 - The offline recording analyzer now distinguishes a still-rewindable recording whose rewind save is missing (a real defect, flagged as a failure) from a sealed recording's missing rewind save (a benign dangling reference, still only a warning). Developer-only tooling; no gameplay change.
+- Added the developer-only mission library: the automated-testing harness can now FLY missions (a pad hop, a MechJeb ascent to orbit) through kRPC while Parsek records them, judging the flight by tolerance windows so autopilot variance never masquerades as a Parsek defect. Live flights pending an operator session; everything else is headless-tested.
 
 ## 0.10.3
 
