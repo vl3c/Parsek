@@ -1,0 +1,59 @@
+schema = 1
+id = "B10-career-passive-safety"
+tier = "daily"
+description = "Fresh career, stock actions only, warp + scene change + cold load; no economy drift."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "B10", "R1", "R2"]
+
+[fixture]
+# saveTemplate leaf ("fresh-career") IS runSaveName: staged into saves/fresh-career/,
+# and the driver's first LoadGame save arg must resolve to that same save.
+saveTemplate = "fixtures/saves/fresh-career"
+# v1 value set is exactly "none" | "all-synthetic" (S4). B10 injects nothing.
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# The literal ${runSave} is substituted with runSaveName (the saveTemplate leaf)
+# before the line is written to the channel, so LoadGame cannot drift from the
+# staged save. A RunTests step budget is capped at 540s (S8; the seam's own
+# fallback ceiling is 600s).
+steps = [
+  { cmd = "LoadGame",    args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",  args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",    args = { category = "RecordingInvariants" },          expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                       expect = "OK" },
+]
+
+# Dimension values this scenario covers (validated against coverage/registry.toml).
+[dimensionsCovered]
+D8  = ["funds", "science", "reputation", "recalc-from-ut0"]
+D14 = ["career", "cold-load-ut0"]
+D16 = ["schema-gate"]
+
+[expectations.recordings]
+# count.max == 0 selects the recording-rules log-validation suppression (B1): a
+# legitimately recording-free run must not red on REC-001/REC-003.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# LITERAL KSP.log line patterns, NOT anomaly tokens. The BATCH_COMPLETE match is
+# anchored with a trailing \b so "failed=0" cannot match "failed=05".
+# The level token is UPPERCASE in ParsekLog.Write ("[Parsek][ERROR][...]"), and
+# the forbidden patterns are case-sensitive re.search; match ERROR, not Error.
+required  = ["BATCH_COMPLETE v1 .* failed=0\\b"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+# The scenario's bounded, documented exceptions to the harness-owned Tier-C
+# anomaly sweep. Empty = the sweep must find zero anomaly lines.
+allowedAnomalies = []
+
+[runtime]
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

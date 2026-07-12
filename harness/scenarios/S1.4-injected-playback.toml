@@ -1,0 +1,51 @@
+schema = 1
+id = "S1.4-injected-playback"
+tier = "daily"
+description = "Inject the 8 synthetic recordings, load, replay-observe ghost map presence + polyline; no render anomalies beyond a known-benign overlap."
+instanceProfile = "stock-minimal"
+tags = ["playback", "S1.4", "ghost", "R14"]
+
+[fixture]
+# The 8 synthetic recordings are injected via inject-recordings.ps1 with
+# recording OFF by construction (plan 3.3), into the staged save named below.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "all-synthetic"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # Enable the map-render tracer via a deliberate SetSetting so the anomaly sweep
+  # has data to read (design: the sweep is only meaningful when tracing is pinned on).
+  { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "GhostPlayback" },               expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+D6  = ["basic-playback", "ghost-map-presence", "non-orbital-polyline"]
+D16 = ["sidecar-prec", "sidecar-pcrf"]
+
+[expectations.recordings]
+# count.max > 0 keeps the REC-001/REC-003 rules mandatory: a dropped recording
+# in a recording scenario must still red.
+count = { min = 8, max = 8 }
+
+[expectations.logContracts]
+# ERROR is UPPERCASE in ParsekLog.Write and the patterns are case-sensitive.
+required  = ["BATCH_COMPLETE v1 .* failed=0\\b"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+# A known-benign leg overlaps its proto orbit line at one boundary; the sweep
+# tolerates exactly this token and reds on any other anomaly.
+allowedAnomalies = ["polyline-orbit-overlap"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
 
 namespace Parsek.Tests.LogValidation
@@ -27,12 +28,97 @@ namespace Parsek.Tests.LogValidation
             "ERROR"
         };
 
+        /// <summary>
+        /// The ONLY rule codes a run-shape suppression profile may switch off: the
+        /// marker-pairing rules (session start/end + recording start/stop). A KILLED
+        /// run legitimately truncates the tail mid-session, and a recording-free
+        /// scenario has no Recording started/stopped lines, so those two profiles
+        /// suppress a subset of these. FMT-001/FMT-002/WRN-001 (log line
+        /// format/level + the forbidden-warning contract) are UNSUPPRESSABLE by
+        /// construction: they are NOT in this set, so any request to suppress them
+        /// (or an unknown code) is rejected -- the design's cannot-mask guarantee.
+        /// </summary>
+        internal static readonly IReadOnlyList<string> SuppressibleRuleCodes =
+            new[] { "SES-000", "SES-001", "REC-001", "REC-003" };
+
         private static readonly Regex SessionStartPattern = new Regex(
             @"^SessionStart runUtc=(?<utc>\d+)$",
             RegexOptions.Compiled);
 
+        /// <summary>
+        /// Result of parsing the <c>PARSEK_LIVE_SUPPRESS_RULES</c> env value. Pure,
+        /// so the suppression contract + the unsuppressable guard are unit-tested
+        /// without a KSP.log.
+        /// </summary>
+        internal sealed class SuppressionParse
+        {
+            public IReadOnlyList<string> Suppressed { get; }
+            public IReadOnlyList<string> IllegalCodes { get; }
+
+            public SuppressionParse(IReadOnlyList<string> suppressed, IReadOnlyList<string> illegal)
+            {
+                Suppressed = suppressed;
+                IllegalCodes = illegal;
+            }
+
+            /// <summary>True iff every requested code is a suppressible rule code.</summary>
+            public bool Ok => IllegalCodes.Count == 0;
+        }
+
+        /// <summary>
+        /// Parse a comma-separated <c>PARSEK_LIVE_SUPPRESS_RULES</c> value into the
+        /// suppressible codes it names and the ILLEGAL ones it names. A code that is
+        /// not a suppressible marker-pairing rule (FMT/WRN, or anything unknown) goes
+        /// into <see cref="SuppressionParse.IllegalCodes"/> and is NEVER placed in
+        /// Suppressed, so it can never be masked. Case-insensitive; whitespace and
+        /// empty tokens tolerated; duplicates collapsed in canonical order.
+        /// </summary>
+        internal static SuppressionParse ParseSuppressionList(string envValue)
+        {
+            var suppressed = new List<string>();
+            var illegal = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            if (!string.IsNullOrWhiteSpace(envValue))
+            {
+                foreach (string rawToken in envValue.Split(','))
+                {
+                    string code = (rawToken ?? string.Empty).Trim().ToUpperInvariant();
+                    if (code.Length == 0)
+                        continue;
+                    if (!seen.Add(code))
+                        continue;
+                    if (SuppressibleRuleCodes.Contains(code))
+                        suppressed.Add(code);
+                    else
+                        illegal.Add(code);
+                }
+            }
+            // Emit suppressed in the canonical SuppressibleRuleCodes order for a
+            // stable, testable list regardless of the env value's token order.
+            var ordered = new List<string>();
+            foreach (string code in SuppressibleRuleCodes)
+                if (suppressed.Contains(code))
+                    ordered.Add(code);
+            return new SuppressionParse(ordered, illegal);
+        }
+
         public static IReadOnlyList<LogViolation> ValidateLatestSession(
             IReadOnlyList<KspLogEntry> parsekEntries)
+        {
+            return ValidateLatestSession(parsekEntries, null);
+        }
+
+        /// <summary>
+        /// Validate the latest session, dropping any violation whose code is in
+        /// <paramref name="suppressedRules"/>. The caller MUST have gated the
+        /// suppression set through <see cref="ParseSuppressionList"/> so only
+        /// suppressible marker-pairing codes ever reach here; an FMT/WRN code passed
+        /// in defensively still cannot be masked because it is filtered against
+        /// <see cref="SuppressibleRuleCodes"/> below.
+        /// </summary>
+        public static IReadOnlyList<LogViolation> ValidateLatestSession(
+            IReadOnlyList<KspLogEntry> parsekEntries,
+            IReadOnlyList<string> suppressedRules)
         {
             if (parsekEntries == null)
                 throw new ArgumentNullException(nameof(parsekEntries));
@@ -45,7 +131,7 @@ namespace Parsek.Tests.LogValidation
                     lineNumber: 0,
                     message: "No [Parsek] lines were found in the log.",
                     rawLine: string.Empty));
-                return violations;
+                return ApplySuppression(violations, suppressedRules);
             }
 
             IReadOnlyList<KspLogEntry> latestSession = ParsekKspLogParser.SelectLatestSession(parsekEntries);
@@ -56,7 +142,7 @@ namespace Parsek.Tests.LogValidation
                     lineNumber: 0,
                     message: "No [Parsek] lines were found in the latest session.",
                     rawLine: string.Empty));
-                return violations;
+                return ApplySuppression(violations, suppressedRules);
             }
 
             int sessionMarkerCount = 0;
@@ -137,7 +223,27 @@ namespace Parsek.Tests.LogValidation
                     rawLine: string.Empty));
             }
 
-            return violations;
+            return ApplySuppression(violations, suppressedRules);
+        }
+
+        private static IReadOnlyList<LogViolation> ApplySuppression(
+            List<LogViolation> violations, IReadOnlyList<string> suppressedRules)
+        {
+            if (suppressedRules == null || suppressedRules.Count == 0)
+                return violations;
+            // Defence in depth: only genuine suppressible marker-pairing codes are
+            // ever dropped, even if a caller passed an FMT/WRN code here directly.
+            var effective = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string code in suppressedRules)
+                if (code != null && SuppressibleRuleCodes.Contains(code))
+                    effective.Add(code);
+            if (effective.Count == 0)
+                return violations;
+            var kept = new List<LogViolation>();
+            foreach (LogViolation v in violations)
+                if (!effective.Contains(v.Code))
+                    kept.Add(v);
+            return kept;
         }
 
         private static bool IsSessionStart(KspLogEntry entry)

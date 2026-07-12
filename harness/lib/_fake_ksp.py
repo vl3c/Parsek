@@ -1,0 +1,128 @@
+"""Fake-KSP stub process for the M-A5 run.py shell smoke test.
+
+An agent cannot pilot a real KSP (MEMORY: in-game-sweep-needs-operator), so the
+run.py I/O shell is exercised by this stub: a real child process that reads the
+M-A2 command file, writes scripted response + journal lines, and drops a
+BATCH_COMPLETE-bearing KSP.log + a results file -- exactly the artifacts a real
+game leaves -- so the harness's tail / dedupe / budget-kill / verify plumbing is
+driven end to end with NO Unity. It is launched by the smoke test's FakeRuntime
+in place of KSP_x64.exe.
+
+Modes:
+  pass       respond OK to every command; on RunTests emit BATCH_COMPLETE
+             (failed=0) + a clean results file; exit 0 on FlushAndQuit.
+  hang       respond to the boot steps, then WEDGE on RunTests (never respond),
+             so the harness run-budget watchdog must kill the process tree.
+  bootcrash  exit(1) immediately with no response line (boot-phase self-exit).
+
+ASCII only; stdlib only.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+import time
+
+COMMANDS = "parsek-test-commands.txt"
+RESPONSES = "parsek-test-responses.txt"
+JOURNAL = "parsek-test-commands.journal"
+RESULTS = "parsek-test-results.txt"
+KSP_LOG = "KSP.log"
+
+
+def _read_commands(path):
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            return [l.rstrip("\n") for l in fh if l.strip()]
+    except OSError:
+        return []
+
+
+def _parse(line):
+    fields = {}
+    for tok in line.split():
+        if "=" in tok:
+            k, _, v = tok.partition("=")
+            fields.setdefault(k, v)
+    return fields
+
+
+def _append(path, text):
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(text)
+        fh.flush()
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--root", required=True, help="instance KSP root (channel files live here)")
+    parser.add_argument("--mode", default="pass", choices=["pass", "hang", "bootcrash"])
+    parser.add_argument("--max-seconds", type=float, default=120.0)
+    args = parser.parse_args(argv)
+
+    root = args.root
+    log_path = os.path.join(root, KSP_LOG)
+    _append(log_path, "[LOG] [Parsek][INFO][Init] SessionStart runUtc=9000\n")
+    _append(log_path, "[LOG] [Parsek][INFO][TestCommands] armed session=fake pid=%d\n" % os.getpid())
+
+    if args.mode == "bootcrash":
+        _append(log_path, "[LOG] Fatal boot error (fake bootcrash)\n")
+        return 1
+
+    responses_path = os.path.join(root, RESPONSES)
+    journal_path = os.path.join(root, JOURNAL)
+    processed = set()
+    seq = 0
+    deadline = time.time() + args.max_seconds
+
+    while time.time() < deadline:
+        for line in _read_commands(os.path.join(root, COMMANDS)):
+            fields = _parse(line)
+            cid = fields.get("id")
+            cmd = fields.get("cmd")
+            if not cid or cid in processed:
+                continue
+            if cmd == "RunTests" and args.mode == "hang":
+                # Wedge: never respond, so the harness budget watchdog kills us.
+                _append(log_path, "[LOG] [Parsek][INFO][TestRunner] RunTests wedged (fake hang)\n")
+                processed.add(cid)  # do not re-log; just spin below
+                continue
+            processed.add(cid)
+            seq += 1
+            _append(journal_path, "id=%s cmd=%s phase=EXECUTED\n" % (cid, cmd))
+            if cmd == "RunTests":
+                category = fields.get("category", "RecordingInvariants")
+                _append(log_path,
+                        "[LOG] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=5 "
+                        "passed=5 failed=0 skipped=0 category=%s scene=FLIGHT\n" % category)
+                _write_results(os.path.join(root, RESULTS), category)
+            _append(responses_path, "id=%s cmd=%s verdict=OK seq=%d\n" % (cid, cmd, seq))
+            if cmd == "FlushAndQuit":
+                _append(log_path, "[LOG] [Parsek][INFO][TestCommands] flushandquit: quitting (fake)\n")
+                return 0
+        time.sleep(0.05)
+
+    return 0
+
+
+def _write_results(path, category):
+    text = (
+        "PARSEK TEST RESULTS\n"
+        "===================\n"
+        "ALL RESULTS (grouped by scene)\n"
+        "  FLIGHT\n"
+        "    PASSED  %s.SomeTest\n"
+        "\n"
+        "FAILURES (grouped by scene)\n"
+        "  (none)\n"
+    ) % category
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

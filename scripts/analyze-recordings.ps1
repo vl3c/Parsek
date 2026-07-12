@@ -9,6 +9,7 @@
 # Usage:
 #   scripts/analyze-recordings.ps1 -SaveDir <path> [-ResultsDir <dir>] [-NoBuild]
 #       [-FailOnRed] [-UseBaseline] [-WriteBaseline] [-KeepStaleBaselineEntries]
+#       [-FreshSaveGate]
 #
 # Modes:
 #   (default)        analyze in Ignore; no baseline consulted.
@@ -19,6 +20,13 @@
 #                    Refuses if PARSEK_ANALYZER_BASELINE_MODE=forbid is declared in
 #                    the environment. -KeepStaleBaselineEntries retains momentarily
 #                    unmatched entries instead of pruning them.
+#   -FreshSaveGate   analyze in Forbid (M-A5 harness fresh-save gate): a present
+#                    baseline.cfg in a fresh mission save is itself a FAIL. Sets
+#                    PARSEK_ANALYZER_BASELINE_MODE=forbid for the Manual analyzer
+#                    run (cleared in finally). MUTUALLY EXCLUSIVE with -UseBaseline
+#                    / -WriteBaseline (Forbid, Apply, and Write are three
+#                    incompatible modes); passing more than one baseline-mode switch
+#                    is an error. Inert until the harness passes it.
 #
 # -FailOnRed exits nonzero when the report is red. RED is read from the terminal
 # RED=<0|1> header token (the emitter's single reduction of the non-baselined
@@ -33,10 +41,19 @@ param(
     [switch]$FailOnRed,
     [switch]$UseBaseline,
     [switch]$WriteBaseline,
-    [switch]$KeepStaleBaselineEntries
+    [switch]$KeepStaleBaselineEntries,
+    [switch]$FreshSaveGate
 )
 
 $ErrorActionPreference = "Stop"
+
+# Forbid, Apply, and Write are three incompatible baseline modes; passing more
+# than one baseline-mode switch is a caller bug, not a silent last-wins (N1).
+$baselineModeSwitches = @($FreshSaveGate, $UseBaseline, $WriteBaseline) | Where-Object { $_ }
+if ($baselineModeSwitches.Count -gt 1) {
+    Write-Error "Only one of -FreshSaveGate / -UseBaseline / -WriteBaseline may be set (Forbid, Apply, and Write are mutually exclusive modes)."
+    exit 1
+}
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 
@@ -86,7 +103,9 @@ try {
         Write-Host "Writing baseline for save '$resolvedSaveDir'"
     } else {
         # Analyze: set the mode explicitly so an ambient env value cannot change it.
-        if ($UseBaseline) {
+        if ($FreshSaveGate) {
+            $env:PARSEK_ANALYZER_BASELINE_MODE = "forbid"
+        } elseif ($UseBaseline) {
             $env:PARSEK_ANALYZER_BASELINE_MODE = "apply"
         } else {
             $env:PARSEK_ANALYZER_BASELINE_MODE = "ignore"
