@@ -84,6 +84,17 @@ try {
         $suppressWasSet = $true
         Write-Host "Suppressing marker-pairing rules: $($env:PARSEK_LIVE_SUPPRESS_RULES) (KilledRun=$KilledRun NoRecordingRun=$NoRecordingRun)"
     }
+    else {
+        # Neither run-shape switch: NO suppression is legitimate for this invocation.
+        # An ambient PARSEK_LIVE_SUPPRESS_RULES left by a crashed prior run (or the
+        # caller's shell) would silently mask the marker-pairing rules on a full
+        # validation. Clear it unconditionally before invoking dotnet so a clean-run
+        # validation can never inherit a stale suppression.
+        if (Test-Path Env:\PARSEK_LIVE_SUPPRESS_RULES) {
+            Write-Warning "Ambient PARSEK_LIVE_SUPPRESS_RULES=$($env:PARSEK_LIVE_SUPPRESS_RULES) present with no -KilledRun/-NoRecordingRun; clearing it before validation."
+            Remove-Item Env:\PARSEK_LIVE_SUPPRESS_RULES -ErrorAction SilentlyContinue
+        }
+    }
 
     $testArgs = @(
         "test",

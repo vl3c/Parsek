@@ -428,13 +428,41 @@ CHANNEL_FILES = (
 RESULTS_FILE = "parsek-test-results.txt"
 
 
+def _is_strictly_inside(child_path: str, parent_path: str) -> bool:
+    """True iff realpath(child) is strictly BELOW realpath(parent) (never equal,
+    never a sibling/escape). Case-normalized for Windows; a cross-drive pair (which
+    makes os.path.commonpath raise) is an escape. The staging rmtree/copytree guard
+    (S1) relies on this to refuse a target that resolves outside saves/."""
+    parent_real = os.path.normcase(os.path.realpath(parent_path))
+    child_real = os.path.normcase(os.path.realpath(child_path))
+    if child_real == parent_real:
+        return False
+    try:
+        return os.path.commonpath([parent_real, child_real]) == parent_real
+    except ValueError:
+        return False
+
+
 def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
-                  logger: HarnessLogger) -> Tuple[bool, str]:
+                  logger: HarnessLogger) -> Tuple[bool, str, str]:
+    """Stage the scenario's fixture. Returns (ok, run_save_name, subkind); subkind
+    is "" on success, "spec-invalid" on a containment violation (a runSaveName that
+    escapes saves/), or "staging" on a missing template."""
     fixture = spec.get("fixture", {}) or {}
     save_template = fixture.get("saveTemplate", "")
     run_save_name = os.path.basename(save_template.replace("\\", "/").rstrip("/"))
     saves_dir = os.path.join(instance_dir, "saves")
     target_save = os.path.join(saves_dir, run_save_name)
+
+    # (0) BELT-AND-BRACES containment assert (S1): hlib.validate_spec already
+    # rejects a non-filename-safe runSaveName before launch, but before ANY
+    # destructive rmtree/copytree confirm the resolved target is strictly inside
+    # saves/. A target that escapes (traversal, symlink, cross-drive) aborts as
+    # INVALID(spec-invalid) with NOTHING removed or copied.
+    if not _is_strictly_inside(target_save, saves_dir):
+        logger.error("Stage", "save containment violation: runSaveName=%r target=%s escapes saves=%s; aborting (INVALID spec-invalid)"
+                     % (run_save_name, os.path.realpath(target_save), os.path.realpath(saves_dir)))
+        return False, run_save_name, "spec-invalid"
 
     # (1) remove any prior staged save, (2) copy the template verbatim.
     template_abs = os.path.join(HARNESS_ROOT, save_template)
@@ -442,7 +470,7 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
         # Fixtures may not be committed (heavy); a missing template is a staging
         # failure, surfaced by the caller as INVALID(admission-adjacent staging).
         logger.error("Stage", "save template missing: %s" % template_abs)
-        return False, run_save_name
+        return False, run_save_name, "staging"
     if os.path.isdir(target_save):
         shutil.rmtree(target_save, ignore_errors=True)
     os.makedirs(saves_dir, exist_ok=True)
@@ -483,7 +511,7 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
 
     logger.info("Stage", "stage save=%s template=%s inject=%s craft=%d results-rotated=%s"
                 % (run_save_name, save_template, inj, len(craft), results_rotated))
-    return True, run_save_name
+    return True, run_save_name, ""
 
 
 # ---------------------------------------------------------------------------
@@ -954,11 +982,13 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         logger.info("Preflight", "zombie-check instance=%s result=CLEAR" % profile)
 
         # ---- STAGE -------------------------------------------------------
-        staged, run_save_name = stage_fixture(spec, instance_dir, runtime, logger)
+        staged, run_save_name, stage_subkind = stage_fixture(spec, instance_dir, runtime, logger)
         if not staged:
+            reason = ("staged target escaped saves/ (containment guard)"
+                      if stage_subkind == "spec-invalid" else "fixture staging failed")
             return _terminal_result(spec, profile, attempt, started, start_wall, runtime,
-                                    hlib.Verdict(hlib.VERDICT_INVALID, "staging", False,
-                                                 "fixture staging failed"),
+                                    hlib.Verdict(hlib.VERDICT_INVALID, stage_subkind or "staging",
+                                                 False, reason),
                                     admission=admission_rec, logger=logger)
 
         # ---- LAUNCH ------------------------------------------------------

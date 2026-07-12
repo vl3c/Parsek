@@ -138,7 +138,7 @@ def _make_spec(save_template, run_tests_budget, run_budget):
         "expectations": {
             "recordings": {"count": {"min": 0, "max": 0}},
             "logContracts": {"required": ["BATCH_COMPLETE v1 .* failed=0\\b"],
-                             "forbidden": ["\\[Parsek\\]\\[Error\\]"]},
+                             "forbidden": ["\\[Parsek\\]\\[ERROR\\]"]},
             "allowedAnomalies": [],
         },
         "runtime": {"budgetSeconds": run_budget},
@@ -236,6 +236,45 @@ class FakeKspSmokeTests(unittest.TestCase):
         self.assertEqual("boot-crash", result["subkind"])
         v = hlib.Verdict(result["verdict"], result["subkind"], False, "")
         self.assertTrue(hlib.should_retry(v, attempt=1, retry_policy="once"))
+
+
+class StageFixtureContainmentTests(unittest.TestCase):
+    """S1: stage_fixture must refuse a runSaveName that resolves outside saves/
+    BEFORE any destructive rmtree/copytree, aborting INVALID(spec-invalid). A bug
+    here is a saves/.. rmtree that wipes the whole instance."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-contain-")
+        self.instance = os.path.join(self.tmp, "instance")
+        self.saves = os.path.join(self.instance, "saves")
+        os.makedirs(self.saves, exist_ok=True)
+        # A sibling directory INSIDE the instance that a saves/.. escape would reach.
+        self.sentinel = os.path.join(self.instance, "GameData")
+        os.makedirs(self.sentinel, exist_ok=True)
+        open(os.path.join(self.sentinel, "keep.txt"), "w").close()
+        self.logger = run.HarnessLogger()
+
+    def tearDown(self):
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_escape_leaf_aborts_spec_invalid_without_touching_disk(self):
+        # saveTemplate leaf ".." -> target = saves/.. == the instance dir (escape).
+        spec = {"fixture": {"saveTemplate": "fixtures/saves/..",
+                            "injectedRecordings": "none", "craft": []}}
+        ok, name, subkind = run.stage_fixture(spec, self.instance, run.Runtime(), self.logger)
+        self.assertFalse(ok)
+        self.assertEqual("spec-invalid", subkind)
+        # Nothing was removed: the sibling sentinel (and its file) survive.
+        self.assertTrue(os.path.isfile(os.path.join(self.sentinel, "keep.txt")),
+                        "containment guard must abort BEFORE any rmtree")
+
+    def test_strictly_inside_predicate(self):
+        # A well-formed leaf is strictly inside; the saves dir itself and its
+        # parent are not (equal / escape).
+        self.assertTrue(run._is_strictly_inside(os.path.join(self.saves, "fresh-career"), self.saves))
+        self.assertFalse(run._is_strictly_inside(self.saves, self.saves))
+        self.assertFalse(run._is_strictly_inside(self.instance, self.saves))
 
 
 if __name__ == "__main__":

@@ -33,8 +33,9 @@ D16 = ["sidecar-prec", "sidecar-pcrf"]
 count = { min = 8, max = 8 }
 
 [expectations.logContracts]
+# ERROR is UPPERCASE in ParsekLog.Write and the patterns are case-sensitive.
 required  = ["BATCH_COMPLETE v1 .* failed=0\\b"]
-forbidden = ["\\[Parsek\\]\\[Error\\]"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 # A known-benign leg overlaps its proto orbit line at one boundary; the sweep
 # tolerates exactly this token and reds on any other anomaly.

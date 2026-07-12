@@ -347,6 +347,24 @@ class SpecValidationRejectTests(unittest.TestCase):
         v = self._reject(m)
         self.assertTrue(v.ok, "literal runSaveName save arg must be accepted; errors=%s" % (v.errors,))
 
+    def test_empty_save_template_rejected(self):
+        # S1: an empty saveTemplate leaf is not a filename-safe runSaveName.
+        v = self._reject(lambda s: s["fixture"].__setitem__("saveTemplate", ""))
+        self.assertFalse(v.ok)
+        self.assertTrue(any("runSaveName" in e and "filename-safe" in e for e in v.errors))
+
+    def test_dotdot_save_template_rejected(self):
+        # S1: a ".." leaf would stage into saves/.. (an rmtree escape).
+        v = self._reject(lambda s: s["fixture"].__setitem__("saveTemplate", "fixtures/saves/.."))
+        self.assertFalse(v.ok)
+        self.assertTrue(any("runSaveName" in e and "filename-safe" in e for e in v.errors))
+
+    def test_absolute_save_template_rejected(self):
+        # S1: an absolute saveTemplate makes the copytree source arbitrary.
+        v = self._reject(lambda s: s["fixture"].__setitem__("saveTemplate", "/etc/evil"))
+        self.assertFalse(v.ok)
+        self.assertTrue(any("saveTemplate" in e and "absolute" in e for e in v.errors))
+
     def test_injected_recordings_out_of_set(self):
         v = self._reject(lambda s: s["fixture"].__setitem__("injectedRecordings", "some-preset"))
         self.assertFalse(v.ok)
@@ -738,6 +756,21 @@ class EvaluateExpectationsTests(unittest.TestCase):
         exp = {"logContracts": {"forbidden": [r"\[Parsek\]\[Error\]"]}}
         r = hlib.evaluate_expectations(exp, None, "[Parsek][Error] boom")
         self.assertEqual(r.status, "FAIL")
+
+    def test_forbidden_is_case_sensitive_lowercase_pattern_misses_uppercase(self):
+        # S4 policy: forbidden patterns are case-sensitive re.search, and
+        # ParsekLog.Write emits an UPPERCASE level ("[Parsek][ERROR][...]"). A
+        # LOWERCASE "[Parsek][Error]" pattern therefore does NOT match a real
+        # uppercase error line -> it would silently PASS a run that logged an
+        # error. The committed specs use the uppercase pattern for exactly this
+        # reason; this test documents the case-sensitivity as the policy.
+        real_line = "[Parsek][ERROR][Recorder] boom"
+        lower = {"logContracts": {"forbidden": [r"\[Parsek\]\[Error\]"]}}
+        self.assertEqual(hlib.evaluate_expectations(lower, None, real_line).status, "PASS",
+                         "a lowercase forbidden pattern must NOT match an uppercase ERROR line")
+        upper = {"logContracts": {"forbidden": [r"\[Parsek\]\[ERROR\]"]}}
+        self.assertEqual(hlib.evaluate_expectations(upper, None, real_line).status, "FAIL",
+                         "the uppercase pattern (as the committed specs use) must catch a real ERROR line")
 
     def test_anchored_failed_zero_not_matched_by_failed_five(self):
         # \b anchor: "failed=0" must not match "failed=05".

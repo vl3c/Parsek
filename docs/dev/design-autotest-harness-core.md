@@ -261,7 +261,9 @@ count = { min = 0, max = 0 }
 # a word boundary (\b) -- equivalently a trailing space, since the M-A3 line always
 # has "failed=<n> skipped=".
 required  = ["BATCH_COMPLETE v1 .* failed=0\\b"]
-forbidden = ["\\[Parsek\\]\\[Error\\]"]
+# The level token is UPPERCASE in ParsekLog.Write ("[Parsek][ERROR][...]") and the
+# forbidden patterns are case-sensitive re.search, so match ERROR (not Error).
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # allowedAnomalies: the scenario's bounded, documented exceptions to the Tier-C
 # anomaly sweep. This is a DEDICATED field (NOT logContracts.forbidden): the sweep's
 # forbidden token set is harness-owned and fixed (see the anomaly-sweep verifier);

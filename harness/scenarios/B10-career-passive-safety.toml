@@ -40,8 +40,10 @@ count = { min = 0, max = 0 }
 [expectations.logContracts]
 # LITERAL KSP.log line patterns, NOT anomaly tokens. The BATCH_COMPLETE match is
 # anchored with a trailing \b so "failed=0" cannot match "failed=05".
+# The level token is UPPERCASE in ParsekLog.Write ("[Parsek][ERROR][...]"), and
+# the forbidden patterns are case-sensitive re.search; match ERROR, not Error.
 required  = ["BATCH_COMPLETE v1 .* failed=0\\b"]
-forbidden = ["\\[Parsek\\]\\[Error\\]"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 # The scenario's bounded, documented exceptions to the harness-owned Tier-C
 # anomaly sweep. Empty = the sweep must find zero anomaly lines.

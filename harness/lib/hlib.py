@@ -431,6 +431,12 @@ class SpecValidation:
 
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
+# runSaveName (the saveTemplate leaf) becomes a filesystem directory name the
+# shell rmtree's + copytree's, so it gets RecordingPaths-style ID discipline:
+# alphanumerics, dash, underscore, space ONLY. Dots are deliberately EXCLUDED so
+# "."/".." (and any dotted traversal token) cannot pass; the "+" rejects "".
+_SAVE_NAME_RE = re.compile(r"^[A-Za-z0-9 _-]+$")
+
 
 def _leaf_of(path: str) -> str:
     """Basename of a forward/back-slash path (the saveTemplate leaf = runSaveName)."""
@@ -479,6 +485,26 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     fixture = spec.get("fixture", {}) or {}
     save_template = fixture.get("saveTemplate", "")
     run_save_name = _leaf_of(save_template)
+    # The saveTemplate leaf IS runSaveName, staged as a directory the shell
+    # rmtree's + copytree's. Reject anything that is not filename-safe (empty,
+    # ".", "..", or a name outside [alnum dash underscore space]) so a spec can
+    # never point staging at "saves/.." (an rmtree escape); the shell keeps a
+    # belt-and-braces realpath-containment assert too (S1). Also reject an ABSOLUTE
+    # saveTemplate: it is joined under harness/ as a relative fixture path, and an
+    # absolute value would make the copytree source arbitrary.
+    _tmpl_norm = (save_template or "").replace("\\", "/")
+    _is_absoluteish = (
+        _os.path.isabs(save_template)
+        or _tmpl_norm.startswith("/")                        # POSIX-root / UNC-ish
+        or (len(_tmpl_norm) >= 2 and _tmpl_norm[1] == ":"))  # drive-letter (C:/...)
+    if _is_absoluteish:
+        errors.append(
+            "fixture.saveTemplate: %r must be a relative fixture path under harness/ "
+            "(absolute path rejected)" % (save_template,))
+    if not run_save_name or run_save_name in (".", "..") or not _SAVE_NAME_RE.match(run_save_name):
+        errors.append(
+            "fixture.saveTemplate: runSaveName %r not filename-safe "
+            "(alphanumerics, dash, underscore, space only)" % (run_save_name,))
     inj = fixture.get("injectedRecordings")
     if inj not in INJECTED_RECORDINGS:
         errors.append("fixture.injectedRecordings: %r not in %s" % (inj, list(INJECTED_RECORDINGS)))
