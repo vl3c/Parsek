@@ -61,6 +61,18 @@ namespace Parsek.Tests.Analyzer.Rules
                 "GAME\n{\n\tversion = 1.12.5\n}\n");
         }
 
+        // Writes an existing-but-unparsable rewind save at Parsek/Saves/<id>.sfs:
+        // present on disk (so it passes the missing-file check) but not parseable as
+        // a ConfigNode. Whitespace-only content makes KSP's ConfigNode.Load return
+        // null deterministically (the pre-format yields no structure), which is what
+        // Inv9RewindPoint.ParsesAsConfigNode reads as "does not parse".
+        private static void WriteGarbageRewindSave(string saveDir, string rewindId, string content)
+        {
+            string dir = Path.Combine(saveDir, "Parsek", "Saves");
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, rewindId + ".sfs"), content);
+        }
+
         private string BuildSave(string name, RecordingBuilder builder)
         {
             string saveDir = Path.Combine(tempDir, name);
@@ -225,6 +237,28 @@ namespace Parsek.Tests.Analyzer.Rules
             };
 
             Assert.Empty(new Inv9RewindPoint().Evaluate(model).ToList());
+        }
+
+        // Guards (F2): a rewind save that EXISTS but does not parse as a ConfigNode
+        // -> FAIL (token "unparsable-rewind-save"). This is the only file-state FAIL
+        // in the rule and was previously untested. A present-but-corrupt rewind save
+        // would break the rewind restore, so it must red the run regardless of
+        // MergeState (the recording here defaults to Immutable through the loader).
+        [Fact]
+        public void UnparsableRewindSave_Fails()
+        {
+            string saveDir = BuildSave("unparsable",
+                new RecordingBuilder("RP Craft").WithRecordingId("rp3")
+                    .AddPoint(100, 0, 0, 1000).WithRewindSave("parsek_rw_garbage"));
+            // Whitespace-only: present on disk but ConfigNode.Load returns null.
+            WriteGarbageRewindSave(saveDir, "parsek_rw_garbage", "   \n  \n");
+
+            List<Finding> findings = Run(saveDir);
+
+            Finding fail = Assert.Single(findings, f => f.Level == VerdictLevel.Fail);
+            Assert.Contains("unparsable-rewind-save", fail.Message);
+            Assert.Contains("rp3", fail.Message);
+            Assert.Empty(findings.Where(f => f.Level == VerdictLevel.Warn));
         }
 
         // Guards (orphan-retarget regression): an unreferenced parsek_rw_*.sfs on
