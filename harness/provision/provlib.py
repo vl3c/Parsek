@@ -14,6 +14,7 @@ ASCII only; stdlib only.
 
 from __future__ import annotations
 
+import posixpath
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -841,6 +842,22 @@ def _zip_dest(component: str, entry: str) -> Optional[str]:
     if component == "mechjeb2":
         return e if low.startswith("gamedata/") else "GameData/" + e
     return None
+
+
+def gamedata_dest_escapes(dest_rel: str) -> bool:
+    """True if a planned extraction destination, once normalized, escapes the
+    instance ``GameData/`` root -- a zip-slip ``../`` entry (SF5).
+
+    Computed with ``posixpath.normpath`` on the entry BEFORE the orchestrator
+    joins it to the instance dir, so ``GameData/kRPC/../../evil`` (collapses to
+    ``evil``) and a MechJeb2 ``../..`` entry (``GameData/../../evil`` ->
+    ``../evil``) are both rejected. An absolute path or one that walks above
+    GameData/ escapes; anything that stays under ``GameData/`` is safe."""
+    rel = (dest_rel or "").replace("\\", "/")
+    norm = posixpath.normpath(rel)
+    if norm.startswith("/") or norm == ".." or norm.startswith("../"):
+        return True
+    return not (norm == GAMEDATA_DIR or norm.startswith(GAMEDATA_DIR + "/"))
 
 
 def plan_zip_install(component: str, names: Sequence[str]) -> List[Tuple[str, str]]:

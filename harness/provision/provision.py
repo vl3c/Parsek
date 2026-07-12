@@ -77,6 +77,11 @@ class ProvisionContext:
     log_lines: List[str] = field(default_factory=list)
     aborted: bool = False
     abort_reason: str = ""
+    # SF2: live-run log lines are buffered in log_lines and NOT written to the
+    # instance provision-log.txt until the EC-16 alias gate passes, so no file is
+    # ever created at the alias target (a mis-configured instanceDir that nests
+    # in / equals the read-only dev install). Flipped True + flushed in PREFLIGHT.
+    log_file_enabled: bool = False
 
     @property
     def dev_install(self) -> str:
@@ -100,18 +105,34 @@ class ProvisionContext:
 
 
 def log(ctx: ProvisionContext, level: str, step: str, message: str) -> None:
-    """Emit one provisioning-log line to stdout and (live runs, once the
-    instance GameData/Parsek dir exists) append it to provision-log.txt."""
+    """Emit one provisioning-log line to stdout, buffer it, and (live runs, ONLY
+    after the EC-16 alias gate opened the log file) append it to
+    provision-log.txt. Before the gate the line stays buffered so nothing is ever
+    written at a mis-aliased instance target (SF2)."""
     line = provlib.format_log_line(level, step, message)
     ctx.log_lines.append(line)
     print(line)
-    if not ctx.dry_run:
-        try:
-            os.makedirs(ctx.parsek_gamedata, exist_ok=True)
-            with open(ctx.log_path(), "a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
-        except OSError:
-            pass  # never let logging failure mask the real work
+    if not ctx.dry_run and ctx.log_file_enabled:
+        _append_log_file(ctx, line)
+
+
+def _append_log_file(ctx: ProvisionContext, line: str) -> None:
+    try:
+        os.makedirs(ctx.parsek_gamedata, exist_ok=True)
+        with open(ctx.log_path(), "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except OSError:
+        pass  # never let logging failure mask the real work
+
+
+def _enable_and_flush_log_file(ctx: ProvisionContext) -> None:
+    """Open the instance provision-log.txt and flush every buffered line to it
+    (SF2). Called ONLY after the EC-16 alias gate passes; a no-op under dry-run."""
+    if ctx.dry_run or ctx.log_file_enabled:
+        return
+    ctx.log_file_enabled = True
+    for line in ctx.log_lines:
+        _append_log_file(ctx, line)
 
 
 def abort(ctx: ProvisionContext, step: str, ec: str, detail: str) -> None:
@@ -186,6 +207,10 @@ def phase_preflight(ctx: ProvisionContext) -> None:
               "instance dir aliases the dev install (%s): instance=%s dev=%s"
               % (alias.reason, ctx.instance_dir, ctx.dev_install))
         return
+
+    # SF2: EC-16 passed -- the instance target is safe. Open the provision-log
+    # file and flush every buffered PREFLIGHT line into it now.
+    _enable_and_flush_log_file(ctx)
 
     # Lock decision (EC-10) -- pure logic; live acquisition writes the lockfile.
     lock_path = os.path.join(ctx.parsek_gamedata, ".provision.lock")
@@ -318,11 +343,11 @@ def phase_download(ctx: ProvisionContext) -> None:
         if not ok:
             abort(ctx, "Download", "EC-3", "%s sha256 mismatch" % comp)
             return
+        if comp == "krpc" and not _assert_krpc_zip_layout(ctx, data):
+            return  # SF4: wrong layout -> abort, never cache/install this zip
         os.makedirs(CACHE_DIR, exist_ok=True)
         with open(os.path.join(CACHE_DIR, os.path.basename(url)), "wb") as fh:
             fh.write(data)
-        if comp == "krpc":
-            _assert_krpc_zip_layout(ctx, data)
 
 
 def phase_build_tt(ctx: ProvisionContext, resolved: Dict[str, str]) -> None:
@@ -922,20 +947,36 @@ def _download(ctx: ProvisionContext, url: str) -> Optional[bytes]:
         return None
 
 
-def _assert_krpc_zip_layout(ctx: ProvisionContext, data: bytes) -> None:
+def _assert_krpc_zip_layout(ctx: ProvisionContext, data: bytes) -> bool:
+    """GT-5: assert the kRPC release zip carries the compile DLLs and does NOT
+    ship TestingTools.dll. SF4: a failure ABORTS (EC-3) so DOWNLOAD never
+    proceeds to cache + install a zip with the wrong layout. Returns True on a
+    clean layout, False after aborting."""
     import io
     import zipfile
     krpc = ctx.pins.get("krpc", {})
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         names = [n.lower() for n in zf.namelist()]
+    missing: List[str] = []
     for must in krpc.get("releaseCompileDlls", []):
         present = any(must.lower() in n for n in names)
         log(ctx, "Info" if present else "Error", "Download",
             "GT-5 zip contains %s %s" % (must, "OK" if present else "MISSING"))
+        if not present:
+            missing.append(must)
+    forbidden_present: List[str] = []
     for forbidden in krpc.get("mustNotContain", []):
         present = any(forbidden.lower() in n for n in names)
         log(ctx, "Error" if present else "Info", "Download",
             "GT-5 zip must-not-contain %s %s" % (forbidden, "FAIL" if present else "OK"))
+        if present:
+            forbidden_present.append(forbidden)
+    if missing or forbidden_present:
+        abort(ctx, "Download", "EC-3",
+              "kRPC zip layout wrong (GT-5): missing=%s forbidden-present=%s"
+              % (",".join(missing) or "-", ",".join(forbidden_present) or "-"))
+        return False
+    return True
 
 
 def _copy_file(src: str, dst: str) -> None:
@@ -1284,6 +1325,13 @@ def _extract_zip_plan(ctx: ProvisionContext, comp: str, zip_path: str) -> List[s
     with zipfile.ZipFile(zip_path) as zf:
         plan = provlib.plan_zip_install(comp, zf.namelist())
         for entry, dest_rel in plan:
+            # SF5 zip-slip guard: a destination that escapes the instance
+            # GameData/ (a ``../`` entry) ABORTS before any write.
+            if provlib.gamedata_dest_escapes(dest_rel):
+                abort(ctx, "Install", "EC-3",
+                      "zip-slip: %s entry %s -> dest %s escapes instance GameData"
+                      % (comp, entry, dest_rel))
+                return written
             dest_abs = os.path.join(ctx.instance_dir, dest_rel.replace("/", os.sep))
             os.makedirs(_long(os.path.dirname(dest_abs)), exist_ok=True)
             with zf.open(entry) as src, open(_long(dest_abs), "wb") as dst:
@@ -1392,7 +1440,23 @@ def print_action_plan(ctx: ProvisionContext) -> None:
 def run(ctx: ProvisionContext) -> int:
     if ctx.dry_run:
         print_action_plan(ctx)
+    # SF3: any OSError / subprocess failure / missing tool (dotnet, git) raised by
+    # a live phase is caught here, converted to a clean EC abort + exit 2 with the
+    # lock released via _finish. The .provision-incomplete marker is deliberately
+    # NOT cleared (only VERIFY success clears it), so a crashed live run stays
+    # un-admittable. FileNotFoundError (a missing dotnet/git) is an OSError
+    # subclass, so it is caught first for a toolchain-specific EC.
+    try:
+        return _run_phases(ctx)
+    except FileNotFoundError as exc:
+        abort(ctx, "Live", "EC-4", "required tool not found (dotnet / git?): %s" % exc)
+        return _finish(ctx, 2)
+    except (OSError, subprocess.SubprocessError) as exc:
+        abort(ctx, "Live", "EC-6", "live provisioning I/O / subprocess failure: %s" % exc)
+        return _finish(ctx, 2)
 
+
+def _run_phases(ctx: ProvisionContext) -> int:
     phase_preflight(ctx)
     if ctx.aborted:
         return _finish(ctx, 2)

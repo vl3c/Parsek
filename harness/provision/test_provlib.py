@@ -283,6 +283,194 @@ class DeployAbortTests(unittest.TestCase):
             self.assertTrue(any("would ABORT" in l for l in ctx.log_lines))
 
 
+class BufferedLogTests(unittest.TestCase):
+    """SF2: a live run whose instanceDir aliases the dev install aborts EC-16 in
+    PREFLIGHT WITHOUT creating provision-log.txt at the alias target -- log lines
+    stay buffered until the gate opens the file."""
+
+    def test_mis_aliased_profile_writes_no_log_before_gate(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            dev = os.path.join(um, "Kerbal Space Program")
+            os.makedirs(dev, exist_ok=True)
+            ctx = provision.ProvisionContext(
+                profile_name="t", pins={},
+                profile={"instanceDir": "Kerbal Space Program",
+                         "baseInstall": "Kerbal Space Program"},
+                umbrella_root=um, dry_run=False, repair=False, parsek_dll_override=None)
+            provision.phase_preflight(ctx)
+            self.assertTrue(ctx.aborted)
+            self.assertIn("EC-16", ctx.abort_reason)
+            self.assertFalse(ctx.log_file_enabled)
+            self.assertFalse(os.path.exists(
+                os.path.join(dev, "GameData", "Parsek", "provision-log.txt")),
+                "no provision-log.txt may be written at the alias target before the gate")
+
+
+class LivePhaseExceptionTests(unittest.TestCase):
+    """SF3: an OSError / subprocess failure / missing dotnet mid-live-run is
+    caught by run(), converted to a clean EC abort + exit 2 with the lock
+    released; the .provision-incomplete marker is left in place."""
+
+    def _live_ctx(self, um):
+        import provision
+        os.makedirs(os.path.join(um, "Kerbal Space Program"), exist_ok=True)
+        return provision.ProvisionContext(
+            profile_name="t", pins={},
+            profile={"instanceDir": "automation/test", "baseInstall": "Kerbal Space Program"},
+            umbrella_root=um, dry_run=False, repair=False, parsek_dll_override=None)
+
+    def test_dotnet_missing_filenotfound_aborts_ec4(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._live_ctx(um)
+            saved = {n: getattr(provision, n) for n in
+                     ("phase_preflight", "phase_pin", "phase_download", "phase_build_tt")}
+            provision.phase_preflight = lambda c: None
+            provision.phase_pin = lambda c: {}
+            provision.phase_download = lambda c: None
+
+            def boom(c, resolved):
+                raise FileNotFoundError("dotnet")
+
+            provision.phase_build_tt = boom
+            try:
+                code = provision.run(ctx)
+            finally:
+                for n, f in saved.items():
+                    setattr(provision, n, f)
+            self.assertEqual(code, 2)
+            self.assertTrue(ctx.aborted)
+            self.assertIn("EC-4", ctx.abort_reason)
+
+    def test_copy_oserror_aborts_ec6_marker_stays_lock_released(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._live_ctx(um)
+            provision._write_incomplete_marker(ctx)
+            marker = provision._incomplete_marker_path(ctx)
+            lock_path = os.path.join(ctx.parsek_gamedata, ".provision.lock")
+            with open(lock_path, "w", encoding="utf-8") as fh:
+                fh.write("{}")
+            ctx.lock_path = lock_path
+            ctx.lock_acquired = True
+            saved = {n: getattr(provision, n) for n in
+                     ("phase_preflight", "phase_pin", "phase_download",
+                      "phase_build_tt", "phase_pair", "phase_clone")}
+            provision.phase_preflight = lambda c: None
+            provision.phase_pin = lambda c: {}
+            provision.phase_download = lambda c: None
+            provision.phase_build_tt = lambda c, r: None
+            provision.phase_pair = lambda c: None
+
+            def boom(c):
+                raise OSError("disk gone")
+
+            provision.phase_clone = boom
+            try:
+                code = provision.run(ctx)
+            finally:
+                for n, f in saved.items():
+                    setattr(provision, n, f)
+            self.assertEqual(code, 2)
+            self.assertIn("EC-6", ctx.abort_reason)
+            self.assertTrue(os.path.isfile(marker), "marker must stay after a failed live run")
+            self.assertFalse(os.path.isfile(lock_path), "owned lock must be released")
+
+
+class KrpcZipLayoutTests(unittest.TestCase):
+    """SF4: a kRPC release zip missing a compile DLL or shipping TestingTools.dll
+    ABORTS DOWNLOAD (EC-3/GT-5) instead of logging and proceeding to cache it."""
+
+    def _ctx(self):
+        import provision
+        return provision.ProvisionContext(
+            profile_name="t",
+            pins={"krpc": {"releaseCompileDlls": ["KRPC.Core.dll", "KRPC.SpaceCenter.dll"],
+                           "mustNotContain": ["TestingTools.dll"]}},
+            profile={}, umbrella_root=".", dry_run=True, repair=False, parsek_dll_override=None)
+
+    def _zip_bytes(self, names):
+        import io
+        import zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            for n in names:
+                zf.writestr(n, b"x")
+        return buf.getvalue()
+
+    def test_good_layout_passes(self):
+        import provision
+        ctx = self._ctx()
+        data = self._zip_bytes(["GameData/kRPC/KRPC.Core.dll", "GameData/kRPC/KRPC.SpaceCenter.dll"])
+        self.assertTrue(provision._assert_krpc_zip_layout(ctx, data))
+        self.assertFalse(ctx.aborted)
+
+    def test_missing_compile_dll_aborts(self):
+        import provision
+        ctx = self._ctx()
+        data = self._zip_bytes(["GameData/kRPC/KRPC.Core.dll"])
+        self.assertFalse(provision._assert_krpc_zip_layout(ctx, data))
+        self.assertTrue(ctx.aborted)
+        self.assertIn("EC-3", ctx.abort_reason)
+
+    def test_forbidden_testingtools_aborts(self):
+        import provision
+        ctx = self._ctx()
+        data = self._zip_bytes(["GameData/kRPC/KRPC.Core.dll", "GameData/kRPC/KRPC.SpaceCenter.dll",
+                                "GameData/kRPC/TestingTools.dll"])
+        self.assertFalse(provision._assert_krpc_zip_layout(ctx, data))
+        self.assertTrue(ctx.aborted)
+        self.assertIn("EC-3", ctx.abort_reason)
+
+
+class ZipSlipGuardTests(unittest.TestCase):
+    """SF5: gamedata_dest_escapes rejects any extraction dest that, once
+    posixpath-normalized, escapes the instance GameData/ root."""
+
+    def test_normal_dests_safe(self):
+        self.assertFalse(provlib.gamedata_dest_escapes("GameData/kRPC/KRPC.dll"))
+        self.assertFalse(provlib.gamedata_dest_escapes("GameData/MechJeb2/Plugins/MechJeb2.dll"))
+
+    def test_krpc_traversal_escapes(self):
+        self.assertTrue(provlib.gamedata_dest_escapes("GameData/kRPC/../../evil"))
+
+    def test_mechjeb_traversal_escapes(self):
+        self.assertTrue(provlib.gamedata_dest_escapes("GameData/../../evil"))
+
+    def test_absolute_escapes(self):
+        self.assertTrue(provlib.gamedata_dest_escapes("/etc/passwd"))
+
+    def test_outside_gamedata_escapes(self):
+        self.assertTrue(provlib.gamedata_dest_escapes("Plugins/x.dll"))
+
+
+class ZipSlipExtractTests(unittest.TestCase):
+    """SF5 orchestrator: _extract_zip_plan aborts (never writes) on a traversal
+    entry that escapes the instance GameData."""
+
+    def test_extract_aborts_on_traversal_entry(self):
+        import zipfile
+        import tempfile
+        import provision
+        with tempfile.TemporaryDirectory() as um:
+            os.makedirs(os.path.join(um, "automation", "test"), exist_ok=True)
+            zpath = os.path.join(um, "evil.zip")
+            with zipfile.ZipFile(zpath, "w") as zf:
+                zf.writestr("../../evil.dll", b"pwned")
+            ctx = provision.ProvisionContext(
+                profile_name="t", pins={}, profile={"instanceDir": "automation/test"},
+                umbrella_root=um, dry_run=False, repair=False, parsek_dll_override=None)
+            provision._extract_zip_plan(ctx, "mechjeb2", zpath)
+            self.assertTrue(ctx.aborted)
+            self.assertIn("EC-3", ctx.abort_reason)
+            self.assertFalse(os.path.exists(os.path.join(um, "automation", "evil.dll")))
+            self.assertFalse(os.path.exists(os.path.join(um, "evil.dll")))
+
+
 class ResolvePinTests(unittest.TestCase):
     """Design: resolve_pin -- guards GT-1 retag/move. A moved tag (tag resolves
     to a commit != recorded) must be rejected."""
