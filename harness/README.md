@@ -1,0 +1,56 @@
+# harness/ - Parsek automated-testing module
+
+This directory is a self-contained module. It is designed so it could later be
+split into its own repository and consumed by Parsek as a git submodule at this
+same path. Keep it that way.
+
+## Ownership boundary
+
+Everything the harness fetches or generates lives UNDER `harness/`:
+
+- Code: `run.py`, `lib/` (`hlib.py` pure decision library), `provision/`
+  (`provlib.py` pure, `provision.py` shell), and their `test_*.py`.
+- Declarative inputs: `scenarios/*.toml`, `coverage/registry.toml`,
+  `provision/pins.toml`, `provision/profiles/*.toml`.
+- Caches + scratch (gitignored): `provision/.cache/` (release zips, the
+  module-owned git source clones `krpc-src` / `krpc_mechjeb-src`, kRPC compile
+  refs, the built `TestingTools.dll`) and `provision/.stage/`.
+- Generated outputs (gitignored): `results/`, `coverage/coverage.*`, `flake.json`.
+
+Provisioned KSP instances live at the umbrella root under `automation/`
+(gitignored), NOT here. The dev KSP install (`../Kerbal Space Program/`) is a
+documented READ-ONLY source (never written).
+
+## The only reach-out into Parsek
+
+The harness consumes a fixed Parsek-repo contract surface (which would remain in
+the Parsek repo under a submodule split): `scripts/analyze-recordings.ps1`,
+`scripts/validate-ksp-log.ps1`, `scripts/inject-recordings.ps1`,
+`scripts/collect-logs.py`, the dotnet-test-hosted `Parsek.Analyzer`, the deployed
+`Source/Parsek/bin/Debug/Parsek.dll` under test, and the launch-time seam/hooks
+env contracts (`PARSEK_TEST_COMMANDS`, `PARSEK_AUTORUN_TESTS`, etc.).
+
+Do NOT add new reads or writes outside `harness/`, `automation/`, the target
+instance, the read-only dev KSP install, or that contract surface. The pinned
+kRPC / KRPC.MechJeb git sources are cloned into `provision/.cache/<comp>-src`
+(NOT the umbrella `mods/` clones); `--krpc-src <path>` optionally overrides the
+kRPC source with an existing clone.
+
+Full enumeration + submodule split recipe:
+`docs/dev/design-autotest-stack-setup.md` ("Module boundary and submodule
+readiness"), cross-referenced from `docs/dev/design-autotest-harness-core.md`.
+
+## Running the tests
+
+```
+cd harness
+python -m unittest discover -s lib -q
+python -m unittest discover -s provision -q
+```
+
+Stdlib only (no pytest, no third-party deps). A `--dry-run` provision needs no
+network, downloads, or writes outside `harness/`:
+
+```
+python provision/provision.py --profile stock-minimal --dry-run
+```

@@ -71,5 +71,84 @@ namespace Parsek.Tests
             var p = TestCommandLoadGame.BuildCompletePayload("MAINMENU", null);
             Assert.Equal(string.Empty, Val(p, "save"));
         }
+
+        // ----- F2: two-phase completion decision (StillWaiting / CompleteOk /
+        // LoadTimeout / LoadFailedMenu). A failed load must resolve to a terminal
+        // ERROR instead of hanging PENDING to the harness run budget. -----
+
+        private const double Budget = 300.0;
+
+        [Fact]
+        public void DecideLoadCompletion_FlightWithGame_CompleteOk()
+        {
+            Assert.Equal(LoadCompletionDecision.CompleteOk,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    5.0, TestCommandScene.Flight, currentGameNonNull: true, Budget));
+        }
+
+        [Fact]
+        public void DecideLoadCompletion_FlightNoGameYet_StillWaiting()
+        {
+            // A FLIGHT scene without a loaded game (transient) is not yet complete.
+            Assert.Equal(LoadCompletionDecision.StillWaiting,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    5.0, TestCommandScene.Flight, currentGameNonNull: false, Budget));
+        }
+
+        [Fact]
+        public void DecideLoadCompletion_OtherSceneWithinBudget_StillWaiting()
+        {
+            Assert.Equal(LoadCompletionDecision.StillWaiting,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    5.0, TestCommandScene.SpaceCenter, currentGameNonNull: true, Budget));
+        }
+
+        [Fact]
+        public void DecideLoadCompletion_ReturnedToMenu_LoadFailedMenu()
+        {
+            // The scene settled back at MAINMENU (a failed load, e.g. an NRE in
+            // FlightDriver.Start) -> fast terminal failure, even well within budget.
+            Assert.Equal(LoadCompletionDecision.LoadFailedMenu,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    2.0, TestCommandScene.MainMenu, currentGameNonNull: false, Budget));
+        }
+
+        [Fact]
+        public void DecideLoadCompletion_MenuWithGameObject_StillFailedMenu()
+        {
+            // StartAndFocusVessel sets HighLogic.CurrentGame before the flight boot,
+            // so the game object may be non-null even when the load bounced to the menu.
+            // A MAINMENU observation is the failure regardless of the game object.
+            Assert.Equal(LoadCompletionDecision.LoadFailedMenu,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    2.0, TestCommandScene.MainMenu, currentGameNonNull: true, Budget));
+        }
+
+        [Fact]
+        public void DecideLoadCompletion_MenuTakesPrecedenceOverTimeout()
+        {
+            // MAINMENU is the more actionable signal, so it is reported even past budget.
+            Assert.Equal(LoadCompletionDecision.LoadFailedMenu,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    Budget + 10.0, TestCommandScene.MainMenu, currentGameNonNull: false, Budget));
+        }
+
+        [Fact]
+        public void DecideLoadCompletion_BudgetExpiredElsewhere_LoadTimeout()
+        {
+            // The load never settled at flight or menu and the budget expired -> timeout.
+            Assert.Equal(LoadCompletionDecision.LoadTimeout,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    Budget, TestCommandScene.Loading, currentGameNonNull: false, Budget));
+        }
+
+        [Fact]
+        public void DecideLoadCompletion_FlightGameNullPastBudget_LoadTimeout()
+        {
+            // A FLIGHT scene that never got a loaded game, past budget -> timeout, not OK.
+            Assert.Equal(LoadCompletionDecision.LoadTimeout,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    Budget + 1.0, TestCommandScene.Flight, currentGameNonNull: false, Budget));
+        }
     }
 }

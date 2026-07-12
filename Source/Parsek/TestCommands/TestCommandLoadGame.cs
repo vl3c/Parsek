@@ -12,6 +12,30 @@ namespace Parsek.TestCommands
     /// pure so the focusability decision + completion payload are xUnit-covered without
     /// a live KSP <c>Game</c>.
     /// </summary>
+    /// <summary>
+    /// The two-phase LoadGame completion outcome (F2). Distinguishes the success
+    /// (a settled FLIGHT scene with a game loaded), the two terminal FAILURES a
+    /// bad load can produce, and the still-in-progress case.
+    /// </summary>
+    internal enum LoadCompletionDecision
+    {
+        /// <summary>The load has not settled yet: keep polling.</summary>
+        StillWaiting,
+
+        /// <summary>Settled FLIGHT scene with a game loaded: terminal OK.</summary>
+        CompleteOk,
+
+        /// <summary>The completion budget expired without a settled flight: terminal
+        /// ERROR (msg=load-timeout). A never-settling load must not ride the harness
+        /// run budget.</summary>
+        LoadTimeout,
+
+        /// <summary>The scene settled back at MAINMENU with no flight (a failed load,
+        /// e.g. an NRE in FlightDriver.Start on an incompatible save): terminal ERROR
+        /// (msg=load-failed-returned-to-menu).</summary>
+        LoadFailedMenu,
+    }
+
     internal static class TestCommandLoadGame
     {
         /// <summary>
@@ -28,6 +52,33 @@ namespace Parsek.TestCommands
             if (!gamePresent || !compatible || !flightStatePresent || !protoVesselsPresent)
                 return false;
             return activeVesselIdx >= 0 && activeVesselIdx < protoVesselCount;
+        }
+
+        /// <summary>
+        /// Decide the two-phase LoadGame completion (F2). The addon polls this only at
+        /// SETTLED scenes (the pump gates off during LOADING / scene transition / settle),
+        /// and the scene-transition flag is raised synchronously when the load is initiated,
+        /// so the FIRST settled observation is already the destination scene. That makes a
+        /// MAINMENU observation a reliable "the load bounced back to the menu" signal with
+        /// no grace period needed.
+        ///
+        /// Order: a settled FLIGHT scene with a game loaded is the success; a settle-back to
+        /// MAINMENU is the fast failure (checked before the budget so it does not have to wait
+        /// out the whole load budget); the budget expiry is the catch-all for a load that
+        /// never settles anywhere. Any other settled scene keeps waiting until one of those
+        /// three fires. Kept pure so every cell is xUnit-covered without a live KSP scene.
+        /// </summary>
+        internal static LoadCompletionDecision DecideLoadCompletion(
+            double elapsedSeconds, TestCommandScene currentScene, bool currentGameNonNull,
+            double budgetSeconds)
+        {
+            if (currentScene == TestCommandScene.Flight && currentGameNonNull)
+                return LoadCompletionDecision.CompleteOk;
+            if (currentScene == TestCommandScene.MainMenu)
+                return LoadCompletionDecision.LoadFailedMenu;
+            if (elapsedSeconds >= budgetSeconds)
+                return LoadCompletionDecision.LoadTimeout;
+            return LoadCompletionDecision.StillWaiting;
         }
 
         /// <summary>Terminal completion payload once the new scene settles with a game loaded.</summary>

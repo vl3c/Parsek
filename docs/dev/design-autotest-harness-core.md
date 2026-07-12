@@ -18,6 +18,15 @@ doc pins against their PUBLIC contract surfaces (channel-file grammar, env-var
 contract, `RED=` gate token, manifest admission projection), never their
 internals, so a later Gloops file relocation does not break it.
 
+Module boundary / submodule readiness (harness ownership, the Parsek-repo
+contract surface it consumes, and the split recipe) is enumerated once, for the
+whole `harness/` tree including this M-A5 half, in
+`docs/dev/design-autotest-stack-setup.md` under "Module boundary and submodule
+readiness". `run.py` / `hlib.py` reach the Parsek repo ONLY through that
+contract surface (`scripts/*.ps1`, `collect-logs.py`, the dotnet-test analyzer,
+the seam/hooks env vars, the deployed Parsek DLL); everything they generate
+(`harness/results`, `harness/coverage`) stays under `harness/`.
+
 Plain ASCII, no em dashes, no emoji.
 
 ---

@@ -144,8 +144,27 @@ thin-I/O-shell split mirrored across two modules; stdlib only (`tomllib` for all
   `harness/results/<runId>.json` + `summary.txt` are generated per-run (gitignored).
 - `harness/provision/` - the M-A6 stack provisioner: `provlib.py` (pure; admission
   diff `compare_manifest`/`project_admission`, lockfile `acquire_lock`, settings/pin
-  logic - reused by the M-A5 harness for admission + run-lock) + `provision.py` (shell)
-  + `pins.toml` / `profiles/*.toml`.
+  logic - reused by the M-A5 harness for admission + run-lock; plus the M-A6.1
+  live-phase decisions: `clone_toplevel_disposition`, `to_extended_length_path`,
+  `canonical_tree_digest_input`, `render_testingtools_shim_csproj`,
+  `evaluate_build_tt_assembly`/`count_utf8`, `plan_zip_install`, `plan_repair`,
+  `gamedata_dest_escapes`, `resolve_git_source`) + `provision.py` (shell) + `pins.toml` / `profiles/*.toml`.
+  **M-A6.1 landed the live phases** (CLONE/BUILD-TT/INSTALL/VERIFY + `--repair`); the
+  old `EC-LIVE` guard is gone, so a non-dry-run genuinely provisions. All three
+  release pins are RESOLVED - `[krpc]`, `[krpc_mechjeb]`, and `[mechjeb2]` (2.15.1.0
+  via the CKAN-meta MechJeb2-Release Jenkins artifact + sha256), so a full live run is
+  no longer blocked at DOWNLOAD's `EC-13`. `.cache/` (downloads + git-show exports +
+  the module-owned kRPC / KRPC.MechJeb source clones `<comp>-src` + the built
+  TestingTools.dll) and `.stage/` are gitignored. Self-contained source (module
+  boundary / submodule readiness): BUILD-TT + PIN read the git-pinned components
+  from `.cache/<comp>-src` (blobless clone at the pinned `commit`, reused when it
+  already contains it), NOT the umbrella `mods/` clones; `pins.toml` carries the
+  `sourceRepo` URL per component and `--krpc-src <path>` overrides the kRPC source.
+  Live BUILD-TT needs `dotnet` + the dev KSP install + network (the three release
+  zips + the source clone). DEPLOY needs this worktree's own
+  `Source/Parsek/bin/Debug/Parsek.dll` (or `--parsek-dll`) or it aborts EC-9 (no
+  hardcoded sibling-worktree fallback). Module boundary enumerated in
+  `docs/dev/design-autotest-stack-setup.md` + `harness/README.md`.
 - Design authorities (binding): `docs/dev/design-autotest-harness-core.md` (M-A5),
   `design-autotest-command-seam.md` (M-A2), `design-autotest-autorun-hooks.md` (M-A3),
   `design-autotest-offline-analyzer.md` / `design-autotest-findings-baseline.md` (M-A1),

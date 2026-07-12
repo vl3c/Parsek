@@ -14,6 +14,7 @@ ASCII only; stdlib only.
 
 from __future__ import annotations
 
+import posixpath
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -55,6 +56,22 @@ STACK_COMPONENT_NAMES: Tuple[str, ...] = (
     "krpc_mechjeb",
     "parsek",
 )
+
+# Real GameData subfolder each stack component lands in (N11: the dry-run plan
+# labels the actual on-disk target, not the pin id). kRPC + TestingTools +
+# KRPC.MechJeb share GameData/kRPC; MechJeb2 and Parsek own their own folders.
+STACK_COMPONENT_INSTALL_FOLDER: Dict[str, str] = {
+    "krpc": "GameData/kRPC",
+    "testingtools": "GameData/kRPC",
+    "krpc_mechjeb": "GameData/kRPC",
+    "mechjeb2": "GameData/MechJeb2",
+    "parsek": "GameData/Parsek",
+}
+
+
+def stack_component_install_folder(name: str) -> str:
+    """The instance GameData subfolder a stack component installs into (N11)."""
+    return STACK_COMPONENT_INSTALL_FOLDER.get(name, "%s/%s" % (GAMEDATA_DIR, name))
 
 # ModuleManager cache artifacts deleted from the instance so MM regenerates
 # them against the instance's actual mod set (design MM CACHE / EC-2).
@@ -156,28 +173,30 @@ def evaluate_krpc_mechjeb_pair(krpc_tag: str, fork: str, tag: str, paired_krpc_t
 
 @dataclass(frozen=True)
 class DeploySourceDecision:
-    source: str
-    reason: str  # "override" | "worktree-build" | "default"
+    source: Optional[str]
+    reason: str  # "override" | "worktree-build" | "missing-no-source"
+    ok: bool
 
 
 def select_parsek_dll_source(
     override: Optional[str],
     worktree_dll: str,
     worktree_dll_exists: bool,
-    default_dll: str,
 ) -> DeploySourceDecision:
     """Pick the Parsek.dll source for DEPLOY.
 
     An explicit ``--parsek-dll`` override always wins; otherwise the current
-    worktree's own ``bin/Debug`` build when it exists (so a build from this
-    worktree is preferred over a hardcoded sibling default); otherwise the
-    default path. ``worktree_dll_exists`` is injected so this stays pure over the
-    filesystem."""
+    worktree's own ``bin/Debug`` build when it exists. There is NO hardcoded
+    sibling-worktree fallback (SF8): a differently-named worktree with no local
+    build and no override yields ``ok=False`` (source None) so DEPLOY aborts
+    demanding ``--parsek-dll`` rather than silently deploying some other
+    worktree's DLL. ``worktree_dll_exists`` is injected so this stays pure over
+    the filesystem."""
     if override:
-        return DeploySourceDecision(override, "override")
+        return DeploySourceDecision(override, "override", True)
     if worktree_dll_exists:
-        return DeploySourceDecision(worktree_dll, "worktree-build")
-    return DeploySourceDecision(default_dll, "default")
+        return DeploySourceDecision(worktree_dll, "worktree-build", True)
+    return DeploySourceDecision(None, "missing-no-source", False)
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +268,83 @@ def apply_settings(base_lines: Sequence[str], deltas: Dict[str, str]) -> List[st
         if key not in seen:
             result.append("%s = %s" % (key, str(value)))
     return result
+
+
+# ---------------------------------------------------------------------------
+# kRPC settings stamp (design SETTINGS / F3). Pure, ConfigNode-line-oriented.
+#
+# kRPC ships GameData/kRPC/PluginData/settings.cfg with autoStartServers=False /
+# autoAcceptConnections=False / confirmRemoveClient=True, which force a manual
+# in-game click every launch and defeat unattended operation. The provisioner
+# stamps the three keys hands-free. The shipped file is a ConfigNode
+# ``KRPCConfiguration { ... }`` with the three keys as FLAT children, so present
+# keys are rewritten in place (reusing settings_key_of / _rewrite_settings_value)
+# and any absent key is inserted just before the node's closing brace (NOT
+# appended at file end, which would land it OUTSIDE the node). An entirely absent
+# file synthesizes a minimal node carrying only the three keys.
+# ---------------------------------------------------------------------------
+
+# The three hands-free kRPC settings (order-stable for the synth + insert paths).
+KRPC_SETTINGS_DELTAS: Tuple[Tuple[str, str], ...] = (
+    ("autoStartServers", "True"),
+    ("autoAcceptConnections", "True"),
+    ("confirmRemoveClient", "False"),
+)
+
+
+def _synth_krpc_settings_lines() -> List[str]:
+    """Minimal KRPCConfiguration node carrying only the three hands-free keys
+    (used when the kRPC zip shipped no PluginData/settings.cfg)."""
+    lines = ["KRPCConfiguration", "{"]
+    for key, value in KRPC_SETTINGS_DELTAS:
+        lines.append("\t%s = %s" % (key, value))
+    lines.append("}")
+    return lines
+
+
+def _insert_krpc_keys_before_last_brace(lines: List[str], missing: Sequence[str]) -> List[str]:
+    """Insert the given missing keys just before the LAST closing-brace line (the
+    KRPCConfiguration node close), so an absent key lands INSIDE the node rather
+    than after it. Falls back to appending when no closing brace is found."""
+    deltas = dict(KRPC_SETTINGS_DELTAS)
+    inserts = ["\t%s = %s" % (k, deltas[k]) for k in missing]
+    idx = None
+    for i in range(len(lines) - 1, -1, -1):
+        if lines[i].strip() == "}":
+            idx = i
+            break
+    if idx is None:
+        return list(lines) + inserts
+    return list(lines[:idx]) + inserts + list(lines[idx:])
+
+
+def stamp_krpc_settings(shipped_text: Optional[str]) -> str:
+    """Return the stamped kRPC settings.cfg text with the three hands-free keys set.
+
+    ``shipped_text`` is the kRPC-shipped PluginData/settings.cfg contents, or None
+    (or blank) when the zip carried no such file. Present keys are rewritten in
+    place (order / comments / unrelated keys preserved, EC-15 style); absent keys
+    are inserted before the KRPCConfiguration node's closing brace; an absent file
+    synthesizes a minimal node. Idempotent: re-stamping already-stamped text
+    yields the same text. Only the three keys are touched -- no other key's value
+    is hardcoded. The returned text is LF-terminated (the caller writes it
+    newline='\\n' so the on-disk hash matches)."""
+    deltas = dict(KRPC_SETTINGS_DELTAS)
+    if shipped_text is None or not shipped_text.strip():
+        return "\n".join(_synth_krpc_settings_lines()) + "\n"
+    result: List[str] = []
+    seen: set = set()
+    for line in shipped_text.splitlines():
+        key = settings_key_of(line)
+        if key is not None and key in deltas:
+            result.append(_rewrite_settings_value(line, deltas[key]))
+            seen.add(key)
+        else:
+            result.append(line)
+    missing = [k for k, _ in KRPC_SETTINGS_DELTAS if k not in seen]
+    if missing:
+        result = _insert_krpc_keys_before_last_brace(result, missing)
+    return "\n".join(result) + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -585,6 +681,66 @@ def select_testingtools_sources(available_files: Sequence[str]) -> TestingToolsS
 
 
 # ---------------------------------------------------------------------------
+# Self-contained git-source resolution (module boundary / submodule readiness).
+# BUILD-TT (git-show the shim sources) and PIN (peel-verify the pinned commit)
+# read the git-pinned components from a MODULE-OWNED clone under
+# harness/provision/.cache/<comp>-src, NOT the umbrella mods/ clone, so nothing
+# under harness/ depends on a sibling checkout that a submodule split would leave
+# behind. This pure decision picks the source; the shell probes the three
+# booleans read-only and performs the clone / fetch. Pure.
+# ---------------------------------------------------------------------------
+
+# Cache subdir name (under .cache/) for each git-pinned component's source clone.
+GIT_SOURCE_CACHE_DIRNAME: Dict[str, str] = {
+    "krpc": "krpc-src",
+    "krpc_mechjeb": "krpc_mechjeb-src",
+}
+
+
+@dataclass(frozen=True)
+class GitSourceDecision:
+    action: str        # use-override | reuse-cache | refetch-cache | clone
+    source_dir: str    # the git dir the shell peels / git-shows from
+    fetch: bool        # True when the shell must hit the network (clone/refetch)
+    reason: str        # override-present | override-missing | cached-and-has-commit
+                       #   | cached-stale | absent
+
+
+def resolve_git_source(
+    cache_dir: str,
+    commit: str,
+    override_path: Optional[str] = None,
+    override_present: bool = False,
+    cache_has_git: bool = False,
+    cache_has_commit: bool = False,
+) -> GitSourceDecision:
+    """Decide where a git-pinned component's source is read from.
+
+    Priority order (idempotent):
+      - ``--krpc-src`` OVERRIDE wins when given (a dev pointing at an existing
+        clone, e.g. the umbrella ``mods/krpc``); ``override_present`` reports
+        whether it is actually a git clone so the shell can abort cleanly.
+      - REUSE the module-owned ``cache_dir`` clone when it already contains the
+        pinned ``commit`` (``cached-and-has-commit``) -- no network.
+      - REFETCH when the cache clone exists but lacks the pinned commit
+        (``cached-stale``: a moved pin or an interrupted earlier fetch).
+      - CLONE when no cache clone exists yet (``absent``).
+
+    Pure: the shell computes ``override_present`` / ``cache_has_git`` /
+    ``cache_has_commit`` with read-only probes and executes the clone/fetch.
+    """
+    if override_path:
+        return GitSourceDecision(
+            "use-override", override_path, False,
+            "override-present" if override_present else "override-missing")
+    if cache_has_git and cache_has_commit:
+        return GitSourceDecision("reuse-cache", cache_dir, False, "cached-and-has-commit")
+    if cache_has_git:
+        return GitSourceDecision("refetch-cache", cache_dir, True, "cached-stale")
+    return GitSourceDecision("clone", cache_dir, True, "absent")
+
+
+# ---------------------------------------------------------------------------
 # OPEN-pin guard (design DOWNLOAD / EC-13). Pure.
 # ---------------------------------------------------------------------------
 
@@ -598,6 +754,359 @@ def is_open_pin(value: Optional[str]) -> bool:
         return True
     v = value.strip()
     return v == "" or v in OPEN_SENTINELS or v.startswith("OPEN")
+
+
+# ---------------------------------------------------------------------------
+# Live CLONE planning (design CLONE / EC-6 / EC-7). Pure over path strings and
+# directory-entry name lists; the orchestrator does the actual copy / junction.
+# ---------------------------------------------------------------------------
+
+GAMEDATA_DIR = "GameData"
+STREAMINGASSETS = "StreamingAssets"
+
+# The marker written at the START of CLONE -- before the mutable surface, the
+# junctions, and the stack payloads are written (the PREFLIGHT lockfile +
+# provision-log are the only instance-local writes that precede it) -- and
+# cleared LAST on VERIFY success (design EC-6): its presence means the instance
+# is a half-provision the harness must refuse to admit (run.py reads it as
+# `.provision-incomplete`).
+PROVISION_INCOMPLETE_MARKER = ".provision-incomplete"
+
+# Top-level dev-install entries never copied verbatim into a fresh instance:
+#   GameData      -- built selectively (junction stock, copy dev-sourced, install
+#                    stack, delete MM cache); handled by the GameData builder.
+#   settings.cfg  -- authored by the SETTINGS phase from the profile deltas.
+#   saves / Logs / Screenshots / temp -- mutable, harness- or run-owned; carrying
+#                    dev state into an automation instance would poison a run.
+#   KSP.log       -- the dev run's log; a fresh instance regenerates its own.
+#   Player.log    -- the Unity player log (same rationale).
+# Crash dumps (N20) are timestamped, so they are matched by prefix below.
+CLONE_SKIP_TOPLEVEL: Tuple[str, ...] = (
+    GAMEDATA_DIR, "settings.cfg", "saves", "Logs", "Screenshots", "temp",
+    "KSP.log", "Player.log",
+)
+
+# Timestamped crash-dump artifacts KSP / Unity leave at the game root
+# (``crash_2024-01-01_120000/`` folders, ``error.log`` companions). Matched by
+# case-insensitive prefix since the exact name varies per crash (N20).
+CLONE_SKIP_TOPLEVEL_PREFIXES: Tuple[str, ...] = ("crash_", "crash-", "crash ")
+
+
+def clone_toplevel_disposition(name: str, ksp_data_dir_name: str = "KSP_x64_Data") -> str:
+    """Classify a top-level dev-install entry for CLONE.
+
+    Returns one of:
+      - ``build-gamedata``: the GameData dir (junction stock + copy dev-sourced;
+        the generic tree copy MUST skip it).
+      - ``copy-tree-except-junction``: the KSP data dir (copied, but its
+        ``StreamingAssets`` subtree is junctioned, not copied -- ``EC-6`` bulk).
+      - ``skip``: settings.cfg / saves / Logs / Screenshots / temp / KSP.log /
+        Player.log / any ``crash_*`` dump (N20).
+      - ``copy``: everything else (exe, buildID64.txt, Internals, PDLauncher,
+        top-level files -- the small mutable surface).
+    """
+    if name == GAMEDATA_DIR:
+        return "build-gamedata"
+    if name == ksp_data_dir_name:
+        return "copy-tree-except-junction"
+    if name in CLONE_SKIP_TOPLEVEL:
+        return "skip"
+    lname = name.lower()
+    if any(lname.startswith(p) for p in CLONE_SKIP_TOPLEVEL_PREFIXES):
+        return "skip"
+    return "copy"
+
+
+def ksp_data_entry_is_junction(name: str) -> bool:
+    """True if an entry directly under the KSP data dir is junctioned (the bulk
+    read-only ``StreamingAssets`` asset tree) rather than copied (design CLONE)."""
+    return name == STREAMINGASSETS
+
+
+def to_extended_length_path(path: str) -> str:
+    """Return ``path`` with the Windows extended-length ``\\\\?\\`` prefix (EC-7 / R13).
+
+    Deep KSP asset trees under a long umbrella root can exceed MAX_PATH (260); the
+    ``\\\\?\\`` prefix opts the copy/junction primitives out of that limit. A UNC
+    path (``\\\\server\\share``) becomes ``\\\\?\\UNC\\server\\share``. An already
+    prefixed path is returned unchanged. Pure string manipulation -- the caller
+    only applies it on Windows where a real path would overflow. The prefix
+    requires backslash separators, so forward slashes are normalized."""
+    if not path or path.startswith(EXTENDED_LENGTH_PREFIX):
+        return path
+    p = path.replace("/", "\\")
+    if p.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + p[2:]
+    return EXTENDED_LENGTH_PREFIX + p
+
+
+def canonical_tree_digest_input(entries: Sequence[Tuple[str, str]]) -> str:
+    """Build the canonical string a dev-sourced mod's content tree-hash is taken
+    over (design EC-3 drift check). ``entries`` is ``(relpath, filehash)`` pairs
+    (the orchestrator per-file-hashes; this stays pure). Deterministic: relpaths
+    are separator-normalized to ``/`` and sorted, so the same tree always yields
+    the same digest input regardless of walk order or OS separator. The caller
+    sha256s the returned string's UTF-8 bytes."""
+    norm = sorted((rel.replace("\\", "/"), h) for rel, h in entries)
+    return "\n".join("%s\0%s" % (rel, h) for rel, h in norm)
+
+
+# ---------------------------------------------------------------------------
+# BUILD-TT shim project generation (design BUILD-TT / GT-4 / GT-9 / S-4). Pure
+# string builders; the orchestrator writes them to a temp dir and runs dotnet.
+# ---------------------------------------------------------------------------
+
+# KSP-shipped managed DLLs the TestingTools shim references (GT-4 usings:
+# Assembly-CSharp for HighLogic/Vessel/FlightGlobals, UnityEngine[.CoreModule]
+# for Vector3/GameObject, PhysicsModule for rigidbody access). HintPathed into
+# the dev install's Managed dir (GT-9 pattern).
+TESTINGTOOLS_KSP_MANAGED_REFS: Tuple[str, ...] = (
+    "Assembly-CSharp",
+    "Assembly-CSharp-firstpass",
+    "UnityEngine",
+    "UnityEngine.CoreModule",
+    "UnityEngine.PhysicsModule",
+)
+
+# kRPC compile references (KRPC.Service attributes live in KRPC.Core;
+# Services.Vessel in KRPC.SpaceCenter; Google.Protobuf transitively). HintPathed
+# into the extracted release zip's GameData/kRPC/ (GT-4).
+TESTINGTOOLS_KRPC_REFS: Tuple[str, ...] = (
+    "KRPC.Core",
+    "KRPC.SpaceCenter",
+    "Google.Protobuf",
+)
+
+
+def render_testingtools_assemblyinfo(assembly_name: str = "TestingTools") -> str:
+    """Author the minimal AssemblyInfo.cs that replaces the bazel-generated one
+    (GT-4). Only the assembly title/product; kRPC service discovery keys off the
+    ``[KRPCService]`` attributes in the compiled types, not assembly metadata."""
+    return (
+        "using System.Reflection;\n"
+        '[assembly: AssemblyTitle("%s")]\n'
+        '[assembly: AssemblyProduct("%s")]\n'
+        '[assembly: AssemblyVersion("0.5.4.0")]\n'
+    ) % (assembly_name, assembly_name)
+
+
+def _csproj_reference(name: str, hint_path: str) -> str:
+    return (
+        '    <Reference Include="%s">\n'
+        "      <HintPath>%s</HintPath>\n"
+        "      <Private>false</Private>\n"
+        "    </Reference>\n"
+    ) % (name, hint_path)
+
+
+def render_testingtools_shim_csproj(
+    managed_dir: str,
+    krpc_gamedata_dir: str,
+    source_files: Sequence[str],
+    target_framework: str = "net472",
+    ksp_managed_refs: Sequence[str] = TESTINGTOOLS_KSP_MANAGED_REFS,
+    krpc_refs: Sequence[str] = TESTINGTOOLS_KRPC_REFS,
+    assemblyinfo_file: str = "AssemblyInfo.cs",
+) -> str:
+    """Author the standalone SDK-style TestingTools shim csproj (GT-4 / GT-9).
+
+    Compiles ONLY the explicitly listed ``source_files`` (the 2-file shim +
+    AssemblyInfo) by turning off default compile globbing, so an AutoLoadGame.cs
+    that happens to sit in the build dir can never be swept in (S-4 defense in
+    depth alongside the reflection assertion). References the KSP managed DLLs
+    from ``managed_dir`` and the kRPC compile DLLs from ``krpc_gamedata_dir``
+    via HintPath with ``<Private>false</Private>`` (output is TestingTools.dll
+    alone, no copied dependencies). ``TargetFramework`` is net472 (KSP's runtime).
+    """
+    refs = "".join(
+        _csproj_reference(r, "%s\\%s.dll" % (managed_dir, r)) for r in ksp_managed_refs
+    ) + "".join(
+        _csproj_reference(r, "%s\\%s.dll" % (krpc_gamedata_dir, r)) for r in krpc_refs
+    )
+    compiles = "".join('    <Compile Include="%s" />\n' % f for f in source_files)
+    compiles += '    <Compile Include="%s" />\n' % assemblyinfo_file
+    return (
+        '<Project Sdk="Microsoft.NET.Sdk">\n'
+        "  <PropertyGroup>\n"
+        "    <TargetFramework>%s</TargetFramework>\n"
+        "    <AssemblyName>TestingTools</AssemblyName>\n"
+        "    <RootNamespace>TestingTools</RootNamespace>\n"
+        "    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>\n"
+        "    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>\n"
+        "    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>\n"
+        "    <Deterministic>true</Deterministic>\n"
+        "    <NoWarn>0618</NoWarn>\n"
+        "  </PropertyGroup>\n"
+        "  <ItemGroup>\n"
+        "%s"
+        "  </ItemGroup>\n"
+        "  <ItemGroup>\n"
+        "%s"
+        "  </ItemGroup>\n"
+        "</Project>\n"
+    ) % (target_framework, refs, compiles)
+
+
+def count_utf8(data: bytes, s: str) -> int:
+    """Count UTF-8 occurrences of ``s`` in ``data``. ECMA-335 stores metadata
+    type/member names as UTF-8 in the ``#Strings`` heap, so a UTF-8 grep of the
+    built assembly's bytes is a dependency-free reflection proxy (S-4)."""
+    if not s:
+        return 0
+    return data.count(s.encode("utf-8"))
+
+
+@dataclass(frozen=True)
+class BuildTtAssertion:
+    ok: bool
+    autoloadgame_count: int
+    has_testingtools_type: bool
+    reason: str
+
+
+def evaluate_build_tt_assembly(dll_bytes: bytes) -> BuildTtAssertion:
+    """Assert the built TestingTools.dll is the 2-file shim (S-4 / GT-4).
+
+    Fails if the ``AutoLoadGame`` type name is present in the assembly metadata
+    (the dropped auto-loader that would race the seam's LoadGame boot) OR the
+    ``TestingTools`` type name is absent (a broken/empty build). Uses a UTF-8
+    metadata grep as a dependency-free reflection proxy over the ACTUAL built
+    bytes -- the design's authoritative capability guard, done without a .NET
+    runtime in Python."""
+    auto = count_utf8(dll_bytes, "AutoLoadGame")
+    has_tt = count_utf8(dll_bytes, "TestingTools") > 0
+    if auto > 0:
+        return BuildTtAssertion(False, auto, has_tt, "autoloadgame-present")
+    if not has_tt:
+        return BuildTtAssertion(False, auto, has_tt, "testingtools-type-absent")
+    return BuildTtAssertion(True, auto, has_tt, "ok")
+
+
+# ---------------------------------------------------------------------------
+# INSTALL zip-layout mapping (design INSTALL / GT-5). Pure over a zip namelist.
+# ---------------------------------------------------------------------------
+
+
+def _zip_dest(component: str, entry: str) -> Optional[str]:
+    """Map one zip entry to its instance-relative destination, or None to skip.
+
+    - kRPC: the whole ``GameData/kRPC/`` subtree lands as-is (the zip already
+      carries the GameData prefix, GT-5).
+    - KRPC.MechJeb: only the prebuilt ``KRPC.MechJeb.dll`` (+ its ``.json``
+      service definition) at the zip root, placed into ``GameData/kRPC/`` per its
+      README; the language-binding sources / README / LICENSE are dropped.
+    - MechJeb2: entries already under ``GameData/`` land as-is; a bare-rooted
+      zip is wrapped under ``GameData/`` (defensive -- MechJeb2's layout is
+      confirmed at first download, the pin is OPEN today).
+    """
+    e = entry.replace("\\", "/")
+    low = e.lower()
+    if component == "krpc":
+        return e if low.startswith("gamedata/krpc/") else None
+    if component == "krpc_mechjeb":
+        base = e.rsplit("/", 1)[-1]
+        if base in ("KRPC.MechJeb.dll", "KRPC.MechJeb.json"):
+            return "GameData/kRPC/" + base
+        return None
+    if component == "mechjeb2":
+        return e if low.startswith("gamedata/") else "GameData/" + e
+    return None
+
+
+def gamedata_dest_escapes(dest_rel: str) -> bool:
+    """True if a planned extraction destination, once normalized, escapes the
+    instance ``GameData/`` root -- a zip-slip ``../`` entry (SF5).
+
+    Computed with ``posixpath.normpath`` on the entry BEFORE the orchestrator
+    joins it to the instance dir, so ``GameData/kRPC/../../evil`` (collapses to
+    ``evil``) and a MechJeb2 ``../..`` entry (``GameData/../../evil`` ->
+    ``../evil``) are both rejected. An absolute path or one that walks above
+    GameData/ escapes; anything that stays under ``GameData/`` is safe."""
+    rel = (dest_rel or "").replace("\\", "/")
+    norm = posixpath.normpath(rel)
+    if norm.startswith("/") or norm == ".." or norm.startswith("../"):
+        return True
+    return not (norm == GAMEDATA_DIR or norm.startswith(GAMEDATA_DIR + "/"))
+
+
+def plan_zip_install(component: str, names: Sequence[str]) -> List[Tuple[str, str]]:
+    """Return the ordered ``(zip_entry, dest_relpath)`` extraction plan for a
+    stack component's release zip, skipping directory entries and anything
+    outside the component's GameData footprint (design INSTALL)."""
+    out: List[Tuple[str, str]] = []
+    for n in names:
+        if n.endswith("/"):
+            continue
+        dest = _zip_dest(component, n)
+        if dest:
+            out.append((n, dest))
+    return out
+
+
+def krpc_installed_dll_names(pin: Dict) -> List[str]:
+    """The kRPC runtime DLLs whose per-file hashes go into the manifest's
+    ``installedDlls`` (design manifest). Falls back to the compile-ref subset."""
+    return list(pin.get("releaseRuntimeDlls") or pin.get("releaseCompileDlls") or [])
+
+
+# ---------------------------------------------------------------------------
+# --repair convergence (design VERIFY / EC-3). Pure diff -> targeted work set.
+# ---------------------------------------------------------------------------
+
+
+SETTINGS_REPAIR_TOKEN = "__settings__"
+
+
+def component_of_diff_field(field: str) -> Optional[str]:
+    """Map a manifest-diff field path to the work item that repairs it.
+
+    ``components.<name>....`` -> the component name; ``settingsDeltasApplied....``
+    -> the settings sentinel; ``devSourcedMods.<name>`` -> ``devmod:<name>``.
+    Anything else -> None (not repairable by a targeted re-install; a full
+    re-provision is the fallback the caller logs)."""
+    parts = (field or "").split(".")
+    if len(parts) >= 2 and parts[0] == "components":
+        return parts[1]
+    if parts and parts[0] == "settingsDeltasApplied":
+        return SETTINGS_REPAIR_TOKEN
+    if len(parts) >= 2 and parts[0] == "devSourcedMods":
+        return "devmod:" + parts[1]
+    return None
+
+
+@dataclass(frozen=True)
+class RepairPlan:
+    components: Tuple[str, ...]      # stack/parsek components to re-install
+    dev_mods: Tuple[str, ...]       # dev-sourced mod folders to re-copy
+    settings: bool                  # re-apply settings deltas
+    unrepairable: Tuple[str, ...]   # diff fields with no targeted repair
+
+
+def plan_repair(diffs: Sequence["ManifestDiff"]) -> RepairPlan:
+    """Turn a VERIFY drift diff into the minimal targeted work set (design
+    --repair: re-install ONLY the drifted component, then re-VERIFY). A drift
+    field that maps to no work item is surfaced in ``unrepairable`` so the caller
+    can fall back to a full re-provision rather than silently converging nothing."""
+    components: set = set()
+    dev_mods: set = set()
+    settings = False
+    unrepairable: set = set()
+    for d in diffs:
+        item = component_of_diff_field(d.field)
+        if item is None:
+            unrepairable.add(d.field)
+        elif item == SETTINGS_REPAIR_TOKEN:
+            settings = True
+        elif item.startswith("devmod:"):
+            dev_mods.add(item[len("devmod:"):])
+        else:
+            components.add(item)
+    return RepairPlan(
+        components=tuple(sorted(components)),
+        dev_mods=tuple(sorted(dev_mods)),
+        settings=settings,
+        unrepairable=tuple(sorted(unrepairable)),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -670,7 +1179,14 @@ def build_action_plan(pins: Dict, profile: Dict) -> List[PlannedAction]:
         if name == "parsek":
             continue
         plan.append(PlannedAction("INSTALL", "COPY",
-            "%s/GameData/%s (stack component)" % (instance_dir, name)))
+            "%s -> %s/%s (stack component)"
+            % (name, instance_dir, stack_component_install_folder(name))))
+
+    if "krpc" in (profile.get("stackComponents", []) or []):
+        plan.append(PlannedAction("INSTALL", "WRITE",
+            "%s/GameData/kRPC/PluginData/settings.cfg hands-free stamp "
+            "(autoStartServers=True, autoAcceptConnections=True, confirmRemoveClient=False)"
+            % instance_dir))
 
     for cache in MM_CACHE_FILES:
         plan.append(PlannedAction("MM-CACHE", "DELETE",
@@ -679,5 +1195,6 @@ def build_action_plan(pins: Dict, profile: Dict) -> List[PlannedAction]:
     plan.append(PlannedAction("MANIFEST", "WRITE",
         "%s/GameData/Parsek/provision-manifest.json (atomic tmp+rename)" % instance_dir))
     plan.append(PlannedAction("VERIFY", "VERIFY",
-        "re-read instance; cross-check DLL hashes, UTF-16 grep, junctions, settingsFinalSha256, buildId64Sha256"))
+        "re-read instance; cross-check DLL hashes, UTF-16 grep, junctions, settingsFinalSha256, "
+        "krpcSettingsSha256, buildId64Sha256"))
     return plan

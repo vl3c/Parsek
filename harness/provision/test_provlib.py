@@ -13,6 +13,7 @@ import tomllib
 import unittest
 
 import provlib
+import tempfile
 
 
 PROFILES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "profiles")
@@ -76,46 +77,495 @@ class PhaseInstallEmptyStackTests(unittest.TestCase):
         self.assertFalse(any("NO stackComponents" in l for l in ctx.log_lines))
 
 
-class LiveUnimplementedTests(unittest.TestCase):
-    """Guards BLOCKER 3: a live run must abort at the first unimplemented heavy
-    phase (EC-LIVE) rather than half-provision; --dry-run is unaffected;
-    live --repair aborts up front.
+class LivePhasesImplementedTests(unittest.TestCase):
+    """M-A6.1: the heavy live phases are implemented, so the old EC-LIVE guard is
+    gone. A live run now genuinely provisions; it aborts at DOWNLOAD when a
+    consumed sha256 is still OPEN (the mechjeb2 pin, EC-13, no-network guard), and
+    a live --repair is no longer blocked up front.
 
     Live-mode ctxs use a throwaway umbrella tempdir: a non-dry-run abort() logs
-    through log(), which writes provision-log.txt under the instance dir, and
-    that must never land in the repo tree."""
+    through log(), which writes provision-log.txt under the instance dir, and that
+    must never land in the repo tree."""
 
-    def _ctx(self, umbrella, dry_run, repair=False):
+    def test_ec_live_guard_removed(self):
+        import provision
+        self.assertFalse(hasattr(provision, "_guard_live_unimplemented"),
+                         "the EC-LIVE unimplemented-phase guard must be gone once live phases land")
+
+    def test_live_download_open_pin_aborts_ec13_no_network(self):
+        import tempfile
+        import provision
+        with tempfile.TemporaryDirectory() as umbrella:
+            ctx = provision.ProvisionContext(
+                profile_name="x",
+                pins={"krpc": {"releaseZipUrl": "OPEN", "releaseZipSha256": "OPEN"},
+                      "krpc_mechjeb": {}, "mechjeb2": {"downloadUrl": "OPEN", "sha256": "OPEN"}},
+                profile={}, umbrella_root=umbrella, dry_run=False, repair=False,
+                parsek_dll_override=None)
+            provision.phase_download(ctx)  # must not touch the network
+            self.assertTrue(ctx.aborted)
+            self.assertIn("EC-13", ctx.abort_reason)
+
+
+class DevSourcedModVerifyTests(unittest.TestCase):
+    """BLOCKER 1: dev-sourced mods are verified INSTANCE-side. phase_clone hashes
+    the instance copy (partial-copy detection), phase_verify re-hashes the
+    instance GameData/<mod> against the manifest (swapped-DLL / injected-file
+    drift), and --repair scoped-deletes + re-copies so an INJECTED extra file --
+    which a plain overwrite-only re-copy can never remove -- converges.
+
+    Live-mode ctxs use a throwaway umbrella tempdir under automation/ (so the
+    EC-16 fence + provision-log writes stay out of the repo)."""
+
+    def _ctx(self, umbrella):
+        import provision
+        os.makedirs(os.path.join(umbrella, "Kerbal Space Program", "GameData"), exist_ok=True)
+        profile = {"instanceDir": "automation/test", "baseInstall": "Kerbal Space Program",
+                   "devSourcedMods": ["MyMod"]}
+        return provision.ProvisionContext(
+            profile_name="t", pins={}, profile=profile, umbrella_root=umbrella,
+            dry_run=False, repair=False, parsek_dll_override=None)
+
+    def _make_src_mod(self, ctx, files):
+        src = os.path.join(ctx.dev_install, "GameData", "MyMod")
+        for rel, data in files.items():
+            p = os.path.join(src, rel.replace("/", os.sep))
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "wb") as fh:
+                fh.write(data)
+        return src
+
+    def _manifest(self, dev_status):
+        return {"components": {}, "junctionTargets": {}, "devSourcedMods": dev_status}
+
+    def _full_copy(self, ctx):
+        import provision
+        src = self._make_src_mod(ctx, {"a.dll": b"aaaa", "sub/b.cfg": b"bbbb"})
+        dst = os.path.join(ctx.instance_dir, "GameData", "MyMod")
+        h = provision._copy_and_verify_dev_mod(ctx, "MyMod", src, dst)
+        return src, dst, h
+
+    def test_partial_copy_aborts_ec3(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            src = self._make_src_mod(ctx, {"a.dll": b"aaaa", "sub/b.cfg": b"bbbb"})
+            dst = os.path.join(ctx.instance_dir, "GameData", "MyMod")
+            orig = provision._copy_dir
+
+            def partial(c, s, d, skip_top=None):
+                os.makedirs(d, exist_ok=True)
+                with open(os.path.join(d, "a.dll"), "wb") as fh:
+                    fh.write(b"aaaa")  # only ONE of the two source files
+                return 1, 4
+
+            provision._copy_dir = partial
+            try:
+                res = provision._copy_and_verify_dev_mod(ctx, "MyMod", src, dst)
+            finally:
+                provision._copy_dir = orig
+            self.assertIsNone(res)
+            self.assertTrue(ctx.aborted)
+            self.assertIn("EC-3", ctx.abort_reason)
+            self.assertTrue(any("partial copy" in l for l in ctx.log_lines))
+
+    def test_full_copy_verifies_clean(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            _src, _dst, h = self._full_copy(ctx)
+            self.assertTrue(h)
+            self.assertFalse(ctx.aborted)
+            ok = provision.phase_verify(ctx, self._manifest({"MyMod": h}))
+            self.assertTrue(ok)
+            self.assertEqual(getattr(ctx, "verify_drift", []), [])
+
+    def test_swapped_dll_detected_and_repaired(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            _src, dst, h = self._full_copy(ctx)
+            # Swap the installed DLL for different bytes (post-clone clobber).
+            with open(os.path.join(dst, "a.dll"), "wb") as fh:
+                fh.write(b"EVIL")
+            ok = provision.phase_verify(ctx, self._manifest({"MyMod": h}))
+            self.assertFalse(ok)
+            self.assertTrue(any(d.field == "devSourcedMods.MyMod" for d in ctx.verify_drift))
+            # Repair -> re-copy from source -> converges.
+            provision._repair_dev_mods(ctx, ["MyMod"])
+            ok2 = provision.phase_verify(ctx, self._manifest({"MyMod": h}))
+            self.assertTrue(ok2)
+
+    def test_injected_extra_file_removed_by_repair(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            _src, dst, h = self._full_copy(ctx)
+            injected = os.path.join(dst, "sub", "evil.dll")
+            with open(injected, "wb") as fh:
+                fh.write(b"injected")
+            ok = provision.phase_verify(ctx, self._manifest({"MyMod": h}))
+            self.assertFalse(ok, "an injected extra file must drift")
+            provision._repair_dev_mods(ctx, ["MyMod"])
+            self.assertFalse(os.path.exists(injected),
+                             "scoped-delete + re-copy must remove the injected file")
+            ok2 = provision.phase_verify(ctx, self._manifest({"MyMod": h}))
+            self.assertTrue(ok2)
+
+    def test_missing_instance_mod_drifts(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            _src, dst, h = self._full_copy(ctx)
+            import shutil
+            shutil.rmtree(dst)
+            ok = provision.phase_verify(ctx, self._manifest({"MyMod": h}))
+            self.assertFalse(ok)
+            self.assertTrue(any(d.field == "devSourcedMods.MyMod" and d.actual is None
+                                for d in ctx.verify_drift))
+
+    def test_scoped_delete_refuses_outside_instance_gamedata(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            # A target OUTSIDE the instance GameData must never be deleted.
+            outside = os.path.join(ctx.dev_install, "GameData", "MyMod")
+            self._make_src_mod(ctx, {"a.dll": b"aaaa"})
+            self.assertTrue(os.path.isdir(outside))
+            ok = provision._scoped_delete_instance_subtree(ctx, outside)
+            self.assertFalse(ok)
+            self.assertTrue(os.path.isdir(outside), "dev-install path must survive")
+
+
+class DeployAbortTests(unittest.TestCase):
+    """SF8: with no --parsek-dll override and no worktree bin/Debug build, a LIVE
+    DEPLOY aborts EC-9 demanding --parsek-dll (never deploys an unrelated
+    worktree's DLL); a dry-run only warns and exits cleanly."""
+
+    def _ctx(self, um, dry_run):
         import provision
         return provision.ProvisionContext(
-            profile_name="x", pins={}, profile={}, umbrella_root=umbrella,
-            dry_run=dry_run, repair=repair, parsek_dll_override=None)
+            profile_name="t", pins={}, profile={"instanceDir": "automation/test"},
+            umbrella_root=um, dry_run=dry_run, repair=False, parsek_dll_override=None)
 
-    def test_dry_run_phase_not_guarded(self):
+    def test_live_deploy_aborts_when_no_source(self):
         import provision
-        # dry-run log() writes nothing, so "." is safe here.
-        ctx = self._ctx(".", dry_run=True)
-        self.assertFalse(provision._guard_live_unimplemented(ctx, "Build-TT"))
-        self.assertFalse(ctx.aborted)
-
-    def test_live_phase_aborts_ec_live(self):
         import tempfile
-        import provision
-        with tempfile.TemporaryDirectory() as umbrella:
-            ctx = self._ctx(umbrella, dry_run=False)
-            self.assertTrue(provision._guard_live_unimplemented(ctx, "Build-TT"))
+        with tempfile.TemporaryDirectory() as um:
+            saved = provision.WORKTREE_ROOT
+            provision.WORKTREE_ROOT = os.path.join(um, "empty-worktree")
+            try:
+                ctx = self._ctx(um, dry_run=False)
+                provision.phase_deploy(ctx)
+            finally:
+                provision.WORKTREE_ROOT = saved
             self.assertTrue(ctx.aborted)
-            self.assertIn("EC-LIVE", ctx.abort_reason)
+            self.assertIn("EC-9", ctx.abort_reason)
+            self.assertTrue(any("--parsek-dll" in l for l in ctx.log_lines))
 
-    def test_live_repair_aborts_in_run(self):
-        import tempfile
+    def test_dry_run_no_source_warns_not_abort(self):
         import provision
-        with tempfile.TemporaryDirectory() as umbrella:
-            ctx = self._ctx(umbrella, dry_run=False, repair=True)
-            code = provision.run(ctx)
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            saved = provision.WORKTREE_ROOT
+            provision.WORKTREE_ROOT = os.path.join(um, "empty-worktree")
+            try:
+                ctx = self._ctx(um, dry_run=True)
+                provision.phase_deploy(ctx)
+            finally:
+                provision.WORKTREE_ROOT = saved
+            self.assertFalse(ctx.aborted)
+            self.assertTrue(any("would ABORT" in l for l in ctx.log_lines))
+
+
+class BufferedLogTests(unittest.TestCase):
+    """SF2: a live run whose instanceDir aliases the dev install aborts EC-16 in
+    PREFLIGHT WITHOUT creating provision-log.txt at the alias target -- log lines
+    stay buffered until the gate opens the file."""
+
+    def test_mis_aliased_profile_writes_no_log_before_gate(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            dev = os.path.join(um, "Kerbal Space Program")
+            os.makedirs(dev, exist_ok=True)
+            ctx = provision.ProvisionContext(
+                profile_name="t", pins={},
+                profile={"instanceDir": "Kerbal Space Program",
+                         "baseInstall": "Kerbal Space Program"},
+                umbrella_root=um, dry_run=False, repair=False, parsek_dll_override=None)
+            provision.phase_preflight(ctx)
+            self.assertTrue(ctx.aborted)
+            self.assertIn("EC-16", ctx.abort_reason)
+            self.assertFalse(ctx.log_file_enabled)
+            self.assertFalse(os.path.exists(
+                os.path.join(dev, "GameData", "Parsek", "provision-log.txt")),
+                "no provision-log.txt may be written at the alias target before the gate")
+
+
+class LivePhaseExceptionTests(unittest.TestCase):
+    """SF3: an OSError / subprocess failure / missing dotnet mid-live-run is
+    caught by run(), converted to a clean EC abort + exit 2 with the lock
+    released; the .provision-incomplete marker is left in place."""
+
+    def _live_ctx(self, um):
+        import provision
+        os.makedirs(os.path.join(um, "Kerbal Space Program"), exist_ok=True)
+        return provision.ProvisionContext(
+            profile_name="t", pins={},
+            profile={"instanceDir": "automation/test", "baseInstall": "Kerbal Space Program"},
+            umbrella_root=um, dry_run=False, repair=False, parsek_dll_override=None)
+
+    def test_dotnet_missing_filenotfound_aborts_ec4(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._live_ctx(um)
+            saved = {n: getattr(provision, n) for n in
+                     ("phase_preflight", "phase_pin", "phase_download", "phase_build_tt")}
+            provision.phase_preflight = lambda c: None
+            provision.phase_pin = lambda c: {}
+            provision.phase_download = lambda c: None
+
+            def boom(c, resolved):
+                raise FileNotFoundError("dotnet")
+
+            provision.phase_build_tt = boom
+            try:
+                code = provision.run(ctx)
+            finally:
+                for n, f in saved.items():
+                    setattr(provision, n, f)
             self.assertEqual(code, 2)
             self.assertTrue(ctx.aborted)
-            self.assertIn("EC-LIVE", ctx.abort_reason)
+            self.assertIn("EC-4", ctx.abort_reason)
+
+    def test_copy_oserror_aborts_ec6_marker_stays_lock_released(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._live_ctx(um)
+            provision._write_incomplete_marker(ctx)
+            marker = provision._incomplete_marker_path(ctx)
+            lock_path = os.path.join(ctx.parsek_gamedata, ".provision.lock")
+            with open(lock_path, "w", encoding="utf-8") as fh:
+                fh.write("{}")
+            ctx.lock_path = lock_path
+            ctx.lock_acquired = True
+            saved = {n: getattr(provision, n) for n in
+                     ("phase_preflight", "phase_pin", "phase_download",
+                      "phase_build_tt", "phase_pair", "phase_clone")}
+            provision.phase_preflight = lambda c: None
+            provision.phase_pin = lambda c: {}
+            provision.phase_download = lambda c: None
+            provision.phase_build_tt = lambda c, r: None
+            provision.phase_pair = lambda c: None
+
+            def boom(c):
+                raise OSError("disk gone")
+
+            provision.phase_clone = boom
+            try:
+                code = provision.run(ctx)
+            finally:
+                for n, f in saved.items():
+                    setattr(provision, n, f)
+            self.assertEqual(code, 2)
+            self.assertIn("EC-6", ctx.abort_reason)
+            self.assertTrue(os.path.isfile(marker), "marker must stay after a failed live run")
+            self.assertFalse(os.path.isfile(lock_path), "owned lock must be released")
+
+
+class KrpcZipLayoutTests(unittest.TestCase):
+    """SF4: a kRPC release zip missing a compile DLL or shipping TestingTools.dll
+    ABORTS DOWNLOAD (EC-3/GT-5) instead of logging and proceeding to cache it."""
+
+    def _ctx(self):
+        import provision
+        return provision.ProvisionContext(
+            profile_name="t",
+            pins={"krpc": {"releaseCompileDlls": ["KRPC.Core.dll", "KRPC.SpaceCenter.dll"],
+                           "mustNotContain": ["TestingTools.dll"]}},
+            profile={}, umbrella_root=".", dry_run=True, repair=False, parsek_dll_override=None)
+
+    def _zip_bytes(self, names):
+        import io
+        import zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            for n in names:
+                zf.writestr(n, b"x")
+        return buf.getvalue()
+
+    def test_good_layout_passes(self):
+        import provision
+        ctx = self._ctx()
+        data = self._zip_bytes(["GameData/kRPC/KRPC.Core.dll", "GameData/kRPC/KRPC.SpaceCenter.dll"])
+        self.assertTrue(provision._assert_krpc_zip_layout(ctx, data))
+        self.assertFalse(ctx.aborted)
+
+    def test_missing_compile_dll_aborts(self):
+        import provision
+        ctx = self._ctx()
+        data = self._zip_bytes(["GameData/kRPC/KRPC.Core.dll"])
+        self.assertFalse(provision._assert_krpc_zip_layout(ctx, data))
+        self.assertTrue(ctx.aborted)
+        self.assertIn("EC-3", ctx.abort_reason)
+
+    def test_forbidden_testingtools_aborts(self):
+        import provision
+        ctx = self._ctx()
+        data = self._zip_bytes(["GameData/kRPC/KRPC.Core.dll", "GameData/kRPC/KRPC.SpaceCenter.dll",
+                                "GameData/kRPC/TestingTools.dll"])
+        self.assertFalse(provision._assert_krpc_zip_layout(ctx, data))
+        self.assertTrue(ctx.aborted)
+        self.assertIn("EC-3", ctx.abort_reason)
+
+
+class ZipSlipGuardTests(unittest.TestCase):
+    """SF5: gamedata_dest_escapes rejects any extraction dest that, once
+    posixpath-normalized, escapes the instance GameData/ root."""
+
+    def test_normal_dests_safe(self):
+        self.assertFalse(provlib.gamedata_dest_escapes("GameData/kRPC/KRPC.dll"))
+        self.assertFalse(provlib.gamedata_dest_escapes("GameData/MechJeb2/Plugins/MechJeb2.dll"))
+
+    def test_krpc_traversal_escapes(self):
+        self.assertTrue(provlib.gamedata_dest_escapes("GameData/kRPC/../../evil"))
+
+    def test_mechjeb_traversal_escapes(self):
+        self.assertTrue(provlib.gamedata_dest_escapes("GameData/../../evil"))
+
+    def test_absolute_escapes(self):
+        self.assertTrue(provlib.gamedata_dest_escapes("/etc/passwd"))
+
+    def test_outside_gamedata_escapes(self):
+        self.assertTrue(provlib.gamedata_dest_escapes("Plugins/x.dll"))
+
+
+class ZipSlipExtractTests(unittest.TestCase):
+    """SF5 orchestrator: _extract_zip_plan aborts (never writes) on a traversal
+    entry that escapes the instance GameData."""
+
+    def test_extract_aborts_on_traversal_entry(self):
+        import zipfile
+        import tempfile
+        import provision
+        with tempfile.TemporaryDirectory() as um:
+            os.makedirs(os.path.join(um, "automation", "test"), exist_ok=True)
+            zpath = os.path.join(um, "evil.zip")
+            with zipfile.ZipFile(zpath, "w") as zf:
+                zf.writestr("../../evil.dll", b"pwned")
+            ctx = provision.ProvisionContext(
+                profile_name="t", pins={}, profile={"instanceDir": "automation/test"},
+                umbrella_root=um, dry_run=False, repair=False, parsek_dll_override=None)
+            provision._extract_zip_plan(ctx, "mechjeb2", zpath)
+            self.assertTrue(ctx.aborted)
+            self.assertIn("EC-3", ctx.abort_reason)
+            self.assertFalse(os.path.exists(os.path.join(um, "automation", "evil.dll")))
+            self.assertFalse(os.path.exists(os.path.join(um, "evil.dll")))
+
+
+def _make_junction_or_skip(test, link, target):
+    import subprocess
+    if os.name != "nt":
+        test.skipTest("junctions are Windows-only")
+    os.makedirs(target, exist_ok=True)
+    res = subprocess.run(["cmd", "/c", "mklink", "/J", link, target],
+                         capture_output=True, text=True)
+    if res.returncode != 0:
+        test.skipTest("could not create junction: %s" % (res.stderr or res.stdout).strip())
+
+
+class ResolvedAliasRecheckTests(unittest.TestCase):
+    """SF6(a): the EC-16 alias guard is re-run on REALPATH-resolved instance
+    paths before the marker write, catching a junction that resolves a
+    string-clean instanceDir/GameData into the read-only dev install."""
+
+    def _ctx(self, um):
+        import provision
+        return provision.ProvisionContext(
+            profile_name="t", pins={},
+            profile={"instanceDir": "automation/test", "baseInstall": "Kerbal Space Program"},
+            umbrella_root=um, dry_run=False, repair=False, parsek_dll_override=None)
+
+    def test_junctioned_gamedata_into_dev_install_aborts(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            dev = os.path.join(um, "Kerbal Space Program")
+            os.makedirs(os.path.join(dev, "GameData"), exist_ok=True)
+            inst = os.path.join(um, "automation", "test")
+            os.makedirs(inst, exist_ok=True)
+            _make_junction_or_skip(self, os.path.join(inst, "GameData"), dev)
+            ctx = self._ctx(um)
+            ok = provision._recheck_alias_resolved(ctx)
+            self.assertFalse(ok)
+            self.assertTrue(ctx.aborted)
+            self.assertIn("EC-16", ctx.abort_reason)
+
+    def test_clean_instance_passes(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            os.makedirs(os.path.join(um, "Kerbal Space Program"), exist_ok=True)
+            os.makedirs(os.path.join(um, "automation", "test", "GameData"), exist_ok=True)
+            ctx = self._ctx(um)
+            self.assertTrue(provision._recheck_alias_resolved(ctx))
+            self.assertFalse(ctx.aborted)
+
+
+class ReparsePointSkipTests(unittest.TestCase):
+    """SF6(b): copy / hash walks skip reparse-point (junction) subdirs so a
+    junction inside a copied tree cannot pull a stock payload in or loop."""
+
+    def test_content_hash_ignores_junctioned_subdir(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            mod = os.path.join(um, "Mod")
+            os.makedirs(mod, exist_ok=True)
+            with open(os.path.join(mod, "real.dll"), "wb") as fh:
+                fh.write(b"real")
+            ext = os.path.join(um, "external")
+            os.makedirs(ext, exist_ok=True)
+            with open(os.path.join(ext, "huge.bin"), "wb") as fh:
+                fh.write(b"x" * 1000)
+            _make_junction_or_skip(self, os.path.join(mod, "linked"), ext)
+            h_with = provision._content_tree_hash(mod)
+            os.rmdir(os.path.join(mod, "linked"))  # remove link, not target
+            h_without = provision._content_tree_hash(mod)
+            self.assertEqual(h_with, h_without,
+                             "a junctioned subdir must not contribute to the content hash")
+
+    def test_copy_dir_skips_junctioned_subdir(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            src = os.path.join(um, "src")
+            os.makedirs(src, exist_ok=True)
+            with open(os.path.join(src, "real.dll"), "wb") as fh:
+                fh.write(b"real")
+            ext = os.path.join(um, "external")
+            os.makedirs(ext, exist_ok=True)
+            with open(os.path.join(ext, "huge.bin"), "wb") as fh:
+                fh.write(b"x" * 1000)
+            _make_junction_or_skip(self, os.path.join(src, "linked"), ext)
+            ctx = provision.ProvisionContext(
+                profile_name="t", pins={}, profile={}, umbrella_root=um,
+                dry_run=False, repair=False, parsek_dll_override=None)
+            dst = os.path.join(um, "dst")
+            files, _b = provision._copy_dir(ctx, src, dst)
+            self.assertEqual(files, 1)
+            self.assertTrue(os.path.isfile(os.path.join(dst, "real.dll")))
+            self.assertFalse(os.path.exists(os.path.join(dst, "linked")),
+                             "a junctioned subdir must not be copied")
 
 
 class ResolvePinTests(unittest.TestCase):
@@ -189,6 +639,150 @@ class SettingsDeltaTests(unittest.TestCase):
         base = ["FULLSCREEN = True", "UI_SCALE = 1.2"]
         present = provlib.keys_present(base, ["FULLSCREEN", "NEW_KEY"])
         self.assertEqual(present, {"FULLSCREEN"})
+
+
+class KrpcSettingsStampTests(unittest.TestCase):
+    """F3: kRPC ships settings.cfg with autoStartServers=False /
+    autoAcceptConnections=False / confirmRemoveClient=True, forcing a manual
+    in-game click every launch. stamp_krpc_settings rewrites the three keys for
+    unattended operation: edit-in-place when the shipped file is present, synth a
+    minimal node when absent, idempotent on re-stamp, and touch nothing else."""
+
+    EXPECTED = {"autoStartServers": "True",
+                "autoAcceptConnections": "True",
+                "confirmRemoveClient": "False"}
+
+    def _keys(self, text):
+        """Parse the flat KEY = value children into a dict (ignores braces)."""
+        out = {}
+        for line in text.splitlines():
+            k = provlib.settings_key_of(line)
+            if k is not None:
+                out[k] = line.split("=", 1)[1].strip()
+        return out
+
+    def test_three_exact_key_value_pairs(self):
+        self.assertEqual(
+            provlib.KRPC_SETTINGS_DELTAS,
+            (("autoStartServers", "True"),
+             ("autoAcceptConnections", "True"),
+             ("confirmRemoveClient", "False")))
+
+    def test_shipped_file_present_edit_in_place(self):
+        shipped = (
+            "KRPCConfiguration\n"
+            "{\n"
+            "\tmainWindowVisible = True\n"
+            "\tautoStartServers = False\n"
+            "\tautoAcceptConnections = False\n"
+            "\tconfirmRemoveClient = True\n"
+            "\trpcPort = 50000\n"
+            "}\n")
+        out = provlib.stamp_krpc_settings(shipped)
+        keys = self._keys(out)
+        for k, v in self.EXPECTED.items():
+            self.assertEqual(keys[k], v)
+        # Unrelated keys are preserved untouched (no other value hardcoded).
+        self.assertEqual(keys["mainWindowVisible"], "True")
+        self.assertEqual(keys["rpcPort"], "50000")
+        # Structure preserved: still a single-node config, keys inside the braces.
+        self.assertTrue(out.startswith("KRPCConfiguration\n{"))
+        self.assertTrue(out.endswith("}\n"))
+
+    def test_absent_file_synth_minimal_node(self):
+        for absent in (None, "", "   \n\t"):
+            out = provlib.stamp_krpc_settings(absent)
+            self.assertTrue(out.startswith("KRPCConfiguration\n{"))
+            self.assertTrue(out.rstrip().endswith("}"))
+            self.assertEqual(self._keys(out), self.EXPECTED)
+
+    def test_idempotent_restamp(self):
+        shipped = (
+            "KRPCConfiguration\n{\n"
+            "\tautoStartServers = False\n"
+            "\tautoAcceptConnections = False\n"
+            "\tconfirmRemoveClient = True\n}\n")
+        once = provlib.stamp_krpc_settings(shipped)
+        twice = provlib.stamp_krpc_settings(once)
+        self.assertEqual(once, twice)
+        # And a synth is idempotent too.
+        s1 = provlib.stamp_krpc_settings(None)
+        self.assertEqual(s1, provlib.stamp_krpc_settings(s1))
+
+    def test_missing_key_inserted_inside_node_not_appended(self):
+        # A shipped file that only carries one of the three keys: the other two
+        # must land BEFORE the closing brace, never after it (outside the node).
+        shipped = "KRPCConfiguration\n{\n\tautoStartServers = False\n}\n"
+        out = provlib.stamp_krpc_settings(shipped)
+        lines = out.splitlines()
+        brace_idx = max(i for i, l in enumerate(lines) if l.strip() == "}")
+        for k in self.EXPECTED:
+            key_idx = next(i for i, l in enumerate(lines) if provlib.settings_key_of(l) == k)
+            self.assertLess(key_idx, brace_idx, "%s must be inside the node" % k)
+        self.assertEqual(self._keys(out), self.EXPECTED)
+
+
+class KrpcSettingsStampShellTests(unittest.TestCase):
+    """F3 shell wiring: _stamp_krpc_settings edits the on-disk kRPC settings.cfg,
+    records krpcSettingsSha256 over the LF-written bytes, and VERIFY re-hashes it
+    (drift on a later manual edit), mirroring settingsFinalSha256."""
+
+    def _ctx(self, um):
+        import provision
+        return provision.ProvisionContext(
+            profile_name="t", pins={}, profile={"instanceDir": "automation/test"},
+            umbrella_root=um, dry_run=False, repair=False, parsek_dll_override=None)
+
+    def test_stamp_writes_lf_and_records_matching_sha(self):
+        import hashlib
+        import tempfile
+        import provision
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            path = provision._krpc_settings_path(ctx)
+            os.makedirs(os.path.dirname(path))
+            # Shipped default (CRLF) with the three hands-blocking values.
+            with open(path, "wb") as fh:
+                fh.write(b"KRPCConfiguration\r\n{\r\n\tautoStartServers = False\r\n"
+                         b"\tautoAcceptConnections = False\r\n\tconfirmRemoveClient = True\r\n}\r\n")
+            provision._stamp_krpc_settings(ctx)
+            with open(path, "rb") as fh:
+                raw = fh.read()
+            self.assertNotIn(b"\r\n", raw, "stamped kRPC settings.cfg must be LF-only")
+            text = raw.decode("utf-8")
+            self.assertIn("autoStartServers = True", text)
+            self.assertIn("autoAcceptConnections = True", text)
+            self.assertIn("confirmRemoveClient = False", text)
+            self.assertEqual(hashlib.sha256(raw).hexdigest(), ctx.krpc_settings_sha)
+
+    def test_stamp_synths_when_zip_shipped_no_settings(self):
+        import tempfile
+        import provision
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            provision._stamp_krpc_settings(ctx)  # no file present -> synth
+            path = provision._krpc_settings_path(ctx)
+            self.assertTrue(os.path.isfile(path))
+            with open(path, "r", encoding="utf-8") as fh:
+                text = fh.read()
+            self.assertIn("autoStartServers = True", text)
+            self.assertTrue(ctx.krpc_settings_sha)
+
+    def test_verify_drifts_on_later_manual_krpc_settings_edit(self):
+        import tempfile
+        import provision
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            provision._stamp_krpc_settings(ctx)
+            manifest = {"components": {}, "junctionTargets": {}, "devSourcedMods": {},
+                        "krpcSettingsSha256": ctx.krpc_settings_sha}
+            self.assertTrue(provision.phase_verify(ctx, manifest))
+            self.assertEqual(getattr(ctx, "verify_drift", []), [])
+            # A manual kRPC settings change AFTER provisioning must drift.
+            with open(provision._krpc_settings_path(ctx), "a", encoding="utf-8") as fh:
+                fh.write("\tmanualEdit = True\n")
+            self.assertFalse(provision.phase_verify(ctx, manifest))
+            self.assertTrue(any(d.field == "krpcSettingsSha256" for d in ctx.verify_drift))
 
 
 class ManifestDiffTests(unittest.TestCase):
@@ -295,6 +889,123 @@ class TestingToolsSourceTests(unittest.TestCase):
              "ClearRotation", "ApplyRotation"),
         )
         self.assertEqual(provlib.MISSING_VS_MASTER, ("autoLoadFlags", "Quit", "SetLanded"))
+
+
+class GitSourceResolutionTests(unittest.TestCase):
+    """Module boundary: BUILD-TT + PIN read the git-pinned source from a
+    module-owned clone under .cache/<comp>-src (never the umbrella mods/ clone),
+    so harness/ is submodule-ready. provlib.resolve_git_source is the pure
+    picker; cases = cached-and-has-commit / cached-stale / absent / override."""
+
+    CACHE = "/harness/.cache/krpc-src"
+    COMMIT = "11f1f1366fa4301049f6eac6640604127a9d763b"
+
+    def test_cached_and_has_commit_reuses_no_fetch(self):
+        d = provlib.resolve_git_source(
+            self.CACHE, self.COMMIT, cache_has_git=True, cache_has_commit=True)
+        self.assertEqual(d.action, "reuse-cache")
+        self.assertEqual(d.reason, "cached-and-has-commit")
+        self.assertEqual(d.source_dir, self.CACHE)
+        self.assertFalse(d.fetch)
+
+    def test_cached_stale_refetches(self):
+        d = provlib.resolve_git_source(
+            self.CACHE, self.COMMIT, cache_has_git=True, cache_has_commit=False)
+        self.assertEqual(d.action, "refetch-cache")
+        self.assertEqual(d.reason, "cached-stale")
+        self.assertEqual(d.source_dir, self.CACHE)
+        self.assertTrue(d.fetch)
+
+    def test_absent_clones(self):
+        d = provlib.resolve_git_source(
+            self.CACHE, self.COMMIT, cache_has_git=False, cache_has_commit=False)
+        self.assertEqual(d.action, "clone")
+        self.assertEqual(d.reason, "absent")
+        self.assertEqual(d.source_dir, self.CACHE)
+        self.assertTrue(d.fetch)
+
+    def test_override_present_wins_over_cache(self):
+        # An explicit --krpc-src clone beats the cache even when the cache is good.
+        d = provlib.resolve_git_source(
+            self.CACHE, self.COMMIT, override_path="/dev/mods/krpc",
+            override_present=True, cache_has_git=True, cache_has_commit=True)
+        self.assertEqual(d.action, "use-override")
+        self.assertEqual(d.reason, "override-present")
+        self.assertEqual(d.source_dir, "/dev/mods/krpc")
+        self.assertFalse(d.fetch)
+
+    def test_override_missing_is_flagged(self):
+        # Override given but not a git clone: the shell aborts on override-missing.
+        d = provlib.resolve_git_source(
+            self.CACHE, self.COMMIT, override_path="/nope",
+            override_present=False)
+        self.assertEqual(d.action, "use-override")
+        self.assertEqual(d.reason, "override-missing")
+        self.assertEqual(d.source_dir, "/nope")
+
+    def test_cache_dirname_table(self):
+        self.assertEqual(provlib.GIT_SOURCE_CACHE_DIRNAME["krpc"], "krpc-src")
+        self.assertEqual(provlib.GIT_SOURCE_CACHE_DIRNAME["krpc_mechjeb"], "krpc_mechjeb-src")
+
+
+class EnsureGitSourceShellTests(unittest.TestCase):
+    """Shell wiring for _ensure_git_source (no network / no writes): a dry-run
+    with no cache clone emits the source-resolution plan line + leaves the source
+    unmaterialized; an override that is not a git clone aborts EC-4."""
+
+    def _ctx(self, dry_run, override=None):
+        import provision
+        pins = {"krpc": {"commit": "abc123", "sourceRepo": "https://example/krpc"}}
+        return provision.ProvisionContext(
+            profile_name="t", pins=pins, profile={}, umbrella_root="/um",
+            dry_run=dry_run, repair=False, parsek_dll_override=None,
+            krpc_src_override=override)
+
+    def test_dry_run_absent_is_unmaterialized_and_logs_plan(self):
+        import provision, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            saved = provision.CACHE_DIR
+            provision.CACHE_DIR = os.path.join(tmp, ".cache")  # never created here
+            try:
+                ctx = self._ctx(dry_run=True)
+                src = provision._ensure_git_source(ctx, "krpc")
+            finally:
+                provision.CACHE_DIR = saved
+        self.assertIsNone(src)
+        self.assertFalse(ctx.aborted)
+        self.assertTrue(any("source-resolution action=clone reason=absent" in l
+                            for l in ctx.log_lines))
+
+    def test_memoized_second_call_does_not_relog(self):
+        import provision, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            saved = provision.CACHE_DIR
+            provision.CACHE_DIR = os.path.join(tmp, ".cache")
+            try:
+                ctx = self._ctx(dry_run=True)
+                provision._ensure_git_source(ctx, "krpc")
+                n_after_first = sum("source-resolution" in l for l in ctx.log_lines)
+                provision._ensure_git_source(ctx, "krpc")
+                n_after_second = sum("source-resolution" in l for l in ctx.log_lines)
+            finally:
+                provision.CACHE_DIR = saved
+        self.assertEqual(n_after_first, 1)
+        self.assertEqual(n_after_second, 1)
+
+    def test_override_not_a_clone_aborts(self):
+        import provision, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            saved = provision.CACHE_DIR
+            provision.CACHE_DIR = os.path.join(tmp, ".cache")
+            try:
+                # override path exists but has no .git -> override-missing -> abort
+                ctx = self._ctx(dry_run=False, override=tmp)
+                src = provision._ensure_git_source(ctx, "krpc", override=tmp)
+            finally:
+                provision.CACHE_DIR = saved
+        self.assertIsNone(src)
+        self.assertTrue(ctx.aborted)
+        self.assertIn("EC-4", ctx.abort_reason)
 
 
 class JunctionTests(unittest.TestCase):
@@ -524,22 +1235,32 @@ class PairDecisionTests(unittest.TestCase):
 
 
 class DeploySourceTests(unittest.TestCase):
-    """Reviewer 7: extracted DEPLOY source selection."""
+    """Reviewer 7: extracted DEPLOY source selection. SF8: no hardcoded
+    sibling-worktree default -- absent an override AND a worktree build, the
+    selection is not-ok so DEPLOY aborts demanding --parsek-dll."""
 
     def test_override_always_wins(self):
-        d = provlib.select_parsek_dll_source("/x/over.dll", "/wt/Parsek.dll", True, "/def/Parsek.dll")
+        d = provlib.select_parsek_dll_source("/x/over.dll", "/wt/Parsek.dll", True)
         self.assertEqual(d.source, "/x/over.dll")
         self.assertEqual(d.reason, "override")
+        self.assertTrue(d.ok)
 
     def test_worktree_build_when_present(self):
-        d = provlib.select_parsek_dll_source(None, "/wt/Parsek.dll", True, "/def/Parsek.dll")
+        d = provlib.select_parsek_dll_source(None, "/wt/Parsek.dll", True)
         self.assertEqual(d.source, "/wt/Parsek.dll")
         self.assertEqual(d.reason, "worktree-build")
+        self.assertTrue(d.ok)
 
-    def test_default_when_worktree_absent(self):
-        d = provlib.select_parsek_dll_source(None, "/wt/Parsek.dll", False, "/def/Parsek.dll")
-        self.assertEqual(d.source, "/def/Parsek.dll")
-        self.assertEqual(d.reason, "default")
+    def test_no_source_when_worktree_absent_and_no_override(self):
+        d = provlib.select_parsek_dll_source(None, "/wt/Parsek.dll", False)
+        self.assertIsNone(d.source)
+        self.assertEqual(d.reason, "missing-no-source")
+        self.assertFalse(d.ok)
+
+    def test_override_wins_even_without_worktree_build(self):
+        d = provlib.select_parsek_dll_source("/x/over.dll", "/wt/Parsek.dll", False)
+        self.assertEqual(d.source, "/x/over.dll")
+        self.assertTrue(d.ok)
 
 
 class LockfileReleaseTests(unittest.TestCase):
@@ -637,6 +1358,271 @@ class ActionPlanTests(unittest.TestCase):
         installs = [a.detail for a in plan if a.step == "INSTALL"]
         self.assertFalse(any("GameData/parsek" in d for d in installs))
 
+    def test_plan_stamps_krpc_settings_hands_free(self):
+        # F3: the plan must include the kRPC settings hands-free stamp WRITE.
+        plan = provlib.build_action_plan(self.PINS, self.PROFILE)
+        writes = [a.detail for a in plan if a.step == "INSTALL" and a.verb == "WRITE"]
+        self.assertTrue(any("PluginData/settings.cfg" in d and "autoStartServers=True" in d
+                            for d in writes))
+        # A profile without kRPC in the stack must NOT emit the stamp line.
+        plan2 = provlib.build_action_plan({}, {"stackComponents": ["parsek"]})
+        self.assertFalse(any("PluginData/settings.cfg" in a.detail for a in plan2))
+
+    def test_install_labels_use_real_gamedata_folders(self):
+        # N11: INSTALL plan labels name the real on-disk folder, not the pin id.
+        plan = provlib.build_action_plan({}, {"stackComponents": ["krpc", "mechjeb2", "parsek"]})
+        joined = " ".join(a.detail for a in plan if a.step == "INSTALL")
+        self.assertIn("GameData/kRPC", joined)
+        self.assertIn("GameData/MechJeb2", joined)
+        self.assertEqual(provlib.stack_component_install_folder("testingtools"), "GameData/kRPC")
+        self.assertEqual(provlib.stack_component_install_folder("krpc_mechjeb"), "GameData/kRPC")
+
+
+class CloneToplevelTests(unittest.TestCase):
+    """Design CLONE: the mutable surface is copied, GameData is built
+    selectively, the KSP data dir is copied-except-junction, and mutable /
+    harness-owned trees (saves/Logs/settings.cfg) are skipped so no dev state
+    leaks into an automation instance."""
+
+    def test_gamedata_is_built(self):
+        self.assertEqual(provlib.clone_toplevel_disposition("GameData"), "build-gamedata")
+
+    def test_ksp_data_dir_copy_except_junction(self):
+        self.assertEqual(provlib.clone_toplevel_disposition("KSP_x64_Data"),
+                         "copy-tree-except-junction")
+
+    def test_settings_and_saves_skipped(self):
+        self.assertEqual(provlib.clone_toplevel_disposition("settings.cfg"), "skip")
+        self.assertEqual(provlib.clone_toplevel_disposition("saves"), "skip")
+        self.assertEqual(provlib.clone_toplevel_disposition("Logs"), "skip")
+
+    def test_exe_and_files_copied(self):
+        self.assertEqual(provlib.clone_toplevel_disposition("KSP_x64.exe"), "copy")
+        self.assertEqual(provlib.clone_toplevel_disposition("buildID64.txt"), "copy")
+        self.assertEqual(provlib.clone_toplevel_disposition("Internals"), "copy")
+
+    def test_ksp_log_and_crash_dumps_skipped(self):
+        # N20: dev-run logs + timestamped crash dumps never leak into an instance.
+        self.assertEqual(provlib.clone_toplevel_disposition("KSP.log"), "skip")
+        self.assertEqual(provlib.clone_toplevel_disposition("Player.log"), "skip")
+        self.assertEqual(provlib.clone_toplevel_disposition("crash_2024-01-01_120000"), "skip")
+        self.assertEqual(provlib.clone_toplevel_disposition("Crash-report"), "skip")
+        # A real payload with a "crash"-ish infix is still copied (prefix-only).
+        self.assertEqual(provlib.clone_toplevel_disposition("KSP_x64.exe"), "copy")
+
+    def test_streamingassets_is_the_only_junctioned_ksp_data_entry(self):
+        self.assertTrue(provlib.ksp_data_entry_is_junction("StreamingAssets"))
+        self.assertFalse(provlib.ksp_data_entry_is_junction("Managed"))
+        self.assertFalse(provlib.ksp_data_entry_is_junction("Resources"))
+
+
+class ExtendedLengthPathTests(unittest.TestCase):
+    """Design EC-7 / R13: the live CLONE copy/junction must use the \\\\?\\
+    extended-length prefix on Windows so deep KSP asset trees under a long
+    umbrella root do not overflow MAX_PATH."""
+
+    def test_local_path_prefixed(self):
+        self.assertEqual(provlib.to_extended_length_path("C:/a/b"), "\\\\?\\C:\\a\\b")
+
+    def test_backslash_input_prefixed(self):
+        self.assertEqual(provlib.to_extended_length_path("C:\\a\\b"), "\\\\?\\C:\\a\\b")
+
+    def test_unc_path_prefixed(self):
+        self.assertEqual(provlib.to_extended_length_path("\\\\srv\\share\\x"),
+                         "\\\\?\\UNC\\srv\\share\\x")
+
+    def test_already_prefixed_unchanged(self):
+        p = "\\\\?\\C:\\a"
+        self.assertEqual(provlib.to_extended_length_path(p), p)
+
+
+class TreeDigestTests(unittest.TestCase):
+    """Design EC-3: a dev-sourced mod's content tree-hash must be deterministic
+    regardless of walk order or OS separator so a re-run does not false-drift."""
+
+    def test_order_and_separator_independent(self):
+        a = provlib.canonical_tree_digest_input([("b/c.dll", "h2"), ("a.txt", "h1")])
+        b = provlib.canonical_tree_digest_input([("a.txt", "h1"), ("b\\c.dll", "h2")])
+        self.assertEqual(a, b)
+
+    def test_content_change_changes_digest(self):
+        a = provlib.canonical_tree_digest_input([("a.txt", "h1")])
+        b = provlib.canonical_tree_digest_input([("a.txt", "h2")])
+        self.assertNotEqual(a, b)
+
+    def test_added_file_changes_digest(self):
+        a = provlib.canonical_tree_digest_input([("a.txt", "h1")])
+        b = provlib.canonical_tree_digest_input([("a.txt", "h1"), ("b.txt", "h1")])
+        self.assertNotEqual(a, b)
+
+
+class ShimCsprojTests(unittest.TestCase):
+    """Design BUILD-TT / GT-4 / GT-9 / S-4: the shim csproj compiles ONLY the two
+    shim sources (default globbing off so a stray AutoLoadGame.cs cannot slip in),
+    targets net472, and HintPaths the KSP + kRPC references."""
+
+    def _render(self):
+        return provlib.render_testingtools_shim_csproj(
+            "C:/dev/KSP_x64_Data/Managed", "C:/cache/GameData/kRPC",
+            ["OrbitTools.cs", "TestingTools.cs"])
+
+    def test_net472_and_defaultcompile_off(self):
+        xml = self._render()
+        self.assertIn("<TargetFramework>net472</TargetFramework>", xml)
+        self.assertIn("<EnableDefaultCompileItems>false</EnableDefaultCompileItems>", xml)
+
+    def test_only_two_sources_plus_assemblyinfo(self):
+        xml = self._render()
+        self.assertIn('<Compile Include="OrbitTools.cs" />', xml)
+        self.assertIn('<Compile Include="TestingTools.cs" />', xml)
+        self.assertIn('<Compile Include="AssemblyInfo.cs" />', xml)
+        self.assertNotIn("AutoLoadGame.cs", xml)
+        self.assertNotIn("AutoSwitchVessel.cs", xml)
+
+    def test_references_ksp_and_krpc(self):
+        xml = self._render()
+        self.assertIn("Assembly-CSharp.dll", xml)
+        self.assertIn("UnityEngine.CoreModule.dll", xml)
+        self.assertIn("KRPC.Core.dll", xml)
+        self.assertIn("KRPC.SpaceCenter.dll", xml)
+        self.assertIn("Google.Protobuf.dll", xml)
+
+    def test_assemblyinfo_names_the_assembly(self):
+        info = provlib.render_testingtools_assemblyinfo()
+        self.assertIn("TestingTools", info)
+
+
+class BuildTtAssemblyTests(unittest.TestCase):
+    """Design S-4: the AutoLoadGame type must be ABSENT from the built shim (it
+    would race the seam's LoadGame boot) and a TestingTools type must be present
+    (a real build). Proxy is a UTF-8 metadata grep over the assembly bytes."""
+
+    def test_shim_assembly_passes(self):
+        # Simulate #Strings heap bytes: TestingTools present, AutoLoadGame absent.
+        buf = b"...OrbitTools.TestingTools.SetOrbit..."
+        r = provlib.evaluate_build_tt_assembly(buf)
+        self.assertTrue(r.ok)
+        self.assertEqual(r.autoloadgame_count, 0)
+        self.assertTrue(r.has_testingtools_type)
+
+    def test_autoloadgame_present_fails(self):
+        buf = b"...TestingTools.AutoLoadGame..."
+        r = provlib.evaluate_build_tt_assembly(buf)
+        self.assertFalse(r.ok)
+        self.assertEqual(r.reason, "autoloadgame-present")
+
+    def test_empty_build_fails(self):
+        r = provlib.evaluate_build_tt_assembly(b"nothing relevant here")
+        self.assertFalse(r.ok)
+        self.assertEqual(r.reason, "testingtools-type-absent")
+
+    def test_count_utf8(self):
+        self.assertEqual(provlib.count_utf8(b"abcabc", "abc"), 2)
+        self.assertEqual(provlib.count_utf8(b"abc", ""), 0)
+
+
+class ZipInstallPlanTests(unittest.TestCase):
+    """Design INSTALL / GT-5: the kRPC GameData/kRPC subtree lands as-is; only
+    the prebuilt KRPC.MechJeb.dll (+ .json) is taken from the KRPC.MechJeb release
+    root; directory entries and out-of-footprint files are skipped."""
+
+    def test_krpc_subtree_as_is(self):
+        names = ["GameData/kRPC/", "GameData/kRPC/KRPC.dll",
+                 "GameData/kRPC/KRPC.Core.dll", "other/thing.txt"]
+        plan = provlib.plan_zip_install("krpc", names)
+        dests = dict(plan)
+        self.assertEqual(dests["GameData/kRPC/KRPC.dll"], "GameData/kRPC/KRPC.dll")
+        self.assertNotIn("other/thing.txt", dests)
+        self.assertNotIn("GameData/kRPC/", dests)  # directory skipped
+
+    def test_krpc_mechjeb_only_dll_and_json(self):
+        names = ["KRPC.MechJeb.dll", "KRPC.MechJeb.json", "README.md",
+                 "C#/MechJeb.cs", "LICENSE"]
+        plan = dict(provlib.plan_zip_install("krpc_mechjeb", names))
+        self.assertEqual(plan["KRPC.MechJeb.dll"], "GameData/kRPC/KRPC.MechJeb.dll")
+        self.assertEqual(plan["KRPC.MechJeb.json"], "GameData/kRPC/KRPC.MechJeb.json")
+        self.assertNotIn("README.md", plan)
+        self.assertNotIn("C#/MechJeb.cs", plan)
+
+    def test_mechjeb2_gamedata_as_is_else_wrapped(self):
+        plan = dict(provlib.plan_zip_install(
+            "mechjeb2", ["GameData/MechJeb2/MechJeb2.dll", "bareroot.dll"]))
+        self.assertEqual(plan["GameData/MechJeb2/MechJeb2.dll"],
+                         "GameData/MechJeb2/MechJeb2.dll")
+        self.assertEqual(plan["bareroot.dll"], "GameData/bareroot.dll")
+
+    def test_krpc_installed_dll_names(self):
+        pin = {"releaseRuntimeDlls": ["KRPC.dll", "KRPC.Core.dll"]}
+        self.assertEqual(provlib.krpc_installed_dll_names(pin), ["KRPC.dll", "KRPC.Core.dll"])
+        self.assertEqual(provlib.krpc_installed_dll_names(
+            {"releaseCompileDlls": ["KRPC.Core.dll"]}), ["KRPC.Core.dll"])
+
+
+class RepairPlanTests(unittest.TestCase):
+    """Design --repair / EC-3: a VERIFY drift diff converges to the MINIMAL
+    targeted work set -- only the drifted component / dev mod / settings, and an
+    unmappable field is surfaced (never silently converged to nothing)."""
+
+    def _diff(self, field, kind="changed"):
+        return provlib.ManifestDiff(field, "e", "a", kind)
+
+    def test_component_of_field(self):
+        self.assertEqual(provlib.component_of_diff_field(
+            "components.krpc.installedDlls.KRPC.dll"), "krpc")
+        self.assertEqual(provlib.component_of_diff_field(
+            "components.parsek.dllSha256"), "parsek")
+        self.assertEqual(provlib.component_of_diff_field(
+            "settingsDeltasApplied.FRAMERATE_LIMIT"), provlib.SETTINGS_REPAIR_TOKEN)
+        self.assertEqual(provlib.component_of_diff_field(
+            "devSourcedMods.000_Harmony"), "devmod:000_Harmony")
+        self.assertIsNone(provlib.component_of_diff_field("kspVersion"))
+
+    def test_plan_targets_only_drifted(self):
+        plan = provlib.plan_repair([
+            self._diff("components.krpc.installedDlls.KRPC.dll"),
+            self._diff("components.parsek.dllSha256"),
+            self._diff("devSourcedMods.000_Harmony"),
+            self._diff("settingsDeltasApplied.UI_SCALE"),
+        ])
+        self.assertEqual(plan.components, ("krpc", "parsek"))
+        self.assertEqual(plan.dev_mods, ("000_Harmony",))
+        self.assertTrue(plan.settings)
+        self.assertEqual(plan.unrepairable, ())
+
+    def test_unrepairable_field_surfaced(self):
+        plan = provlib.plan_repair([self._diff("kspVersion")])
+        self.assertEqual(plan.unrepairable, ("kspVersion",))
+        self.assertEqual(plan.components, ())
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DllInstallPathLayoutTests(unittest.TestCase):
+    """Regression: the first live smoke false-drifted all four MechJeb2 DLLs
+    because the verify resolver assumed flat component layouts; MechJeb2
+    ships its DLLs under Plugins/. Fails if the resolver loses the
+    flat-then-Plugins-then-recursive probe order."""
+
+    def test_flat_then_plugins_then_recursive(self):
+        import provision as prov
+        with tempfile.TemporaryDirectory() as td:
+            import types
+            ctx = types.SimpleNamespace(instance_dir=td)
+            gd = os.path.join(td, "GameData")
+            os.makedirs(os.path.join(gd, "kRPC"))
+            os.makedirs(os.path.join(gd, "MechJeb2", "Plugins"))
+            os.makedirs(os.path.join(gd, "MechJeb2", "Parts", "Deep"))
+            open(os.path.join(gd, "kRPC", "KRPC.dll"), "wb").write(b"a")
+            open(os.path.join(gd, "MechJeb2", "Plugins", "MechJeb2.dll"), "wb").write(b"b")
+            open(os.path.join(gd, "MechJeb2", "Parts", "Deep", "Odd.dll"), "wb").write(b"c")
+            self.assertTrue(prov._dll_install_path(ctx, "krpc", "KRPC.dll").endswith(
+                os.path.join("kRPC", "KRPC.dll")))
+            self.assertTrue(prov._dll_install_path(ctx, "mechjeb2", "MechJeb2.dll").endswith(
+                os.path.join("Plugins", "MechJeb2.dll")))
+            self.assertTrue(prov._dll_install_path(ctx, "mechjeb2", "Odd.dll").endswith(
+                os.path.join("Deep", "Odd.dll")))
+            # missing file resolves to the flat path for None-hash drift reporting
+            self.assertTrue(prov._dll_install_path(ctx, "mechjeb2", "Absent.dll").endswith(
+                os.path.join("MechJeb2", "Absent.dll")))

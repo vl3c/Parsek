@@ -404,7 +404,7 @@ parsed, N deferred), with bounded per-command Info lines (command counts are sma
 | `DiscardTree` | FLIGHT; if no active tree -> OK `nothing=true` | stop recorder if live, then `ParsekFlight.AutoDiscardActiveTreeWithMessage(reason, screenMessage, ledgerRecalcReason)` (the wrong-context-caller entry point) with test-command-specific strings | `discarded` bool |
 | `RecordingState` | any scene (read-only) | snapshot recorder/tree state (reuses `ParsekLog.FormatRecState` inputs) | `recording`, `tree` (the `RecordingTree.Id` of the active tree, empty when none - adjudication B), `points`, `scene` |
 | `RunTests` | any scene the runner supports; else Defer | `InGameTestRunner.RunAll()` (no `category`) or `RunCategory(category)`; response deferred until `IsRunning` goes true->false and `ExportResultsFile` ran | `passed`, `failed`, `skipped`, `results=parsek-test-results.txt` |
-| `LoadGame` | any scene incl. MAINMENU (the BOOT CHANNEL); Reject if a recorder is live (`msg=recording-active`) or a load is already in flight (`msg=load-in-flight`) | long-running two-phase (like `RunTests`): journal `CLAIMED` -> initiate load (`HighLogic.SaveFolder = dir`; `GamePersistence.LoadGame(...)`; `FlightDriver.StartAndFocusVessel(...)` - the same Assembly-CSharp-only sequence as v0.5.4 `TestingTools.LoadSave`, no kRPC types); response deferred until the new scene settles with `HighLogic.CurrentGame != null`, then journal `EXECUTED` + terminal response; a null / incompatible game -> `ERROR msg=load-failed` | `scene`, `save` |
+| `LoadGame` | any scene incl. MAINMENU (the BOOT CHANNEL); Reject if a recorder is live (`msg=recording-active`) or a load is already in flight (`msg=load-in-flight`) | long-running two-phase (like `RunTests`): journal `CLAIMED` -> initiate load (`HighLogic.SaveFolder = dir`; `GamePersistence.LoadGame(...)`; `FlightDriver.StartAndFocusVessel(...)` - the same Assembly-CSharp-only sequence as v0.5.4 `TestingTools.LoadSave`, no kRPC types); response deferred until the new scene settles (pure `TestCommandLoadGame.DecideLoadCompletion`): a settled FLIGHT scene with `HighLogic.CurrentGame != null` -> journal `EXECUTED` + terminal `OK`; a settle-back to MAINMENU -> `ERROR msg=load-failed-returned-to-menu` (a failed flight boot, e.g. an NRE in `FlightDriver.Start` on an incompatible save); the LoadGame budget expiring -> `ERROR msg=load-timeout`. A null / incompatible game detected up front (before two-phase) is still `ERROR msg=load-failed` | `scene`, `save` |
 | `MissionMark` | any scene | emit a stable `[Parsek][Info][TestCommands] MISSIONMARK label=<label> ut=<ut>` log line (H3-style correlation) | `label` echoed |
 | `FlushAndQuit` | any scene (incl. menus) | if a game is loaded, force a scenario/game save so committed data is durable, THEN `Application.Quit()` deferred one frame; response + journal `DONE` written and flushed BEFORE quitting. Deliberately replaces kRPC master's `Quit()` RPC (a bare `Application.Quit()`, not commit-safe). | `saved` bool |
 
@@ -557,10 +557,19 @@ Exhaustive. Each: scenario -> expected behavior -> v1 or deferred.
     append call ending in `\n`; the orchestrator ignores any trailing line without a
     newline. The journal `DONE` combined with the terminal response is the source of truth
     (a torn response with no `DONE` is rewritten on restart from `EXECUTED`). v1.
-27. **LoadGame naming a nonexistent / incompatible save.** After the load sequence the
-    scene settles with `HighLogic.CurrentGame == null` (or a game that fails to load);
-    the handler writes `ERROR msg=load-failed` and marks `DONE`. The instance stays at the
-    menu; the orchestrator reconciles. v1.
+27. **LoadGame naming a nonexistent / incompatible save.** Two failure surfaces. (a) The
+    up-front `GamePersistence.LoadGame` returns a null / version-incompatible game or an
+    out-of-range active-vessel index: `IsLoadedGameFocusable` fails, the handler never
+    initiates the flight boot and writes `ERROR msg=load-failed` + `DONE` (single-phase).
+    (b) The save PARSED and was focusable but the flight boot fails at runtime -- e.g.
+    `FlightDriver.Start()` throws a `NullReferenceException` because a mod-part active
+    vessel is absent from the instance (the first-live-run failure, F2). The two-phase
+    completion now detects this via `TestCommandLoadGame.DecideLoadCompletion`: the scene
+    settles back at MAINMENU with no flight -> terminal `ERROR msg=load-failed-returned-to-menu`;
+    a load that never settles anywhere -> terminal `ERROR msg=load-timeout` once the LoadGame
+    budget (300 s) expires, rather than the completion polling PENDING to the harness run
+    budget. Either terminal ERROR lets the harness classify a driver-INVALID (fixture). The
+    instance stays at the menu; the orchestrator reconciles. v1.
 28. **KSP crashes mid-LoadGame (during the scene load).** The journal is at `CLAIMED`
     (the load was initiated, the settle never completed). On restart the addon does NOT
     re-initiate the load; it writes `INTERRUPTED` and marks `DONE`. The journal file
@@ -606,12 +615,16 @@ design deferral). None blocks the seam; each is recorded so it is not lost.
   same session, only the last retries within that session (the rest are backstopped by
   cross-restart re-recovery, since no `DONE` is written until the append lands). Acceptable
   given the restart durability, but tracked.
-- **R1: LoadGame completion predicate is minimal.** Completion checks only
-  `HighLogic.CurrentGame != null` after the transition drains; safe today because
-  `HighLogic.LoadScene` raises the transition flag synchronously inside
-  `StartAndFocusVessel`. Requiring scene == FLIGHT or a seen-transition-since-initiation
-  bit would remove the brittleness. A post-initiation failure that dumps back to the menu
-  currently surfaces as TIMEOUT rather than load-failed.
+- **R1: LoadGame completion predicate [RESOLVED, F2].** Completion now runs through the
+  pure `TestCommandLoadGame.DecideLoadCompletion(elapsed, scene, currentGameNonNull, budget)`
+  -> `{StillWaiting, CompleteOk, LoadTimeout, LoadFailedMenu}`. Success requires a settled
+  FLIGHT scene with a loaded game (no longer `CurrentGame != null` at any scene); a
+  post-initiation failure that dumps back to MAINMENU surfaces as `ERROR
+  msg=load-failed-returned-to-menu` (fast, before the budget), and a never-settling load as
+  `ERROR msg=load-timeout` against the LoadGame budget. Relies on the same invariant that
+  made the old predicate safe -- the scene-transition flag is raised synchronously at
+  initiation and the pump only polls completion at settled scenes -- so a MAINMENU
+  observation reliably means the load bounced (no grace period needed).
 - **R2: lock Unknown-liveness tie-break effectively always reclaims.** When the pid probe
   returns Unknown (e.g. access denied on a live foreign process), `DecideLockOwnership`
   compares the existing lock's t against now, which an existing lock always loses, so the
