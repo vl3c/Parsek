@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using Parsek;
 
-namespace Parsek.Tests.Analyzer.Rules
+namespace Parsek.Analyzer.Rules
 {
     // Fixture-generation stamp check (design doc "Fixture versioning", edge
     // case 22).

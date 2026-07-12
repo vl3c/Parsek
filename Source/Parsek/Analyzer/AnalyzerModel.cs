@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Parsek.Tests.Analyzer
+namespace Parsek.Analyzer
 {
     // Core model types for the M-A1 offline recording analyzer (module M-A1,
     // design doc docs/dev/design-autotest-offline-analyzer.md "Data Model").
@@ -12,9 +12,9 @@ namespace Parsek.Tests.Analyzer
     // over the loaded objects so the future in-game H5 category (module M-A3)
     // can feed the same core a live RecordingStore and get identical findings.
     //
-    // Types are internal because they expose internal-to-Tests production types
-    // (CareerSaveSnapshot, GameAction) that InternalsVisibleTo("Parsek.Tests")
-    // makes reachable here but not publicly re-exportable.
+    // Types are internal: this pure core lives in Parsek.dll (module M-A3 moved it
+    // here so the in-game H5 category can reuse it) and stays internal to Parsek,
+    // reachable from Parsek.Tests through InternalsVisibleTo("Parsek.Tests").
 
     /// <summary>
     /// Verdict severity for a single <see cref="Finding"/>. Numeric order is
@@ -160,9 +160,11 @@ namespace Parsek.Tests.Analyzer
         public CareerSaveSnapshot CareerSave { get; set; }
 
         /// <summary>
-        /// RAW Ledger.Actions (unfiltered). INV8 computes the ELS filter internally
-        /// from <see cref="Tombstones"/>; the loader NEVER pre-filters (a pre-filtered
-        /// list would make INV8's dangling-tombstone check vacuous by construction).
+        /// RAW ledger actions (unfiltered), as materialized by the builder. INV8
+        /// computes the ELS filter internally from <see cref="Tombstones"/>; the
+        /// builder NEVER pre-filters (a pre-filtered list would make INV8's
+        /// dangling-tombstone check vacuous by construction). This pure core reads
+        /// no store symbols itself -- the caller supplies the materialized list.
         /// </summary>
         public IReadOnlyList<GameAction> Ledger { get; set; } = new List<GameAction>();
 

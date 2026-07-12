@@ -9,7 +9,7 @@ namespace Parsek.Tests.Analyzer
     // The three-mode entry point (design "Run modes" + "Where the code lives").
     //
     // - CI regression floor: a non-Manual test synthesizes a fixture corpus with
-    //   ScenarioWriter, runs Analyzer.Run over it, and asserts the run is GREEN
+    //   ScenarioWriter, runs OfflineAnalyzer.Run over it, and asserts the run is GREEN
     //   (zero FAIL, zero STALE-FIXTURE) with both report files written. This is the
     //   per-PR floor that fails the build if any rule false-alarms on known-good
     //   builder output, or if a builder starts emitting invariant-violating data.
@@ -18,7 +18,7 @@ namespace Parsek.Tests.Analyzer
     //   pipeline, and writes the reports. It SKIPS CLEANLY when the env var is unset
     //   so it never runs (or fails) in the normal CI pass.
     //
-    // Sequential because Analyzer.Run drives the loader, which touches
+    // Sequential because OfflineAnalyzer.Run drives the loader, which touches
     // RecordingStore statics.
     [Collection("Sequential")]
     public class OfflineAnalyzerTests : IDisposable
@@ -90,7 +90,7 @@ namespace Parsek.Tests.Analyzer
             SynthesizeCorpus(saveDir);
             string resultsDir = Path.Combine(tempDir, "results");
 
-            AnalysisReport report = Analyzer.Run(saveDir, resultsDir, Resolver);
+            AnalysisReport report = OfflineAnalyzer.Run(saveDir, resultsDir, Resolver);
 
             Assert.Equal(0, report.Counts.Fail);
             Assert.Equal(0, report.Counts.StaleFixture);
@@ -117,7 +117,7 @@ namespace Parsek.Tests.Analyzer
             if (string.IsNullOrEmpty(resultsDir))
                 resultsDir = DefaultResultsDir();
 
-            AnalysisReport report = Analyzer.Run(saveDir, resultsDir, Resolver);
+            AnalysisReport report = OfflineAnalyzer.Run(saveDir, resultsDir, Resolver);
 
             string baseName = string.IsNullOrEmpty(report.SaveName) ? "analysis" : report.SaveName;
             Assert.True(File.Exists(Path.Combine(resultsDir, baseName + ".analysis.json")),

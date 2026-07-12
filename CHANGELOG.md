@@ -20,6 +20,7 @@ All notable changes to Parsek are documented here.
 ### Internals & Tests
 
 - Career recalculation is slightly cheaper: the walk now skips a redundant re-sort of the action list when nothing changed it. Recalculated career values are unchanged.
+- Added a developer-only way to run in-game test batches unattended, driven entirely by launch-time environment variables, plus a new set of recording-integrity checks that run in-game. It is completely inert in a normal game and never changes anything Parsek saves.
 
 ## 0.10.3
 

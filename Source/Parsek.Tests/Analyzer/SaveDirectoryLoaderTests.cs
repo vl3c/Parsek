@@ -155,10 +155,10 @@ namespace Parsek.Tests.Analyzer
             // Blocker regression: the sfs fault must reach the report as a red run,
             // not analyze GREEN. Route through the full Evaluate pipeline (not just
             // the model) so the LOADER-FAULT rule + verdict policy are exercised.
-            AnalysisReport report = Analyzer.Evaluate(model);
+            AnalysisReport report = InvariantEvaluator.Evaluate(model);
             Assert.True(report.IsRed);
             Assert.Contains(report.Findings, f =>
-                f.RuleId == Parsek.Tests.Analyzer.Rules.LoadFaultRule.RuleIdConst
+                f.RuleId == Parsek.Analyzer.Rules.LoadFaultRule.RuleIdConst
                 && f.Level == VerdictLevel.Fail
                 && f.Message.Contains("kind=sfs"));
         }

@@ -4,7 +4,7 @@ using System.Globalization;
 using System.IO;
 using Parsek;
 
-namespace Parsek.Tests.Analyzer.Rules
+namespace Parsek.Analyzer.Rules
 {
     // INV10 codec round-trips (design doc "The invariant rules" INV10, edge
     // case 25).

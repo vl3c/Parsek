@@ -169,6 +169,52 @@ namespace Parsek.InGameTests
             ParsekLog.Verbose("TestRunner", "MSN-001: MissionMark correlation marker format valid");
         }
 
+        // --- BAT-001: BATCH_COMPLETE marker format (module M-A3, hook H3) ---
+
+        [InGameTest(Category = "LogContracts",
+            Description = "BAT-001: BATCH_COMPLETE line matches the versioned [Parsek][INFO][TestRunner] contract")]
+        public static void BatchCompleteFormatValid()
+        {
+            // The external orchestrator (M-A5) greps this exact shape to read a batch
+            // tally without parsing the results file, so - like MSN-001 for
+            // MissionMark - it gets a dedicated contract test pinning the FULL
+            // prefixed line. Emit the H3 formatter's output through ParsekLog.Info the
+            // same way the batch-end region does, and capture the structured prefix.
+            var captured = new List<string>();
+            var originalObserver = ParsekLog.TestObserverForTesting;
+            try
+            {
+                ParsekLog.TestObserverForTesting = line => captured.Add(line);
+                ParsekLog.Info("TestRunner", InGameTestRunner.FormatBatchCompleteLine(
+                    total: 42, passed: 40, failed: 1, skipped: 1,
+                    category: "RecordingInvariants", scene: "FLIGHT"));
+            }
+            finally
+            {
+                ParsekLog.TestObserverForTesting = originalObserver;
+            }
+
+            InGameAssert.AreEqual(1, captured.Count, "BAT-001: expected exactly 1 captured line");
+
+            // The versioned contract, prefix included. A future v2 line would not match
+            // "BATCH_COMPLETE v1 ", forcing the bump to be deliberate.
+            var pattern = new Regex(
+                @"^\[Parsek\]\[INFO\]\[TestRunner\] BATCH_COMPLETE v1 " +
+                @"total=\d+ passed=\d+ failed=\d+ skipped=\d+ category=\S+ scene=\S+$");
+            InGameAssert.IsTrue(pattern.IsMatch(captured[0]),
+                $"BAT-001: BATCH_COMPLETE format invalid: {captured[0]}");
+
+            // Spell out the exact expected line so a format drift is caught, not masked
+            // by the permissive regex.
+            InGameAssert.AreEqual(
+                "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=42 passed=40 " +
+                "failed=1 skipped=1 category=RecordingInvariants scene=FLIGHT",
+                captured[0],
+                "BAT-001: unexpected BATCH_COMPLETE line");
+
+            ParsekLog.Verbose("TestRunner", "BAT-001: BATCH_COMPLETE marker format valid");
+        }
+
         // --- RAT-001: Suppressed count format ---
 
         [InGameTest(Category = "LogContracts",

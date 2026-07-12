@@ -243,6 +243,28 @@ namespace Parsek.InGameTests
         // disproven model - 4 retries all flooded and made a 469MB log).
         private bool spaceCenterBounceAttempted;
 
+        // The selector that produced the current batch, threaded into the H3
+        // BATCH_COMPLETE line's category= token (module M-A3, correction G4). RunBatch
+        // has no selector of its own, so each public entry point sets this before it
+        // starts the coroutine: "all" for the run-all paths, the category name for the
+        // run-category paths, "single" for RunSingle. Read once in the batch-end
+        // region; defaults to "all" so a batch that somehow started without setting it
+        // still emits a non-stale token.
+        private string currentBatchSelector = "all";
+
+        // [M-A3 P4.1] Autorun handoff (design "wasAutorunBatch handoff mechanism").
+        // H1 calls MarkNextBatchAutorun IMMEDIATELY before RunAll / RunCategory; RunBatch
+        // latches the two pending flags into the per-batch wasAutorunBatch /
+        // autorunExitArmedThisBatch at batch start and clears the pending flags, so the
+        // mark applies to exactly the next batch and never leaks to a later
+        // human-initiated one (edge 13). The per-batch pair is read in the batch-end
+        // region by H2 (P5.1). A human clicking Run All never calls MarkNextBatchAutorun,
+        // so its batch latches wasAutorunBatch=false and H2 never quits KSP under them.
+        private bool pendingAutorunBatch;
+        private bool pendingAutorunExit;
+        private bool wasAutorunBatch;
+        private bool autorunExitArmedThisBatch;
+
         // Results summary
         public int Passed { get; private set; }
         public int Failed { get; private set; }
@@ -316,9 +338,44 @@ namespace Parsek.InGameTests
             ParsekLog.Info(Tag, $"Discovered {allTests.Count} in-game tests");
         }
 
+        /// <summary>
+        /// [M-A3 hooks H1/H2] Marks the NEXT batch as an autorun batch (design
+        /// "wasAutorunBatch handoff mechanism"). Called by TestRunnerShortcut's H1 fire
+        /// path immediately before RunAll / RunCategory. <paramref name="exitAfterBatch"/>
+        /// carries the parsed PARSEK_AUTORUN_EXIT arming so the batch-end H2 decision can
+        /// quit without the runner re-reading the environment. The mark is latched into
+        /// exactly the next batch at RunBatch start and cleared there, so a human clicking
+        /// Run All (which never calls this) latches wasAutorunBatch=false and never quits
+        /// KSP (edge 13). Inert when never called.
+        /// </summary>
+        internal void MarkNextBatchAutorun(bool exitAfterBatch)
+        {
+            pendingAutorunBatch = true;
+            pendingAutorunExit = exitAfterBatch;
+            ParsekLog.Verbose(Tag, $"next batch marked autorun (exitAfterBatch={exitAfterBatch})");
+        }
+
+        /// <summary>
+        /// [M-A3 NIT 5] Clears the pending autorun-mark latch WITHOUT starting a batch.
+        /// The H1 fire path calls <see cref="MarkNextBatchAutorun"/> immediately before
+        /// <c>RunAll</c> / <c>RunCategory</c>; if that start throws (the batch never runs),
+        /// the pending flags would otherwise leak onto the next batch - which could be a
+        /// human clicking Run All later - and wrongly latch it as autorun (edge 13). The
+        /// fire path's catch calls this to close that leak. Idempotent and inert when no
+        /// mark is pending.
+        /// </summary>
+        internal void ClearPendingAutorunMark()
+        {
+            if (!pendingAutorunBatch && !pendingAutorunExit) return;
+            pendingAutorunBatch = false;
+            pendingAutorunExit = false;
+            ParsekLog.Warn(Tag, "cleared pending autorun mark (fire path threw before the batch started)");
+        }
+
         public void RunAll()
         {
             if (isRunning) return;
+            currentBatchSelector = "all";
             ResetBatchIsolationState();
             PerformBetweenRunCleanup("run-all");
             var eligible = PrepareBatchExecution(FilterSceneEligibleBatchCandidates(allTests));
@@ -332,6 +389,7 @@ namespace Parsek.InGameTests
         public void RunAllIncludingFlightRestore()
         {
             if (isRunning) return;
+            currentBatchSelector = "all";
             ResetBatchIsolationState();
             PerformBetweenRunCleanup("run-all+restore");
             var eligible = PrepareBatchExecutionIncludingFlightRestore(
@@ -347,6 +405,7 @@ namespace Parsek.InGameTests
         public void RunCategory(string category)
         {
             if (isRunning) return;
+            currentBatchSelector = category ?? "(null)";
             ResetBatchIsolationState();
             PerformBetweenRunCleanup("run-category:" + (category ?? "(null)"));
             var eligible = PrepareBatchExecution(FilterSceneEligibleBatchCandidates(
@@ -361,6 +420,7 @@ namespace Parsek.InGameTests
         public void RunCategoryIncludingFlightRestore(string category)
         {
             if (isRunning) return;
+            currentBatchSelector = category ?? "(null)";
             ResetBatchIsolationState();
             PerformBetweenRunCleanup("run-category+restore:" + (category ?? "(null)"));
             var eligible = PrepareBatchExecutionIncludingFlightRestore(
@@ -376,6 +436,7 @@ namespace Parsek.InGameTests
         public void RunSingle(InGameTestInfo test)
         {
             if (isRunning) return;
+            currentBatchSelector = "single";
             ResetBatchIsolationState();
             var single = new List<InGameTestInfo> { test };
             CaptureBatchBaseline(ClassifyBatchIsolationMode(
@@ -992,6 +1053,64 @@ namespace Parsek.InGameTests
                 skipped,
                 currentScene,
                 byScene);
+        }
+
+        /// <summary>
+        /// H3 BATCH_COMPLETE line (module M-A3, design "H3 line format"). The exact
+        /// token set + order is the versioned orchestrator contract: an external
+        /// nightly pipeline greps "BATCH_COMPLETE v1 " to read the batch tally
+        /// without parsing the whole results file. Any change to the tokens or their
+        /// meaning MUST bump v1 -> v2 and update the BAT-001 LogContract test.
+        ///
+        /// Pure and Unity-free: the caller passes HighLogic.LoadedScene.ToString() so
+        /// this stays xUnit-testable. Values never contain spaces (category is a
+        /// single token, scene is an enum name), keeping the line whitespace-split
+        /// friendly for a trivial grep/awk.
+        /// </summary>
+        internal static string FormatBatchCompleteLine(
+            int total, int passed, int failed, int skipped, string category, string scene)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "BATCH_COMPLETE v1 total={0} passed={1} failed={2} skipped={3} category={4} scene={5}",
+                total, passed, failed, skipped, category, scene);
+        }
+
+        /// <summary>
+        /// [M-A3 hook H2] Injectable quit seam (design "H2 - Quit mechanism"). Default is
+        /// the stock process-exit path: Application.Quit (KSP 1.12.5 exposes no
+        /// HighLogic.QuitGame, so the mechanism is always ApplicationQuit). xUnit injects a
+        /// recording no-op to assert the durable pre-quit line lands BEFORE the quit fires
+        /// and that a throwing quit is contained (edge 12). Reset to
+        /// <see cref="DefaultAutorunQuit"/> in the test's Dispose.
+        /// </summary>
+        internal static Action QuitCallbackForTesting = DefaultAutorunQuit;
+
+        private static void DefaultAutorunQuit() => Application.Quit();
+
+        /// <summary>
+        /// [M-A3 hook H2] The exit tail: log the durable pre-quit line, THEN invoke the
+        /// quit callback, wrapping it so a throwing quit logs an ERROR and returns (edge
+        /// 12; the orchestrator's timeout then reaps the process). Extracted so the
+        /// pre-quit-line-before-callback ordering is xUnit-testable with an injected
+        /// callback. Called from RunBatch's batch-end region only when
+        /// <see cref="AutorunHooks.H2ExitDecision"/> returns ShouldQuit, with no yield
+        /// between the teardown and the quit so the decision cannot go stale.
+        /// </summary>
+        internal static void PerformAutorunExit(Action quitCallback, string scene)
+        {
+            ParsekLog.Info(Tag,
+                "autorun exit: teardown+export complete, quitting KSP cleanly "
+                + $"(mechanism=ApplicationQuit) scene={scene}");
+            try
+            {
+                quitCallback?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(Tag,
+                    $"autorun exit quit call failed: {ex.GetType().Name}: {ex.Message}; "
+                    + "orchestrator timeout will reap the process");
+            }
         }
 
         internal List<InGameTestInfo> FilterSceneEligibleBatchCandidates(
@@ -1682,6 +1801,13 @@ namespace Parsek.InGameTests
         private IEnumerator RunBatch(List<InGameTestInfo> tests)
         {
             isRunning = true;
+            // [M-A3 P4.1] Latch the pending autorun mark into THIS batch and clear the
+            // pending flag so it applies to exactly this batch, never a later
+            // human-initiated one (edge 13). Read in the batch-end region by H2 (P5.1).
+            wasAutorunBatch = pendingAutorunBatch;
+            autorunExitArmedThisBatch = pendingAutorunExit;
+            pendingAutorunBatch = false;
+            pendingAutorunExit = false;
             BeginBatchExceptionMonitor();
             spaceCenterBounceAttempted = false; // once-per-batch recovery guard
             ParsekLog.Info(Tag, $"Starting test run: {tests.Count} tests");
@@ -1857,6 +1983,37 @@ namespace Parsek.InGameTests
             // InGameTestInfo.ResultsByScene, which ResetResults preserves, so
             // the file accumulates across KSC / Flight / Tracking Station runs.
             ExportResultsFile();
+
+            // H3 (module M-A3): emit the grep-stable BATCH_COMPLETE marker once per
+            // batch, immediately after export, so an external orchestrator can read
+            // the tally from the log without parsing the results file. total wires to
+            // `considered` (Status != NotRun, the same quantity the "Test run
+            // complete" summary logs), matching the per-scene accumulation. Placed
+            // here (after teardown + export, before the optional bounce) so the last
+            // durable batch record carries the machine-readable outcome.
+            ParsekLog.Info(Tag, FormatBatchCompleteLine(
+                considered, Passed, Failed, Skipped,
+                currentBatchSelector, HighLogic.LoadedScene.ToString()));
+
+            // H2 (module M-A3): exit-after-tests, evaluated AFTER the H3 emit so the last
+            // durable batch record (BATCH_COMPLETE) is written before the quit. Quits only
+            // when PARSEK_AUTORUN_EXIT was armed AND this was an autorun batch: a human
+            // clicking Run All in a process with the env set latched wasAutorunBatch=false
+            // and never quits under them (edge 13). When quitting, H2 supersedes the Space
+            // Center bounce (no operator to leave in a usable scene; the process is dying)
+            // and the disk save is already reverted by the teardown above, so skipping the
+            // bounce never risks the campaign (edge 11). No yield between here and the quit
+            // so the decision cannot go stale (same discipline as the bounce dispatch).
+            var h2 = AutorunHooks.H2ExitDecision(
+                autorunExitArmedThisBatch, wasAutorunBatch, bounceToSpaceCenter);
+            if (h2.ShouldQuit)
+            {
+                if (h2.SkipBounce && bounceToSpaceCenter)
+                    ParsekLog.Info(Tag,
+                        "autorun exit armed; skipping Space Center bounce recovery (process is quitting)");
+                PerformAutorunExit(QuitCallbackForTesting, HighLogic.LoadedScene.ToString());
+                yield break;
+            }
 
             // Last: the one-shot Space Center bounce recovery decided above. Dispatched
             // only after teardown + export so the disk revert and the results file are

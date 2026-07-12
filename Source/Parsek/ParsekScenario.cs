@@ -63,6 +63,20 @@ namespace Parsek
         /// <see cref="TestBatchMarker"/> and <see cref="RunTestBatchCrashReconcile"/>.</summary>
         public TestBatchMarker ActiveTestBatchMarker;
 
+        /// <summary>
+        /// [M-A3 correction G3] Read-only observable for the H1 autorun settle gate:
+        /// true from the moment a crash-reconcile schedules its deferred real reload
+        /// (set on the reloadable branch of <see cref="RunTestBatchCrashReconcileCore"/>)
+        /// until that reload completes (cleared at the end of
+        /// <see cref="DeferredReloadAfterTestBatchCrashReconcile"/>). H1 holds fire
+        /// while this is true so an autorun batch never captures its baseline against a
+        /// half-reverted save. Static so the DDOL TestRunnerShortcut addon can read it
+        /// across the reconcile reload; a failed reload deliberately leaves it set (the
+        /// reconcile did not complete, so H1 correctly keeps waiting). The flag only
+        /// EXPOSES existing in-flight state; it changes no crash-reconcile behavior.
+        /// </summary>
+        internal static bool CrashReconcileInProgress { get; private set; }
+
         /// <summary>Singleton; non-null only during a staged-commit merge.</summary>
         public MergeJournal ActiveMergeJournal;
 
@@ -2306,14 +2320,31 @@ namespace Parsek
             //    SaveGame from inside OnLoad.
             if (reloadable)
             {
+                // [M-A3 G3] Arm the H1 settle gate: hold autorun fire until the
+                // deferred reload completes so the batch baseline is captured against
+                // the reverted save, not this half-reverted OnLoad pass.
+                CrashReconcileInProgress = true;
+                ParsekLog.Info("TestBatch", $"crash-reconcile in progress: {reason}");
                 StartCoroutine(DeferredReloadAfterTestBatchCrashReconcile(HighLogic.SaveFolder, marker));
             }
             else
             {
+                // [M-A3 FIX 2] The marker was already nulled above (step 4), so H1's
+                // MarkerWouldReconcile now reports false - but the on-disk save is only
+                // HALF reverted here (disk revert incomplete) and NO deferred reload will
+                // clean it. Leaving the H1 settle gate open would fire an autorun batch
+                // against the mutated save and capture a poisoned baseline. Set the
+                // in-progress flag so ReconcileGateClear holds fire FOREVER; unlike the
+                // reloadable path there is no deferred-reload completion to clear it, so
+                // the external orchestrator's timeout is the intended reaper.
+                CrashReconcileInProgress = true;
                 ParsekLog.Warn("TestBatch",
                     "crash-reconcile: disk revert incomplete "
                     + $"(persistent={diskReverted}, sidecars={sidecarsReverted}); skipping deferred "
-                    + "reload and preserving the .bak + snapshot for manual recovery");
+                    + "reload and preserving the .bak + snapshot for manual recovery. Holding the "
+                    + "autorun H1 gate closed indefinitely (no deferred reload will clear it; the "
+                    + "orchestrator timeout is the reaper) so no autorun batch runs against the "
+                    + "half-reverted save");
             }
         }
 
@@ -2518,6 +2549,12 @@ namespace Parsek
             // available right up until the clean reload, so a reload failure above
             // leaves every artifact intact for manual recovery.
             TryDeletePersistentBackupAndSnapshotArtifacts(marker);
+
+            // [M-A3 G3] Reconcile has fully completed: release the H1 settle gate.
+            // A failed reload above returns early WITHOUT reaching here, so the flag
+            // stays set and H1 keeps waiting (the reconcile did not complete).
+            CrashReconcileInProgress = false;
+            ParsekLog.Info("TestBatch", "crash-reconcile complete; cleared");
         }
 
         /// <summary>Best-effort crash-path artifact sweep: deletes the .bak named in

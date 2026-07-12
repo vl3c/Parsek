@@ -14,6 +14,13 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## M-A3 - Autorun in-game test hooks + RecordingInvariants in-game category [LANDED, branch `autotest-hooks`]
+
+- ~~Env-gated autorun hooks (`PARSEK_AUTORUN_TESTS` selector, `PARSEK_AUTORUN_EXIT` quit-after) so an external orchestrator can run in-game test batches unattended and read a grep-stable `BATCH_COMPLETE v1` line per batch.~~ DONE. Inert by default (both env vars unset = zero per-frame work, no behavior change, nothing written to any save). Design: `docs/dev/design-autotest-autorun-hooks.md`.
+- ~~`RecordingInvariants` in-game test category (H5): walks the live `RecordingStore` and runs the shared analyzer invariants against it in a real KSP session.~~ DONE. The analyzer core now lives in `Parsek.dll` (`Parsek.Analyzer`) so the same rules run offline and in-game.
+
+**Known limitation (NIT-4, accepted / deferred):** an exit-armed MULTI-category autorun run does not suppress the mid-run Space Center bounce if a token hits an NRE storm. The per-token batches are deliberately non-exit-armed (only the driver's final aggregate exit quits KSP), so a storming token still runs the normal Space Center bounce recovery before the run continues; the aggregate quit happens after all tokens. Campaign-safe (the disk save is already reverted by the token's teardown), so this is accepted for v1 rather than fixed. Single-category and `all` exit-armed runs are unaffected (H2 supersedes the bounce there).
+
 ## ~~FIXED~~ - Supply-route inventory delivery only targeted the FIRST inventory module on the destination (2026-07-11, branch `fix-delivery-multimodule`)
 
 **Bug:** `LiveDeliveryCapacityProbe.ProbeLoadedFirstEmpty` / `ProbeUnloadedFirstEmpty` stopped at the first `ModuleInventoryPart` and reported "no slot" when that one module was full, and `LiveDeliveryWriters.WriteInventoryLoaded` / `WriteInventoryUnloaded` wrote into the first inventory module they found. A destination whose first cargo container is full but whose later containers have free slots reported inventory items as undelivered. `consumedSlots` was a bare slot-index HashSet, only correct under the single-module assumption. Pickup and origin-debit (`LiveInventoryPickupWriter`) already scanned ALL inventory modules; this was a delivery-side-only gap.

@@ -4,7 +4,7 @@ using System.Globalization;
 using System.IO;
 using Parsek;
 
-namespace Parsek.Tests.Analyzer.Rules
+namespace Parsek.Analyzer.Rules
 {
     // INV9 rewind-save + id validation (design doc "The invariant rules" INV9,
     // edge case 19).

@@ -52,7 +52,7 @@ namespace Parsek.Tests.Analyzer
         [Fact]
         public void Evaluate_FailFinding_CountsFail_AndRunIsRed()
         {
-            var report = Analyzer.Evaluate(
+            var report = InvariantEvaluator.Evaluate(
                 InMemoryModel(),
                 Rules(new Finding("INV1-UT-MONOTONIC", VerdictLevel.Fail, "rec-1", -1, "m", "c")));
 
@@ -65,7 +65,7 @@ namespace Parsek.Tests.Analyzer
         [Fact]
         public void Evaluate_WarnOnly_NotRed_ButSurfaced()
         {
-            var report = Analyzer.Evaluate(
+            var report = InvariantEvaluator.Evaluate(
                 InMemoryModel(),
                 Rules(new Finding("INV3-ABSOLUTE-RANGE", VerdictLevel.Warn, "rec-1", -1, "m", "c")));
 
@@ -79,7 +79,7 @@ namespace Parsek.Tests.Analyzer
         [Fact]
         public void Evaluate_InfoOnly_NotRed()
         {
-            var report = Analyzer.Evaluate(
+            var report = InvariantEvaluator.Evaluate(
                 InMemoryModel(),
                 Rules(new Finding("INV6-RESOURCE-MANIFEST", VerdictLevel.Info, "rec-1", -1, "m", "c")));
 
@@ -92,7 +92,7 @@ namespace Parsek.Tests.Analyzer
         [Fact]
         public void Evaluate_StaleFixture_RedButDistinctFromFail()
         {
-            var report = Analyzer.Evaluate(
+            var report = InvariantEvaluator.Evaluate(
                 InMemoryModel(),
                 Rules(new Finding("FIX-STALE", VerdictLevel.StaleFixture, "rec-1", -1, "m", "c")));
 
@@ -111,7 +111,7 @@ namespace Parsek.Tests.Analyzer
         {
             Assert.NotEmpty(InvariantRegistry.AllRules);
 
-            var report = Analyzer.Evaluate(InMemoryModel());
+            var report = InvariantEvaluator.Evaluate(InMemoryModel());
             Assert.Empty(report.Findings);
             Assert.False(report.IsRed);
         }
@@ -121,10 +121,10 @@ namespace Parsek.Tests.Analyzer
         [Fact]
         public void Evaluate_DiscoversSubjectSchemaGeneration_FromRecordings()
         {
-            var withRecordings = Analyzer.Evaluate(InMemoryModel());
+            var withRecordings = InvariantEvaluator.Evaluate(InMemoryModel());
             Assert.Equal(4, withRecordings.SubjectSchemaGeneration);
 
-            var empty = Analyzer.Evaluate(new AnalyzerModel { SaveName = "empty" });
+            var empty = InvariantEvaluator.Evaluate(new AnalyzerModel { SaveName = "empty" });
             Assert.Equal(0, empty.SubjectSchemaGeneration);
         }
 
@@ -138,7 +138,7 @@ namespace Parsek.Tests.Analyzer
         {
             var model = InMemoryModel();
 
-            Exception thrown = Record.Exception(() => Analyzer.Evaluate(model, InvariantRegistry.AllRules));
+            Exception thrown = Record.Exception(() => InvariantEvaluator.Evaluate(model, InvariantRegistry.AllRules));
 
             Assert.Null(thrown);
         }
