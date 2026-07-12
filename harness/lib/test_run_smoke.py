@@ -161,7 +161,8 @@ class FakeKspSmokeTests(unittest.TestCase):
         # Redirect the durable result store into the temp dir.
         self._orig_results = run.RESULTS_DIR
         run.RESULTS_DIR = os.path.join(self.tmp, "results")
-        self.logger = run.HarnessLogger()
+        # S6: a per-invocation harness log file alongside stdout.
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "smoke_harness.log"))
 
     def tearDown(self):
         run.RESULTS_DIR = self._orig_results
@@ -201,6 +202,12 @@ class FakeKspSmokeTests(unittest.TestCase):
         self.assertFalse(result["collectLogs"]["ran"])
         # The durable result landed.
         self.assertTrue(os.path.isfile(os.path.join(run.RESULTS_DIR, "%s.json" % result["runId"])))
+        # S6: the per-invocation harness log file exists and carries the verdict line.
+        self.assertTrue(os.path.isfile(self.logger.log_path))
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            log_body = fh.read()
+        self.assertIn("verdict=%s" % hlib.VERDICT_PASS, log_body,
+                      "the harness log file must carry the Classify verdict line")
 
     def test_hang_is_killed_within_budget(self):
         """KILLED: the stub wedges on RunTests; the run-budget watchdog must kill

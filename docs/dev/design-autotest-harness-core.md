@@ -1100,11 +1100,12 @@ every existing manual invocation of those scripts is byte-identical.
 
 ## Diagnostic Logging
 
-The harness logs to stdout AND an append-only per-run log
-`harness/results/<runId>.log`, one decision per line, format
-`[Harness][LEVEL][Step] message` (mirroring ParsekLog / the provisioner's
-`[Provision]`), so a scheduled unattended run is fully reconstructable from the log
-alone (plan section 10). Every branch logs; the batch-counting convention applies
+The harness logs to stdout AND an append-only per-INVOCATION log
+`harness/results/<ts>_harness.log` (S6; one run.py invocation runs a whole
+selection, so the log is keyed by the launch timestamp, not a per-scenario runId),
+one decision per line, format `[Harness][LEVEL][Step] message` (mirroring ParsekLog
+/ the provisioner's `[Provision]`), so a scheduled unattended run is fully
+reconstructable from the log alone (plan section 10). Every branch logs; the batch-counting convention applies
 to the per-response-line poll (one summary line, not one per poll).
 
 - **SELECT**: `Info` "select expr='<expr>' -> <n> scenarios: [<ids>]"; per invalid
@@ -1159,7 +1160,7 @@ to the per-response-line poll (one summary line, not one per poll).
   per uncovered value `Verbose`; per quarantine `Warn`
   "flake quarantine scenario=<id> stage=<s> rate=<r> over 7d".
 
-Goal: reading only `harness/results/<runId>.log` and `<runId>.json`, a developer
+Goal: reading only `harness/results/<ts>_harness.log` and `<runId>.json`, a developer
 can reconstruct which scenario ran on which instance, which driver steps got which
 verdicts, why the run was classified as it was, and where the heavy snapshot
 landed, without rerunning anything.

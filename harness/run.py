@@ -106,6 +106,15 @@ def utcnow_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def default_harness_log_path() -> str:
+    """Per-INVOCATION harness log path ``harness/results/<ts>_harness.log`` (S6).
+    One run.py invocation runs a whole selection, so the log is keyed by the launch
+    timestamp, not a per-scenario runId; every stdout line is also appended here so
+    a scheduled unattended run is reconstructable from the file alone."""
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
+    return os.path.join(RESULTS_DIR, "%s_harness.log" % ts)
+
+
 # ---------------------------------------------------------------------------
 # Harness logger: stdout + append-only per-run log (design Diagnostic Logging).
 # ---------------------------------------------------------------------------
@@ -353,7 +362,8 @@ def read_manifest(instance_dir: str) -> Tuple[Optional[Dict], bool]:
         return None, incomplete
 
 
-def build_expected_from_manifest(manifest: Dict, instance_dir: str) -> Dict:
+def build_expected_from_manifest(manifest: Dict, instance_dir: str,
+                                 logger: Optional[HarnessLogger] = None) -> Dict:
     """v1 expected-admission construction (design S11 ADAPTATION -- see NOTE).
 
     The provisioner's live manifest-stamping recipe (phase_deploy content hashes)
@@ -361,9 +371,15 @@ def build_expected_from_manifest(manifest: Dict, instance_dir: str) -> Dict:
     hashes / resolved git commits from committed sources alone. v1 therefore
     projects the on-disk manifest as the expected baseline and substitutes the
     ONE substantive drift check the design calls out loudest: the DEPLOYED
-    Parsek.dll sha vs the manifest's recorded parsek dll hash. A redeployed DLL
-    that no longer matches the recorded manifest reds the run as drifted; the
-    remaining fields admit as-recorded until the provisioner's live hashing lands.
+    Parsek.dll sha vs the manifest's recorded parsek dll hash.
+
+    NOTE (v1 adaptation, adjudication 1): this detects POST-PROVISION CLOBBER only
+    -- the deployed DLL was CHANGED after the provisioner stamped the manifest
+    (fresh sha != recorded sha -> drift). It does NOT detect a STALE DEPLOY (Parsek
+    rebuilt in source but never redeployed, so the manifest and the deployed DLL
+    still agree on the old hash); catching source-newer-than-deployed needs the
+    provisioner's live content-hash recipe and is deferred. The remaining fields
+    admit as-recorded until that live hashing lands.
     """
     import copy
     expected = copy.deepcopy({k: manifest.get(k) for k in provlib.ADMISSION_KEYS if k in manifest})
@@ -375,6 +391,11 @@ def build_expected_from_manifest(manifest: Dict, instance_dir: str) -> Dict:
         if fresh is not None:
             for k in recorded_keys:
                 parsek[k] = fresh
+    elif logger is not None:
+        # N2: no recorded parsek dll hash means the ONE substantive drift check is a
+        # no-op and admission rubber-stamps on the remaining as-recorded fields.
+        logger.warn("Admit", "admission: manifest parsek component carries no dll hash (%s); the DLL clobber check is a no-op, admitting on the remaining fields only (N2)"
+                    % ("dll file missing" if recorded_keys else "no dllSha256/sha256/dllHash key"))
     return expected
 
 
@@ -953,7 +974,7 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
 
     # ---- ADMIT -----------------------------------------------------------
     manifest, incomplete = read_manifest(instance_dir)
-    expected = build_expected_from_manifest(manifest, instance_dir) if manifest else {}
+    expected = build_expected_from_manifest(manifest, instance_dir, logger) if manifest else {}
     admission = hlib.admit_instance(expected, manifest, incomplete)
     admit_diff = [
         {"field": d.field, "expected": d.expected, "actual": d.actual, "kind": d.kind}
@@ -1027,6 +1048,11 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         # ---- VERIFY ------------------------------------------------------
         facts = run_verifiers(spec, instance_dir, run_save_name, drive, runtime, logger)
         driver_facts = facts["driver"]
+        # NOTE (N4): v1 flags boot-crash-repeated on ANY second boot-crash. The S7
+        # boot-crash SIGNATURE compare (exit code + last KSP.log lines) that would
+        # distinguish a deterministic boot crash from two unrelated boot flakes is
+        # DEFERRED; here a second consecutive boot-crash attempt is treated as
+        # repeated regardless of signature.
         if drive.boot_crashed and prior_boot_crashed:
             driver_facts["boot_crash_repeated"] = True
 
@@ -1301,7 +1327,7 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
 
     runtime = runtime or Runtime()
     umbrella_root = os.path.abspath(args.umbrella_root) if args.umbrella_root else DEFAULT_UMBRELLA_ROOT
-    logger = HarnessLogger()
+    logger = HarnessLogger(default_harness_log_path())
 
     registry = load_registry()
     specs = load_all_specs()
