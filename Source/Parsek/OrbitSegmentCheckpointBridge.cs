@@ -771,11 +771,12 @@ namespace Parsek
 
                     for (int j = 0; j < section.checkpoints.Count; j++)
                     {
-                        OrbitSegment segment = section.checkpoints[j];
-                        if (segment.isPredicted)
-                            continue;
-
-                        rebuilt.Add(segment);
+                        // Predicted checkpoints included: sections legitimately carry
+                        // predicted terminal checkpoints (scene-exit finalization),
+                        // and the flat copy under the same section span is dropped
+                        // by the coverage rule below - skipping them here would lose
+                        // the prediction from the flat cache entirely.
+                        rebuilt.Add(section.checkpoints[j]);
                     }
                 }
             }
