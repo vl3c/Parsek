@@ -1,0 +1,118 @@
+[Harness][Info][Select] select expr='--id S1.4-injected-playback' -> 1 scenarios: ['S1.4-injected-playback']
+[Harness][Info][Admit] admit instance=stock-minimal manifest=present result=OK
+[Harness][Info][Lock] run-lock acquired instance=C:\Users\vlad3\Documents\Code\Parsek\automation\stock-minimal pid=55016
+[Harness][Info][Preflight] zombie-check instance=stock-minimal result=CLEAR
+[Harness][Info][Stage] stage save=gloops-airshow template=fixtures/saves/gloops-airshow inject=all-synthetic craft=0 results-rotated=True
+[Harness][Info][Launch] launch exe=C:\Users\vlad3\Documents\Code\Parsek\automation\stock-minimal\KSP_x64.exe pid=60960 env=[TEST_COMMANDS=1 AUTORUN=unset EXIT=0] budget=720s
+[Harness][Info][Drive] drive step=0 id=0001 cmd=LoadGame expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=20/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=30/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=40/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=50/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=60/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=70/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=80/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=90/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=100/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=110/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=120/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=130/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=140/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=150/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=160/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=170/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=180/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=190/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=200/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=210/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=220/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=230/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=240/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=250/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=260/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=270/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=280/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=290/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=300/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=310/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=320/660
+[Harness][Info][Drive] drive resp id=0001 verdict=ERROR met=False
+[Harness][Info][Drive] drive step=1 id=0002 cmd=SetSetting expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0002 elapsed=10/60
+[Harness][Verbose][Drive] poll: pendingId=0002 elapsed=20/60
+[Harness][Verbose][Drive] poll: pendingId=0002 elapsed=30/60
+[Harness][Verbose][Drive] poll: pendingId=0002 elapsed=40/60
+[Harness][Verbose][Drive] poll: pendingId=0002 elapsed=50/60
+[Harness][Verbose][Drive] poll: pendingId=0002 elapsed=60/60
+[Harness][Info][Drive] drive resp id=0002 verdict=TIMEOUT met=False
+[Harness][Info][Drive] drive step=2 id=0003 cmd=RunTests expect=OK
+[Harness][Info][Drive] drive resp id=0003 verdict=OK met=True
+[Harness][Info][Drive] drive step=3 id=0004 cmd=FlushAndQuit expect=OK
+[Harness][Info][Drive] drive resp id=0004 verdict=OK met=True
+[Harness][Info][Verify] verify driverValidity status=FAIL allMet=False subkind=load-failed
+[Harness][Info][Verify] verify batchComplete status=PASS found=True failed=0
+[Harness][Info][Verify] verify analyzer status=PASS red=0 subkind= topRule=None (triage-only)
+[Harness][Info][Classify] verdict=INVALID scenario=S1.4-injected-playback attempt=1 reason=driver stage failed
+[Harness][Info][Collect] collect-logs label=S1.4-injected-playback -> Collecting logs into: 2026-07-12_1903_S1.4-injected-playback/
+[Harness][Info][Result] result written C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\results\2026-07-12_1603_S1.4-injected-playback.json
+[Harness][Info][Retry] retry scenario=S1.4-injected-playback attempt=2 reason=INVALID
+[Harness][Info][Admit] admit instance=stock-minimal manifest=present result=OK
+[Harness][Info][Lock] run-lock acquired instance=C:\Users\vlad3\Documents\Code\Parsek\automation\stock-minimal pid=55016
+[Harness][Info][Preflight] zombie-check instance=stock-minimal result=CLEAR
+[Harness][Info][Stage] stage save=gloops-airshow template=fixtures/saves/gloops-airshow inject=all-synthetic craft=0 results-rotated=True
+[Harness][Info][Launch] launch exe=C:\Users\vlad3\Documents\Code\Parsek\automation\stock-minimal\KSP_x64.exe pid=26392 env=[TEST_COMMANDS=1 AUTORUN=unset EXIT=0] budget=720s
+[Harness][Info][Drive] drive step=0 id=0001 cmd=LoadGame expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=20/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=30/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=40/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=50/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=60/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=70/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=80/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=90/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=100/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=110/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=120/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=130/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=140/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=150/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=160/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=170/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=180/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=190/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=200/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=210/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=220/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=230/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=240/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=250/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=260/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=270/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=280/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=290/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=300/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=310/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=320/660
+[Harness][Info][Drive] drive resp id=0001 verdict=ERROR met=False
+[Harness][Info][Drive] drive step=1 id=0002 cmd=SetSetting expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0002 elapsed=10/60
+[Harness][Verbose][Drive] poll: pendingId=0002 elapsed=20/60
+[Harness][Verbose][Drive] poll: pendingId=0002 elapsed=30/60
+[Harness][Verbose][Drive] poll: pendingId=0002 elapsed=40/60
+[Harness][Verbose][Drive] poll: pendingId=0002 elapsed=50/60
+[Harness][Verbose][Drive] poll: pendingId=0002 elapsed=60/60
+[Harness][Info][Drive] drive resp id=0002 verdict=TIMEOUT met=False
+[Harness][Info][Drive] drive step=2 id=0003 cmd=RunTests expect=OK
+[Harness][Info][Drive] drive resp id=0003 verdict=OK met=True
+[Harness][Info][Drive] drive step=3 id=0004 cmd=FlushAndQuit expect=OK
+[Harness][Info][Drive] drive resp id=0004 verdict=OK met=True
+[Harness][Info][Verify] verify driverValidity status=FAIL allMet=False subkind=load-failed
+[Harness][Info][Verify] verify batchComplete status=PASS found=True failed=0
+[Harness][Info][Verify] verify analyzer status=PASS red=0 subkind= topRule=None (triage-only)
+[Harness][Info][Classify] verdict=INVALID scenario=S1.4-injected-playback attempt=2 reason=driver stage failed
+[Harness][Info][Collect] collect-logs label=S1.4-injected-playback -> Collecting logs into: 2026-07-12_1910_S1.4-injected-playback/
+[Harness][Info][Result] result written C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\results\2026-07-12_1610_S1.4-injected-playback_a2.json
+[Harness][Warn][Coverage] flake quarantine scenario=S1.4-injected-playback stage=run rate=0.80 over 7d
+[Harness][Info][Coverage] coverage: values=238 covered=12 uncovered=226 expectedFail=0 xpass=0

@@ -742,20 +742,43 @@ class LogValidateProfile:
     mandatory_rules: Tuple[str, ...]
 
 
-def select_logvalidate_profile(recordings_count_max: Optional[int], killed: bool) -> LogValidateProfile:
+def spec_expects_live_recording(spec: Dict) -> bool:
+    """True when the RUN itself is expected to write recording start/stop log
+    lines: the driver carries a StartRecording step, or pins
+    autoRecordOnLaunch=true via SetSetting. Injection-seeded scenarios
+    (recordings present in the SAVE but never recorded live) return False -
+    the first live S1.4 run proved count.max>0 is the WRONG suppression key:
+    it red-flagged REC-001/REC-003 on a run that legitimately never records."""
+    driver = spec.get("driver", {}) or {}
+    for step in driver.get("steps", []) or []:
+        cmd = (step.get("cmd") or "")
+        if cmd == "StartRecording":
+            return True
+        if cmd == "SetSetting":
+            name = (step.get("args", {}) or {}).get("name", "")
+            value = str((step.get("args", {}) or {}).get("value", "")).lower()
+            if name == "autoRecordOnLaunch" and value == "true":
+                return True
+    return False
+
+
+def select_logvalidate_profile(live_recording_expected: bool, killed: bool) -> LogValidateProfile:
     """Select the two orthogonal log-validation suppression profiles by run shape.
 
-    - Recording-rules suppression (B1): IFF ``count.max == 0`` the harness
-      suppresses exactly REC-001/REC-003, so a legitimately recording-free run
-      (the flagship B10 daily loop) validates clean instead of redding on the
-      marker-pairing rules; SES/FMT/WRN stay mandatory. For ``count.max > 0`` the
-      REC rules stay mandatory (a dropped recording still reds).
+    - Recording-rules suppression (B1, REVISED after the first live run): IFF
+      the run does NOT expect live recording (``spec_expects_live_recording``
+      is False - no StartRecording step, no autoRecordOnLaunch=true pin) the
+      harness suppresses exactly REC-001/REC-003. The original key
+      (``recordings.count.max == 0``) mis-fired on injection-seeded scenarios
+      whose SAVE holds recordings the run never records live. When live
+      recording IS expected the REC rules stay mandatory (a dropped recording
+      still reds).
     - Killed-run mode (S13): a KILLED attempt adds ``-KilledRun``, suppressing the
       marker-pairing rules SES-000/SES-001/REC-001/REC-003 (a kill legitimately
       truncates the tail) while FMT/WRN stay mandatory.
     The two are independent (a run can be in one, both, or neither).
     """
-    suppress_rec = (recordings_count_max == 0)
+    suppress_rec = not live_recording_expected
     suppressed: set = set()
     if suppress_rec:
         suppressed.update(LOGVALIDATE_RECORDING_RULES)
