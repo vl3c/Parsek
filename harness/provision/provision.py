@@ -724,6 +724,17 @@ def phase_settings(ctx: ProvisionContext) -> Dict[str, str]:
     return deltas
 
 
+def _resolve_aux_payload(ctx: ProvisionContext) -> "provlib.ParsekAuxPayload":
+    """Resolve the Parsek DEPLOY aux payload (version + toolbar textures) for
+    this instance: worktree GameData/Parsek first, repo img/ next, dev install
+    GameData/Parsek last."""
+    return provlib.resolve_parsek_aux_payload(
+        os.path.join(WORKTREE_ROOT, "GameData", "Parsek"),
+        os.path.join(WORKTREE_ROOT, "img"),
+        os.path.join(ctx.dev_install, "GameData", "Parsek"),
+        os.path.isfile)
+
+
 def phase_deploy(ctx: ProvisionContext) -> Dict[str, object]:
     """Stage-then-install Parsek.dll with hash + UTF-16 grep (design DEPLOY)."""
     # SF8: no hardcoded sibling-worktree default. The override wins, else this
@@ -747,6 +758,14 @@ def phase_deploy(ctx: ProvisionContext) -> Dict[str, object]:
             "would copy %s -> .stage (hash) -> %s/GameData/Parsek/Plugins/Parsek.dll, "
             "re-hash + assert equal, UTF-16 grep %s"
             % (source, ctx.instance_dir, "/".join(PARSEK_SIGNATURE_STRINGS)))
+        payload = _resolve_aux_payload(ctx)
+        for f in payload.files:
+            log(ctx, "Info", "Deploy", "would install aux %s <- %s (%s), hash into manifest"
+                % (f.dest_rel, f.source, f.origin))
+        for dest in payload.missing_required:
+            log(ctx, "Amber", "Deploy", "required aux payload %s: NO source (a live run would ABORT EC-9)" % dest)
+        for dest in payload.missing_optional:
+            log(ctx, "Info", "Deploy", "optional aux payload %s: no source, skipped" % dest)
         return info
 
     if not sel.ok:
@@ -793,6 +812,27 @@ def phase_deploy(ctx: ProvisionContext) -> Dict[str, object]:
             return info
     info["dllSha256"] = installed_sha
     info["signatureStrings"] = sigs
+
+    # DEPLOY is not just the DLL: install the version file + toolbar textures in
+    # the same GameData/Parsek payload (their absence floods ToolbarControl.OnGUI
+    # with per-frame NREs). Hash each into the manifest so VERIFY re-hashes and
+    # --repair reconverges (field components.parsek.auxFiles.<dest>).
+    payload = _resolve_aux_payload(ctx)
+    for dest in payload.missing_required:
+        abort(ctx, "Deploy", "EC-9",
+              "required Parsek aux payload %s has no source (worktree GameData/Parsek, "
+              "repo img/, or dev install GameData/Parsek)" % dest)
+        return info
+    aux_hashes: Dict[str, str] = {}
+    for f in payload.files:
+        dst = os.path.join(ctx.parsek_gamedata, *f.dest_rel.split("/"))
+        _copy_file(f.source, dst)
+        sha = sha256_file(dst)
+        aux_hashes[f.dest_rel] = sha
+        log(ctx, "Info", "Deploy", "aux %s <- %s (%s) sha256=%s" % (f.dest_rel, f.source, f.origin, sha))
+    for dest in payload.missing_optional:
+        log(ctx, "Warn", "Deploy", "optional Parsek aux payload %s absent from all sources; skipped" % dest)
+    info["auxFiles"] = aux_hashes
     return info
 
 
@@ -975,6 +1015,22 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
                 % (s, n, exp, "OK" if ok_sig else "DRIFT"))
             if not ok_sig:
                 _drift("components.parsek.signatureStrings.%s" % s, exp, n)
+
+    # Parsek aux payload (version + toolbar textures) re-hash. These live in the
+    # GameData/Parsek payload independent of the DLL; a missing texture is what
+    # floods ToolbarControl.OnGUI, so a dropped/edited aux file must drift.
+    for dest_rel, exp in (parsek.get("auxFiles", {}) or {}).items():
+        aux_path = os.path.join(ctx.parsek_gamedata, *dest_rel.split("/"))
+        if not os.path.isfile(aux_path):
+            log(ctx, "Error", "Verify", "parsek aux %s MISSING" % dest_rel)
+            _drift("components.parsek.auxFiles.%s" % dest_rel, exp, None)
+            continue
+        cur = sha256_file(aux_path)
+        ok_aux = cur == exp
+        log(ctx, "Info" if ok_aux else "Error", "Verify",
+            "parsek aux %s on-disk sha256 %s manifest" % (dest_rel, "==" if ok_aux else "!="))
+        if not ok_aux:
+            _drift("components.parsek.auxFiles.%s" % dest_rel, exp, cur)
 
     # Per-component installed DLL hashes (INSTALL / BUILD-TT).
     for comp in ("krpc", "testingtools", "krpc_mechjeb", "mechjeb2"):

@@ -205,6 +205,107 @@ def select_parsek_dll_source(
 
 
 # ---------------------------------------------------------------------------
+# Parsek DEPLOY auxiliary payload (design DEPLOY). The deployed GameData/Parsek
+# is NOT just Plugins/Parsek.dll: the KSP-AVC version file and the toolbar
+# textures ship in the same payload (matching the dev layout + scripts/
+# release.py). Their absence floods ToolbarControl.OnGUI with a per-frame
+# NullReferenceException -- ParsekFlight/ParsekKSC AddToAllToolbars read
+# "Parsek/Textures/parsek_64" (large) + "Parsek/Textures/parsek_32" (small), and
+# a mod that registers a toolbar button whose icon texture cannot be found NREs
+# every OnGUI. This decides the aux dest->source mapping purely (existence
+# probe injected), tried in priority order per dest.
+# ---------------------------------------------------------------------------
+
+# The full dev/app-launcher texture set. 32 + 64 are the two ToolbarControl
+# actually reads, so they are REQUIRED; 24 + 38 round out the dev layout.
+PARSEK_TEXTURE_SIZES = (24, 32, 38, 64)
+PARSEK_REQUIRED_TEXTURE_SIZES = (32, 64)
+
+# img/ basenames. scripts/release.py sources 32/64 from the repo img/ folder;
+# only these two exist there. 24/38 live only in the dev install's Textures/.
+_PARSEK_IMG_TEXTURE_BASENAME = {32: "parsek logo - 32.png", 64: "parsek logo - 64.png"}
+
+
+@dataclass(frozen=True)
+class ParsekAuxFile:
+    dest_rel: str   # relative to GameData/Parsek, forward-slash form
+    source: str     # resolved absolute source path
+    origin: str     # "worktree-gamedata" | "worktree-img" | "dev-install"
+
+
+@dataclass(frozen=True)
+class ParsekAuxPayload:
+    files: Tuple[ParsekAuxFile, ...]      # resolved dest->source, stable order
+    missing_required: Tuple[str, ...]     # required dests with NO available source
+    missing_optional: Tuple[str, ...]     # optional dests with NO available source
+
+
+def resolve_parsek_aux_payload(
+    worktree_gamedata_parsek: str,
+    worktree_img: str,
+    dev_gamedata_parsek: str,
+    exists: Callable[[str], bool],
+) -> ParsekAuxPayload:
+    """Resolve the Parsek DEPLOY aux payload (version file + toolbar textures).
+
+    Priority per dest: this worktree's own GameData/Parsek copy first (repo is
+    the source of truth), then the repo img/ folder for the two textures it
+    carries, then the read-only dev install's GameData/Parsek as the last resort
+    (24/38 exist only there). ``exists`` is injected so the decision is pure over
+    the filesystem. Required missing (Parsek.version, parsek_32/64) are surfaced
+    separately from optional missing (parsek_24/38) so the caller can fail loud
+    on the former and merely note the latter."""
+    files: List[ParsekAuxFile] = []
+    missing_required: List[str] = []
+    missing_optional: List[str] = []
+
+    def _first(candidates: Sequence[Tuple[str, str]]) -> Optional[Tuple[str, str]]:
+        for origin, path in candidates:
+            if path and exists(path):
+                return origin, path
+        return None
+
+    ver_hit = _first([
+        ("worktree-gamedata", posixpath.join(_slash(worktree_gamedata_parsek), "Parsek.version")),
+        ("dev-install", posixpath.join(_slash(dev_gamedata_parsek), "Parsek.version")),
+    ])
+    if ver_hit:
+        files.append(ParsekAuxFile("Parsek.version", ver_hit[1], ver_hit[0]))
+    else:
+        missing_required.append("Parsek.version")
+
+    for size in PARSEK_TEXTURE_SIZES:
+        dest = "Textures/parsek_%d.png" % size
+        cands: List[Tuple[str, str]] = [
+            ("worktree-gamedata",
+             posixpath.join(_slash(worktree_gamedata_parsek), "Textures", "parsek_%d.png" % size)),
+        ]
+        if size in _PARSEK_IMG_TEXTURE_BASENAME:
+            cands.append(("worktree-img",
+                          posixpath.join(_slash(worktree_img), _PARSEK_IMG_TEXTURE_BASENAME[size])))
+        cands.append(("dev-install",
+                      posixpath.join(_slash(dev_gamedata_parsek), "Textures", "parsek_%d.png" % size)))
+        hit = _first(cands)
+        if hit:
+            files.append(ParsekAuxFile(dest, hit[1], hit[0]))
+        elif size in PARSEK_REQUIRED_TEXTURE_SIZES:
+            missing_required.append(dest)
+        else:
+            missing_optional.append(dest)
+
+    return ParsekAuxPayload(tuple(files), tuple(missing_required), tuple(missing_optional))
+
+
+def _slash(path: str) -> str:
+    """Normalize a possibly-backslash Windows path to forward slashes so the pure
+    posixpath.join above composes candidate source paths deterministically on
+    every platform. The result is only ever passed to the injected ``exists``
+    predicate and (live) to the copy helper, both of which accept forward
+    slashes on Windows."""
+    return (path or "").replace("\\", "/")
+
+
+# ---------------------------------------------------------------------------
 # Settings-delta application (design SETTINGS / EC-15). Pure, line-oriented.
 # ---------------------------------------------------------------------------
 

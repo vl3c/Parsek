@@ -1263,6 +1263,106 @@ class DeploySourceTests(unittest.TestCase):
         self.assertTrue(d.ok)
 
 
+class ParsekAuxPayloadTests(unittest.TestCase):
+    """DEPLOY aux payload (version + toolbar textures) source-set decision.
+
+    The deployed GameData/Parsek must carry Parsek.version + Textures/
+    parsek_{24,32,38,64}.png alongside the DLL; a missing toolbar icon
+    (parsek_32/64) is what floods ToolbarControl.OnGUI with per-frame NREs.
+    Priority per dest: worktree GameData/Parsek -> repo img/ -> dev install."""
+
+    WT_GD = "/wt/GameData/Parsek"
+    WT_IMG = "/wt/img"
+    DEV_GD = "/dev/GameData/Parsek"
+
+    def _payload(self, present):
+        present_set = set(present)
+        return provlib.resolve_parsek_aux_payload(
+            self.WT_GD, self.WT_IMG, self.DEV_GD, lambda p: p in present_set)
+
+    def test_all_from_worktree_gamedata_when_present(self):
+        present = [
+            self.WT_GD + "/Parsek.version",
+            self.WT_GD + "/Textures/parsek_24.png",
+            self.WT_GD + "/Textures/parsek_32.png",
+            self.WT_GD + "/Textures/parsek_38.png",
+            self.WT_GD + "/Textures/parsek_64.png",
+        ]
+        pl = self._payload(present)
+        self.assertEqual(pl.missing_required, ())
+        self.assertEqual(pl.missing_optional, ())
+        dests = {f.dest_rel for f in pl.files}
+        self.assertEqual(dests, {
+            "Parsek.version", "Textures/parsek_24.png", "Textures/parsek_32.png",
+            "Textures/parsek_38.png", "Textures/parsek_64.png"})
+        self.assertTrue(all(f.origin == "worktree-gamedata" for f in pl.files))
+
+    def test_real_instance_layout_img_and_dev_fallback(self):
+        # The actual repo shape: version only in worktree GameData/Parsek, the two
+        # toolbar textures only in img/, 24/38 only in the dev install.
+        present = [
+            self.WT_GD + "/Parsek.version",
+            self.WT_IMG + "/parsek logo - 32.png",
+            self.WT_IMG + "/parsek logo - 64.png",
+            self.DEV_GD + "/Textures/parsek_24.png",
+            self.DEV_GD + "/Textures/parsek_38.png",
+        ]
+        pl = self._payload(present)
+        self.assertEqual(pl.missing_required, ())
+        self.assertEqual(pl.missing_optional, ())
+        by_dest = {f.dest_rel: f for f in pl.files}
+        self.assertEqual(by_dest["Parsek.version"].origin, "worktree-gamedata")
+        self.assertEqual(by_dest["Textures/parsek_32.png"].origin, "worktree-img")
+        self.assertEqual(by_dest["Textures/parsek_32.png"].source, self.WT_IMG + "/parsek logo - 32.png")
+        self.assertEqual(by_dest["Textures/parsek_64.png"].origin, "worktree-img")
+        self.assertEqual(by_dest["Textures/parsek_24.png"].origin, "dev-install")
+        self.assertEqual(by_dest["Textures/parsek_38.png"].origin, "dev-install")
+
+    def test_worktree_gamedata_wins_over_img_and_dev(self):
+        present = [
+            self.WT_GD + "/Textures/parsek_32.png",
+            self.WT_IMG + "/parsek logo - 32.png",
+            self.DEV_GD + "/Textures/parsek_32.png",
+            self.WT_GD + "/Parsek.version",
+            self.WT_IMG + "/parsek logo - 64.png",
+        ]
+        pl = self._payload(present)
+        by_dest = {f.dest_rel: f for f in pl.files}
+        self.assertEqual(by_dest["Textures/parsek_32.png"].origin, "worktree-gamedata")
+
+    def test_missing_required_vs_optional_split(self):
+        # Only 24/38 available (optional); no version, no 32/64 (required).
+        present = [
+            self.DEV_GD + "/Textures/parsek_24.png",
+            self.DEV_GD + "/Textures/parsek_38.png",
+        ]
+        pl = self._payload(present)
+        self.assertIn("Parsek.version", pl.missing_required)
+        self.assertIn("Textures/parsek_32.png", pl.missing_required)
+        self.assertIn("Textures/parsek_64.png", pl.missing_required)
+        self.assertEqual(pl.missing_optional, ())
+        self.assertEqual({f.dest_rel for f in pl.files},
+                         {"Textures/parsek_24.png", "Textures/parsek_38.png"})
+
+    def test_optional_missing_when_24_38_absent_everywhere(self):
+        present = [
+            self.WT_GD + "/Parsek.version",
+            self.WT_IMG + "/parsek logo - 32.png",
+            self.WT_IMG + "/parsek logo - 64.png",
+        ]
+        pl = self._payload(present)
+        self.assertEqual(pl.missing_required, ())
+        self.assertEqual(set(pl.missing_optional),
+                         {"Textures/parsek_24.png", "Textures/parsek_38.png"})
+
+    def test_aux_diff_field_routes_to_parsek_repair(self):
+        # A drifted aux file must map to the parsek component so --repair
+        # re-deploys it (component_of_diff_field takes parts[1]).
+        self.assertEqual(
+            provlib.component_of_diff_field("components.parsek.auxFiles.Textures/parsek_32.png"),
+            "parsek")
+
+
 class LockfileReleaseTests(unittest.TestCase):
     """Reviewer 10: a run removes ONLY a lockfile it created, on completion."""
 
