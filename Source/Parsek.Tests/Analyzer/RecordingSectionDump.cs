@@ -19,10 +19,18 @@ namespace Parsek.Tests.Analyzer
     // identical hydrated model the rules see. Reads:
     //   PARSEK_DUMP_SAVE      (required) - absolute path to a save directory
     //   PARSEK_DUMP_RECORDING (optional) - recording id to focus; unset = summarize all
+    //   PARSEK_DUMP_RESULTS   (optional) - directory the dump file is written to
     //
     // SKIPS CLEANLY when PARSEK_DUMP_SAVE is unset so it never runs in the normal CI
     // pass. Output goes to the xUnit test log (ITestOutputHelper) AND to a
-    // <save>/analysis/<recordingId|all>.sectiondump.txt file for later inspection.
+    // <resultsDir>/<recordingId|all>.sectiondump.txt file for later inspection.
+    //
+    // The tool is READ-ONLY over the triaged save: it NEVER writes into the save
+    // directory (the earlier behavior wrote <save>/analysis/*.sectiondump.txt inside
+    // the save under triage, which the analyzer results-dir convention forbids). The
+    // dump file lands in, in order of precedence: PARSEK_DUMP_RESULTS, else alongside
+    // the analyzer's own output at PARSEK_ANALYZER_RESULTS, else the test output dir
+    // (AppContext.BaseDirectory/section-dumps, i.e. bin/Debug/net472/section-dumps).
     [Collection("Sequential")]
     public class RecordingSectionDump : IDisposable
     {
@@ -78,18 +86,37 @@ namespace Parsek.Tests.Analyzer
             string text = sb.ToString();
             output.WriteLine(text);
 
-            // Persist alongside the save for later inspection.
+            // Persist to the analyzer results-dir convention, NEVER inside the save
+            // under triage (the tool stays read-only over saves).
             try
             {
-                string analysisDir = Path.Combine(saveDir, "analysis");
-                Directory.CreateDirectory(analysisDir);
+                string resultsDir = ResolveResultsDir();
+                Directory.CreateDirectory(resultsDir);
                 string name = string.IsNullOrEmpty(focusId) ? "all" : SafeName(focusId);
-                File.WriteAllText(Path.Combine(analysisDir, name + ".sectiondump.txt"), text);
+                string dumpPath = Path.Combine(resultsDir, name + ".sectiondump.txt");
+                File.WriteAllText(dumpPath, text);
+                output.WriteLine("[SectionDump] wrote " + dumpPath);
             }
             catch (Exception ex)
             {
                 output.WriteLine("[SectionDump] failed to write dump file: " + ex.Message);
             }
+        }
+
+        // Output directory, in precedence order: PARSEK_DUMP_RESULTS, else the
+        // analyzer's own results dir (PARSEK_ANALYZER_RESULTS), else the test output
+        // dir (AppContext.BaseDirectory/section-dumps). Never the save directory.
+        private static string ResolveResultsDir()
+        {
+            string dumpResults = Environment.GetEnvironmentVariable("PARSEK_DUMP_RESULTS");
+            if (!string.IsNullOrEmpty(dumpResults))
+                return dumpResults;
+
+            string analyzerResults = Environment.GetEnvironmentVariable("PARSEK_ANALYZER_RESULTS");
+            if (!string.IsNullOrEmpty(analyzerResults))
+                return analyzerResults;
+
+            return Path.Combine(AppContext.BaseDirectory, "section-dumps");
         }
 
         private static void DumpRecording(Recording rec, AnalyzerModel model, StringBuilder sb, bool verbose)
