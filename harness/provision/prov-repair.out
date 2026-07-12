@@ -1,0 +1,38 @@
+[Provision][Info][Preflight] umbrella-root=C:\Users\vlad3\Documents\Code\Parsek
+[Provision][Info][Preflight] dev-install=C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program
+[Provision][Info][Preflight] instance-dir=C:\Users\vlad3\Documents\Code\Parsek\automation/stock-minimal
+[Provision][Info][Preflight] mode=live repair=True
+[Provision][Info][Preflight] lock decision=acquired-free holder=47444
+[Provision][Info][Preflight] profile loaded name=stock-minimal devSourcedMods=7
+[Provision][Info][Source] krpc source-resolution action=reuse-cache reason=cached-and-has-commit dir=C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\provision\.cache\krpc-src (repo=https://github.com/krpc/krpc commit=11f1f1366fa4301049f6eac6640604127a9d763b)
+[Provision][Info][Source] krpc fetch in C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\provision\.cache\krpc-src (pinned commit missing)
+[Provision][Info][Pin] krpc tag=v0.5.4 -> 11f1f1366fa4301049f6eac6640604127a9d763b MATCH
+[Provision][Info][Source] krpc_mechjeb source-resolution action=reuse-cache reason=cached-and-has-commit dir=C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\provision\.cache\krpc_mechjeb-src (repo=https://github.com/genhis/KRPC.MechJeb commit=398bc337492c5f725c83ab1aac85c32a1c0349ea)
+[Provision][Info][Source] krpc_mechjeb fetch in C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\provision\.cache\krpc_mechjeb-src (pinned commit missing)
+[Provision][Info][Pin] krpc_mechjeb tag=v0.7.1 -> 398bc337492c5f725c83ab1aac85c32a1c0349ea MATCH
+[Provision][Info][Pin] GT-2: kRPC v0.5.4 TestingTools lacks autoLoadFlags, Quit, SetLanded; boot via M-A2 LoadGame, quit via FlushAndQuit, land via SetOrbit (bootChannel=parsek-seam-LoadGame)
+[Provision][Info][Download] krpc release zip bytes=703528 sha256 expected=b09dddf5f3b921b65ea666e6710183af0f8ba33d8238b8c9c89548f6999a983e actual=b09dddf5f3b921b65ea666e6710183af0f8ba33d8238b8c9c89548f6999a983e OK
+[Provision][Info][Download] GT-5 zip contains KRPC.Core.dll OK
+[Provision][Info][Download] GT-5 zip contains KRPC.SpaceCenter.dll OK
+[Provision][Info][Download] GT-5 zip contains Google.Protobuf.dll OK
+[Provision][Info][Download] GT-5 zip must-not-contain TestingTools.dll OK
+[Provision][Info][Download] krpc_mechjeb release zip bytes=156159 sha256 expected=5922a6d73d77093999f1ff485688c739cf6157f56f61086050a54dbd8bb83246 actual=5922a6d73d77093999f1ff485688c739cf6157f56f61086050a54dbd8bb83246 OK
+[Provision][Info][Download] mechjeb2 build bytes=2788155 sha256 expected=3bd39e02c41a8e405eb980764aa14635af1ed50521119fe85c8a054d8cffc926 actual=3bd39e02c41a8e405eb980764aa14635af1ed50521119fe85c8a054d8cffc926 OK
+[Provision][Info][Build-TT] shim sources=OrbitTools.cs,TestingTools.cs dropped=AutoLoadGame.cs,AutoSwitchVessel.cs autoloader-excluded=True build-ref=11f1f1366fa4301049f6eac6640604127a9d763b src=C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\provision\.cache\krpc-src
+[Provision][Info][Build-TT] exported OrbitTools.cs,TestingTools.cs from C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\provision\.cache\krpc-src@11f1f1366fa4301049f6eac6640604127a9d763b
+[Provision][Info][Build-TT] build: dotnet build C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\provision\.cache\testingtools-build\src\TestingTools.shim.csproj -c Release -o C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\provision\.cache\testingtools-build\out --nologo -v minimal
+[Provision][Info][Build-TT] AutoLoadGame-absent OK (autoloadGame=0 testingToolsType=True)
+[Provision][Info][Build-TT] capability RPCs present=6/6
+[Provision][Info][Build-TT] build OK dll-sha256=ac25c5962f56c872dc109589564c83e3dda93fb5dda0a6b4cf23cc7a6dcb5bcf cached=C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\provision\.cache\TestingTools.dll
+[Provision][Info][Pair] krpc_mechjeb fork=genhis tag=v0.7.1 pairedKrpcTag=v0.5.4 vs krpc v0.5.4 OK
+[Provision][Info][Clone] junction-targets=3 dev-sourced-copies=7
+[Provision][Info][Clone] junction KSP_x64_Data/StreamingAssets -> C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program\KSP_x64_Data/StreamingAssets (junction-stock-tree)
+[Provision][Info][Clone] junction GameData/Squad -> C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program\GameData\Squad (junction-stock)
+[Provision][Info][Clone] junction GameData/SquadExpansion -> C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program\GameData\SquadExpansion (junction-stock)
+[Provision][Info][Clone] EC-16 resolved-path alias re-check OK (dev=c:\users\vlad3\documents\code\parsek\kerbal space program)
+[Provision][Info][Clone] wrote .provision-incomplete (cleared on VERIFY success)
+[Provision][Info][Clone] free-space pre-check estimate=3821960964 free=101148815360 OK
+[Provision][Info][Clone] mutable surface copied files=773 bytes=3818154474
+[Provision][Error][Clone] EC-8 junction failed KSP_x64_Data/StreamingAssets -> C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program\KSP_x64_Data/StreamingAssets: Cannot create a file when that file already exists.
+[Provision][Info][Summary] released provision lock C:\Users\vlad3\Documents\Code\Parsek\automation/stock-minimal\GameData\Parsek\.provision.lock
+[Provision][Error][Summary] ABORT: EC-8 junction failed KSP_x64_Data/StreamingAssets -> C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program\KSP_x64_Data/StreamingAssets: Cannot create a file when that file already exists. (exit=2)

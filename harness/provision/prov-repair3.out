@@ -1,0 +1,108 @@
+[Provision][Info][Preflight] umbrella-root=C:\Users\vlad3\Documents\Code\Parsek
+[Provision][Info][Preflight] dev-install=C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program
+[Provision][Info][Preflight] instance-dir=C:\Users\vlad3\Documents\Code\Parsek\automation/stock-minimal
+[Provision][Info][Preflight] mode=live repair=True
+[Provision][Info][Preflight] lock decision=acquired-free holder=13296
+[Provision][Info][Preflight] profile loaded name=stock-minimal devSourcedMods=7
+[Provision][Info][Source] krpc source-resolution action=reuse-cache reason=cached-and-has-commit dir=C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\provision\.cache\krpc-src (repo=https://github.com/krpc/krpc commit=11f1f1366fa4301049f6eac6640604127a9d763b)
+[Provision][Info][Source] krpc fetch in C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\provision\.cache\krpc-src (pinned commit missing)
+[Provision][Info][Pin] krpc tag=v0.5.4 -> 11f1f1366fa4301049f6eac6640604127a9d763b MATCH
+[Provision][Info][Source] krpc_mechjeb source-resolution action=reuse-cache reason=cached-and-has-commit dir=C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\provision\.cache\krpc_mechjeb-src (repo=https://github.com/genhis/KRPC.MechJeb commit=398bc337492c5f725c83ab1aac85c32a1c0349ea)
+[Provision][Info][Source] krpc_mechjeb fetch in C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\provision\.cache\krpc_mechjeb-src (pinned commit missing)
+[Provision][Info][Pin] krpc_mechjeb tag=v0.7.1 -> 398bc337492c5f725c83ab1aac85c32a1c0349ea MATCH
+[Provision][Info][Pin] GT-2: kRPC v0.5.4 TestingTools lacks autoLoadFlags, Quit, SetLanded; boot via M-A2 LoadGame, quit via FlushAndQuit, land via SetOrbit (bootChannel=parsek-seam-LoadGame)
+[Provision][Info][Download] krpc release zip bytes=703528 sha256 expected=b09dddf5f3b921b65ea666e6710183af0f8ba33d8238b8c9c89548f6999a983e actual=b09dddf5f3b921b65ea666e6710183af0f8ba33d8238b8c9c89548f6999a983e OK
+[Provision][Info][Download] GT-5 zip contains KRPC.Core.dll OK
+[Provision][Info][Download] GT-5 zip contains KRPC.SpaceCenter.dll OK
+[Provision][Info][Download] GT-5 zip contains Google.Protobuf.dll OK
+[Provision][Info][Download] GT-5 zip must-not-contain TestingTools.dll OK
+[Provision][Info][Download] krpc_mechjeb release zip bytes=156159 sha256 expected=5922a6d73d77093999f1ff485688c739cf6157f56f61086050a54dbd8bb83246 actual=5922a6d73d77093999f1ff485688c739cf6157f56f61086050a54dbd8bb83246 OK
+[Provision][Info][Download] mechjeb2 build bytes=2788155 sha256 expected=3bd39e02c41a8e405eb980764aa14635af1ed50521119fe85c8a054d8cffc926 actual=3bd39e02c41a8e405eb980764aa14635af1ed50521119fe85c8a054d8cffc926 OK
+[Provision][Info][Build-TT] shim sources=OrbitTools.cs,TestingTools.cs dropped=AutoLoadGame.cs,AutoSwitchVessel.cs autoloader-excluded=True build-ref=11f1f1366fa4301049f6eac6640604127a9d763b src=C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\provision\.cache\krpc-src
+[Provision][Info][Build-TT] exported OrbitTools.cs,TestingTools.cs from C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\provision\.cache\krpc-src@11f1f1366fa4301049f6eac6640604127a9d763b
+[Provision][Info][Build-TT] build: dotnet build C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\provision\.cache\testingtools-build\src\TestingTools.shim.csproj -c Release -o C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\provision\.cache\testingtools-build\out --nologo -v minimal
+[Provision][Info][Build-TT] AutoLoadGame-absent OK (autoloadGame=0 testingToolsType=True)
+[Provision][Info][Build-TT] capability RPCs present=6/6
+[Provision][Info][Build-TT] build OK dll-sha256=ac25c5962f56c872dc109589564c83e3dda93fb5dda0a6b4cf23cc7a6dcb5bcf cached=C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\harness\provision\.cache\TestingTools.dll
+[Provision][Info][Pair] krpc_mechjeb fork=genhis tag=v0.7.1 pairedKrpcTag=v0.5.4 vs krpc v0.5.4 OK
+[Provision][Info][Clone] junction-targets=3 dev-sourced-copies=7
+[Provision][Info][Clone] junction KSP_x64_Data/StreamingAssets -> C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program\KSP_x64_Data/StreamingAssets (junction-stock-tree)
+[Provision][Info][Clone] junction GameData/Squad -> C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program\GameData\Squad (junction-stock)
+[Provision][Info][Clone] junction GameData/SquadExpansion -> C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program\GameData\SquadExpansion (junction-stock)
+[Provision][Info][Clone] EC-16 resolved-path alias re-check OK (dev=c:\users\vlad3\documents\code\parsek\kerbal space program)
+[Provision][Info][Clone] wrote .provision-incomplete (cleared on VERIFY success)
+[Provision][Info][Clone] free-space pre-check estimate=3821960964 free=101146796032 OK
+[Provision][Info][Clone] mutable surface copied files=773 bytes=3818154474
+[Provision][Info][Clone] junctioned KSP_x64_Data/StreamingAssets -> C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program\KSP_x64_Data/StreamingAssets
+[Provision][Info][Clone] junctioned GameData/Squad -> C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program\GameData\Squad
+[Provision][Info][Clone] junctioned GameData/SquadExpansion -> C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program\GameData\SquadExpansion
+[Provision][Info][Clone] copied GameData/000_Harmony tree-hash=12f49987a6544116d6db6d81f9d560f5b93238cdc4d4c83d38f18e71303b9917 (instance-verified)
+[Provision][Info][Clone] copied GameData/ModuleManager.4.2.3.dll tree-hash=e9b439af860b1a00d1455694a3894a86465b7b10562748f17365a6a4a3e6d173 (instance-verified)
+[Provision][Info][Clone] copied GameData/000_ClickThroughBlocker tree-hash=53f41b347c8ea737ddd54f72b33f2ce22f42e4a49a35a96acad927dd8b9b1d12 (instance-verified)
+[Provision][Info][Clone] copied GameData/001_ToolbarControl tree-hash=3d5461a9e94d0df416943a3c9c910b4fde4a34456c575080cd5ef90f099b44ef (instance-verified)
+[Provision][Info][Clone] copied GameData/CommunityDeltaVMaps tree-hash=653263180102059c0d31a31bb6d5bcdd3020f1d68cc9df7641ab8990a26b8a92 (instance-verified)
+[Provision][Info][Clone] copied GameData/CommunityTechTree tree-hash=5f403ad68f758bf555e5ded389379001b446befbcd1a6b8d14665aa3f9ede5b9 (instance-verified)
+[Provision][Info][Clone] copied GameData/ProbesBeforeCrew tree-hash=6a473816dd8618e29493df32c493cb1dae678ee1df2915899c673ae6c4b73791 (instance-verified)
+[Provision][Info][Settings] settingsBaseSha256=bc1b78d76aeb23325c7ac809ed926b4577a82207722b8407dfe4b5d30e476db6
+[Provision][Info][Settings] delta PHYSICS_FRAME_DT_LIMIT=0.03 (replace)
+[Provision][Info][Settings] delta FRAMERATE_LIMIT=60 (replace)
+[Provision][Info][Settings] delta QUALITY_PRESET=0 (replace)
+[Provision][Info][Settings] delta TEXTURE_QUALITY=3 (replace)
+[Provision][Info][Settings] delta SHADOWS_QUALITY=0 (replace)
+[Provision][Info][Settings] delta AERO_FX_QUALITY=0 (replace)
+[Provision][Info][Settings] delta TERRAIN_SHADER_QUALITY=0 (replace)
+[Provision][Info][Settings] delta UI_SCALE=1.0 (replace)
+[Provision][Info][Settings] delta FULLSCREEN=False (replace)
+[Provision][Info][Settings] delta SCREEN_RESOLUTION_WIDTH=1280 (replace)
+[Provision][Info][Settings] delta SCREEN_RESOLUTION_HEIGHT=720 (replace)
+[Provision][Info][Settings] delta SIMULATE_IN_BACKGROUND=True (replace)
+[Provision][Info][Settings] delta AUTOSTRUT_SYMMETRY=False (replace)
+[Provision][Info][Settings] delta CONIC_PATCH_DRAW_MODE=3 (replace)
+[Provision][Info][Settings] delta CHECK_FOR_UPDATES=False (replace)
+[Provision][Info][Settings] settingsFinalSha256=bc632d2eac2cd42cb69dcc400e2d39d370ac25ba1a8816c488b98d897f899295
+[Provision][Info][Deploy] parsek dll source=C:\Users\vlad3\Documents\Code\Parsek\Parsek-autotest-provlive\Source\Parsek\bin\Debug\Parsek.dll (worktree-build)
+[Provision][Info][Deploy] stage-sha256=b8d79864858f89d96e26318805b35670058230f5d16e7749ee29061c9322234b
+[Provision][Info][Deploy] installed-sha256=b8d79864858f89d96e26318805b35670058230f5d16e7749ee29061c9322234b hashMatch OK
+[Provision][Info][Deploy] UTF-16 grep string=ParsekFlight count=37 OK
+[Provision][Info][Deploy] UTF-16 grep string=GhostPlaybackEngine count=21 OK
+[Provision][Info][Install] stack component krpc -> GameData/kRPC (hash into manifest)
+[Provision][Info][Install] stack component testingtools -> GameData/kRPC (hash into manifest)
+[Provision][Info][Install] stack component mechjeb2 -> GameData/MechJeb2 (hash into manifest)
+[Provision][Info][Install] stack component krpc_mechjeb -> GameData/kRPC (hash into manifest)
+[Provision][Info][Install] kRPC extracted files=50 hashed-dlls=5
+[Provision][Info][Install] TestingTools.dll installed sha256=ac25c5962f56c872dc109589564c83e3dda93fb5dda0a6b4cf23cc7a6dcb5bcf
+[Provision][Info][Install] KRPC.MechJeb installed dll-sha256=719daf9ab468e30dd981a1891c8bf87a94b452b7f39e51cc95f6814cf7038b64
+[Provision][Info][Install] MechJeb2 extracted files=64
+[Provision][Info][MM-Cache] delete ModuleManager.ConfigCache (regenerate on first boot, EC-2)
+[Provision][Info][MM-Cache] delete ModuleManager.ConfigSHA (regenerate on first boot, EC-2)
+[Provision][Info][MM-Cache] delete ModuleManager.Physics (regenerate on first boot, EC-2)
+[Provision][Info][MM-Cache] delete ModuleManager.TechTree (regenerate on first boot, EC-2)
+[Provision][Info][Manifest] wrote C:\Users\vlad3\Documents\Code\Parsek\automation/stock-minimal\GameData\Parsek\provision-manifest.json
+[Provision][Info][Verify] junctions resolve OK (3)
+[Provision][Info][Verify] parsek dll on-disk sha256 == manifest
+[Provision][Info][Verify] parsek UTF-16 grep string=ParsekFlight count=37 expected=37 OK
+[Provision][Info][Verify] parsek UTF-16 grep string=GhostPlaybackEngine count=21 expected=21 OK
+[Provision][Info][Verify] krpc KRPC.IO.Ports.dll on-disk sha256 == manifest
+[Provision][Info][Verify] krpc KRPC.SpaceCenter.dll on-disk sha256 == manifest
+[Provision][Info][Verify] krpc KRPC.Core.dll on-disk sha256 == manifest
+[Provision][Info][Verify] krpc KRPC.dll on-disk sha256 == manifest
+[Provision][Info][Verify] krpc Google.Protobuf.dll on-disk sha256 == manifest
+[Provision][Info][Verify] testingtools TestingTools.dll on-disk sha256 == manifest
+[Provision][Info][Verify] krpc_mechjeb KRPC.MechJeb.dll on-disk sha256 == manifest
+[Provision][Info][Verify] mechjeb2 alglib.dll on-disk sha256 == manifest
+[Provision][Info][Verify] mechjeb2 MechJebLibBindings.dll on-disk sha256 == manifest
+[Provision][Info][Verify] mechjeb2 MechJeb2.dll on-disk sha256 == manifest
+[Provision][Info][Verify] mechjeb2 MechJebLib.dll on-disk sha256 == manifest
+[Provision][Info][Verify] settingsFinalSha256 re-hash OK
+[Provision][Info][Verify] buildId64Sha256 re-hash OK
+[Provision][Info][Verify] dev-sourced mod 000_Harmony content-hash == manifest
+[Provision][Info][Verify] dev-sourced mod ModuleManager.4.2.3.dll content-hash == manifest
+[Provision][Info][Verify] dev-sourced mod 000_ClickThroughBlocker content-hash == manifest
+[Provision][Info][Verify] dev-sourced mod 001_ToolbarControl content-hash == manifest
+[Provision][Info][Verify] dev-sourced mod CommunityDeltaVMaps content-hash == manifest
+[Provision][Info][Verify] dev-sourced mod CommunityTechTree content-hash == manifest
+[Provision][Info][Verify] dev-sourced mod ProbesBeforeCrew content-hash == manifest
+[Provision][Info][Verify] cleared .provision-incomplete
+[Provision][Info][Verify] instance=stock-minimal result=OK drift=0
+[Provision][Info][Summary] released provision lock C:\Users\vlad3\Documents\Code\Parsek\automation/stock-minimal\GameData\Parsek\.provision.lock
+[Provision][Info][Summary] instance=stock-minimal provisioned exit=0

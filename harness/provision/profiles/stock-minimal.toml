@@ -14,6 +14,7 @@ instanceDir = "automation/stock-minimal"   # created by CLONE
 devSourcedMods = [
   "000_Harmony", "ModuleManager.4.2.3.dll",
   "000_ClickThroughBlocker", "001_ToolbarControl",
+  "KSPCommunityFixes",
   "CommunityDeltaVMaps", "CommunityTechTree", "ProbesBeforeCrew",
 ]
 

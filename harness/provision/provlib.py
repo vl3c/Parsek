@@ -46,7 +46,12 @@ TESTINGTOOLS_DROPPED_SOURCES: Tuple[str, ...] = ("AutoLoadGame.cs", "AutoSwitchV
 
 # Stock asset payloads junctioned (not copied) at CLONE (design CLONE step).
 STOCK_JUNCTION_GAMEDATA: Tuple[str, ...] = ("Squad", "SquadExpansion")
-STOCK_JUNCTION_TREES: Tuple[str, ...] = ("KSP_x64_Data/StreamingAssets",)
+# KSP 1.12.5 ships NO KSP_x64_Data/StreamingAssets (assets live in
+# sharedassets*/level*/resources.assets directly): the StreamingAssets entry
+# was a generic-Unity-layout assumption from the design and produced a
+# DANGLING junction on the first live provision (verified absent 2026-07-12).
+# The tuple stays as the mechanism for future genuinely-junctionable trees.
+STOCK_JUNCTION_TREES: Tuple[str, ...] = ()
 
 # Stack components installed by the script, never sourced from dev GameData.
 STACK_COMPONENT_NAMES: Tuple[str, ...] = (
