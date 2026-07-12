@@ -1454,8 +1454,8 @@ class DllInstallPathLayoutTests(unittest.TestCase):
     def test_flat_then_plugins_then_recursive(self):
         import provision as prov
         with tempfile.TemporaryDirectory() as td:
-            ctx = prov.ProvisionContext.__new__(prov.ProvisionContext)
-            ctx.instance_dir = td
+            import types
+            ctx = types.SimpleNamespace(instance_dir=td)
             gd = os.path.join(td, "GameData")
             os.makedirs(os.path.join(gd, "kRPC"))
             os.makedirs(os.path.join(gd, "MechJeb2", "Plugins"))
