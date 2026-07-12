@@ -69,12 +69,31 @@ namespace Parsek.Analyzer
         /// Bumped "1" -> "2" for the per-save baseline layer (Finding.baselined +
         /// the Counts baselined / failNonBaselined / staleNonBaselined fields + the
         /// .txt BASELINED= / terminal RED= tokens + the [baselined] line suffix).
+        /// Bumped "2" -> "3" for the additive careerSave export block (module M-B2,
+        /// the ledger-oracle produced-save leg): the analyzer already parses the save
+        /// into <see cref="CareerSave"/> and now serializes that snapshot as a
+        /// careerSave block in the .analysis.json. Additive JSON alongside the
+        /// existing counts/findings; existing per-save baselines stay applicable
+        /// because createdAtAnalyzerVersion is provenance-only and never gates
+        /// baseline matching.
         /// </summary>
-        public const string CurrentAnalyzerVersion = "2";
+        public const string CurrentAnalyzerVersion = "3";
 
         public string SaveName;
 
         public string AnalyzerVersion = CurrentAnalyzerVersion;
+
+        /// <summary>
+        /// The career-save snapshot the loader already parsed (<c>model.CareerSave</c>),
+        /// threaded here so <c>ReportWriter</c> can serialize the additive careerSave
+        /// export block (module M-B2). Null when the save is non-career / unparsable;
+        /// the writer then emits <c>"careerSave": {"parsed": false}</c> (the block is
+        /// ALWAYS emitted whenever the analyzer ran, so its ABSENCE from an
+        /// .analysis.json means an old/broken analyzer, not facet-absence). Not part
+        /// of the verdict / RED gate: purely an export surface for the harness's
+        /// independent ledger oracle. Never serialized into the human .txt summary.
+        /// </summary>
+        public CareerSaveSnapshot CareerSave;
 
         /// <summary>Discovered from the analyzed data.</summary>
         public int SubjectSchemaGeneration;

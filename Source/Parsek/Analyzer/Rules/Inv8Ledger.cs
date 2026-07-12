@@ -73,9 +73,15 @@ namespace Parsek.Analyzer.Rules
 
         private static void EvaluateCareerDiff(AnalyzerModel model, List<Finding> findings)
         {
-            // Non-career -> skip (silent). Part (b) has nothing to compare on a
-            // Sandbox / Science save.
-            if (model.CareerSave == null)
+            // Non-funds -> skip (silent). Part (b) has nothing to compare on a
+            // Sandbox / Science save. RE-GATE on HasFunds, not on snapshot null-ness
+            // (module M-B2): the loader now flows ANY Parsed snapshot to the model
+            // (so the careerSave export block is populated on career-but-non-funds
+            // Science / Sandbox saves), so a non-null CareerSave no longer implies a
+            // funds facet. The funds-only career diff stays unchanged for real career
+            // saves; a Science / Sandbox snapshot (HasFunds == false) skips part (b)
+            // exactly as a null snapshot used to.
+            if (model.CareerSave == null || !model.CareerSave.HasFunds)
                 return;
 
             if (model.LedgerReconstruction == null)

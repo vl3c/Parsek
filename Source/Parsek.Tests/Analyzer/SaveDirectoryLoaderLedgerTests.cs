@@ -89,11 +89,17 @@ namespace Parsek.Tests.Analyzer
             Assert.DoesNotContain(model.LoadFaults, f => f.FileKind == "ledger");
         }
 
-        // Guards: a non-career (Sandbox / Science) save leaves CareerSave null and
-        // records no career or ledger fault. Fails if the loader wrongly synthesizes
-        // a career snapshot or faults on the absence of one.
+        // Guards (module M-B2 loader gating change): a non-funds (Sandbox / Science)
+        // save now flows a POPULATED CareerSave snapshot (Parsed == true) with every
+        // per-facet HasX flag false, instead of the former null. The loader dropped the
+        // HasFunds gate so the analyzer's careerSave export block is populated on a
+        // career-but-non-funds save (the ledger-oracle verifier reads facet-absence
+        // from the hasX flags, never from a missing block). No career or ledger fault.
+        // Fails if the loader reinstates the HasFunds null-gate (which would alias
+        // facet-absence with the tooling-absence "block missing" signal) or faults on
+        // the absent funds facet.
         [Fact]
-        public void NonCareerSave_CareerNull_NoFault()
+        public void NonFundsSave_ParsedSnapshot_FacetFlagsFalse_NoFault()
         {
             string saveDir = NewSaveDir("noncareer");
             var writer = new ScenarioWriter().AddRecordingAsTree(
@@ -104,7 +110,11 @@ namespace Parsek.Tests.Analyzer
 
             AnalyzerModel model = SaveDirectoryLoader.Load(saveDir, NullResolver);
 
-            Assert.Null(model.CareerSave);
+            Assert.NotNull(model.CareerSave);
+            Assert.True(model.CareerSave.Parsed);
+            Assert.False(model.CareerSave.HasFunds);
+            Assert.False(model.CareerSave.HasScience);
+            Assert.False(model.CareerSave.HasRep);
             Assert.DoesNotContain(model.LoadFaults, f => f.FileKind == "career");
             Assert.DoesNotContain(model.LoadFaults, f => f.FileKind == "ledger");
             Assert.Empty(model.Ledger);

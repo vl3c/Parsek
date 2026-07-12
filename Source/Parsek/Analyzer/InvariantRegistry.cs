@@ -102,6 +102,10 @@ namespace Parsek.Analyzer
                 // Runtime-only signal for BaselineFilter's stamped-fixture refusal;
                 // not serialized, so it does not touch the report schema.
                 SubjectIsStampedFixture = model?.FixtureStamp != null,
+                // Thread the already-parsed career snapshot through so ReportWriter can
+                // serialize the additive careerSave export block (module M-B2). Null on
+                // a non-career / unparsable save -> the writer emits parsed:false.
+                CareerSave = model?.CareerSave,
             };
 
             if (rules != null && model != null)
