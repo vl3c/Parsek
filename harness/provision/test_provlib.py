@@ -471,6 +471,102 @@ class ZipSlipExtractTests(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(um, "evil.dll")))
 
 
+def _make_junction_or_skip(test, link, target):
+    import subprocess
+    if os.name != "nt":
+        test.skipTest("junctions are Windows-only")
+    os.makedirs(target, exist_ok=True)
+    res = subprocess.run(["cmd", "/c", "mklink", "/J", link, target],
+                         capture_output=True, text=True)
+    if res.returncode != 0:
+        test.skipTest("could not create junction: %s" % (res.stderr or res.stdout).strip())
+
+
+class ResolvedAliasRecheckTests(unittest.TestCase):
+    """SF6(a): the EC-16 alias guard is re-run on REALPATH-resolved instance
+    paths before the marker write, catching a junction that resolves a
+    string-clean instanceDir/GameData into the read-only dev install."""
+
+    def _ctx(self, um):
+        import provision
+        return provision.ProvisionContext(
+            profile_name="t", pins={},
+            profile={"instanceDir": "automation/test", "baseInstall": "Kerbal Space Program"},
+            umbrella_root=um, dry_run=False, repair=False, parsek_dll_override=None)
+
+    def test_junctioned_gamedata_into_dev_install_aborts(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            dev = os.path.join(um, "Kerbal Space Program")
+            os.makedirs(os.path.join(dev, "GameData"), exist_ok=True)
+            inst = os.path.join(um, "automation", "test")
+            os.makedirs(inst, exist_ok=True)
+            _make_junction_or_skip(self, os.path.join(inst, "GameData"), dev)
+            ctx = self._ctx(um)
+            ok = provision._recheck_alias_resolved(ctx)
+            self.assertFalse(ok)
+            self.assertTrue(ctx.aborted)
+            self.assertIn("EC-16", ctx.abort_reason)
+
+    def test_clean_instance_passes(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            os.makedirs(os.path.join(um, "Kerbal Space Program"), exist_ok=True)
+            os.makedirs(os.path.join(um, "automation", "test", "GameData"), exist_ok=True)
+            ctx = self._ctx(um)
+            self.assertTrue(provision._recheck_alias_resolved(ctx))
+            self.assertFalse(ctx.aborted)
+
+
+class ReparsePointSkipTests(unittest.TestCase):
+    """SF6(b): copy / hash walks skip reparse-point (junction) subdirs so a
+    junction inside a copied tree cannot pull a stock payload in or loop."""
+
+    def test_content_hash_ignores_junctioned_subdir(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            mod = os.path.join(um, "Mod")
+            os.makedirs(mod, exist_ok=True)
+            with open(os.path.join(mod, "real.dll"), "wb") as fh:
+                fh.write(b"real")
+            ext = os.path.join(um, "external")
+            os.makedirs(ext, exist_ok=True)
+            with open(os.path.join(ext, "huge.bin"), "wb") as fh:
+                fh.write(b"x" * 1000)
+            _make_junction_or_skip(self, os.path.join(mod, "linked"), ext)
+            h_with = provision._content_tree_hash(mod)
+            os.rmdir(os.path.join(mod, "linked"))  # remove link, not target
+            h_without = provision._content_tree_hash(mod)
+            self.assertEqual(h_with, h_without,
+                             "a junctioned subdir must not contribute to the content hash")
+
+    def test_copy_dir_skips_junctioned_subdir(self):
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            src = os.path.join(um, "src")
+            os.makedirs(src, exist_ok=True)
+            with open(os.path.join(src, "real.dll"), "wb") as fh:
+                fh.write(b"real")
+            ext = os.path.join(um, "external")
+            os.makedirs(ext, exist_ok=True)
+            with open(os.path.join(ext, "huge.bin"), "wb") as fh:
+                fh.write(b"x" * 1000)
+            _make_junction_or_skip(self, os.path.join(src, "linked"), ext)
+            ctx = provision.ProvisionContext(
+                profile_name="t", pins={}, profile={}, umbrella_root=um,
+                dry_run=False, repair=False, parsek_dll_override=None)
+            dst = os.path.join(um, "dst")
+            files, _b = provision._copy_dir(ctx, src, dst)
+            self.assertEqual(files, 1)
+            self.assertTrue(os.path.isfile(os.path.join(dst, "real.dll")))
+            self.assertFalse(os.path.exists(os.path.join(dst, "linked")),
+                             "a junctioned subdir must not be copied")
+
+
 class ResolvePinTests(unittest.TestCase):
     """Design: resolve_pin -- guards GT-1 retag/move. A moved tag (tag resolves
     to a commit != recorded) must be rejected."""
@@ -1000,6 +1096,15 @@ class ActionPlanTests(unittest.TestCase):
         installs = [a.detail for a in plan if a.step == "INSTALL"]
         self.assertFalse(any("GameData/parsek" in d for d in installs))
 
+    def test_install_labels_use_real_gamedata_folders(self):
+        # N11: INSTALL plan labels name the real on-disk folder, not the pin id.
+        plan = provlib.build_action_plan({}, {"stackComponents": ["krpc", "mechjeb2", "parsek"]})
+        joined = " ".join(a.detail for a in plan if a.step == "INSTALL")
+        self.assertIn("GameData/kRPC", joined)
+        self.assertIn("GameData/MechJeb2", joined)
+        self.assertEqual(provlib.stack_component_install_folder("testingtools"), "GameData/kRPC")
+        self.assertEqual(provlib.stack_component_install_folder("krpc_mechjeb"), "GameData/kRPC")
+
 
 class CloneToplevelTests(unittest.TestCase):
     """Design CLONE: the mutable surface is copied, GameData is built
@@ -1023,6 +1128,15 @@ class CloneToplevelTests(unittest.TestCase):
         self.assertEqual(provlib.clone_toplevel_disposition("KSP_x64.exe"), "copy")
         self.assertEqual(provlib.clone_toplevel_disposition("buildID64.txt"), "copy")
         self.assertEqual(provlib.clone_toplevel_disposition("Internals"), "copy")
+
+    def test_ksp_log_and_crash_dumps_skipped(self):
+        # N20: dev-run logs + timestamped crash dumps never leak into an instance.
+        self.assertEqual(provlib.clone_toplevel_disposition("KSP.log"), "skip")
+        self.assertEqual(provlib.clone_toplevel_disposition("Player.log"), "skip")
+        self.assertEqual(provlib.clone_toplevel_disposition("crash_2024-01-01_120000"), "skip")
+        self.assertEqual(provlib.clone_toplevel_disposition("Crash-report"), "skip")
+        # A real payload with a "crash"-ish infix is still copied (prefix-only).
+        self.assertEqual(provlib.clone_toplevel_disposition("KSP_x64.exe"), "copy")
 
     def test_streamingassets_is_the_only_junctioned_ksp_data_entry(self):
         self.assertTrue(provlib.ksp_data_entry_is_junction("StreamingAssets"))

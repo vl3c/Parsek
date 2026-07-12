@@ -473,8 +473,13 @@ def phase_clone(ctx: ProvisionContext):
             "and create %d junctions via mklink /J" % len(junctions))
         return junctions, dev_status
 
-    # LIVE. Marker first (EC-6): any abort past this point leaves a half-provision
-    # the harness refuses to admit; VERIFY clears it only on success.
+    # LIVE. SF6(a): re-run the EC-16 alias guard on the REALPATH-resolved instance
+    # paths before the first instance write -- a junction/symlink could resolve a
+    # string-clean path INTO the read-only dev install.
+    if not _recheck_alias_resolved(ctx):
+        return junctions, dev_status
+    # Marker first (EC-6): any abort past this point leaves a half-provision the
+    # harness refuses to admit; VERIFY clears it only on success.
     _write_incomplete_marker(ctx)
     if not _precheck_free_space(ctx):
         return junctions, dev_status
@@ -514,8 +519,8 @@ def _copy_and_verify_dev_mod(ctx: ProvisionContext, name: str, src: str, dst: st
         _copy_dir(ctx, src, dst)
     else:
         _copy_one(src, dst)
-    src_hash = _content_tree_hash(src)
-    dst_hash = _content_tree_hash(dst)
+    src_hash = _content_tree_hash(src, ctx)
+    dst_hash = _content_tree_hash(dst, ctx)
     if src_hash != dst_hash:
         abort(ctx, "Clone", "EC-3",
               "dev-sourced mod %s partial copy: source-hash=%s instance-hash=%s"
@@ -671,7 +676,8 @@ def phase_install(ctx: ProvisionContext) -> None:
     for name in stack:
         if name == "parsek":
             continue
-        log(ctx, "Info", "Install", "stack component %s -> GameData (hash into manifest)" % name)
+        log(ctx, "Info", "Install", "stack component %s -> %s (hash into manifest)"
+            % (name, provlib.stack_component_install_folder(name)))
     if ctx.dry_run:
         log(ctx, "Info", "Install",
             "would extract kRPC into GameData/kRPC, drop TestingTools.dll + KRPC.MechJeb.dll "
@@ -857,7 +863,7 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
             log(ctx, "Error", "Verify", "dev-sourced mod %s MISSING from instance GameData" % name)
             _drift("devSourcedMods.%s" % name, recorded, None)
             continue
-        cur = _content_tree_hash(modpath)
+        cur = _content_tree_hash(modpath, ctx)
         match = cur == recorded
         log(ctx, "Info" if match else "Error", "Verify",
             "dev-sourced mod %s content-hash %s manifest" % (name, "==" if match else "!="))
@@ -1009,16 +1015,52 @@ def _copy_one(src: str, dst: str) -> None:
     shutil.copyfile(_long(src), _long(dst))
 
 
+def _is_reparse_point(path: str) -> bool:
+    """SF6(b): True if ``path`` is a reparse point -- a junction or symlink dir
+    that a copy / size / hash walk must NOT descend into (it points at a stock
+    tree junctioned separately, or could form a loop). Uses the Windows
+    ``st_reparse_tag`` when available, else a symlink / realpath-differs
+    fallback."""
+    import stat as _stat
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    if getattr(st, "st_reparse_tag", 0):
+        return True
+    if _stat.S_ISLNK(st.st_mode):
+        return True
+    try:
+        return os.path.isdir(path) and os.path.realpath(path) != os.path.abspath(path)
+    except OSError:
+        return False
+
+
+def _prune_reparse_dirs(ctx: Optional[ProvisionContext], root: str, dirs: List[str]) -> None:
+    """Remove reparse-point (junction / symlink) subdirs from an os.walk ``dirs``
+    list IN PLACE (SF6b), logging each skip when a ctx is available."""
+    keep: List[str] = []
+    for d in dirs:
+        full = os.path.join(root, d)
+        if _is_reparse_point(full):
+            if ctx is not None:
+                log(ctx, "Verbose", "Clone", "skip reparse-point dir %s" % full)
+        else:
+            keep.append(d)
+    dirs[:] = keep
+
+
 def _copy_dir(ctx: ProvisionContext, src: str, dst: str, skip_top=None):
     """Recursive tree copy honoring extended-length paths, optionally skipping
     top-level child names (used to junction StreamingAssets instead of copying
-    it). Returns (files, bytes)."""
+    it) and always skipping reparse-point subdirs (SF6b). Returns (files, bytes)."""
     files = 0
     total = 0
     for root, dirs, names in os.walk(src):
         rel = os.path.relpath(root, src)
         if rel == "." and skip_top is not None:
             dirs[:] = [d for d in dirs if not skip_top(d)]
+        _prune_reparse_dirs(ctx, root, dirs)
         target_root = dst if rel == "." else os.path.join(dst, rel)
         os.makedirs(_long(target_root), exist_ok=True)
         for n in names:
@@ -1031,11 +1073,12 @@ def _copy_dir(ctx: ProvisionContext, src: str, dst: str, skip_top=None):
     return files, total
 
 
-def _dir_bytes(root: str, skip_top=None) -> int:
+def _dir_bytes(root: str, skip_top=None, ctx: Optional[ProvisionContext] = None) -> int:
     total = 0
     for r, dirs, names in os.walk(root):
         if skip_top is not None and os.path.relpath(r, root) == ".":
             dirs[:] = [d for d in dirs if not skip_top(d)]
+        _prune_reparse_dirs(ctx, r, dirs)
         for n in names:
             try:
                 total += os.path.getsize(os.path.join(r, n))
@@ -1055,13 +1098,13 @@ def _measure_copy_bytes(ctx: ProvisionContext, copy_mods: List[str]) -> int:
         disp = provlib.clone_toplevel_disposition(name, ksp_data)
         src = os.path.join(dev, name)
         if disp == "copy-tree-except-junction":
-            total += _dir_bytes(src, skip_top=provlib.ksp_data_entry_is_junction)
+            total += _dir_bytes(src, skip_top=provlib.ksp_data_entry_is_junction, ctx=ctx)
         elif disp == "copy":
-            total += _dir_bytes(src) if os.path.isdir(src) else _safe_size(src)
+            total += _dir_bytes(src, ctx=ctx) if os.path.isdir(src) else _safe_size(src)
     for name in copy_mods:
         src = os.path.join(dev, "GameData", name)
         if os.path.isdir(src):
-            total += _dir_bytes(src)
+            total += _dir_bytes(src, ctx=ctx)
         elif os.path.isfile(src):
             total += _safe_size(src)
     return total
@@ -1145,18 +1188,45 @@ def _create_junctions(ctx: ProvisionContext, junctions: Dict[str, str]) -> None:
         log(ctx, "Info", "Clone", "junctioned %s -> %s" % (link_rel, target))
 
 
-def _content_tree_hash(root: str) -> str:
+def _content_tree_hash(root: str, ctx: Optional[ProvisionContext] = None) -> str:
     """Deterministic content hash of a dev-sourced mod (folder or single file),
-    via the pure canonical digest input (EC-3)."""
+    via the pure canonical digest input (EC-3). Reparse-point subdirs are pruned
+    (SF6b) so a junction inside a dev-sourced mod cannot pull a stock tree into
+    the hash."""
     entries: List[tuple] = []
     if os.path.isfile(root):
         entries.append((os.path.basename(root), sha256_file(root)))
     else:
-        for r, _dirs, names in os.walk(root):
+        for r, dirs, names in os.walk(root):
+            _prune_reparse_dirs(ctx, r, dirs)
             for n in names:
                 p = os.path.join(r, n)
                 entries.append((os.path.relpath(p, root), sha256_file(p)))
     return sha256_bytes(provlib.canonical_tree_digest_input(entries).encode("utf-8"))
+
+
+def _recheck_alias_resolved(ctx: ProvisionContext) -> bool:
+    """SF6(a): re-run the EC-16 alias guard on the REALPATH-resolved instance dir
+    (and its GameData child, when present) versus the resolved dev install. The
+    PREFLIGHT check is string-level; a junction/symlink could make a clean-looking
+    instanceDir actually resolve INTO the read-only dev install. Aborts EC-16 and
+    returns False on any equality/nesting relationship, else True."""
+    dev_real = os.path.normcase(os.path.normpath(os.path.realpath(ctx.dev_install)))
+    targets = [ctx.instance_dir]
+    gd = os.path.join(ctx.instance_dir, "GameData")
+    if os.path.exists(gd):
+        targets.append(gd)
+    for t in targets:
+        real = os.path.normcase(os.path.normpath(os.path.realpath(t)))
+        alias = provlib.check_instance_dir_alias(real, dev_real, ctx.profile.get("instanceDir", ""))
+        if alias.reason in ("equals-dev-install", "nested-in-dev-install",
+                            "dev-install-nested-in-instance"):
+            abort(ctx, "Clone", "EC-16",
+                  "resolved instance path aliases dev install (%s): resolved=%s dev=%s"
+                  % (alias.reason, real, dev_real))
+            return False
+    log(ctx, "Info", "Clone", "EC-16 resolved-path alias re-check OK (dev=%s)" % dev_real)
+    return True
 
 
 def _incomplete_marker_path(ctx: ProvisionContext) -> str:

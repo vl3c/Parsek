@@ -57,6 +57,22 @@ STACK_COMPONENT_NAMES: Tuple[str, ...] = (
     "parsek",
 )
 
+# Real GameData subfolder each stack component lands in (N11: the dry-run plan
+# labels the actual on-disk target, not the pin id). kRPC + TestingTools +
+# KRPC.MechJeb share GameData/kRPC; MechJeb2 and Parsek own their own folders.
+STACK_COMPONENT_INSTALL_FOLDER: Dict[str, str] = {
+    "krpc": "GameData/kRPC",
+    "testingtools": "GameData/kRPC",
+    "krpc_mechjeb": "GameData/kRPC",
+    "mechjeb2": "GameData/MechJeb2",
+    "parsek": "GameData/Parsek",
+}
+
+
+def stack_component_install_folder(name: str) -> str:
+    """The instance GameData subfolder a stack component installs into (N11)."""
+    return STACK_COMPONENT_INSTALL_FOLDER.get(name, "%s/%s" % (GAMEDATA_DIR, name))
+
 # ModuleManager cache artifacts deleted from the instance so MM regenerates
 # them against the instance's actual mod set (design MM CACHE / EC-2).
 MM_CACHE_FILES: Tuple[str, ...] = (
@@ -611,9 +627,12 @@ def is_open_pin(value: Optional[str]) -> bool:
 GAMEDATA_DIR = "GameData"
 STREAMINGASSETS = "StreamingAssets"
 
-# The marker written FIRST (before any instance write) and cleared LAST (design
-# EC-6): its presence means the instance is a half-provision the harness must
-# refuse to admit (run.py reads it as `.provision-incomplete`).
+# The marker written at the START of CLONE -- before the mutable surface, the
+# junctions, and the stack payloads are written (the PREFLIGHT lockfile +
+# provision-log are the only instance-local writes that precede it) -- and
+# cleared LAST on VERIFY success (design EC-6): its presence means the instance
+# is a half-provision the harness must refuse to admit (run.py reads it as
+# `.provision-incomplete`).
 PROVISION_INCOMPLETE_MARKER = ".provision-incomplete"
 
 # Top-level dev-install entries never copied verbatim into a fresh instance:
@@ -622,9 +641,18 @@ PROVISION_INCOMPLETE_MARKER = ".provision-incomplete"
 #   settings.cfg  -- authored by the SETTINGS phase from the profile deltas.
 #   saves / Logs / Screenshots / temp -- mutable, harness- or run-owned; carrying
 #                    dev state into an automation instance would poison a run.
+#   KSP.log       -- the dev run's log; a fresh instance regenerates its own.
+#   Player.log    -- the Unity player log (same rationale).
+# Crash dumps (N20) are timestamped, so they are matched by prefix below.
 CLONE_SKIP_TOPLEVEL: Tuple[str, ...] = (
     GAMEDATA_DIR, "settings.cfg", "saves", "Logs", "Screenshots", "temp",
+    "KSP.log", "Player.log",
 )
+
+# Timestamped crash-dump artifacts KSP / Unity leave at the game root
+# (``crash_2024-01-01_120000/`` folders, ``error.log`` companions). Matched by
+# case-insensitive prefix since the exact name varies per crash (N20).
+CLONE_SKIP_TOPLEVEL_PREFIXES: Tuple[str, ...] = ("crash_", "crash-", "crash ")
 
 
 def clone_toplevel_disposition(name: str, ksp_data_dir_name: str = "KSP_x64_Data") -> str:
@@ -635,7 +663,8 @@ def clone_toplevel_disposition(name: str, ksp_data_dir_name: str = "KSP_x64_Data
         the generic tree copy MUST skip it).
       - ``copy-tree-except-junction``: the KSP data dir (copied, but its
         ``StreamingAssets`` subtree is junctioned, not copied -- ``EC-6`` bulk).
-      - ``skip``: settings.cfg / saves / Logs / Screenshots / temp.
+      - ``skip``: settings.cfg / saves / Logs / Screenshots / temp / KSP.log /
+        Player.log / any ``crash_*`` dump (N20).
       - ``copy``: everything else (exe, buildID64.txt, Internals, PDLauncher,
         top-level files -- the small mutable surface).
     """
@@ -644,6 +673,9 @@ def clone_toplevel_disposition(name: str, ksp_data_dir_name: str = "KSP_x64_Data
     if name == ksp_data_dir_name:
         return "copy-tree-except-junction"
     if name in CLONE_SKIP_TOPLEVEL:
+        return "skip"
+    lname = name.lower()
+    if any(lname.startswith(p) for p in CLONE_SKIP_TOPLEVEL_PREFIXES):
         return "skip"
     return "copy"
 
@@ -1010,7 +1042,8 @@ def build_action_plan(pins: Dict, profile: Dict) -> List[PlannedAction]:
         if name == "parsek":
             continue
         plan.append(PlannedAction("INSTALL", "COPY",
-            "%s/GameData/%s (stack component)" % (instance_dir, name)))
+            "%s -> %s/%s (stack component)"
+            % (name, instance_dir, stack_component_install_folder(name))))
 
     for cache in MM_CACHE_FILES:
         plan.append(PlannedAction("MM-CACHE", "DELETE",
