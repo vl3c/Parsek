@@ -116,7 +116,48 @@ Source/Parsek/InGameTests/  # Runtime test framework (runs inside KSP via Ctrl+S
 Source/Parsek.Tests/        # xUnit tests + Generators/ (RecordingBuilder, VesselSnapshotBuilder, ScenarioWriter)
 Kerbal Space Program/       # Local KSP instance (gitignored, auto-deployed)
 docs/                       # Design docs, roadmap, reference analyses
+harness/                    # Automated-testing harness (Python; M-A5/M-A6). run tests: python -m unittest discover -s harness/lib AND -s harness/provision
 ```
+
+**harness/ layout (Python automated-testing pipeline).** A pure-decision-library +
+thin-I/O-shell split mirrored across two modules; stdlib only (`tomllib` for all
+`.toml`), no third-party deps. Run its tests with the stdlib runner:
+`cd harness && python -m unittest discover -s lib -q AND discover -s provision -q`.
+
+- `harness/lib/hlib.py` - the M-A5 pure decision library (spec validation, scenario
+  selection, seam response-stream evaluation, the named line parsers, verdict
+  classification + retry + expected-fail overlay, expectations, log-validate profile
+  selection, budget arithmetic, admission reuse over provlib, coverage/flake, result
+  serialization + schema gate). No KSP, no filesystem, no network. Tests:
+  `harness/lib/test_hlib.py`.
+- `harness/run.py` - the M-A5 thin I/O shell (orchestrator). Owns everything OUTSIDE
+  KSP and delegates every decision to hlib. CLI `--id/--tier/--tag/--cadence` +
+  `--dry-run`; per-scenario admit -> run-lock -> zombie preflight -> stage -> launch
+  -> drive seam (budget watchdog -> process-tree kill -> KILLED) -> verifier chain ->
+  classify -> collect-logs on non-PASS -> result JSON + summary + coverage/flake
+  refresh. The KSP process + verifier subprocesses sit behind an injectable `Runtime`
+  seam; `harness/lib/_fake_ksp.py` + `harness/lib/test_run_smoke.py` drive a full
+  PASS + KILLED + boot-crash run with no real game.
+- `harness/scenarios/*.toml` - declarative scenario specs (schema=1). `harness/coverage/registry.toml`
+  - the committed D1-D18 dimension value set (the coverage denominator + spec-validation
+  vocabulary); `coverage.{json,txt}` / `flake.json` are generated (gitignored).
+  `harness/results/<runId>.json` + `summary.txt` are generated per-run (gitignored).
+- `harness/provision/` - the M-A6 stack provisioner: `provlib.py` (pure; admission
+  diff `compare_manifest`/`project_admission`, lockfile `acquire_lock`, settings/pin
+  logic - reused by the M-A5 harness for admission + run-lock) + `provision.py` (shell)
+  + `pins.toml` / `profiles/*.toml`.
+- Design authorities (binding): `docs/dev/design-autotest-harness-core.md` (M-A5),
+  `design-autotest-command-seam.md` (M-A2), `design-autotest-autorun-hooks.md` (M-A3),
+  `design-autotest-offline-analyzer.md` / `design-autotest-findings-baseline.md` (M-A1),
+  `design-autotest-stack-setup.md` (M-A6).
+
+Two dev-script seams the harness passes (additive, inert by default):
+`scripts/analyze-recordings.ps1 -FreshSaveGate` (programmatic analyzer Forbid;
+mutually exclusive with `-UseBaseline`/`-WriteBaseline`) and
+`scripts/validate-ksp-log.ps1 -KilledRun` / `-NoRecordingRun` (set
+`PARSEK_LIVE_SUPPRESS_RULES` to the marker-pairing rule codes; the C# checker's
+`ParseSuppressionList` rejects any request to suppress FMT/WRN - the cannot-mask
+guarantee).
 
 Key source files and what they do - read the relevant one before modifying:
 - `ParsekFlight.cs` - flight-scene controller (policy, recording, chain management, input). Camera follow delegated to WatchModeController. `TryConsumeStockActionIntent` runs from `OnVesselSwitchComplete` (Map Switch-To) and `OnFlightReady` (TS Fly / KSC marker Fly) to validate an armed `StockActionIntentMarker`, pick one of three branches (committed-tree clone, BG-member continuation, standalone), mutate `activeTree` via `SwitchSegmentBuilder`, arm a fresh `SwitchSegmentSession`, clear the consumed marker, and disarm the first-modification watcher.
