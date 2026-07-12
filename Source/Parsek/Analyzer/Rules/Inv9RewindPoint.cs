@@ -10,7 +10,7 @@ namespace Parsek.Analyzer.Rules
     // edge case 19).
     //
     // The field this rule checks is Recording.RewindSaveFileName -- the
-    // Rewind-to-Separation quicksave captured at recording start. Production stores
+    // Rewind-to-Launch quicksave captured at recording start. Production stores
     // it at Parsek/Saves/<id>.sfs (RecordingPaths.BuildRewindSaveRelativePath; see
     // FlightRecorder.CaptureRewindSave / CleanupOrphanedRewindSave and
     // RecordingStore.DeleteRecordingFiles, all of which resolve the file through
@@ -25,20 +25,27 @@ namespace Parsek.Analyzer.Rules
     //    (path traversal / invalid chars) -> FAIL, emitted BEFORE any filesystem
     //    access so a `../evil` id never reaches the disk.
     //  - A referenced rewind save whose Parsek/Saves/<id>.sfs is MISSING -> severity
-    //    splits by the recording's MergeState:
-    //      * CommittedProvisional (the slot is still OPEN / re-flyable) -> FAIL
-    //        (token "missing-rewind-save-provisional"). This recording can still be
-    //        rewound, and a real Rewind-to-Separation would fail to find its own
-    //        quicksave -- a stronger anomaly than a dangling reference on a sealed
-    //        recording. The blanket WARN downgrade blurred exactly this class.
+    //    splits by the recording's MergeState as a TRIAGE-SEVERITY heuristic, NOT a
+    //    production contract. Rewindability of the parsek_rw_ save is itself
+    //    MergeState-agnostic (GetRewindRecording / CanRewind / InitiateRewind never
+    //    read MergeState), so the split does not claim "provisional = rewindable,
+    //    sealed = not"; it grades how suspicious a dangler is by how recent / active
+    //    the referencing slot is:
+    //      * CommittedProvisional (a recent, still-active slot) -> FAIL
+    //        (token "missing-rewind-save-provisional"). A dangling Rewind-to-Launch
+    //        save on an open provisional slot is far likelier a live bug than the
+    //        historical shared-delete residue tolerated on sealed rows. Narrow benign
+    //        false-FAIL path: a provisional root whose shared rewind save was deleted
+    //        by a sibling (the same benign mechanism described for the Immutable case
+    //        below) can dangle without being a defect; baseline that finding with a
+    //        human reason to recover.
     //      * Immutable / anything else -> WARN (token "missing-rewind-save"). A
-    //        missing rewind save on a sealed recording is a dangling reference, not
-    //        proven corruption: RecordingStore.DeleteRecordingFiles deletes a rewind
-    //        save with the recording being discarded WITHOUT reference-counting
-    //        sibling recordings that share the same save via
+    //        missing rewind save on a sealed recording is far likelier a dangling
+    //        reference than proven corruption: RecordingStore.DeleteRecordingFiles
+    //        deletes a rewind save with the recording being discarded WITHOUT
+    //        reference-counting sibling recordings that share the same save via
     //        ParsekFlight.CopyRewindSaveToRoot ("first recorder wins"), so a
-    //        surviving sibling can legitimately carry a now-deleted reference; a
-    //        sealed (Immutable) recording can no longer be rewound at all; and
+    //        surviving sibling can legitimately carry a now-deleted reference; and
     //        production treats a missing rewind hint as benign
     //        (ParsekScenario.ResolveLimboResumeRewindSave: "a missing hint is
     //        benign"). WARN surfaces the dangling reference without failing the run.
@@ -122,10 +129,10 @@ namespace Parsek.Analyzer.Rules
 
                 if (!File.Exists(rwPath))
                 {
-                    // Dangling reference. Severity splits by MergeState (see class
-                    // comment): a still-rewindable CommittedProvisional recording
-                    // whose own rewind save is gone -> FAIL; a sealed (Immutable) or
-                    // any other recording -> WARN.
+                    // Dangling reference. Severity splits by MergeState as a triage
+                    // heuristic (see class comment): a recent / still-active
+                    // CommittedProvisional recording whose own rewind save is gone ->
+                    // FAIL; a sealed (Immutable) or any other recording -> WARN.
                     if (rec.MergeState == MergeState.CommittedProvisional)
                     {
                         findings.Add(FailFile(rec.RecordingId ?? rwId,

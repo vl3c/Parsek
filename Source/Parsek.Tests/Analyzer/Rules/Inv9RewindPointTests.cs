@@ -151,11 +151,12 @@ namespace Parsek.Tests.Analyzer.Rules
             Assert.Contains("missing-rewind-save", warn.Message);
         }
 
-        // Guards (F1 severity-split): a CommittedProvisional recording (an OPEN /
-        // still-rewindable slot) whose own rewind save is missing -> FAIL, distinct
-        // token "missing-rewind-save-provisional". The blanket WARN downgrade blurred
-        // exactly this class: this recording can still be rewound and a real
-        // Rewind-to-Separation would fail to find its quicksave. In-memory model with
+        // Guards (F1 severity-split): a CommittedProvisional recording (a recent /
+        // still-active slot) whose own rewind save is missing -> FAIL, distinct
+        // token "missing-rewind-save-provisional". This is a triage-severity heuristic,
+        // not a production contract (rewindability is MergeState-agnostic): a dangling
+        // Rewind-to-Launch save on an open provisional slot is far likelier a live bug
+        // than the shared-delete residue tolerated on sealed rows. In-memory model with
         // a real (empty) SaveDirectory so the file is genuinely absent; the rewind id
         // validates, so it reaches the existence check.
         [Fact]
