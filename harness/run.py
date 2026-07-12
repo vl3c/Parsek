@@ -1313,7 +1313,17 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
 
 
 def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None) -> int:
-    parser = argparse.ArgumentParser(description="M-A5 automated-testing harness orchestrator")
+    parser = argparse.ArgumentParser(
+        description="M-A5 automated-testing harness orchestrator",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "exit-code contract (N8):\n"
+            "  0  every selected scenario terminated PASS or EXPECTED-FAIL (green)\n"
+            "  1  at least one PARSEK-FAIL, INVALID, KILLED, or XPASS. XPASS exits 1\n"
+            "     as SCHEDULER-AMBER: the run passed but an expected-fail guard now\n"
+            "     passes and a human must confirm the bug is closed + remove the key,\n"
+            "     so it must not read green to a scheduler.\n"
+            "  2  no scenario selection given (also argparse's own bad-argument code)\n"))
     sel = parser.add_mutually_exclusive_group()
     sel.add_argument("--id", help="run one scenario by id")
     sel.add_argument("--tier", help="run all specs of a tier (perpr|daily|nightly|weekly)")

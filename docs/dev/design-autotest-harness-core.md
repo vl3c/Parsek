@@ -841,6 +841,25 @@ green attempts to dilute its own rate. Un-quarantine is a human-only action tied
 that spec edit. All of this is deterministic given the inputs, so the coverage tool
 is fully unit-tested.
 
+### Exit-code contract (N8)
+
+`run.py` exits with a code a scheduler / CI step reads without parsing the result
+JSON:
+
+- **0** -- every selected scenario terminated `PASS` or `EXPECTED-FAIL` (green).
+- **1** -- at least one scenario terminated `PARSEK-FAIL`, `INVALID`, `KILLED`, or
+  `XPASS`. `XPASS` deliberately exits 1 as SCHEDULER-AMBER: the run itself passed,
+  but an expected-fail guard now passes and a human must confirm the bug is closed
+  and remove the `expectedFail` key (N8/N11), so it must NOT read green to a
+  scheduler. An invalid spec (INVALID-SPEC, KSP never launched) also contributes a
+  1.
+- **2** -- no scenario selection was given (`--id`/`--tier`/`--tag`/`--cadence`
+  absent); this is also argparse's own bad-argument exit code.
+
+The exit code is the OR of the per-scenario outcomes; a single non-green scenario
+in a batch makes the whole invocation exit 1, so a nightly step fails loudly rather
+than needing the summary parsed.
+
 ### The pure decision library (hlib)
 
 `harness/lib/hlib.py`, the M-A5 analogue of `provlib.py`, holds every non-trivial
@@ -1358,6 +1377,15 @@ Recorded so they are not lost; none blocks the v1 seam-driven daily loop.
   fixed 600s fallback deferral ceiling (spec caps RunTests budgets at 540s, S8);
   threading the spec's per-step budget down to the seam command so the seam adopts
   it is deferred to M-A5.1.
+- **M-A5.1: subprocess-scoped tooling retry (v1 adaptation 4).** The verifier-chain
+  prose above (S14, edges 12/30) describes a retryable tooling / analyzer-error
+  INVALID as "re-running only that verifier subprocess, not a fresh KSP boot". v1
+  does NOT yet do that: a retryable INVALID re-runs the WHOLE attempt through
+  `_run_scenario_with_retry` (fresh stage + fresh launch + fresh verifier chain), so
+  an analyzer-error retry currently burns another boot. Threading a subprocess-scoped
+  retry (re-invoke just the wedged `analyze-recordings.ps1` / `validate-ksp-log.ps1`
+  over the already-produced save) is deferred to M-A5.1; the whole-attempt retry is
+  correct, just more expensive.
 - **M-A4 / M-B5: preset-scoped injection.** `injectedRecordings` in v1 is
   `none | all-synthetic` (S4); a named corpus/preset subset lands with the M-A4
   harvest queue and the M-B5 preset library.

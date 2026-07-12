@@ -48,7 +48,7 @@ report; headline values only here.
   Milestones, Kerbals, Facilities, Contracts, Strategies, Route; recalc
   engine, orchestrator, KspStatePatcher, tombstones, ERS/ELS routing,
   ground-truth harness (CareerSaveParser + LedgerGroundTruthDiff), action
-  blocking, epoch isolation after revert.
+  blocking, recalc-from-ut0, epoch isolation after revert.
 - **D9 Rewind / re-fly**: Rewind-to-Launch, Fast-Forward, Rewind-to-
   Separation, re-fly gate (5 preconditions), Unfinished Flights / STASH,
   Seal / Stash / Fly, supersede relation, tombstones, merge journal (crash
