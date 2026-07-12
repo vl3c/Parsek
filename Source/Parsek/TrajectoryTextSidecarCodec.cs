@@ -1367,11 +1367,14 @@ namespace Parsek
                 DeserializeTrackSections(sourceNode, rec.TrackSections);
                 if (rec.TrackSections.Count > 0)
                 {
-                    // reconcileEmptySections: false — READ path. Committed recordings are
-                    // immutable; this legacy flat-fallback seam marks dirty, so mutating
-                    // existing sections here would rewrite (migrate) old on-disk data on
-                    // the next save. Only write/producer paths reconcile empty shells.
-                    // Candidate clipping still applies (it only constrains new adds).
+                    // reconcileEmptySections: false — READ path: loading must not mutate
+                    // the EXISTING sections of a committed recording. Candidate clipping
+                    // still applies (it only constrains what promotion ADDS). The overall
+                    // contract is normalize-on-rewrite, not byte-freeze: when a sanctioned
+                    // flow (re-fly merge, tail finalizer, this dirty-marking legacy seam,
+                    // ...) marks the recording dirty, the next save rewrites the sidecar
+                    // through the write-path Ensure, which reconciles under the current
+                    // producer contract. Files no flow dirties stay byte-identical.
                     RecordingStore.EnsureCheckpointSectionsForTopLevelOrbitSegments(
                         rec,
                         markDirty: true,

@@ -7997,9 +7997,8 @@ namespace Parsek
 
         private static bool TrackSectionHasResumePayload(TrackSection section)
         {
-            return (section.frames != null && section.frames.Count > 0)
-                || (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0)
-                || (section.checkpoints != null && section.checkpoints.Count > 0);
+            // Single shared payload predicate; see OrbitSegmentCheckpointBridge.HasSectionPayload.
+            return OrbitSegmentCheckpointBridge.HasSectionPayload(section);
         }
 
         /// <summary>

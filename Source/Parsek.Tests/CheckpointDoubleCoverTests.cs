@@ -116,12 +116,6 @@ namespace Parsek.Tests
                 + string.Join(" | ", overlaps.Select(f => f.Message)));
         }
 
-        private static int CheckpointSectionCount(Recording rec)
-        {
-            return rec.TrackSections.Count(
-                s => s.referenceFrame == ReferenceFrame.OrbitalCheckpoint);
-        }
-
         // --- sub-pattern 1: empty physical shell duplicating a checkpoint span ---
 
         // Guards: the exact c1 shape — an empty Absolute shell (frames=0) and a closed
@@ -176,6 +170,49 @@ namespace Parsek.Tests
             Assert.Single(rec.TrackSections);
             Assert.Equal(ReferenceFrame.OrbitalCheckpoint, rec.TrackSections[0].referenceFrame);
             AssertNoDoubleCover(rec);
+        }
+
+        // Guards: the reconcile must run even when the recording has NO flat orbit
+        // segments (atmospheric/surface-only recordings) - the old early return
+        // skipped the whole pass for that population, so an empty shell double-
+        // covering a physical section survived every rewrite.
+        [Fact]
+        public void Ensure_NoOrbitSegments_StillReconcilesCoveredShell()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "no-orbit-segments",
+                TrackSections = new List<TrackSection>
+                {
+                    PhysicalSection(1000, 2000),
+                    EmptyAbsoluteSection(1000, 2000)
+                },
+                OrbitSegments = new List<OrbitSegment>()
+            };
+
+            var stats = OrbitSegmentCheckpointBridge
+                .EnsureCheckpointSectionsForTopLevelOrbitSegments(rec, markDirty: false);
+
+            Assert.Equal(1, stats.ReconciledEmptySections);
+            Assert.True(stats.Changed);
+            Assert.Single(rec.TrackSections);
+            AssertNoDoubleCover(rec);
+
+            // Read-gate variant: same shape stays untouched with reconcile off.
+            var recRead = new Recording
+            {
+                RecordingId = "no-orbit-segments-read",
+                TrackSections = new List<TrackSection>
+                {
+                    PhysicalSection(1000, 2000),
+                    EmptyAbsoluteSection(1000, 2000)
+                },
+                OrbitSegments = new List<OrbitSegment>()
+            };
+            var readStats = OrbitSegmentCheckpointBridge.EnsureCheckpointSectionsForTopLevelOrbitSegments(
+                recRead, markDirty: false, reconcileEmptySections: false);
+            Assert.False(readStats.Changed);
+            Assert.Equal(2, recRead.TrackSections.Count);
         }
 
         // Guards: an empty shell whose span is NOT covered by any payload section is a

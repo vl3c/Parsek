@@ -143,20 +143,43 @@ namespace Parsek
         // reconcileEmptySections gates the empty-shell reconcile pass, which trims or
         // removes EXISTING payload-less sections covered by payload-bearing ones.
         // Producer/write contexts run it so every recording that gets (re)written is
-        // overlap-free. The sidecar READ sites pass false: committed recordings are
-        // immutable, and mutating their existing sections on the dirty-marking legacy
-        // flat-fallback read seam would rewrite (migrate) old on-disk data on the next
-        // save. The checkpoint-vs-checkpoint candidate clipping is NOT gated — it only
-        // constrains what this pass ADDS, and the read path must not re-create envelope
-        // double-cover from a stale flat cache either.
+        // overlap-free. The sidecar READ sites pass false: loading must not mutate a
+        // committed recording's existing sections. The checkpoint-vs-checkpoint
+        // candidate clipping is NOT gated — it only constrains what promotion ADDS,
+        // and the read path must not re-create envelope double-cover from a stale
+        // flat cache either. Overall contract is normalize-on-rewrite, not
+        // byte-freeze: a recording dirtied by any sanctioned flow is rewritten
+        // through the write-path Ensure and comes out reconciled; files no flow
+        // dirties stay byte-identical.
         internal static OrbitSegmentCheckpointBridgeStats EnsureCheckpointSectionsForTopLevelOrbitSegments(
             Recording rec,
             bool markDirty,
             bool reconcileEmptySections = true)
         {
             var stats = new OrbitSegmentCheckpointBridgeStats();
-            if (rec == null || rec.OrbitSegments == null || rec.OrbitSegments.Count == 0)
+            if (rec == null)
                 return stats;
+
+            if (rec.OrbitSegments == null || rec.OrbitSegments.Count == 0)
+            {
+                // No flat segments to promote, but the empty-shell reconcile must
+                // still run on write paths: an atmospheric/surface-only recording
+                // (zero orbit segments) can carry a payload-less shell that
+                // double-covers a physical section.
+                if (reconcileEmptySections && rec.TrackSections != null)
+                {
+                    stats.ReconciledEmptySections +=
+                        ReconcileEmptySectionsAgainstPayloadCoverage(rec.TrackSections);
+                }
+                if (stats.Changed)
+                {
+                    rec.CachedStats = null;
+                    rec.CachedStatsPointCount = 0;
+                    if (markDirty)
+                        rec.MarkFilesDirty();
+                }
+                return stats;
+            }
 
             if (rec.TrackSections == null)
                 rec.TrackSections = new List<TrackSection>();
@@ -488,7 +511,14 @@ namespace Parsek
                 && section.checkpoints.Count > 0;
         }
 
-        private static bool HasSectionPayload(TrackSection section)
+        /// <summary>
+        /// Shared "does this section carry any playable payload" predicate (frames,
+        /// bodyFixedFrames, or checkpoints). Also consumed by FlightRecorder's
+        /// resume-payload check — keep the payload surfaces in ONE place so the
+        /// bridge's span-ownership decisions and the recorder's resume decisions
+        /// cannot diverge when a new payload surface is added.
+        /// </summary>
+        internal static bool HasSectionPayload(TrackSection section)
         {
             return (section.frames != null && section.frames.Count > 0)
                 || (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0)
