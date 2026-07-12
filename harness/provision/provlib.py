@@ -604,6 +604,66 @@ def select_testingtools_sources(available_files: Sequence[str]) -> TestingToolsS
 
 
 # ---------------------------------------------------------------------------
+# Self-contained git-source resolution (module boundary / submodule readiness).
+# BUILD-TT (git-show the shim sources) and PIN (peel-verify the pinned commit)
+# read the git-pinned components from a MODULE-OWNED clone under
+# harness/provision/.cache/<comp>-src, NOT the umbrella mods/ clone, so nothing
+# under harness/ depends on a sibling checkout that a submodule split would leave
+# behind. This pure decision picks the source; the shell probes the three
+# booleans read-only and performs the clone / fetch. Pure.
+# ---------------------------------------------------------------------------
+
+# Cache subdir name (under .cache/) for each git-pinned component's source clone.
+GIT_SOURCE_CACHE_DIRNAME: Dict[str, str] = {
+    "krpc": "krpc-src",
+    "krpc_mechjeb": "krpc_mechjeb-src",
+}
+
+
+@dataclass(frozen=True)
+class GitSourceDecision:
+    action: str        # use-override | reuse-cache | refetch-cache | clone
+    source_dir: str    # the git dir the shell peels / git-shows from
+    fetch: bool        # True when the shell must hit the network (clone/refetch)
+    reason: str        # override-present | override-missing | cached-and-has-commit
+                       #   | cached-stale | absent
+
+
+def resolve_git_source(
+    cache_dir: str,
+    commit: str,
+    override_path: Optional[str] = None,
+    override_present: bool = False,
+    cache_has_git: bool = False,
+    cache_has_commit: bool = False,
+) -> GitSourceDecision:
+    """Decide where a git-pinned component's source is read from.
+
+    Priority order (idempotent):
+      - ``--krpc-src`` OVERRIDE wins when given (a dev pointing at an existing
+        clone, e.g. the umbrella ``mods/krpc``); ``override_present`` reports
+        whether it is actually a git clone so the shell can abort cleanly.
+      - REUSE the module-owned ``cache_dir`` clone when it already contains the
+        pinned ``commit`` (``cached-and-has-commit``) -- no network.
+      - REFETCH when the cache clone exists but lacks the pinned commit
+        (``cached-stale``: a moved pin or an interrupted earlier fetch).
+      - CLONE when no cache clone exists yet (``absent``).
+
+    Pure: the shell computes ``override_present`` / ``cache_has_git`` /
+    ``cache_has_commit`` with read-only probes and executes the clone/fetch.
+    """
+    if override_path:
+        return GitSourceDecision(
+            "use-override", override_path, False,
+            "override-present" if override_present else "override-missing")
+    if cache_has_git and cache_has_commit:
+        return GitSourceDecision("reuse-cache", cache_dir, False, "cached-and-has-commit")
+    if cache_has_git:
+        return GitSourceDecision("refetch-cache", cache_dir, True, "cached-stale")
+    return GitSourceDecision("clone", cache_dir, True, "absent")
+
+
+# ---------------------------------------------------------------------------
 # OPEN-pin guard (design DOWNLOAD / EC-13). Pure.
 # ---------------------------------------------------------------------------
 

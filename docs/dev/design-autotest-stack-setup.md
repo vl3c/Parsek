@@ -692,8 +692,12 @@ Each: trigger -> expected behavior -> v1 or deferred.
 - The Parsek build system, the `-p:ForceKspDeploy` gate, and the intentional-only
   deploy behavior (`.claude/CLAUDE.md`) are untouched. This script does its own
   DEPLOY into automation instances and never invokes the csproj post-build copy.
-- The `mods/` clones are read-only pin references. The script never checks them
-  out to a different ref (it uses `git show`/`git archive`).
+- The umbrella `mods/` clones are NO LONGER read by default. BUILD-TT (git-show
+  the shim sources) and PIN (peel-verify the pinned commit) now read from a
+  module-owned clone under `harness/provision/.cache/<comp>-src` (see "Module
+  boundary and submodule readiness" below); an existing `mods/krpc` can still be
+  used via the optional `--krpc-src <path>` override. Either way the source is
+  only ever read (`git show` / `git rev-parse`), never checked out to a new ref.
 - The harness's scenario/coverage machinery (M-A5) is out of scope; this module
   only produces the instances and manifests it consumes.
 - No changes to Parsek source, tests, or in-game hooks.
@@ -762,6 +766,98 @@ harness refuse an old manifest (EC-5 path) rather than silently mis-admit,
 consistent with the project's no-migration stance for versioned data. A pin
 change is a normal reviewed edit to `pins.toml`; the next provision run detects
 the resulting drift and (with `--repair`) converges the instances.
+
+## Module boundary and submodule readiness
+
+The automated-testing system is a self-contained module: everything it fetches
+or generates lives under its own folders, so `harness/` could later be split
+into its own repository and consumed by Parsek as a git submodule without any
+loose ends reaching into a sibling checkout. This section is the authoritative
+enumeration of that boundary. (The M-A5 harness half -- `run.py` / `hlib.py` --
+is covered by the same boundary; its design doc,
+`design-autotest-harness-core.md`, cross-references this section.)
+
+### (a) What `harness/` OWNS (all in-repo, moves with a submodule split)
+
+- All Python: `harness/run.py`, `harness/lib/hlib.py`, `harness/provision/*.py`
+  (`provision.py`, `provlib.py`), the `_fake_ksp.py` test double, and every
+  `test_*.py`. `hlib` is pure; `provlib` is pure; `run.py` / `provision.py` are
+  the thin I/O shells. The only cross-module import is `hlib` -> `provlib` (both
+  under `harness/`) for the shared admission projection.
+- Declarative inputs: `harness/scenarios/*.toml`, `harness/coverage/registry.toml`,
+  `harness/provision/pins.toml`, `harness/provision/profiles/*.toml`.
+- Caches + build scratch (all gitignored): `harness/provision/.cache/`
+  (downloaded release zips, the module-owned git source clones
+  `krpc-src` / `krpc_mechjeb-src`, the extracted kRPC compile refs, the built
+  `TestingTools.dll`) and `harness/provision/.stage/`.
+- Generated outputs (gitignored): `harness/results/<runId>.json` + `summary.txt`,
+  `harness/coverage/coverage.{json,txt}`, `harness/flake.json`.
+
+  Self-contained git source (the boundary fix): BUILD-TT builds the TestingTools
+  shim from the pinned kRPC ref, and PIN peel-verifies both git-pinned components
+  (`krpc`, `krpc_mechjeb`). Both used to read the umbrella `mods/krpc` /
+  `mods/KRPC.MechJeb` clones -- a research-era convenience OUTSIDE the module. They
+  now read a module-owned blobless clone under `.cache/<comp>-src`
+  (`provlib.resolve_git_source` picks the source; `provision._ensure_git_source`
+  materializes it). Idempotent: reuse the cache clone when it already contains
+  the pinned commit, refetch when stale, clone when absent. The pinned upstream
+  is `pins.toml`'s `sourceRepo` field per component. `--krpc-src <path>` overrides
+  the kRPC source with a dev-supplied clone (e.g. an existing `mods/krpc`).
+
+### (b) What lives at the umbrella root, deliberately OUTSIDE git
+
+- `automation/<profile>/instance` -- the provisioned KSP instances (5-8 GB each;
+  the `automation/` dir is gitignored). Provisioning writes here; a run launches
+  KSP here; nothing under `harness/` is mutated by a run except the generated
+  caches/results above.
+- The dev KSP install (`Kerbal Space Program/`) -- a documented READ-ONLY
+  clone/payload source (junction targets + copy sources + the Managed reference
+  DLLs BUILD-TT HintPaths against). Never written (see "What Doesn't Change").
+- Run logs collected by `collect-logs.py` land in `../logs/` (sibling of the
+  repo root), per the existing debug convention.
+
+### (c) The Parsek-repo contract surface the harness consumes
+
+These stay in the Parsek repo under a submodule split (the harness would call
+them across the submodule boundary, exactly as it calls them across the
+`harness/` -> `scripts/` boundary today). They are the ONLY reach-out from
+`harness/` into non-harness code:
+
+- `scripts/analyze-recordings.ps1` (`-FreshSaveGate` / baseline modes) -- the
+  offline recording analyzer verifier.
+- `scripts/validate-ksp-log.ps1` (`-KilledRun` / `-NoRecordingRun`,
+  `PARSEK_LIVE_SUPPRESS_RULES`) -- the log-pipeline verifier.
+- `scripts/inject-recordings.ps1` -- the synthetic-recording stage seam.
+- `scripts/collect-logs.py` -- the on-non-PASS snapshot collector.
+- The dotnet-test-hosted analyzer core (`Parsek.Analyzer` inside `Parsek.dll`,
+  driven through the analyzer script) -- the same rules the in-game
+  `RecordingInvariants` category runs.
+- The in-game seam / autorun-hooks ENV contracts the harness sets at launch:
+  `PARSEK_TEST_COMMANDS`, `PARSEK_AUTORUN_TESTS`, `PARSEK_AUTORUN_EXIT`,
+  `PARSEK_LIVE_SUPPRESS_RULES`, `PARSEK_ANALYZER_BASELINE_MODE` (M-A2 / M-A3).
+- The Parsek DLL under test: DEPLOY copies this worktree's own
+  `Source/Parsek/bin/Debug/Parsek.dll` (or `--parsek-dll`) into the instance and
+  stamps `_git_head(WORKTREE_ROOT)` into the manifest. This is the Parsek->harness
+  artifact hand-off, not a harness-internal file.
+
+### (d) Split recipe sketch
+
+To lift `harness/` into its own repo consumed as a submodule at `harness/`:
+
+1. Move `harness/` to a new repo; add it back as a submodule at the same path.
+   The `.cache/` / `.stage/` / `automation/` / `results` / `coverage` gitignores
+   travel with it; no generated state is committed.
+2. The contract surface in (c) is pinned by ALREADY-VERSIONED env/flag/token
+   contracts, so the submodule and the Parsek repo can version independently as
+   long as those tokens hold: the seam response grammar (`v=1`), the batch marker
+   (`BATCH_COMPLETE` v1), the analyzer gate token (`RED=<0|1>` in the
+   `.analysis.txt` header), and the log-suppression rule codes. A change to any
+   of these is a coordinated cross-repo edit (bump the token, update both sides).
+3. The harness reaches the Parsek repo through relative paths from its own root
+   (`WORKTREE_ROOT/scripts`, `WORKTREE_ROOT/Source/Parsek/bin/Debug`), which a
+   submodule-at-`harness/` layout preserves unchanged. No umbrella `mods/`
+   dependency remains after the self-contained-source fix, so the only remaining
+   Parsek coupling is the (c) contract surface.
 
 ## Diagnostic Logging
 

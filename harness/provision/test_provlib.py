@@ -746,6 +746,123 @@ class TestingToolsSourceTests(unittest.TestCase):
         self.assertEqual(provlib.MISSING_VS_MASTER, ("autoLoadFlags", "Quit", "SetLanded"))
 
 
+class GitSourceResolutionTests(unittest.TestCase):
+    """Module boundary: BUILD-TT + PIN read the git-pinned source from a
+    module-owned clone under .cache/<comp>-src (never the umbrella mods/ clone),
+    so harness/ is submodule-ready. provlib.resolve_git_source is the pure
+    picker; cases = cached-and-has-commit / cached-stale / absent / override."""
+
+    CACHE = "/harness/.cache/krpc-src"
+    COMMIT = "11f1f1366fa4301049f6eac6640604127a9d763b"
+
+    def test_cached_and_has_commit_reuses_no_fetch(self):
+        d = provlib.resolve_git_source(
+            self.CACHE, self.COMMIT, cache_has_git=True, cache_has_commit=True)
+        self.assertEqual(d.action, "reuse-cache")
+        self.assertEqual(d.reason, "cached-and-has-commit")
+        self.assertEqual(d.source_dir, self.CACHE)
+        self.assertFalse(d.fetch)
+
+    def test_cached_stale_refetches(self):
+        d = provlib.resolve_git_source(
+            self.CACHE, self.COMMIT, cache_has_git=True, cache_has_commit=False)
+        self.assertEqual(d.action, "refetch-cache")
+        self.assertEqual(d.reason, "cached-stale")
+        self.assertEqual(d.source_dir, self.CACHE)
+        self.assertTrue(d.fetch)
+
+    def test_absent_clones(self):
+        d = provlib.resolve_git_source(
+            self.CACHE, self.COMMIT, cache_has_git=False, cache_has_commit=False)
+        self.assertEqual(d.action, "clone")
+        self.assertEqual(d.reason, "absent")
+        self.assertEqual(d.source_dir, self.CACHE)
+        self.assertTrue(d.fetch)
+
+    def test_override_present_wins_over_cache(self):
+        # An explicit --krpc-src clone beats the cache even when the cache is good.
+        d = provlib.resolve_git_source(
+            self.CACHE, self.COMMIT, override_path="/dev/mods/krpc",
+            override_present=True, cache_has_git=True, cache_has_commit=True)
+        self.assertEqual(d.action, "use-override")
+        self.assertEqual(d.reason, "override-present")
+        self.assertEqual(d.source_dir, "/dev/mods/krpc")
+        self.assertFalse(d.fetch)
+
+    def test_override_missing_is_flagged(self):
+        # Override given but not a git clone: the shell aborts on override-missing.
+        d = provlib.resolve_git_source(
+            self.CACHE, self.COMMIT, override_path="/nope",
+            override_present=False)
+        self.assertEqual(d.action, "use-override")
+        self.assertEqual(d.reason, "override-missing")
+        self.assertEqual(d.source_dir, "/nope")
+
+    def test_cache_dirname_table(self):
+        self.assertEqual(provlib.GIT_SOURCE_CACHE_DIRNAME["krpc"], "krpc-src")
+        self.assertEqual(provlib.GIT_SOURCE_CACHE_DIRNAME["krpc_mechjeb"], "krpc_mechjeb-src")
+
+
+class EnsureGitSourceShellTests(unittest.TestCase):
+    """Shell wiring for _ensure_git_source (no network / no writes): a dry-run
+    with no cache clone emits the source-resolution plan line + leaves the source
+    unmaterialized; an override that is not a git clone aborts EC-4."""
+
+    def _ctx(self, dry_run, override=None):
+        import provision
+        pins = {"krpc": {"commit": "abc123", "sourceRepo": "https://example/krpc"}}
+        return provision.ProvisionContext(
+            profile_name="t", pins=pins, profile={}, umbrella_root="/um",
+            dry_run=dry_run, repair=False, parsek_dll_override=None,
+            krpc_src_override=override)
+
+    def test_dry_run_absent_is_unmaterialized_and_logs_plan(self):
+        import provision, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            saved = provision.CACHE_DIR
+            provision.CACHE_DIR = os.path.join(tmp, ".cache")  # never created here
+            try:
+                ctx = self._ctx(dry_run=True)
+                src = provision._ensure_git_source(ctx, "krpc")
+            finally:
+                provision.CACHE_DIR = saved
+        self.assertIsNone(src)
+        self.assertFalse(ctx.aborted)
+        self.assertTrue(any("source-resolution action=clone reason=absent" in l
+                            for l in ctx.log_lines))
+
+    def test_memoized_second_call_does_not_relog(self):
+        import provision, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            saved = provision.CACHE_DIR
+            provision.CACHE_DIR = os.path.join(tmp, ".cache")
+            try:
+                ctx = self._ctx(dry_run=True)
+                provision._ensure_git_source(ctx, "krpc")
+                n_after_first = sum("source-resolution" in l for l in ctx.log_lines)
+                provision._ensure_git_source(ctx, "krpc")
+                n_after_second = sum("source-resolution" in l for l in ctx.log_lines)
+            finally:
+                provision.CACHE_DIR = saved
+        self.assertEqual(n_after_first, 1)
+        self.assertEqual(n_after_second, 1)
+
+    def test_override_not_a_clone_aborts(self):
+        import provision, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            saved = provision.CACHE_DIR
+            provision.CACHE_DIR = os.path.join(tmp, ".cache")
+            try:
+                # override path exists but has no .git -> override-missing -> abort
+                ctx = self._ctx(dry_run=False, override=tmp)
+                src = provision._ensure_git_source(ctx, "krpc", override=tmp)
+            finally:
+                provision.CACHE_DIR = saved
+        self.assertIsNone(src)
+        self.assertTrue(ctx.aborted)
+        self.assertIn("EC-4", ctx.abort_reason)
+
+
 class JunctionTests(unittest.TestCase):
     """Design: verify_junctions -- guards EC-8. A dangling junction target must
     not be reported OK. Plus junction-vs-copy classification (design CLONE)."""

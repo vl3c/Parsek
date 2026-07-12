@@ -74,6 +74,9 @@ class ProvisionContext:
     dry_run: bool
     repair: bool
     parsek_dll_override: Optional[str]
+    # Optional --krpc-src override: a dev-supplied kRPC git clone (e.g. the
+    # umbrella mods/krpc) used instead of the module-owned .cache/krpc-src clone.
+    krpc_src_override: Optional[str] = None
     log_lines: List[str] = field(default_factory=list)
     aborted: bool = False
     abort_reason: str = ""
@@ -173,6 +176,130 @@ def git_peel_commit(clone_dir: str, tag: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Self-contained git-source resolution (module boundary). BUILD-TT + PIN read
+# git-pinned components from a MODULE-OWNED clone under .cache/<comp>-src, never
+# the umbrella mods/ clone (submodule readiness). The pure decision lives in
+# provlib.resolve_git_source; the I/O (read-only probe + clone/fetch) is here.
+# ---------------------------------------------------------------------------
+
+
+def _git_source_cache_dir(comp: str) -> str:
+    return os.path.join(CACHE_DIR, provlib.GIT_SOURCE_CACHE_DIRNAME.get(comp, "%s-src" % comp))
+
+
+def _git_has_commit(clone_dir: str, commit: str) -> bool:
+    """Read-only: True if ``clone_dir`` already has the pinned commit OBJECT (a
+    blobless clone keeps every commit; only blobs are fetched lazily)."""
+    if not commit:
+        return False
+    out = subprocess.run(
+        ["git", "-C", clone_dir, "rev-parse", "--verify", "--quiet", "%s^{commit}" % commit],
+        capture_output=True, text=True,
+    )
+    return out.returncode == 0
+
+
+def _shallow_clone_source(ctx: ProvisionContext, comp: str, repo_url: str,
+                          cache_dir: str, commit: str) -> bool:
+    """Blobless clone the pinned repo into ``cache_dir`` (all refs, no blobs, no
+    checkout); fetch the pinned commit explicitly if the initial clone lacks it."""
+    import shutil
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    if os.path.isdir(cache_dir):
+        # A leftover dir without a usable .git: remove and reclone.
+        shutil.rmtree(_long(cache_dir), ignore_errors=True)
+    cmd = ["git", "clone", "--filter=blob:none", "--no-checkout", repo_url, cache_dir]
+    log(ctx, "Info", "Source", "%s clone %s -> %s" % (comp, repo_url, cache_dir))
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        abort(ctx, "Source", "EC-4",
+              "git clone %s failed: %s" % (repo_url, (res.stderr or "").strip()[:200]))
+        return False
+    if not _git_has_commit(cache_dir, commit):
+        return _fetch_source_commit(ctx, comp, cache_dir, commit)
+    return True
+
+
+def _fetch_source_commit(ctx: ProvisionContext, comp: str, cache_dir: str,
+                         commit: str) -> bool:
+    """Refetch a stale cache clone (moved pin / interrupted earlier fetch), then
+    assert the pinned commit is present."""
+    log(ctx, "Info", "Source", "%s fetch in %s (pinned commit missing)" % (comp, cache_dir))
+    res = subprocess.run(
+        ["git", "-C", cache_dir, "fetch", "--filter=blob:none", "--tags", "origin"],
+        capture_output=True, text=True,
+    )
+    if res.returncode != 0:
+        abort(ctx, "Source", "EC-4",
+              "git fetch in %s failed: %s" % (cache_dir, (res.stderr or "").strip()[:200]))
+        return False
+    if not _git_has_commit(cache_dir, commit):
+        abort(ctx, "Source", "EC-4",
+              "%s pinned commit %s absent after fetch (%s)" % (comp, commit, cache_dir))
+        return False
+    return True
+
+
+def _ensure_git_source(ctx: ProvisionContext, comp: str,
+                       override: Optional[str] = None) -> Optional[str]:
+    """Resolve (and, on a live run, materialize) the module-owned git source
+    clone for a git-pinned component, replacing the umbrella mods/ read. Returns
+    the source dir to peel / git-show from, or None (aborted / unmaterialized).
+
+    Memoized on ``ctx`` so PIN and BUILD-TT share one resolution (no double
+    clone). Under --dry-run nothing is cloned: an already-present cache clone is
+    reused for the read-only peel, otherwise the source is unmaterialized and the
+    logged plan line states the clone/fetch a live run would do.
+    """
+    memo = getattr(ctx, "git_source_dirs", None)
+    if memo is None:
+        memo = {}
+        ctx.git_source_dirs = memo
+    if comp in memo:
+        return memo[comp]
+
+    pin = ctx.pins.get(comp, {})
+    commit = pin.get("commit", "")
+    repo_url = pin.get("sourceRepo", "")
+    cache_dir = _git_source_cache_dir(comp)
+    override_present = bool(override) and os.path.isdir(os.path.join(override, ".git"))
+    cache_has_git = os.path.isdir(os.path.join(cache_dir, ".git"))
+    cache_has_commit = cache_has_git and _git_has_commit(cache_dir, commit)
+    decision = provlib.resolve_git_source(
+        cache_dir, commit, override, override_present, cache_has_git, cache_has_commit)
+    log(ctx, "Info", "Source",
+        "%s source-resolution action=%s reason=%s dir=%s (repo=%s commit=%s)"
+        % (comp, decision.action, decision.reason, decision.source_dir,
+           repo_url or "-", commit or "-"))
+
+    if decision.action == "use-override":
+        if not override_present:
+            abort(ctx, "Source", "EC-4",
+                  "--krpc-src %s is not a git clone (no .git)" % override)
+            memo[comp] = None
+            return None
+        memo[comp] = decision.source_dir
+        return decision.source_dir
+
+    if ctx.dry_run:
+        result = decision.source_dir if decision.action == "reuse-cache" else None
+        memo[comp] = result
+        return result
+
+    # Live: materialize the module-owned cache clone.
+    if not repo_url or provlib.is_open_pin(repo_url):
+        abort(ctx, "Source", "EC-4", "%s has no sourceRepo pin to clone" % comp)
+        memo[comp] = None
+        return None
+    if decision.action == "clone":
+        ok = _shallow_clone_source(ctx, comp, repo_url, cache_dir, commit)
+    else:  # refetch-cache
+        ok = _fetch_source_commit(ctx, comp, cache_dir, commit)
+    memo[comp] = cache_dir if ok else None
+    return cache_dir if ok else None
+
+
+# ---------------------------------------------------------------------------
 # Phase functions
 # ---------------------------------------------------------------------------
 
@@ -249,13 +376,17 @@ def phase_pin(ctx: ProvisionContext) -> Dict[str, str]:
     resolved: Dict[str, str] = {}
     for comp in ("krpc", "krpc_mechjeb"):
         pin = ctx.pins.get(comp, {})
-        clone = os.path.join(ctx.umbrella_root, pin.get("localClone", ""))
+        override = ctx.krpc_src_override if comp == "krpc" else None
+        clone = _ensure_git_source(ctx, comp, override)
+        if ctx.aborted:
+            return resolved
         tag = pin.get("tag", "")
         expected = pin.get("commit", "")
-        if ctx.dry_run and not os.path.isdir(os.path.join(clone, ".git")):
-            # Dry-run without the clone present: report the intended assertion.
-            log(ctx, "Info", "Pin", "%s tag=%s expected-commit=%s (clone not read in dry-run)"
-                % (comp, tag, expected))
+        if not clone or not os.path.isdir(os.path.join(clone, ".git")):
+            # No source clone materialized (dry-run without a pre-existing cache
+            # clone): report the intended assertion instead of peeling.
+            log(ctx, "Info", "Pin", "%s tag=%s expected-commit=%s (source not materialized%s)"
+                % (comp, tag, expected, " in dry-run" if ctx.dry_run else ""))
             resolved[comp] = expected
             continue
         peeled = git_peel_commit(clone, tag)
@@ -373,17 +504,23 @@ def phase_build_tt(ctx: ProvisionContext, resolved: Dict[str, str]) -> None:
     # N12: build from the peeled commit, not the tag. Falls back to the tag only
     # when a dry-run without the clone left resolved['krpc'] unpopulated.
     build_ref = resolved.get("krpc") or tt.get("sourceRepoRef", "v0.5.4")
+    # Module-owned source (.cache/krpc-src or --krpc-src); PIN already resolved +
+    # memoized it, so this reuses that decision without a second clone/log.
+    krpc_src = _ensure_git_source(ctx, "krpc", ctx.krpc_src_override)
+    if ctx.aborted:
+        return
     log(ctx, "Info", "Build-TT",
-        "shim sources=%s dropped=%s autoloader-excluded=%s build-ref=%s"
-        % (",".join(sel.included), ",".join(sel.dropped), sel.autoloader_excluded, build_ref))
+        "shim sources=%s dropped=%s autoloader-excluded=%s build-ref=%s src=%s"
+        % (",".join(sel.included), ",".join(sel.dropped), sel.autoloader_excluded,
+           build_ref, krpc_src or "(unmaterialized)"))
     if ctx.dry_run:
         log(ctx, "Info", "Build-TT",
             "would git-show %s from %s@%s, author TestingTools.shim.csproj "
             "(net472, HintPaths into devInstall Managed + release kRPC), dotnet build -c Release, "
             "hash + cache; assert AutoLoadGame type ABSENT + six capability RPCs PRESENT (S-4)"
-            % (",".join(sel.included), tt.get("localClone", "mods/krpc"), build_ref))
+            % (",".join(sel.included), krpc_src or _git_source_cache_dir("krpc"), build_ref))
         return
-    _build_testingtools(ctx, sel, tt, build_ref)
+    _build_testingtools(ctx, sel, tt, build_ref, krpc_src)
 
 
 def phase_pair(ctx: ProvisionContext) -> None:
@@ -1298,8 +1435,15 @@ def _extract_krpc_refs(ctx: ProvisionContext, dest: str) -> bool:
     return True
 
 
-def _build_testingtools(ctx: ProvisionContext, sel, tt: Dict, ref: str) -> None:
-    krpc_clone = os.path.join(ctx.umbrella_root, ctx.pins.get("krpc", {}).get("localClone", "mods/krpc"))
+def _build_testingtools(ctx: ProvisionContext, sel, tt: Dict, ref: str,
+                        krpc_clone: Optional[str] = None) -> None:
+    # Module-owned kRPC source clone (.cache/krpc-src or --krpc-src), resolved by
+    # phase_build_tt via _ensure_git_source. Never the umbrella mods/ clone.
+    if krpc_clone is None:
+        krpc_clone = _ensure_git_source(ctx, "krpc", ctx.krpc_src_override)
+    if not krpc_clone:
+        abort(ctx, "Build-TT", "EC-4", "kRPC source clone not resolved (see Source phase)")
+        return
     subdir = tt.get("sourceSubdir", "tools/TestingTools/src")
     build_dir = os.path.join(CACHE_DIR, "testingtools-build")
     src_dir = os.path.join(build_dir, "src")
@@ -1685,6 +1829,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--dry-run", action="store_true",
                    help="print the action plan + drift; no network, downloads, builds, or writes outside harness/")
     p.add_argument("--parsek-dll", help="explicit path to the Parsek.dll to deploy (else the current worktree bin/Debug)")
+    p.add_argument("--krpc-src", help="explicit path to a kRPC git clone for BUILD-TT/PIN "
+                   "(else a module-owned shallow clone under harness/provision/.cache/krpc-src)")
     p.add_argument("--umbrella-root", help="override the umbrella root (default: parent of this worktree)")
     args = p.parse_args(argv)
 
@@ -1704,6 +1850,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         dry_run=args.dry_run,
         repair=args.repair,
         parsek_dll_override=args.parsek_dll,
+        krpc_src_override=args.krpc_src,
     )
     return run(ctx)
 

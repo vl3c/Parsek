@@ -29,6 +29,16 @@ releaseZipUrl = "https://github.com/krpc/krpc/releases/download/v0.5.4/krpc-0.5.
 # Google.Protobuf.dll (the three compile refs) under GameData/kRPC/ and does NOT
 # ship TestingTools.dll.
 releaseZipSha256 = "b09dddf5f3b921b65ea666e6710183af0f8ba33d8238b8c9c89548f6999a983e"
+# sourceRepo: the pinned kRPC upstream. BUILD-TT + PIN read the shim source and
+# peel-verify the pin from a MODULE-OWNED shallow clone under
+# harness/provision/.cache/krpc-src (blobless clone at first live run, reused
+# when it already contains `commit`), NOT the umbrella mods/ clone -- so harness/
+# is self-contained / submodule-ready. See the "Module boundary and submodule
+# readiness" section in docs/dev/design-autotest-stack-setup.md.
+sourceRepo = "https://github.com/krpc/krpc"
+# localClone: NO LONGER read by default. Kept as a hint for the optional
+# `--krpc-src <path>` override (a dev who already has this clone can point the
+# resolver at it to skip the .cache clone).
 localClone = "mods/krpc"
 # O-2/GT-5: confirm the zip layout at first download.
 #   unzip -l krpc-0.5.4.zip | grep -iE 'testingtools|KRPC.Core.dll|KRPC.SpaceCenter.dll|Google.Protobuf.dll'
@@ -85,6 +95,13 @@ sha256 = "3bd39e02c41a8e405eb980764aa14635af1ed50521119fe85c8a054d8cffc926"
 fork = "genhis"                    # "genhis" | "darchambault"
 tag = "v0.7.1"
 commit = "398bc337492c5f725c83ab1aac85c32a1c0349ea"
+# sourceRepo: the pinned KRPC.MechJeb upstream (matches `fork`). PIN peel-verifies
+# the pin from a module-owned shallow clone under
+# harness/provision/.cache/krpc_mechjeb-src (same self-contained mechanism as
+# [krpc]), NOT the umbrella mods/ clone. INSTALL still uses the prebuilt release
+# zip (below); this clone exists only for the read-only identity assertion.
+sourceRepo = "https://github.com/genhis/KRPC.MechJeb"
+# localClone: NO LONGER read by default (see [krpc].localClone note).
 localClone = "mods/KRPC.MechJeb"
 pairedKrpcTag = "v0.5.4"           # asserted against [krpc].tag at PAIR
 pairedMechjebLine = "2.14.3+"      # from CHANGELOG 0.7.0/0.7.1
