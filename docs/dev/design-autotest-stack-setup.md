@@ -13,18 +13,20 @@ release artifact at install time, it is marked OPEN with the exact command.
 
 ## Implementation Status (v1)
 
-v1 ships the `--dry-run` PLANNER and the pure decision library
-(`harness/provision/provlib.py`, fully unit-tested). The heavy live provisioning
-phases (BUILD-TT, CLONE, INSTALL, and the SETTINGS/DEPLOY/MM-CACHE/MANIFEST
-writes that follow them) and `--repair` are NOT yet implemented: a non-dry-run
-invocation aborts loudly at the first unimplemented phase (`EC-LIVE`) rather than
-half-provisioning an instance or writing a manifest that claims a completeness
-the run cannot back. The pure decisions each live phase will make (pin
-resolution, junction classification, settings-delta application, disk/path
-guards, dev-install aliasing, DLL-identity grep, lock arbitration) are already
-implemented and tested so live execution is assembly of vetted pieces. Live
-execution lands with the coordinated smoke-run task (see "Test Plan" and
-"Deferred to live execution").
+v1 shipped the `--dry-run` PLANNER and the pure decision library
+(`harness/provision/provlib.py`, fully unit-tested). **M-A6.1 landed the heavy
+live provisioning phases** (BUILD-TT, CLONE, INSTALL, VERIFY, and the
+SETTINGS/DEPLOY/MM-CACHE/MANIFEST writes) and `--repair`: the old `EC-LIVE`
+unimplemented-phase guard is gone, so a non-dry-run genuinely provisions. All
+three release pins (`krpc`, `krpc_mechjeb`, `mechjeb2`) are RESOLVED, so a full
+live run is no longer blocked at DOWNLOAD's `EC-13`. The M-A6.1 fix round added
+instance-side dev-sourced-mod verification (BLOCKER 1), buffered logging before
+the EC-16 gate (SF2), a try/except guard over the live sequence (SF3), a
+zip-layout abort (SF4), a zip-slip guard (SF5), junction-aware hardening (SF6),
+and the `--parsek-dll`-or-abort DEPLOY source rule (SF8). Still deferred to
+M-A6.2: idempotent re-run hash short-circuit (SF9) and per-component installed
+-file inventory (SF10). The remaining exit criterion is the operator smoke run
+(see "Test Plan").
 
 ---
 
@@ -702,12 +704,10 @@ Reviewer findings deliberately deferred until the live provisioning phases land
 (the guards and pure decisions above already fence them; each is one bounded
 follow-up):
 
-- **R5 -- deploy default source hardcodes the worktree name.** `phase_deploy`'s
-  DEFAULT Parsek.dll path hardcodes `Parsek-autotest-provision/Source/...`. The
-  worktree-own `bin/Debug` build is preferred when present (via
-  `select_parsek_dll_source`), so this only bites a differently-named worktree
-  with no local build; fix by deriving the default from the umbrella layout /
-  requiring `--parsek-dll` when ambiguous.
+- **R5 -- deploy default source hardcodes the worktree name. RESOLVED (SF8).**
+  `select_parsek_dll_source` no longer carries a hardcoded sibling-worktree
+  default: the override wins, else this worktree's own `bin/Debug` build, else a
+  live DEPLOY aborts EC-9 demanding `--parsek-dll` (a dry-run only warns).
 - **R8 -- `_ksp_running_against` coarseness.** The EC-1 check matches ANY
   `KSP_x64.exe` process, not one bound to the target instance. Refine to the
   instance's own exe path (or a per-instance mutex/lockfile heartbeat) so an
@@ -732,6 +732,27 @@ follow-up):
   table. The authoritative capability proof remains the BUILD-TT reflection smoke
   over the real built assembly (already specced in the Test Plan); this unit
   test does not pretend to replace it.
+
+### Deferred to M-A6.2 (post live-phase fix round)
+
+Both surfaced in the M-A6.1 fix-round review; each is a bounded follow-up and
+neither is a correctness hole today (the guards above fence the live run):
+
+- **SF9 -- idempotency / hash short-circuit.** Re-running `provision.py` against
+  an already-provisioned, non-drifted instance redoes every copy / build /
+  extract. A live run should hash-short-circuit each phase (skip the work when
+  the on-disk content hash already equals the recorded manifest hash) so a
+  re-provision of a clean instance is cheap. Today's `--repair` already converges
+  ONLY the drifted components; SF9 extends the same "compare-then-skip" to the
+  no-drift fast path of a plain (non-repair) re-run.
+- **SF10 -- per-component installed-file inventory.** The manifest records a DLL
+  hash per stack component but not the SET of files each component installed.
+  VERIFY therefore cannot detect a file ADDED inside a stack component's own
+  folder (e.g. an extra DLL dropped into `GameData/kRPC` alongside the hashed
+  ones) -- only dev-sourced mod trees get whole-tree content-hash coverage
+  (BLOCKER 1). SF10 records a per-component installed-file list (or a whole-folder
+  content-tree hash like the dev-sourced mods') so an added-file inside a stack
+  component's footprint drifts.
 
 ## Backward Compatibility
 
@@ -863,15 +884,18 @@ unattended scheduled run can gate on it.
 
 ## Open Items (require web verification at install time)
 
-- **O-1 (EC-13)**: exact sha256 of `krpc-0.5.4.zip` and the chosen MJ 2.15 build
-  zip. Command: download from the pinned URLs, `sha256sum <file>`, record in
-  `pins.toml`. Until recorded, DOWNLOAD aborts by design.
-- **O-2 (GT-5)**: confirm the kRPC 0.5.4 zip layout.
+O-1, O-2, and O-3 are RESOLVED in HEAD (all three release pins filled + committed
+in `pins.toml`; see the M-A6.1 todo entry). Kept here for the resolution record:
+
+- **O-1 (EC-13) RESOLVED**: `krpc-0.5.4.zip` sha256 `b09dddf5...` and MechJeb2
+  2.15.1.0 sha256 `3bd39e02...` recorded in `pins.toml`. (Was: download from the
+  pinned URLs, `sha256sum <file>`, record; until recorded DOWNLOAD aborts EC-13.)
+- **O-2 (GT-5) RESOLVED**: kRPC 0.5.4 zip layout confirmed -- ships the three
+  compile refs under `GameData/kRPC/`, no `TestingTools.dll`.
   `unzip -l krpc-0.5.4.zip | grep -iE 'testingtools|KRPC.Core.dll|KRPC.SpaceCenter.dll|Google.Protobuf.dll'`
-  -- expect no TestingTools, expect the three compile references.
-- **O-3 (GT-7)**: the exact MechJeb2 2.15 dev build number + download URL (no git
-  tag exists). Source: MechJeb2 CI / SpaceDock / CurseForge release matching KSP
-  1.12.
+- **O-3 (GT-7) RESOLVED**: MechJeb2 2.15.1.0 pinned via the CKAN-meta record to
+  the persistent `ksp.sarbian.com` MechJeb2-Release Jenkins artifact (#45),
+  content-pinned by sha256; archive.org CKAN mirror is the fallback if it rots.
 - **O-4 (GT-8/EC-12)**: decide PersistentRotation for modded-compat -- drop it or
   source a KSP-1.12 build separately. If sourced, add its pin+hash to
   `pins.toml`.
