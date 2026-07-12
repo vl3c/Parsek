@@ -1307,8 +1307,12 @@ def _make_junction(link_abs: str, target_abs: str) -> subprocess.CompletedProces
             os.rmdir(link_abs)
         except OSError:
             pass
+    # cmd parses forward slashes in the link/target as switches ("Invalid
+    # switch" seen on the first live smoke when mixed separators reached
+    # mklink), so normalize both to backslashes before invoking it.
     return subprocess.run(
-        ["cmd", "/c", "mklink", "/J", link_abs, target_abs],
+        ["cmd", "/c", "mklink", "/J",
+         os.path.normpath(link_abs), os.path.normpath(target_abs)],
         capture_output=True, text=True,
     )
 
