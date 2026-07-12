@@ -22,8 +22,19 @@ the I/O the decisions dictate. It NEVER hangs: connect is bounded by a budget +
 attempt cap, every phase is bounded by an ``mlib`` phase budget, and the whole
 fly loop is bounded by a wall-clock deadline (the ``--budget`` the harness
 passes); every terminal path writes the mission-result JSON and returns an exit
-code (0 only on MISSION-OK), and any exception is caught -> MISSION-ERROR with a
-traceback, with the kRPC connection closed in a ``finally``.
+code (0 only on MISSION-OK), and any exception is caught (never a hang), with the
+kRPC connection closed in a ``finally``.
+
+Exception taxonomy (design edges 5 / 8 vs 9), classified by WHEN + WHERE it
+originates:
+  - PRE-connect / setup / an internal non-kRPC bug (a None dereference, a bad
+    param) -> MISSION-ERROR (subkind tooling-mission).
+  - POST-connect kRPC RPC / connection-drop exception (a mid-flight socket reset,
+    a dropped stream, a vessel-invalid RPC error) -> MISSION-FLAKE (subkind
+    autopilot-flake), retryable on a fresh boot -- a transient the mission-validity
+    gate keeps out of the Parsek-defect bucket.
+The pre/post split is a ``connected`` flag; the kRPC-vs-internal origin split is
+the pure ``mlib.classify_post_connect_exception`` (mlib never imports krpc).
 
 GPLv3 NOTICE: the mission shells (this file + ``b1_pad_hop.py`` /
 ``b2_lko_ascent.py``) import the kRPC client (GPLv3) and are therefore themselves
@@ -146,6 +157,10 @@ class KrpcMissionControl(MissionControl):
         self._conn = None
         self._mechjeb = None
         self._ascent = None
+        # Latches True the first time the AscentAutopilot reads as enabled, so
+        # "complete" is never inferred BEFORE the autopilot has ever been engaged
+        # (NIT 8: pre-engage, enabled==False must NOT read as ascent-complete=True).
+        self._mj_ever_enabled = False
         self.client_version = ""
         self.server_version = ""
 
@@ -174,9 +189,12 @@ class KrpcMissionControl(MissionControl):
         if self._ascent is not None:
             try:
                 mj_enabled = bool(self._ascent.enabled)
+                if mj_enabled:
+                    self._mj_ever_enabled = True
                 # The AscentAutopilot disables itself once the ascent is complete;
-                # treat "engaged earlier, now disabled" as complete evidence.
-                mj_complete = not mj_enabled
+                # "complete" = engaged EARLIER (latched) AND now disabled. Before it
+                # has ever been engaged, disabled is PRELAUNCH, NOT complete (NIT 8).
+                mj_complete = self._mj_ever_enabled and not mj_enabled
             except Exception:
                 mj_enabled = False
                 mj_complete = False
@@ -189,6 +207,15 @@ class KrpcMissionControl(MissionControl):
             eccentricity=float(orbit.eccentricity),
             inclination=math.degrees(float(orbit.inclination)),
             situation=_situation_name(v.situation),
+            # PENDING-OPERATOR / v1 LIMITATION: this reads the VESSEL-TOTAL SolidFuel,
+            # NOT the active-stage total. It is correct for the v1 B1 fixture (a
+            # single-SRB pad-hop, where vessel-total == active-stage SolidFuel), and
+            # the B1 "ASCENT -> COAST when solid fuel exhausted" transition relies on
+            # that. A MULTI-SRB or asparagus-staged craft would keep vessel-total
+            # SolidFuel > 0 while an earlier SRB stage is spent, so this would NOT
+            # detect the per-stage burnout -- reading the active decouple stage's own
+            # SolidFuel (v.resources_in_decouple_stage / a stage-scoped query) is the
+            # deferred fix when a multi-SRB fixture lands.
             stage_solid_fuel=float(v.resources.amount("SolidFuel")),
             mj_autopilot_enabled=mj_enabled,
             mj_ascent_complete=mj_complete,
@@ -395,6 +422,7 @@ def fly_loop(
     sleep: Callable[[float], None] = time.sleep,
     poll_interval: float = POLL_INTERVAL_SECONDS,
     settle_frames: int = DEFAULT_SETTLE_FRAMES,
+    allow_rails_warp: bool = False,
 ):
     """Drive a mission's ``mlib`` phase machine to completion, bounded by BOTH the
     machine's per-phase budgets (inside ``decide``) AND a wall-clock ``deadline``
@@ -406,6 +434,13 @@ def fly_loop(
     NEVER blocks unbounded: if the machine wedges without hitting its own phase
     budget (e.g. frozen UT), the wall deadline forces a MISSION-FLAKE naming the
     stuck phase, so the shell always terminates and writes a result.
+
+    Physics-warp guard (design edge 7): each frame the snapshot's warp state is
+    checked via the pure ``mlib.is_unexpected_warp`` (PHYSICS warp is never
+    permitted; RAILS warp only when ``allow_rails_warp``). An unexpected warp state
+    is a determinism violation -> MISSION-FLAKE naming the phase + the warp state,
+    with the WARP log line, so a stray high-warp request never silently distorts
+    the recorded trajectory.
 
     On a REAL terminal (LANDED / ORBIT, ``state.verdict is None``) the loop then
     samples a bounded SETTLE-TAIL of ``settle_frames`` more snapshots before
@@ -421,6 +456,13 @@ def fly_loop(
             return replace(state, verdict=mlib.MISSION_FLAKE, flake_phase=state.phase, done=True), frames
         snapshot = control.read_snapshot()
         frames.append(snapshot)
+        # Edge 7: an unexpected physics (or, for B1, any) warp state distorts the
+        # flight; flake naming the phase + warp state rather than record a warped run.
+        if mlib.is_unexpected_warp(snapshot.warp_mode, snapshot.warp_rate, allow_rails_warp):
+            log.warn(state.phase, "unexpected %s-warp x%s in phase %s (allow_rails=%s) -> %s"
+                     % (snapshot.warp_mode, _fmt(snapshot.warp_rate), state.phase,
+                        allow_rails_warp, mlib.MISSION_FLAKE))
+            return replace(state, verdict=mlib.MISSION_FLAKE, flake_phase=state.phase, done=True), frames
         prev_phase = state.phase
         state, actions = decide(state, snapshot)
         if state.phase != prev_phase:
@@ -472,12 +514,17 @@ class MissionSpec:
       - ``evaluate``:    frames -> list[mlib.AssertionOutcome].
       - ``make_control``: () -> a real MissionControl (KrpcMissionControl); tests
         inject their own control and never call this.
+      - ``allow_rails_warp``: whether RAILS warp is a PERMITTED warp state for this
+        mission's fly loop (design edge 7). B1 flies 1x throughout (False); B2
+        permits RAILS on its exo-atmospheric coast (True). PHYSICS warp is never
+        permitted for either. An unexpected warp state flakes the mission.
     """
     name: str
     build_state: Callable[[dict], object]
     decide: Callable
     evaluate: Callable
     make_control: Callable[[], MissionControl]
+    allow_rails_warp: bool = False
 
 
 def run_mission(
@@ -517,6 +564,11 @@ def run_mission(
     connected_seconds = float("nan")
     assertion_rows: List = []
     error: Optional[str] = None
+    # Track whether the kRPC connect (+ ABI check) succeeded, so a post-connect
+    # exception is classified by the mission-validity gate (edge 5/8: a connection
+    # drop or kRPC RPC error is a MISSION-FLAKE, not a MISSION-ERROR); only a
+    # pre-connect / setup / internal non-kRPC exception stays MISSION-ERROR (edge 9).
+    connected = False
 
     try:
         cr = connect_with_retry(control, host, rpc_port, stream_port, log,
@@ -536,10 +588,12 @@ def run_mission(
                 log.error("Connect", "version mismatch client=%s server=%s -> %s"
                           % (control.client_version, control.server_version, mlib.MISSION_ERROR))
             else:
+                connected = True
                 state = spec.build_state(params)
                 deadline = wall_start + float(budget)
                 state, frames = fly_loop(control, state, spec.decide, log, deadline,
-                                         clock=clock, sleep=sleep)
+                                         clock=clock, sleep=sleep,
+                                         allow_rails_warp=spec.allow_rails_warp)
                 phases_reached = list(state.phases_reached)
                 outcomes = spec.evaluate(frames, params)
                 for o in outcomes:
@@ -551,11 +605,28 @@ def run_mission(
                              % (o.name, ("null" if non_finite else _fmt(v)), o.met))
                 assertion_rows = [o.to_dict() for o in outcomes]
                 verdict, reason = mlib.resolve_flight_verdict(state, outcomes)
-    except Exception:  # noqa: BLE001 -- any mission exception is MISSION-ERROR, never a hang
-        verdict = mlib.MISSION_ERROR
-        reason = "unexpected exception in mission"
+    except Exception as exc:  # noqa: BLE001 -- caught so nothing escapes as a hang / unwritten result
         error = traceback.format_exc()
-        log.error("Verdict", "unexpected exception -> %s" % (mlib.MISSION_ERROR,))
+        if connected:
+            # A drop / kRPC RPC error AFTER a successful connect is autopilot-flake
+            # (retryable on a fresh boot); a non-kRPC internal error stays ERROR.
+            exc_verdict = mlib.classify_post_connect_exception(
+                type(exc).__module__, type(exc).__name__)
+            if exc_verdict == mlib.MISSION_FLAKE:
+                verdict = mlib.MISSION_FLAKE
+                reason = ("connection dropped / kRPC error post-connect: %s"
+                          % (type(exc).__name__,))
+                log.warn("Verdict", "post-connect drop (%s) -> %s"
+                         % (type(exc).__name__, mlib.MISSION_FLAKE))
+            else:
+                verdict = mlib.MISSION_ERROR
+                reason = "unexpected exception in mission"
+                log.error("Verdict", "unexpected post-connect exception -> %s"
+                          % (mlib.MISSION_ERROR,))
+        else:
+            verdict = mlib.MISSION_ERROR
+            reason = "unexpected exception in mission (pre-connect / setup)"
+            log.error("Verdict", "unexpected pre-connect exception -> %s" % (mlib.MISSION_ERROR,))
     finally:
         closed = False
         try:

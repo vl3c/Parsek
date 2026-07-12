@@ -76,6 +76,13 @@ VENV_PYTHON = (os.path.join(VENV_DIR, "Scripts", "python.exe")
 VENV_STAMP_PATH = os.path.join(VENV_DIR, ".venv-stamp.json")
 REQUIREMENTS_PATH = os.path.join(MISSIONS_DIR, "requirements.txt")
 
+# The mission-result JSON schema run.py accepts (design Data Model "Mission
+# result": schema = 1). run.py must NOT import mlib (it stays stdlib + hlib/provlib
+# only, never links the mission package), so this is an INLINE mirror of
+# mlib.MISSION_RESULT_SCHEMA; a result carrying a different schema is treated as
+# unreadable (fail-closed), never mis-parsed.
+MISSION_RESULT_SCHEMA = 1
+
 # Default kRPC endpoint (design "Connection lifecycle" item 1): the stamped kRPC
 # settings bind 127.0.0.1:50000 (RPC) / 50001 (stream). v1 uses these defaults;
 # a future multi-instance layout overrides them per instance (deferred).
@@ -391,12 +398,23 @@ def resolve_instance_dir(profile_name: str, umbrella_root: str,
 # ---------------------------------------------------------------------------
 
 
+def _canonical_dist(name: str) -> str:
+    """Canonical distribution key (lowercase, ``_``/``.`` -> ``-``), MIRRORING
+    bootstrap_venv._canonical_dist so both sides of the venv-admission comparison
+    agree (NIT 10). The bootstrap canonicalizes when it parses requirements + writes
+    the stamp pins; run.py must canonicalize identically so a non-canonical committed
+    pin (e.g. ``KRPC==0.5.4`` / ``proto_buf==...``) matches the canonical stamp key
+    instead of drifting to a false tooling-venv refusal."""
+    return name.strip().lower().replace("_", "-").replace(".", "-")
+
+
 def _parse_requirements(text: str) -> Dict[str, str]:
-    """Parse a committed requirements.txt body into {distribution: pinned version}
-    (design "Dependency manifest"; the venv_admission docstring assigns this parse
-    to the caller). Only exact ``name==version`` pins are enforced; comment lines,
-    blank lines, and the PROVISIONAL (commented) protobuf line are skipped. The
-    distribution name is kept as written so it matches the venv stamp's pin keys."""
+    """Parse a committed requirements.txt body into {canonical distribution: pinned
+    version} (design "Dependency manifest"; the venv_admission docstring assigns this
+    parse to the caller). Only exact ``name==version`` pins are enforced; comment
+    lines, blank lines, and the PROVISIONAL (commented) protobuf line are skipped.
+    The distribution name is CANONICALIZED (NIT 10) so it matches the venv stamp's
+    canonical pin keys regardless of the requirement's spelling / separators."""
     reqs: Dict[str, str] = {}
     for raw in (text or "").splitlines():
         line = raw.strip()
@@ -412,7 +430,7 @@ def _parse_requirements(text: str) -> Dict[str, str]:
         name = name.strip()
         ver = ver.strip()
         if name and ver:
-            reqs[name] = ver
+            reqs[_canonical_dist(name)] = ver
     return reqs
 
 
@@ -723,8 +741,13 @@ class DriveResult:
 
 def _read_mission_verdict(result_path: str) -> Optional[str]:
     """Read the mission-result JSON and return its ``verdict`` string, or None when
-    the file is absent / unparseable / carries no string verdict (design edge 12:
-    a missing result fails closed via hlib.classify_mission_step(None))."""
+    the file is absent / unparseable / carries the WRONG schema / carries no string
+    verdict (design edge 12: a missing or unreadable result fails closed via
+    hlib.classify_mission_step(None)). The ``schema`` gate (design Backward
+    Compatibility: "a schema bump makes the harness refuse an old artifact ...
+    rather than mis-parse") makes run.py refuse a result whose top-level ``schema``
+    is not the one it understands, so a future/legacy mission-result shape is
+    treated as unreadable tooling-mission rather than silently mis-read."""
     if not os.path.isfile(result_path):
         return None
     try:
@@ -732,7 +755,11 @@ def _read_mission_verdict(result_path: str) -> Optional[str]:
             obj = json.load(fh)
     except (OSError, ValueError):
         return None
-    v = obj.get("verdict") if isinstance(obj, dict) else None
+    if not isinstance(obj, dict):
+        return None
+    if obj.get("schema") != MISSION_RESULT_SCHEMA:
+        return None
+    v = obj.get("verdict")
     return v if isinstance(v, str) else None
 
 
@@ -763,10 +790,30 @@ def _log_handoff_return(logger: HarnessLogger, step_index: int,
                     % (shown, subkind))
 
 
+def _preceding_loadgame_ok(steps: Sequence[Dict], mission_index: int,
+                           responses_path: str) -> bool:
+    """design "The handoff" step 1: True IFF the nearest preceding ``LoadGame`` step
+    returned ``OK`` (evidence of a settled FLIGHT). A boot that did not settle must
+    not hand off to the mission (a failed LoadGame would otherwise burn the whole
+    600-780s mission budget flying against a game that never reached FLIGHT). If
+    there is no preceding LoadGame at all the handoff is invalid (validate_spec
+    requires one), so this returns False."""
+    load_index = None
+    for j in range(mission_index - 1, -1, -1):
+        if (steps[j] or {}).get("cmd") == "LoadGame":
+            load_index = j
+            break
+    if load_index is None:
+        return False
+    load_id = "%04d" % (load_index + 1)
+    return _response_has_terminal(_read_response_lines(responses_path), load_id) == "OK"
+
+
 def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_index: int,
                         proc, runtime: Runtime, logger: HarnessLogger,
                         run_budget: float, run_start: float,
-                        mission_ctx: Optional[MissionContext], run_id: Optional[str]) -> bool:
+                        mission_ctx: Optional[MissionContext], run_id: Optional[str],
+                        preceding_load_ok: bool = True) -> bool:
     """Drive the one mission-kind step (design "The handoff" steps 2-4). Records the
     mission step row on ``result.mission_step`` and returns True IFF the RUN budget
     expired mid-mission (mission killed FIRST, then the KSP tree -> KILLED). A
@@ -781,6 +828,21 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
         result.mission_step = {"id": step_id, "phase": "mission", "expect": expect,
                                "missionVerdict": None, "met": False, "subkind": "tooling-mission"}
         _log_handoff_return(logger, step_index, None, False, "tooling-mission")
+        return False
+
+    # (1) design "The handoff" step 1: only hand off to the mission if the preceding
+    # LoadGame returned OK (a settled FLIGHT). A failed boot must NOT burn the
+    # mission budget flying against a game that never reached FLIGHT -- skip the
+    # spawn and record the mission step unmet. (Classification is driven by the
+    # pre-step LoadGame failure, so this is INVALID(load-failed) either way; the
+    # value here is spending ZERO mission budget on a dead boot.)
+    if not preceding_load_ok:
+        logger.warn("Drive", "mission step id=%s: preceding LoadGame not OK -> skipping mission spawn (INVALID load-failed)"
+                    % step_id)
+        result.mission_step = {"id": step_id, "phase": "mission", "expect": expect,
+                               "missionVerdict": None, "met": False, "subkind": "load-failed",
+                               "reason": "preceding LoadGame not OK"}
+        _log_handoff_return(logger, step_index, None, False, "load-failed")
         return False
 
     # (2) In-flight venv BACKSTOP: re-read the stamp (the load-bearing gate already
@@ -828,6 +890,7 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
     mission_start = runtime.now()
     polls = 0
     verdict: Optional[str] = None
+    expiry_reason: Optional[str] = None
     while True:
         polls += 1
         exit_code = runtime.poll_exit(mproc)
@@ -849,11 +912,28 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
             _forward_mission_stdout(stdout_path, logger)
             return True
         if now - mission_start > mission_budget:
-            logger.warn("Budget", "mission budget exceeded (%ds) elapsed=%.0f; killing mission subprocess -> INVALID autopilot-flake"
+            logger.warn("Budget", "mission budget exceeded (%ds) elapsed=%.0f; killing mission subprocess"
                         % (int(mission_budget), now - mission_start))
             runtime.kill_tree(mproc)
-            verdict = hlib.MISSION_VERDICT_FLAKE
-            met, subkind = False, "autopilot-flake"
+            # NIT 7: the mission may have finished WRITING a real result inside the
+            # last poll interval (before we killed it). Attempt ONE final read; a
+            # valid verdict there is authoritative (e.g. a MISSION-OK the mission
+            # just wrote), used instead of fabricating a FLAKE the mission never
+            # reported. Only when no valid result exists do we fabricate the
+            # autopilot-flake row, tagged so it never reads as the mission itself
+            # reporting FLAKE.
+            final_verdict = _read_mission_verdict(result_path)
+            if final_verdict is not None:
+                verdict = final_verdict
+                met, subkind = hlib.classify_mission_step(verdict)
+                logger.info("Mission", "mission budget expired but a valid result was already written verdict=%s met=%s; using it"
+                            % (verdict, met))
+            else:
+                verdict = hlib.MISSION_VERDICT_FLAKE
+                met, subkind = False, "autopilot-flake"
+                expiry_reason = "mission-budget-expired (no result)"
+                logger.warn("Mission", "mission budget expired with no result -> INVALID autopilot-flake (%s)"
+                            % expiry_reason)
             break
         if polls % 40 == 0:
             logger.verbose("Mission", "mission poll elapsed=%.0f/%.0f" % (now - mission_start, mission_budget))
@@ -862,6 +942,8 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
     _forward_mission_stdout(stdout_path, logger)
     result.mission_step = {"id": step_id, "phase": "mission", "expect": expect,
                            "missionVerdict": verdict, "met": met, "subkind": subkind or ""}
+    if expiry_reason:
+        result.mission_step["reason"] = expiry_reason
     _log_handoff_return(logger, step_index, verdict, met, subkind or "")
     return False
 
@@ -883,8 +965,10 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
         # the channel; run.py spawns the mission subprocess and bounded-waits it, then
         # drives the REMAINING seam steps regardless of the mission outcome.
         if step.get("phase") == "mission":
+            load_ok = _preceding_loadgame_ok(steps, i, responses_path)
             killed = _drive_mission_step(result, step, step_id, i, proc, runtime,
-                                         logger, run_budget, run_start, mission_ctx, run_id)
+                                         logger, run_budget, run_start, mission_ctx, run_id,
+                                         preceding_load_ok=load_ok)
             if killed:
                 return result
             continue
@@ -1495,10 +1579,13 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
         # steps. verdict is the mission verdict on a met step, else "INVALID".
         m = drive.mission_step
         if m is not None:
-            steps_rec.append({"phase": "mission", "id": m["id"], "expect": m["expect"],
-                              "verdict": m["missionVerdict"] if m["met"] else hlib.VERDICT_INVALID,
-                              "missionVerdict": m["missionVerdict"], "met": m["met"],
-                              "subkind": m["subkind"] or None})
+            mrow = {"phase": "mission", "id": m["id"], "expect": m["expect"],
+                    "verdict": m["missionVerdict"] if m["met"] else hlib.VERDICT_INVALID,
+                    "missionVerdict": m["missionVerdict"], "met": m["met"],
+                    "subkind": m["subkind"] or None}
+            if m.get("reason"):
+                mrow["reason"] = m["reason"]
+            steps_rec.append(mrow)
             steps_rec.sort(key=lambda s: s["id"])
     driver_rec = {"steps": steps_rec,
                   "allExpectedMet": all(s["met"] for s in steps_rec) if steps_rec else False}
@@ -1684,17 +1771,32 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
         profile = spec.get("instanceProfile")
         inst = instance_root_fn(profile)
         fixture = spec.get("fixture", {}) or {}
-        steps = (spec.get("driver", {}) or {}).get("steps", []) or []
-        print("  [SELECT ] %s tier=%s profile=%s" % (sid, spec.get("tier"), profile))
+        driver = spec.get("driver", {}) or {}
+        steps = driver.get("steps", []) or []
+        is_autopilot = driver.get("kind") == "autopilot"
+        print("  [SELECT ] %s tier=%s profile=%s kind=%s"
+              % (sid, spec.get("tier"), profile, driver.get("kind")))
         print("  [ADMIT  ] read %s/GameData/Parsek/provision-manifest.json" % inst)
+        # M-B1: an autopilot spec ALSO admits the mission venv at pre-launch ADMIT
+        # (terminal INVALID(tooling-venv) with no KSP boot); surface it in the plan.
+        if is_autopilot:
+            print("  [VENV-ADMIT] mission=%s stamp=%s vs %s (terminal tooling-venv on drift/missing; no KSP boot)"
+                  % (driver.get("mission"), VENV_STAMP_PATH, REQUIREMENTS_PATH))
         print("  [STAGE  ] template=%s inject=%s craft=%d"
               % (fixture.get("saveTemplate"), fixture.get("injectedRecordings"),
                  len(fixture.get("craft", []) or [])))
         print("  [LAUNCH ] %s/KSP_x64.exe budget=%ss"
               % (inst, (spec.get("runtime", {}) or {}).get("budgetSeconds")))
         for i, step in enumerate(steps):
-            print("  [DRIVE  ] step=%d cmd=%s expect=%s budget=%s"
-                  % (i, step.get("cmd"), step.get("expect", "OK"), step.get("budget", "-")))
+            if step.get("phase") == "mission":
+                # M-B1 handoff: spawn the mission SUBPROCESS with the venv python
+                # (no channel traffic); bounded by the mission-step budget.
+                print("  [MISSION] step=%d handoff mission=%s expect=%s budget=%s (venv-python subprocess; kRPC autopilot)"
+                      % (i, driver.get("mission"), step.get("expect", hlib.MISSION_STEP_EXPECT),
+                         step.get("budget", "-")))
+            else:
+                print("  [DRIVE  ] step=%d cmd=%s expect=%s budget=%s"
+                      % (i, step.get("cmd"), step.get("expect", "OK"), step.get("budget", "-")))
         print("  [VERIFY ] driverValidity, batchComplete, analyzer(-FreshSaveGate), "
               "logValidate, results, anomalySweep, expectations")
         print("")

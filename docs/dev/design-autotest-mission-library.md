@@ -204,6 +204,20 @@ craft              = []            # v1 uses the pre-placed vessel, not a staged
 kind    = "autopilot"             # M-B1. hlib.validate_spec now ACCEPTS this (was reject-only).
 mission = "b1_pad_hop"            # -> harness/missions/b1_pad_hop.py  (filename-safe, must resolve)
 
+# Ordered driver steps. The seam owns every lifecycle step; the one mission step
+# (kind="mission") is the handoff. ${runSave} is substituted by the harness. NOTE:
+# `steps` stays in the [driver] table, so it is declared ABOVE the
+# [driver.missionParams] sub-table header -- a key placed after the sub-table
+# header would be scoped to driver.missionParams.steps (TOML table scoping) and the
+# spec would validate as having zero steps.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 600 },   # <- flight happens here
+  { cmd = "CommitTree",                                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                        expect = "OK" },
+]
+
 # Mission parameters. Free-form per mission; hlib validates the block against the
 # mission's declared param schema (harness/missions/<name>.schema.toml). Values
 # are TOLERANCES / WINDOWS, never golden trajectories (plan section 10).
@@ -215,16 +229,6 @@ landedSituations      = ["LANDED", "SPLASHED"]        # either accepted
 ascentTimeoutSeconds  = 90
 coastTimeoutSeconds   = 180
 descentTimeoutSeconds = 240
-
-# Ordered driver steps. The seam owns every lifecycle step; the one mission step
-# (kind="mission") is the handoff. ${runSave} is substituted by the harness.
-steps = [
-  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
-  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
-  { phase = "mission",  expect = "MISSION-OK", budget = 600 },   # <- flight happens here
-  { cmd = "CommitTree",                                          expect = "OK" },
-  { cmd = "FlushAndQuit",                                        expect = "OK" },
-]
 
 # A flown scenario PRODUCES a recording, so recordings are expected. count.min>=1
 # keeps the REC-001/REC-003 log rules MANDATORY (M-A5 verifier 4): a dropped
@@ -253,6 +257,14 @@ The B2 spec differs only in `mission = "b2_lko_ascent"`, its `missionParams`
 [driver]
 kind    = "autopilot"
 mission = "b2_lko_ascent"
+# `steps` stays in [driver], declared ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 780 },
+  { cmd = "CommitTree",                                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                        expect = "OK" },
+]
 [driver.missionParams]
 targetApoapsisMeters   = 80000
 targetPeriapsisMeters  = 80000
@@ -262,13 +274,6 @@ eccentricityMax        = 0.02     # near-circular
 inclinationErrorDeg    = 2.0      # |inc - launch-site inc| <= tol
 ascentTimeoutSeconds   = 420      # LKO 6-10 min (plan section 10)
 circularizeTimeoutSeconds = 300
-steps = [
-  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
-  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
-  { phase = "mission",  expect = "MISSION-OK", budget = 780 },
-  { cmd = "CommitTree",                                          expect = "OK" },
-  { cmd = "FlushAndQuit",                                        expect = "OK" },
-]
 [runtime]
 budgetSeconds = 1200
 ```

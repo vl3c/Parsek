@@ -67,6 +67,7 @@ class FakeRuntime(run.Runtime):
         self.mission_mode = mission_mode
         self.venv_ok = venv_ok
         self.launch_count = 0
+        self.mission_spawn_count = 0
 
     def sleep(self, seconds):
         # Keep real time advancing (so budgets elapse) but spin fast.
@@ -98,6 +99,7 @@ class FakeRuntime(run.Runtime):
 
     def spawn_mission(self, venv_python, mission_py, args, cwd, stdout_path):
         import subprocess
+        self.mission_spawn_count += 1
         # Extract the --result path run.py chose and drive the fake mission with the
         # test-injected mode. The venv python / mission_py are ignored (no real venv).
         result_path = list(args)[list(args).index("--result") + 1]
@@ -457,6 +459,33 @@ class AutopilotHandoffSmokeTests(unittest.TestCase):
         self.assertIsNone(mission_rows[0]["missionVerdict"])
         self.assertEqual("tooling-mission", mission_rows[0]["subkind"])
 
+    def test_loadgame_error_skips_mission_spawn(self):
+        """SHOULD-FIX 3 (design handoff step 1): a boot whose LoadGame returns ERROR
+        must NOT hand off to the mission -- run.py skips the mission spawn (no
+        subprocess) so a dead boot never burns the 600-780s mission budget, and the
+        run classifies INVALID with the load-failure attribution. Fails if a failed
+        boot still spawns the mission (budget burned) or the mission step is misread
+        as met."""
+        # KSP mode "autopilot-loadfail" makes the boot LoadGame return ERROR.
+        spec = _make_autopilot_spec(self.template, mission_budget=30, run_budget=600)
+        rt = FakeRuntime("autopilot-loadfail", mission_mode="ok", venv_ok=True)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+
+        # NO mission subprocess was spawned (the whole point: budget preserved).
+        self.assertEqual(0, rt.mission_spawn_count,
+                         "a failed LoadGame must NOT spawn the mission subprocess")
+        # The run is a driver-INVALID attributed to the failed load, not a Parsek
+        # defect and not a mission verdict.
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("load-failed", result["subkind"])
+        # The mission step row is present, unmet, and carries the skip reason.
+        mission_rows = [s for s in result["driver"]["steps"] if s.get("phase") == "mission"]
+        self.assertEqual(1, len(mission_rows))
+        self.assertFalse(mission_rows[0]["met"])
+        self.assertIsNone(mission_rows[0]["missionVerdict"])
+        self.assertIn("LoadGame", mission_rows[0].get("reason", ""))
+
 
 class MissionSpecAdmissionTests(unittest.TestCase):
     """M-B1 deliverable 1 (run.py spec admission): resolve_mission_schemas reads the
@@ -523,6 +552,159 @@ class MissionSpecAdmissionTests(unittest.TestCase):
         registry, errors = run.resolve_mission_schemas({"driver": {"kind": "seam"}})
         self.assertIsNone(registry)
         self.assertEqual([], errors)
+
+
+class ReadMissionVerdictSchemaGateTests(unittest.TestCase):
+    """SHOULD-FIX 6: _read_mission_verdict gates on the top-level `schema` -- a
+    result whose schema != the one run.py understands is treated as UNREADABLE
+    (None), so a future/legacy mission-result shape fails closed to
+    tooling-mission instead of being mis-parsed. run.py does NOT import mlib; the
+    schema constant is an inline mirror."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-verdict-")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _write(self, obj):
+        p = os.path.join(self.tmp, "m.json")
+        with open(p, "w", encoding="utf-8") as fh:
+            json.dump(obj, fh)
+        return p
+
+    def test_correct_schema_returns_verdict(self):
+        p = self._write({"schema": run.MISSION_RESULT_SCHEMA, "verdict": "MISSION-OK"})
+        self.assertEqual("MISSION-OK", run._read_mission_verdict(p))
+
+    def test_wrong_schema_is_unreadable(self):
+        p = self._write({"schema": 2, "verdict": "MISSION-OK"})
+        self.assertIsNone(run._read_mission_verdict(p),
+                          "a result carrying the wrong schema must read as unreadable")
+
+    def test_missing_schema_is_unreadable(self):
+        p = self._write({"verdict": "MISSION-OK"})
+        self.assertIsNone(run._read_mission_verdict(p))
+
+    def test_absent_file_is_none(self):
+        self.assertIsNone(run._read_mission_verdict(os.path.join(self.tmp, "nope.json")))
+
+    def test_no_verdict_is_none(self):
+        p = self._write({"schema": run.MISSION_RESULT_SCHEMA})
+        self.assertIsNone(run._read_mission_verdict(p))
+
+
+class RequirementsCanonicalizationTests(unittest.TestCase):
+    """NIT 10: run.py._parse_requirements canonicalizes the distribution name the
+    same way bootstrap_venv does, so a NON-canonical committed pin round-trips
+    bootstrap -> admission instead of drifting to a false tooling-venv refusal."""
+
+    def test_non_canonical_pin_matches_canonical_stamp(self):
+        # A non-canonically spelled committed pin (mixed case + underscore).
+        reqs = run._parse_requirements("KRPC==0.5.4\nProto_Buf==4.21.0\n")
+        # run.py must canonicalize to the same keys the stamp carries.
+        self.assertEqual({"krpc": "0.5.4", "proto-buf": "4.21.0"}, reqs)
+        # A stamp written with canonical pins admits the venv (no false drift).
+        stamp = {"pins": {"krpc": "0.5.4", "proto-buf": "4.21.0"}}
+        ok, subkind = hlib.venv_admission(stamp, reqs)
+        self.assertTrue(ok, "canonical stamp must admit a non-canonical committed pin (subkind=%s)" % subkind)
+
+    def test_matches_bootstrap_parse(self):
+        # Both sides agree on the canonical key set for the same requirements body.
+        import importlib.util
+        boot_path = os.path.join(HARNESS_ROOT, "missions", "bootstrap_venv.py")
+        spec = importlib.util.spec_from_file_location("bootstrap_venv", boot_path)
+        boot = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(boot)
+        body = "kRPC==0.5.4\n# comment\nprotobuf==4.21.0\n"
+        self.assertEqual(boot.parse_requirements(body), run._parse_requirements(body))
+
+
+class _MiniMissionRuntime(run.Runtime):
+    """A minimal runtime that drives _drive_mission_step's mission-budget-expiry
+    path deterministically: the spawned mission NEVER exits (poll_exit -> None) so
+    the mission-step budget expires; ``write_result`` controls whether a real
+    MISSION-OK result is present at expiry (NIT 7). now() advances a virtual clock
+    so the budget elapses in a fixed number of polls without real waiting."""
+
+    def __init__(self, write_result_verdict=None):
+        self._t = 0.0
+        self._write_verdict = write_result_verdict
+        self._result_path = None
+
+    def now(self):
+        self._t += 0.5
+        return self._t
+
+    def sleep(self, seconds):
+        pass
+
+    def read_venv_stamp(self, stamp_path):
+        return {"pins": {"krpc": "0.5.4"}}
+
+    def spawn_mission(self, venv_python, mission_py, args, cwd, stdout_path):
+        self._result_path = list(args)[list(args).index("--result") + 1]
+        if self._write_verdict is not None:
+            with open(self._result_path, "w", encoding="utf-8") as fh:
+                json.dump({"schema": run.MISSION_RESULT_SCHEMA,
+                           "verdict": self._write_verdict}, fh)
+        return object()  # a dummy proc; poll_exit never reports it exits
+
+    def poll_exit(self, proc):
+        return None
+
+    def kill_tree(self, proc):
+        return []
+
+
+class MissionBudgetExpiryFinalReadTests(unittest.TestCase):
+    """NIT 7: on a mission-step-budget expiry run.py attempts ONE final result read
+    (the mission may have finished writing a real verdict inside the last poll
+    interval); a valid result is used, else the fabricated FLAKE row is tagged
+    distinguishably so it never reads as the mission itself reporting FLAKE."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-nit7-")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        self.logger = run.HarnessLogger()
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _drive(self, rt):
+        result = run.DriveResult()
+        ctx = run.MissionContext("m", "vpy", "m.py", {}, self.tmp,
+                                 "stamp.json", {"krpc": "0.5.4"})
+        step = {"phase": "mission", "expect": "MISSION-OK", "budget": 1}
+        proc = type("P", (), {"pid": 12345})()
+        killed = run._drive_mission_step(result, step, "0003", 2, proc, rt, self.logger,
+                                         run_budget=10_000, run_start=0.0,
+                                         mission_ctx=ctx, run_id="testrun",
+                                         preceding_load_ok=True)
+        return result, killed
+
+    def test_result_written_before_expiry_is_used(self):
+        # The mission wrote MISSION-OK just before the budget expiry kill; use it.
+        rt = _MiniMissionRuntime(write_result_verdict="MISSION-OK")
+        result, killed = self._drive(rt)
+        self.assertFalse(killed)
+        self.assertEqual("MISSION-OK", result.mission_step["missionVerdict"])
+        self.assertTrue(result.mission_step["met"])
+        self.assertNotIn("reason", result.mission_step)  # not the fabricated row
+
+    def test_no_result_at_expiry_is_distinguishable_flake(self):
+        # No result was written; the fabricated FLAKE row is tagged so it never
+        # reads as the mission itself reporting FLAKE.
+        rt = _MiniMissionRuntime(write_result_verdict=None)
+        result, killed = self._drive(rt)
+        self.assertFalse(killed)
+        self.assertEqual(hlib.MISSION_VERDICT_FLAKE, result.mission_step["missionVerdict"])
+        self.assertEqual("autopilot-flake", result.mission_step["subkind"])
+        self.assertIn("no result", result.mission_step.get("reason", ""))
 
 
 if __name__ == "__main__":

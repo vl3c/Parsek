@@ -11,6 +11,7 @@ caught against a real file (mirroring test_provlib.py's RealProfileFileTests).
 
 import copy
 import os
+import sys
 import tomllib
 import unittest
 
@@ -21,6 +22,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 HARNESS_ROOT = os.path.dirname(HERE)
 REGISTRY_PATH = os.path.join(HARNESS_ROOT, "coverage", "registry.toml")
 SCENARIOS_DIR = os.path.join(HARNESS_ROOT, "scenarios")
+
+# The committed-spec round-trip test (BLOCKER-1 regression) drives the REAL run.py
+# admission path (run.resolve_mission_schemas), so import the orchestrator. run.py
+# is stdlib + hlib/provlib only and has no import-time side effects beyond the
+# sys.path bootstrap it does for its own siblings.
+if HARNESS_ROOT not in sys.path:
+    sys.path.insert(0, HARNESS_ROOT)
+import run  # noqa: E402
 
 
 def load_registry():
@@ -250,6 +259,53 @@ class RealSpecFileTests(unittest.TestCase):
         spec = load_spec("S1.4-injected-playback.toml")
         v = hlib.validate_spec(spec, reg)
         self.assertTrue(v.ok, "playback spec must validate; errors=%s" % (v.errors,))
+
+
+class CommittedSpecValidationTests(unittest.TestCase):
+    """BLOCKER-1 regression: EVERY committed scenario spec must validate through the
+    REAL admission path -- parse the .toml with tomllib, resolve mission schemas via
+    ``run.resolve_mission_schemas`` EXACTLY as run.py does at spec admission, then
+    ``hlib.validate_spec`` -- so a committed-spec regression can NEVER escape to a
+    scheduled run that would waste a KSP boot. This specifically catches the failure
+    that shipped: an autopilot spec's ``steps`` array placed AFTER the
+    ``[driver.missionParams]`` header, which TOML scopes to
+    ``driver.missionParams.steps`` and leaves ``driver.steps`` empty (validation then
+    reports 'driver.steps: empty' / 'found 0 mission steps'). Reads the scenarios dir
+    relative to THIS test file."""
+
+    def test_every_committed_spec_validates_via_real_path(self):
+        reg = run.load_registry()
+        bug_ids = run._load_bug_ids()
+        names = sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml"))
+        self.assertTrue(names, "no committed scenario specs found under %s" % SCENARIOS_DIR)
+        for name in names:
+            with self.subTest(spec=name):
+                with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                    spec = tomllib.load(fh)
+                mission_schemas, shell_errors = run.resolve_mission_schemas(spec)
+                validation = hlib.validate_spec(spec, reg, bug_ids, mission_schemas)
+                self.assertEqual([], list(validation.errors),
+                                 "%s failed real-path validation: %s"
+                                 % (name, list(validation.errors)))
+                self.assertEqual([], list(shell_errors),
+                                 "%s shell (mission-ref) errors: %s" % (name, shell_errors))
+
+    def test_autopilot_specs_keep_steps_in_driver_table(self):
+        """Direct guard on the exact BLOCKER-1 shape: an autopilot spec's ``steps``
+        must live in the ``[driver]`` table with the mission handoff step present,
+        NOT re-nested under ``[driver.missionParams]``."""
+        for name in ("B1-pad-hop.toml", "B2-lko-ascent.toml"):
+            with self.subTest(spec=name):
+                with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                    spec = tomllib.load(fh)
+                driver = spec.get("driver", {})
+                steps = driver.get("steps", [])
+                self.assertTrue(steps, "%s: driver.steps must be non-empty" % name)
+                self.assertNotIn("steps", driver.get("missionParams", {}),
+                                 "%s: steps leaked into [driver.missionParams]" % name)
+                self.assertEqual(
+                    1, sum(1 for s in steps if s.get("phase") == "mission"),
+                    "%s: exactly one mission handoff step expected in driver.steps" % name)
 
 
 class SpecValidationRejectTests(unittest.TestCase):

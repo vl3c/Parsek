@@ -574,17 +574,27 @@ def evaluate_b1_assertions(frames, params: B1Params,
     """Evaluate the two B1 driver-validity assertions over the flight frames.
 
     - ``apoapsisWindow``: the PEAK apoapsis must sit within apoapsisWindowMeters
-      (a WINDOW, not a golden apoapsis). MET requires K consecutive in-window
-      frames (debounce), so a lone warp-edge outlier neither passes nor fails it;
-      the reported value is the peak finite apoapsis (evidence).
+      (a WINDOW, not a golden apoapsis). The gate is the NaN-filtered running MAX
+      over the whole flight -- a hop that climbs THROUGH the window but peaks above
+      it (e.g. passes through 6-30 km then apogees at 45 km) is UNMET, because the
+      peak (45 km) lies outside the window; the transient in-window frames on the
+      way up do NOT satisfy it. NaN/Inf apoapsis frames are filtered out of the max
+      (they never inflate or pass it); a flight with no finite apoapsis reading is
+      UNMET (peak None). The reported value is that peak (evidence).
     - ``landedSituation``: the FINAL situation must be one of landedSituations.
       (A situation is a discrete kRPC enum, not a noisy float, so it is read from
       the last frame directly rather than debounced.)
+
+    NOTE: the ``k`` parameter is retained for signature symmetry with
+    ``evaluate_b2_assertions`` but is unused here -- a peak is a single settled
+    quantity (the max), not a noisy per-frame reading that needs K-consecutive
+    debounce; B2's orbit params ARE per-frame terminal-state windows and keep the
+    debounce.
     """
     frames = list(frames or [])
     lo, hi = params.apoapsis_window
-    apo_met = _debounced_window_met(frames, lambda f: f.apoapsis, lo, hi, k)
     peak = _peak_finite(frames, lambda f: f.apoapsis)
+    apo_met = peak is not None and lo <= peak <= hi
     apo = AssertionOutcome("apoapsisWindow", apo_met,
                            peak if peak is not None else float("nan"),
                            {"window": [lo, hi]})
@@ -690,6 +700,80 @@ def decide_connect_retry(elapsed: float, attempts: int, budget: float,
     if elapsed >= budget:
         return CONNECT_TIMEOUT
     return CONNECT_RETRY
+
+
+# ---------------------------------------------------------------------------
+# Physics-warp guard (design edge 7). Pure. The mission NEVER requests physics
+# warp; an unexpected warp state around powered flight is a determinism violation
+# that the shell turns into a MISSION-FLAKE naming the phase + warp state. B1 flies
+# 1x THROUGHOUT (a 6-30 km hop never leaves the atmosphere, where rails warp is
+# forbidden); B2 permits RAILS warp only on its exo-atmospheric coast.
+# ---------------------------------------------------------------------------
+
+WARP_NONE = "NONE"
+WARP_RAILS = "RAILS"
+WARP_PHYSICS = "PHYSICS"
+
+
+def is_unexpected_warp(warp_mode: str, warp_rate: float, allow_rails: bool) -> bool:
+    """True iff the reported warp state is UNEXPECTED for a v1 mission (design
+    edge 7). 1x (a non-finite or ``<= 1.0`` rate) is always fine. Above 1x:
+    PHYSICS warp is NEVER permitted (a determinism violation for BOTH missions --
+    it distorts the recorded trajectory and the physics); RAILS warp is permitted
+    ONLY when ``allow_rails`` (B2's exo-atmospheric coast, per its RAILS-or-1x
+    contract), and forbidden otherwise (B1's 1x-throughout contract). An unknown
+    warp mode above 1x is treated conservatively as unexpected. On True the shell
+    flakes the mission naming the phase + the warp state."""
+    if not _is_finite(warp_rate) or warp_rate <= 1.0:
+        return False
+    mode = str(warp_mode or "").upper()
+    if mode == WARP_PHYSICS:
+        return True
+    if mode == WARP_RAILS:
+        return not allow_rails
+    # Above 1x with an unrecognized / NONE mode is an inconsistent, unexpected state.
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Post-connect exception origin classification (design edges 5 / 8 vs 9). Pure.
+# A connection drop or a kRPC RPC error AFTER a successful connect is a
+# MISSION-FLAKE (autopilot-flake bucket, retryable on a fresh boot); only a
+# pre-connect / setup / internal (non-kRPC) exception stays MISSION-ERROR. mlib
+# never imports krpc, so the shell passes the caught exception's type module +
+# name and mlib decides by ORIGIN.
+# ---------------------------------------------------------------------------
+
+# The kRPC client's exceptions live under the ``krpc`` package (krpc.error.*:
+# RPCError / ConnectionError / StreamError, etc.).
+_KRPC_EXCEPTION_MODULE = "krpc"
+
+# stdlib socket / connection exception names that signal a dropped connection
+# post-connect (a torn socket, a reset, a broken pipe, a read timeout), even when
+# the raise did not come from the krpc package itself.
+CONNECTION_DROP_EXCEPTION_NAMES = frozenset({
+    "ConnectionError", "ConnectionResetError", "ConnectionAbortedError",
+    "ConnectionRefusedError", "BrokenPipeError", "TimeoutError", "socket.timeout",
+    "RPCError", "StreamError",
+})
+
+
+def classify_post_connect_exception(exc_module: Optional[str], exc_name: Optional[str]) -> str:
+    """Classify an exception raised AFTER a successful connect (design edge 5 / 8
+    vs 9). Returns ``MISSION_FLAKE`` when the exception originates in the kRPC
+    package OR is a stdlib connection-drop exception (a mid-flight socket reset, a
+    dropped stream, a vessel-invalid RPC error) -- a transient the mission-validity
+    gate keeps out of the Parsek-defect bucket, retryable on a fresh boot. Returns
+    ``MISSION_ERROR`` for any other (internal, non-kRPC) exception (edge 9: a None
+    dereference, a bad param, a genuine mission-script bug). Pure by ORIGIN so mlib
+    never imports krpc."""
+    mod = str(exc_module or "")
+    name = str(exc_name or "")
+    if mod == _KRPC_EXCEPTION_MODULE or mod.startswith(_KRPC_EXCEPTION_MODULE + "."):
+        return MISSION_FLAKE
+    if name in CONNECTION_DROP_EXCEPTION_NAMES:
+        return MISSION_FLAKE
+    return MISSION_ERROR
 
 
 # ---------------------------------------------------------------------------

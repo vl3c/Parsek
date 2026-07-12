@@ -56,6 +56,10 @@ SPEC = mission_runner.MissionSpec(
     decide=decide,
     evaluate=evaluate,
     make_control=make_control,
+    # B2 permits RAILS warp on its exo-atmospheric coast (design edge 7 /
+    # guardrails: "RAILS warp only for exoatmospheric coasts"); PHYSICS warp is
+    # still never permitted. B1 keeps the default False (1x throughout).
+    allow_rails_warp=True,
 )
 
 

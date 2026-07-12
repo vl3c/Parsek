@@ -21,6 +21,11 @@ Modes:
              recording into the staged save, so the flown scenario's
              recordings.count.min>=1 + REC log rules are satisfied exactly as a
              real auto-recorded flight would satisfy them.
+  autopilot-loadfail
+             like autopilot, but the boot LoadGame returns verdict=ERROR (a boot
+             that never settled to FLIGHT). No recording is started/dropped. run.py
+             must SKIP the mission spawn (design handoff step 1: only hand off after
+             a LoadGame OK) so a dead boot never burns the mission budget.
 
 ASCII only; stdlib only.
 """
@@ -68,7 +73,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True, help="instance KSP root (channel files live here)")
     parser.add_argument("--mode", default="pass",
-                        choices=["pass", "hang", "bootcrash", "autopilot"])
+                        choices=["pass", "hang", "bootcrash", "autopilot", "autopilot-loadfail"])
     parser.add_argument("--max-seconds", type=float, default=120.0)
     args = parser.parse_args(argv)
 
@@ -102,7 +107,10 @@ def main(argv=None):
             processed.add(cid)
             seq += 1
             _append(journal_path, "id=%s cmd=%s phase=EXECUTED\n" % (cid, cmd))
-            if args.mode == "autopilot":
+            # A boot that never settles to FLIGHT: LoadGame reports ERROR and no
+            # recording is started (design handoff step 1 test seam).
+            load_failed = (args.mode == "autopilot-loadfail" and cmd == "LoadGame")
+            if args.mode in ("autopilot", "autopilot-loadfail") and not load_failed:
                 # Simulate Parsek auto-record around the flown mission: start on
                 # the launch (LoadGame) transition, drop a recording + stop it at
                 # commit time, so the flown scenario has a recording by commit.
@@ -117,7 +125,8 @@ def main(argv=None):
                         "[LOG] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=5 "
                         "passed=5 failed=0 skipped=0 category=%s scene=FLIGHT\n" % category)
                 _write_results(os.path.join(root, RESULTS), category)
-            _append(responses_path, "id=%s cmd=%s verdict=OK seq=%d\n" % (cid, cmd, seq))
+            verdict = "ERROR" if load_failed else "OK"
+            _append(responses_path, "id=%s cmd=%s verdict=%s seq=%d\n" % (cid, cmd, verdict, seq))
             if cmd == "FlushAndQuit":
                 _append(log_path, "[LOG] [Parsek][INFO][TestCommands] flushandquit: quitting (fake)\n")
                 return 0

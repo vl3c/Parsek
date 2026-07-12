@@ -283,9 +283,15 @@ def run_bootstrap(
     failing aborts NONzero WITHOUT writing a stamp -- a failed smoke must never
     leave a venv that would falsely admit a flight.
 
-    DRY-RUN (default): print the plan + run every pure decision it can without a
-    venv or network, and exit 0. This is what the tests + the operator use to
-    sanity-check the wiring before the one live bootstrap."""
+    DRY-RUN (``dry_run=True``): print the plan + run every pure decision it can
+    without a venv or network, and exit 0. This is what the tests + the operator use
+    to sanity-check the wiring before the one live bootstrap.
+
+    NOTE on defaults: this FUNCTION defaults to ``dry_run=True`` (safe by default
+    when called programmatically / from a test), but the CLI runs LIVE by default --
+    ``main`` passes ``dry_run=args.dry_run`` and ``--dry-run`` is a store_true flag,
+    so a bare ``python bootstrap_venv.py`` provisions for real; pass ``--dry-run`` to
+    only print the plan."""
     with open(requirements_path, "r", encoding="ascii") as fh:
         req_text = fh.read()
     requirements = parse_requirements(req_text)

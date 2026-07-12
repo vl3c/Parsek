@@ -106,11 +106,15 @@ class FakeMissionControl(mission_runner.MissionControl):
     ``close`` ran. Optional connect refusal and a mid-flight raise cover the
     failure paths."""
     def __init__(self, snapshots, refuse_connect=False, raise_on_read_index=None,
-                 client_version="0.5.4", server_version="0.5.4"):
+                 raise_exc=None, client_version="0.5.4", server_version="0.5.4"):
         self._snaps = list(snapshots)
         self._i = 0
         self._refuse = refuse_connect
         self._raise_at = raise_on_read_index
+        # The exception raised at raise_on_read_index; defaults to a plain
+        # RuntimeError (an internal non-kRPC bug). A test injects a connection-drop
+        # exception to exercise the post-connect FLAKE classification (edge 5).
+        self._raise_exc = raise_exc or RuntimeError("fake telemetry blew up mid-flight")
         self.client_version = client_version
         self.server_version = server_version
         self.actions = []
@@ -126,7 +130,7 @@ class FakeMissionControl(mission_runner.MissionControl):
     def read_snapshot(self):
         if self._raise_at is not None and self.reads == self._raise_at:
             self.reads += 1
-            raise RuntimeError("fake telemetry blew up mid-flight")
+            raise self._raise_exc
         self.reads += 1
         if self._i < len(self._snaps):
             snap = self._snaps[self._i]
@@ -281,10 +285,11 @@ class PhaseStallTests(unittest.TestCase):
 
 class MidFlightExceptionTests(unittest.TestCase):
     def test_raise_mid_flight_writes_error_with_traceback(self):
-        """The fake raises on the 2nd telemetry read; the shell catches it, writes
-        MISSION-ERROR with a traceback string, closes the connection in the
-        finally, and exits nonzero. Guards an exception leaking as a hang or as no
-        result file."""
+        """The fake raises a non-kRPC RuntimeError on the 2nd telemetry read; the
+        shell catches it, classifies MISSION-ERROR (edge 9 internal bug), writes a
+        traceback string, closes in the finally, exits nonzero. Guards an exception
+        leaking as a hang or as no result file, and guards an internal bug being
+        mis-filed as a flake."""
         frames = [snap(ut=0.0, stage_solid_fuel=1.0, situation="PRE_LAUNCH"), snap()]
         control = FakeMissionControl(frames, raise_on_read_index=1)
         code, result = run(b1_pad_hop.SPEC, B1_PARAMS, control)
@@ -294,6 +299,65 @@ class MidFlightExceptionTests(unittest.TestCase):
         self.assertIn("Traceback", result["error"])
         self.assertIn("blew up mid-flight", result["error"])
         self.assertTrue(control.closed)
+
+    def test_connection_drop_mid_flight_is_flake_not_error(self):
+        """SHOULD-FIX 4 (design edge 5): a CONNECTION-DROP exception raised AFTER a
+        successful connect classifies MISSION-FLAKE (autopilot-flake bucket,
+        retryable), NOT MISSION-ERROR. Guards a transient mid-flight socket reset
+        poisoning the Parsek-defect bucket."""
+        frames = [snap(ut=0.0, stage_solid_fuel=1.0, situation="PRE_LAUNCH"), snap()]
+        drop = ConnectionResetError("kRPC socket reset mid-burn")
+        control = FakeMissionControl(frames, raise_on_read_index=1, raise_exc=drop)
+        code, result = run(b1_pad_hop.SPEC, B1_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_FLAKE)
+        self.assertNotEqual(code, 0)
+        self.assertIn("ConnectionResetError", result["reason"])
+        self.assertTrue(control.closed)
+
+
+# ---------------------------------------------------------------------------
+# Physics-warp guard (design edge 7).
+# ---------------------------------------------------------------------------
+
+
+class WarpGuardShellTests(unittest.TestCase):
+    def test_physics_warp_mid_ascent_flakes_b1(self):
+        """SHOULD-FIX 5 (design edge 7): a PHYSICS-warp frame mid-ascent (B1 flies 1x
+        throughout) flakes the mission naming the phase, rather than record a warped
+        (distorted) flight. Guards a stray high-warp request silently corrupting the
+        recorded trajectory."""
+        frames = [
+            snap(ut=0.0, stage_solid_fuel=1.0, situation="PRE_LAUNCH"),
+            snap(ut=1.0, stage_solid_fuel=0.9, situation="FLYING",
+                 warp_mode="PHYSICS", warp_rate=4.0),  # unexpected -> flake in ASCENT
+        ]
+        control = FakeMissionControl(frames)
+        code, result = run(b1_pad_hop.SPEC, B1_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_FLAKE)
+        self.assertNotEqual(code, 0)
+        self.assertIn(mlib.B1_ASCENT, result["reason"])
+        self.assertTrue(control.closed)
+
+    def test_rails_warp_coast_does_not_flake_b2(self):
+        """B2 permits RAILS warp on its exo-atmospheric coast (allow_rails_warp), so
+        a RAILS-warp frame during the ascent/coast must NOT flake -- it flies through
+        to ORBIT and MISSION-OK. Guards the guard over-firing on a legitimate B2
+        rails coast (a clean run must be unaffected)."""
+        settled = snap(ut=200.0, apoapsis=80000, periapsis=80000, eccentricity=0.005,
+                       inclination=0.3, situation="ORBITING")
+        frames = [
+            snap(ut=0.0, apoapsis=1000, periapsis=0, eccentricity=0.9, inclination=0.3, situation="PRE_LAUNCH"),
+            snap(ut=100.0, apoapsis=78000, periapsis=1000, eccentricity=0.8, inclination=0.3,
+                 situation="FLYING", warp_mode="RAILS", warp_rate=50.0),  # -> CIRCULARIZE, rails OK for B2
+            snap(ut=120.0, apoapsis=80000, periapsis=40000, eccentricity=0.3, inclination=0.3, situation="FLYING"),
+            snap(ut=140.0, apoapsis=80000, periapsis=70000, eccentricity=0.1, inclination=0.3, situation="FLYING"),
+            settled,
+        ]
+        control = FakeMissionControl(frames)
+        code, result = run(b2_lko_ascent.SPEC, B2_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        self.assertEqual(result["phasesReached"][-1], mlib.B2_ORBIT)
 
 
 # ---------------------------------------------------------------------------

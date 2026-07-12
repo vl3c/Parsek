@@ -17,6 +17,19 @@ craft              = []
 kind    = "autopilot"
 mission = "b2_lko_ascent"
 
+# `steps` MUST stay in the [driver] table, so it is declared ABOVE the
+# [driver.missionParams] header (a key after the sub-table header would be scoped
+# to driver.missionParams.steps and the spec would validate as having zero steps).
+# Budget arithmetic (design invariant): missionBudget 780 >= 30 connect +
+# (420+300) phases + margin; runtime 1200 >= 240 LoadGame + 780 mission + margin.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 780 },
+  { cmd = "CommitTree",                                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                        expect = "OK" },
+]
+
 # Tolerances tuned from actuals per plan section 10; validated against
 # b2_lko_ascent.schema.toml.
 [driver.missionParams]
@@ -28,16 +41,6 @@ eccentricityMax           = 0.02
 inclinationErrorDeg       = 2.0
 ascentTimeoutSeconds      = 420
 circularizeTimeoutSeconds = 300
-
-# Budget arithmetic (design invariant): missionBudget 780 >= 30 connect +
-# (420+300) phases + margin; runtime 1200 >= 240 LoadGame + 780 mission + margin.
-steps = [
-  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
-  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
-  { phase = "mission",  expect = "MISSION-OK", budget = 780 },
-  { cmd = "CommitTree",                                          expect = "OK" },
-  { cmd = "FlushAndQuit",                                        expect = "OK" },
-]
 
 [dimensionsCovered]
 D1  = ["auto-record-launch"]

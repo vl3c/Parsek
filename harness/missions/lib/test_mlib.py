@@ -267,6 +267,36 @@ class B1AssertionTests(unittest.TestCase):
         self.assertFalse(outs[0].met)
         self.assertIsNone(outs[0].to_dict()["value"])
 
+    def test_peak_apoapsis_in_window_met(self):
+        # BLOCKER-2: the PEAK apoapsis (running max) inside the window -> MET, with
+        # the peak reported as the value. The apoapsis climbs then eases back but
+        # never exceeds the window's max.
+        frames = [snap(apoapsis=a) for a in (7000.0, 12000.0, 15000.0, 14000.0)]
+        outs = mlib.evaluate_b1_assertions(frames, B1_PARAMS)
+        self.assertTrue(outs[0].met)
+        self.assertEqual(outs[0].value, 15000.0)  # the peak, not the last reading
+
+    def test_climb_through_window_but_peak_overshoots_is_unmet(self):
+        # BLOCKER-2 regression (the self-contradictory row the old frames-in-window
+        # debounce produced): a hop that climbs THROUGH the 6-30 km window (frames at
+        # 7/15/25 km, K-consecutive in-window on the way UP) but PEAKS at 45 km must
+        # be UNMET -- the peak (45 km) lies outside the window. The reported value is
+        # that peak, so met=True with value=45000 can never happen.
+        frames = [snap(apoapsis=a) for a in (7000.0, 15000.0, 25000.0,
+                                             45000.0, 45000.0, 45000.0)]
+        outs = mlib.evaluate_b1_assertions(frames, B1_PARAMS)
+        self.assertFalse(outs[0].met, "a hop peaking above the window must be UNMET")
+        self.assertEqual(outs[0].value, 45000.0, "the reported value is the peak")
+
+    def test_peak_ignores_nan_frames(self):
+        # A transient NaN apoapsis frame is filtered out of the running max (never
+        # inflates or passes the peak); the finite peak still decides the window.
+        frames = [snap(apoapsis=7000.0), snap(apoapsis=float("nan")),
+                  snap(apoapsis=15000.0), snap(apoapsis=float("inf"))]
+        outs = mlib.evaluate_b1_assertions(frames, B1_PARAMS)
+        self.assertTrue(outs[0].met)
+        self.assertEqual(outs[0].value, 15000.0)
+
     def test_landed_situation_final_frame(self):
         frames = [snap(situation="FLYING"), snap(situation="LANDED")]
         outs = mlib.evaluate_b1_assertions(frames, B1_PARAMS)
@@ -334,37 +364,44 @@ class DebounceTests(unittest.TestCase):
     11): a single warp-edge outlier / NaN frame among in-tolerance frames must NOT
     fail an otherwise-met assertion, and a persistent out-of-tolerance run MUST
     fail. A regression here either false-fails a good flight (MechJeb stutter) or
-    masks a real miss."""
+    masks a real miss.
+
+    These exercise the debounce through B2's ``apoapsisError`` (outs[0]) -- a B2
+    orbit param IS a per-frame terminal-state window that keeps the K-consecutive
+    debounce. B1's apoapsisWindow is NO LONGER a debounced per-frame check (it is
+    the running-PEAK gate, BLOCKER-2), so a B1 apoapsis "outlier" is a real overshoot
+    and is covered by B1AssertionTests, not here. B2's apoapsis window is
+    target +/- apo_error = [75000, 85000]."""
 
     def test_single_outlier_tolerated(self):
         # One out-of-window frame between good frames -> still MET (a later run of
         # K=3 in-window frames settles it).
-        frames = [snap(apoapsis=14000.0), snap(apoapsis=14000.0),
+        frames = [snap(apoapsis=80000.0), snap(apoapsis=80000.0),
                   snap(apoapsis=999999.0),  # warp-edge outlier
-                  snap(apoapsis=14000.0), snap(apoapsis=14000.0), snap(apoapsis=14000.0)]
-        outs = mlib.evaluate_b1_assertions(frames, B1_PARAMS)
+                  snap(apoapsis=80000.0), snap(apoapsis=80000.0), snap(apoapsis=80000.0)]
+        outs = mlib.evaluate_b2_assertions(frames, B2_PARAMS)
         self.assertTrue(outs[0].met)
 
     def test_single_nan_frame_tolerated(self):
-        frames = [snap(apoapsis=14000.0), snap(apoapsis=14000.0),
+        frames = [snap(apoapsis=80000.0), snap(apoapsis=80000.0),
                   snap(apoapsis=float("nan")),
-                  snap(apoapsis=14000.0), snap(apoapsis=14000.0), snap(apoapsis=14000.0)]
-        outs = mlib.evaluate_b1_assertions(frames, B1_PARAMS)
+                  snap(apoapsis=80000.0), snap(apoapsis=80000.0), snap(apoapsis=80000.0)]
+        outs = mlib.evaluate_b2_assertions(frames, B2_PARAMS)
         self.assertTrue(outs[0].met)
 
     def test_persistent_out_of_tolerance_fails(self):
         # A sustained out-of-window run never reaches K consecutive in-window.
         frames = [snap(apoapsis=40000.0) for _ in range(6)]
-        outs = mlib.evaluate_b1_assertions(frames, B1_PARAMS)
+        outs = mlib.evaluate_b2_assertions(frames, B2_PARAMS)
         self.assertFalse(outs[0].met)
 
     def test_scattered_good_frames_never_settle(self):
         # Alternating in/out never yields K=3 consecutive -> UNMET (a real miss
         # peeking through warp noise must not be masked).
-        frames = [snap(apoapsis=14000.0), snap(apoapsis=40000.0),
-                  snap(apoapsis=14000.0), snap(apoapsis=40000.0),
-                  snap(apoapsis=14000.0), snap(apoapsis=40000.0)]
-        outs = mlib.evaluate_b1_assertions(frames, B1_PARAMS)
+        frames = [snap(apoapsis=80000.0), snap(apoapsis=40000.0),
+                  snap(apoapsis=80000.0), snap(apoapsis=40000.0),
+                  snap(apoapsis=80000.0), snap(apoapsis=40000.0)]
+        outs = mlib.evaluate_b2_assertions(frames, B2_PARAMS)
         self.assertFalse(outs[0].met)
 
     def test_has_k_consecutive_primitive(self):
@@ -376,7 +413,7 @@ class DebounceTests(unittest.TestCase):
 
     def test_custom_k_of_one(self):
         # With k=1 a single in-window frame suffices.
-        outs = mlib.evaluate_b1_assertions([snap(apoapsis=14000.0)], B1_PARAMS, k=1)
+        outs = mlib.evaluate_b2_assertions([snap(apoapsis=80000.0)], B2_PARAMS, k=1)
         self.assertTrue(outs[0].met)
 
 
@@ -442,6 +479,80 @@ class FlightVerdictTests(unittest.TestCase):
         verdict, reason = mlib.resolve_flight_verdict(flaked, [])
         self.assertEqual(verdict, mlib.MISSION_FLAKE)
         self.assertIn("ASCENT", reason)
+
+
+# ---------------------------------------------------------------------------
+# Physics-warp guard (design edge 7).
+# ---------------------------------------------------------------------------
+
+
+class WarpGuardTests(unittest.TestCase):
+    """Guards is_unexpected_warp (design edge 7): PHYSICS warp is never permitted;
+    RAILS warp only when allow_rails (B2 exo coast); 1x is always fine. A regression
+    here either false-flakes a clean 1x run or lets a physics-warped (distorted)
+    flight record silently."""
+
+    def test_one_x_is_never_unexpected(self):
+        # rate<=1 -> fine regardless of mode / allow_rails (clean run unaffected).
+        self.assertFalse(mlib.is_unexpected_warp(mlib.WARP_NONE, 1.0, False))
+        self.assertFalse(mlib.is_unexpected_warp(mlib.WARP_RAILS, 1.0, False))
+        self.assertFalse(mlib.is_unexpected_warp(mlib.WARP_PHYSICS, 0.5, True))
+
+    def test_physics_warp_always_unexpected(self):
+        # PHYSICS warp above 1x is a determinism violation for BOTH missions.
+        self.assertTrue(mlib.is_unexpected_warp(mlib.WARP_PHYSICS, 4.0, False))
+        self.assertTrue(mlib.is_unexpected_warp(mlib.WARP_PHYSICS, 4.0, True))
+
+    def test_rails_warp_gated_by_allow_rails(self):
+        # B1 (allow_rails=False) forbids RAILS warp; B2 (True) permits it.
+        self.assertTrue(mlib.is_unexpected_warp(mlib.WARP_RAILS, 50.0, False))
+        self.assertFalse(mlib.is_unexpected_warp(mlib.WARP_RAILS, 50.0, True))
+
+    def test_unknown_mode_above_1x_is_unexpected(self):
+        # Above 1x with a NONE/unknown mode is an inconsistent, unexpected state.
+        self.assertTrue(mlib.is_unexpected_warp(mlib.WARP_NONE, 4.0, True))
+        self.assertTrue(mlib.is_unexpected_warp("WEIRD", 4.0, True))
+
+    def test_non_finite_rate_is_not_unexpected(self):
+        # A NaN rate reading never trips the guard (a transient, not a violation).
+        self.assertFalse(mlib.is_unexpected_warp(mlib.WARP_PHYSICS, float("nan"), False))
+
+
+# ---------------------------------------------------------------------------
+# Post-connect exception origin classification (design edges 5 / 8 vs 9).
+# ---------------------------------------------------------------------------
+
+
+class PostConnectExceptionTests(unittest.TestCase):
+    """Guards classify_post_connect_exception (design edge 5/8 vs 9): a kRPC-origin
+    or connection-drop exception raised AFTER connect is MISSION-FLAKE (retryable
+    autopilot-flake), while an internal non-kRPC exception stays MISSION-ERROR. A
+    regression either buries a real mission-script bug as a flake, or poisons the
+    Parsek-defect bucket by mis-filing a transient drop."""
+
+    def test_krpc_package_exception_is_flake(self):
+        self.assertEqual(mlib.MISSION_FLAKE,
+                         mlib.classify_post_connect_exception("krpc.error", "RPCError"))
+        self.assertEqual(mlib.MISSION_FLAKE,
+                         mlib.classify_post_connect_exception("krpc", "ConnectionError"))
+
+    def test_stdlib_connection_drop_name_is_flake(self):
+        # A torn socket surfaces as a builtin ConnectionResetError (module builtins).
+        self.assertEqual(mlib.MISSION_FLAKE,
+                         mlib.classify_post_connect_exception("builtins", "ConnectionResetError"))
+        self.assertEqual(mlib.MISSION_FLAKE,
+                         mlib.classify_post_connect_exception("builtins", "BrokenPipeError"))
+
+    def test_internal_non_krpc_exception_is_error(self):
+        # A None dereference / bad param (edge 9) is a genuine mission-script bug.
+        self.assertEqual(mlib.MISSION_ERROR,
+                         mlib.classify_post_connect_exception("builtins", "AttributeError"))
+        self.assertEqual(mlib.MISSION_ERROR,
+                         mlib.classify_post_connect_exception("builtins", "ValueError"))
+
+    def test_none_origin_defaults_to_error(self):
+        self.assertEqual(mlib.MISSION_ERROR,
+                         mlib.classify_post_connect_exception(None, None))
 
 
 # ---------------------------------------------------------------------------
