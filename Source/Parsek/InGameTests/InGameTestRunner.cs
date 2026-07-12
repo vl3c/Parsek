@@ -3093,12 +3093,32 @@ namespace Parsek.InGameTests
             bool hasInstance,
             int stageCount,
             bool rebuildIndexes,
-            bool hasSortRoutine)
+            bool hasSortRoutine,
+            bool vesselExpectsStages = true)
         {
+            // A vessel with no staging-capable parts (e.g. a bare command pod)
+            // legitimately settles at StageCount == 0; requiring > 0 made the
+            // restore wait time out on every zero-stage vessel (found by the
+            // first unattended harness run against a single-pod fixture).
+            bool stageCountReady = vesselExpectsStages ? stageCount > 0 : stageCount >= 0;
             return hasInstance
-                && stageCount > 0
+                && stageCountReady
                 && !rebuildIndexes
                 && !hasSortRoutine;
+        }
+
+        internal static bool ActiveVesselExpectsStages()
+        {
+            var v = FlightGlobals.ActiveVessel;
+            if (v == null || v.parts == null)
+                return true; // unknown: keep the strict wait
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                var part = v.parts[i];
+                if (part != null && part.stagingOn)
+                    return true;
+            }
+            return false;
         }
 
         internal static IEnumerator WaitForStockStageManagerReady(float timeoutSeconds)
@@ -3116,7 +3136,8 @@ namespace Parsek.InGameTests
                 bool hasSortRoutine = hasInstance
                     && StageManagerSortRoutineField?.GetValue(stageManager) is Coroutine;
                 bool ready = IsStageManagerReadyForActivateNextStage(
-                    hasInstance, stageCount, rebuildIndexes, hasSortRoutine);
+                    hasInstance, stageCount, rebuildIndexes, hasSortRoutine,
+                    ActiveVesselExpectsStages());
                 if (ready)
                 {
                     if (stableMatchStarted < 0f)

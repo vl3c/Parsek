@@ -28,9 +28,11 @@ D6  = ["basic-playback", "ghost-map-presence", "non-orbital-polyline"]
 D16 = ["sidecar-prec", "sidecar-pcrf"]
 
 [expectations.recordings]
-# count.max > 0 keeps the REC-001/REC-003 rules mandatory: a dropped recording
-# in a recording scenario must still red.
-count = { min = 8, max = 8 }
+# Pinned to the InjectAllRecordings corpus size at this commit (272); a load
+# losing recordings reds. Update alongside corpus changes. (REC-rule
+# suppression keys on live-recording expectation, not this count - see the
+# harness design revision note.)
+count = { min = 272, max = 272 }
 
 [expectations.logContracts]
 # ERROR is UPPERCASE in ParsekLog.Write and the patterns are case-sensitive.
