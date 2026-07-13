@@ -33,6 +33,7 @@ All notable changes to Parsek are documented here.
 - Added the developer-only automated-testing harness that runs in-game test scenarios start to finish with no human in the loop and classifies each run (pass, real failure, environment-invalid, or killed-on-timeout), with a coverage ledger tracking what got tested. It never touches a normal game install and changes nothing Parsek saves.
 - The offline recording analyzer now distinguishes a still-rewindable recording whose rewind save is missing (a real defect, flagged as a failure) from a sealed recording's missing rewind save (a benign dangling reference, still only a warning). Developer-only tooling; no gameplay change.
 - Added the developer-only mission library: the automated-testing harness can now FLY missions (a pad hop, a MechJeb ascent to orbit) through kRPC while Parsek records them, judging the flight by tolerance windows so autopilot variance never masquerades as a Parsek defect. Live flights pending an operator session; everything else is headless-tested.
+- Added the developer-only ledger oracle: the harness now cross-checks career money, science, and reputation against two independent witnesses (what stock KSP granted at event time, and what the save file says afterwards), with Parsek's own arithmetic deliberately excluded from both, so any amount the ledger invents or loses is caught as a drift. Live verification pending an operator session; everything else is headless-tested.
 
 ## 0.10.3
 

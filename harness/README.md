@@ -8,15 +8,20 @@ same path. Keep it that way.
 
 Everything the harness fetches or generates lives UNDER `harness/`:
 
-- Code: `run.py`, `lib/` (`hlib.py` pure decision library), `provision/`
-  (`provlib.py` pure, `provision.py` shell), `missions/` (M-B1: mission shells
-  + `lib/mlib.py` pure mission decisions + `bootstrap_venv.py`), and their
-  `test_*.py`. run.py drives seam-only scenarios AND autopilot scenarios (the
-  mission handoff spawns the mission subprocess with the venv python; venv
-  admission runs at pre-launch ADMIT).
-- Declarative inputs: `scenarios/*.toml`, `coverage/registry.toml`,
-  `provision/pins.toml`, `provision/profiles/*.toml`,
+- Code: `run.py`, `lib/` (`hlib.py` pure decision library + `oracle.py`, the
+  M-B2 pure ledger oracle), `provision/` (`provlib.py` pure, `provision.py`
+  shell), `missions/` (M-B1: mission shells + `lib/mlib.py` pure mission
+  decisions + `bootstrap_venv.py`), and their `test_*.py`. run.py drives
+  seam-only scenarios AND autopilot scenarios (the mission handoff spawns the
+  mission subprocess with the venv python; venv admission runs at pre-launch
+  ADMIT), plus the M-B2 ledger-oracle verifier (pre-launch seed baseline,
+  per-run action manifest, expected-vs-save diff -> PARSEK-FAIL(ledger) on
+  hard drift).
+- Declarative inputs: `scenarios/*.toml` (incl. `[expectations.ledger]`),
+  `coverage/registry.toml`, `provision/pins.toml`, `provision/profiles/*.toml`,
   `missions/<name>.schema.toml` + `missions/requirements.txt`.
+- Generated per-run (gitignored): `results/<runId>.json` + `<runId>.manifest.json`
+  + `<runId>_mission.json`.
 - Caches + scratch (gitignored): `provision/.cache/` (release zips, the
   module-owned git source clones `krpc-src` / `krpc_mechjeb-src`, kRPC compile
   refs, the built `TestingTools.dll`) and `provision/.stage/`.
