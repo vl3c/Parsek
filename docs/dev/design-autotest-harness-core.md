@@ -687,7 +687,22 @@ retry re-runs only that verifier subprocess, not a fresh KSP boot).
    crashed mid-run: KILLED if the process was killed, else PARSEK-FAIL
    (batch-crashed). When present, parse `failed=<n>` for the results cross-check.
    For a multi-category autorun, the per-scene / aggregate lines are all parsed and
-   the relevant one (matching the driven category + scene) selected.
+   the relevant one (matching the driven category + scene) selected. **M-A5.1 revision
+   (design note N3):** v1 selected the single per-category line by exact match, which
+   never matched a multi-category selector (`all` / `A,B`), false-redding the run. The
+   harness now routes through the pure `hlib.resolve_batch_complete`: a multi-category
+   selector gates on the `category=multi:<count>` AGGREGATE, whose `failed` is the UNION
+   across categories (so `failed=0` means EVERY category passed, defended against a
+   mis-summarized aggregate by taking the max of the aggregate count and the
+   per-category sum), and a MISSING aggregate with per-category lines present is a
+   DEFINED FAULT (reds batch-incomplete), never a silent pass off one category's line.
+   **SF2:** the aggregate's `multi:<count>` is cross-checked against the per-category
+   line count by STRICT EQUALITY (the count is the number of categories the autorun ran,
+   one per-category `BATCH_COMPLETE` line per sequentially-run token, so exactly that
+   many lines must be present). A mismatch either way - fewer lines (a category batch cut
+   off before its `BATCH_COMPLETE`) OR more lines (an unexpected extra batch) - is a
+   DEFINED FAULT (`category_count_mismatch`, same `present=False` treatment as a missing
+   aggregate), never a silent pass off a mis-counted aggregate.
 3. **Offline analyzer** over the produced save, via `scripts/analyze-recordings.ps1
    -SaveDir <producedSave> -FailOnRed` in FRESH-SAVE (Forbid) mode. Gate decision
    and subclassification come from TWO distinct sources (S1):
@@ -1012,7 +1027,10 @@ Each: scenario -> expected behavior -> v1 or deferred.
     matching the driven categories + the scene the scenario ran in; the aggregate
     `category=multi:<n>` line drives the overall failed-count check. A missing
     per-token line for a category the scenario declared -> PARSEK-FAIL
-    (batch-incomplete). v1.
+    (batch-incomplete). **SF2:** the aggregate's `<n>` is cross-checked against the
+    per-category line count by strict equality; a mismatch either way (a cut-off
+    category batch or an unexpected extra batch) reds `category_count_mismatch`
+    (batch-incomplete), never a silent pass off the mis-counted aggregate. v1.
 20. **Duplicate response line for one id** (M-A2 crash-recovery rewrite re-emits a
     byte-equivalent terminal line). -> `evaluate_response_stream` dedupes by id
     keeping the FIRST terminal line, matching the seam's own orchestrator contract;
@@ -1078,7 +1096,15 @@ Each: scenario -> expected behavior -> v1 or deferred.
     Each verifier subprocess runs under its own wall-clock timeout (S14); on expiry
     the harness kills that subprocess and records the verifier result as INVALID
     (subkind tooling), retry-once (the retry re-runs only that subprocess). Never a
-    silent PASS, never a PARSEK-FAIL. v1.
+    silent PASS, never a PARSEK-FAIL. **SF1:** a subprocess retry that RECOVERS (the
+    re-run clears the tooling fault, so the whole attempt PASSes without a fresh boot)
+    is NOT invisible: it is recorded as a self-contained `verifiers.subprocessRetry`
+    detail in the durable result JSON (auditable), and `hlib.flake_attempt_entries`
+    emits a synthetic INVALID alongside the PASS so the recovered flake ACCRUES toward
+    the scenario's quarantine numerator - exactly like a whole-attempt flakedThenPassed's
+    attempt-1 INVALID JSON - so a chronically-wedging tool still reaches quarantine. A
+    triage-only analyzer run on a driver-INVALID save (non-verdict) does NOT subprocess-
+    retry (NIT 3: re-running over an already-INVALID save is pure waste). v1.
 31. **Recording-free scenario (B10-style daily loop) with zero recordings.** The
     driver boots, runs `RecordingInvariants`, quits; no "Recording started/stopped"
     lines ever emit. Without B1 the `REC-001`/`REC-003` marker-pairing rules would
@@ -1397,15 +1423,19 @@ Recorded so they are not lost; none blocks the v1 seam-driven daily loop.
   fixed 600s fallback deferral ceiling (spec caps RunTests budgets at 540s, S8);
   threading the spec's per-step budget down to the seam command so the seam adopts
   it is deferred to M-A5.1.
-- **M-A5.1: subprocess-scoped tooling retry (v1 adaptation 4).** The verifier-chain
-  prose above (S14, edges 12/30) describes a retryable tooling / analyzer-error
-  INVALID as "re-running only that verifier subprocess, not a fresh KSP boot". v1
-  does NOT yet do that: a retryable INVALID re-runs the WHOLE attempt through
-  `_run_scenario_with_retry` (fresh stage + fresh launch + fresh verifier chain), so
-  an analyzer-error retry currently burns another boot. Threading a subprocess-scoped
-  retry (re-invoke just the wedged `analyze-recordings.ps1` / `validate-ksp-log.ps1`
-  over the already-produced save) is deferred to M-A5.1; the whole-attempt retry is
-  correct, just more expensive.
+- **M-A5.1: subprocess-scoped tooling retry (v1 adaptation 4). REVISION: landed.**
+  The verifier-chain prose above (S14, edges 12/30) describes a retryable tooling /
+  analyzer-error INVALID as "re-running only that verifier subprocess, not a fresh KSP
+  boot". M-A5.1 now does exactly that: a wedged `analyze-recordings.ps1` /
+  `validate-ksp-log.ps1` subprocess (a tooling fault, NEVER a Parsek verdict -- an
+  analyzer RED=1 is a verdict, an analyzer CRASH / no-gate-token is tooling) is
+  re-invoked ONCE over the already-produced save/log before the whole-attempt retry
+  burns a fresh ~10-min boot. The scope decision is the pure `hlib.classify_retry_scope`
+  (stages `analyzer`/`logValidate`, subkinds `tooling`/`analyzer-error`); the re-run is
+  behind the `Runtime` seam; BOTH attempts' outcomes are logged so a subprocess retry
+  never masks nondeterminism. The whole-attempt retry policy + INVALID taxonomy are
+  unchanged: a subprocess re-run that ALSO faults falls through to the existing
+  `_run_scenario_with_retry` whole-attempt path.
 - **M-A4 / M-B5: preset-scoped injection.** `injectedRecordings` in v1 is
   `none | all-synthetic` (S4); a named corpus/preset subset lands with the M-A4
   harvest queue and the M-B5 preset library.

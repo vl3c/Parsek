@@ -1402,6 +1402,10 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
 
     killed = drive.killed
     detail: Dict[str, Dict] = {}
+    # SF1: every subprocess-scoped verifier retry that fired this attempt, recorded in
+    # the durable result JSON so a recovered flake is auditable AND the flake ledger can
+    # accrue it (hlib.flake_attempt_entries reads verifiers.subprocessRetry).
+    subprocess_retries: List[Dict] = []
 
     # 1. Driver validity (from the response stream + the mission step, M-B1).
     ev = hlib.evaluate_response_stream(drive.response_lines, drive.steps_with_ids)
@@ -1443,19 +1447,33 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                    (" missionVerdict=%s" % mission["missionVerdict"]) if mission else ""))
 
     # 2. BATCH_COMPLETE presence (parsed even on short-circuit; cheap triage).
+    # M-A5.1 (N3): a multi-category selector ("all" / "A,B") emits per-category lines
+    # plus a category=multi:<count> AGGREGATE; resolve_batch_complete gates on the
+    # aggregate union (failed==0 means EVERY category passed) and flags a missing
+    # aggregate with per-category lines present as a defined fault (never a silent pass).
     driven_category = _driven_category(spec)
     batches = hlib.find_batch_complete_lines(log_text)
-    selected_batch = hlib.select_batch_complete(batches, driven_category) if driven_category else (
-        batches[0] if batches else None)
-    batch_present = selected_batch is not None
-    batch_failed = selected_batch.failed if selected_batch else None
+    sel = hlib.resolve_batch_complete(batches, driven_category)
+    batch_present = sel.present
+    batch_failed = sel.failed
     detail["batchComplete"] = {
         "status": "PASS" if batch_present else ("SKIPPED" if not requires_batch else "FAIL"),
         "found": batch_present, "failed": batch_failed,
-        "category": driven_category,
+        "category": sel.category if sel.category is not None else driven_category,
+        "multi": sel.multi, "aggregateMissing": sel.aggregate_missing,
+        "categoryCountMismatch": sel.category_count_mismatch,
+        "expectedCategoryCount": sel.expected_category_count,
+        "perCategoryCount": sel.per_category_count,
     }
-    logger.info("Verify", "verify batchComplete status=%s found=%s failed=%s"
-                % (detail["batchComplete"]["status"], batch_present, batch_failed))
+    if sel.aggregate_missing:
+        logger.warn("Verify", "verify batchComplete: multi-category selector '%s' emitted %d per-category line(s) but NO category=multi:<n> aggregate -> defined fault (batch cut off before H1 summary); reds batch-incomplete, never a silent pass (M-A5.1 N3)"
+                    % (driven_category, sel.per_category_count))
+    if sel.category_count_mismatch:
+        logger.warn("Verify", "verify batchComplete: multi-category aggregate category=%s declares %s categor(ies) but %d per-category BATCH_COMPLETE line(s) present -> category_count_mismatch defined fault (a category batch cut off, or an unexpected extra batch); reds batch-incomplete, never a silent pass (M-A5.1 SF2)"
+                    % (sel.category, sel.expected_category_count, sel.per_category_count))
+    logger.info("Verify", "verify batchComplete status=%s found=%s failed=%s multi=%s perCategory=%d"
+                % (detail["batchComplete"]["status"], batch_present, batch_failed,
+                   sel.multi, sel.per_category_count))
 
     verifiers: Dict = {
         "killed": killed,
@@ -1501,6 +1519,7 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                 or expectations.get("world") is not None)
         detail["ledgerOracle"] = {"status": "SKIPPED",
                                   "reason": "killed" if ledger_active_killed else "mb2-not-landed"}
+        detail["subprocessRetry"] = subprocess_retries
         return {"driver": driver_facts, "verifiers": verifiers, "detail": detail,
                 "recordingCount": None}
 
@@ -1511,13 +1530,19 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # 3. Offline analyzer over the produced save, Forbid (fresh-save gate).
     analyzer_verdict = None
     if driver_valid:
-        analyzer_verdict, analyzer_detail = _run_analyzer(save_dir, runtime, logger)
+        analyzer_verdict, analyzer_detail, analyzer_retry = _run_analyzer_retrying(
+            save_dir, runtime, logger)
         detail["analyzer"] = analyzer_detail
+        if analyzer_retry is not None:
+            subprocess_retries.append(analyzer_retry)
         if analyzer_verdict is not None and analyzer_verdict.status != "PASS":
             short_circuited = True
     else:
         # N6: even on a terminal driver-INVALID, run the analyzer ONCE triage-only
         # (non-verdict) for the record, then let the driver flags drive the verdict.
+        # NIT 3: NO subprocess retry here -- a triage-only analyzer over an already-
+        # INVALID driver save is non-verdict, so re-running a wedged subprocess is
+        # pure waste (call _run_analyzer directly, not the retrying wrapper).
         _, analyzer_detail = _run_analyzer(save_dir, runtime, logger, triage_only=True)
         detail["analyzer"] = analyzer_detail
     verifiers["analyzer"] = analyzer_verdict if driver_valid else None
@@ -1526,8 +1551,9 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     if driver_valid and not short_circuited:
         prof = hlib.select_logvalidate_profile(hlib.spec_expects_live_recording(spec), False)
         no_rec = prof.suppress_recording_rules
-        lv = runtime.run_log_validate(log_path, killed=False, no_recording=no_rec,
-                                      timeout=LOGVALIDATE_TIMEOUT_SECONDS)
+        lv, lv_retry = _run_log_validate_retrying(runtime, log_path, no_rec, logger)
+        if lv_retry is not None:
+            subprocess_retries.append(lv_retry)
         if lv.timed_out:
             verifiers["tooling_invalid"] = True
             verifiers["tooling_subkind"] = "tooling"
@@ -1613,6 +1639,7 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         if ledger_drift:
             verifiers["ledger_drift"] = True
 
+    detail["subprocessRetry"] = subprocess_retries
     return {"driver": driver_facts, "verifiers": verifiers, "detail": detail,
             "recordingCount": recording_count}
 
@@ -1686,6 +1713,96 @@ def _run_analyzer(save_dir: str, runtime: Runtime, logger: HarnessLogger,
                 % (verdict.status, red, verdict.subkind, verdict.top_rule,
                    " (triage-only)" if triage_only else ""))
     return verdict, detail
+
+
+# ---------------------------------------------------------------------------
+# Subprocess-scoped retry (M-A5.1). When a verifier that shells out over the
+# already-produced run artifacts flakes on a TOOLING fault (a wedged pwsh analyzer,
+# a transient log-validate timeout) -- not a Parsek verdict -- re-invoke JUST that
+# subprocess ONCE over the SAME artifacts before the whole-attempt retry burns a
+# fresh ~10-min KSP boot. The SCOPE decision is pure (hlib.classify_retry_scope);
+# the re-invocation is behind the Runtime seam. BOTH attempts' outcomes are logged
+# so a subprocess retry never masks nondeterminism.
+# ---------------------------------------------------------------------------
+
+
+def _verifier_with_subprocess_retry(stage, invoke, classify, logger):
+    """Run a verifier subprocess (``invoke()``) and, on a subprocess-retryable tooling
+    fault, re-run it ONCE over the same artifacts. ``classify(raw)`` -> ``(is_tooling_
+    fault, subkind, label)``. Returns ``(raw_result, retry_info)`` where ``retry_info``
+    is None when no subprocess retry fired, else a self-contained detail dict
+    ``{"stage","retried":True,"attempt1","attempt2","recovered"}`` (M-A5.1 SF1 / NIT 1):
+    the durable result JSON records it so a recovered flake is auditable AND the flake
+    ledger can accrue it. On a recovery the second (good) result is returned so no
+    whole-attempt retry is needed; on a repeat fault the second (still-faulted) result
+    is returned and flows through the unchanged INVALID(tooling) -> whole-attempt retry
+    taxonomy."""
+    raw = invoke()
+    tooling, subkind, label = classify(raw)
+    scope = hlib.classify_retry_scope(stage, tooling, subkind)
+    if scope != hlib.RETRY_SCOPE_SUBPROCESS:
+        return raw, None
+    logger.warn("Verify", "verify %s subprocess-retry: attempt 1 tooling fault subkind=%s (%s); re-running the SAME subprocess over the same run artifacts, no fresh boot (M-A5.1)"
+                % (stage, subkind, label))
+    raw2 = invoke()
+    tooling2, subkind2, label2 = classify(raw2)
+    # Log BOTH attempts' outcomes: a subprocess retry must never mask nondeterminism.
+    logger.info("Verify", "verify %s subprocess-retry outcomes: attempt1=%s attempt2=%s"
+                % (stage, label, label2))
+    recovered = not tooling2
+    if recovered:
+        logger.info("Verify", "verify %s subprocess-retry RECOVERED on attempt 2 (attempt1 tooling subkind=%s -> attempt2 %s); no whole-attempt retry needed"
+                    % (stage, subkind, label2))
+    else:
+        logger.warn("Verify", "verify %s subprocess-retry: attempt 2 ALSO tooling subkind=%s; deferring to the unchanged whole-attempt retry policy"
+                    % (stage, subkind2))
+    retry_info = {"stage": stage, "retried": True, "attempt1": label,
+                  "attempt2": label2, "recovered": recovered}
+    return raw2, retry_info
+
+
+def _classify_analyzer_outcome(vd_detail):
+    """(is_tooling_fault, subkind, label) for an ``_run_analyzer`` return. A tooling
+    fault is an analyzer INVALID whose subkind a subprocess retry can address
+    (``tooling`` subprocess timeout / ``analyzer-error`` no-gate-token crash). A
+    PARSEK-FAIL (RED=1) or a fixture-* INVALID is NOT a tooling fault -> not re-run."""
+    _verdict, detail = vd_detail
+    status = detail.get("status")
+    subkind = detail.get("subkind", "") or ""
+    tooling = (status == "INVALID" and subkind in hlib.SUBPROCESS_RETRYABLE_SUBKINDS)
+    label = "%s%s" % (status, ("/%s" % subkind if subkind else ""))
+    return tooling, subkind, label
+
+
+def _run_analyzer_retrying(save_dir, runtime, logger):
+    """`_run_analyzer` with the M-A5.1 subprocess-scoped retry wrapped around it.
+    Returns ``(verdict, detail, retry_info)``; ``retry_info`` is None when no subprocess
+    retry fired, else the self-contained subprocessRetry dict the result JSON records.
+    Used ONLY on the verdict-driving path -- the triage-only analyzer run (a driver-
+    INVALID save is non-verdict) calls ``_run_analyzer`` directly, no retry (NIT 3)."""
+    def invoke():
+        return _run_analyzer(save_dir, runtime, logger, triage_only=False)
+    (verdict, detail), retry_info = _verifier_with_subprocess_retry(
+        "analyzer", invoke, _classify_analyzer_outcome, logger)
+    return verdict, detail, retry_info
+
+
+def _run_log_validate_retrying(runtime, log_path, no_rec, logger):
+    """`runtime.run_log_validate` (non-killed) with the M-A5.1 subprocess-scoped retry.
+    A log-validate TIMEOUT is a tooling flake (re-run once); a clean PASS or a genuine
+    validation FAIL (a Parsek verdict) is returned as-is, never re-run. Returns
+    ``(lv, retry_info)`` (retry_info None when no subprocess retry fired)."""
+    def invoke():
+        return runtime.run_log_validate(log_path, killed=False, no_recording=no_rec,
+                                        timeout=LOGVALIDATE_TIMEOUT_SECONDS)
+
+    def classify(lv):
+        tooling = lv.timed_out
+        subkind = "tooling" if tooling else ""
+        label = "timeout" if tooling else ("PASS" if lv.ok else "FAIL")
+        return tooling, subkind, label
+    lv, retry_info = _verifier_with_subprocess_retry("logValidate", invoke, classify, logger)
+    return lv, retry_info
 
 
 # ---------------------------------------------------------------------------
@@ -2048,8 +2165,11 @@ def refresh_coverage_and_flake(specs: Sequence[Dict], registry: Dict,
         sid = r.get("scenarioId")
         if sid is None:
             continue
-        by_scenario.setdefault(sid, []).append(
-            {"utc": r.get("endedUtc", ""), "outcome": r.get("verdict")})
+        # SF1: one result contributes its own verdict entry PLUS, for a PASS that
+        # recovered a subprocess-scoped verifier flake, a synthetic INVALID entry -- so
+        # a recovered flake accrues toward quarantine exactly like a whole-attempt
+        # flakedThenPassed's attempt-1 INVALID JSON does.
+        by_scenario.setdefault(sid, []).extend(hlib.flake_attempt_entries(r))
     now = utcnow_iso()
     flake_out = {"schema": hlib.SCHEMA_VERSION, "scenarios": {}}
     for sid, attempts in sorted(by_scenario.items()):
