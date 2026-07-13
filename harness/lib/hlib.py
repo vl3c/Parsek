@@ -255,6 +255,16 @@ def _is_aggregate(bc: BatchComplete) -> bool:
     return _MULTI_CATEGORY_RE.match(bc.category or "") is not None
 
 
+def aggregate_category_count(bc: BatchComplete) -> Optional[int]:
+    """The ``<count>`` an aggregate ``category=multi:<count>`` line declares, or None
+    when ``bc`` is not an aggregate (design M-A3 ~270). This READS the regex count
+    group v1 parsed but never cross-checked (SF2 / NIT 2): the count is the number of
+    categories the multi-category autorun ran, so exactly that many per-category
+    BATCH_COMPLETE lines must be present -- resolve_batch_complete gates on it."""
+    m = _MULTI_CATEGORY_RE.match(bc.category or "")
+    return int(m.group(1)) if m else None
+
+
 def select_aggregate_batch_complete(
     batches: Sequence[BatchComplete],
 ) -> Optional[BatchComplete]:
@@ -282,6 +292,11 @@ class BatchCompleteSelection:
     multi: bool               # the selector drove multiple categories
     aggregate_missing: bool   # multi selector, per-category lines present, NO aggregate
     per_category_count: int   # non-aggregate BATCH_COMPLETE lines seen
+    # SF2: aggregate present but its multi:<count> != per_category_count (a category
+    # batch was cut off, or an unexpected extra batch appeared). A defined fault,
+    # same treatment as aggregate_missing (present=False), never a silent pass.
+    category_count_mismatch: bool = False
+    expected_category_count: Optional[int] = None  # the aggregate's declared <count>
 
 
 def resolve_batch_complete(
@@ -305,6 +320,15 @@ def resolve_batch_complete(
       the caller reds batch-incomplete. It NEVER silently falls back to a per-category
       line as an all-passed pass (the regression this guards: a truncated multi-category
       run reading green off one category's line).
+    - An aggregate whose declared ``multi:<count>`` does NOT equal the number of
+      per-category lines present is a DEFINED FAULT (SF2): the count is the number of
+      categories the autorun ran (design M-A3 ~270), so exactly that many per-category
+      BATCH_COMPLETE lines must be present. FEWER lines than the count means a category
+      batch was cut off before its BATCH_COMPLETE; MORE lines than the count means an
+      unexpected extra batch (the aggregate and the per-category stream disagree). BOTH
+      red via STRICT EQUALITY (design M-A3: one per-category line per sequentially-run
+      token, so the count IS the line count): ``present=False`` + ``category_count_
+      mismatch=True``, never a silent pass off a mis-counted aggregate.
     """
     per_category = [bc for bc in batches if not _is_aggregate(bc)]
     if not is_multi_category_selector(selector):
@@ -316,10 +340,23 @@ def resolve_batch_complete(
             category=(sel.category if sel else None),
             scene=(sel.scene if sel else None),
             multi=False, aggregate_missing=False,
-            per_category_count=len(per_category))
+            per_category_count=len(per_category),
+            category_count_mismatch=False, expected_category_count=None)
 
     agg = select_aggregate_batch_complete(batches)
     if agg is not None:
+        expected_n = aggregate_category_count(agg)  # the multi:<count> the regex parses
+        if expected_n is not None and expected_n != len(per_category):
+            # STRICT EQUALITY (SF2): the aggregate claims a category count the
+            # per-category stream does not match -> a defined fault, never a silent
+            # pass. present=False so the caller reds batch-incomplete (same treatment
+            # as a missing aggregate); the distinct category_count_mismatch flag names
+            # the reason.
+            return BatchCompleteSelection(
+                present=False, failed=None, category=agg.category, scene=agg.scene,
+                multi=True, aggregate_missing=False,
+                per_category_count=len(per_category),
+                category_count_mismatch=True, expected_category_count=expected_n)
         # The gating failed is the UNION; take the larger of the aggregate's count and
         # the per-category sum so failed==0 can never hide a category that reported
         # failures (defends against a mis-summarized aggregate).
@@ -328,7 +365,8 @@ def resolve_batch_complete(
         return BatchCompleteSelection(
             present=True, failed=effective_failed, category=agg.category,
             scene=agg.scene, multi=True, aggregate_missing=False,
-            per_category_count=len(per_category))
+            per_category_count=len(per_category),
+            category_count_mismatch=False, expected_category_count=expected_n)
 
     # Multi selector, no aggregate line. Per-category lines present -> a defined fault
     # (never a silent pass off a per-category line). No lines at all -> a plain
@@ -336,7 +374,8 @@ def resolve_batch_complete(
     return BatchCompleteSelection(
         present=False, failed=None, category=None, scene=None,
         multi=True, aggregate_missing=(len(per_category) > 0),
-        per_category_count=len(per_category))
+        per_category_count=len(per_category),
+        category_count_mismatch=False, expected_category_count=None)
 
 
 # The terminal RED token is the LAST token on the [Analyzer] header line and the
@@ -2135,3 +2174,55 @@ def compute_flake(
     rate = (numerator / total) if total else 0.0
     quarantined = bool(prior_quarantined) or rate > QUARANTINE_RATE
     return FlakeResult(total, numerator, rate, quarantined)
+
+
+# ---------------------------------------------------------------------------
+# Subprocess-recovered flake accrual (M-A5.1 SF1). Pure. A whole-attempt flake
+# writes its attempt-1 INVALID as its OWN durable result JSON, so the flake
+# numerator sees that INVALID directly (see resolve_terminal's flakedThenPassed).
+# A SUBPROCESS-recovered flake (a wedged analyzer / log-validate re-run once over
+# the same artifacts, recovering WITHOUT a fresh boot) writes only ONE PASS result
+# JSON, so its in-attempt tooling fault would be INVISIBLE to the numerator and a
+# chronically-wedging tool would never accrue toward the 20% quarantine threshold.
+# These helpers make a recovered subprocess retry accrue exactly like a whole-attempt
+# flakedThenPassed: alongside the PASS attempt entry, a synthetic INVALID entry.
+# ---------------------------------------------------------------------------
+
+
+def recovered_subprocess_retries(result: Dict) -> List[Dict]:
+    """The RECOVERED ``verifiers.subprocessRetry`` entries in one durable result.
+
+    A recovered entry is one that ``retried`` a wedged verifier subprocess AND had the
+    re-run clear the tooling fault (``recovered``). Only recovered retries are counted:
+    a subprocess retry that did NOT recover fails the whole attempt INVALID, which is
+    written as its OWN result JSON and accrues via its verdict -- adding a synthetic
+    INVALID for it here would double-count. Reads the field structurally (a list of
+    ``{"stage","retried","attempt1","attempt2","recovered"}`` dicts) so a result with
+    no field (a clean run) yields an empty list.
+    """
+    verifiers = (result or {}).get("verifiers", {}) or {}
+    retries = verifiers.get("subprocessRetry", []) or []
+    out: List[Dict] = []
+    for r in retries:
+        if isinstance(r, dict) and r.get("retried") and r.get("recovered"):
+            out.append(r)
+    return out
+
+
+def flake_attempt_entries(result: Dict) -> List[Dict]:
+    """The per-attempt flake-ledger entries one durable result contributes (SF1).
+
+    Always the result's own ``{"utc","outcome"}`` entry (the verdict the numerator
+    already counts for a plain INVALID/KILLED). PLUS, when the result is a PASS that
+    carries a RECOVERED subprocess retry, ONE synthetic INVALID entry -- so a flake
+    that the subprocess retry papered over inside a single boot still accrues toward
+    the scenario's quarantine rate, exactly as a whole-attempt flakedThenPassed's
+    attempt-1 INVALID JSON does. A non-recovered retry (whole-attempt fallback) adds
+    NO synthetic entry (its own INVALID JSON accrues instead -- no double-count). The
+    caller extends the scenario's attempt list with the returned entries.
+    """
+    utc = (result or {}).get("endedUtc", "")
+    entries: List[Dict] = [{"utc": utc, "outcome": (result or {}).get("verdict")}]
+    if (result or {}).get("verdict") == VERDICT_PASS and recovered_subprocess_retries(result):
+        entries.append({"utc": utc, "outcome": VERDICT_INVALID})
+    return entries

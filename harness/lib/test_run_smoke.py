@@ -1134,6 +1134,58 @@ class SubprocessScopedRetrySmokeTests(unittest.TestCase):
         self.assertIn("attempt 2 ALSO tooling", body)
         self.assertIn("retry scenario=SMOKE-fake attempt=2", body)
 
+    def test_recovered_flake_is_auditable_and_accrues_in_the_flake_ledger(self):
+        """SF1: a subprocess-recovered flake writes ONE PASS result JSON. That JSON must
+        (a) carry the self-contained verifiers.subprocessRetry detail so the recovery is
+        durably auditable (NIT 1), and (b) accrue toward the scenario's flake numerator
+        so a chronically-wedging tool reaches quarantine -- exactly like a whole-attempt
+        flakedThenPassed. Fails if the recovery is silently dropped from either."""
+        spec = _make_spec(self.template, 30, 600)
+        rt = FakeRuntime("pass", analyzer_fail_calls=1)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        # (a) Durably auditable: the subprocessRetry detail is in the result JSON.
+        retries = result["verifiers"]["subprocessRetry"]
+        self.assertEqual(1, len(retries))
+        self.assertEqual("analyzer", retries[0]["stage"])
+        self.assertTrue(retries[0]["retried"])
+        self.assertTrue(retries[0]["recovered"])
+        self.assertEqual("INVALID/tooling", retries[0]["attempt1"])
+        self.assertEqual("PASS", retries[0]["attempt2"])
+        # (b) The flake ledger accrues it: refresh over the produced result JSON gives
+        # the scenario a nonzero numerator (PASS + synthetic INVALID).
+        orig_cov = run.COVERAGE_DIR
+        run.COVERAGE_DIR = os.path.join(self.tmp, "coverage")
+        try:
+            run.refresh_coverage_and_flake([spec], {"schema": 1}, self.logger)
+            with open(os.path.join(run.COVERAGE_DIR, "flake.json"), "r", encoding="utf-8") as fh:
+                flake = json.load(fh)
+        finally:
+            run.COVERAGE_DIR = orig_cov
+        sc = flake["scenarios"]["SMOKE-fake"]
+        self.assertEqual(2, sc["total"], "PASS + synthetic INVALID from the recovered flake")
+        self.assertEqual(1, sc["numerator"], "the recovered subprocess flake accrued")
+
+    def test_triage_only_analyzer_does_not_subprocess_retry(self):
+        """NIT 3: on a driver-INVALID run the analyzer runs ONCE triage-only (non-verdict).
+        A wedged analyzer there must NOT trigger a subprocess re-run -- re-running over an
+        already-INVALID save is pure waste. autopilot-loadfail forces the driver-INVALID;
+        analyzer_fail_calls=1 would flake. Fails if the triage analyzer re-runs (call
+        count > 1) or a subprocessRetry entry is recorded for a non-verdict run."""
+        spec = _make_autopilot_spec(self.template, mission_budget=30, run_budget=600)
+        rt = FakeRuntime("autopilot-loadfail", mission_mode="ok", venv_ok=True,
+                         analyzer_fail_calls=1)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("load-failed", result["subkind"])
+        # The triage analyzer ran EXACTLY ONCE (no subprocess retry burned).
+        self.assertEqual(1, rt.analyzer_call_count,
+                         "a triage-only analyzer over an INVALID save must not re-run")
+        # No subprocessRetry entry recorded (the triage path never enters the retry seam).
+        self.assertEqual([], result["verifiers"].get("subprocessRetry", []))
+
 
 class MultiCategoryBatchSmokeTests(unittest.TestCase):
     """M-A5.1 item 2 over the REAL run loop (fake runtime): a multi-category RunTests
@@ -1192,6 +1244,22 @@ class MultiCategoryBatchSmokeTests(unittest.TestCase):
         bc = result["verifiers"]["batchComplete"]
         self.assertEqual("FAIL", bc["status"])
         self.assertTrue(bc["aggregateMissing"])
+        self.assertEqual(2, bc["perCategoryCount"])
+
+    def test_multi_category_count_mismatch_reds_batch_crashed(self):
+        # SF2: the aggregate declares multi:3 but only 2 per-category lines are present
+        # (a category batch cut off). Same treatment as a missing aggregate: reds
+        # batch-incomplete, never a silent pass off the mis-counted aggregate.
+        rt = FakeRuntime("multimismatch")
+        result = run.run_attempt(self._multi_spec(), self.instance, self.tmp, rt,
+                                 attempt=1, prior_boot_crashed=False, logger=self.logger)
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"])
+        self.assertEqual("batch-crashed", result["subkind"])
+        bc = result["verifiers"]["batchComplete"]
+        self.assertEqual("FAIL", bc["status"])
+        self.assertTrue(bc["categoryCountMismatch"])
+        self.assertFalse(bc["aggregateMissing"])
+        self.assertEqual(3, bc["expectedCategoryCount"])
         self.assertEqual(2, bc["perCategoryCount"])
 
 

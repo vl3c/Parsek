@@ -171,6 +171,66 @@ class MultiCategoryBatchCompleteTests(unittest.TestCase):
         self.assertIsNone(hlib.select_aggregate_batch_complete(
             hlib.find_batch_complete_lines(_bc_line("RecordingInvariants", 0))))
 
+    # --- SF2: cross-check the aggregate's multi:<count> against the per-category
+    # line count (the regex count group v1 parsed but never read / NIT 2). ---
+
+    def test_aggregate_count_reader_un_deadens_the_group(self):
+        # aggregate_category_count reads the previously-dead regex group; a non-aggregate
+        # yields None.
+        batches = hlib.find_batch_complete_lines("\n".join([
+            _bc_line("multi:3", 0), _bc_line("A", 0)]))
+        agg = hlib.select_aggregate_batch_complete(batches)
+        self.assertEqual(hlib.aggregate_category_count(agg), 3)
+        non_agg = hlib.find_batch_complete_lines(_bc_line("A", 0))[0]
+        self.assertIsNone(hlib.aggregate_category_count(non_agg))
+
+    def test_aggregate_count_equals_lines_passes(self):
+        # multi:2 aggregate + exactly 2 per-category lines -> present, no mismatch.
+        batches = hlib.find_batch_complete_lines("\n".join([
+            _bc_line("A", 0), _bc_line("B", 0),
+            _bc_line("multi:2", 0, total=10, passed=10)]))
+        sel = hlib.resolve_batch_complete(batches, "A,B")
+        self.assertTrue(sel.present)
+        self.assertFalse(sel.category_count_mismatch)
+        self.assertEqual(sel.expected_category_count, 2)
+        self.assertEqual(sel.per_category_count, 2)
+
+    def test_aggregate_count_exceeds_lines_is_mismatch(self):
+        # N > lines: the aggregate claims 3 categories but only 2 per-category lines are
+        # present (a category batch cut off before its BATCH_COMPLETE) -> defined fault.
+        batches = hlib.find_batch_complete_lines("\n".join([
+            _bc_line("A", 0), _bc_line("B", 0),
+            _bc_line("multi:3", 0, total=10, passed=10)]))
+        sel = hlib.resolve_batch_complete(batches, "all")
+        self.assertFalse(sel.present, "an N>lines aggregate must NOT read as an all-passed run")
+        self.assertTrue(sel.category_count_mismatch)
+        self.assertFalse(sel.aggregate_missing)
+        self.assertEqual(sel.expected_category_count, 3)
+        self.assertEqual(sel.per_category_count, 2)
+
+    def test_aggregate_count_below_lines_is_mismatch(self):
+        # N < lines (documented choice: STRICT EQUALITY, so this also reds): the aggregate
+        # claims 1 category but 2 per-category lines are present (an unexpected extra
+        # batch) -> defined fault, never a silent pass off the mis-counted aggregate.
+        batches = hlib.find_batch_complete_lines("\n".join([
+            _bc_line("A", 0), _bc_line("B", 0),
+            _bc_line("multi:1", 0, total=10, passed=10)]))
+        sel = hlib.resolve_batch_complete(batches, "A,B")
+        self.assertFalse(sel.present)
+        self.assertTrue(sel.category_count_mismatch)
+        self.assertEqual(sel.expected_category_count, 1)
+        self.assertEqual(sel.per_category_count, 2)
+
+    def test_count_mismatch_reds_even_when_aggregate_failed_zero(self):
+        # The mismatch is orthogonal to the union failed count: a failed=0 aggregate whose
+        # count disagrees with the per-category stream still reds (never a silent pass).
+        batches = hlib.find_batch_complete_lines("\n".join([
+            _bc_line("A", 0), _bc_line("multi:2", 0, total=5, passed=5)]))
+        sel = hlib.resolve_batch_complete(batches, "A,B")
+        self.assertFalse(sel.present)
+        self.assertTrue(sel.category_count_mismatch)
+        self.assertIsNone(sel.failed)
+
 
 class RetryScopeClassifierTests(unittest.TestCase):
     """M-A5.1: classify_retry_scope routes a verifier-stage outcome to a subprocess
@@ -1260,6 +1320,69 @@ class FlakeTests(unittest.TestCase):
         r = hlib.compute_flake(old + recent, now="2026-07-13T00:00:00Z")
         self.assertEqual(r.total, 5)  # only the recent window
         self.assertFalse(r.quarantined)
+
+
+class SubprocessRecoveredFlakeAccrualTests(unittest.TestCase):
+    """SF1: a subprocess-recovered flake writes only ONE PASS result JSON, so without
+    accrual its in-attempt tooling fault is INVISIBLE to the flake numerator and a
+    chronically-wedging pwsh tool never reaches quarantine. flake_attempt_entries emits
+    a synthetic INVALID alongside the PASS -- mirroring a whole-attempt flakedThenPassed
+    -- so it accrues. Regressions guarded: (1) a recovered flake counting toward
+    nothing; (2) a NON-recovered retry (whole-attempt fallback) being double-counted
+    (it has its OWN INVALID result JSON)."""
+
+    def _result(self, verdict, retries=None, utc="2026-07-12T00:00:00Z"):
+        r = {"scenarioId": "S", "verdict": verdict, "endedUtc": utc, "verifiers": {}}
+        if retries is not None:
+            r["verifiers"]["subprocessRetry"] = retries
+        return r
+
+    def _retry(self, stage="analyzer", recovered=True):
+        return {"stage": stage, "retried": True, "attempt1": "INVALID/tooling",
+                "attempt2": "PASS" if recovered else "INVALID/tooling",
+                "recovered": recovered}
+
+    def test_clean_pass_contributes_one_entry(self):
+        entries = hlib.flake_attempt_entries(self._result("PASS"))
+        self.assertEqual([e["outcome"] for e in entries], ["PASS"])
+
+    def test_recovered_retry_adds_synthetic_invalid(self):
+        entries = hlib.flake_attempt_entries(self._result("PASS", [self._retry()]))
+        self.assertEqual([e["outcome"] for e in entries], ["PASS", "INVALID"])
+        # The synthetic entry shares the result's UTC so the window math is stable.
+        self.assertTrue(all(e["utc"] == "2026-07-12T00:00:00Z" for e in entries))
+
+    def test_recovered_helper_filters_non_recovered(self):
+        both = [self._retry("analyzer", True), self._retry("logValidate", False)]
+        rec = hlib.recovered_subprocess_retries(self._result("PASS", both))
+        self.assertEqual(len(rec), 1)
+        self.assertEqual(rec[0]["stage"], "analyzer")
+
+    def test_non_recovered_retry_no_synthetic(self):
+        # A retry that did NOT recover fails the whole attempt INVALID -> its OWN result
+        # JSON accrues; a synthetic INVALID here would double-count.
+        entries = hlib.flake_attempt_entries(
+            self._result("INVALID", [self._retry(recovered=False)]))
+        self.assertEqual([e["outcome"] for e in entries], ["INVALID"])
+
+    def test_recovered_flake_accrues_toward_quarantine(self):
+        # End-to-end through compute_flake: three clean passes + one recovered-flake PASS.
+        # Without SF1 the numerator would be 0 (all four verdicts are PASS); with it the
+        # recovered flake accrues one INVALID.
+        results = [self._result("PASS") for _ in range(3)]
+        results.append(self._result("PASS", [self._retry()]))
+        attempts = []
+        for r in results:
+            attempts.extend(hlib.flake_attempt_entries(r))
+        fr = hlib.compute_flake(attempts)
+        self.assertEqual(fr.total, 5, "3 clean PASS + (PASS + synthetic INVALID)")
+        self.assertEqual(fr.numerator, 1, "the recovered subprocess flake accrued")
+
+    def test_missing_field_is_a_clean_pass(self):
+        # A result predating SF1 (no verifiers / no subprocessRetry) is a clean pass.
+        self.assertEqual(hlib.recovered_subprocess_retries({}), [])
+        self.assertEqual([e["outcome"] for e in hlib.flake_attempt_entries(
+            {"verdict": "PASS", "endedUtc": ""})], ["PASS"])
 
 
 # ---------------------------------------------------------------------------
