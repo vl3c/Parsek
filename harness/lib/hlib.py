@@ -228,6 +228,164 @@ def select_batch_complete(
     return None
 
 
+# ---------------------------------------------------------------------------
+# Multi-category BATCH_COMPLETE aggregate (M-A5.1 revision of design note N3).
+# A RunTests step with multiple categories ("A,B") or the literal "all" drives the
+# M-A3 multi-category autorun: each constituent RunCategory batch emits its OWN
+# per-category BATCH_COMPLETE line, then H1's multi-category driver emits ONE final
+# aggregate line with category=multi:<count> carrying the UNION tally (design
+# design-autotest-autorun-hooks.md ~270). v1's single-batch parser (select_batch_complete
+# exact-category match) never matched such a selector: no per-category line carries
+# "A,B", so the run false-reds batch-incomplete. This resolves that.
+# ---------------------------------------------------------------------------
+
+# The aggregate line's category token: "multi:<count>" (design M-A3 ~270). Anchored
+# so a real C# category name (alphanumerics) can never be mistaken for the aggregate.
+_MULTI_CATEGORY_RE = re.compile(r"^multi:(\d+)$")
+
+
+def is_multi_category_selector(selector: Optional[str]) -> bool:
+    """True when a RunTests/autorun selector drives MORE THAN ONE category and the
+    M-A3 multi-category autorun therefore emits a category=multi:<count> aggregate.
+
+    Two forms drive multiple categories (design M-A3 "Multi-category selector"): the
+    literal ``all`` and a comma-separated token list. A single bare category token
+    drives one batch + one BATCH_COMPLETE line (no aggregate). A None/empty selector
+    (a seam-only scenario with no batch) is not multi.
+    """
+    if not selector:
+        return False
+    s = selector.strip()
+    return s == "all" or "," in s
+
+
+def _is_aggregate(bc: BatchComplete) -> bool:
+    return _MULTI_CATEGORY_RE.match(bc.category or "") is not None
+
+
+def aggregate_category_count(bc: BatchComplete) -> Optional[int]:
+    """The ``<count>`` an aggregate ``category=multi:<count>`` line declares, or None
+    when ``bc`` is not an aggregate (design M-A3 ~270). This READS the regex count
+    group v1 parsed but never cross-checked (SF2 / NIT 2): the count is the number of
+    categories the multi-category autorun ran, so exactly that many per-category
+    BATCH_COMPLETE lines must be present -- resolve_batch_complete gates on it."""
+    m = _MULTI_CATEGORY_RE.match(bc.category or "")
+    return int(m.group(1)) if m else None
+
+
+def select_aggregate_batch_complete(
+    batches: Sequence[BatchComplete],
+) -> Optional[BatchComplete]:
+    """Return the multi-category AGGREGATE BATCH_COMPLETE line (category
+    ``multi:<count>``), or None when absent (design M-A3 ~270).
+
+    The aggregate's ``failed`` is the UNION failed count across every category, so
+    ``failed == 0`` on the aggregate is necessary (though the caller also cross-checks
+    the per-category lines, see resolve_batch_complete) for ALL categories to have
+    passed. A missing aggregate is NOT this function's concern -- resolve_batch_complete
+    classifies a missing aggregate with per-category lines present as a defined fault.
+    """
+    for bc in batches:
+        if _is_aggregate(bc):
+            return bc
+    return None
+
+
+@dataclass(frozen=True)
+class BatchCompleteSelection:
+    present: bool             # a usable gating BATCH_COMPLETE line was resolved
+    failed: Optional[int]     # the gating failed count (aggregate UNION for multi)
+    category: Optional[str]
+    scene: Optional[str]
+    multi: bool               # the selector drove multiple categories
+    aggregate_missing: bool   # multi selector, per-category lines present, NO aggregate
+    per_category_count: int   # non-aggregate BATCH_COMPLETE lines seen
+    # SF2: aggregate present but its multi:<count> != per_category_count (a category
+    # batch was cut off, or an unexpected extra batch appeared). A defined fault,
+    # same treatment as aggregate_missing (present=False), never a silent pass.
+    category_count_mismatch: bool = False
+    expected_category_count: Optional[int] = None  # the aggregate's declared <count>
+
+
+def resolve_batch_complete(
+    batches: Sequence[BatchComplete], selector: Optional[str], scene: Optional[str] = None
+) -> BatchCompleteSelection:
+    """Resolve the gating BATCH_COMPLETE line for a driven selector (M-A5.1 N3).
+
+    Single-category (or seam-only) selector: unchanged v1 behavior -- the exact
+    per-category line (select_batch_complete), or the first line when the selector is
+    empty. Multi-category selector ("all" / "A,B"): the gating line is the
+    ``category=multi:<count>`` AGGREGATE, whose ``failed`` is the UNION across every
+    category. Two invariants this enforces that v1 could not:
+
+    - ``failed == 0`` means ALL categories passed. The gating ``failed`` is the MAX of
+      the aggregate's union count and the sum of the per-category lines' failed counts,
+      so a mis-summarized aggregate that under-reports (``multi:2 ... failed=0`` while a
+      per-category line shows ``failed=3``) can NEVER read as an all-passed run.
+    - A MISSING aggregate with per-category lines PRESENT is a DEFINED FAULT (the
+      multi-category run emitted category batches but was cut off before H1's summary,
+      or the aggregate emit failed): ``present=False`` + ``aggregate_missing=True`` so
+      the caller reds batch-incomplete. It NEVER silently falls back to a per-category
+      line as an all-passed pass (the regression this guards: a truncated multi-category
+      run reading green off one category's line).
+    - An aggregate whose declared ``multi:<count>`` does NOT equal the number of
+      per-category lines present is a DEFINED FAULT (SF2): the count is the number of
+      categories the autorun ran (design M-A3 ~270), so exactly that many per-category
+      BATCH_COMPLETE lines must be present. FEWER lines than the count means a category
+      batch was cut off before its BATCH_COMPLETE; MORE lines than the count means an
+      unexpected extra batch (the aggregate and the per-category stream disagree). BOTH
+      red via STRICT EQUALITY (design M-A3: one per-category line per sequentially-run
+      token, so the count IS the line count): ``present=False`` + ``category_count_
+      mismatch=True``, never a silent pass off a mis-counted aggregate.
+    """
+    per_category = [bc for bc in batches if not _is_aggregate(bc)]
+    if not is_multi_category_selector(selector):
+        sel = (select_batch_complete(batches, selector, scene) if selector
+               else (batches[0] if batches else None))
+        return BatchCompleteSelection(
+            present=sel is not None,
+            failed=(sel.failed if sel else None),
+            category=(sel.category if sel else None),
+            scene=(sel.scene if sel else None),
+            multi=False, aggregate_missing=False,
+            per_category_count=len(per_category),
+            category_count_mismatch=False, expected_category_count=None)
+
+    agg = select_aggregate_batch_complete(batches)
+    if agg is not None:
+        expected_n = aggregate_category_count(agg)  # the multi:<count> the regex parses
+        if expected_n is not None and expected_n != len(per_category):
+            # STRICT EQUALITY (SF2): the aggregate claims a category count the
+            # per-category stream does not match -> a defined fault, never a silent
+            # pass. present=False so the caller reds batch-incomplete (same treatment
+            # as a missing aggregate); the distinct category_count_mismatch flag names
+            # the reason.
+            return BatchCompleteSelection(
+                present=False, failed=None, category=agg.category, scene=agg.scene,
+                multi=True, aggregate_missing=False,
+                per_category_count=len(per_category),
+                category_count_mismatch=True, expected_category_count=expected_n)
+        # The gating failed is the UNION; take the larger of the aggregate's count and
+        # the per-category sum so failed==0 can never hide a category that reported
+        # failures (defends against a mis-summarized aggregate).
+        per_cat_failed = sum(bc.failed for bc in per_category)
+        effective_failed = max(agg.failed, per_cat_failed)
+        return BatchCompleteSelection(
+            present=True, failed=effective_failed, category=agg.category,
+            scene=agg.scene, multi=True, aggregate_missing=False,
+            per_category_count=len(per_category),
+            category_count_mismatch=False, expected_category_count=expected_n)
+
+    # Multi selector, no aggregate line. Per-category lines present -> a defined fault
+    # (never a silent pass off a per-category line). No lines at all -> a plain
+    # batch-absent (batch never started), same as the single-category empty case.
+    return BatchCompleteSelection(
+        present=False, failed=None, category=None, scene=None,
+        multi=True, aggregate_missing=(len(per_category) > 0),
+        per_category_count=len(per_category),
+        category_count_mismatch=False, expected_category_count=None)
+
+
 # The terminal RED token is the LAST token on the [Analyzer] header line and the
 # SOLE gate source (baseline doc). Anchored at end-of-line so a save leaf that
 # literally contains "RED=0" earlier in the header can never spoof the gate.
@@ -1618,6 +1776,67 @@ def resolve_terminal(attempts: Sequence[Verdict]) -> Verdict:
 
 
 # ---------------------------------------------------------------------------
+# Subprocess-scoped retry scope (M-A5.1, design note "subprocess-scoped tooling
+# retry" / S14 / edges 12,30). Pure. v1 retried the WHOLE attempt (re-stage +
+# re-boot KSP, ~10 min) for a retryable INVALID even when only a cheap verifier
+# subprocess flaked (a wedged pwsh analyzer, a transient log-validate failure).
+# This classifier lets run.py re-run JUST the wedged verifier subprocess over the
+# SAME already-produced run artifacts ONCE before falling back to the whole-attempt
+# retry. The re-invocation itself is the shell's (behind the Runtime seam); the
+# SCOPE decision is here.
+# ---------------------------------------------------------------------------
+
+RETRY_SCOPE_NONE = "none"                    # not retryable at the verifier level
+RETRY_SCOPE_SUBPROCESS = "subprocess"        # re-run THIS subprocess over the SAME artifacts, once
+RETRY_SCOPE_WHOLE_ATTEMPT = "whole-attempt"  # fall back to the whole-attempt retry (fresh stage + boot)
+
+# The verifier stages that shell out over the PRODUCED run artifacts (KSP.log / the
+# produced save) and can be re-invoked WITHOUT a fresh KSP boot. Only these two shell
+# scripts are subprocess-retryable in v1 (design: "re-invoke just the wedged
+# analyze-recordings.ps1 / validate-ksp-log.ps1 over the already-produced save").
+SUBPROCESS_RETRYABLE_STAGES: Tuple[str, ...] = ("analyzer", "logValidate")
+
+# The verifier-stage fault subkinds a subprocess retry can address: a wedged/killed
+# subprocess (``tooling`` -- a per-subprocess wall-clock timeout, S14) or an analyzer
+# that RAN but emitted no terminal RED gate token (``analyzer-error`` -- the analyzer
+# CRASH case, distinct from a RED=1 VERDICT). A Parsek VERDICT (analyzer RED=1 ->
+# PARSEK-FAIL, or a log-contract FAIL) is NEVER in this set: it is a real signal that
+# must never be re-run away (the HARD CONSTRAINT "analyzer RED is a verdict, analyzer
+# CRASH is tooling").
+SUBPROCESS_RETRYABLE_SUBKINDS: Tuple[str, ...] = ("tooling", "analyzer-error")
+
+
+def classify_retry_scope(stage: str, is_tooling_fault: bool, subkind: str) -> str:
+    """Decide the retry SCOPE for one verifier-stage outcome (M-A5.1).
+
+    ``is_tooling_fault`` is the caller's assertion that this outcome is a TOOLING
+    fault (a wedged/crashed subprocess), NOT a Parsek verdict -- the load-bearing
+    guard: a Parsek verdict (analyzer RED=1 -> PARSEK-FAIL, a log-contract FAIL)
+    passes ``is_tooling_fault=False`` and gets RETRY_SCOPE_NONE, so a real defect is
+    never re-run away (regression: a subprocess retry silently flipping a RED to green
+    on a nondeterministic analyzer). Given a genuine tooling fault:
+
+    - a subprocess-retryable stage (``analyzer`` / ``logValidate``) with a
+      subprocess-retryable subkind (``tooling`` / ``analyzer-error``) -> SUBPROCESS:
+      re-run that subprocess over the SAME artifacts once (no fresh boot);
+    - any other tooling fault (a stage that cannot be re-run over the same artifacts,
+      e.g. the ledger-oracle careerSave read, or a non-retryable subkind) ->
+      WHOLE_ATTEMPT: the existing whole-attempt retry path is unchanged for it.
+
+    The subprocess retry is a REFINEMENT in front of the whole-attempt retry, never a
+    replacement: a SUBPROCESS retry that still faults falls through to WHOLE_ATTEMPT
+    via the unchanged classify_verdict / should_retry taxonomy (this function does not
+    decide that fall-through; the caller re-runs once, then lets the second outcome
+    flow through the normal INVALID path).
+    """
+    if not is_tooling_fault:
+        return RETRY_SCOPE_NONE
+    if stage in SUBPROCESS_RETRYABLE_STAGES and subkind in SUBPROCESS_RETRYABLE_SUBKINDS:
+        return RETRY_SCOPE_SUBPROCESS
+    return RETRY_SCOPE_WHOLE_ATTEMPT
+
+
+# ---------------------------------------------------------------------------
 # Mission step classification + venv admission (design M-B1 "hlib additions").
 # Pure; feeds the EXISTING driver-validity stage. run.py maps the mission
 # subprocess's verdict through classify_mission_step and admits the mission venv
@@ -1970,3 +2189,55 @@ def compute_flake(
     rate = (numerator / total) if total else 0.0
     quarantined = bool(prior_quarantined) or rate > QUARANTINE_RATE
     return FlakeResult(total, numerator, rate, quarantined)
+
+
+# ---------------------------------------------------------------------------
+# Subprocess-recovered flake accrual (M-A5.1 SF1). Pure. A whole-attempt flake
+# writes its attempt-1 INVALID as its OWN durable result JSON, so the flake
+# numerator sees that INVALID directly (see resolve_terminal's flakedThenPassed).
+# A SUBPROCESS-recovered flake (a wedged analyzer / log-validate re-run once over
+# the same artifacts, recovering WITHOUT a fresh boot) writes only ONE PASS result
+# JSON, so its in-attempt tooling fault would be INVISIBLE to the numerator and a
+# chronically-wedging tool would never accrue toward the 20% quarantine threshold.
+# These helpers make a recovered subprocess retry accrue exactly like a whole-attempt
+# flakedThenPassed: alongside the PASS attempt entry, a synthetic INVALID entry.
+# ---------------------------------------------------------------------------
+
+
+def recovered_subprocess_retries(result: Dict) -> List[Dict]:
+    """The RECOVERED ``verifiers.subprocessRetry`` entries in one durable result.
+
+    A recovered entry is one that ``retried`` a wedged verifier subprocess AND had the
+    re-run clear the tooling fault (``recovered``). Only recovered retries are counted:
+    a subprocess retry that did NOT recover fails the whole attempt INVALID, which is
+    written as its OWN result JSON and accrues via its verdict -- adding a synthetic
+    INVALID for it here would double-count. Reads the field structurally (a list of
+    ``{"stage","retried","attempt1","attempt2","recovered"}`` dicts) so a result with
+    no field (a clean run) yields an empty list.
+    """
+    verifiers = (result or {}).get("verifiers", {}) or {}
+    retries = verifiers.get("subprocessRetry", []) or []
+    out: List[Dict] = []
+    for r in retries:
+        if isinstance(r, dict) and r.get("retried") and r.get("recovered"):
+            out.append(r)
+    return out
+
+
+def flake_attempt_entries(result: Dict) -> List[Dict]:
+    """The per-attempt flake-ledger entries one durable result contributes (SF1).
+
+    Always the result's own ``{"utc","outcome"}`` entry (the verdict the numerator
+    already counts for a plain INVALID/KILLED). PLUS, when the result is a PASS that
+    carries a RECOVERED subprocess retry, ONE synthetic INVALID entry -- so a flake
+    that the subprocess retry papered over inside a single boot still accrues toward
+    the scenario's quarantine rate, exactly as a whole-attempt flakedThenPassed's
+    attempt-1 INVALID JSON does. A non-recovered retry (whole-attempt fallback) adds
+    NO synthetic entry (its own INVALID JSON accrues instead -- no double-count). The
+    caller extends the scenario's attempt list with the returned entries.
+    """
+    utc = (result or {}).get("endedUtc", "")
+    entries: List[Dict] = [{"utc": utc, "outcome": (result or {}).get("verdict")}]
+    if (result or {}).get("verdict") == VERDICT_PASS and recovered_subprocess_retries(result):
+        entries.append({"utc": utc, "outcome": VERDICT_INVALID})
+    return entries

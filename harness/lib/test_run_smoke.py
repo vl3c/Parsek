@@ -64,10 +64,17 @@ class FakeRuntime(run.Runtime):
     venv refusal boots ZERO KSPs."""
 
     def __init__(self, mode, mission_mode="ok", venv_ok=True, seed_mode="ok",
-                 career_funds=25000.0, career_science=0.0, career_rep=0.0):
+                 career_funds=25000.0, career_science=0.0, career_rep=0.0,
+                 analyzer_fail_calls=0):
         self.mode = mode
         self.mission_mode = mission_mode
         self.venv_ok = venv_ok
+        # M-A5.1 subprocess-scoped retry seam: the FIRST `analyzer_fail_calls`
+        # run_analyzer invocations simulate a WEDGED analyzer (timed_out tooling fault,
+        # no report written); subsequent calls produce the clean RED=0 report. Counts
+        # across BOTH the in-attempt subprocess retry and any whole-attempt retry.
+        self.analyzer_fail_calls = analyzer_fail_calls
+        self.analyzer_call_count = 0
         # M-B2 seed baseline seam. seed_mode scripts the pre-launch analyzer over the
         # STAGED template: "ok" (parsed career pools), "sandbox" (parsed, no pools ->
         # fixture-authoring INVALID), "unparsed" (parsed:false -> tooling INVALID),
@@ -142,6 +149,10 @@ class FakeRuntime(run.Runtime):
         return run.ToolResult(0, False)
 
     def run_analyzer(self, save_dir, fresh_gate, timeout):
+        self.analyzer_call_count += 1
+        if self.analyzer_call_count <= self.analyzer_fail_calls:
+            # Wedged analyzer: a per-subprocess timeout tooling fault, no report written.
+            return run.ToolResult(-1, True)
         analysis = os.path.join(save_dir, "analysis")
         os.makedirs(analysis, exist_ok=True)
         leaf = os.path.basename(save_dir.rstrip("/\\"))
@@ -1059,6 +1070,197 @@ class LedgerOracleEndToEndTests(unittest.TestCase):
             None, world, career, None, "", "e2e-world-ok", self.logger)
         self.assertEqual("PASS", result["status"])
         self.assertFalse(drift)
+
+
+class SubprocessScopedRetrySmokeTests(unittest.TestCase):
+    """M-A5.1 item 1 over the REAL run loop (fake runtime): a wedged analyzer
+    subprocess is re-run once over the SAME produced save before the whole-attempt
+    retry. Fails-once -> PASS in ONE boot with a logged subprocess-retry; fails-twice
+    -> the whole-attempt path (a SECOND boot). Regressions guarded: a subprocess flake
+    burning a fresh ~10-min boot when a cheap re-run would recover; a subprocess retry
+    masking nondeterminism (both attempts' outcomes must be logged)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-subproc-retry-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "subproc_retry_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _log_body(self):
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_analyzer_flake_once_then_recovers_in_one_boot(self):
+        spec = _make_spec(self.template, 30, 600)
+        rt = FakeRuntime("pass", analyzer_fail_calls=1)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        # Recovered on the SAME attempt: PASS, ONE KSP boot, analyzer invoked TWICE.
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"],
+                         "expected PASS, got %s (%s)" % (result["verdict"], result.get("subkind")))
+        self.assertEqual(1, rt.launch_count, "a subprocess flake must NOT burn a fresh boot")
+        self.assertEqual(2, rt.analyzer_call_count, "the analyzer subprocess re-ran once")
+        self.assertEqual("PASS", result["verifiers"]["analyzer"]["status"])
+        # BOTH attempts' outcomes logged; the recovery is called out (no masked flake).
+        body = self._log_body()
+        self.assertIn("analyzer subprocess-retry: attempt 1 tooling fault", body)
+        self.assertIn("subprocess-retry outcomes: attempt1=INVALID/tooling attempt2=PASS", body)
+        self.assertIn("RECOVERED on attempt 2", body)
+
+    def test_analyzer_flake_twice_falls_back_to_whole_attempt(self):
+        # The subprocess re-run ALSO faults -> the unchanged whole-attempt retry fires a
+        # SECOND boot; attempt 2's analyzer (3rd call) is clean -> PASS(flakedThenPassed).
+        spec = _make_spec(self.template, 30, 600)
+        rt = FakeRuntime("pass", analyzer_fail_calls=2)
+        terminal = run._run_scenario_with_retry(spec, self.instance, self.tmp, rt, self.logger)
+        self.assertEqual(hlib.VERDICT_PASS, terminal["verdict"])
+        self.assertEqual("flakedThenPassed", terminal.get("note"))
+        self.assertEqual(2, rt.launch_count, "two subprocess faults must fall back to a whole-attempt boot")
+        self.assertEqual(3, rt.analyzer_call_count,
+                         "2 in-attempt analyzer calls (attempt1) + 1 (attempt2)")
+        body = self._log_body()
+        self.assertIn("attempt 2 ALSO tooling", body)
+        self.assertIn("retry scenario=SMOKE-fake attempt=2", body)
+
+    def test_recovered_flake_is_auditable_and_accrues_in_the_flake_ledger(self):
+        """SF1: a subprocess-recovered flake writes ONE PASS result JSON. That JSON must
+        (a) carry the self-contained verifiers.subprocessRetry detail so the recovery is
+        durably auditable (NIT 1), and (b) accrue toward the scenario's flake numerator
+        so a chronically-wedging tool reaches quarantine -- exactly like a whole-attempt
+        flakedThenPassed. Fails if the recovery is silently dropped from either."""
+        spec = _make_spec(self.template, 30, 600)
+        rt = FakeRuntime("pass", analyzer_fail_calls=1)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        # (a) Durably auditable: the subprocessRetry detail is in the result JSON.
+        retries = result["verifiers"]["subprocessRetry"]
+        self.assertEqual(1, len(retries))
+        self.assertEqual("analyzer", retries[0]["stage"])
+        self.assertTrue(retries[0]["retried"])
+        self.assertTrue(retries[0]["recovered"])
+        self.assertEqual("INVALID/tooling", retries[0]["attempt1"])
+        self.assertEqual("PASS", retries[0]["attempt2"])
+        # (b) The flake ledger accrues it: refresh over the produced result JSON gives
+        # the scenario a nonzero numerator (PASS + synthetic INVALID).
+        orig_cov = run.COVERAGE_DIR
+        run.COVERAGE_DIR = os.path.join(self.tmp, "coverage")
+        try:
+            run.refresh_coverage_and_flake([spec], {"schema": 1}, self.logger)
+            with open(os.path.join(run.COVERAGE_DIR, "flake.json"), "r", encoding="utf-8") as fh:
+                flake = json.load(fh)
+        finally:
+            run.COVERAGE_DIR = orig_cov
+        sc = flake["scenarios"]["SMOKE-fake"]
+        self.assertEqual(2, sc["total"], "PASS + synthetic INVALID from the recovered flake")
+        self.assertEqual(1, sc["numerator"], "the recovered subprocess flake accrued")
+
+    def test_triage_only_analyzer_does_not_subprocess_retry(self):
+        """NIT 3: on a driver-INVALID run the analyzer runs ONCE triage-only (non-verdict).
+        A wedged analyzer there must NOT trigger a subprocess re-run -- re-running over an
+        already-INVALID save is pure waste. autopilot-loadfail forces the driver-INVALID;
+        analyzer_fail_calls=1 would flake. Fails if the triage analyzer re-runs (call
+        count > 1) or a subprocessRetry entry is recorded for a non-verdict run."""
+        spec = _make_autopilot_spec(self.template, mission_budget=30, run_budget=600)
+        rt = FakeRuntime("autopilot-loadfail", mission_mode="ok", venv_ok=True,
+                         analyzer_fail_calls=1)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("load-failed", result["subkind"])
+        # The triage analyzer ran EXACTLY ONCE (no subprocess retry burned).
+        self.assertEqual(1, rt.analyzer_call_count,
+                         "a triage-only analyzer over an INVALID save must not re-run")
+        # No subprocessRetry entry recorded (the triage path never enters the retry seam).
+        self.assertEqual([], result["verifiers"].get("subprocessRetry", []))
+
+
+class MultiCategoryBatchSmokeTests(unittest.TestCase):
+    """M-A5.1 item 2 over the REAL run loop (fake runtime): a multi-category RunTests
+    emits per-category BATCH_COMPLETE lines + a category=multi:<count> aggregate. With
+    the aggregate -> PASS (failed=0 means ALL categories passed); without it (per-category
+    lines only) -> PARSEK-FAIL(batch-crashed), never a silent pass off a per-category
+    line."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-multibatch-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "multibatch_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _multi_spec(self):
+        spec = _make_spec(self.template, 30, 600)
+        spec["id"] = "SMOKE-multi"
+        # Drive TWO categories: the fake KSP emits a per-category line for each + aggregate.
+        for step in spec["driver"]["steps"]:
+            if step.get("cmd") == "RunTests":
+                step["args"]["category"] = "A,B"
+        return spec
+
+    def test_multi_category_with_aggregate_passes(self):
+        rt = FakeRuntime("multipass")
+        result = run.run_attempt(self._multi_spec(), self.instance, self.tmp, rt,
+                                 attempt=1, prior_boot_crashed=False, logger=self.logger)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"],
+                         "expected PASS, got %s (%s)" % (result["verdict"], result.get("subkind")))
+        bc = result["verifiers"]["batchComplete"]
+        self.assertEqual("PASS", bc["status"])
+        self.assertTrue(bc["multi"])
+        self.assertFalse(bc["aggregateMissing"])
+        self.assertEqual(0, bc["failed"])
+        self.assertEqual(2, bc["perCategoryCount"])
+
+    def test_multi_category_missing_aggregate_reds_batch_crashed(self):
+        rt = FakeRuntime("multinoagg")
+        result = run.run_attempt(self._multi_spec(), self.instance, self.tmp, rt,
+                                 attempt=1, prior_boot_crashed=False, logger=self.logger)
+        # A defined fault, not a silent pass off a per-category line.
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"])
+        self.assertEqual("batch-crashed", result["subkind"])
+        bc = result["verifiers"]["batchComplete"]
+        self.assertEqual("FAIL", bc["status"])
+        self.assertTrue(bc["aggregateMissing"])
+        self.assertEqual(2, bc["perCategoryCount"])
+
+    def test_multi_category_count_mismatch_reds_batch_crashed(self):
+        # SF2: the aggregate declares multi:3 but only 2 per-category lines are present
+        # (a category batch cut off). Same treatment as a missing aggregate: reds
+        # batch-incomplete, never a silent pass off the mis-counted aggregate.
+        rt = FakeRuntime("multimismatch")
+        result = run.run_attempt(self._multi_spec(), self.instance, self.tmp, rt,
+                                 attempt=1, prior_boot_crashed=False, logger=self.logger)
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"])
+        self.assertEqual("batch-crashed", result["subkind"])
+        bc = result["verifiers"]["batchComplete"]
+        self.assertEqual("FAIL", bc["status"])
+        self.assertTrue(bc["categoryCountMismatch"])
+        self.assertFalse(bc["aggregateMissing"])
+        self.assertEqual(3, bc["expectedCategoryCount"])
+        self.assertEqual(2, bc["perCategoryCount"])
 
 
 def _clean_ledger_facts():
