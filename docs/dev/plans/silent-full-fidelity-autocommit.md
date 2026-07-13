@@ -148,6 +148,15 @@ stays ghost-only** — routing it through `MergeCommit` would run `RefreshQuicks
 (a quicksave) inside OnSave, a reentrancy hazard analogous to the "never SaveGame from
 inside OnLoad" rule; it is unreachable defense-in-depth that never needs spawn-at-end.
 
+**Quicksave suppression on the silent path (impl-review fix).** Sites 2 and 3 run inside
+`OnLoad`, so the silent `MergeCommit` passes `refreshQuicksaveAfterCommit: false` to skip
+`RefreshQuicksaveAfterMerge` — a `GamePersistence.SaveGame` there would re-enter every
+`ScenarioModule.OnSave` mid-load (the same rule) and would snapshot before the OnLoad ledger
+recalc. The commit is still durable via the next normal OnSave, exactly as the old ghost-only
+auto-commit was (it never refreshed the quicksave either); and because the commit completes
+synchronously before the OnLoad `RecalculateAndPatch`, the just-committed tree's ledger
+actions are patched into the in-memory scalars that same frame.
+
 **Scene-exit force-write.** For site 2 to have a durable finalized snapshot, the scene-exit
 stash must force-write dirty sidecars the way the `autoMerge=OFF` branch already does
 (`ParsekFlight.cs:2935-2949`). Change the `FinalizeTreeOnSceneChange` dispatch so the
@@ -262,11 +271,13 @@ never nulled. Cold-load (site 3) relies on the prior session's force-written sid
   MAINMENU) returning "keep ghost-only".
 - `ScenarioAutoCommitResourcesAppliedTests`: the silent path now routes through
   `MergeDialog.MergeCommit` -> `RecordingStore.CommitPendingTree` + `MarkTreeAsApplied`, NOT
-  the `CommitPendingTreeAsApplied` wrapper these tests exercise directly, so they do not break
-  but `SceneExitAutoMerge_AdvancesRecordingIndexes` (:162) documents a retired routing —
-  update its comment. The snapshot-retained / full-fidelity assertion realistically lands as
-  the in-game FLIGHT test below plus a `MergeDialog`-level unit test asserting a spawnable
-  leaf keeps `VesselSnapshot` after `MergeCommit` with default decisions.
+  the `CommitPendingTreeAsApplied` wrapper these tests exercise directly, so they do not break;
+  `SceneExitAutoMerge_AdvancesRecordingIndexes` (:162) comment updated to note the retired routing.
+- Full-fidelity retention (the P1 contract): `MergeDialogVesselTests.ApplyVesselDecisions_
+  KeepsSpawnableSnapshot_NullsGhostOnly` (added) pins that a spawnable leaf keeps its
+  `VesselSnapshot` while a ghost-only leaf is nulled with its `GhostVisualSnapshot` preserved
+  (`ApplyVesselDecisions` widened to `internal static`). `BuildDefaultVesselDecisions` /
+  `CanPersistVessel` already cover which leaves are spawnable.
 
 **In-game (`InGameTests`, live KSP):**
 - FLIGHT test: with `autoMerge=ON`, fly to a stable orbit, trigger the scene-exit commit,
@@ -297,11 +308,11 @@ owner as a note, not a required change.
 
 ## 9. Risks & rollback
 
-- **Risk:** `MergeCommit` at OnLoad runs heavier work than `AutoCommitTreeGhostOnly` did —
-  optimization pass, ledger recalc/patch, crew swap, and a `RefreshQuicksaveAfterMerge`
-  quicksave. This is the same work the dialog path already does at commit time, so no new
-  risk class; but the quicksave now fires during a scene-load OnLoad frame — watch its
-  ordering vs the later `LedgerOrchestrator.RecalculateAndPatch` in the same OnLoad.
+- **Risk (resolved):** `MergeCommit` at OnLoad runs heavier work than `AutoCommitTreeGhostOnly`
+  did — optimization pass, crew swap, `NotifyLedgerTreeCommitted`. The one genuinely new
+  timing, a `RefreshQuicksaveAfterMerge` quicksave firing inside the OnLoad frame (flagged by
+  the impl-review panel), is suppressed via `refreshQuicksaveAfterCommit: false` (§4.1), so no
+  `SaveGame` runs mid-load and no quicksave captures pre-recalc scalars.
 - **Risk:** more spawn-at-end materialization + slightly more sidecar data (spawnable leaves
   retain snapshots). Intended, correct, matches the dialog path.
 - **Rollback:** control-flow rewire behind the existing `autoMerge` flag (still default OFF).

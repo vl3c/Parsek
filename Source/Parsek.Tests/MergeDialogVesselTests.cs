@@ -298,6 +298,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ApplyVesselDecisions_KeepsSpawnableSnapshot_NullsGhostOnly()
+        {
+            // The core full-fidelity contract behind silent auto-commit: a
+            // spawnable leaf (decision=true) keeps its VesselSnapshot so it can
+            // spawn at recording end, while a ghost-only leaf (decision=false)
+            // has its snapshot nulled but its GhostVisualSnapshot preserved for
+            // rendering. See docs/dev/plans/silent-full-fidelity-autocommit.md.
+            var tree = new RecordingTree { TreeName = "TestTree" };
+            tree.Recordings["survivor"] = new Recording
+            {
+                RecordingId = "survivor",
+                VesselName = "Station",
+                TerminalStateValue = TerminalState.Orbiting,
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+            tree.Recordings["debris"] = new Recording
+            {
+                RecordingId = "debris",
+                VesselName = "SpentStage",
+                TerminalStateValue = TerminalState.Destroyed,
+                VesselSnapshot = new ConfigNode("VESSEL")
+            };
+
+            var decisions = new System.Collections.Generic.Dictionary<string, bool>
+            {
+                ["survivor"] = true,
+                ["debris"] = false,
+            };
+
+            MergeDialog.ApplyVesselDecisions(tree, decisions);
+
+            // Spawnable survivor keeps its snapshot (full-fidelity spawn-at-end).
+            Assert.NotNull(tree.Recordings["survivor"].VesselSnapshot);
+            // Ghost-only debris: spawn snapshot nulled, ghost visual preserved.
+            Assert.Null(tree.Recordings["debris"].VesselSnapshot);
+            Assert.NotNull(tree.Recordings["debris"].GhostVisualSnapshot);
+        }
+
+        [Fact]
         public void BuildDefaultVesselDecisions_EmptyTree_ReturnsEmptyDict()
         {
             var tree = new RecordingTree { TreeName = "Empty" };

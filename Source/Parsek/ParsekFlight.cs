@@ -2163,7 +2163,6 @@ namespace Parsek
         void OnSceneChangeRequested(GameScenes scene)
         {
             sceneChangeInProgress = true;
-            RecordingStore.PendingDestinationScene = scene;
 
             // Phase 7 (design doc §13.2, §18 Phase 7): clear the per-scene
             // terrain-height bucket cache. Terrain is regenerated each session

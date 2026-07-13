@@ -3331,9 +3331,7 @@ namespace Parsek
                             // #88 folded: landed/splashed no longer forces an approval
                             // dialog under autoMerge — the silent commit is now
                             // full-fidelity (spawn-at-end preserved), so it is safe for
-                            // surviving vessels. Consume the pending destination scene
-                            // (it was only read to gate the retired #88 approval).
-                            RecordingStore.PendingDestinationScene = null;
+                            // surviving vessels.
 
                             // Auto-discard idle-on-pad before auto-commit. Only for
                             // Finalized trees (Limbo trees are resume-flow stashes).
@@ -6795,7 +6793,15 @@ namespace Parsek
                 // (keeps spawnable-leaf snapshots), CommitPendingTree + MarkTreeAsApplied,
                 // RunOptimizationPass, NotifyLedgerTreeCommitted, crew swap, and posts its
                 // own screen message. Its M1 guard (pt == RecordingStore.PendingTree) holds.
-                MergeDialog.MergeCommit(pt, decisions, spawnCount);
+                //
+                // refreshQuicksaveAfterCommit: false — we run inside OnLoad, so a
+                // GamePersistence.SaveGame here would re-enter OnSave mid-load and
+                // snapshot before the OnLoad ledger recalc. The commit is durable via
+                // the next normal OnSave (matching the old ghost-only auto-commit,
+                // which never refreshed the quicksave). Also lets the OnLoad recalc
+                // (later this frame) patch the just-committed tree's ledger actions.
+                MergeDialog.MergeCommit(pt, decisions, spawnCount,
+                    refreshQuicksaveAfterCommit: false);
             }
             else
             {

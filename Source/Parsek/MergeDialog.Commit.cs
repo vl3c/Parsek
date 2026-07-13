@@ -36,7 +36,8 @@ namespace Parsek
             RecordingTree tree,
             Dictionary<string, bool> decisions,
             int spawnCount,
-            bool playerRequestedSeal = false)
+            bool playerRequestedSeal = false,
+            bool refreshQuicksaveAfterCommit = true)
         {
             if (tree == null)
             {
@@ -105,7 +106,18 @@ namespace Parsek
             // re-fly staged commit has either completed or been bypassed.
             // Interrupted re-fly commits intentionally skip the refresh so F9
             // cannot resurrect a half-committed session from a stale snapshot.
-            if (reFlyResult != ReFlyMergeCommitResult.Interrupted)
+            //
+            // refreshQuicksaveAfterCommit=false is passed by the silent
+            // auto-commit path (ParsekScenario.AutoCommitPendingTreeOutsideFlight),
+            // which runs INSIDE ParsekScenario.OnLoad: a GamePersistence.SaveGame
+            // there would re-enter every ScenarioModule.OnSave mid-load (the
+            // "never SaveGame from inside OnLoad" rule) and would snapshot before
+            // the OnLoad ledger recalc. The commit is still durable via the next
+            // normal OnSave, matching the old ghost-only auto-commit which never
+            // refreshed the quicksave either. See
+            // docs/dev/plans/silent-full-fidelity-autocommit.md.
+            if (refreshQuicksaveAfterCommit
+                && reFlyResult != ReFlyMergeCommitResult.Interrupted)
             {
                 RecordingStore.RefreshQuicksaveAfterMerge(
                     "merge dialog Tree Merge", tree.Recordings.Count);
@@ -1173,7 +1185,7 @@ namespace Parsek
         /// Applies vessel decisions to the tree: nulls VesselSnapshot on recordings
         /// that are marked ghost-only (false in decisions dict).
         /// </summary>
-        static void ApplyVesselDecisions(RecordingTree tree, Dictionary<string, bool> decisions)
+        internal static void ApplyVesselDecisions(RecordingTree tree, Dictionary<string, bool> decisions)
         {
             if (tree == null || decisions == null)
                 return;
