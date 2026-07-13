@@ -63,12 +63,31 @@ class FakeRuntime(run.Runtime):
     ``venv_ok`` toggles the pre-launch venv admission; ``launch_count`` proves a
     venv refusal boots ZERO KSPs."""
 
-    def __init__(self, mode, mission_mode="ok", venv_ok=True):
+    def __init__(self, mode, mission_mode="ok", venv_ok=True, seed_mode="ok",
+                 career_funds=25000.0, career_science=0.0, career_rep=0.0):
         self.mode = mode
         self.mission_mode = mission_mode
         self.venv_ok = venv_ok
+        # M-B2 seed baseline seam. seed_mode scripts the pre-launch analyzer over the
+        # STAGED template: "ok" (parsed career pools), "sandbox" (parsed, no pools ->
+        # fixture-authoring INVALID), "unparsed" (parsed:false -> tooling INVALID),
+        # "toolfail" (analyzer subprocess nonzero -> tooling INVALID). The produced-save
+        # careerSave block (leg B) uses the same career_* pools.
+        self.seed_mode = seed_mode
+        self.career_funds = career_funds
+        self.career_science = career_science
+        self.career_rep = career_rep
+        self.seed_analyzer_count = 0
         self.launch_count = 0
         self.mission_spawn_count = 0
+
+    def _career_block_json(self):
+        return {"parsed": True,
+                "hasFunds": True, "funds": self.career_funds,
+                "hasScience": True, "sciencePool": self.career_science,
+                "hasRep": True, "reputation": self.career_rep,
+                "subjectScience": {}, "facilityLevelFrac": {},
+                "activeContractGuids": [], "completedMilestoneIds": [], "vessels": []}
 
     def sleep(self, seconds):
         # Keep real time advancing (so budgets elapse) but spin fast.
@@ -129,8 +148,28 @@ class FakeRuntime(run.Runtime):
         with open(os.path.join(analysis, "%s.analysis.txt" % leaf), "w", encoding="utf-8") as fh:
             fh.write("[Analyzer] save=%s findings=0 FAIL=0 STALE=0 RED=0\n" % leaf)
         with open(os.path.join(analysis, "%s.analysis.json" % leaf), "w", encoding="utf-8") as fh:
+            # Additive careerSave block (leg B) so an active ledger-oracle slot 8 has a
+            # produced-save careerSave to read; inert for non-ledger scenarios.
             json.dump({"counts": {"failNonBaselined": 0, "staleNonBaselined": 0},
-                       "findings": []}, fh)
+                       "findings": [], "careerSave": self._career_block_json()}, fh)
+        return run.ToolResult(0, False)
+
+    def run_seed_analyzer(self, save_dir, out_dir, timeout):
+        # M-B2 pre-launch seed baseline over the STAGED template. Writes the redirected
+        # <leaf>.analysis.json that _capture_seed_baseline reads, scripted by seed_mode.
+        self.seed_analyzer_count += 1
+        if self.seed_mode == "toolfail":
+            return run.ToolResult(1, False)
+        os.makedirs(out_dir, exist_ok=True)
+        leaf = os.path.basename(save_dir.rstrip("/\\"))
+        if self.seed_mode == "unparsed":
+            block = {"parsed": False}
+        elif self.seed_mode == "sandbox":
+            block = {"parsed": True, "hasFunds": False, "hasScience": False, "hasRep": False}
+        else:  # "ok"
+            block = self._career_block_json()
+        with open(os.path.join(out_dir, "%s.analysis.json" % leaf), "w", encoding="utf-8") as fh:
+            json.dump({"careerSave": block}, fh)
         return run.ToolResult(0, False)
 
     def run_log_validate(self, log_path, killed, no_recording, timeout):
@@ -183,6 +222,19 @@ def _make_spec(save_template, run_tests_budget, run_budget):
         "retry": {"policy": "once"},
         "expectedFail": {"bugId": ""},
     }
+
+
+def _make_ledger_spec(save_template, run_tests_budget=30, run_budget=600, manifest=None):
+    """A B10-shape seam scenario that ACTIVATES the M-B2 ledger oracle (slot 8) via a
+    real [expectations.ledger] block, so run.py's seed-baseline capture + slot-8
+    dispatch are exercised end to end over the fake Runtime seam."""
+    spec = _make_spec(save_template, run_tests_budget, run_budget)
+    spec["id"] = "SMOKE-ledger"
+    spec["expectations"]["ledger"] = {
+        "seedFrom": "template", "tolerances": "default", "rec3CarveOut": False,
+        "manifest": manifest or [],
+    }
+    return spec
 
 
 def _make_autopilot_spec(save_template, mission_budget=30, run_budget=600):
@@ -318,6 +370,123 @@ class FakeKspSmokeTests(unittest.TestCase):
         self.assertEqual("boot-crash", result["subkind"])
         v = hlib.Verdict(result["verdict"], result["subkind"], False, "")
         self.assertTrue(hlib.should_retry(v, attempt=1, retry_policy="once"))
+
+
+class LedgerSeedBaselineSmokeTests(unittest.TestCase):
+    """Review SF8: the M-B2 run.py PLUMBING driven through run.run_attempt over the
+    fake Runtime seam (no KSP). Covers _capture_seed_baseline's 4-way branch (skipped
+    / ok / invalid-fixture / invalid-tooling), the run_seed_analyzer seam, the produced
+    -save _read_career_save_block, and the run_verifiers slot-8 dispatch (active PASS /
+    driver-invalid skip / killed skip). The edge-15 pre-launch terminal INVALIDs are
+    asserted to boot ZERO KSPs, mirroring test_venv_refusal_is_terminal_and_boots_no_ksp."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-ledger-seed-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "ledger_seed_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run_ledger(self, mode="pass", seed_mode="ok", run_tests_budget=30, run_budget=600):
+        spec = _make_ledger_spec(self.template, run_tests_budget, run_budget)
+        rt = FakeRuntime(mode, seed_mode=seed_mode)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        return result, rt
+
+    def _run_nonledger(self):
+        spec = _make_spec(self.template, 30, 600)   # no [expectations.ledger]
+        rt = FakeRuntime("pass")
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        return result, rt
+
+    def test_non_ledger_scenario_skips_seed_capture(self):
+        # Branch 1 (skipped): a scenario with no [expectations.ledger] never runs the
+        # seed analyzer, and slot 8 records the reserved mb2-not-landed SKIP.
+        result, rt = self._run_nonledger()
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertEqual(0, rt.seed_analyzer_count, "no ledger block -> no seed analyzer pass")
+        self.assertEqual("SKIPPED", result["verifiers"]["ledgerOracle"]["status"])
+        self.assertEqual("mb2-not-landed", result["verifiers"]["ledgerOracle"]["reason"])
+
+    def test_ok_seed_and_clean_save_active_oracle_passes(self):
+        # Branch 2 (ok) + active slot 8: the seed parses (funds/science/rep), the
+        # produced save's careerSave equals the seed, the manifest is empty -> the
+        # ledger oracle is ACTIVE and PASSes. Proves run_seed_analyzer,
+        # _read_career_save_block, and the active dispatch are wired.
+        result, rt = self._run_ledger(seed_mode="ok")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"],
+                         "expected PASS, got %s (%s)" % (result["verdict"], result.get("subkind")))
+        self.assertEqual(1, rt.seed_analyzer_count)
+        self.assertEqual(1, rt.launch_count)
+        self.assertEqual("PASS", result["verifiers"]["ledgerOracle"]["status"])
+        self.assertEqual(0, result["verifiers"]["ledgerOracle"]["hardDivergences"])
+        # The accumulated manifest artifact landed with the careerSave-shape seed key.
+        mpath = os.path.join(run.RESULTS_DIR, "%s.manifest.json" % result["runId"])
+        self.assertTrue(os.path.isfile(mpath))
+        with open(mpath, "r", encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        self.assertIn("sciencePool", manifest["seed"])
+        self.assertEqual(25000.0, manifest["seed"]["funds"])
+
+    def test_sandbox_template_is_terminal_fixture_invalid_zero_boot(self):
+        # Branch 3 (invalid-fixture): a template that parses but carries NO career pools
+        # while [expectations.ledger] is declared is a fixture-authoring defect ->
+        # terminal INVALID(fixture-authoring), booting ZERO KSPs (edge 15).
+        result, rt = self._run_ledger(seed_mode="sandbox")
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("fixture-authoring", result["subkind"])
+        self.assertEqual(1, rt.seed_analyzer_count)
+        self.assertEqual(0, rt.launch_count, "edge-15 fixture INVALID must boot ZERO KSPs")
+        v = hlib.Verdict(result["verdict"], result["subkind"], False, "")
+        self.assertFalse(hlib.should_retry(v, attempt=1, retry_policy="once"),
+                         "fixture-authoring is TERMINAL, never retried")
+
+    def test_unparsable_template_is_terminal_tooling_invalid_zero_boot(self):
+        # Branch 4 (invalid-tooling): the seed analyzer could not parse the template
+        # (parsed:false) -> terminal INVALID(tooling), booting ZERO KSPs (edge 15).
+        result, rt = self._run_ledger(seed_mode="unparsed")
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("tooling", result["subkind"])
+        self.assertEqual(0, rt.launch_count, "edge-15 tooling INVALID must boot ZERO KSPs")
+
+    def test_seed_analyzer_subprocess_failure_is_tooling_invalid_zero_boot(self):
+        # Branch 4 variant: the seed analyzer SUBPROCESS failed (nonzero exit) -> the
+        # block never reads -> terminal INVALID(tooling), ZERO boots.
+        result, rt = self._run_ledger(seed_mode="toolfail")
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("tooling", result["subkind"])
+        self.assertEqual(0, rt.launch_count)
+
+    def test_killed_run_skips_ledger_slot(self):
+        # Slot-8 dispatch on a KILLED attempt: a torn save is never ground truth, so the
+        # ledger oracle is SKIPPED(killed) even though the block was declared (edge 11).
+        result, rt = self._run_ledger(mode="hang", seed_mode="ok",
+                                      run_tests_budget=1, run_budget=2)
+        self.assertEqual(hlib.VERDICT_KILLED, result["verdict"])
+        self.assertEqual("SKIPPED", result["verifiers"]["ledgerOracle"]["status"])
+        self.assertEqual("killed", result["verifiers"]["ledgerOracle"]["reason"])
+
+    def test_driver_invalid_skips_ledger_slot(self):
+        # Slot-8 dispatch on a driver-INVALID (boot crash): a save from an invalid
+        # driver run is not ground truth -> ledger oracle SKIPPED(driver-invalid).
+        result, rt = self._run_ledger(mode="bootcrash", seed_mode="ok")
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("boot-crash", result["subkind"])
+        self.assertEqual("SKIPPED", result["verifiers"]["ledgerOracle"]["status"])
+        self.assertEqual("driver-invalid", result["verifiers"]["ledgerOracle"]["reason"])
 
 
 class StageFixtureContainmentTests(unittest.TestCase):
@@ -815,6 +984,47 @@ class LedgerOracleEndToEndTests(unittest.TestCase):
         self.assertEqual("PASS", result["status"])   # no HARD drift
         self.assertFalse(drift)
         self.assertGreaterEqual(result["reportOnly"], 1)
+
+    def test_malformed_seam_entry_reds_ledger(self):
+        # Review SF6a / design edge 18: a seam entry with an unknown kind is a DROPPED
+        # expected effect. It must RED PARSEK-FAIL(ledger), not be warn-logged and
+        # dropped (a dropped expected effect can false-PASS). The save itself is clean.
+        ledger = self._ledger_block(manifest=[{"kind": "not-a-real-kind", "funds": 5.0}])
+        result, drift, tooling = self._run(ledger, self._career_block())
+        self.assertEqual("FAIL", result["status"])
+        self.assertTrue(drift)
+        self.assertFalse(tooling)
+        self.assertGreaterEqual(result["hardDivergences"], 1)
+
+    def test_unfillable_funds_seam_entry_reds_ledger(self):
+        # Review SF6a: a funds fill-from-capture seam entry with NO matching captured
+        # award is un-fillable -> ambiguous rejection -> hard drift (never silently
+        # dropped). Empty log = nothing to fill from.
+        ledger = self._ledger_block(manifest=[
+            {"ut": 500.0, "kind": "contract-complete", "funds": None, "contractGuid": "g"}])
+        result, drift, tooling = self._run(ledger, self._career_block(), log_text="")
+        self.assertEqual("FAIL", result["status"])
+        self.assertTrue(drift)
+
+    def test_funds_fill_from_capture_is_wired(self):
+        # Review SF6b: the deduped captured award pool is now passed to the seam parse,
+        # so a funds fill-from-capture seam entry resolves from the matching stock award
+        # (before the fix captured was never passed and this ALWAYS failed ambiguous).
+        # seam declares the contract-complete with a null funds amount; the stock line
+        # supplies 1000; expected funds = seed 25000 + 1000, matched by the save -> PASS.
+        log = ("[LOG] [Parsek][INFO][Recorder] tick ut=500.0\n"
+               "[LOG] ContractSystem: contract Foo completed guid=g funds=1000\n")
+        ledger = self._ledger_block(manifest=[
+            {"ut": 500.0, "kind": "contract-complete", "funds": None, "contractGuid": "g"}])
+        result, drift, tooling = self._run(ledger, self._career_block(funds=26000.0), log_text=log)
+        self.assertEqual("PASS", result["status"])
+        self.assertFalse(drift)
+        self.assertFalse(tooling)
+        # The manifest records the FILLED seam entry (funds resolved from capture).
+        with open(os.path.join(run.RESULTS_DIR, "e2e-run.manifest.json"), "r", encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        self.assertEqual(1, len(manifest["entries"]))
+        self.assertEqual(1000.0, manifest["entries"][0]["funds"])
 
     def test_absent_career_block_is_tooling_invalid(self):
         # An ACTIVE ledger verifier with an ABSENT careerSave block (old/broken

@@ -16,6 +16,7 @@ import copy
 import math
 import unittest
 
+import hlib
 import oracle
 
 
@@ -50,11 +51,18 @@ def _career(funds=None, science=None, reputation=None, subject=None, contracts=N
 class SeedBaselineParseTests(unittest.TestCase):
     """Guards: the seed must carry facet PRESENCE, not just a value; a Sandbox
     save (hasFunds=false) must present an ABSENT funds facet, never a spurious 0.0
-    the oracle would then assert against the save (edge 5)."""
+    the oracle would then assert against the save (edge 5).
+
+    BLOCKER 1 regression: parse_seed_baseline reads the ONE TRUE seed source -- the
+    ``careerSave`` block whose science-pool key is ``sciencePool`` (from
+    ReportWriter / CareerSaveParser), NOT ``science``. These fixtures use the REAL
+    writer shape; a reader that reverts to ``science`` reds test_full_career_seed /
+    test_science_mode_seed (science parses to None -> has_science False -> the HARD
+    sciencePool facet silently dies)."""
 
     def test_full_career_seed(self):
         seed = oracle.parse_seed_baseline(
-            {"funds": 25000.0, "science": 0.0, "reputation": 0.0,
+            {"funds": 25000.0, "sciencePool": 0.0, "reputation": 0.0,
              "hasFunds": True, "hasScience": True, "hasRep": True})
         self.assertEqual((seed.funds, seed.science, seed.reputation), (25000.0, 0.0, 0.0))
         self.assertTrue(seed.has_funds and seed.has_science and seed.has_rep)
@@ -69,9 +77,9 @@ class SeedBaselineParseTests(unittest.TestCase):
         self.assertFalse(seed.has_funds)
 
     def test_science_mode_seed(self):
-        # Science mode: science present, funds/rep absent (edge 5).
+        # Science mode: science present (key sciencePool), funds/rep absent (edge 5).
         seed = oracle.parse_seed_baseline(
-            {"science": 12.0, "hasFunds": False, "hasScience": True, "hasRep": False})
+            {"sciencePool": 12.0, "hasFunds": False, "hasScience": True, "hasRep": False})
         self.assertIsNone(seed.funds)
         self.assertEqual(seed.science, 12.0)
         self.assertIsNone(seed.reputation)
@@ -81,6 +89,45 @@ class SeedBaselineParseTests(unittest.TestCase):
         self.assertIsNone(seed.funds)
         self.assertIsNone(seed.science)
         self.assertIsNone(seed.reputation)
+
+    def test_cross_lane_careerSave_block_feeds_both_parsers(self):
+        # BLOCKER 1 cross-lane guard: a LITERAL careerSave-block JSON (field names
+        # copied verbatim from ReportWriter.cs AppendCareerSave) is driven through
+        # hlib.parse_career_save_block (leg B produced-save reader) AND
+        # oracle.parse_seed_baseline (the seed reader). Both must agree on the pools,
+        # so a key rename on EITHER leg (e.g. sciencePool -> science, or hasFunds
+        # dropped) reds this cell. This is the desync the silent sciencePool-death bug
+        # slipped through when only one side was tested.
+        literal = (
+            '{\n'
+            '  "careerSave": {\n'
+            '    "parsed": true,\n'
+            '    "hasFunds": true,  "funds": 25000.0,\n'
+            '    "hasScience": true, "sciencePool": 34.5,\n'
+            '    "hasRep": true,     "reputation": 12.0,\n'
+            '    "subjectScience": { "crewReport@X": 5.0 },\n'
+            '    "facilityLevelFrac": {},\n'
+            '    "activeContractGuids": [],\n'
+            '    "completedMilestoneIds": [],\n'
+            '    "vessels": []\n'
+            '  }\n'
+            '}\n'
+        )
+        block = hlib.parse_career_save_block(literal)
+        self.assertIsNotNone(block)
+        self.assertTrue(block.get("hasScience"))
+        self.assertEqual(block.get("sciencePool"), 34.5)
+
+        seed = oracle.parse_seed_baseline(block)
+        self.assertEqual(seed.funds, 25000.0)
+        self.assertEqual(seed.science, 34.5)      # reads sciencePool, NOT science
+        self.assertEqual(seed.reputation, 12.0)
+        self.assertTrue(seed.has_funds and seed.has_science and seed.has_rep)
+        # A block that used the WRONG science key must NOT resurrect a science pool.
+        wrong = dict(block)
+        wrong.pop("sciencePool")
+        wrong["science"] = 34.5
+        self.assertIsNone(oracle.parse_seed_baseline(wrong).science)
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +207,39 @@ class ManifestParseTests(unittest.TestCase):
         parse = oracle.parse_manifest_entries(
             [{"ut": 5.0, "kind": "contract-complete", "funds": None, "contractGuid": "g"}],
             captured=[])
+        self.assertFalse(parse.ok)
+        self.assertTrue(any("ambiguous" in e for e in parse.errors))
+
+    def test_fill_from_capture_facet_filter_ignores_shared_key_rep_award(self):
+        # Review SF6c: a single stock contract-complete emits a funds award AND a
+        # reputation award at the SAME (kind, guid, seqKey). Without a facet filter both
+        # captured entries match the funds fill key and it fails ambiguous (over-strict).
+        # With the funds-facet filter (c.funds != 0), only the funds award is a
+        # candidate, so the fill resolves to exactly one match.
+        captured = oracle.parse_manifest_entries([
+            {"ut": 5.0, "kind": "contract-complete", "funds": 12345.0, "contractGuid": "g",
+             "provenance": "stock-log-captured"},
+            {"ut": 5.0, "kind": "contract-complete", "reputation": 8.0, "contractGuid": "g",
+             "provenance": "stock-log-captured"},
+        ]).entries
+        parse = oracle.parse_manifest_entries(
+            [{"ut": 5.0, "kind": "contract-complete", "funds": None, "contractGuid": "g"}],
+            captured=captured)
+        self.assertTrue(parse.ok, parse.errors)
+        self.assertEqual(parse.entries[0].funds, 12345.0)
+
+    def test_fill_from_capture_still_ambiguous_on_two_funds_awards(self):
+        # The facet filter must NOT paper over a genuine ambiguity: two DISTINCT funds
+        # awards sharing the fill key still fail closed.
+        captured = oracle.parse_manifest_entries([
+            {"ut": 5.0, "kind": "contract-complete", "funds": 100.0, "contractGuid": "g",
+             "provenance": "stock-log-captured"},
+            {"ut": 5.0, "kind": "contract-complete", "funds": 200.0, "contractGuid": "g",
+             "provenance": "stock-log-captured"},
+        ]).entries
+        parse = oracle.parse_manifest_entries(
+            [{"ut": 5.0, "kind": "contract-complete", "funds": None, "contractGuid": "g"}],
+            captured=captured)
         self.assertFalse(parse.ok)
         self.assertTrue(any("ambiguous" in e for e in parse.errors))
 
@@ -285,6 +365,27 @@ class ReputationCurveTests(unittest.TestCase):
         _d2, r2 = oracle.apply_rep_curve(100.0, r1)
         self.assertAlmostEqual(exp.reputation, r2, places=6)
 
+    def test_apply_rep_curve_pins_absolute_value(self):
+        # Value-pinned to an ABSOLUTE magnitude (not the port composed against itself):
+        # a single +100 nominal award from rep 0 curves to ~99.6565 (the gain curve
+        # diminishes even the first award slightly). A keyframe transcription typo that
+        # test_reputation_matches_sequential_curve cannot see (it composes the port
+        # against itself, so a shared fault cancels) reds THIS cell. Verified by running
+        # the port: apply_rep_curve(100.0, 0.0)[1] == 99.6565192711913.
+        delta, new_rep = oracle.apply_rep_curve(100.0, 0.0)
+        self.assertAlmostEqual(new_rep, 99.6565192711913, places=6)
+        self.assertAlmostEqual(delta, 99.6565192711913, places=6)
+
+    def test_apply_rep_curve_pins_chained_two_awards(self):
+        # The chained two-awards absolute anchor: a second +100 award at the running
+        # rep (~99.66) curves less (gain diminishes as rep climbs), composing to
+        # ~197.028 total -- NOT 200 (a linear sum). Verified by running the port:
+        # second apply_rep_curve(100.0, 99.6565...)[1] == 197.02809227386504.
+        _d1, r1 = oracle.apply_rep_curve(100.0, 0.0)
+        _d2, r2 = oracle.apply_rep_curve(100.0, r1)
+        self.assertAlmostEqual(r2, 197.02809227386504, places=6)
+        self.assertLess(r2, 200.0)
+
     def test_applied_rep_mode_not_re_curved(self):
         # An `applied` (post-curve) delta is added directly with no second curve pass
         # (re-curving an applied delta is the distortion 15.1 warns of).
@@ -390,6 +491,23 @@ class DiffFacetPolicyTests(unittest.TestCase):
         block = _career(funds=None, science=0.0, reputation=0.0)  # hasFunds False
         diffs = oracle.diff_expected_vs_parsed(exp, block)
         hard = [d for d in diffs if d.hard and d.facet == "funds"]
+        self.assertEqual(hard[0].kind, "missing")
+
+    def test_present_but_null_valued_pool_reds(self):
+        # Review SF2: the C# writer now emits a non-finite (corrupted) pool as
+        # hasFunds=true + funds=null (never a laundered finite 0). The Python diff must
+        # red that present-but-null facet as a hard missing when expected is present --
+        # NOT skip it (skip is for hasFunds=false / value absent). This is the cell that
+        # proves the null-valued facet reds, closing the near-0 false-PASS loop.
+        seed = oracle.SeedBaseline(0.0, 0.0, 0.0)   # B10-shape seed: pools exactly 0.0
+        exp = oracle.compute_expected(seed, [])
+        block = {"parsed": True,
+                 "hasFunds": True, "funds": None,          # corrupted pool -> null value
+                 "hasScience": True, "sciencePool": 0.0,
+                 "hasRep": True, "reputation": 0.0}
+        diffs = oracle.diff_expected_vs_parsed(exp, block)
+        hard = [d for d in diffs if d.hard and d.facet == "funds"]
+        self.assertTrue(hard)
         self.assertEqual(hard[0].kind, "missing")
 
     def test_facet_absent_both_sides_skipped(self):

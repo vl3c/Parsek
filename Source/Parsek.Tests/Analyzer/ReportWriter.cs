@@ -127,14 +127,17 @@ namespace Parsek.Tests.Analyzer
 
             sb.Append("    \"parsed\": true,").Append(Nl);
             sb.Append("    \"hasFunds\": ").Append(cs.HasFunds ? "true" : "false").Append(",").Append(Nl);
-            sb.Append("    \"funds\": ").Append(JsonDouble(cs.Funds)).Append(",").Append(Nl);
+            sb.Append("    \"funds\": ").Append(JsonFacetDouble(cs.Funds)).Append(",").Append(Nl);
             sb.Append("    \"hasScience\": ").Append(cs.HasScience ? "true" : "false").Append(",").Append(Nl);
-            sb.Append("    \"sciencePool\": ").Append(JsonDouble(cs.SciencePool)).Append(",").Append(Nl);
+            sb.Append("    \"sciencePool\": ").Append(JsonFacetDouble(cs.SciencePool)).Append(",").Append(Nl);
             sb.Append("    \"hasRep\": ").Append(cs.HasRep ? "true" : "false").Append(",").Append(Nl);
-            sb.Append("    \"reputation\": ").Append(JsonDouble(cs.Reputation)).Append(",").Append(Nl);
+            sb.Append("    \"reputation\": ").Append(JsonFacetDouble(cs.Reputation)).Append(",").Append(Nl);
 
             AppendStringDoubleMap(sb, "subjectScience", cs.SubjectScience);
             sb.Append(",").Append(Nl);
+            // facilityLevelFrac + completedMilestoneIds (below) are exported for FUTURE
+            // facets (facility-level / milestone promotion beyond report-only); no v1
+            // ledger-oracle verifier consumes or gates on them (design "Deferred Items").
             AppendStringDoubleMap(sb, "facilityLevelFrac", cs.FacilityLevelFrac);
             sb.Append(",").Append(Nl);
             AppendStringArray(sb, "activeContractGuids", cs.ActiveContractGuids);
@@ -167,7 +170,7 @@ namespace Parsek.Tests.Analyzer
             for (int i = 0; i < keys.Count; i++)
             {
                 sb.Append("      ").Append(JsonString(keys[i])).Append(": ")
-                    .Append(JsonDouble(map[keys[i]]))
+                    .Append(JsonFacetDouble(map[keys[i]]))
                     .Append(i == keys.Count - 1 ? "" : ",").Append(Nl);
             }
             sb.Append("    }");
@@ -243,7 +246,7 @@ namespace Parsek.Tests.Analyzer
                     for (int r = 0; r < rkeys.Count; r++)
                     {
                         sb.Append("          ").Append(JsonString(rkeys[r])).Append(": ")
-                            .Append(JsonDouble(v.ResourceTotals[rkeys[r]]))
+                            .Append(JsonFacetDouble(v.ResourceTotals[rkeys[r]]))
                             .Append(r == rkeys.Count - 1 ? "" : ",").Append(Nl);
                     }
                     sb.Append("        }").Append(Nl);
@@ -254,15 +257,22 @@ namespace Parsek.Tests.Analyzer
         }
 
         /// <summary>
-        /// InvariantCulture round-trip ("R") double, the same format the rest of the
-        /// codebase serializes floats with. Emits a valid JSON number for every finite
-        /// value; a non-finite value (never expected on a parsed career pool) is
-        /// coerced to <c>0</c> so the JSON stays parseable.
+        /// InvariantCulture round-trip ("R") double for a career FACET value (a
+        /// scalar pool, per-subject science amount, facility fraction, or vessel
+        /// resource total). A finite value serializes as itself. A NON-FINITE value
+        /// (NaN / Inf) is a CORRUPTED pool, not a legitimate number: it is emitted as
+        /// JSON <c>null</c> (never a finite <c>0</c>), so the Python ledger-oracle
+        /// parses the facet value to None and the hard-pool diff reds it as a MISSING
+        /// facet. Coercing a non-finite pool to <c>0</c> would launder the corruption
+        /// into a legitimate-looking 0.0 that false-PASSes whenever the expected total
+        /// is near 0 (B10's science / reputation seeds are exactly 0.0). Every numeric
+        /// field the careerSave block writes is a facet value, so there is no
+        /// non-facet numeric context that still wants a 0-coercion.
         /// </summary>
-        private static string JsonDouble(double value)
+        private static string JsonFacetDouble(double value)
         {
             if (double.IsNaN(value) || double.IsInfinity(value))
-                return "0";
+                return "null";
             return value.ToString("R", IC);
         }
 

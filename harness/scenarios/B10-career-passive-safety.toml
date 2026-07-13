@@ -1,9 +1,14 @@
 schema = 1
 id = "B10-career-passive-safety"
 tier = "daily"
-description = "Fresh career, stock actions only, warp + scene change + cold load; no economy drift."
+# The v1 seam driver does a cold LoadGame into an in-scene RecordingInvariants batch;
+# it has NO warp or scene-change verb (design ~541 defers R1's warp/scene-change
+# economy-drift trigger to the TimeJump/scene verbs), so the description names what the
+# driver actually does and the R1 tag is dropped (it is not covered here; tags feed
+# --tag selection only, not the coverage registry, so removal breaks no consumer).
+description = "Fresh career, stock actions only, cold load into an in-scene test batch; no economy drift."
 instanceProfile = "stock-minimal"
-tags = ["ledger", "B10", "R1", "R2"]
+tags = ["ledger", "B10", "R2"]
 
 [fixture]
 # saveTemplate leaf ("fresh-career") IS runSaveName: staged into saves/fresh-career/,

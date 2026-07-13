@@ -504,5 +504,60 @@ namespace Parsek.Tests.Analyzer
             Assert.Contains("\"completedMilestoneIds\": []", json);
             Assert.Contains("\"vessels\": []", json);
         }
+
+        // Guards (review SF2): a NON-FINITE (NaN / Inf) pool value must export as JSON
+        // null, NEVER a finite 0. Coercing a corrupted pool to 0 laundered it into a
+        // legitimate-looking 0.0 that false-PASSed the ledger oracle whenever the
+        // expected total was near 0 (B10's science / reputation seeds are exactly 0.0),
+        // while hasX stayed true. Emitting null makes the Python side parse the facet
+        // value to None and red it as a MISSING hard facet. Fails if the 0-coercion
+        // regresses. Note hasX stays TRUE (the facet is declared present but its value
+        // is corrupt) so the Python diff hits the present-but-null missing branch.
+        [Fact]
+        public void BuildJson_NonFinitePool_EmitsNullNotZero()
+        {
+            var cs = new CareerSaveSnapshot
+            {
+                Parsed = true,
+                HasFunds = true,
+                Funds = double.NaN,
+                HasScience = true,
+                SciencePool = double.PositiveInfinity,
+                HasRep = true,
+                Reputation = double.NegativeInfinity,
+            };
+            string json = ReportWriter.BuildJson(ReportWith(cs, null));
+
+            Assert.Contains("\"hasFunds\": true", json);
+            Assert.Contains("\"funds\": null", json);
+            Assert.Contains("\"sciencePool\": null", json);
+            Assert.Contains("\"reputation\": null", json);
+            // The corruption must NOT be laundered into a finite 0 on any pool.
+            Assert.DoesNotContain("\"funds\": 0", json);
+            Assert.DoesNotContain("\"sciencePool\": 0", json);
+            Assert.DoesNotContain("\"reputation\": 0", json);
+        }
+
+        // Guards (review SF2): a non-finite value in a per-identity facet map or a
+        // vessel resource total also exports as null, not 0, so a corrupt subject /
+        // resource number is never laundered into a legitimate-looking finite value.
+        [Fact]
+        public void BuildJson_NonFiniteFacetMapAndResource_EmitNull()
+        {
+            var cs = new CareerSaveSnapshot { Parsed = true, HasFunds = true, Funds = 1000.0 };
+            cs.SubjectScience["crewReport@X"] = double.NaN;
+            cs.Vessels.Add(new SaveVessel
+            {
+                Pid = "v-guid",
+                PersistentId = 100000,
+                Name = "X",
+                Type = "Ship",
+                ResourceTotals = new Dictionary<string, double> { ["LiquidFuel"] = double.PositiveInfinity },
+            });
+            string json = ReportWriter.BuildJson(ReportWith(cs, null));
+
+            Assert.Contains("\"crewReport@X\": null", json);
+            Assert.Contains("\"LiquidFuel\": null", json);
+        }
     }
 }

@@ -1567,6 +1567,30 @@ class StockAwardCaptureTests(unittest.TestCase):
         self.assertEqual(0, len(res.captured))
         self.assertEqual(0, res.rejected_balance)
 
+    def test_parsek_tagged_line_not_captured_as_award(self):
+        # Review SF7: a [Parsek] diagnostic line that MENTIONS a stock emitter class +
+        # delta= (e.g. the ledger tracer's ledger-vs-truth lines) must NOT false-capture
+        # as a stock award, which would false-red an empty-manifest B10. A genuine
+        # (untagged) stock line on the next line still captures, and the [Parsek] line's
+        # ut= stamp still drives the UT correlation of that genuine award.
+        log = ("[LOG] [Parsek][VERBOSE][LedgerTrace] ut=42.0 ResearchAndDevelopment science delta=999.0\n"
+               "[LOG] ResearchAndDevelopment: science subject=crewReport@X delta=8.5\n")
+        res = hlib.parse_stock_award_lines(log)
+        self.assertEqual(1, len(res.captured))          # only the genuine stock line
+        c = res.captured[0]
+        self.assertEqual(8.5, c.amount)
+        self.assertEqual("crewReport@X", c.subject_id)
+        self.assertEqual(42.0, c.ut)                     # UT still read from the [Parsek] stamp
+        # The 999.0 from the [Parsek] line was never admitted as an award amount.
+        self.assertNotIn(999.0, [a.amount for a in res.captured])
+
+    def test_parsek_tagged_contract_line_not_captured(self):
+        # A [Parsek] line quoting a ContractSystem funds= award (a Parsek log echoing a
+        # stock event) is not captured either; capture is stock-native lines only.
+        log = "[LOG] [Parsek][INFO][Recorder] ContractSystem contract Foo completed guid=g funds=50000\n"
+        res = hlib.parse_stock_award_lines(log)
+        self.assertEqual(0, len(res.captured))
+
 
 class UnmatchedCapturedAwardTests(unittest.TestCase):
     """Guards the unexpected-award cross-check (design edge 4): a captured award not

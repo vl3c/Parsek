@@ -255,15 +255,25 @@ class OracleDivergence:
 
 
 def parse_seed_baseline(seed: Optional[Dict]) -> SeedBaseline:
-    """Parse the ``<runId>.manifest.json`` ``seed`` block (or the analyzer's
-    ``careerSave`` block over the staged template) into a ``SeedBaseline``.
+    """Parse a ``careerSave`` block into a ``SeedBaseline``.
+
+    SINGLE SEED CONTRACT: the seed's one true source is the analyzer's
+    ``careerSave`` block over the STAGED template (run.py ``_capture_seed_baseline``
+    feeds exactly that block, and the ``<runId>.manifest.json`` ``seed`` audit copy
+    is written in the SAME shape). That block is produced by ``ReportWriter`` /
+    ``CareerSaveParser``, whose keys are ``funds`` / ``sciencePool`` / ``reputation``
+    with the ``hasFunds`` / ``hasScience`` / ``hasRep`` presence flags. The science
+    pool key is ``sciencePool`` (NOT ``science`` -- ``science`` is the per-entry
+    MANIFEST-ENTRY facet key, a different contract read by ``parse_manifest_entries``).
+    A rename on either leg is caught by the cross-lane test that drives one literal
+    block through both this parser and ``hlib.parse_career_save_block``.
 
     A facet is ABSENT (value None) when its ``has<Facet>`` flag is false (Sandbox
-    has no funds/science/rep; Science mode has science only). The oracle then skips
-    the absent pool entirely (facet-skip-when-absent, design ~442). A missing block
-    -> every facet absent; the CALLER (run.py) distinguishes ``parsed=false`` /
-    all-``hasX``-false (INVALID, edge 15) from a real Sandbox seed via the block's
-    own flags, not here.
+    has no funds/science/rep; Science mode has science only) or the block carries no
+    numeric value for it. The oracle then skips the absent pool entirely
+    (facet-skip-when-absent, design ~442). A missing block -> every facet absent; the
+    CALLER (run.py) distinguishes ``parsed=false`` / all-``hasX``-false (INVALID, edge
+    15) from a real Sandbox seed via the block's own flags, not here.
     """
     seed = seed or {}
 
@@ -278,7 +288,7 @@ def parse_seed_baseline(seed: Optional[Dict]) -> SeedBaseline:
 
     return SeedBaseline(
         funds=_facet("funds", "hasFunds"),
-        science=_facet("science", "hasScience"),
+        science=_facet("sciencePool", "hasScience"),
         reputation=_facet("reputation", "hasRep"),
     )
 
@@ -418,17 +428,23 @@ def parse_manifest_entries(
         rec3_row = str(raw.get("rec3Row", raw.get("rec3_row", "")) or "")
 
         # funds is state-INDEPENDENT: a null amount fills from an unambiguous single
-        # captured line matching (seqKey, kind, contractGuid); else flag ambiguous.
+        # captured line matching (seqKey, kind, contractGuid, FUNDS-FACET). The facet
+        # filter (``c.funds != 0.0``) is load-bearing: a single stock contract-complete
+        # emits a funds award AND a reputation award at the SAME (kind, guid, seqKey),
+        # so without it BOTH captured entries match and the fill fails ambiguous even
+        # though exactly one carries the funds delta being filled (still fail-closed on
+        # zero or genuine multiple funds matches).
         if funds_fill:
             seq_key = ut if ut is not None else seq
             matches = [
                 c for c in captured
-                if c.kind == kind and c.contract_guid == contract_guid and c.seq_key == seq_key
+                if c.kind == kind and c.contract_guid == contract_guid
+                and c.seq_key == seq_key and c.funds != 0.0
             ]
             if len(matches) != 1:
                 errors.append(
                     "entry[%d].funds: null fill-from-capture is ambiguous (%d matching "
-                    "captured lines for kind=%s contractGuid=%s seqKey=%r; need exactly 1)"
+                    "captured funds lines for kind=%s contractGuid=%s seqKey=%r; need exactly 1)"
                     % (i, len(matches), kind, contract_guid or "(none)", seq_key))
                 continue
             funds = matches[0].funds
@@ -520,6 +536,15 @@ def apply_rep_curve(nominal: float, current_rep: float,
     evaluated at ``rep / rep_range``, so the effective delta is NOT a linear function
     of ``nominal`` -- summing nominal rep deltas linearly is the double-curve
     distortion 15.1 warns of. Returns ``(actual_delta, new_rep)``.
+
+    RESIDUAL BLIND SPOT (design ~899): this is a PORT of the same keyframes Parsek's
+    C# rep module uses. If BOTH share an identical transcription fault, the oracle's
+    expected, the produced save, and a Parsek recalc all agree on the WRONG number
+    (expected == save == recalc), so the diff stays green -- the two legs are only
+    independent up to a shared-curve error. The value-pinned tests anchor this port to
+    ABSOLUTE magnitudes (not the port composed against itself), so a keyframe typo reds
+    a test; the remaining deferred anchor is a check against KNOWN IN-GAME rep
+    transitions before any L1 rep script trusts a non-empty rep manifest.
     """
     if nominal == 0.0:
         return 0.0, current_rep

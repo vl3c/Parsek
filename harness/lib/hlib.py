@@ -1291,6 +1291,14 @@ def parse_stock_award_lines(log_text: str) -> StockCaptureResult:
                 last_ut = float(m_ut.group("ut"))
             except (TypeError, ValueError):
                 pass
+        # A [Parsek] diagnostic line is NEVER a stock award, but Parsek logs mention
+        # stock emitter class names + delta= (e.g. the ledger tracer's ledger-vs-truth
+        # lines), which would false-capture as an award and false-red an empty-manifest
+        # B10. Skip award/balance matching on any [Parsek]-tagged line -- but only AFTER
+        # the last_ut update above, because the UT correlation DEPENDS on these lines
+        # (the stock-award UT is read from the nearest preceding [Parsek] ut= stamp).
+        if "[Parsek]" in line:
+            continue
         if any(bp.search(line) for bp in BALANCE_LINE_PATTERNS):
             rejected += 1
             continue

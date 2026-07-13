@@ -1234,26 +1234,42 @@ def _build_and_write_manifest(ledger_block: Dict, log_text: str, seed,
     (corroborate a seam entry, or red as an unexpected award, edge 4). ``capturedRaw``
     records every captured line for audit."""
     raw_seam = ledger_block.get("manifest", []) or []
-    seam_parse = oracle.parse_manifest_entries(raw_seam)
+
+    # Capture FIRST: the deduped stock-log awards are the fill-from-capture pool a
+    # funds-facet seam entry (null funds amount) draws from (design edge 18 fill path).
+    # They are parsed into ManifestEntry objects so the seam parse can match on
+    # (seqKey, kind, contractGuid, funds-facet). Captured awards are always well-formed
+    # deltas (hlib guarantees it), so a captured-entry parse error is a capture-tooling
+    # anomaly, warn-logged (never a scenario RED, unlike a seam-declared rejection).
+    cap = hlib.parse_stock_award_lines(log_text)
+    deduped = hlib.dedupe_captured_awards(cap.captured)
+    captured_parse = oracle.parse_manifest_entries([c.to_entry_dict() for c in deduped])
+    for err in captured_parse.errors:
+        logger.warn("Verify", "manifest captured entry rejected (capture tooling): %s" % err)
+    captured_entries = captured_parse.entries
+
+    seam_parse = oracle.parse_manifest_entries(raw_seam, captured=captured_entries)
     for err in seam_parse.errors:
         logger.warn("Verify", "manifest seam entry rejected: %s" % err)
     seam_entries = seam_parse.entries
 
-    cap = hlib.parse_stock_award_lines(log_text)
-    deduped = hlib.dedupe_captured_awards(cap.captured)
-    logger.info("Verify", "manifest-capture stockLines=%d deduped=%d seamDeclared=%d accumulated=%d"
-                % (cap.stock_lines, len(deduped), len(seam_entries), len(seam_entries) + len(deduped)))
+    logger.info("Verify", "manifest-capture stockLines=%d deduped=%d seamDeclared=%d seamRejected=%d accumulated=%d"
+                % (cap.stock_lines, len(deduped), len(seam_entries), len(seam_parse.errors),
+                   len(seam_entries) + len(deduped)))
 
     manifest = {
         "schema": oracle.SCHEMA_VERSION,
         "runId": run_id,
-        "seed": {"funds": seed.funds, "science": seed.science, "reputation": seed.reputation,
+        # Seed audit copy in the SINGLE careerSave-block shape (key `sciencePool`, NOT
+        # `science`) so it round-trips through oracle.parse_seed_baseline identically to
+        # the analyzer block it was captured from (review BLOCKER 1 / SF3).
+        "seed": {"funds": seed.funds, "sciencePool": seed.science, "reputation": seed.reputation,
                  "hasFunds": seed.has_funds, "hasScience": seed.has_science, "hasRep": seed.has_rep},
         "entries": [_manifest_entry_to_dict(e) for e in seam_entries],
         "capturedRaw": [dict(c.to_entry_dict(), rawLine=c.raw_line) for c in cap.captured],
     }
     _write_accumulated_manifest(manifest, run_id, logger)
-    return seam_entries, deduped
+    return seam_entries, deduped, tuple(seam_parse.errors)
 
 
 def _world_declared_vessels(world_block: Dict) -> List[Dict]:
@@ -1294,7 +1310,17 @@ def _run_ledger_oracle(ledger_block: Optional[Dict], world_block: Optional[Dict]
                      "reportOnly": 0, "utWindow": [None, None]}, False, True)
         rec3 = bool(ledger_block.get("rec3CarveOut", False))
         rec3_whitelist = (ledger_block.get("rec3Whitelist", []) or []) if rec3 else []
-        seam_entries, captured = _build_and_write_manifest(ledger_block, log_text, seed, run_id, logger)
+        seam_entries, captured, seam_errors = _build_and_write_manifest(
+            ledger_block, log_text, seed, run_id, logger)
+        # Design edge 18: a rejected seam entry (unknown kind / balance amount /
+        # state-dependent null / un-fillable funds) is a DROPPED expected effect that
+        # would false-PASS if silently dropped; each rejection reds PARSEK-FAIL(ledger).
+        for err in seam_errors:
+            divergences.append(oracle.OracleDivergence(
+                facet="ledger", kind="manifest-parse-error", identity="",
+                expected=None, parsed=None, ut_window=(None, None), hard=True,
+                detail="manifest entry rejected (a dropped expected effect can false-PASS): %s" % err))
+            logger.warn("Verify", "ledger manifest-parse-error (hard): %s" % err)
         expected = oracle.compute_expected(seed, seam_entries, tol, rec3_whitelist)
         logger.info("Verify", "oracle-expected funds=%s science=%s rep=%s subjects=%d activeContracts=%d rec3CarveOut=%s"
                     % (expected.funds, expected.science, expected.reputation,
@@ -1306,18 +1332,28 @@ def _run_ledger_oracle(ledger_block: Optional[Dict], world_block: Optional[Dict]
         # explained by a seam entry is an unexpected stock award -> hard drift.
         for c in hlib.unmatched_captured_awards(seam_entries, captured):
             facet = _AWARD_FACET_TO_DIFF.get(c.facet, c.facet)
+            # Edge 4 (~582): the UT window is the captured line's UT, or the ORDINAL
+            # seqKey when the award had no UT-stamped [Parsek] neighbor (never
+            # [None, None], which would strip the drift's only positional anchor).
+            aw = c.seq_key
             divergences.append(oracle.OracleDivergence(
                 facet=facet, kind="unexpected-award",
                 identity=(c.contract_guid or c.subject_id or ""),
-                expected=None, parsed=c.amount, ut_window=(c.ut, c.ut), hard=True,
-                detail="unexpected stock award kind=%s facet=%s amount=%r ut=%s line=%r"
-                       % (c.kind, c.facet, c.amount, c.ut, c.raw_line)))
+                expected=None, parsed=c.amount, ut_window=(aw, aw), hard=True,
+                detail="unexpected stock award kind=%s facet=%s amount=%r ut=%s seqKey=%r line=%r"
+                       % (c.kind, c.facet, c.amount, c.ut, c.seq_key, c.raw_line)))
             logger.warn("Verify", "manifest-capture: unexpected stock award ut=%s kind=%s line='%s'"
                         % (c.ut, c.kind, c.raw_line))
 
     if world_block is not None:
         declared = _world_declared_vessels(world_block)
         parsed_vessels = career_block.get("vessels", []) if isinstance(career_block, dict) else []
+        # report_phantoms stays FALSE (the default) DELIBERATELY (review N2): the
+        # [expectations.world] block is a resource WHITELIST, not an exhaustive census,
+        # so an undeclared parsed vessel (stray debris, other craft) is expected and
+        # emitting a report-only phantom per save vessel would be pure noise. Phantoms
+        # are report-only and can never red (design ~516), so suppressing them changes
+        # no verdict; the classification remains available for a future census facet.
         world_divs = oracle.diff_world_vessels(declared, parsed_vessels, tol)
         for d in world_divs:
             logger.info("Verify", "world-vessel corr=%s kind=%s expected=%s parsed=%s hard=%s detail=%s"

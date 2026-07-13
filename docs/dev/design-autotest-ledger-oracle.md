@@ -269,16 +269,23 @@ order, floats via `repr`, sorted by `(ut, sequence)`.
 {
   "schema": 1,
   "runId": "2026-07-12_1830_B10-career-passive-safety",
-  "seed": { "funds": 25000.0, "science": 0.0, "reputation": 0.0,
+  "seed": { "funds": 25000.0, "sciencePool": 0.0, "reputation": 0.0,
             "hasFunds": true, "hasScience": true, "hasRep": true },
   "entries": [],
   "capturedRaw": []
 }
 ```
 
-`entries` is the accumulated manifest the oracle consumes; `capturedRaw` records
-every stock-log line the capture matched (before dedupe) so a maintainer can audit
-what fired. For B10 both are empty.
+The seed audit copy uses the SINGLE seed-block shape - the `careerSave` block's own
+keys (`sciencePool`, NOT `science`), so it round-trips through
+`oracle.parse_seed_baseline` identically to the analyzer block it was captured from
+(the one true seed source). `science` is the per-ENTRY manifest facet key, a
+different contract; conflating the two silently killed the hard `sciencePool` facet
+in an earlier cut, so the two shapes are kept distinct and cross-lane tested.
+
+`entries` is the SEAM-DECLARED accumulated manifest the oracle consumes for EXPECTED
+(see Accumulation below); `capturedRaw` records every stock-log line the capture
+matched (before dedupe) so a maintainer can audit what fired. For B10 both are empty.
 
 ### `careerSave` export block (additive `.analysis.json` field)
 
@@ -401,13 +408,25 @@ class OracleDivergence:
   key is the entry amount rounded to 3 decimal places, InvariantCulture, so
   float-format jitter across re-emitted lines does not defeat dedupe.
 
-- **Accumulation**: `entries = dedupe(sort(seam_declared + stock_captured))`, sorted
-  by `(ut, seq)`, deduped by `(seqKey, kind, contractGuid|subjectId, roundedAmount)`
-  where `seqKey` is `ut` when known and the wall-clock ordinal `seq` when `ut` is
-  null, keeping the FIRST (a stock line re-emitted on a scene reload at the same
-  seqKey is one effect, not two; a genuine second identical award at a DISTINCT seqKey
-  survives because the seq key is part of the dedupe key). Written to
-  `<runId>.manifest.json`.
+- **Accumulation (as implemented; supersedes the earlier `dedupe(sort(seam_declared +
+  stock_captured))` sketch).** `compute_expected` consumes the SEAM-DECLARED author
+  constants ONLY. The stock-captured awards are NOT summed into EXPECTED; they are
+  cross-checked against the seam entries via `unmatched_captured_awards` (a captured
+  award the spec never DECLARED reds `PARSEK-FAIL(ledger)`, edge 4). RATIONALE
+  (self-cancellation): summing captured awards into EXPECTED would let an unexpected
+  award MOVE both the produced save AND the expected total by the same amount, so the
+  expected-vs-parsed diff would net to zero and false-PASS the very economy drift the
+  L-track exists to catch. Feeding seam-declared entries only keeps EXPECTED == seed
+  on an empty manifest (B10), so the save-diff catches an award the capture MISSED and
+  the capture cross-check catches an award the spec never DECLARED - the two failure
+  modes cannot cancel. Captured awards are still sorted by `(ut, seq)` and deduped by
+  `(seqKey, kind, contractGuid|subjectId, roundedAmount)` where `seqKey` is `ut` when
+  known and the wall-clock ordinal `seq` when `ut` is null, keeping the FIRST (a stock
+  line re-emitted on a scene reload at the same seqKey is one effect; a genuine second
+  identical award at a DISTINCT seqKey survives). The deduped captured pool is ALSO
+  passed to the seam parse so a funds-facet seam entry with a null amount can fill from
+  the matching captured award (fill-from-capture, funds facet only). Both `entries`
+  (the seam-declared set) and `capturedRaw` are written to `<runId>.manifest.json`.
 
 ### Oracle computation (`oracle.compute_expected`)
 
@@ -461,9 +480,14 @@ edge 5). Steps:
 2. When an `[expectations.ledger]` block is present, load `<runId>.manifest.json`
    (the accumulated manifest) and the pre-launch seed baseline; a world-only
    activation SKIPS this step (no manifest, no seed) and jumps to step 4 with only
-   the `world` block.
-3. `expected = oracle.compute_expected(seed, entries, tol, rec3_whitelist)` (ledger
-   activation only).
+   the `world` block. A REJECTED seam entry (unknown kind / balance amount /
+   state-dependent null / un-fillable funds) is NOT warn-and-dropped: each rejection
+   becomes a HARD divergence -> `PARSEK-FAIL(ledger)` (edge 18; a dropped expected
+   effect can false-PASS).
+3. `expected = oracle.compute_expected(seed, entries, tol, rec3_whitelist)` where
+   `entries` are the SEAM-DECLARED author constants ONLY (ledger activation only; see
+   Accumulation - captured awards cross-check separately and are never summed into
+   EXPECTED, so an unexpected award cannot self-cancel against the save).
 4. `diffs = oracle.diff_expected_vs_parsed(expected, careerSave, tol, rec3_whitelist)`
    (pure), mirroring the `LedgerGroundTruthDiff` FACET POLICY: hard pools
    (funds/science/rep), report-only per-identity (subject science, contracts,
