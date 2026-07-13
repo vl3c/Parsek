@@ -75,6 +75,32 @@ namespace Parsek.TestCommands
         public bool BatchRunning;
         public bool LoadInFlight;
 
+        // ----- M-C1 seam-verb bits (design-autotest-seam-verbs-c1.md, Data Model) -----
+
+        /// <summary>A live "ParsekMerge" popup exists AND it is the re-fly merge dialog
+        /// (kind-scoped: a live popup AND <c>ActiveReFlySessionMarker != null</c>). The
+        /// bounded-wait signal for <c>AnswerMergeDialog</c>. NOT the raw MergeDialogPending
+        /// flag, which three non-re-fly spawn sites also set.</summary>
+        public bool ReFlyMergeDialogPresent;
+
+        /// <summary>Mirrors <c>ParsekScenario.Instance.ActiveReFlySessionMarker != null</c>.
+        /// <c>AnswerMergeDialog</c> uses it to decide whether it may DRIVE the re-fly
+        /// conclusion scene-exit when no dialog is up yet.</summary>
+        public bool ActiveReFlyMarker;
+
+        /// <summary>Mirrors <c>ParsekScenario.Instance.ActiveMergeJournal != null</c>: a
+        /// re-fly merge is mid-finalize. <c>InvokeRewind</c> must refuse rather than race
+        /// the MergeJournalOrchestrator finisher.</summary>
+        public bool MergeJournalInFlight;
+
+        /// <summary>Career singletons live (CAREER mode + the relevant Funding / RnD /
+        /// roster singleton present). The <c>KscAction</c> readiness bit.</summary>
+        public bool CareerPresent;
+
+        /// <summary>The run is in the SPACECENTER scene, where the
+        /// <c>SpaceCenterBuilding</c> instances exist. Gates <c>upgrade-facility</c> only.</summary>
+        public bool AtSpaceCenter;
+
         /// <summary>The replayed journal phase for THIS command id (None if fresh).</summary>
         public JournalPhase JournalPhase;
     }
@@ -96,6 +122,12 @@ namespace Parsek.TestCommands
         void LoadGame(ParsedCommand cmd);
         void MissionMark(ParsedCommand cmd);
         void FlushAndQuit(ParsedCommand cmd);
+
+        // ----- M-C1 seam verbs (batch 1) -----
+        void InvokeRewind(ParsedCommand cmd);
+        void AnswerMergeDialog(ParsedCommand cmd);
+        void TimeJump(ParsedCommand cmd);
+        void KscAction(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -135,6 +167,14 @@ namespace Parsek.TestCommands
                 ["LoadGame"] = VerbSceneRequirement.AnyScene,
                 ["MissionMark"] = VerbSceneRequirement.AnyScene,
                 ["FlushAndQuit"] = VerbSceneRequirement.AnyScene,
+                // M-C1 seam verbs (batch 1). InvokeRewind / TimeJump run from FLIGHT;
+                // AnswerMergeDialog straddles FLIGHT (pre-transition dialog) and non-FLIGHT
+                // (post-transition dialog), so AnyScene; KscAction is AnyScene with a
+                // per-sub-action career / SPACECENTER sub-gate applied in DecideDispatch.
+                ["InvokeRewind"] = VerbSceneRequirement.RequiresFlight,
+                ["AnswerMergeDialog"] = VerbSceneRequirement.AnyScene,
+                ["TimeJump"] = VerbSceneRequirement.RequiresFlight,
+                ["KscAction"] = VerbSceneRequirement.AnyScene,
             };
 
         /// <summary>
@@ -178,19 +218,59 @@ namespace Parsek.TestCommands
             if (req == VerbSceneRequirement.RequiresGameLoaded && !state.SettingsPresent)
                 return DispatchResult.Defer("game-not-loaded");
 
-            // 4. LoadGame guards: never silently discard an in-flight recording, and
-            // never overlap two loads.
-            if (parsed.Verb == "LoadGame")
+            // 4. Per-verb extra guards (mirroring how the LoadGame guards live here).
+            switch (parsed.Verb)
             {
-                if (state.Recording)
-                    return DispatchResult.Reject("recording-active");
-                if (state.LoadInFlight)
-                    return DispatchResult.Reject("load-in-flight");
+                case "LoadGame":
+                    // Never silently discard an in-flight recording, and never overlap loads.
+                    if (state.Recording)
+                        return DispatchResult.Reject("recording-active");
+                    if (state.LoadInFlight)
+                        return DispatchResult.Reject("load-in-flight");
+                    break;
+
+                case "InvokeRewind":
+                    // A re-fly reloads the scene and mutates the save. Refuse when a re-fly
+                    // merge journal is mid-finalize (racing the crash-recovery finisher), when
+                    // a LoadGame is already mid-flight, or when a recorder is live (the reload
+                    // would silently discard it; commit / discard first).
+                    if (state.MergeJournalInFlight)
+                        return DispatchResult.Reject("merge-journal-in-flight");
+                    if (state.LoadInFlight)
+                        return DispatchResult.Reject("load-in-flight");
+                    if (state.Recording)
+                        return DispatchResult.Reject("recording-active");
+                    break;
+
+                case "AnswerMergeDialog":
+                    // Bounded wait: defer while there is nothing to answer AND no re-fly
+                    // attempt to conclude. As soon as a live re-fly merge popup exists OR a
+                    // re-fly session marker is present, execute (the verb drives the
+                    // conclusion scene-exit itself when only the marker is present).
+                    if (!state.ReFlyMergeDialogPresent && !state.ActiveReFlyMarker)
+                        return DispatchResult.Defer("no-refly-dialog");
+                    break;
+
+                case "KscAction":
+                    // AnyScene, but with a per-sub-action readiness sub-gate. All sub-actions
+                    // need the career singletons; upgrade-facility additionally needs the
+                    // SPACECENTER scene (the funds debit lives on a SPACECENTER-scene
+                    // SpaceCenterBuilding instance, not a headless singleton).
+                    if (!state.CareerPresent)
+                        return DispatchResult.Defer("career-not-ready");
+                    if (Arg(parsed, "action") == "upgrade-facility" && !state.AtSpaceCenter)
+                        return DispatchResult.Defer("not-at-space-center");
+                    break;
             }
 
             // 5. Ready to execute.
             return DispatchResult.Execute();
         }
+
+        /// <summary>Pure read of a percent-decoded command arg (null when absent), used
+        /// by the KscAction sub-action sub-gate.</summary>
+        private static string Arg(ParsedCommand parsed, string key)
+            => parsed.Args != null && parsed.Args.TryGetValue(key, out string v) ? v : null;
 
         /// <summary>The scene/state requirement for an implemented verb.</summary>
         internal static VerbSceneRequirement RequirementFor(string verb)
@@ -230,6 +310,19 @@ namespace Parsek.TestCommands
         /// runtime budget (the authoritative source when provided).</summary>
         internal const double RunTestsFallbackSeconds = 600.0;
 
+        /// <summary>InvokeRewind copies a quicksave, reloads the scene, and runs
+        /// ConsumePostLoad; sized like LoadGame (M-C1, ~300 s).</summary>
+        internal const double InvokeRewindSeconds = 300.0;
+
+        /// <summary>AnswerMergeDialog may DRIVE the conclusion scene-exit that surfaces the
+        /// pre-transition dialog, then hold the head through the post-answer scene settle
+        /// (M-C1, ~120 s).</summary>
+        internal const double AnswerMergeDialogSeconds = 120.0;
+
+        /// <summary>TimeJump is synchronous but the spawn-queue settle + ledger recalc want a
+        /// bound well under an infinite hang (M-C1, ~120 s).</summary>
+        internal const double TimeJumpSeconds = 120.0;
+
         /// <summary>
         /// The deferral budget (seconds) for <paramref name="verb"/>. For RunTests the
         /// scenario's declared runtime budget is authoritative when supplied via
@@ -245,6 +338,14 @@ namespace Parsek.TestCommands
                     return StartRecordingSceneWaitSeconds;
                 case "RunTests":
                     return scenarioBudgetSeconds ?? RunTestsFallbackSeconds;
+                case "InvokeRewind":
+                    return InvokeRewindSeconds;
+                case "AnswerMergeDialog":
+                    return AnswerMergeDialogSeconds;
+                case "TimeJump":
+                    return TimeJumpSeconds;
+                // KscAction rides the default 60 s (career-ready / SPACECENTER wait; the
+                // action itself is immediate).
                 default:
                     return DefaultSeconds;
             }
