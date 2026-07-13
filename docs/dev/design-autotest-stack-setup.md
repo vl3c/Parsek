@@ -23,9 +23,9 @@ live run is no longer blocked at DOWNLOAD's `EC-13`. The M-A6.1 fix round added
 instance-side dev-sourced-mod verification (BLOCKER 1), buffered logging before
 the EC-16 gate (SF2), a try/except guard over the live sequence (SF3), a
 zip-layout abort (SF4), a zip-slip guard (SF5), junction-aware hardening (SF6),
-and the `--parsek-dll`-or-abort DEPLOY source rule (SF8). Still deferred to
-M-A6.2: idempotent re-run hash short-circuit (SF9) and per-component installed
--file inventory (SF10). The remaining exit criterion is the operator smoke run
+and the `--parsek-dll`-or-abort DEPLOY source rule (SF8). M-A6.2 LANDED the
+idempotent re-run hash short-circuit (SF9) and the per-component installed-file
+inventory (SF10). The remaining exit criterion is the operator smoke run
 (see "Test Plan").
 
 ---
@@ -434,6 +434,7 @@ manifest, log, and lock never become phantom config nodes or get parsed by KSP.
   "settingsFinalSha256": "<sha256 of the instance settings.cfg as written; VERIFY re-hashes it>",
   "krpcSettingsSha256": "<sha256 of the stamped GameData/kRPC/PluginData/settings.cfg (F3 hands-free stamp); VERIFY re-hashes it>",
   "buildId64Sha256": "<sha256 of the instance KSP_x64_Data/../buildID64.txt; asserts actual KSP version vs pins.kspVersion>",
+  "mutableSurfaceManagedStat": { "fileCount": 123, "bytes": 45678901 },
   "verify": { "utf16GrepPassed": true, "dllHashMatchesStaging": true, "settingsFinalHashMatches": true, "buildId64Matches": true, "kspRunningAtProvision": false }
 }
 ```
@@ -640,7 +641,12 @@ Each: trigger -> expected behavior -> v1 or deferred.
   would re-drift the instance per run; (b) both the CLONE-path copy and repair
   scoped-delete a pre-existing instance mod DIRECTORY before re-copying, since
   a merge-copy cannot remove injected extra files (single-file mods are exactly
-  replaced by the copy and skip the pre-clear).
+  replaced by the copy and skip the pre-clear). (c) M-A6.2 SF10 adds a
+  per-component installed-file inventory so an ADDED file inside a STACK
+  component's folder (`GameData/kRPC` beside the hashed DLLs) also drifts, which
+  the whole-tree content-hash never covered; the inventory records PluginData
+  files for visibility but tolerates add/change/remove there (same runtime-writable
+  rationale as (a)). See the "M-A6.2" section below.
 - **EC-4 TestingTools build failure vs KSP DLL version.** Trigger: BUILD-TT
   cannot resolve a reference or the source does not compile against the pinned
   KSP DLLs. Expected: ABORT with compiler output and the missing reference;
@@ -756,26 +762,89 @@ follow-up):
   over the real built assembly (already specced in the Test Plan); this unit
   test does not pretend to replace it.
 
-### Deferred to M-A6.2 (post live-phase fix round)
+### M-A6.2 (LANDED): idempotency + installed-file inventory
 
-Both surfaced in the M-A6.1 fix-round review; each is a bounded follow-up and
-neither is a correctness hole today (the guards above fence the live run):
+Both surfaced in the M-A6.1 fix-round review; each was a bounded follow-up and
+neither was a correctness hole (the guards above fence the live run). Both are
+now implemented (branch `autotest-ma62-followups`).
 
 - **SF9 -- idempotency / hash short-circuit.** Re-running `provision.py` against
-  an already-provisioned, non-drifted instance redoes every copy / build /
-  extract. A live run should hash-short-circuit each phase (skip the work when
-  the on-disk content hash already equals the recorded manifest hash) so a
-  re-provision of a clean instance is cheap. Today's `--repair` already converges
-  ONLY the drifted components; SF9 extends the same "compare-then-skip" to the
-  no-drift fast path of a plain (non-repair) re-run.
-- **SF10 -- per-component installed-file inventory.** The manifest records a DLL
-  hash per stack component but not the SET of files each component installed.
-  VERIFY therefore cannot detect a file ADDED inside a stack component's own
-  folder (e.g. an extra DLL dropped into `GameData/kRPC` alongside the hashed
-  ones) -- only dev-sourced mod trees get whole-tree content-hash coverage
-  (BLOCKER 1). SF10 records a per-component installed-file list (or a whole-folder
-  content-tree hash like the dev-sourced mods') so an added-file inside a stack
-  component's footprint drifts.
+  an already-provisioned, non-drifted instance used to redo every copy / build /
+  extract. Each heavy phase now hash-short-circuits: it skips the work when a
+  prior COMPLETE provision (a manifest present AND no `.provision-incomplete`
+  marker) left an instance whose on-disk hash already equals what would be
+  installed. The pure per-component decision is `provlib.decide_idempotent_skip`
+  (compare two hashes under the `prior_complete` gate; every other case
+  re-installs so a drifted or absent component is always re-provisioned). The
+  caller picks each hash's meaning: the manifest-recorded pinned hash for the
+  fixed-by-pin release components (kRPC / MechJeb2 zips, with a pin-identity gate
+  in `_install_pin_stable` so a moved release pin re-extracts, never skips on a
+  stale on-disk-equals-old-manifest match; the KRPC.MechJeb gate compares BOTH the
+  tag AND the peeled commit, since the tag is mutable), and the fresh SOURCE hash
+  for the components whose input changes between runs (the rebuilt Parsek.dll, the
+  freshly built TestingTools.dll) so a changed source still re-installs.
+  **Every skip gate is a FRESH-SOURCE (or fresh-instance-integrity) check, never a
+  proxy:** on any skip the manifest carries the prior-recorded hashes forward, so
+  VERIFY (which re-hashes the instance against that same manifest) structurally
+  cannot catch a false skip -- the skip decision itself is the only line of
+  defense, so each gate re-derives the current truth from the actual input rather
+  than trusting a cheaper stand-in. Skips are wired into:
+  - CLONE bulk mutable-surface copy + junction (re)creation -- skipped only when
+    buildID64 matches, every junction resolves, AND the instance
+    `KSP_x64_Data/Managed` stat (file count + total bytes,
+    `mutableSurfaceManagedStat`) still matches the recorded stat. buildID64 is a
+    SINGLE-FILE version fingerprint; on its own it cannot see a partially-deleted
+    instance or a swapped stock Managed DLL, and VERIFY never re-hashes the stock
+    Managed tree, so the Managed-stat re-scan (`provlib.mutable_surface_stat_matches`)
+    is the cheap fresh instance-integrity check that closes that gap. **Residual
+    risk (accepted):** an in-place edit of a stock Managed DLL that preserves BOTH
+    the file count and the exact byte size is not caught by the count+size stat;
+    catching that would need a per-file content or size+mtime digest of the whole
+    mutable surface (deferred as the sounder-but-costlier option). A manifest
+    without the recorded stat (a pre-S2 manifest) re-copies once to arm the check.
+  - CLONE per-dev-mod copy -- skipped only when the FRESH dev-SOURCE tree-hash
+    equals BOTH the recorded manifest hash AND the instance tree-hash
+    (dev-source == recorded == instance). Comparing instance-vs-manifest alone was
+    a proxy that never noticed a dev-side mod UPDATE (the instance still matched
+    the old recorded hash, so the skip fired and the update never propagated);
+    gating on the fresh source (mirror of the DEPLOY Parsek.dll pattern) re-copies
+    the instant the dev source changes.
+  - BUILD-TT dotnet build -- skipped only when ALL of the shim's fresh inputs are
+    stable: the peeled kRPC source commit, the kRPC release-zip pin
+    (`_install_pin_stable("krpc")`, so a moved `releaseZipSha256` rebuilds even at
+    the same commit), AND the dev KSP `buildID64` (a version bump changes the
+    Managed reference DLLs the shim HintPaths against). Gating on the cached-dll
+    hash + source commit alone would reuse a TestingTools.dll linked against stale
+    reference DLLs.
+  - DEPLOY the Parsek.dll stage+install copy and each aux file (source-vs-installed).
+  - INSTALL each stack component's extraction.
+
+  VERIFY always runs FULLY (it is the proof); SF9 only elides redundant writes,
+  never the check. Every skip decision is logged (batch-summary convention).
+- **SF10 -- per-component installed-file inventory.** The manifest now records a
+  per-stack-component installed-file INVENTORY (instance-relative path + sha256
+  for every file each component wrote) at the top-level `componentInventories`
+  key -- deliberately OUTSIDE the admission projection (`ADMISSION_KEYS`), so the
+  M-A5 harness admit path (`compare_manifest`) is unchanged and the added-file
+  check lives in VERIFY, which re-scans the filesystem. VERIFY groups the
+  inventories by shared install folder (kRPC / TestingTools / KRPC.MechJeb all
+  land in `GameData/kRPC`, so their recorded files union), re-scans each folder,
+  and diffs it (`provlib.diff_inventory`): a recorded file gone/changed drifts,
+  and a file the inventory never recorded is an ADDED drift -- the gap this closes
+  (a DLL dropped into `GameData/kRPC` beside the hashed ones was previously
+  invisible; only dev-sourced mod trees got whole-tree coverage). Two blind spots
+  are handled: (1) PluginData subtrees (the LG4 runtime-writable convention,
+  `is_runtime_writable_dir`) are RECORDED in the inventory for visibility but
+  tolerated on ALL axes in the diff -- an added/changed/removed PluginData file is
+  never red, because the game rewrites it on every launch and flagging it would
+  re-drift the instance per boot (this also makes a dev-sourced mod's PluginData
+  content at least recorded rather than hash-pruned-and-invisible); (2) the
+  general added-file detection above. `--repair` converges inventory drift by
+  scoped-deleting the drifted component's install folder behind the EC-16 fence
+  (so an INJECTED file is REMOVED, not merely overwritten) and re-installing every
+  folder-sibling. Backward-tolerant: an old manifest carrying no
+  `componentInventories` verifies exactly as before, logging an amber
+  "inventory absent - re-provision to arm" rather than a spurious drift.
 
 ## Backward Compatibility
 
