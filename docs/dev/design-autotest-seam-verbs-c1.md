@@ -528,7 +528,7 @@ holds the FIFO head until its own scene settles (`TryCompleteTwoPhase`,
 `ParsekTestCommandAddon.cs:741` "StillWaiting keeps holding the FIFO head"). A blocking
 `LoadGame` conclusion would therefore sit at the head - unanswered, because the only
 command that CAN answer the dialog is starved behind it - until it hits `load-timeout`.
-That is the A-B1 deadlock. v1 resolves it by folding the scene-exit conclusion INTO
+That is the AnswerMergeDialog FIFO-starvation deadlock (finding A-B1 of the design review panel). v1 resolves it by folding the scene-exit conclusion INTO
 `AnswerMergeDialog`: it is the single command that both surfaces and answers the dialog,
 so no second FIFO command is ever needed.
 
@@ -566,10 +566,32 @@ two-phase:
 4. The button's action (and, on the pre-transition path, its `postChoice`) completes the
    blocked transition. The verb returns `PendingVerdict` and holds the FIFO head, and the
    `AnswerMergeDialog` branch of `TryCompleteTwoPhase` routes `elapsed`,
-   `HighLogic.LoadedScene`, and the budget through a pure
-   `TestCommandMergeAnswer.DecideAnswerCompletion` (mirroring `DecideLoadCompletion`): the
-   post-answer scene settled (`ClearedFlight` / a non-LOADING settled scene) -> terminal
-   `OK`; budget expired -> terminal `ERROR msg=answer-timeout`.
+   `HighLogic.LoadedScene`, the budget, AND an answer-applied flag through a pure
+   `TestCommandMergeAnswer.DecideAnswerCompletion` (mirroring `DecideLoadCompletion`).
+   Scene-settle ALONE is never `OK`: if the driven exit takes the POST-transition path
+   instead (the pre-transition prefix passes because `HasActiveTree` is false - see the
+   `HasActiveTree` dependency note below), the deferred dialog spawns AFTER the scene
+   settles, and a settle-keyed decider would report a false `OK` over an orphaned
+   unanswered dialog. The completion contract is therefore: answer-applied (the button
+   callback was invoked in step 3, OR a post-settle re-scan finds the deferred
+   "ParsekMerge" popup and invokes the chosen button THEN) AND the post-answer scene
+   settled (`ClearedFlight` / a non-LOADING settled scene) -> terminal `OK`; budget
+   expired with the answer never applied -> terminal `ERROR msg=answer-timeout`.
+
+**`HasActiveTree` dependency (load-bearing).** The pre-transition dialog fires only when
+`ShouldShowDialogBeforeSceneChange` returns `ReFlyAttempt`, which requires
+`hasActiveTree || switchSegmentActive` - the re-fly marker ALONE is insufficient
+(`SceneExitInterceptor.cs:161-165`). This holds for the normal in-place-continuation
+re-fly because `RewindInvoker.RestoreActiveTreeFromPending` restarts the recorder into
+the fork (`RewindInvoker.cs:1470`), so `HasActiveTree` is true for the whole attempt.
+The exception is a placeholder-mode re-fly where the recorder never armed
+(`ParsekFlight.Finalization.cs:26-29`): there the driven exit passes the prefix
+un-intercepted and the dialog arrives via the deferred POST-transition coroutine - the
+post-settle re-scan branch of step 4 exists precisely for this path. Step 2's driven
+exit also implicitly assumes FLIGHT (only a FLIGHT exit is intercepted); the degenerate
+"marker live + no dialog + non-FLIGHT" state is practically unreachable (a
+post-transition dialog would already be live and satisfy `ReFlyMergeDialogPresent` at
+step 1), noted here for completeness.
 
 - A `seal` choice against a 2-button (already-sealable) dialog -> the located popup has
   no Merge-and-Seal button -> `ERROR msg=choice-unavailable`. If the popup was dismissed
@@ -905,7 +927,7 @@ scene-exit that concludes it (surfacing the pre-transition merge dialog) and ans
 There is deliberately NO separate scene-changing conclusion step between them: a blocking
 `LoadGame` conclusion would hold the FIFO head waiting for a scene-settle that the
 pre-transition dialog blocks, starving the very `AnswerMergeDialog` that would unblock it
-(the A-B1 deadlock; see AnswerMergeDialog Behavior).
+(the AnswerMergeDialog FIFO-starvation deadlock; see AnswerMergeDialog Behavior).
 
 **B9 fixture RP-usability prerequisites.** For `InvokeRewind rp=rp_b9_root slot=1` to pass
 `CanInvoke` rather than decline, the injected B9 tree must satisfy three things the fixture
