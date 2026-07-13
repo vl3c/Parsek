@@ -56,8 +56,10 @@ scenarios exercise:
   unattended run cannot click them, so it cannot complete a re-fly.
 - **Time jumps.** L1 ("includes warp") + L5 + catalog S4.8 need a scripted forward
   jump to assert the epoch-shift contract (relative position frozen, SMA/ecc/inc
-  unchanged, MNA-at-epoch shifted by the delta, earlier chain tips auto-spawned),
-  the S1.5 "warp past EndUT" step, and the R8 warp-reseed-lag regression.
+  unchanged, MNA-at-epoch shifted by the delta, earlier chain tips auto-spawned) and
+  the S1.5 "warp past EndUT" step. (The R8 warp-reseed-lag regression is NOT a TimeJump
+  concern: `ExecuteJump` stops warp and epoch-shifts instantly, so R8 needs a separate
+  scripted rails-warp verb, deferred - see Deferred Items.)
 - **KSC career actions.** L1-L5 economy scenarios need to research a tech node,
   upgrade a facility, and hire / dismiss a Kerbal on purpose so the ledger oracle
   (M-B2) can cross-check Parsek's recalc against a seam-declared manifest, and so the
@@ -82,7 +84,11 @@ Reserved verb) are used unchanged. New terms this doc introduces:
   load-bearing for these, exactly as it is for `LoadGame`.
 - **Bounded-wait verb**: a verb that must DEFER (not reject) until a transient UI or
   world condition appears, then act. `AnswerMergeDialog` is the only one in this batch:
-  it defers until the merge popup exists, then invokes the chosen button.
+  it defers until a LIVE re-fly merge popup exists (scoped to the re-fly dialog kind,
+  not any `ParsekMerge` popup), then locates it by name and invokes the chosen button's
+  own callback. Because that popup only exists during a scene-exit that concludes the
+  re-fly attempt, the verb also DRIVES that conclusion when a re-fly session marker is
+  live but no dialog has spawned yet (Behavior below).
 - **Gate reason**: the human-readable decline string a Parsek precondition gate
   produces (`RewindInvoker.CanInvoke(rp, out reason)`, `RewindInvoker.cs:64`). A verb
   that routes through such a gate surfaces the reason VERBATIM in the response `msg` so
@@ -114,9 +120,11 @@ Reserved verb) are used unchanged. New terms this doc introduces:
                                             |   Execute | Defer | Reject | Interrupted |
                                             |   + InvokeRewind: refuse merge-journal   |
                                             |     / load-in-flight; RequiresFlight     |
-                                            |   + AnswerMergeDialog: defer until popup |
+                                            |   + AnswerMergeDialog: AnyScene, defer   |
+                                            |     until a LIVE re-fly merge popup      |
                                             |   + TimeJump: RequiresFlight             |
-                                            |   + KscAction: defer until career-ready  |
+                                            |   + KscAction: research/hire/dismiss     |
+                                            |     AnyScene; upgrade-facility SPACECENTER|
                                             +-----------------------------------------+
                                                              |
                                             journal CLAIMED  |  (WAL, at-most-once)
@@ -125,17 +133,20 @@ Reserved verb) are used unchanged. New terms this doc introduces:
                                             | verb handler (thin Unity applier):       |
                                             |  InvokeRewind  -> RewindInvoker.CanInvoke |
                                             |                   -> StartInvoke (PENDING)|
-                                            |  AnswerMergeDialog -> MergeDialog button  |
-                                            |                       (in-callback, sync) |
+                                            |  AnswerMergeDialog -> find live ParsekMerge|
+                                            |                   popup by name, invoke   |
+                                            |                   chosen button callback  |
                                             |  TimeJump      -> TimeJumpManager.Execute |
                                             |                   Jump (PENDING)          |
-                                            |  KscAction     -> real stock API (sync)   |
+                                            |  KscAction     -> real stock API (sync;   |
+                                            |                   upgrade = live building)|
                                             +-----------------------------------------+
                                                              |
                                             two-phase PENDING verbs hold the FIFO head
                                             until a pure completion decider settles:
-                                              InvokeRewind: marker present after reload
-                                              TimeJump:     UT reached + spawn settle
+                                              InvokeRewind:     marker present after reload
+                                              TimeJump:         UT reached + spawn settle
+                                              AnswerMergeDialog: scene settled after answer
                                                              |
                                             journal EXECUTED -> terminal response -> DONE
                                                              v
@@ -196,21 +207,40 @@ Three new bits are sampled by the addon per poll (in `BuildDispatchState`,
 ```
 struct DispatchState                      // existing fields unchanged
     ...
-    bool MergeDialogPresent;   // ParsekScenario.MergeDialogPending (a live ParsekMerge popup exists)
-    bool MergeJournalInFlight; // ParsekScenario.Instance.ActiveMergeJournal != null
-    bool CareerPresent;        // career singletons live (Funding/RnD/roster present)
+    bool ReFlyMergeDialogPresent; // a live ParsekMerge popup exists AND it is the
+                                  // re-fly merge dialog (kind-scoped, see below)
+    bool ActiveReFlyMarker;       // ParsekScenario.Instance.ActiveReFlySessionMarker != null
+    bool MergeJournalInFlight;    // ParsekScenario.Instance.ActiveMergeJournal != null
+    bool CareerPresent;           // career singletons live (Funding/RnD/roster present)
+    bool AtSpaceCenter;           // HighLogic.LoadedScene == GameScenes.SPACECENTER
 ```
 
-- `MergeDialogPresent` mirrors the existing `ParsekScenario.MergeDialogPending` flag
-  the dialog sets when it spawns (`MergeDialog.cs:270`) and its `OnDismiss` clears
-  (`MergeDialog.cs:288`). It is the bounded-wait signal for `AnswerMergeDialog`.
+- `ReFlyMergeDialogPresent` is the bounded-wait signal for `AnswerMergeDialog`. It is
+  NOT the raw `ParsekScenario.MergeDialogPending` flag: that flag is set by THREE spawn
+  sites that all share the same `MergeDialog.DialogName` "ParsekMerge" popup (the
+  whole-tree `ShowTreeDialog` 1-arg overload `MergeDialog.cs:270`, the pre-transition
+  4-arg overload `MergeDialog.cs:464`, and the pre-switch decision dialog
+  `MergeDialog.cs:716`), so waiting on it alone would answer a NON-re-fly dialog (the
+  pre-switch Merge/Discard popup, for instance) with a re-fly `choice`. The signal must
+  be dialog-kind-scoped: a live `ParsekMerge` popup AND `ActiveReFlySessionMarker != null`
+  (the re-fly merge dialog is the only "ParsekMerge" popup that spawns while a re-fly
+  marker is live). The wrong-dialog hazard is called out in Edge Cases.
+- `ActiveReFlyMarker` mirrors `ParsekScenario.Instance.ActiveReFlySessionMarker != null`.
+  `AnswerMergeDialog` uses it to decide whether it may DRIVE the re-fly conclusion
+  scene-exit (Behavior below); `InvokeRewind` does not need it (its own gate,
+  `RewindInvoker.CanInvoke`, already refuses when a marker exists).
 - `MergeJournalInFlight` mirrors `ParsekScenario.ActiveMergeJournal`
   (`ParsekScenario.cs:81`), the persisted re-fly merge journal. A non-null journal
   means a re-fly merge is mid-finalize; `InvokeRewind` must refuse.
-- `CareerPresent` is the `KscAction` readiness bit: `HighLogic.CurrentGame != null &&
-  HighLogic.CurrentGame.Mode == Game.Modes.CAREER` and the relevant singleton for the
-  sub-action is live (`Funding.Instance`, `ResearchAndDevelopment.Instance`, or the
-  roster). Sampling detail is the addon's; the pure decider only reads the bool.
+- `CareerPresent` is the `KscAction` readiness bit for the game-level singletons:
+  `HighLogic.CurrentGame != null && HighLogic.CurrentGame.Mode == Game.Modes.CAREER` and
+  the relevant singleton for the sub-action is live (`Funding.Instance`,
+  `ResearchAndDevelopment.Instance`, or the roster). `research-node` / `hire-kerbal` /
+  `dismiss-kerbal` operate on these game-level singletons and are AnyScene.
+- `AtSpaceCenter` gates ONLY `upgrade-facility`: the funds debit lives in
+  `SpaceCenterBuilding.UpgradeFacility(bool)`, a SPACECENTER-scene MonoBehaviour instance
+  method with no singleton, so the verb must resolve a live `SpaceCenterBuilding` in the
+  SPACECENTER scene (Behavior below).
 
 These are ADDITIVE fields on a struct the pure tests build directly; existing rows in
 the M-A2 dispatch matrix are unaffected (they leave the new bits default-false, which
@@ -223,9 +253,10 @@ New entries in the `Preconditions` table:
 | verb | VerbSceneRequirement | extra guards in DecideDispatch |
 |---|---|---|
 | `InvokeRewind` | `RequiresFlight` | refuse `merge-journal-in-flight` (MergeJournalInFlight); refuse `load-in-flight` (LoadInFlight); refuse `recording-active` (Recording) |
-| `AnswerMergeDialog` | `RequiresFlight` | defer `no-merge-dialog` while !MergeDialogPresent |
+| `AnswerMergeDialog` | `AnyScene` | defer `no-refly-dialog` while `!ReFlyMergeDialogPresent && !ActiveReFlyMarker` (nothing to answer and no attempt to conclude) |
 | `TimeJump` | `RequiresFlight` | (none beyond the scene gate) |
-| `KscAction` | `AnyScene` | defer `career-not-ready` while !CareerPresent |
+| `KscAction` (research-node / hire-kerbal / dismiss-kerbal) | `AnyScene` | defer `career-not-ready` while !CareerPresent |
+| `KscAction` (upgrade-facility) | `AnyScene` gate + SPACECENTER sub-gate | defer `career-not-ready` while !CareerPresent; defer `not-at-space-center` while !AtSpaceCenter |
 
 `VerbSceneRequirement` (`TestCommandDispatcher.cs:102`) is reused unchanged. The extra
 guards are added to `DecideDispatch` step 4 (the LoadGame-guard block,
@@ -320,31 +351,40 @@ internal static KscActionDecision Decide(
     double costAmount, double availableAmount, bool costIsFunds);
 ```
 
-The addon RESOLVES the live target (an `RDTech`, an `UpgradeableFacility`, a
-`ProtoCrewMember`) and reads the current cost / balance / level, passes the primitives
-here, and this pure decider returns accept-or-typed-refusal. The applier then invokes
-the real stock API only on accept. The `ManifestKind` field is the seam-declared
-manifest kind the harness attaches (Behavior below); the verb never writes a ledger
-row.
+The addon RESOLVES the live target (an `RDTech`, a live SPACECENTER-scene
+`SpaceCenterBuilding` for the named facility, a `ProtoCrewMember`) and reads the current
+cost / balance / level, passes the primitives here, and this pure decider returns
+accept-or-typed-refusal. The applier then invokes the real stock API only on accept, and
+CONFIRMS the stock call's EFFECT before reporting OK (Behavior below) - Parsek's own
+committed-action guard patches can silently block the stock call, and a guard-blocked
+call is a REJECTED refusal, never a false OK. The `ManifestKind` field is the
+seam-declared manifest kind the harness attaches (Behavior below); the verb never writes
+a ledger row.
 
 ## Behavior
 
 ### Where the new logic lives
 
 - Pure core: `TestCommandRewind.cs`, `TestCommandTimeJump.cs`,
-  `TestCommandKscAction.cs`, the new `DecideDispatch` rows + `DispatchState` fields in
+  `TestCommandKscAction.cs`, `TestCommandMergeAnswer.cs` (the `DecideAnswerCompletion` +
+  choice mapper), the new `DecideDispatch` rows + `DispatchState` fields in
   `TestCommandDispatcher.cs`, the verb-table move in `TestCommandVerbs.cs`, the new
   deferral budgets in `DeferralBudget.cs` (`TestCommandDispatcher.cs:214`).
 - Thin addon: four new verb bodies + four `ITestCommandExecutor` methods on
   `ParsekTestCommandAddon` (`ParsekTestCommandAddon.cs:87` interface,
   `:934` explicit implementations, `:954` `InvokeExecutor` switch). The two-phase
-  completion for `InvokeRewind` and `TimeJump` hooks into the existing
-  `TryCompleteTwoPhase` dispatch (`ParsekTestCommandAddon.cs:684`), which already
-  branches by `completionVerb`.
+  completion for `InvokeRewind`, `TimeJump`, and `AnswerMergeDialog` (which holds the head
+  through the post-answer scene settle) hooks into the existing `TryCompleteTwoPhase`
+  dispatch (`ParsekTestCommandAddon.cs:684`), which already branches by `completionVerb`.
 - One internal-ization outside the seam: `MergeDialog.DialogName` becomes
-  `internal const` (it is `private const` today, `MergeDialog.cs:11`) plus a new
-  internal `MergeDialog.TryAnswerLiveDialog` entry point (below). This is the phase-3
-  change the M-A2 doc already anticipated (`design-autotest-command-seam.md:466-474`).
+  `internal const` (it is `private const` today, `MergeDialog.cs:11`). This is the
+  phase-3 change the M-A2 doc already anticipated
+  (`design-autotest-command-seam.md:466-474`), which explicitly prescribes locating the
+  live popup by `DialogName` and invoking the chosen button's action directly. No new
+  `MergeDialog` entry point is added: `AnswerMergeDialog` finds the live `PopupDialog`
+  and invokes the chosen `DialogGUIButton`'s own callback (below), which is the wiring
+  each button already carries across all three `ShowTreeDialog` / `ShowPreSwitchDecisionDialog`
+  overloads.
 
 ### ITestCommandExecutor grows four methods
 
@@ -415,90 +455,151 @@ LOADING / transition / settle, `ParsekTestCommandAddon.cs:224-235`). It routes
 - `RewindTimeout`: the reload never settled within the budget. Terminal
   `ERROR msg=rewind-timeout`.
 
-**At-most-once, and what InvokeRewind needs beyond the base WAL.** The re-fly is
+**At-most-once, and how a crashed rewind actually surfaces.** The re-fly is
 irreversible (it creates a provisional fork, writes a `ReFlySessionMarker`, recalcs the
 ledger, and mutates the save, `RewindInvoker.cs:891-960`). The base WAL contract is
-sufficient and no new mechanism is added, but the reasoning is subtle enough to state:
+sufficient and no new mechanism is added, but the crash-recovery reasoning is subtle
+enough to state, and it must NOT contradict the M-A5 harness model (INTERRUPTED is
+unreachable in a v1 run: the harness NEVER restarts the seam addon mid-scenario -
+`design-autotest-harness-core.md`, M-A5):
 
 - The side effect (`StartInvoke`) runs ONLY after CLAIMED durably lands
-  (`ParsekTestCommandAddon.cs:577-584`). A crash mid-load leaves the id at CLAIMED; on
-  restart `DecideRecovery` (`TestCommandJournal.cs:282`) returns `Interrupted` and the
-  addon writes `INTERRUPTED` WITHOUT re-invoking. The rewind is never fired twice.
-- The base WAL's EXECUTED-response-rewrite recovery (`TestCommandJournal.cs:331`,
-  re-emitting the ORIGINAL OK payload) does NOT apply to `InvokeRewind`, and this is
-  the one place it differs from `LoadGame`. The terminal OK payload (the marker
-  session id, the active pid) is not known until `ConsumePostLoad` writes the marker,
-  which happens ACROSS the scene reload and is driven by KSP's `OnLoad`, NOT by the
-  seam's EXECUTED transition. So the journal is only ever CLAIMED (side effect
-  initiated) or a single terminal (EXECUTED+DONE written together at completion). There
-  is no window where EXECUTED is written but the response is not, so there is nothing to
-  rewrite. Consequently a crash anywhere before the terminal always reports
-  INTERRUPTED, even if the rewind actually completed (the marker landed but the seam
-  never observed it). This is deliberately conservative: INTERRUPTED means "unknown
-  outcome, reconcile," and the orchestrator reconciles by reading `RecordingState` /
-  inspecting the marker on the next boot. The safety property that matters (never
-  re-invoke a rewind) holds unconditionally because the seam never re-calls
-  `StartInvoke` from CLAIMED.
+  (`ParsekTestCommandAddon.cs:577-584`). The journal is only ever CLAIMED (side effect
+  initiated) or a single terminal (EXECUTED+DONE written together at completion): the
+  terminal OK payload (the marker session id, the active pid) is not known until
+  `ConsumePostLoad` writes the marker, which happens ACROSS the scene reload driven by
+  KSP's `OnLoad`, NOT by the seam's EXECUTED transition. So there is no window where
+  EXECUTED is written but the response is not, hence nothing for the base WAL's
+  EXECUTED-response-rewrite recovery (`TestCommandJournal.cs:331`) to rewrite.
+- What a crash DURING the rewind reload looks like to the harness: the KSP process hangs
+  or dies mid-load, the seam never appends a terminal response, the M-A5 budget watchdog
+  fires, and `run.py` process-tree-kills the instance and records the scenario as
+  KILLED. The harness then RETRIES the scenario from a PRISTINE, freshly RE-STAGED
+  template (a clean copy of the fixture save), so the retry never re-drives the
+  half-executed rewind save at all. THIS is why retrying a crashed rewind is safe: the
+  at-most-once concern is not "re-issue the same command against the same mutated save"
+  (that never happens - the retry starts from a pristine template), it is only "never
+  fire `StartInvoke` twice within one run," which the CLAIMED gate guarantees because
+  the seam never re-calls `StartInvoke` from CLAIMED.
+- The conservative-INTERRUPTED path is kept seam-side purely as a defensive contract:
+  IF the addon were ever restarted with an id stuck at CLAIMED (a hypothetical the v1
+  harness does not exercise), `DecideRecovery` (`TestCommandJournal.cs:282`) returns
+  `Interrupted` and the addon writes `INTERRUPTED` WITHOUT re-invoking. It never
+  reconstructs a late OK from the marker. There is no `RecordingState`-reconcile story
+  in v1: a killed rewind is a KILLED run that retries from a clean template, full stop.
 
 **Interaction with in-flight recordings and the merge journal.** The `recording-active`
 dispatch refusal keeps a live recorder from being silently discarded by the reload. The
 `merge-journal-in-flight` refusal keeps a rewind from racing a re-fly merge's crash-
 recovery finisher. Both are dispatch-level (they never reach the CLAIMED side effect).
 
-### AnswerMergeDialog (bounded-wait, in-callback, irreversible)
+### AnswerMergeDialog (AnyScene, find-popup-by-name, conclude-and-answer, irreversible)
 
 **Args.** `choice=<merge|discard|seal>`. `merge` (alias `commit`) invokes the Commit
 button; `discard` invokes Discard; `seal` invokes the Merge-and-Seal button that only
 exists on a not-yet-sealable re-fly dialog (`MergeDialog.cs:237-248`). An unrecognized
 choice -> `REJECTED msg=unknown-choice`.
 
-**Dispatch (bounded wait).** `RequiresFlight`. `DecideDispatch` defers with
-`no-merge-dialog` while `!MergeDialogPresent`. This is the not-yet-spawned-dialog race:
-a re-fly reload lands, the merge dialog spawns a moment later (`MergeDialog.cs:271`),
-and the command DEFERS at the FIFO head until it appears, then Executes. If the dialog
-never appears, the deferral budget converts it to TIMEOUT
-(`ParsekTestCommandAddon.cs:859`), so a mis-sequenced answer never wedges the run. This
-is the same head-defer mechanism `StartRecording` uses to wait for FLIGHT
-(`design-autotest-command-seam.md:454`).
+**When the re-fly merge dialog actually spawns (why this verb is more than a click).**
+The re-fly merge dialog does NOT auto-spawn "a moment later" after the rewind reload.
+While a re-fly session owns the pending tree, `OnFlightReady` deliberately SUPPRESSES the
+merge dialog (`ParsekFlight.Finalization.cs:32-58`, `MaybeShowPendingTreeMergeDialogOnFlightReady`
+skips when `RewindInvokeContext.Pending` or an in-place-continuation Re-Fly session owns
+the pending tree). The dialog spawns only when a scene-exit CONCLUDES the attempt, on one
+of two paths:
+- **pre-transition:** the `SceneExitInterceptor` Harmony prefix on `HighLogic.LoadScene`
+  sees `ActiveReFlySessionMarker != null` and spawns the pre-transition re-fly merge
+  dialog (the 4-arg `ShowTreeDialog` overload, `SceneExitInterceptor.cs:788` / `:835`),
+  BLOCKING the stock scene change (`return false`); the dialog's own button `postChoice`
+  re-invokes `LoadScene` to complete the transition. This path is reachable while the
+  scene is still FLIGHT.
+- **post-transition:** the deferred non-FLIGHT coroutine (`ParsekScenario.cs`, "Showing
+  deferred tree merge dialog") spawns the 1-arg `ShowTreeDialog` overload in a non-FLIGHT
+  scene, only when the pre-transition catch was missed.
 
-**Execution (sync, in-callback).** On Execute the body calls a new internal
-`MergeDialog.TryAnswerLiveDialog(MergeDialogChoice choice, out string reason)`:
-- The dialog's button lambdas run their action INSIDE the `DialogGUIButton` callback
-  (`MergeDialog.cs:240-263`: Commit -> `MergeCommit`, Discard -> `MergeDiscard`,
-  Merge-and-Seal -> `MergeCommit(..., playerRequestedSeal: true)`). Per the project's
-  deferred-field PopupDialog callback trap (MEMORY:
-  project_deferred_field_popup_callback_trap), the answer MUST invoke the chosen
-  action DIRECTLY, NEVER set a `pendingChoice` field that a `DrawWindow` reads a frame
-  later. `TryAnswerLiveDialog` invokes the captured action synchronously in the command
-  execution frame and lets `MergeCommit` / `MergeDiscard` dismiss the popup as they do
-  today (`MergeDialog.cs:268`).
-- To invoke the captured action without reconstructing its `(tree, decisions,
-  spawnCount)` arguments, `MergeDialog` stashes a `LiveDialogContext` (the same
-  captured locals the button lambdas close over, plus which buttons the spawned dialog
-  actually has) into a static when it spawns the popup (`MergeDialog.cs:271`), and
-  clears it in the popup `OnDismiss` (`MergeDialog.cs:286`). `TryAnswerLiveDialog`
-  reads that context and calls the matching handler. This is NOT a pending field the
-  draw loop polls; it is a synchronous invoke off a captured context, which is the
-  distinction the trap warns about.
-- A `seal` choice against a 2-button (already-sealable) dialog -> the context reports no
-  seal button -> `ERROR msg=choice-unavailable`. A flag-set-but-no-context race (the
-  dialog dismissed between the dispatch sample and the execute) -> `ERROR
-  msg=no-live-dialog`.
+So the answerable dialog straddles FLIGHT (pre-transition) and non-FLIGHT
+(post-transition), which is why the scene gate is `AnyScene`, not `RequiresFlight` (the
+prior draft's `RequiresFlight` gate excluded the post-transition dialog outright).
+
+**Strict-FIFO constraint: the verb concludes AND answers.** A separate scene-changing
+seam step (e.g. a `LoadGame` between `InvokeRewind` and `AnswerMergeDialog`) does NOT
+compose here: the pre-transition dialog BLOCKS that scene change, and a two-phase verb
+holds the FIFO head until its own scene settles (`TryCompleteTwoPhase`,
+`ParsekTestCommandAddon.cs:741` "StillWaiting keeps holding the FIFO head"). A blocking
+`LoadGame` conclusion would therefore sit at the head - unanswered, because the only
+command that CAN answer the dialog is starved behind it - until it hits `load-timeout`.
+That is the A-B1 deadlock. v1 resolves it by folding the scene-exit conclusion INTO
+`AnswerMergeDialog`: it is the single command that both surfaces and answers the dialog,
+so no second FIFO command is ever needed.
+
+**Dispatch (bounded wait).** `AnyScene`. `DecideDispatch` defers with `no-refly-dialog`
+while `!ReFlyMergeDialogPresent && !ActiveReFlyMarker` - nothing to answer and no re-fly
+attempt to conclude. As soon as either a live re-fly merge popup exists OR a re-fly
+session marker is present, the command Executes. If neither ever appears, the deferral
+budget converts it to TIMEOUT (`ParsekTestCommandAddon.cs:859`), so a mis-sequenced
+answer never wedges the run. This is the same head-defer mechanism `StartRecording` uses
+to wait for FLIGHT (`design-autotest-command-seam.md:454`).
+
+**Execution (find live popup by name, invoke the button's own callback).** On Execute,
+two-phase:
+1. If a LIVE re-fly merge dialog is present (`ReFlyMergeDialogPresent`), skip to step 3.
+2. Else (`ActiveReFlyMarker` true, no dialog yet): DRIVE the re-fly conclusion by
+   requesting the scene-exit a human's "exit flight" takes (a `HighLogic.LoadScene` to
+   SPACECENTER, the natural post-flight destination). The `SceneExitInterceptor` prefix
+   fires synchronously, spawns the pre-transition re-fly merge dialog, and blocks the
+   stock transition. The popup is now live in the same execution frame.
+3. Locate the live `PopupDialog` by `MergeDialog.DialogName` ("ParsekMerge"), confirm it
+   is the re-fly merge dialog (a re-fly marker is live), and invoke the chosen
+   `DialogGUIButton`'s OWN callback directly. The button lambdas run their action INSIDE
+   the callback (`MergeDialog.cs:240-263` / `:416-458`: Commit -> `MergeCommit`, Discard
+   -> `MergeDiscard`, Merge-and-Seal -> `MergeCommit(..., playerRequestedSeal: true)`, or
+   the pre-transition overload's `RunPreTransitionAction(isMerge, preCommitFinalize,
+   postChoice)`). Invoking the button's OWN callback - rather than reconstructing
+   `MergeCommit`'s `(tree, decisions, spawnCount)` arguments through a stashed context -
+   is the M-A2-prescribed design (`design-autotest-command-seam.md:466-474`): it survives
+   ALL overloads (1-arg post-transition, 4-arg pre-transition, pre-switch decision) and
+   cannot drift if `MergeDialog` ever adds a fourth button, because the seam never has to
+   know what each button DOES. It also honors the project's deferred-field PopupDialog
+   callback trap (MEMORY: project_deferred_field_popup_callback_trap): the callback runs
+   synchronously in the command frame; the seam never sets a `pendingChoice` field a
+   `DrawWindow` reads a frame later.
+4. The button's action (and, on the pre-transition path, its `postChoice`) completes the
+   blocked transition. The verb returns `PendingVerdict` and holds the FIFO head, and the
+   `AnswerMergeDialog` branch of `TryCompleteTwoPhase` routes `elapsed`,
+   `HighLogic.LoadedScene`, and the budget through a pure
+   `TestCommandMergeAnswer.DecideAnswerCompletion` (mirroring `DecideLoadCompletion`): the
+   post-answer scene settled (`ClearedFlight` / a non-LOADING settled scene) -> terminal
+   `OK`; budget expired -> terminal `ERROR msg=answer-timeout`.
+
+- A `seal` choice against a 2-button (already-sealable) dialog -> the located popup has
+  no Merge-and-Seal button -> `ERROR msg=choice-unavailable`. If the popup was dismissed
+  between the dispatch sample and the execute (no live "ParsekMerge" popup and no re-fly
+  marker to re-surface one) -> `ERROR msg=no-live-dialog`.
 
 **Payload.** `OK choice=<choice> result=<committed|discarded|sealed>`.
 
 **At-most-once composition.** The merge answer is irreversible (a commit writes
 supersede rows + may open a `MergeJournal`; a discard tears down a subtree,
 `MergeDialog.cs`). It leans on TWO recovery systems, and the composition is the point:
-- The seam WAL: CLAIMED lands before the button is invoked; a crash mid-commit leaves
-  CLAIMED -> INTERRUPTED on restart, never re-invoked.
+- The seam WAL: CLAIMED lands before the button is invoked, so the button is invoked at
+  most once. A crash mid-commit means the KSP process dies before a terminal response;
+  the M-A5 watchdog kills the instance (KILLED) and the scenario retries from a pristine
+  re-staged template (as for `InvokeRewind` above), never re-driving the half-committed
+  save. The conservative-INTERRUPTED path is kept seam-side for the hypothetical restart
+  the v1 harness does not exercise; it never re-invokes the button.
 - The merge journal's own crash-recovery: a `MergeCommit` that opened a `MergeJournal`
   and then crashed is driven forward-or-back on the next `OnLoad` by
   `MergeJournalOrchestrator.RunFinisher` (`MergeJournalOrchestrator.cs`), INDEPENDENT of
   the seam. So the seam guarantees "the answer button is invoked at most once," and the
-  merge journal guarantees "a half-done merge reaches a consistent terminal." The seam
-  does NOT try to re-drive the merge; it reports INTERRUPTED and the merge journal
-  finishes the work.
+  merge journal guarantees "a half-done merge reaches a consistent terminal."
+
+**`restoringActiveTree` is not reachable in the harness.** `OnFlightReady`'s merge-dialog
+fallback also skips while a `#293` clone-restore coroutine owns the pending tree
+(`restoringActiveTree`, `ParsekFlight.Finalization.cs:37-52`). The v1 harness never drives
+a committed-tree clone-restore (no `SimulateStockSwitchClick` yet - it stays reserved), so
+`restoringActiveTree` is never set during an `AnswerMergeDialog` sequence; it is called out
+here only so a future switch-segment batch knows to re-examine this interaction rather than
+assume it is inert.
 
 ### TimeJump (two-phase, forward-only, epoch-shift)
 
@@ -507,7 +608,9 @@ InvariantCulture floats, percent-encoded. Both absent or both present ->
 `REJECTED msg=missing-jump-target`.
 
 **Dispatch.** `RequiresFlight` (the epoch-shift jump operates on loaded vessels and
-`FlightGlobals`). No extra guard beyond the scene gate.
+`FlightGlobals`). No extra guard beyond the scene gate. Map view is a FLIGHT sub-mode
+(`HighLogic.LoadedScene == FLIGHT` with `MapView.MapIsEnabled`), so a jump requested from
+the map is covered by the same flight gate - no separate map-scene handling is needed.
 
 **Refuse backward jumps.** On Execute the body resolves the target UT via
 `TestCommandTimeJump.ResolveTargetUt(now, utArg, deltaArg, out error)` and checks
@@ -537,11 +640,15 @@ DIFFERENT contract (positions advance along the orbit) used by the fast-forward 
 TimeJump v1 uses `ExecuteJump` only. A future `mode=` arg selecting the propagate
 variant is Deferred.
 
-**Two-phase completion.** `SetUniversalTime` lands the clock synchronously, but the
-spawn-queue drain and the warp-reseed-lag (R8) settle over a few subsequent frames, so
-the terminal response is deferred. The `TimeJump` branch of `TryCompleteTwoPhase`
-routes `elapsed`, `Planetarium.GetUniversalTime()`, the captured target, the fixed
-tolerance, and a settle-frame countdown through
+**Two-phase completion.** `ExecuteJump` first STOPS time warp (`TimeWarp.SetRate(0,
+true)` when `CurrentRateIndex > 0`, `TimeJumpManager.cs:323-326`) and then
+`SetUniversalTime` lands the clock synchronously, so there is NO warp-reseed-lag here to
+wait out - the jump is not a rails-warp coast (R8, warp-reseed-lag, is a DIFFERENT
+regime; see the note below). The settle window exists only to let the engine playback
+loop drain the spawn queue (chain tips crossed during the jump) and let the newly spawned
+end-of-recording ghosts settle over the next few frames. The `TimeJump` branch of
+`TryCompleteTwoPhase` routes `elapsed`, `Planetarium.GetUniversalTime()`, the captured
+target, the fixed tolerance, and a settle-frame countdown through
 `TestCommandTimeJump.DecideJumpCompletion`:
 - `StillWaiting`: UT not yet within tolerance, or the settle window has not elapsed.
 - `CompleteOk`: UT within tolerance AND settle frames drained. Terminal `OK`, payload
@@ -550,12 +657,35 @@ tolerance, and a settle-frame countdown through
   synchronous jump, but bounds a pathological SetUniversalTime failure). Terminal
   `ERROR msg=jump-timeout`.
 
+**Completion boundary (what the terminal OK asserts, and what it does NOT).** The
+completion decider confirms EXACTLY two things: the clock reached the target UT within
+tolerance, and the settle-frame window elapsed. It deliberately does NOT confirm the
+S1.5 post-jump vessel spawn (the chain tip that crosses the jumped UT and spawns as a real
+vessel). Confirming a specific spawn from inside the completion decider would couple the
+verb to spawn-queue internals and to which recording the scenario happens to use;
+instead the scenario confirms the spawn with a FOLLOWING `RecordingState` step (or the
+verifier chain over the produced save), which is the seam's normal division of labour -
+the verb reports the primitive (the epoch reached and settled), the verifier chain judges
+the consequences (spawns, orbital elements, ledger). A vessel-count-delta observation was
+considered and rejected for v1: the count delta is not cleanly attributable to THIS jump
+(other ghosts loop/retire on the same frames), whereas `RecordingState` is an existing,
+already-parsed truth surface.
+
+**Note - warp-reseed-lag (R8) is a deferred gap, not a TimeJump concern.** R8 is the
+map-render lag seen when a real rails-warp is reseeded across a threshold; `ExecuteJump`
+never rails-warps (it stops warp and epoch-shifts instantly), so TimeJump does not
+exercise R8. Covering R8 needs a genuine scripted rails-warp verb (drive `TimeWarp` up,
+observe, drive it back down), which is out of scope for M-C1 and listed under Deferred
+Items.
+
 **At-most-once.** A time jump mutates the world clock and epoch-shifts orbits
-(irreversible in-place). The WAL protects it identically: CLAIMED before `ExecuteJump`;
-a crash mid-jump leaves CLAIMED -> INTERRUPTED, never re-jumped. Unlike `InvokeRewind`,
-the jump does NOT straddle a scene reload, so it CAN ride the EXECUTED response-rewrite
-recovery (the OK payload is known at completion, all within one scene), exactly like
-`RunTests`.
+(irreversible in-place). The WAL protects it identically: CLAIMED lands before
+`ExecuteJump`, so the jump fires at most once; a crash mid-jump dies before a terminal,
+the M-A5 watchdog kills the instance (KILLED), and the scenario retries from a pristine
+re-staged template (never re-driving the mutated clock). Unlike `InvokeRewind`, the jump
+does NOT straddle a scene reload, so its OK payload IS known at completion within one
+scene and it CAN ride the EXECUTED response-rewrite recovery for the hypothetical restart
+the v1 harness does not exercise, exactly like `RunTests`.
 
 **Ledger annotation.** `ExecuteJump` triggers a ledger recalc at the post-jump UT
 (`TimeJumpManager` `RecalculateLedgerAfterTimeJump`). If a scenario asserts the ledger
@@ -570,24 +700,71 @@ case below.
 **Args.** `action=<research-node|upgrade-facility|hire-kerbal|dismiss-kerbal>` plus the
 action-specific target: `node=<techId>` / `facility=<facilityId>` / `kerbal=<name>`.
 
-**Dispatch.** `AnyScene` with a `career-not-ready` defer while `!CareerPresent` (the
-game is not a career with the sub-action's singleton live). Career actions are normally
-scripted at SPACECENTER, but the stock APIs work headlessly in any scene with the
-singletons present, so the gate is career-readiness, not a specific scene. A never-
-career game deferring here converts to TIMEOUT and the orchestrator reconciles.
+**Dispatch (per sub-action).** The scene gate splits by sub-action:
+- `research-node` / `hire-kerbal` / `dismiss-kerbal` are `AnyScene` with a
+  `career-not-ready` defer while `!CareerPresent`. These act on game-level singletons
+  (`ResearchAndDevelopment.Instance`, `Funding.Instance`, the roster / `KerbalRoster`),
+  which work headlessly in any scene once the singletons are live, so the gate is
+  career-readiness, not a specific scene.
+- `upgrade-facility` additionally requires SPACECENTER. Its funds debit is NOT a
+  singleton call: it lives in `SpaceCenterBuilding.UpgradeFacility(bool)`
+  (`FacilityUpgradeSpendPatch.cs:15`), an instance method on a SPACECENTER-scene
+  `SpaceCenterBuilding` MonoBehaviour. There is no headless entry point that produces the
+  real debit, so the verb must resolve a LIVE building instance (below), and
+  `DecideDispatch` defers `not-at-space-center` while `!AtSpaceCenter` (on top of the
+  `career-not-ready` defer).
 
-**The verb performs the REAL stock action.** KscAction never writes a ledger row; it
-invokes the exact stock method the player's UI would, so the Parsek patches and the
-ledger recalc observe the change organically (ERS/ELS routing note; the ledger reads
-KSP's own state, `docs/dev/design-autotest-ledger-oracle.md`). Per sub-action, after
-the pure `TestCommandKscAction.Decide` accepts:
+A never-career game (or, for `upgrade-facility`, a never-SPACECENTER run) deferring here
+converts to TIMEOUT and the orchestrator reconciles.
 
-| sub-action | stock API invoked (observed by) | manifest kind |
-|---|---|---|
-| `research-node` | resolve the `RDTech` for the node, drive the stock research-buy path `RDTech.ResearchTech()` (spends science) which fires `RDTech.UnlockTech` -- observed by `TechResearchSpendPatch` (`RDTech.ResearchTech`, `TechResearchSpendPatch.cs:17`) + `TechResearchPatch` (`RDTech.UnlockTech`, `TechResearchPatch.cs:14`) | `tech-unlock` |
-| `upgrade-facility` | resolve the `UpgradeableFacility` by id, drive the funds-spending upgrade so both the level bump `UpgradeableFacility.SetLevel` (`FacilityUpgradePatch.cs:13`) and the funds debit `SpaceCenterBuilding.UpgradeFacility(bool)` (`FacilityUpgradeSpendPatch.cs:15`) are the real stock ones | `facility-upgrade` |
-| `hire-kerbal` | resolve the applicant from `CrewRoster.Applicants`, `KerbalRoster.HireApplicant(ProtoCrewMember)` (`KerbalHirePatch.cs:19-22`) plus the stock hire-cost funds debit | `kerbal-hire` |
-| `dismiss-kerbal` | resolve the crew member, `KerbalRoster.Remove(ProtoCrewMember)` (`KerbalDismissalPatch.cs:16-18`) | `kerbal-dismiss` |
+**The verb performs the REAL stock action, then CONFIRMS its effect.** KscAction never
+writes a ledger row; it invokes the exact stock method the player's UI would, so Parsek's
+recorder observers and the ledger recalc see the change organically (the ledger reads
+KSP's own state, `docs/dev/design-autotest-ledger-oracle.md`). The state changes are
+picked up by the `GameStateRecorder` observers - `GameEvents.OnTechnologyResearched`
+(`GameStateRecorder.cs:315`), `GameEvents.OnCrewmemberHired` (`:323`),
+`GameEvents.onKerbalRemoved` (`:324`), and facility POLLING via `GameStateFacilityRecorder`
+(`GameStateRecorder.PollFacilityState`) - NOT by the committed-action guard patches (those
+BLOCK, they do not record; see the confirmation requirement below).
+
+CRUCIAL: after the stock call the applier CONFIRMS the stock call's EFFECT before
+reporting OK, because Parsek's committed-action guard patches can silently BLOCK the stock
+call - `TechResearchSpendPatch` (`RDTech.ResearchTech`), `FacilityUpgradeSpendPatch`
+(returns false, no deduction + no level bump), `KerbalHirePatch.ShouldAllowHire`, and
+`KerbalDismissalPatch`'s `IsManaged` block all return false on a committed target and skip
+the stock method entirely. A guard-blocked call is a REJECTED refusal with a reason (below),
+NEVER a false OK. The applier confirms via the effect surface, not a bare return:
+`RDTech.OperationResult` / the node's researched state, the roster membership change, the
+facility level change. Per sub-action, after the pure `TestCommandKscAction.Decide`
+accepts:
+
+| sub-action | stock API invoked, then effect confirmed | recorder observer | manifest kind |
+|---|---|---|---|
+| `research-node` | resolve the `RDTech` for the node, drive the stock research-buy path `RDTech.ResearchTech()` (spends science) which fires `RDTech.UnlockTech`; confirm `RDTech.OperationResult` / node researched | `GameEvents.OnTechnologyResearched` (`GameStateRecorder.cs:315`) | `tech-unlock` |
+| `upgrade-facility` | resolve the LIVE SPACECENTER-scene `SpaceCenterBuilding` for the facility id (below) and invoke its `UpgradeFacility(bool)` so both the funds debit and the `Facility.SetLevel(level+1)` are the real stock ones; confirm the facility level rose | facility POLLING via `GameStateFacilityRecorder.PollFacilityState` | `facility-upgrade` |
+| `hire-kerbal` | resolve the applicant from `CrewRoster.Applicants`, mirror the stock debit then call `KerbalRoster.HireApplicant(ProtoCrewMember)` (below); confirm roster membership | `GameEvents.OnCrewmemberHired` (`GameStateRecorder.cs:323`) | `kerbal-hire` |
+| `dismiss-kerbal` | resolve the crew member, `KerbalRoster.Remove(ProtoCrewMember)`; confirm roster removal | `GameEvents.onKerbalRemoved` (`GameStateRecorder.cs:324`) | `kerbal-dismiss` |
+
+**Resolving the live building for `upgrade-facility`.** The addon finds the
+`SpaceCenterBuilding` instances in the SPACECENTER scene (they are scene MonoBehaviours
+with a `Facility` id, no singleton), matches the one whose `Facility.id` equals the
+`facility=` arg, and invokes its real `UpgradeFacility(true)`. That is the only path that
+produces the genuine funds debit `Funding.Instance.AddFunds(-GetUpgradeCost(),
+StructureConstruction)` the spend patch would otherwise refund-bug (BUG-G), which is why
+the sub-gate forces SPACECENTER - the building instances do not exist in FLIGHT.
+
+**Resolving the hire debit for `hire-kerbal`.** `KerbalRoster.HireApplicant` moves the
+applicant into the roster but does NOT itself debit funds (the stock debit lives in the
+Astronaut Complex UI). The verb mirrors the stock debit explicitly: it runs the stock
+affordability check (`CurrencyModifierQuery`) and, on accept, calls
+`Funding.Instance.AddFunds(-hireCost, TransactionReasons.CrewRecruited)` BEFORE
+`KerbalRoster.HireApplicant(ProtoCrewMember)` (`KerbalHirePatch.cs:19-22`). The
+`CrewRecruited` reason key is load-bearing: the ledger's KSC-action expectation
+classifier keys the hire funds leg on `FundsChanged` / `"CrewRecruited"` / `-HireCost`
+(`KscActionExpectationClassifier.cs:140-148`); a debit under any other reason would not
+reconcile. `hireCost` comes from the stock `GameVariables` recruit-cost curve (it is
+state-dependent - it rises with the roster size - so it is NOT a hardcoded constant; see
+the manifest note below).
 
 The `facility-refund` manifest kind (M-B2, `design-autotest-ledger-oracle.md:257`) is
 NOT an active sub-action: it is the PASSIVE R6 guard (no silent facility-upgrade refund
@@ -601,16 +778,23 @@ harness:
 - `research-node`: `unknown-tech-node` (the id does not resolve), `node-already-unlocked`
   (idempotency: the node is already researched), `insufficient-science` (the science
   pool is below the node cost).
-- `upgrade-facility`: `unknown-facility`, `facility-at-max` (already top level),
-  `insufficient-funds`.
+- `upgrade-facility`: `unknown-facility` (no live `SpaceCenterBuilding` for the id),
+  `facility-at-max` (already top level), `insufficient-funds`.
 - `hire-kerbal`: `unknown-kerbal` / `kerbal-not-applicant` (not in the applicant pool),
   `insufficient-funds` (hire cost exceeds funds).
 - `dismiss-kerbal`: `unknown-kerbal` / `kerbal-not-dismissable` (assigned / tourist /
-  protected).
+  protected), and `kerbal-parsek-managed` when `LedgerOrchestrator.Kerbals.IsManaged(name)`
+  is true - the `KerbalDismissalPatch` `IsManaged` block would refuse the stock `Remove`
+  (`KerbalDismissalPatch.cs:35-40`), so the precondition mirrors it and declines up front
+  rather than watching the stock call get blocked.
 
-Each refusal is a REFUSAL, not a Parsek fault: the orchestrator mis-sequenced (it did
-not ensure funds / science, or named a wrong id). The verifier chain still judges
-whether Parsek accounted whatever DID happen.
+A second class of refusal is the guard-blocked call: if the applier invokes the stock
+method and a committed-action guard patch silently blocks it (the confirmation step sees
+no effect - no `OperationResult`, no level change, no roster change), the verb reports
+`REJECTED msg=blocked-committed` rather than a false OK. Each refusal is a REFUSAL, not a
+Parsek fault: the orchestrator mis-sequenced (it did not ensure funds / science, named a
+wrong id, or targeted a committed action). The verifier chain still judges whether Parsek
+accounted whatever DID happen.
 
 **Payload.** `OK action=<action> target=<target> applied=true` plus an observed-after
 field for logging only (`scienceAfter` / `fundsAfter` / `level` / `crewCount`). The
@@ -618,16 +802,27 @@ observed-after values are for the KSP.log / debugging; they are NEVER the oracle
 source of truth (the manifest amounts are author constants, M-B2 independence
 invariant).
 
-**Seam-declared manifest annotation.** The DRIVER (harness `run.py`), when it emits a
-`KscAction` step, attaches the corresponding manifest entry to the run manifest
-(`harness/results/<runId>.manifest.json`, M-B2) with `provenance = "seam-declared"` and
-AUTHOR-CONSTANT amounts (funds / science deltas the scenario author computed from the
-node / facility / hire cost). The verb does not compute or write these; the seam-
-declared entry is the oracle's `compute_expected` input, and the stock-log capture
-cross-checks via `unmatched_captured_awards`. The verb's only oracle-facing
-contribution is causing the real KSP state change the log capture and the Parsek recalc
-both observe. A `KscAction` step's manifest kind is the `ManifestKind` in the table
-above.
+**Seam-declared manifest annotation.** The manifest entries are free-standing
+`[[expectations.ledger.manifest]]` rows the scenario AUTHOR declares in the spec (M-B2);
+they are NOT attached per-step by `run.py`. The harness ACCUMULATES the declared rows
+(sorted by `ut` / `seq`) into the run manifest (`harness/results/<runId>.manifest.json`)
+with `provenance = "seam-declared"`, and that accumulated manifest is the oracle's
+`compute_expected` input; the stock-log capture cross-checks via
+`unmatched_captured_awards`. The verb does not compute or write any of this; its only
+oracle-facing contribution is causing the real KSP state change the log capture and the
+Parsek recalc both observe. A `KscAction` step's manifest kind is the `ManifestKind` in
+the table above.
+
+Which facet carries the author constant follows the M-B2 facet policy:
+- `tech-unlock` declares an AUTHOR-CONSTANT `science` delta (the node cost is fixed data,
+  not state-dependent), exactly as the worked example below shows.
+- `facility-upgrade` and `kerbal-hire` funds deltas are the FILL-ELIGIBLE funds facet:
+  the author may declare a constant OR leave it null to fill-from-capture (M-B2, funds is
+  the pool-only fill-from-capture facet). For `kerbal-hire` this matters - the hire cost
+  is state-dependent (it rises with roster size via the `GameVariables` recruit-cost
+  curve), so a hardcoded constant is fragile and null-to-fill-from-capture is the robust
+  choice; `facility-upgrade`'s cost is fixed per level but still rides the same
+  fill-eligible funds facet.
 
 ### M-A5 driver integration (budgets, INVALID subkinds)
 
@@ -637,9 +832,9 @@ four rows:
 | verb | deferral budget | rationale |
 |---|---|---|
 | `InvokeRewind` | rewind budget (~300 s, LoadGame-class) | a re-fly copies a quicksave, reloads the scene, and runs `ConsumePostLoad`; sized like `LoadGame` (`TestCommandDispatcher.cs:220`) |
-| `AnswerMergeDialog` | dialog-wait budget (default 60 s) | bounded wait for the merge popup to spawn after a reload; the default covers scene settle |
+| `AnswerMergeDialog` | scene-exit budget (~120 s) | it may DRIVE the conclusion scene-exit that surfaces the pre-transition dialog, then holds the head through the post-answer scene settle; the wait-plus-settle wants a real bound, not the bare default |
 | `TimeJump` | jump budget (~120 s) | the jump is synchronous but the settle + ledger recalc want a bound; well under an infinite hang |
-| `KscAction` | default 60 s | covers the career-ready wait; the action itself is immediate |
+| `KscAction` | default 60 s | covers the career-ready / SPACECENTER wait; the action itself is immediate |
 
 Verdict-to-harness-classification (a REFUSAL is always driver-INVALID retry-once, never
 PARSEK-FAIL):
@@ -648,15 +843,33 @@ PARSEK-FAIL):
 |---|---|
 | `InvokeRewind REJECTED msg=refly-gate ...` | INVALID(driver-gate), retry-once |
 | `InvokeRewind ERROR msg=rewind-failed / rewind-timeout` | INVALID(driver-rewind), retry-once |
-| `AnswerMergeDialog TIMEOUT msg=no-merge-dialog` | INVALID(driver-dialog), retry-once |
-| `AnswerMergeDialog ERROR msg=choice-unavailable / no-live-dialog` | INVALID(driver-dialog), retry-once |
+| `AnswerMergeDialog TIMEOUT msg=no-refly-dialog` | INVALID(driver-dialog), retry-once |
+| `AnswerMergeDialog ERROR msg=choice-unavailable / no-live-dialog / answer-timeout` | INVALID(driver-dialog), retry-once |
 | `TimeJump REJECTED msg=backward-jump / missing-jump-target` | INVALID(driver-arg), retry-once |
-| `KscAction REJECTED msg=insufficient-* / unknown-* / *-already-*` | INVALID(driver-career), retry-once |
+| `KscAction REJECTED msg=insufficient-* / unknown-* / *-already-* / blocked-committed / kerbal-parsek-managed / not-at-space-center` | INVALID(driver-career), retry-once |
 | any verb `OK` but the verifier chain reds the produced save | PARSEK-FAIL (orthogonal) |
+
+**Harness-side companion changes (hlib, same PR).** The Parsek verb-table move has a
+mirror on the Python side that must land with it, or the harness rejects the four verbs
+before they ever reach KSP:
+- `hlib.py:96-101` currently lists all four (`InvokeRewind`, `AnswerMergeDialog`,
+  `KscAction`, `TimeJump`) in `RESERVED_SEAM_VERBS`, so `hlib` HARD-REJECTS a spec that
+  uses them. Move the four from `RESERVED_SEAM_VERBS` into `IMPLEMENTED_SEAM_VERBS`
+  (`hlib.py:92-95`), mirroring the C# `ReservedVerbs` -> `ImplementedVerbs` move.
+- Add `InvokeRewind` and `TimeJump` to `DEFERRED_SEAM_VERBS` (`hlib.py:126`, currently
+  `("RunTests", "LoadGame")`). These two are the two-phase / long-running verbs whose
+  per-step budget the 540s cap + step-wait margin (`MAX_DEFERRED_STEP_BUDGET_SECONDS` /
+  `STEP_WAIT_MARGIN_SECONDS`) must govern. `AnswerMergeDialog` and `KscAction` are
+  bounded-wait but complete quickly, so they are NOT added to `DEFERRED_SEAM_VERBS`
+  (their budgets are the ordinary per-verb deferral budgets above).
 
 The subkind names above are proposed for `hlib`'s `RETRYABLE_INVALID_SUBKINDS`; their
 exact spelling is a harness-side (M-A5) wiring detail reconciled when the driver steps
-are added, not a Parsek contract.
+are added, not a Parsek contract. Even before the finer subkinds land, these refusals
+already classify RETRYABLE today: a step that declares `expect = "OK"` and receives a
+`REJECTED` / `ERROR` / `TIMEOUT` is a driver-verdict-mismatch, which the M-A5 overlay
+already treats as retry-once-then-INVALID. The subkinds only refine the reporting, they
+do not gate retryability.
 
 ### D8/D9 coverage tokens unlocked
 
@@ -670,7 +883,10 @@ token for a new feature). The verbs unlock:
   (all downstream of a real re-fly invocation).
 - `AnswerMergeDialog`: D9 `merge-journal`, `supersede-relation`, `tombstones`,
   `revert-during-refly-dialog`.
-- `TimeJump`: D9 `fast-forward`; D8 `epoch-isolation`, `recalc-engine`.
+- `TimeJump`: D6 `time-jump`; D18 `time-jump-observables`; D8 `epoch-isolation`,
+  `recalc-engine` (the epoch-shift + post-jump recalc). D9 `fast-forward` stays
+  UNCOVERED - it is the deferred `mode=propagate` variant (`ExecuteForwardJump`), which
+  M-C1 does not wire.
 - `KscAction`: D8 `science`, `funds`, `kerbals`, `facilities`, `ksp-state-patcher`,
   `orchestrator`, `recalc-engine`, `action-blocking` (the R6/R7 passive guards).
 
@@ -683,7 +899,26 @@ These match the M-B1 `steps` array shape (`design-autotest-mission-library.md:21
 `cmd`-kind seam step per M-C1 verb. Substitutions (`${runSave}`) are the harness's.
 
 InvokeRewind (a re-fly of an injected tree with a Crashed sibling + RP, fixture block
-B9):
+B9). The `InvokeRewind` -> `AnswerMergeDialog` pair is the whole re-fly cycle: `InvokeRewind`
+spawns and settles the fresh attempt in FLIGHT, then `AnswerMergeDialog` DRIVES the
+scene-exit that concludes it (surfacing the pre-transition merge dialog) and answers it.
+There is deliberately NO separate scene-changing conclusion step between them: a blocking
+`LoadGame` conclusion would hold the FIFO head waiting for a scene-settle that the
+pre-transition dialog blocks, starving the very `AnswerMergeDialog` that would unblock it
+(the A-B1 deadlock; see AnswerMergeDialog Behavior).
+
+**B9 fixture RP-usability prerequisites.** For `InvokeRewind rp=rp_b9_root slot=1` to pass
+`CanInvoke` rather than decline, the injected B9 tree must satisfy three things the fixture
+builder owns:
+1. The RP quicksave sidecar must exist on disk at
+   `saves/<save>/Parsek/RewindPoints/<rpId>.sfs`, or `CanInvoke` declines "Quicksave file
+   missing on disk" (`RewindInvoker.cs:108-113`). The fixture injects it alongside the
+   tree, it is not synthesized at invoke time.
+2. The RP's `CreatingSessionId` must be null (or match), or `LoadTimeSweep` discards it as
+   a session-scoped provisional RP before the driver can use it
+   (`LoadTimeSweep.cs:157-167`).
+3. The RP's `ChildSlots` / `PidSlotMap` must reference the staged vessels' craft-baked
+   `persistentId`s, so `slot=1` resolves to a real child slot.
 
 ```toml
 [driver]
@@ -692,8 +927,8 @@ steps = [
   { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "InvokeRewind", args = { rp = "rp_b9_root", slot = "1" }, expect = "OK", budget = 300 },
-  { cmd = "AnswerMergeDialog", args = { choice = "merge" }, expect = "OK", budget = 60 },
-  { cmd = "CommitTree",   expect = "OK" },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" }, expect = "OK", budget = 120 },
+  { cmd = "RecordingState", expect = "OK" },
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
 [expectations.recordings]
@@ -703,8 +938,10 @@ required  = ["Re-Fly (Rewind-to-Separation) StartInvoke", "Invocation complete"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 ```
 
-AnswerMergeDialog appears as the step immediately after `InvokeRewind` above (the
-bounded-wait defer absorbs the reload-to-dialog gap).
+The `AnswerMergeDialog merge` step leaves the run in SPACECENTER with the re-fly fork
+merged and committed, so the following `RecordingState` (AnyScene) reports the merged tree
+- it is the confirmation of the merge, not a second commit (a `CommitTree` here would
+`ERROR msg=no-active-tree`, since the merge already committed the fork).
 
 TimeJump (warp past a recording EndUT, S1.5 / S4.8):
 
@@ -718,7 +955,9 @@ KscAction (research a node so the ledger oracle cross-checks, L1):
   { cmd = "KscAction", args = { action = "research-node", node = "basicRocketry" }, expect = "OK", budget = 60 },
 ```
 
-with the seam-declared manifest entry the DRIVER attaches for that step:
+with the free-standing manifest row the scenario AUTHOR declares in the same spec (a
+`[[expectations.ledger.manifest]]` entry the harness accumulates by `ut` / `seq`, NOT a
+per-step attachment `run.py` synthesizes):
 
 ```toml
 [[expectations.ledger.manifest]]
@@ -727,6 +966,10 @@ with the seam-declared manifest entry the DRIVER attaches for that step:
   science    = -45.0          # author constant: the node cost; NEVER from Parsek recalc
   provenance = "seam-declared"
 ```
+
+(For a `hire-kerbal` or `upgrade-facility` step, the funds facet on the manifest row is
+fill-eligible: declare a constant or leave it null to fill-from-capture. Prefer
+null-to-fill for `hire-kerbal`, whose cost is state-dependent via the recruit-cost curve.)
 
 ## Edge Cases
 
@@ -741,57 +984,86 @@ Exhaustive. Each: scenario -> expected behavior -> v1 or deferred.
    `merge-journal-in-flight` at dispatch (never reaches CLAIMED). v1.
 4. **InvokeRewind with a live recorder.** Dispatch refuses `recording-active`; the
    orchestrator commits / discards first. v1.
-5. **InvokeRewind crashes mid-reload.** Journal at CLAIMED -> INTERRUPTED on restart;
-   never re-invoked. The rewind may have partially or fully completed; the orchestrator
-   reconciles via `RecordingState` / marker inspection. v1.
+5. **InvokeRewind crashes mid-reload.** The KSP process dies before a terminal response;
+   the M-A5 budget watchdog kills the instance (KILLED) and the scenario retries from a
+   PRISTINE re-staged template, never re-driving the half-executed save. The at-most-once
+   guarantee is that `StartInvoke` fired at most once (the CLAIMED gate); there is no v1
+   `RecordingState`-reconcile of a half-executed rewind, because the harness never restarts
+   the seam mid-run (M-A5). v1.
 6. **InvokeRewind completes but Parsek recorded the fork wrong.** Verb is `OK`; the
    verifier chain (analyzer / ledger oracle) reds the produced save -> PARSEK-FAIL,
    orthogonal to the verb verdict. v1.
-7. **AnswerMergeDialog before the dialog spawns.** Defers `no-merge-dialog` at the FIFO
-   head until the popup appears, then Executes; or TIMEOUT if it never appears. v1.
-8. **AnswerMergeDialog choice=seal on a 2-button dialog.** The live context reports no
-   seal button -> `ERROR msg=choice-unavailable`. v1.
-9. **AnswerMergeDialog: flag set but the dialog dismissed between sample and execute.**
-   `TryAnswerLiveDialog` finds no live context -> `ERROR msg=no-live-dialog`. v1.
-10. **AnswerMergeDialog crashes mid-commit.** Seam WAL -> INTERRUPTED (never re-invokes
-    the button); the merge journal's `RunFinisher` drives the half-done merge to a
-    consistent terminal on the next OnLoad, independent of the seam. v1.
-11. **TimeJump backward or zero delta.** `IsForwardJump` false ->
+7. **AnswerMergeDialog with no dialog and no re-fly to conclude.** Defers `no-refly-dialog`
+   at the FIFO head; if neither a live re-fly popup nor a re-fly marker ever appears it
+   TIMEOUTs (a mis-sequenced answer). When a re-fly marker IS present but no dialog is up,
+   the verb DRIVES the conclusion scene-exit itself and answers the resulting dialog (it
+   does not wait for a separate scene-change step, which would deadlock under strict FIFO
+   - AnswerMergeDialog Behavior, A-B1). v1.
+8. **AnswerMergeDialog answers the WRONG "ParsekMerge" popup.** Three spawn sites share
+   `MergeDialog.DialogName` "ParsekMerge" (whole-tree merge, pre-transition re-fly merge,
+   and the pre-switch decision dialog). The bounded-wait signal is dialog-kind-scoped
+   (`ReFlyMergeDialogPresent` = a live ParsekMerge popup AND `ActiveReFlySessionMarker != null`),
+   so a stray pre-switch decision popup with no re-fly marker does NOT satisfy the
+   precondition and is never answered with a re-fly `choice`. If somehow a non-re-fly
+   popup is live at execute time with no marker, the verb reports `ERROR msg=no-live-dialog`
+   rather than clicking a foreign button. v1.
+9. **AnswerMergeDialog choice=seal on a 2-button dialog.** The located popup has no
+   Merge-and-Seal button -> `ERROR msg=choice-unavailable`. v1.
+10. **AnswerMergeDialog: the popup was dismissed between sample and execute.** No live
+    "ParsekMerge" popup and no re-fly marker to re-surface one -> `ERROR msg=no-live-dialog`.
+    v1.
+11. **AnswerMergeDialog crashes mid-commit.** The process dies before a terminal; the M-A5
+    watchdog kills it (KILLED) and the scenario retries from a pristine template - the
+    seam never re-invokes the button. Independently, a `MergeCommit` that opened a
+    `MergeJournal` and then crashed is driven to a consistent terminal on the next
+    `OnLoad` by `MergeJournalOrchestrator.RunFinisher`, so even a save reused outside the
+    harness converges. v1.
+12. **TimeJump backward or zero delta.** `IsForwardJump` false ->
     `REJECTED msg=backward-jump`. v1.
-12. **TimeJump with both ut and deltaSeconds (or neither).** `ResolveTargetUt` errors
+13. **TimeJump with both ut and deltaSeconds (or neither).** `ResolveTargetUt` errors
     -> `REJECTED msg=missing-jump-target`. v1.
-13. **TimeJump outside FLIGHT.** Dispatch defers `not-in-flight` until FLIGHT or its
+14. **TimeJump outside FLIGHT.** Dispatch defers `not-in-flight` until FLIGHT or its
     budget expires. v1.
-14. **TimeJump then InvokeRewind (composition).** The jump leaves no seam residual (no
+15. **TimeJump then InvokeRewind (composition).** The jump leaves no seam residual (no
     marker, no context); the following `InvokeRewind` sees a clean gate. "Jump then
     rewind leaves no state" (S4.8). v1.
-15. **TimeJump crashes mid-jump.** Journal at CLAIMED -> INTERRUPTED; never re-jumped
-    (SetUniversalTime + epoch-shift is not idempotent). v1.
-16. **KscAction unknown action arg.** `ParseKind` returns `Unknown` ->
+16. **TimeJump crashes mid-jump.** The process dies before a terminal; the M-A5 watchdog
+    kills it (KILLED) and the scenario retries from a pristine template. The at-most-once
+    guarantee is the CLAIMED gate (`ExecuteJump` fired at most once; SetUniversalTime +
+    epoch-shift is not idempotent, so it must never be re-driven within a run). v1.
+17. **KscAction unknown action arg.** `ParseKind` returns `Unknown` ->
     `REJECTED msg=unknown-action`. v1.
-17. **KscAction insufficient funds / science.** The pure `Decide` refuses before the
+18. **KscAction insufficient funds / science.** The pure `Decide` refuses before the
     stock call -> `REJECTED msg=insufficient-funds` / `insufficient-science`; no state
     touched. Driver-INVALID. v1.
-18. **KscAction research a node already unlocked (idempotency).** `Decide` returns
+19. **KscAction research a node already unlocked (idempotency).** `Decide` returns
     `node-already-unlocked` -> REJECTED, no double-unlock. v1.
-19. **KscAction on a non-career game.** Dispatch defers `career-not-ready` (no
+20. **KscAction on a non-career game.** Dispatch defers `career-not-ready` (no
     `Funding`/`RnD`/roster singleton) until a career loads or TIMEOUT. v1.
-20. **KscAction upgrade-facility then scene change (R6 passive guard).** The upgrade is
-    real (funds debited, level bumped); a following `LoadGame` scene change must NOT
-    produce a phantom `facility-refund`. The verb exercises the setup; the ledger
-    oracle asserts no phantom refund. v1 (the guard is the assertion, not the verb).
-21. **A reserved verb (one of the other eleven) arrives.** Still
+21. **KscAction upgrade-facility outside SPACECENTER.** Dispatch defers
+    `not-at-space-center` until the run is in SPACECENTER (where the `SpaceCenterBuilding`
+    instances exist) or the budget expires. The other three sub-actions are AnyScene and
+    do not defer here. v1.
+22. **KscAction guard-blocked by a committed action.** The applier invokes the stock
+    method but a committed-action guard patch (`TechResearchSpendPatch` /
+    `FacilityUpgradeSpendPatch` / `KerbalHirePatch.ShouldAllowHire` / `KerbalDismissalPatch`
+    `IsManaged`) silently blocks it; the effect-confirmation step sees no change ->
+    `REJECTED msg=blocked-committed` (dismiss also pre-declines `kerbal-parsek-managed`
+    when `IsManaged` is known up front). Never a false OK. v1.
+23. **KscAction upgrade-facility then scene change (R6 passive guard).** The upgrade is
+    real (the live `SpaceCenterBuilding.UpgradeFacility(bool)` debited funds and bumped the
+    level); a following scene change must NOT produce a phantom `facility-refund`. The verb
+    exercises the setup; the ledger oracle asserts no phantom refund. v1 (the guard is the
+    assertion, not the verb).
+24. **A reserved verb (one of the other eleven) arrives.** Still
     `REJECTED msg=not-implemented-v1` (`TestCommandVerbs.cs` unchanged for them). v1.
-22. **A v0 addon (pre-M-C1) receives InvokeRewind.** It rejects `not-implemented-v1`;
+25. **A v0 addon (pre-M-C1) receives InvokeRewind.** It rejects `not-implemented-v1`;
     the orchestrator detects the capability gap and does not confuse it with a typo.
     Backward-compatible. v1.
-23. **Two-phase verb budget expiry (InvokeRewind / TimeJump never settles).** The
-    existing `TryCompleteTwoPhase` budget path converts to `ERROR` (rewind-timeout /
-    jump-timeout), advancing the head so the run is not wedged. v1.
-24. **KscAction hire cost debit path needs a UI context.** Open question (below): the
-    stock hire-cost funds debit lives in the AstronautComplex UI, not in
-    `HireApplicant`. v1 flags this as a resolution to confirm live; the verb debits the
-    hire cost through the same `Funding` path so the ledger observes a real debit.
+26. **Two-phase verb budget expiry (InvokeRewind / TimeJump / AnswerMergeDialog never
+    settles).** The existing `TryCompleteTwoPhase` budget path converts to `ERROR`
+    (rewind-timeout / jump-timeout) or `TIMEOUT` (no-refly-dialog), advancing the head so
+    the run is not wedged. v1.
 
 ## What Doesn't Change
 
@@ -802,10 +1074,12 @@ Exhaustive. Each: scenario -> expected behavior -> v1 or deferred.
   grammar, journal grammar, lock grammar, and verdict set are exactly M-A2's. The four
   verbs use only verb-specific args M-A2 already allows.
 - No gameplay behavior in normal play. The addon stays env-gated
-  (`PARSEK_TEST_COMMANDS=1`, `ParsekTestCommandAddon.cs:158`) and inert otherwise; the
+  (`PARSEK_TEST_COMMANDS`, `ParsekTestCommandAddon.cs:38`; armed only when it is exactly
+  `"1"`, logged at `:189`) and inert otherwise; the
   four verbs are reachable only through the armed channel. `MergeDialog.DialogName`
-  going `private -> internal const` and the new `TryAnswerLiveDialog` /
-  `ParsekFlight.TimeJumpTo` methods are dormant unless the addon calls them.
+  going `private -> internal const` and the new `ParsekFlight.TimeJumpTo` method are
+  dormant unless the addon calls them (the const widening exposes no behavior; the verb
+  invokes existing `DialogGUIButton` callbacks, adding no new `MergeDialog` method).
 - `RewindInvoker`, `MergeDialog`, `TimeJumpManager`, and the KSC patches keep their
   existing behavior. The verbs call the SAME entry points a human click uses
   (`RewindInvoker.StartInvoke`, `MergeCommit` / `MergeDiscard`,
@@ -830,8 +1104,14 @@ Exhaustive. Each: scenario -> expected behavior -> v1 or deferred.
   (`InvokeRewind`, `AnswerMergeDialog`, `TimeJump`, `KscAction`) are byte-identical
   before and after, so a scenario spec authored against the reserved names (expecting
   `not-implemented-v1`) still parses; only the RESPONSE changes.
-- `MergeDialog.DialogName` widening to `internal const` and the new internal helpers do
-  not alter any serialized shape or public API.
+- `MergeDialog.DialogName` widening from `private const` to `internal const` does not
+  alter any serialized shape or public API; no new `MergeDialog` entry point is added (the
+  verb invokes the existing `DialogGUIButton` callbacks by locating the live popup).
+- Old journal inherited across the addon upgrade replays safely. The command journal
+  (`parsek-test-commands.journal`) is an ephemeral test artifact, but if a v2 (M-C1) addon
+  boots on a channel that still carries a v1 journal, `DecideRecovery` treats any id at
+  DONE as already-processed and SKIPS it (`TestCommandJournal.cs:282`), so an inherited
+  completed command is never re-executed; there is nothing M-C1-specific to migrate.
 - No existing recordings, saves, or settings are read or rewritten by M-C1 beyond the
   live state the four real actions already mutate through their existing, unchanged
   paths.
@@ -853,22 +1133,25 @@ M-A2, `design-autotest-command-seam.md:699-730`):
   `Warn` "invokerewind refused: refly-gate <reason>"; on completion `Info`
   "invokerewind complete session=<sess> activePid=<pid>" or `Error` "invokerewind
   failed reason=<rewind-failed|rewind-timeout> elapsed=<s>s".
-- `AnswerMergeDialog`: `Info` "answermergedialog choice=<choice> result=<result>"; on
-  the bounded-wait defer the standard rate-limited "dispatch id=<id> -> DEFER
-  reason=no-merge-dialog"; on failure `Warn` "answermergedialog failed
+- `AnswerMergeDialog`: `Info` "answermergedialog choice=<choice> result=<result>"; when it
+  drives the conclusion scene-exit itself, `Info` "answermergedialog driving re-fly
+  conclusion scene-exit"; on the bounded-wait defer the standard rate-limited "dispatch
+  id=<id> -> DEFER reason=no-refly-dialog"; on failure `Warn` "answermergedialog failed
   reason=<choice-unavailable|no-live-dialog>".
 - `TimeJump`: `Info` "timejump start target=<ut> delta=<s>s" and "timejump complete
   reachedUT=<ut>"; on refuse `Warn` "timejump refused reason=<backward-jump|
   missing-jump-target>".
 - `KscAction`: `Info` "kscaction action=<action> target=<target> applied=true
   manifestKind=<kind> observedAfter=<value>"; on refuse `Warn` "kscaction refused
-  action=<action> reason=<...> target=<target>".
+  action=<action> reason=<...> target=<target>" (reasons include `blocked-committed`,
+  `kerbal-parsek-managed`, `not-at-space-center`, and the affordability / unknown-id
+  set).
 
 Dispatch decisions reuse the M-A2 lines (`TestCommandDiagnostics.DispatchExecute /
 DispatchReject / DispatchDefer / DispatchInterrupted`, `ParsekTestCommandAddon.cs:507`),
-so the four new refusals / defers ("merge-journal-in-flight", "no-merge-dialog",
-"career-not-ready", "backward-jump", the refly-gate reason) appear in the standard
-"dispatch id=<id> -> REJECT/DEFER reason=<...>" shape.
+so the new refusals / defers ("merge-journal-in-flight", "no-refly-dialog",
+"career-not-ready", "not-at-space-center", "backward-jump", the refly-gate reason) appear
+in the standard "dispatch id=<id> -> REJECT/DEFER reason=<...>" shape.
 
 Goal (unchanged from M-A2): a developer reading KSP.log can reconstruct, for every
 command id, that it was received, which dispatch branch it took and why, whether the
@@ -892,9 +1175,11 @@ in-game-sweep-needs-operator).
 - **DecideDispatch new rows.** For each new verb x state: `InvokeRewind` outside FLIGHT
   -> Defer(not-in-flight); with `MergeJournalInFlight` -> Reject(merge-journal-in-flight);
   with `Recording` -> Reject(recording-active); with `LoadInFlight` -> Reject(load-in-flight);
-  ready -> Execute. `AnswerMergeDialog` with `!MergeDialogPresent` -> Defer(no-merge-dialog);
-  with the dialog present -> Execute. `TimeJump` outside FLIGHT -> Defer; in FLIGHT ->
-  Execute. `KscAction` with `!CareerPresent` -> Defer(career-not-ready); ready -> Execute.
+  ready -> Execute. `AnswerMergeDialog` with `!ReFlyMergeDialogPresent && !ActiveReFlyMarker`
+  -> Defer(no-refly-dialog); with either a live re-fly dialog OR a re-fly marker -> Execute.
+  `TimeJump` outside FLIGHT -> Defer; in FLIGHT -> Execute. `KscAction` (research/hire/dismiss)
+  with `!CareerPresent` -> Defer(career-not-ready); ready -> Execute. `KscAction upgrade-facility`
+  with `CareerPresent && !AtSpaceCenter` -> Defer(not-at-space-center); at SPACECENTER -> Execute.
   Fails if a verb executes in an unsafe state or a guard is skipped (the safety matrix).
 - **DecideRewindCompletion.** `contextPending` -> StillWaiting; `!pending &&
   markerPresent` -> CompleteOk; `!pending && !marker && !budget` -> RewindFailed;
@@ -911,12 +1196,15 @@ in-game-sweep-needs-operator).
   -> Unknown. Accept when the target resolves, is not already applied, and the cost is
   affordable; each typed refusal (`unknown-tech-node`, `node-already-unlocked`,
   `insufficient-science`, `unknown-facility`, `facility-at-max`, `insufficient-funds`,
-  `unknown-kerbal`, `kerbal-not-applicant`, `kerbal-not-dismissable`) fires on its
-  boundary. The `ManifestKind` is the right kind per sub-action. Fails if an
+  `unknown-kerbal`, `kerbal-not-applicant`, `kerbal-not-dismissable`, `kerbal-parsek-managed`)
+  fires on its boundary. The `ManifestKind` is the right kind per sub-action. Fails if an
   unaffordable action is admitted (a false OK), or a refusal maps to the wrong reason.
-- **Merge-choice mapper.** `merge` / `commit` / `discard` / `seal` map to the right
-  `MergeDialogChoice`; an unknown choice -> reject. Fails if a choice string drift
-  invokes the wrong button.
+- **Merge-choice mapper + DecideAnswerCompletion.** `merge` / `commit` / `discard` /
+  `seal` map to the right `MergeDialogChoice`; an unknown choice -> reject. Fails if a
+  choice string drift invokes the wrong button. `DecideAnswerCompletion`: a settled
+  post-answer scene -> CompleteOk; still LOADING / transitioning -> StillWaiting;
+  budget-expired -> AnswerTimeout. Fails if the head advances before the scene settles or a
+  stuck transition wedges the run.
 - **Deferral budgets.** `DeferralBudget.BudgetSeconds` returns the rewind / dialog /
   jump / KscAction budgets for the four verbs and the default otherwise. Fails if a
   never-satisfiable verb inherits the wrong bound.
@@ -932,9 +1220,9 @@ in-game-sweep-needs-operator).
 ### Log-assertion tests (via ParsekLog.TestSinkForTesting)
 
 - Each new verb emits its start / complete / refuse `[TestCommands]` line with the id
-  and reason; each new dispatch branch (merge-journal-in-flight, no-merge-dialog,
-  career-not-ready, backward-jump, refly-gate) is non-silent. Fails if a decision branch
-  is a debugging blind spot or a marker format drifts.
+  and reason; each new dispatch branch (merge-journal-in-flight, no-refly-dialog,
+  career-not-ready, not-at-space-center, backward-jump, refly-gate) is non-silent. Fails if
+  a decision branch is a debugging blind spot or a marker format drifts.
 
 ### In-game tests (InGameTests, live KSP only)
 
@@ -944,10 +1232,12 @@ pilot KSP):
 - With `PARSEK_TEST_COMMANDS` unset, the addon performs no file access and the four new
   verbs are never reachable (inert). Fails if the shipped default is not inert.
 - A file-channel `InvokeRewind` -> `AnswerMergeDialog merge` -> `RecordingState`
-  sequence on an injected B9 tree (Crashed sibling + RP) drives a real re-fly to a
-  merged tree in FLIGHT and the following `RecordingState` reflects it. Fails if the
-  two-phase completion, the bounded-wait dialog answer, or the in-callback invoke is
-  wrong. (PENDING-OPERATOR.)
+  sequence on an injected B9 tree (Crashed sibling + RP) drives a real re-fly: `InvokeRewind`
+  settles the attempt in FLIGHT, `AnswerMergeDialog merge` DRIVES the conclusion scene-exit
+  (surfacing the pre-transition dialog) and invokes the Commit button's own callback, and
+  the following `RecordingState` (now in SPACECENTER) reflects the merged tree. Fails if
+  the two-phase completion, the conclusion-drive, the by-name popup lookup, or the button
+  callback invoke is wrong. (PENDING-OPERATOR.)
 - A `TimeJump deltaSeconds=600` from a known FLIGHT state lands the clock within
   tolerance and (per S4.8) leaves SMA/ecc/inc unchanged, MNA-at-epoch shifted by the
   delta, relative positions frozen, and earlier chain tips auto-spawned. The
@@ -955,10 +1245,15 @@ pilot KSP):
   (PENDING-OPERATOR for the physics assertions.)
 - A `KscAction research-node` on a career fixture unlocks the node, spends science, and
   the ledger oracle cross-checks the recalc against the seam-declared `tech-unlock`
-  manifest entry. Repeat for `upgrade-facility` (R6 refund guard after a following
-  `LoadGame`), `hire-kerbal`, `dismiss-kerbal`. Fails if the stock action does not trip
-  the Parsek patch (grep the patch's own log line to confirm the mutation, per MEMORY:
-  verify-harness-seeder-mutation), or the ledger mis-accounts. (PENDING-OPERATOR.)
+  manifest entry. Repeat for `upgrade-facility` (SPACECENTER scene, R6 refund guard after a
+  following scene change), `hire-kerbal`, `dismiss-kerbal`. Confirm the state change
+  reached Parsek's recorder observers by grepping the `GameStateRecorder` event lines the
+  real handlers emit (`OnTechnologyResearched` / `OnCrewmemberHired` / `onKerbalRemoved`
+  handlers, `GameStateRecorder.cs:315`/`:323`/`:324`, and the facility POLLING line from
+  `GameStateFacilityRecorder`), NOT the guard-patch lines (a guard patch that fired would
+  mean the stock call was BLOCKED, i.e. a REJECTED, not an OK). Per MEMORY:
+  verify-harness-seeder-mutation. Fails if the stock action did not reach the observer, or
+  the ledger mis-accounts. (PENDING-OPERATOR.)
 
 ## Deferred Items and Open Questions
 
@@ -992,47 +1287,57 @@ pilot KSP):
 - **TimeJump propagate mode.** v1 uses `ExecuteJump` (epoch-shift, frozen relative
   positions) only. A `mode=propagate` arg selecting `ExecuteForwardJump` (orbits
   advance, the fast-forward contract) is deferred; the arg slot is reserved by the
-  unknown-key-ignore rule so it is additive.
+  unknown-key-ignore rule so it is additive. This is why D9 `fast-forward` stays
+  uncovered by M-C1.
+- **Scripted rails-warp verb (R8 warp-reseed-lag).** `TimeJump` STOPS warp and
+  epoch-shifts instantly (`TimeJumpManager.cs:323-326`), so it never exercises R8, the
+  map-render lag seen when a real rails-warp is reseeded across a threshold. Covering R8
+  needs a distinct verb that drives `TimeWarp` up, holds it, observes the render, and
+  drives it back down - a separate warp-verbs batch. It is NOT a `TimeJump mode=`, because
+  the regression is about the live warp coast, not a discrete jump.
 - **InvokeRewind confirmation-dialog bypass.** The verb calls `StartInvoke` directly
   (past the "Fly" confirmation `PopupDialog`, `RewindInvoker.cs:452-473`), which is
   correct for automation. If a future scenario wants to exercise the confirmation dialog
   itself, that is an `AnswerMergeDialog`-style dialog verb, deferred.
 
-### Open questions for the review panel
+### Open questions (RESOLVED by the review panel)
 
-1. **KscAction funds-debit path for upgrade-facility and hire-kerbal.** The stock funds
-   debit for a facility upgrade lives in `SpaceCenterBuilding.UpgradeFacility(bool)`
-   (`FacilityUpgradeSpendPatch.cs:15`), a MonoBehaviour instance method that normally
-   runs from the KSC building UI; the hire-cost debit lives in the AstronautComplex UI,
-   not in `KerbalRoster.HireApplicant`. Can the verb drive those UI-context methods
-   headlessly (to get the REAL debit the Parsek spend patch observes), or must it invoke
-   `UpgradeableFacility.SetLevel` / `HireApplicant` and debit the cost through
-   `Funding.Instance` explicitly (a faithful mirror, but not literally the stock UI
-   path)? The former is "the real stock action" the design prefers; the latter is a
-   pragmatic fallback. This needs a decompile of `SpaceCenterBuilding.UpgradeFacility` /
-   the AstronautComplex hire flow to confirm headless invokability, and it decides
-   whether `FacilityUpgradeSpendPatch` / the hire funds accounting fire.
-2. **research-node stock-buy entry point.** Does calling `RDTech.ResearchTech()` on a
-   node constructed from the tech id reproduce the full RDController buy (science spend +
-   `UnlockTech` + part availability), or does the RDController do additional work the
-   patches rely on? A decompile of `RDController.PartUnlock` / the research-buy path
-   confirms the exact call sequence that trips both `TechResearchSpendPatch` and
-   `TechResearchPatch` without a live RDController.
-3. **InvokeRewind completion when the marker was written but the seam crashed.** The
-   design reports INTERRUPTED (conservative) rather than reconstructing OK, because the
-   OK payload is not known until the marker lands across the reload. Is conservative-
-   INTERRUPTED acceptable to the M-A5 harness (it reconciles via `RecordingState`), or
-   should the seam attempt a marker-driven recovery on restart (read the marker, emit a
-   late OK)? The former is simpler and safe; the latter is more precise but adds a
-   marker-to-payload recovery path.
-4. **AnswerMergeDialog live-context capture vs. button-callback invocation.** The design
-   stashes a `LiveDialogContext` (the captured `tree` / `decisions` / `spawnCount`) when
-   the dialog spawns and invokes the handler synchronously. An alternative reads the
-   live `PopupDialog` by `DialogName` and invokes the matching `DialogGUIButton`'s own
-   callback directly (no separate stash). The M-A2 note (`design-autotest-command-seam.md:466-474`)
-   says "invoke the chosen button's action directly." Which is cleaner and less likely
-   to drift from the dialog's own button wiring if `MergeDialog` adds a fourth button?
-5. **D-token registry reconciliation.** The verbs unlock existing D8/D9 tokens; if the
-   driver authors find a genuinely missing token (e.g. a distinct `time-jump` token
-   separate from `fast-forward`), it is added per the growth rule. Confirm no new token
-   is required before wiring the driver steps.
+1. **KscAction funds-debit path for upgrade-facility and hire-kerbal. RESOLVED.**
+   Split by sub-action. `upgrade-facility` invokes the REAL live SPACECENTER-scene
+   `SpaceCenterBuilding.UpgradeFacility(bool)` instance (resolved by facility id among the
+   scene's building MonoBehaviours), which produces the genuine stock funds debit and level
+   bump - hence the SPACECENTER sub-gate. `hire-kerbal` does NOT have a headless stock debit
+   (`KerbalRoster.HireApplicant` moves the applicant but does not charge funds; the stock
+   debit is in the Astronaut Complex UI), so the verb MIRRORS the stock debit: the
+   `CurrencyModifierQuery` affordability check plus `Funding.Instance.AddFunds(-hireCost,
+   TransactionReasons.CrewRecruited)` (the `CrewRecruited` reason key is load-bearing -
+   `KscActionExpectationClassifier.cs:140-148` keys the hire funds leg on it), with
+   `hireCost` from the `GameVariables` recruit-cost curve, then `HireApplicant`. See KscAction
+   Behavior.
+2. **research-node stock-buy entry point. RESOLVED.** Drive `RDTech.ResearchTech()` (which
+   spends science and fires `RDTech.UnlockTech`) and CONFIRM the effect via
+   `RDTech.OperationResult` / the node's researched state before reporting OK. Part-availability
+   propagation rides `UnlockTech` and is a downstream verifier-chain concern, not a verb
+   precondition. The confirmation step is required because `TechResearchSpendPatch` can block a
+   committed node (a guard-blocked call is `REJECTED msg=blocked-committed`, never a false OK).
+3. **InvokeRewind completion when the marker was written but the seam crashed. RESOLVED.**
+   Conservative is correct, and the reconcile framing is dropped. In the v1 harness INTERRUPTED
+   is UNREACHABLE (the harness never restarts the seam mid-run, M-A5): a crashed rewind surfaces
+   as KILLED (budget watchdog) and the scenario retries from a PRISTINE re-staged template, which
+   is exactly why retrying a half-executed rewind is safe (the retry never re-drives the
+   half-executed save). No `RecordingState`-reconcile and no marker-driven late-OK recovery is
+   built; conservative-INTERRUPTED stays seam-side only as a defensive contract for the
+   hypothetical restart.
+4. **AnswerMergeDialog live-context capture vs. button-callback invocation. RESOLVED:
+   button-callback invocation.** Find the live `PopupDialog` by `MergeDialog.DialogName` and
+   invoke the chosen `DialogGUIButton`'s OWN callback (no `LiveDialogContext` stash). It survives
+   all three `ShowTreeDialog` / `ShowPreSwitchDecisionDialog` overloads and cannot drift if a
+   fourth button is added, because the seam never has to know what a button DOES. This is the
+   M-A2-prescribed design (`design-autotest-command-seam.md:466-474`). The re-fly dialog kind is
+   discriminated by `ActiveReFlySessionMarker != null` so a foreign "ParsekMerge" popup is never
+   answered.
+5. **D-token registry reconciliation. RESOLVED.** No new token is required. `TimeJump` credits
+   D6 `time-jump` + D18 `time-jump-observables` (both already in `registry.toml`); D9
+   `fast-forward` stays uncovered (the deferred propagate mode). The other verbs credit existing
+   D8/D9 tokens. If a driver author later finds a genuinely absent token, it is added in the same
+   PR per the growth rule.
