@@ -3328,24 +3328,15 @@ namespace Parsek
                     {
                         if (IsAutoMerge)
                         {
-                            // Check if commit approval dialog should be shown (#88):
-                            // landed/splashed vessel going to KSC or Tracking Station
-                            var destScene = RecordingStore.PendingDestinationScene;
-                            TerminalState? termState = null;
-                            if (RecordingStore.HasPendingTree)
-                            {
-                                // Find root recording's terminal state from tree
-                                Recording rootRec;
-                                if (RecordingStore.PendingTree.Recordings.TryGetValue(
-                                    RecordingStore.PendingTree.RootRecordingId, out rootRec))
-                                    termState = rootRec.TerminalStateValue;
-                            }
-                            bool showApproval = destScene.HasValue &&
-                                GhostPlaybackLogic.ShouldShowCommitApproval(destScene.Value, termState);
+                            // #88 folded: landed/splashed no longer forces an approval
+                            // dialog under autoMerge — the silent commit is now
+                            // full-fidelity (spawn-at-end preserved), so it is safe for
+                            // surviving vessels. Consume the pending destination scene
+                            // (it was only read to gate the retired #88 approval).
                             RecordingStore.PendingDestinationScene = null;
 
-                            // Auto-discard idle-on-pad before commit approval or auto-commit.
-                            // Only for Finalized trees (Limbo trees are resume-flow stashes).
+                            // Auto-discard idle-on-pad before auto-commit. Only for
+                            // Finalized trees (Limbo trees are resume-flow stashes).
                             if (RecordingStore.HasPendingTree
                                 && RecordingStore.PendingTreeStateValue == PendingTreeState.Finalized
                                 && ParsekFlight.IsTreeIdleOnPad(RecordingStore.PendingTree))
@@ -3355,32 +3346,12 @@ namespace Parsek
                                     "scene-exit idle-on-pad auto-discard");
                             }
 
-                            bool anythingLeft = RecordingStore.HasPendingTree;
-                            if (anythingLeft && showApproval && !mergeDialogPending)
-                            {
-                                // Defer to approval dialog instead of auto-committing
-                                mergeDialogPending = true;
-                                StartCoroutine(ShowDeferredMergeDialog());
-                                ParsekLog.Info("Scenario",
-                                    "Commit approval deferred: vessel landed/splashed at KSC/TS exit");
-                            }
-                            else
-                            {
-                                // autoMerge ON: auto-commit ghost-only (existing behavior)
-                                if (RecordingStore.HasPendingTree)
-                                {
-                                    AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
-                                    var treeToCommit = RecordingStore.PendingTree;
-                                    // Resources were applied live during the flight we are now
-                                    // exiting (!isRevert is checked upstream at line ~1143), so
-                                    // mark applied to disarm the lump-sum replay path — same
-                                    // rationale as MergeDialog.MergeCommit (Phase C).
-                                    CommitPendingTreeAsApplied(treeToCommit);
-                                    LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
-                                    ScreenMessages.PostScreenMessage("[Parsek] Tree recording committed to timeline", 5f);
-                                }
-                                RecordingStore.RunOptimizationPass();
-                            }
+                            // Silent auto-commit: full-fidelity MergeCommit when the tree
+                            // qualifies (Finalized, no active re-fly, real scene), else the
+                            // lightweight ghost-only commit. Resources were applied live
+                            // during the flight we are exiting (!isRevert checked upstream),
+                            // so the tree is marked applied to disarm the lump-sum replay.
+                            AutoCommitPendingTreeOutsideFlight("scene-exit");
                         }
                         else if (RecordingStore.HasPendingTree && !mergeDialogPending)
                         {
@@ -3752,25 +3723,13 @@ namespace Parsek
 
                     if (IsAutoMerge || HighLogic.LoadedScene == GameScenes.MAINMENU)
                     {
-                        // autoMerge ON: auto-commit ghost-only
-                        if (RecordingStore.HasPendingTree)
-                        {
-                            var pt = RecordingStore.PendingTree;
-                            foreach (var rec in pt.Recordings.Values)
-                            {
-                                if (rec.VesselSnapshot != null)
-                                    CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
-                                rec.VesselSnapshot = null;
-                            }
-                            // Esc > Abort Mission → Space Center path: the flight that produced
-                            // this pending tree already applied its resources live. Mark applied
-                            // to disarm the lump-sum replay path — same rationale as
-                            // MergeDialog.MergeCommit (Phase C).
-                            CommitPendingTreeAsApplied(pt);
-                            LedgerOrchestrator.NotifyLedgerTreeCommitted(pt);
-                            ScenarioLog($"[Parsek Scenario] Auto-committed pending tree outside Flight " +
-                                $"(scene: {HighLogic.LoadedScene})");
-                        }
+                        // Silent auto-commit: full-fidelity MergeCommit when the tree
+                        // qualifies (autoMerge, Finalized, no active re-fly, real scene),
+                        // else the lightweight ghost-only commit. MAINMENU (game
+                        // unloading) and non-autoMerge always fall to ghost-only. The
+                        // originating flight already applied its resources live, so the
+                        // commit marks the tree applied to disarm the lump-sum replay.
+                        AutoCommitPendingTreeOutsideFlight("cold-load outside-flight");
                     }
                     else if (!mergeDialogPending)
                     {
@@ -6773,6 +6732,88 @@ namespace Parsek
         /// Prepares all recordings in a pending tree for ghost-only commit (no vessel spawn).
         /// Nulls vessel snapshot and unreserves crew. Call RecordingStore.CommitPendingTree() after this.
         /// </summary>
+        /// <summary>
+        /// Pure predicate: should an outside-Flight auto-commit (autoMerge ON)
+        /// route through the dialog's full-fidelity <see cref="MergeDialog.MergeCommit"/>
+        /// (spawn-at-end preserved) rather than the lightweight ghost-only commit?
+        ///
+        /// <para>True only when the silent commit is safe for surviving vessels and
+        /// carries no irreversible-timeline risk: autoMerge is on, the pending tree
+        /// is a completed-flight <see cref="PendingTreeState.Finalized"/> candidate
+        /// (never a Limbo resume-stash), no re-fly session is active (a silent
+        /// MergeCommit would otherwise supersede it — kept dialog/journal-gated),
+        /// and the destination is a real scene (not MAINMENU, where the game is
+        /// unloading and spawn-at-end never runs). See
+        /// docs/dev/plans/silent-full-fidelity-autocommit.md.</para>
+        /// </summary>
+        internal static bool ShouldSilentFullFidelityCommit(
+            bool isAutoMerge,
+            PendingTreeState pendingState,
+            bool reFlyActive,
+            GameScenes loadedScene)
+        {
+            return isAutoMerge
+                && pendingState == PendingTreeState.Finalized
+                && !reFlyActive
+                && loadedScene != GameScenes.MAINMENU;
+        }
+
+        /// <summary>
+        /// Silent auto-commit of the current pending tree on an outside-Flight
+        /// OnLoad path. Routes through the dialog's full-fidelity
+        /// <see cref="MergeDialog.MergeCommit"/> (spawn-at-end + resources
+        /// preserved, no popup) when <see cref="ShouldSilentFullFidelityCommit"/>
+        /// qualifies, otherwise falls back to the lightweight ghost-only commit
+        /// (re-fly / Limbo / MAINMENU). Shared by the warm scene-change fallback
+        /// and the cold-load pending-outside-flight paths.
+        /// </summary>
+        private static void AutoCommitPendingTreeOutsideFlight(string context)
+        {
+            if (!RecordingStore.HasPendingTree)
+                return;
+
+            var pt = RecordingStore.PendingTree;
+            var scenario = ParsekScenario.Instance;
+            bool reFlyActive =
+                !object.ReferenceEquals(null, scenario)
+                && scenario.ActiveReFlySessionMarker != null;
+
+            if (ShouldSilentFullFidelityCommit(
+                    IsAutoMerge,
+                    RecordingStore.PendingTreeStateValue,
+                    reFlyActive,
+                    HighLogic.LoadedScene))
+            {
+                var decisions = MergeDialog.BuildDefaultVesselDecisions(pt);
+                int spawnCount = 0;
+                foreach (var v in decisions.Values)
+                    if (v) spawnCount++;
+                ParsekLog.Info("Scenario",
+                    $"Silent full-fidelity auto-commit ({context}): tree='{pt.TreeName}' " +
+                    $"recordings={pt.Recordings.Count} spawnable={spawnCount}");
+                // MergeCommit runs the full dialog-commit sequence: ApplyVesselDecisions
+                // (keeps spawnable-leaf snapshots), CommitPendingTree + MarkTreeAsApplied,
+                // RunOptimizationPass, NotifyLedgerTreeCommitted, crew swap, and posts its
+                // own screen message. Its M1 guard (pt == RecordingStore.PendingTree) holds.
+                MergeDialog.MergeCommit(pt, decisions, spawnCount);
+            }
+            else
+            {
+                string reason = reFlyActive ? "re-fly-active"
+                    : RecordingStore.PendingTreeStateValue != PendingTreeState.Finalized
+                        ? $"state={RecordingStore.PendingTreeStateValue}"
+                    : HighLogic.LoadedScene == GameScenes.MAINMENU ? "mainmenu"
+                    : "not-automerge";
+                AutoCommitTreeGhostOnly(pt);
+                CommitPendingTreeAsApplied(pt);
+                LedgerOrchestrator.NotifyLedgerTreeCommitted(pt);
+                ScreenMessages.PostScreenMessage("[Parsek] Tree recording committed to timeline", 5f);
+                RecordingStore.RunOptimizationPass();
+                ParsekLog.Info("Scenario",
+                    $"Ghost-only auto-commit ({context}, reason={reason}): tree='{pt.TreeName}'");
+            }
+        }
+
         private static void AutoCommitTreeGhostOnly(RecordingTree tree)
         {
             foreach (var rec in tree.Recordings.Values)

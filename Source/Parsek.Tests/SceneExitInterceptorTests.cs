@@ -89,8 +89,7 @@ namespace Parsek.Tests
                 GameScenes.SPACECENTER,
                 hasActiveTree: false,
                 reFlyActive: false,
-                isAutoMerge: false,
-                activeVesselLandedOrSplashed: false);
+                isAutoMerge: false);
             Assert.Equal(SceneExitInterceptor.DialogVariant.None, v);
         }
 
@@ -101,8 +100,7 @@ namespace Parsek.Tests
                 GameScenes.SPACECENTER,
                 hasFinalizedPendingTree: true,
                 reFlyActive: false,
-                isAutoMerge: false,
-                pendingRootLandedOrSplashed: false);
+                isAutoMerge: false);
             Assert.Equal(SceneExitInterceptor.DialogVariant.RegularMerge, v);
         }
 
@@ -113,8 +111,7 @@ namespace Parsek.Tests
                 GameScenes.TRACKSTATION,
                 hasFinalizedPendingTree: true,
                 reFlyActive: true,
-                isAutoMerge: true,
-                pendingRootLandedOrSplashed: false);
+                isAutoMerge: true);
             Assert.Equal(SceneExitInterceptor.DialogVariant.ReFlyAttempt, v);
         }
 
@@ -125,14 +122,16 @@ namespace Parsek.Tests
                 GameScenes.SPACECENTER,
                 hasFinalizedPendingTree: false,
                 reFlyActive: false,
-                isAutoMerge: false,
-                pendingRootLandedOrSplashed: false);
+                isAutoMerge: false);
             Assert.Equal(SceneExitInterceptor.DialogVariant.None, v);
         }
 
         [Fact]
-        public void LivePendingTreeDecision_FinalizedLandedPendingTree_AutoMergeOn_ReturnsRegularMerge()
+        public void LivePendingTreeDecision_FinalizedLandedPendingTree_AutoMergeOn_ReturnsNone()
         {
+            // #88 folded: a finalized landed pending tree under autoMerge now
+            // commits silently (full fidelity) instead of surfacing an approval
+            // dialog. See docs/dev/plans/silent-full-fidelity-autocommit.md.
             ParsekScenario.SetCachedAutoMergeForTesting(true);
             RecordingStore.StashPendingTree(
                 MakePendingTree("pending_landed", TerminalState.Landed),
@@ -141,7 +140,7 @@ namespace Parsek.Tests
             var v = SceneExitInterceptor.ShouldShowPendingTreeDialogBeforeSceneChangeLive(
                 GameScenes.SPACECENTER);
 
-            Assert.Equal(SceneExitInterceptor.DialogVariant.RegularMerge, v);
+            Assert.Equal(SceneExitInterceptor.DialogVariant.None, v);
         }
 
         [Fact]
@@ -209,8 +208,7 @@ namespace Parsek.Tests
                 hasActiveTree: false,
                 reFlyActive: false,
                 switchSegmentActive: false,
-                isAutoMerge: false,
-                activeVesselLandedOrSplashed: false);
+                isAutoMerge: false);
             Assert.Equal(SceneExitInterceptor.DialogVariant.None, v);
         }
 
@@ -228,8 +226,7 @@ namespace Parsek.Tests
                 hasActiveTree: false,
                 reFlyActive: false,
                 switchSegmentActive: true,
-                isAutoMerge: false,
-                activeVesselLandedOrSplashed: false);
+                isAutoMerge: false);
             Assert.Equal(SceneExitInterceptor.DialogVariant.RegularMerge, v);
         }
 
@@ -321,34 +318,35 @@ namespace Parsek.Tests
                     dest,
                     hasActiveTree: true,
                     reFlyActive: false,
-                    isAutoMerge: false,
-                    activeVesselLandedOrSplashed: false);
+                    isAutoMerge: false);
                 Assert.Equal(SceneExitInterceptor.DialogVariant.RegularMerge, v);
             }
         }
 
         [Fact]
-        public void Decision_AutoMergeOn_LandedAtKsc_ReturnsRegularMerge()
+        public void Decision_AutoMergeOn_KscExit_ReturnsNone_88Folded()
         {
+            // #88 folded: under autoMerge a KSC exit now commits silently with
+            // full fidelity, so no approval dialog — landed/splashed no longer
+            // forces one. See docs/dev/plans/silent-full-fidelity-autocommit.md.
             var v = SceneExitInterceptor.ShouldShowDialogBeforeSceneChange(
                 GameScenes.SPACECENTER,
                 hasActiveTree: true,
                 reFlyActive: false,
-                isAutoMerge: true,
-                activeVesselLandedOrSplashed: true);
-            Assert.Equal(SceneExitInterceptor.DialogVariant.RegularMerge, v);
+                isAutoMerge: true);
+            Assert.Equal(SceneExitInterceptor.DialogVariant.None, v);
         }
 
         [Fact]
-        public void Decision_AutoMergeOn_LandedAtTs_ReturnsRegularMerge()
+        public void Decision_AutoMergeOn_TsExit_ReturnsNone_88Folded()
         {
+            // #88 folded: Tracking Station exit under autoMerge commits silently.
             var v = SceneExitInterceptor.ShouldShowDialogBeforeSceneChange(
                 GameScenes.TRACKSTATION,
                 hasActiveTree: true,
                 reFlyActive: false,
-                isAutoMerge: true,
-                activeVesselLandedOrSplashed: true);
-            Assert.Equal(SceneExitInterceptor.DialogVariant.RegularMerge, v);
+                isAutoMerge: true);
+            Assert.Equal(SceneExitInterceptor.DialogVariant.None, v);
         }
 
         [Fact]
@@ -358,8 +356,7 @@ namespace Parsek.Tests
                 GameScenes.SPACECENTER,
                 hasActiveTree: true,
                 reFlyActive: false,
-                isAutoMerge: true,
-                activeVesselLandedOrSplashed: false);
+                isAutoMerge: true);
             Assert.Equal(SceneExitInterceptor.DialogVariant.None, v);
         }
 
@@ -373,8 +370,7 @@ namespace Parsek.Tests
                 GameScenes.MAINMENU,
                 hasActiveTree: true,
                 reFlyActive: false,
-                isAutoMerge: true,
-                activeVesselLandedOrSplashed: false);
+                isAutoMerge: true);
             Assert.Equal(SceneExitInterceptor.DialogVariant.RegularMerge, v);
         }
 
@@ -387,8 +383,7 @@ namespace Parsek.Tests
                     GameScenes.SPACECENTER,
                     hasActiveTree: true,
                     reFlyActive: true,
-                    isAutoMerge: autoMerge,
-                    activeVesselLandedOrSplashed: false);
+                    isAutoMerge: autoMerge);
                 Assert.Equal(SceneExitInterceptor.DialogVariant.ReFlyAttempt, v);
             }
         }
@@ -401,8 +396,7 @@ namespace Parsek.Tests
                 GameScenes.SPACECENTER,
                 hasActiveTree: true,
                 reFlyActive: true,
-                isAutoMerge: true,
-                activeVesselLandedOrSplashed: false);
+                isAutoMerge: true);
             Assert.Equal(SceneExitInterceptor.DialogVariant.ReFlyAttempt, v);
         }
 

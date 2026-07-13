@@ -14405,7 +14405,32 @@ namespace Parsek
                 }
             }
 
-            // Stash as pending tree -- auto-committed ghost-only by ParsekScenario.OnLoad
+            // #289 (silent full-fidelity auto-commit): force-write dirty sidecars now,
+            // mirroring the autoMerge=OFF scene-exit branch. KSP's auto-save already
+            // fired (inside OnSceneChangeRequested, before this cleanup), so the
+            // finalized stable-terminal VesselSnapshot dirtied by FinalizeTreeRecordings
+            // would not otherwise reach disk before the next OnLoad. Without this the
+            // silent full-fidelity commit's spawn-at-end could not re-hydrate the
+            // finalized _vessel.craft on a cold load — see
+            // docs/dev/plans/silent-full-fidelity-autocommit.md.
+            int forcedWrites = 0;
+            foreach (var rec in activeTree.Recordings.Values)
+            {
+                if (rec.FilesDirty)
+                {
+                    if (RecordingStore.SaveRecordingFiles(rec, incrementEpoch: false))
+                        forcedWrites++;
+                }
+            }
+            if (forcedWrites > 0)
+            {
+                ParsekLog.Info("Flight",
+                    $"CommitTreeSceneExit: force-wrote {forcedWrites} dirty sidecar(s) after " +
+                    "finalize so the post-finalize snapshot survives the next OnLoad [#289]");
+            }
+
+            // Stash as pending tree -- committed by ParsekScenario.OnLoad
+            // (full-fidelity MergeCommit when it qualifies, else ghost-only).
             RecordingStore.StashPendingTree(activeTree);
 
             ParsekLog.Info("Flight", $"CommitTreeSceneExit: stashed pending tree '{activeTree.TreeName}'");

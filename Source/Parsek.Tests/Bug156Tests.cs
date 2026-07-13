@@ -306,65 +306,11 @@ namespace Parsek.Tests
             Assert.Equal(expected, ParsekFlight.ComputeTerrainClearance(mid), 1);
         }
 
-        // ────────────────────────────────────────────────────────────
-        //  ShouldShowCommitApproval — commit dialog trigger (#88)
-        // ────────────────────────────────────────────────────────────
-
-        [Fact]
-        public void ShouldShowCommitApproval_LandedAtKSC_ReturnsTrue()
-        {
-            Assert.True(GhostPlaybackLogic.ShouldShowCommitApproval(
-                GameScenes.SPACECENTER, TerminalState.Landed));
-        }
-
-        [Fact]
-        public void ShouldShowCommitApproval_SplashedAtKSC_ReturnsTrue()
-        {
-            Assert.True(GhostPlaybackLogic.ShouldShowCommitApproval(
-                GameScenes.SPACECENTER, TerminalState.Splashed));
-        }
-
-        [Fact]
-        public void ShouldShowCommitApproval_LandedAtTrackStation_ReturnsTrue()
-        {
-            Assert.True(GhostPlaybackLogic.ShouldShowCommitApproval(
-                GameScenes.TRACKSTATION, TerminalState.Landed));
-        }
-
-        [Fact]
-        public void ShouldShowCommitApproval_SplashedAtTrackStation_ReturnsTrue()
-        {
-            Assert.True(GhostPlaybackLogic.ShouldShowCommitApproval(
-                GameScenes.TRACKSTATION, TerminalState.Splashed));
-        }
-
-        [Fact]
-        public void ShouldShowCommitApproval_OrbitingAtKSC_ReturnsFalse()
-        {
-            Assert.False(GhostPlaybackLogic.ShouldShowCommitApproval(
-                GameScenes.SPACECENTER, TerminalState.Orbiting));
-        }
-
-        [Fact]
-        public void ShouldShowCommitApproval_LandedAtMainMenu_ReturnsFalse()
-        {
-            Assert.False(GhostPlaybackLogic.ShouldShowCommitApproval(
-                GameScenes.MAINMENU, TerminalState.Landed));
-        }
-
-        [Fact]
-        public void ShouldShowCommitApproval_LandedAtFlight_ReturnsFalse()
-        {
-            Assert.False(GhostPlaybackLogic.ShouldShowCommitApproval(
-                GameScenes.FLIGHT, TerminalState.Landed));
-        }
-
-        [Fact]
-        public void ShouldShowCommitApproval_NullTerminalState_ReturnsFalse()
-        {
-            Assert.False(GhostPlaybackLogic.ShouldShowCommitApproval(
-                GameScenes.SPACECENTER, null));
-        }
+        // NOTE: ShouldShowCommitApproval (#88) was removed when the silent
+        // auto-commit became full-fidelity — landed/splashed exits under
+        // autoMerge now commit silently instead of showing an approval dialog.
+        // The pre-transition decision is covered by SceneExitInterceptorTests;
+        // see docs/dev/plans/silent-full-fidelity-autocommit.md.
 
         // ────────────────────────────────────────────────────────────
         //  CacheEngineModules — null-vessel guard
