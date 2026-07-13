@@ -2193,7 +2193,8 @@ class IdempotentSecondRunE2ETests(unittest.TestCase):
         pins = {
             "krpc": {"releaseZipUrl": "http://x/krpc.zip", "releaseZipSha256": "SHA_KRPC",
                      "releaseCompileDlls": ["KRPC.Core.dll", "KRPC.dll"]},
-            "krpc_mechjeb": {"downloadUrl": "http://x/kmj.zip", "tag": "v0.7.1"},
+            "krpc_mechjeb": {"downloadUrl": "http://x/kmj.zip", "tag": "v0.7.1",
+                             "commit": "KMJCOMMIT"},
             "mechjeb2": {}, "kspVersion": "1.12.5"}
         profile = {
             "instanceDir": "automation/test", "baseInstall": "Kerbal Space Program",
@@ -2294,3 +2295,332 @@ class IdempotentSecondRunE2ETests(unittest.TestCase):
                     "folder-sibling components re-install after the scoped delete")
             finally:
                 provision.WORKTREE_ROOT, provision.CACHE_DIR, provision.STAGE_DIR = saved
+
+
+class Sf9BuildTtSkipShellTests(unittest.TestCase):
+    """SF9/S1: the BUILD-TT skip must gate on EVERY fresh input the shim links
+    against, not just the cached-dll hash + kRPC source commit. The shim HintPaths
+    into the kRPC release binaries (release-zip pin) AND the dev install's Managed
+    reference DLLs (KSP version / buildID64), so a moved releaseZipSha256 pin OR a
+    KSP version bump leaves the cached TestingTools.dll linked against stale refs
+    and MUST rebuild. _build_testingtools is stubbed so no dotnet/git runs."""
+
+    def _make(self, um, provision, *, prior_commit="KRPCCOMMIT", prior_zip="SHA_ZIP",
+              prior_b64_matches=True):
+        dev = os.path.join(um, "Kerbal Space Program")
+        os.makedirs(dev, exist_ok=True)
+        with open(os.path.join(dev, "buildID64.txt"), "wb") as fh:
+            fh.write(b"build 777")
+        # Module-owned git-source override: a dir carrying a .git subdir so
+        # _ensure_git_source returns use-override WITHOUT any git clone/fetch.
+        override = os.path.join(um, "krpc-src")
+        os.makedirs(os.path.join(override, ".git"), exist_ok=True)
+        cache = os.path.join(um, ".cache")
+        os.makedirs(cache, exist_ok=True)
+        tt_path = os.path.join(cache, "TestingTools.dll")
+        with open(tt_path, "wb") as fh:
+            fh.write(b"testingtools-shim-bytes")
+        tt_sha = provision.sha256_file(tt_path)
+        dev_b64 = provision.sha256_file(os.path.join(dev, "buildID64.txt"))
+        pins = {"krpc": {"commit": "KRPCCOMMIT", "releaseZipSha256": "SHA_ZIP"},
+                "testingtools": {}}
+        ctx = provision.ProvisionContext(
+            profile_name="t", pins=pins,
+            profile={"instanceDir": "automation/test", "baseInstall": "Kerbal Space Program"},
+            umbrella_root=um, dry_run=False, repair=False, parsek_dll_override=None,
+            krpc_src_override=override)
+        ctx.prior_complete = True
+        ctx.prior_manifest = {
+            "buildId64Sha256": dev_b64 if prior_b64_matches else "OLD_B64",
+            "components": {
+                "krpc": {"commit": prior_commit, "sha256": prior_zip},
+                "testingtools": {"dllSha256": tt_sha}}}
+        return ctx, cache
+
+    def _run(self, provision, ctx, cache):
+        built = {"called": False}
+        saved_cache = provision.CACHE_DIR
+        saved_build = provision._build_testingtools
+        provision.CACHE_DIR = cache
+
+        def _stub(*a, **k):
+            built["called"] = True
+        provision._build_testingtools = _stub
+        try:
+            provision.phase_build_tt(ctx, {"krpc": "KRPCCOMMIT"})
+        finally:
+            provision.CACHE_DIR = saved_cache
+            provision._build_testingtools = saved_build
+        return built["called"]
+
+    def test_all_inputs_stable_skips_build(self):
+        import provision
+        with tempfile.TemporaryDirectory() as um:
+            ctx, cache = self._make(um, provision)
+            called = self._run(provision, ctx, cache)
+            self.assertFalse(called, "stable inputs must SKIP the dotnet build")
+            self.assertTrue(any("SF9 skip dotnet build" in l for l in ctx.log_lines))
+            self.assertFalse(ctx.aborted)
+
+    def test_moved_krpc_release_pin_forces_rebuild(self):
+        import provision
+        with tempfile.TemporaryDirectory() as um:
+            ctx, cache = self._make(um, provision, prior_zip="OLD_ZIP_SHA")
+            called = self._run(provision, ctx, cache)
+            self.assertTrue(called, "a moved kRPC release-zip pin must rebuild")
+            self.assertFalse(any("SF9 skip dotnet build" in l for l in ctx.log_lines))
+
+    def test_bumped_dev_buildid64_forces_rebuild(self):
+        import provision
+        with tempfile.TemporaryDirectory() as um:
+            ctx, cache = self._make(um, provision, prior_b64_matches=False)
+            called = self._run(provision, ctx, cache)
+            self.assertTrue(called, "a bumped dev buildID64 must rebuild")
+            self.assertFalse(any("SF9 skip dotnet build" in l for l in ctx.log_lines))
+
+    def test_moved_krpc_source_commit_forces_rebuild(self):
+        import provision
+        with tempfile.TemporaryDirectory() as um:
+            ctx, cache = self._make(um, provision, prior_commit="OLDCOMMIT")
+            called = self._run(provision, ctx, cache)
+            self.assertTrue(called, "a retagged kRPC source commit must rebuild")
+            self.assertFalse(any("SF9 skip dotnet build" in l for l in ctx.log_lines))
+
+
+class Sf9MutableSurfaceStatTests(unittest.TestCase):
+    """SF9/S2: the CLONE mutable-surface skip cannot trust buildID64.txt alone --
+    a partially-deleted instance or a swapped stock Managed DLL leaves buildID64
+    intact yet the copied surface corrupt, and VERIFY never re-hashes the stock
+    Managed tree. The skip gate re-stats KSP_x64_Data/Managed (fileCount + bytes)
+    and refuses to skip on any drift."""
+
+    def test_stat_matches_pure(self):
+        self.assertTrue(provlib.mutable_surface_stat_matches({"fileCount": 3, "bytes": 100}, 3, 100))
+
+    def test_missing_recorded_stat_no_match(self):
+        self.assertFalse(provlib.mutable_surface_stat_matches(None, 0, 0))
+        self.assertFalse(provlib.mutable_surface_stat_matches({}, 0, 0))
+
+    def test_count_or_size_drift_no_match(self):
+        rec = {"fileCount": 3, "bytes": 100}
+        self.assertFalse(provlib.mutable_surface_stat_matches(rec, 2, 100))  # deleted file
+        self.assertFalse(provlib.mutable_surface_stat_matches(rec, 3, 99))   # resized file
+
+    def _ctx(self, um):
+        import provision
+        os.makedirs(os.path.join(um, "Kerbal Space Program"), exist_ok=True)
+        return provision.ProvisionContext(
+            profile_name="t", pins={},
+            profile={"instanceDir": "automation/test", "baseInstall": "Kerbal Space Program"},
+            umbrella_root=um, dry_run=False, repair=False, parsek_dll_override=None)
+
+    def _setup_instance(self, provision, ctx):
+        b64 = os.path.join(ctx.instance_dir, "buildID64.txt")
+        os.makedirs(os.path.dirname(b64), exist_ok=True)
+        with open(b64, "wb") as fh:
+            fh.write(b"build 999")
+        managed = os.path.join(ctx.instance_dir, "KSP_x64_Data", "Managed")
+        os.makedirs(managed, exist_ok=True)
+        for n, data in (("Assembly-CSharp.dll", b"asmcs"), ("UnityEngine.dll", b"unity-bytes")):
+            with open(os.path.join(managed, n), "wb") as fh:
+                fh.write(data)
+        ctx.prior_complete = True
+        ctx.prior_manifest = {
+            "buildId64Sha256": provision.sha256_file(b64),
+            "mutableSurfaceManagedStat": provision._managed_stat_dict(ctx),
+            "junctionTargets": {}}
+        return managed
+
+    def test_clean_instance_skips(self):
+        import provision
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            self._setup_instance(provision, ctx)
+            self.assertTrue(provision._clone_surface_skips(ctx, {}))
+
+    def test_partial_deletion_forces_recopy(self):
+        # The required S2 case: delete a Managed DLL, rerun -> must NOT skip.
+        import provision
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            managed = self._setup_instance(provision, ctx)
+            os.remove(os.path.join(managed, "UnityEngine.dll"))
+            self.assertFalse(provision._clone_surface_skips(ctx, {}),
+                             "a deleted Managed DLL must refuse the mutable-surface skip")
+            self.assertTrue(any("Managed stat drift" in l for l in ctx.log_lines))
+
+    def test_old_manifest_without_stat_no_skip(self):
+        import provision
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            self._setup_instance(provision, ctx)
+            del ctx.prior_manifest["mutableSurfaceManagedStat"]  # pre-S2 manifest
+            self.assertFalse(provision._clone_surface_skips(ctx, {}),
+                             "a manifest without the Managed stat must re-copy to arm the check")
+
+
+class Sf9DevModSourceGateTests(unittest.TestCase):
+    """SF9/S3: the dev-sourced-mod skip must gate on the FRESH dev-source tree-hash
+    (dev-source == recorded == instance), not instance-vs-manifest alone. A
+    dev-side mod update must re-copy; an unchanged one must skip. Drives the real
+    phase_clone (junctions are Windows-only)."""
+
+    def _setup(self, um, provision):
+        dev = os.path.join(um, "Kerbal Space Program")
+        os.makedirs(os.path.join(dev, "GameData", "Squad"), exist_ok=True)
+        os.makedirs(os.path.join(dev, "GameData", "SquadExpansion"), exist_ok=True)
+        with open(os.path.join(dev, "buildID64.txt"), "wb") as fh:
+            fh.write(b"build 12345")
+        with open(os.path.join(dev, "KSP_x64.exe"), "wb") as fh:
+            fh.write(b"MZfakeexe")
+        modsrc = os.path.join(dev, "GameData", "MyMod")
+        os.makedirs(modsrc, exist_ok=True)
+        with open(os.path.join(modsrc, "MyMod.dll"), "wb") as fh:
+            fh.write(b"mymod-v1")
+        pins = {"kspVersion": "1.12.5"}
+        profile = {"instanceDir": "automation/test", "baseInstall": "Kerbal Space Program",
+                   "stackComponents": ["parsek"], "devSourcedMods": ["MyMod"]}
+        return dev, modsrc, pins, profile
+
+    def _ctx(self, provision, um, pins, profile):
+        return provision.ProvisionContext(
+            profile_name="stock", pins=pins, profile=profile, umbrella_root=um,
+            dry_run=False, repair=False, parsek_dll_override=None)
+
+    def _prior_from(self, provision, ctx, dev_status):
+        b64 = os.path.join(ctx.instance_dir, "buildID64.txt")
+        return {"buildId64Sha256": provision.sha256_file(b64),
+                "mutableSurfaceManagedStat": provision._managed_stat_dict(ctx),
+                "junctionTargets": {}, "devSourcedMods": dict(dev_status),
+                "components": {}}
+
+    def test_touched_source_recopies_untouched_skips(self):
+        import provision
+        if os.name != "nt":
+            self.skipTest("directory junctions are Windows-only")
+        with tempfile.TemporaryDirectory() as um:
+            dev, modsrc, pins, profile = self._setup(um, provision)
+            saved = provision.CACHE_DIR
+            provision.CACHE_DIR = os.path.join(um, ".cache")
+            try:
+                # Run 1: seed (no prior manifest -> full copy).
+                ctx1 = self._ctx(provision, um, pins, profile)
+                _, dev_status1 = provision.phase_clone(ctx1)
+                if ctx1.aborted and "EC-8" in ctx1.abort_reason:
+                    self.skipTest("junction creation unavailable in this environment")
+                self.assertFalse(ctx1.aborted, ctx1.abort_reason)
+                v1 = dev_status1["MyMod"]
+
+                # Touch the DEV source -> the fresh-source gate must RE-COPY even
+                # though the instance still matches the old recorded hash.
+                with open(os.path.join(modsrc, "MyMod.dll"), "wb") as fh:
+                    fh.write(b"mymod-v2-CHANGED")
+                ctx2 = self._ctx(provision, um, pins, profile)
+                ctx2.prior_complete = True
+                ctx2.prior_manifest = self._prior_from(provision, ctx2, dev_status1)
+                _, dev_status2 = provision.phase_clone(ctx2)
+                self.assertFalse(ctx2.aborted, ctx2.abort_reason)
+                self.assertNotEqual(dev_status2["MyMod"], v1,
+                                    "a touched dev source must re-copy the new bytes")
+                self.assertFalse(any("SF9 skipped" in l and "dev-sourced" in l
+                                     for l in ctx2.log_lines),
+                                 "a touched dev source must NOT log a dev-mod skip")
+
+                # Re-run with the source now unchanged -> skip.
+                ctx3 = self._ctx(provision, um, pins, profile)
+                ctx3.prior_complete = True
+                ctx3.prior_manifest = self._prior_from(provision, ctx3, dev_status2)
+                _, dev_status3 = provision.phase_clone(ctx3)
+                self.assertFalse(ctx3.aborted, ctx3.abort_reason)
+                self.assertEqual(dev_status3["MyMod"], dev_status2["MyMod"])
+                self.assertTrue(any("SF9 skipped" in l and "dev-sourced" in l
+                                    for l in ctx3.log_lines),
+                                "an unchanged dev source must skip the re-copy")
+            finally:
+                provision.CACHE_DIR = saved
+
+
+class Sf9PriorProvisionFenceTests(unittest.TestCase):
+    """N2: the abort-then-rerun fence. _load_prior_provision_state must only trust
+    on-disk state (prior_complete=True) when a manifest is present AND there is no
+    .provision-incomplete marker; a present marker or an unreadable manifest leaves
+    prior_complete False so the heavy phases re-provision from scratch."""
+
+    def _ctx(self, um):
+        import provision
+        os.makedirs(os.path.join(um, "Kerbal Space Program"), exist_ok=True)
+        return provision.ProvisionContext(
+            profile_name="t", pins={},
+            profile={"instanceDir": "automation/test", "baseInstall": "Kerbal Space Program"},
+            umbrella_root=um, dry_run=False, repair=False, parsek_dll_override=None)
+
+    def _write_manifest(self, provision, ctx, text):
+        os.makedirs(ctx.parsek_gamedata, exist_ok=True)
+        with open(os.path.join(ctx.parsek_gamedata, "provision-manifest.json"),
+                  "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def test_clean_manifest_no_marker_is_complete(self):
+        import provision
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            self._write_manifest(provision, ctx, '{"schema": 1}')
+            provision._load_prior_provision_state(ctx)
+            self.assertTrue(ctx.prior_complete)
+            self.assertEqual(ctx.prior_manifest, {"schema": 1})
+
+    def test_marker_present_forces_incomplete(self):
+        import provision
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            self._write_manifest(provision, ctx, '{"schema": 1}')
+            with open(provision._incomplete_marker_path(ctx), "w", encoding="utf-8") as fh:
+                fh.write("provisioning in progress\n")
+            provision._load_prior_provision_state(ctx)
+            self.assertFalse(ctx.prior_complete,
+                             "a present .provision-incomplete marker must force a full re-provision")
+            self.assertEqual(ctx.prior_manifest, {"schema": 1},
+                             "the manifest is still parsed even when incomplete")
+
+    def test_unreadable_manifest_forces_incomplete(self):
+        import provision
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            self._write_manifest(provision, ctx, "{not valid json")
+            provision._load_prior_provision_state(ctx)
+            self.assertFalse(ctx.prior_complete)
+            self.assertIsNone(ctx.prior_manifest)
+            self.assertTrue(any("prior manifest unreadable" in l for l in ctx.log_lines),
+                            "the unreadable-manifest except branch must warn")
+
+
+class PinStableKrpcMechjebCommitTests(unittest.TestCase):
+    """N1: _install_pin_stable for krpc_mechjeb gates on BOTH the tag and the
+    pinned commit (the tag is mutable). A tag-only match is no longer stable."""
+
+    def _ctx(self, prior, pin):
+        import provision
+        ctx = provision.ProvisionContext(
+            profile_name="t", pins={"krpc_mechjeb": pin},
+            profile={}, umbrella_root=".", dry_run=True, repair=False, parsek_dll_override=None)
+        ctx.prior_manifest = {"components": {"krpc_mechjeb": prior}}
+        return ctx
+
+    def test_tag_and_commit_match_stable(self):
+        import provision
+        ctx = self._ctx({"tag": "v0.7.1", "commit": "C1"}, {"tag": "v0.7.1", "commit": "C1"})
+        self.assertTrue(provision._install_pin_stable(ctx, "krpc_mechjeb"))
+
+    def test_moved_commit_not_stable(self):
+        import provision
+        ctx = self._ctx({"tag": "v0.7.1", "commit": "OLD"}, {"tag": "v0.7.1", "commit": "NEW"})
+        self.assertFalse(provision._install_pin_stable(ctx, "krpc_mechjeb"))
+
+    def test_tag_match_but_no_commit_not_stable(self):
+        import provision
+        ctx = self._ctx({"tag": "v0.7.1"}, {"tag": "v0.7.1"})
+        self.assertFalse(provision._install_pin_stable(ctx, "krpc_mechjeb"))
+
+
+if __name__ == "__main__":
+    unittest.main()

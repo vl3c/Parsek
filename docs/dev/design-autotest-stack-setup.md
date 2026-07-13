@@ -434,6 +434,7 @@ manifest, log, and lock never become phantom config nodes or get parsed by KSP.
   "settingsFinalSha256": "<sha256 of the instance settings.cfg as written; VERIFY re-hashes it>",
   "krpcSettingsSha256": "<sha256 of the stamped GameData/kRPC/PluginData/settings.cfg (F3 hands-free stamp); VERIFY re-hashes it>",
   "buildId64Sha256": "<sha256 of the instance KSP_x64_Data/../buildID64.txt; asserts actual KSP version vs pins.kspVersion>",
+  "mutableSurfaceManagedStat": { "fileCount": 123, "bytes": 45678901 },
   "verify": { "utf16GrepPassed": true, "dllHashMatchesStaging": true, "settingsFinalHashMatches": true, "buildId64Matches": true, "kspRunningAtProvision": false }
 }
 ```
@@ -778,16 +779,48 @@ now implemented (branch `autotest-ma62-followups`).
   caller picks each hash's meaning: the manifest-recorded pinned hash for the
   fixed-by-pin release components (kRPC / MechJeb2 zips, with a pin-identity gate
   in `_install_pin_stable` so a moved release pin re-extracts, never skips on a
-  stale on-disk-equals-old-manifest match), and the fresh SOURCE hash for the
-  components whose input changes between runs (the rebuilt Parsek.dll, the freshly
-  built TestingTools.dll, plus a resolved-commit gate on the shim) so a changed
-  source still re-installs. Skips are wired into CLONE (bulk mutable-surface copy
-  + junction (re)creation when buildID64 matches and every junction resolves;
-  per-dev-mod copy when the instance tree-hash matches), BUILD-TT (the dotnet
-  build), DEPLOY (the Parsek.dll stage+install copy and each aux file), and
-  INSTALL (each stack component's extraction). VERIFY always runs FULLY (it is the
-  proof); SF9 only elides redundant writes, never the check. Every skip decision
-  is logged (batch-summary convention).
+  stale on-disk-equals-old-manifest match; the KRPC.MechJeb gate compares BOTH the
+  tag AND the peeled commit, since the tag is mutable), and the fresh SOURCE hash
+  for the components whose input changes between runs (the rebuilt Parsek.dll, the
+  freshly built TestingTools.dll) so a changed source still re-installs.
+  **Every skip gate is a FRESH-SOURCE (or fresh-instance-integrity) check, never a
+  proxy:** on any skip the manifest carries the prior-recorded hashes forward, so
+  VERIFY (which re-hashes the instance against that same manifest) structurally
+  cannot catch a false skip -- the skip decision itself is the only line of
+  defense, so each gate re-derives the current truth from the actual input rather
+  than trusting a cheaper stand-in. Skips are wired into:
+  - CLONE bulk mutable-surface copy + junction (re)creation -- skipped only when
+    buildID64 matches, every junction resolves, AND the instance
+    `KSP_x64_Data/Managed` stat (file count + total bytes,
+    `mutableSurfaceManagedStat`) still matches the recorded stat. buildID64 is a
+    SINGLE-FILE version fingerprint; on its own it cannot see a partially-deleted
+    instance or a swapped stock Managed DLL, and VERIFY never re-hashes the stock
+    Managed tree, so the Managed-stat re-scan (`provlib.mutable_surface_stat_matches`)
+    is the cheap fresh instance-integrity check that closes that gap. **Residual
+    risk (accepted):** an in-place edit of a stock Managed DLL that preserves BOTH
+    the file count and the exact byte size is not caught by the count+size stat;
+    catching that would need a per-file content or size+mtime digest of the whole
+    mutable surface (deferred as the sounder-but-costlier option). A manifest
+    without the recorded stat (a pre-S2 manifest) re-copies once to arm the check.
+  - CLONE per-dev-mod copy -- skipped only when the FRESH dev-SOURCE tree-hash
+    equals BOTH the recorded manifest hash AND the instance tree-hash
+    (dev-source == recorded == instance). Comparing instance-vs-manifest alone was
+    a proxy that never noticed a dev-side mod UPDATE (the instance still matched
+    the old recorded hash, so the skip fired and the update never propagated);
+    gating on the fresh source (mirror of the DEPLOY Parsek.dll pattern) re-copies
+    the instant the dev source changes.
+  - BUILD-TT dotnet build -- skipped only when ALL of the shim's fresh inputs are
+    stable: the peeled kRPC source commit, the kRPC release-zip pin
+    (`_install_pin_stable("krpc")`, so a moved `releaseZipSha256` rebuilds even at
+    the same commit), AND the dev KSP `buildID64` (a version bump changes the
+    Managed reference DLLs the shim HintPaths against). Gating on the cached-dll
+    hash + source commit alone would reuse a TestingTools.dll linked against stale
+    reference DLLs.
+  - DEPLOY the Parsek.dll stage+install copy and each aux file (source-vs-installed).
+  - INSTALL each stack component's extraction.
+
+  VERIFY always runs FULLY (it is the proof); SF9 only elides redundant writes,
+  never the check. Every skip decision is logged (batch-summary convention).
 - **SF10 -- per-component installed-file inventory.** The manifest now records a
   per-stack-component installed-file INVENTORY (instance-relative path + sha256
   for every file each component wrote) at the top-level `componentInventories`

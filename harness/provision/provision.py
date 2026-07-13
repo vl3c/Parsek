@@ -526,24 +526,41 @@ def phase_build_tt(ctx: ProvisionContext, resolved: Dict[str, str]) -> None:
             "hash + cache; assert AutoLoadGame type ABSENT + six capability RPCs PRESENT (S-4)"
             % (",".join(sel.included), krpc_src or _git_source_cache_dir("krpc"), build_ref))
         return
-    # SF9: skip the dotnet build when a prior COMPLETE provision built the shim
-    # from the SAME kRPC commit and the cached TestingTools.dll still matches the
-    # recorded hash. Gating on the resolved commit (not just the cached hash)
-    # forecloses the moved-pin footgun: a retagged kRPC ref rebuilds.
+    # SF9: skip the dotnet build only when a prior COMPLETE provision built the
+    # shim from an UNCHANGED set of inputs and the cached TestingTools.dll still
+    # matches the recorded hash. The shim is built with HintPaths into the release
+    # kRPC binaries (from the kRPC release zip) AND the dev install's Managed
+    # reference DLLs (the KSP version), so the cached hash alone is NOT proof the
+    # dll is still fresh (reviewer S1). Every fresh input must be re-checked:
+    #   - the peeled kRPC SOURCE commit (a retagged ref changes the shim source);
+    #   - the kRPC RELEASE-ZIP pin (a moved releaseZipSha256 changes the linked
+    #     compile refs even with the same commit) via _install_pin_stable;
+    #   - the dev KSP buildID64 (a version bump changes the Managed reference
+    #     DLLs the shim links against).
     cached = os.path.join(CACHE_DIR, "TestingTools.dll")
     recorded_tt = _prior_component(ctx, "testingtools").get("dllSha256")
     prior_krpc_commit = _prior_component(ctx, "krpc").get("commit")
     current_tt = sha256_file(cached) if os.path.isfile(cached) else None
     commit_stable = bool(build_ref) and build_ref == prior_krpc_commit
+    krpc_pin_stable = _install_pin_stable(ctx, "krpc")
+    recorded_b64 = (ctx.prior_manifest or {}).get("buildId64Sha256")
+    dev_b64 = _dev_buildid64_sha(ctx)
+    buildid_stable = bool(recorded_b64) and dev_b64 is not None and dev_b64 == recorded_b64
+    inputs_stable = commit_stable and krpc_pin_stable and buildid_stable
     decision = provlib.decide_idempotent_skip(
-        ctx.prior_complete and commit_stable, recorded_tt, current_tt)
+        ctx.prior_complete and inputs_stable, recorded_tt, current_tt)
     if decision.skip:
         ctx.testingtools_dll = cached  # type: ignore[attr-defined]
         ctx.testingtools_sha = current_tt  # type: ignore[attr-defined]
         log(ctx, "Info", "Build-TT",
-            "SF9 skip dotnet build (hash-match; cached TestingTools.dll sha256=%s krpc-commit stable)"
-            % current_tt)
+            "SF9 skip dotnet build (hash-match; cached TestingTools.dll sha256=%s; "
+            "krpc-commit+releaseZip-pin+dev-buildID64 all stable)" % current_tt)
         return
+    if ctx.prior_complete and not decision.skip:
+        log(ctx, "Info", "Build-TT",
+            "SF9 rebuild TestingTools (no skip): commit_stable=%s krpc_pin_stable=%s "
+            "buildid_stable=%s hash-reason=%s"
+            % (commit_stable, krpc_pin_stable, buildid_stable, decision.reason))
     _build_testingtools(ctx, sel, tt, build_ref, krpc_src)
 
 
@@ -668,12 +685,21 @@ def phase_clone(ctx: ProvisionContext):
         if not os.path.exists(src):
             abort(ctx, "Clone", "EC-3", "dev-sourced mod %s vanished mid-run: %s" % (name, src))
             return junctions, dev_status
-        # SF9: skip re-copying a dev-sourced mod whose instance tree-hash already
-        # equals the recorded manifest hash (a clean re-run of an unchanged mod).
+        # SF9/S3: skip re-copying a dev-sourced mod ONLY when the fresh DEV-SOURCE
+        # tree-hash equals BOTH the recorded manifest hash AND the instance
+        # tree-hash (dev-source == recorded == instance). Comparing instance vs
+        # manifest alone is a proxy that never notices a dev-side mod UPDATE: the
+        # instance still matches the old recorded hash so the skip fires and the
+        # update never propagates (pre-SF9 re-copied every run). Gating on the
+        # fresh source (mirror of the DEPLOY Parsek.dll pattern) re-copies the
+        # instant the dev source changes.
         recorded = prior_dev.get(name)
         recorded_hash = recorded if recorded not in ("absent-source", "planned-copy") else None
+        src_hash = _content_tree_hash(src, ctx)
         current = _content_tree_hash(dst, ctx) if os.path.isdir(dst) or os.path.isfile(dst) else None
-        decision = provlib.decide_idempotent_skip(ctx.prior_complete, recorded_hash, current)
+        source_matches_recorded = recorded_hash is not None and recorded_hash == src_hash
+        decision = provlib.decide_idempotent_skip(
+            ctx.prior_complete and source_matches_recorded, src_hash, current)
         if decision.skip:
             dev_status[name] = current
             skipped_mods += 1
@@ -694,9 +720,14 @@ def phase_clone(ctx: ProvisionContext):
 def _clone_surface_skips(ctx: ProvisionContext, junctions: Dict[str, str]) -> bool:
     """SF9 gate for the bulk mutable-surface copy + junction creation. True only
     when a prior COMPLETE provision left this instance's buildID64.txt matching
-    the recorded manifest hash AND every recorded junction still resolves to its
-    target. buildID64 is the manifest's version fingerprint of the copied KSP
-    install; a match means the clone source has not changed KSP versions."""
+    the recorded manifest hash, every recorded junction still resolves to its
+    target, AND the instance's KSP_x64_Data/Managed stat (fileCount + bytes) still
+    matches the recorded stat. buildID64 is the version fingerprint of the copied
+    KSP install, but it is a SINGLE-FILE proxy: it cannot detect a
+    partially-deleted instance or a swapped stock Managed DLL (reviewer S2), and
+    VERIFY never re-hashes the stock Managed tree, so a false skip would go
+    uncaught. The Managed-stat re-scan is the cheap fresh integrity check that
+    closes that gap."""
     recorded_b64 = (ctx.prior_manifest or {}).get("buildId64Sha256")
     b64_path = os.path.join(ctx.instance_dir, "buildID64.txt")
     current_b64 = sha256_file(b64_path) if os.path.isfile(b64_path) else None
@@ -717,6 +748,17 @@ def _clone_surface_skips(ctx: ProvisionContext, junctions: Dict[str, str]) -> bo
     if dangling:
         log(ctx, "Info", "Clone",
             "SF9 no mutable-surface skip: %d junction(s) need (re)creation" % len(dangling))
+        return False
+
+    # S2 fresh integrity check: re-stat the copied Managed surface and refuse to
+    # skip if it drifted from the recorded stat (a deleted / resized stock DLL).
+    recorded_stat = (ctx.prior_manifest or {}).get("mutableSurfaceManagedStat")
+    cur_count, cur_bytes = _managed_dir_stat(ctx)
+    if not provlib.mutable_surface_stat_matches(recorded_stat, cur_count, cur_bytes):
+        rec = recorded_stat or {}
+        log(ctx, "Info", "Clone",
+            "SF9 no mutable-surface skip: Managed stat drift recorded=%s/%s current=%d/%d"
+            % (rec.get("fileCount"), rec.get("bytes"), cur_count, cur_bytes))
         return False
     return True
 
@@ -933,8 +975,11 @@ def phase_deploy(ctx: ProvisionContext) -> Dict[str, object]:
             aux_hashes[f.dest_rel] = cur_aux_sha
             aux_skipped += 1
             continue
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        _copy_file(f.source, dst)
+        # B2: _copy_one is long-path-safe (extended-length prefix on both src+dst
+        # and the makedirs), matching the DLL / mutable-surface copies; a bare
+        # shutil.copyfile overflows MAX_PATH for a deep aux path under a long
+        # umbrella root.
+        _copy_one(f.source, dst)
         sha = sha256_file(dst)
         aux_hashes[f.dest_rel] = sha
         log(ctx, "Info", "Deploy", "aux %s <- %s (%s) sha256=%s" % (f.dest_rel, f.source, f.origin, sha))
@@ -1038,6 +1083,10 @@ def phase_manifest(ctx: ProvisionContext, resolved: Dict[str, str],
         # (mirrors settingsFinalSha256) so a later manual kRPC settings edit drifts.
         "krpcSettingsSha256": getattr(ctx, "krpc_settings_sha", None),
         "buildId64Sha256": _buildid64_sha(ctx),
+        # SF9/S2: instance KSP_x64_Data/Managed (fileCount, bytes). The CLONE
+        # mutable-surface skip re-stats this and refuses to skip on a drift that
+        # buildID64 alone would miss (a deleted / resized stock Managed DLL).
+        "mutableSurfaceManagedStat": _managed_stat_dict(ctx),
     }
     # Merge the live per-component installed-DLL hashes INSTALL/BUILD-TT computed
     # (installedDlls per kRPC/MechJeb2, dllSha256 per TestingTools/KRPC.MechJeb).
@@ -1308,10 +1357,20 @@ def _verify_inventories(ctx: ProvisionContext, manifest: Dict,
         log(ctx, "Error", "Verify",
             "inventory %s DRIFT missing=%d changed=%d added=%d (owner=%s)"
             % (folder_rel, n_missing, n_changed, n_added, owner))
-        for d in diffs:
+        # B3: cap the per-file Error lines so a wholesale folder drift (every file
+        # missing / changed) cannot flood the log; the summary line above already
+        # carries the totals, and every diff still lands in the drift list below so
+        # --repair convergence is unaffected.
+        drift_log_cap = 10
+        for i, d in enumerate(diffs):
             recorded_hash = recorded_map.get(d.rel)
             actual_hash = current_map.get(d.rel)
-            log(ctx, "Error", "Verify", "inventory %s %s %s" % (folder_rel, d.kind, d.rel))
+            if i < drift_log_cap:
+                log(ctx, "Error", "Verify", "inventory %s %s %s" % (folder_rel, d.kind, d.rel))
+            elif i == drift_log_cap:
+                log(ctx, "Error", "Verify",
+                    "inventory %s ... and %d more drift line(s) suppressed (see summary above)"
+                    % (folder_rel, len(diffs) - drift_log_cap))
             drift.append(provlib.ManifestDiff(
                 "components.%s.inventory.%s" % (owner, d.rel),
                 recorded_hash if d.kind != "added" else None,
@@ -1873,7 +1932,11 @@ def _install_pin_stable(ctx: ProvisionContext, comp: str) -> bool:
     if comp == "mechjeb2":
         return bool(prior.get("sha256")) and prior.get("sha256") == pin.get("sha256")
     if comp == "krpc_mechjeb":
-        return bool(prior.get("tag")) and prior.get("tag") == pin.get("tag")
+        # N1: gate on BOTH the tag and the pinned commit. The tag is mutable (it
+        # can be re-pointed to a new commit); requiring the peeled commit too
+        # means a moved KRPC.MechJeb pin re-extracts, never skips on a stale tag.
+        return (bool(prior.get("tag")) and prior.get("tag") == pin.get("tag")
+                and bool(prior.get("commit")) and prior.get("commit") == pin.get("commit"))
     return True
 
 
@@ -2068,6 +2131,43 @@ def _buildid64_sha(ctx: ProvisionContext) -> Optional[str]:
     return None
 
 
+def _dev_buildid64_sha(ctx: ProvisionContext) -> Optional[str]:
+    """Hash the DEV install's buildID64.txt -- the KSP version whose Managed
+    reference DLLs the BUILD-TT shim HintPaths against. Compared to the recorded
+    manifest buildId64Sha256 to detect a KSP version bump that would leave the
+    cached TestingTools.dll linked against stale reference DLLs (reviewer S1)."""
+    dev = os.path.join(ctx.dev_install, "buildID64.txt")
+    return sha256_file(dev) if os.path.isfile(dev) else None
+
+
+def _managed_dir_stat(ctx: ProvisionContext) -> tuple:
+    """SF9/S2: (file_count, total_bytes) of the instance's KSP_x64_Data/Managed
+    dir -- the stock / reference DLL surface. A partially-deleted instance (a
+    stock Managed DLL removed) or a swapped DLL of a different size drops the
+    count / size, so the CLONE mutable-surface skip gate re-stats and refuses to
+    skip when it differs from the recorded stat (which buildID64 alone cannot
+    catch). Reparse-point subdirs are pruned so no junctioned tree is pulled in.
+    Returns (0, 0) when the dir is absent (e.g. a fixture install without it)."""
+    data = _find_ksp_data_dir(ctx.dev_install)
+    managed = os.path.join(ctx.instance_dir, data, "Managed")
+    count = 0
+    total = 0
+    if not os.path.isdir(managed):
+        return (0, 0)
+    for r, dirs, names in os.walk(managed):
+        _prune_reparse_dirs(ctx, r, dirs)
+        for n in names:
+            count += 1
+            total += _safe_size(os.path.join(r, n))
+    return (count, total)
+
+
+def _managed_stat_dict(ctx: ProvisionContext) -> Dict[str, int]:
+    """Manifest-shaped form of _managed_dir_stat (SF9/S2)."""
+    count, total = _managed_dir_stat(ctx)
+    return {"fileCount": count, "bytes": total}
+
+
 # ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
@@ -2227,6 +2327,11 @@ def _repair_stack_folders(ctx: ProvisionContext, stack_repair: Sequence[str]) ->
                 if c != "parsek"
                 and provlib.stack_component_install_folder(c) in folders
                 and c in profile_stack]
+    # B1: mark the instance un-admittable BEFORE the scoped delete (defense in
+    # depth). A crash between the delete and the re-install would otherwise leave a
+    # component folder half-emptied yet still admissible; the post-repair VERIFY
+    # clears the marker on success, exactly as the CLONE-time marker does.
+    _write_incomplete_marker(ctx)
     for folder_rel in sorted(folders):
         folder_abs = os.path.join(ctx.instance_dir, *folder_rel.split("/"))
         if os.path.isdir(folder_abs):

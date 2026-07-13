@@ -1377,6 +1377,31 @@ def installed_map_digest(name_to_hash: Dict[str, str]) -> str:
         [(name, h or "") for name, h in (name_to_hash or {}).items()])
 
 
+def mutable_surface_stat_matches(recorded_stat: Optional[Dict],
+                                 current_count: int, current_bytes: int) -> bool:
+    """SF9/S2: True iff the recorded instance ``KSP_x64_Data/Managed`` stat
+    (fileCount + total bytes) equals the freshly re-scanned current stat.
+
+    The CLONE mutable-surface skip cannot trust ``buildID64.txt`` alone as a proxy
+    for the whole copied surface: a partially-deleted instance (a stock Managed
+    DLL removed) or a swapped-in DLL of a different size leaves buildID64 intact
+    yet the surface corrupt, and VERIFY never re-hashes the stock Managed tree, so
+    a false skip would go uncaught (reviewer S2). This is the cheap fresh
+    instance-integrity check the skip gate re-runs each time.
+
+    Returns False when there is no recorded stat (an old / pre-S2 manifest) so the
+    skip re-copies once to arm the check. Returns False on any file-count or
+    total-size change (a deleted / added / resized Managed file). RESIDUAL RISK
+    (documented, design SF9): an in-place edit of a stock Managed DLL that
+    preserves BOTH the file count and the exact byte size is not caught by this
+    count+size stat; catching that would need a per-file content or size+mtime
+    digest (the sounder-but-costlier option the design records as deferred)."""
+    if not recorded_stat:
+        return False
+    return (recorded_stat.get("fileCount") == current_count
+            and recorded_stat.get("bytes") == current_bytes)
+
+
 # ---------------------------------------------------------------------------
 # Dry-run action plan model (design --dry-run). Pure builder so the plan is
 # testable and identical whether printed or (in a live run) executed.
