@@ -618,11 +618,12 @@ namespace Parsek.TestCommands
 
             if (verdict == PendingVerdict)
             {
-                // Two-phase (RunTests / LoadGame): the side effect was initiated; the
-                // terminal response + EXECUTED journal are deferred until the operation
-                // settles (TryCompleteTwoPhase). Journal stays at CLAIMED meanwhile, so a
-                // crash between here and completion reports INTERRUPTED on restart. Head
-                // stays in the queue (strict FIFO) so nothing else runs during the wait.
+                // Two-phase (RunTests / LoadGame / InvokeRewind / AnswerMergeDialog /
+                // TimeJump): the side effect was initiated; the terminal response + EXECUTED
+                // journal are deferred until the operation settles (TryCompleteTwoPhase).
+                // Journal stays at CLAIMED meanwhile, so a crash between here and completion
+                // reports INTERRUPTED on restart. Head stays in the queue (strict FIFO) so
+                // nothing else runs during the wait.
                 awaitingCompletion = true;
                 completionId = id;
                 completionSeq = seq;
@@ -688,7 +689,8 @@ namespace Parsek.TestCommands
             MaybeScheduleQuit(id);
         }
 
-        // ----- Two-phase completion (P5.6 RunTests / P5.7 LoadGame) -----
+        // ----- Two-phase completion (RunTests / LoadGame + M-C1 InvokeRewind /
+        //        AnswerMergeDialog / TimeJump) -----
 
         // Called each safe-point frame while a two-phase command awaits completion. When
         // the operation has settled it builds the terminal payload, journals EXECUTED +
@@ -827,6 +829,10 @@ namespace Parsek.TestCommands
             rewindSlotArg = null;
             mergeAnswerApplied = false;
             mergeAnswerResult = null;
+            // The TimeJump completion fields (jumpTargetUt / jumpStartUt /
+            // jumpSettleFramesRemaining) are not cleared here: they are re-armed wholesale at
+            // the start of every TimeJumpImpl Execute (sibling partial), so a stale value can
+            // never be read across commands.
         }
 
         // Deferred one-frame quit for FlushAndQuit: scheduled only after the response +
@@ -1408,8 +1414,11 @@ namespace Parsek.TestCommands
             string slotArg = ArgOrNull(cmd, "slot");
             ParsekLog.Info(Tag, $"invokerewind start rp={rpArg ?? string.Empty} slot={slotArg ?? string.Empty}");
 
-            if (string.IsNullOrEmpty(rpArg)) { SetExecResult("REJECTED", null, "missing-rp"); return; }
-            if (string.IsNullOrEmpty(slotArg)) { SetExecResult("REJECTED", null, "missing-slot"); return; }
+            // An absent rp / slot arg is just a target that cannot resolve, so it rides the
+            // design's unknown-rp / unknown-slot vocabulary (edge case 1), not a separate
+            // missing-arg reason.
+            if (string.IsNullOrEmpty(rpArg)) { ParsekLog.Warn(Tag, "invokerewind refused: unknown-rp (arg absent)"); SetExecResult("REJECTED", null, "unknown-rp"); return; }
+            if (string.IsNullOrEmpty(slotArg)) { ParsekLog.Warn(Tag, "invokerewind refused: unknown-slot (arg absent)"); SetExecResult("REJECTED", null, "unknown-slot"); return; }
             if (!int.TryParse(slotArg, NumberStyles.Integer, CultureInfo.InvariantCulture, out int slotIndex))
             {
                 ParsekLog.Warn(Tag, $"invokerewind refused: unknown-slot (unparseable) slot={slotArg}");
@@ -1602,12 +1611,13 @@ namespace Parsek.TestCommands
                 }
             }
 
-            // Scene-settle ALONE is never OK: require answer-applied AND a settled, cleared
-            // (non-FLIGHT, non-LOADING) scene.
-            bool sceneSettled = HighLogic.LoadedScene != GameScenes.LOADING
-                && HighLogic.LoadedScene != GameScenes.FLIGHT;
+            // Scene-settle ALONE is never OK: the pure decider requires answer-applied AND a
+            // settled, cleared (non-FLIGHT, non-LOADING) scene. The scene classification lives
+            // inside DecideAnswerCompletion (mirroring DecideLoadCompletion), so the addon just
+            // hands it the mapped scene.
+            TestCommandScene scene = MapScene(HighLogic.LoadedScene);
             AnswerCompletionDecision decision =
-                TestCommandMergeAnswer.DecideAnswerCompletion(elapsed, mergeAnswerApplied, sceneSettled, budget);
+                TestCommandMergeAnswer.DecideAnswerCompletion(elapsed, mergeAnswerApplied, scene, budget);
             if (decision == AnswerCompletionDecision.StillWaiting)
                 return;
 
@@ -1631,6 +1641,8 @@ namespace Parsek.TestCommands
             }
         }
 
+        // The completion payload echoes the CANONICAL wire token for the resolved role, not
+        // the arg the caller sent: a "commit" alias round-trips as choice=merge.
         private static string ChoiceWire(MergeAnswerChoice c)
         {
             switch (c)

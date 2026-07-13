@@ -268,16 +268,16 @@ namespace Parsek.TestCommands
             const string action = "research-node";
             bool argPresent = !string.IsNullOrEmpty(node);
 
-            RDTech tech = argPresent ? ResolveTech(node) : null;
+            ProtoTechNode proto = argPresent ? ResolveProtoTech(node) : null;
             bool alreadyResearched = argPresent
                 && ResearchAndDevelopment.GetTechnologyState(node) == RDTech.State.Available;
             double science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0.0;
-            double cost = tech != null ? tech.scienceCost : 0.0;
+            double cost = proto != null ? proto.scienceCost : 0.0;
 
             var inputs = new KscActionInputs
             {
                 ArgPresent = argPresent,
-                TargetResolves = tech != null,
+                TargetResolves = proto != null,
                 AlreadyApplied = alreadyResearched,
                 CostAmount = cost,
                 AvailableAmount = science,
@@ -288,18 +288,54 @@ namespace Parsek.TestCommands
             if (!d.Accepted)
                 return Refuse(action, node, d.RejectReason);
 
-            // Drive the real stock research-buy path (spends science, fires UnlockTech).
-            try { tech.ResearchTech(); }
+            // Drive the real stock research-buy path on a properly-hosted RDTech.
+            //
+            // RDTech is a MonoBehaviour, so it must NEVER be `new`ed: a `new RDTech` is a
+            // detached, host-less shell. With host == null, RDTech.ResearchTech skips its
+            // ENTIRE affordability + host.AddScience block (all gated on host != null), and
+            // UnlockTech(host != null == false) mutates only the throwaway and never calls
+            // host.SetTechState. The result: no science spent, the real R&D node stays
+            // unresearched (so the effect-confirm below wrongly REJECTS a valid research),
+            // AND UnlockTech still fires a phantom OnTechnologyResearched(Successful) into
+            // GameStateRecorder at zero cost (ledger poison). So we build the tech the proven
+            // in-repo way (IncompleteBallisticRuntimeTests SpendingGate test): AddComponent it
+            // onto a throwaway GameObject, seed it from the proto, set state = Unavailable so
+            // ResearchTech takes the purchase path (`if (state != Available)` deduct + unlock),
+            // set host = the live R&D singleton so the deduction + SetTechState hit real state,
+            // and Warmup() so partsAssigned / partsPurchased are non-null for the
+            // UnlockTech(true) -> AutoPurchaseAllParts walk. The GameObject is destroyed in
+            // finally so the seam leaves no live RDTech component behind.
+            RDTech.OperationResult result = RDTech.OperationResult.Failure;
+            UnityEngine.GameObject go = null;
+            try
+            {
+                go = new UnityEngine.GameObject("ParsekSeamRDTech");
+                RDTech tech = go.AddComponent<RDTech>();
+                tech.techID = proto.techID;
+                tech.scienceCost = proto.scienceCost;
+                tech.state = RDTech.State.Unavailable;
+                tech.host = ResearchAndDevelopment.Instance;
+                tech.Warmup();
+                result = tech.ResearchTech();
+            }
             catch (System.Exception ex)
             {
                 ParsekLog.Warn(Tag, "kscaction research-node ResearchTech threw: " + ex.GetType().Name + ": " + ex.Message);
             }
+            finally
+            {
+                if (go != null) UnityEngine.Object.Destroy(go);
+            }
 
-            // Confirm the effect: a committed-action guard (TechResearchSpendPatch) can
-            // silently block the buy, leaving the node un-researched.
+            // Confirm the effect. TechResearchSpendPatch returns Failure and skips the buy on
+            // a committed node, and a Successful result must still register the real node as
+            // Available (host.SetTechState). Anything else is a typed refusal, never a false
+            // OK: a stock affordability rejection (NotEnoughFunds / ScienceCostLimitExceeded,
+            // e.g. from a strategy modifier the raw pool check did not see) maps to
+            // insufficient-science; the guard-blocked Failure maps to blocked-committed.
             bool researchedNow = ResearchAndDevelopment.GetTechnologyState(node) == RDTech.State.Available;
-            if (!researchedNow)
-                return Refuse(action, node, "blocked-committed");
+            if (result != RDTech.OperationResult.Successful || !researchedNow)
+                return Refuse(action, node, MapResearchFailure(result));
 
             double scienceAfter = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0.0;
             string observed = scienceAfter.ToString("R", CultureInfo.InvariantCulture);
@@ -307,29 +343,33 @@ namespace Parsek.TestCommands
             return KscActionExecOutcome.Ok(OkPayload(action, node, "scienceAfter", observed));
         }
 
-        private static RDTech ResolveTech(string node)
+        // Map a non-Successful RDTech.OperationResult to the design's research refusal
+        // vocabulary: a stock affordability rejection is insufficient-science; the Failure our
+        // own committed-action guard (TechResearchSpendPatch) returns is blocked-committed.
+        private static string MapResearchFailure(RDTech.OperationResult result)
+        {
+            switch (result)
+            {
+                case RDTech.OperationResult.NotEnoughFunds:
+                case RDTech.OperationResult.ScienceCostLimitExceeded:
+                    return "insufficient-science";
+                default:
+                    return "blocked-committed";
+            }
+        }
+
+        private static ProtoTechNode ResolveProtoTech(string node)
         {
             if (AssetBase.RnDTechTree == null) return null;
-            // RDNode.tech is the real RDTech the RnD UI button drives (ResearchTech spends
-            // science and fires UnlockTech, and is the method TechResearchSpendPatch gates).
+            // The proto node carries the node's existence + fixed scienceCost the pure Decide
+            // reasons over; the live hosted RDTech is built from it only on accept (above).
             ProtoRDNode[] nodes = AssetBase.RnDTechTree.GetTreeNodes();
             if (nodes == null) return null;
             for (int i = 0; i < nodes.Length; i++)
             {
                 ProtoRDNode n = nodes[i];
                 if (n != null && n.tech != null && n.tech.techID == node)
-                {
-                    // Build the real RDTech the RnD UI drives from the config proto node
-                    // (techID / scienceCost). ResearchTech() then spends science and fires
-                    // UnlockTech, and is the method TechResearchSpendPatch gates.
-                    ProtoTechNode proto = n.tech;
-                    RDTech tech = new RDTech
-                    {
-                        techID = proto.techID,
-                        scienceCost = proto.scienceCost,
-                    };
-                    return tech;
-                }
+                    return n.tech;
             }
             return null;
         }
@@ -461,6 +501,17 @@ namespace Parsek.TestCommands
             if (!d.Accepted)
                 return Refuse(action, kerbal, d.RejectReason);
 
+            // Two-layer affordability. The pure Decide already applied the raw
+            // cost > funds precondition (headless-testable, above); the AUTHORITATIVE
+            // affordability check is stock's CurrencyModifierQuery here, so any active
+            // strategy modifier on CrewRecruited is honored exactly as the Astronaut Complex
+            // UI's charge would be. A stock decline is insufficient-funds, refused BEFORE any
+            // debit runs.
+            if (!CurrencyModifierQuery
+                    .RunQuery(TransactionReasons.CrewRecruited, (float)(-cost), 0f, 0f)
+                    .CanAfford())
+                return Refuse(action, kerbal, "insufficient-funds");
+
             // Mirror the stock debit (the Astronaut Complex UI charges; HireApplicant does
             // not). The CrewRecruited reason key is load-bearing for the ledger classifier.
             if (Funding.Instance != null)
@@ -473,6 +524,11 @@ namespace Parsek.TestCommands
 
             // Confirm: KerbalHirePatch can block a committed hire (applicant stays an
             // applicant). If blocked, refund the debit we mirrored so we leave no residue.
+            // The net-zero double funds observation on this blocked path (one -cost debit
+            // then one +cost refund, both under CrewRecruited) is inherent to matching the
+            // stock debit-then-hire order: the block is only observable AFTER HireApplicant,
+            // so the debit must already have fired. The two legs cancel to zero, so the
+            // ledger sees no net hire spend for a blocked hire.
             bool hiredNow = applicant.type == ProtoCrewMember.KerbalType.Crew;
             if (!hiredNow)
             {

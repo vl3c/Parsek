@@ -1,16 +1,12 @@
-// Lane A addon-partial: TimeJump / KscAction executor wiring.
+// ParsekTestCommandAddon partial: the TimeJump / KscAction executor bodies (M-C1).
 // =====================================================================================
-// (File name is historical - it began as compile stubs before the sibling Lane B pure
-// files landed in this worktree; it now holds the REAL addon executor bodies. The
-// coordinator may rename it to ParsekTestCommandAddon.TimeJumpKscAction.cs.)
-//
-// The addon (ParsekTestCommandAddon) OWNS the four verb bodies (design's "four new verb
-// bodies on ParsekTestCommandAddon"). InvokeRewind / AnswerMergeDialog live in the main
-// addon file (Lane A). TimeJump / KscAction live here and delegate every decision to the
-// sibling Lane B PURE surfaces (TestCommandTimeJump / TestCommandKscAction) and the
-// ParsekFlight.TimeJumpTo epoch-shift wrapper, so the pure logic stays xUnit-covered and
-// this file only samples live KSP state and stashes the verdict via SetExecResult / the
-// PENDING sentinel.
+// The addon (ParsekTestCommandAddon) owns all four M-C1 verb bodies. InvokeRewind and
+// AnswerMergeDialog live in the main addon file; TimeJump and KscAction live here. This
+// split follows the design's Lane A (thin Unity applier on the addon) / Lane B (pure,
+// xUnit-covered decision core) separation: every decision is delegated to the sibling
+// pure surfaces (TestCommandTimeJump / TestCommandKscAction) and the
+// ParsekFlight.TimeJumpTo epoch-shift wrapper, so this file only samples live KSP state
+// and stashes the verdict via SetExecResult / the PENDING sentinel.
 // =====================================================================================
 using System.Collections.Generic;
 using System.Globalization;
@@ -37,6 +33,12 @@ namespace Parsek.TestCommands
         {
             string utArg = ArgOrNull(cmd, "ut");
             string deltaArg = ArgOrNull(cmd, "deltaSeconds");
+            // nowUt is sampled once and reused for the delta target, the forward-jump check,
+            // and the echoed start UT. There is a benign near-now double-UT-read race: the
+            // clock may tick between this read and ExecuteJump landing it a beat later, so a
+            // deltaSeconds jump lands delta-relative-to-this-sample, not to the exact execute
+            // frame. The gap is sub-frame and never flips a forward jump backward, so it is
+            // left un-serialized rather than re-sampled at execute.
             double nowUt = SafeUniversalTime();
 
             double target = TestCommandTimeJump.ResolveTargetUt(nowUt, utArg, deltaArg, out string error);

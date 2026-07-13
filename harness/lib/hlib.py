@@ -91,11 +91,12 @@ MISSION_VERDICTS: Tuple[str, ...] = (
 # Seam known-verb table (consumed contract, design-autotest-command-seam.md).
 # M-C1 (design-autotest-seam-verbs-c1.md) moved four verbs from RESERVED to
 # IMPLEMENTED, mirroring the C# ReservedVerbs -> ImplementedVerbs move: InvokeRewind,
-# AnswerMergeDialog, KscAction, TimeJump. The other eleven stay RESERVED.
+# AnswerMergeDialog, TimeJump, KscAction. The other eleven stay RESERVED. The tuple order
+# below mirrors the C# ImplementedVerbs set (TestCommandVerbs.cs) exactly.
 IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     "SetSetting", "StartRecording", "StopRecording", "CommitTree", "DiscardTree",
     "RecordingState", "RunTests", "LoadGame", "MissionMark", "FlushAndQuit",
-    "InvokeRewind", "AnswerMergeDialog", "KscAction", "TimeJump",
+    "InvokeRewind", "AnswerMergeDialog", "TimeJump", "KscAction",
 )
 RESERVED_SEAM_VERBS: Tuple[str, ...] = (
     "StartLoopPlayback", "StopPlayback", "EnterWatchMode", "SealSlot", "StashSlot",

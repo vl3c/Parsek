@@ -59,15 +59,26 @@ namespace Parsek.Tests
         {
             Assert.Equal(AnswerCompletionDecision.CompleteOk,
                 TestCommandMergeAnswer.DecideAnswerCompletion(
-                    5.0, answerApplied: true, sceneSettled: true, Budget));
+                    5.0, answerApplied: true, TestCommandScene.SpaceCenter, Budget));
         }
 
         [Fact]
-        public void DecideAnswerCompletion_AppliedButNotSettled_StillWaiting()
+        public void DecideAnswerCompletion_AppliedButInFlight_StillWaiting()
         {
+            // FLIGHT is NOT settled even though the pre-transition dialog can be answered
+            // while still in FLIGHT: completion waits for the post-answer scene change.
             Assert.Equal(AnswerCompletionDecision.StillWaiting,
                 TestCommandMergeAnswer.DecideAnswerCompletion(
-                    5.0, answerApplied: true, sceneSettled: false, Budget));
+                    5.0, answerApplied: true, TestCommandScene.Flight, Budget));
+        }
+
+        [Fact]
+        public void DecideAnswerCompletion_AppliedButLoading_StillWaiting()
+        {
+            // A mid-transition LOADING scene is not settled either.
+            Assert.Equal(AnswerCompletionDecision.StillWaiting,
+                TestCommandMergeAnswer.DecideAnswerCompletion(
+                    5.0, answerApplied: true, TestCommandScene.Loading, Budget));
         }
 
         [Fact]
@@ -77,7 +88,7 @@ namespace Parsek.Tests
             // false-complete.
             Assert.Equal(AnswerCompletionDecision.StillWaiting,
                 TestCommandMergeAnswer.DecideAnswerCompletion(
-                    5.0, answerApplied: false, sceneSettled: true, Budget));
+                    5.0, answerApplied: false, TestCommandScene.SpaceCenter, Budget));
         }
 
         [Fact]
@@ -85,7 +96,7 @@ namespace Parsek.Tests
         {
             Assert.Equal(AnswerCompletionDecision.AnswerTimeout,
                 TestCommandMergeAnswer.DecideAnswerCompletion(
-                    Budget, answerApplied: false, sceneSettled: false, Budget));
+                    Budget, answerApplied: false, TestCommandScene.Flight, Budget));
         }
 
         [Fact]
@@ -94,7 +105,7 @@ namespace Parsek.Tests
             // Applied + settled is OK even past budget.
             Assert.Equal(AnswerCompletionDecision.CompleteOk,
                 TestCommandMergeAnswer.DecideAnswerCompletion(
-                    Budget + 10.0, answerApplied: true, sceneSettled: true, Budget));
+                    Budget + 10.0, answerApplied: true, TestCommandScene.SpaceCenter, Budget));
         }
 
         [Fact]

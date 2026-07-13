@@ -79,15 +79,22 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>
-        /// Decide the two-phase AnswerMergeDialog completion. Scene-settle ALONE is never
-        /// OK: if the driven exit took the POST-transition path, the deferred dialog spawns
-        /// AFTER the scene settles, so a settle-keyed decider would report a false OK over
-        /// an orphaned unanswered dialog. The contract is therefore answer-applied AND the
-        /// post-answer scene settled; the budget bounds a stuck transition.
+        /// Decide the two-phase AnswerMergeDialog completion. Scene classification lives in
+        /// the pure core here (mirroring <see cref="TestCommandLoadGame.DecideLoadCompletion"/>):
+        /// the driven exit is "settled" once it has left both LOADING and FLIGHT (any cleared
+        /// non-flight scene - SPACECENTER / TRACKSTATION / MAINMENU). FLIGHT is deliberately
+        /// NOT settled even though the pre-transition dialog can be answered while still in
+        /// FLIGHT: completion waits for the post-answer scene change. Scene-settle ALONE is
+        /// never OK: if the driven exit took the POST-transition path, the deferred dialog
+        /// spawns AFTER the scene settles, so a settle-keyed decider would report a false OK
+        /// over an orphaned unanswered dialog. The contract is therefore answer-applied AND
+        /// the post-answer scene settled; the budget bounds a stuck transition.
         /// </summary>
         internal static AnswerCompletionDecision DecideAnswerCompletion(
-            double elapsedSeconds, bool answerApplied, bool sceneSettled, double budgetSeconds)
+            double elapsedSeconds, bool answerApplied, TestCommandScene currentScene, double budgetSeconds)
         {
+            bool sceneSettled = currentScene != TestCommandScene.Loading
+                && currentScene != TestCommandScene.Flight;
             if (answerApplied && sceneSettled) return AnswerCompletionDecision.CompleteOk;
             if (elapsedSeconds >= budgetSeconds) return AnswerCompletionDecision.AnswerTimeout;
             return AnswerCompletionDecision.StillWaiting;
