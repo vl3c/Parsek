@@ -687,7 +687,15 @@ retry re-runs only that verifier subprocess, not a fresh KSP boot).
    crashed mid-run: KILLED if the process was killed, else PARSEK-FAIL
    (batch-crashed). When present, parse `failed=<n>` for the results cross-check.
    For a multi-category autorun, the per-scene / aggregate lines are all parsed and
-   the relevant one (matching the driven category + scene) selected.
+   the relevant one (matching the driven category + scene) selected. **M-A5.1 revision
+   (design note N3):** v1 selected the single per-category line by exact match, which
+   never matched a multi-category selector (`all` / `A,B`), false-redding the run. The
+   harness now routes through the pure `hlib.resolve_batch_complete`: a multi-category
+   selector gates on the `category=multi:<count>` AGGREGATE, whose `failed` is the UNION
+   across categories (so `failed=0` means EVERY category passed, defended against a
+   mis-summarized aggregate by taking the max of the aggregate count and the
+   per-category sum), and a MISSING aggregate with per-category lines present is a
+   DEFINED FAULT (reds batch-incomplete), never a silent pass off one category's line.
 3. **Offline analyzer** over the produced save, via `scripts/analyze-recordings.ps1
    -SaveDir <producedSave> -FailOnRed` in FRESH-SAVE (Forbid) mode. Gate decision
    and subclassification come from TWO distinct sources (S1):
@@ -1397,15 +1405,19 @@ Recorded so they are not lost; none blocks the v1 seam-driven daily loop.
   fixed 600s fallback deferral ceiling (spec caps RunTests budgets at 540s, S8);
   threading the spec's per-step budget down to the seam command so the seam adopts
   it is deferred to M-A5.1.
-- **M-A5.1: subprocess-scoped tooling retry (v1 adaptation 4).** The verifier-chain
-  prose above (S14, edges 12/30) describes a retryable tooling / analyzer-error
-  INVALID as "re-running only that verifier subprocess, not a fresh KSP boot". v1
-  does NOT yet do that: a retryable INVALID re-runs the WHOLE attempt through
-  `_run_scenario_with_retry` (fresh stage + fresh launch + fresh verifier chain), so
-  an analyzer-error retry currently burns another boot. Threading a subprocess-scoped
-  retry (re-invoke just the wedged `analyze-recordings.ps1` / `validate-ksp-log.ps1`
-  over the already-produced save) is deferred to M-A5.1; the whole-attempt retry is
-  correct, just more expensive.
+- **M-A5.1: subprocess-scoped tooling retry (v1 adaptation 4). REVISION: landed.**
+  The verifier-chain prose above (S14, edges 12/30) describes a retryable tooling /
+  analyzer-error INVALID as "re-running only that verifier subprocess, not a fresh KSP
+  boot". M-A5.1 now does exactly that: a wedged `analyze-recordings.ps1` /
+  `validate-ksp-log.ps1` subprocess (a tooling fault, NEVER a Parsek verdict -- an
+  analyzer RED=1 is a verdict, an analyzer CRASH / no-gate-token is tooling) is
+  re-invoked ONCE over the already-produced save/log before the whole-attempt retry
+  burns a fresh ~10-min boot. The scope decision is the pure `hlib.classify_retry_scope`
+  (stages `analyzer`/`logValidate`, subkinds `tooling`/`analyzer-error`); the re-run is
+  behind the `Runtime` seam; BOTH attempts' outcomes are logged so a subprocess retry
+  never masks nondeterminism. The whole-attempt retry policy + INVALID taxonomy are
+  unchanged: a subprocess re-run that ALSO faults falls through to the existing
+  `_run_scenario_with_retry` whole-attempt path.
 - **M-A4 / M-B5: preset-scoped injection.** `injectedRecordings` in v1 is
   `none | all-synthetic` (S4); a named corpus/preset subset lands with the M-A4
   harvest queue and the M-B5 preset library.

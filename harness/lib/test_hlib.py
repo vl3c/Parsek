@@ -79,6 +79,140 @@ class BatchCompleteParserTests(unittest.TestCase):
         self.assertIsNone(hlib.select_batch_complete(batches, "C"))
 
 
+def _bc_line(category, failed, total=5, passed=None, skipped=0, scene="FLIGHT"):
+    passed = (total - failed - skipped) if passed is None else passed
+    return ("BATCH_COMPLETE v1 total=%d passed=%d failed=%d skipped=%d category=%s scene=%s"
+            % (total, passed, failed, skipped, category, scene))
+
+
+class MultiCategoryBatchCompleteTests(unittest.TestCase):
+    """M-A5.1 (N3): a multi-category selector ("all" / "A,B") emits per-category
+    lines PLUS a category=multi:<count> aggregate; resolve_batch_complete gates on
+    the aggregate union (failed==0 => ALL categories passed) and flags a missing
+    aggregate with per-category lines present as a defined fault. Regressions guarded:
+    (1) a truncated multi-category run reading green off one per-category line;
+    (2) a mis-summarized aggregate (multi failed=0 while a category shows failures)
+    reading green; (3) a single-category selector regressing off the v1 exact match."""
+
+    def test_selector_multi_detection(self):
+        self.assertTrue(hlib.is_multi_category_selector("all"))
+        self.assertTrue(hlib.is_multi_category_selector("A,B"))
+        self.assertTrue(hlib.is_multi_category_selector("  A, B "))
+        self.assertFalse(hlib.is_multi_category_selector("RecordingInvariants"))
+        self.assertFalse(hlib.is_multi_category_selector(""))
+        self.assertFalse(hlib.is_multi_category_selector(None))
+
+    def test_single_category_unchanged_v1_exact_match(self):
+        # A single-category selector still resolves the exact per-category line (v1).
+        batches = hlib.find_batch_complete_lines("\n".join([
+            _bc_line("A", 0), _bc_line("B", 2)]))
+        sel = hlib.resolve_batch_complete(batches, "B")
+        self.assertTrue(sel.present)
+        self.assertFalse(sel.multi)
+        self.assertEqual(sel.failed, 2)
+        self.assertEqual(sel.category, "B")
+
+    def test_multi_aggregate_all_passed(self):
+        # Per-category lines all failed=0 + a multi:2 aggregate failed=0 -> ALL passed.
+        batches = hlib.find_batch_complete_lines("\n".join([
+            _bc_line("A", 0), _bc_line("B", 0),
+            _bc_line("multi:2", 0, total=10, passed=10)]))
+        sel = hlib.resolve_batch_complete(batches, "A,B")
+        self.assertTrue(sel.present)
+        self.assertTrue(sel.multi)
+        self.assertFalse(sel.aggregate_missing)
+        self.assertEqual(sel.failed, 0)
+        self.assertEqual(sel.per_category_count, 2)
+
+    def test_multi_aggregate_union_reports_failure(self):
+        # The aggregate's union failed>0 gates: not an all-passed run.
+        batches = hlib.find_batch_complete_lines("\n".join([
+            _bc_line("A", 0), _bc_line("B", 3),
+            _bc_line("multi:2", 3, total=10, passed=7)]))
+        sel = hlib.resolve_batch_complete(batches, "all")
+        self.assertTrue(sel.present)
+        self.assertEqual(sel.failed, 3)
+
+    def test_mis_summarized_aggregate_cannot_hide_category_failure(self):
+        # A mis-summarized aggregate under-reports (multi failed=0) while a per-category
+        # line shows 3 failures -> the gating failed is the MAX (union), never 0.
+        batches = hlib.find_batch_complete_lines("\n".join([
+            _bc_line("A", 0), _bc_line("B", 3),
+            _bc_line("multi:2", 0, total=10, passed=10)]))
+        sel = hlib.resolve_batch_complete(batches, "A,B")
+        self.assertTrue(sel.present)
+        self.assertEqual(sel.failed, 3, "failed==0 must never hide a category that reported failures")
+
+    def test_missing_aggregate_with_per_category_lines_is_defined_fault(self):
+        # Per-category lines present but NO multi:<n> aggregate -> defined fault, NOT a
+        # silent pass off a per-category line (the truncated-run regression).
+        batches = hlib.find_batch_complete_lines("\n".join([
+            _bc_line("A", 0), _bc_line("B", 0)]))
+        sel = hlib.resolve_batch_complete(batches, "A,B")
+        self.assertFalse(sel.present)
+        self.assertTrue(sel.aggregate_missing)
+        self.assertEqual(sel.per_category_count, 2)
+
+    def test_multi_selector_no_lines_at_all_is_plain_absent(self):
+        # No BATCH_COMPLETE lines at all: batch never started (not the aggregate-missing
+        # defined fault, which requires per-category lines present).
+        sel = hlib.resolve_batch_complete([], "all")
+        self.assertFalse(sel.present)
+        self.assertFalse(sel.aggregate_missing)
+        self.assertEqual(sel.per_category_count, 0)
+
+    def test_select_aggregate_helper(self):
+        batches = hlib.find_batch_complete_lines("\n".join([
+            _bc_line("A", 0), _bc_line("multi:1", 0)]))
+        agg = hlib.select_aggregate_batch_complete(batches)
+        self.assertIsNotNone(agg)
+        self.assertEqual(agg.category, "multi:1")
+        # A category literally shaped like a real name is never mistaken for aggregate.
+        self.assertIsNone(hlib.select_aggregate_batch_complete(
+            hlib.find_batch_complete_lines(_bc_line("RecordingInvariants", 0))))
+
+
+class RetryScopeClassifierTests(unittest.TestCase):
+    """M-A5.1: classify_retry_scope routes a verifier-stage outcome to a subprocess
+    retry / whole-attempt fallback / no retry. Regressions guarded: (1) a Parsek
+    VERDICT (analyzer RED=1, log-contract FAIL) must NEVER be re-run (is_tooling_fault
+    False -> NONE); (2) a wedged analyzer/log-validate subprocess re-runs over the same
+    artifacts (SUBPROCESS); (3) a tooling fault on a non-re-runnable stage falls back to
+    the whole-attempt retry."""
+
+    def test_verdict_is_never_retried(self):
+        # A Parsek verdict passes is_tooling_fault=False -> NONE, regardless of stage.
+        self.assertEqual(hlib.RETRY_SCOPE_NONE,
+                         hlib.classify_retry_scope("analyzer", False, "analyzer"))
+        self.assertEqual(hlib.RETRY_SCOPE_NONE,
+                         hlib.classify_retry_scope("logValidate", False, ""))
+
+    def test_analyzer_tooling_and_crash_are_subprocess(self):
+        # analyzer subprocess timeout (tooling) + analyzer crash (analyzer-error/no
+        # gate token) both re-run over the same save.
+        self.assertEqual(hlib.RETRY_SCOPE_SUBPROCESS,
+                         hlib.classify_retry_scope("analyzer", True, "tooling"))
+        self.assertEqual(hlib.RETRY_SCOPE_SUBPROCESS,
+                         hlib.classify_retry_scope("analyzer", True, "analyzer-error"))
+
+    def test_log_validate_timeout_is_subprocess(self):
+        self.assertEqual(hlib.RETRY_SCOPE_SUBPROCESS,
+                         hlib.classify_retry_scope("logValidate", True, "tooling"))
+
+    def test_analyzer_fixture_faults_are_not_subprocess(self):
+        # Deterministic fixture faults are not subprocess flakes -> whole-attempt (and
+        # the taxonomy then treats them terminal); re-running the subprocess won't help.
+        for sk in ("fixture-authoring", "fixture-stale"):
+            self.assertEqual(hlib.RETRY_SCOPE_WHOLE_ATTEMPT,
+                             hlib.classify_retry_scope("analyzer", True, sk), sk)
+
+    def test_non_rerunnable_stage_tooling_is_whole_attempt(self):
+        # A tooling fault on a stage that is not one of the two re-runnable shell
+        # scripts (e.g. the ledger careerSave read) falls back to the whole attempt.
+        self.assertEqual(hlib.RETRY_SCOPE_WHOLE_ATTEMPT,
+                         hlib.classify_retry_scope("ledgerOracle", True, "tooling"))
+
+
 class RedTokenParserTests(unittest.TestCase):
     """Guards the single most dangerous silent pass: an absent RED token must
     read as None (analyzer-error), NEVER RED=0; and an earlier literal 'RED=0'
