@@ -72,7 +72,8 @@ namespace Parsek.Tests.Analyzer
             sb.Append("  \"findings\": [");
             if (sorted.Count == 0)
             {
-                sb.Append("]").Append(Nl);
+                // Trailing comma: the additive careerSave block follows (module M-B2).
+                sb.Append("],").Append(Nl);
             }
             else
             {
@@ -90,11 +91,189 @@ namespace Parsek.Tests.Analyzer
                     sb.Append("      \"baselined\": ").Append(f.Baselined ? "true" : "false").Append(Nl);
                     sb.Append("    }").Append(i == sorted.Count - 1 ? "" : ",").Append(Nl);
                 }
-                sb.Append("  ]").Append(Nl);
+                sb.Append("  ],").Append(Nl);
             }
+
+            // Additive careerSave export block (module M-B2, the ledger-oracle
+            // produced-save leg). ALWAYS emitted whenever the analyzer ran, so its
+            // ABSENCE from an .analysis.json is unambiguous (an old / broken analyzer,
+            // treated as INVALID(tooling) by the verifier, never facet-absence).
+            // Facet-absence (Sandbox / Science) is signalled INSIDE the block by the
+            // hasX flags. Determinism mirrors the rest of the writer: sorted keys,
+            // InvariantCulture "R" floats, "\n" line endings.
+            AppendCareerSave(sb, report.CareerSave);
 
             sb.Append("}").Append(Nl);
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Serializes the parsed <see cref="CareerSaveSnapshot"/> as the additive
+        /// careerSave block (module M-B2). A null snapshot (non-career / unparsable)
+        /// emits <c>{"parsed": false}</c>; a parsed snapshot emits the full facet set
+        /// with per-facet hasX flags so the Python verifier reads facet-absence from
+        /// the flags, never from a missing block. All collections are key-sorted and
+        /// all numbers use InvariantCulture "R" so the output is byte-deterministic.
+        /// </summary>
+        private static void AppendCareerSave(StringBuilder sb, Parsek.CareerSaveSnapshot cs)
+        {
+            sb.Append("  \"careerSave\": {").Append(Nl);
+            if (cs == null || !cs.Parsed)
+            {
+                sb.Append("    \"parsed\": false").Append(Nl);
+                sb.Append("  }").Append(Nl);
+                return;
+            }
+
+            sb.Append("    \"parsed\": true,").Append(Nl);
+            sb.Append("    \"hasFunds\": ").Append(cs.HasFunds ? "true" : "false").Append(",").Append(Nl);
+            sb.Append("    \"funds\": ").Append(JsonFacetDouble(cs.Funds)).Append(",").Append(Nl);
+            sb.Append("    \"hasScience\": ").Append(cs.HasScience ? "true" : "false").Append(",").Append(Nl);
+            sb.Append("    \"sciencePool\": ").Append(JsonFacetDouble(cs.SciencePool)).Append(",").Append(Nl);
+            sb.Append("    \"hasRep\": ").Append(cs.HasRep ? "true" : "false").Append(",").Append(Nl);
+            sb.Append("    \"reputation\": ").Append(JsonFacetDouble(cs.Reputation)).Append(",").Append(Nl);
+
+            AppendStringDoubleMap(sb, "subjectScience", cs.SubjectScience);
+            sb.Append(",").Append(Nl);
+            // facilityLevelFrac + completedMilestoneIds (below) are exported for FUTURE
+            // facets (facility-level / milestone promotion beyond report-only); no v1
+            // ledger-oracle verifier consumes or gates on them (design "Deferred Items").
+            AppendStringDoubleMap(sb, "facilityLevelFrac", cs.FacilityLevelFrac);
+            sb.Append(",").Append(Nl);
+            AppendStringArray(sb, "activeContractGuids", cs.ActiveContractGuids);
+            sb.Append(",").Append(Nl);
+            AppendStringArray(sb, "completedMilestoneIds", cs.CompletedMilestoneIds);
+            sb.Append(",").Append(Nl);
+            AppendVessels(sb, cs.Vessels);
+            sb.Append(Nl);
+
+            sb.Append("  }").Append(Nl);
+        }
+
+        /// <summary>
+        /// Emits <c>"name": { "k": v, ... }</c> at 4-space indent, keys sorted ordinal,
+        /// values as InvariantCulture "R" doubles. No trailing newline (the caller
+        /// appends the field separator).
+        /// </summary>
+        private static void AppendStringDoubleMap(
+            StringBuilder sb, string name, IDictionary<string, double> map)
+        {
+            sb.Append("    ").Append(JsonString(name)).Append(": {");
+            if (map == null || map.Count == 0)
+            {
+                sb.Append("}");
+                return;
+            }
+            var keys = new List<string>(map.Keys);
+            keys.Sort(System.StringComparer.Ordinal);
+            sb.Append(Nl);
+            for (int i = 0; i < keys.Count; i++)
+            {
+                sb.Append("      ").Append(JsonString(keys[i])).Append(": ")
+                    .Append(JsonFacetDouble(map[keys[i]]))
+                    .Append(i == keys.Count - 1 ? "" : ",").Append(Nl);
+            }
+            sb.Append("    }");
+        }
+
+        /// <summary>
+        /// Emits <c>"name": [ "v", ... ]</c> at 4-space indent, values sorted ordinal.
+        /// No trailing newline (the caller appends the field separator).
+        /// </summary>
+        private static void AppendStringArray(
+            StringBuilder sb, string name, IEnumerable<string> values)
+        {
+            var items = values == null ? new List<string>() : new List<string>(values);
+            items.Sort(System.StringComparer.Ordinal);
+            sb.Append("    ").Append(JsonString(name)).Append(": [");
+            if (items.Count == 0)
+            {
+                sb.Append("]");
+                return;
+            }
+            sb.Append(Nl);
+            for (int i = 0; i < items.Count; i++)
+            {
+                sb.Append("      ").Append(JsonString(items[i]))
+                    .Append(i == items.Count - 1 ? "" : ",").Append(Nl);
+            }
+            sb.Append("    ]");
+        }
+
+        /// <summary>
+        /// Emits the <c>"vessels": [ ... ]</c> array. Vessels are sorted by
+        /// (pid, persistentId, name) ordinal so the output is byte-deterministic
+        /// regardless of parse order, and each vessel's resourceTotals map is
+        /// key-sorted. No trailing newline (the caller appends the field separator).
+        /// </summary>
+        private static void AppendVessels(StringBuilder sb, List<Parsek.SaveVessel> vessels)
+        {
+            var items = vessels == null ? new List<Parsek.SaveVessel>() : new List<Parsek.SaveVessel>(vessels);
+            items.Sort((a, b) =>
+            {
+                int c = System.StringComparer.Ordinal.Compare(a.Pid ?? "", b.Pid ?? "");
+                if (c != 0) return c;
+                c = a.PersistentId.CompareTo(b.PersistentId);
+                if (c != 0) return c;
+                return System.StringComparer.Ordinal.Compare(a.Name ?? "", b.Name ?? "");
+            });
+
+            sb.Append("    \"vessels\": [");
+            if (items.Count == 0)
+            {
+                sb.Append("]");
+                return;
+            }
+            sb.Append(Nl);
+            for (int i = 0; i < items.Count; i++)
+            {
+                Parsek.SaveVessel v = items[i];
+                sb.Append("      {").Append(Nl);
+                sb.Append("        \"pid\": ").Append(JsonString(v.Pid)).Append(",").Append(Nl);
+                sb.Append("        \"persistentId\": ").Append(v.PersistentId.ToString(IC)).Append(",").Append(Nl);
+                sb.Append("        \"name\": ").Append(JsonString(v.Name)).Append(",").Append(Nl);
+                sb.Append("        \"type\": ").Append(JsonString(v.Type)).Append(",").Append(Nl);
+                sb.Append("        \"resourceTotals\": {");
+                if (v.ResourceTotals == null || v.ResourceTotals.Count == 0)
+                {
+                    sb.Append("}").Append(Nl);
+                }
+                else
+                {
+                    var rkeys = new List<string>(v.ResourceTotals.Keys);
+                    rkeys.Sort(System.StringComparer.Ordinal);
+                    sb.Append(Nl);
+                    for (int r = 0; r < rkeys.Count; r++)
+                    {
+                        sb.Append("          ").Append(JsonString(rkeys[r])).Append(": ")
+                            .Append(JsonFacetDouble(v.ResourceTotals[rkeys[r]]))
+                            .Append(r == rkeys.Count - 1 ? "" : ",").Append(Nl);
+                    }
+                    sb.Append("        }").Append(Nl);
+                }
+                sb.Append("      }").Append(i == items.Count - 1 ? "" : ",").Append(Nl);
+            }
+            sb.Append("    ]");
+        }
+
+        /// <summary>
+        /// InvariantCulture round-trip ("R") double for a career FACET value (a
+        /// scalar pool, per-subject science amount, facility fraction, or vessel
+        /// resource total). A finite value serializes as itself. A NON-FINITE value
+        /// (NaN / Inf) is a CORRUPTED pool, not a legitimate number: it is emitted as
+        /// JSON <c>null</c> (never a finite <c>0</c>), so the Python ledger-oracle
+        /// parses the facet value to None and the hard-pool diff reds it as a MISSING
+        /// facet. Coercing a non-finite pool to <c>0</c> would launder the corruption
+        /// into a legitimate-looking 0.0 that false-PASSes whenever the expected total
+        /// is near 0 (B10's science / reputation seeds are exactly 0.0). Every numeric
+        /// field the careerSave block writes is a facet value, so there is no
+        /// non-facet numeric context that still wants a 0-coercion.
+        /// </summary>
+        private static string JsonFacetDouble(double value)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value))
+                return "null";
+            return value.ToString("R", IC);
         }
 
         /// <summary>
@@ -165,6 +344,13 @@ namespace Parsek.Tests.Analyzer
                 + " STALE=" + report.Counts.StaleFixture.ToString(IC)
                 + " BASELINED=" + report.Counts.Baselined.ToString(IC)
                 + " RED=" + (report.IsRed ? "1" : "0")
+                // careerSave export summary (module M-B2): the block is always emitted;
+                // this names its parsed state + per-facet flags so a run log shows what
+                // the ledger-oracle verifier will read without opening the json.
+                + " careerSave=" + (report.CareerSave != null && report.CareerSave.Parsed ? "parsed" : "absent")
+                + " hasFunds=" + (report.CareerSave != null && report.CareerSave.HasFunds ? "1" : "0")
+                + " hasScience=" + (report.CareerSave != null && report.CareerSave.HasScience ? "1" : "0")
+                + " hasRep=" + (report.CareerSave != null && report.CareerSave.HasRep ? "1" : "0")
                 + " json='" + jsonPath + "'");
         }
 

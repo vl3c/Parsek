@@ -80,5 +80,27 @@ namespace Parsek.Tests.Analyzer.Rules
 
             Assert.DoesNotContain(findings, f => f.RuleId == Inv8Ledger.CareerDiffRuleId);
         }
+
+        // Guards (module M-B2 re-gating): a Science / Sandbox snapshot (Parsed == true
+        // but HasFunds == false, which the loader now flows through non-null so the
+        // careerSave export block is populated) still SKIPS part (b) - the career diff
+        // re-gates on HasFunds, not on snapshot null-ness. Even with a reconstruction
+        // injected, no career-diff finding fires. Fails if the re-gate regresses to a
+        // null-check and a funds-less save spuriously reports a career diff / an
+        // INFO reconstruction line.
+        [Fact]
+        public void NonFundsParsedSnapshot_NoCareerDiffFinding()
+        {
+            var science = new CareerSaveSnapshot
+            {
+                Parsed = true,
+                HasFunds = false,
+                HasScience = true,
+                SciencePool = 42.0,
+            };
+            List<Finding> findings = Run(ModelWith(science, Recon(1000.0)));
+
+            Assert.DoesNotContain(findings, f => f.RuleId == Inv8Ledger.CareerDiffRuleId);
+        }
     }
 }

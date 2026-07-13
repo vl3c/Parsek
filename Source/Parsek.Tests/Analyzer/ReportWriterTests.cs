@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using Parsek;
 using Xunit;
 
 namespace Parsek.Tests.Analyzer
@@ -125,7 +126,7 @@ namespace Parsek.Tests.Analyzer
             string golden = string.Join("\n", new[]
             {
                 "{",
-                "  \"analyzerVersion\": \"2\",",
+                "  \"analyzerVersion\": \"3\",",
                 "  \"saveName\": \"testsave\",",
                 "  \"subjectSchemaGeneration\": 4,",
                 "  \"counts\": {",
@@ -156,7 +157,12 @@ namespace Parsek.Tests.Analyzer
                 "      \"citedContract\": \"TrackSection\",",
                 "      \"baselined\": false",
                 "    }",
-                "  ]",
+                "  ],",
+                // Additive careerSave block (module M-B2). SampleReport carries no
+                // CareerSave, so the block is the always-emitted parsed:false shape.
+                "  \"careerSave\": {",
+                "    \"parsed\": false",
+                "  }",
                 "}",
                 "",
             });
@@ -308,6 +314,250 @@ namespace Parsek.Tests.Analyzer
                 new Finding("INV2", VerdictLevel.Warn, "t", -1, "m", "c"),
                 new Finding("INV6", VerdictLevel.Info, "t", -1, "m", "c"),
             }).IsRed);
+        }
+
+        // ---- careerSave export block (module M-B2, the ledger-oracle produced-save
+        // leg). The harness's Python ledger-oracle verifier parses this block, so the
+        // field names / nesting / absent-vs-flag semantics are a frozen contract. ----
+
+        private static AnalysisReport ReportWith(CareerSaveSnapshot career, List<Finding> findings)
+        {
+            return new AnalysisReport
+            {
+                SaveName = "testsave",
+                SubjectSchemaGeneration = 4,
+                Findings = findings ?? new List<Finding>(),
+                Counts = Counts.From(findings ?? new List<Finding>()),
+                CareerSave = career,
+            };
+        }
+
+        // A fully populated career snapshot with collections deliberately inserted in
+        // NON-sorted order, so the export's deterministic key-sort is exercised.
+        private static CareerSaveSnapshot PopulatedCareer()
+        {
+            var cs = new CareerSaveSnapshot
+            {
+                Parsed = true,
+                HasFunds = true,
+                Funds = 25000.0,
+                HasScience = true,
+                SciencePool = 0.0,
+                HasRep = true,
+                Reputation = 0.0,
+            };
+            // Insertion order is reversed from sorted order on purpose.
+            cs.SubjectScience["z@X"] = 2.5;
+            cs.SubjectScience["a@Y"] = 1.0;
+            cs.FacilityLevelFrac["SpaceCenter/LaunchPad"] = 0.0;
+            cs.ActiveContractGuids.Add("guid-b");
+            cs.ActiveContractGuids.Add("guid-a");
+            cs.CompletedMilestoneIds.Add("FirstLaunch");
+            cs.Vessels.Add(new SaveVessel
+            {
+                Pid = "v-guid",
+                PersistentId = 100000,
+                Name = "X",
+                Type = "Ship",
+                ResourceTotals = new Dictionary<string, double>
+                {
+                    ["Oxidizer"] = 110.0,
+                    ["LiquidFuel"] = 90.0,
+                },
+            });
+            return cs;
+        }
+
+        // Guards (design "careerSave export"): the exact populated-block schema -
+        // field names, nesting, placement AFTER the findings array, key-sorted maps /
+        // arrays, InvariantCulture "R" numbers. A drift here silently breaks the
+        // Python ledger-oracle parser. Fails if a facet is dropped, renamed, or the
+        // block moves.
+        [Fact]
+        public void BuildJson_PopulatedCareerSave_MatchesGoldenSchema()
+        {
+            string golden = string.Join("\n", new[]
+            {
+                "{",
+                "  \"analyzerVersion\": \"3\",",
+                "  \"saveName\": \"testsave\",",
+                "  \"subjectSchemaGeneration\": 4,",
+                "  \"counts\": {",
+                "    \"fail\": 0,",
+                "    \"warn\": 0,",
+                "    \"info\": 0,",
+                "    \"staleFixture\": 0,",
+                "    \"baselined\": 0,",
+                "    \"failNonBaselined\": 0,",
+                "    \"staleNonBaselined\": 0",
+                "  },",
+                "  \"findings\": [],",
+                "  \"careerSave\": {",
+                "    \"parsed\": true,",
+                "    \"hasFunds\": true,",
+                "    \"funds\": 25000,",
+                "    \"hasScience\": true,",
+                "    \"sciencePool\": 0,",
+                "    \"hasRep\": true,",
+                "    \"reputation\": 0,",
+                "    \"subjectScience\": {",
+                "      \"a@Y\": 1,",
+                "      \"z@X\": 2.5",
+                "    },",
+                "    \"facilityLevelFrac\": {",
+                "      \"SpaceCenter/LaunchPad\": 0",
+                "    },",
+                "    \"activeContractGuids\": [",
+                "      \"guid-a\",",
+                "      \"guid-b\"",
+                "    ],",
+                "    \"completedMilestoneIds\": [",
+                "      \"FirstLaunch\"",
+                "    ],",
+                "    \"vessels\": [",
+                "      {",
+                "        \"pid\": \"v-guid\",",
+                "        \"persistentId\": 100000,",
+                "        \"name\": \"X\",",
+                "        \"type\": \"Ship\",",
+                "        \"resourceTotals\": {",
+                "          \"LiquidFuel\": 90,",
+                "          \"Oxidizer\": 110",
+                "        }",
+                "      }",
+                "    ]",
+                "  }",
+                "}",
+                "",
+            });
+
+            Assert.Equal(golden, ReportWriter.BuildJson(ReportWith(PopulatedCareer(), null)));
+        }
+
+        // Guards (design "Export round-trip + determinism"): two fresh, identically
+        // built populated snapshots serialize byte-identically (no dictionary /
+        // HashSet iteration order leaks into the output). Fails if the export churns
+        // and breaks CI report diffing / the Python parser.
+        [Fact]
+        public void BuildJson_PopulatedCareerSave_IsByteDeterministic()
+        {
+            Assert.Equal(
+                ReportWriter.BuildJson(ReportWith(PopulatedCareer(), null)),
+                ReportWriter.BuildJson(ReportWith(PopulatedCareer(), null)));
+        }
+
+        // Guards (design "Always-emitted block + facet flags"): a Science / Sandbox
+        // model (Parsed == true, HasFunds == false) emits parsed:true with the correct
+        // hasX flags (the loader no longer nulls it on the funds facet), so the Python
+        // verifier reads facet-absence from the flags. Fails if a Sandbox save's block
+        // is omitted (which would alias facet-absence with tooling-absence) or the flags
+        // are wrong.
+        [Fact]
+        public void BuildJson_NonFundsCareerSave_EmitsBlockWithFacetFlags()
+        {
+            var cs = new CareerSaveSnapshot
+            {
+                Parsed = true,
+                HasFunds = false,
+                HasScience = true,
+                SciencePool = 12.0,
+                HasRep = false,
+            };
+            string json = ReportWriter.BuildJson(ReportWith(cs, null));
+
+            Assert.Contains("\"careerSave\": {", json);
+            Assert.Contains("\"parsed\": true", json);
+            Assert.Contains("\"hasFunds\": false", json);
+            Assert.Contains("\"hasScience\": true", json);
+            Assert.Contains("\"sciencePool\": 12", json);
+            Assert.Contains("\"hasRep\": false", json);
+        }
+
+        // Guards (design "Always-emitted block + facet flags"): a null CareerSave
+        // (truly non-career / unparsable) emits an ALWAYS-present block collapsed to
+        // {parsed:false}, never an omitted block. The Python verifier treats
+        // parsed:false as facet-absent and only a MISSING block as tooling-missing.
+        // Fails if the writer omits the block on a null snapshot.
+        [Fact]
+        public void BuildJson_NullCareerSave_EmitsParsedFalseBlock()
+        {
+            string json = ReportWriter.BuildJson(ReportWith(null, null));
+
+            Assert.Contains("\"careerSave\": {", json);
+            Assert.Contains("\"parsed\": false", json);
+            Assert.DoesNotContain("\"hasFunds\"", json);
+        }
+
+        // Guards: the export tolerates a parsed snapshot whose optional collections are
+        // empty - every map / array degenerates to the compact {} / [] form and the
+        // block stays valid, key-sorted JSON. Fails if an empty facet emits a dangling
+        // comma or a malformed container.
+        [Fact]
+        public void BuildJson_ParsedCareerSave_EmptyCollections_EmitCompactContainers()
+        {
+            var cs = new CareerSaveSnapshot { Parsed = true, HasFunds = true, Funds = 1000.0 };
+            string json = ReportWriter.BuildJson(ReportWith(cs, null));
+
+            Assert.Contains("\"subjectScience\": {}", json);
+            Assert.Contains("\"facilityLevelFrac\": {}", json);
+            Assert.Contains("\"activeContractGuids\": []", json);
+            Assert.Contains("\"completedMilestoneIds\": []", json);
+            Assert.Contains("\"vessels\": []", json);
+        }
+
+        // Guards (review SF2): a NON-FINITE (NaN / Inf) pool value must export as JSON
+        // null, NEVER a finite 0. Coercing a corrupted pool to 0 laundered it into a
+        // legitimate-looking 0.0 that false-PASSed the ledger oracle whenever the
+        // expected total was near 0 (B10's science / reputation seeds are exactly 0.0),
+        // while hasX stayed true. Emitting null makes the Python side parse the facet
+        // value to None and red it as a MISSING hard facet. Fails if the 0-coercion
+        // regresses. Note hasX stays TRUE (the facet is declared present but its value
+        // is corrupt) so the Python diff hits the present-but-null missing branch.
+        [Fact]
+        public void BuildJson_NonFinitePool_EmitsNullNotZero()
+        {
+            var cs = new CareerSaveSnapshot
+            {
+                Parsed = true,
+                HasFunds = true,
+                Funds = double.NaN,
+                HasScience = true,
+                SciencePool = double.PositiveInfinity,
+                HasRep = true,
+                Reputation = double.NegativeInfinity,
+            };
+            string json = ReportWriter.BuildJson(ReportWith(cs, null));
+
+            Assert.Contains("\"hasFunds\": true", json);
+            Assert.Contains("\"funds\": null", json);
+            Assert.Contains("\"sciencePool\": null", json);
+            Assert.Contains("\"reputation\": null", json);
+            // The corruption must NOT be laundered into a finite 0 on any pool.
+            Assert.DoesNotContain("\"funds\": 0", json);
+            Assert.DoesNotContain("\"sciencePool\": 0", json);
+            Assert.DoesNotContain("\"reputation\": 0", json);
+        }
+
+        // Guards (review SF2): a non-finite value in a per-identity facet map or a
+        // vessel resource total also exports as null, not 0, so a corrupt subject /
+        // resource number is never laundered into a legitimate-looking finite value.
+        [Fact]
+        public void BuildJson_NonFiniteFacetMapAndResource_EmitNull()
+        {
+            var cs = new CareerSaveSnapshot { Parsed = true, HasFunds = true, Funds = 1000.0 };
+            cs.SubjectScience["crewReport@X"] = double.NaN;
+            cs.Vessels.Add(new SaveVessel
+            {
+                Pid = "v-guid",
+                PersistentId = 100000,
+                Name = "X",
+                Type = "Ship",
+                ResourceTotals = new Dictionary<string, double> { ["LiquidFuel"] = double.PositiveInfinity },
+            });
+            string json = ReportWriter.BuildJson(ReportWith(cs, null));
+
+            Assert.Contains("\"crewReport@X\": null", json);
+            Assert.Contains("\"LiquidFuel\": null", json);
         }
     }
 }

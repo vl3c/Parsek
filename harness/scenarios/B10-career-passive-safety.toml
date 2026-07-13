@@ -1,9 +1,14 @@
 schema = 1
 id = "B10-career-passive-safety"
 tier = "daily"
-description = "Fresh career, stock actions only, warp + scene change + cold load; no economy drift."
+# The v1 seam driver does a cold LoadGame into an in-scene RecordingInvariants batch;
+# it has NO warp or scene-change verb (design ~541 defers R1's warp/scene-change
+# economy-drift trigger to the TimeJump/scene verbs), so the description names what the
+# driver actually does and the R1 tag is dropped (it is not covered here; tags feed
+# --tag selection only, not the coverage registry, so removal breaks no consumer).
+description = "Fresh career, stock actions only, cold load into an in-scene test batch; no economy drift."
 instanceProfile = "stock-minimal"
-tags = ["ledger", "B10", "R1", "R2"]
+tags = ["ledger", "B10", "R2"]
 
 [fixture]
 # saveTemplate leaf ("fresh-career") IS runSaveName: staged into saves/fresh-career/,
@@ -48,6 +53,25 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # The scenario's bounded, documented exceptions to the harness-owned Tier-C
 # anomaly sweep. Empty = the sweep must find zero anomaly lines.
 allowedAnomalies = []
+
+# The ledger-oracle (M-B2, chain slot 8). Its PRESENCE activates the oracle: the
+# harness captures the fixture's seed baseline pre-launch (the analyzer over the
+# staged template), accumulates the action manifest post-run, computes expected
+# career totals, and diffs them against the produced save's careerSave block. A
+# hard-pool drift (funds / science / reputation) reds PARSEK-FAIL(ledger).
+#
+# B10 is the flagship ZERO-delta scenario: the manifest is EMPTY, so expected ==
+# seed. The oracle proves the produced save's funds/science/reputation still equal
+# the seed within tolerance AND that no unexpected stock award fired (a nonempty
+# capture on an empty manifest is itself the economy-drift signal). This automates
+# the R2/BUG-F cold-load-wipe-at-UT=0 guard (the cold LoadGame) and the in-scene
+# no-op passivity guard (the RunTests batch must not move the economy).
+[expectations.ledger]
+seedFrom     = "template"   # parse the staged fixture save for the seed baseline.
+tolerances   = "default"    # FacetTolerances.Default (funds 1.0, science 0.1, rep 0.1).
+rec3CarveOut = false        # no route residual in a passive-safety scenario.
+# Declared career effects go under [[expectations.ledger.manifest]]; B10 declares
+# NONE (empty manifest = zero expected delta).
 
 [runtime]
 budgetSeconds = 600

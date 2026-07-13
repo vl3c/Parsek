@@ -522,14 +522,24 @@ namespace Parsek.Tests.Analyzer
         }
 
         /// <summary>
-        /// Parses the career totals from the loaded save root, returning the snapshot
-        /// only when the save is career (Funding present). Non-career / unparsable ->
-        /// null, no fault (INV8 owns any career-availability finding).
+        /// Parses the career totals from the loaded save root, returning ANY snapshot
+        /// the parser recognized (Parsed == true), regardless of the funds facet.
+        /// Unparsable / unrecognizable shape -> null, no fault (INV8 owns any
+        /// career-availability finding).
+        ///
+        /// Module M-B2 dropped the former <c>HasFunds</c> gate here: the analyzer's
+        /// careerSave export block must be POPULATED on a career-but-non-funds save
+        /// (Science / Sandbox), so the ledger-oracle verifier reads the per-facet
+        /// <c>hasFunds</c>/<c>hasScience</c>/<c>hasRep</c> flags (facet-absence) rather
+        /// than inferring absence from a missing block (which means an old/broken
+        /// analyzer). INV8's funds-only career diff is unaffected: it RE-GATES on
+        /// <c>HasFunds</c> (<c>Inv8Ledger.EvaluateCareerDiff</c>), not on snapshot
+        /// null-ness, so a Science / Sandbox snapshot still skips part (b).
         /// </summary>
         private static CareerSaveSnapshot ParseCareer(ConfigNode root)
         {
             CareerSaveSnapshot snapshot = CareerSaveParser.Parse(root);
-            if (snapshot != null && snapshot.Parsed && snapshot.HasFunds)
+            if (snapshot != null && snapshot.Parsed)
                 return snapshot;
             return null;
         }
