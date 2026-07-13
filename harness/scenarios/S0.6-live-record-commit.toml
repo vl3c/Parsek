@@ -1,0 +1,78 @@
+schema = 1
+id = "S0.6-live-record-commit"
+tier = "daily"
+# Live seam recording start/stop/COMMIT layered on top of the full injected
+# synthetic corpus. Two guards in one cheap cell: (1) the REC rules stay
+# UNSUPPRESSED on a genuine live recording (StartRecording -> spec_expects_live
+# _recording True), and (2) committing a fresh single-node tree on top of a
+# populated store does NOT lose the pre-existing corpus (the count floor). This is
+# the companion to S0.5: S0.5 proves discard returns to baseline, S0.6 proves
+# commit adds to it without corrupting it.
+description = "Live seam recording start/stop/CommitTree on top of the injected corpus; markers pair, commit succeeds, corpus preserved."
+instanceProfile = "stock-minimal"
+tags = ["recording", "commit", "live-recording", "D5"]
+
+[fixture]
+# gloops-airshow SANDBOX pod (see S0.5). injectedRecordings="all-synthetic" seeds
+# the full InjectAllRecordings corpus (272 committed recordings on stock-minimal,
+# pinned to the same count S1.4 uses) BEFORE launch, so the commit lands as an
+# ADDITION to a real store.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "all-synthetic"
+craft = []
+
+[driver]
+kind = "seam"
+# Pin auto-record OFF after load (determinism; see S0.5). StartRecording is still
+# the live-recording signal. CommitTree is RequiresFlight and returns ERROR only
+# with NO active tree; StopRecording leaves the tree active
+# (ParsekFlight.StopRecording), so CommitTree reliably finds it and returns OK
+# with "committree committed=true".
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "StartRecording",                                                       expect = "OK" },
+  { cmd = "StopRecording",                                                        expect = "OK" },
+  { cmd = "CommitTree",                                                            expect = "OK" },
+  { cmd = "FlushAndQuit",                                                          expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: the committed live recording is a single-node tree of one pod (D5). The
+# run is SANDBOX / FLIGHT / Kerbin (D14). The commit persists the recording's
+# .prec trajectory sidecar, and the 272-recording corpus is loaded from its own
+# .prec sidecars (D16). Not claimed: a D1 commit token - the seam CommitTree does
+# not map to commit-scene-exit / commit-revert-merge / commit-abort, which are the
+# only D1 commit values, so none is asserted.
+D5  = ["single-node"]
+D14 = ["sandbox", "scene-flight", "kerbin"]
+D16 = ["sidecar-prec"]
+
+[expectations.recordings]
+# The corpus floor (272) is the STRONG assertion: a commit that dropped or
+# corrupted the injected corpus would sink below it and red. The +1 ceiling is
+# TOLERANT of the stationary-pod sub-2-point-drop: a near-instant start/stop on a
+# motionless PRELAUNCH pod (default max sample interval 3.0s Medium) may finalize
+# to <2 points and be dropped, leaving the count at 272; if it survives, 273.
+# Either outcome keeps the corpus intact, which is the point.
+count = { min = 272, max = 273 }
+
+[expectations.logContracts]
+# REC markers UNSUPPRESSED (paired start + stop). committree committed=true
+# confirms the commit verb succeeded independent of the tolerant count range.
+required  = ["Recording started", "Recording stopped", "committree committed=true"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+# Budget arithmetic (M-A5 S8): runtime 600 >= 300 LoadGame + 180 StartRecording
+# scene-wait ceiling + the fast non-deferred recorder verbs + margin. LoadGame is
+# the only deferred step; its 300 is under the 540 deferred cap.
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
