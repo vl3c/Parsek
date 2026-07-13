@@ -524,6 +524,93 @@ def compare_manifest(expected: Dict, actual: Dict) -> List[ManifestDiff]:
 
 
 # ---------------------------------------------------------------------------
+# SF10: per-component installed-file inventory diff (design SF10 / EC-3). Pure.
+#
+# The manifest records a DLL hash per stack component but not the SET of files
+# each component installed, so a file ADDED inside a stack component's own folder
+# (an extra DLL dropped into GameData/kRPC beside the hashed ones) is invisible.
+# INSTALL records a per-component installed-file inventory (instance-relative
+# path + sha256); VERIFY re-scans each install folder and diffs it against the
+# recorded inventory. Missing / changed authored files drift; an on-disk file the
+# inventory never recorded is an ADDED drift -- EXCEPT under a runtime-writable
+# (PluginData) subtree, which KSP rewrites on every launch (settings, caches). A
+# PluginData path is recorded for visibility but never red on add/change/remove
+# (the same reason EC-3's dev-mod tree-hash prunes it, is_runtime_writable_dir):
+# hashing runtime writes would re-drift the instance per game launch.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class InventoryDiff:
+    rel: str
+    kind: str  # "missing" | "changed" | "added"
+
+
+def path_has_runtime_writable_segment(rel: str) -> bool:
+    """True if any path segment of ``rel`` is a runtime-writable dir (the
+    PluginData convention). Such paths are recorded in the inventory for
+    visibility but are never a drift (SF10 PluginData tolerance)."""
+    for seg in (rel or "").replace("\\", "/").split("/"):
+        if is_runtime_writable_dir(seg):
+            return True
+    return False
+
+
+def diff_inventory(recorded: Dict[str, str], current: Dict[str, str]) -> List[InventoryDiff]:
+    """Diff a recorded installed-file inventory against the current on-disk set.
+
+    ``recorded`` / ``current`` map an instance-relative file path to its sha256.
+    Returns, in sorted order:
+      - ``missing``: a recorded (authored) file absent on disk,
+      - ``changed``: a recorded file whose on-disk hash differs,
+      - ``added``: an on-disk file the inventory never recorded (an injected
+        extra file -- the SF10 gap this closes).
+    Any path under a runtime-writable (PluginData) subtree is tolerated on ALL
+    three axes (never emitted): the game rewrites it per launch, so flagging it
+    would re-drift the instance on every boot. Empty list == the folder matches
+    its recorded inventory exactly (outside PluginData)."""
+    out: List[InventoryDiff] = []
+    for rel in sorted(recorded):
+        if path_has_runtime_writable_segment(rel):
+            continue
+        if rel not in current:
+            out.append(InventoryDiff(rel, "missing"))
+        elif current[rel] != recorded[rel]:
+            out.append(InventoryDiff(rel, "changed"))
+    for rel in sorted(current):
+        if rel in recorded or path_has_runtime_writable_segment(rel):
+            continue
+        out.append(InventoryDiff(rel, "added"))
+    return out
+
+
+def group_inventory_by_folder(inventories: Dict[str, List]) -> Dict[str, Tuple[Tuple[str, ...], Dict[str, str]]]:
+    """Group per-component recorded inventories by their shared install folder.
+
+    ``inventories`` maps component -> list of ``{"rel":.., "sha256":..}`` entries.
+    kRPC / TestingTools / KRPC.MechJeb all install into ``GameData/kRPC``, so an
+    added-file scan of that folder must diff against the UNION of their recorded
+    files (a file the folder scan finds that belongs to a sibling is not
+    "added"). Returns ``folder -> (owner_components, merged rel->sha map)`` where
+    ``owner_components`` is the sorted tuple of components installing there (the
+    first is the repair target VERIFY attributes folder drift to)."""
+    folders: Dict[str, Dict[str, str]] = {}
+    owners: Dict[str, set] = {}
+    for comp, files in (inventories or {}).items():
+        folder = STACK_COMPONENT_INSTALL_FOLDER.get(comp)
+        if not folder:
+            continue
+        merged = folders.setdefault(folder, {})
+        owners.setdefault(folder, set()).add(comp)
+        for entry in files or []:
+            rel = entry.get("rel")
+            if rel:
+                merged[rel] = entry.get("sha256")
+    return {folder: (tuple(sorted(owners[folder])), merged)
+            for folder, merged in folders.items()}
+
+
+# ---------------------------------------------------------------------------
 # Junction classification + resolution (design CLONE / EC-8). Pure.
 # ---------------------------------------------------------------------------
 
@@ -1224,6 +1311,70 @@ def plan_repair(diffs: Sequence["ManifestDiff"]) -> RepairPlan:
         settings=settings,
         unrepairable=tuple(sorted(unrepairable)),
     )
+
+
+# ---------------------------------------------------------------------------
+# SF9: idempotent re-run hash short-circuit (design SF9). Pure per-component
+# skip decision.
+#
+# Re-running provision.py against an already-provisioned, non-drifted instance
+# used to redo every copy / build / extract. SF9 lets each heavy phase
+# hash-short-circuit: skip the work when a prior COMPLETE provision exists and
+# the thing that WOULD be installed already equals what is on disk. The pure
+# decision compares two hashes; the caller picks their meaning per phase --
+# manifest-recorded hash for the pinned components (kRPC / MechJeb2 zips, whose
+# bytes are fixed by the pin) and the fresh SOURCE hash for the components whose
+# input changes between runs (the rebuilt Parsek.dll, the freshly built
+# TestingTools.dll) -- so a changed source still re-installs. VERIFY always runs
+# fully (it is the proof); SF9 only elides redundant writes, never the check.
+# ---------------------------------------------------------------------------
+
+# Skip-decision reason codes (batch-summary logging + tests).
+SKIP_NO_PRIOR = "no-prior-complete-manifest"     # first provision / half-provision -> do
+SKIP_NOT_RECORDED = "hash-not-recorded"          # nothing to compare against -> do
+SKIP_ABSENT_ON_DISK = "absent-on-disk"           # target file gone -> do (re-install)
+SKIP_HASH_DRIFT = "hash-drift"                    # on-disk differs from expected -> do
+SKIP_HASH_MATCH = "hash-match"                    # already installed identically -> SKIP
+
+
+@dataclass(frozen=True)
+class SkipDecision:
+    skip: bool
+    reason: str  # one of the SKIP_* codes above
+
+
+def decide_idempotent_skip(prior_complete: bool, expected_hash: Optional[str],
+                           current_hash: Optional[str]) -> SkipDecision:
+    """Decide whether a heavy phase may skip its copy / build / extract (SF9).
+
+    ``prior_complete`` gates the whole fast path: it must be True (a prior
+    provision wrote a manifest AND there is no ``.provision-incomplete`` marker)
+    or the phase always does its work -- a first run or a half-provision never
+    trusts on-disk state. ``expected_hash`` is what a fresh provision WOULD put
+    on disk (a manifest-recorded pinned hash, or a fresh source hash); a falsy
+    value means there is nothing to compare, so do the work. ``current_hash`` is
+    the on-disk hash (None when the target is absent). Skip ONLY when a prior
+    complete provision exists and the on-disk hash already equals the expected
+    hash; every other case re-does the work so a drifted or absent component is
+    always re-provisioned exactly as today."""
+    if not prior_complete:
+        return SkipDecision(False, SKIP_NO_PRIOR)
+    if not expected_hash:
+        return SkipDecision(False, SKIP_NOT_RECORDED)
+    if current_hash is None:
+        return SkipDecision(False, SKIP_ABSENT_ON_DISK)
+    if current_hash == expected_hash:
+        return SkipDecision(True, SKIP_HASH_MATCH)
+    return SkipDecision(False, SKIP_HASH_DRIFT)
+
+
+def installed_map_digest(name_to_hash: Dict[str, str]) -> str:
+    """Canonical digest over a component's installed-DLL name->sha256 map, so a
+    multi-file component (kRPC's several DLLs) compares as one hash in the SF9
+    skip decision. Reuses the order/separator-independent tree-digest form; an
+    empty map yields the digest of the empty input."""
+    return canonical_tree_digest_input(
+        [(name, h or "") for name, h in (name_to_hash or {}).items()])
 
 
 # ---------------------------------------------------------------------------
