@@ -13,6 +13,7 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
+- With Auto-merge recordings turned on (Settings), a vessel you leave surviving at the end of a mission (in orbit, landed, or splashed) now stays a real, controllable vessel on the timeline instead of becoming a visual-only ghost, and landed or splashed missions no longer interrupt with a confirmation prompt. Auto-merge is still off by default.
 - New recordings no longer store two overlapping trajectory sections for the same time span around time-warp seams, which made the ghost's playback position ambiguous in those windows. Existing recordings are left untouched.
 - Supply-route inventory delivery now uses every cargo container on the destination vessel: when the first container is full, items are delivered into the next container with a free slot instead of being reported as undelivered. Pickup already worked this way; delivery now matches it.
 - Supply-route inventory deliveries now deliver the full stacked quantity of a cargo item to a loaded destination instead of a single unit, and a manifest item is split across as many inventory slots as its stack size requires (one slot per unit for non-stackable items) so the delivered inventory is valid stock state on both the loaded and unloaded paths.
@@ -23,6 +24,7 @@ All notable changes to Parsek are documented here.
 - Career recalculation is slightly cheaper: the walk now skips a redundant re-sort of the action list when nothing changed it. Recalculated career values are unchanged.
 - Added a developer-only way to run in-game test batches unattended, driven entirely by launch-time environment variables, plus a new set of recording-integrity checks that run in-game. It is completely inert in a normal game and never changes anything Parsek saves.
 - The developer-only test-command channel's game-load step now detects a failed load (a save that returns to the menu, or one that never finishes loading) and reports it as an error instead of waiting indefinitely. Inert in a normal game; no gameplay change.
+- The developer-only test-command channel's time-jump step now reports success correctly instead of always timing out (the clock keeps ticking past the target while the jump settles, which the old check mistook for a miss), and rejects a nonsensical jump target up front. Inert in a normal game; no gameplay change.
 - Added three developer-only automated-test scenarios covering the live recording start/stop, commit, and discard cycle plus an in-game recording-integrity sweep over the synthetic corpus. Test-tooling only; no gameplay change.
 - Added a developer-only automated-test fixture that injects a rewindable recording tree (a crashed booster with a rewind point) plus the first two rewind-and-merge test scenarios that drive it. Test-tooling only; no gameplay change.
 - Fixed the developer-only test-command channel's LoadGame verb, which always failed when booting a flight save straight from the main menu: it now adopts the loaded game before the flight scene change so the stock loader has a current game to read. Inert in a normal game; no gameplay change.

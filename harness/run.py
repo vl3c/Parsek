@@ -1023,7 +1023,19 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                     logger.warn("Budget", "deferred step %s: step-wait %.0fs capped by run budget is below seam deferral %.0fs + margin; a seam TIMEOUT may KILL instead of surfacing driver-INVALID"
                                 % (verb, step_wait, seam_deferral))
         else:
-            step_wait = step_budget
+            # A non-two-phase verb still defers at the seam head up to its OWN dispatch
+            # deferral budget (AnswerMergeDialog 120s, KscAction 60s, ... default 60s)
+            # before the seam self-emits a TIMEOUT. Out-wait that budget + the 60s margin
+            # so the seam's own verdict (retryable driver-INVALID) is OBSERVED instead of
+            # the harness KILLing a genuinely-deferring verb; a spec-pinned larger step
+            # budget still wins. Capped at the run budget (M-A5 integration item 3).
+            dispatch_wait = hlib.required_dispatch_step_wait(verb)
+            step_wait = max(float(step_budget), dispatch_wait)
+            if step_wait > run_budget:
+                step_wait = run_budget
+                if step_wait < dispatch_wait:
+                    logger.warn("Budget", "dispatch-deferring step %s: step-wait %.0fs capped by run budget is below dispatch deferral %.0fs + margin; a seam TIMEOUT may KILL instead of surfacing driver-INVALID"
+                                % (verb, step_wait, dispatch_wait))
         step_start = runtime.now()
         polls = 0
 
@@ -1172,7 +1184,14 @@ def _capture_seed_baseline(spec: Dict, instance_dir: str, run_save_name: str,
     if not has_any:
         logger.warn("Seed", "ledger-seed: template parsed but no career pools + [expectations.ledger] declared -> INVALID(fixture-authoring)")
         return SeedCapture(None, "invalid-fixture", block)
-    seed = oracle.parse_seed_baseline(block)
+    try:
+        seed = oracle.parse_seed_baseline(block)
+    except ValueError as exc:
+        # A hasX=true facet with a non-numeric value is a malformed careerSave block
+        # (writer-contract violation), not a real seed -> tooling INVALID, never a
+        # silent facet-absent degrade (item 10).
+        logger.warn("Seed", "ledger-seed: malformed careerSave block (%s) -> INVALID(tooling)" % exc)
+        return SeedCapture(None, "invalid-tooling", block)
     logger.info("Seed", "ledger-seed template=%s via=analyzer parsed=True funds=%s science=%s rep=%s hasFunds=%s hasScience=%s hasRep=%s resultsRedirect=%s"
                 % (run_save_name, seed.funds, seed.science, seed.reputation,
                    block.get("hasFunds"), block.get("hasScience"), block.get("hasRep"), seed_out))
@@ -1225,7 +1244,9 @@ def _build_and_write_manifest(ledger_block: Dict, log_text: str, seed,
     the oracle sums into EXPECTED) + the stock-log-captured awards (cross-checked as
     corroborating / unexpected). Writes the accumulated ``<runId>.manifest.json``
     (``entries`` = the oracle-consumed seam entries, ``capturedRaw`` = every matched
-    stock line). Returns ``(seam_entries, deduped_captured)``.
+    stock line). Returns the 3-tuple ``(seam_entries, deduped_captured,
+    seam_reject_errors)`` (``seam_reject_errors`` is the tuple of per-entry rejection
+    reasons the caller reds each as a dropped-expected-effect PARSEK-FAIL, edge 18).
 
     v1 reconciliation (design ambiguity resolved): the accumulated ``entries`` the
     oracle CONSUMES for EXPECTED are the seam-declared author constants ONLY. The
@@ -1296,6 +1317,19 @@ def _run_ledger_oracle(ledger_block: Optional[Dict], world_block: Optional[Dict]
                  "reason": "careerSave block absent from analysis.json",
                  "hardDivergences": 0, "reportOnly": 0, "utWindow": [None, None]},
                 False, True)
+    # A produced-save careerSave that the analyzer could not parse (parsed=false) on an
+    # ACTIVE ledger verifier is the same tooling condition as an ABSENT block (edge 13
+    # symmetry / edge 15): the diff would net all-facets-absent into PARSEK-FAIL
+    # missing-facet drift, which is the WRONG signal (it is an analyzer/config parse
+    # fault, not a Parsek defect). Route to INVALID(tooling), never a false PARSEK-FAIL
+    # (item 10). Facet-absence (Sandbox/Science) is signalled by hasX flags with
+    # parsed=TRUE, not by parsed=false, so this only fires on a genuine parse failure.
+    if career_block.get("parsed") is False:
+        logger.warn("Verify", "verify ledgerOracle status=INVALID subkind=tooling: produced careerSave parsed=false (analyzer could not parse the produced save)")
+        return ({"status": oracle.ORACLE_STATUS_INVALID, "subkind": "tooling",
+                 "reason": "produced careerSave parsed=false (analyzer could not parse the produced save)",
+                 "hardDivergences": 0, "reportOnly": 0, "utWindow": [None, None]},
+                False, True)
 
     tol = oracle.default_tolerances()
     divergences: List = []
@@ -1334,9 +1368,12 @@ def _run_ledger_oracle(ledger_block: Optional[Dict], world_block: Optional[Dict]
         for c in hlib.unmatched_captured_awards(seam_entries, captured):
             facet = _AWARD_FACET_TO_DIFF.get(c.facet, c.facet)
             # Edge 4 (~582): the UT window is the captured line's UT, or the ORDINAL
-            # seqKey when the award had no UT-stamped [Parsek] neighbor (never
-            # [None, None], which would strip the drift's only positional anchor).
-            aw = c.seq_key
+            # seq when the award had no UT-stamped [Parsek] neighbor (never [None, None],
+            # which would strip the drift's only positional anchor). This is the RAW
+            # NUMERIC anchor, not the type-tagged seq_key (the window bounds must stay
+            # comparable for _aggregate_ut_window's min/max; the tag lives only in the
+            # matcher keys).
+            aw = c.ut if c.ut is not None else c.seq
             divergences.append(oracle.OracleDivergence(
                 facet=facet, kind="unexpected-award",
                 identity=(c.contract_guid or c.subject_id or ""),
@@ -1463,9 +1500,13 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         "category": sel.category if sel.category is not None else driven_category,
         "multi": sel.multi, "aggregateMissing": sel.aggregate_missing,
         "categoryCountMismatch": sel.category_count_mismatch,
+        "duplicateAggregate": sel.duplicate_aggregate,
         "expectedCategoryCount": sel.expected_category_count,
         "perCategoryCount": sel.per_category_count,
     }
+    if sel.duplicate_aggregate:
+        logger.warn("Verify", "verify batchComplete: multi-category selector '%s' emitted MORE THAN ONE category=multi:<n> aggregate line -> duplicate_aggregate defined fault (the summary emitted twice); reds batch-incomplete, never a silent first-wins (M-A5 integration item 10)"
+                    % (driven_category,))
     if sel.aggregate_missing:
         logger.warn("Verify", "verify batchComplete: multi-category selector '%s' emitted %d per-category line(s) but NO category=multi:<n> aggregate -> defined fault (batch cut off before H1 summary); reds batch-incomplete, never a silent pass (M-A5.1 N3)"
                     % (driven_category, sel.per_category_count))
@@ -1519,7 +1560,7 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         ledger_active_killed = (expectations.get("ledger") is not None
                                 or expectations.get("world") is not None)
         detail["ledgerOracle"] = {"status": "SKIPPED",
-                                  "reason": "killed" if ledger_active_killed else "mb2-not-landed"}
+                                  "reason": "killed" if ledger_active_killed else "no-ledger-block-declared"}
         detail["subprocessRetry"] = subprocess_retries
         return {"driver": driver_facts, "verifiers": verifiers, "detail": detail,
                 "recordingCount": None}
@@ -1617,14 +1658,14 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         detail.setdefault("expectations", {"status": "SKIPPED", "reason": "short-circuit"})
 
     # 8. Ledger oracle (M-B2). Active iff the scenario declares [expectations.ledger]
-    # OR [expectations.world]; else SKIPPED(mb2-not-landed), the reserved contract.
-    # Runs after the analyzer (verifier 3) produced the .analysis.json careerSave
-    # block; independent of the later-verifier short-circuit (a ledger drift is its
-    # own signal). Gated on driver_valid: a driver-INVALID save is not ground truth.
+    # OR [expectations.world]; else SKIPPED(no-ledger-block-declared), the reserved
+    # contract. Runs after the analyzer (verifier 3) produced the .analysis.json
+    # careerSave block; independent of the later-verifier short-circuit (a ledger drift
+    # is its own signal). Gated on driver_valid: a driver-INVALID save is not ground truth.
     ledger_block = expectations.get("ledger")
     world_block = expectations.get("world")
     if ledger_block is None and world_block is None:
-        detail["ledgerOracle"] = {"status": "SKIPPED", "reason": "mb2-not-landed"}
+        detail["ledgerOracle"] = {"status": "SKIPPED", "reason": "no-ledger-block-declared"}
     elif not driver_valid:
         detail["ledgerOracle"] = {"status": "SKIPPED", "reason": "driver-invalid"}
         logger.info("Verify", "verify ledgerOracle status=SKIPPED reason=driver-invalid")
@@ -1647,7 +1688,9 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
 
 def _stage_subkind_for(fu) -> str:
     """Map the first unmet seam-step outcome to a driver-stage subkind (design
-    driver-validity taxonomy). None (no unmet step) -> "" (met)."""
+    driver-validity taxonomy). None (no unmet step) -> "" (met). An M-C1 verb refusal
+    carrying a recognized `msg=` reason maps to the finer driver-* subkind (item 6);
+    an unrecognized reason falls back to driver-verdict-mismatch."""
     if fu is None:
         return ""
     if not fu.found:
@@ -1656,6 +1699,9 @@ def _stage_subkind_for(fu) -> str:
         return "seam-timeout"
     if fu.cmd == "LoadGame" and fu.verdict == "ERROR":
         return "load-failed"
+    refusal = hlib.classify_seam_refusal_subkind(getattr(fu, "msg", ""))
+    if refusal:
+        return refusal
     return "driver-verdict-mismatch"
 
 

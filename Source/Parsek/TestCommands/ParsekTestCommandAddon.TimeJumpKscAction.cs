@@ -44,8 +44,10 @@ namespace Parsek.TestCommands
             double target = TestCommandTimeJump.ResolveTargetUt(nowUt, utArg, deltaArg, out string error);
             if (error != null)
             {
-                ParsekLog.Warn(Tag, "timejump refused reason=missing-jump-target");
-                SetExecResult("REJECTED", null, "missing-jump-target");
+                // Surface the actual resolve error verbatim (missing-jump-target /
+                // target-out-of-range) rather than a hardcoded reason.
+                ParsekLog.Warn(Tag, $"timejump refused reason={error}");
+                SetExecResult("REJECTED", null, error);
                 return;
             }
             if (!TestCommandTimeJump.IsForwardJump(nowUt, target))

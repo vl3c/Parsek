@@ -90,6 +90,28 @@ class SeedBaselineParseTests(unittest.TestCase):
         self.assertIsNone(seed.science)
         self.assertIsNone(seed.reputation)
 
+    def test_hasflag_true_non_numeric_value_faults(self):
+        # Item 10: a hasX flag TRUE with a non-numeric / missing / non-finite value is a
+        # CONTRADICTION (the block claims the pool present but gives no usable number).
+        # It must RAISE (the caller routes it to INVALID(tooling)), never silently
+        # degrade the facet to absent (which would false-Sandbox a career seed).
+        for block in (
+            {"hasFunds": True, "funds": "oops"},          # non-numeric
+            {"hasFunds": True},                            # missing value
+            {"hasScience": True, "sciencePool": None},     # explicit null
+            {"hasRep": True, "reputation": float("nan")},  # non-finite
+            {"hasFunds": True, "funds": True},             # bool is not a number
+        ):
+            with self.subTest(block=block):
+                with self.assertRaises(ValueError):
+                    oracle.parse_seed_baseline(block)
+
+    def test_hasflag_absent_non_numeric_is_absent_not_fault(self):
+        # No presence CLAIM (hasX flag absent) + a non-numeric value -> plain absent, not
+        # a fault (only a TRUE flag makes the missing number a contradiction).
+        seed = oracle.parse_seed_baseline({"funds": "n/a"})
+        self.assertIsNone(seed.funds)
+
     def test_cross_lane_careerSave_block_feeds_both_parsers(self):
         # BLOCKER 1 cross-lane guard: a LITERAL careerSave-block JSON (field names
         # copied verbatim from ReportWriter.cs AppendCareerSave) is driven through
@@ -124,10 +146,15 @@ class SeedBaselineParseTests(unittest.TestCase):
         self.assertEqual(seed.reputation, 12.0)
         self.assertTrue(seed.has_funds and seed.has_science and seed.has_rep)
         # A block that used the WRONG science key must NOT resurrect a science pool.
+        # Item 10: hasScience=true with the sciencePool value MISSING (only the wrong
+        # `science` key present) is now a CONTRADICTION that raises ValueError (a
+        # tooling fault the caller routes to INVALID), never a silent degrade to absent.
+        # That the fault fires at all proves the parser reads sciencePool, not science.
         wrong = dict(block)
         wrong.pop("sciencePool")
         wrong["science"] = 34.5
-        self.assertIsNone(oracle.parse_seed_baseline(wrong).science)
+        with self.assertRaises(ValueError):
+            oracle.parse_seed_baseline(wrong)
 
 
 # ---------------------------------------------------------------------------
@@ -258,6 +285,35 @@ class ManifestParseTests(unittest.TestCase):
         parse = oracle.parse_manifest_entries(
             [{"kind": "contract-complete", "funds": float("inf")}])
         self.assertFalse(parse.ok)
+
+    def test_huge_rep_author_constant_rejected(self):
+        # Item 9: a huge FINITE rep author constant is rejected at parse so it can never
+        # reach apply_rep_curve's per-integer-step loop (an in-process hang). funds is
+        # NOT looped, so a large funds constant stays admissible.
+        parse = oracle.parse_manifest_entries(
+            [{"kind": "contract-complete", "reputation": 1e9}])
+        self.assertFalse(parse.ok)
+        self.assertTrue(any("magnitude cap" in e for e in parse.errors), parse.errors)
+        # At the boundary the cap admits (<=10000) and rejects just beyond it.
+        self.assertTrue(oracle.parse_manifest_entries(
+            [{"kind": "contract-complete", "reputation": 10000.0}]).ok)
+        self.assertFalse(oracle.parse_manifest_entries(
+            [{"kind": "contract-complete", "reputation": 10000.1}]).ok)
+        self.assertTrue(oracle.parse_manifest_entries(
+            [{"kind": "contract-complete", "funds": 1e9}]).ok, "funds is not magnitude-capped")
+
+    def test_fill_from_capture_ordinal_seq_not_matched_by_ut(self):
+        # Item 8: a null-UT funds fill entry with ordinal seq=3 must NOT fill from a
+        # captured award at UT 3.0 (3 == 3.0 untagged would spuriously match) -> the
+        # fill is ambiguous (zero real matches), fail-closed.
+        captured = oracle.parse_manifest_entries(
+            [{"ut": 3.0, "kind": "contract-complete", "funds": 12345.0, "contractGuid": "g",
+              "provenance": "stock-log-captured"}]).entries
+        parse = oracle.parse_manifest_entries(
+            [{"kind": "contract-complete", "funds": None, "contractGuid": "g", "seq": 3}],
+            captured=captured)
+        self.assertFalse(parse.ok, "ord-3 fill must not match a ut=3.0 capture")
+        self.assertTrue(any("ambiguous" in e for e in parse.errors))
 
 
 # ---------------------------------------------------------------------------
@@ -654,7 +710,7 @@ class EndToEndTests(unittest.TestCase):
 
     def test_b10_empty_manifest_zero_drift_pass(self):
         seed = oracle.parse_seed_baseline(
-            {"funds": 25000.0, "science": 0.0, "reputation": 0.0,
+            {"funds": 25000.0, "sciencePool": 0.0, "reputation": 0.0,
              "hasFunds": True, "hasScience": True, "hasRep": True})
         parse = oracle.parse_manifest_entries([])   # B10 empty manifest
         self.assertTrue(parse.ok)
@@ -667,7 +723,7 @@ class EndToEndTests(unittest.TestCase):
 
     def test_injected_funds_drift_reds_with_window(self):
         seed = oracle.parse_seed_baseline(
-            {"funds": 25000.0, "science": 0.0, "reputation": 0.0,
+            {"funds": 25000.0, "sciencePool": 0.0, "reputation": 0.0,
              "hasFunds": True, "hasScience": True, "hasRep": True})
         exp = oracle.compute_expected(seed, [])     # empty manifest, expected == seed
         # The produced save's funds moved beyond tolerance (a cold-load wipe / drift).

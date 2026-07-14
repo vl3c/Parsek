@@ -289,7 +289,7 @@ namespace Parsek
             }
 
             bool autoMerge = GUILayout.Toggle(s.autoMerge,
-                new GUIContent(" Auto-merge recordings", "When off, a confirmation dialog appears after each recording"));
+                new GUIContent(" Auto-merge recordings", "Commit recordings to the timeline automatically, with no confirmation dialog. When off, a confirmation dialog appears after each recording."));
             if (autoMerge != s.autoMerge)
             {
                 s.autoMerge = autoMerge;

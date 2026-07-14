@@ -42,18 +42,23 @@ namespace Parsek.TestCommands
         /// SETTLED scenes (the pump gates off during LOADING / transition / settle).
         ///
         /// <para>Order (mirroring <see cref="TestCommandLoadGame.DecideLoadCompletion"/>):
-        /// the invoke context still pending is the "keep waiting" straddle; a fresh marker
-        /// is the success (RewindInvoker.CanInvoke refuses when a marker already exists, so
-        /// a marker appearing AFTER StartInvoke is unambiguously this command's); a cleared
-        /// context with no marker is the fast failure BEFORE the budget; the budget expiry
-        /// is the catch-all.</para>
+        /// a fresh marker is the success (RewindInvoker.CanInvoke refuses when a marker
+        /// already exists, so a marker appearing AFTER StartInvoke is unambiguously this
+        /// command's) and wins even past the budget; the budget expiry is then checked
+        /// UNCONDITIONALLY (before the still-pending straddle) so a reload that aborts
+        /// without ConsumePostLoad - leaving the invoke context Pending forever - still
+        /// terminates as RewindTimeout instead of holding the FIFO head indefinitely; a
+        /// still-pending context within budget keeps waiting; a cleared context with no
+        /// marker is the fast failure. The earlier ordering short-circuited on
+        /// contextPending FIRST, which made RewindTimeout unreachable in its own documented
+        /// case (the reload never settled within the budget).</para>
         /// </summary>
         internal static RewindCompletionDecision DecideRewindCompletion(
             double elapsedSeconds, bool contextPending, bool markerPresent, double budgetSeconds)
         {
-            if (contextPending) return RewindCompletionDecision.StillWaiting;
             if (markerPresent) return RewindCompletionDecision.CompleteOk;
             if (elapsedSeconds >= budgetSeconds) return RewindCompletionDecision.RewindTimeout;
+            if (contextPending) return RewindCompletionDecision.StillWaiting;
             return RewindCompletionDecision.RewindFailed;
         }
 

@@ -12,10 +12,12 @@ namespace Parsek.TestCommands
     /// </summary>
     internal enum JumpCompletionDecision
     {
-        /// <summary>UT not yet within tolerance, or the settle window has not elapsed.</summary>
+        /// <summary>UT has not yet reached the target, or the settle window has not
+        /// elapsed.</summary>
         StillWaiting,
 
-        /// <summary>UT within tolerance AND settle frames drained: terminal OK.</summary>
+        /// <summary>UT reached (or passed) the target AND settle frames drained: terminal
+        /// OK.</summary>
         CompleteOk,
 
         /// <summary>Budget expired without reaching the target (bounds a pathological
@@ -49,6 +51,13 @@ namespace Parsek.TestCommands
         /// before the terminal OK.</summary>
         internal const int SettleFrames = 3;
 
+        /// <summary>Generous absolute bound (seconds) on a resolved target UT. ~31,700 years
+        /// past the epoch is far beyond any legitimate jump; a target outside
+        /// <c>[-MaxAbsTargetUt, +MaxAbsTargetUt]</c> (or a non-finite one) is an author fault
+        /// and is REJECTED so an absurd value (a 1e308 UT, a NaN, an overflow from
+        /// <c>now + delta</c>) can never reach <c>ExecuteJump</c>.</summary>
+        internal const double MaxAbsTargetUt = 1e12;
+
         /// <summary>
         /// Pure forward-jump gate, mirroring <see cref="Parsek.TimeJumpManager.IsValidJump"/>
         /// (strictly <c>target &gt; current</c>). A backward or zero jump is a DRIVER
@@ -62,8 +71,12 @@ namespace Parsek.TestCommands
         /// <c>deltaSeconds</c> (positive delta), both InvariantCulture floats. Both absent,
         /// both present, or an unparseable value all fail with
         /// <paramref name="error"/> = <c>"missing-jump-target"</c> (a locale comma such as
-        /// <c>600,0</c> fails: InvariantCulture only). Returns the resolved absolute target
-        /// UT on success (<paramref name="error"/> null), or <c>double.NaN</c> on failure.
+        /// <c>600,0</c> fails: InvariantCulture only). A parsed-but-non-finite or absurdly
+        /// large target (NaN / Infinity, an overflow from <c>now + delta</c>, or a magnitude
+        /// beyond <see cref="MaxAbsTargetUt"/>) fails with
+        /// <paramref name="error"/> = <c>"target-out-of-range"</c> so it can never reach
+        /// <c>ExecuteJump</c>. Returns the resolved absolute target UT on success
+        /// (<paramref name="error"/> null), or <c>double.NaN</c> on failure.
         /// </summary>
         internal static double ResolveTargetUt(double nowUT, string utArg, string deltaArg, out string error)
         {
@@ -77,6 +90,7 @@ namespace Parsek.TestCommands
                 return double.NaN;
             }
 
+            double target;
             if (hasUt)
             {
                 if (!double.TryParse(utArg, NumberStyles.Float, CultureInfo.InvariantCulture, out double ut))
@@ -84,34 +98,53 @@ namespace Parsek.TestCommands
                     error = "missing-jump-target";
                     return double.NaN;
                 }
-                error = null;
-                return ut;
+                target = ut;
+            }
+            else
+            {
+                if (!double.TryParse(deltaArg, NumberStyles.Float, CultureInfo.InvariantCulture, out double delta))
+                {
+                    error = "missing-jump-target";
+                    return double.NaN;
+                }
+                target = nowUT + delta;
             }
 
-            if (!double.TryParse(deltaArg, NumberStyles.Float, CultureInfo.InvariantCulture, out double delta))
+            // Finiteness + sane-magnitude guard (net472: no double.IsFinite, so test NaN /
+            // Infinity explicitly). Rejects a non-finite target (NaN / Infinity, or an
+            // overflow from now + delta) and an absurd magnitude before it can reach the
+            // real epoch-shift path.
+            if (double.IsNaN(target) || double.IsInfinity(target) || Math.Abs(target) > MaxAbsTargetUt)
             {
-                error = "missing-jump-target";
+                error = "target-out-of-range";
                 return double.NaN;
             }
 
             error = null;
-            return nowUT + delta;
+            return target;
         }
 
         /// <summary>
-        /// Decide the two-phase TimeJump completion. The clock is reached when the current
-        /// UT is within <paramref name="toleranceSeconds"/> of the captured target; the
-        /// jump is complete only once the settle window has also drained
+        /// Decide the two-phase TimeJump completion. The clock is reached ONE-SIDEDLY:
+        /// <paramref name="currentUT"/> has reached <c>targetUT - toleranceSeconds</c> or
+        /// beyond. The one-sided latch is load-bearing: the epoch-shift jump does NOT pause
+        /// the game, so the clock keeps advancing at the live rate and by the time the
+        /// settle window drains <paramref name="currentUT"/> is already tens of milliseconds
+        /// PAST the target and receding. A two-sided <c>Abs(current - target) &lt;= tol</c>
+        /// test would therefore go false the instant the clock overshot and never re-satisfy,
+        /// so every live jump fell through to the budget and ERRORed jump-timeout despite
+        /// landing exactly. Reaching or passing the target latches reached true, and the jump
+        /// is complete only once the settle window has also drained
         /// (<paramref name="settleFramesRemaining"/> &lt;= 0). The budget expiry is a
-        /// catch-all that bounds a pathological non-landing jump. Kept pure so every cell
-        /// is xUnit-covered without a live KSP scene. The exactly-on-tolerance case is
-        /// inclusive (CompleteOk).
+        /// catch-all that bounds a pathological non-landing jump (the clock never reaches
+        /// the target at all). Kept pure so every cell is xUnit-covered without a live KSP
+        /// scene. The exactly-on-target-minus-tolerance case is inclusive (reached).
         /// </summary>
         internal static JumpCompletionDecision DecideJumpCompletion(
             double elapsedSeconds, double currentUT, double targetUT,
             double toleranceSeconds, int settleFramesRemaining, double budgetSeconds)
         {
-            bool reached = Math.Abs(currentUT - targetUT) <= toleranceSeconds;
+            bool reached = currentUT >= targetUT - toleranceSeconds;
             if (reached && settleFramesRemaining <= 0)
                 return JumpCompletionDecision.CompleteOk;
             if (elapsedSeconds >= budgetSeconds)

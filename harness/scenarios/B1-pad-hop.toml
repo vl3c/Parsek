@@ -1,6 +1,9 @@
 schema = 1
 id = "B1-pad-hop"
-tier = "daily"
+# pending-fixture (NOT daily): the fixtures/saves/b1-pad-craft template is not
+# committed yet, so a --cadence daily run would INVALID(staging) this terminally and
+# self-quarantine a scenario that never ran. Re-tier to "daily" once the fixture lands.
+tier = "pending-fixture"
 description = "Pad hop: pre-placed craft, throttle+stage, coast, chute, land; assert apoapsis window + landed."
 instanceProfile = "stock-minimal"
 tags = ["B1", "S0.1", "flown"]

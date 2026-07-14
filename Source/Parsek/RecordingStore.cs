@@ -4922,9 +4922,6 @@ namespace Parsek
             return list;
         }
 
-        // Destination scene from last OnSceneChangeRequested — consumed in OnLoad (#88)
-        internal static GameScenes? PendingDestinationScene { get; set; }
-
         // Delegate property for RewindQuicksaveVesselPids — state now lives in RewindContext.
         internal static HashSet<uint> RewindQuicksaveVesselPids => RewindContext.RewindQuicksaveVesselPids;
 
