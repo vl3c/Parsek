@@ -1,0 +1,74 @@
+schema = 1
+id = "L1-research-node-science"
+# pending-fixture: fixtures/saves/fresh-science is not committed yet (M-B3 operator
+# runbook creates it). Re-tier to "daily" once BOTH the fixture lands AND the M-C1
+# research-node readiness-widening dependency below merges.
+tier = "pending-fixture"
+description = "Science mode: research one tech node; the science pool drops by exactly the node cost. No funds/rep pool exists to assert."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "L1", "science-mode", "pending-operator"]
+
+[fixture]
+# fresh-science (GAME node Mode = SCIENCE_SANDBOX): science pool only; CareerSaveParser
+# sets hasFunds/hasRep false so the oracle facet-skips them (M-B2 edge 5).
+saveTemplate = "fixtures/saves/fresh-science"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# DEPENDENCY (Open Question 1, plan of record -- NOT passive-only): M-C1's CareerPresent
+# readiness bit gates research-node on Mode == CAREER, so in SCIENCE_SANDBOX the verb
+# currently DEFERS career-not-ready -> TIMEOUT -> INVALID. This spec depends on a SEPARATE,
+# SUB-ACTION-SCOPED M-C1 follow-up (a sibling lane, NOT this one): widen ONLY the
+# research-node sub-action's readiness to admit
+# (Mode == CAREER || Mode == SCIENCE_SANDBOX) && ResearchAndDevelopment.Instance != null
+# (a RnDPresent bit). hire / dismiss / upgrade STAY CAREER-only (Funding null in Science).
+# Do NOT relax the shared top-level Mode check. Until the follow-up lands, Science-mode L1
+# is passive-only (temporary fallback), which under-covers the "Science mode has science"
+# axis; this spec is the plan of record once the gate widens.
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "KscAction",    args = { action = "research-node", node = "basicRocketry" }, expect = "OK", budget = 60 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "FlushAndQuit",   expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["science", "recalc-engine", "orchestrator", "ksp-state-patcher", "action-blocking"]
+D14 = ["science-mode"]
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required  = ["kscaction action=research-node .* applied=true", "Game state: TechResearched"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+allowedAnomalies = []
+
+# Science-mode single-module script: only ScienceModule produces an assertable delta. The
+# seed's funds/rep pools are ABSENT, so the oracle asserts science ONLY (never a false red
+# on a missing pool, M-B2 edge 7). The nonzero capture leg is UNTRUSTED, identical to the
+# career research-node script (shipped patterns dead -> no captures today).
+[expectations.ledger]
+seedFrom     = "template"
+tolerances   = "default"
+rec3CarveOut = false
+
+[[expectations.ledger.manifest]]
+  ut         = 0.0
+  kind       = "tech-unlock"
+  # AUTHOR CONSTANT: basicRocketry = -5.0 on the pinned KSP 1.12.5 stock tech tree.
+  # VERIFY-PENDING-OPERATOR (same node-cost discipline as the career research script).
+  science    = -5.0
+  provenance = "seam-declared"
+
+[runtime]
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

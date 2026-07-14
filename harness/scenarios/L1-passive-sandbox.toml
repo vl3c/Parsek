@@ -1,0 +1,62 @@
+schema = 1
+id = "L1-passive-sandbox"
+# pending-fixture: fixtures/saves/fresh-sandbox is not committed yet (M-B3 operator
+# runbook creates it). Re-tier to "daily" once the fixture lands.
+tier = "pending-fixture"
+description = "Sandbox: no economy pool exists; cold load into an in-scene test batch drives no career action and moves nothing. A pure B10 variant."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "L1", "sandbox", "pending-operator"]
+
+[fixture]
+# fresh-sandbox (GAME node Mode = SANDBOX): NO funds/science/rep pool. CareerSaveParser
+# sets every hasX false; the oracle facet-skips all pools (expected == seed, all absent).
+saveTemplate = "fixtures/saves/fresh-sandbox"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# PASSIVE-ONLY, a PURE B10 variant with NO KscAction step. Sandbox is Game.Modes.SANDBOX,
+# NOT CAREER, so research-node (like every CAREER-gated verb) would DEFER career-not-ready
+# -> TIMEOUT -> INVALID -- it never reaches a node-already-unlocked check, so the script does
+# not attempt it (Edge 5). The RecordingInvariants batch is the passive-safety proof: it
+# must not move the (absent) economy, and the facet-skip-when-absent path must be correct for
+# a no-pools save.
+steps = [
+  { cmd = "LoadGame",    args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",  args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",    args = { category = "RecordingInvariants" },          expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["recalc-engine", "orchestrator", "ksp-state-patcher"]
+D14 = ["sandbox"]
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+required  = ["BATCH_COMPLETE v1 .* failed=0\\b"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+allowedAnomalies = []
+
+# EMPTY manifest (like B10): expected == seed. All pools absent in Sandbox, so the oracle
+# asserts nothing on the pools and PASSES on the facet-skip path. The empty-manifest
+# any-capture-reds cross-check stays TRUSTED (with no seam entries, any captured award reds
+# for any seq_key -- sound regardless of the deferred UT correlation): it proves the ledger
+# stays inert in Sandbox.
+[expectations.ledger]
+seedFrom     = "template"
+tolerances   = "default"
+rec3CarveOut = false
+# No [[expectations.ledger.manifest]] entries: empty manifest = zero expected delta.
+
+[runtime]
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -1,0 +1,77 @@
+schema = 1
+id = "L1-upgrade-facility-career"
+# pending-fixture: fixtures/saves/fresh-career is not committed yet (M-B3 operator
+# runbook creates it). Re-tier to "daily" once the fixture lands.
+tier = "pending-fixture"
+description = "Career: upgrade one non-R&D facility; the funds pool drops by exactly the per-level cost, no other drift."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "L1", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/fresh-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# upgrade-facility requires SPACECENTER (the funds debit lives in the scene
+# SpaceCenterBuilding instance, FacilityUpgradeSpendPatch.cs); the fresh-career fixture
+# loads to SPACECENTER. NIT A-N1: upgrade a NON-R&D facility (Tracking Station) so the
+# funds-debit line stays clear of the science-transmit capture regex keyed on
+# ResearchAndDevelopment. The chosen facility is pinned in the fixture README.
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "KscAction",    args = { action = "upgrade-facility", facility = "SpaceCenter/TrackingStation" }, expect = "OK", budget = 60 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "FlushAndQuit",   expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["facilities", "funds", "recalc-engine", "orchestrator", "ksp-state-patcher", "action-blocking"]
+D14 = ["career", "scene-ksc"]
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# The M-C1 verb logs "kscaction action=upgrade-facility target=... applied=true
+# manifestKind=facility-upgrade observedAfter=<cost>"; the stock upgrade reaches Parsek's
+# facility-polling observer (GameStateFacilityRecorder.PollFacilityState:
+# "Game state: FacilityUpgraded '<key>' <old> -> <new>").
+required  = ["kscaction action=upgrade-facility .* applied=true", "Game state: FacilityUpgraded"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+allowedAnomalies = []
+
+[expectations.ledger]
+seedFrom     = "template"
+tolerances   = "default"
+rec3CarveOut = false
+
+[[expectations.ledger.manifest]]
+  ut         = 0.0
+  kind       = "facility-upgrade"
+  # AUTHOR CONSTANT (DETERMINISTIC PER LEVEL: a facility's upgrade cost is fixed data per
+  # (facility, level) in the building config, the value SpaceCenterBuilding.GetUpgradeCost
+  # returns for level 0 -> 1; state-INDEPENDENT, so an author constant is valid, OQ4).
+  # funds is the fill-eligible pool-only facet, but an author constant is preferred here
+  # because the cost is fixed and fill-from-capture depends on a (deferred) facility-upgrade
+  # capture pattern. Tracking Station level 0 -> 1, stock KSP 1.12.5.
+  # VERIFY-PENDING-OPERATOR: the operator reads GetUpgradeCost off the observedAfter= field
+  # of the "kscaction action=upgrade-facility applied=true" line during fixture creation and
+  # records it in the fixture README. If the chosen facility's cost turns out
+  # GameVariables-scaled rather than fixed, treat it as fixture-pinned like hire (Edge 3).
+  funds      = -150000.0
+  provenance = "seam-declared"
+
+[runtime]
+# Happy path: LoadGame ~300 + KscAction ~60 + light verbs, under 600. Pending-fixture ->
+# never scheduled unattended.
+# Budget check (seed funds 500000 affords the spend): 500000 + (-150000) = 350000 >= 0.
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

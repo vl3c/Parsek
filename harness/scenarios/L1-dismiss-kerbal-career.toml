@@ -1,0 +1,79 @@
+schema = 1
+id = "L1-dismiss-kerbal-career"
+# pending-fixture: fixtures/saves/fresh-career is not committed yet (M-B3 operator
+# runbook creates it). Re-tier to "daily" once the fixture lands.
+tier = "pending-fixture"
+description = "Career: dismiss one roster kerbal; NO career pool moves (pool-neutral non-economic action)."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "L1", "R7", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/fresh-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# dismiss-kerbal drives KerbalRoster.Remove (a Parsek-managed kerbal pre-declines
+# kerbal-parsek-managed). VERIFY-PENDING-OPERATOR: name a dismissable stock kerbal the
+# fixture roster carries (the fresh-career roster is EXACTLY Jeb/Bill/Bob/Val; dismissing
+# one is pool-neutral because stock does not refund a hire). Record the chosen name in the
+# fixture README.
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "KscAction",    args = { action = "dismiss-kerbal", kerbal = "Bill Kerman" }, expect = "OK", budget = 60 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "FlushAndQuit",   expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["kerbals", "recalc-engine", "orchestrator", "ksp-state-patcher", "action-blocking"]
+D12 = ["hire-dismiss-patches"]
+D14 = ["career", "scene-ksc"]
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# "kscaction action=dismiss-kerbal target=... applied=true manifestKind=kerbal-dismiss ...";
+# the stock removal reaches Parsek's recorder-observer (GameStateRecorder.Handlers
+# OnKerbalRemoved: "Game state: CrewRemoved '<name>'").
+required  = ["kscaction action=dismiss-kerbal .* applied=true", "Game state: CrewRemoved"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+allowedAnomalies = []
+
+# The dismiss L1 script is a passive-safety cross-check scoped to a roster mutation: it
+# proves a KSC roster action does not perturb the economy (the R6/R7-adjacent "no phantom
+# economy movement on a non-economic action" guard). Unlike the nonzero economic scripts,
+# the unmatched_captured_awards-empty leg IS trusted here (a dismiss fires NO economic
+# award, so the captured set is empty and the any-captured-award-reds signal is sound for
+# any seq_key -- the B10 empty-manifest case scoped to a roster mutation). The ROSTER-changed
+# assertion is DEFERRED with the M-B2 world roster sub-facet (CareerSaveSnapshot has no
+# roster parse); the POOL-neutrality assertion is drivable today.
+[expectations.ledger]
+seedFrom     = "template"
+tolerances   = "default"
+rec3CarveOut = false
+
+[[expectations.ledger.manifest]]
+  ut         = 0.0
+  kind       = "kerbal-dismiss"
+  # ALL pool deltas 0: a dismissal moves no career pool (stock does not refund a hire). The
+  # entry exists to record the roster change and to assert VIA the zero-delta cross-check
+  # that NO pool moved -- a stray funds/science/rep capture would be unmatched and red.
+  funds      = 0.0
+  science    = 0.0
+  reputation = 0.0
+  provenance = "seam-declared"
+
+[runtime]
+# Happy path: LoadGame ~300 + KscAction ~60 + light verbs, under 600. Pending-fixture ->
+# never scheduled unattended.
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
