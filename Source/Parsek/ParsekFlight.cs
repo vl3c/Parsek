@@ -14369,8 +14369,11 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Commits the active tree on scene exit (ghost-only, no spawning).
-        /// Finalizes all recordings and stashes the tree as pending.
+        /// Finalizes the active tree on scene exit and stashes it as pending for
+        /// <see cref="ParsekScenario"/> OnLoad to commit. Preserves stable-terminal
+        /// (Landed/Splashed/Orbiting) snapshots for spawn-at-end (the silent
+        /// full-fidelity commit) and force-writes dirty sidecars so they are durable;
+        /// nulls non-spawnable snapshots (ghost visual + crew reservation released).
         /// </summary>
         void CommitTreeSceneExit(double commitUT)
         {
@@ -14400,6 +14403,10 @@ namespace Parsek
                 {
                     if (rec.GhostVisualSnapshot == null && rec.VesselSnapshot != null)
                         rec.GhostVisualSnapshot = rec.VesselSnapshot.CreateCopy();
+                    // Unreserve crew before nulling, matching the dialog path's
+                    // ApplyVesselDecisions ghost-only branch: a non-spawnable leaf must
+                    // not keep its kerbals reserved (silent full-fidelity crew parity).
+                    CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
                     rec.VesselSnapshot = null;
                 }
             }

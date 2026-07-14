@@ -6727,10 +6727,6 @@ namespace Parsek
         #region Vessel Lifecycle Events
 
         /// <summary>
-        /// Prepares all recordings in a pending tree for ghost-only commit (no vessel spawn).
-        /// Nulls vessel snapshot and unreserves crew. Call RecordingStore.CommitPendingTree() after this.
-        /// </summary>
-        /// <summary>
         /// Pure predicate: should an outside-Flight auto-commit (autoMerge ON)
         /// route through the dialog's full-fidelity <see cref="MergeDialog.MergeCommit"/>
         /// (spawn-at-end preserved) rather than the lightweight ghost-only commit?
@@ -6768,7 +6764,11 @@ namespace Parsek
         private static void AutoCommitPendingTreeOutsideFlight(string context)
         {
             if (!RecordingStore.HasPendingTree)
+            {
+                ParsekLog.Verbose("Scenario",
+                    $"AutoCommitPendingTreeOutsideFlight ({context}): no pending tree — nothing to commit");
                 return;
+            }
 
             var pt = RecordingStore.PendingTree;
             var scenario = ParsekScenario.Instance;
@@ -6776,50 +6776,67 @@ namespace Parsek
                 !object.ReferenceEquals(null, scenario)
                 && scenario.ActiveReFlySessionMarker != null;
 
-            if (ShouldSilentFullFidelityCommit(
-                    IsAutoMerge,
-                    RecordingStore.PendingTreeStateValue,
-                    reFlyActive,
-                    HighLogic.LoadedScene))
+            // Hardening: this runs inside ParsekScenario.OnLoad, whose top-level catch
+            // rethrows (an OnLoad abort has historically wiped the persistent index). A
+            // commit failure must not take down the rest of OnLoad — Error-log and leave
+            // the tree stashed so the next load retries, instead of propagating.
+            try
             {
-                var decisions = MergeDialog.BuildDefaultVesselDecisions(pt);
-                int spawnCount = 0;
-                foreach (var v in decisions.Values)
-                    if (v) spawnCount++;
-                ParsekLog.Info("Scenario",
-                    $"Silent full-fidelity auto-commit ({context}): tree='{pt.TreeName}' " +
-                    $"recordings={pt.Recordings.Count} spawnable={spawnCount}");
-                // MergeCommit runs the full dialog-commit sequence: ApplyVesselDecisions
-                // (keeps spawnable-leaf snapshots), CommitPendingTree + MarkTreeAsApplied,
-                // RunOptimizationPass, NotifyLedgerTreeCommitted, crew swap, and posts its
-                // own screen message. Its M1 guard (pt == RecordingStore.PendingTree) holds.
-                //
-                // refreshQuicksaveAfterCommit: false — we run inside OnLoad, so a
-                // GamePersistence.SaveGame here would re-enter OnSave mid-load and
-                // snapshot before the OnLoad ledger recalc. The commit is durable via
-                // the next normal OnSave (matching the old ghost-only auto-commit,
-                // which never refreshed the quicksave). Also lets the OnLoad recalc
-                // (later this frame) patch the just-committed tree's ledger actions.
-                MergeDialog.MergeCommit(pt, decisions, spawnCount,
-                    refreshQuicksaveAfterCommit: false);
+                if (ShouldSilentFullFidelityCommit(
+                        IsAutoMerge,
+                        RecordingStore.PendingTreeStateValue,
+                        reFlyActive,
+                        HighLogic.LoadedScene))
+                {
+                    var decisions = MergeDialog.BuildDefaultVesselDecisions(pt);
+                    int spawnCount = 0;
+                    foreach (var v in decisions.Values)
+                        if (v) spawnCount++;
+                    ParsekLog.Info("Scenario",
+                        $"Silent full-fidelity auto-commit ({context}): tree='{pt.TreeName}' " +
+                        $"recordings={pt.Recordings.Count} spawnable={spawnCount}");
+                    // MergeCommit runs the full dialog-commit sequence: ApplyVesselDecisions
+                    // (keeps spawnable-leaf snapshots), CommitPendingTree + MarkTreeAsApplied,
+                    // RunOptimizationPass, NotifyLedgerTreeCommitted, crew swap, and posts its
+                    // own screen message. Its M1 guard (pt == RecordingStore.PendingTree) holds.
+                    //
+                    // refreshQuicksaveAfterCommit: false — we run inside OnLoad, so a
+                    // GamePersistence.SaveGame here would re-enter OnSave mid-load and
+                    // snapshot before the OnLoad ledger recalc. The commit is durable via
+                    // the next normal OnSave (matching the old ghost-only auto-commit,
+                    // which never refreshed the quicksave). Also lets the OnLoad recalc
+                    // (later this frame) patch the just-committed tree's ledger actions.
+                    MergeDialog.MergeCommit(pt, decisions, spawnCount,
+                        refreshQuicksaveAfterCommit: false);
+                }
+                else
+                {
+                    string reason = !IsAutoMerge ? "not-automerge"
+                        : reFlyActive ? "re-fly-active"
+                        : RecordingStore.PendingTreeStateValue != PendingTreeState.Finalized
+                            ? $"state={RecordingStore.PendingTreeStateValue}"
+                        : "mainmenu";
+                    AutoCommitTreeGhostOnly(pt);
+                    CommitPendingTreeAsApplied(pt);
+                    LedgerOrchestrator.NotifyLedgerTreeCommitted(pt);
+                    ScreenMessages.PostScreenMessage("[Parsek] Tree recording committed to timeline", 5f);
+                    RecordingStore.RunOptimizationPass();
+                    ParsekLog.Info("Scenario",
+                        $"Ghost-only auto-commit ({context}, reason={reason}): tree='{pt.TreeName}'");
+                }
             }
-            else
+            catch (System.Exception ex)
             {
-                string reason = reFlyActive ? "re-fly-active"
-                    : RecordingStore.PendingTreeStateValue != PendingTreeState.Finalized
-                        ? $"state={RecordingStore.PendingTreeStateValue}"
-                    : HighLogic.LoadedScene == GameScenes.MAINMENU ? "mainmenu"
-                    : "not-automerge";
-                AutoCommitTreeGhostOnly(pt);
-                CommitPendingTreeAsApplied(pt);
-                LedgerOrchestrator.NotifyLedgerTreeCommitted(pt);
-                ScreenMessages.PostScreenMessage("[Parsek] Tree recording committed to timeline", 5f);
-                RecordingStore.RunOptimizationPass();
-                ParsekLog.Info("Scenario",
-                    $"Ghost-only auto-commit ({context}, reason={reason}): tree='{pt.TreeName}'");
+                ParsekLog.Error("Scenario",
+                    $"AutoCommitPendingTreeOutsideFlight ({context}) threw {ex.GetType().Name}: " +
+                    $"{ex.Message} — leaving tree '{pt?.TreeName}' stashed for retry on next load");
             }
         }
 
+        /// <summary>
+        /// Prepares all recordings in a pending tree for ghost-only commit (no vessel spawn).
+        /// Nulls vessel snapshot and unreserves crew. Call RecordingStore.CommitPendingTree() after this.
+        /// </summary>
         private static void AutoCommitTreeGhostOnly(RecordingTree tree)
         {
             foreach (var rec in tree.Recordings.Values)

@@ -121,7 +121,9 @@ commit** iff ALL of:
 - `IsAutoMerge` is ON, AND
 - `PendingTreeState == Finalized` (never a Limbo resume-stash), AND
 - no active re-fly (`ParsekScenario.Instance?.ActiveReFlySessionMarker == null`), AND
-- destination is SPACECENTER or TRACKSTATION (not MAINMENU).
+- the destination scene is not MAINMENU (`HighLogic.LoadedScene != GameScenes.MAINMENU`) —
+  in practice SPACECENTER or TRACKSTATION, since a pending tree only reaches these
+  outside-Flight sites on a non-revert exit and FLIGHT->EDITOR is revert-gated.
 
 When it qualifies, commit via the dialog's own path:
 ```
@@ -157,14 +159,19 @@ auto-commit was (it never refreshed the quicksave either); and because the commi
 synchronously before the OnLoad `RecalculateAndPatch`, the just-committed tree's ledger
 actions are patched into the in-memory scalars that same frame.
 
-**Scene-exit force-write.** For site 2 to have a durable finalized snapshot, the scene-exit
-stash must force-write dirty sidecars the way the `autoMerge=OFF` branch already does
-(`ParsekFlight.cs:2935-2949`). Change the `FinalizeTreeOnSceneChange` dispatch so the
-finalize+preserve+force-write path runs for BOTH merge modes (drop the ghost-only
-`CommitTreeSceneExit` arm; `ApplyVesselDecisions` at commit reproduces its #271
-`GhostVisualSnapshot` preservation, so nothing is lost). Site 3 (cold load) already reads
-the tree from disk, so it relies on that same force-write having happened when the tree was
-originally stashed in the prior session — no additional write needed at the cold site.
+**Scene-exit force-write (as implemented).** For site 2 to have a durable finalized
+snapshot, the scene-exit stash must force-write dirty sidecars the way the `autoMerge=OFF`
+branch already does (`ParsekFlight.cs:2935-2949`). Rather than restructure the
+`FinalizeTreeOnSceneChange` dispatch, the ON-branch's existing `CommitTreeSceneExit` is
+kept and the force-write loop is added inside it (after the snapshot-null pass). This is
+the more surgical change: `CommitTreeSceneExit` already preserves the stable-terminal
+(spawn-at-end) snapshots and copies `GhostVisualSnapshot` before nulling the non-spawnable
+ones, and it now also releases their crew reservation (matching the dialog path's
+`ApplyVesselDecisions` ghost-only branch, so crew bookkeeping is at parity). Non-stable
+leaves are never spawnable, so nulling them at scene exit loses nothing the silent commit
+would have kept. Site 3 (cold load) reads the tree from disk, so it relies on that same
+force-write having happened when the tree was stashed in the prior session — no additional
+write needed at the cold site.
 
 **De-duplication.** At site 2, the surrounding branch also calls
 `ScreenMessages.PostScreenMessage` (:3380) and `RunOptimizationPass` (:3382); `MergeCommit`
