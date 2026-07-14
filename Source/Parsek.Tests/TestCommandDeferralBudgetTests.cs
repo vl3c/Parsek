@@ -47,6 +47,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void C1Verbs_UseTheirBudgets()
+        {
+            // M-C1 batch-1 budgets (design M-A5 driver integration table).
+            Assert.Equal(300.0, DeferralBudget.BudgetSeconds("InvokeRewind"));
+            Assert.Equal(120.0, DeferralBudget.BudgetSeconds("AnswerMergeDialog"));
+            Assert.Equal(120.0, DeferralBudget.BudgetSeconds("TimeJump"));
+            // KscAction covers only the career-ready / SPACECENTER wait: the default 60s.
+            Assert.Equal(DeferralBudget.DefaultSeconds, DeferralBudget.BudgetSeconds("KscAction"));
+        }
+
+        [Fact]
         public void ShouldTimeout_False_WithinBudget()
         {
             // First deferred at t=100, now t=140, budget 60 -> not yet.

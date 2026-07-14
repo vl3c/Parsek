@@ -85,6 +85,12 @@ class ProvisionContext:
     # ever created at the alias target (a mis-configured instanceDir that nests
     # in / equals the read-only dev install). Flipped True + flushed in PREFLIGHT.
     log_file_enabled: bool = False
+    # SF9: the prior provision-manifest.json (if any) + whether it describes a
+    # COMPLETE provision (manifest present AND no .provision-incomplete marker).
+    # Populated once after PREFLIGHT on a live run; the idempotent skip fast path
+    # trusts on-disk state only when prior_complete is True.
+    prior_manifest: Optional[Dict] = None
+    prior_complete: bool = False
 
     @property
     def dev_install(self) -> str:
@@ -520,6 +526,41 @@ def phase_build_tt(ctx: ProvisionContext, resolved: Dict[str, str]) -> None:
             "hash + cache; assert AutoLoadGame type ABSENT + six capability RPCs PRESENT (S-4)"
             % (",".join(sel.included), krpc_src or _git_source_cache_dir("krpc"), build_ref))
         return
+    # SF9: skip the dotnet build only when a prior COMPLETE provision built the
+    # shim from an UNCHANGED set of inputs and the cached TestingTools.dll still
+    # matches the recorded hash. The shim is built with HintPaths into the release
+    # kRPC binaries (from the kRPC release zip) AND the dev install's Managed
+    # reference DLLs (the KSP version), so the cached hash alone is NOT proof the
+    # dll is still fresh (reviewer S1). Every fresh input must be re-checked:
+    #   - the peeled kRPC SOURCE commit (a retagged ref changes the shim source);
+    #   - the kRPC RELEASE-ZIP pin (a moved releaseZipSha256 changes the linked
+    #     compile refs even with the same commit) via _install_pin_stable;
+    #   - the dev KSP buildID64 (a version bump changes the Managed reference
+    #     DLLs the shim links against).
+    cached = os.path.join(CACHE_DIR, "TestingTools.dll")
+    recorded_tt = _prior_component(ctx, "testingtools").get("dllSha256")
+    prior_krpc_commit = _prior_component(ctx, "krpc").get("commit")
+    current_tt = sha256_file(cached) if os.path.isfile(cached) else None
+    commit_stable = bool(build_ref) and build_ref == prior_krpc_commit
+    krpc_pin_stable = _install_pin_stable(ctx, "krpc")
+    recorded_b64 = (ctx.prior_manifest or {}).get("buildId64Sha256")
+    dev_b64 = _dev_buildid64_sha(ctx)
+    buildid_stable = bool(recorded_b64) and dev_b64 is not None and dev_b64 == recorded_b64
+    inputs_stable = commit_stable and krpc_pin_stable and buildid_stable
+    decision = provlib.decide_idempotent_skip(
+        ctx.prior_complete and inputs_stable, recorded_tt, current_tt)
+    if decision.skip:
+        ctx.testingtools_dll = cached  # type: ignore[attr-defined]
+        ctx.testingtools_sha = current_tt  # type: ignore[attr-defined]
+        log(ctx, "Info", "Build-TT",
+            "SF9 skip dotnet build (hash-match; cached TestingTools.dll sha256=%s; "
+            "krpc-commit+releaseZip-pin+dev-buildID64 all stable)" % current_tt)
+        return
+    if ctx.prior_complete and not decision.skip:
+        log(ctx, "Info", "Build-TT",
+            "SF9 rebuild TestingTools (no skip): commit_stable=%s krpc_pin_stable=%s "
+            "buildid_stable=%s hash-reason=%s"
+            % (commit_stable, krpc_pin_stable, buildid_stable, decision.reason))
     _build_testingtools(ctx, sel, tt, build_ref, krpc_src)
 
 
@@ -618,29 +659,108 @@ def phase_clone(ctx: ProvisionContext):
     # Marker first (EC-6): any abort past this point leaves a half-provision the
     # harness refuses to admit; VERIFY clears it only on success.
     _write_incomplete_marker(ctx)
-    if not _precheck_free_space(ctx):
-        return junctions, dev_status
-    _clone_mutable_surface(ctx)
-    if ctx.aborted:
-        return junctions, dev_status
-    _create_junctions(ctx, junctions)
-    if ctx.aborted:
-        return junctions, dev_status
+    # SF9: skip the bulk mutable-surface copy + junction (re)creation when a prior
+    # COMPLETE provision left an instance whose buildID64 already matches AND whose
+    # junctions still resolve (VERIFY re-checks buildID/settings/DLLs/junctions in
+    # full afterward, so nothing this elides goes unverified).
+    if _clone_surface_skips(ctx, junctions):
+        log(ctx, "Info", "Clone",
+            "SF9 skip mutable-surface copy + junctions (hash-match; prior complete instance)")
+    else:
+        if not _precheck_free_space(ctx):
+            return junctions, dev_status
+        _clone_mutable_surface(ctx)
+        if ctx.aborted:
+            return junctions, dev_status
+        _create_junctions(ctx, junctions)
+        if ctx.aborted:
+            return junctions, dev_status
     gd_instance = os.path.join(ctx.instance_dir, "GameData")
     os.makedirs(_long(gd_instance), exist_ok=True)
+    prior_dev = (ctx.prior_manifest or {}).get("devSourcedMods", {}) or {}
+    skipped_mods = 0
     for name in copy_mods:
         src = os.path.join(ctx.dev_install, "GameData", name)
         dst = os.path.join(gd_instance, name)
         if not os.path.exists(src):
             abort(ctx, "Clone", "EC-3", "dev-sourced mod %s vanished mid-run: %s" % (name, src))
             return junctions, dev_status
+        # SF9/S3: skip re-copying a dev-sourced mod ONLY when the fresh DEV-SOURCE
+        # tree-hash equals BOTH the recorded manifest hash AND the instance
+        # tree-hash (dev-source == recorded == instance). Comparing instance vs
+        # manifest alone is a proxy that never notices a dev-side mod UPDATE: the
+        # instance still matches the old recorded hash so the skip fires and the
+        # update never propagates (pre-SF9 re-copied every run). Gating on the
+        # fresh source (mirror of the DEPLOY Parsek.dll pattern) re-copies the
+        # instant the dev source changes.
+        recorded = prior_dev.get(name)
+        recorded_hash = recorded if recorded not in ("absent-source", "planned-copy") else None
+        src_hash = _content_tree_hash(src, ctx)
+        current = _content_tree_hash(dst, ctx) if os.path.isdir(dst) or os.path.isfile(dst) else None
+        source_matches_recorded = recorded_hash is not None and recorded_hash == src_hash
+        decision = provlib.decide_idempotent_skip(
+            ctx.prior_complete and source_matches_recorded, src_hash, current)
+        if decision.skip:
+            dev_status[name] = current
+            skipped_mods += 1
+            continue
         dst_hash = _copy_and_verify_dev_mod(ctx, name, src, dst)
         if ctx.aborted:
             return junctions, dev_status
         dev_status[name] = dst_hash
         log(ctx, "Info", "Clone",
-            "copied GameData/%s tree-hash=%s (instance-verified)" % (name, dst_hash))
+            "copied GameData/%s tree-hash=%s (instance-verified reason=%s)"
+            % (name, dst_hash, decision.reason))
+    if skipped_mods:
+        log(ctx, "Info", "Clone",
+            "SF9 skipped %d/%d dev-sourced mod copies (hash-match)" % (skipped_mods, len(copy_mods)))
     return junctions, dev_status
+
+
+def _clone_surface_skips(ctx: ProvisionContext, junctions: Dict[str, str]) -> bool:
+    """SF9 gate for the bulk mutable-surface copy + junction creation. True only
+    when a prior COMPLETE provision left this instance's buildID64.txt matching
+    the recorded manifest hash, every recorded junction still resolves to its
+    target, AND the instance's KSP_x64_Data/Managed stat (fileCount + bytes) still
+    matches the recorded stat. buildID64 is the version fingerprint of the copied
+    KSP install, but it is a SINGLE-FILE proxy: it cannot detect a
+    partially-deleted instance or a swapped stock Managed DLL (reviewer S2), and
+    VERIFY never re-hashes the stock Managed tree, so a false skip would go
+    uncaught. The Managed-stat re-scan is the cheap fresh integrity check that
+    closes that gap."""
+    recorded_b64 = (ctx.prior_manifest or {}).get("buildId64Sha256")
+    b64_path = os.path.join(ctx.instance_dir, "buildID64.txt")
+    current_b64 = sha256_file(b64_path) if os.path.isfile(b64_path) else None
+    decision = provlib.decide_idempotent_skip(ctx.prior_complete, recorded_b64, current_b64)
+    if not decision.skip:
+        return False
+
+    def _resolve_link(link_key: str) -> Optional[str]:
+        link_abs = os.path.join(ctx.instance_dir, link_key)
+        try:
+            os.lstat(link_abs)
+        except OSError:
+            return None
+        if not os.path.exists(link_abs):
+            return None
+        return os.path.realpath(link_abs)
+    dangling = provlib.verify_junctions({"junctionTargets": junctions}, _resolve_link)
+    if dangling:
+        log(ctx, "Info", "Clone",
+            "SF9 no mutable-surface skip: %d junction(s) need (re)creation" % len(dangling))
+        return False
+
+    # S2 fresh integrity check: re-stat the copied Managed surface and refuse to
+    # skip if it drifted from the recorded stat (a deleted / resized stock DLL).
+    recorded_stat = (ctx.prior_manifest or {}).get("mutableSurfaceManagedStat")
+    cur_count, cur_bytes = _managed_dir_stat(ctx)
+    if not provlib.mutable_surface_stat_matches(recorded_stat, cur_count, cur_bytes):
+        rec = recorded_stat or {}
+        log(ctx, "Info", "Clone",
+            "SF9 no mutable-surface skip: Managed stat drift recorded=%s/%s current=%d/%d"
+            % (rec.get("fileCount"), rec.get("bytes"), cur_count, cur_bytes))
+        return False
+    return True
 
 
 def _copy_and_verify_dev_mod(ctx: ProvisionContext, name: str, src: str, dst: str) -> Optional[str]:
@@ -787,28 +907,37 @@ def phase_deploy(ctx: ProvisionContext) -> Dict[str, object]:
     if not os.path.isfile(source):
         abort(ctx, "Deploy", "EC-9", "Parsek.dll source not found: %s (use --parsek-dll)" % source)
         return info
-    os.makedirs(STAGE_DIR, exist_ok=True)
-    stage = os.path.join(STAGE_DIR, "Parsek.dll")
-    _copy_file(source, stage)
-    stage_sha = sha256_file(stage)
-    log(ctx, "Info", "Deploy", "stage-sha256=%s" % stage_sha)
-
-    src_sha = sha256_file(source)
-    if src_sha != stage_sha:
-        log(ctx, "Amber", "Deploy", "EC-11 source changed after stage copy (informational): src=%s stage=%s"
-            % (src_sha, stage_sha))
-
     plugins = os.path.join(ctx.parsek_gamedata, "Plugins")
-    os.makedirs(plugins, exist_ok=True)
     installed = os.path.join(plugins, "Parsek.dll")
-    _copy_file(stage, installed)
-    installed_sha = sha256_file(installed)
-    match = installed_sha == stage_sha
-    log(ctx, "Info" if match else "Error", "Deploy",
-        "installed-sha256=%s hashMatch %s" % (installed_sha, "OK" if match else "FAIL"))
-    if not match:
-        abort(ctx, "Deploy", "EC-9", "installed Parsek.dll hash != stage")
-        return info
+    # SF9: skip staging + install-copy when a prior COMPLETE provision left an
+    # instance DLL whose hash already equals the SOURCE we would deploy (the
+    # worktree build has not changed). Comparing SOURCE vs installed -- not the
+    # manifest -- means a rebuilt Parsek.dll still redeploys.
+    src_sha = sha256_file(source)
+    current_installed = sha256_file(installed) if os.path.isfile(installed) else None
+    dll_skip = provlib.decide_idempotent_skip(ctx.prior_complete, src_sha, current_installed)
+    if dll_skip.skip:
+        installed_sha = current_installed
+        log(ctx, "Info", "Deploy",
+            "SF9 skip stage+install-copy (hash-match; installed-sha256=%s == source)" % installed_sha)
+    else:
+        os.makedirs(STAGE_DIR, exist_ok=True)
+        stage = os.path.join(STAGE_DIR, "Parsek.dll")
+        _copy_file(source, stage)
+        stage_sha = sha256_file(stage)
+        log(ctx, "Info", "Deploy", "stage-sha256=%s (skip-reason=%s)" % (stage_sha, dll_skip.reason))
+        if src_sha != stage_sha:
+            log(ctx, "Amber", "Deploy", "EC-11 source changed after stage copy (informational): src=%s stage=%s"
+                % (src_sha, stage_sha))
+        os.makedirs(plugins, exist_ok=True)
+        _copy_file(stage, installed)
+        installed_sha = sha256_file(installed)
+        match = installed_sha == stage_sha
+        log(ctx, "Info" if match else "Error", "Deploy",
+            "installed-sha256=%s hashMatch %s" % (installed_sha, "OK" if match else "FAIL"))
+        if not match:
+            abort(ctx, "Deploy", "EC-9", "installed Parsek.dll hash != stage")
+            return info
 
     with open(installed, "rb") as fh:
         dll_bytes = fh.read()
@@ -835,12 +964,27 @@ def phase_deploy(ctx: ProvisionContext) -> Dict[str, object]:
               "repo img/, or dev install GameData/Parsek)" % dest)
         return info
     aux_hashes: Dict[str, str] = {}
+    aux_skipped = 0
     for f in payload.files:
         dst = os.path.join(ctx.parsek_gamedata, *f.dest_rel.split("/"))
-        _copy_file(f.source, dst)
+        # SF9: skip the aux copy when the installed file already equals the source.
+        src_aux_sha = sha256_file(f.source) if os.path.isfile(f.source) else None
+        cur_aux_sha = sha256_file(dst) if os.path.isfile(dst) else None
+        aux_skip = provlib.decide_idempotent_skip(ctx.prior_complete, src_aux_sha, cur_aux_sha)
+        if aux_skip.skip:
+            aux_hashes[f.dest_rel] = cur_aux_sha
+            aux_skipped += 1
+            continue
+        # B2: _copy_one is long-path-safe (extended-length prefix on both src+dst
+        # and the makedirs), matching the DLL / mutable-surface copies; a bare
+        # shutil.copyfile overflows MAX_PATH for a deep aux path under a long
+        # umbrella root.
+        _copy_one(f.source, dst)
         sha = sha256_file(dst)
         aux_hashes[f.dest_rel] = sha
         log(ctx, "Info", "Deploy", "aux %s <- %s (%s) sha256=%s" % (f.dest_rel, f.source, f.origin, sha))
+    if aux_skipped:
+        log(ctx, "Info", "Deploy", "SF9 skipped %d aux copies (hash-match)" % aux_skipped)
     for dest in payload.missing_optional:
         log(ctx, "Warn", "Deploy", "optional Parsek aux payload %s absent from all sources; skipped" % dest)
     info["auxFiles"] = aux_hashes
@@ -869,7 +1013,9 @@ def phase_install(ctx: ProvisionContext) -> None:
     if ctx.dry_run:
         log(ctx, "Info", "Install",
             "would extract kRPC into GameData/kRPC, drop TestingTools.dll + KRPC.MechJeb.dll "
-            "alongside, extract MechJeb2 into GameData/MechJeb2, hash every DLL")
+            "alongside, extract MechJeb2 into GameData/MechJeb2, hash every DLL, "
+            "record a per-component installed-file inventory (SF10), and on a re-run "
+            "hash-short-circuit any component already installed identically (SF9)")
         if "krpc" in stack:
             log(ctx, "Info", "Install",
                 "would stamp GameData/kRPC/PluginData/settings.cfg "
@@ -925,6 +1071,10 @@ def phase_manifest(ctx: ProvisionContext, resolved: Dict[str, str],
             "parsek": parsek_info,
         },
         "devSourcedMods": dev_status,
+        # SF10: per-stack-component installed-file inventory (relpath + sha256).
+        # Top-level (NOT under "components", an admission key) so the harness admit
+        # path is unaffected; VERIFY does the inventory-vs-disk added/missing diff.
+        "componentInventories": getattr(ctx, "component_inventories", {}),
         "junctionTargets": junctions,
         "settingsDeltasApplied": deltas,
         "settingsBaseSha256": getattr(ctx, "settings_base_sha", None),
@@ -933,6 +1083,10 @@ def phase_manifest(ctx: ProvisionContext, resolved: Dict[str, str],
         # (mirrors settingsFinalSha256) so a later manual kRPC settings edit drifts.
         "krpcSettingsSha256": getattr(ctx, "krpc_settings_sha", None),
         "buildId64Sha256": _buildid64_sha(ctx),
+        # SF9/S2: instance KSP_x64_Data/Managed (fileCount, bytes). The CLONE
+        # mutable-surface skip re-stats this and refuses to skip on a drift that
+        # buildID64 alone would miss (a deleted / resized stock Managed DLL).
+        "mutableSurfaceManagedStat": _managed_stat_dict(ctx),
     }
     # Merge the live per-component installed-DLL hashes INSTALL/BUILD-TT computed
     # (installedDlls per kRPC/MechJeb2, dllSha256 per TestingTools/KRPC.MechJeb).
@@ -971,7 +1125,8 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
         log(ctx, "Info", "Verify",
             "would re-read instance: per-component DLL hashes vs manifest, Parsek "
             "UTF-16 grep, junction resolution, settingsFinalSha256 re-hash, "
-            "krpcSettingsSha256 re-hash, buildId64Sha256 re-hash")
+            "krpcSettingsSha256 re-hash, buildId64Sha256 re-hash, per-component "
+            "installed-file inventory diff (added-file detection, PluginData-tolerant, SF10)")
         return True
 
     drift: List[provlib.ManifestDiff] = []
@@ -1105,6 +1260,15 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
         if not match:
             _drift("devSourcedMods.%s" % name, recorded, cur)
 
+    # SF10: per-stack-component installed-file inventory diff. Re-scan each install
+    # folder and diff it against the recorded inventory: a recorded file missing or
+    # changed drifts, and a file the inventory never recorded is an ADDED drift
+    # (the gap this closes -- a DLL dropped into GameData/kRPC beside the hashed
+    # ones). PluginData paths are tolerated (runtime-writable). An OLD manifest
+    # with no inventories is amber-tolerated (verifies as before -- re-provision to
+    # arm the added-file check).
+    _verify_inventories(ctx, manifest, drift)
+
     ctx.verify_drift = drift  # type: ignore[attr-defined]
     ok = not drift
     if ok:
@@ -1145,6 +1309,73 @@ def _verify_component_dll(ctx, comp, dll_name, exp_sha, drift_fn) -> None:
         "%s %s on-disk sha256 %s manifest" % (comp, dll_name, "==" if match else "!="))
     if not match:
         drift_fn("components.%s.installedDlls.%s" % (comp, dll_name), exp_sha, cur)
+
+
+def _scan_folder_hashes(ctx: ProvisionContext, folder_rel: str, folder_abs: str) -> Dict[str, str]:
+    """SF10: instance-relative path -> sha256 for every file under an install
+    folder, skipping reparse-point (junction) subdirs. Keys match the recorded
+    inventory's instance-relative form (``GameData/kRPC/...``)."""
+    out: Dict[str, str] = {}
+    if not os.path.isdir(folder_abs):
+        return out
+    for r, dirs, names in os.walk(folder_abs):
+        _prune_reparse_dirs(ctx, r, dirs)
+        for n in names:
+            p = os.path.join(r, n)
+            rel_in = os.path.relpath(p, folder_abs).replace("\\", "/")
+            out["%s/%s" % (folder_rel, rel_in)] = sha256_file(p)
+    return out
+
+
+def _verify_inventories(ctx: ProvisionContext, manifest: Dict,
+                        drift: List["provlib.ManifestDiff"]) -> None:
+    """SF10 VERIFY step: diff each install folder's on-disk file set against the
+    recorded per-component inventory (grouped by shared folder). Missing/changed
+    authored files and added non-PluginData files drift, attributed to the
+    folder's primary component so ``--repair`` re-installs it, each carrying its
+    real diff kind (missing / changed / added). An old manifest without
+    inventories is amber-tolerated (batch-summary logging)."""
+    inventories = manifest.get("componentInventories")
+    if inventories is None:
+        log(ctx, "Amber", "Verify",
+            "component inventory absent from manifest - re-provision to arm the added-file check (SF10)")
+        return
+    folders = provlib.group_inventory_by_folder(inventories)
+    for folder_rel, (owners, recorded_map) in folders.items():
+        folder_abs = os.path.join(ctx.instance_dir, *folder_rel.split("/"))
+        current_map = _scan_folder_hashes(ctx, folder_rel, folder_abs)
+        diffs = provlib.diff_inventory(recorded_map, current_map)
+        owner = owners[0] if owners else "unknown"
+        if not diffs:
+            log(ctx, "Info", "Verify",
+                "inventory %s OK (%d recorded files, owners=%s)"
+                % (folder_rel, len(recorded_map), ",".join(owners) or "-"))
+            continue
+        n_missing = sum(1 for d in diffs if d.kind == "missing")
+        n_changed = sum(1 for d in diffs if d.kind == "changed")
+        n_added = sum(1 for d in diffs if d.kind == "added")
+        log(ctx, "Error", "Verify",
+            "inventory %s DRIFT missing=%d changed=%d added=%d (owner=%s)"
+            % (folder_rel, n_missing, n_changed, n_added, owner))
+        # B3: cap the per-file Error lines so a wholesale folder drift (every file
+        # missing / changed) cannot flood the log; the summary line above already
+        # carries the totals, and every diff still lands in the drift list below so
+        # --repair convergence is unaffected.
+        drift_log_cap = 10
+        for i, d in enumerate(diffs):
+            recorded_hash = recorded_map.get(d.rel)
+            actual_hash = current_map.get(d.rel)
+            if i < drift_log_cap:
+                log(ctx, "Error", "Verify", "inventory %s %s %s" % (folder_rel, d.kind, d.rel))
+            elif i == drift_log_cap:
+                log(ctx, "Error", "Verify",
+                    "inventory %s ... and %d more drift line(s) suppressed (see summary above)"
+                    % (folder_rel, len(diffs) - drift_log_cap))
+            drift.append(provlib.ManifestDiff(
+                "components.%s.inventory.%s" % (owner, d.rel),
+                recorded_hash if d.kind != "added" else None,
+                actual_hash if d.kind != "missing" else None,
+                d.kind))
 
 
 def _verify_component_named_dll(ctx, comp, exp_sha, drift_fn) -> None:
@@ -1654,6 +1885,61 @@ def _extra(ctx: ProvisionContext) -> Dict[str, Dict]:
     return ctx.component_extra  # type: ignore[attr-defined]
 
 
+def _inventories(ctx: ProvisionContext) -> Dict[str, List[Dict[str, str]]]:
+    """SF10: the per-stack-component installed-file inventory populated by INSTALL
+    and written to the manifest's top-level ``componentInventories`` by
+    phase_manifest (deliberately OUTSIDE the admission projection, so the harness
+    admit path is unchanged; VERIFY does the inventory-vs-disk diff)."""
+    if not hasattr(ctx, "component_inventories"):
+        ctx.component_inventories = {}  # type: ignore[attr-defined]
+    return ctx.component_inventories  # type: ignore[attr-defined]
+
+
+def _inventory_of(ctx: ProvisionContext, rel_paths: Sequence[str]) -> List[Dict[str, str]]:
+    """SF10: build an installed-file inventory (instance-relative path + sha256)
+    for the given written paths, sorted + deduped. A path whose file is absent is
+    skipped (it will surface as a VERIFY 'missing' against the recorded set)."""
+    seen: Dict[str, str] = {}
+    for rel in rel_paths:
+        norm = rel.replace("\\", "/")
+        p = os.path.join(ctx.instance_dir, *norm.split("/"))
+        if os.path.isfile(p):
+            seen[norm] = sha256_file(p)
+    return [{"rel": rel, "sha256": seen[rel]} for rel in sorted(seen)]
+
+
+def _current_component_dll_map(ctx: ProvisionContext, comp: str,
+                               names: Sequence[str]) -> Dict[str, Optional[str]]:
+    """The current on-disk sha256 of each named installed DLL for a component
+    (None when the DLL is absent), resolved through the layout-aware probe."""
+    out: Dict[str, Optional[str]] = {}
+    for n in names:
+        p = _dll_install_path(ctx, comp, n)
+        out[n] = sha256_file(p) if os.path.isfile(p) else None
+    return out
+
+
+def _install_pin_stable(ctx: ProvisionContext, comp: str) -> bool:
+    """SF9 footgun gate: only skip a stack component's extraction when the prior
+    manifest's pin identity for that component still equals the current pins.toml
+    value -- a moved release pin (new sha256 / tag) must re-extract, never skip on
+    a stale on-disk-equals-old-manifest match. TestingTools is gated by its
+    source hash (the built shim), not a release pin, so it returns True here."""
+    prior = _prior_component(ctx, comp)
+    pin = ctx.pins.get(comp, {}) or {}
+    if comp == "krpc":
+        return bool(prior.get("sha256")) and prior.get("sha256") == pin.get("releaseZipSha256")
+    if comp == "mechjeb2":
+        return bool(prior.get("sha256")) and prior.get("sha256") == pin.get("sha256")
+    if comp == "krpc_mechjeb":
+        # N1: gate on BOTH the tag and the pinned commit. The tag is mutable (it
+        # can be re-pointed to a new commit); requiring the peeled commit too
+        # means a moved KRPC.MechJeb pin re-extracts, never skips on a stale tag.
+        return (bool(prior.get("tag")) and prior.get("tag") == pin.get("tag")
+                and bool(prior.get("commit")) and prior.get("commit") == pin.get("commit"))
+    return True
+
+
 def _extract_zip_plan(ctx: ProvisionContext, comp: str, zip_path: str) -> List[str]:
     """Extract a component's release zip into the instance per plan_zip_install;
     returns the list of instance-relative destinations written."""
@@ -1688,25 +1974,51 @@ def _hash_installed_dlls(ctx: ProvisionContext, rel_paths: Sequence[str]) -> Dic
     return out
 
 
+def _prior_inventory(ctx: ProvisionContext, comp: str) -> List[Dict[str, str]]:
+    """The prior manifest's recorded installed-file inventory for a component
+    (SF10), reused verbatim when SF9 skips that component's re-extraction."""
+    return list(((ctx.prior_manifest or {}).get("componentInventories", {}) or {}).get(comp, []) or [])
+
+
 def _install_stack(ctx: ProvisionContext, stack: Sequence[str]) -> None:
     extra = _extra(ctx)
+    inv = _inventories(ctx)
 
     # kRPC release zip -> GameData/kRPC/ (subtree as-is, GT-5).
     if "krpc" in stack:
-        zip_path = _cached_zip_path(ctx, "krpc", "releaseZipUrl")
-        if not zip_path or not os.path.isfile(zip_path):
-            abort(ctx, "Install", "EC-4", "kRPC zip not cached: %s" % zip_path)
-            return
-        written = _extract_zip_plan(ctx, "krpc", zip_path)
-        want = provlib.krpc_installed_dll_names(ctx.pins.get("krpc", {}))
-        hashes = _hash_installed_dlls(ctx, [w for w in written if os.path.basename(w) in want])
-        extra["krpc"] = {"installedDlls": hashes}
-        log(ctx, "Info", "Install", "kRPC extracted files=%d hashed-dlls=%d" % (len(written), len(hashes)))
-        # F3: stamp GameData/kRPC/PluginData/settings.cfg for unattended operation
-        # (autoStartServers/autoAcceptConnections/confirmRemoveClient) so every
-        # provisioned instance is hands-free. Recorded as krpcSettingsSha256 +
-        # re-hashed in VERIFY so a later manual kRPC settings change is caught as drift.
-        _stamp_krpc_settings(ctx)
+        recorded_map = _prior_component(ctx, "krpc").get("installedDlls", {}) or {}
+        expected = provlib.installed_map_digest(recorded_map) if recorded_map else None
+        current = provlib.installed_map_digest(
+            {k: v for k, v in _current_component_dll_map(ctx, "krpc", list(recorded_map)).items() if v})
+        skip = provlib.decide_idempotent_skip(
+            ctx.prior_complete and _install_pin_stable(ctx, "krpc"), expected, current)
+        if skip.skip:
+            extra["krpc"] = {"installedDlls": recorded_map}
+            inv["krpc"] = _prior_inventory(ctx, "krpc")
+            # kRPC settings.cfg (PluginData) is left in place; re-hash it so the
+            # manifest's krpcSettingsSha256 still describes the on-disk bytes.
+            sp = _krpc_settings_path(ctx)
+            if os.path.isfile(sp):
+                ctx.krpc_settings_sha = sha256_file(sp)  # type: ignore[attr-defined]
+            log(ctx, "Info", "Install", "SF9 skip kRPC extraction (hash-match, pin stable)")
+        else:
+            zip_path = _cached_zip_path(ctx, "krpc", "releaseZipUrl")
+            if not zip_path or not os.path.isfile(zip_path):
+                abort(ctx, "Install", "EC-4", "kRPC zip not cached: %s" % zip_path)
+                return
+            written = _extract_zip_plan(ctx, "krpc", zip_path)
+            want = provlib.krpc_installed_dll_names(ctx.pins.get("krpc", {}))
+            hashes = _hash_installed_dlls(ctx, [w for w in written if os.path.basename(w) in want])
+            extra["krpc"] = {"installedDlls": hashes}
+            log(ctx, "Info", "Install", "kRPC extracted files=%d hashed-dlls=%d" % (len(written), len(hashes)))
+            # F3: stamp GameData/kRPC/PluginData/settings.cfg for unattended operation
+            # (autoStartServers/autoAcceptConnections/confirmRemoveClient) so every
+            # provisioned instance is hands-free. Recorded as krpcSettingsSha256 +
+            # re-hashed in VERIFY so a later manual kRPC settings change is caught as drift.
+            _stamp_krpc_settings(ctx)
+            # SF10: record the full extracted file set (incl. the stamped
+            # PluginData/settings.cfg) so VERIFY catches an ADDED file in GameData/kRPC.
+            inv["krpc"] = _inventory_of(ctx, list(written) + ["GameData/kRPC/PluginData/settings.cfg"])
 
     # Built TestingTools.dll dropped alongside kRPC.
     if "testingtools" in stack:
@@ -1714,30 +2026,63 @@ def _install_stack(ctx: ProvisionContext, stack: Sequence[str]) -> None:
         if not cached or not os.path.isfile(cached):
             abort(ctx, "Install", "EC-4", "TestingTools.dll not built/cached (BUILD-TT must run first)")
             return
-        dest = os.path.join(ctx.instance_dir, "GameData", "kRPC", "TestingTools.dll")
-        os.makedirs(_long(os.path.dirname(dest)), exist_ok=True)
-        _copy_file(cached, _long(dest))
-        extra["testingtools"] = {"dllSha256": sha256_file(dest)}
-        log(ctx, "Info", "Install", "TestingTools.dll installed sha256=%s" % extra["testingtools"]["dllSha256"])
+        dest_rel = "GameData/kRPC/TestingTools.dll"
+        dest = os.path.join(ctx.instance_dir, *dest_rel.split("/"))
+        expected = getattr(ctx, "testingtools_sha", None)  # source (built shim) hash
+        current = sha256_file(dest) if os.path.isfile(dest) else None
+        skip = provlib.decide_idempotent_skip(ctx.prior_complete, expected, current)
+        if skip.skip:
+            extra["testingtools"] = {"dllSha256": current}
+            inv["testingtools"] = _prior_inventory(ctx, "testingtools") or _inventory_of(ctx, [dest_rel])
+            log(ctx, "Info", "Install", "SF9 skip TestingTools.dll install (hash-match source)")
+        else:
+            os.makedirs(_long(os.path.dirname(dest)), exist_ok=True)
+            _copy_file(cached, _long(dest))
+            extra["testingtools"] = {"dllSha256": sha256_file(dest)}
+            inv["testingtools"] = _inventory_of(ctx, [dest_rel])
+            log(ctx, "Info", "Install", "TestingTools.dll installed sha256=%s" % extra["testingtools"]["dllSha256"])
 
     # KRPC.MechJeb prebuilt DLL (+ json) from its release zip -> GameData/kRPC/.
     if "krpc_mechjeb" in stack:
-        zip_path = _cached_zip_path(ctx, "krpc_mechjeb", "downloadUrl")
-        if not zip_path or not os.path.isfile(zip_path):
-            abort(ctx, "Install", "EC-4", "KRPC.MechJeb zip not cached: %s" % zip_path)
-            return
-        written = _extract_zip_plan(ctx, "krpc_mechjeb", zip_path)
-        hashes = _hash_installed_dlls(ctx, written)
-        extra["krpc_mechjeb"] = {"dllSha256": hashes.get("KRPC.MechJeb.dll")}
-        log(ctx, "Info", "Install", "KRPC.MechJeb installed dll-sha256=%s" % extra["krpc_mechjeb"]["dllSha256"])
+        recorded = _prior_component(ctx, "krpc_mechjeb").get("dllSha256")
+        dest = _dll_install_path(ctx, "krpc_mechjeb", "KRPC.MechJeb.dll")
+        current = sha256_file(dest) if os.path.isfile(dest) else None
+        skip = provlib.decide_idempotent_skip(
+            ctx.prior_complete and _install_pin_stable(ctx, "krpc_mechjeb"), recorded, current)
+        if skip.skip:
+            extra["krpc_mechjeb"] = {"dllSha256": recorded}
+            inv["krpc_mechjeb"] = _prior_inventory(ctx, "krpc_mechjeb")
+            log(ctx, "Info", "Install", "SF9 skip KRPC.MechJeb extraction (hash-match, pin stable)")
+        else:
+            zip_path = _cached_zip_path(ctx, "krpc_mechjeb", "downloadUrl")
+            if not zip_path or not os.path.isfile(zip_path):
+                abort(ctx, "Install", "EC-4", "KRPC.MechJeb zip not cached: %s" % zip_path)
+                return
+            written = _extract_zip_plan(ctx, "krpc_mechjeb", zip_path)
+            hashes = _hash_installed_dlls(ctx, written)
+            extra["krpc_mechjeb"] = {"dllSha256": hashes.get("KRPC.MechJeb.dll")}
+            inv["krpc_mechjeb"] = _inventory_of(ctx, written)
+            log(ctx, "Info", "Install", "KRPC.MechJeb installed dll-sha256=%s" % extra["krpc_mechjeb"]["dllSha256"])
 
     # MechJeb2 release zip -> GameData/MechJeb2/ (pin OPEN today; guarded above by
     # DOWNLOAD's EC-13, so this only runs once a durable build is pinned).
     if "mechjeb2" in stack:
+        recorded_map = _prior_component(ctx, "mechjeb2").get("installedDlls", {}) or {}
+        expected = provlib.installed_map_digest(recorded_map) if recorded_map else None
+        current = provlib.installed_map_digest(
+            {k: v for k, v in _current_component_dll_map(ctx, "mechjeb2", list(recorded_map)).items() if v})
+        skip = provlib.decide_idempotent_skip(
+            ctx.prior_complete and _install_pin_stable(ctx, "mechjeb2"), expected, current)
+        if skip.skip:
+            extra["mechjeb2"] = {"installedDlls": recorded_map}
+            inv["mechjeb2"] = _prior_inventory(ctx, "mechjeb2")
+            log(ctx, "Info", "Install", "SF9 skip MechJeb2 extraction (hash-match, pin stable)")
+            return
         zip_path = _cached_zip_path(ctx, "mechjeb2", "downloadUrl")
         if zip_path and os.path.isfile(zip_path):
             written = _extract_zip_plan(ctx, "mechjeb2", zip_path)
             extra["mechjeb2"] = {"installedDlls": _hash_installed_dlls(ctx, written)}
+            inv["mechjeb2"] = _inventory_of(ctx, written)
             log(ctx, "Info", "Install", "MechJeb2 extracted files=%d" % len(written))
         else:
             log(ctx, "Warn", "Install", "MechJeb2 zip not cached (pin OPEN); skipped")
@@ -1786,6 +2131,43 @@ def _buildid64_sha(ctx: ProvisionContext) -> Optional[str]:
     return None
 
 
+def _dev_buildid64_sha(ctx: ProvisionContext) -> Optional[str]:
+    """Hash the DEV install's buildID64.txt -- the KSP version whose Managed
+    reference DLLs the BUILD-TT shim HintPaths against. Compared to the recorded
+    manifest buildId64Sha256 to detect a KSP version bump that would leave the
+    cached TestingTools.dll linked against stale reference DLLs (reviewer S1)."""
+    dev = os.path.join(ctx.dev_install, "buildID64.txt")
+    return sha256_file(dev) if os.path.isfile(dev) else None
+
+
+def _managed_dir_stat(ctx: ProvisionContext) -> tuple:
+    """SF9/S2: (file_count, total_bytes) of the instance's KSP_x64_Data/Managed
+    dir -- the stock / reference DLL surface. A partially-deleted instance (a
+    stock Managed DLL removed) or a swapped DLL of a different size drops the
+    count / size, so the CLONE mutable-surface skip gate re-stats and refuses to
+    skip when it differs from the recorded stat (which buildID64 alone cannot
+    catch). Reparse-point subdirs are pruned so no junctioned tree is pulled in.
+    Returns (0, 0) when the dir is absent (e.g. a fixture install without it)."""
+    data = _find_ksp_data_dir(ctx.dev_install)
+    managed = os.path.join(ctx.instance_dir, data, "Managed")
+    count = 0
+    total = 0
+    if not os.path.isdir(managed):
+        return (0, 0)
+    for r, dirs, names in os.walk(managed):
+        _prune_reparse_dirs(ctx, r, dirs)
+        for n in names:
+            count += 1
+            total += _safe_size(os.path.join(r, n))
+    return (count, total)
+
+
+def _managed_stat_dict(ctx: ProvisionContext) -> Dict[str, int]:
+    """Manifest-shaped form of _managed_dir_stat (SF9/S2)."""
+    count, total = _managed_dir_stat(ctx)
+    return {"fileCount": count, "bytes": total}
+
+
 # ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
@@ -1825,10 +2207,40 @@ def run(ctx: ProvisionContext) -> int:
         return _finish(ctx, 2)
 
 
+def _load_prior_provision_state(ctx: ProvisionContext) -> None:
+    """SF9: read the prior provision-manifest.json (if any) and decide whether it
+    describes a COMPLETE provision (manifest present AND no .provision-incomplete
+    marker). Only then may the heavy phases hash-short-circuit. Live runs only:
+    under dry-run nothing is skipped (the phases already collapse to plan lines).
+    A parse failure or a present incomplete-marker leaves prior_complete False."""
+    if ctx.dry_run:
+        return
+    manifest_path = os.path.join(ctx.parsek_gamedata, "provision-manifest.json")
+    marker_present = os.path.isfile(_incomplete_marker_path(ctx))
+    prior = None
+    if os.path.isfile(manifest_path):
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as fh:
+                prior = json.load(fh)
+        except (OSError, ValueError) as exc:
+            log(ctx, "Warn", "Preflight", "prior manifest unreadable (%s); full re-provision" % exc)
+            prior = None
+    ctx.prior_manifest = prior
+    ctx.prior_complete = bool(prior) and not marker_present
+    log(ctx, "Info", "Preflight",
+        "SF9 idempotency prior-manifest=%s incomplete-marker=%s prior-complete=%s"
+        % ("present" if prior else "absent", marker_present, ctx.prior_complete))
+
+
+def _prior_component(ctx: ProvisionContext, comp: str) -> Dict:
+    return ((ctx.prior_manifest or {}).get("components", {}) or {}).get(comp, {}) or {}
+
+
 def _run_phases(ctx: ProvisionContext) -> int:
     phase_preflight(ctx)
     if ctx.aborted:
         return _finish(ctx, 2)
+    _load_prior_provision_state(ctx)
 
     resolved = phase_pin(ctx)
     if ctx.aborted:
@@ -1885,8 +2297,7 @@ def _repair_and_reverify(ctx: ProvisionContext, manifest: Dict, resolved: Dict,
 
     stack_repair = [c for c in plan.components if c in provlib.STACK_COMPONENT_NAMES and c != "parsek"]
     if stack_repair:
-        log(ctx, "Info", "Repair", "re-installing stack components: %s" % ",".join(stack_repair))
-        _install_stack(ctx, stack_repair)
+        _repair_stack_folders(ctx, stack_repair)
     if "parsek" in plan.components:
         log(ctx, "Info", "Repair", "re-deploying Parsek.dll")
         parsek_info = phase_deploy(ctx)
@@ -1901,6 +2312,33 @@ def _repair_and_reverify(ctx: ProvisionContext, manifest: Dict, resolved: Dict,
     manifest = phase_manifest(ctx, resolved, manifest.get("junctionTargets", {}),
                               deltas, parsek_info, manifest.get("devSourcedMods", {}))
     return phase_verify(ctx, manifest)
+
+
+def _repair_stack_folders(ctx: ProvisionContext, stack_repair: Sequence[str]) -> None:
+    """--repair convergence for stack components, including SF10 inventory
+    added-file drift. Expands the drifted components to every sibling sharing an
+    install folder, scoped-deletes each affected folder behind the EC-16 fence
+    (so an INJECTED extra file is REMOVED, not merely overwritten by a re-extract),
+    then re-installs the full sibling set. The scoped delete forces the SF9 skip
+    off (the DLLs are absent), so every sibling genuinely re-extracts."""
+    profile_stack = set(ctx.profile.get("stackComponents", []) or [])
+    folders = {provlib.stack_component_install_folder(c) for c in stack_repair}
+    siblings = [c for c in provlib.STACK_COMPONENT_NAMES
+                if c != "parsek"
+                and provlib.stack_component_install_folder(c) in folders
+                and c in profile_stack]
+    # B1: mark the instance un-admittable BEFORE the scoped delete (defense in
+    # depth). A crash between the delete and the re-install would otherwise leave a
+    # component folder half-emptied yet still admissible; the post-repair VERIFY
+    # clears the marker on success, exactly as the CLONE-time marker does.
+    _write_incomplete_marker(ctx)
+    for folder_rel in sorted(folders):
+        folder_abs = os.path.join(ctx.instance_dir, *folder_rel.split("/"))
+        if os.path.isdir(folder_abs):
+            _scoped_delete_instance_subtree(ctx, folder_abs)
+    log(ctx, "Info", "Repair",
+        "re-installing stack folders=%s components=%s" % (",".join(sorted(folders)), ",".join(siblings)))
+    _install_stack(ctx, siblings)
 
 
 def _repair_dev_mods(ctx: ProvisionContext, names: Sequence[str]) -> None:

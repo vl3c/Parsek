@@ -343,6 +343,10 @@ save load, including a `LoadGame`.
 Reserving the phase-3 names now means the envelope (id/cmd/args, percent-encoding,
 journal, verdicts) is designed once and the later commands slot in without a format break.
 
+> Update (M-C1): the four verbs `InvokeRewind`, `AnswerMergeDialog`, `TimeJump`, and
+> `KscAction` have since been promoted from Reserved to implemented; see
+> `design-autotest-seam-verbs-c1.md`. The v1 contract above is kept as the historical record.
+
 ## Behavior
 
 ### Addon lifecycle

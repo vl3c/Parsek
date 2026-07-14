@@ -1,0 +1,91 @@
+schema = 1
+id = "S0.5-live-record-discard"
+tier = "daily"
+# Live seam-driven recording lifecycle over the stationary pod fixture, then a
+# scoped discard. This is the L3-lite discard cell AND the first RUNNABLE
+# live-recording REC-rule cell: B1/B2 are the flown live-recording cells but
+# their pad-craft fixtures are PENDING-OPERATOR, so today nothing on main
+# exercises REC-001/REC-003 UNSUPPRESSED end to end. A StartRecording step makes
+# spec_expects_live_recording True (hlib.spec_expects_live_recording), so the
+# recording-rules log profile stays MANDATORY (NOT suppressed the way an
+# injection-seeded run is): a dropped start/stop marker reds. The DISCARD leg is
+# what makes the count assertion robust - see [expectations.recordings].
+description = "Live seam recording start/stop over the pod fixture, then DiscardTree; recording markers pair, store returns to zero."
+instanceProfile = "stock-minimal"
+tags = ["recording", "discard", "live-recording", "D1", "R23"]
+
+[fixture]
+# The gloops-airshow SANDBOX save: a single pure-stock mk1 pod on the KSC pad
+# (PRELAUNCH, body=Kerbin) plus one asteroid SpaceObject. LoadGame drops straight
+# into FLIGHT with the pod as the active, unpacked vessel, which is what the
+# RequiresFlight recorder verbs need. injectedRecordings="none": the store starts
+# empty so the discard's return-to-zero is unambiguous.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Pin auto-record OFF after load so the only lifecycle in play is the one this
+# spec drives (a scene bounce cannot inject a second auto-record). It does NOT
+# change the live-recording classification: the StartRecording step already makes
+# spec_expects_live_recording True, so REC-001/REC-003 stay mandatory.
+# Verb notes: StartRecording/StopRecording/DiscardTree are RequiresFlight and the
+# gloops pod is flight-ready; StopRecording leaves the active tree intact
+# (ParsekFlight.StopRecording only stops the recorder + tags the final segment),
+# so DiscardTree always finds an active tree -> hadTree=true -> the discarded
+# marker. RecordingState is an AnyScene query probe (verdict-only assertion in v1;
+# its recording/tree/points payload is not harness-asserted) exercised mid-record.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "StartRecording",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "StopRecording",                                                        expect = "OK" },
+  { cmd = "DiscardTree",                                                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                                          expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: only what the driver actually exercises. DiscardTree ->
+# AutoDiscardActiveTreeWithMessage is the discard-rollback verb (D1). The live
+# recording builds a single-node tree (one pod) before it is discarded (D5). The
+# run is SANDBOX, in FLIGHT, on Kerbin (D14). Not claimed: the ledger-rollback
+# half of discard-rollback (SANDBOX has no career pools to roll back).
+D1  = ["discard-rollback"]
+D5  = ["single-node"]
+D14 = ["sandbox", "scene-flight", "kerbin"]
+
+[expectations.recordings]
+# ROBUST to the stationary-pod sub-2-point-drop: whether the short recording
+# survives finalization or is dropped, DiscardTree tears the active tree down, so
+# the committed store returns to the injection baseline of zero either way. This
+# is the no-injection count the harness design note describes.
+# NOTE: count.max==0 does NOT suppress the REC rules here - suppression keys on
+# spec_expects_live_recording (True via StartRecording), not on the count.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# REC markers UNSUPPRESSED: a live recording MUST log a paired start + stop.
+# discardtree discarded=true confirms the discard verb ran against a real active
+# tree (deterministic: StopRecording leaves the tree active). ERROR is UPPERCASE
+# in ParsekLog.Write and the forbidden patterns are case-sensitive re.search.
+required  = ["Recording started", "Recording stopped", "discardtree discarded=true"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+# No map-render tracer is armed, so the Tier-C anomaly sweep has no data and must
+# find zero anomaly tokens.
+allowedAnomalies = []
+
+[runtime]
+# Budget arithmetic (M-A5 S8): runtime 600 >= 300 LoadGame + 180 StartRecording
+# scene-wait ceiling (DispatcherStartRecordingSceneWaitSeconds) + the fast
+# non-deferred recorder verbs + margin. LoadGame is the only deferred step here;
+# its per-step 300 is well under the 540 deferred cap.
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -26,6 +26,19 @@ Modes:
              that never settled to FLIGHT). No recording is started/dropped. run.py
              must SKIP the mission spawn (design handoff step 1: only hand off after
              a LoadGame OK) so a dead boot never burns the mission budget.
+  multipass  like pass, but a multi-category RunTests (category "A,B" / "all") emits
+             a per-category BATCH_COMPLETE line for each token PLUS the final
+             category=multi:<count> aggregate (all failed=0), the M-A3 multi-category
+             autorun shape.
+  multinoagg like multipass, but OMITS the category=multi:<count> aggregate line (the
+             per-category lines are present, the summary is not) -- the defined-fault
+             shape the harness must red batch-incomplete instead of reading green off a
+             per-category line.
+  multimismatch
+             like multipass, but the category=multi:<count> aggregate declares ONE MORE
+             category than per-category lines present (a category batch cut off before
+             its BATCH_COMPLETE) -- the SF2 count-mismatch defined fault the harness must
+             red batch-incomplete instead of reading green off the mis-counted aggregate.
 
 ASCII only; stdlib only.
 """
@@ -73,7 +86,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True, help="instance KSP root (channel files live here)")
     parser.add_argument("--mode", default="pass",
-                        choices=["pass", "hang", "bootcrash", "autopilot", "autopilot-loadfail"])
+                        choices=["pass", "hang", "bootcrash", "autopilot", "autopilot-loadfail",
+                                 "multipass", "multinoagg", "multimismatch"])
     parser.add_argument("--max-seconds", type=float, default=120.0)
     args = parser.parse_args(argv)
 
@@ -121,9 +135,14 @@ def main(argv=None):
                     _append(log_path, "[LOG] [Parsek][INFO][Recorder] Recording stopped\n")
             if cmd == "RunTests":
                 category = fields.get("category", "RecordingInvariants")
-                _append(log_path,
-                        "[LOG] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=5 "
-                        "passed=5 failed=0 skipped=0 category=%s scene=FLIGHT\n" % category)
+                if args.mode in ("multipass", "multinoagg", "multimismatch"):
+                    _emit_multi_batch(log_path, category,
+                                      emit_aggregate=(args.mode != "multinoagg"),
+                                      count_delta=(1 if args.mode == "multimismatch" else 0))
+                else:
+                    _append(log_path,
+                            "[LOG] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=5 "
+                            "passed=5 failed=0 skipped=0 category=%s scene=FLIGHT\n" % category)
                 _write_results(os.path.join(root, RESULTS), category)
             verdict = "ERROR" if load_failed else "OK"
             _append(responses_path, "id=%s cmd=%s verdict=%s seq=%d\n" % (cid, cmd, verdict, seq))
@@ -153,6 +172,29 @@ def _drop_recording(root):
     if not os.path.isfile(prec):
         with open(prec, "w", encoding="utf-8") as fh:
             fh.write("# fake auto-recorded mission flight\n")
+
+
+def _emit_multi_batch(log_path, category, emit_aggregate, count_delta=0):
+    """Emit the M-A3 multi-category autorun BATCH_COMPLETE shape: one per-category
+    line per token, then (unless suppressed) the final category=multi:<count>
+    aggregate carrying the union tally. All failed=0 (a clean multi-category run).
+    ``count_delta`` skews the aggregate's declared <count> away from the per-category
+    line count (SF2 count-mismatch fault seam); 0 = a consistent count."""
+    if category == "all":
+        cats = ["CatOne", "CatTwo"]
+    else:
+        cats = [c.strip() for c in category.split(",") if c.strip()]
+    total = 0
+    for c in cats:
+        _append(log_path,
+                "[LOG] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=3 "
+                "passed=3 failed=0 skipped=0 category=%s scene=FLIGHT\n" % c)
+        total += 3
+    if emit_aggregate:
+        _append(log_path,
+                "[LOG] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=%d "
+                "passed=%d failed=0 skipped=0 category=multi:%d scene=FLIGHT\n"
+                % (total, total, len(cats) + count_delta))
 
 
 def _write_results(path, category):

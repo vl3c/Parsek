@@ -1,0 +1,75 @@
+schema = 1
+id = "H5-invariants-corpus"
+tier = "daily"
+# The in-game RecordingInvariants (M-A3 hook H5) category run over the FULL
+# injected synthetic corpus. B10 runs the same category over an EMPTY store (a
+# trivial edge-15 pass); this cell instead loads the 272-recording corpus and
+# walks it through the M-A1 pure invariant core (RecordingInvariantsHold
+# OverLiveStore -> InvariantEvaluator over RecordingStore.CommittedRecordings), so
+# a Fail finding on any real recording reds. Two guards: the corpus LOADS INTACT
+# (walk-count line) and it is structurally VALID (BATCH failed=0). No live
+# recording, so the REC rules are suppressed (injection-seeded run).
+description = "Load the full injected synthetic corpus and walk it through the in-game RecordingInvariants (H5) core; corpus loads intact and holds every invariant."
+instanceProfile = "stock-minimal"
+tags = ["invariants", "analyzer", "H5", "R21", "R22"]
+
+[fixture]
+# gloops-airshow SANDBOX pod host (see S0.5). injectedRecordings="all-synthetic"
+# seeds the 272-recording corpus that the H5 live-store walk then evaluates.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "all-synthetic"
+craft = []
+
+[driver]
+kind = "seam"
+# Non-live run: no StartRecording and autoRecordOnLaunch pinned false, so
+# spec_expects_live_recording is False and REC-001/REC-003 are correctly
+# suppressed (the save holds recordings it never recorded live). RunTests is the
+# single BATCH owner; its 540 per-step budget is exactly the deferred cap (S8).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "RecordingInvariants" },          expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: loading the 272-recording corpus reads each recording from its .prec
+# sidecar and runs the load-time schema-compatibility gate (D16). The run is
+# SANDBOX and the H5 category is FLIGHT-scoped (D14). Not claimed: a specific
+# invariant-family dimension - the invariant sweep is a structural regression
+# guard, not new registry-token coverage; the tokens above are what the DRIVER
+# (load + in-flight batch) actually exercises.
+D14 = ["sandbox", "scene-flight"]
+D16 = ["sidecar-prec", "schema-gate"]
+
+[expectations.recordings]
+# The injected corpus, unchanged (no live recording). Pinned to the same 272 S1.4
+# uses on stock-minimal; a load that lost recordings reds. Update alongside corpus
+# or profile changes.
+count = { min = 272, max = 272 }
+
+[expectations.logContracts]
+# "recordings=272" (word-boundary anchored so 2720 cannot spoof it) is the
+# HIGH-confidence guard that the full corpus hydrated into the store and was
+# walked - the R21/R22 index-integrity family. failed=0 is the invariant-clean
+# guard. PENDING-OPERATOR: the first live run must confirm the 272-corpus passes
+# the H5 core with zero Fail findings; if a synthetic recording is deliberately
+# degenerate, quarantine it via expectedFail keyed to a todo-doc bug id rather
+# than weakening failed=0.
+required  = ["RecordingInvariants walk: recordings=272\\b", "BATCH_COMPLETE v1 .* failed=0\\b"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+# Budget arithmetic (M-A5 S8): runtime 720 >= 300 LoadGame + 540 RunTests ceiling
+# headroom (steps normally finish well under their per-step budgets, so the run
+# watchdog need not be their sum); RunTests budget 540 == the deferred cap.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

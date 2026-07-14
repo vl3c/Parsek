@@ -28,6 +28,10 @@ namespace Parsek.Tests
             public void LoadGame(ParsedCommand cmd) => Calls.Add("LoadGame");
             public void MissionMark(ParsedCommand cmd) => Calls.Add("MissionMark");
             public void FlushAndQuit(ParsedCommand cmd) => Calls.Add("FlushAndQuit");
+            public void InvokeRewind(ParsedCommand cmd) => Calls.Add("InvokeRewind");
+            public void AnswerMergeDialog(ParsedCommand cmd) => Calls.Add("AnswerMergeDialog");
+            public void TimeJump(ParsedCommand cmd) => Calls.Add("TimeJump");
+            public void KscAction(ParsedCommand cmd) => Calls.Add("KscAction");
         }
 
         [Fact]
@@ -55,6 +59,10 @@ namespace Parsek.Tests
         [InlineData("LoadGame", "AnyScene")]
         [InlineData("MissionMark", "AnyScene")]
         [InlineData("FlushAndQuit", "AnyScene")]
+        [InlineData("InvokeRewind", "RequiresFlight")]
+        [InlineData("AnswerMergeDialog", "AnyScene")]
+        [InlineData("TimeJump", "RequiresFlight")]
+        [InlineData("KscAction", "AnyScene")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -75,6 +83,10 @@ namespace Parsek.Tests
             fake.LoadGame(cmd);
             fake.MissionMark(cmd);
             fake.FlushAndQuit(cmd);
+            fake.InvokeRewind(cmd);
+            fake.AnswerMergeDialog(cmd);
+            fake.TimeJump(cmd);
+            fake.KscAction(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

@@ -62,7 +62,8 @@ namespace Parsek.Tests
         [Fact]
         public void ReservedVerb_Rejects_NotImplementedV1()
         {
-            var r = TestCommandDispatcher.DecideDispatch(Cmd("InvokeRewind"), Flight());
+            // SealSlot stays reserved after M-C1 (InvokeRewind was promoted to Implemented).
+            var r = TestCommandDispatcher.DecideDispatch(Cmd("SealSlot"), Flight());
             Assert.Equal(DispatchDecision.Reject, r.Decision);
             Assert.Equal("not-implemented-v1", r.Reason);
         }
