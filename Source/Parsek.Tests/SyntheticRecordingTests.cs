@@ -6027,10 +6027,13 @@ namespace Parsek.Tests
         /// booster sibling + a Rewind-to-Separation RewindPoint) into the target
         /// save, the way <see cref="InjectAllRecordings"/> injects the full corpus.
         /// Harness-callable via <c>dotnet test --filter InjectRewindB9</c> (the
-        /// <c>rewind-b9</c> injection preset). Writes the RP quicksave sidecar
-        /// self-referentially (a copy of the fixture save's own persistent.sfs).
-        /// Uses the same env contract as <see cref="InjectAllRecordings"/>
-        /// (PARSEK_INJECT_SAVE_NAME / _TARGET_SAVE / _CLEAN_START).
+        /// <c>rewind-b9</c> injection preset). The RP quicksave sidecar is a
+        /// purpose-built scene state carrying one controllable VESSEL per child slot
+        /// stamped with the slot's mapped pids (cloned from the host save's command
+        /// vessel when present), so the re-fly's pre-load scrub / post-load strip keep
+        /// the selected slot and Activate succeeds. Uses the same env contract as
+        /// <see cref="InjectAllRecordings"/> (PARSEK_INJECT_SAVE_NAME / _TARGET_SAVE /
+        /// _CLEAN_START).
         /// </summary>
         [Trait("Category", "Manual")]
         [Fact]

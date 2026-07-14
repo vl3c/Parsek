@@ -51,8 +51,14 @@ SCHEMA_VERSION = 1
 # Vocabulary tables (design Data Model + consumed seam verb table).
 # ---------------------------------------------------------------------------
 
-# Scenario tiers (design spec `tier` enum).
-TIERS: Tuple[str, ...] = ("perpr", "daily", "nightly", "weekly")
+# Scenario tiers (design spec `tier` enum). "operator" is a valid tier for spec
+# validation but is DELIBERATELY absent from every CADENCE_TIERS set below, so no
+# cadence (per-pr / daily / nightly / weekly) ever schedules an operator-tier spec:
+# it runs ONLY on an explicit `--tier operator` / `--id` invocation. This is the
+# honest home for a scenario whose PASS is unreachable unattended (e.g. RequiresFlight
+# verbs with no flight-entry verb: run under a cadence it would only ever defer to a
+# TIMEOUT and burn boots). A `pending-operator` tag alone is non-gating; the tier is.
+TIERS: Tuple[str, ...] = ("perpr", "daily", "nightly", "weekly", "operator")
 
 # The two provisioned instance profiles (design + M-A6).
 INSTANCE_PROFILES: Tuple[str, ...] = ("stock-minimal", "modded-compat")
@@ -977,6 +983,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
 
 # A cadence maps to a tier set (design section 10). per-pr is analyzer-on-fixtures
 # only (no KSP), but at the SELECTION layer it resolves to the perpr tier specs.
+# NOTE: "operator" is intentionally in NO set here - operator-tier specs are never
+# picked up by a cadence and run only under an explicit `--tier operator` / `--id`.
 CADENCE_TIERS: Dict[str, Tuple[str, ...]] = {
     "per-pr": ("perpr",),
     "daily": ("daily",),

@@ -1,6 +1,9 @@
 param(
     [switch]$CleanStart,
-    [string]$SaveName = "test career",
+    # Empty by default so the per-preset default save (below) applies when the caller
+    # does not name a save. run.py always passes -SaveName explicitly, so its behavior
+    # is unchanged; only a manual `-Preset rewind-b9` picks up the fixture default.
+    [string]$SaveName = "",
     [string]$TargetSave = "1.sfs",
     [switch]$Build,
     [switch]$RunDiagnosticsTests,
@@ -13,6 +16,14 @@ param(
 $injectFilterByPreset = @{
     "all-synthetic" = "InjectAllRecordings"
     "rewind-b9"     = "InjectRewindB9"
+}
+
+# Per-preset default save name, applied only when -SaveName is not given. Keeps a
+# bare `-Preset rewind-b9` off the shared "test career" corpus save so a manual run
+# cannot CleanSaveStart-purge it; it targets its own rewind-b9-fixture save instead.
+$defaultSaveByPreset = @{
+    "all-synthetic" = "test career"
+    "rewind-b9"     = "rewind-b9-fixture"
 }
 
 $ErrorActionPreference = "Stop"
@@ -69,6 +80,11 @@ if (-not $injectFilterByPreset.ContainsKey($Preset)) {
     throw "Unknown injection preset '$Preset'. Known: $($injectFilterByPreset.Keys -join ', ')"
 }
 $injectFilter = $injectFilterByPreset[$Preset]
+
+# Resolve the per-preset default save only when the caller named none.
+if ([string]::IsNullOrWhiteSpace($SaveName)) {
+    $SaveName = $defaultSaveByPreset[$Preset]
+}
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $repoRoot

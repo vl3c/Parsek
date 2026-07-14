@@ -713,6 +713,7 @@ class SelectionTests(unittest.TestCase):
         {"id": "B", "tier": "nightly", "tags": ["R14"]},
         {"id": "C", "tier": "weekly", "tags": ["mods"]},
         {"id": "D", "tier": "perpr", "tags": []},
+        {"id": "E", "tier": "operator", "tags": ["rewind", "pending-operator"]},
     ]
 
     def test_by_id(self):
@@ -728,9 +729,24 @@ class SelectionTests(unittest.TestCase):
         got = [s["id"] for s in hlib.select_scenarios(self.SPECS, "--cadence nightly")]
         self.assertEqual(got, ["A", "B"])
 
-    def test_cadence_weekly_is_all(self):
+    def test_cadence_weekly_excludes_operator(self):
+        # Weekly is the widest cadence yet the operator-tier spec E is NOT selected:
+        # operator specs run only under an explicit --tier/--id, never a cadence.
         got = [s["id"] for s in hlib.select_scenarios(self.SPECS, "--cadence weekly")]
         self.assertEqual(got, ["A", "B", "C", "D"])
+
+    def test_operator_tier_in_no_cadence(self):
+        for cadence in ("per-pr", "daily", "nightly", "weekly"):
+            got = [s["id"] for s in hlib.select_scenarios(self.SPECS, "--cadence " + cadence)]
+            self.assertNotIn("E", got, "operator spec leaked into cadence %s" % cadence)
+
+    def test_operator_tier_selectable_by_explicit_tier(self):
+        got = [s["id"] for s in hlib.select_scenarios(self.SPECS, "--tier operator")]
+        self.assertEqual(got, ["E"])
+
+    def test_operator_is_valid_tier_vocabulary(self):
+        self.assertIn("operator", hlib.TIERS)
+        self.assertNotIn("operator", [t for ts in hlib.CADENCE_TIERS.values() for t in ts])
 
     def test_cadence_daily(self):
         got = [s["id"] for s in hlib.select_scenarios(self.SPECS, "--cadence daily")]

@@ -29,12 +29,25 @@ namespace Parsek.Tests.Generators
     /// </list>
     ///
     /// <para>
-    /// v1 fixture contract: the quicksave sidecar is a copy of the fixture save's
-    /// own persistent.sfs (a self-referential quicksave - rewinding loads the same
-    /// scene state). The re-fly MECHANICS exercised are strip / restore / marker /
-    /// merge, not time-travel fidelity; the live re-fly is PENDING-OPERATOR because
-    /// an agent cannot pilot KSP, and the fixture pids match the recordings, not the
-    /// vessels physically present in the self-referential quicksave.
+    /// v1 fixture contract: the RP quicksave sidecar is a PURPOSE-BUILT scene state
+    /// (<see cref="ScenarioWriter.WriteRewindPointSaveFiles"/>) that carries one
+    /// controllable VESSEL per child slot, each stamped with the exact
+    /// <c>persistentId</c> the slot's <see cref="RewindPoint.PidSlotMap"/> /
+    /// <see cref="RewindPoint.RootPartPidMap"/> entry references and cloned from the
+    /// host save's own command vessel when one is present (so its parts resolve in
+    /// <c>PartLoader</c>). This makes the re-fly MECHANICS - the pre-load
+    /// selected-slot scrub (<c>RewindInvoker.ScrubQuicksaveToSelectedSlotForReFly</c>),
+    /// the post-load <c>PostLoadStripper</c> strip, the Activate, and the merge -
+    /// genuinely exercisable: the selected slot's vessel is present under its mapped
+    /// pid, survives the strict strip, and is activatable. The tree / RP / sidecar
+    /// pid triangle is consistent (PidSlotMap pids == sidecar VESSEL pids == the
+    /// recordings' <see cref="Recording.VesselPersistentId"/>).
+    /// </para>
+    /// <para>
+    /// The remaining honest limit is OPERATOR-VERIFIABLE, not structural: whether
+    /// KSP can LOAD the cloned vessels live (duplicate part persistentIds / crew
+    /// across the per-slot clones may be regenerated on load) is confirmed only when
+    /// an operator boots the B9 split in FLIGHT - it is no longer an impossibility.
     /// </para>
     /// </summary>
     public static class RewindB9Fixture
@@ -106,6 +119,16 @@ namespace Parsek.Tests.Generators
                     [ScenarioWriter.DeriveVesselPersistentId(UpperRecordingId)] = UpperSlotIndex,
                     [ScenarioWriter.DeriveVesselPersistentId(BoosterRecordingId)] = BoosterSlotIndex,
                 },
+                // Root-part fallback map, keyed to the SAME root-part pids the
+                // sidecar VESSEL nodes carry (ScenarioWriter stamps each slot's
+                // cloned root PART with DeriveRootPartPersistentId(recordingId)).
+                // Distinct from the vessel-level pids so the strip's fallback path
+                // is exercised and the pre-load scrub can match on either key.
+                RootPartPidMap = new Dictionary<uint, int>
+                {
+                    [ScenarioWriter.DeriveRootPartPersistentId(UpperRecordingId)] = UpperSlotIndex,
+                    [ScenarioWriter.DeriveRootPartPersistentId(BoosterRecordingId)] = BoosterSlotIndex,
+                },
             };
             return rp;
         }
@@ -126,8 +149,8 @@ namespace Parsek.Tests.Generators
             writer.AddRecordingsAsTree(new[]
             {
                 BuildRoot(baseUT),
-                BuildUpperStage(baseUT, splitUt),
-                BuildBooster(baseUT, splitUt),
+                BuildUpperStage(splitUt),
+                BuildBooster(splitUt),
             });
 
             writer.AddRewindPoint(BuildRewindPoint(splitUt));
@@ -155,7 +178,7 @@ namespace Parsek.Tests.Generators
         }
 
         // Surviving upper stage (slot 0): coasts to orbit after separation.
-        private static RecordingBuilder BuildUpperStage(double baseUT, double splitUt)
+        private static RecordingBuilder BuildUpperStage(double splitUt)
         {
             double t = splitUt;
             var b = new RecordingBuilder("B9 Upper B")
@@ -174,7 +197,7 @@ namespace Parsek.Tests.Generators
 
         // Crashed booster (slot 1): falls back and impacts near the pad. Terminal
         // Destroyed = the "Crashed sibling" that a re-fly targets.
-        private static RecordingBuilder BuildBooster(double baseUT, double splitUt)
+        private static RecordingBuilder BuildBooster(double splitUt)
         {
             double t = splitUt;
             var b = new RecordingBuilder("B9 Booster A")

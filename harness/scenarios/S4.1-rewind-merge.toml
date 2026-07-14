@@ -1,6 +1,13 @@
 schema = 1
 id = "S4.1-rewind-merge"
-tier = "weekly"
+# tier = "operator": InvokeRewind + AnswerMergeDialog are RequiresFlight / conclude-a-
+# flight and the seam has NO flight-entry verb, so run unattended from the gloops
+# SPACECENTER host every verb only DEFERS to a TIMEOUT and burns a boot with no PASS
+# reachable. "operator" is excluded from every cadence (hlib CADENCE_TIERS), so no
+# daily/nightly/weekly run schedules this; an operator runs it with `--tier operator`
+# (or `--id`) once the B9 split is loaded in FLIGHT. The pending-operator TAG alone is
+# non-gating - the tier is what keeps it off the cadences.
+tier = "operator"
 # The B9 re-fly cycle (catalog B9 / S4.1): inject a committed tree whose ascent
 # split into a surviving upper stage + a CRASHED booster, plus a Rewind-to-
 # Separation RewindPoint at the split. Drive the whole cycle through the M-C1
@@ -94,11 +101,19 @@ supersedeRows = { min = 1 }
 tombstones    = { max = 0 }
 
 [runtime]
-# Budget arithmetic (M-A5 S8): 900 >= 240 LoadGame + 300 InvokeRewind (deferred,
-# under the 540 cap) + 120 AnswerMergeDialog + the fast SetSetting/RecordingState/
-# FlushAndQuit verbs + margin. InvokeRewind is the LoadGame-class deferred step; its
-# 300 sits under the 540 deferred-step cap.
-budgetSeconds = 900
+# Budget arithmetic (M-A5 S8): sized so the WORST DEFER path surfaces a clean per-step
+# TIMEOUT (driver-INVALID) for every step instead of a run-budget KILL. run.py waits
+# max(step_budget, 600) + 60 per DEFERRED verb (LoadGame/InvokeRewind) and step_budget
+# for the rest, and the run-budget ceiling must exceed the SUM so no step-wait is capped:
+#   LoadGame        max(240,600)+60 = 660
+#   SetSetting      (default)       =  60
+#   InvokeRewind    max(300,600)+60 = 660
+#   AnswerMergeDialog (budget)      = 120
+#   RecordingState  (default)       =  60
+#   FlushAndQuit    (default)       =  60   -> sum 1620; +60 margin = 1680.
+# On the operator happy path (verbs execute in FLIGHT) the real wall-clock is ~700s,
+# far under this ceiling; the ceiling only governs the unattended defer path.
+budgetSeconds = 1680
 
 [retry]
 policy = "once"

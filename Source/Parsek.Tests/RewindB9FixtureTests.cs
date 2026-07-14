@@ -149,9 +149,34 @@ namespace Parsek.Tests
                     tempDir, "Parsek", "RewindPoints", "rp_b9_root.sfs");
                 Assert.True(File.Exists(sidecar), $"RP sidecar missing: {sidecar}");
 
-                // The self-referential contract: the sidecar is a byte copy of the
-                // pre-injection fixture save.
-                Assert.Equal(FakeSave, File.ReadAllText(sidecar));
+                // B1 contract: the sidecar carries one controllable VESSEL per child
+                // slot, each stamped with the persistentId the slot's PidSlotMap
+                // references, so the re-fly pre-load scrub / post-load strip keep the
+                // selected slot instead of stripping everything and failing Activate.
+                ConfigNode loaded = ConfigNode.Load(sidecar);
+                ConfigNode game = loaded.GetNode("GAME") ?? loaded;
+                ConfigNode flightState = game.GetNode("FLIGHTSTATE");
+                Assert.NotNull(flightState);
+
+                ConfigNode[] vessels = flightState.GetNodes("VESSEL");
+                Assert.Equal(2, vessels.Length); // one per controllable slot
+
+                uint upperPid = ScenarioWriter.DeriveVesselPersistentId(RewindB9Fixture.UpperRecordingId);
+                uint boosterPid = ScenarioWriter.DeriveVesselPersistentId(RewindB9Fixture.BoosterRecordingId);
+                var sidecarPids = new System.Collections.Generic.HashSet<uint>();
+                foreach (ConfigNode v in vessels)
+                {
+                    uint pid;
+                    Assert.True(uint.TryParse(v.GetValue("persistentId"),
+                        NumberStyles.Integer, CultureInfo.InvariantCulture, out pid));
+                    sidecarPids.Add(pid);
+                }
+                // PidSlotMap pids == sidecar VESSEL pids == recording pids (triangle).
+                Assert.Contains(upperPid, sidecarPids);
+                Assert.Contains(boosterPid, sidecarPids);
+
+                // activeVessel points at the focus slot's ordinal (slot 0 = upper).
+                Assert.Equal("0", flightState.GetValue("activeVessel"));
 
                 // The three recordings' sidecars also landed (tree is complete).
                 string recDir = Path.Combine(tempDir, "Parsek", "Recordings");
@@ -160,6 +185,56 @@ namespace Parsek.Tests
             }
             finally
             {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void Sidecar_DeepParsePassesWhenPartsResolve()
+        {
+            string tempDir = Path.Combine(
+                Path.GetTempPath(), "parsek_rewind_b9_dp_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            RewindInvoker.PartLoaderPrecondition.PartExistsOverrideForTesting = null;
+            try
+            {
+                string savePath = Path.Combine(tempDir, "persistent.sfs");
+                string tempPath = savePath + ".tmp";
+                File.WriteAllText(savePath, FakeSave);
+
+                var writer = new ScenarioWriter().WithV3Format();
+                RewindB9Fixture.PopulateWriter(writer, baseUT: 0.0);
+                writer.InjectIntoSaveFile(savePath, tempPath);
+                File.Copy(tempPath, savePath, overwrite: true);
+                File.Delete(tempPath);
+
+                string sidecar = Path.Combine(
+                    tempDir, "Parsek", "RewindPoints", "rp_b9_root.sfs");
+                RewindPoint rp = RewindB9Fixture.BuildRewindPoint(splitUt: 60.0);
+
+                // Deep-parse (PartLoaderPrecondition-shape): with every PART resolving,
+                // the precondition passes. This proves the sidecar carries real PART
+                // nodes the CanInvoke deep-parse gate inspects (not a vessel-less save).
+                RewindInvoker.PartLoaderPrecondition.PartExistsOverrideForTesting = _ => true;
+                RewindInvoker.PreconditionResult ok =
+                    RewindInvoker.PartLoaderPrecondition.Check(rp, sidecar);
+                Assert.True(ok.Passed, ok.Reason);
+                Assert.False(rp.Corrupted);
+
+                // And with NO part resolving, it declines with a missing-parts reason -
+                // confirming there ARE PART nodes to reject (a vessel-less sidecar would
+                // pass vacuously with nothing to check).
+                RewindPoint rp2 = RewindB9Fixture.BuildRewindPoint(splitUt: 60.0);
+                RewindInvoker.PartLoaderPrecondition.PartExistsOverrideForTesting = _ => false;
+                RewindInvoker.PreconditionResult bad =
+                    RewindInvoker.PartLoaderPrecondition.Check(rp2, sidecar);
+                Assert.False(bad.Passed);
+                Assert.Contains("Missing parts", bad.Reason ?? "");
+            }
+            finally
+            {
+                RewindInvoker.PartLoaderPrecondition.PartExistsOverrideForTesting = null;
                 if (Directory.Exists(tempDir))
                     Directory.Delete(tempDir, recursive: true);
             }

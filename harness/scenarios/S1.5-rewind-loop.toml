@@ -1,6 +1,17 @@
 schema = 1
 id = "S1.5-rewind-loop"
-tier = "weekly"
+# tier = "operator": TimeJump + InvokeRewind + AnswerMergeDialog are RequiresFlight /
+# conclude-a-flight and the seam has NO flight-entry verb, so run unattended from the
+# gloops SPACECENTER host every verb only DEFERS to a TIMEOUT and burns a boot with no
+# PASS reachable. "operator" is excluded from every cadence (hlib CADENCE_TIERS): no
+# daily/nightly/weekly run schedules this; an operator runs it with `--tier operator`
+# once the B9 split is loaded in FLIGHT. The pending-operator TAG alone is non-gating.
+#
+# DEPENDENCY (do NOT schedule before the integration-fixes PR merges): the TimeJump
+# step relies on the TimeJump completion decider fix in flight on branch
+# `autotest-integration-fixes`. Until that lands, TimeJump can settle incorrectly and
+# this spec's TimeJump leg is not trustworthy even on the operator path.
+tier = "operator"
 # S1.5 rewind loop (core loop, D18), DRIVABLE SUBSET. The full catalog S1.5 is
 # "fly B1, commit, warp past EndUT (vessel spawns), quicksave, rewind via seam,
 # assert vessel stripped, ghost replays, vessel re-spawns situation-corrected;
@@ -82,10 +93,24 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 allowedAnomalies = []
 
 [runtime]
-# Budget arithmetic (M-A5 S8): 1000 >= 240 LoadGame + 120 TimeJump + 300 InvokeRewind
-# (both deferred, each under the 540 cap) + 120 AnswerMergeDialog + the fast
-# SetSetting/RecordingState/FlushAndQuit verbs + margin.
-budgetSeconds = 1000
+# Budget arithmetic (M-A5 S8): sized so the WORST DEFER path surfaces a clean per-step
+# TIMEOUT (driver-INVALID) for every step instead of a run-budget KILL. run.py waits
+# max(step_budget, 600) + 60 per DEFERRED verb (LoadGame/TimeJump/InvokeRewind) and
+# step_budget for the rest; the run-budget ceiling must exceed the SUM so no step-wait
+# is capped (a capped deferred wait can KILL mid-step instead of surfacing the seam
+# TIMEOUT). The previous 1000 was BELOW the LoadGame(660)+TimeJump(660)+InvokeRewind(660)
+# defer windows and would KILL mid-InvokeRewind. Sum:
+#   LoadGame        max(240,600)+60 = 660
+#   SetSetting      (default)       =  60
+#   TimeJump        max(120,600)+60 = 660
+#   RecordingState  (default)       =  60
+#   InvokeRewind    max(300,600)+60 = 660
+#   AnswerMergeDialog (budget)      = 120
+#   RecordingState  (default)       =  60
+#   FlushAndQuit    (default)       =  60   -> sum 2340; +60 margin = 2400.
+# On the operator happy path (verbs execute in FLIGHT) the real wall-clock is ~800s,
+# far under this ceiling; the ceiling only governs the unattended defer path.
+budgetSeconds = 2400
 
 [retry]
 policy = "once"
