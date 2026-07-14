@@ -23,10 +23,17 @@ namespace Parsek.Tests
     /// before Phase F deleted the lump-sum path, the next FLIGHT scene entry could
     /// double-credit the tree.</para>
     ///
-    /// <para>All three sites converge on the shared seam
+    /// <para>These sites converge on the shared seam
     /// <see cref="ParsekScenario.CommitPendingTreeAsApplied"/>: tests exercise that
     /// helper directly (the OnSave / OnLoad outer frames require a live scenario
-    /// instance + KSP singletons and aren't unit-testable as a whole).</para>
+    /// instance + KSP singletons and aren't unit-testable as a whole). NOTE
+    /// (silent full-fidelity auto-commit): the scene-exit and outside-Flight sites
+    /// now route qualifying trees through <see cref="MergeDialog.MergeCommit"/>
+    /// (which calls <see cref="RecordingStore.CommitPendingTree"/> +
+    /// <see cref="RecordingStore.MarkTreeAsApplied"/> itself) and fall back to this
+    /// seam only for the ghost-only cases (re-fly / Limbo / MAINMENU); the OnSave
+    /// safety net still uses it directly. The mark-applied contract is identical on
+    /// both routes — see docs/dev/plans/silent-full-fidelity-autocommit.md.</para>
     ///
     /// <para>The critical regression test is
     /// <see cref="AutoCommit_DoesNotTouchMilestoneReplayIndexes"/> — it pins the

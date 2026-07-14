@@ -13,6 +13,7 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
+- With Auto-merge recordings turned on (Settings), a vessel you leave surviving at the end of a mission (in orbit, landed, or splashed) now stays a real, controllable vessel on the timeline instead of becoming a visual-only ghost, and landed or splashed missions no longer interrupt with a confirmation prompt. Auto-merge is still off by default.
 - New recordings no longer store two overlapping trajectory sections for the same time span around time-warp seams, which made the ghost's playback position ambiguous in those windows. Existing recordings are left untouched.
 - Supply-route inventory delivery now uses every cargo container on the destination vessel: when the first container is full, items are delivered into the next container with a free slot instead of being reported as undelivered. Pickup already worked this way; delivery now matches it.
 - Supply-route inventory deliveries now deliver the full stacked quantity of a cargo item to a loaded destination instead of a single unit, and a manifest item is split across as many inventory slots as its stack size requires (one slot per unit for non-stackable items) so the delivered inventory is valid stock state on both the loaded and unloaded paths.

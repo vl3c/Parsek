@@ -127,16 +127,14 @@ namespace Parsek
             GameScenes destination,
             bool hasActiveTree,
             bool reFlyActive,
-            bool isAutoMerge,
-            bool activeVesselLandedOrSplashed)
+            bool isAutoMerge)
         {
             return ShouldShowDialogBeforeSceneChange(
                 destination,
                 hasActiveTree: hasActiveTree,
                 reFlyActive: reFlyActive,
                 switchSegmentActive: false,
-                isAutoMerge: isAutoMerge,
-                activeVesselLandedOrSplashed: activeVesselLandedOrSplashed);
+                isAutoMerge: isAutoMerge);
         }
 
         /// <summary>
@@ -155,8 +153,7 @@ namespace Parsek
             bool hasActiveTree,
             bool reFlyActive,
             bool switchSegmentActive,
-            bool isAutoMerge,
-            bool activeVesselLandedOrSplashed)
+            bool isAutoMerge)
         {
             if (!hasActiveTree && !switchSegmentActive)
                 return DialogVariant.None;
@@ -167,15 +164,13 @@ namespace Parsek
             if (!isAutoMerge)
                 return DialogVariant.RegularMerge;
 
+            // #88 folded: under autoMerge the silent commit is now full-fidelity
+            // (spawn-at-end preserved), so landed/splashed exits to KSC/TS no longer
+            // need an approval dialog — they auto-commit silently. MAINMENU still
+            // shows the dialog (game unloading; no destination scene to defer a
+            // commit into). See docs/dev/plans/silent-full-fidelity-autocommit.md.
             if (destination == GameScenes.MAINMENU)
                 return DialogVariant.RegularMerge;
-
-            if ((destination == GameScenes.SPACECENTER
-                 || destination == GameScenes.TRACKSTATION)
-                && activeVesselLandedOrSplashed)
-            {
-                return DialogVariant.RegularMerge;
-            }
 
             return DialogVariant.None;
         }
@@ -191,15 +186,13 @@ namespace Parsek
             GameScenes destination,
             bool hasFinalizedPendingTree,
             bool reFlyActive,
-            bool isAutoMerge,
-            bool pendingRootLandedOrSplashed)
+            bool isAutoMerge)
         {
             return ShouldShowDialogBeforeSceneChange(
                 destination,
                 hasActiveTree: hasFinalizedPendingTree,
                 reFlyActive: reFlyActive,
-                isAutoMerge: isAutoMerge,
-                activeVesselLandedOrSplashed: pendingRootLandedOrSplashed);
+                isAutoMerge: isAutoMerge);
         }
 
         /// <summary>
@@ -227,26 +220,12 @@ namespace Parsek
                 && scenario.ActiveSwitchSegmentSession != null;
             bool isAutoMerge = ParsekScenario.IsAutoMerge;
 
-            // Mirrors ShouldShowCommitApproval but reads live vessel
-            // situation since post-finalize TerminalStateValue isn't
-            // populated yet (finalize deferred to the dialog callback).
-            // The two values agree on outcome:
-            // RecordingTree.DetermineTerminalState override paths only fire
-            // for SUB_ORBITAL/ORBITING base states; LANDED/SPLASHED pass
-            // through unchanged.
-            var v = FlightGlobals.ActiveVessel;
-            bool landedOrSplashed =
-                v != null
-                && (v.situation == Vessel.Situations.LANDED
-                    || v.situation == Vessel.Situations.SPLASHED);
-
             return ShouldShowDialogBeforeSceneChange(
                 destination,
                 hasActiveTree: hasActiveTree,
                 reFlyActive: reFlyActive,
                 switchSegmentActive: switchSegmentActive,
-                isAutoMerge: isAutoMerge,
-                activeVesselLandedOrSplashed: landedOrSplashed);
+                isAutoMerge: isAutoMerge);
         }
 
         /// <summary>
@@ -267,14 +246,12 @@ namespace Parsek
                 !object.ReferenceEquals(null, scenario)
                 && scenario.ActiveReFlySessionMarker != null;
             bool isAutoMerge = ParsekScenario.IsAutoMerge;
-            bool pendingRootLandedOrSplashed = PendingTreeRootLandedOrSplashed();
 
             return ShouldShowDialogBeforeSceneChangeForPendingTree(
                 destination,
                 hasFinalizedPendingTree: hasFinalizedPendingTree,
                 reFlyActive: reFlyActive,
-                isAutoMerge: isAutoMerge,
-                pendingRootLandedOrSplashed: pendingRootLandedOrSplashed);
+                isAutoMerge: isAutoMerge);
         }
 
         /// <summary>
@@ -312,24 +289,6 @@ namespace Parsek
                 out RecordingTree tree,
                 out _);
             return tree;
-        }
-
-        private static bool PendingTreeRootLandedOrSplashed()
-        {
-            var tree = RecordingStore.PendingTree;
-            if (tree == null || string.IsNullOrEmpty(tree.RootRecordingId))
-                return false;
-
-            Recording root;
-            if (!tree.Recordings.TryGetValue(tree.RootRecordingId, out root))
-                return false;
-
-            // Finalized pending trees no longer have live vessel state here.
-            // Use the root terminal state as the conservative #88 autoMerge
-            // approval proxy; autoMerge-off and Re-Fly dialog paths ignore it.
-            return root != null
-                && (root.TerminalStateValue == TerminalState.Landed
-                    || root.TerminalStateValue == TerminalState.Splashed);
         }
 
         /// <summary>
