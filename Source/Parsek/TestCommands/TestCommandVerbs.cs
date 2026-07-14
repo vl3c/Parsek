@@ -27,7 +27,10 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1): 10 verbs.
+        // Implemented (v1 + M-C1 batch 1): 14 verbs. M-C1 promoted InvokeRewind,
+        // AnswerMergeDialog, TimeJump, and KscAction from Reserved to Implemented
+        // (design-autotest-seam-verbs-c1.md). The wire tokens are byte-identical
+        // before and after; only the response changes (not-implemented-v1 -> real).
         private static readonly HashSet<string> ImplementedVerbs = new HashSet<string>
         {
             "SetSetting",
@@ -40,23 +43,23 @@ namespace Parsek.TestCommands
             "LoadGame",
             "MissionMark",
             "FlushAndQuit",
+            "InvokeRewind",
+            "AnswerMergeDialog",
+            "TimeJump",
+            "KscAction",
         };
 
-        // Reserved (recognized, not implemented in v1): 15 verbs.
+        // Reserved (recognized, not implemented in v1): 11 verbs.
         private static readonly HashSet<string> ReservedVerbs = new HashSet<string>
         {
             "StartLoopPlayback",
             "StopPlayback",
             "EnterWatchMode",
-            "InvokeRewind",
-            "AnswerMergeDialog",
-            "KscAction",
             "SealSlot",
             "StashSlot",
             "FlySlot",
             "RouteCommand",
             "MissionConfig",
-            "TimeJump",
             "SimulateStockSwitchClick",
             "CrashAfterJournalPhase",
             "RunInvariantReport",

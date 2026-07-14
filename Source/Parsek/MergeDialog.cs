@@ -8,7 +8,10 @@ namespace Parsek
     /// </summary>
     public static partial class MergeDialog
     {
-        private const string DialogName = "ParsekMerge";
+        // internal (M-C1): the AnswerMergeDialog seam verb locates the live PopupDialog by
+        // this name and invokes the chosen DialogGUIButton's own callback. Widening from
+        // private -> internal exposes no behavior (the const value is unchanged).
+        internal const string DialogName = "ParsekMerge";
         private const string MergeLockId = "ParsekMergeDialog";
         // SplitAtSection writes back-to-back UT bounds; 50ms covers float
         // rounding and one-frame skew without bridging a real inter-recording gap.

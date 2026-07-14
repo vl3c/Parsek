@@ -89,14 +89,18 @@ MISSION_VERDICTS: Tuple[str, ...] = (
 )
 
 # Seam known-verb table (consumed contract, design-autotest-command-seam.md).
+# M-C1 (design-autotest-seam-verbs-c1.md) moved four verbs from RESERVED to
+# IMPLEMENTED, mirroring the C# ReservedVerbs -> ImplementedVerbs move: InvokeRewind,
+# AnswerMergeDialog, TimeJump, KscAction. The other eleven stay RESERVED. The tuple order
+# below mirrors the C# ImplementedVerbs set (TestCommandVerbs.cs) exactly.
 IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     "SetSetting", "StartRecording", "StopRecording", "CommitTree", "DiscardTree",
     "RecordingState", "RunTests", "LoadGame", "MissionMark", "FlushAndQuit",
+    "InvokeRewind", "AnswerMergeDialog", "TimeJump", "KscAction",
 )
 RESERVED_SEAM_VERBS: Tuple[str, ...] = (
-    "StartLoopPlayback", "StopPlayback", "EnterWatchMode", "InvokeRewind",
-    "AnswerMergeDialog", "KscAction", "SealSlot", "StashSlot", "FlySlot",
-    "RouteCommand", "MissionConfig", "TimeJump", "SimulateStockSwitchClick",
+    "StartLoopPlayback", "StopPlayback", "EnterWatchMode", "SealSlot", "StashSlot",
+    "FlySlot", "RouteCommand", "MissionConfig", "SimulateStockSwitchClick",
     "CrashAfterJournalPhase", "RunInvariantReport",
 )
 
@@ -123,7 +127,11 @@ MAX_DEFERRED_STEP_BUDGET_SECONDS = 540
 STEP_WAIT_MARGIN_SECONDS = 60
 
 # Deferred (long-running) seam verbs whose per-step budget the 540s cap governs.
-DEFERRED_SEAM_VERBS: Tuple[str, ...] = ("RunTests", "LoadGame")
+# M-C1 added InvokeRewind and TimeJump: the two two-phase verbs whose per-step budget
+# the 540s cap + step-wait margin must govern. AnswerMergeDialog and KscAction are
+# bounded-wait but complete quickly, so they ride the ordinary per-verb deferral budget
+# and are NOT deferred here (design-autotest-seam-verbs-c1.md, hlib companion changes).
+DEFERRED_SEAM_VERBS: Tuple[str, ...] = ("RunTests", "LoadGame", "InvokeRewind", "TimeJump")
 
 # The literal the harness substitutes with runSaveName before writing a LoadGame
 # line to the channel (design [driver]).
@@ -1602,6 +1610,13 @@ RETRYABLE_INVALID_SUBKINDS: Tuple[str, ...] = (
     # deliberately NOT here (a missing / drifted venv is a provisioning fault a
     # retry cannot fix, caught at pre-launch ADMIT before any KSP boot).
     "mission", "tooling-krpc", "tooling-mission", "autopilot-flake",
+    # M-C1 seam-verb refusal subkinds (design-autotest-seam-verbs-c1.md, M-A5
+    # integration): every M-C1 verb refusal is a DRIVER problem (a gate decline,
+    # insufficient funds/science, a backward jump, a missing dialog), classified
+    # INVALID retry-once, NEVER PARSEK-FAIL. These refine the reporting; even before
+    # a driver step emits them, a verdict-mismatch already retries via
+    # driver-verdict-mismatch.
+    "driver-gate", "driver-rewind", "driver-dialog", "driver-arg", "driver-career",
 )
 
 

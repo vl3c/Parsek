@@ -23,6 +23,10 @@ namespace Parsek.Tests
         [InlineData("LoadGame")]
         [InlineData("MissionMark")]
         [InlineData("FlushAndQuit")]
+        [InlineData("InvokeRewind")]
+        [InlineData("AnswerMergeDialog")]
+        [InlineData("TimeJump")]
+        [InlineData("KscAction")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -32,15 +36,11 @@ namespace Parsek.Tests
         [InlineData("StartLoopPlayback")]
         [InlineData("StopPlayback")]
         [InlineData("EnterWatchMode")]
-        [InlineData("InvokeRewind")]
-        [InlineData("AnswerMergeDialog")]
-        [InlineData("KscAction")]
         [InlineData("SealSlot")]
         [InlineData("StashSlot")]
         [InlineData("FlySlot")]
         [InlineData("RouteCommand")]
         [InlineData("MissionConfig")]
-        [InlineData("TimeJump")]
         [InlineData("SimulateStockSwitchClick")]
         [InlineData("CrashAfterJournalPhase")]
         [InlineData("RunInvariantReport")]
@@ -63,8 +63,8 @@ namespace Parsek.Tests
         [Fact]
         public void Table_HasExpectedCounts()
         {
-            Assert.Equal(10, TestCommandVerbs.ImplementedVerbNames.Count);
-            Assert.Equal(15, TestCommandVerbs.ReservedVerbNames.Count);
+            Assert.Equal(14, TestCommandVerbs.ImplementedVerbNames.Count);
+            Assert.Equal(11, TestCommandVerbs.ReservedVerbNames.Count);
         }
     }
 }

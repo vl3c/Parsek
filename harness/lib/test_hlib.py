@@ -537,11 +537,64 @@ class SpecValidationRejectTests(unittest.TestCase):
         self.assertTrue(any("autopilot" in e or "seam" in e for e in v.errors))
 
     def test_reserved_seam_verb_rejected(self):
+        # SealSlot stays RESERVED after M-C1 (the four implemented verbs were removed
+        # from the reserved set; SealSlot is one of the eleven that stay reserved).
         def m(s):
-            s["driver"]["steps"].insert(1, {"cmd": "InvokeRewind", "expect": "OK"})
+            s["driver"]["steps"].insert(1, {"cmd": "SealSlot", "expect": "OK"})
         v = self._reject(m)
         self.assertFalse(v.ok)
-        self.assertTrue(any("InvokeRewind" in e and "RESERVED" in e for e in v.errors))
+        self.assertTrue(any("SealSlot" in e and "RESERVED" in e for e in v.errors))
+
+    def test_mc1_implemented_verbs_not_reserved(self):
+        # M-C1 moved these four RESERVED -> IMPLEMENTED, mirroring the C# verb-table move.
+        for verb in ("InvokeRewind", "AnswerMergeDialog", "KscAction", "TimeJump"):
+            with self.subTest(verb=verb):
+                self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+
+    def test_mc1_reserved_verbs_still_reserved(self):
+        # The other eleven names stay RESERVED (not v1-drivable).
+        for verb in ("StartLoopPlayback", "StopPlayback", "EnterWatchMode", "SealSlot",
+                     "StashSlot", "FlySlot", "RouteCommand", "MissionConfig",
+                     "SimulateStockSwitchClick", "CrashAfterJournalPhase", "RunInvariantReport"):
+            with self.subTest(verb=verb):
+                self.assertIn(verb, hlib.RESERVED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+
+    def test_mc1_verb_step_accepted(self):
+        # A spec step using an M-C1 verb is no longer flagged RESERVED / unknown.
+        for verb in ("InvokeRewind", "AnswerMergeDialog", "KscAction", "TimeJump"):
+            with self.subTest(verb=verb):
+                def m(s):
+                    s["driver"]["steps"].insert(1, {"cmd": verb, "expect": "OK"})
+                v = self._reject(m)
+                self.assertFalse(any(verb in e for e in v.errors),
+                                 "%s wrongly flagged: %s" % (verb, list(v.errors)))
+
+    def test_mc1_deferred_verb_membership(self):
+        # InvokeRewind + TimeJump are the two two-phase verbs the 540s cap governs;
+        # AnswerMergeDialog + KscAction are bounded-wait but quick (NOT deferred).
+        self.assertIn("InvokeRewind", hlib.DEFERRED_SEAM_VERBS)
+        self.assertIn("TimeJump", hlib.DEFERRED_SEAM_VERBS)
+        self.assertNotIn("AnswerMergeDialog", hlib.DEFERRED_SEAM_VERBS)
+        self.assertNotIn("KscAction", hlib.DEFERRED_SEAM_VERBS)
+
+    def test_mc1_deferred_verb_budget_cap(self):
+        # A deferred M-C1 verb step over the 540s cap is rejected (S8).
+        for verb in ("InvokeRewind", "TimeJump"):
+            with self.subTest(verb=verb):
+                def m(s):
+                    s["driver"]["steps"].insert(1, {"cmd": verb, "expect": "OK", "budget": 600})
+                v = self._reject(m)
+                self.assertFalse(v.ok)
+                self.assertTrue(any(verb in e and "540" in e for e in v.errors),
+                                "expected S8 budget-cap error for %s: %s" % (verb, list(v.errors)))
+
+    def test_mc1_invalid_subkinds_retryable(self):
+        # Every M-C1 verb refusal is a DRIVER problem: retry-once, never PARSEK-FAIL.
+        for sk in ("driver-gate", "driver-rewind", "driver-dialog", "driver-arg", "driver-career"):
+            with self.subTest(subkind=sk):
+                self.assertIn(sk, hlib.RETRYABLE_INVALID_SUBKINDS)
 
     def test_both_batch_owners_rejected(self):
         def m(s):

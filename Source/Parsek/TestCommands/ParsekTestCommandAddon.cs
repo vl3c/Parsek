@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using Parsek.InGameTests;
@@ -30,7 +31,7 @@ namespace Parsek.TestCommands
     /// It is never shipped enabled and adds no Settings-UI toggle.</para>
     /// </summary>
     [KSPAddon(KSPAddon.Startup.Instantly, true)]
-    public class ParsekTestCommandAddon : MonoBehaviour, ITestCommandExecutor
+    public partial class ParsekTestCommandAddon : MonoBehaviour, ITestCommandExecutor
     {
         private const string Tag = "TestCommands";
 
@@ -102,6 +103,18 @@ namespace Parsek.TestCommands
         private long completionSeq;
         private double completionStartedAt;
         private string loadGameSave;
+
+        // InvokeRewind two-phase state (M-C1): the args to echo back in the terminal payload.
+        private string rewindRpArg;
+        private string rewindSlotArg;
+
+        // AnswerMergeDialog two-phase state (M-C1): the chosen role, whether the button
+        // callback has already been invoked, and the result token. When the driven exit takes
+        // the post-transition path the button is invoked LATER by the completion re-scan, so
+        // mergeAnswerApplied starts false and flips when the callback runs.
+        private MergeAnswerChoice mergeAnswerChoice;
+        private bool mergeAnswerApplied;
+        private string mergeAnswerResult;
 
         // FlushAndQuit (P5.8): the response + journal DONE are written and flushed BEFORE
         // Application.Quit, which is deferred one frame via a coroutine scheduled only
@@ -605,11 +618,12 @@ namespace Parsek.TestCommands
 
             if (verdict == PendingVerdict)
             {
-                // Two-phase (RunTests / LoadGame): the side effect was initiated; the
-                // terminal response + EXECUTED journal are deferred until the operation
-                // settles (TryCompleteTwoPhase). Journal stays at CLAIMED meanwhile, so a
-                // crash between here and completion reports INTERRUPTED on restart. Head
-                // stays in the queue (strict FIFO) so nothing else runs during the wait.
+                // Two-phase (RunTests / LoadGame / InvokeRewind / AnswerMergeDialog /
+                // TimeJump): the side effect was initiated; the terminal response + EXECUTED
+                // journal are deferred until the operation settles (TryCompleteTwoPhase).
+                // Journal stays at CLAIMED meanwhile, so a crash between here and completion
+                // reports INTERRUPTED on restart. Head stays in the queue (strict FIFO) so
+                // nothing else runs during the wait.
                 awaitingCompletion = true;
                 completionId = id;
                 completionSeq = seq;
@@ -675,7 +689,8 @@ namespace Parsek.TestCommands
             MaybeScheduleQuit(id);
         }
 
-        // ----- Two-phase completion (P5.6 RunTests / P5.7 LoadGame) -----
+        // ----- Two-phase completion (RunTests / LoadGame + M-C1 InvokeRewind /
+        //        AnswerMergeDialog / TimeJump) -----
 
         // Called each safe-point frame while a two-phase command awaits completion. When
         // the operation has settled it builds the terminal payload, journals EXECUTED +
@@ -692,6 +707,26 @@ namespace Parsek.TestCommands
             if (completionVerb == "LoadGame")
             {
                 TryCompleteLoadGame(now);
+                return;
+            }
+
+            // M-C1 two-phase verbs each own a bounded, observable completion (like LoadGame)
+            // and never fall through to the generic awaiting-completion TIMEOUT below.
+            if (completionVerb == "InvokeRewind")
+            {
+                TryCompleteInvokeRewind(now);
+                return;
+            }
+            if (completionVerb == "AnswerMergeDialog")
+            {
+                TryCompleteAnswerMergeDialog(now);
+                return;
+            }
+            if (completionVerb == "TimeJump")
+            {
+                // Sibling Lane B provides TryCompleteTimeJump (routes through
+                // TestCommandTimeJump.DecideJumpCompletion).
+                TryCompleteTimeJump(now);
                 return;
             }
 
@@ -790,6 +825,14 @@ namespace Parsek.TestCommands
             awaitingCompletion = false;
             completionId = null;
             completionVerb = null;
+            rewindRpArg = null;
+            rewindSlotArg = null;
+            mergeAnswerApplied = false;
+            mergeAnswerResult = null;
+            // The TimeJump completion fields (jumpTargetUt / jumpStartUt /
+            // jumpSettleFramesRemaining) are not cleared here: they are re-armed wholesale at
+            // the start of every TimeJumpImpl Execute (sibling partial), so a stale value can
+            // never be read across commands.
         }
 
         // Deferred one-frame quit for FlushAndQuit: scheduled only after the response +
@@ -891,6 +934,8 @@ namespace Parsek.TestCommands
                 journalPhases.TryGetValue(head.Id, out phase);
 
             ParsekFlight flight = ParsekFlight.Instance;
+            ParsekScenario scenario = ParsekScenario.Instance;
+            bool markerLive = scenario != null && scenario.ActiveReFlySessionMarker != null;
             return new DispatchState
             {
                 Scene = MapScene(HighLogic.LoadedScene),
@@ -902,6 +947,12 @@ namespace Parsek.TestCommands
                 SettleCounter = settleCounter,
                 BatchRunning = IsBatchRunning(),
                 LoadInFlight = loadInFlight,
+                // M-C1 seam-verb bits.
+                ReFlyMergeDialogPresent = markerLive && FindReFlyMergePopup() != null,
+                ActiveReFlyMarker = markerLive,
+                MergeJournalInFlight = scenario != null && scenario.ActiveMergeJournal != null,
+                CareerPresent = IsCareerReady(head),
+                AtSpaceCenter = HighLogic.LoadedScene == GameScenes.SPACECENTER,
                 JournalPhase = phase,
             };
         }
@@ -951,6 +1002,14 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.MissionMark(ParsedCommand cmd) => MissionMarkImpl(cmd);
         void ITestCommandExecutor.FlushAndQuit(ParsedCommand cmd) => FlushAndQuitImpl(cmd);
 
+        // M-C1 seam verbs (batch 1). InvokeRewind / AnswerMergeDialog bodies live in this
+        // file (Lane A); TimeJumpImpl / KscActionImpl are provided by the sibling Lane B
+        // partial (design's names) - see the InvokeExecutor cases.
+        void ITestCommandExecutor.InvokeRewind(ParsedCommand cmd) => InvokeRewindImpl(cmd);
+        void ITestCommandExecutor.AnswerMergeDialog(ParsedCommand cmd) => AnswerMergeDialogImpl(cmd);
+        void ITestCommandExecutor.TimeJump(ParsedCommand cmd) => TimeJumpImpl(cmd);
+        void ITestCommandExecutor.KscAction(ParsedCommand cmd) => KscActionImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             ITestCommandExecutor exec = this;
@@ -966,6 +1025,10 @@ namespace Parsek.TestCommands
                 case "LoadGame": exec.LoadGame(cmd); break;
                 case "MissionMark": exec.MissionMark(cmd); break;
                 case "FlushAndQuit": exec.FlushAndQuit(cmd); break;
+                case "InvokeRewind": exec.InvokeRewind(cmd); break;
+                case "AnswerMergeDialog": exec.AnswerMergeDialog(cmd); break;
+                case "TimeJump": exec.TimeJump(cmd); break;
+                case "KscAction": exec.KscAction(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");
@@ -1312,6 +1375,378 @@ namespace Parsek.TestCommands
             string label = ArgOrNull(cmd, "label") ?? string.Empty;
             TestCommandMissionMark.EmitMark(label, CurrentUt());
             SetExecResult("OK", Payload(Kv("label", label)), null);
+        }
+
+        // ===== M-C1 seam verbs (batch 1): InvokeRewind + AnswerMergeDialog (Lane A) =====
+        // The two-phase InvokeRewind / AnswerMergeDialog Unity appliers. Every decision they
+        // make is factored into the pure TestCommandInvokeRewind / TestCommandMergeAnswer
+        // deciders (xUnit-covered); these bodies only sample live KSP state, call the real
+        // RewindInvoker / MergeDialog surfaces, and stash the verdict via SetExecResult /
+        // the PENDING sentinel. TimeJumpImpl / KscActionImpl / TryCompleteTimeJump are
+        // provided by the sibling Lane B partial (design's names).
+
+        // Reflection handles for locating the live re-fly merge popup by name and invoking
+        // the chosen DialogGUIButton's OWN callback (the same surfaces the in-game
+        // UnfinishedFlightSealDialogTest binds). Null-safe: a failed bind degrades to a
+        // no-live-dialog terminal rather than throwing.
+        private static readonly FieldInfo PopupDialogToDisplayField =
+            typeof(PopupDialog).GetField("dialogToDisplay",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo MultiOptionDialogNameField =
+            typeof(MultiOptionDialog).GetField("name",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly FieldInfo MultiOptionDialogOptionsField =
+            typeof(MultiOptionDialog).GetField("Options",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        private static readonly MethodInfo DialogGuiButtonOptionSelectedMethod =
+            typeof(DialogGUIButton).GetMethod("OptionSelected",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
+        // ----- InvokeRewind (two-phase, irreversible, gate-routed) -----
+        // Resolves the RewindPoint + slot from ParsekScenario, routes through the real
+        // five-precondition RewindInvoker.CanInvoke gate (decline -> REJECTED refly-gate
+        // <reason> verbatim), then StartInvoke and hold the FIFO head until a fresh re-fly
+        // marker lands across the scene reload. Dispatch already refused merge-journal /
+        // load-in-flight / recording-active.
+        private void InvokeRewindImpl(ParsedCommand cmd)
+        {
+            string rpArg = ArgOrNull(cmd, "rp");
+            string slotArg = ArgOrNull(cmd, "slot");
+            ParsekLog.Info(Tag, $"invokerewind start rp={rpArg ?? string.Empty} slot={slotArg ?? string.Empty}");
+
+            // An absent rp / slot arg is just a target that cannot resolve, so it rides the
+            // design's unknown-rp / unknown-slot vocabulary (edge case 1), not a separate
+            // missing-arg reason.
+            if (string.IsNullOrEmpty(rpArg)) { ParsekLog.Warn(Tag, "invokerewind refused: unknown-rp (arg absent)"); SetExecResult("REJECTED", null, "unknown-rp"); return; }
+            if (string.IsNullOrEmpty(slotArg)) { ParsekLog.Warn(Tag, "invokerewind refused: unknown-slot (arg absent)"); SetExecResult("REJECTED", null, "unknown-slot"); return; }
+            if (!int.TryParse(slotArg, NumberStyles.Integer, CultureInfo.InvariantCulture, out int slotIndex))
+            {
+                ParsekLog.Warn(Tag, $"invokerewind refused: unknown-slot (unparseable) slot={slotArg}");
+                SetExecResult("REJECTED", null, "unknown-slot");
+                return;
+            }
+
+            ParsekScenario scenario = ParsekScenario.Instance;
+            if (scenario == null)
+            {
+                ParsekLog.Warn(Tag, "invokerewind no-scenario");
+                SetExecResult("ERROR", null, "no-scenario");
+                return;
+            }
+
+            RewindPoint rp = null;
+            if (scenario.RewindPoints != null)
+            {
+                foreach (RewindPoint candidate in scenario.RewindPoints)
+                    if (candidate != null && candidate.RewindPointId == rpArg) { rp = candidate; break; }
+            }
+            if (rp == null)
+            {
+                ParsekLog.Warn(Tag, $"invokerewind refused: unknown-rp rp={rpArg}");
+                SetExecResult("REJECTED", null, "unknown-rp");
+                return;
+            }
+
+            ChildSlot selected = null;
+            if (rp.ChildSlots != null)
+            {
+                foreach (ChildSlot s in rp.ChildSlots)
+                    if (s != null && s.SlotIndex == slotIndex) { selected = s; break; }
+            }
+            if (selected == null)
+            {
+                ParsekLog.Warn(Tag, $"invokerewind refused: unknown-slot rp={rpArg} slot={slotIndex}");
+                SetExecResult("REJECTED", null, "unknown-slot");
+                return;
+            }
+
+            if (!RewindInvoker.CanInvoke(rp, out string reason))
+            {
+                string msg = TestCommandInvokeRewind.GateRefusalMsg(reason);
+                ParsekLog.Warn(Tag, $"invokerewind refused: {msg}");
+                SetExecResult("REJECTED", null, msg);
+                return;
+            }
+
+            rewindRpArg = rpArg;
+            rewindSlotArg = slotArg;
+            // StartInvoke runs the synchronous PRE-LOAD phase and triggers the scene reload;
+            // completion is deferred until the fresh marker lands (TryCompleteInvokeRewind).
+            RewindInvoker.StartInvoke(rp, selected);
+            SetExecResult(PendingVerdict, null, null);
+        }
+
+        private void TryCompleteInvokeRewind(double now)
+        {
+            double elapsed = now - completionStartedAt;
+            double budget = DeferralBudget.BudgetSeconds("InvokeRewind");
+            ParsekScenario scenario = ParsekScenario.Instance;
+            ReFlySessionMarker marker = scenario != null ? scenario.ActiveReFlySessionMarker : null;
+            RewindCompletionDecision decision = TestCommandInvokeRewind.DecideRewindCompletion(
+                elapsed, RewindInvokeContext.Pending, marker != null, budget);
+            if (decision == RewindCompletionDecision.StillWaiting)
+                return;
+
+            string id = completionId; long seq = completionSeq; string verb = completionVerb;
+            string rpArg = rewindRpArg; string slotArg = rewindSlotArg;
+            ClearTwoPhase();
+
+            switch (decision)
+            {
+                case RewindCompletionDecision.CompleteOk:
+                {
+                    string session = marker != null ? marker.SessionId : string.Empty;
+                    uint activePid = marker != null ? marker.SelectedRootPartPersistentId : 0u;
+                    List<KeyValuePair<string, string>> payload =
+                        TestCommandInvokeRewind.BuildCompletePayload(session, rpArg, slotArg, activePid);
+                    ParsekLog.Info(Tag,
+                        $"invokerewind complete session={session ?? string.Empty} activePid={activePid.ToString(CultureInfo.InvariantCulture)}");
+                    EmitExecutedTerminal(id, seq, verb, "OK", payload, null, dequeueHead: true);
+                    break;
+                }
+                case RewindCompletionDecision.RewindFailed:
+                    ParsekLog.Error(Tag,
+                        $"invokerewind failed reason=rewind-failed elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
+                    EmitExecutedTerminal(id, seq, verb, "ERROR", null, "rewind-failed", dequeueHead: true);
+                    break;
+                case RewindCompletionDecision.RewindTimeout:
+                    TestCommandDiagnostics.Timeout(id, verb, elapsed, "rewind-timeout");
+                    ParsekLog.Error(Tag,
+                        $"invokerewind failed reason=rewind-timeout elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
+                    EmitExecutedTerminal(id, seq, verb, "ERROR", null, "rewind-timeout", dequeueHead: true);
+                    break;
+            }
+        }
+
+        // ----- AnswerMergeDialog (AnyScene, find-popup-by-name, conclude-and-answer) -----
+        // The single command that both SURFACES and ANSWERS the re-fly merge dialog (the
+        // folded conclude-and-answer design that avoids the FIFO-starvation deadlock). If no
+        // dialog is up yet but a re-fly marker is live, it DRIVES the conclusion scene-exit
+        // (a LoadScene to SPACECENTER), then locates the live popup by name and invokes the
+        // chosen DialogGUIButton's OWN callback.
+        private void AnswerMergeDialogImpl(ParsedCommand cmd)
+        {
+            string choiceArg = ArgOrNull(cmd, "choice");
+            MergeAnswerChoice choice = TestCommandMergeAnswer.MapChoice(choiceArg);
+            if (choice == MergeAnswerChoice.Unknown)
+            {
+                ParsekLog.Warn(Tag, $"answermergedialog refused reason=unknown-choice choice={choiceArg ?? string.Empty}");
+                SetExecResult("REJECTED", null, "unknown-choice");
+                return;
+            }
+
+            ParsekScenario scenario = ParsekScenario.Instance;
+            bool markerLive = scenario != null && scenario.ActiveReFlySessionMarker != null;
+
+            PopupDialog popup = markerLive ? FindReFlyMergePopup() : null;
+            if (popup == null)
+            {
+                if (!markerLive)
+                {
+                    // The popup was dismissed between the dispatch sample and execute, and
+                    // there is no re-fly marker to re-surface one (edge case 10).
+                    ParsekLog.Warn(Tag, "answermergedialog failed reason=no-live-dialog");
+                    SetExecResult("ERROR", null, "no-live-dialog");
+                    return;
+                }
+                // Marker live, no dialog yet: drive the re-fly conclusion scene-exit. The
+                // SceneExitInterceptor prefix fires synchronously and (on the in-place path)
+                // spawns the pre-transition dialog now; on the placeholder-mode path it
+                // arrives via the deferred POST-transition coroutine and the completion
+                // re-scan invokes the button then.
+                ParsekLog.Info(Tag, "answermergedialog driving re-fly conclusion scene-exit");
+                HighLogic.LoadScene(GameScenes.SPACECENTER);
+                popup = FindReFlyMergePopup();
+            }
+
+            if (popup != null)
+            {
+                if (!TryInvokeMergeButton(popup, choice, out string invokeError))
+                {
+                    ParsekLog.Warn(Tag, $"answermergedialog failed reason={invokeError}");
+                    SetExecResult("ERROR", null, invokeError);
+                    return;
+                }
+                mergeAnswerApplied = true;
+                mergeAnswerResult = TestCommandMergeAnswer.ResultLabel(choice);
+                ParsekLog.Info(Tag, $"answermergedialog choice={ChoiceWire(choice)} result={mergeAnswerResult}");
+            }
+            else
+            {
+                mergeAnswerApplied = false;
+            }
+
+            mergeAnswerChoice = choice;
+            SetExecResult(PendingVerdict, null, null);
+        }
+
+        private void TryCompleteAnswerMergeDialog(double now)
+        {
+            double elapsed = now - completionStartedAt;
+            double budget = DeferralBudget.BudgetSeconds("AnswerMergeDialog");
+
+            // Post-settle re-scan (placeholder-mode path): the deferred POST-transition dialog
+            // spawns after the driven exit settles; invoke the chosen button THEN.
+            if (!mergeAnswerApplied)
+            {
+                ParsekScenario scenario = ParsekScenario.Instance;
+                bool markerLive = scenario != null && scenario.ActiveReFlySessionMarker != null;
+                PopupDialog popup = markerLive ? FindReFlyMergePopup() : null;
+                if (popup != null)
+                {
+                    if (TryInvokeMergeButton(popup, mergeAnswerChoice, out string invokeError))
+                    {
+                        mergeAnswerApplied = true;
+                        mergeAnswerResult = TestCommandMergeAnswer.ResultLabel(mergeAnswerChoice);
+                        ParsekLog.Info(Tag, $"answermergedialog deferred-dialog answered result={mergeAnswerResult}");
+                    }
+                    else if (invokeError == "choice-unavailable")
+                    {
+                        string tid = completionId; long tseq = completionSeq; string tverb = completionVerb;
+                        ClearTwoPhase();
+                        ParsekLog.Warn(Tag, "answermergedialog failed reason=choice-unavailable");
+                        EmitExecutedTerminal(tid, tseq, tverb, "ERROR", null, "choice-unavailable", dequeueHead: true);
+                        return;
+                    }
+                }
+            }
+
+            // Scene-settle ALONE is never OK: the pure decider requires answer-applied AND a
+            // settled, cleared (non-FLIGHT, non-LOADING) scene. The scene classification lives
+            // inside DecideAnswerCompletion (mirroring DecideLoadCompletion), so the addon just
+            // hands it the mapped scene.
+            TestCommandScene scene = MapScene(HighLogic.LoadedScene);
+            AnswerCompletionDecision decision =
+                TestCommandMergeAnswer.DecideAnswerCompletion(elapsed, mergeAnswerApplied, scene, budget);
+            if (decision == AnswerCompletionDecision.StillWaiting)
+                return;
+
+            string id = completionId; long seq = completionSeq; string verb = completionVerb;
+            MergeAnswerChoice ch = mergeAnswerChoice; string result = mergeAnswerResult;
+            ClearTwoPhase();
+
+            if (decision == AnswerCompletionDecision.CompleteOk)
+            {
+                List<KeyValuePair<string, string>> payload =
+                    TestCommandMergeAnswer.BuildCompletePayload(ChoiceWire(ch), result);
+                ParsekLog.Info(Tag, $"answermergedialog complete choice={ChoiceWire(ch)} result={result ?? string.Empty}");
+                EmitExecutedTerminal(id, seq, verb, "OK", payload, null, dequeueHead: true);
+            }
+            else // AnswerTimeout
+            {
+                TestCommandDiagnostics.Timeout(id, verb, elapsed, "answer-timeout");
+                ParsekLog.Error(Tag,
+                    $"answermergedialog timeout elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
+                EmitExecutedTerminal(id, seq, verb, "ERROR", null, "answer-timeout", dequeueHead: true);
+            }
+        }
+
+        // The completion payload echoes the CANONICAL wire token for the resolved role, not
+        // the arg the caller sent: a "commit" alias round-trips as choice=merge.
+        private static string ChoiceWire(MergeAnswerChoice c)
+        {
+            switch (c)
+            {
+                case MergeAnswerChoice.Merge: return "merge";
+                case MergeAnswerChoice.Discard: return "discard";
+                case MergeAnswerChoice.Seal: return "seal";
+                default: return "unknown";
+            }
+        }
+
+        // Locate the live re-fly merge popup by MergeDialog.DialogName. Returns null when no
+        // "ParsekMerge" popup is live or the reflection bind failed.
+        private static PopupDialog FindReFlyMergePopup()
+        {
+            if (PopupDialogToDisplayField == null || MultiOptionDialogNameField == null)
+                return null;
+            PopupDialog[] popups = UnityEngine.Object.FindObjectsOfType<PopupDialog>();
+            if (popups == null) return null;
+            for (int i = 0; i < popups.Length; i++)
+            {
+                MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popups[i]) as MultiOptionDialog;
+                if (dialog == null) continue;
+                string name = MultiOptionDialogNameField.GetValue(dialog) as string;
+                if (name == MergeDialog.DialogName) return popups[i];
+            }
+            return null;
+        }
+
+        // Select the DialogGUIButton for the chosen role by ORDER (stable across all
+        // ShowTreeDialog overloads: [Merge, (Seal), Discard]) and invoke its OWN callback.
+        // seal against a 2-button dialog -> choice-unavailable.
+        private bool TryInvokeMergeButton(PopupDialog popup, MergeAnswerChoice choice, out string error)
+        {
+            error = null;
+            List<DialogGUIButton> buttons = GetDialogButtons(popup);
+            if (buttons.Count == 0 || DialogGuiButtonOptionSelectedMethod == null)
+            {
+                error = "no-live-dialog";
+                return false;
+            }
+
+            DialogGUIButton target;
+            switch (choice)
+            {
+                case MergeAnswerChoice.Merge:
+                    target = buttons[0];
+                    break;
+                case MergeAnswerChoice.Discard:
+                    target = buttons[buttons.Count - 1];
+                    break;
+                case MergeAnswerChoice.Seal:
+                    if (buttons.Count < 3) { error = "choice-unavailable"; return false; }
+                    target = buttons[1];
+                    break;
+                default:
+                    error = "choice-unavailable";
+                    return false;
+            }
+
+            // The button lambda runs its action INSIDE the callback (MergeCommit / MergeDiscard
+            // / RunPreTransitionAction), synchronously in this frame - honoring the
+            // deferred-field PopupDialog callback trap.
+            DialogGuiButtonOptionSelectedMethod.Invoke(target, null);
+            return true;
+        }
+
+        private static List<DialogGUIButton> GetDialogButtons(PopupDialog popup)
+        {
+            var result = new List<DialogGUIButton>();
+            if (popup == null || PopupDialogToDisplayField == null || MultiOptionDialogOptionsField == null)
+                return result;
+            MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popup) as MultiOptionDialog;
+            if (dialog == null) return result;
+            DialogGUIBase[] options = MultiOptionDialogOptionsField.GetValue(dialog) as DialogGUIBase[];
+            if (options == null) return result;
+            for (int i = 0; i < options.Length; i++)
+            {
+                DialogGUIButton b = options[i] as DialogGUIButton;
+                if (b != null) result.Add(b);
+            }
+            return result;
+        }
+
+        // The KscAction dispatch readiness bit (CareerPresent). CAREER mode + the singleton
+        // relevant to the head's sub-action. Read only by the KscAction defer; harmless for
+        // any other head.
+        private static bool IsCareerReady(ParsedCommand head)
+        {
+            Game game = HighLogic.CurrentGame;
+            if (game == null || game.Mode != Game.Modes.CAREER) return false;
+            string action = head.Args != null && head.Args.TryGetValue("action", out string a) ? a : null;
+            switch (action)
+            {
+                case "research-node":
+                    return ResearchAndDevelopment.Instance != null;
+                case "hire-kerbal":
+                case "dismiss-kerbal":
+                    return game.CrewRoster != null;
+                case "upgrade-facility":
+                    return Funding.Instance != null;
+                default:
+                    return ResearchAndDevelopment.Instance != null && Funding.Instance != null;
+            }
         }
 
         private static string ReadLiveSettingForLog(string name)

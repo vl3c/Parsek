@@ -139,5 +139,32 @@ namespace Parsek.Tests
             Assert.Empty(map);
             TestCommandJournal.MirrorPhaseIntoMap(null, "x", "CLAIMED"); // null map: no throw
         }
+
+        // ----- M-C1 two-phase verbs: CLAIMED -> Interrupted at-most-once (design cells) -----
+
+        // The three M-C1 verbs that hold the FIFO head as two-phase (InvokeRewind /
+        // AnswerMergeDialog / TimeJump) ride the SAME phase-driven WAL as every other verb: an
+        // id stuck at CLAIMED on the hypothetical addon restart the v1 harness never exercises
+        // maps to Interrupted and the irreversible side effect is NEVER re-invoked. These are
+        // thin wrappers over the generic phase logic, kept as design-named documentation cells
+        // (design edge cases 5 / 11 / 16).
+        [Theory]
+        [InlineData("InvokeRewind")]
+        [InlineData("AnswerMergeDialog")]
+        [InlineData("TimeJump")]
+        public void ClaimedTwoPhaseVerb_RecoversInterrupted(string verb)
+        {
+            string line = TestCommandJournal.FormatClaimed("0009", 9, verb, "sess1", 17390512.884);
+            Assert.True(TestCommandJournal.TryParseLine(line, out JournalLine jl));
+            Assert.Equal(JournalPhase.Claimed, jl.Phase);
+            Assert.Equal(verb, jl.Verb);
+            // A CLAIMED id recovers as Interrupted: the irreversible side effect never re-runs.
+            Assert.Equal(RecoveryAction.Interrupted, TestCommandJournal.DecideRecovery(jl.Id, jl.Phase));
+
+            // Same result through the replayed-map convenience overload.
+            var map = new System.Collections.Generic.Dictionary<string, JournalPhase>();
+            TestCommandJournal.MirrorPhaseIntoMap(map, "0009", "CLAIMED");
+            Assert.Equal(RecoveryAction.Interrupted, TestCommandJournal.DecideRecovery(map, "0009"));
+        }
     }
 }
