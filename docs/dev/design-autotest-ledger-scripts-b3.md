@@ -15,9 +15,24 @@ sub-actions plus `TimeJump`) and M-B2 (the ledger oracle whose `compute_expected
 already sums nonzero funds / science deltas). The nonzero-manifest machinery, the
 author-constant vs fill-from-capture rules, the facet policy, and the reputation
 curve are all M-B2's; M-B3 exercises them for the first time and adds no oracle
-math. The one code touch it may need is additive `STOCK_AWARD_PATTERNS` entries in
-`hlib.py`, each VERIFY-PENDING-OPERATOR, and only to strengthen the capture
-cross-check (Behavior "Stock-award capture sequencing").
+math. The SOLE trusted leg for every L1/L2 script is the seam-declared-vs-save diff.
+The stock-award capture cross-check contributes NO signal for a nonzero manifest today
+and is UNTRUSTED by design. Two facts combine. First, the shipped `STOCK_AWARD_PATTERNS`
+set is DEAD against a real EN log: every Parsek-emitted `ResearchAndDevelopment ... delta=`
+line is `[Parsek]`-tagged and excluded (`hlib.py:1466`), and NO stock line matches any
+shipped pattern (the pinned Assembly-CSharp emits zero `delta=` strings; stock R&D logs as
+`[Research & Development]: +N data on ...`), so a nonzero L1 run captures ZERO awards,
+`unmatched_captured_awards` is empty, and the seam entry cross-checks against the save-diff
+alone -- the scripts are GREEN today. Second, the hazard is LATENT: as WIRED
+(`run.py:1333`-`:1346`) an unmatched captured award becomes a HARD divergence, and a
+nonzero action's real award fires at a runtime `seq_key` that can NEVER match its `ut=0.0`
+seam entry, so the MOMENT the patterns are rewritten to match real stock text a nonzero
+capture becomes a STRUCTURAL FALSE-RED. So M-B3 does NOT enumerate the tech-unlock /
+facility-upgrade-funds / hire-funds patterns it names; the REAL future work is REWRITING
+the patterns against real stock log text AND solving the `seq_key`/UT correlation
+TOGETHER (Behavior "Stock-award capture sequencing"), DEFERRED behind a UT-agnostic
+single-action match. B10's empty-manifest cross-check stays trusted (any-capture-reds is
+sound with no seam entry, and today captures nothing anyway).
 
 Consumed contracts (already merged, read as authorities, never re-specified here):
 
@@ -92,20 +107,35 @@ What is missing to author those scripts:
    away.
 
 4. **Honest capture-enumeration sequencing.** The oracle's `unmatched_captured_awards`
-   cross-check (`hlib.py:1508`) reds a captured award the spec never declared. The v1
-   `STOCK_AWARD_PATTERNS` set (`hlib.py:1359`) is three EN-pinned patterns, all still
-   VERIFY-PENDING-OPERATOR, none of which matches a research SPEND, a facility-upgrade
-   funds debit, or a hire debit. A research-node script can FALSE-RED if the existing
-   `science-transmit` pattern captures the research spend as the wrong kind. The
-   capture set must be sequenced before a nonzero script can trust the cross-check.
+   cross-check (`hlib.py:1508`) turns a captured award the spec never declared into a
+   HARD divergence (`run.py:1333`-`:1346`). The shipped `STOCK_AWARD_PATTERNS` set
+   (`hlib.py:1359`) is three EN-pinned patterns, and against a REAL EN log they are DEAD:
+   every Parsek-emitted `ResearchAndDevelopment ... delta=` line is `[Parsek]`-tagged and
+   skipped (`hlib.py:1466`), and no stock line matches any shipped pattern (the pinned
+   Assembly-CSharp has zero `delta=` strings; stock R&D logs as `[Research & Development]:
+   +N data on ...`). So a nonzero L1 run captures ZERO awards today, the unmatched set is
+   empty, and the seam entry cross-checks against the save-diff alone -- the scripts are
+   GREEN. The false-red hazard is LATENT, not current: the cross-check MATCHES on
+   `(seq_key, kind, identity)` (`hlib.py:1508`-`:1526`) where a captured award's `seq_key`
+   is its runtime UT while a seam entry carries an author `ut` (typically `0.0`;
+   `oracle.py:199`), so a real award can NEVER match a `ut=0.0` seam entry -- and the
+   MOMENT the patterns are rewritten to match real stock text, a nonzero capture would be
+   a STRUCTURAL FALSE-RED (kind-split AND seq_key mismatch). So for nonzero scripts the
+   capture leg is UNTRUSTED; the seam-declared-vs-save diff is the sole trusted leg. The
+   REAL work item is REWRITING the patterns against real stock log text AND solving the
+   UT correlation together (a UT-agnostic single-action match), DEFERRED. B10's
+   empty-manifest cross-check stays trusted (any-capture-reds is sound regardless of
+   `seq_key`).
 
 M-B3 supplies: the L1 script family (the four M-C1 sub-actions x three career modes),
-the one L2 script the M-C1 verb set can drive today (facility spend + scene-change
-refund window, R6), the three career fixtures with named contents, the manifest
-author-constant discipline applied per action, and the capture-pattern sequencing.
-It names the rest (contract triple-credit, strategy conversion, milestone-fed
-rewards, EVA science, and L3-L5) as Deferred with the seam sub-actions or flown
-scenarios they need.
+the three career fixtures with named contents, the manifest author-constant discipline
+applied per action, and the honest capture-pattern sequencing. NO L2 script is
+drivable with the M-C1 verb set today: the one L2 candidate (facility spend +
+scene-change refund window, R6) needs a persist-before-reload seam the verb set lacks
+(Behavior "The L2 refund-window script"), so it is Deferred behind a named `SaveGame`
+batch-2 seam verb. It names the rest (contract triple-credit, strategy conversion,
+milestone-fed rewards, EVA science, and L3-L5) as Deferred with the seam sub-actions
+or flown scenarios they need.
 
 ---
 
@@ -125,7 +155,8 @@ verb refusal, effect confirmation) are used unchanged. New terms this doc introd
 | **Module activation matrix** | The per-mode table of which of the nine ledger modules produce an assertable delta, which drives each mode's script set. |
 | **Author-constant action** | An L1 action whose stock magnitude is FIXED DATA independent of live state (tech-node science cost, facility per-level funds cost), so the manifest declares a literal author constant. |
 | **State-dependent-but-fixture-pinned action** | An action whose stock magnitude depends on live state (hire cost rises with roster size via the `GameVariables` recruit-cost curve) but whose state the FIXTURE pins, making the magnitude a known constant AT the fixture's roster size. This is the honest resolution of a state-dependent funds facet when no capture line is enumerated. |
-| **Nonzero-manifest cross-check** | The M-B3 assertion pair: (a) `compute_expected(seed, seam_entries)` == parsed save on the touched HARD pool, and (b) `unmatched_captured_awards` empty (no undeclared award fired). Both must hold. |
+| **Nonzero-manifest primary assertion** | The M-B3 TRUSTED leg: `compute_expected(seed, seam_entries)` == parsed save on the touched HARD pool. This is the SOLE pass/fail authority for every nonzero L1/L2 script. |
+| **Nonzero-manifest capture leg (untrusted)** | `unmatched_captured_awards` over the produced KSP.log, wired to hard-red an unmatched award (`run.py:1333`). For a nonzero manifest this leg is UNTRUSTED. TODAY the shipped patterns are DEAD against a real EN log (no captures), so the leg is an empty no-op and the scripts pass on the save-diff alone. The hazard is LATENT: a seam entry's author `ut` (typically `0.0`) and a real award's runtime `seq_key` cannot match, so once the patterns are rewritten to real stock text a nonzero capture would be a structural false-red. Making it trustworthy needs the deferred UT-agnostic single-action match. B10's EMPTY-manifest capture leg is a different, trusted case (any-capture-reds). |
 
 Design-concept-to-implementation mapping (names diverge across the seam and the
 nine modules):
@@ -134,7 +165,7 @@ nine modules):
 |---------------------------|----------------|
 | research-node script | `KscAction action=research-node` (M-C1) -> `RDTech.ResearchTech` (`TechResearchSpendPatch.cs:17`); ledger via `ScienceModule` |
 | upgrade-facility script | `KscAction action=upgrade-facility` -> `SpaceCenterBuilding.UpgradeFacility(bool)` (`FacilityUpgradeSpendPatch.cs:15`); ledger via `FacilitiesModule` + `FundsModule` |
-| hire-kerbal script | `KscAction action=hire-kerbal` -> `Funding.AddFunds(-hireCost, CrewRecruited)` + `KerbalRoster.HireApplicant` (`KerbalHirePatch.cs:19-22`); ledger via `FundsModule` + `KerbalsModule` |
+| hire-kerbal script | `KscAction action=hire-kerbal` -> `Funding.AddFunds(-hireCost, CrewRecruited)` + `KerbalRoster.HireApplicant` (the debit mirror is `TestCommandKscAction.cs:517-519`; `KerbalHirePatch.cs:19-22` is the committed-hire BLOCK prefix, not the debit); ledger via `FundsModule` + `KerbalsModule` |
 | dismiss-kerbal script | `KscAction action=dismiss-kerbal` -> `KerbalRoster.Remove` (`KerbalDismissalPatch`); ledger via `KerbalsModule` |
 | the ledger cross-check | `oracle.compute_expected` + `oracle.diff_expected_vs_parsed` + `hlib.unmatched_captured_awards` |
 | the nine modules | `Source/Parsek/GameActions/{Funds,Science,Reputation,Milestones,Facilities,Contracts,Strategies,Route}Module.cs` + `Source/Parsek/KerbalsModule.cs` |
@@ -146,8 +177,12 @@ nine modules):
 An L1 script is one turn of the M-B2 loop with a NONZERO manifest. The seed comes
 from the fixture; the driver causes exactly one real career effect through a
 `KscAction` verb; the DRIVER declares that effect as a seam-declared manifest entry;
-the oracle proves the produced save moved by exactly the declared amount and that no
-other award fired.
+the oracle proves the produced save moved by exactly the declared amount. The stock-log
+capture is UNTRUSTED for nonzero scripts (the shipped patterns are DEAD against a real EN
+log, so it is an empty no-op today; a latent structural false-red once the patterns are
+rewritten to match real stock text, because a seam entry's author `ut` and a real award's
+runtime `seq_key` never match); the seam-declared-vs-save diff is the sole PASS/FAIL
+authority.
 
 ```
   career fixture (fresh-<mode>)  --analyzer (pre-launch, one parser)-->  seed pool
@@ -162,7 +197,8 @@ other award fired.
         |    kind=<tech-unlock|facility-upgrade|kerbal-hire|kerbal-dismiss> |
         |    facet delta = AUTHOR CONSTANT (or fixture-pinned constant)     |
         |    provenance = seam-declared                                     |
-        |          + stock-log capture (cross-check ONLY, not summed)       |
+        |          + stock-log capture (UNTRUSTED for nonzero, not summed;   |
+        |            shipped patterns DEAD today -> 0 captures -> no-op)      |
         |                                                                   v
         |                                    oracle.compute_expected(seed, [entry])
         |                                       => EXPECTED = seed +/- the one delta
@@ -173,10 +209,11 @@ other award fired.
                        v                                                     v
                  PARSED pool  ===  diff (HARD on the touched pool)  === EXPECTED pool
                                         |
-              expected == parsed on the touched HARD pool  AND
-              unmatched_captured_awards empty                  -> PASS
+              expected == parsed on the touched HARD pool   -> PASS (SOLE gate)
               hard-pool drift  -> PARSEK-FAIL(ledger), UT window named
-              undeclared award captured  -> PARSEK-FAIL(ledger)
+              (nonzero capture leg: UNTRUSTED; shipped patterns dead -> 0 captures ->
+               empty no-op today; latent false-red once patterns match real stock text.
+               B10 empty-manifest ONLY: any captured award reds -- still trusted)
 ```
 
 Three invariants carry over from M-B2 and shape every M-B3 decision:
@@ -185,23 +222,32 @@ Three invariants carry over from M-B2 and shape every M-B3 decision:
   author constant from stock DATA (the node's science cost, the facility's per-level
   funds cost) or a fixture-pinned known cost (hire at a pinned roster size), never
   `Funding.Instance.Funds` after the action or any recalc output. `compute_expected`
-  consumes the seam-declared entry only (`oracle.py:590`); the captured award is a
-  belt-and-suspenders cross-check, never summed (self-cancellation defense, M-B2
-  Accumulation).
+  consumes the seam-declared entry only (`oracle.py:590`); the captured award is never
+  summed (self-cancellation defense, M-B2 Accumulation) and, for a nonzero manifest, is an
+  untrusted cross-check that today captures nothing.
 
-- **The two legs cannot cancel.** If the save moved by the declared amount and the
-  capture saw exactly that award, both legs agree -> PASS. If the save moved by a
-  WRONG amount (Parsek over/under-credited), leg B drifts from the author constant ->
-  hard drift. If an EXTRA award fired that the script never declared,
-  `unmatched_captured_awards` reds it (M-B2 edge 4). A missed capture pattern cannot
-  hide a real drift (the save-diff still catches it); but a MIS-firing capture (the
-  wrong-kind hazard below) can FALSE-red, which is why the capture set is sequenced.
+- **The primary leg carries the whole assertion.** If the save moved by a WRONG amount
+  (Parsek over/under-credited), the produced-save diff drifts from the author constant ->
+  hard drift -> PARSEK-FAIL(ledger). The nonzero capture leg is UNTRUSTED and does not
+  help: `unmatched_captured_awards` is wired to hard-red an unmatched award
+  (`run.py:1333`), yet a real award's runtime `seq_key` never equals a seam entry's author
+  `ut` (typically `0.0`), so it can never be "explained" by the seam entry. TODAY the
+  shipped patterns are DEAD against a real EN log (Parsek lines `[Parsek]`-excluded at
+  `hlib.py:1466`; no stock line matches), so a nonzero run captures nothing, the leg is an
+  empty no-op, and the scripts pass on the save-diff. The hazard is LATENT: rewriting the
+  patterns to match real stock text WITHOUT first solving the UT correlation would turn
+  every nonzero capture into a structural FALSE-RED. B10's EMPTY-manifest capture leg is a
+  distinct trusted case: with no seam entries the "any captured award reds" signal is sound
+  for any `seq_key`, so B10 stays gated on it. Making the nonzero capture leg trustworthy
+  is a named deferred item (rewrite patterns to real stock text + a UT-agnostic
+  single-action match, together).
 
 - **Module activation is the fixture's mode.** In Career all nine modules can move;
   in Science only `ScienceModule` (research spend) is assertable and there are no
-  funds/rep pools; in Sandbox no economy pool exists, so every KscAction either
-  refuses (all tech already unlocked) or produces no pool delta. The mode-specific
-  script set falls straight out of this.
+  funds/rep pools; in Sandbox no economy pool exists and the CAREER-gated verbs DEFER
+  (`career-not-ready`) rather than execute, so the Sandbox script drives NO KscAction
+  at all and is a pure passive B10 variant. The mode-specific script set falls straight
+  out of this.
 
 ---
 
@@ -219,14 +265,14 @@ whether the M-C1 verb set can drive it TODAY and in which mode a delta is assert
 | # | Module (`GameActions/` unless noted) | Stock action that feeds it | Driven by M-C1 today? | Career | Science | Sandbox |
 |---|--------------------------------------|----------------------------|-----------------------|--------|---------|---------|
 | 1 | `FundsModule` | contract payout, recovery, facility spend, hire spend, strategy conversion | facility + hire spend (M-C1) | yes | no pool | no pool |
-| 2 | `ScienceModule` | science transmit/recover, tech-unlock spend | tech-unlock spend (M-C1 research-node) | yes | yes | all-unlocked |
+| 2 | `ScienceModule` | science transmit/recover, tech-unlock spend | tech-unlock spend (M-C1 research-node) | yes | yes (needs M-C1 gate widen, OQ1) | verb defers (career-not-ready) |
 | 3 | `ReputationModule` | contract complete rep, milestone rep, tombstone penalty | no (contract/milestone deferred) | yes | no pool | no pool |
 | 4 | `MilestonesModule` | `ProgressTracking` (first orbit, first landing, records) | no (flown-only byproduct) | flown | flown | flown |
-| 5 | `FacilitiesModule` | `SpaceCenterBuilding.UpgradeFacility` | yes (M-C1 upgrade-facility) | yes | free | free |
+| 5 | `FacilitiesModule` | `SpaceCenterBuilding.UpgradeFacility` | yes (M-C1 upgrade-facility) | yes | verb defers (CAREER-only, Funding null) | verb defers (CAREER-only) |
 | 6 | `ContractsModule` | `ContractSystem` accept/complete/fail | no (no headless verb) | deferred | deferred | n/a |
 | 7 | `StrategiesModule` | `StrategySystem` activate; conversion as byproduct | no (no verb) | deferred | deferred | n/a |
 | 8 | `RouteModule` | logistics route delivery (Rec-3 residual) | no (RouteCommand reserved) | L3+ | L3+ | n/a |
-| 9 | `KerbalsModule` (`Source/Parsek/KerbalsModule.cs`) | hire/dismiss, tombstones | yes (M-C1 hire/dismiss) | yes | free hire | free hire |
+| 9 | `KerbalsModule` (`Source/Parsek/KerbalsModule.cs`) | hire/dismiss, tombstones | yes (M-C1 hire/dismiss) | yes | verb defers (CAREER-only, Funding null) | verb defers (CAREER-only) |
 
 The drivable-today L1 surface (the "yes" cells) is exactly the four M-C1 sub-actions.
 Everything else is Deferred with its blocking verb or its flown-scenario route named.
@@ -281,7 +327,7 @@ rec3CarveOut = false
 [[expectations.ledger.manifest]]
   ut         = 0.0
   kind       = "tech-unlock"
-  science    = -45.0          # AUTHOR CONSTANT: the basicRocketry node cost, stock data
+  science    = -5.0           # AUTHOR CONSTANT: the basicRocketry node cost (stock data, KSP 1.12.5). VERIFY-PENDING-OPERATOR.
   provenance = "seam-declared"
 
 [runtime]
@@ -294,7 +340,10 @@ bugId = ""
 
 The nonzero entry is the ONLY structural difference from B10. `compute_expected`
 (`oracle.py:590`) already sums `e.science` and `e.funds`, so the oracle math needs no
-change; the science pool expected becomes `seed.science + (-45.0)`, diffed HARD.
+change; the science pool expected becomes `seed.science + (-5.0)`, diffed HARD. Every
+node-cost author constant is VERIFY-PENDING-OPERATOR against the pinned KSP 1.12.5
+stock tech tree, the same discipline the capture patterns carry (the operator reads the
+node cost during fixture creation and records it in the fixture README).
 
 ### The three career fixtures (`fixtures/saves/`)
 
@@ -303,9 +352,9 @@ is a fresh stock save created in the named mode, then trimmed of anything nondet
 
 | Fixture | Mode (GAME node) | Seed funds | Seed science | Seed rep | Roster (pinned) | Purpose / afford |
 |---------|------------------|-----------|--------------|----------|-----------------|------------------|
-| `fixtures/saves/fresh-career` | CAREER | a KNOWN value well above the scripted spends (e.g. 500000 to afford a facility upgrade + a hire) | a KNOWN value above the node cost (e.g. 100.0, affords a 45-science node) | 0.0 | exactly the 4 stock starting kerbals (Jeb/Bill/Bob/Val), 0 assigned, plus 1 KNOWN applicant so hire cost is deterministic | research-node, upgrade-facility, hire-kerbal, dismiss-kerbal; the L2 facility refund window |
+| `fixtures/saves/fresh-career` | CAREER | a KNOWN value well above the scripted spends (e.g. 500000 to afford a facility upgrade + a hire) | a KNOWN value above the node cost (e.g. 100.0, affords a 5-science node) | 0.0 | EXACTLY the 4 stock hired starting kerbals (Jeb/Bill/Bob/Val), 0 assigned, ZERO Parsek reservations / stand-ins, plus 1 KNOWN applicant to hire | research-node, upgrade-facility, hire-kerbal, dismiss-kerbal |
 | `fixtures/saves/fresh-science` | SCIENCE_SANDBOX | absent (no funds pool) | a KNOWN value above the node cost (e.g. 100.0) | absent | stock starting kerbals | research-node only (the science-facet single-module script) |
-| `fixtures/saves/fresh-sandbox` | SANDBOX | absent | absent | absent | stock starting kerbals | passive-only (a mode variant of B10; every KscAction refuses or is null-delta) |
+| `fixtures/saves/fresh-sandbox` | SANDBOX | absent | absent | absent | stock starting kerbals | passive-only (a pure B10 variant; NO KscAction step -- the CAREER-gated verbs would DEFER career-not-ready) |
 
 Fixture contents rules (so the seed is reproducible and the analyzer seed leg is
 stable):
@@ -317,10 +366,15 @@ stable):
   `Funding`/`ResearchAndDevelopment`/`Reputation` SCENARIO nodes by the pre-launch
   analyzer (`CareerSaveParser`), so their values ARE the seed. The fixture author sets
   them to the KNOWN values above.
-- The roster is pinned to a known applicant count so the `GameVariables` recruit-cost
-  curve yields a DETERMINISTIC hire cost (the hire funds author constant). Recording
-  the pinned applicant count in a fixture README is load-bearing: if the roster drifts,
-  the hire cost drifts and the author constant goes stale.
+- The roster is pinned to EXACTLY the 4 stock hired starting kerbals (Jeb/Bill/Bob/Val)
+  with ZERO Parsek reservations or stand-ins, so the `GameVariables` recruit-cost curve
+  yields a DETERMINISTIC hire cost. The curve input is the HIRED-CREW COUNT (the size of
+  the already-hired roster), NOT the applicant's identity: adding a 5th kerbal costs
+  what the curve returns at a hired count of 4, whichever named applicant is chosen. The
+  single known applicant is the hire TARGET, not the cost determinant. Recording the
+  pinned hired-crew count + the resulting known cost in a fixture README is load-bearing:
+  if the hired roster drifts (a Parsek reservation, an extra hire, a stand-in), the curve
+  input changes, the hire cost drifts, and the author constant goes stale.
 - Each fixture carries the recording schema generation stamp (M-A4, plan section 7)
   and is registered synthetic-provenance in the coverage ledger; a generation bump
   re-produces it via the operator runbook (no in-game harvest needed for a fresh
@@ -331,27 +385,45 @@ creating it here closes B10's dangling fixture reference as a side effect (Edge
 Cases). It must be the SAME `fresh-career` B10 loads, so B10 and the L1-career scripts
 share one fixture.
 
-### STOCK_AWARD_PATTERNS additions (additive, `hlib.py`, each VERIFY-PENDING-OPERATOR)
+### STOCK_AWARD_PATTERNS: shipped set is DEAD; the nonzero patterns are DEFERRED, not added
 
-The only C# / Python code M-B3 may touch. The v1 set (`hlib.py:1359`) has three
-patterns (science-transmit, contract-complete funds, contract-complete rep). The
-capture cross-check is SECONDARY (the primary assertion is seam-declared vs save), so
-these are strengthening, NOT blocking, EXCEPT where an existing pattern MIS-fires on
-an L1 action (the research-spend hazard, Behavior). Candidate additions, each cited to
-its stock emitter and each VERIFY-PENDING-OPERATOR against a live EN KSP.log before a
-nonzero script trusts it:
+M-B3 does NOT add any `STOCK_AWARD_PATTERNS` entry (a reversal of the naive plan). The
+shipped set (`hlib.py:1359`) has three patterns (science-transmit at `hlib.py:1363`,
+contract-complete funds at `:1369`, contract-complete rep at `:1375`), and against a REAL
+EN log ALL THREE ARE DEAD: every Parsek-emitted `ResearchAndDevelopment ... delta=` line
+is `[Parsek]`-tagged and skipped by the capture walk (`hlib.py:1466`), and NO stock line
+matches any shipped regex -- the pinned Assembly-CSharp emits zero `delta=` strings, and
+stock R&D logs as `[Research & Development]: +N data on ...`, contract completion via the
+message system, etc. So a nonzero L1 run captures ZERO awards, the cross-check is a
+structural NO-OP, and every nonzero script is GREEN on the save-diff alone. This is SAFE
+under save-diff-primary.
 
-| Candidate pattern | kind | facet | emitter (to cite + verify) | why |
-|-------------------|------|-------|----------------------------|-----|
-| research-spend science DELTA | `tech-unlock` | science | `ResearchAndDevelopment` on `RDTech.ResearchTech` `AddScience(-cost)` | so the research SPEND is captured as `tech-unlock` and MATCHES the seam entry, not mis-captured as `science-transmit` |
-| facility-upgrade funds DELTA | `facility-upgrade` | funds | `Funding` on `SpaceCenterBuilding.UpgradeFacility` `AddFunds(-cost, StructureConstruction)` | strengthens the funds cross-check for upgrade scripts |
-| hire funds DELTA | `kerbal-hire` | funds | `Funding` `AddFunds(-hireCost, CrewRecruited)` (`KerbalHirePatch.cs:19-22`) | strengthens the funds cross-check for hire scripts |
+The naive fix -- "add a research-spend `tech-unlock` pattern, a facility-upgrade-funds
+pattern, a hire-funds pattern" -- would ACTIVELY BREAK the scripts and is DEFERRED. Two
+compounding reasons: (1) as written those candidate patterns still match nothing real
+(they target `delta=` text stock never emits), so they must first be REWRITTEN against
+the actual stock log lines; and (2) the MOMENT a pattern DOES capture a nonzero action's
+own award, `unmatched_captured_awards` hard-reds it (`run.py:1333`), and that award's
+runtime `seq_key` can never match the `ut=0.0` seam entry -- a STRUCTURAL FALSE-RED.
+"Add a `tech-unlock` pattern" is therefore NECESSARY-BUT-NOT-SUFFICIENT: it must be done
+TOGETHER with (a) rewriting the pattern to real stock text, (b) SPLITTING a science SPEND
+(tech-unlock) from a science CREDIT (transmit) in that text, and (c) the UT-agnostic
+single-action match (Deferred Items) that fixes the `seq_key` correlation. Until all
+three land, the nonzero capture leg stays a dead no-op and the save-diff carries the
+assertion. The candidate emitters, recorded for that FUTURE rewrite (each will be
+VERIFY-PENDING-OPERATOR against a live EN KSP.log, matched against REAL stock text, NOT
+the `delta=` placeholder):
 
-If, on operator verification, stock emits NO stable EN line for one of these, it is
-NOT enumerated (the M-B2 conservative rule) and the primary save-diff carries the
-assertion alone; where stock is silent the capture falls to the RESERVED
-`gameevents-captured` provenance (M-B3-adjacent, an in-game event-time subscriber),
-NEVER a Parsek recalc read.
+| Future candidate | kind | facet | stock emitter (to reverse from real EN log) | note |
+|------------------|------|-------|---------------------------------------------|------|
+| research-spend science DELTA | `tech-unlock` | science | `RDTech.ResearchTech` `AddScience(-cost)` (real line `[Research & Development]: ...`) | must be split from a science CREDIT (transmit) in the real text |
+| facility-upgrade funds DELTA | `facility-upgrade` | funds | `SpaceCenterBuilding.UpgradeFacility` `AddFunds(-cost, StructureConstruction)` | reverse the real stock funds-debit line |
+| hire funds DELTA | `kerbal-hire` | funds | `Funding.AddFunds(-hireCost, CrewRecruited)` (the debit mirror is `TestCommandKscAction.cs:517-519`) | reverse the real stock funds-debit line |
+
+Where stock is silent (no stable EN line for an action's award), the capture stays
+unenumerated and the primary save-diff carries the assertion alone (which it does
+regardless); a future in-game capture falls to the RESERVED `gameevents-captured`
+provenance (M-B3-adjacent, an event-time subscriber), NEVER a Parsek recalc read.
 
 ---
 
@@ -372,19 +444,27 @@ pool. The manifest entry per action, with the author-constant discipline applied
 - Manifest: `kind = "tech-unlock"`, `science = -<nodeCost>`, provenance seam-declared.
 - **Author-constant rule: DETERMINISTIC.** A tech node's science cost is fixed stock
   DATA (the node's `RDNode` cost), independent of live state, so the delta is a literal
-  author constant (basicRocketry = -45.0). Per M-B2, the science facet is STATE-DEPENDENT
-  for its stock MAGNITUDE only when the amount is a diminishing-returns science CREDIT;
-  a tech-unlock SPEND is a fixed cost, so an author constant is correct and required
-  (a null fill-from-capture on the science facet is rejected outright by
-  `parse_manifest_entries`, `oracle.py`, the state-dependent forbid).
-- Expected: `seed.science + (-nodeCost)`; diffed HARD on `sciencePool`.
-- **Capture hazard (must sequence, Behavior below):** the research SPEND may emit a
-  `ResearchAndDevelopment ... science ... delta=` line that the EXISTING
-  `science-transmit` pattern (`hlib.py:1362`) would capture as `kind=science-transmit`.
-  Because `unmatched_captured_awards` matches by `(seq_key, kind, identity)`
-  (`hlib.py:1519`), a `science-transmit` capture would NOT match the `tech-unlock`
-  seam entry and would FALSE-RED. This is the one place a capture-pattern interaction
-  BLOCKS an L1 script.
+  author constant (basicRocketry = -5.0, VERIFY-PENDING-OPERATOR against KSP 1.12.5).
+  Per M-B2, the science facet is STATE-DEPENDENT for its stock MAGNITUDE only when the
+  amount is a diminishing-returns science CREDIT; a tech-unlock SPEND is a fixed cost,
+  so an author constant is correct and required (a null fill-from-capture on the science
+  facet is rejected outright by `parse_manifest_entries`, `oracle.py`, the
+  state-dependent forbid).
+- Expected: `seed.science + (-nodeCost)`; diffed HARD on `sciencePool`. This SAVE-DIFF
+  is the sole trusted assertion.
+- **Capture note (dead today, latent hazard):** the research SPEND does NOT get captured
+  today. The `science-transmit` pattern (`hlib.py:1363`) needs a `ResearchAndDevelopment
+  ... delta=` line; the only such lines are Parsek's own, which are `[Parsek]`-tagged and
+  skipped by the capture walk (`hlib.py:1466`), and stock logs the spend as
+  `[Research & Development]: ...` with no `delta=`. So the capture set is EMPTY, the
+  cross-check is a no-op, and the script is GREEN on the save-diff. The hazard is LATENT:
+  IF a future rewrite makes a pattern capture the spend, `unmatched_captured_awards`
+  hard-reds it (`run.py:1333`) and the spend's runtime `seq_key` never matches the
+  `ut=0.0` seam entry (`hlib.py:1508`-`:1526`, `oracle.py:199`) -- a structural
+  false-red. So adding a `tech-unlock` pattern is NECESSARY-BUT-NOT-SUFFICIENT: it must
+  land TOGETHER with the science-spend-vs-credit text split AND the UT-agnostic match
+  (Deferred Items). Until then no pattern is added and the save-diff carries the
+  assertion.
 
 #### upgrade-facility (modules: FacilitiesModule + FundsModule; facet: funds pool, HARD)
 
@@ -396,41 +476,55 @@ pool. The manifest entry per action, with the author-constant discipline applied
 - Manifest: `kind = "facility-upgrade"`, `funds = -<upgradeCost>`, provenance
   seam-declared. The facility LEVEL change lands on the report-only facility facet;
   the funds spend is the HARD assertion.
+- **Facility choice (NIT A-N1): NOT R&D.** Upgrade a NON-R&D facility -- recommend the
+  Tracking Station or the VAB. The `science-transmit` capture regex keys on
+  `ResearchAndDevelopment`; an R&D-building upgrade log line could collide with it and
+  add capture noise. A Tracking-Station / VAB upgrade keeps the funds-debit line clear of
+  the R&D emitter. The chosen facility is pinned in the fixture README.
 - **Author-constant rule: DETERMINISTIC PER LEVEL.** A facility's upgrade cost is fixed
   data per (facility, level) in the building config (the value stock's
   `SpaceCenterBuilding.GetUpgradeCost()` returns for level 0 -> 1). It is state-INDEPENDENT,
-  so an author constant is correct; funds is the fill-eligible pool-only facet (M-B2),
-  so the author MAY instead leave it null to fill-from-capture, but an author constant
-  is preferred here because the cost is fixed and fill-from-capture depends on the
-  (VERIFY-PENDING-OPERATOR) facility-upgrade capture pattern existing. VERIFY during
-  implementation that the per-level cost is fixed data (the building config) and NOT
-  GameVariables-scaled; if any facility's cost turns out GameVariables-scaled, treat it
-  as fixture-pinned like hire (below).
-- Expected: `seed.funds + (-upgradeCost)`; diffed HARD on `funds`.
+  so an author constant is correct (OQ4 RESOLVED: the per-level cost is fixed data on the
+  pinned stock instance, so the author constant is valid). funds is the fill-eligible
+  pool-only facet (M-B2), so the author MAY instead leave it null to fill-from-capture,
+  but an author constant is preferred here because the cost is fixed and fill-from-capture
+  depends on the (VERIFY-PENDING-OPERATOR) facility-upgrade capture pattern existing.
+  **Operator confirmation step (fixture creation):** the operator reads the
+  `GetUpgradeCost` value off the `observedAfter=` field in the `kscaction
+  action=upgrade-facility applied=true` log line during fixture creation and records it as
+  the author constant; if any chosen facility's cost turns out GameVariables-scaled rather
+  than fixed, treat it as fixture-pinned like hire (below).
+- Expected: `seed.funds + (-upgradeCost)`; diffed HARD on `funds`. This SAVE-DIFF is the
+  sole trusted assertion.
 
 #### hire-kerbal (modules: FundsModule + KerbalsModule; facet: funds pool, HARD)
 
 - Driver: `KscAction action=hire-kerbal kerbal=<applicantName>` (M-C1). The verb
   mirrors the stock debit `Funding.AddFunds(-hireCost, TransactionReasons.CrewRecruited)`
-  (`KerbalHirePatch.cs:19-22`; the `CrewRecruited` reason key is load-bearing:
-  `KscActionExpectationClassifier.cs:140-148` keys the ledger's hire funds leg on it)
-  then `KerbalRoster.HireApplicant`, confirming roster membership.
+  (the debit mirror is `TestCommandKscAction.cs:517-519`, NOT `KerbalHirePatch.cs`,
+  which is the committed-hire block prefix; the `CrewRecruited` reason key is
+  load-bearing: `KscActionExpectationClassifier.cs:140-148` keys the ledger's hire funds
+  leg on it) then `KerbalRoster.HireApplicant`, confirming roster membership.
 - Manifest: `kind = "kerbal-hire"`, `funds = -<hireCost>`, provenance seam-declared.
   The roster ADD lands on the (deferred, M-B2) world roster sub-facet; the funds spend
   is the HARD assertion.
 - **Author-constant rule: STATE-DEPENDENT-BUT-FIXTURE-PINNED.** The hire cost rises with
-  roster size via the `GameVariables` recruit-cost curve (M-C1 confirms it is NOT a
-  hardcoded constant). Funds is the fill-eligible pool-only facet, so the ROBUST M-B2
-  choice would be null-to-fill-from-capture. BUT no hire-funds capture pattern is
+  the HIRED-CREW COUNT via the `GameVariables` recruit-cost curve -- the curve input is
+  the number of already-hired kerbals, NOT the applicant's identity (M-C1 confirms it is
+  NOT a hardcoded constant). Funds is the fill-eligible pool-only facet, so the ROBUST
+  M-B2 choice would be null-to-fill-from-capture. BUT no hire-funds capture pattern is
   enumerated yet (Data Model), so a null fill would fail ambiguous (zero matches ->
-  `parse_manifest_entries` flags it, `oracle.py`). The M-B3 resolution: PIN the fixture
-  roster so the hire cost is DETERMINISTIC at that roster size, and declare it as an
-  author constant. This keeps the assertion independent of any capture pattern and
-  independent of Parsek recalc. When the hire-funds capture pattern is later
-  operator-verified, the script MAY switch to null-to-fill; until then the
-  fixture-pinned constant is the contract. The fixture README records the pinned
-  roster + the resulting known cost so the constant does not go stale silently.
-- Expected: `seed.funds + (-hireCost)`; diffed HARD on `funds`.
+  `parse_manifest_entries` flags it, `oracle.py`). The M-B3 resolution (OQ2 RESOLVED):
+  PIN the fixture roster to EXACTLY the 4 stock hired kerbals (zero Parsek reservations /
+  stand-ins) so the hire cost is DETERMINISTIC at hired-count 4, and declare it as an
+  author constant. This fixture-pinned HIRE constant is the v1 contract. It keeps the
+  assertion independent of any capture pattern and independent of Parsek recalc. funds
+  stays fill-eligible for LATER: when the hire-funds capture pattern is operator-verified
+  the script MAY switch to null-to-fill; until then the fixture-pinned constant is the
+  contract. The fixture README records the pinned hired-crew count + the resulting known
+  cost so the constant does not go stale silently.
+- Expected: `seed.funds + (-hireCost)`; diffed HARD on `funds`. This SAVE-DIFF is the
+  sole trusted assertion.
 
 #### dismiss-kerbal (module: KerbalsModule; facet: NONE hard)
 
@@ -441,12 +535,16 @@ pool. The manifest entry per action, with the author-constant discipline applied
   pool; stock does not refund a hire). The entry exists to record the roster change and
   to assert VIA the zero-delta cross-check that NO pool moved (a dismiss must not
   spuriously credit or debit funds).
-- **Assertion:** `expected == seed` on all pools (the dismiss is pool-neutral), plus the
-  roster removal on the deferred world roster sub-facet, plus
-  `unmatched_captured_awards` empty (no stray award on a dismiss). So the dismiss L1
-  script is effectively a passive-safety cross-check scoped to a roster mutation: it
-  proves a KSC roster action does not perturb the economy. This is the R6/R7-adjacent
-  "no phantom economy movement on a non-economic action" guard.
+- **Assertion:** `expected == seed` on all pools (the dismiss is pool-neutral, the SOLE
+  trusted leg), plus the roster removal on the deferred world roster sub-facet. The
+  `unmatched_captured_awards`-empty check IS trusted here (unlike the nonzero economic
+  scripts): a dismiss fires NO economic award, so the captured set is empty and the
+  any-captured-award-reds signal is sound for any `seq_key` -- exactly the B10
+  empty-manifest case scoped to a roster mutation (the kerbal-dismiss seam entry declares
+  no pool delta, so a stray funds/science/rep capture would be unmatched and red). So the
+  dismiss L1 script is effectively a passive-safety cross-check scoped to a roster
+  mutation: it proves a KSC roster action does not perturb the economy. This is the
+  R6/R7-adjacent "no phantom economy movement on a non-economic action" guard.
 - Because the roster world sub-facet is DEFERRED in M-B2 (no `Roster` parse on
   `CareerSaveSnapshot`), the dismiss script's ROSTER assertion is a Deferred item; its
   POOL-neutrality assertion is drivable today. Named honestly in Deferred Items.
@@ -456,23 +554,25 @@ pool. The manifest entry per action, with the author-constant discipline applied
 The plan's L1 list also names complete-contract, strategy, milestone, and EVA science.
 None has an M-C1 verb. Decided per-item, honestly:
 
-- **complete-contract -> DEFER to a KscAction batch-2 sub-action, gated + reasoned.**
-  Contract completion normally requires FLYING a mission that satisfies the contract's
-  parameters; there is NO headless stock path to LEGITIMATELY complete a contract
-  without a vessel meeting its conditions. Two options: (a) a synthetic batch-2
-  sub-action `KscAction action=complete-contract contract=<guid>` driving
-  `ContractSystem.Instance` -> the accepted contract's `Contract.Complete()`, which
-  force-fires the funds+rep+science triple-credit through the stock award path but
-  BYPASSES the parameter checks (lower fidelity, but it DOES exercise `ContractsModule`
-  + `FundsModule` + `ReputationModule` reconcile and the R7 no-N-fold-bake guard); or
-  (b) route full-fidelity contract completion to a FLOWN B-track scenario (B6/B7-style)
-  where a real mission satisfies the contract. Decision: the L-track's ledger cross-check
-  wants the ECONOMIC EFFECT, not the flight, so a batch-2 `complete-contract` sub-action
-  is the pragmatic instrument. It needs a companion `accept-contract` (arg
-  `contract=<guid|type>`) to set up an acceptable contract first, and it is gated on
-  operator-verifying the `ContractSystem completed` funds + rep award lines (partly
-  enumerated already, `hlib.py:1368`/`:1374`). This is a KscAction batch-2 seam
-  follow-up (Deferred Items), NOT M-B3 script work.
+- **complete-contract -> DEFER to a KscAction batch-2 sub-action, gated + reasoned
+  (OQ3 RESOLVED).** Contract completion normally requires FLYING a mission that
+  satisfies the contract's parameters; there is NO headless stock path to LEGITIMATELY
+  complete a contract without a vessel meeting its conditions. Resolution: a batch-2
+  sub-action `KscAction action=complete-contract contract=<guid>` drives the accepted
+  contract's `Contract.Complete()` (PUBLIC; it REQUIRES the contract be in the Active
+  state, so a companion `accept-contract` genuinely IS required first -- the verb cannot
+  short-circuit an unaccepted contract). `Contract.Complete()` force-fires the REAL
+  contract-LEVEL funds+rep+science triple-credit through the stock award path headlessly,
+  but WITHOUT the per-parameter rewards (those only accrue in real flight as each
+  parameter is met). DOCUMENTED FIDELITY CAVEAT: this exercises `ContractsModule` +
+  `FundsModule` + `ReputationModule` reconcile and the R7 no-N-fold-bake guard at the
+  contract level; FULL fidelity (per-parameter rewards) stays a FLOWN B-track scenario
+  (B6/B7-style). The L-track's ledger cross-check wants the ECONOMIC EFFECT of the
+  contract-level credit, not the flight, so accept the `complete-contract` sub-action for
+  the L2 triple-credit ledger cross-check + R7 as a batch-2 sub-action, with the caveat
+  logged. It is gated on operator-verifying the `ContractSystem completed` funds + rep
+  award lines (partly enumerated already, `hlib.py:1369`/`:1375`). This is a KscAction
+  batch-2 seam follow-up (Deferred Items), NOT M-B3 script work.
 - **strategy -> DEFER to a KscAction batch-2 sub-action.** Strategy ACTIVATION is
   `StrategySystem.Instance.SetStrategyActive`; a batch-2 sub-action
   `KscAction action=activate-strategy strategy=<id> commitment=<0..1>` would drive it.
@@ -499,28 +599,54 @@ None has an M-C1 verb. Decided per-item, honestly:
 So the M-B3 L1 SCRIPT deliverable is the FOUR drivable sub-actions; the other four L1
 items are Deferred with their named seam sub-actions or flown routes.
 
-### The one L2 script drivable with the M-C1 verb set (facility spend + refund window, R6)
+### The L2 refund-window script (R6) is NOT drivable today -- deferred behind a SaveGame verb
 
 L2 is cross-module / windowed interactions. Of the four L2 examples the plan names
 (contract triple-credit, strategy conversion, milestone-fed rewards, facility spend +
-refund windows), only the FACILITY SPEND + REFUND WINDOW is drivable with the M-C1
-verb set today, because the other three need the deferred contract / strategy /
-milestone instruments above. The facility-refund-window L2 script (R6):
+refund windows), NONE is drivable with the M-C1 verb set today. The contract / strategy
+/ milestone three need the deferred contract / strategy / milestone instruments above.
+The fourth -- the facility spend + refund window (R6) -- LOOKS drivable but is NOT,
+because the M-C1 verb set cannot PERSIST the upgrade before re-loading, and the R6 guard
+only bites on a reload of a save that ALREADY carries the upgrade.
 
-- `L2-facility-refund-window.toml` (Career mode): drive `KscAction upgrade-facility`
-  (the real spend + level bump), then a `LoadGame` (a SCENE CHANGE), then assert the
-  ledger shows the facility level held AND NO phantom `facility-refund` (the R6 guard:
-  BUG-G, no silent facility-upgrade refund on scene change, `FacilityUpgradeSpendPatch.cs`).
-- Manifest: the one `facility-upgrade` funds entry (as in the L1 upgrade script). The L2
-  ASSERTION is that after the scene change, `expected == seed + (-upgradeCost)` STILL
-  holds (the spend is NOT refunded) and no undeclared `facility-refund` award appears in
-  the capture. If Parsek phantom-refunded on the scene change, the produced save's funds
-  would be HIGHER than expected -> hard funds drift -> PARSEK-FAIL(ledger). This is R6
-  automated.
-- The scene change is a `LoadGame` back into the same run save (the run save was mutated
-  by the upgrade; re-loading it is the scene-exit-and-reenter the R6 guard protects). No
-  warp verb is needed (R6 is a scene-change guard, not a warp guard; R1's warp trigger
-  stays deferred with the `TimeJump`/scene verbs per M-B2).
+The naive flow `upgrade-facility -> LoadGame -> assert` MANUFACTURES A FALSE SIGNAL:
+`upgrade-facility` mutates LIVE career state only (the in-memory `Funding` debit +
+`SetLevel`), and there is NO in-process `SaveGame` verb -- the only `SaveGame` lives
+inside `FlushAndQuit` (`ParsekTestCommandAddon.cs:1215`), which QUITS. So a `LoadGame`
+after the upgrade reloads the PRE-upgrade disk fixture (`LoadGameImpl` reloads disk,
+`:1251`): funds snap back to seed, the facility level resets. That is INDISTINGUISHABLE
+from the exact phantom-refund the R6 guard exists to catch -- the script would FALSE-RED
+on its own missing-persist, or (worse) be tuned to expect the snap-back and thereby
+NEVER catch a real refund. Either way it is not a valid R6 test.
+
+Two honest routes, both requiring work M-B3 does not ship:
+
+- **(a) Two-session flow -- a multi-session orchestration dependency the harness does
+  NOT support today.** `LoadGame fresh-career -> upgrade-facility -> FlushAndQuit`
+  (persists the post-upgrade save, quits), then a SECOND KSP boot `LoadGame <that
+  post-upgrade save>` (the reload where BUG-G would refund) `-> FlushAndQuit -> assert`.
+  The M-A5 harness runs EXACTLY ONE `runtime.launch` per scenario attempt (`run.py:1941`)
+  and stages a PRISTINE fixture per attempt; it does not boot KSP twice within one
+  scenario, nor carry one attempt's produced save into the next. So this is a genuine
+  MULTI-SESSION orchestration dependency, named honestly as such -- not a today path.
+- **(b) A `SaveGame` batch-2 seam verb -- the cleaner named deferral (RECOMMENDED).** A
+  standalone in-process `SaveGame` verb makes the whole thing ONE launch:
+  `LoadGame fresh-career -> upgrade-facility -> SaveGame (persist post-upgrade) ->
+  LoadGame (reload = the R6 window, OnLoad recalc) -> FlushAndQuit -> assert`. This fits
+  the existing one-launch-per-attempt model exactly and is a single small verb, versus
+  standing up multi-session orchestration.
+
+**Decision: R6 / the one L2 script is DEFERRED behind a named `SaveGame` batch-2 seam
+verb (route b), moving L2 to ZERO-drivable-today.** Route (b) is the minimal honest
+dependency (one verb inside the existing launch model), and the persist-before-reload
+gap is the SAME root cause across both routes. When `SaveGame` lands,
+`L2-facility-refund-window.toml` (Career mode) declares the one `facility-upgrade` funds
+entry (as in the L1 upgrade script) and asserts that after the persist+reload
+`expected == seed + (-upgradeCost)` STILL holds (the spend is NOT refunded); a phantom
+refund makes the produced save's funds HIGHER than expected -> hard funds drift ->
+PARSEK-FAIL(ledger) (BUG-G, `FacilityUpgradeSpendPatch.cs`). No warp verb is needed (R6
+is a scene-change guard, not a warp guard; R1's warp trigger stays deferred with the
+`TimeJump`/scene verbs per M-B2).
 
 The three other L2 examples are Deferred:
 
@@ -540,61 +666,98 @@ The three other L2 examples are Deferred:
 Straight from the module activation matrix:
 
 - **Career (`fresh-career`)**: the full L1 set (research-node, upgrade-facility,
-  hire-kerbal, dismiss-kerbal) plus the L2 facility-refund-window. All hard pools present.
-  This is the richest mode and the one the plan's L1 milestone centers on.
+  hire-kerbal, dismiss-kerbal). All hard pools present. This is the richest mode and the
+  one the plan's L1 milestone centers on. (The L2 facility-refund-window is NOT part of
+  the Career set today -- it is deferred behind the `SaveGame` verb, above.)
 - **Science (`fresh-science`)**: research-node ONLY (the science-facet single-module
   script). Funds and rep pools are ABSENT (`CareerSaveParser` sets `hasFunds`/`hasRep`
   false; the oracle facet-skips them, M-B2 edge 5), so upgrade-facility / hire have no
-  funds facet to assert, and the M-C1 verbs that require a funds debit are meaningless.
-  **DEPENDENCY / OPEN QUESTION (Edge Cases + Open Questions):** M-C1's `CareerPresent`
-  readiness bit gates `research-node` on `Mode == Game.Modes.CAREER`
-  (design-autotest-seam-verbs-c1.md, DispatchState). Science mode is
-  `SCIENCE_SANDBOX`, so as specified M-C1 would DEFER `research-node`
-  (`career-not-ready`) -> TIMEOUT -> INVALID in Science mode, even though R&D and node
-  research are live there. The Science-mode research-node script therefore needs a small
-  M-C1 follow-up: widen the science-facet sub-action's readiness gate to admit
-  `SCIENCE_SANDBOX` (a `RnDPresent` bit gating `research-node` on
-  `Mode == CAREER || Mode == SCIENCE_SANDBOX` with `ResearchAndDevelopment.Instance`
-  live). The FALLBACK, if that follow-up is not taken, is that Science-mode L1 degrades
-  to passive-only (like Sandbox), which under-covers the "Science mode has science" axis.
-  This is the one M-B3 finding that reaches back into a merged module.
-- **Sandbox (`fresh-sandbox`)**: PASSIVE-ONLY (a mode variant of B10). No economy pool
-  exists; all tech is unlocked (research-node -> `node-already-unlocked` REJECT,
-  driver-INVALID by design), hire is free (no funds delta). The Sandbox "script" is the
-  B10 passive-safety cross-check re-run in Sandbox mode: `expected == seed` (all pools
-  absent), and no KscAction produces a hard-pool delta. It proves the ledger stays inert
-  in Sandbox and that the facet-skip-when-absent path is correct for a no-pools save.
+  funds facet to assert, and (per B-SF3, below) STAY CAREER-only because their `Funding`
+  debit is null in Science. **DEPENDENCY (Open Question 1, RESOLVED):** M-C1's
+  `CareerPresent` readiness bit gates `research-node` on `Mode == Game.Modes.CAREER`
+  (design-autotest-seam-verbs-c1.md, DispatchState). Science mode is `SCIENCE_SANDBOX`,
+  so as specified M-C1 DEFERS `research-node` (`career-not-ready`) -> TIMEOUT -> INVALID
+  in Science mode, even though R&D and node research are live there. The Science-mode
+  research-node script depends on a SEPARATE, SUB-ACTION-SCOPED M-C1 follow-up patch (the
+  plan of record, NOT passive-only): widen ONLY the `research-node` sub-action's
+  readiness to admit `(Mode == CAREER || Mode == SCIENCE_SANDBOX) &&
+  ResearchAndDevelopment.Instance != null` (a `RnDPresent` bit). hire / dismiss /
+  upgrade-facility STAY CAREER-only, because `Funding.Instance` is null in Science and
+  their funds legs would NRE / be meaningless. **WARNING: do NOT relax the shared
+  top-level `Mode` check** that all four sub-actions share -- widen the per-sub-action
+  gate for `research-node` ALONE. Passive-only Science is the TEMPORARY FALLBACK if the
+  follow-up slips, not the plan; it under-covers the "Science mode has science" axis. This
+  is the one M-B3 finding that reaches back into a merged module.
+- **Sandbox (`fresh-sandbox`)**: PASSIVE-ONLY, a PURE B10 variant with NO KscAction step.
+  No economy pool exists. Sandbox is `Game.Modes.SANDBOX`, so `research-node` (like the
+  other CAREER-gated verbs) DEFERS `career-not-ready` -> TIMEOUT -> INVALID -- it NEVER
+  reaches a `node-already-unlocked` check, so the Sandbox script does not attempt it. The
+  Sandbox "script" is the B10 passive-safety cross-check re-run in Sandbox mode:
+  `expected == seed` (all pools absent), no KscAction driven, the empty-manifest
+  any-capture-reds cross-check trusted. It proves the ledger stays inert in Sandbox and
+  that the facet-skip-when-absent path is correct for a no-pools save.
 
 ### Stock-award capture sequencing (the honest ordering)
 
-The capture cross-check (`unmatched_captured_awards`) is SECONDARY to the seam-declared
-vs save diff, but it can FALSE-RED when an existing pattern MIS-fires on an L1 action.
-The sequence, honestly:
+The capture cross-check (`unmatched_captured_awards`) is, for a NONZERO manifest,
+UNTRUSTED. TODAY it captures nothing (the shipped patterns are dead against a real EN
+log), so it is an empty no-op and the seam-declared-vs-save diff -- the sole trusted leg
+-- carries the assertion. The sequence, honestly:
 
-1. **The primary assertion never depends on the capture.** For every L1 script the
-   author declares the effect as a seam-declared author constant, and
-   `compute_expected` diffs it HARD against the save. A missing capture pattern cannot
-   hide a real drift (the save-diff catches it) and cannot cause a false PASS (M-B2
-   Mental Model).
-2. **The one BLOCKING interaction: research-node.** Before the research-node script can
-   go green, an operator must verify on a live EN KSP.log whether `RDTech.ResearchTech`'s
-   science SPEND emits a `ResearchAndDevelopment ... science ... delta=` line. If it
-   does, the existing `science-transmit` pattern (`hlib.py:1362`) captures it as the
-   WRONG kind and `unmatched_captured_awards` FALSE-reds (kind mismatch against the
-   `tech-unlock` seam entry). Resolution, EITHER: (a) add a `tech-unlock` science-spend
-   pattern (Data Model) so the spend is captured with the MATCHING kind, OR (b) tighten
-   the `science-transmit` regex so a negative-delta spend line is not matched as a
-   transmit credit. Option (a) is preferred (it strengthens the cross-check rather than
-   narrowing it). This is a REQUIRED operator step in the research-node runbook.
-3. **The non-blocking additions.** The facility-upgrade-funds and hire-funds patterns
-   strengthen those scripts' cross-checks but are not required for the primary assertion
-   (both use author / fixture-pinned constants). Each is VERIFY-PENDING-OPERATOR and
-   added only when confirmed stable on EN; where stock is silent the primary save-diff
-   stands alone.
-4. **Every capture pattern the script RELIES ON must be operator-verified first** (M-B2
-   discipline: a nonzero L1 scenario trusts a pattern only after PENDING-OPERATOR EN
-   verification). The runbook per script names exactly which patterns must be confirmed
-   before that script's cross-check is trusted.
+1. **The primary assertion is the ONLY trusted leg.** For every L1 script the author
+   declares the effect as a seam-declared author constant, and `compute_expected` diffs
+   it HARD against the produced save. A missing capture pattern cannot hide a real drift
+   (the save-diff catches it) and cannot cause a false PASS. This leg carries the entire
+   assertion.
+2. **The shipped patterns are DEAD, so today the leg is an empty no-op.** The three
+   shipped patterns need a `... delta=` line: the only such lines are Parsek's own, which
+   are `[Parsek]`-tagged and skipped (`hlib.py:1466`); no stock line matches (the pinned
+   Assembly-CSharp has zero `delta=` strings; stock R&D logs `[Research & Development]:
+   +N data on ...`, contracts via the message system). So a nonzero L1 run captures ZERO
+   awards, `unmatched_captured_awards` is empty, nothing reds -- SAFE under
+   save-diff-primary. (B10's EMPTY manifest stays TRUSTED: with no seam entries the
+   "any captured award reds" signal is sound; today it also captures nothing.)
+3. **The LATENT structural false-red (why a naive pattern rewrite would break the
+   scripts).** `unmatched_captured_awards` (`hlib.py:1508`) is WIRED to turn any unmatched
+   captured award into a HARD divergence (`run.py:1333`). It matches on
+   `(seq_key, kind, identity)`, and a captured award's `seq_key` is its runtime UT
+   (nearest preceding `[Parsek] ut=` line, else line ordinal; `hlib.py:1407`) while a
+   seam entry carries the author `ut` (typically `0.0`; `oracle.py:199`) -- they never
+   match. So the MOMENT a pattern is rewritten to actually capture a nonzero action's own
+   award, that award is unmatched and hard-reds: a STRUCTURAL FALSE-RED. Therefore M-B3
+   ADDS NO PATTERN. The REAL future work is not "operator-verify the shipped patterns"
+   (they are dead) but REWRITING them against real stock log text, and that rewrite is
+   NECESSARY-BUT-NOT-SUFFICIENT: it must land TOGETHER with (a) SPLITTING a science SPEND
+   (tech-unlock) from a science CREDIT (transmit) in the real text, and (b) the
+   UT-agnostic single-action match below that fixes the `seq_key` correlation. Any one of
+   the three alone re-introduces the false-red.
+4. **DEFERRED: a UT-agnostic single-action match (the mechanism that would make the
+   nonzero cross-check trusted).** Two candidate designs, evaluated:
+   - **Match on `(kind, identity, roundedAmount)` when EXACTLY ONE seam entry and EXACTLY
+     ONE capture of that kind exist.** Drop `seq_key` from the match key in the
+     single-action case: if the manifest declares one `tech-unlock` entry and the log
+     yields one `tech-unlock` (or coerced) capture of the same rounded amount, pair them
+     regardless of UT. SIMPLE and needs no C# change, but only sound in the strict
+     one-entry / one-capture case and is fragile if any second same-kind award slips in.
+   - **Stamp the `KscAction ... applied=true` log line with `ut=` so captures correlate
+     to the ACTION's own UT.** The verb already logs `applied=true observedAfter=`; add
+     `ut=<Planetarium.GetUniversalTime()>` to that line, and have the capture correlator
+     read the action's stamped UT as the award's `seq_key`, and the seam entry adopt the
+     SAME action UT (instead of `0.0`) at accumulation time. This makes `seq_key` match
+     legitimately for ANY single action and generalizes to multi-action L2, but needs a
+     one-line C# log change plus a correlator tweak in `hlib.parse_stock_award_lines` /
+     the manifest accumulator.
+   - **Recommendation: the UT-stamped `applied=true` line (candidate 2).** It is robust
+     beyond the strict single-action case, generalizes to L2, and keeps amounts out of
+     the match key (so a legitimate two-equal-awards case does not collapse). Deferred to
+     a batch-2 seam + oracle follow-up, and to be landed IN THE SAME change as the stock
+     pattern rewrite (step 3); until then M-B3 adds no pattern, EVERY nonzero script's
+     capture leg is a dead no-op, and the save-diff carries the assertion alone.
+5. **No pattern is enumerated until the whole rewrite lands.** M-B3 ships zero pattern
+   changes. When the future step arrives, each rewritten pattern is VERIFY-PENDING-OPERATOR
+   against a live EN log (M-B2 discipline), matched to REAL stock text, and enumerated only
+   alongside the spend/credit split and the UT-agnostic match. Until then a script never
+   trusts the nonzero capture leg (it cannot -- see steps 2-3).
 
 ---
 
@@ -602,13 +765,20 @@ The sequence, honestly:
 
 Each: scenario -> expected behavior -> v1 or deferred.
 
-1. **research-node spend mis-captured as science-transmit.** The existing pattern
-   matches a `ResearchAndDevelopment science delta=` line; a research SPEND with a
-   negative delta would be captured as `kind=science-transmit`, mismatching the
-   `tech-unlock` seam entry and FALSE-reding via `unmatched_captured_awards`. -> The
-   research-node runbook REQUIRES an operator EN verification and either a `tech-unlock`
-   capture pattern or a tightened `science-transmit` regex BEFORE the script is trusted
-   (Behavior "Stock-award capture sequencing" step 2). v1 (BLOCKING, sequenced).
+1. **research-node spend and the capture patterns.** The shipped `science-transmit`
+   pattern needs a `ResearchAndDevelopment ... delta=` line. -> TODAY it captures NOTHING
+   from a real EN log: Parsek's own such lines are `[Parsek]`-tagged and skipped
+   (`hlib.py:1466`), and stock never emits `delta=` (it logs `[Research & Development]:
+   +N data on ...`). So the cross-check is a structural no-op and the research-node script
+   is GREEN on the save-diff. The false-red hazard (kind-split AND the A-B1 `seq_key`/UT
+   mismatch) is LATENT, not current: it becomes real only when the patterns are REWRITTEN
+   to match actual stock text. The REAL M-B3 work item is therefore that pattern REWRITE
+   (not "operator-verify the shipped patterns"), and it must solve BOTH hazards together
+   -- splitting a science SPEND (tech-unlock) from a science CREDIT (transmit) in the real
+   text, AND the UT correlation (the UT-agnostic single-action match) -- or a nonzero
+   capture hard-reds (`run.py:1333`). Deferred; until then no pattern is added and the
+   save-diff carries the assertion. v1 (capture dead no-op today; rewrite + UT-agnostic
+   match deferred).
 2. **hire cost drifts because the fixture roster changed.** The hire funds author
    constant is only valid at the fixture's pinned roster size (the `GameVariables`
    recruit-cost curve). -> The fixture README pins the roster + records the resulting
@@ -623,16 +793,22 @@ Each: scenario -> expected behavior -> v1 or deferred.
 4. **Science mode research-node deferred by M-C1's CAREER-only gate.** M-C1's
    `CareerPresent` gates `research-node` on `Mode == CAREER`; Science mode is
    `SCIENCE_SANDBOX`, so the verb DEFERS `career-not-ready` -> TIMEOUT -> INVALID. -> The
-   Science-mode script needs a small M-C1 follow-up (a `RnDPresent` bit admitting
-   `SCIENCE_SANDBOX` for the science-facet sub-action); the fallback is Science-mode =
-   passive-only. Named as an Open Question + Deferred dependency. v1 (dependency named).
-5. **Sandbox research-node rejected (all tech unlocked).** In Sandbox every node is
-   already researched, so `KscAction research-node` -> `node-already-unlocked` REJECT
-   (M-C1), classified driver-INVALID. -> The Sandbox script does NOT drive research-node;
-   Sandbox L1 is passive-only (`expected == seed`, all pools absent). v1.
+   plan of record (OQ1 RESOLVED) is a SUB-ACTION-SCOPED M-C1 follow-up patch: widen ONLY
+   the `research-node` sub-action's gate to `(CAREER || SCIENCE_SANDBOX) &&
+   ResearchAndDevelopment.Instance != null` (a `RnDPresent` bit); hire / dismiss /
+   upgrade stay CAREER-only (Funding null in Science). Do NOT relax the shared top-level
+   Mode check. Passive-only Science is the TEMPORARY fallback, not the plan. v1
+   (sub-action-scoped M-C1 dependency, plan of record).
+5. **Sandbox research-node: the verb DEFERS, it is not a clean node-already-unlocked
+   reject.** Sandbox is `Game.Modes.SANDBOX`, which is NOT CAREER, so `research-node`
+   DEFERS `career-not-ready` -> TIMEOUT -> INVALID -- it never reaches the
+   `node-already-unlocked` check. -> The Sandbox script therefore drives NO KscAction at
+   all; it is a PURE B10 passive variant (`expected == seed`, all pools absent, no verb
+   step). v1.
 6. **dismiss-kerbal moves no pool but the roster sub-facet is unparsed.** -> The
    pool-neutrality assertion (`expected == seed` on all pools + empty capture) is drivable
-   today and is the R6/R7-adjacent guard; the ROSTER-changed assertion is Deferred with the
+   today and is the R6/R7-adjacent guard (its empty-capture leg is TRUSTED like B10, since
+   a dismiss fires no economic award); the ROSTER-changed assertion is Deferred with the
    M-B2 world roster sub-facet (`CareerSaveSnapshot` has no roster). v1 (pool-neutral part);
    deferred (roster part).
 7. **Sandbox / Science pool absence reds nothing.** `CareerSaveParser` sets the absent
@@ -661,15 +837,20 @@ Each: scenario -> expected behavior -> v1 or deferred.
     sub-action by design (single-module discipline); a multi-action script is an L2 concern
     with an entry per effect. The oracle sums them deterministically by `(ut, seq)`. v1
     (L1 = single action).
-12. **Capture pattern operator-unverified when a script runs.** A nonzero script whose
-    cross-check relies on an unverified pattern. -> Per M-B2, the script's cross-check is
-    NOT trusted until the pattern is PENDING-OPERATOR EN-verified; until then the script
-    runs with only the primary save-diff (still a valid ledger assertion) and the runbook
-    flags the pending verification. v1 (primary assertion stands alone).
-13. **R6 refund window: the scene change is a LoadGame, not a warp.** -> The L2
-    facility-refund-window script uses `LoadGame` (scene exit + reenter), the exact
-    transition BUG-G's phantom refund rode; no warp verb is needed (R1's warp trigger is a
-    separate deferred surface, M-B2). v1.
+12. **Nonzero capture leg contributes no trusted signal.** A nonzero script's capture
+    cross-check is UNTRUSTED. -> Today it captures nothing (shipped patterns dead), so it
+    is an empty no-op and the script runs on the primary save-diff alone (the valid ledger
+    assertion). It is never a pass gate, and M-B3 adds no pattern that would make it one
+    (that needs the deferred rewrite + UT-agnostic match). v1 (primary assertion stands
+    alone).
+13. **R6 refund window needs a persist-before-reload the M-C1 verb set lacks.** ->
+    `upgrade-facility` mutates LIVE state only; the sole `SaveGame` is inside `FlushAndQuit`
+    (which quits), so `upgrade -> LoadGame` reloads the PRE-upgrade fixture and manufactures
+    a false phantom-refund signal. R6 is DEFERRED behind a named `SaveGame` batch-2 seam
+    verb (in-process `upgrade -> SaveGame -> LoadGame -> assert`), the minimal honest
+    dependency vs multi-session orchestration (Behavior "The L2 refund-window script").
+    No warp verb is needed once `SaveGame` lands (R6 is a scene-change guard; R1's warp
+    trigger is a separate deferred surface, M-B2). deferred (SaveGame verb).
 14. **R7 N-fold contract bake needs contract completion (deferred).** The R7 guard (no
     N-fold stock contract reward bake) needs a real contract completion, which has no M-C1
     verb. -> R7 is Deferred to the `complete-contract` batch-2 sub-action; until then the
@@ -708,19 +889,30 @@ Each: scenario -> expected behavior -> v1 or deferred.
   deltas and applies the reputation curve (`oracle.py:590`); M-B3 is the FIRST caller with
   a non-empty manifest but adds no new computation. The author-constant vs fill rules, the
   facet policy, the state-dependent forbid, and `unmatched_captured_awards` are all M-B2's.
+  M-B3 does NOT change `unmatched_captured_awards`; it recognizes that its
+  `(seq_key, kind, identity)` match leaves the nonzero capture leg untrusted, and that the
+  shipped patterns are dead against a real EN log (so today the leg is an empty no-op). The
+  pattern rewrite + UT-agnostic single-action match that would make it trusted are a named
+  DEFERRED follow-up, not an M-B3 change.
 - **No manifest schema change.** The `[expectations.ledger]` block, the entry kinds
   (`tech-unlock` / `facility-upgrade` / `kerbal-hire` / `kerbal-dismiss` all already in
   `KINDS`, `oracle.py:69`), and `schema = 1` are unchanged; M-B3 populates entries the
   schema already defines.
-- **No seam verb change.** `KscAction`, `TimeJump`, and their dispatch gates are M-C1's;
-  M-B3 authors driver STEPS that invoke them and adds no verb. The ONE reach-back is the
-  proposed Science-mode readiness widening (Open Questions), which is an M-C1 FOLLOW-UP, not
-  an M-B3 change, and is optional (fallback: Science = passive-only).
-- **The only code M-B3 may touch is additive `STOCK_AWARD_PATTERNS` entries in `hlib.py`,
-  each VERIFY-PENDING-OPERATOR and additive-only**, plus their pure pytest coverage. No
-  existing pattern is removed; the one existing-pattern EDIT considered (tightening
-  `science-transmit`) is an alternative to adding a `tech-unlock` pattern and is chosen only
-  if operator verification shows the spend line collides (Behavior sequencing).
+- **No seam verb change (M-B3 itself adds no verb; it NAMES deferred ones).** `KscAction`,
+  `TimeJump`, and their dispatch gates are M-C1's; M-B3 authors driver STEPS that invoke
+  them and adds no verb. The reach-back it depends on is the SUB-ACTION-SCOPED Science-mode
+  readiness widening for `research-node` ALONE (OQ1, plan of record NOT optional -- passive
+  Science is only a temporary fallback), an M-C1 FOLLOW-UP. M-B3 also NAMES (but does not
+  build) the deferred `SaveGame` batch-2 verb the L2 refund window needs, and the batch-2
+  `accept-contract` / `complete-contract` / `activate-strategy` sub-actions the other L2
+  interactions need. Those are batch-2 seam follow-ups, not M-B3 changes.
+- **M-B3 touches NO `STOCK_AWARD_PATTERNS`.** The shipped set is dead against a real EN
+  log (captures nothing), so the nonzero scripts are green on the save-diff without any
+  pattern. Adding a pattern that captured a nonzero action's own award would false-red it
+  (`run.py:1333`; the award's runtime `seq_key` never matches the `ut=0.0` seam entry), so
+  the tech-unlock / facility-upgrade-funds / hire-funds patterns are DEFERRED, to be
+  REWRITTEN against real stock text alongside the spend/credit split and the UT-agnostic
+  match (Behavior sequencing). M-B3 ships zero C#/Python code changes to the capture set.
 - **The harness verdict taxonomy, verifier chain, and B10 flagship are unchanged.** The
   `ledger_drift -> PARSEK-FAIL(ledger)` branch and the `ledgerOracle` slot are M-B2's; B10
   stays the zero-delta flagship and M-B3's fixtures give B10 the `fresh-career` save it
@@ -740,10 +932,10 @@ Each: scenario -> expected behavior -> v1 or deferred.
   bump flags them stale and the operator runbook re-produces them (a fresh career save is
   synthetic-provenance, not harvested, so it regenerates by script/operator, not by a green
   harness run). The analyzer refuses a mismatched fixture loudly (plan section 7).
-- **The `STOCK_AWARD_PATTERNS` additions are additive.** An older harness that lacks a
-  pattern simply captures fewer awards (the primary save-diff is unaffected); a newer harness
-  reading an older run's log captures what its patterns match. No versioned wire artifact
-  changes.
+- **`STOCK_AWARD_PATTERNS` is unchanged by M-B3** (and any FUTURE addition is additive). An
+  older harness that lacks a pattern simply captures fewer awards (the primary save-diff is
+  unaffected); a newer harness reading an older run's log captures what its patterns match.
+  No versioned wire artifact changes.
 - **No recording, save, tree, ledger, or `.sfs` field changes.** M-B3 mutates only the live
   career state the four real actions already mutate through their existing paths.
 
@@ -777,13 +969,18 @@ New harness-side logging M-B3 adds (in the L1 runbook / result, not new Parsek t
 - A one-line `[Harness][INFO][FIXTURE] fixture=<mode> seedFunds=<f> seedScience=<s>
   pinnedRoster=<n> hireCostConstant=<c>` when a fixture is staged, so a stale author constant
   is diagnosable from the harness log alone.
-- A `[Harness][WARN][CAPTURE] pattern <kind> VERIFY-PENDING-OPERATOR: cross-check not trusted`
-  when a script's relied-on capture pattern is not yet operator-verified, so a run does not
-  silently trust an unverified pattern.
+- A `[Harness][INFO][CAPTURE] nonzero capture leg UNTRUSTED (shipped patterns dead ->
+  captured=0): primary=save-diff` line on every nonzero L1 run, so the log is explicit that
+  the capture cross-check is not the pass authority for that run (the `[VERIFY] status=PASS`
+  is decided by `hardDivergences=0` from the save-diff alone) and that nothing was captured.
+- A `[Harness][WARN][CAPTURE] captured=<n>>0 on a nonzero run -- unexpected, patterns should
+  be dead` line if a nonzero run EVER captures an award (a regression signalling a pattern has
+  started matching real stock text without the deferred UT-agnostic match, the latent
+  false-red).
 
 Goal (M-B2's, extended): reading only the harness log, a developer reconstructs the fixture
-seed, the one declared effect, the expected pool, the diff, and whether any capture pattern
-was untrusted, without rerunning the scenario.
+seed, the one declared effect, the expected pool, the diff (the sole PASS/FAIL authority),
+and that the nonzero capture leg captured nothing, without rerunning the scenario.
 
 ---
 
@@ -797,23 +994,35 @@ cannot pilot KSP, MEMORY: in-game-sweep-needs-operator).
 ### Pure Python (pytest, no KSP; `harness/lib/test_oracle.py` + `test_hlib.py` additions)
 
 - **Nonzero single-entry expected (science spend).** `compute_expected(seed,
-  [tech-unlock science=-45])` returns `seed.science - 45` on `sciencePool`, HARD; the diff
-  against a save carrying `seed.science - 45` PASSES, against `seed.science` (an unspent /
+  [tech-unlock science=-5])` returns `seed.science - 5` on `sciencePool`, HARD; the diff
+  against a save carrying `seed.science - 5` PASSES, against `seed.science` (an unspent /
   refunded node) reds hard. Fails if the first nonzero manifest cannot be computed or a
   science over/under-credit reads green (the R7-class economy-drift silent pass).
 - **Nonzero single-entry expected (funds spend).** `compute_expected(seed, [facility-upgrade
   funds=-<cost>])` returns `seed.funds - cost`; a phantom refund (save funds HIGHER than
   expected) reds hard on `funds` with the UT window named. Fails if a BUG-G phantom refund
-  reads green (the exact R6 silent pass this L2 script exists to prevent).
+  reads green. NOTE: the ORACLE MATH here is sound and tested, but DRIVING the R6 refund
+  window is DEFERRED (needs the `SaveGame` verb; Behavior "The L2 refund-window script"), so
+  this pytest exercises the oracle, not a live L2 run.
 - **State-dependent facet forbid on tech-unlock null.** A `tech-unlock` entry with a null
   `science` amount is REJECTED by `parse_manifest_entries`; the reject becomes a HARD
   divergence (M-B2 edge 18), never a dropped effect. Fails if a null science delta silently
   passes.
-- **Capture wrong-kind cross-check.** A captured `science-transmit` award with no matching
-  `tech-unlock` seam entry is UNMATCHED (`unmatched_captured_awards`) and reds; a captured
-  `tech-unlock` award matching the seam entry's `(seq_key, kind, identity)` is EXPLAINED and
-  does not red. Fails if the research-spend mis-capture hazard is not caught (a false red) or a
-  genuine undeclared award is not caught (a false pass).
+- **Shipped patterns are dead against real stock text (the safety property).** A synthetic
+  KSP.log body carrying REAL stock-style lines (`[Research & Development]: +5 data on ...`,
+  a `[Parsek]`-tagged `ResearchAndDevelopment ... delta=` line) yields ZERO captures from
+  `parse_stock_award_lines`: the stock line matches no shipped pattern, and the Parsek line
+  is skipped (`hlib.py:1466`). So a nonzero run's `unmatched_captured_awards` is EMPTY and
+  the verdict is the save-diff alone. Fails if a shipped pattern starts matching real stock
+  text (a regression that would re-introduce the false-red).
+- **The LATENT false-red is characterized (guard against a naive pattern add).** GIVEN a
+  hypothetical captured award at a NONZERO `seq_key` and a seam entry at `ut=0.0`,
+  `unmatched_captured_awards` returns it (non-empty) and the verifier turns it into a HARD
+  divergence -> FAIL. This test documents WHY M-B3 adds no pattern: a pattern that captured
+  a nonzero action's own award WOULD false-red. Fails if the wiring silently stops
+  hard-reding an unmatched award (which would hide the hazard). Separately, the B10
+  EMPTY-manifest case: any captured award reds (trusted). Fails if B10's any-capture-reds
+  signal is lost.
 - **hire fixture-pinned constant.** `compute_expected(seed, [kerbal-hire funds=-<pinnedCost>])`
   == `seed.funds - pinnedCost`; a save at a DIFFERENT hire cost (roster drift) reds. Fails if
   a stale hire constant reads green.
@@ -821,14 +1030,24 @@ cannot pilot KSP, MEMORY: in-game-sweep-needs-operator).
   `expected == seed` skipping all pools; a `fresh-science` seed asserts science only. Fails if
   a no-pools mode reds on an absent pool.
 
-### `STOCK_AWARD_PATTERNS` additions (pytest, if a pattern is added)
+### `STOCK_AWARD_PATTERNS` (M-B3 adds NONE; these are the FUTURE-rewrite tests)
 
-- **tech-unlock science-spend pattern.** A synthetic EN research-spend line parses to a
-  `tech-unlock` `CapturedAward` with the negative science delta; a running-BALANCE line is
-  rejected (M-B2 balance rule). Fails if the spend is mis-kinded (the false-red hazard) or a
-  balance line is admitted.
-- **facility / hire funds patterns (when verified).** A synthetic EN funds-debit line parses
-  to the right kind/facet DELTA. Fails if a funds balance line is captured as a delta.
+M-B3 ships no pattern change, so it adds no pattern-parse test. The tests below belong to
+the DEFERRED rewrite step (real stock text + spend/credit split + UT-agnostic match) and are
+recorded here so that step is not authored blind:
+
+- **tech-unlock science-spend pattern (future).** A synthetic line matching the REAL stock
+  research-spend text (NOT the `delta=` placeholder) parses to a `tech-unlock`
+  `CapturedAward` with the negative science delta AND is distinguished from a science CREDIT
+  (transmit) line; a running-BALANCE line is rejected (M-B2 balance rule). Fails if the
+  spend is mis-kinded as a credit or a balance line is admitted.
+- **facility / hire funds patterns (future).** A synthetic line matching the REAL stock
+  funds-debit text parses to the right kind/facet DELTA. Fails if a funds balance line is
+  captured as a delta.
+- **UT-agnostic single-action match (future).** With the recommended ut-stamped
+  `applied=true` correlation, a single captured award and a single seam entry pair on the
+  ACTION UT so the cross-check goes green on a correct run and reds on a wrong-amount run.
+  Fails if the correlation still keys on the `ut=0.0`-vs-runtime mismatch.
 
 ### Fixture-seed cross-lane (pytest + xUnit boundary)
 
@@ -845,35 +1064,40 @@ On a provisioned stock-minimal EN instance, per L1 script:
 
 1. **Create the three fixtures (mechanical from Data Model).** Start a fresh Career / Science /
    Sandbox game, set the KSC to the specified clean state (no craft, level-0 facilities, start
-   node only, pinned roster + one known applicant for Career), set the known seed pools, save,
-   and stage the save as `fixtures/saves/fresh-<mode>` with the schema generation stamp. Record
-   the pinned roster + the resulting hire cost in the fixture README.
+   node only, pinned roster of exactly the 4 stock hired kerbals + one known applicant for
+   Career), set the known seed pools, save, and stage the save as `fixtures/saves/fresh-<mode>`
+   with the schema generation stamp. Record the pinned hired-crew count + the resulting hire
+   cost + the chosen non-R&D facility's `GetUpgradeCost` (read off `observedAfter=`) in the
+   fixture README.
 2. **research-node (Career).** Run `L1-research-node-career`: confirm the harness stages
    `fresh-career`, boots, runs `KscAction research-node node=basicRocketry` (grep
    `kscaction action=research-node ... applied=true` + `OnTechnologyResearched`), computes
-   `expected = seed.science - 45`, diffs clean HARD, writes `ledgerOracle status=PASS`. BEFORE
-   trusting the cross-check, VERIFY on the live EN KSP.log whether the research spend emits a
-   `ResearchAndDevelopment ... science ... delta=` line, and add the `tech-unlock` pattern (or
-   tighten `science-transmit`) accordingly (Behavior sequencing step 2). Negative control:
+   `expected = seed.science - 5` (VERIFY the basicRocketry cost on the pinned KSP 1.12.5 tech
+   tree during fixture creation), diffs clean HARD, writes `ledgerOracle status=PASS`. Confirm
+   the capture set is EMPTY (grep the KSP.log: stock logs `[Research & Development]: +... data`
+   with no `delta=`, so nothing is captured; the cross-check is a no-op). Do NOT add a capture
+   pattern -- the pattern rewrite is deferred (Behavior sequencing steps 3-5). Negative control:
    hand-edit the produced save's R&D science to an unspent value; re-run just the verifier;
    confirm PARSEK-FAIL(ledger) with `sciencePool` named.
-3. **upgrade-facility (Career) + the L2 refund window.** Run `L1-upgrade-facility-career` in
-   SPACECENTER: confirm the funds pool dropped by the per-level cost (grep the facility POLLING
-   observer line + `kscaction action=upgrade-facility applied=true`), `expected = seed.funds -
-   cost` diffs clean. Then run `L2-facility-refund-window` (upgrade -> LoadGame -> assert):
-   confirm NO phantom `facility-refund` (the funds stay at `seed - cost` after the scene change;
-   the R6 guard). Negative control: inject a phantom refund into the produced save; confirm the
-   funds drift reds.
+3. **upgrade-facility (Career).** Run `L1-upgrade-facility-career` in SPACECENTER on a NON-R&D
+   facility (Tracking Station / VAB): confirm the funds pool dropped by the per-level cost (grep
+   the facility POLLING observer line + `kscaction action=upgrade-facility applied=true
+   observedAfter=<cost>`), `expected = seed.funds - cost` diffs clean. The L2 refund-window
+   (R6) is NOT run here -- it is DEFERRED behind the `SaveGame` verb (Behavior "The L2
+   refund-window script"); do NOT run an `upgrade -> LoadGame -> assert` script, which would
+   reload the pre-upgrade fixture and manufacture a false phantom-refund signal.
 4. **hire-kerbal / dismiss-kerbal (Career).** hire: confirm funds dropped by the pinned hire
    cost (grep `OnCrewmemberHired`), `expected = seed.funds - pinnedCost` diffs clean. dismiss:
    confirm NO pool moved (`expected == seed`, empty capture; grep `onKerbalRemoved`), the
    pool-neutrality guard. The roster-changed assertion is Deferred (M-B2 roster sub-facet).
-5. **research-node (Science).** IF the M-C1 Science-mode readiness widening lands, run
-   `L1-research-node-science` (confirm the verb fires in `SCIENCE_SANDBOX`, science drops by the
-   node cost, no funds/rep facet asserted). IF not, record Science-mode L1 as passive-only
-   (fallback).
-6. **Sandbox passive-only.** Run `L1-passive-sandbox` (a B10 variant): confirm `research-node`
-   REJECTs `node-already-unlocked`, no pool exists, `expected == seed`, PASS.
+5. **research-node (Science).** Requires the SUB-ACTION-SCOPED M-C1 readiness widening for
+   `research-node` (OQ1, plan of record). With it, run `L1-research-node-science` (confirm the
+   verb fires in `SCIENCE_SANDBOX`, science drops by the node cost, no funds/rep facet
+   asserted). Until it lands, record Science-mode L1 as passive-only (temporary fallback).
+6. **Sandbox passive-only.** Run `L1-passive-sandbox` (a PURE B10 variant, NO KscAction step):
+   confirm no pool exists, `expected == seed`, the empty-manifest any-capture-reds cross-check
+   trusted, PASS. (`research-node` is NOT driven -- in `SANDBOX` it would DEFER career-not-ready
+   -> INVALID, never a clean node-already-unlocked reject.)
 
 Grep evidence per run: the `[Harness][...][SEED|CAPTURE|ORACLE|DIFF|VERIFY]` lines, the
 `kscaction ... applied=true manifestKind=<kind>` line, the matching `GameStateRecorder`
@@ -890,15 +1114,33 @@ applies unchanged.
 
 ## Deferred Items and Open Questions
 
-Recorded so they are not lost; none blocks the four drivable L1 scripts + the L2 facility-refund
-window.
+Recorded so they are not lost; none blocks the four drivable L1 scripts. (No L2 script is
+drivable today -- the one L2 candidate, R6, is deferred behind the `SaveGame` verb below.)
 
+- **The R6 L2 facility-refund-window script (behind a `SaveGame` batch-2 seam verb).** The
+  M-C1 verb set cannot persist an upgrade before re-loading (the only `SaveGame` is inside
+  `FlushAndQuit`, which quits), so R6 is not drivable today; the naive `upgrade -> LoadGame ->
+  assert` manufactures a false phantom-refund signal. Deferred behind a standalone in-process
+  `SaveGame` verb (the minimal honest dependency vs multi-session orchestration; Behavior "The
+  L2 refund-window script"). When it lands, `L2-facility-refund-window` runs `upgrade ->
+  SaveGame -> LoadGame -> FlushAndQuit -> assert no phantom refund`.
+- **The nonzero capture cross-check (pattern rewrite + UT-agnostic single-action match).** The
+  shipped `STOCK_AWARD_PATTERNS` are dead against a real EN log, so today the nonzero capture
+  leg is an empty no-op and the save-diff carries every assertion. Making the leg TRUSTED needs
+  a single combined follow-up: REWRITE the patterns against real stock log text (`[Research &
+  Development]: ...`, the real funds-debit lines), SPLIT a science SPEND (tech-unlock) from a
+  science CREDIT (transmit) in that text, AND land a UT-agnostic single-action match
+  (recommended: stamp the `KscAction ... applied=true` line with `ut=` so a capture correlates
+  to the action's own UT and the seam entry adopts the same UT). All three must ship together
+  or a nonzero capture hard-reds (`run.py:1333`). Deferred to a batch-2 seam + oracle follow-up.
 - **The four no-seam-verb L1 items.** complete-contract and strategy defer to a KscAction
   BATCH-2 seam follow-up (`KscAction action=accept-contract contract=<guid|type>` +
-  `complete-contract contract=<guid>`, force-firing the triple-credit through
-  `Contract.Complete()`; `activate-strategy strategy=<id> commitment=<0..1>`), gated on the M-B2
-  oracle's contract/strategy facets being operator-verified end-to-end. milestone and EVA science
-  are NOT KSC actions: milestone-fed rewards defer to FLOWN B-track missions (B2/B7) + a
+  `complete-contract contract=<guid>`, force-firing the CONTRACT-LEVEL triple-credit through
+  the public `Contract.Complete()` -- which REQUIRES the Active state, so accept-contract is
+  genuinely required first -- WITHOUT the per-parameter rewards, the documented fidelity caveat;
+  `activate-strategy strategy=<id> commitment=<0..1>`), gated on the M-B2 oracle's
+  contract/strategy facets being operator-verified end-to-end. milestone and EVA science are NOT
+  KSC actions: milestone-fed rewards defer to FLOWN B-track missions (B2/B7) + a
   `ProgressTracking` capture pattern; EVA science defers to B3 EVA + the M-B2 roster world
   sub-facet.
 - **The three L2 cross-module interactions besides facility-refund.** Contract triple-credit
@@ -910,39 +1152,43 @@ window.
 - **The roster world sub-facet.** The dismiss-kerbal and hire-kerbal ROSTER assertions defer
   with M-B2's single additive `Roster` parse on `CareerSaveSnapshot`; their POOL assertions are
   drivable today. B3 EVA is the first scenario that forces the roster parse to land.
-- **The full stock-award capture enumeration.** The facility-upgrade-funds and hire-funds
-  patterns (and any research-spend `tech-unlock` pattern) are each VERIFY-PENDING-OPERATOR;
-  they strengthen the cross-check but the primary save-diff carries the assertion without them.
-  Where stock is silent, the capture waits for the RESERVED `gameevents-captured` in-game
-  subscriber, never a Parsek recalc read.
+- **The full stock-award capture enumeration.** Subsumed by the pattern-rewrite item above:
+  the facility-upgrade-funds, hire-funds, and research-spend `tech-unlock` patterns are NOT
+  added by M-B3 (adding one would false-red its own script), and land only as part of the
+  combined rewrite + UT-agnostic match. Where stock is silent, the capture waits for the
+  RESERVED `gameevents-captured` in-game subscriber, never a Parsek recalc read.
 - **L3-L5 (M-C3 / M-D1).** Actions x recording lifecycle (commit / discard / auto-merge; the
   Rec-3 residual carve-out), actions x rewind/re-fly (tombstones, supersede flips, timeline
   layering), and the L5 grand oracle career run all build on the M-B3 nonzero-manifest scripts +
   the fixtures here. `rec3CarveOut` and the UT-window machinery (M-B2) are their seams. Deferred
   with M-C3 / M-D1.
 
-### Open Questions (for the review panel)
+### Open Questions (RESOLVED by the review panel)
 
-1. **Science-mode research-node readiness gate.** M-C1's `CareerPresent` gates `research-node`
-   on `Mode == Game.Modes.CAREER`, which DEFERS the verb in `SCIENCE_SANDBOX` even though R&D
-   and node research are live there. The Science-mode L1 script needs a small M-C1 FOLLOW-UP (a
-   `RnDPresent` dispatch bit admitting `SCIENCE_SANDBOX` for the science-facet sub-action). Is
-   that follow-up in scope for M-B3's PR, or a separate M-C1 patch M-B3 depends on? The FALLBACK
-   (Science-mode = passive-only) under-covers the "Science mode has science" axis; the panel
-   should confirm the widening is taken and where.
-2. **Author constant vs fill-from-capture for the funds facet.** M-B3 prefers author /
-   fixture-pinned constants (independent of any capture pattern) for facility and hire funds,
-   because no funds capture pattern is enumerated yet. Is the panel comfortable with the
-   fixture-pinned HIRE constant as the v1 contract (with null-to-fill deferred until the
-   hire-funds pattern is operator-verified), given the state-dependent recruit-cost curve?
-3. **complete-contract fidelity.** The deferred `complete-contract` batch-2 sub-action
-   force-fires `Contract.Complete()`, bypassing the contract's parameter checks. Is that
-   acceptable fidelity for the L2 triple-credit LEDGER cross-check (the economic effect is real
-   even if the mission was not flown), or must contract completion be a flown B-track scenario
-   only? This determines whether R7 (no N-fold contract bake) is automatable at L2 or only via a
-   flown mission.
-4. **Which facility to upgrade in the L1/L2 scripts, and whether its per-level cost is fixed.**
-   The design assumes a facility whose level-0 -> 1 upgrade cost is fixed stock DATA (not
-   GameVariables-scaled). The panel should confirm the chosen facility (e.g. the Tracking Station
-   or R&D) has a deterministic per-level cost, or the script switches to a fixture-pinned constant
-   (Edge Case 3).
+1. **Science-mode research-node readiness gate. RESOLVED.** The plan of record is a
+   SUB-ACTION-SCOPED M-C1 follow-up patch that M-B3's Science script depends on: widen ONLY the
+   `research-node` sub-action to admit `(Mode == CAREER || Mode == SCIENCE_SANDBOX) &&
+   ResearchAndDevelopment.Instance != null`. hire / dismiss / upgrade STAY CAREER-only because
+   `Funding` is null in Science. WARNING: do NOT relax the shared top-level Mode check; widen the
+   per-sub-action gate for `research-node` alone. Passive-only Science is the TEMPORARY fallback,
+   not the plan of record.
+2. **Author constant vs fill-from-capture for the funds facet. RESOLVED.** The fixture-pinned
+   HIRE constant is the v1 contract (the roster is pinned to exactly the 4 stock hired kerbals,
+   so the recruit-cost curve yields a deterministic cost at hired-count 4). funds stays
+   fill-eligible for later: the script MAY switch to null-to-fill once a hire-funds capture
+   pattern is operator-verified (part of the deferred pattern rewrite). Until then the
+   fixture-pinned constant holds.
+3. **complete-contract fidelity. RESOLVED.** Accept the batch-2 `complete-contract` sub-action
+   for the L2 ledger cross-check + R7. The public `Contract.Complete()` requires the Active state
+   (so accept-contract is genuinely required first) and force-fires the REAL contract-LEVEL
+   funds+rep+science triple-credit headlessly, WITHOUT the per-parameter rewards. Documented
+   fidelity caveat: per-parameter rewards accrue only in real flight, so FULL fidelity stays a
+   flown B-track scenario; the contract-level economic effect is real and sufficient for the
+   ledger cross-check + R7 at L2.
+4. **Which facility to upgrade, and whether its per-level cost is fixed. RESOLVED.** Upgrade a
+   NON-R&D facility (Tracking Station or VAB; NIT A-N1 -- avoid an R&D upgrade line colliding
+   with the `science-transmit` regex). Its per-level cost is fixed stock DATA on the pinned
+   instance, so the author constant is valid; the operator CONFIRMS it during fixture creation by
+   reading `GetUpgradeCost` off the `observedAfter=` field of the `kscaction upgrade-facility
+   applied=true` log line and recording it in the fixture README. If any chosen facility turns
+   out GameVariables-scaled, fall back to a fixture-pinned constant (Edge Case 3).
