@@ -199,6 +199,10 @@ The four names move from `ReservedVerbs` (`TestCommandVerbs.cs:46`) to
 stops short-circuiting them to `Reject("not-implemented-v1")`
 (`TestCommandDispatcher.cs:162`). The remaining eleven reserved names are untouched.
 
+> Update (M-C1.1): a fifteenth implemented verb, `SaveGame`, was later added (a NEW name,
+> never reserved) for the M-B3 R6 persist-before-reload dependency; see the M-C1.1
+> follow-ups section below.
+
 ### DispatchState extension (`TestCommandDispatcher.cs:66`)
 
 Three new bits are sampled by the addon per poll (in `BuildDispatchState`,
@@ -237,6 +241,9 @@ struct DispatchState                      // existing fields unchanged
   the relevant singleton for the sub-action is live (`Funding.Instance`,
   `ResearchAndDevelopment.Instance`, or the roster). `research-node` / `hire-kerbal` /
   `dismiss-kerbal` operate on these game-level singletons and are AnyScene.
+  > Update (M-C1.1): `research-node` was later widened to admit SCIENCE_SANDBOX too, via a
+  > separate `RnDPresent` bit; the shared CAREER `CareerPresent` gate is unchanged and still
+  > gates hire / dismiss / upgrade-facility. See the M-C1.1 follow-ups section below.
 - `AtSpaceCenter` gates ONLY `upgrade-facility`: the funds debit lives in
   `SpaceCenterBuilding.UpgradeFacility(bool)`, a SPACECENTER-scene MonoBehaviour instance
   method with no singleton, so the verb must resolve a live `SpaceCenterBuilding` in the
@@ -1295,6 +1302,71 @@ pilot KSP):
   mean the stock call was BLOCKED, i.e. a REJECTED, not an OK). Per MEMORY:
   verify-harness-seeder-mutation. Fails if the stock action did not reach the observer, or
   the ledger mis-accounts. (PENDING-OPERATOR.)
+
+## M-C1.1 follow-ups (Science-mode research gate + SaveGame verb)
+
+Two follow-ups the M-B3 design (`docs/dev/design-autotest-ledger-scripts-b3.md`) ratified
+against this M-C1 seam and named as its own blocking dependencies. Both were implemented
+after the M-C1 merge (branch `autotest-c1-followups`). They extend BEHAVIOR only; no wire
+grammar changes.
+
+### Follow-up 1: sub-action-scoped Science-mode research-node gate (M-B3 OQ1)
+
+As shipped, `research-node` deferred `career-not-ready` in SCIENCE_SANDBOX because the
+KscAction dispatch shared a single readiness gate (`!CareerPresent`) whose
+`CareerPresent` bit (`IsCareerReady`) hard-requires `Mode == Game.Modes.CAREER`. R&D and
+node research are LIVE in Science mode, so this under-covered the "Science mode has
+science" axis (M-B3 module activation matrix, ScienceModule row).
+
+The ratified fix is a per-sub-action widen for `research-node` ALONE, following the same
+per-sub-action gate pattern the `upgrade-facility` SPACECENTER sub-gate uses:
+
+- A new `DispatchState.RnDPresent` bit: `(Mode == CAREER || Mode == SCIENCE_SANDBOX) &&
+  ResearchAndDevelopment.Instance != null`, sampled by the addon's `IsResearchReady()`
+  (mode-and-singleton, action-independent).
+- The KscAction dispatch case now reads a per-sub-action `ready` bit:
+  `research-node` admits on `CareerPresent || RnDPresent`; `hire-kerbal` /
+  `dismiss-kerbal` / `upgrade-facility` STAY CAREER-only (`CareerPresent`) because their
+  funds legs need `Funding.Instance`, which is null in Science mode and would NRE / be
+  meaningless.
+
+The shared top-level CAREER `Mode` bit (`CareerPresent`) was NOT relaxed - this is the
+ratified warning (do NOT widen the gate all four sub-actions share). The pure decider
+covers every mode x sub-action cell: CAREER (`CareerPresent=true, RnDPresent=true`) all
+four admit-with-preconditions; SCIENCE_SANDBOX (`CareerPresent=false, RnDPresent=true`)
+research admits, the other three defer `career-not-ready`; SANDBOX
+(`CareerPresent=false, RnDPresent=false`) all four defer `career-not-ready`.
+
+### Follow-up 2: the SaveGame batch-2 seam verb (M-B3 L2/R6 dependency)
+
+M-B3's R6 facility-refund-window script needs to PERSIST an in-scene career mutation and
+RELOAD it within a single launch (`upgrade-facility -> SaveGame -> LoadGame -> assert`),
+which the M-C1 verb set could not do: the only `SaveGame` lived inside `FlushAndQuit`,
+which QUITS, so a bare `LoadGame` after `upgrade-facility` reloaded the PRE-upgrade disk
+fixture and manufactured a false signal. M-B3 named a standalone `SaveGame` verb (route b)
+as the minimal honest dependency inside the existing one-launch-per-attempt model.
+
+`SaveGame` was NEVER in the M-A2 reserved envelope (no save verb was reserved), so it is a
+NEW implemented verb name (15 implemented / 11 reserved), taking the M-B3 `SaveGame`
+naming. Design surface (house pattern):
+
+- **Sync** (SaveGame is fast): standard journal CLAIMED -> EXECUTED -> DONE. A replayed
+  DONE id is skipped upstream (the processed-set filter), so the save is never re-written
+  on recovery; and re-saving a save re-serializes identical live state, so the DONE=skip
+  is a cleanliness property, not a correctness dependency.
+- **Precondition:** `AnyScene` with an in-executor no-game refusal (the AnyScene-with-a-game
+  precondition: `ERROR msg=no-game` at MAINMENU / null `CurrentGame`, decided by the pure
+  `TestCommandSaveGame.CanSave(gameLoaded, saveFolderPresent)`).
+- **Args:** `{name?}` defaulting to `persistent` (`TestCommandSaveGame.ResolveName`).
+- **Executor:** `GamePersistence.SaveGame(name, HighLogic.SaveFolder, SaveMode.OVERWRITE)`,
+  mirroring `FlushAndQuitImpl`'s save call shape minus the quit.
+- **Payload:** `OK saved=<name>`. A save-write failure (throw or empty result) ->
+  `ERROR msg=save-failed`. Every path logged.
+
+The pure `TestCommandSaveGame` decider (name default / can-save gate / payload) is
+xUnit-covered; the hlib companion moved `SaveGame` into `IMPLEMENTED_SEAM_VERBS` (+ an
+acceptance test). SaveGame is sync and completes immediately, so it is NOT a
+`DEFERRED_SEAM_VERB` and rides the default dispatch deferral budget.
 
 ## Deferred Items and Open Questions
 

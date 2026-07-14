@@ -32,6 +32,7 @@ namespace Parsek.Tests
             public void AnswerMergeDialog(ParsedCommand cmd) => Calls.Add("AnswerMergeDialog");
             public void TimeJump(ParsedCommand cmd) => Calls.Add("TimeJump");
             public void KscAction(ParsedCommand cmd) => Calls.Add("KscAction");
+            public void SaveGame(ParsedCommand cmd) => Calls.Add("SaveGame");
         }
 
         [Fact]
@@ -63,6 +64,7 @@ namespace Parsek.Tests
         [InlineData("AnswerMergeDialog", "AnyScene")]
         [InlineData("TimeJump", "RequiresFlight")]
         [InlineData("KscAction", "AnyScene")]
+        [InlineData("SaveGame", "AnyScene")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -87,6 +89,7 @@ namespace Parsek.Tests
             fake.AnswerMergeDialog(cmd);
             fake.TimeJump(cmd);
             fake.KscAction(cmd);
+            fake.SaveGame(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

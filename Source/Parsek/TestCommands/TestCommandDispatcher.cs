@@ -94,8 +94,19 @@ namespace Parsek.TestCommands
         public bool MergeJournalInFlight;
 
         /// <summary>Career singletons live (CAREER mode + the relevant Funding / RnD /
-        /// roster singleton present). The <c>KscAction</c> readiness bit.</summary>
+        /// roster singleton present). The <c>KscAction</c> readiness bit for the three
+        /// CAREER-only sub-actions (hire-kerbal / dismiss-kerbal / upgrade-facility): their
+        /// funds legs need <c>Funding.Instance</c>, which is null outside CAREER.</summary>
         public bool CareerPresent;
+
+        /// <summary>R&amp;D is live for a research spend: <c>(Mode == CAREER ||
+        /// Mode == SCIENCE_SANDBOX) &amp;&amp; ResearchAndDevelopment.Instance != null</c>.
+        /// The sub-action-scoped readiness bit for <c>research-node</c> ONLY (M-B3 OQ1): node
+        /// research is live in Science mode even though <c>Funding.Instance</c> is null there,
+        /// so research-node admits on <c>CareerPresent || RnDPresent</c> while the other three
+        /// sub-actions stay CAREER-only. Do NOT widen the shared <see cref="CareerPresent"/>
+        /// top-level bit; this is a per-sub-action widen for research-node alone.</summary>
+        public bool RnDPresent;
 
         /// <summary>The run is in the SPACECENTER scene, where the
         /// <c>SpaceCenterBuilding</c> instances exist. Gates <c>upgrade-facility</c> only.</summary>
@@ -128,6 +139,9 @@ namespace Parsek.TestCommands
         void AnswerMergeDialog(ParsedCommand cmd);
         void TimeJump(ParsedCommand cmd);
         void KscAction(ParsedCommand cmd);
+
+        // ----- M-C1.1 follow-up -----
+        void SaveGame(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -175,6 +189,10 @@ namespace Parsek.TestCommands
                 ["AnswerMergeDialog"] = VerbSceneRequirement.AnyScene,
                 ["TimeJump"] = VerbSceneRequirement.RequiresFlight,
                 ["KscAction"] = VerbSceneRequirement.AnyScene,
+                // M-C1.1 follow-up. SaveGame is an in-process persist of the current game
+                // state; AnyScene with an in-executor no-game refusal (the design's
+                // AnyScene-with-a-game precondition: refuse at MAINMENU / no CurrentGame).
+                ["SaveGame"] = VerbSceneRequirement.AnyScene,
             };
 
         /// <summary>
@@ -252,15 +270,27 @@ namespace Parsek.TestCommands
                     break;
 
                 case "KscAction":
-                    // AnyScene, but with a per-sub-action readiness sub-gate. All sub-actions
-                    // need the career singletons; upgrade-facility additionally needs the
-                    // SPACECENTER scene (the funds debit lives on a SPACECENTER-scene
-                    // SpaceCenterBuilding instance, not a headless singleton).
-                    if (!state.CareerPresent)
+                {
+                    // AnyScene, but with a per-sub-action readiness sub-gate. The readiness bit
+                    // splits by sub-action (M-B3 OQ1): research-node admits in CAREER OR
+                    // SCIENCE_SANDBOX (R&D and node research are live in Science mode even
+                    // though Funding is null), so it reads CareerPresent || RnDPresent; the
+                    // other three (hire-kerbal / dismiss-kerbal / upgrade-facility) stay
+                    // CAREER-only because their funds legs need Funding.Instance, which Science
+                    // mode lacks. This widens the per-sub-action gate for research-node ALONE;
+                    // the shared CareerPresent top-level bit is unchanged. upgrade-facility
+                    // additionally needs the SPACECENTER scene (the funds debit lives on a
+                    // SPACECENTER-scene SpaceCenterBuilding instance, not a headless singleton).
+                    string action = Arg(parsed, "action");
+                    bool ready = action == "research-node"
+                        ? (state.CareerPresent || state.RnDPresent)
+                        : state.CareerPresent;
+                    if (!ready)
                         return DispatchResult.Defer("career-not-ready");
-                    if (Arg(parsed, "action") == "upgrade-facility" && !state.AtSpaceCenter)
+                    if (action == "upgrade-facility" && !state.AtSpaceCenter)
                         return DispatchResult.Defer("not-at-space-center");
                     break;
+                }
             }
 
             // 5. Ready to execute.

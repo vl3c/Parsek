@@ -347,6 +347,11 @@ journal, verdicts) is designed once and the later commands slot in without a for
 > `KscAction` have since been promoted from Reserved to implemented; see
 > `design-autotest-seam-verbs-c1.md`. The v1 contract above is kept as the historical record.
 
+> Update (M-C1.1): a further verb, `SaveGame` (an in-process persist of the current game
+> for the M-B3 R6 persist-before-reload script), was later added as a NEW implemented verb
+> - it was never in the reserved list above, so it is additive rather than a promotion. See
+> the M-C1.1 follow-ups section of `design-autotest-seam-verbs-c1.md`.
+
 ## Behavior
 
 ### Addon lifecycle
