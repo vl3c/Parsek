@@ -58,8 +58,11 @@ TIERS: Tuple[str, ...] = ("perpr", "daily", "nightly", "weekly")
 INSTANCE_PROFILES: Tuple[str, ...] = ("stock-minimal", "modded-compat")
 
 # v1 injectedRecordings value set (design S4). Any other value is rejected;
-# preset/corpus-scoped injection is DEFERRED to M-A4 / M-B5.
-INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic")
+# broad preset/corpus-scoped injection is DEFERRED to M-A4 / M-B5. "rewind-b9" is
+# the one named fixture preset added ahead of that: the B9 rewindable-tree fixture
+# (a committed tree with a crashed booster sibling + a Rewind-to-Separation
+# RewindPoint), injected via `dotnet test --filter InjectRewindB9` for S4.1 / S1.5.
+INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")

@@ -17,6 +17,7 @@ namespace Parsek.Tests.Generators
         private readonly List<ConfigNode> rawMilestoneStates = new List<ConfigNode>();
         private readonly List<(string child, string parent)> groupHierarchyEntries
             = new List<(string, string)>();
+        private readonly List<RewindPoint> rewindPoints = new List<RewindPoint>();
         private uint milestoneEpoch;
         private bool useV3Format;
 
@@ -130,6 +131,35 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        /// <summary>
+        /// Registers a <see cref="RewindPoint"/> to be emitted in the scenario's
+        /// <c>REWIND_POINTS</c> block (mirrors <see cref="ParsekScenario"/>'s
+        /// <c>SaveStagingList("REWIND_POINTS", ...)</c> shape: a parent
+        /// <c>REWIND_POINTS</c> node with one <c>POINT</c> child per RP). Used by
+        /// the rewindable-tree fixture (B9) so an injected save can carry a
+        /// re-fly-able RewindPoint alongside its committed tree. The RP's quicksave
+        /// sidecar is written by <see cref="WriteRewindPointSaveFiles"/>.
+        /// </summary>
+        public ScenarioWriter AddRewindPoint(RewindPoint rp)
+        {
+            if (rp == null)
+                throw new ArgumentNullException(nameof(rp));
+            rewindPoints.Add(rp);
+            return this;
+        }
+
+        /// <summary>
+        /// Derives the synthetic <see cref="Recording.VesselPersistentId"/> a
+        /// recording id maps to under this writer's serialization (FNV-1a, the same
+        /// hash <see cref="BuildRecording"/> applies). Exposed so a rewindable-tree
+        /// fixture can populate a <see cref="RewindPoint.PidSlotMap"/> that matches
+        /// the pids the injected recordings actually carry.
+        /// </summary>
+        public static uint DeriveVesselPersistentId(string recordingId)
+        {
+            return StableHashToUint(recordingId ?? "");
+        }
+
         internal ScenarioWriter AddMilestone(Milestone milestone)
         {
             milestones.Add(milestone);
@@ -188,6 +218,17 @@ namespace Parsek.Tests.Generators
                     entry.AddValue("child", child);
                     entry.AddValue("parent", parent);
                 }
+            }
+
+            // REWIND_POINTS block: one POINT child per RewindPoint. Matches the
+            // parent-node + POINT-child shape ParsekScenario.SaveRewindStagingState
+            // writes (via SaveStagingList), so ParsekScenario.LoadRewindStagingState
+            // deserializes an injected fixture RP identically to a live one.
+            if (rewindPoints.Count > 0)
+            {
+                var rpParent = node.AddNode("REWIND_POINTS");
+                foreach (var rp in rewindPoints)
+                    rp?.SaveInto(rpParent);
             }
 
             return node;
@@ -260,6 +301,16 @@ namespace Parsek.Tests.Generators
             {
                 string saveDir = Path.GetDirectoryName(outputPath);
                 WriteRewindSaveFiles(saveDir, inputPath);
+            }
+
+            // Write RewindPoint quicksave sidecars for any registered RPs. The
+            // source is the un-injected input save (self-referential v1 contract:
+            // rewinding loads the same scene state - the mechanics under test are
+            // strip/restore/marker/merge, not time-travel fidelity).
+            if (rewindPoints.Count > 0)
+            {
+                string saveDir = Path.GetDirectoryName(outputPath);
+                WriteRewindPointSaveFiles(saveDir, inputPath);
             }
         }
 
@@ -437,6 +488,35 @@ namespace Parsek.Tests.Generators
                     Directory.CreateDirectory(savesDir);
 
                 string destPath = Path.Combine(savesDir, rewindName + ".sfs");
+                File.Copy(sourceSavePath, destPath, true);
+            }
+        }
+
+        /// <summary>
+        /// Writes each registered <see cref="RewindPoint"/>'s quicksave sidecar to
+        /// <c>saves/&lt;save&gt;/Parsek/RewindPoints/&lt;rpId&gt;.sfs</c> (the path
+        /// <see cref="RewindInvoker.CanInvoke"/> probes on disk, resolved from
+        /// <see cref="RewindPoint.QuicksaveFilename"/>). The source is
+        /// <paramref name="sourceSavePath"/> - a copy of the fixture save itself,
+        /// the pragmatic v1 self-referential quicksave. Skips RPs with no
+        /// QuicksaveFilename.
+        /// </summary>
+        public void WriteRewindPointSaveFiles(string saveDir, string sourceSavePath)
+        {
+            if (string.IsNullOrEmpty(saveDir) || !File.Exists(sourceSavePath))
+                return;
+
+            foreach (var rp in rewindPoints)
+            {
+                if (rp == null || string.IsNullOrEmpty(rp.QuicksaveFilename))
+                    continue;
+
+                // QuicksaveFilename is a save-relative path ("Parsek/RewindPoints/<id>.sfs").
+                string destPath = Path.Combine(saveDir, rp.QuicksaveFilename);
+                string destDir = Path.GetDirectoryName(destPath);
+                if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
+                    Directory.CreateDirectory(destDir);
+
                 File.Copy(sourceSavePath, destPath, true);
             }
         }

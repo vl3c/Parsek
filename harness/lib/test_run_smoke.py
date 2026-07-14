@@ -141,7 +141,7 @@ class FakeRuntime(run.Runtime):
 
     # ---- stubbed verifier subprocesses -----------------------------------
 
-    def run_inject(self, instance_dir, save_name, timeout):
+    def run_inject(self, instance_dir, save_name, timeout, preset="all-synthetic"):
         rec = os.path.join(instance_dir, "saves", save_name, "Parsek", "Recordings")
         os.makedirs(rec, exist_ok=True)
         for i in range(8):

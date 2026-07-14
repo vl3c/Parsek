@@ -308,12 +308,13 @@ class Runtime:
                 label, "--save", save_name, "--ksp-dir", instance_dir]
         return self._run(args, timeout, cwd=WORKTREE_ROOT)
 
-    def run_inject(self, instance_dir: str, save_name: str, timeout: float) -> ToolResult:
+    def run_inject(self, instance_dir: str, save_name: str, timeout: float,
+                   preset: str = "all-synthetic") -> ToolResult:
         env = dict(os.environ)
         env["KSPDIR"] = instance_dir
         args = ["pwsh", "-NoProfile", "-File",
                 os.path.join(SCRIPTS_DIR, "inject-recordings.ps1"),
-                "-SaveName", save_name]
+                "-SaveName", save_name, "-Preset", preset]
         return self._run(args, timeout, cwd=WORKTREE_ROOT, env=env)
 
     # ---- mission subprocess + venv I/O (M-B1) ----------------------------
@@ -679,12 +680,12 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
     # (3) inject synthetic recordings when requested (recording OFF by construction).
     inj = fixture.get("injectedRecordings", "none")
     injected = False
-    if inj == "all-synthetic":
-        res = runtime.run_inject(instance_dir, run_save_name, INJECT_TIMEOUT_SECONDS)
+    if inj in ("all-synthetic", "rewind-b9"):
+        res = runtime.run_inject(instance_dir, run_save_name, INJECT_TIMEOUT_SECONDS, preset=inj)
         injected = res.ok
         if not injected:
-            logger.warn("Stage", "inject-recordings failed exit=%s (continuing; verifier will red)"
-                        % res.exit_code)
+            logger.warn("Stage", "inject-recordings failed preset=%s exit=%s (continuing; verifier will red)"
+                        % (inj, res.exit_code))
 
     # (4) stage craft files.
     craft = fixture.get("craft", []) or []

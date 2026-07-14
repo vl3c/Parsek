@@ -3,8 +3,17 @@ param(
     [string]$SaveName = "test career",
     [string]$TargetSave = "1.sfs",
     [switch]$Build,
-    [switch]$RunDiagnosticsTests
+    [switch]$RunDiagnosticsTests,
+    # Injection preset -> xUnit filter. "all-synthetic" (default) injects the full
+    # corpus via InjectAllRecordings; "rewind-b9" injects the B9 rewindable-tree
+    # fixture (crashed sibling + RewindPoint) via InjectRewindB9.
+    [string]$Preset = "all-synthetic"
 )
+
+$injectFilterByPreset = @{
+    "all-synthetic" = "InjectAllRecordings"
+    "rewind-b9"     = "InjectRewindB9"
+}
 
 $ErrorActionPreference = "Stop"
 
@@ -49,8 +58,17 @@ for ($i = 0; $i -lt $args.Count; $i++) {
             if ($i + 1 -lt $args.Count) { $TargetSave = $args[$i + 1]; $i++ }
             continue
         }
+        "--preset" {
+            if ($i + 1 -lt $args.Count) { $Preset = $args[$i + 1]; $i++ }
+            continue
+        }
     }
 }
+
+if (-not $injectFilterByPreset.ContainsKey($Preset)) {
+    throw "Unknown injection preset '$Preset'. Known: $($injectFilterByPreset.Keys -join ', ')"
+}
+$injectFilter = $injectFilterByPreset[$Preset]
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $repoRoot
@@ -78,7 +96,7 @@ $env:PARSEK_INJECT_TARGET_SAVE = $TargetSave
 $env:PARSEK_INJECT_CLEAN_START = if ($CleanStart) { "1" } else { "0" }
 $env:KSPDIR = $kspDir
 
-Write-Host "Injecting recordings into save '$SaveName' target '$TargetSave' (clean-start=$($CleanStart.IsPresent))"
+Write-Host "Injecting recordings (preset='$Preset' filter='$injectFilter') into save '$SaveName' target '$TargetSave' (clean-start=$($CleanStart.IsPresent))"
 Write-Host "Resolved KSP dir: $kspDir"
 
 if ($RunDiagnosticsTests) {
@@ -107,7 +125,7 @@ if ($RunDiagnosticsTests) {
 $testArgs = @(
     "test",
     "Source/Parsek.Tests/Parsek.Tests.csproj",
-    "--filter", "InjectAllRecordings",
+    "--filter", $injectFilter,
     "-v", "minimal"
 )
 if (-not $Build) {
