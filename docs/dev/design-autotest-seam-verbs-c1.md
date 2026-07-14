@@ -474,19 +474,20 @@ unreachable in a v1 run: the harness NEVER restarts the seam addon mid-scenario 
 - What a crash DURING the rewind reload looks like to the harness: the KSP process hangs
   or dies mid-load, the seam never appends a terminal response, the M-A5 budget watchdog
   fires, and `run.py` process-tree-kills the instance and records the scenario as
-  KILLED. The harness then RETRIES the scenario from a PRISTINE, freshly RE-STAGED
-  template (a clean copy of the fixture save), so the retry never re-drives the
-  half-executed rewind save at all. THIS is why retrying a crashed rewind is safe: the
-  at-most-once concern is not "re-issue the same command against the same mutated save"
-  (that never happens - the retry starts from a pristine template), it is only "never
-  fire `StartInvoke` twice within one run," which the CLAIMED gate guarantees because
-  the seam never re-calls `StartInvoke` from CLAIMED.
+  KILLED. KILLED is TERMINAL: `hlib.should_retry` never retries a KILLED verdict (a hang
+  recurs), so the scenario is NOT re-staged and NOT re-driven - the half-executed rewind
+  save is simply reported KILLED and skipped. The at-most-once property does NOT rest on
+  a retry-from-clean-template argument; it rests on the WAL ALONE: "never fire
+  `StartInvoke` twice within one run," which the CLAIMED gate guarantees because the seam
+  never re-calls `StartInvoke` from CLAIMED. A killed run makes at most one `StartInvoke`
+  call and then stops.
 - The conservative-INTERRUPTED path is kept seam-side purely as a defensive contract:
   IF the addon were ever restarted with an id stuck at CLAIMED (a hypothetical the v1
   harness does not exercise), `DecideRecovery` (`TestCommandJournal.cs:282`) returns
   `Interrupted` and the addon writes `INTERRUPTED` WITHOUT re-invoking. It never
   reconstructs a late OK from the marker. There is no `RecordingState`-reconcile story
-  in v1: a killed rewind is a KILLED run that retries from a clean template, full stop.
+  in v1: a killed rewind is a terminal KILLED run (no retry, no re-stage), and the
+  at-most-once property stands on the WAL's CLAIMED gate alone, full stop.
 
 **Interaction with in-flight recordings and the merge journal.** The `recording-active`
 dispatch refusal keeps a live recorder from being silently discarded by the reload. The
@@ -605,10 +606,12 @@ supersede rows + may open a `MergeJournal`; a discard tears down a subtree,
 `MergeDialog.cs`). It leans on TWO recovery systems, and the composition is the point:
 - The seam WAL: CLAIMED lands before the button is invoked, so the button is invoked at
   most once. A crash mid-commit means the KSP process dies before a terminal response;
-  the M-A5 watchdog kills the instance (KILLED) and the scenario retries from a pristine
-  re-staged template (as for `InvokeRewind` above), never re-driving the half-committed
-  save. The conservative-INTERRUPTED path is kept seam-side for the hypothetical restart
-  the v1 harness does not exercise; it never re-invokes the button.
+  the M-A5 watchdog kills the instance (KILLED). KILLED is terminal - `hlib.should_retry`
+  never retries it, so the scenario is NOT re-staged or re-driven (as for `InvokeRewind`
+  above); the at-most-once property stands on the WAL's CLAIMED gate alone (the button is
+  invoked at most once within the run). The conservative-INTERRUPTED path is kept
+  seam-side for the hypothetical restart the v1 harness does not exercise; it never
+  re-invokes the button.
 - The merge journal's own crash-recovery: a `MergeCommit` that opened a `MergeJournal`
   and then crashed is driven forward-or-back on the next `OnLoad` by
   `MergeJournalOrchestrator.RunFinisher` (`MergeJournalOrchestrator.cs`), INDEPENDENT of
@@ -703,8 +706,10 @@ Items.
 **At-most-once.** A time jump mutates the world clock and epoch-shifts orbits
 (irreversible in-place). The WAL protects it identically: CLAIMED lands before
 `ExecuteJump`, so the jump fires at most once; a crash mid-jump dies before a terminal,
-the M-A5 watchdog kills the instance (KILLED), and the scenario retries from a pristine
-re-staged template (never re-driving the mutated clock). Unlike `InvokeRewind`, the jump
+the M-A5 watchdog kills the instance (KILLED). KILLED is terminal (never retried by
+`hlib.should_retry`), so the scenario is not re-staged or re-driven; the at-most-once
+property stands on the WAL's CLAIMED gate alone (`ExecuteJump` fires at most once within
+the run, never re-driving the mutated clock). Unlike `InvokeRewind`, the jump
 does NOT straddle a scene reload, so its OK payload IS known at completion within one
 scene and it CAN ride the EXECUTED response-rewrite recovery for the hypothetical restart
 the v1 harness does not exercise, exactly like `RunTests`.
@@ -838,13 +843,20 @@ the table above.
 Which facet carries the author constant follows the M-B2 facet policy:
 - `tech-unlock` declares an AUTHOR-CONSTANT `science` delta (the node cost is fixed data,
   not state-dependent), exactly as the worked example below shows.
-- `facility-upgrade` and `kerbal-hire` funds deltas are the FILL-ELIGIBLE funds facet:
-  the author may declare a constant OR leave it null to fill-from-capture (M-B2, funds is
-  the pool-only fill-from-capture facet). For `kerbal-hire` this matters - the hire cost
-  is state-dependent (it rises with roster size via the `GameVariables` recruit-cost
-  curve), so a hardcoded constant is fragile and null-to-fill-from-capture is the robust
-  choice; `facility-upgrade`'s cost is fixed per level but still rides the same
-  fill-eligible funds facet.
+- `facility-upgrade` and `kerbal-hire` funds deltas ride the funds facet, which is the
+  pool-only fill-eligible facet in the M-B2 model. IMPORTANT: fill-from-capture is only
+  usable once a matching stock-log capture pattern EXISTS. Today `STOCK_AWARD_PATTERNS`
+  (`harness/lib/hlib.py`) enumerates only `science-transmit` and `contract-complete`
+  (funds / reputation) - there is NO hire (`CrewRecruited`) capture pattern, and the stock
+  hire debit does not emit a line any current pattern can match. So leaving the
+  `kerbal-hire` funds delta null to fill-from-capture is a GUARANTEED FALSE-RED today (the
+  oracle expects the seed unchanged while the produced save actually debited the hire
+  cost). Therefore, for `kerbal-hire` NOW declare a FIXTURE-PINNED author constant: pin the
+  fixture roster so the recruit-cost curve yields a known cost and hardcode that constant.
+  Switch `kerbal-hire` to null-to-fill-from-capture ONLY AFTER the capture patterns are
+  rewritten against real stock KSP.log hire lines (the M-B3 sequenced work item).
+  `facility-upgrade`'s cost is fixed per level, so a declared author constant is natural
+  there too; both may move to fill-from-capture once a matching capture pattern lands.
 
 ### M-A5 driver integration (budgets, INVALID subkinds)
 
@@ -989,9 +1001,13 @@ per-step attachment `run.py` synthesizes):
   provenance = "seam-declared"
 ```
 
-(For a `hire-kerbal` or `upgrade-facility` step, the funds facet on the manifest row is
-fill-eligible: declare a constant or leave it null to fill-from-capture. Prefer
-null-to-fill for `hire-kerbal`, whose cost is state-dependent via the recruit-cost curve.)
+(For a `hire-kerbal` or `upgrade-facility` step, the funds facet on the manifest row
+rides the fill-eligible funds facet, but fill-from-capture needs a matching stock-log
+capture pattern to exist. No hire (`CrewRecruited`) capture pattern exists today, so a
+null `hire-kerbal` funds delta is a guaranteed false-red: declare a FIXTURE-PINNED author
+constant now, and switch to null-to-fill only after the capture patterns are rewritten
+against real stock logs, M-B3. `upgrade-facility` likewise declares a constant until a
+matching capture pattern lands.)
 
 ## Edge Cases
 
@@ -1007,9 +1023,10 @@ Exhaustive. Each: scenario -> expected behavior -> v1 or deferred.
 4. **InvokeRewind with a live recorder.** Dispatch refuses `recording-active`; the
    orchestrator commits / discards first. v1.
 5. **InvokeRewind crashes mid-reload.** The KSP process dies before a terminal response;
-   the M-A5 budget watchdog kills the instance (KILLED) and the scenario retries from a
-   PRISTINE re-staged template, never re-driving the half-executed save. The at-most-once
-   guarantee is that `StartInvoke` fired at most once (the CLAIMED gate); there is no v1
+   the M-A5 budget watchdog kills the instance (KILLED). KILLED is terminal - it is never
+   retried (`hlib.should_retry`), so the scenario is NOT re-staged or re-driven; the
+   half-executed save is reported KILLED and skipped. The at-most-once guarantee is that
+   `StartInvoke` fired at most once (the CLAIMED gate, on the WAL alone); there is no v1
    `RecordingState`-reconcile of a half-executed rewind, because the harness never restarts
    the seam mid-run (M-A5). v1.
 6. **InvokeRewind completes but Parsek recorded the fork wrong.** Verb is `OK`; the
@@ -1035,11 +1052,12 @@ Exhaustive. Each: scenario -> expected behavior -> v1 or deferred.
     "ParsekMerge" popup and no re-fly marker to re-surface one -> `ERROR msg=no-live-dialog`.
     v1.
 11. **AnswerMergeDialog crashes mid-commit.** The process dies before a terminal; the M-A5
-    watchdog kills it (KILLED) and the scenario retries from a pristine template - the
-    seam never re-invokes the button. Independently, a `MergeCommit` that opened a
-    `MergeJournal` and then crashed is driven to a consistent terminal on the next
-    `OnLoad` by `MergeJournalOrchestrator.RunFinisher`, so even a save reused outside the
-    harness converges. v1.
+    watchdog kills it (KILLED). KILLED is terminal (never retried), so the scenario is not
+    re-staged or re-driven; the seam never re-invokes the button (at-most-once on the WAL
+    alone). Independently, a `MergeCommit` that opened a `MergeJournal` and then crashed is
+    driven to a consistent terminal on the next `OnLoad` by
+    `MergeJournalOrchestrator.RunFinisher`, so even a save reused outside the harness
+    converges. v1.
 12. **TimeJump backward or zero delta.** `IsForwardJump` false ->
     `REJECTED msg=backward-jump`. v1.
 13. **TimeJump with both ut and deltaSeconds (or neither).** `ResolveTargetUt` errors
@@ -1050,9 +1068,10 @@ Exhaustive. Each: scenario -> expected behavior -> v1 or deferred.
     marker, no context); the following `InvokeRewind` sees a clean gate. "Jump then
     rewind leaves no state" (S4.8). v1.
 16. **TimeJump crashes mid-jump.** The process dies before a terminal; the M-A5 watchdog
-    kills it (KILLED) and the scenario retries from a pristine template. The at-most-once
-    guarantee is the CLAIMED gate (`ExecuteJump` fired at most once; SetUniversalTime +
-    epoch-shift is not idempotent, so it must never be re-driven within a run). v1.
+    kills it (KILLED). KILLED is terminal (never retried), so the scenario is not re-staged
+    or re-driven. The at-most-once guarantee is the CLAIMED gate on the WAL alone
+    (`ExecuteJump` fired at most once; SetUniversalTime + epoch-shift is not idempotent, so
+    it must never be re-driven within a run). v1.
 17. **KscAction unknown action arg.** `ParseKind` returns `Unknown` ->
     `REJECTED msg=unknown-action`. v1.
 18. **KscAction insufficient funds / science.** The pure `Decide` refuses before the
@@ -1345,11 +1364,12 @@ pilot KSP):
 3. **InvokeRewind completion when the marker was written but the seam crashed. RESOLVED.**
    Conservative is correct, and the reconcile framing is dropped. In the v1 harness INTERRUPTED
    is UNREACHABLE (the harness never restarts the seam mid-run, M-A5): a crashed rewind surfaces
-   as KILLED (budget watchdog) and the scenario retries from a PRISTINE re-staged template, which
-   is exactly why retrying a half-executed rewind is safe (the retry never re-drives the
-   half-executed save). No `RecordingState`-reconcile and no marker-driven late-OK recovery is
-   built; conservative-INTERRUPTED stays seam-side only as a defensive contract for the
-   hypothetical restart.
+   as KILLED (budget watchdog), and KILLED is terminal - `hlib.should_retry` never retries it, so
+   the scenario is NOT re-staged or re-driven. The at-most-once property stands on the WAL's
+   CLAIMED gate alone (`StartInvoke` fires at most once within the run). No
+   `RecordingState`-reconcile and no marker-driven late-OK recovery is built;
+   conservative-INTERRUPTED stays seam-side only as a defensive contract for the hypothetical
+   restart.
 4. **AnswerMergeDialog live-context capture vs. button-callback invocation. RESOLVED:
    button-callback invocation.** Find the live `PopupDialog` by `MergeDialog.DialogName` and
    invoke the chosen `DialogGUIButton`'s OWN callback (no `LiveDialogContext` stash). It survives

@@ -790,18 +790,27 @@ now implemented (branch `autotest-ma62-followups`).
   defense, so each gate re-derives the current truth from the actual input rather
   than trusting a cheaper stand-in. Skips are wired into:
   - CLONE bulk mutable-surface copy + junction (re)creation -- skipped only when
-    buildID64 matches, every junction resolves, AND the instance
-    `KSP_x64_Data/Managed` stat (file count + total bytes,
-    `mutableSurfaceManagedStat`) still matches the recorded stat. buildID64 is a
-    SINGLE-FILE version fingerprint; on its own it cannot see a partially-deleted
-    instance or a swapped stock Managed DLL, and VERIFY never re-hashes the stock
-    Managed tree, so the Managed-stat re-scan (`provlib.mutable_surface_stat_matches`)
-    is the cheap fresh instance-integrity check that closes that gap. **Residual
-    risk (accepted):** an in-place edit of a stock Managed DLL that preserves BOTH
-    the file count and the exact byte size is not caught by the count+size stat;
-    catching that would need a per-file content or size+mtime digest of the whole
-    mutable surface (deferred as the sounder-but-costlier option). A manifest
-    without the recorded stat (a pre-S2 manifest) re-copies once to arm the check.
+    the DEV install's CURRENT `buildID64` still equals the recorded hash (the
+    FRESH-SOURCE gate, item 10) AND the instance `buildID64` matches AND every
+    junction resolves AND the instance `KSP_x64_Data/Managed` stat (file count +
+    total bytes, `mutableSurfaceManagedStat`) still matches the recorded stat. The
+    mutable surface is COPIED FROM the dev install, so like the dev-mod copy below it
+    must gate on the fresh SOURCE: a dev-side KSP version bump changes the source
+    `buildID64` while the instance still matches the OLD recorded hash, so an
+    instance-vs-recorded-only gate would skip and the new KSP would never re-propagate
+    (require dev-source == recorded == instance). buildID64 is a SINGLE-FILE version
+    fingerprint; on its own it cannot see a partially-deleted instance or a swapped
+    stock Managed DLL, and VERIFY never re-hashes the stock Managed tree, so the
+    Managed-stat re-scan (`provlib.mutable_surface_stat_matches`) is the cheap fresh
+    instance-integrity check that closes that gap. **Residual risk (accepted):** (a) an
+    in-place edit of a stock Managed DLL that preserves BOTH the file count and the
+    exact byte size is not caught by the count+size stat; (b) the buildID64 fingerprint
+    tracks the KSP VERSION, not the copied `KSP_x64.exe` / top-level files, so a
+    SAME-version dev-side change to the exe or a top-level file is not caught here
+    either (VERIFY does not re-hash them). Catching either would need a per-file content
+    or size+mtime digest of the whole mutable surface (deferred as the
+    sounder-but-costlier option). A manifest without the recorded stat (a pre-S2
+    manifest) re-copies once to arm the check.
   - CLONE per-dev-mod copy -- skipped only when the FRESH dev-SOURCE tree-hash
     equals BOTH the recorded manifest hash AND the instance tree-hash
     (dev-source == recorded == instance). Comparing instance-vs-manifest alone was
@@ -845,6 +854,19 @@ now implemented (branch `autotest-ma62-followups`).
   folder-sibling. Backward-tolerant: an old manifest carrying no
   `componentInventories` verifies exactly as before, logging an amber
   "inventory absent - re-provision to arm" rather than a spurious drift.
+  Case-insensitive path compare (item 10): `diff_inventory` folds paths to lower
+  case (mirroring the PluginData `.lower()` convention) so a case-only folder
+  difference between the recorded path and the on-disk scan on Windows's
+  case-insensitive filesystem is not a false missing+added pair.
+  Pre-inventory carry-forward (item 2): an SF9 SKIP over a manifest that PREDATES
+  `componentInventories` (so `_prior_inventory` returns []) must not stamp the
+  inventory present-but-EMPTY -- that leaves `componentInventories` non-None, so the
+  amber path never fires and the next VERIFY reds EVERY on-disk file as ADDED (a drift
+  storm). The krpc / krpc_mechjeb / mechjeb2 skip paths therefore fall back to
+  `_inventory_of_folder` (scan the install folder from disk) exactly like the
+  testingtools path already did, ARMING a real inventory on the first post-M-A6.2 run.
+  A shared-folder scan records the folder SUPERSET, which is harmless under the
+  folder-UNION diff.
 
 ## Backward Compatibility
 

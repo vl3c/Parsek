@@ -1,6 +1,9 @@
 schema = 1
 id = "B2-lko-ascent"
-tier = "daily"
+# pending-fixture (NOT daily): the fixtures/saves/b2-lko-craft template is not
+# committed yet, so a --cadence daily run would INVALID(staging) this terminally and
+# self-quarantine a scenario that never ran. Re-tier to "daily" once the fixture lands.
+tier = "pending-fixture"
 description = "LKO ascent: MechJeb AscentAutopilot to an 80 km near-circular orbit; assert orbit-parameter windows."
 instanceProfile = "stock-minimal"
 tags = ["B2", "S0.2", "flown", "mechjeb"]

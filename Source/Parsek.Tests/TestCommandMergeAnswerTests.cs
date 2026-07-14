@@ -109,12 +109,44 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DecideAnswerCompletion_AppliedButSceneStallsPastBudget_AppliedSceneStall()
+        {
+            // The merge / discard / seal callback ran (applied=true) but the post-answer scene
+            // never left FLIGHT before the budget expired. The terminal must SPLIT off from
+            // the plain AnswerTimeout and carry the applied fact, so the orchestrator never
+            // reads a committed merge as a clean failure.
+            Assert.Equal(AnswerCompletionDecision.AnswerAppliedSceneStall,
+                TestCommandMergeAnswer.DecideAnswerCompletion(
+                    Budget, answerApplied: true, TestCommandScene.Flight, Budget));
+        }
+
+        [Fact]
+        public void DecideAnswerCompletion_AppliedButLoadingStallsPastBudget_AppliedSceneStall()
+        {
+            // A mid-transition LOADING scene that never settles past the budget is likewise an
+            // applied-scene-stall (the answer already landed).
+            Assert.Equal(AnswerCompletionDecision.AnswerAppliedSceneStall,
+                TestCommandMergeAnswer.DecideAnswerCompletion(
+                    Budget + 5.0, answerApplied: true, TestCommandScene.Loading, Budget));
+        }
+
+        [Fact]
         public void CompletePayload_CarriesChoiceAndResult()
         {
             var p = TestCommandMergeAnswer.BuildCompletePayload("merge", "committed");
             Assert.Equal("merge", Val(p, "choice"));
             Assert.Equal("committed", Val(p, "result"));
             Assert.Equal(new[] { "choice", "result" }, p.Select(kv => kv.Key).ToArray());
+        }
+
+        [Fact]
+        public void AppliedStallPayload_CarriesAppliedTrueChoiceAndResult()
+        {
+            var p = TestCommandMergeAnswer.BuildAppliedStallPayload("merge", "committed");
+            Assert.Equal("true", Val(p, "applied"));
+            Assert.Equal("merge", Val(p, "choice"));
+            Assert.Equal("committed", Val(p, "result"));
+            Assert.Equal(new[] { "applied", "choice", "result" }, p.Select(kv => kv.Key).ToArray());
         }
     }
 }

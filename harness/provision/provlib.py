@@ -568,17 +568,27 @@ def diff_inventory(recorded: Dict[str, str], current: Dict[str, str]) -> List[In
     Any path under a runtime-writable (PluginData) subtree is tolerated on ALL
     three axes (never emitted): the game rewrites it per launch, so flagging it
     would re-drift the instance on every boot. Empty list == the folder matches
-    its recorded inventory exactly (outside PluginData)."""
+    its recorded inventory exactly (outside PluginData).
+
+    Path comparison is CASE-INSENSITIVE (item 10), mirroring the PluginData
+    ``name.lower()`` handling (is_runtime_writable_dir): KSP's GameData lives on a
+    case-insensitive Windows filesystem, so a recorded ``GameData/kRPC/Foo.dll`` and an
+    on-disk scan yielding ``GameData/krpc/Foo.dll`` are the SAME file. A case-sensitive
+    compare would false-red it as one ``missing`` + one ``added``. The reported ``rel``
+    keeps the RECORDED (or current) original casing for readability."""
     out: List[InventoryDiff] = []
+    current_fold = {rel.lower(): rel for rel in current}
+    recorded_fold = {rel.lower() for rel in recorded}
     for rel in sorted(recorded):
         if path_has_runtime_writable_segment(rel):
             continue
-        if rel not in current:
+        cur_rel = current_fold.get(rel.lower())
+        if cur_rel is None:
             out.append(InventoryDiff(rel, "missing"))
-        elif current[rel] != recorded[rel]:
+        elif current[cur_rel] != recorded[rel]:
             out.append(InventoryDiff(rel, "changed"))
     for rel in sorted(current):
-        if rel in recorded or path_has_runtime_writable_segment(rel):
+        if rel.lower() in recorded_fold or path_has_runtime_writable_segment(rel):
             continue
         out.append(InventoryDiff(rel, "added"))
     return out

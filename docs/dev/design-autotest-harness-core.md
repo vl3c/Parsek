@@ -194,7 +194,12 @@ Treat this paragraph as the amendment of record for plan section 4.
 ```toml
 schema = 1
 id = "B10-career-passive-safety"
-tier = "daily"                       # perpr | daily | nightly | weekly
+tier = "daily"                       # perpr | daily | nightly | weekly | pending-fixture
+# pending-fixture is a READINESS state, not a cadence: a spec whose fixture save is
+# not committed yet self-declares it so it is EXCLUDED from every --cadence run (no
+# cadence maps to it) instead of INVALID(staging)-ing terminally each daily run and
+# self-quarantining a scenario that never ran. --tier pending-fixture still selects it;
+# an operator re-tiers it to its real cadence tier the moment the fixture lands.
 description = "Fresh career, stock actions only, warp + scene change + cold load; no economy drift."
 instanceProfile = "stock-minimal"    # must equal a provisioned profile (manifest.profile)
 tags = ["ledger", "B10", "R1", "R2"] # free-text selectors + regression ids
@@ -444,6 +449,10 @@ daily` runs all daily specs; `--tag R14` runs every spec tagged R14; `--id X`
 runs one; `--cadence` maps a cadence name to a tier set per plan section 10
 (`per-pr` -> analyzer-on-fixtures only, no KSP; `daily` -> daily tier;
 `nightly` -> daily + nightly + a regression-rotation slice; `weekly` -> all).
+NO cadence resolves to the `pending-fixture` tier (integration item 4): a spec whose
+fixture save is not committed yet is excluded from EVERY `--cadence` run so it cannot
+INVALID(staging) terminally and self-quarantine a scenario that never ran; `--tier
+pending-fixture` still selects it for an operator smoke run once the fixture lands.
 Selection is pure (`hlib.select_scenarios(specs, expr)`), so the exact set a
 cadence resolves to is unit-tested. Selected specs are validated
 (`hlib.validate_spec`); any invalid spec is reported and SKIPPED with an
@@ -651,6 +660,20 @@ Passing an explicit `budget=` ARGUMENT down to the seam command itself (so the s
 adopts the spec's per-step budget instead of its 600s fallback) is DEFERRED to
 M-A5.1; v1 lives within the fixed 600s seam ceiling via the 540s cap above.
 
+Dispatch-deferral margin for non-two-phase verbs (integration item 3): the same
+"out-wait the seam + 60s so its TIMEOUT is observed" rule applies to seam verbs that
+are NOT in `DEFERRED_SEAM_VERBS` but still carry a nonzero seam-side DISPATCH deferral
+budget -- `AnswerMergeDialog` (120s dialog wait) and `KscAction` (60s career-ready
+wait) are bounded-wait-but-quick, so they are deliberately not two-phase-deferred, yet
+they DO park at the seam head up to their own budget before self-emitting a TIMEOUT. A
+bare per-step wait for those verbs could KILL a genuinely-deferring verb before the
+seam surfaces its (retryable driver-INVALID) TIMEOUT. `hlib.dispatch_deferral_budget` /
+`required_dispatch_step_wait` mirror the C# `DeferralBudget.BudgetSeconds` table, and
+`drive_seam` out-waits each non-deferred verb's dispatch budget + the 60s margin (a
+spec-pinned larger per-step budget still wins; capped at the run budget). This closes
+the gap where only the two-phase `RunTests`/`LoadGame`/`InvokeRewind`/`TimeJump` verbs
+were protected.
+
 ### The verifier chain (order and short-circuit)
 
 Run after the process exits (cleanly, via FlushAndQuit / autorun-exit, or by kill).
@@ -681,7 +704,15 @@ retry re-runs only that verifier subprocess, not a fresh KSP boot).
    the result for debugging) but that pass is NON-VERDICT -- it cannot turn a
    driver-INVALID into PARSEK-FAIL or PASS; the verdict stays INVALID. This gives a
    maintainer the analyzer read of a broken-driver save without letting a
-   possibly-torn save drive the verdict.
+   possibly-torn save drive the verdict. The driver-INVALID is further sub-classified
+   from the first unmet step (`_stage_subkind_for`): no response -> driver-stage,
+   `TIMEOUT` -> seam-timeout, a LoadGame `ERROR` -> load-failed, and (integration item
+   6) an M-C1 verb REFUSAL carrying a recognized `msg=` reason maps to the finer
+   driver-* subkind via the pure `hlib.classify_seam_refusal_subkind`
+   (refly-gate->driver-gate, unknown-rp/slot->driver-arg,
+   no-live-dialog/choice-unavailable->driver-dialog, career-not-ready + career-state
+   declines->driver-career, backward/refused-jump->driver-rewind); an unrecognized
+   reason falls back to driver-verdict-mismatch. All are retry-once-then-INVALID.
 2. **BATCH_COMPLETE presence** (grep KSP.log for the M-A3 `BATCH_COMPLETE v1 `
    contract line). Absent when the spec expected a batch -> the batch hung or
    crashed mid-run: KILLED if the process was killed, else PARSEK-FAIL

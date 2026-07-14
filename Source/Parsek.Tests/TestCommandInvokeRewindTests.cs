@@ -20,13 +20,32 @@ namespace Parsek.Tests
             => p.First(kv => kv.Key == key).Value;
 
         [Fact]
-        public void ContextPending_StillWaiting()
+        public void ContextPending_WithinBudget_NoMarker_StillWaiting()
         {
-            // Pre-load / mid-load straddle: keep holding the head regardless of marker/budget.
+            // Pre-load / mid-load straddle within budget: keep holding the head.
             Assert.Equal(RewindCompletionDecision.StillWaiting,
                 TestCommandInvokeRewind.DecideRewindCompletion(
                     5.0, contextPending: true, markerPresent: false, Budget));
-            Assert.Equal(RewindCompletionDecision.StillWaiting,
+        }
+
+        [Fact]
+        public void ContextPending_NoMarker_BudgetExpired_RewindTimeout()
+        {
+            // The reload aborted without ConsumePostLoad, leaving the invoke context Pending
+            // forever. The budget check is now UNCONDITIONAL (it no longer short-circuits on
+            // contextPending), so RewindTimeout is reachable in its own documented case
+            // instead of the FIFO head being held indefinitely. This is the SHOULD-FIX cell.
+            Assert.Equal(RewindCompletionDecision.RewindTimeout,
+                TestCommandInvokeRewind.DecideRewindCompletion(
+                    Budget + 10.0, contextPending: true, markerPresent: false, Budget));
+        }
+
+        [Fact]
+        public void ContextPending_MarkerPresent_CompleteOk()
+        {
+            // A fresh marker is unambiguous success and wins even while the context flag has
+            // not cleared yet (ConsumePostLoad writes the marker as it clears the context).
+            Assert.Equal(RewindCompletionDecision.CompleteOk,
                 TestCommandInvokeRewind.DecideRewindCompletion(
                     Budget + 10.0, contextPending: true, markerPresent: true, Budget));
         }

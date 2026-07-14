@@ -727,12 +727,32 @@ def _clone_surface_skips(ctx: ProvisionContext, junctions: Dict[str, str]) -> bo
     partially-deleted instance or a swapped stock Managed DLL (reviewer S2), and
     VERIFY never re-hashes the stock Managed tree, so a false skip would go
     uncaught. The Managed-stat re-scan is the cheap fresh integrity check that
-    closes that gap."""
+    closes that gap.
+
+    FRESH-SOURCE rule (item 10, mirror of the BUILD-TT gate + the dev-sourced-mod copy):
+    the mutable surface is COPIED FROM the dev install, so the skip must also gate on the
+    DEV install's CURRENT buildID64 -- not just instance-vs-recorded. A dev-side KSP
+    version bump changes the source buildID64 while the instance still matches the OLD
+    recorded hash, so an instance-vs-recorded-only gate would SKIP and the new KSP version
+    would never re-propagate into the instance (the exact dev-UPDATE blind spot the
+    dev-sourced-mod copy calls out). Require dev-source == recorded == instance. RESIDUAL
+    GAP (noted honestly in design-autotest-stack-setup.md): buildID64 fingerprints the
+    version, not the copied exe / top-level files; a same-version dev change to those is
+    still not caught here (VERIFY does not re-hash them either)."""
     recorded_b64 = (ctx.prior_manifest or {}).get("buildId64Sha256")
     b64_path = os.path.join(ctx.instance_dir, "buildID64.txt")
     current_b64 = sha256_file(b64_path) if os.path.isfile(b64_path) else None
-    decision = provlib.decide_idempotent_skip(ctx.prior_complete, recorded_b64, current_b64)
+    dev_b64 = _dev_buildid64_sha(ctx)
+    # Gate on the FRESH source: skip only when the dev install's current buildID64 still
+    # equals the recorded hash (else a KSP version bump must re-copy). decide_idempotent_skip
+    # then confirms the instance matches that same fresh id.
+    source_matches_recorded = recorded_b64 is not None and dev_b64 == recorded_b64
+    decision = provlib.decide_idempotent_skip(
+        ctx.prior_complete and source_matches_recorded, dev_b64, current_b64)
     if not decision.skip:
+        if ctx.prior_complete and recorded_b64 is not None and not source_matches_recorded:
+            log(ctx, "Info", "Clone",
+                "SF9 no mutable-surface skip: dev buildID64 changed (fresh-source rule; a KSP version bump must re-copy)")
         return False
 
     def _resolve_link(link_key: str) -> Optional[str]:
@@ -1980,6 +2000,22 @@ def _prior_inventory(ctx: ProvisionContext, comp: str) -> List[Dict[str, str]]:
     return list(((ctx.prior_manifest or {}).get("componentInventories", {}) or {}).get(comp, []) or [])
 
 
+def _inventory_of_folder(ctx: ProvisionContext, comp: str) -> List[Dict[str, str]]:
+    """SF10 FALLBACK (item 2): build a component's installed-file inventory by SCANNING
+    its on-disk install folder, sorted ``[{"rel","sha256"}]``. Used only when the prior
+    manifest predates componentInventories (``_prior_inventory`` returns []): a hash-match
+    SKIP that carried the empty prior forward would stamp the inventory present-but-EMPTY,
+    the amber path (keyed on the whole map being None) would never fire, and the next real
+    VERIFY over the live instance would red EVERY on-disk file as an ADDED-file drift storm.
+    Scanning the folder ARMS a real inventory instead. For a component sharing a folder
+    (kRPC), this records the folder SUPERSET; the VERIFY diff is folder-UNION so a superset
+    causes no missing/added drift (the union already covers every on-disk file)."""
+    folder_rel = provlib.stack_component_install_folder(comp)
+    folder_abs = os.path.join(ctx.instance_dir, *folder_rel.split("/"))
+    hashes = _scan_folder_hashes(ctx, folder_rel, folder_abs)
+    return [{"rel": rel, "sha256": hashes[rel]} for rel in sorted(hashes)]
+
+
 def _install_stack(ctx: ProvisionContext, stack: Sequence[str]) -> None:
     extra = _extra(ctx)
     inv = _inventories(ctx)
@@ -1994,7 +2030,9 @@ def _install_stack(ctx: ProvisionContext, stack: Sequence[str]) -> None:
             ctx.prior_complete and _install_pin_stable(ctx, "krpc"), expected, current)
         if skip.skip:
             extra["krpc"] = {"installedDlls": recorded_map}
-            inv["krpc"] = _prior_inventory(ctx, "krpc")
+            # item 2: arm the inventory from disk when the prior manifest predates it,
+            # so the first post-M-A6.2 skip does not stamp an empty inventory (drift storm).
+            inv["krpc"] = _prior_inventory(ctx, "krpc") or _inventory_of_folder(ctx, "krpc")
             # kRPC settings.cfg (PluginData) is left in place; re-hash it so the
             # manifest's krpcSettingsSha256 still describes the on-disk bytes.
             sp = _krpc_settings_path(ctx)
@@ -2051,7 +2089,8 @@ def _install_stack(ctx: ProvisionContext, stack: Sequence[str]) -> None:
             ctx.prior_complete and _install_pin_stable(ctx, "krpc_mechjeb"), recorded, current)
         if skip.skip:
             extra["krpc_mechjeb"] = {"dllSha256": recorded}
-            inv["krpc_mechjeb"] = _prior_inventory(ctx, "krpc_mechjeb")
+            # item 2: arm the inventory from disk when the prior manifest predates it.
+            inv["krpc_mechjeb"] = _prior_inventory(ctx, "krpc_mechjeb") or _inventory_of_folder(ctx, "krpc_mechjeb")
             log(ctx, "Info", "Install", "SF9 skip KRPC.MechJeb extraction (hash-match, pin stable)")
         else:
             zip_path = _cached_zip_path(ctx, "krpc_mechjeb", "downloadUrl")
@@ -2075,7 +2114,8 @@ def _install_stack(ctx: ProvisionContext, stack: Sequence[str]) -> None:
             ctx.prior_complete and _install_pin_stable(ctx, "mechjeb2"), expected, current)
         if skip.skip:
             extra["mechjeb2"] = {"installedDlls": recorded_map}
-            inv["mechjeb2"] = _prior_inventory(ctx, "mechjeb2")
+            # item 2: arm the inventory from disk when the prior manifest predates it.
+            inv["mechjeb2"] = _prior_inventory(ctx, "mechjeb2") or _inventory_of_folder(ctx, "mechjeb2")
             log(ctx, "Info", "Install", "SF9 skip MechJeb2 extraction (hash-match, pin stable)")
             return
         zip_path = _cached_zip_path(ctx, "mechjeb2", "downloadUrl")
