@@ -793,6 +793,7 @@ class SelectionTests(unittest.TestCase):
         {"id": "B", "tier": "nightly", "tags": ["R14"]},
         {"id": "C", "tier": "weekly", "tags": ["mods"]},
         {"id": "D", "tier": "perpr", "tags": []},
+        {"id": "E", "tier": "operator", "tags": ["rewind", "pending-operator"]},
         {"id": "P", "tier": "pending-fixture", "tags": ["awaiting-fixture"]},
     ]
 
@@ -809,11 +810,25 @@ class SelectionTests(unittest.TestCase):
         got = [s["id"] for s in hlib.select_scenarios(self.SPECS, "--cadence nightly")]
         self.assertEqual(got, ["A", "B"])
 
-    def test_cadence_weekly_is_all(self):
-        # Item 4: pending-fixture is a readiness state, NOT a cadence -- even the
-        # all-inclusive weekly cadence must exclude it (P is absent).
+    def test_cadence_weekly_excludes_noncadence_tiers(self):
+        # Weekly is the widest cadence yet NEITHER non-cadence tier is selected:
+        # operator specs (E) run only under an explicit --tier/--id, and
+        # pending-fixture (P) is a readiness state, not a cadence.
         got = [s["id"] for s in hlib.select_scenarios(self.SPECS, "--cadence weekly")]
         self.assertEqual(got, ["A", "B", "C", "D"])
+
+    def test_operator_tier_in_no_cadence(self):
+        for cadence in ("per-pr", "daily", "nightly", "weekly"):
+            got = [s["id"] for s in hlib.select_scenarios(self.SPECS, "--cadence " + cadence)]
+            self.assertNotIn("E", got, "operator spec leaked into cadence %s" % cadence)
+
+    def test_operator_tier_selectable_by_explicit_tier(self):
+        got = [s["id"] for s in hlib.select_scenarios(self.SPECS, "--tier operator")]
+        self.assertEqual(got, ["E"])
+
+    def test_operator_is_valid_tier_vocabulary(self):
+        self.assertIn("operator", hlib.TIERS)
+        self.assertNotIn("operator", [t for ts in hlib.CADENCE_TIERS.values() for t in ts])
 
     def test_cadence_daily(self):
         # Item 4: a daily cadence run must NOT pick up the pending-fixture spec (it

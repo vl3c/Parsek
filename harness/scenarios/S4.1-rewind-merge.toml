@@ -1,0 +1,122 @@
+schema = 1
+id = "S4.1-rewind-merge"
+# tier = "operator": InvokeRewind + AnswerMergeDialog are RequiresFlight / conclude-a-
+# flight and the seam has NO flight-entry verb, so run unattended from the gloops
+# SPACECENTER host every verb only DEFERS to a TIMEOUT and burns a boot with no PASS
+# reachable. "operator" is excluded from every cadence (hlib CADENCE_TIERS), so no
+# daily/nightly/weekly run schedules this; an operator runs it with `--tier operator`
+# (or `--id`) once the B9 split is loaded in FLIGHT. The pending-operator TAG alone is
+# non-gating - the tier is what keeps it off the cadences.
+tier = "operator"
+# The B9 re-fly cycle (catalog B9 / S4.1): inject a committed tree whose ascent
+# split into a surviving upper stage + a CRASHED booster, plus a Rewind-to-
+# Separation RewindPoint at the split. Drive the whole cycle through the M-C1
+# verbs: InvokeRewind spawns and settles the fresh re-fly attempt in FLIGHT, then
+# the folded AnswerMergeDialog DRIVES the conclusion scene-exit (surfacing the
+# pre-transition merge dialog) and answers it with Commit. There is deliberately NO
+# separate scene-changing conclusion step between them: a blocking LoadGame
+# conclusion would starve the very AnswerMergeDialog that unblocks it (the
+# AnswerMergeDialog FIFO-starvation deadlock, design finding A-B1).
+#
+# PENDING-OPERATOR: the live re-fly runs only inside KSP and an agent cannot pilot
+# it. InvokeRewind and AnswerMergeDialog are RequiresFlight / conclude-a-flight;
+# the seam has NO flight-entry verb, so an operator must have the B9 split loaded
+# in the FLIGHT scene (or supply a FLIGHT-scene B9 template) before InvokeRewind
+# can fire rather than defer. Until then the seam asserts here are the headless-
+# checkable ones (the StartInvoke / Invocation-complete log contracts + the
+# recording-count floor); the supersede-relation / tombstone asserts are RESERVED
+# (see [expectations.rewind]) and named in the coordinator runbook.
+description = "B9 re-fly cycle: InvokeRewind a crashed-booster slot, AnswerMergeDialog merge folds the scene-exit conclusion, corpus survives, re-fly log contracts fire."
+instanceProfile = "stock-minimal"
+tags = ["rewind", "refly", "merge", "S4.1", "B9", "D9", "pending-operator"]
+
+[fixture]
+# rewind-b9 injects the B9 rewindable-tree fixture (RewindB9Fixture via
+# `dotnet test --filter InjectRewindB9`): a committed tree (root ascent + surviving
+# upper stage + crashed booster, TerminalState.Destroyed) and a RewindPoint
+# rp_b9_root with two child slots (upper=0, booster=1). The RP quicksave sidecar is
+# written self-referentially to Parsek/RewindPoints/rp_b9_root.sfs so CanInvoke's
+# on-disk probe passes; CreatingSessionId is null so LoadTimeSweep keeps it. The
+# gloops-airshow save is the injection host (see the PENDING-OPERATOR flight-scene
+# note above).
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "rewind-b9"
+craft = []
+
+[driver]
+kind = "seam"
+# The worked example (design "Example scenario spec fragments"). rp/slot are the
+# fixed identifiers RewindB9Fixture bakes (rp_b9_root, slot 1 = the crashed
+# booster). autoRecordOnLaunch OFF pins determinism (no save-setting-triggered live
+# recording racing the re-fly). AnswerMergeDialog merge leaves the run in
+# SPACECENTER with the fork merged + committed, so the following RecordingState
+# (AnyScene) confirms the merged tree - a CommitTree here would ERROR no-active-tree
+# because the merge already committed the fork.
+steps = [
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "InvokeRewind",     args = { rp = "rp_b9_root", slot = "1" },             expect = "OK", budget = 300 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                         expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                           expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: the cycle drives a real Rewind-to-Separation on a chosen slot past the
+# five-precondition gate (rewind-to-separation, refly-gate), which captures the
+# reconciliation bundle (reconciliation-bundle) and runs the read-back guard over
+# it (read-back-guard); the merge commit splits the origin at the rewind UT
+# (head-tip-split), writes the supersede row (supersede-relation), classifies the
+# terminal kind (terminal-kind-classify), and opens the merge journal
+# (merge-journal). D8 recalc-engine: the re-fly recalcs the ledger at merge. NOT
+# claimed: tombstones (the crashed sibling is an uncrewed booster, no kerbal-death
+# tombstone) and revert-during-refly-dialog (we merge, not discard).
+D9 = ["rewind-to-separation", "refly-gate", "reconciliation-bundle", "read-back-guard",
+      "head-tip-split", "supersede-relation", "terminal-kind-classify", "merge-journal"]
+D8 = ["recalc-engine"]
+
+[expectations.recordings]
+# Floor only: the merged fork must leave at least the surviving tree visible. A
+# re-fly that lost the committed corpus would sink below 1 and red. (No ceiling:
+# the merge adds the re-fly fork's recording(s), a count the headless path does not
+# pin.)
+count = { min = 1 }
+
+[expectations.logContracts]
+# The two grep-stable re-fly milestones (RewindInvoker.cs:536 / :963): StartInvoke
+# entered the pre-load phase and the post-load ConsumePostLoad completed. Both
+# firing proves the re-fly actually ran end-to-end, not just that the verb returned.
+required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+# RESERVED block (hlib evaluate_expectations records these SKIPPED until the M-C2
+# rewind verifier lands). Documents the re-fly-specific asserts a save-parse
+# verifier will check: exactly one supersede row for the superseded booster
+# subtree, and no phantom tombstone (uncrewed booster). PENDING-OPERATOR /
+# PENDING-VERIFIER; named in the coordinator runbook.
+[expectations.rewind]
+supersedeRows = { min = 1 }
+tombstones    = { max = 0 }
+
+[runtime]
+# Budget arithmetic (M-A5 S8): sized so the WORST DEFER path surfaces a clean per-step
+# TIMEOUT (driver-INVALID) for every step instead of a run-budget KILL. run.py waits
+# max(step_budget, 600) + 60 per DEFERRED verb (LoadGame/InvokeRewind) and step_budget
+# for the rest, and the run-budget ceiling must exceed the SUM so no step-wait is capped:
+#   LoadGame        max(240,600)+60 = 660
+#   SetSetting      (default)       =  60
+#   InvokeRewind    max(300,600)+60 = 660
+#   AnswerMergeDialog (budget)      = 120
+#   RecordingState  (default)       =  60
+#   FlushAndQuit    (default)       =  60   -> sum 1620; +60 margin = 1680.
+# On the operator happy path (verbs execute in FLIGHT) the real wall-clock is ~700s,
+# far under this ceiling; the ceiling only governs the unattended defer path.
+budgetSeconds = 1680
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

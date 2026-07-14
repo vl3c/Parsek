@@ -17,8 +17,15 @@ namespace Parsek.Tests.Generators
         private readonly List<ConfigNode> rawMilestoneStates = new List<ConfigNode>();
         private readonly List<(string child, string parent)> groupHierarchyEntries
             = new List<(string, string)>();
+        private readonly List<RewindPoint> rewindPoints = new List<RewindPoint>();
         private uint milestoneEpoch;
         private bool useV3Format;
+        // One-shot guard: InjectRewindB9 calls InjectIntoSaveFile once per target
+        // file (persistent.sfs AND the run target), but the RP quicksave sidecar is a
+        // single shared artifact under Parsek/RewindPoints/ that does not depend on
+        // WHICH save file was just injected. Writing it on the first InjectIntoSaveFile
+        // and skipping the rest avoids re-emitting the identical sidecar per target.
+        private bool rewindPointSidecarsWritten;
 
         /// <summary>
         /// Wraps a single RecordingBuilder into a RECORDING_TREE node and adds it
@@ -130,6 +137,49 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        /// <summary>
+        /// Registers a <see cref="RewindPoint"/> to be emitted in the scenario's
+        /// <c>REWIND_POINTS</c> block (mirrors <see cref="ParsekScenario"/>'s
+        /// <c>SaveStagingList("REWIND_POINTS", ...)</c> shape: a parent
+        /// <c>REWIND_POINTS</c> node with one <c>POINT</c> child per RP). Used by
+        /// the rewindable-tree fixture (B9) so an injected save can carry a
+        /// re-fly-able RewindPoint alongside its committed tree. The RP's quicksave
+        /// sidecar is written by <see cref="WriteRewindPointSaveFiles"/>.
+        /// </summary>
+        public ScenarioWriter AddRewindPoint(RewindPoint rp)
+        {
+            if (rp == null)
+                throw new ArgumentNullException(nameof(rp));
+            rewindPoints.Add(rp);
+            return this;
+        }
+
+        /// <summary>
+        /// Derives the synthetic <see cref="Recording.VesselPersistentId"/> a
+        /// recording id maps to under this writer's serialization (FNV-1a, the same
+        /// hash <see cref="BuildRecording"/> applies). Exposed so a rewindable-tree
+        /// fixture can populate a <see cref="RewindPoint.PidSlotMap"/> that matches
+        /// the pids the injected recordings actually carry.
+        /// </summary>
+        public static uint DeriveVesselPersistentId(string recordingId)
+        {
+            return StableHashToUint(recordingId ?? "");
+        }
+
+        /// <summary>
+        /// Derives the root-part <c>persistentId</c> a recording id's slot carries in
+        /// the RP quicksave sidecar. Distinct from <see cref="DeriveVesselPersistentId"/>
+        /// (the ":root" salt) so the vessel-level and root-part pids never collide,
+        /// letting the fixture populate a <see cref="RewindPoint.RootPartPidMap"/> that
+        /// matches the sidecar's cloned root PART nodes and exercises the strip's
+        /// root-part fallback path (<c>PostLoadStripper</c> / the pre-load
+        /// <c>ScrubQuicksaveToSelectedSlotForReFly</c>).
+        /// </summary>
+        public static uint DeriveRootPartPersistentId(string recordingId)
+        {
+            return StableHashToUint((recordingId ?? "") + ":root");
+        }
+
         internal ScenarioWriter AddMilestone(Milestone milestone)
         {
             milestones.Add(milestone);
@@ -188,6 +238,17 @@ namespace Parsek.Tests.Generators
                     entry.AddValue("child", child);
                     entry.AddValue("parent", parent);
                 }
+            }
+
+            // REWIND_POINTS block: one POINT child per RewindPoint. Matches the
+            // parent-node + POINT-child shape ParsekScenario.SaveRewindStagingState
+            // writes (via SaveStagingList), so ParsekScenario.LoadRewindStagingState
+            // deserializes an injected fixture RP identically to a live one.
+            if (rewindPoints.Count > 0)
+            {
+                var rpParent = node.AddNode("REWIND_POINTS");
+                foreach (var rp in rewindPoints)
+                    rp?.SaveInto(rpParent);
             }
 
             return node;
@@ -260,6 +321,20 @@ namespace Parsek.Tests.Generators
             {
                 string saveDir = Path.GetDirectoryName(outputPath);
                 WriteRewindSaveFiles(saveDir, inputPath);
+            }
+
+            // Write RewindPoint quicksave sidecars for any registered RPs, ONCE per
+            // writer (see rewindPointSidecarsWritten). The un-injected input save is
+            // the donor: WriteRewindPointSaveFiles clones its command vessel per
+            // controllable slot and stamps the slot's mapped pids, so the sidecar
+            // carries the vessels the RP's PidSlotMap references (the mechanics under
+            // test are strip/restore/marker/merge; live-load fidelity is operator-
+            // verified).
+            if (rewindPoints.Count > 0 && !rewindPointSidecarsWritten)
+            {
+                string saveDir = Path.GetDirectoryName(outputPath);
+                WriteRewindPointSaveFiles(saveDir, inputPath);
+                rewindPointSidecarsWritten = true;
             }
         }
 
@@ -439,6 +514,201 @@ namespace Parsek.Tests.Generators
                 string destPath = Path.Combine(savesDir, rewindName + ".sfs");
                 File.Copy(sourceSavePath, destPath, true);
             }
+        }
+
+        /// <summary>
+        /// Writes each registered <see cref="RewindPoint"/>'s quicksave sidecar to
+        /// <c>saves/&lt;save&gt;/Parsek/RewindPoints/&lt;rpId&gt;.sfs</c> (the path
+        /// <see cref="RewindInvoker.CanInvoke"/> probes on disk, resolved from
+        /// <see cref="RewindPoint.QuicksaveFilename"/>). Skips RPs with no
+        /// QuicksaveFilename.
+        ///
+        /// <para>
+        /// The sidecar is NOT a bare copy of <paramref name="sourceSavePath"/>: a
+        /// re-fly's pre-load selected-slot scrub
+        /// (<c>RewindInvoker.ScrubQuicksaveToSelectedSlotForReFly</c>) and post-load
+        /// <c>PostLoadStripper</c> both KEEP only vessels whose <c>persistentId</c> the
+        /// RP's <see cref="RewindPoint.PidSlotMap"/> / <see cref="RewindPoint.RootPartPidMap"/>
+        /// references, and STRIP the rest; a vessel-less or unmatched-pid quicksave
+        /// makes the scrub keep nothing and the Activate fail. So for each RP this
+        /// builds a scene state carrying exactly one controllable VESSEL per child slot,
+        /// each stamped with the slot's mapped vessel + root-part pids and cloned from
+        /// the host save's own command vessel when present (real parts, so the deep-parse
+        /// precondition resolves them). The tree / RP / sidecar pid triangle is thus
+        /// consistent. Live-load fidelity of the clones remains operator-verified.
+        /// </para>
+        /// </summary>
+        public void WriteRewindPointSaveFiles(string saveDir, string sourceSavePath)
+        {
+            if (string.IsNullOrEmpty(saveDir) || !File.Exists(sourceSavePath))
+                return;
+
+            ConfigNode donorRoot = ConfigNode.Load(sourceSavePath);
+
+            foreach (var rp in rewindPoints)
+            {
+                if (rp == null || string.IsNullOrEmpty(rp.QuicksaveFilename))
+                    continue;
+
+                // QuicksaveFilename is a save-relative path ("Parsek/RewindPoints/<id>.sfs").
+                string destPath = Path.Combine(saveDir, rp.QuicksaveFilename);
+                string destDir = Path.GetDirectoryName(destPath);
+                if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
+                    Directory.CreateDirectory(destDir);
+
+                BuildRewindPointQuicksave(donorRoot, rp, destPath);
+            }
+        }
+
+        /// <summary>
+        /// Builds one RP quicksave: rewrites <paramref name="donorRoot"/>'s FLIGHTSTATE
+        /// to hold exactly one controllable VESSEL per child slot in
+        /// <paramref name="rp"/>, each stamped with the slot's mapped vessel- and
+        /// root-part pids, then saves to <paramref name="destPath"/>. A donor command
+        /// vessel (first non-asteroid VESSEL) is cloned per slot when present so its
+        /// parts resolve in PartLoader; otherwise a minimal stock-pod VESSEL is
+        /// synthesized. <c>activeVessel</c> is set to the focus slot's ordinal.
+        /// </summary>
+        internal static void BuildRewindPointQuicksave(ConfigNode donorRoot, RewindPoint rp, string destPath)
+        {
+            var ic = CultureInfo.InvariantCulture;
+
+            // ConfigNode.Load on a KSP .sfs returns a wrapper whose child is GAME; be
+            // robust to either shape (wrapper-with-GAME, or a bare GAME node) and
+            // re-emit a single GAME wrapper on save so the sidecar is a valid save.
+            ConfigNode root = (donorRoot != null && donorRoot.CountNodes > 0)
+                ? donorRoot.CreateCopy()
+                : new ConfigNode();
+            ConfigNode game = root.GetNode("GAME") ?? root;
+            ConfigNode flightState = game.GetNode("FLIGHTSTATE") ?? game.AddNode("FLIGHTSTATE");
+
+            // Pick a donor VESSEL template BEFORE clearing (first controllable, i.e.
+            // non-asteroid, vessel). When absent we synthesize a minimal stock pod.
+            ConfigNode donorVessel = SelectDonorVessel(flightState);
+
+            flightState.RemoveNodes("VESSEL");
+
+            // Controllable slots in stable slot-index order.
+            var slots = new List<ChildSlot>();
+            if (rp.ChildSlots != null)
+            {
+                foreach (var s in rp.ChildSlots)
+                    if (s != null && s.Controllable) slots.Add(s);
+            }
+            slots.Sort((a, b) => a.SlotIndex.CompareTo(b.SlotIndex));
+
+            int activeOrdinal = 0;
+            for (int ordinal = 0; ordinal < slots.Count; ordinal++)
+            {
+                ChildSlot slot = slots[ordinal];
+                uint vesselPid = ReverseLookupPid(rp.PidSlotMap, slot.SlotIndex);
+                uint rootPid = ReverseLookupPid(rp.RootPartPidMap, slot.SlotIndex);
+
+                // AddNode(ConfigNode) adds by reference, so clone per slot (the
+                // proven CreateCopy pattern) - two slots must be two distinct nodes.
+                ConfigNode vessel = donorVessel != null
+                    ? flightState.AddNode(donorVessel.CreateCopy())
+                    : BuildSyntheticVessel(flightState);
+                StampVesselIdentity(vessel, vesselPid, rootPid,
+                    "B9 Slot " + slot.SlotIndex.ToString(ic));
+
+                if (slot.SlotIndex == rp.FocusSlotIndex)
+                    activeOrdinal = ordinal;
+            }
+
+            SetOrAddValue(flightState, "activeVessel", activeOrdinal.ToString(ic));
+
+            // Emit a single guaranteed GAME wrapper (ConfigNode.Save writes CONTENTS,
+            // not the node's own name, so wrap the GAME subtree in a fresh root).
+            ConfigNode gameCopy = game.CreateCopy();
+            gameCopy.name = "GAME";
+            var outRoot = new ConfigNode();
+            outRoot.AddNode(gameCopy);
+            outRoot.Save(destPath);
+        }
+
+        // First non-asteroid VESSEL under FLIGHTSTATE, or null. Asteroids/comets
+        // (type SpaceObject) are not controllable command vessels, so they are a poor
+        // clone template for a re-fly slot.
+        private static ConfigNode SelectDonorVessel(ConfigNode flightState)
+        {
+            if (flightState == null) return null;
+            ConfigNode[] vessels = flightState.GetNodes("VESSEL");
+            ConfigNode firstAny = null;
+            for (int i = 0; i < vessels.Length; i++)
+            {
+                if (vessels[i] == null) continue;
+                if (firstAny == null) firstAny = vessels[i];
+                string type = vessels[i].GetValue("type");
+                if (!string.Equals(type, "SpaceObject", StringComparison.Ordinal))
+                    return vessels[i];
+            }
+            return firstAny;
+        }
+
+        // Minimal stock-pod VESSEL when the host save carries no command vessel to
+        // clone (headless unit fixtures). The part name is a real stock part so the
+        // deep-parse precondition resolves it live; live-load fidelity of this minimal
+        // node is operator-verified (PENDING-OPERATOR).
+        private static ConfigNode BuildSyntheticVessel(ConfigNode flightState)
+        {
+            ConfigNode v = flightState.AddNode("VESSEL");
+            v.AddValue("type", "Ship");
+            v.AddValue("sit", "LANDED");
+            v.AddValue("landed", "True");
+            v.AddValue("root", "0");
+            ConfigNode part = v.AddNode("PART");
+            part.AddValue("name", "mk1pod.v2");
+            return v;
+        }
+
+        // Overwrite the clone's vessel-level identity and root-part pid so the RP's
+        // PidSlotMap / RootPartPidMap resolve this vessel to its slot. A fresh guid
+        // pid per clone avoids vessel-guid collisions between the per-slot clones.
+        private static void StampVesselIdentity(
+            ConfigNode vessel, uint vesselPid, uint rootPid, string vesselName)
+        {
+            if (vessel == null) return;
+            var ic = CultureInfo.InvariantCulture;
+
+            vessel.SetValue("pid", Guid.NewGuid().ToString("N"), true);
+            vessel.SetValue("persistentId", vesselPid.ToString(ic), true);
+            vessel.SetValue("name", vesselName, true);
+
+            // Stamp the ROOT part's persistentId (the node the scrub/strip read via
+            // vessel "root" index; default 0). Add a PART if the clone somehow has none.
+            int rootIndex;
+            if (!int.TryParse(vessel.GetValue("root"), NumberStyles.Integer, ic, out rootIndex))
+                rootIndex = 0;
+            ConfigNode[] parts = vessel.GetNodes("PART");
+            ConfigNode rootPart;
+            if (parts.Length == 0)
+            {
+                rootPart = vessel.AddNode("PART");
+                rootPart.AddValue("name", "mk1pod.v2");
+            }
+            else
+            {
+                if (rootIndex < 0 || rootIndex >= parts.Length) rootIndex = 0;
+                rootPart = parts[rootIndex];
+            }
+            rootPart.SetValue("persistentId", rootPid.ToString(ic), true);
+        }
+
+        // Reverse map lookup: the (unique) pid whose slot == slotIndex, else 0.
+        private static uint ReverseLookupPid(Dictionary<uint, int> map, int slotIndex)
+        {
+            if (map == null) return 0u;
+            foreach (var kv in map)
+                if (kv.Value == slotIndex) return kv.Key;
+            return 0u;
+        }
+
+        private static void SetOrAddValue(ConfigNode node, string name, string value)
+        {
+            if (node == null) return;
+            if (node.HasValue(name)) node.SetValue(name, value);
+            else node.AddValue(name, value);
         }
 
         private static string RemoveExistingScenario(string content)

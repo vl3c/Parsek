@@ -51,20 +51,28 @@ SCHEMA_VERSION = 1
 # Vocabulary tables (design Data Model + consumed seam verb table).
 # ---------------------------------------------------------------------------
 
-# Scenario tiers (design spec `tier` enum). `pending-fixture` is a readiness state,
-# NOT a cadence: a scenario whose fixture save is not committed yet self-declares
-# `pending-fixture` so it is EXCLUDED from every --cadence run (CADENCE_TIERS maps no
-# cadence to it) instead of INVALID(staging)-ing terminally on each daily run and
-# self-quarantining a scenario that never actually ran (M-A5 integration item 4). An
-# operator re-tiers it to its real cadence tier the moment the fixture lands.
-TIERS: Tuple[str, ...] = ("perpr", "daily", "nightly", "weekly", "pending-fixture")
+# Scenario tiers (design spec `tier` enum). Two non-cadence readiness tiers exist
+# alongside the four cadence tiers; CADENCE_TIERS maps NO cadence to either, so
+# neither is ever scheduled by a --cadence run:
+# - `pending-fixture`: the scenario's fixture save is not committed yet; excluding
+#   it prevents a terminal INVALID(staging) on every daily run self-quarantining a
+#   scenario that never actually ran (M-A5 integration item 4). An operator
+#   re-tiers it to its real cadence tier the moment the fixture lands.
+# - `operator`: the scenario's PASS is unreachable unattended (e.g. RequiresFlight
+#   verbs with no flight-entry verb - under a cadence it would only ever defer to
+#   a TIMEOUT and burn boots); it runs ONLY on an explicit `--tier operator` /
+#   `--id` invocation. A `pending-operator` tag alone is non-gating; the tier is.
+TIERS: Tuple[str, ...] = ("perpr", "daily", "nightly", "weekly", "pending-fixture", "operator")
 
 # The two provisioned instance profiles (design + M-A6).
 INSTANCE_PROFILES: Tuple[str, ...] = ("stock-minimal", "modded-compat")
 
 # v1 injectedRecordings value set (design S4). Any other value is rejected;
-# preset/corpus-scoped injection is DEFERRED to M-A4 / M-B5.
-INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic")
+# broad preset/corpus-scoped injection is DEFERRED to M-A4 / M-B5. "rewind-b9" is
+# the one named fixture preset added ahead of that: the B9 rewindable-tree fixture
+# (a committed tree with a crashed booster sibling + a Rewind-to-Separation
+# RewindPoint), injected via `dotnet test --filter InjectRewindB9` for S4.1 / S1.5.
+INJECTED_RECORDINGS: Tuple[str, ...] = ("none", "all-synthetic", "rewind-b9")
 
 # Retry policies (design [retry].policy).
 RETRY_POLICIES: Tuple[str, ...] = ("once", "none")
@@ -1048,6 +1056,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
 
 # A cadence maps to a tier set (design section 10). per-pr is analyzer-on-fixtures
 # only (no KSP), but at the SELECTION layer it resolves to the perpr tier specs.
+# NOTE: "operator" is intentionally in NO set here - operator-tier specs are never
+# picked up by a cadence and run only under an explicit `--tier operator` / `--id`.
 CADENCE_TIERS: Dict[str, Tuple[str, ...]] = {
     "per-pr": ("perpr",),
     "daily": ("daily",),

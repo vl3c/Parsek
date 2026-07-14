@@ -6022,6 +6022,102 @@ namespace Parsek.Tests
             // both persistent.sfs and the test-target save that share a dir.
         }
 
+        /// <summary>
+        /// Injects the B9 rewindable-tree fixture (committed tree with a crashed
+        /// booster sibling + a Rewind-to-Separation RewindPoint) into the target
+        /// save, the way <see cref="InjectAllRecordings"/> injects the full corpus.
+        /// Harness-callable via <c>dotnet test --filter InjectRewindB9</c> (the
+        /// <c>rewind-b9</c> injection preset). The RP quicksave sidecar is a
+        /// purpose-built scene state carrying one controllable VESSEL per child slot
+        /// stamped with the slot's mapped pids (cloned from the host save's command
+        /// vessel when present), so the re-fly's pre-load scrub / post-load strip keep
+        /// the selected slot and Activate succeeds. Uses the same env contract as
+        /// <see cref="InjectAllRecordings"/> (PARSEK_INJECT_SAVE_NAME / _TARGET_SAVE /
+        /// _CLEAN_START).
+        /// </summary>
+        [Trait("Category", "Manual")]
+        [Fact]
+        public void InjectRewindB9()
+        {
+            // Distinct default save name (NOT "test career") so a bare `dotnet test`
+            // full-suite run no-ops here (the save does not exist -> early return)
+            // rather than purging the corpus InjectAllRecordings sets up in the
+            // shared "test career" save. The harness always sets PARSEK_INJECT_SAVE_NAME
+            // to the staged run save, so its inject path is unaffected.
+            string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
+                ?? "rewind-b9-fixture";
+            string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
+                ?? "1.sfs";
+            string kspRoot = ResolveKspRoot();
+            string cleanEnv = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_CLEAN_START");
+            bool cleanStart = cleanEnv == null || IsTruthy(cleanEnv);
+
+            string saveDir = Path.Combine(kspRoot, "saves", saveName);
+            string[] targets = { "persistent.sfs", targetSave };
+
+            string targetPath = Path.Combine(saveDir, targetSave);
+            if (!File.Exists(targetPath))
+                return;
+
+            // Same guarded purge as InjectAllRecordings: refuse when KSP.log is
+            // locked by a live session so the inject never races the game.
+            var purgeWriter = new ScenarioWriter();
+            if (!purgeWriter.TryPurgeRecordingSidecarsForInject(
+                    cleanStart ? saveDir : null,
+                    Path.Combine(kspRoot, "KSP.log"),
+                    out string refusalMessage))
+                throw new Xunit.Sdk.SkipException(refusalMessage);
+
+            if (cleanStart)
+            {
+                foreach (string file in targets)
+                {
+                    string sp = Path.Combine(saveDir, file);
+                    if (File.Exists(sp))
+                        CleanSaveStart(sp);
+                }
+            }
+
+            double baseUT = ReadUTFromSave(targetPath);
+
+            var writer = new ScenarioWriter().WithV3Format();
+            RewindB9Fixture.PopulateWriter(writer, baseUT);
+
+            foreach (string file in targets)
+            {
+                string savePath = Path.Combine(saveDir, file);
+                if (!File.Exists(savePath))
+                    continue;
+
+                string tempPath = savePath + ".tmp";
+                try
+                {
+                    writer.InjectIntoSaveFile(savePath, tempPath);
+
+                    string content = File.ReadAllText(tempPath);
+                    Assert.Contains("name = ParsekScenario", content);
+                    Assert.Contains("vesselName = B9 Stack", content);
+                    Assert.Contains("vesselName = B9 Upper B", content);
+                    Assert.Contains("vesselName = B9 Booster A", content);
+                    Assert.Contains("REWIND_POINTS", content);
+                    Assert.Contains("rewindPointId = " + RewindB9Fixture.RewindPointId, content);
+
+                    File.Copy(tempPath, savePath, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+            }
+
+            // The RP quicksave sidecar must exist on disk or CanInvoke declines.
+            string rpSidecar = Path.Combine(
+                saveDir, "Parsek", "RewindPoints", RewindB9Fixture.RewindPointId + ".sfs");
+            Assert.True(File.Exists(rpSidecar),
+                $"B9 RP quicksave sidecar missing: {rpSidecar}");
+        }
+
         [Trait("Category", "Manual")]
         [Fact]
         public void InjectAllRecordings()

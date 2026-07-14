@@ -1,0 +1,119 @@
+schema = 1
+id = "S1.5-rewind-loop"
+# tier = "operator": TimeJump + InvokeRewind + AnswerMergeDialog are RequiresFlight /
+# conclude-a-flight and the seam has NO flight-entry verb, so run unattended from the
+# gloops SPACECENTER host every verb only DEFERS to a TIMEOUT and burns a boot with no
+# PASS reachable. "operator" is excluded from every cadence (hlib CADENCE_TIERS): no
+# daily/nightly/weekly run schedules this; an operator runs it with `--tier operator`
+# once the B9 split is loaded in FLIGHT. The pending-operator TAG alone is non-gating.
+#
+# DEPENDENCY (do NOT schedule before the integration-fixes PR merges): the TimeJump
+# step relies on the TimeJump completion decider fix in flight on branch
+# `autotest-integration-fixes`. Until that lands, TimeJump can settle incorrectly and
+# this spec's TimeJump leg is not trustworthy even on the operator path.
+tier = "operator"
+# S1.5 rewind loop (core loop, D18), DRIVABLE SUBSET. The full catalog S1.5 is
+# "fly B1, commit, warp past EndUT (vessel spawns), quicksave, rewind via seam,
+# assert vessel stripped, ghost replays, vessel re-spawns situation-corrected;
+# crew re-reservation + resource reset against the ledger oracle." Several of those
+# legs need capabilities M-C1 does not provide (see the GAP note below), so this
+# spec drives the fly-FREE subset the M-C1 verbs CAN reach: reuse the injected
+# rewind-b9 tree instead of flying B1, TimeJump past the injected recording's EndUT
+# to trigger the end-of-recording spawn (D6 time-jump + D18 time-jump-observables),
+# then use the fixture-provided RewindPoint as the "quicksave-equivalent" and drive
+# the rewind-strip-respawn cycle through the seam (D18 rewind-strip-respawn-cycle).
+#
+# GAP (documented in docs/dev/todo-and-known-bugs.md): the FULL S1.5 additionally
+# needs (a) a live B1 flight + commit -> the mission-autopilot library, not a seam
+# verb; (b) an in-scene quicksave / RP-create seam verb to make the RP LIVE rather
+# than inject it (none exists in M-C1; the injected rp_b9_root stands in); (c) a
+# FLIGHT-scene entry -- TimeJump and InvokeRewind are RequiresFlight and the seam
+# has no launch verb, so an operator must be in FLIGHT (or supply a FLIGHT-scene
+# template); (d) a career fixture + ledger oracle for the crew-re-reservation /
+# resource-reset asserts (rewind-b9's host is a sandbox save). All live asserts are
+# therefore PENDING-OPERATOR.
+description = "S1.5 drivable subset: TimeJump past an injected recording EndUT to spawn, then rewind-strip-respawn via the seam using the injected rewind-b9 RewindPoint."
+instanceProfile = "stock-minimal"
+tags = ["rewind", "loop", "time-jump", "S1.5", "D18", "pending-operator"]
+
+[fixture]
+# rewind-b9 (RewindB9Fixture via `dotnet test --filter InjectRewindB9`): a committed
+# tree + the rp_b9_root RewindPoint. Here the injected committed recordings stand in
+# for the "fly B1, commit" leg, and rp_b9_root stands in for the live "quicksave"
+# (both slots have EndUTs the TimeJump crosses to spawn the end-of-recording ghost).
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "rewind-b9"
+craft = []
+
+[driver]
+kind = "seam"
+# TimeJump deltaSeconds must exceed the injected recordings' remaining time-to-EndUT
+# (RewindB9Fixture ends the siblings ~115s after the save UT); 600 clears both with
+# margin. Edge case 15 (design): a jump-then-rewind leaves NO seam residual (no
+# marker, no context), so the following InvokeRewind sees a clean gate. slot 0 is
+# the surviving upper stage (S1.5's single looping vessel); AnswerMergeDialog merge
+# folds the conclusion scene-exit and the trailing RecordingState confirms the
+# merged tree.
+steps = [
+  { cmd = "LoadGame",         args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting",       args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "TimeJump",         args = { deltaSeconds = "600.0" },                    expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "InvokeRewind",     args = { rp = "rp_b9_root", slot = "0" },             expect = "OK", budget = 300 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                         expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                           expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: TimeJump epoch-shifts the clock past the recording EndUTs (D6 time-jump),
+# spawning the end-of-recording ghost and letting the run OBSERVE the epoch-shift
+# contract (D18 time-jump-observables); the epoch-shift keeps orbits position-frozen
+# and recalcs the ledger at the post-jump UT (D8 epoch-isolation, recalc-engine).
+# The seam rewind then strips and re-spawns the recording (D18
+# rewind-strip-respawn-cycle) via a real Rewind-to-Separation (D9
+# rewind-to-separation, refly-gate). NOT claimed: loop-first-run-is-real (no loop
+# re-cross is driven), crew/resource ledger facets (PENDING-OPERATOR career gap).
+D6  = ["time-jump"]
+D18 = ["time-jump-observables", "rewind-strip-respawn-cycle"]
+D8  = ["epoch-isolation", "recalc-engine"]
+D9  = ["rewind-to-separation", "refly-gate"]
+
+[expectations.recordings]
+# Floor only: the tree survives the jump + rewind + merge.
+count = { min = 1 }
+
+[expectations.logContracts]
+# The re-fly milestones prove the strip-respawn cycle ran end-to-end. The TimeJump
+# spawn / stripped-vessel / situation-corrected respawn asserts are PENDING-OPERATOR
+# (live-only), named in the coordinator runbook.
+required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+# Budget arithmetic (M-A5 S8): sized so the WORST DEFER path surfaces a clean per-step
+# TIMEOUT (driver-INVALID) for every step instead of a run-budget KILL. run.py waits
+# max(step_budget, 600) + 60 per DEFERRED verb (LoadGame/TimeJump/InvokeRewind) and
+# step_budget for the rest; the run-budget ceiling must exceed the SUM so no step-wait
+# is capped (a capped deferred wait can KILL mid-step instead of surfacing the seam
+# TIMEOUT). The previous 1000 was BELOW the LoadGame(660)+TimeJump(660)+InvokeRewind(660)
+# defer windows and would KILL mid-InvokeRewind. Sum:
+#   LoadGame        max(240,600)+60 = 660
+#   SetSetting      (default)       =  60
+#   TimeJump        max(120,600)+60 = 660
+#   RecordingState  (default)       =  60
+#   InvokeRewind    max(300,600)+60 = 660
+#   AnswerMergeDialog (budget)      = 120
+#   RecordingState  (default)       =  60
+#   FlushAndQuit    (default)       =  60   -> sum 2340; +60 margin = 2400.
+# On the operator happy path (verbs execute in FLIGHT) the real wall-clock is ~800s,
+# far under this ceiling; the ceiling only governs the unattended defer path.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
