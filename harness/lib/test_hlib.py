@@ -628,6 +628,21 @@ class SpecValidationRejectTests(unittest.TestCase):
                 self.assertFalse(any(verb in e for e in v.errors),
                                  "%s wrongly flagged: %s" % (verb, list(v.errors)))
 
+    def test_mc11_savegame_implemented_not_reserved(self):
+        # M-C1.1 follow-up: SaveGame is a NEW implemented verb (never in the RESERVED
+        # envelope), the M-B3 L2/R6 persist-before-reload dependency.
+        self.assertIn("SaveGame", hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn("SaveGame", hlib.RESERVED_SEAM_VERBS)
+
+    def test_mc11_savegame_step_accepted(self):
+        # A spec step using SaveGame is not flagged RESERVED / unknown.
+        def m(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(1, {"cmd": "SaveGame", "expect": "OK"})
+        v = self._reject(m)
+        self.assertFalse(any("SaveGame" in e for e in v.errors),
+                         "SaveGame wrongly flagged: %s" % list(v.errors))
+
     def test_ledger_with_rewind_or_dialog_rejected(self):
         # Item 1: an [expectations.ledger] block cannot pair with InvokeRewind /
         # AnswerMergeDialog (a rewind/merge rewrites the career pools the seed+manifest

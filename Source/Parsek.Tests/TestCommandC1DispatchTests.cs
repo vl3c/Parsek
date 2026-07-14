@@ -204,5 +204,82 @@ namespace Parsek.Tests
                 Cmd("id=1 cmd=KscAction action=research-node node=basicRocketry"), st);
             Assert.Equal(DispatchDecision.Execute, r.Decision);
         }
+
+        // ----- KscAction: mode x sub-action decider matrix (M-B3 OQ1 follow-up) -----
+        // The two readiness bits model the three career modes:
+        //   CAREER          -> CareerPresent = true,  RnDPresent = true
+        //   SCIENCE_SANDBOX -> CareerPresent = false, RnDPresent = true  (R&D live, Funding null)
+        //   SANDBOX         -> CareerPresent = false, RnDPresent = false
+        // research-node admits on (CareerPresent || RnDPresent); the other three stay
+        // CAREER-only (CareerPresent). Scene is SPACECENTER + AtSpaceCenter so upgrade-facility
+        // can reach Execute in the admit cells without the SPACECENTER sub-gate confounding.
+        private static DispatchState Mode(bool careerPresent, bool rnDPresent) => new DispatchState
+        {
+            Scene = TestCommandScene.SpaceCenter,
+            GameLoaded = true,
+            SettingsPresent = true,
+            CareerPresent = careerPresent,
+            RnDPresent = rnDPresent,
+            AtSpaceCenter = true,
+        };
+
+        [Theory]
+        // CAREER: all four sub-actions admit (with their preconditions).
+        [InlineData(true, true, "research-node node=basicRocketry", true, null)]
+        [InlineData(true, true, "hire-kerbal kerbal=Jeb", true, null)]
+        [InlineData(true, true, "dismiss-kerbal kerbal=Bob", true, null)]
+        [InlineData(true, true, "upgrade-facility facility=VehicleAssemblyBuilding", true, null)]
+        // SCIENCE_SANDBOX: research-node admits (R&D live); the other three defer career-not-ready.
+        [InlineData(false, true, "research-node node=basicRocketry", true, null)]
+        [InlineData(false, true, "hire-kerbal kerbal=Jeb", false, "career-not-ready")]
+        [InlineData(false, true, "dismiss-kerbal kerbal=Bob", false, "career-not-ready")]
+        [InlineData(false, true, "upgrade-facility facility=VehicleAssemblyBuilding", false, "career-not-ready")]
+        // SANDBOX: all four defer career-not-ready.
+        [InlineData(false, false, "research-node node=basicRocketry", false, "career-not-ready")]
+        [InlineData(false, false, "hire-kerbal kerbal=Jeb", false, "career-not-ready")]
+        [InlineData(false, false, "dismiss-kerbal kerbal=Bob", false, "career-not-ready")]
+        [InlineData(false, false, "upgrade-facility facility=VehicleAssemblyBuilding", false, "career-not-ready")]
+        public void KscAction_ModeSubActionMatrix(
+            bool careerPresent, bool rnDPresent, string args, bool executes, string deferReason)
+        {
+            var r = TestCommandDispatcher.DecideDispatch(
+                Cmd("id=1 cmd=KscAction action=" + args), Mode(careerPresent, rnDPresent));
+            if (executes)
+                Assert.Equal(DispatchDecision.Execute, r.Decision);
+            else
+                AssertDefer(r, deferReason);
+        }
+
+        [Fact]
+        public void KscAction_ResearchNode_ScienceMode_Executes_ButOthersStayCareerOnly()
+        {
+            // The single OQ1 finding that reaches back into a merged module: research-node
+            // executes in SCIENCE_SANDBOX while hire / dismiss / upgrade-facility do not, and
+            // the shared CareerPresent bit was NOT relaxed (it stays false in Science mode).
+            var science = Mode(careerPresent: false, rnDPresent: true);
+            Assert.Equal(DispatchDecision.Execute, TestCommandDispatcher.DecideDispatch(
+                Cmd("id=1 cmd=KscAction action=research-node node=basicRocketry"), science).Decision);
+            AssertDefer(TestCommandDispatcher.DecideDispatch(
+                Cmd("id=1 cmd=KscAction action=hire-kerbal kerbal=Jeb"), science), "career-not-ready");
+        }
+
+        // ----- SaveGame (M-C1.1 follow-up) -----
+
+        [Fact]
+        public void SaveGame_AnyScene_Executes()
+        {
+            // AnyScene: the no-game refusal is an in-executor ERROR, not a dispatch gate, so a
+            // settled scene with a game dispatches to Execute.
+            var r = TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=SaveGame"), Flight());
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Fact]
+        public void SaveGame_DuringSceneTransition_Defers_NotSafePoint()
+        {
+            var st = Flight();
+            st.Transitioning = true;
+            AssertDefer(TestCommandDispatcher.DecideDispatch(Cmd("id=1 cmd=SaveGame"), st), "not-safe-point");
+        }
     }
 }

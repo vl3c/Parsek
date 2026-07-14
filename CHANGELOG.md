@@ -41,6 +41,7 @@ All notable changes to Parsek are documented here.
 - The developer-only test-command channel gained four new verbs: invoke a rewind, answer the post-re-fly merge dialog, jump time forward, and perform KSC career actions (research, facility upgrade, hire, dismiss) through the real stock paths - unlocking automated rewind and career-economy test scenarios. Inert in a normal game; no gameplay change.
 - Added the developer-only ledger oracle: the harness now cross-checks career money, science, and reputation against two independent witnesses (what stock KSP granted at event time, and what the save file says afterwards), with Parsek's own arithmetic deliberately excluded from both, so any amount the ledger invents or loses is caught as a drift. Live verification pending an operator session; everything else is headless-tested.
 - The automated-testing harness now re-runs only a flaked verifier tool (a wedged analyzer or a transient log check) against the same run instead of re-flying the whole ~10-minute scenario, and correctly reads a multi-category in-game test batch's combined pass/fail summary. Developer-only tooling; no gameplay change.
+- The developer-only test-command channel now lets research-node run in Science mode (where R&D is live) in addition to Career, and gained a SaveGame verb that persists the current game in-place so a test can save and reload within one launch. Inert in a normal game; no gameplay change.
 
 ## 0.10.3
 

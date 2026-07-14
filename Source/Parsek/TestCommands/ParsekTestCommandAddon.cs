@@ -972,6 +972,7 @@ namespace Parsek.TestCommands
                 ActiveReFlyMarker = markerLive,
                 MergeJournalInFlight = scenario != null && scenario.ActiveMergeJournal != null,
                 CareerPresent = IsCareerReady(head),
+                RnDPresent = IsResearchReady(),
                 AtSpaceCenter = HighLogic.LoadedScene == GameScenes.SPACECENTER,
                 JournalPhase = phase,
             };
@@ -1030,6 +1031,10 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.TimeJump(ParsedCommand cmd) => TimeJumpImpl(cmd);
         void ITestCommandExecutor.KscAction(ParsedCommand cmd) => KscActionImpl(cmd);
 
+        // M-C1.1 follow-up: the SaveGame body lives in this file next to FlushAndQuitImpl
+        // (it reuses the same GamePersistence.SaveGame call shape minus the quit).
+        void ITestCommandExecutor.SaveGame(ParsedCommand cmd) => SaveGameImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             ITestCommandExecutor exec = this;
@@ -1049,6 +1054,7 @@ namespace Parsek.TestCommands
                 case "AnswerMergeDialog": exec.AnswerMergeDialog(cmd); break;
                 case "TimeJump": exec.TimeJump(cmd); break;
                 case "KscAction": exec.KscAction(cmd); break;
+                case "SaveGame": exec.SaveGame(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");
@@ -1245,6 +1251,54 @@ namespace Parsek.TestCommands
             pendingQuit = true;
             quitId = cmd.Id;
             SetExecResult("OK", TestCommandFlushAndQuit.BuildPayload(saved), null);
+        }
+
+        // ----- SaveGame (M-C1.1 follow-up, sync in-process persist) -----
+        // An in-process GamePersistence.SaveGame of the CURRENT live game state to the run
+        // save (name arg, default "persistent"), reusing FlushAndQuitImpl's save call shape
+        // (OVERWRITE the named slot in HighLogic.SaveFolder) MINUS the quit. This enables the
+        // M-B3 R6 facility-refund window within ONE launch: upgrade-facility -> SaveGame ->
+        // LoadGame -> assert (the reload where a phantom refund would surface). No game loaded
+        // (e.g. MAINMENU) -> ERROR no-game; a save-write failure (throw or empty result) ->
+        // ERROR save-failed. Journal: sync CLAIMED -> EXECUTED -> DONE. A replayed DONE id is
+        // skipped upstream (the processed-set filter), so the save is never re-written on
+        // recovery; and re-writing a save is harmless anyway (it re-serializes identical live
+        // state), so the DONE=skip is a cleanliness property, not a correctness dependency.
+        private void SaveGameImpl(ParsedCommand cmd)
+        {
+            string name = TestCommandSaveGame.ResolveName(ArgOrNull(cmd, "name"));
+            bool gameLoaded = HighLogic.CurrentGame != null;
+            bool saveFolderPresent = !string.IsNullOrEmpty(HighLogic.SaveFolder);
+
+            if (!TestCommandSaveGame.CanSave(gameLoaded, saveFolderPresent))
+            {
+                ParsekLog.Warn(Tag,
+                    $"savegame refused reason=no-game name={name} game-loaded={Bool(gameLoaded)} save-folder={Bool(saveFolderPresent)}");
+                SetExecResult("ERROR", null, "no-game");
+                return;
+            }
+
+            string result;
+            try
+            {
+                result = GamePersistence.SaveGame(name, HighLogic.SaveFolder, SaveMode.OVERWRITE);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(Tag, $"savegame failed name={name}: {ex.Message}");
+                SetExecResult("ERROR", null, "save-failed");
+                return;
+            }
+
+            if (string.IsNullOrEmpty(result))
+            {
+                ParsekLog.Error(Tag, $"savegame failed name={name}: empty result from GamePersistence.SaveGame");
+                SetExecResult("ERROR", null, "save-failed");
+                return;
+            }
+
+            ParsekLog.Info(Tag, $"savegame name={name} folder={HighLogic.SaveFolder} saved=true");
+            SetExecResult("OK", TestCommandSaveGame.BuildPayload(name), null);
         }
 
         // ----- LoadGame (P5.7, two-phase boot channel, C2) -----
@@ -1779,6 +1833,20 @@ namespace Parsek.TestCommands
                 default:
                     return ResearchAndDevelopment.Instance != null && Funding.Instance != null;
             }
+        }
+
+        // The research-node dispatch readiness bit (RnDPresent), M-B3 OQ1. R&D and node
+        // research are live in CAREER or SCIENCE_SANDBOX even though Funding.Instance is null
+        // in Science, so research-node admits on CareerPresent || RnDPresent while the other
+        // three sub-actions stay CAREER-only (IsCareerReady). This is a per-sub-action widen
+        // for research-node ALONE; the shared CAREER Mode gate is unchanged. Read only by the
+        // KscAction research-node defer; harmless for any other head.
+        private static bool IsResearchReady()
+        {
+            Game game = HighLogic.CurrentGame;
+            if (game == null) return false;
+            if (game.Mode != Game.Modes.CAREER && game.Mode != Game.Modes.SCIENCE_SANDBOX) return false;
+            return ResearchAndDevelopment.Instance != null;
         }
 
         private static string ReadLiveSettingForLog(string name)
