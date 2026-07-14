@@ -100,6 +100,15 @@ REP_MODES: Tuple[str, ...] = (REP_MODE_NOMINAL, REP_MODE_APPLIED)
 AMOUNT_KIND_DELTA = "delta"
 AMOUNT_KIND_BALANCE = "balance"
 
+# Reputation author-constant magnitude cap (M-A5 integration item 9). apply_rep_curve
+# splits a nominal rep delta into abs(nominal) integer-sized curve steps, so a huge
+# FINITE author constant (e.g. 1e12) would spin the harness through ~1e12 loop
+# iterations in-process (an effective hang) before any verdict. The rep pool range is
+# +-1000, so a per-event delta beyond +-10000 is already nonsensical; reject it at
+# PARSE with a precise reason rather than letting it reach the curve. NaN/Inf are
+# rejected separately by _facet_state (non-finite raises).
+MAX_REP_AUTHOR_CONSTANT = 10000.0
+
 # STATE-DEPENDENT facets: the stock magnitude is a function of Parsek-PATCHED state
 # (per-subject science diminishing returns; current reputation feeding the rep
 # curve), so an author constant is REQUIRED and fill-from-capture is FORBIDDEN
@@ -115,7 +124,7 @@ HARD_FACETS: Tuple[str, ...] = ("funds", "sciencePool", "reputation")
 
 # The ledgerOracle verifier-row statuses (design ~478). PASS / FAIL come from the
 # diff here; INVALID / SKIPPED are decided by run.py (tooling-missing edge 13,
-# KILLED edge 11, mb2-not-landed edge 12) and passed as a status override.
+# KILLED edge 11, no-ledger-block-declared edge 12) and passed as a status override.
 ORACLE_STATUS_PASS = "PASS"
 ORACLE_STATUS_FAIL = "FAIL"
 ORACLE_STATUS_SKIPPED = "SKIPPED"
@@ -197,9 +206,14 @@ class ManifestEntry:
 
     @property
     def seq_key(self):
-        """The dedupe / sort seqKey: ``ut`` when known, the wall-clock ordinal
-        ``seq`` when ``ut`` is null (design ~394 / edge 2)."""
-        return self.ut if self.ut is not None else self.seq
+        """The dedupe / sort seqKey, TYPE-TAGGED so a null-UT ordinal can never collide
+        with a UT value (design ~394 / edge 2): ``("ut", <float>)`` when ``ut`` is
+        known, ``("ord", <int>)`` (the wall-clock ordinal ``seq``) when null. Untagged,
+        ordinal ``seq``=3 (int) and captured ``ut``=3.0 (float) compare EQUAL in Python
+        (3 == 3.0, hash-equal in dict/set keys), so an award at UT 3.0 would spuriously
+        match a null-UT entry ordinal 3 in the fill / unmatched matchers. Must stay in
+        lockstep with hlib.CapturedAward.seq_key (they are compared across types)."""
+        return ("ut", self.ut) if self.ut is not None else ("ord", self.seq)
 
 
 @dataclass(frozen=True)
@@ -274,15 +288,29 @@ def parse_seed_baseline(seed: Optional[Dict]) -> SeedBaseline:
     (facet-skip-when-absent, design ~442). A missing block -> every facet absent; the
     CALLER (run.py) distinguishes ``parsed=false`` / all-``hasX``-false (INVALID, edge
     15) from a real Sandbox seed via the block's own flags, not here.
+
+    FAULT (item 10): a ``has<Facet>`` flag that is TRUE while its value is missing /
+    non-numeric / non-finite is a CONTRADICTION (the block claims the pool present but
+    gives no usable number). That must SURFACE as a ``ValueError`` (the caller routes it
+    to INVALID(tooling)), never silently degrade to absent -- a silent degrade would
+    false-Sandbox a career seed and skip a pool the run genuinely has.
     """
     seed = seed or {}
 
     def _facet(value_key: str, has_key: str) -> Optional[float]:
-        # `has<Facet>` false -> absent. Absent when the block has no numeric value.
-        if has_key in seed and not bool(seed.get(has_key)):
+        # `has<Facet>` explicitly false -> absent. When the flag is present-and-true the
+        # value MUST be a finite number; a contradiction raises rather than degrading.
+        has_present = has_key in seed
+        claimed = bool(seed.get(has_key)) if has_present else None
+        if has_present and not claimed:
             return None
         v = seed.get(value_key)
-        if isinstance(v, bool) or not isinstance(v, (int, float)):
+        numeric = not isinstance(v, bool) and isinstance(v, (int, float)) and math.isfinite(float(v))
+        if not numeric:
+            if claimed:
+                raise ValueError(
+                    "careerSave.%s: %s is true but the value %r is not a finite number"
+                    % (value_key, has_key, v))
             return None
         return float(v)
 
@@ -402,6 +430,15 @@ def parse_manifest_entries(
                 "facet; an author constant is required (fill-from-capture forbidden)"
                 % (i,))
             continue
+        # Bound the rep author constant so a huge finite magnitude cannot hang the
+        # harness inside apply_rep_curve's per-integer-step loop (item 9). funds/science
+        # do not loop, so only reputation needs the cap.
+        if abs(reputation) > MAX_REP_AUTHOR_CONSTANT:
+            errors.append(
+                "entry[%d].reputation: author constant %r exceeds the +-%g magnitude "
+                "cap (a per-event rep delta this large is nonsensical and would hang the "
+                "curve step loop)" % (i, reputation, MAX_REP_AUTHOR_CONSTANT))
+            continue
 
         rep_mode = raw.get("repMode", raw.get("rep_mode"))
         if rep_mode is None:
@@ -435,7 +472,9 @@ def parse_manifest_entries(
         # though exactly one carries the funds delta being filled (still fail-closed on
         # zero or genuine multiple funds matches).
         if funds_fill:
-            seq_key = ut if ut is not None else seq
+            # TYPE-TAGGED key (must mirror ManifestEntry.seq_key) so a null-UT ordinal
+            # cannot collide with a captured award's UT value (edge 8).
+            seq_key = ("ut", ut) if ut is not None else ("ord", seq)
             matches = [
                 c for c in captured
                 if c.kind == kind and c.contract_guid == contract_guid
@@ -966,14 +1005,14 @@ def build_oracle_result(
     reason: str = "",
 ) -> Dict:
     """Build the ``ledgerOracle`` verifier-row (design ~478). Fills the slot
-    ``run.py`` reserves as ``{"status":"SKIPPED","reason":"mb2-not-landed"}``.
+    ``run.py`` reserves as ``{"status":"SKIPPED","reason":"no-ledger-block-declared"}``.
 
     PASS iff there is NO hard divergence; FAIL on any hard divergence, with
     ``utWindow`` = the bounding window across the hard divergences (``[None, None]``
     when no hard divergence carries a window). Report-only divergences are counted
     (``reportOnly``) but never flip the status. ``status_override`` lets the caller
     stamp a SKIPPED / INVALID (KILLED edge 11, tooling-missing edge 13,
-    mb2-not-landed edge 12) that the diff itself cannot decide.
+    no-ledger-block-declared edge 12) that the diff itself cannot decide.
     """
     hard = [d for d in divergences if d.hard]
     report_only = [d for d in divergences if not d.hard]

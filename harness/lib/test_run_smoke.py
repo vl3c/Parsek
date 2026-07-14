@@ -65,8 +65,12 @@ class FakeRuntime(run.Runtime):
 
     def __init__(self, mode, mission_mode="ok", venv_ok=True, seed_mode="ok",
                  career_funds=25000.0, career_science=0.0, career_rep=0.0,
-                 analyzer_fail_calls=0):
+                 analyzer_fail_calls=0, produced_parsed=True):
         self.mode = mode
+        # Item 10: when False the PRODUCED-save careerSave block is {parsed:false}, so an
+        # active ledger-oracle slot 8 must classify tooling INVALID (the analyzer could
+        # not parse the produced save), never PARSEK-FAIL missing-facet.
+        self.produced_parsed = produced_parsed
         self.mission_mode = mission_mode
         self.venv_ok = venv_ok
         # M-A5.1 subprocess-scoped retry seam: the FIRST `analyzer_fail_calls`
@@ -88,7 +92,12 @@ class FakeRuntime(run.Runtime):
         self.launch_count = 0
         self.mission_spawn_count = 0
 
-    def _career_block_json(self):
+    def _career_block_json(self, produced=False):
+        # produced=True is the PRODUCED-save block (run_analyzer). Only it honors
+        # produced_parsed; the SEED block (run_seed_analyzer, produced=False) always
+        # parses so seed_mode alone scripts the seed lane.
+        if produced and not self.produced_parsed:
+            return {"parsed": False}
         return {"parsed": True,
                 "hasFunds": True, "funds": self.career_funds,
                 "hasScience": True, "sciencePool": self.career_science,
@@ -162,7 +171,7 @@ class FakeRuntime(run.Runtime):
             # Additive careerSave block (leg B) so an active ledger-oracle slot 8 has a
             # produced-save careerSave to read; inert for non-ledger scenarios.
             json.dump({"counts": {"failNonBaselined": 0, "staleNonBaselined": 0},
-                       "findings": [], "careerSave": self._career_block_json()}, fh)
+                       "findings": [], "careerSave": self._career_block_json(produced=True)}, fh)
         return run.ToolResult(0, False)
 
     def run_seed_analyzer(self, save_dir, out_dir, timeout):
@@ -409,9 +418,10 @@ class LedgerSeedBaselineSmokeTests(unittest.TestCase):
         self.logger.close()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def _run_ledger(self, mode="pass", seed_mode="ok", run_tests_budget=30, run_budget=600):
+    def _run_ledger(self, mode="pass", seed_mode="ok", run_tests_budget=30, run_budget=600,
+                    produced_parsed=True):
         spec = _make_ledger_spec(self.template, run_tests_budget, run_budget)
-        rt = FakeRuntime(mode, seed_mode=seed_mode)
+        rt = FakeRuntime(mode, seed_mode=seed_mode, produced_parsed=produced_parsed)
         result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
                                  prior_boot_crashed=False, logger=self.logger)
         return result, rt
@@ -425,12 +435,12 @@ class LedgerSeedBaselineSmokeTests(unittest.TestCase):
 
     def test_non_ledger_scenario_skips_seed_capture(self):
         # Branch 1 (skipped): a scenario with no [expectations.ledger] never runs the
-        # seed analyzer, and slot 8 records the reserved mb2-not-landed SKIP.
+        # seed analyzer, and slot 8 records the reserved no-ledger-block-declared SKIP.
         result, rt = self._run_nonledger()
         self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
         self.assertEqual(0, rt.seed_analyzer_count, "no ledger block -> no seed analyzer pass")
         self.assertEqual("SKIPPED", result["verifiers"]["ledgerOracle"]["status"])
-        self.assertEqual("mb2-not-landed", result["verifiers"]["ledgerOracle"]["reason"])
+        self.assertEqual("no-ledger-block-declared", result["verifiers"]["ledgerOracle"]["reason"])
 
     def test_ok_seed_and_clean_save_active_oracle_passes(self):
         # Branch 2 (ok) + active slot 8: the seed parses (funds/science/rep), the
@@ -451,6 +461,18 @@ class LedgerSeedBaselineSmokeTests(unittest.TestCase):
             manifest = json.load(fh)
         self.assertIn("sciencePool", manifest["seed"])
         self.assertEqual(25000.0, manifest["seed"]["funds"])
+
+    def test_produced_careersave_parsed_false_is_tooling_invalid(self):
+        # Item 10: the SEED parses (ok) + KSP boots, but the PRODUCED-save careerSave is
+        # {parsed:false} (the analyzer could not parse the produced save). An active
+        # ledger verifier must classify tooling INVALID (a parse fault), never
+        # PARSEK-FAIL missing-facet off the all-absent diff.
+        result, rt = self._run_ledger(seed_mode="ok", produced_parsed=False)
+        self.assertEqual(1, rt.launch_count, "the seed parsed, so KSP still booted")
+        self.assertEqual("INVALID", result["verifiers"]["ledgerOracle"]["status"])
+        self.assertEqual("tooling", result["verifiers"]["ledgerOracle"]["subkind"])
+        self.assertIn("parsed=false", result["verifiers"]["ledgerOracle"]["reason"])
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
 
     def test_sandbox_template_is_terminal_fixture_invalid_zero_boot(self):
         # Branch 3 (invalid-fixture): a template that parses but carries NO career pools

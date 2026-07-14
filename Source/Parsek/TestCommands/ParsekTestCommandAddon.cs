@@ -692,11 +692,31 @@ namespace Parsek.TestCommands
         // ----- Two-phase completion (RunTests / LoadGame + M-C1 InvokeRewind /
         //        AnswerMergeDialog / TimeJump) -----
 
-        // Called each safe-point frame while a two-phase command awaits completion. When
-        // the operation has settled it builds the terminal payload, journals EXECUTED +
-        // response + DONE (advancing the head); otherwise it converts to TIMEOUT once the
-        // verb's budget expires so a never-settling operation cannot wedge the run.
+        // Called each safe-point frame while a two-phase command awaits completion. Contains
+        // a throwing completion probe (e.g. a reflection invoke against a mid-teardown merge
+        // dialog) as a terminal ERROR so the throw converts to a pump advance instead of
+        // escaping Update, mirroring the exception containment in ExecuteHead.
         private void TryCompleteTwoPhase()
+        {
+            try
+            {
+                TryCompleteTwoPhaseCore();
+            }
+            catch (Exception ex)
+            {
+                string id = completionId; long seq = completionSeq; string verb = completionVerb;
+                TestCommandExecution.ExceptionTerminal(ex.GetType().Name, out string exVerdict, out string exMsg);
+                ParsekLog.Error(Tag, $"two-phase completion threw id={id} cmd={verb}: {ex.GetType().Name}: {ex.Message}");
+                ClearTwoPhase();
+                EmitExecutedTerminal(id, seq, verb, exVerdict, null, exMsg, dequeueHead: true);
+            }
+        }
+
+        // The completion body: when the operation has settled it builds the terminal payload,
+        // journals EXECUTED + response + DONE (advancing the head); otherwise it converts to
+        // TIMEOUT once the verb's budget expires so a never-settling operation cannot wedge
+        // the run.
+        private void TryCompleteTwoPhaseCore()
         {
             double now = WallClockSeconds();
 
@@ -1631,6 +1651,18 @@ namespace Parsek.TestCommands
                     TestCommandMergeAnswer.BuildCompletePayload(ChoiceWire(ch), result);
                 ParsekLog.Info(Tag, $"answermergedialog complete choice={ChoiceWire(ch)} result={result ?? string.Empty}");
                 EmitExecutedTerminal(id, seq, verb, "OK", payload, null, dequeueHead: true);
+            }
+            else if (decision == AnswerCompletionDecision.AnswerAppliedSceneStall)
+            {
+                // The answer landed (an irreversible merge / discard / seal committed) but the
+                // post-answer scene stalled past the budget. Carry the applied fact so the
+                // orchestrator never reads a committed merge as a clean failure.
+                List<KeyValuePair<string, string>> payload =
+                    TestCommandMergeAnswer.BuildAppliedStallPayload(ChoiceWire(ch), result);
+                TestCommandDiagnostics.Timeout(id, verb, elapsed, "answer-applied-scene-stall");
+                ParsekLog.Error(Tag,
+                    $"answermergedialog applied-scene-stall choice={ChoiceWire(ch)} result={result ?? string.Empty} elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
+                EmitExecutedTerminal(id, seq, verb, "ERROR", payload, "answer-applied-scene-stall", dequeueHead: true);
             }
             else // AnswerTimeout
             {

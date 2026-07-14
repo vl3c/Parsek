@@ -51,8 +51,13 @@ SCHEMA_VERSION = 1
 # Vocabulary tables (design Data Model + consumed seam verb table).
 # ---------------------------------------------------------------------------
 
-# Scenario tiers (design spec `tier` enum).
-TIERS: Tuple[str, ...] = ("perpr", "daily", "nightly", "weekly")
+# Scenario tiers (design spec `tier` enum). `pending-fixture` is a readiness state,
+# NOT a cadence: a scenario whose fixture save is not committed yet self-declares
+# `pending-fixture` so it is EXCLUDED from every --cadence run (CADENCE_TIERS maps no
+# cadence to it) instead of INVALID(staging)-ing terminally on each daily run and
+# self-quarantining a scenario that never actually ran (M-A5 integration item 4). An
+# operator re-tiers it to its real cadence tier the moment the fixture lands.
+TIERS: Tuple[str, ...] = ("perpr", "daily", "nightly", "weekly", "pending-fixture")
 
 # The two provisioned instance profiles (design + M-A6).
 INSTANCE_PROFILES: Tuple[str, ...] = ("stock-minimal", "modded-compat")
@@ -132,6 +137,29 @@ STEP_WAIT_MARGIN_SECONDS = 60
 # bounded-wait but complete quickly, so they ride the ordinary per-verb deferral budget
 # and are NOT deferred here (design-autotest-seam-verbs-c1.md, hlib companion changes).
 DEFERRED_SEAM_VERBS: Tuple[str, ...] = ("RunTests", "LoadGame", "InvokeRewind", "TimeJump")
+
+# Per-verb seam-side DISPATCH deferral budgets (seconds), mirroring the C#
+# DeferralBudget.BudgetSeconds table (TestCommands/TestCommandDispatcher.cs). A verb
+# that is NOT a two-phase DEFERRED_SEAM_VERB still parks at the seam FIFO head up to
+# its OWN dispatch deferral budget before the seam self-emits a TIMEOUT terminal
+# (classified retryable driver-INVALID). If the harness step-wait for such a verb is
+# only the bare per-step budget it can KILL a genuinely-deferring verb BEFORE the seam
+# surfaces that TIMEOUT (M-A5 integration item 3): AnswerMergeDialog (120s dialog wait)
+# and KscAction (60s career-ready wait) are the motivating cases -- deliberately NOT
+# two-phase-deferred (they complete quickly once ready), but their nonzero deferral
+# budget must be out-waited + margin so the seam's own verdict is OBSERVED, not
+# pre-empted. Unlisted verbs ride DISPATCH_DEFERRAL_DEFAULT_SECONDS (the C# default,
+# 60s). RunTests is scenario-budget-authoritative and is handled by the deferred
+# branch; it is intentionally absent here.
+DISPATCH_DEFERRAL_DEFAULT_SECONDS = 60.0
+DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
+    "LoadGame": 300.0,
+    "StartRecording": 180.0,
+    "InvokeRewind": 300.0,
+    "AnswerMergeDialog": 120.0,
+    "TimeJump": 120.0,
+    "KscAction": 60.0,
+}
 
 # The literal the harness substitutes with runSaveName before writing a LoadGame
 # line to the channel (design [driver]).
@@ -284,6 +312,9 @@ def select_aggregate_batch_complete(
     the per-category lines, see resolve_batch_complete) for ALL categories to have
     passed. A missing aggregate is NOT this function's concern -- resolve_batch_complete
     classifies a missing aggregate with per-category lines present as a defined fault.
+    Likewise a DUPLICATE aggregate (two ``multi:<count>`` lines) is resolve_batch_complete's
+    concern (item 10): this returns the FIRST for its `failed`, but resolve_batch_complete
+    reds the duplicate as a defined fault rather than silently first-winning.
     """
     for bc in batches:
         if _is_aggregate(bc):
@@ -305,6 +336,11 @@ class BatchCompleteSelection:
     # same treatment as aggregate_missing (present=False), never a silent pass.
     category_count_mismatch: bool = False
     expected_category_count: Optional[int] = None  # the aggregate's declared <count>
+    # Item 10: MORE THAN ONE category=multi:<count> aggregate line present. Two aggregates
+    # mean the multi-category summary emitted twice (a duplicated / concatenated run); a
+    # silent first-wins could gate green off the wrong summary. A defined fault, same
+    # treatment as aggregate_missing (present=False), never a silent pass.
+    duplicate_aggregate: bool = False
 
 
 def resolve_batch_complete(
@@ -350,6 +386,19 @@ def resolve_batch_complete(
             multi=False, aggregate_missing=False,
             per_category_count=len(per_category),
             category_count_mismatch=False, expected_category_count=None)
+
+    aggregates = [bc for bc in batches if _is_aggregate(bc)]
+    if len(aggregates) > 1:
+        # Item 10: two multi:<count> aggregate lines -> a defined fault (the summary
+        # emitted twice); never silently first-win one. present=False reds
+        # batch-incomplete; the distinct duplicate_aggregate flag names the reason.
+        return BatchCompleteSelection(
+            present=False, failed=None, category=aggregates[0].category,
+            scene=aggregates[0].scene, multi=True, aggregate_missing=False,
+            per_category_count=len(per_category),
+            category_count_mismatch=False,
+            expected_category_count=aggregate_category_count(aggregates[0]),
+            duplicate_aggregate=True)
 
     agg = select_aggregate_batch_complete(batches)
     if agg is not None:
@@ -544,6 +593,11 @@ class StepOutcome:
     verdict: Optional[str]  # observed; None when no response line for this id
     found: bool
     met: bool
+    # The seam response line's `msg=` token (percent-encoded, as it appears on the
+    # wire) or "" when absent. Carries the M-C1 verb-refusal reason prefix
+    # (refly-gate / unknown-rp / no-live-dialog / career-not-ready / backward-jump ...)
+    # the driver-stage subkind mapping reads (classify_seam_refusal_subkind).
+    msg: str = ""
 
 
 @dataclass(frozen=True)
@@ -571,6 +625,7 @@ def evaluate_response_stream(
         line at all) is UNMET and marks the driver stage failed at that step.
     """
     observed: Dict[str, str] = {}
+    observed_msg: Dict[str, str] = {}
     duplicate_ids: List[str] = []
     for line in response_lines:
         parsed = _parse_response_line(line)
@@ -581,6 +636,7 @@ def evaluate_response_stream(
             duplicate_ids.append(rid)  # first-wins; the rewrite is ignored
             continue
         observed[rid] = parsed["verdict"]
+        observed_msg[rid] = parsed.get("msg", "")
 
     outcomes: List[StepOutcome] = []
     first_unmet: Optional[StepOutcome] = None
@@ -591,7 +647,8 @@ def evaluate_response_stream(
         verdict = observed.get(sid)
         found = verdict is not None
         met = found and verdict == expect
-        outcome = StepOutcome(sid, cmd, expect, verdict, found, met)
+        outcome = StepOutcome(sid, cmd, expect, verdict, found, met,
+                              msg=observed_msg.get(sid, ""))
         outcomes.append(outcome)
         if not met and first_unmet is None:
             first_unmet = outcome
@@ -932,6 +989,23 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     if "ledger" in expectations:
         errors.extend(validate_ledger_expectations(expectations.get("ledger")))
 
+    # An [expectations.ledger] block cannot be modeled across an in-run rewind or a
+    # merge-dialog answer: InvokeRewind rewrites the career pools (funds/science/rep)
+    # from a quicksave the seed + manifest contract cannot reconstruct, and
+    # AnswerMergeDialog drives the merge that commits/discards those rewound pools. The
+    # oracle for a rewound/merged career is DEFERRED to L4, so pairing the two is a
+    # hard spec error (never launch KSP for an unassertable run). TimeJump + ledger
+    # stays allowed (design-blessed: a forward jump keeps the seed + manifest sum
+    # valid). M-A5 integration item 1.
+    if "ledger" in expectations:
+        for i, step in enumerate(steps):
+            scmd = (step or {}).get("cmd")
+            if scmd in ("InvokeRewind", "AnswerMergeDialog"):
+                errors.append(
+                    "driver.steps[%d].cmd: %r cannot pair with [expectations.ledger] -- a "
+                    "rewind/merge rewrites the career pools the seed+manifest contract cannot "
+                    "model; the rewound-career ledger oracle is DEFERRED to L4" % (i, scmd))
+
     # Dimensions covered: every key + value present in the registry.
     dims = spec.get("dimensionsCovered", {}) or {}
     for dim, values in dims.items():
@@ -1165,6 +1239,29 @@ def step_wait_ok(harness_step_wait: float, seam_deferral_budget: float) -> bool:
     """True iff ``harness_step_wait >= seam_deferral_budget + 60s`` (S8): the
     harness always gives the seam a full deferral window plus slack."""
     return float(harness_step_wait) >= required_step_wait(seam_deferral_budget)
+
+
+def dispatch_deferral_budget(verb: str,
+                             scenario_budget_seconds: Optional[float] = None) -> float:
+    """The seam-side DISPATCH deferral budget (seconds) for ``verb``, mirroring the C#
+    DeferralBudget.BudgetSeconds table (M-A5 integration item 3). RunTests defers to
+    the scenario's declared runtime budget when supplied (else the two-phase branch's
+    600s fallback governs it); every other verb reads DISPATCH_DEFERRAL_BUDGET_SECONDS,
+    falling back to the 60s default. This is what a NON-two-phase verb parks at the seam
+    head for before it self-emits a TIMEOUT terminal, so the harness step-wait for such
+    a verb must out-wait it plus the standard margin."""
+    if verb == "RunTests" and scenario_budget_seconds is not None:
+        return float(scenario_budget_seconds)
+    return DISPATCH_DEFERRAL_BUDGET_SECONDS.get(verb, DISPATCH_DEFERRAL_DEFAULT_SECONDS)
+
+
+def required_dispatch_step_wait(verb: str,
+                                scenario_budget_seconds: Optional[float] = None) -> float:
+    """The harness step-wait a NON-two-phase seam verb REQUIRES so the seam's own
+    dispatch-deferral TIMEOUT (a retryable driver-INVALID) is OBSERVED rather than
+    pre-empted by a harness KILL: the verb's dispatch deferral budget plus the same 60s
+    margin the two-phase ``required_step_wait`` uses (M-A5 integration item 3)."""
+    return dispatch_deferral_budget(verb, scenario_budget_seconds) + STEP_WAIT_MARGIN_SECONDS
 
 
 # ---------------------------------------------------------------------------
@@ -1405,9 +1502,12 @@ class CapturedAward:
 
     @property
     def seq_key(self):
-        """The dedupe / sort seqKey: ``ut`` when known, the line ordinal otherwise
-        (design ~394), mirroring oracle.ManifestEntry.seq_key."""
-        return self.ut if self.ut is not None else self.seq
+        """The dedupe / sort seqKey, TYPE-TAGGED (design ~394), mirroring
+        oracle.ManifestEntry.seq_key EXACTLY (the two are compared across types in the
+        fill / unmatched matchers): ``("ut", <float>)`` when ``ut`` is known, else
+        ``("ord", <int>)`` (the line ordinal). The tag prevents a null-UT ordinal 3
+        from spuriously matching a captured award at UT 3.0 (3 == 3.0 untagged)."""
+        return ("ut", self.ut) if self.ut is not None else ("ord", self.seq)
 
     def to_entry_dict(self) -> Dict:
         """The raw entry-dict shape oracle.parse_manifest_entries consumes (a
@@ -1515,17 +1615,39 @@ def unmatched_captured_awards(seam_entries, captured: Sequence[CapturedAward]
     is unexpected, which is exactly the economy-drift signal the passive-safety
     scenario reds on (an unexpected award fired during passive play). ``seam_entries``
     are oracle.ManifestEntry objects, read structurally (``.seq_key`` / ``.kind`` /
-    ``.contract_guid`` / ``.subject_ids``) so this imports nothing from oracle."""
+    ``.contract_guid`` / ``.subject_ids``) so this imports nothing from oracle.
+
+    MULTI-SUBJECT (item 10): a seam entry may declare MANY ``subject_ids`` (one entry
+    covering several science subjects) while a captured award carries a SINGLE
+    ``subject_id``. Register a key for the contract guid AND for EVERY declared subject
+    id so an award on the entry's 2nd+ subject is explained, not falsely flagged
+    unmatched (the prior code registered only ``subject_ids[0]``, false-redding awards
+    on any later subject). Fail-closed: an entry with no guid and no subjects registers
+    the empty identity "" (matching only an award that itself has no identity)."""
     seam_keys = set()
     for e in seam_entries or ():
-        ident = e.contract_guid or (e.subject_ids[0] if e.subject_ids else "")
-        seam_keys.add((e.seq_key, e.kind, ident))
+        for ident in _entry_identities(e.contract_guid, e.subject_ids):
+            seam_keys.add((e.seq_key, e.kind, ident))
     out: List[CapturedAward] = []
     for c in captured:
         ident = c.contract_guid or c.subject_id
         if (c.seq_key, c.kind, ident) not in seam_keys:
             out.append(c)
     return out
+
+
+def _entry_identities(contract_guid: str, subject_ids: Sequence[str]) -> List[str]:
+    """The identity keys a manifest entry can explain: its contract guid (if any) plus
+    each of its declared subject ids. Falls back to the single empty identity "" when
+    the entry declares neither (a scalar-pool entry matches only an identity-less
+    award). Fail-closed (item 10)."""
+    ids: List[str] = []
+    if contract_guid:
+        ids.append(contract_guid)
+    for s in subject_ids or ():
+        if s and s not in ids:
+            ids.append(s)
+    return ids or [""]
 
 
 # ---------------------------------------------------------------------------
@@ -1618,6 +1740,55 @@ RETRYABLE_INVALID_SUBKINDS: Tuple[str, ...] = (
     # driver-verdict-mismatch.
     "driver-gate", "driver-rewind", "driver-dialog", "driver-arg", "driver-career",
 )
+
+# M-C1 verb-refusal `msg=` prefix -> finer driver-* subkind (M-A5 integration item 6).
+# The C# executors emit a typed refusal reason as the response line's msg (see
+# TestCommands/ParsekTestCommandAddon*.cs + TestCommandKscAction.cs / GateRefusalMsg);
+# without this map every M-C1 refusal collapses to the coarse driver-verdict-mismatch,
+# leaving the five driver-* subkinds dead vocabulary. Keyed on the leading msg token
+# (the wire msg is percent-encoded, so `refly-gate <reason>` arrives as
+# `refly-gate%20<reason>` and matches on the `refly-gate` head). Verbs / reasons not in
+# the table fall back to driver-verdict-mismatch (all retry-once INVALID either way).
+_SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
+    # InvokeRewind: a precondition gate declined (refly-gate) vs a bad RP/slot arg.
+    "refly-gate": "driver-gate",
+    "unknown-rp": "driver-arg",
+    "unknown-slot": "driver-arg",
+    # AnswerMergeDialog: the merge dialog the verb needed was not live / lacked the choice.
+    "unknown-choice": "driver-dialog",
+    "no-live-dialog": "driver-dialog",
+    "choice-unavailable": "driver-dialog",
+    # TimeJump: a refused / backward jump is rewind-class; a missing target is a bad arg.
+    "backward-jump": "driver-rewind",
+    "jump-refused": "driver-rewind",
+    "missing-jump-target": "driver-arg",
+    # KscAction: dispatch not-ready + career-state declines are career-class; unknown /
+    # missing targets are arg-class.
+    "career-not-ready": "driver-career",
+    "unknown-action": "driver-arg",
+    "unknown-tech-node": "driver-arg",
+    "unknown-facility": "driver-arg",
+    "unknown-kerbal": "driver-arg",
+    "unknown-target": "driver-arg",
+    "missing-arg": "driver-arg",
+    "insufficient-science": "driver-career",
+    "insufficient-funds": "driver-career",
+    "facility-at-max": "driver-career",
+    "node-already-unlocked": "driver-career",
+    "kerbal-not-applicant": "driver-career",
+    "kerbal-parsek-managed": "driver-career",
+    "kerbal-not-dismissable": "driver-career",
+    "blocked-committed": "driver-career",
+}
+
+
+def classify_seam_refusal_subkind(msg: Optional[str]) -> str:
+    """Map an M-C1 verb-refusal response ``msg`` to a finer driver-* subkind, or ""
+    when the reason is unrecognized (the caller then uses driver-verdict-mismatch).
+    Reads only the leading token so a compound gate reason (``refly-gate <detail>``,
+    on the wire ``refly-gate%20<detail>``) still classifies. Pure (M-A5 item 6)."""
+    token = (msg or "").split("%20", 1)[0].strip()
+    return _SEAM_REFUSAL_SUBKINDS.get(token, "")
 
 
 @dataclass(frozen=True)
@@ -2228,16 +2399,24 @@ def flake_attempt_entries(result: Dict) -> List[Dict]:
     """The per-attempt flake-ledger entries one durable result contributes (SF1).
 
     Always the result's own ``{"utc","outcome"}`` entry (the verdict the numerator
-    already counts for a plain INVALID/KILLED). PLUS, when the result is a PASS that
-    carries a RECOVERED subprocess retry, ONE synthetic INVALID entry -- so a flake
-    that the subprocess retry papered over inside a single boot still accrues toward
-    the scenario's quarantine rate, exactly as a whole-attempt flakedThenPassed's
-    attempt-1 INVALID JSON does. A non-recovered retry (whole-attempt fallback) adds
-    NO synthetic entry (its own INVALID JSON accrues instead -- no double-count). The
-    caller extends the scenario's attempt list with the returned entries.
+    already counts for a plain INVALID/KILLED). PLUS, when the result carries a
+    RECOVERED subprocess retry AND its own verdict does NOT already count toward the
+    flake numerator, ONE synthetic INVALID entry -- so a flake that the subprocess retry
+    papered over inside a single boot still accrues toward the scenario's quarantine
+    rate, exactly as a whole-attempt flakedThenPassed's attempt-1 INVALID JSON does.
+
+    Item 10: the synthetic entry fires for ANY non-numerator verdict (PASS, PARSEK-FAIL,
+    EXPECTED-FAIL, XPASS), not PASS alone -- a chronically-wedging analyzer on a FAILING
+    scenario must still accrue toward quarantine, otherwise a scenario that reds for a
+    genuine Parsek reason masks its own tooling flake forever. A result whose verdict is
+    ALREADY a numerator verdict (INVALID/KILLED) adds NO synthetic entry: its own entry
+    already accrues, and a non-recovered whole-attempt retry writes its own INVALID JSON
+    -- either way a synthetic would double-count. The caller extends the scenario's
+    attempt list with the returned entries.
     """
     utc = (result or {}).get("endedUtc", "")
-    entries: List[Dict] = [{"utc": utc, "outcome": (result or {}).get("verdict")}]
-    if (result or {}).get("verdict") == VERDICT_PASS and recovered_subprocess_retries(result):
+    verdict = (result or {}).get("verdict")
+    entries: List[Dict] = [{"utc": utc, "outcome": verdict}]
+    if verdict not in FLAKE_NUMERATOR_VERDICTS and recovered_subprocess_retries(result):
         entries.append({"utc": utc, "outcome": VERDICT_INVALID})
     return entries

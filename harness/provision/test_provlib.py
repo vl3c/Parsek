@@ -1806,6 +1806,18 @@ class InventoryDiffTests(unittest.TestCase):
         self.assertEqual(provlib.diff_inventory(rec, cur), [])
         self.assertEqual(provlib.diff_inventory(rec, {}), [])  # removed, tolerated
 
+    def test_case_insensitive_path_compare(self):
+        # Item 10: KSP GameData lives on a case-insensitive Windows FS, so a recorded
+        # path and an on-disk scan that differ ONLY in case are the SAME file -- no
+        # missing/added drift (mirrors the PluginData name.lower() handling).
+        rec = {"GameData/kRPC/KRPC.dll": "h1"}
+        cur = {"GameData/krpc/KRPC.dll": "h1"}  # folder cased differently by the scan
+        self.assertEqual(provlib.diff_inventory(rec, cur), [])
+        # A genuine content change is still caught despite the case difference.
+        cur_changed = {"GameData/krpc/KRPC.dll": "hX"}
+        diffs = provlib.diff_inventory(rec, cur_changed)
+        self.assertEqual([d.kind for d in diffs], ["changed"])
+
     def test_path_has_runtime_writable_segment(self):
         self.assertTrue(provlib.path_has_runtime_writable_segment("GameData/kRPC/PluginData/x"))
         self.assertTrue(provlib.path_has_runtime_writable_segment("PluginData/x"))
@@ -2057,6 +2069,28 @@ class Sf10InventoryVerifyShellTests(unittest.TestCase):
             manifest = {"components": {}, "junctionTargets": {}, "devSourcedMods": {}}  # no inventories key
             self.assertTrue(provision.phase_verify(ctx, manifest))
             self.assertTrue(any("inventory absent" in l and "[Amber]" in l for l in ctx.log_lines))
+
+    def test_folder_fallback_arms_inventory_from_disk(self):
+        # Item 2: when the prior manifest predates componentInventories (_prior_inventory
+        # returns []), a hash-match SKIP must ARM the inventory by SCANNING the on-disk
+        # folder, not stamp it empty. An empty inventory would make the NEXT VERIFY red
+        # EVERY on-disk file as an added-file drift storm.
+        import provision
+        import tempfile
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            self._install_file(ctx, "GameData/kRPC/KRPC.dll", b"krpc")
+            self._install_file(ctx, "GameData/kRPC/KRPC.Core.dll", b"core")
+            ctx.prior_manifest = {"componentInventories": {}}  # pre-M-A6.2 manifest
+            self.assertEqual(provision._prior_inventory(ctx, "krpc"), [])
+            # The testingtools-style fallback scans the folder and records both files.
+            armed = (provision._prior_inventory(ctx, "krpc")
+                     or provision._inventory_of_folder(ctx, "krpc"))
+            self.assertEqual(sorted(e["rel"] for e in armed),
+                             ["GameData/kRPC/KRPC.Core.dll", "GameData/kRPC/KRPC.dll"])
+            # Feeding the armed inventory to VERIFY passes green (no added-file drift storm).
+            self.assertTrue(provision.phase_verify(ctx, self._manifest({"krpc": armed})))
+            self.assertEqual(getattr(ctx, "verify_drift", []), [])
 
     def test_missing_authored_file_drifts(self):
         import provision
@@ -2419,6 +2453,13 @@ class Sf9MutableSurfaceStatTests(unittest.TestCase):
         os.makedirs(os.path.dirname(b64), exist_ok=True)
         with open(b64, "wb") as fh:
             fh.write(b"build 999")
+        # Fresh-source rule (item 10): the mutable-surface skip also gates on the DEV
+        # install's current buildID64 (the surface is copied FROM there). Seed it equal
+        # to the instance/recorded so the clean case still skips.
+        dev_b64 = os.path.join(ctx.dev_install, "buildID64.txt")
+        os.makedirs(os.path.dirname(dev_b64), exist_ok=True)
+        with open(dev_b64, "wb") as fh:
+            fh.write(b"build 999")
         managed = os.path.join(ctx.instance_dir, "KSP_x64_Data", "Managed")
         os.makedirs(managed, exist_ok=True)
         for n, data in (("Assembly-CSharp.dll", b"asmcs"), ("UnityEngine.dll", b"unity-bytes")):
@@ -2457,6 +2498,22 @@ class Sf9MutableSurfaceStatTests(unittest.TestCase):
             del ctx.prior_manifest["mutableSurfaceManagedStat"]  # pre-S2 manifest
             self.assertFalse(provision._clone_surface_skips(ctx, {}),
                              "a manifest without the Managed stat must re-copy to arm the check")
+
+    def test_dev_buildid64_bump_forces_recopy(self):
+        # Item 10 fresh-source rule: a dev-side KSP version bump changes the dev
+        # buildID64 while the instance still matches the OLD recorded hash. An
+        # instance-vs-recorded-only gate would wrongly skip and never re-propagate the
+        # new KSP; the fresh-source gate must refuse the skip.
+        import provision
+        with tempfile.TemporaryDirectory() as um:
+            ctx = self._ctx(um)
+            self._setup_instance(provision, ctx)
+            # Bump ONLY the dev install's buildID64 (instance + recorded stay "build 999").
+            with open(os.path.join(ctx.dev_install, "buildID64.txt"), "wb") as fh:
+                fh.write(b"build 1000")
+            self.assertFalse(provision._clone_surface_skips(ctx, {}),
+                             "a bumped dev buildID64 must refuse the mutable-surface skip")
+            self.assertTrue(any("dev buildID64 changed" in l for l in ctx.log_lines))
 
 
 class Sf9DevModSourceGateTests(unittest.TestCase):

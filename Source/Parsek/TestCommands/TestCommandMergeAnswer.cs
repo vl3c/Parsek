@@ -34,6 +34,14 @@ namespace Parsek.TestCommands
         /// <summary>The budget expired with the answer never applied: terminal ERROR
         /// (answer-timeout).</summary>
         AnswerTimeout,
+
+        /// <summary>The answer WAS applied (the merge / discard / seal button callback ran
+        /// and committed the irreversible effect) but the post-answer scene transition
+        /// stalled past the budget: terminal ERROR (answer-applied-scene-stall) whose
+        /// payload carries <c>applied=true</c>. Distinguished from AnswerTimeout so the
+        /// orchestrator never reads a committed merge as a clean failure - the fact that
+        /// the merge landed must not be dropped just because the scene did not settle.</summary>
+        AnswerAppliedSceneStall,
     }
 
     /// <summary>
@@ -88,7 +96,11 @@ namespace Parsek.TestCommands
         /// never OK: if the driven exit took the POST-transition path, the deferred dialog
         /// spawns AFTER the scene settles, so a settle-keyed decider would report a false OK
         /// over an orphaned unanswered dialog. The contract is therefore answer-applied AND
-        /// the post-answer scene settled; the budget bounds a stuck transition.
+        /// the post-answer scene settled; the budget bounds a stuck transition. On a budget
+        /// expiry the terminal SPLITS on whether the answer was applied: an APPLIED answer
+        /// whose scene transition stalled is AnswerAppliedSceneStall (carrying the applied
+        /// fact) so a committed merge is never reported as a clean failure; an unapplied
+        /// answer is the plain AnswerTimeout.
         /// </summary>
         internal static AnswerCompletionDecision DecideAnswerCompletion(
             double elapsedSeconds, bool answerApplied, TestCommandScene currentScene, double budgetSeconds)
@@ -96,7 +108,10 @@ namespace Parsek.TestCommands
             bool sceneSettled = currentScene != TestCommandScene.Loading
                 && currentScene != TestCommandScene.Flight;
             if (answerApplied && sceneSettled) return AnswerCompletionDecision.CompleteOk;
-            if (elapsedSeconds >= budgetSeconds) return AnswerCompletionDecision.AnswerTimeout;
+            if (elapsedSeconds >= budgetSeconds)
+                return answerApplied
+                    ? AnswerCompletionDecision.AnswerAppliedSceneStall
+                    : AnswerCompletionDecision.AnswerTimeout;
             return AnswerCompletionDecision.StillWaiting;
         }
 
@@ -105,6 +120,19 @@ namespace Parsek.TestCommands
             string choice, string result)
             => new List<KeyValuePair<string, string>>
             {
+                new KeyValuePair<string, string>("choice", choice ?? string.Empty),
+                new KeyValuePair<string, string>("result", result ?? string.Empty),
+            };
+
+        /// <summary>Terminal ERROR payload for AnswerAppliedSceneStall: the answer landed
+        /// (the irreversible merge / discard / seal committed) but the post-answer scene
+        /// stalled. Carries <c>applied=true</c> alongside the choice / result so the
+        /// orchestrator sees the committed fact instead of a bare answer-timeout failure.</summary>
+        internal static List<KeyValuePair<string, string>> BuildAppliedStallPayload(
+            string choice, string result)
+            => new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("applied", "true"),
                 new KeyValuePair<string, string>("choice", choice ?? string.Empty),
                 new KeyValuePair<string, string>("result", result ?? string.Empty),
             };

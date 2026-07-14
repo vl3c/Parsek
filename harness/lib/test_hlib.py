@@ -153,6 +153,18 @@ class MultiCategoryBatchCompleteTests(unittest.TestCase):
         self.assertTrue(sel.aggregate_missing)
         self.assertEqual(sel.per_category_count, 2)
 
+    def test_two_aggregates_is_defined_fault(self):
+        # Item 10: two category=multi:<n> aggregate lines (the summary emitted twice) is a
+        # defined fault -> present=False + duplicate_aggregate, never a silent first-wins.
+        batches = hlib.find_batch_complete_lines("\n".join([
+            _bc_line("A", 0), _bc_line("B", 0),
+            _bc_line("multi:2", 0, total=10, passed=10),
+            _bc_line("multi:2", 0, total=10, passed=10)]))
+        sel = hlib.resolve_batch_complete(batches, "A,B")
+        self.assertFalse(sel.present)
+        self.assertTrue(sel.duplicate_aggregate)
+        self.assertFalse(sel.aggregate_missing)
+
     def test_multi_selector_no_lines_at_all_is_plain_absent(self):
         # No BATCH_COMPLETE lines at all: batch never started (not the aggregate-missing
         # defined fault, which requires per-category lines present).
@@ -430,6 +442,47 @@ class ResponseStreamTests(unittest.TestCase):
         self.assertEqual(ev.first_unmet.step_id, "0002")
         self.assertFalse(ev.first_unmet.found)
 
+    def test_refusal_msg_threaded_onto_outcome(self):
+        # Item 6: the response line's msg= token is captured onto the StepOutcome so the
+        # driver-stage subkind mapping can read the M-C1 refusal reason.
+        steps = [{"id": "0001", "cmd": "InvokeRewind", "expect": "OK"}]
+        lines = ["id=0001 cmd=InvokeRewind verdict=REJECTED seq=1 msg=refly-gate%20not-ready"]
+        ev = hlib.evaluate_response_stream(lines, steps)
+        self.assertFalse(ev.all_expected_met)
+        self.assertEqual(ev.first_unmet.verdict, "REJECTED")
+        self.assertEqual(ev.first_unmet.msg, "refly-gate%20not-ready")
+
+
+class SeamRefusalSubkindTests(unittest.TestCase):
+    """Item 6: the M-C1 verb-refusal msg= reason maps to the finer driver-* subkind so
+    the five subkinds are no longer dead vocabulary. Unknown reasons fall back to ""
+    (the caller then uses driver-verdict-mismatch)."""
+
+    def test_known_refusal_prefixes_map(self):
+        cases = {
+            "refly-gate%20some-detail": "driver-gate",   # compound gate reason
+            "refly-gate": "driver-gate",
+            "unknown-rp": "driver-arg",
+            "unknown-slot": "driver-arg",
+            "no-live-dialog": "driver-dialog",
+            "choice-unavailable": "driver-dialog",
+            "unknown-choice": "driver-dialog",
+            "career-not-ready": "driver-career",
+            "insufficient-funds": "driver-career",
+            "backward-jump": "driver-rewind",
+            "jump-refused": "driver-rewind",
+            "missing-jump-target": "driver-arg",
+            "unknown-facility": "driver-arg",
+        }
+        for msg, expect in cases.items():
+            with self.subTest(msg=msg):
+                self.assertEqual(hlib.classify_seam_refusal_subkind(msg), expect)
+
+    def test_unknown_reason_falls_back(self):
+        self.assertEqual(hlib.classify_seam_refusal_subkind("some-other-reason"), "")
+        self.assertEqual(hlib.classify_seam_refusal_subkind(""), "")
+        self.assertEqual(hlib.classify_seam_refusal_subkind(None), "")
+
 
 # ---------------------------------------------------------------------------
 # Spec validation.
@@ -562,14 +615,41 @@ class SpecValidationRejectTests(unittest.TestCase):
                 self.assertNotIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
 
     def test_mc1_verb_step_accepted(self):
-        # A spec step using an M-C1 verb is no longer flagged RESERVED / unknown.
+        # A spec step using an M-C1 verb is no longer flagged RESERVED / unknown. The
+        # base carries [expectations.ledger]; InvokeRewind / AnswerMergeDialog CANNOT
+        # pair with a ledger block (item 1), so drop it here -- this test is about verb
+        # ACCEPTANCE, not ledger pairing (that rejection has its own test below).
         for verb in ("InvokeRewind", "AnswerMergeDialog", "KscAction", "TimeJump"):
             with self.subTest(verb=verb):
                 def m(s):
+                    s.get("expectations", {}).pop("ledger", None)
                     s["driver"]["steps"].insert(1, {"cmd": verb, "expect": "OK"})
                 v = self._reject(m)
                 self.assertFalse(any(verb in e for e in v.errors),
                                  "%s wrongly flagged: %s" % (verb, list(v.errors)))
+
+    def test_ledger_with_rewind_or_dialog_rejected(self):
+        # Item 1: an [expectations.ledger] block cannot pair with InvokeRewind /
+        # AnswerMergeDialog (a rewind/merge rewrites the career pools the seed+manifest
+        # cannot model; the oracle is DEFERRED to L4). The base already declares ledger.
+        for verb in ("InvokeRewind", "AnswerMergeDialog"):
+            with self.subTest(verb=verb):
+                def m(s):
+                    s["driver"]["steps"].insert(1, {"cmd": verb, "expect": "OK"})
+                v = self._reject(m)
+                self.assertFalse(v.ok)
+                self.assertTrue(
+                    any(verb in e and "L4" in e and "ledger" in e for e in v.errors),
+                    "expected ledger+%s L4-deferral rejection: %s" % (verb, list(v.errors)))
+
+    def test_ledger_with_timejump_allowed(self):
+        # Item 1: TimeJump + ledger stays design-blessed (a forward jump keeps the
+        # seed+manifest sum valid); only rewind/merge-dialog are rejected.
+        def m(s):
+            s["driver"]["steps"].insert(1, {"cmd": "TimeJump", "expect": "OK"})
+        v = self._reject(m)
+        self.assertFalse(any("cannot pair with [expectations.ledger]" in e for e in v.errors),
+                         "TimeJump+ledger must be allowed: %s" % list(v.errors))
 
     def test_mc1_deferred_verb_membership(self):
         # InvokeRewind + TimeJump are the two two-phase verbs the 540s cap governs;
@@ -713,6 +793,7 @@ class SelectionTests(unittest.TestCase):
         {"id": "B", "tier": "nightly", "tags": ["R14"]},
         {"id": "C", "tier": "weekly", "tags": ["mods"]},
         {"id": "D", "tier": "perpr", "tags": []},
+        {"id": "P", "tier": "pending-fixture", "tags": ["awaiting-fixture"]},
     ]
 
     def test_by_id(self):
@@ -729,12 +810,26 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(got, ["A", "B"])
 
     def test_cadence_weekly_is_all(self):
+        # Item 4: pending-fixture is a readiness state, NOT a cadence -- even the
+        # all-inclusive weekly cadence must exclude it (P is absent).
         got = [s["id"] for s in hlib.select_scenarios(self.SPECS, "--cadence weekly")]
         self.assertEqual(got, ["A", "B", "C", "D"])
 
     def test_cadence_daily(self):
+        # Item 4: a daily cadence run must NOT pick up the pending-fixture spec (it
+        # would INVALID(staging) terminally and self-quarantine a scenario that never ran).
         got = [s["id"] for s in hlib.select_scenarios(self.SPECS, "--cadence daily")]
         self.assertEqual(got, ["A"])
+
+    def test_pending_fixture_excluded_from_all_cadences_but_tier_selectable(self):
+        # Item 4: no cadence resolves to pending-fixture, but --tier still selects it so
+        # an operator can smoke-run it the moment its fixture lands.
+        for cadence in ("per-pr", "daily", "nightly", "weekly"):
+            got = [s["id"] for s in hlib.select_scenarios(self.SPECS, "--cadence %s" % cadence)]
+            self.assertNotIn("P", got, "pending-fixture leaked into --cadence %s" % cadence)
+        self.assertEqual(
+            [s["id"] for s in hlib.select_scenarios(self.SPECS, "--tier pending-fixture")], ["P"])
+        self.assertIn("pending-fixture", hlib.TIERS)
 
     def test_unknown_kind_empty(self):
         self.assertEqual(hlib.select_scenarios(self.SPECS, "--bogus x"), [])
@@ -1067,6 +1162,24 @@ class BudgetArithmeticTests(unittest.TestCase):
     def test_step_wait_ok_boundary(self):
         self.assertTrue(hlib.step_wait_ok(600, 540))
         self.assertFalse(hlib.step_wait_ok(599, 540))
+
+    def test_dispatch_deferral_budget_mirrors_c_sharp(self):
+        # Item 3: the per-verb dispatch deferral budgets mirror the C# DeferralBudget.
+        self.assertEqual(hlib.dispatch_deferral_budget("AnswerMergeDialog"), 120.0)
+        self.assertEqual(hlib.dispatch_deferral_budget("KscAction"), 60.0)
+        self.assertEqual(hlib.dispatch_deferral_budget("StartRecording"), 180.0)
+        # An unlisted verb rides the 60s default (the C# DefaultSeconds).
+        self.assertEqual(hlib.dispatch_deferral_budget("SetSetting"), 60.0)
+        # RunTests defers to the declared scenario budget when supplied.
+        self.assertEqual(hlib.dispatch_deferral_budget("RunTests", 900.0), 900.0)
+
+    def test_required_dispatch_step_wait_adds_margin(self):
+        # Item 3: AnswerMergeDialog (120s) + margin => a non-two-phase verb still
+        # out-waits its seam-side deferral so the seam TIMEOUT is observed, not KILLed.
+        self.assertEqual(hlib.required_dispatch_step_wait("AnswerMergeDialog"), 180.0)
+        self.assertEqual(hlib.required_dispatch_step_wait("KscAction"), 120.0)
+        # A default-60s verb also clears the 60s window + margin (no 60==60 race).
+        self.assertEqual(hlib.required_dispatch_step_wait("SetSetting"), 120.0)
 
 
 # ---------------------------------------------------------------------------
@@ -1417,6 +1530,24 @@ class SubprocessRecoveredFlakeAccrualTests(unittest.TestCase):
         entries = hlib.flake_attempt_entries(
             self._result("INVALID", [self._retry(recovered=False)]))
         self.assertEqual([e["outcome"] for e in entries], ["INVALID"])
+
+    def test_recovered_retry_on_failing_scenario_still_accrues(self):
+        # Item 10: a wedging-analyzer flake that recovered inside a boot whose OWN verdict
+        # is PARSEK-FAIL / EXPECTED-FAIL (non-numerator) must STILL accrue a synthetic
+        # INVALID -- the prior PASS-only gate let a scenario that reds for a genuine
+        # Parsek reason mask its own tooling flake forever.
+        for verdict in ("PARSEK-FAIL", "EXPECTED-FAIL", "XPASS"):
+            with self.subTest(verdict=verdict):
+                entries = hlib.flake_attempt_entries(self._result(verdict, [self._retry()]))
+                self.assertEqual([e["outcome"] for e in entries], [verdict, "INVALID"])
+
+    def test_recovered_retry_on_invalid_verdict_no_double_count(self):
+        # Item 10 guard: an INVALID/KILLED result already accrues via its own entry, so a
+        # recovered retry on it adds NO synthetic (would double-count).
+        for verdict in ("INVALID", "KILLED"):
+            with self.subTest(verdict=verdict):
+                entries = hlib.flake_attempt_entries(self._result(verdict, [self._retry()]))
+                self.assertEqual([e["outcome"] for e in entries], [verdict])
 
     def test_recovered_flake_accrues_toward_quarantine(self):
         # End-to-end through compute_flake: three clean passes + one recovered-flake PASS.
@@ -1838,7 +1969,7 @@ class StockAwardCaptureTests(unittest.TestCase):
         c = res.captured[0]
         self.assertIsNone(c.ut)
         self.assertEqual(0, c.seq)               # first (0th) log line.
-        self.assertEqual(c.seq, c.seq_key)       # seqKey falls back to the ordinal.
+        self.assertEqual(("ord", c.seq), c.seq_key)  # type-tagged ordinal seqKey (item 8).
 
     def test_balance_line_rejected_not_captured(self):
         # A running-BALANCE line is inadmissible (a post-grant balance would
@@ -1934,6 +2065,37 @@ class UnmatchedCapturedAwardTests(unittest.TestCase):
         captured = [self._captured(100.0, "contract-complete", "g1", 1000.0)]
         unmatched = hlib.unmatched_captured_awards(parse.entries, captured)
         self.assertEqual(1, len(unmatched))
+
+    def test_type_tag_probe_ordinal_seq_not_matched_by_ut(self):
+        # Item 8: a null-UT seam entry with ordinal seq=3 must NOT explain a captured
+        # award at UT 3.0 (3 == 3.0 untagged would spuriously match). The award stays
+        # unexpected.
+        parse = oracle.parse_manifest_entries([
+            {"kind": "contract-complete", "funds": 1000.0, "contractGuid": "g1", "seq": 3}])
+        self.assertEqual([], list(parse.errors))
+        self.assertIsNone(parse.entries[0].ut)
+        self.assertEqual(("ord", 3), parse.entries[0].seq_key)
+        captured = [self._captured(3.0, "contract-complete", "g1", 1000.0)]
+        unmatched = hlib.unmatched_captured_awards(parse.entries, captured)
+        self.assertEqual(1, len(unmatched), "ord 3 must NOT match ut 3.0")
+
+    def test_multi_subject_entry_explains_award_on_any_subject(self):
+        # Item 10: a science seam entry declaring MANY subjects explains a captured award
+        # on ANY of them (not just subject_ids[0]); the prior code false-flagged the 2nd+.
+        parse = oracle.parse_manifest_entries([
+            {"ut": 50.0, "kind": "science-transmit", "science": 5.0,
+             "subjectIds": ["subjA", "subjB", "subjC"]}])
+        self.assertEqual([], list(parse.errors))
+        aw = hlib.CapturedAward(kind="science-transmit", facet="science", amount=5.0,
+                                contract_guid="", subject_id="subjB", ut=50.0, seq=0,
+                                raw_line="line")
+        self.assertEqual([], hlib.unmatched_captured_awards(parse.entries, [aw]),
+                         "award on the 2nd declared subject must be explained")
+        # An award on an UNDECLARED subject is still unexpected (fail-closed).
+        aw2 = hlib.CapturedAward(kind="science-transmit", facet="science", amount=5.0,
+                                 contract_guid="", subject_id="subjZ", ut=50.0, seq=0,
+                                 raw_line="line")
+        self.assertEqual(1, len(hlib.unmatched_captured_awards(parse.entries, [aw2])))
 
 
 class ParseCareerSaveBlockTests(unittest.TestCase):
