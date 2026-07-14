@@ -1,0 +1,76 @@
+schema = 1
+id = "L1-hire-kerbal-career"
+# pending-fixture: fixtures/saves/fresh-career is not committed yet (M-B3 operator
+# runbook creates it, pinning the roster + the resulting hire cost). Re-tier to "daily"
+# once the fixture lands.
+tier = "pending-fixture"
+description = "Career: hire one applicant; the funds pool drops by exactly the fixture-pinned hire cost, no other drift."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "L1", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/fresh-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# hire-kerbal mirrors the stock debit Funding.AddFunds(-hireCost, CrewRecruited) then
+# KerbalRoster.HireApplicant. The applicant name below is the ONE known applicant the
+# fixture pins (the hire TARGET, not the cost determinant -- the recruit-cost curve keys
+# on the HIRED-CREW COUNT). VERIFY-PENDING-OPERATOR: match the applicant name to whatever
+# the fixture's known applicant is actually named, recorded in the fixture README.
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "KscAction",    args = { action = "hire-kerbal", kerbal = "FIXTURE_APPLICANT" }, expect = "OK", budget = 60 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "FlushAndQuit",   expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["kerbals", "funds", "recalc-engine", "orchestrator", "ksp-state-patcher", "action-blocking"]
+D12 = ["hire-dismiss-patches"]
+D14 = ["career", "scene-ksc"]
+
+[expectations.recordings]
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# "kscaction action=hire-kerbal target=... applied=true manifestKind=kerbal-hire ..."; the
+# stock hire reaches Parsek's recorder-observer (GameStateRecorder.Handlers OnCrewmemberHired:
+# "Game state: CrewHired '<name>' ...").
+required  = ["kscaction action=hire-kerbal .* applied=true", "Game state: CrewHired"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+allowedAnomalies = []
+
+[expectations.ledger]
+seedFrom     = "template"
+tolerances   = "default"
+rec3CarveOut = false
+
+[[expectations.ledger.manifest]]
+  ut         = 0.0
+  kind       = "kerbal-hire"
+  # AUTHOR CONSTANT (STATE-DEPENDENT-BUT-FIXTURE-PINNED, OQ2): the hire cost rises with the
+  # HIRED-CREW COUNT via the GameVariables recruit-cost curve. The fixture PINS the roster
+  # to EXACTLY the 4 stock hired kerbals (zero Parsek reservations / stand-ins), so the cost
+  # is DETERMINISTIC at hired-count 4 and declared as an author constant. funds stays
+  # fill-eligible for LATER (switch to null-to-fill once the hire-funds capture pattern is
+  # operator-verified). VERIFY-PENDING-OPERATOR: the operator records the pinned hired-crew
+  # count + the resulting known cost (read off observedAfter=) in the fixture README; if the
+  # hired roster drifts the curve input changes and this constant goes stale.
+  funds      = -24000.0
+  provenance = "seam-declared"
+
+[runtime]
+# Happy path: LoadGame ~300 + KscAction ~60 + light verbs, under 600. Pending-fixture ->
+# never scheduled unattended.
+# Budget check (seed funds 500000 affords the pinned hire cost): 500000 + (-24000) >= 0.
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

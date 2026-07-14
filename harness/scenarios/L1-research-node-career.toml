@@ -1,0 +1,87 @@
+schema = 1
+id = "L1-research-node-career"
+# pending-fixture (NOT daily): fixtures/saves/fresh-career is not committed yet (the
+# operator runbook in docs/dev/todo-and-known-bugs.md M-B3 creates it), so a --cadence
+# daily run would INVALID(staging) this terminally. Re-tier to "daily" once the fixture
+# lands (M-B3 is the FIRST nonzero-manifest L1 ledger cross-check).
+tier = "pending-fixture"
+description = "Career: research one tech node; the science pool drops by exactly the node cost, no other drift."
+instanceProfile = "stock-minimal"
+tags = ["ledger", "L1", "R7", "pending-operator"]
+
+[fixture]
+# saveTemplate leaf ("fresh-career") IS runSaveName: staged into saves/fresh-career/,
+# and the driver's first LoadGame save arg resolves to that same save. This is the SAME
+# fresh-career B10 references, so B10 and the L1-career scripts share one fixture.
+saveTemplate = "fixtures/saves/fresh-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "KscAction",    args = { action = "research-node", node = "basicRocketry" }, expect = "OK", budget = 60 },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "FlushAndQuit",   expect = "OK" },
+]
+
+[dimensionsCovered]
+D8  = ["science", "recalc-engine", "orchestrator", "ksp-state-patcher", "action-blocking"]
+D14 = ["career"]
+
+[expectations.recordings]
+# Recording-free run (no flight): count.max == 0 selects the REC-001/003 log-validation
+# suppression, exactly as B10.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# LITERAL KSP.log line patterns. The M-C1 verb logs the applied line
+# (TestCommandKscAction.LogApplied: "kscaction action=research-node target=basicRocketry
+# applied=true manifestKind=tech-unlock observedAfter=science=..."), and the real stock
+# handler reaches Parsek's recorder-observer (GameStateRecorder.Handlers OnTechResearched:
+# "Game state: TechResearched 'basicRocketry' (cost=...)"). Asserting the OBSERVER line
+# (not a guard-patch line) proves the stock action was NOT blocked.
+required  = ["kscaction action=research-node .* applied=true", "Game state: TechResearched"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+allowedAnomalies = []
+
+# Ledger-oracle (M-B2, chain slot 8). Its PRESENCE activates the oracle: pre-launch seed
+# baseline over the staged fixture, accumulate the ONE declared manifest entry, compute
+# expected = seed + (-nodeCost), diff HARD against the produced save's careerSave block.
+# The seam-declared-vs-save diff is the SOLE trusted leg (design Nonzero-manifest primary
+# assertion). The nonzero capture leg is UNTRUSTED: the shipped STOCK_AWARD_PATTERNS are
+# DEAD against a real EN log (stock logs "[Research & Development]: +N data" with no
+# delta=; Parsek's own delta= lines are [Parsek]-tagged and skipped), so a nonzero run
+# captures ZERO awards and the cross-check is a structural no-op today. M-B3 adds NO
+# pattern (a rewritten pattern would false-red its own award; deferred to a combined
+# pattern-rewrite + UT-agnostic single-action match).
+[expectations.ledger]
+seedFrom     = "template"
+tolerances   = "default"
+rec3CarveOut = false
+
+# The FIRST-EVER nonzero seam-declared manifest entry.
+[[expectations.ledger.manifest]]
+  ut         = 0.0
+  kind       = "tech-unlock"
+  # AUTHOR CONSTANT (state-INDEPENDENT: a tech node's science cost is fixed stock DATA,
+  # the RDNode cost, not a diminishing-returns credit; a null fill-from-capture on the
+  # science facet is REJECTED by parse_manifest_entries). basicRocketry = -5.0 on the
+  # pinned KSP 1.12.5 stock tech tree. VERIFY-PENDING-OPERATOR: the operator confirms the
+  # node cost during fixture creation and records it in the fixture README.
+  science    = -5.0
+  provenance = "seam-declared"
+
+[runtime]
+# Happy path (verbs execute in the loaded scene): LoadGame ~300 + KscAction ~60 + light
+# verbs, well under 600. On the pending-fixture path this spec is never scheduled
+# unattended, so the run-budget ceiling only governs the operator run.
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
