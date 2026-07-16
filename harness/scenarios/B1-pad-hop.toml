@@ -11,8 +11,11 @@ tags = ["B1", "S0.1", "flown"]
 [fixture]
 # The pre-placed vessel rides IN the fixture save (no VAB flow in v1). LoadGame
 # drops straight into FLIGHT with this vessel on the pad. PENDING-OPERATOR: the
-# fixture save (pure-stock pod + SRB + chute on the pad) does not exist yet -
-# see the operator runbook's M-B1 section.
+# fixture save does not exist yet. The vessel is KSP's own stock "Jumping Flea"
+# (Ships/VAB/Jumping Flea.craft: mk1pod.v2 + parachuteSingle + RT-5 Flea
+# solidBooster.sm.v2 + fins) - the operator just VAB-loads it, launches to the
+# pad, and saves; no craft-building. Its full-throttle hop fits the apoapsis
+# window below. See the operator runbook's M-B1 section.
 saveTemplate       = "fixtures/saves/b1-pad-craft"
 injectedRecordings = "none"
 craft              = []

@@ -108,7 +108,7 @@ Implements `docs/dev/design-autotest-mission-library.md` (merged #1310). All pur
 
 **PENDING-OPERATOR (live items, per the design's runbook section):**
 1. Bootstrap the mission venv (`python harness/missions/bootstrap_venv.py`): confirm krpc==0.5.4 resolves via pip, the import + generated-code smoke passes, the resolved protobuf version freezes into the stamp, then promote the protobuf pin into requirements.txt.
-2. Create the two fixture saves (pure stock): `fixtures/saves/b1-pad-craft` (pod + SRB + chute on the pad) and `fixtures/saves/b2-lko-craft` (two-stage LKO-capable rocket on the pad).
+2. Create the two fixture saves using KSP's OWN stock craft (no building): `fixtures/saves/b1-pad-craft` = VAB-load the stock "Jumping Flea" (mk1pod.v2 + chute + RT-5 Flea), launch to the pad, save-and-exit; `fixtures/saves/b2-lko-craft` = same with the stock "Kerbal X" (the canonical two-stage orbiter). Both ship in `Ships/VAB/` and the provisioned instance junctions/copies them, so they appear in the instance's VAB stock-craft list.
 3. Live B1 pad-hop run, live B2 LKO-ascent run, and the deliberate flake/assert-fail captures proving INVALID(mission)/INVALID(autopilot-flake) never poison the PARSEK-FAIL bucket.
 
 **Deferred (design "Deferred Items"):** the budget-arithmetic spec-validation cross-check; kOS secondary stack; VAB craft-file flow (v1 uses pre-placed fixture vessels).

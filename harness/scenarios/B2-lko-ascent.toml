@@ -10,8 +10,10 @@ tags = ["B2", "S0.2", "flown", "mechjeb"]
 
 [fixture]
 # Pre-placed LKO-capable rocket on the pad. PENDING-OPERATOR: the fixture save
-# (pure-stock two-stage orbital rocket) does not exist yet - see the operator
-# runbook's M-B1 section.
+# does not exist yet. The vessel is KSP's own stock "Kerbal X"
+# (Ships/VAB/Kerbal X.craft, the canonical two-stage Mainsail orbiter) - the
+# operator just VAB-loads it, launches to the pad, and saves; no craft-building.
+# See the operator runbook's M-B1 section.
 saveTemplate       = "fixtures/saves/b2-lko-craft"
 injectedRecordings = "none"
 craft              = []
