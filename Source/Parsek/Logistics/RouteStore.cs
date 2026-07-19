@@ -20,6 +20,7 @@ namespace Parsek.Logistics
     {
         private const string Tag = "Route";
         private const string RoutesParentNodeName = "ROUTES";
+        private const string DormantRoutesParentNodeName = "DORMANT_ROUTES";
         private const string RouteChildNodeName = "ROUTE";
         private const string DismissedCandidatesNodeName = "DISMISSED_ROUTE_CANDIDATES";
         private const string DismissedTreeIdValueName = "treeId";
@@ -29,6 +30,24 @@ namespace Parsek.Logistics
 
         /// <summary>Read-only view of currently committed routes.</summary>
         internal static IReadOnlyList<Route> CommittedRoutes => committedRoutes;
+
+        /// <summary>
+        /// Dormant routes (rewind-visibility extension, plan
+        /// <c>docs/dev/plans/plan-route-rewind-dormant-visibility.md</c>):
+        /// routes whose <see cref="Route.CreatedUT"/> lies AFTER the last
+        /// rewind cutoff. Invisible to every committed-route consumer (the
+        /// orchestrator tick, RouteTreeGuard, the candidate finder, and the
+        /// Logistics window all read <see cref="CommittedRoutes"/> only), so a
+        /// dormant route cannot fire, bind its tree, or render. Populated by
+        /// <c>ReconciliationBundle.Restore</c> at a rewind; drained by
+        /// <see cref="MaterializeDueDormantRoutes"/> when the re-flown
+        /// timeline passes each route's creation point. Persisted as the
+        /// sparse DORMANT_ROUTES sibling of ROUTES.
+        /// </summary>
+        private static readonly List<Route> dormantRoutes = new List<Route>();
+
+        /// <summary>Read-only view of dormant routes.</summary>
+        internal static IReadOnlyList<Route> DormantRoutes => dormantRoutes;
 
         // -----------------------------------------------------------------
         // M6 candidate intent helper: dismissed route-candidate trees.
@@ -547,6 +566,175 @@ namespace Parsek.Logistics
             return true;
         }
 
+        // -----------------------------------------------------------------
+        // Dormant routes (rewind-visibility extension)
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// Rewind seam: wholesale-replaces BOTH route lists with the
+        /// classified results from <c>RouteRewindClassifier.Classify</c>
+        /// (called by <c>ReconciliationBundle.Restore(cutoff)</c>). Mirrors
+        /// the bundle's replace-not-merge contract for recordings. Null lists
+        /// install empty.
+        /// </summary>
+        internal static void InstallRoutesAtRewind(List<Route> committed, List<Route> dormant)
+        {
+            int prevCommitted = committedRoutes.Count;
+            int prevDormant = dormantRoutes.Count;
+            committedRoutes.Clear();
+            dormantRoutes.Clear();
+            if (committed != null)
+                committedRoutes.AddRange(committed);
+            if (dormant != null)
+                dormantRoutes.AddRange(dormant);
+            ParsekLog.Info(Tag,
+                $"InstallRoutesAtRewind: committed {prevCommitted}->{committedRoutes.Count} " +
+                $"dormant {prevDormant}->{dormantRoutes.Count}");
+        }
+
+        /// <summary>
+        /// Removes a dormant route by id (materialize-drop or future purge
+        /// paths). Returns true on removal.
+        /// </summary>
+        internal static bool RemoveDormantRoute(string id)
+        {
+            if (string.IsNullOrEmpty(id))
+                return false;
+            for (int i = 0; i < dormantRoutes.Count; i++)
+            {
+                if (dormantRoutes[i] != null
+                    && string.Equals(dormantRoutes[i].Id, id, System.StringComparison.Ordinal))
+                {
+                    dormantRoutes.RemoveAt(i);
+                    ParsekLog.Info(Tag, $"Dormant route {ShortId(id)} removed");
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Materializes every dormant route whose creation point the timeline
+        /// has reached (rewind-visibility extension). Called from the very top
+        /// of <c>RouteOrchestrator.Tick</c> (BEFORE the committed-count early
+        /// return, so a save whose only routes are dormant still
+        /// materializes); ~1 Hz, all scenes. Early-returns on an empty list.
+        ///
+        /// <para>Per due route: DROP when a committed route occupies any of
+        /// its source trees (the player re-created a route over that tree
+        /// during the re-fly - live intent wins); otherwise reset-to-fresh
+        /// (<c>RouteRewindClassifier.ResetToFreshForMaterialize</c>, Status
+        /// Paused), re-link the round-trip pair via <see cref="LinkRoutes"/>
+        /// when the former partner is present, add, clear any manual loop the
+        /// tree acquired during the re-fly, and revalidate sources so a
+        /// superseded tree surfaces as MissingSourceRecording instead of
+        /// silently pretending health.</para>
+        /// </summary>
+        /// <returns>Number of routes materialized this pass.</returns>
+        internal static int MaterializeDueDormantRoutes(double currentUT)
+        {
+            if (dormantRoutes.Count == 0)
+                return 0;
+
+            List<Route> due = null;
+            for (int i = 0; i < dormantRoutes.Count; i++)
+            {
+                Route r = dormantRoutes[i];
+                if (r != null && RouteRewindClassifier.IsDormantRouteDue(r, currentUT))
+                {
+                    if (due == null) due = new List<Route>();
+                    due.Add(r);
+                }
+            }
+            if (due == null)
+                return 0;
+
+            int materialized = 0;
+            int droppedOccupied = 0;
+            var materializedNames = new List<string>();
+            for (int i = 0; i < due.Count; i++)
+            {
+                Route route = due[i];
+                dormantRoutes.Remove(route);
+
+                if (RouteRewindClassifier.IsTreeOccupied(route, committedRoutes))
+                {
+                    droppedOccupied++;
+                    ParsekLog.Info(Tag,
+                        $"Materialize: dormant route {ShortId(route.Id)} '{route.Name ?? "<unnamed>"}' " +
+                        "DROPPED - a committed route occupies its source tree (live intent wins)");
+                    continue;
+                }
+
+                // Former-partner hint: re-link when the partner is committed or
+                // co-materializing this pass (LinkRoutes resets both cursors and
+                // enforces mutuality); otherwise sever the hint.
+                string partnerHint = route.LinkedRouteId;
+                route.LinkedRouteId = null;
+
+                RouteRewindClassifier.ResetToFreshForMaterialize(route);
+                AddRoute(route);
+                materialized++;
+                materializedNames.Add(route.Name ?? ShortId(route.Id));
+
+                if (!string.IsNullOrEmpty(partnerHint))
+                {
+                    // The partner may be committed already, or later in `due`
+                    // (in which case this LinkRoutes fails on the unknown id and
+                    // the partner's own pass re-links using ITS hint).
+                    if (TryGetRoute(partnerHint, out _))
+                        LinkRoutes(route.Id, partnerHint);
+                    else
+                        ParsekLog.Verbose(Tag,
+                            $"Materialize: route {ShortId(route.Id)} former partner " +
+                            $"{ShortId(partnerHint)} not committed (yet) - link severed or deferred to partner's pass");
+                }
+
+                // A manual loop acquired by the tree during the re-fly must not
+                // co-drive it once the route binds again (mirror of the create
+                // paths).
+                RouteTreeGuard.ForceClearManualLoopForRoute(route, currentUT);
+
+                PostMaterializeScreenMessage(route);
+            }
+
+            if (materialized > 0)
+            {
+                RevalidateSources("dormant-materialize");
+                ParsekLog.Info(Tag,
+                    $"Materialize: {materialized} dormant route(s) materialized at " +
+                    $"ut={currentUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"({string.Join(", ", materializedNames)}); {droppedOccupied} dropped occupied; " +
+                    $"{dormantRoutes.Count} still dormant");
+            }
+            else if (droppedOccupied > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"Materialize: 0 materialized, {droppedOccupied} dropped occupied; " +
+                    $"{dormantRoutes.Count} still dormant");
+            }
+            return materialized;
+        }
+
+        /// <summary>
+        /// Best-effort player notification for a materialized route; guarded
+        /// so an off-Unity context (unit tests) never throws.
+        /// </summary>
+        private static void PostMaterializeScreenMessage(Route route)
+        {
+            try
+            {
+                ScreenMessages.PostScreenMessage(
+                    $"[Parsek] Supply route '{route.Name ?? "<unnamed>"}' available again " +
+                    "(timeline reached its creation point)", 6f);
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Materialize: screen message unavailable ({ex.GetType().Name})");
+            }
+        }
+
         /// <summary>
         /// Clear in-memory state. Test seam — production paths should
         /// remove individual routes through <see cref="RemoveRoute"/>.
@@ -555,6 +743,7 @@ namespace Parsek.Logistics
         {
             int prevCount = committedRoutes.Count;
             committedRoutes.Clear();
+            dormantRoutes.Clear();
             // M4b Phase B2: the escrow is shared static state, so a
             // [Collection("Sequential")] test that reserves must not leak its
             // reservation into the next test. Clear it here alongside the routes.
@@ -846,6 +1035,7 @@ namespace Parsek.Logistics
             // write. A previously-saved ROUTES / dismissed-candidates node with
             // stale entries would otherwise survive an empty-store save.
             parent.RemoveNodes(RoutesParentNodeName);
+            parent.RemoveNodes(DormantRoutesParentNodeName);
             parent.RemoveNodes(DismissedCandidatesNodeName);
             parent.RemoveNodes(PromptedCandidatesNodeName);
 
@@ -865,6 +1055,22 @@ namespace Parsek.Logistics
                 }
 
                 ParsekLog.Info(Tag, $"SaveRoutesTo: wrote {committedRoutes.Count} route(s)");
+            }
+
+            // Dormant routes (rewind-visibility extension): sparse sibling
+            // node - written only when at least one route is dormant, so a
+            // save with none stays byte-identical.
+            if (dormantRoutes.Count > 0)
+            {
+                ConfigNode dormantNode = parent.AddNode(DormantRoutesParentNodeName);
+                for (int i = 0; i < dormantRoutes.Count; i++)
+                {
+                    Route route = dormantRoutes[i];
+                    if (route == null) continue;
+                    ConfigNode routeNode = dormantNode.AddNode(RouteChildNodeName);
+                    route.SerializeInto(routeNode);
+                }
+                ParsekLog.Info(Tag, $"SaveRoutesTo: wrote {dormantRoutes.Count} dormant route(s)");
             }
 
             // M6 candidate intent helper: sparse sibling node - written only
@@ -912,6 +1118,7 @@ namespace Parsek.Logistics
             // Mirrors MilestoneStore.LoadMilestoneFile / RecordingStore load
             // semantics so callers do not have to manage the reset themselves.
             committedRoutes.Clear();
+            dormantRoutes.Clear();
             dismissedCandidateTreeIds.Clear();
             promptedCandidateTreeIds.Clear();
 
@@ -932,6 +1139,9 @@ namespace Parsek.Logistics
             ConfigNode routesNode = parent.GetNode(RoutesParentNodeName);
             if (routesNode == null)
             {
+                // Dormant routes are a sparse SIBLING of ROUTES, so they load
+                // even when the committed list is empty (an all-dormant save).
+                LoadDormantRoutesFrom(parent);
                 ParsekLog.Verbose(Tag, "LoadRoutesFrom: no ROUTES node, 0 loaded");
                 return 0;
             }
@@ -952,6 +1162,8 @@ namespace Parsek.Logistics
                 loaded++;
             }
 
+            LoadDormantRoutesFrom(parent);
+
             if (dropped > 0)
             {
                 ParsekLog.Info(Tag,
@@ -963,6 +1175,48 @@ namespace Parsek.Logistics
             }
 
             return loaded;
+        }
+
+        /// <summary>
+        /// Loads the sparse <c>DORMANT_ROUTES</c> sibling node (absent = the
+        /// common no-dormant path, stays quiet). Runs AFTER the committed list
+        /// is populated so an entry whose id collides with a committed route
+        /// is dropped (Warn, committed wins) - a shape only save-file surgery
+        /// or a bug can produce, since a route lives in exactly one list.
+        /// </summary>
+        private static void LoadDormantRoutesFrom(ConfigNode parent)
+        {
+            ConfigNode dormantNode = parent.GetNode(DormantRoutesParentNodeName);
+            if (dormantNode == null)
+                return;
+
+            ConfigNode[] routeNodes = dormantNode.GetNodes(RouteChildNodeName);
+            int loaded = 0;
+            int droppedCollision = 0;
+            int droppedCodec = 0;
+            for (int i = 0; i < routeNodes.Length; i++)
+            {
+                Route route = Route.DeserializeFrom(routeNodes[i]);
+                if (route == null)
+                {
+                    droppedCodec++;
+                    continue;
+                }
+                if (TryGetRoute(route.Id, out _))
+                {
+                    droppedCollision++;
+                    ParsekLog.Warn(Tag,
+                        $"LoadDormantRoutesFrom: dormant entry {ShortId(route.Id)} collides with a " +
+                        "committed route - dropped (committed wins)");
+                    continue;
+                }
+                dormantRoutes.Add(route);
+                loaded++;
+            }
+            ParsekLog.Info(Tag,
+                $"LoadDormantRoutesFrom: loaded {loaded} dormant route(s)" +
+                (droppedCollision > 0 ? $", {droppedCollision} collision-dropped" : string.Empty) +
+                (droppedCodec > 0 ? $", {droppedCodec} codec-dropped" : string.Empty));
         }
 
         /// <summary>

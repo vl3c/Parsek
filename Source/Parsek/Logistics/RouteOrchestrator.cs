@@ -387,6 +387,12 @@ namespace Parsek.Logistics
                 return;
             }
 
+            // Dormant-routes extension: materialize due dormant routes BEFORE
+            // the committed-count early return, so a save whose only routes are
+            // dormant still materializes at their creation point. No-cost when
+            // the dormant list is empty.
+            RouteStore.MaterializeDueDormantRoutes(currentUT);
+
             var routes = RouteStore.CommittedRoutes;
             if (routes == null || routes.Count == 0)
                 return;
@@ -4996,13 +5002,28 @@ namespace Parsek.Logistics
         /// </summary>
         internal static void ResetStopFireState(Route route)
         {
+            ResetStopFireStateReturningChanged(route);
+        }
+
+        /// <summary>
+        /// <see cref="ResetStopFireState"/> variant reporting whether any stop's
+        /// sub-gate actually moved, for batch counting at the rewind-reconcile
+        /// site (<c>RouteRewindClassifier.ResetCycleStateForRewind</c>).
+        /// </summary>
+        internal static bool ResetStopFireStateReturningChanged(Route route)
+        {
             if (route == null || route.Stops == null)
-                return;
+                return false;
+            bool changed = false;
             for (int i = 0; i < route.Stops.Count; i++)
             {
-                if (route.Stops[i] != null)
+                if (route.Stops[i] != null && route.Stops[i].LastFiredCycleIndex != -1)
+                {
                     route.Stops[i].LastFiredCycleIndex = -1;
+                    changed = true;
+                }
             }
+            return changed;
         }
 
         private static Dictionary<string, double> CloneManifest(Dictionary<string, double> source)

@@ -59,6 +59,26 @@ review). Every claim below is anchored to `file:line` confirmed by direct reads.
 
 ---
 
+> **CORRECTION ADDENDUM (2026-07-19, dormant-routes plan review).** The axis-A
+> claim "route definitions + counters revert via the RP `.sfs` ROUTES node
+> (`RouteStore.LoadRoutesFrom`, `ParsekScenario.cs:3343`)" - load-bearing for
+> section 2's table, Q2's "works correctly", risk #9 "sound", and Rec-1's
+> "counters revert via .sfs" story - was WRONG at ratification time:
+> `LoadRoutesFrom` sits on the COLD-START branch of `ParsekScenario.OnLoad`
+> (`initialLoadDone == false`) and never runs on an in-session load, including
+> the rewind's RP quicksave load (the preservation branch dispatches
+> `RewindInvoker.ConsumePostLoad` with the in-memory RouteStore untouched). So
+> before the dormant-routes extension: a route created after the RP survived
+> the rewind and kept dispatching before its own creation point, and
+> pre-cutoff routes kept abandoned-future loop cursors that silently swallowed
+> re-flown cycles (partially defeating Rec-1's re-delivery). Both are fixed by
+> the dormant-routes extension
+> (`docs/dev/plans/plan-route-rewind-dormant-visibility.md`):
+> `ReconciliationBundle` now captures + classifies the route lists at
+> `Restore(cutoff)` (post-cutoff routes go dormant and re-materialize at their
+> `CreatedUT`; kept routes get their cycle state reconciled). Read this
+> report's axis A / risk #9 / Q2 verdicts through that lens.
+
 ## 1. The two systems, in one paragraph each
 
 **Supply routes (logistics).** A committed Supply Run (a flown, docked, undocked, cargo-transferring

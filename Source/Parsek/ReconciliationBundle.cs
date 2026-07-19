@@ -72,6 +72,21 @@ namespace Parsek
         public List<Milestone> Milestones;
 
         /// <summary>
+        /// Shallow snapshot of <c>RouteStore.CommittedRoutes</c> (dormant-routes
+        /// extension). RouteStore is preserved in memory across every in-session
+        /// load (LoadRoutesFrom is cold-start-only), so the rewind seam must
+        /// move-and-replace the route lists itself: <c>Restore(cutoff)</c>
+        /// classifies these via <c>RouteRewindClassifier.Classify</c> - routes
+        /// created after the cutoff go dormant, kept routes get their
+        /// forward-looking cycle state reconciled.
+        /// </summary>
+        public List<Logistics.Route> Routes;
+
+        /// <summary>Shallow snapshot of <c>RouteStore.DormantRoutes</c> (still-future
+        /// entries from earlier, deeper rewinds; carried forward by the classify).</summary>
+        public List<Logistics.Route> DormantRoutes;
+
+        /// <summary>
         /// Captures a <see cref="ReconciliationBundle"/> from the current in-memory
         /// state. Creates shallow copies so later mutations do not leak into the
         /// bundle.
@@ -93,7 +108,23 @@ namespace Parsek
                 GroupParents = new Dictionary<string, string>(),
                 HiddenGroups = new HashSet<string>(),
                 Milestones = new List<Milestone>(),
+                Routes = new List<Logistics.Route>(),
+                DormantRoutes = new List<Logistics.Route>(),
             };
+
+            // Routes (dormant-routes extension): both lists, shallow.
+            var committedRoutesSnapshot = Logistics.RouteStore.CommittedRoutes;
+            if (committedRoutesSnapshot != null)
+            {
+                for (int i = 0; i < committedRoutesSnapshot.Count; i++)
+                    bundle.Routes.Add(committedRoutesSnapshot[i]);
+            }
+            var dormantRoutesSnapshot = Logistics.RouteStore.DormantRoutes;
+            if (dormantRoutesSnapshot != null)
+            {
+                for (int i = 0; i < dormantRoutesSnapshot.Count; i++)
+                    bundle.DormantRoutes.Add(dormantRoutesSnapshot[i]);
+            }
 
             // Recordings: shallow snapshot (references preserved).
             var committed = RecordingStore.CommittedRecordings;
@@ -225,6 +256,66 @@ namespace Parsek
                         "Restore: retired " + routeRowsRetired.ToString(System.Globalization.CultureInfo.InvariantCulture) +
                         " free-standing route row(s) with UT > cutoff " +
                         dropRouteRowsAfterUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + " (Rec-1)");
+            }
+
+            // Routes (dormant-routes extension). RouteStore is preserved in
+            // memory across in-session loads, so the rewind seam replaces both
+            // route lists here: captured committed routes created AFTER the
+            // cutoff move to dormant (invisible, non-firing, re-materialized by
+            // RouteStore.MaterializeDueDormantRoutes when the re-flown timeline
+            // reaches their CreatedUT); kept routes get their forward-looking
+            // cycle state reconciled so the loop clock does not swallow re-flown
+            // cycles against abandoned-future cursors. The parameterless
+            // rollback overload (+inf) stays route-blind: no classification, no
+            // reconcile, lists untouched - matching the Rec-1 contract.
+            if (!double.IsPositiveInfinity(dropRouteRowsAfterUT))
+            {
+                Logistics.RouteRewindClassifier.Classify(
+                    bundle.Routes,
+                    bundle.DormantRoutes,
+                    dropRouteRowsAfterUT,
+                    out List<Logistics.Route> keptRoutes,
+                    out List<Logistics.Route> dormantRoutes);
+
+                int newlyDormant = dormantRoutes.Count - (bundle.DormantRoutes?.Count ?? 0);
+                int reconciled = 0;
+
+                // Dormanting hygiene: drop escrow + sever the committed
+                // partner's back-reference (RemoveRoute-style); the dormant
+                // entry keeps its LinkedRouteId as a former-partner hint for
+                // the materialize-time re-link.
+                for (int i = 0; i < dormantRoutes.Count; i++)
+                {
+                    Logistics.Route d = dormantRoutes[i];
+                    Logistics.RouteStore.DropRouteEscrow(d.Id);
+                    for (int j = 0; j < keptRoutes.Count; j++)
+                    {
+                        Logistics.Route kept = keptRoutes[j];
+                        if (kept != null && string.Equals(kept.LinkedRouteId, d.Id, StringComparison.Ordinal))
+                        {
+                            kept.LinkedRouteId = null;
+                            kept.LastConsumedPartnerCycle = 0;
+                        }
+                    }
+                }
+
+                // Pre-cutoff kept routes: reconcile abandoned-future cycle state.
+                for (int i = 0; i < keptRoutes.Count; i++)
+                {
+                    if (Logistics.RouteRewindClassifier.ResetCycleStateForRewind(
+                            keptRoutes[i], dropRouteRowsAfterUT))
+                        reconciled++;
+                }
+
+                Logistics.RouteStore.InstallRoutesAtRewind(keptRoutes, dormantRoutes);
+                if (newlyDormant > 0 || reconciled > 0)
+                {
+                    ParsekLog.Info("ReconciliationBundle",
+                        "Restore: routes at rewind cutoff " +
+                        dropRouteRowsAfterUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                        $": kept={keptRoutes.Count} (reconciled={reconciled}) " +
+                        $"dormant={dormantRoutes.Count} (newly={newlyDormant})");
+                }
             }
 
             // Scenario lists (may be null if the scenario hasn't loaded yet).
