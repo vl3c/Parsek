@@ -86,7 +86,16 @@ count = { min = 1 }
 # The two grep-stable re-fly milestones (RewindInvoker.cs:536 / :963): StartInvoke
 # entered the pre-load phase and the post-load ConsumePostLoad completed. Both
 # firing proves the re-fly actually ran end-to-end, not just that the verb returned.
-required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete"]
+#
+# Route-rewind timeline wave additions (tier stays operator): the post-load path
+# runs ReconciliationBundle.Restore(cutoff), so the cutoff-carrying restore line
+# and the "Restored:" summary's unconditional pendingScience= count must fire on
+# every successful invoke. Conditional lines (retired route rows / dormanted
+# routes / dropped science) stay un-required: rewind-b9 carries no routes or
+# pending science - the unattended H6-route-rewind-timeline scenario owns those.
+required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
+             "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
+             "Restored: recs=.* pendingScience="]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 allowedAnomalies = []

@@ -1,0 +1,97 @@
+schema = 1
+id = "H6-route-rewind-timeline"
+tier = "daily"
+# The in-game RouteRewindTimeline category run unattended (driver shape mirrors
+# H5-invariants-corpus): the route-rewind feature wave (status fidelity #1330,
+# pending science #1331, go-back reconcile #1332, dormant UI + auto-pause rows
+# #1333) driven against LIVE KSP statics instead of the manual playtest runbook.
+# The category's seven tests are scene-agnostic and batch-safe (synthetic routes
+# only, all mutated statics restored in finally), so RunTests from the loaded
+# host save reaches every one of them. Covered live: lifecycle rows at the real
+# Planetarium UT, ReconciliationBundle.Capture -> Restore(cutoff) dormanting +
+# kept-route status derivation / counter reconstruction / armed-flag clears +
+# the Rec-1 route-row retire, pending-science cutoff drop, dormant re-
+# materialization through the real RouteOrchestrator.Tick (one test waits on
+# the production ParsekScenario.Update 1 Hz tick itself), live RevalidateSources
+# auto-pause / auto-resume / catch-up rows, and the go-back seam's in-place
+# ledger retire + shared store reconcile. NOT reachable here: the REAL
+# HandleRewindOnLoad go-back scene load and RewindInvoker.ConsumePostLoad
+# (operator-tier S1.5 / S4.1 drive the latter; see their Restore-side contracts).
+description = "Run the in-game RouteRewindTimeline category unattended: route-rewind lifecycle rows, dormant classify + Tick materialize, kept-route reconcile, pending-science cutoff drop, live auto-pause/resume nets, go-back seam components."
+instanceProfile = "stock-minimal"
+tags = ["route", "rewind", "logistics", "route-x-rewind", "timeline-events", "H6"]
+
+[fixture]
+# gloops-airshow SANDBOX pod host (see S0.5). No injected recordings: every test
+# builds and tears down its own synthetic routes / trees / ledger rows in memory.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Non-live run: no StartRecording and autoRecordOnLaunch pinned false, so the
+# recording-rules suppression applies (count.max = 0 below). RunTests is the
+# single BATCH owner; its 540 per-step budget is the deferred cap (S8).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "RouteRewindTimeline" },          expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST: the category drives the route <-> rewind interaction surface end to
+# end in live KSP (D10 route-x-rewind), a real ReconciliationBundle.Capture ->
+# Restore(cutoff) pass (D9 reconciliation-bundle), and genuine route ledger rows
+# written / retired through the live Ledger (D8 route). The run is SANDBOX on
+# the FLIGHT-scene pod host (D14). NOT claimed: rewind-to-separation / refly-gate
+# (no real RP invoke - the operator-tier S1.5/S4.1 own those) and the D10
+# delivery/dispatch tokens (no cargo moves in this category).
+D10 = ["route-x-rewind"]
+D9  = ["reconciliation-bundle"]
+D8  = ["route"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations.recordings]
+# count.max == 0: the host carries no recordings and every test removes its
+# synthetic ones in finally - a leak into the save reds. Also selects the
+# recording-rules log-validation suppression (a legitimately recording-free run
+# must not red on REC-001/REC-003).
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# One grep-stable line per behavior the wave shipped, all emitted by PRODUCTION
+# code paths the tests drive (not test-log echoes), plus the batch tally.
+# PENDING-OPERATOR: the first live run must confirm the seven tests PASS from
+# the gloops host (they Skip only on a null CurrentGame / frozen clock, neither
+# of which this driver produces).
+required  = [
+  "LifecycleMarker: .*type=RoutePaused reason=player-pause",
+  "LifecycleMarker: .*type=RouteResumed reason=player-activate",
+  "LifecycleMarker: .*reason=AutoPause:MissingSourceRecording",
+  "LifecycleMarker: .*reason=AutoResume:SourcesRestored",
+  "LifecycleMarker: .*reason=AutoResume:CatchUp",
+  "InstallRoutesAtRewind: committed",
+  "Materialize: 1 dormant route\\(s\\) materialized",
+  "kept-route status fidelity at cutoff",
+  "Restore: retired 1 free-standing route row\\(s\\)",
+  "Restore: dropped 1 pending science subject\\(s\\)",
+  "RetireFutureRouteActionsAtRewind: removed 2 free-standing route",
+  "BATCH_COMPLETE v1 .* failed=0\\b",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+# Budget arithmetic (M-A5 S8, mirrors H5): 720 >= 300 LoadGame + 540 RunTests
+# ceiling headroom. The category itself is fast (six synchronous tests plus one
+# <= 10 s production-tick wait), so the real batch runs well under the cap.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
