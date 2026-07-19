@@ -992,15 +992,17 @@ namespace Parsek.Tests.Logistics
             Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("LifecycleMarker"));
         }
 
-        [Fact]
-        public void TryPause_UnresolvedUT_SkipsMarkerEmission()
+        [Theory]
+        [InlineData(-1.0)]
+        [InlineData(0.0)] // some UI fallbacks surface 0 when Planetarium is missing (BUG-F lesson)
+        public void TryPause_UnresolvedUT_SkipsMarkerEmission(double degenerateUT)
         {
             // A marker with a bogus UT would survive every rewind cutoff, so the
             // degenerate no-UT path must skip emission (Warn) rather than emit.
             var route = BuildActiveDueKscRoute();
             route.Status = RouteStatus.Active;
 
-            bool ok = RouteOrchestrator.TryPause(route, -1.0, null);
+            bool ok = RouteOrchestrator.TryPause(route, degenerateUT, null);
 
             Assert.True(ok);
             Assert.Equal(RouteStatus.Paused, route.Status);
@@ -1018,6 +1020,27 @@ namespace Parsek.Tests.Logistics
 
             Assert.True(RouteOrchestrator.TryPause(route, 500.0, null));
             Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RoutePaused);
+        }
+
+        [Fact]
+        public void TryPause_InTransitDuringSendOnceCycle_ClearsSendOnceArm()
+        {
+            // Review finding 1 (PR #1327): a player Pause during an in-flight
+            // Send-Once cycle supersedes the one-shot provenance so the UI label
+            // flips from "Sending one cycle" to the pausing-after-cycle state.
+            // The dispatched row was already stamped at emit, so no ledger loss.
+            var route = BuildActiveDueKscRoute();
+            route.Status = RouteStatus.InTransit;
+            route.SendOnceArmed = true;
+            route.PauseAfterCurrentCycle = true;
+
+            Assert.True(RouteOrchestrator.TryPause(route, 500.0, null));
+
+            Assert.False(route.SendOnceArmed);
+            Assert.True(route.PauseAfterCurrentCycle);
+            Assert.Equal(RouteStatus.InTransit, route.Status);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("cleared Send Once arm"));
         }
 
         [Fact]

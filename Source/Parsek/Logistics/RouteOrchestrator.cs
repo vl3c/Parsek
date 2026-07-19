@@ -313,6 +313,16 @@ namespace Parsek.Logistics
             if (route.Status == RouteStatus.InTransit)
             {
                 route.PauseAfterCurrentCycle = true;
+                // A player Pause during a Send-Once cycle supersedes the one-shot
+                // provenance: the arm's dispatch row was already stamped at emit,
+                // and the UI label must flip from "Sending one cycle" to the
+                // pausing-after-cycle state (review finding 1, PR #1327).
+                if (route.SendOnceArmed)
+                {
+                    route.SendOnceArmed = false;
+                    ParsekLog.Info(Tag,
+                        $"TryPause: route={ShortIdForLog(route)} cleared Send Once arm (pause supersedes one-shot)");
+                }
                 ParsekLog.Info(Tag,
                     $"TryPause: route={ShortIdForLog(route)} InTransit — armed PauseAfterCurrentCycle " +
                     "(current cycle finishes, then route pauses)");
@@ -3578,7 +3588,11 @@ namespace Parsek.Logistics
         /// route row; a rewind retires it via <c>RouteLedgerRetire</c> when it is
         /// stamped after the cutoff. Skips with a Warn when the UT could not be
         /// resolved (degenerate off-Unity context): a marker carrying a bogus UT would
-        /// survive every rewind cutoff and misplace the event on the timeline.
+        /// survive every rewind cutoff and misplace the event on the timeline. The
+        /// guard treats 0 as unresolved too — some UI fallbacks surface 0 instead of
+        /// -1 when Planetarium is unavailable, and UT=0 is never a trustworthy
+        /// timeline position (the BUG-F cold-load lesson); no real route can exist
+        /// at the very first instant of a save.
         /// <paramref name="emitter"/> is the test seam (mirrors
         /// <c>ApplyDeliveryContext.LedgerEmitter</c>); null routes to
         /// <see cref="Ledger.AddAction"/>.
@@ -3587,7 +3601,7 @@ namespace Parsek.Logistics
             Route route, double currentUT, GameActionType type, string reason,
             int sequence = 0, Action<GameAction> emitter = null)
         {
-            if (currentUT < 0.0)
+            if (currentUT <= 0.0)
             {
                 ParsekLog.Warn(Tag,
                     $"LifecycleMarker: route {ShortIdForLog(route)} type={type} " +
