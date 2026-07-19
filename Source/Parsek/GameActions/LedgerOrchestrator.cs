@@ -258,6 +258,7 @@ namespace Parsek
         private struct RecordingScienceWindow
         {
             public string RecordingId;
+            public string ChainId;
             public double StartUT;
             public double EndUT;
         }
@@ -4571,6 +4572,7 @@ namespace Parsek
                 windows.Add(new RecordingScienceWindow
                 {
                     RecordingId = rec.RecordingId,
+                    ChainId = rec.ChainId,
                     StartUT = AdjustStartUtForChainGap(rec, rec.StartUT, chainEndUTs),
                     EndUT = rec.EndUT
                 });
@@ -4627,11 +4629,47 @@ namespace Parsek
                         $"{tagged.EndUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}]";
                     if (string.IsNullOrEmpty(fallback))
                     {
-                        ParsekLog.Warn(Tag,
+                        ParsekLog.Verbose(Tag,
                             $"Tree science routing: subject '{subject.subjectId}' tagged '{subjectRecordingId}' " +
                             $"has captureUT={captureUtText} outside the tagged window {windowText} and no other " +
                             "recording window covers it — keeping tag attribution (post-window on-rails captures " +
                             "are legitimate; the per-subject window checks in ConvertScienceSubjects decide)");
+                        return tagged.RecordingId;
+                    }
+
+                    // Chain carve-out: when the covering window belongs to a
+                    // CHAIN SIBLING of the tagged recording, do NOT re-route.
+                    // The science windows are built with chain-gap closure
+                    // (AdjustStartUtForChainGap pulls segment N's StartUT back
+                    // to the predecessor's EndUT), so the legitimate BUG-A
+                    // shape on a chained flight — recorder live through
+                    // on-rails warp, capture tagged segment A after A's
+                    // trajectory bounds ended — lands the captureUT inside the
+                    // successor's ADJUSTED window. Re-routing there would make
+                    // the downstream cross-recording check drop the science
+                    // entirely (credited to NEITHER segment). Within one chain
+                    // the tag is authoritative (it is one physical flight);
+                    // the stale re-fly leak this sanity check targets is
+                    // already removed by the ReconciliationBundle cutoff-drop
+                    // on the rewind success path.
+                    string fallbackChainId = null;
+                    for (int j = 0; j < windows.Count; j++)
+                    {
+                        if (string.Equals(windows[j].RecordingId, fallback, StringComparison.Ordinal))
+                        {
+                            fallbackChainId = windows[j].ChainId;
+                            break;
+                        }
+                    }
+                    if (!string.IsNullOrEmpty(tagged.ChainId)
+                        && string.Equals(tagged.ChainId, fallbackChainId, StringComparison.Ordinal))
+                    {
+                        ParsekLog.Verbose(Tag,
+                            $"Tree science routing: subject '{subject.subjectId}' tagged '{subjectRecordingId}' " +
+                            $"has captureUT={captureUtText} outside the tagged window {windowText}, but the " +
+                            $"covering window '{fallback}' is a chain sibling (chain={tagged.ChainId}) — " +
+                            "keeping tag attribution (chain-gap-adjusted coverage; the tag is authoritative " +
+                            "within one chained flight)");
                         return tagged.RecordingId;
                     }
 

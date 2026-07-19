@@ -437,11 +437,72 @@ namespace Parsek.Tests
             // BUG-A anchor: resolved start clamps to the recording's end bound.
             Assert.Equal(200.0f, action.StartUT);
 
+            // C-2: the legitimate BUG-A keep-tag path fires on every normal
+            // warp-mission commit, so it must log VERBOSE, not WARN.
             Assert.Contains(logLines, l =>
+                l.Contains("[VERBOSE]") &&
                 l.Contains("[LedgerOrchestrator]") &&
                 l.Contains("Tree science routing") &&
                 l.Contains("temperatureScan@MunInSpaceLow") &&
                 l.Contains("keeping tag attribution"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("Tree science routing"));
+        }
+
+        [Fact]
+        public void NotifyLedgerTreeCommitted_ChainedTaggedSubjectInSuccessorGapWindow_KeepsTagAttribution_BugACredit()
+        {
+            // C-1 regression: on a CHAINED flight the science windows are built
+            // with chain-gap closure (the successor's StartUT is pulled back to
+            // the predecessor's EndUT), so the legitimate BUG-A capture — tagged
+            // segment A during A's live on-rails tail, after A's trajectory
+            // bounds ended — lands inside segment B's ADJUSTED window. The
+            // routing must NOT re-route to the chain sibling (that would drop
+            // the science via the downstream cross-recording check); it keeps
+            // the tag and the science credits to segment A, anchored at A's end
+            // bound.
+            SeedSubject(
+                "gravityScan@MunInSpaceHigh",
+                6.0f,
+                captureUT: 220.0,
+                recordingId: "seg-A",
+                reasonKey: "ScienceTransmission");
+
+            var segA = MakeRec("seg-A", 100.0, 200.0);
+            segA.ChainId = "chain-1";
+            segA.ChainIndex = 0;
+            var segB = MakeRec("seg-B", 250.0, 300.0);
+            segB.ChainId = "chain-1";
+            segB.ChainIndex = 1;
+            StageRecordings(segA, segB);
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-chain-gap",
+                TreeName = "Chain Gap Tree",
+                RootRecordingId = segA.RecordingId,
+                ActiveRecordingId = segB.RecordingId
+            };
+            tree.Recordings[segA.RecordingId] = segA;
+            tree.Recordings[segB.RecordingId] = segB;
+
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
+
+            // captureUT 220 lies in the gap [200, 250], which the gap-adjusted
+            // seg-B window [200, 300] covers. The chain carve-out keeps the tag:
+            // exactly one ScienceEarning, on seg-A, anchored at seg-A's end.
+            var action = Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.ScienceEarning));
+            Assert.Equal("seg-A", action.RecordingId);
+            Assert.Equal("gravityScan@MunInSpaceHigh", action.SubjectId);
+            Assert.Equal(200.0f, action.StartUT);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[VERBOSE]") &&
+                l.Contains("Tree science routing") &&
+                l.Contains("gravityScan@MunInSpaceHigh") &&
+                l.Contains("chain sibling") &&
+                l.Contains("keeping tag attribution"));
+            Assert.DoesNotContain(logLines, l => l.Contains("re-routing by capture UT"));
         }
 
         [Fact]
