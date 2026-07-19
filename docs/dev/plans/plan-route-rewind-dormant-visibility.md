@@ -177,12 +177,18 @@ routes, exactly like recordings:
 
 ### 2.4 Accepted limitations (documented, not built)
 
-- No dormant-section UI: dormant routes are invisible until they
+- ~~No dormant-section UI: dormant routes are invisible until they
   materialize, therefore also UNDELETABLE until then; and a player who
   re-creates then deletes a route on the twin's tree before its CreatedUT
   will see the old route materialize afterward (resurrection surprise).
   Accepted for this slice; a collapsed "Dormant" disclosure is the follow-up
-  if playtesting wants it.
+  if playtesting wants it.~~ LIFTED 2026-07-19 (branch
+  `logistics-dormant-ui`): the Logistics window now draws a collapsed
+  "Dormant Routes (N)" disclosure (name + "appears at date" via
+  `KSPUtil.PrintDateCompact` + Delete through the confirm-dialog flow into
+  `RouteStore.RemoveDormantRoute`); visible + deletable dormant routes also
+  defuse the resurrection surprise. The section stays read-only otherwise
+  (no activate / edit before materialization).
 - Legacy routes without `CreatedUT` never go dormant (survive rewind
   committed, today's behavior).
 - ~~Counter inflation on pre-cutoff routes after rewind (2.2) - cosmetic,

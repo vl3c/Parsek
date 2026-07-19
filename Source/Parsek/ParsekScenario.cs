@@ -262,8 +262,18 @@ namespace Parsek
         /// <see cref="RouteStore.RevalidateSources"/> never bumps the version
         /// counter.
         /// </para>
+        /// <para>
+        /// <paramref name="routeLiveEmitUT"/> (route-timeline events): the
+        /// caller-gated live UT for the revalidation pass's auto-pause /
+        /// auto-resume ledger markers. The default (-1) keeps the pass silent
+        /// (no ledger row), which every load-context and bookkeeping bump site
+        /// must use; only a confirmed-live bump (currently the re-fly supersede
+        /// commit in <c>SupersedeCommit.FlipMergeStateAndClearTransient</c>)
+        /// resolves the UT defensively and passes it so the auto-flip lands on
+        /// the timeline. See <see cref="RouteStore.RevalidateSources(string, double)"/>.
+        /// </para>
         /// </summary>
-        public void BumpSupersedeStateVersion()
+        public void BumpSupersedeStateVersion(double routeLiveEmitUT = -1.0)
         {
             unchecked { SupersedeStateVersion++; }
 
@@ -274,13 +284,69 @@ namespace Parsek
             // is load-bearing for many subsystems.
             try
             {
-                RouteStore.RevalidateSources("SupersedeStateVersion-bump");
+                RouteStore.RevalidateSources("SupersedeStateVersion-bump", routeLiveEmitUT);
             }
             catch (Exception ex)
             {
                 ParsekLog.Warn("Route",
                     $"RevalidateSources from BumpSupersedeStateVersion threw " +
                     $"{ex.GetType().Name}: {ex.Message}; route statuses may be stale until next OnLoad");
+            }
+        }
+
+        // Route-timeline events: true while ParsekScenario.OnLoad is on the
+        // stack (set/cleared with try/finally). Static because the live-bump
+        // helper below may be reached through static seams during load.
+        private static bool onLoadInProgress;
+
+        /// <summary>True while <see cref="OnLoad"/> is executing (route-marker load guard).</summary>
+        internal static bool IsOnLoadInProgress => onLoadInProgress;
+
+        /// <summary>Test seam for the OnLoad route-marker guard. Tests must reset to false in Dispose.</summary>
+        internal static void SetOnLoadInProgressForTesting(bool value)
+        {
+            onLoadInProgress = value;
+        }
+
+        /// <summary>
+        /// LIVE variant of <see cref="BumpSupersedeStateVersion(double)"/> for
+        /// player-driven ERS mutations (re-fly merge commit, tree discard,
+        /// revert/discard handlers, unfinished-flight seal/stash): resolves the
+        /// live UT defensively and passes it so the revalidation pass can stamp
+        /// auto-pause / auto-resume route-timeline markers. Central load guard:
+        /// while <see cref="OnLoad"/> is on the stack the resolved UT is forced
+        /// to -1 (silent), so a live site that turns out to be reachable from a
+        /// load path can never write a ledger row from load context - on a
+        /// scene-change load Planetarium reports a stale nonzero UT, so the UT
+        /// resolution alone is not a sufficient guard. Any flip silenced this
+        /// way is repaired by the catch-up net on the next genuinely-live pass
+        /// (<c>RouteStore.AutoResumeCatchUpReason</c>).
+        /// </summary>
+        public void BumpSupersedeStateVersionLive()
+        {
+            BumpSupersedeStateVersion(TryResolveLiveUniversalTimeForRouteMarkers());
+        }
+
+        /// <summary>
+        /// Defensive live-UT read for route-timeline marker emission: -1 while
+        /// OnLoad is in progress or when Planetarium is unavailable (off-Unity
+        /// test context), the live UT otherwise. -1 keeps the revalidation
+        /// pass silent (the OnLoad shape).
+        /// </summary>
+        internal static double TryResolveLiveUniversalTimeForRouteMarkers()
+        {
+            if (onLoadInProgress)
+                return -1.0;
+            try
+            {
+                return Planetarium.GetUniversalTime();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose("Route",
+                    $"BumpSupersedeStateVersionLive: live UT resolution threw {ex.GetType().Name}; " +
+                    "revalidation runs without timeline markers");
+                return -1.0;
             }
         }
 
@@ -2682,6 +2748,13 @@ namespace Parsek
             int loadedRecordingCount = 0;
             string loadPhase = "entry";
             string loadStatus = "running";
+            // Route-timeline events: while OnLoad is on the stack, every
+            // BumpSupersedeStateVersionLive degrades to the silent shape
+            // (ledger writes during load are unsafe, and on a scene-change
+            // load Planetarium can report a stale nonzero UT that would stamp
+            // a mis-placed row). Cleared in finally so an OnLoad exception
+            // never leaves the guard stuck.
+            onLoadInProgress = true;
             try
             {
                 // Reset deferred dialog flag and clear input lock (dialog may have been
@@ -3799,6 +3872,7 @@ namespace Parsek
             }
             finally
             {
+                onLoadInProgress = false;
                 KerbalLoadRepairDiagnostics.Reset();
                 // Always capture timing exactly once, even on exception.
                 loadedRecordingCount = SafeCommittedRecordingCount();
