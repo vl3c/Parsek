@@ -16,6 +16,7 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
+- Science gathered after a rewind point is no longer paid out when that timeline is undone by a Re-Fly: experiment results captured between the rewind point and the rewind itself are now discarded with the rest of the abandoned future, instead of being silently credited at the merge for an experiment that never happened on the surviving timeline.
 - With Auto-merge recordings turned on (Settings), a vessel you leave surviving at the end of a mission (in orbit, landed, or splashed) now stays a real, controllable vessel on the timeline instead of becoming a visual-only ghost, and landed or splashed missions no longer interrupt with a confirmation prompt. Auto-merge is still off by default.
 - New recordings no longer store two overlapping trajectory sections for the same time span around time-warp seams, which made the ghost's playback position ambiguous in those windows. Existing recordings are left untouched.
 - Supply-route inventory delivery now uses every cargo container on the destination vessel: when the first container is full, items are delivered into the next container with a free slot instead of being reported as undelivered. Pickup already worked this way; delivery now matches it.
