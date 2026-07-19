@@ -79,12 +79,13 @@ namespace Parsek
             /// the row and mutates nothing (T-ROUTEMODULE-OBSERVE).</summary>
             internal int PhysicalPickups;
 
-            /// <summary>True once a <see cref="GameActionType.RoutePaused"/> row has been processed.
-            /// Skeleton scope: this flag survives subsequent <see cref="GameActionType.RouteDispatched"/>
-            /// rows on the same route — the skeleton accepts the dispatch with a warn and still
-            /// bumps the counter so the timeline records the intent, but it does NOT silently
-            /// clear <see cref="Paused"/>. The integration phase replaces the warn with an
-            /// affordability gate and the only clearing path will be an explicit player Resume.</summary>
+            /// <summary>True once a <see cref="GameActionType.RoutePaused"/> row has been processed
+            /// and not yet cleared by a <see cref="GameActionType.RouteResumed"/> row (the explicit
+            /// player-resume marker, route-timeline events). The flag still survives subsequent
+            /// <see cref="GameActionType.RouteDispatched"/> rows: an auto-cycle dispatch on a paused
+            /// route warns (timeline inconsistency), while a <see cref="GameAction.RouteSendOnce"/>
+            /// dispatch is accepted silently — Send Once legitimately fires one cycle from Paused
+            /// without a durable resume.</summary>
             internal bool Paused;
 
             /// <summary>True once a <see cref="GameActionType.RouteEndpointLost"/> row has been processed.
@@ -158,6 +159,9 @@ namespace Parsek
                 case GameActionType.RoutePaused:
                     ProcessPaused(action);
                     break;
+                case GameActionType.RouteResumed:
+                    ProcessResumed(action);
+                    break;
                 case GameActionType.RouteEndpointLost:
                     ProcessEndpointLost(action);
                     break;
@@ -212,17 +216,25 @@ namespace Parsek
                 return;
 
             // Skeleton rule: the FundsModule affordability gate isn't wired through
-            // yet, so a paused dispatch still bumps the counter. The future
-            // integration will reject this path — for now we log a warn and
-            // continue so the timeline reflects intent. The Paused flag is NOT
-            // cleared here: the skeleton has no explicit Resume action, so every
-            // subsequent dispatch on a paused route must keep warning until an
-            // explicit clear path lands in the integration phase.
+            // yet, so a paused dispatch still bumps the counter. A RouteSendOnce
+            // dispatch on a paused route is LEGITIMATE (Send Once fires one cycle
+            // from Paused without a durable resume; route-timeline events), so it
+            // is accepted without the warn. The Paused flag is only cleared by an
+            // explicit RouteResumed row (ProcessResumed), never here.
             if (state.Paused)
             {
-                ParsekLog.Warn(Tag,
-                    $"Dispatch on paused route {routeId}: skeleton accepts; " +
-                    "future affordability gate will reject");
+                if (action.RouteSendOnce)
+                {
+                    ParsekLog.Verbose(Tag,
+                        $"Send Once dispatch on paused route {routeId}: accepted " +
+                        "(one-shot cycle, Paused flag retained)");
+                }
+                else
+                {
+                    ParsekLog.Warn(Tag,
+                        $"Dispatch on paused route {routeId}: skeleton accepts; " +
+                        "future affordability gate will reject");
+                }
             }
 
             // EndpointLost survives subsequent dispatches for the same reason —
@@ -395,6 +407,29 @@ namespace Parsek
 
             ParsekLog.Info(Tag,
                 $"Processed RoutePaused for route={routeId}, " +
+                $"reason={action.RouteEndpointReason ?? "(none)"}, " +
+                $"ut={action.UT.ToString("R", IC)}");
+        }
+
+        /// <summary>
+        /// Observes a <see cref="GameActionType.RouteResumed"/> row (route-timeline
+        /// events): the explicit durable player-resume marker. Clears the
+        /// <see cref="RouteWalkState.Paused"/> flag set by an earlier
+        /// <see cref="GameActionType.RoutePaused"/> row so the walk state tracks the
+        /// pause/resume history faithfully. Observe-only like every other handler
+        /// (T-ROUTEMODULE-OBSERVE).
+        /// </summary>
+        private void ProcessResumed(GameAction action)
+        {
+            if (!TryGetOrCreateState(action, "RouteResumed", out RouteWalkState state, out string routeId))
+                return;
+
+            state.Paused = false;
+            state.LastReason = action.RouteEndpointReason;
+            state.LastActionUT = action.UT;
+
+            ParsekLog.Info(Tag,
+                $"Processed RouteResumed for route={routeId}, " +
                 $"reason={action.RouteEndpointReason ?? "(none)"}, " +
                 $"ut={action.UT.ToString("R", IC)}");
         }

@@ -160,6 +160,9 @@ namespace Parsek
                 case GameActionType.RouteCargoDelivered:
                 case GameActionType.RouteCargoPickedUp:
                 case GameActionType.RoutePaused:
+                // RouteResumed (route-timeline events): a scheduler state flip like
+                // RoutePaused; moves no funds / science / reputation.
+                case GameActionType.RouteResumed:
                 case GameActionType.RouteEndpointLost:
                     return false;
 

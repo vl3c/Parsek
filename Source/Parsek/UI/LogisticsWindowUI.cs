@@ -864,8 +864,11 @@ namespace Parsek
             // A route armed via Send Once is doing a single one-shot cycle, so its
             // cadence/interval is irrelevant: hide the Interval cell while it sends once
             // (the disabled "Sending one cycle..." action still shows in the Actions cell).
+            // The persisted Route.SendOnceArmed flag (route-timeline events) keeps the
+            // provenance across save/reload; the session set covers the same-frame arm
+            // before the next legibility refresh.
             bool sendOnceArmed = !string.IsNullOrEmpty(route.Id)
-                && sendOnceArmedRouteIds.Contains(route.Id);
+                && (sendOnceArmedRouteIds.Contains(route.Id) || route.SendOnceArmed);
             bool sendingOnce = ShouldShowSendingButton(route)
                 && ResolveArmedKind(sendOnceArmed, route.Status) == ArmedSendKind.SendOnce;
 

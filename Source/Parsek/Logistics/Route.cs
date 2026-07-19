@@ -196,6 +196,17 @@ namespace Parsek.Logistics
 
         // --- Status ---
 
+        /// <summary>
+        /// UT at which the route was committed to the store (route-timeline events);
+        /// -1 when unknown (constructed off-Unity, e.g. unit tests, or a route saved
+        /// before the field existed). Stamped once by <c>RouteStore.AddRoute</c> when
+        /// still unset; never rewritten afterward. This is the route's creation point
+        /// on the timeline: a rewind below it reverts the route away with the save
+        /// snapshot, and the planned rewind-visibility extension keys dormant
+        /// re-materialization on it. Sparse in the codec (omitted when &lt; 0).
+        /// </summary>
+        public double CreatedUT = -1.0;
+
         /// <summary>Lifecycle state. Always mutate through <see cref="TransitionTo"/>.</summary>
         public RouteStatus Status = RouteStatus.Active;
 
@@ -215,6 +226,19 @@ namespace Parsek.Logistics
 
         /// <summary>Pause requested while InTransit; transition to Paused after completion.</summary>
         public bool PauseAfterCurrentCycle;
+
+        /// <summary>
+        /// True while a player "Send Once" one-shot is armed and its cycle has not
+        /// yet completed (route-timeline events). Distinguishes the Send Once arm
+        /// from an ordinary pause-after-cycle request (both set
+        /// <see cref="PauseAfterCurrentCycle"/>): the Logistics window shows the
+        /// "Sending one cycle" state from this, and the dispatched ledger row is
+        /// stamped <c>RouteSendOnce</c> from it so the one-shot run is identifiable
+        /// in the timeline. Set by <c>RouteOrchestrator.TrySendOneCycleNow</c>;
+        /// cleared by the armed-pause completion, a player Pause, and a player
+        /// Activate. Sparse in the codec (omitted when false).
+        /// </summary>
+        public bool SendOnceArmed;
 
         /// <summary>Total successful cycle completions.</summary>
         public int CompletedCycles;

@@ -130,6 +130,13 @@ namespace Parsek.Logistics
             if (route.PreMissingStatus != RouteStatus.Active)
                 node.AddValue("preMissingStatus", route.PreMissingStatus.ToString());
             node.AddValue("pauseAfterCurrentCycle", route.PauseAfterCurrentCycle.ToString());
+            // Sparse Send Once provenance (route-timeline events): false (the
+            // default) writes nothing so pre-field routes round-trip byte-identically.
+            if (route.SendOnceArmed)
+                node.AddValue("sendOnceArmed", route.SendOnceArmed.ToString());
+            // Sparse creation stamp (route-timeline events): -1 = unknown, omit.
+            if (route.CreatedUT >= 0.0)
+                node.AddValue("createdUT", route.CreatedUT.ToString("R", ic));
             node.AddValue("completedCycles", route.CompletedCycles.ToString(ic));
             node.AddValue("skippedCycles", route.SkippedCycles.ToString(ic));
             // Sparse dispatch priority (M1): 0 (the floor / default) writes nothing.
@@ -328,6 +335,10 @@ namespace Parsek.Logistics
                 : ParseStatusOrWarn(preMissingStr, route.Id);
 
             TryParseBool(node.GetValue("pauseAfterCurrentCycle"), out route.PauseAfterCurrentCycle);
+            // Sparse Send Once provenance (route-timeline events): absent -> false.
+            TryParseBool(node.GetValue("sendOnceArmed"), out route.SendOnceArmed);
+            // Sparse creation stamp (route-timeline events): absent -> -1 (unknown).
+            TryParseDoubleWithDefault(node.GetValue("createdUT"), inv, ic, -1.0, out route.CreatedUT);
             TryParseInt(node.GetValue("completedCycles"), ic, 0, out route.CompletedCycles);
             TryParseInt(node.GetValue("skippedCycles"), ic, 0, out route.SkippedCycles);
             // Sparse dispatch priority: absent -> the floor (0). Clamp on read so a

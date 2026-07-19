@@ -172,6 +172,9 @@ namespace Parsek.Tests
             // neither strict-blocks nor retry-blocks an auto-seal - same as the
             // other route rows.
             yield return new object[] { GameActionType.RouteCargoPickedUp, false, false };
+            // RouteResumed (route-timeline events): the durable player-resume marker,
+            // scheduler-emitted like RoutePaused; no world mutation, same exclusion.
+            yield return new object[] { GameActionType.RouteResumed, false, false };
         }
 
         [Fact]

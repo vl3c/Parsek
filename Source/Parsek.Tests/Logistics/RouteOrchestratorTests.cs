@@ -970,6 +970,153 @@ namespace Parsek.Tests.Logistics
         }
 
         // ==================================================================
+        // Route-timeline events: pause / resume lifecycle markers + Send Once
+        // provenance (route-timeline events PR)
+        // ==================================================================
+
+        [Fact]
+        public void TryPause_ImmediatePause_EmitsRoutePausedMarker()
+        {
+            var route = BuildActiveDueKscRoute();
+            route.Status = RouteStatus.Active;
+
+            bool ok = RouteOrchestrator.TryPause(route, 500.0, null);
+
+            Assert.True(ok);
+            var marker = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RoutePaused);
+            Assert.NotNull(marker);
+            Assert.Equal(route.Id, marker.RouteId);
+            Assert.Equal(500.0, marker.UT);
+            Assert.Equal("player-pause", marker.RouteEndpointReason);
+            Assert.Null(marker.RecordingId); // free-standing route row contract
+            Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("LifecycleMarker"));
+        }
+
+        [Fact]
+        public void TryPause_UnresolvedUT_SkipsMarkerEmission()
+        {
+            // A marker with a bogus UT would survive every rewind cutoff, so the
+            // degenerate no-UT path must skip emission (Warn) rather than emit.
+            var route = BuildActiveDueKscRoute();
+            route.Status = RouteStatus.Active;
+
+            bool ok = RouteOrchestrator.TryPause(route, -1.0, null);
+
+            Assert.True(ok);
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RoutePaused);
+            Assert.Contains(logLines, l => l.Contains("LifecycleMarker") && l.Contains("SKIPPED"));
+        }
+
+        [Fact]
+        public void TryPause_InTransitArm_DoesNotEmitMarkerYet()
+        {
+            // The armed pause lands later at the delivery applier; arming alone is
+            // not a pause point on the timeline.
+            var route = BuildActiveDueKscRoute();
+            route.Status = RouteStatus.InTransit;
+
+            Assert.True(RouteOrchestrator.TryPause(route, 500.0, null));
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RoutePaused);
+        }
+
+        [Fact]
+        public void TryActivate_EmitsRouteResumedMarker()
+        {
+            var route = BuildActiveDueKscRoute(nextDispatchUT: 50.0);
+            route.Status = RouteStatus.Paused;
+
+            bool ok = RouteOrchestrator.TryActivate(route, 700.0);
+
+            Assert.True(ok);
+            var marker = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteResumed);
+            Assert.NotNull(marker);
+            Assert.Equal(route.Id, marker.RouteId);
+            Assert.Equal(700.0, marker.UT);
+            Assert.Equal("player-activate", marker.RouteEndpointReason);
+        }
+
+        [Fact]
+        public void TrySendOneCycleNow_SetsSendOnceArm_AndPauseClearsIt()
+        {
+            var route = BuildActiveDueKscRoute();
+            route.Status = RouteStatus.Paused;
+
+            Assert.True(RouteOrchestrator.TrySendOneCycleNow(route, 100.0));
+            Assert.True(route.SendOnceArmed);
+            Assert.True(route.PauseAfterCurrentCycle);
+            // Send Once un-pauses without a RouteResumed row: the one-shot is
+            // bracketed by the stamped dispatch + the post-delivery pause instead.
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteResumed);
+
+            // A player pause cancels the never-fired arm and leaves no dispatch trace.
+            Assert.True(RouteOrchestrator.TryPause(route, 200.0, null));
+            Assert.False(route.SendOnceArmed);
+            Assert.False(route.PauseAfterCurrentCycle);
+        }
+
+        [Fact]
+        public void TryActivate_ClearsSendOnceArm()
+        {
+            var route = BuildActiveDueKscRoute();
+            route.Status = RouteStatus.Paused;
+            Assert.True(RouteOrchestrator.TrySendOneCycleNow(route, 100.0));
+            route.TransitionTo(RouteStatus.Paused, "test-rearm");
+
+            Assert.True(RouteOrchestrator.TryActivate(route, 300.0));
+            Assert.False(route.SendOnceArmed);
+            Assert.False(route.PauseAfterCurrentCycle);
+        }
+
+        [Fact]
+        public void Tick_SendOnceArmedRoute_StampsRouteSendOnceOnDispatchedRow()
+        {
+            var route = BuildActiveDueKscRoute(nextDispatchUT: 5000.0);
+            route.Status = RouteStatus.Paused;
+            RouteStore.AddRoute(route);
+            Assert.True(RouteOrchestrator.TrySendOneCycleNow(route, 100.0));
+            var env = new FakeRouteRuntimeEnvironment();
+
+            RouteOrchestrator.Tick(200.0, env);
+
+            var dispatched = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteDispatched);
+            Assert.NotNull(dispatched);
+            Assert.True(dispatched.RouteSendOnce,
+                "a Send-Once-armed cycle's dispatched row must carry the provenance stamp");
+        }
+
+        [Fact]
+        public void Tick_AutoCycleRoute_LeavesRouteSendOnceFalse()
+        {
+            var route = BuildActiveDueKscRoute(nextDispatchUT: 100.0);
+            RouteStore.AddRoute(route);
+            var env = new FakeRouteRuntimeEnvironment();
+
+            RouteOrchestrator.Tick(200.0, env);
+
+            var dispatched = Ledger.Actions.FirstOrDefault(a => a.Type == GameActionType.RouteDispatched);
+            Assert.NotNull(dispatched);
+            Assert.False(dispatched.RouteSendOnce);
+        }
+
+        [Fact]
+        public void EmitRouteLifecycleMarker_UsesInjectedEmitterAndSequence()
+        {
+            var route = BuildActiveDueKscRoute();
+            var captured = new List<GameAction>();
+
+            RouteOrchestrator.EmitRouteLifecycleMarker(
+                route, 900.0, GameActionType.RoutePaused, "delivered-then-paused",
+                sequence: 4, emitter: captured.Add);
+
+            Assert.Single(captured);
+            Assert.Equal(GameActionType.RoutePaused, captured[0].Type);
+            Assert.Equal(4, captured[0].Sequence);
+            Assert.Equal("delivered-then-paused", captured[0].RouteEndpointReason);
+            Assert.Empty(Ledger.Actions); // injected emitter bypasses the static ledger
+        }
+
+        // ==================================================================
         // M2 funds-basis selection (plan D9 / OQ1): the basis log names which
         // resource-term basis ComputeDispatchFundsCostForRoute applied
         // ==================================================================
