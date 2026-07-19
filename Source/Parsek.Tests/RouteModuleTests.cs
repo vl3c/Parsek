@@ -187,6 +187,50 @@ namespace Parsek.Tests
             Assert.Equal(2, warnCount);
         }
 
+        // Route-timeline events: the explicit resume marker clears the walk's
+        // Paused flag (the pause history now has a durable close).
+        [Fact]
+        public void ProcessAction_RouteResumed_ClearsPausedFlag()
+        {
+            module.ProcessAction(MakePaused("route-R", "player-pause", 150.0));
+            module.ProcessAction(MakeResumed("route-R", "player-activate", 250.0));
+
+            var state = module.GetWalkStateForTesting()["route-R"];
+            Assert.False(state.Paused);
+            Assert.Equal("player-activate", state.LastReason);
+            Assert.Equal(250.0, state.LastActionUT);
+            Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("Processed RouteResumed"));
+        }
+
+        // Route-timeline events: a Send Once dispatch legitimately fires one cycle
+        // from Paused, so it must not raise the dispatch-on-paused warn and must
+        // keep the Paused flag (no durable resume happened).
+        [Fact]
+        public void ProcessAction_SendOnceDispatch_OnPausedRoute_NoWarnKeepsPaused()
+        {
+            module.ProcessAction(MakePaused("r2", "player-pause", 150.0));
+            var sendOnce = MakeDispatched("r2", "cyc-1", 200.0);
+            sendOnce.RouteSendOnce = true;
+            module.ProcessAction(sendOnce);
+
+            var state = module.GetWalkStateForTesting()["r2"];
+            Assert.True(state.Paused);
+            Assert.Equal(1, state.DispatchedCycles);
+            Assert.DoesNotContain(logLines, l => l.Contains("Dispatch on paused"));
+            Assert.Contains(logLines, l => l.Contains("Send Once dispatch on paused route"));
+        }
+
+        private static GameAction MakeResumed(string routeId, string reason = "player-activate", double ut = 250.0)
+        {
+            return new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.RouteResumed,
+                RouteId = routeId,
+                RouteEndpointReason = reason
+            };
+        }
+
         [Fact]
         public void ProcessAction_RouteDispatched_OnEndpointLostRoute_KeepsEndpointLostTrue()
         {

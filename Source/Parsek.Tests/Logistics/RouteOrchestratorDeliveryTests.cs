@@ -623,6 +623,51 @@ namespace Parsek.Tests.Logistics
                 l.Contains("[Route]") && l.Contains("InTransit→Paused") && l.Contains("delivered-then-paused"));
         }
 
+        // Route-timeline events: the armed pause is a pause point on the timeline,
+        // so completing a pause-after-cycle delivery must emit a RoutePaused row
+        // (through the ctx emitter, after the delivered row) and clear the Send Once
+        // provenance flag.
+        [Fact]
+        public void StatusTransition_PauseAfterCurrentCycle_EmitsRoutePausedMarkerAndClearsSendOnceArm()
+        {
+            var route = BuildInTransitKscRoute(id: "route-oneshot-marker");
+            route.PauseAfterCurrentCycle = true;
+            route.SendOnceArmed = true;
+            var plan = BuildFullFillPlan(route.Stops[0].DeliveryManifest);
+            var writers = new CapturingWriters();
+            var ctx = BuildContext(writers, cycleId: "cycle-0", ut: 200.0);
+
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, plan, ctx);
+
+            Assert.False(route.SendOnceArmed);
+            var paused = writers.EmittedActions.FirstOrDefault(a => a.Type == GameActionType.RoutePaused);
+            Assert.NotNull(paused);
+            Assert.Equal("route-oneshot-marker", paused.RouteId);
+            Assert.Equal(200.0, paused.UT);
+            Assert.Equal("delivered-then-paused", paused.RouteEndpointReason);
+            // The pause marker orders AFTER the delivered row inside the stride
+            // block: delivery is +3, pause is +4.
+            var delivered = writers.EmittedActions.First(a => a.Type == GameActionType.RouteCargoDelivered);
+            Assert.True(paused.Sequence > delivered.Sequence,
+                "pause marker must sort after the delivered row at the shared UT");
+        }
+
+        // Route-timeline events: an ordinary (non-armed) delivery must NOT emit a
+        // pause marker.
+        [Fact]
+        public void StatusTransition_OrdinaryDelivery_EmitsNoRoutePausedMarker()
+        {
+            var route = BuildInTransitKscRoute(id: "route-ordinary");
+            var plan = BuildFullFillPlan(route.Stops[0].DeliveryManifest);
+            var writers = new CapturingWriters();
+            var ctx = BuildContext(writers, cycleId: "cycle-0");
+
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, plan, ctx);
+
+            Assert.Equal(RouteStatus.Active, route.Status);
+            Assert.DoesNotContain(writers.EmittedActions, a => a.Type == GameActionType.RoutePaused);
+        }
+
         // catches: a regression where partial delivery + PauseAfterCurrentCycle
         // emits the wrong status-transition reason token.
         [Fact]

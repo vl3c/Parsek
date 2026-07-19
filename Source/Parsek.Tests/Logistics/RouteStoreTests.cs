@@ -104,6 +104,21 @@ namespace Parsek.Tests.Logistics
                 && l.Contains("stops=1"));
         }
 
+        // Route-timeline events: an already-stamped creation UT (a reload
+        // re-adding a persisted route) must never be rewritten by AddRoute.
+        [Fact]
+        public void AddRoute_PresetCreatedUT_IsPreserved()
+        {
+            Route route = BuildRoute("route-created");
+            route.CreatedUT = 42000.5;
+
+            RouteStore.AddRoute(route);
+
+            Assert.Equal(42000.5, route.CreatedUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("createdUT=42000.5"));
+        }
+
         [Fact]
         public void AddRoute_Null_LogsWarnNoThrow()
         {

@@ -1875,6 +1875,10 @@ namespace Parsek
                 // quicksave, never by this predicate, so supersede must not block on
                 // it.
                 case GameActionType.RouteCargoPickedUp:
+                // RouteResumed (route-timeline events): the durable player-resume
+                // marker, scheduler-emitted like RoutePaused; carries no world
+                // mutation, so supersede must not strict-block or retry-block on it.
+                case GameActionType.RouteResumed:
                     return false;
             }
 

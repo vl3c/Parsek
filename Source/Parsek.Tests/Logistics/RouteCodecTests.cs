@@ -187,6 +187,34 @@ namespace Parsek.Tests.Logistics
         // Tests
         // -----------------------------------------------------------------
 
+        // Route-timeline events: SendOnceArmed + CreatedUT round-trip when set
+        // and stay sparse (no key on the wire) at their defaults.
+        [Fact]
+        public void RoundTrip_SendOnceArmedAndCreatedUT_SetAndSparse()
+        {
+            Route original = BuildFullyPopulatedRoute();
+            original.SendOnceArmed = true;
+            original.CreatedUT = 123456.789;
+
+            var node = new ConfigNode("ROUTE");
+            original.SerializeInto(node);
+            Route roundTripped = Route.DeserializeFrom(node);
+
+            Assert.True(roundTripped.SendOnceArmed);
+            Assert.Equal(123456.789, roundTripped.CreatedUT);
+
+            // Defaults write NO key so pre-field saves stay byte-identical.
+            Route defaults = BuildFullyPopulatedRoute();
+            var sparseNode = new ConfigNode("ROUTE");
+            defaults.SerializeInto(sparseNode);
+            Assert.Null(sparseNode.GetValue("sendOnceArmed"));
+            Assert.Null(sparseNode.GetValue("createdUT"));
+
+            Route sparseBack = Route.DeserializeFrom(sparseNode);
+            Assert.False(sparseBack.SendOnceArmed);
+            Assert.Equal(-1.0, sparseBack.CreatedUT);
+        }
+
         // catches: any single field dropped from the codec.
         [Fact]
         public void RoundTrip_FullyPopulated()

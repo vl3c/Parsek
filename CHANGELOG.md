@@ -8,6 +8,8 @@ All notable changes to Parsek are documented here.
 
 ### Features
 
+- Supply-route pause and resume actions are now recorded on the career timeline, so rewinding past them restores the route's pause history consistently with everything else; Send Once runs are marked as one-shot cycles in the timeline, and the "Sending one cycle" state now survives save and reload.
+
 - Supply routes no longer lose cargo when the destination is full: a route now waits ("Held: no room for X" / "Held: no slot for 'part'") until the destination has room for the full delivery, instead of charging the origin and silently dropping whatever did not fit. If room disappears mid-cycle, the route's detail panel now reports exactly what was lost.
 - A supply route held on a missing stored part now names the part instead of showing an internal code, and says when the part is actually there but its charge, fuel, or contents no longer match the recorded cargo.
 

@@ -302,10 +302,37 @@ namespace Parsek.Logistics
                 }
             }
 
+            // Route-timeline events: stamp the creation UT once, at the moment the
+            // route is committed to the store. Never rewritten (a reload re-adds
+            // routes with the persisted value already set). -1 stays when the live
+            // UT cannot be resolved (off-Unity context, e.g. unit tests).
+            if (route.CreatedUT < 0.0)
+                route.CreatedUT = TryReadLiveUniversalTime();
+
             committedRoutes.Add(route);
             int stopCount = route.Stops != null ? route.Stops.Count : 0;
             ParsekLog.Info(Tag,
-                $"Route {ShortId(route.Id)} added: status={route.Status} stops={stopCount}");
+                $"Route {ShortId(route.Id)} added: status={route.Status} stops={stopCount} " +
+                $"createdUT={route.CreatedUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Defensive live-UT read for the <see cref="AddRoute"/> creation stamp:
+        /// returns -1 when Planetarium is unavailable (early load, off-Unity test
+        /// context), mirroring the <c>RouteOrchestrator.TryPause</c> pattern.
+        /// </summary>
+        private static double TryReadLiveUniversalTime()
+        {
+            try
+            {
+                return Planetarium.GetUniversalTime();
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"AddRoute: live UT resolution threw {ex.GetType().Name}; createdUT stays -1");
+                return -1.0;
+            }
         }
 
         /// <summary>
