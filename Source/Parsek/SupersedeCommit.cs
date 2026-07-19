@@ -780,7 +780,13 @@ namespace Parsek
             string priorTarget = provisional.SupersedeTargetId;
             provisional.SupersedeTargetId = null;
 
-            scenario.BumpSupersedeStateVersion();
+            // Route-timeline events: this bump runs LIVE (post-re-fly merge, a
+            // player-driven session, never inside OnLoad), so pass the
+            // defensively-resolved UT and let the central revalidation seam
+            // stamp auto-pause / auto-resume markers for any route whose
+            // sources this supersede just retired or restored. -1 on a
+            // degenerate resolution keeps the pass silent (the OnLoad shape).
+            scenario.BumpSupersedeStateVersion(TryReadLiveUniversalTime());
             if (restoredPlayback)
             {
                 ParsekLog.Verbose(Tag,
@@ -827,6 +833,28 @@ namespace Parsek
 
             ParsekLog.Info(SessionTag,
                 $"End reason=merged sess={sessionId ?? "<no-id>"} provisional={provisional.RecordingId ?? "<no-id>"}");
+        }
+
+        /// <summary>
+        /// Defensive live-UT read for the route-timeline marker pass triggered by
+        /// <see cref="FlipMergeStateAndClearTransient"/>'s supersede-version bump:
+        /// returns -1 when Planetarium is unavailable (off-Unity test context),
+        /// mirroring <c>RouteStore.TryReadLiveUniversalTime</c>, so a degenerate
+        /// context degrades to the silent (no-marker) revalidation shape.
+        /// </summary>
+        private static double TryReadLiveUniversalTime()
+        {
+            try
+            {
+                return Planetarium.GetUniversalTime();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"FlipMergeStateAndClearTransient: live UT resolution threw {ex.GetType().Name}; " +
+                    "route revalidation runs without timeline markers");
+                return -1.0;
+            }
         }
 
         internal static int ClearPreReFlyAnchorSnapshotsForSession(string sessionId)

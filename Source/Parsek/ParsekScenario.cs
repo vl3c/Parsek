@@ -262,8 +262,18 @@ namespace Parsek
         /// <see cref="RouteStore.RevalidateSources"/> never bumps the version
         /// counter.
         /// </para>
+        /// <para>
+        /// <paramref name="routeLiveEmitUT"/> (route-timeline events): the
+        /// caller-gated live UT for the revalidation pass's auto-pause /
+        /// auto-resume ledger markers. The default (-1) keeps the pass silent
+        /// (no ledger row), which every load-context and bookkeeping bump site
+        /// must use; only a confirmed-live bump (currently the re-fly supersede
+        /// commit in <c>SupersedeCommit.FlipMergeStateAndClearTransient</c>)
+        /// resolves the UT defensively and passes it so the auto-flip lands on
+        /// the timeline. See <see cref="RouteStore.RevalidateSources(string, double)"/>.
+        /// </para>
         /// </summary>
-        public void BumpSupersedeStateVersion()
+        public void BumpSupersedeStateVersion(double routeLiveEmitUT = -1.0)
         {
             unchecked { SupersedeStateVersion++; }
 
@@ -274,7 +284,7 @@ namespace Parsek
             // is load-bearing for many subsystems.
             try
             {
-                RouteStore.RevalidateSources("SupersedeStateVersion-bump");
+                RouteStore.RevalidateSources("SupersedeStateVersion-bump", routeLiveEmitUT);
             }
             catch (Exception ex)
             {

@@ -270,6 +270,10 @@ Separately decide whether inter-body routes should be **hard-blocked until M5** 
 cross-parent *creation reject* (with a player-facing reason) now, so "same-body only" is enforced rather
 than merely intended.
 
+> **Addendum (2026-07-19):** decision CLOSED. M5 inter-body synodic-faithful scheduling shipped in
+> 0.10.3 (PR #1238, in-game gate passed 2026-07-08), so inter-body routes are ratified as supported and
+> no creation gate is added.
+
 ### Rec-3 — Close the non-rewind discard leak (separate root cause)
 Risk #6 is independent of Rec-1: a plain discard or `ReFlyDiscard` has no quicksave, so physical
 route effects applied during a since-discarded segment have *no* rollback path. Either reverse the

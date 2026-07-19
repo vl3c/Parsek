@@ -246,6 +246,11 @@ namespace Parsek
         // because the callback fires outside the draw-loop route iteration. Deletion
         // never happens without the player confirming.
         private Route pendingConfirmDeleteRoute;
+        // Dormant-section delete: same two-step shape as pendingConfirmDeleteRoute
+        // but the dialog's Delete callback routes through
+        // RouteStore.RemoveDormantRoute (dormant routes live in the sparse
+        // dormant list, never the committed list).
+        private Route pendingConfirmDeleteDormantRoute;
         private RouteCandidate pendingCreate;
         // Deferred cadence edit: the stepper records (route, new N) during the draw
         // loop; ApplyPendingActions recomputes DispatchInterval = N x span after the
@@ -500,6 +505,7 @@ namespace Parsek
             pendingActivate = null;
             pendingSendOnce = null;
             pendingConfirmDeleteRoute = null;
+            pendingConfirmDeleteDormantRoute = null;
             pendingCreate = null;
             pendingCadenceRoute = null;
             pendingCadenceMultiplier = 0;
@@ -517,6 +523,10 @@ namespace Parsek
             // plain section name (no count), centered (see DrawSectionHeader).
             DrawRouteSectionBubble("Active Routes", activeRoutes, RouteSection.Active, currentUT);
             DrawRouteSectionBubble("Paused Routes", pausedRoutes, RouteSection.Paused, currentUT);
+            // Rewind-visibility follow-up: the collapsed "Dormant Routes (N)"
+            // disclosure. Renders nothing when no route is dormant (the common
+            // no-rewind save shows no extra chrome).
+            DrawDormantSectionBubble();
             DrawCandidateSectionBubble("Candidates", candidates, nearMisses);
 
             GUILayout.EndScrollView();
@@ -609,6 +619,81 @@ namespace Parsek
             }
             GUILayout.EndVertical();
             GUILayout.Space(SpacingSmall);
+        }
+
+        // Dormant-routes section key (collapsible via the shared expandedRows set,
+        // mirroring NearMissSectionKey / DismissedSectionKey). Absent from the set
+        // by default, so the disclosure starts COLLAPSED.
+        private const string DormantSectionKey = "dormant:section";
+
+        /// <summary>
+        /// Draws the collapsed-by-default "Dormant Routes (N)" disclosure bubble
+        /// (rewind-visibility follow-up). Shown ONLY when at least one route is
+        /// dormant (<see cref="LogisticsDormantPresentation.ShouldShowDormantSection"/>);
+        /// per route: display name, "appears at &lt;date&gt;" (the route's
+        /// <see cref="Route.CreatedUT"/> through the house
+        /// <c>KSPUtil.PrintDateCompact</c> formatter, guarded off-Unity), and a
+        /// Delete button deferred through
+        /// <see cref="pendingConfirmDeleteDormantRoute"/> into the same
+        /// confirm-dialog flow as committed-route deletion. Read-only otherwise:
+        /// a dormant route cannot be activated, edited, or expanded - it does
+        /// not exist on the timeline yet. Reads <see cref="RouteStore.DormantRoutes"/>
+        /// directly (a plain list read, no derivation, so it is draw-path safe).
+        /// </summary>
+        private void DrawDormantSectionBubble()
+        {
+            IReadOnlyList<Route> dormant = RouteStore.DormantRoutes;
+            if (!LogisticsDormantPresentation.ShouldShowDormantSection(dormant?.Count ?? 0))
+                return;
+
+            GUILayout.BeginVertical(GUI.skin.box);
+            bool expanded = expandedRows.Contains(DormantSectionKey);
+            string arrow = expanded ? "▼" : "▶";
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(8f);
+            if (GUILayout.Button(
+                    new GUIContent(
+                        $"{arrow} {LogisticsDormantPresentation.DormantSectionTitle(dormant.Count)}",
+                        "Routes created after the rewind point you rewound past. Each is dormant (not dispatching, not visible elsewhere) and reappears Paused when the re-flown timeline reaches its creation date. Delete removes one for good."),
+                    GUI.skin.label, GUILayout.ExpandWidth(true)))
+                ToggleExpanded(DormantSectionKey, "dormant section");
+            GUILayout.EndHorizontal();
+
+            if (expanded)
+            {
+                for (int i = 0; i < dormant.Count; i++)
+                {
+                    Route route = dormant[i];
+                    if (route == null) continue;
+                    string display = LogisticsDormantPresentation.DormantRouteDisplayName(route.Name, route.Id);
+                    string appears = LogisticsDormantPresentation.DormantAppearsLabel(
+                        route.CreatedUT, SafePrintDateCompact(route.CreatedUT));
+                    GUILayout.BeginHorizontal();
+                    GUILayout.Space(24f);
+                    GUILayout.Label($"{display} - {appears}", detailStyle, GUILayout.ExpandWidth(true));
+                    if (GUILayout.Button(new GUIContent("Delete",
+                            "Delete this dormant route. It will never re-materialize."),
+                            GUILayout.Width(60)))
+                        pendingConfirmDeleteDormantRoute = route;
+                    GUILayout.EndHorizontal();
+                }
+            }
+            GUILayout.EndVertical();
+            GUILayout.Space(SpacingSmall);
+        }
+
+        /// <summary>
+        /// House date formatting (<c>KSPUtil.PrintDateCompact</c>, the same
+        /// formatter the Recordings / Missions / Timeline windows use) guarded
+        /// for off-Unity contexts: returns null when the formatter is
+        /// unavailable so <see cref="LogisticsDormantPresentation.DormantAppearsLabel"/>
+        /// renders its honest "&lt;unknown&gt;" fallback.
+        /// </summary>
+        private static string SafePrintDateCompact(double ut)
+        {
+            if (ut < 0.0) return null;
+            try { return KSPUtil.PrintDateCompact(ut, true); }
+            catch { return null; }
         }
 
         private void DrawCandidateSectionBubble(string title, List<RouteCandidate> rows, List<RouteNearMiss> nearMisses)
@@ -2283,6 +2368,14 @@ namespace Parsek
                 // an explicit confirm.
                 SpawnDeleteRouteConfirmation(pendingConfirmDeleteRoute);
             }
+            if (pendingConfirmDeleteDormantRoute != null)
+            {
+                // Same one-shot confirm shape as the committed-route delete;
+                // the actual RouteStore.RemoveDormantRoute runs in the dialog's
+                // Delete callback, never here. No cache dirtying needed: dormant
+                // routes feed no legibility / candidate cache.
+                SpawnDeleteDormantRouteConfirmation(pendingConfirmDeleteDormantRoute);
+            }
             if (pendingCreate != null)
             {
                 // Spawns the informed confirm once on the click frame; the actual
@@ -2348,6 +2441,7 @@ namespace Parsek
             pendingActivate = null;
             pendingSendOnce = null;
             pendingConfirmDeleteRoute = null;
+            pendingConfirmDeleteDormantRoute = null;
             pendingCreate = null;
             pendingCadenceRoute = null;
             pendingCadenceMultiplier = 0;
@@ -2401,6 +2495,47 @@ namespace Parsek
                     {
                         ParsekLog.Verbose("UI",
                             $"Logistics: Delete route={ShortId(routeId)} cancelled");
+                    })),
+                false, HighLogic.UISkin);
+        }
+
+        /// <summary>
+        /// Spawns the modal delete confirm for a DORMANT route (mirrors
+        /// <see cref="SpawnDeleteRouteConfirmation"/>: id captured into a local so
+        /// the closure survives the frame-top field reset; the destructive
+        /// <see cref="RouteStore.RemoveDormantRoute"/> runs in the Delete callback
+        /// only, so deletion never happens without an explicit confirm).
+        /// </summary>
+        private void SpawnDeleteDormantRouteConfirmation(Route route)
+        {
+            if (route == null)
+                return;
+
+            string routeId = route.Id;
+            string display = LogisticsDormantPresentation.DormantRouteDisplayName(route.Name, route.Id);
+            string body = LogisticsDormantPresentation.BuildDeleteDormantConfirmBody(display);
+
+            ParsekLog.Info("UI",
+                $"Logistics: Delete dormant route={ShortId(routeId)} confirm dialog spawned");
+
+            PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    "ParsekLogisticsDeleteDormantRouteConfirm",
+                    body,
+                    "Confirm: Delete Dormant Route",
+                    HighLogic.UISkin,
+                    new DialogGUIButton("Delete", () =>
+                    {
+                        bool ok = RouteStore.RemoveDormantRoute(routeId);
+                        ParsekLog.Info("UI",
+                            $"Logistics: Delete dormant route={ShortId(routeId)} confirmed result={(ok ? "removed" : "not-found")}");
+                    }),
+                    new DialogGUIButton("Cancel", () =>
+                    {
+                        ParsekLog.Verbose("UI",
+                            $"Logistics: Delete dormant route={ShortId(routeId)} cancelled");
                     })),
                 false, HighLogic.UISkin);
         }

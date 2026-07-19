@@ -65,10 +65,17 @@ namespace Parsek
         RouteCargoDelivered   = 25,
 
         /// <summary>
-        /// Player Pause action, OR auto-pause when status transitions to EndpointLost /
+        /// Player Pause action, OR auto-pause when status transitions to
         /// MissingSourceRecording / SourceChanged (design doc §6.6, §10.6). The reason is
-        /// captured in <see cref="GameAction.RouteEndpointReason"/>. §10.6 needs this row
-        /// in the timeline so revert past a dispatch can correctly suspend future cycles.
+        /// captured in <see cref="GameAction.RouteEndpointReason"/>: <c>player-pause</c>,
+        /// the armed pause-after-cycle <c>delivered-then-paused</c> /
+        /// <c>delivered-partial-then-paused</c>, or the LIVE source-revalidation
+        /// auto-flips <c>AutoPause:MissingSourceRecording</c> /
+        /// <c>AutoPause:SourceChanged</c> (OnLoad revalidation passes stay silent -
+        /// caller-gated via <c>RouteStore.RevalidateSources(reason, liveEmitUT)</c>).
+        /// An EndpointLost transition emits <see cref="RouteEndpointLost"/> instead.
+        /// §10.6 needs this row in the timeline so revert past a dispatch can
+        /// correctly suspend future cycles.
         /// </summary>
         RoutePaused           = 26,
 
@@ -126,7 +133,10 @@ namespace Parsek
         /// the next <see cref="RouteDispatched"/> row, which leaves the timeline blind
         /// to a resume whose first cycle blocks on eligibility (or never fires). The
         /// reason is captured in <see cref="GameAction.RouteEndpointReason"/>
-        /// (currently always <c>"player-activate"</c>). A Send Once arm is NOT a
+        /// (<c>player-activate</c>, or <c>AutoResume:SourcesRestored</c> when a LIVE
+        /// source-revalidation pass restores an Active-family status from
+        /// MissingSourceRecording - a restored Paused emits nothing, it never
+        /// resumed). A Send Once arm is NOT a
         /// resume — it stamps <see cref="GameAction.RouteSendOnce"/> on its dispatched
         /// row instead. Free-standing like every route row (no <c>RecordingId</c>);
         /// retired at rewind by <c>RouteLedgerRetire</c> alongside types 23-29.
