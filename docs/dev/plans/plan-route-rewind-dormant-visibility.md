@@ -83,19 +83,37 @@ routes, exactly like recordings:
   `route-rewind-status-fidelity`):** after the reconcile, the seam derives
   each kept route's timeline-correct pause state from the KEPT
   `RoutePaused`/`RouteResumed` rows (`DeriveTimelineStatus`: latest kept
-  marker wins, UT then Sequence; `ApplyDerivedTimelineStatus`: a derived
-  pause flips only the ghost-driving/wait statuses, a derived resume only
-  un-pauses an explicitly `Paused` route, validity statuses / `InTransit` /
-  no-marker routes are untouched), unconditionally clears
-  `PauseAfterCurrentCycle` + `SendOnceArmed` (armed one-shots carry no
-  timestamp, so they never survive time travel), and reconstructs
-  `CompletedCycles`/`SkippedCycles` from the kept dispatch/delivery rows
-  (`ReconstructCycleCounters`: completed = distinct delivered kept cycle
-  ids, skipped = `(maxKeptDispatchOrdinal + 1) - completed` clamped >= 0,
-  both 0 with no kept dispatch rows; a dispatched-but-undelivered cycle at
-  the cutoff counts as skipped, preserving the uniqueness invariant
-  `Completed + Skipped > maxOrdinal`). The original "counters deliberately
-  NOT recomputed" residual is thereby closed.
+  PLAYER-DRIVEN marker wins, UT then Sequence; AUTO lifecycle rows whose
+  reason starts with `AutoPause:`/`AutoResume:` (RevalidateSources
+  source-validity flips, dormant-UI slice) are skipped from the scan -
+  they describe source validity, which re-derives from ERS after every
+  rewind, so replaying them as player intent would pause routes the
+  player never paused and poison the PreMissingStatus recovery baseline;
+  a null/empty reason stays player intent for legacy rows; a derived
+  Active additionally requires at least one kept player `RoutePaused`
+  row - a resume must resume something recorded, so a marker-less
+  pre-feature pause is never un-paused by an older kept resume; `ApplyDerivedTimelineStatus`: a derived pause flips
+  only the ghost-driving/wait statuses, a derived resume only un-pauses an
+  explicitly `Paused` route, `InTransit` / no-marker routes are untouched,
+  and a validity status (MissingSourceRecording / SourceChanged /
+  EndpointLost) keeps its live status while the verdict is written to
+  `PreMissingStatus` so recovery restores the timeline-correct state),
+  unconditionally clears `PauseAfterCurrentCycle` + `SendOnceArmed` (armed
+  one-shots carry no timestamp, so they never survive time travel), and
+  reconstructs `CompletedCycles`/`SkippedCycles` from the kept
+  dispatch/delivery rows (`ReconstructCycleCounters`, evaluated AFTER
+  `ResetCycleStateForRewind`: with no kept dispatch rows both reset to 0;
+  with a KEPT pre-cutoff in-flight cycle (`CurrentCycleStartUT` survives
+  the reset) completed = distinct delivered kept cycle ids EXCLUDING the
+  in-flight cycle's own id and skipped = `maxOrdinal - completed` clamped
+  >= 0, so the sum lands ON the in-flight cycle's ordinal and a straddling
+  multi-stop cycle keeps its id (its already-delivered windows dedup
+  against the kept rows instead of double-delivering); otherwise
+  completed = distinct delivered kept cycle ids and skipped =
+  `(maxKeptDispatchOrdinal + 1) - completed` clamped >= 0, so a
+  dispatched-but-undelivered cycle counts as skipped and the uniqueness
+  invariant `Completed + Skipped > maxOrdinal` holds). The original
+  "counters deliberately NOT recomputed" residual is thereby closed.
 - The rollback / route-blind `Restore()` overload leaves route state
   untouched (mirrors Rec-1's +Infinity contract).
 - **Both rewind exits reconcile (go-back fix, branch
