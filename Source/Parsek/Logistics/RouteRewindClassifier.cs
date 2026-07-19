@@ -19,10 +19,14 @@ namespace Parsek.Logistics
     /// cycle state reconciled so the loop clock does not silently swallow
     /// re-flown cycles against abandoned-future cursors.</para>
     ///
-    /// <para>All methods are pure with respect to statics (they mutate only the
-    /// Route instances handed in) so xUnit drives them directly. The live
-    /// orchestration lives in <c>ReconciliationBundle.Restore</c> and
-    /// <c>RouteStore.MaterializeDueDormantRoutes</c>.</para>
+    /// <para>All classification/reconcile methods are pure with respect to
+    /// statics (they mutate only the Route instances handed in) so xUnit
+    /// drives them directly. The ONE orchestration entry point that touches
+    /// statics is <see cref="RouteRewindClassifier.ReconcileStoreAtRewind"/>
+    /// (RouteStore escrow drop + install), shared by BOTH rewind exits:
+    /// the Re-Fly seam (<c>ReconciliationBundle.Restore(cutoff)</c>) and the
+    /// go-back seam (<c>ParsekScenario.HandleRewindOnLoad</c>). Dormant
+    /// drain lives in <c>RouteStore.MaterializeDueDormantRoutes</c>.</para>
     /// </summary>
     /// <summary>
     /// Timeline-derived pause state for a kept route at a rewind cutoff,
@@ -542,6 +546,127 @@ namespace Parsek.Logistics
             route.LastPartialDeliveryCycleId = null;
             RouteOrchestrator.ResetStopFireStateReturningChanged(route);
             return route;
+        }
+
+        /// <summary>
+        /// Shared rewind-seam route-store reconciliation, used by BOTH rewind
+        /// exits so they cannot drift: the Re-Fly seam
+        /// (<c>ReconciliationBundle.Restore(cutoff)</c>, passing the bundle's
+        /// captured route lists) and the go-back seam
+        /// (<c>ParsekScenario.HandleRewindOnLoad</c>, passing snapshots of the
+        /// live <see cref="RouteStore"/> lists — RouteStore is preserved
+        /// in memory across in-session loads, so on a go-back the live lists
+        /// ARE the pre-rewind capture).
+        ///
+        /// <para>Steps (extracted verbatim from the Restore(cutoff) seam):
+        /// <see cref="Classify"/> committed vs dormant at the cutoff;
+        /// dormanting hygiene (<see cref="RouteStore.DropRouteEscrow"/> +
+        /// two-sided link severing, the dormant entry keeping its
+        /// <see cref="Route.LinkedRouteId"/> as the former-partner hint for
+        /// the materialize-time re-link); per-kept-route reconcile
+        /// (<see cref="ResetCycleStateForRewind"/>,
+        /// <see cref="DeriveTimelineStatus"/> +
+        /// <see cref="ApplyDerivedTimelineStatus"/>,
+        /// <see cref="ClearArmedOneShotFlags"/>,
+        /// <see cref="ReconstructCycleCounters"/>); then
+        /// <see cref="RouteStore.InstallRoutesAtRewind"/>.</para>
+        ///
+        /// <para><b>OnLoad-safe:</b> emits NO ledger actions (only Route
+        /// instance mutation, escrow drop, list install, and logging), so the
+        /// go-back caller can run it inside <c>OnLoad</c>.
+        /// <paramref name="keptActions"/> is the POST-retire ledger list
+        /// (every route row already satisfies UT &lt;= cutoff); null is
+        /// tolerated (treated as empty).
+        /// <paramref name="logTag"/>/<paramref name="logPrefix"/> keep each
+        /// caller's log lines grep-stable ("ReconciliationBundle"/"Restore"
+        /// vs "Rewind"/"OnLoad go-back").</para>
+        /// </summary>
+        internal static void ReconcileStoreAtRewind(
+            IReadOnlyList<Route> capturedCommitted,
+            IReadOnlyList<Route> capturedDormant,
+            double cutoffUT,
+            IReadOnlyList<GameAction> keptActions,
+            string logTag,
+            string logPrefix)
+        {
+            Classify(
+                capturedCommitted,
+                capturedDormant,
+                cutoffUT,
+                out List<Route> keptRoutes,
+                out List<Route> dormantRoutes);
+
+            int newlyDormant = dormantRoutes.Count - (capturedDormant?.Count ?? 0);
+            int reconciled = 0;
+
+            // Dormanting hygiene: drop escrow + sever the committed
+            // partner's back-reference (RemoveRoute-style); the dormant
+            // entry keeps its LinkedRouteId as a former-partner hint for
+            // the materialize-time re-link.
+            for (int i = 0; i < dormantRoutes.Count; i++)
+            {
+                Route d = dormantRoutes[i];
+                RouteStore.DropRouteEscrow(d.Id);
+                for (int j = 0; j < keptRoutes.Count; j++)
+                {
+                    Route kept = keptRoutes[j];
+                    if (kept != null && string.Equals(kept.LinkedRouteId, d.Id, StringComparison.Ordinal))
+                    {
+                        kept.LinkedRouteId = null;
+                        kept.LastConsumedPartnerCycle = 0;
+                    }
+                }
+            }
+
+            // Pre-cutoff kept routes: reconcile abandoned-future cycle
+            // state, then derive the timeline-correct pause state from the
+            // kept RoutePaused/RouteResumed rows, drop armed one-shot
+            // flags (they cannot be timestamped, so they never survive
+            // time travel), and reconstruct the cycle counters from the
+            // kept dispatch/delivery rows.
+            IReadOnlyList<GameAction> keptRows =
+                keptActions ?? (IReadOnlyList<GameAction>)Array.Empty<GameAction>();
+            int derivedPaused = 0;
+            int derivedActive = 0;
+            int oneShotFlagsCleared = 0;
+            int countersReconstructed = 0;
+            for (int i = 0; i < keptRoutes.Count; i++)
+            {
+                Route kept = keptRoutes[i];
+                if (ResetCycleStateForRewind(kept, cutoffUT))
+                    reconciled++;
+                RouteTimelineStatus derived = DeriveTimelineStatus(kept.Id, keptRows);
+                if (ApplyDerivedTimelineStatus(kept, derived))
+                {
+                    if (derived == RouteTimelineStatus.Paused)
+                        derivedPaused++;
+                    else
+                        derivedActive++;
+                }
+                if (ClearArmedOneShotFlags(kept))
+                    oneShotFlagsCleared++;
+                if (ReconstructCycleCounters(kept, keptRows))
+                    countersReconstructed++;
+            }
+
+            RouteStore.InstallRoutesAtRewind(keptRoutes, dormantRoutes);
+            if (newlyDormant > 0 || reconciled > 0)
+            {
+                ParsekLog.Info(logTag,
+                    logPrefix + ": routes at rewind cutoff " +
+                    cutoffUT.ToString("R", IC) +
+                    $": kept={keptRoutes.Count} (reconciled={reconciled}) " +
+                    $"dormant={dormantRoutes.Count} (newly={newlyDormant})");
+            }
+            if (keptRoutes.Count > 0)
+            {
+                ParsekLog.Info(logTag,
+                    logPrefix + ": kept-route status fidelity at cutoff " +
+                    cutoffUT.ToString("R", IC) +
+                    $": derivedPaused={derivedPaused} derivedActive={derivedActive} " +
+                    $"oneShotFlagsCleared={oneShotFlagsCleared} " +
+                    $"countersReconstructed={countersReconstructed}");
+            }
         }
     }
 }

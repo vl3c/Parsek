@@ -271,88 +271,19 @@ namespace Parsek
             // cycles against abandoned-future cursors. The parameterless
             // rollback overload (+inf) stays route-blind: no classification, no
             // reconcile, lists untouched - matching the Rec-1 contract.
+            // The whole seam is the SHARED helper
+            // RouteRewindClassifier.ReconcileStoreAtRewind so the go-back
+            // rewind exit (ParsekScenario.HandleRewindOnLoad) runs the exact
+            // same reconciliation and the two exits cannot drift.
             if (!double.IsPositiveInfinity(dropRouteRowsAfterUT))
             {
-                Logistics.RouteRewindClassifier.Classify(
+                Logistics.RouteRewindClassifier.ReconcileStoreAtRewind(
                     bundle.Routes,
                     bundle.DormantRoutes,
                     dropRouteRowsAfterUT,
-                    out List<Logistics.Route> keptRoutes,
-                    out List<Logistics.Route> dormantRoutes);
-
-                int newlyDormant = dormantRoutes.Count - (bundle.DormantRoutes?.Count ?? 0);
-                int reconciled = 0;
-
-                // Dormanting hygiene: drop escrow + sever the committed
-                // partner's back-reference (RemoveRoute-style); the dormant
-                // entry keeps its LinkedRouteId as a former-partner hint for
-                // the materialize-time re-link.
-                for (int i = 0; i < dormantRoutes.Count; i++)
-                {
-                    Logistics.Route d = dormantRoutes[i];
-                    Logistics.RouteStore.DropRouteEscrow(d.Id);
-                    for (int j = 0; j < keptRoutes.Count; j++)
-                    {
-                        Logistics.Route kept = keptRoutes[j];
-                        if (kept != null && string.Equals(kept.LinkedRouteId, d.Id, StringComparison.Ordinal))
-                        {
-                            kept.LinkedRouteId = null;
-                            kept.LastConsumedPartnerCycle = 0;
-                        }
-                    }
-                }
-
-                // Pre-cutoff kept routes: reconcile abandoned-future cycle
-                // state, then derive the timeline-correct pause state from the
-                // kept RoutePaused/RouteResumed rows, drop armed one-shot
-                // flags (they cannot be timestamped, so they never survive
-                // time travel), and reconstruct the cycle counters from the
-                // kept dispatch/delivery rows.
-                IReadOnlyList<GameAction> keptRows =
-                    (IReadOnlyList<GameAction>)keptActions ?? Array.Empty<GameAction>();
-                int derivedPaused = 0;
-                int derivedActive = 0;
-                int oneShotFlagsCleared = 0;
-                int countersReconstructed = 0;
-                for (int i = 0; i < keptRoutes.Count; i++)
-                {
-                    Logistics.Route kept = keptRoutes[i];
-                    if (Logistics.RouteRewindClassifier.ResetCycleStateForRewind(
-                            kept, dropRouteRowsAfterUT))
-                        reconciled++;
-                    Logistics.RouteTimelineStatus derived =
-                        Logistics.RouteRewindClassifier.DeriveTimelineStatus(kept.Id, keptRows);
-                    if (Logistics.RouteRewindClassifier.ApplyDerivedTimelineStatus(kept, derived))
-                    {
-                        if (derived == Logistics.RouteTimelineStatus.Paused)
-                            derivedPaused++;
-                        else
-                            derivedActive++;
-                    }
-                    if (Logistics.RouteRewindClassifier.ClearArmedOneShotFlags(kept))
-                        oneShotFlagsCleared++;
-                    if (Logistics.RouteRewindClassifier.ReconstructCycleCounters(kept, keptRows))
-                        countersReconstructed++;
-                }
-
-                Logistics.RouteStore.InstallRoutesAtRewind(keptRoutes, dormantRoutes);
-                if (newlyDormant > 0 || reconciled > 0)
-                {
-                    ParsekLog.Info("ReconciliationBundle",
-                        "Restore: routes at rewind cutoff " +
-                        dropRouteRowsAfterUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
-                        $": kept={keptRoutes.Count} (reconciled={reconciled}) " +
-                        $"dormant={dormantRoutes.Count} (newly={newlyDormant})");
-                }
-                if (keptRoutes.Count > 0)
-                {
-                    ParsekLog.Info("ReconciliationBundle",
-                        "Restore: kept-route status fidelity at cutoff " +
-                        dropRouteRowsAfterUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
-                        $": derivedPaused={derivedPaused} derivedActive={derivedActive} " +
-                        $"oneShotFlagsCleared={oneShotFlagsCleared} " +
-                        $"countersReconstructed={countersReconstructed}");
-                }
+                    keptActions,
+                    logTag: "ReconciliationBundle",
+                    logPrefix: "Restore");
             }
 
             // Scenario lists (may be null if the scenario hasn't loaded yet).
