@@ -5,26 +5,6 @@ using System.Globalization;
 namespace Parsek.Logistics
 {
     /// <summary>
-    /// Pure, Unity-free helpers for the route rewind-visibility extension
-    /// (dormant routes; plan
-    /// <c>docs/dev/plans/plan-route-rewind-dormant-visibility.md</c>).
-    ///
-    /// <para><b>The model.</b> RouteStore is preserved in memory across every
-    /// in-session load (LoadRoutesFrom runs only on the cold-start branch), so
-    /// a Rewind-to-Separation must move-and-replace the route lists itself:
-    /// routes created AFTER the rewind cutoff become DORMANT (invisible,
-    /// non-firing, preserved definition) and re-materialize when the re-flown
-    /// timeline passes their <see cref="Route.CreatedUT"/> again; routes
-    /// created BEFORE the cutoff stay committed but get their forward-looking
-    /// cycle state reconciled so the loop clock does not silently swallow
-    /// re-flown cycles against abandoned-future cursors.</para>
-    ///
-    /// <para>All methods are pure with respect to statics (they mutate only the
-    /// Route instances handed in) so xUnit drives them directly. The live
-    /// orchestration lives in <c>ReconciliationBundle.Restore</c> and
-    /// <c>RouteStore.MaterializeDueDormantRoutes</c>.</para>
-    /// </summary>
-    /// <summary>
     /// Timeline-derived pause state for a kept route at a rewind cutoff,
     /// computed by <see cref="RouteRewindClassifier.DeriveTimelineStatus"/>
     /// from the KEPT (post-Rec-1-retire) <see cref="GameActionType.RoutePaused"/>
@@ -46,6 +26,26 @@ namespace Parsek.Logistics
         Active = 2,
     }
 
+    /// <summary>
+    /// Pure, Unity-free helpers for the route rewind-visibility extension
+    /// (dormant routes; plan
+    /// <c>docs/dev/plans/plan-route-rewind-dormant-visibility.md</c>).
+    ///
+    /// <para><b>The model.</b> RouteStore is preserved in memory across every
+    /// in-session load (LoadRoutesFrom runs only on the cold-start branch), so
+    /// a Rewind-to-Separation must move-and-replace the route lists itself:
+    /// routes created AFTER the rewind cutoff become DORMANT (invisible,
+    /// non-firing, preserved definition) and re-materialize when the re-flown
+    /// timeline passes their <see cref="Route.CreatedUT"/> again; routes
+    /// created BEFORE the cutoff stay committed but get their forward-looking
+    /// cycle state reconciled so the loop clock does not silently swallow
+    /// re-flown cycles against abandoned-future cursors.</para>
+    ///
+    /// <para>All methods are pure with respect to statics (they mutate only the
+    /// Route instances handed in) so xUnit drives them directly. The live
+    /// orchestration lives in <c>ReconciliationBundle.Restore</c> and
+    /// <c>RouteStore.MaterializeDueDormantRoutes</c>.</para>
+    /// </summary>
     internal static class RouteRewindClassifier
     {
         private const string Tag = "Route";
@@ -217,6 +217,20 @@ namespace Parsek.Logistics
         /// order breaks that degenerate tie). Returns
         /// <see cref="RouteTimelineStatus.NoMarker"/> when the route has no
         /// kept marker (predates the feature, or was never paused/resumed).
+        ///
+        /// <para><b>Resume-needs-a-recorded-pause gate:</b> a derived Active
+        /// verdict is only returned when at least one kept
+        /// <see cref="GameActionType.RoutePaused"/> row exists for the route
+        /// (a resume must resume something recorded). Otherwise the resume
+        /// row proves the route WAS paused at some marker-less point (a
+        /// pre-feature pause, or one whose emission was skipped on an
+        /// unresolved UT), and un-pausing on its evidence alone could undo a
+        /// pause the timeline never recorded; the verdict downgrades to
+        /// NoMarker (status left alone). Remaining degenerate case
+        /// (accepted): a kept RoutePaused from an EARLIER pause cycle followed
+        /// by a kept resume followed by a marker-less LATER pause still
+        /// derives Active - the marker-less pause is unrecoverable by
+        /// construction, and the kept rows genuinely end in a resume.</para>
         /// Pure: null lists / null entries tolerated.
         /// </summary>
         internal static RouteTimelineStatus DeriveTimelineStatus(
@@ -226,6 +240,7 @@ namespace Parsek.Logistics
                 return RouteTimelineStatus.NoMarker;
 
             bool found = false;
+            bool anyPausedRow = false;
             double bestUT = double.NegativeInfinity;
             int bestSeq = int.MinValue;
             RouteTimelineStatus best = RouteTimelineStatus.NoMarker;
@@ -237,6 +252,8 @@ namespace Parsek.Logistics
                     continue;
                 if (a.Type != GameActionType.RoutePaused && a.Type != GameActionType.RouteResumed)
                     continue;
+                if (a.Type == GameActionType.RoutePaused)
+                    anyPausedRow = true;
                 if (found && (a.UT < bestUT || (a.UT == bestUT && a.Sequence < bestSeq)))
                     continue;
                 found = true;
@@ -246,6 +263,9 @@ namespace Parsek.Logistics
                     ? RouteTimelineStatus.Paused
                     : RouteTimelineStatus.Active;
             }
+
+            if (best == RouteTimelineStatus.Active && !anyPausedRow)
+                return RouteTimelineStatus.NoMarker;
             return best;
         }
 
@@ -260,18 +280,44 @@ namespace Parsek.Logistics
         /// <see cref="RouteTimelineStatus.Active"/> flips only a
         /// <see cref="RouteStatus.Paused"/> route back to Active;
         /// <see cref="RouteTimelineStatus.NoMarker"/> leaves the status alone.
-        /// The validity statuses (<see cref="RouteStatus.MissingSourceRecording"/>,
-        /// <see cref="RouteStatus.SourceChanged"/>,
-        /// <see cref="RouteStatus.EndpointLost"/>) are never touched — they
-        /// re-derive from the world elsewhere — and
         /// <see cref="RouteStatus.InTransit"/> is owned by
         /// <see cref="ResetCycleStateForRewind"/> (a pre-cutoff in-flight cycle
-        /// is real and must complete). Returns true when the status changed.
+        /// is real and must complete).
+        ///
+        /// <para><b>Validity statuses:</b> a route sitting in
+        /// <see cref="RouteStatus.MissingSourceRecording"/> /
+        /// <see cref="RouteStatus.SourceChanged"/> /
+        /// <see cref="RouteStatus.EndpointLost"/> keeps that LIVE status
+        /// (validity re-derives from the world elsewhere), but the derived
+        /// verdict is written to <see cref="Route.PreMissingStatus"/> instead,
+        /// so a later recovery (RevalidateSources restores the pre-missing
+        /// baseline) lands on the timeline-correct Paused/Active state rather
+        /// than the pre-rewind captured one.</para>
+        /// Returns true when the status or the pre-missing baseline changed.
         /// </summary>
         internal static bool ApplyDerivedTimelineStatus(Route route, RouteTimelineStatus derived)
         {
             if (route == null || derived == RouteTimelineStatus.NoMarker)
                 return false;
+
+            bool validityStatus =
+                route.Status == RouteStatus.MissingSourceRecording
+                || route.Status == RouteStatus.SourceChanged
+                || route.Status == RouteStatus.EndpointLost;
+            if (validityStatus)
+            {
+                RouteStatus baseline = derived == RouteTimelineStatus.Paused
+                    ? RouteStatus.Paused
+                    : RouteStatus.Active;
+                if (route.PreMissingStatus == baseline)
+                    return false;
+                ParsekLog.Info(Tag,
+                    $"RewindReconcile: route {RouteIds.Short(route.Id)} status={route.Status} kept; " +
+                    $"preMissingStatus {route.PreMissingStatus}->{baseline} " +
+                    "reason=rewind-status-derivation (recovery restores the timeline-correct state)");
+                route.PreMissingStatus = baseline;
+                return true;
+            }
 
             if (derived == RouteTimelineStatus.Paused)
             {
@@ -348,22 +394,37 @@ namespace Parsek.Logistics
         /// counter-inflation residual). Let <c>maxOrdinal</c> be the highest
         /// ordinal parsed from the route's kept
         /// <see cref="GameActionType.RouteDispatched"/> rows' cycle ids
-        /// (unparseable ids ignored). If ANY kept dispatch rows exist:
-        /// <see cref="Route.CompletedCycles"/> = number of DISTINCT kept cycle
-        /// ids carrying a <see cref="GameActionType.RouteCargoDelivered"/> row,
-        /// and <see cref="Route.SkippedCycles"/> =
-        /// <c>(maxOrdinal + 1) - CompletedCycles</c> clamped to &gt;= 0. If NO
-        /// kept dispatch rows exist, both reset to 0.
+        /// (unparseable ids ignored). If NO kept dispatch rows exist, both
+        /// counters reset to 0. Otherwise the target depends on whether the
+        /// route retained a KEPT IN-FLIGHT cycle
+        /// (<see cref="Route.CurrentCycleStartUT"/> still set - MUST be
+        /// evaluated AFTER <see cref="ResetCycleStateForRewind"/>, which nulls
+        /// a post-cutoff cycle start; the rewind seam guarantees that order):
         ///
-        /// <para><b>Approximation (deliberate, safe):</b> a cycle dispatched
-        /// but not yet delivered at the cutoff counts as SKIPPED by this
-        /// reconstruction (its delivery re-runs live on the re-flown timeline
-        /// under a fresh cycle id). That is cosmetically imprecise but safe:
-        /// the only hard invariant is cycle-id uniqueness, which needs
-        /// <c>Completed + Skipped &gt; maxOrdinal</c> so the next live dispatch
-        /// can never re-use a kept row's cycle id — and
-        /// <c>Completed + max(0, maxOrdinal + 1 - Completed) &gt;=
-        /// maxOrdinal + 1</c> holds for every input.</para>
+        /// <para><b>Kept in-flight cycle (the straddle case):</b> the in-flight
+        /// cycle is the LATEST kept dispatch (ordinal <c>maxOrdinal</c>) and
+        /// its identity must survive: the delivery-time recompute is
+        /// <c>cycle-{Completed + Skipped}</c>, so the sum must land ON
+        /// <c>maxOrdinal</c> or a straddling multi-stop cycle re-fires its
+        /// already-delivered window under a NEW id, misses the kept row in the
+        /// per-window ELS dedup, and double-delivers cargo/funds.
+        /// <see cref="Route.CompletedCycles"/> = distinct delivered kept cycle
+        /// ids EXCLUDING the in-flight cycle's own id (its kept delivered rows
+        /// are earlier windows of an incomplete cycle, not a completed one);
+        /// <see cref="Route.SkippedCycles"/> = <c>maxOrdinal - Completed</c>
+        /// clamped to &gt;= 0. Uniqueness holds: the sum equals the in-flight
+        /// cycle's own ordinal, and the NEXT id is only minted after that
+        /// cycle completes and bumps the sum past <c>maxOrdinal</c>.</para>
+        ///
+        /// <para><b>No kept in-flight cycle:</b>
+        /// <see cref="Route.CompletedCycles"/> = distinct delivered kept cycle
+        /// ids, <see cref="Route.SkippedCycles"/> =
+        /// <c>(maxOrdinal + 1) - Completed</c> clamped to &gt;= 0. A cycle
+        /// dispatched but not delivered at the cutoff counts as SKIPPED (its
+        /// delivery re-runs live under a fresh id) - cosmetically imprecise
+        /// but safe: <c>Completed + max(0, maxOrdinal + 1 - Completed) &gt;=
+        /// maxOrdinal + 1 &gt; maxOrdinal</c>, so the next live dispatch can
+        /// never re-use a kept row's cycle id.</para>
         /// Returns true when either counter changed.
         /// </summary>
         internal static bool ReconstructCycleCounters(
@@ -374,6 +435,7 @@ namespace Parsek.Logistics
 
             bool anyDispatchRows = false;
             int maxOrdinal = -1;
+            string maxOrdinalCycleId = null;
             HashSet<string> deliveredCycleIds = null;
 
             if (keptActions != null)
@@ -387,7 +449,10 @@ namespace Parsek.Logistics
                     {
                         anyDispatchRows = true;
                         if (TryParseCycleOrdinal(a.RouteCycleId, out int ord) && ord > maxOrdinal)
+                        {
                             maxOrdinal = ord;
+                            maxOrdinalCycleId = a.RouteCycleId;
+                        }
                     }
                     else if (a.Type == GameActionType.RouteCargoDelivered
                         && !string.IsNullOrEmpty(a.RouteCycleId))
@@ -399,12 +464,28 @@ namespace Parsek.Logistics
                 }
             }
 
+            bool keptInFlightCycle = route.CurrentCycleStartUT.HasValue;
             int completed = 0;
             int skipped = 0;
             if (anyDispatchRows)
             {
                 completed = deliveredCycleIds != null ? deliveredCycleIds.Count : 0;
-                skipped = (maxOrdinal + 1) - completed;
+                if (keptInFlightCycle)
+                {
+                    // The kept in-flight cycle is not completed; its kept
+                    // delivered rows (earlier windows of a straddling
+                    // multi-stop cycle) must not count, and the sum must land
+                    // ON its ordinal so the delivery-time cycleId recompute
+                    // reproduces the dispatch's id (see XML doc above).
+                    if (maxOrdinalCycleId != null && deliveredCycleIds != null
+                        && deliveredCycleIds.Contains(maxOrdinalCycleId))
+                        completed--;
+                    skipped = maxOrdinal - completed;
+                }
+                else
+                {
+                    skipped = (maxOrdinal + 1) - completed;
+                }
                 if (skipped < 0)
                     skipped = 0;
             }
@@ -416,7 +497,8 @@ namespace Parsek.Logistics
                     $"RewindReconcile: route {RouteIds.Short(route.Id)} counters reconstructed " +
                     $"completed {route.CompletedCycles.ToString(IC)}->{completed.ToString(IC)} " +
                     $"skipped {route.SkippedCycles.ToString(IC)}->{skipped.ToString(IC)} " +
-                    $"maxKeptDispatchOrdinal={maxOrdinal.ToString(IC)}");
+                    $"maxKeptDispatchOrdinal={maxOrdinal.ToString(IC)} " +
+                    $"keptInFlightCycle={(keptInFlightCycle ? "1" : "0")}");
                 route.CompletedCycles = completed;
                 route.SkippedCycles = skipped;
             }
