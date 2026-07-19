@@ -183,7 +183,13 @@ namespace Parsek
             bool markerCleared = ClearMarkerIfScopedToTree(scenario, treeId);
             bool journalCleared = ClearJournalIfScopedToTree(scenario, treeId);
 
-            if (supersedesPurged > 0 || retirementsPurged > 0) scenario.BumpSupersedeStateVersion();
+            // Route-timeline events: a purge that restores previously-superseded
+            // sources is usually a live player discard, so emit auto-pause /
+            // auto-resume markers; PurgeTree is ALSO reachable from OnLoad
+            // (stale-pending / quickload / revert discard paths in
+            // ParsekScenario), where the Live helper's OnLoad-in-progress guard
+            // forces the silent shape.
+            if (supersedesPurged > 0 || retirementsPurged > 0) scenario.BumpSupersedeStateVersionLive();
             if (tombstonesPurged > 0) scenario.BumpTombstoneStateVersion();
 
             ParsekLog.Info(RewindTag,
@@ -619,7 +625,9 @@ namespace Parsek
             string sessionId = marker.SessionId ?? "<no-id>";
             scenario.ActiveReFlySessionMarker = null;
             Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
-            scenario.BumpSupersedeStateVersion();
+            // Live variant (route-timeline events): marker-clear changes ERS
+            // visibility, same live-vs-load reasoning as the purge bump above.
+            scenario.BumpSupersedeStateVersionLive();
             ReFlyRevertButtonGate.Apply("TreeDiscardPurge:tree-discarded");
             // #688 follow-up: clear the captured pre-Re-Fly anchor snapshot
             // for this dead session. Defensive — the tree's recordings are

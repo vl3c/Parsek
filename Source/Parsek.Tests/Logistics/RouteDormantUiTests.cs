@@ -43,6 +43,7 @@ namespace Parsek.Tests.Logistics
 
         public void Dispose()
         {
+            ParsekScenario.SetOnLoadInProgressForTesting(false);
             RouteStore.ResetForTesting();
             RecordingStore.ResetForTesting();
             Ledger.ResetForTesting();
@@ -418,6 +419,166 @@ namespace Parsek.Tests.Logistics
         }
 
         // ------------------------------------------------------------------
+        // Catch-up net (review finding 1b): unmatched-AutoPause repair
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void NeedsCatchUpResume_Matrix()
+        {
+            // Running route with a stale paused row: repair.
+            Assert.True(RouteStore.NeedsCatchUpResume(
+                RouteStatus.Active, GameActionType.RoutePaused));
+            Assert.True(RouteStore.NeedsCatchUpResume(
+                RouteStatus.WaitingForResources, GameActionType.RoutePaused));
+            // Latest row already a resume: consistent, no repair.
+            Assert.False(RouteStore.NeedsCatchUpResume(
+                RouteStatus.Active, GameActionType.RouteResumed));
+            // No lifecycle history at all: nothing to repair.
+            Assert.False(RouteStore.NeedsCatchUpResume(RouteStatus.Active, null));
+            // Non-running statuses never resume.
+            Assert.False(RouteStore.NeedsCatchUpResume(
+                RouteStatus.Paused, GameActionType.RoutePaused));
+            Assert.False(RouteStore.NeedsCatchUpResume(
+                RouteStatus.MissingSourceRecording, GameActionType.RoutePaused));
+        }
+
+        [Fact]
+        public void BuildLatestLifecycleRowIndex_LatestByUtThenPosition()
+        {
+            var actions = new List<GameAction>
+            {
+                new GameAction { Type = GameActionType.RoutePaused, RouteId = "r1", UT = 100.0 },
+                new GameAction { Type = GameActionType.RouteResumed, RouteId = "r1", UT = 200.0 },
+                // Same UT, later position wins (ledger walk order).
+                new GameAction { Type = GameActionType.RouteResumed, RouteId = "r2", UT = 300.0 },
+                new GameAction { Type = GameActionType.RoutePaused, RouteId = "r2", UT = 300.0 },
+                // Non-lifecycle rows and null route ids are ignored.
+                new GameAction { Type = GameActionType.RouteDispatched, RouteId = "r1", UT = 999.0 },
+                new GameAction { Type = GameActionType.RoutePaused, RouteId = null, UT = 999.0 },
+            };
+
+            Dictionary<string, GameActionType> latest =
+                RouteStore.BuildLatestLifecycleRowIndex(actions);
+
+            Assert.Equal(GameActionType.RouteResumed, latest["r1"]);
+            Assert.Equal(GameActionType.RoutePaused, latest["r2"]);
+            Assert.Equal(2, latest.Count);
+            Assert.Empty(RouteStore.BuildLatestLifecycleRowIndex(null));
+        }
+
+        // catches: the concrete review scenario - a silent (load-context) flip
+        // back to Active after an emitted AutoPause leaves RouteModule's walk
+        // paused forever; the next live pass must repair it.
+        [Fact]
+        public void Revalidate_LivePass_RepairsUnmatchedPausedRow_Idempotently()
+        {
+            var rec = BuildRouteSourceRecording("rec-catchup");
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            InstallScenario();
+            Route route = BuildRoute("route-catchup", RouteStatus.Active, BuildMatchingSourceRef(rec));
+            RouteStore.AddRoute(route);
+            // The stranded pause marker: an AutoPause row whose matching resume
+            // was silenced (simulates the silent-restore flip).
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RoutePaused,
+                UT = 1000.0,
+                RouteId = "route-catchup",
+                RouteStopIndex = -1,
+                RouteEndpointReason = "AutoPause:MissingSourceRecording",
+            });
+            logLines.Clear();
+
+            int transitioned = RouteStore.RevalidateSources("test-live", 2000.0);
+
+            Assert.Equal(0, transitioned); // healthy route, no status flip
+            GameAction row = Ledger.Actions.SingleOrDefault(a => a.Type == GameActionType.RouteResumed);
+            Assert.NotNull(row);
+            Assert.Equal("AutoResume:CatchUp", row.RouteEndpointReason);
+            Assert.Equal("route-catchup", row.RouteId);
+            Assert.Equal(2000.0, row.UT);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("RevalidateSources") && l.Contains("caughtUp=1"));
+
+            // Idempotent: the emitted resume row is now the latest lifecycle
+            // row, so a second live pass emits nothing further.
+            int transitioned2 = RouteStore.RevalidateSources("test-live-2", 3000.0);
+            Assert.Equal(0, transitioned2);
+            Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.RouteResumed));
+        }
+
+        // catches: the catch-up net resuming a deliberately-paused route, or
+        // double-writing when the history is already consistent.
+        [Fact]
+        public void Revalidate_LivePass_CatchUp_SkipsPausedAndConsistentRoutes()
+        {
+            var recA = BuildRouteSourceRecording("rec-cu-paused");
+            var recB = BuildRouteSourceRecording("rec-cu-consistent");
+            RecordingStore.AddRecordingWithTreeForTesting(recA);
+            RecordingStore.AddRecordingWithTreeForTesting(recB);
+            InstallScenario();
+            Route pausedRoute = BuildRoute("route-cu-paused", RouteStatus.Paused, BuildMatchingSourceRef(recA));
+            Route consistent = BuildRoute("route-cu-consistent", RouteStatus.Active, BuildMatchingSourceRef(recB));
+            RouteStore.AddRoute(pausedRoute);
+            RouteStore.AddRoute(consistent);
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RoutePaused, UT = 1000.0,
+                RouteId = "route-cu-paused", RouteStopIndex = -1,
+            });
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RoutePaused, UT = 1000.0,
+                RouteId = "route-cu-consistent", RouteStopIndex = -1,
+            });
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RouteResumed, UT = 1500.0,
+                RouteId = "route-cu-consistent", RouteStopIndex = -1,
+            });
+
+            RouteStore.RevalidateSources("test-live", 2000.0);
+
+            // Paused route: latest row is RoutePaused but the route IS paused -
+            // consistent, no repair. Consistent route: latest is already resumed.
+            Assert.Empty(Ledger.Actions.Where(a =>
+                a.Type == GameActionType.RouteResumed
+                && a.RouteEndpointReason == "AutoResume:CatchUp"));
+        }
+
+        // catches: the OnLoad-in-progress central guard regressing - a live
+        // bump reached while OnLoad is on the stack must resolve -1 (silent).
+        [Fact]
+        public void TryResolveLiveUT_OnLoadInProgress_ForcesSilent()
+        {
+            ParsekScenario.SetOnLoadInProgressForTesting(true);
+            try
+            {
+                Assert.Equal(-1.0, ParsekScenario.TryResolveLiveUniversalTimeForRouteMarkers());
+            }
+            finally
+            {
+                ParsekScenario.SetOnLoadInProgressForTesting(false);
+            }
+        }
+
+        // catches: BumpSupersedeStateVersionLive writing rows in a context where
+        // the live UT cannot be resolved (off-Unity here; Planetarium throws, so
+        // the defensive resolution must degrade to the silent shape).
+        [Fact]
+        public void BumpSupersedeStateVersionLive_UnresolvableUT_StaysSilent()
+        {
+            ParsekScenario scenario = InstallScenario();
+            RouteStore.AddRoute(BuildRoute("route-live-bump", RouteStatus.Active, MissingSourceRef()));
+
+            scenario.BumpSupersedeStateVersionLive();
+
+            Assert.True(RouteStore.TryGetRoute("route-live-bump", out Route route));
+            Assert.Equal(RouteStatus.MissingSourceRecording, route.Status); // flip happened
+            Assert.Empty(Ledger.Actions); // marker silenced (UT unresolvable headless)
+        }
+
+        // ------------------------------------------------------------------
         // RemoveDormantRoute (re-added for the Dormant-section Delete)
         // ------------------------------------------------------------------
 
@@ -445,6 +606,22 @@ namespace Parsek.Tests.Logistics
             Assert.False(RouteStore.RemoveDormantRoute("no-such-route"));
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") && l.Contains("RemoveDormantRoute") && l.Contains("not found"));
+        }
+
+        // catches: RemoveDormantRoute relying on external escrow-clear ordering
+        // (review finding 5) - its hygiene must be self-contained.
+        [Fact]
+        public void RemoveDormantRoute_DropsHeldEscrow()
+        {
+            Route dormant = BuildRoute("route-esc", RouteStatus.Paused);
+            dormant.CreatedUT = 100.0;
+            RouteStore.InstallRoutesAtRewind(new List<Route>(), new List<Route> { dormant });
+            RouteStore.ReserveCargo("route-esc", 42u, "LiquidFuel", 10.0);
+            Assert.True(RouteStore.HasEscrow("route-esc"));
+
+            Assert.True(RouteStore.RemoveDormantRoute("route-esc"));
+
+            Assert.False(RouteStore.HasEscrow("route-esc"));
         }
 
         // catches: the dormant delete reaching into the committed list (a

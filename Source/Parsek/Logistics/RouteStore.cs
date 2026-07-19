@@ -722,7 +722,11 @@ namespace Parsek.Logistics
         /// entries were severed two-sidedly at classify time (no committed route
         /// points at a dormant one; a dormant twin's former-partner hint fails
         /// its <see cref="TryGetRoute"/> lookup at materialize and severs
-        /// gracefully), and a dormant route holds no escrow.
+        /// gracefully). Escrow: a route entering the dormant list should hold
+        /// none (the rewind's scene switch clears all escrow), but the removal
+        /// drops its reservation defensively anyway so this method's hygiene is
+        /// self-contained rather than dependent on the clear-site ordering -
+        /// idempotent no-op when nothing is held.
         /// </summary>
         internal static bool RemoveDormantRoute(string id)
         {
@@ -738,6 +742,7 @@ namespace Parsek.Logistics
                 if (r != null && string.Equals(r.Id, id, System.StringComparison.Ordinal))
                 {
                     dormantRoutes.RemoveAt(i);
+                    DropRouteEscrow(id);
                     ParsekLog.Info(Tag,
                         $"Dormant route {ShortId(id)} removed (deleted before re-materializing); " +
                         $"{dormantRoutes.Count} still dormant");
@@ -1380,6 +1385,9 @@ namespace Parsek.Logistics
 
             int total = committedRoutes.Count;
             int transitioned = 0;
+            // Route ids that already got a lifecycle marker THIS pass, so the
+            // catch-up net below never doubles a row the flip loop just wrote.
+            HashSet<string> markerEmittedThisPass = null;
 
             for (int ri = 0; ri < committedRoutes.Count; ri++)
             {
@@ -1442,6 +1450,10 @@ namespace Parsek.Logistics
                     {
                         RouteOrchestrator.EmitRouteLifecycleMarker(
                             route, liveEmitUT, markerType, markerReason);
+                        if (markerEmittedThisPass == null)
+                            markerEmittedThisPass = new HashSet<string>(StringComparer.Ordinal);
+                        if (!string.IsNullOrEmpty(route.Id))
+                            markerEmittedThisPass.Add(route.Id);
                     }
 
                     // Clear the remembered baseline once we have left the missing
@@ -1460,11 +1472,118 @@ namespace Parsek.Logistics
                 }
             }
 
+            // Catch-up net (route-timeline events robustness): a LIVE pass also
+            // repairs any UNMATCHED AutoPause row left behind by a silent flip
+            // (a load-context revalidation, the merge-journal finisher, or any
+            // future silent seam). One RouteResumed row per route whose status
+            // is Active-family while its latest kept lifecycle row still says
+            // paused; idempotent because the emitted row becomes the latest.
+            int caughtUp = 0;
+            if (liveEmitUT > 0.0)
+                caughtUp = EmitCatchUpResumeMarkers(liveEmitUT, markerEmittedThisPass);
+
             ParsekLog.Info(Tag,
                 $"RevalidateSources reason={reasonOrNone} routes={total} transitioned={transitioned} " +
-                $"ersIndexed={ersIndexed} ersTotal={ersTotal}");
+                $"caughtUp={caughtUp} ersIndexed={ersIndexed} ersTotal={ersTotal}");
 
             return transitioned;
+        }
+
+        /// <summary>
+        /// The catch-up half of the auto-pause / auto-resume marker net: on a
+        /// LIVE revalidation pass, any committed route whose status is
+        /// Active-family but whose LATEST kept lifecycle row
+        /// (<see cref="GameActionType.RoutePaused"/> /
+        /// <see cref="GameActionType.RouteResumed"/>, any reason, read through
+        /// <see cref="EffectiveState.ComputeELS"/> so retired / tombstoned rows
+        /// do not count) is still a RoutePaused gets a
+        /// <see cref="GameActionType.RouteResumed"/> row with
+        /// <see cref="AutoResumeCatchUpReason"/>. This repairs pause history
+        /// desyncs left by flips that had to run silently (load-context
+        /// revalidation, the merge-journal finisher, the mid-rewind supersede
+        /// rollback) - without it, <c>RouteModule</c>'s walk keeps
+        /// <c>state.Paused</c> forever and warns on every dispatched row.
+        /// Idempotent: once emitted, the resume row IS the latest lifecycle row
+        /// (<see cref="Ledger.AddAction"/> bumps the ledger version, so the
+        /// next pass's ELS read sees it). Routes that already emitted a marker
+        /// this pass are skipped (their row is authoritative and newer than the
+        /// index built below). Returns the number of catch-up rows emitted.
+        /// </summary>
+        private static int EmitCatchUpResumeMarkers(
+            double liveEmitUT, HashSet<string> markerEmittedThisPass)
+        {
+            if (committedRoutes.Count == 0)
+                return 0;
+
+            Dictionary<string, GameActionType> latestByRoute =
+                BuildLatestLifecycleRowIndex(EffectiveState.ComputeELS());
+            if (latestByRoute.Count == 0)
+                return 0;
+
+            int emitted = 0;
+            for (int i = 0; i < committedRoutes.Count; i++)
+            {
+                Route route = committedRoutes[i];
+                if (route == null || string.IsNullOrEmpty(route.Id))
+                    continue;
+                if (markerEmittedThisPass != null && markerEmittedThisPass.Contains(route.Id))
+                    continue;
+                if (!NeedsCatchUpResume(route.Status,
+                        latestByRoute.TryGetValue(route.Id, out GameActionType latest)
+                            ? latest
+                            : (GameActionType?)null))
+                    continue;
+
+                RouteOrchestrator.EmitRouteLifecycleMarker(
+                    route, liveEmitUT, GameActionType.RouteResumed, AutoResumeCatchUpReason);
+                emitted++;
+            }
+            return emitted;
+        }
+
+        /// <summary>
+        /// Pure decision for the catch-up resume row: true when the route is
+        /// running (Active-family) while the ledger's latest kept lifecycle row
+        /// still says paused. A route with NO lifecycle row (null) needs
+        /// nothing; a latest RouteResumed is already consistent; a non-running
+        /// status must not resume.
+        /// </summary>
+        internal static bool NeedsCatchUpResume(
+            RouteStatus status, GameActionType? latestLifecycleRowType)
+        {
+            return IsActiveFamilyStatus(status)
+                && latestLifecycleRowType == GameActionType.RoutePaused;
+        }
+
+        /// <summary>
+        /// Builds a routeId -&gt; latest-lifecycle-row-type index from a kept
+        /// (ELS) action list. Only <see cref="GameActionType.RoutePaused"/> /
+        /// <see cref="GameActionType.RouteResumed"/> rows with a route id
+        /// participate. "Latest" = highest UT, later list position winning ties
+        /// (matches the ledger walk's stable (UT, position) order). Pure and
+        /// internal for direct testing.
+        /// </summary>
+        internal static Dictionary<string, GameActionType> BuildLatestLifecycleRowIndex(
+            IReadOnlyList<GameAction> keptActions)
+        {
+            var latestType = new Dictionary<string, GameActionType>(StringComparer.Ordinal);
+            if (keptActions == null)
+                return latestType;
+
+            var latestUt = new Dictionary<string, double>(StringComparer.Ordinal);
+            for (int i = 0; i < keptActions.Count; i++)
+            {
+                GameAction a = keptActions[i];
+                if (a == null || string.IsNullOrEmpty(a.RouteId))
+                    continue;
+                if (a.Type != GameActionType.RoutePaused && a.Type != GameActionType.RouteResumed)
+                    continue;
+                if (latestUt.TryGetValue(a.RouteId, out double bestUt) && a.UT < bestUt)
+                    continue; // an earlier row never displaces; >= keeps later list position
+                latestUt[a.RouteId] = a.UT;
+                latestType[a.RouteId] = a.Type;
+            }
+            return latestType;
         }
 
         /// <summary>
@@ -1681,6 +1800,7 @@ namespace Parsek.Logistics
         internal const string AutoPauseMissingSourceReason = "AutoPause:MissingSourceRecording";
         internal const string AutoPauseSourceChangedReason = "AutoPause:SourceChanged";
         internal const string AutoResumeSourcesRestoredReason = "AutoResume:SourcesRestored";
+        internal const string AutoResumeCatchUpReason = "AutoResume:CatchUp";
 
         /// <summary>
         /// True for the statuses the Logistics window's Active section holds

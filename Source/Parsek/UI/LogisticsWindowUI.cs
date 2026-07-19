@@ -626,6 +626,16 @@ namespace Parsek
         // by default, so the disclosure starts COLLAPSED.
         private const string DormantSectionKey = "dormant:section";
 
+        // Cached disclosure-header content, rebuilt only when the dormant count
+        // or expanded state changes (the header's only inputs), so the
+        // per-IMGUI-frame draw does no string interpolation while the section
+        // shows.
+        private GUIContent cachedDormantHeader;
+        private int cachedDormantHeaderCount = -1;
+        private bool cachedDormantHeaderExpanded;
+        private const string DormantSectionTooltip =
+            "Routes created after the rewind point you rewound past. Each is dormant (not dispatching, not visible elsewhere) and reappears Paused when the re-flown timeline reaches its creation date. Delete removes one for good.";
+
         /// <summary>
         /// Draws the collapsed-by-default "Dormant Routes (N)" disclosure bubble
         /// (rewind-visibility follow-up). Shown ONLY when at least one route is
@@ -648,14 +658,20 @@ namespace Parsek
 
             GUILayout.BeginVertical(GUI.skin.box);
             bool expanded = expandedRows.Contains(DormantSectionKey);
-            string arrow = expanded ? "▼" : "▶";
+            if (cachedDormantHeaderCount != dormant.Count
+                || cachedDormantHeaderExpanded != expanded
+                || cachedDormantHeader == null)
+            {
+                string arrow = expanded ? "▼" : "▶";
+                cachedDormantHeader = new GUIContent(
+                    $"{arrow} {LogisticsDormantPresentation.DormantSectionTitle(dormant.Count)}",
+                    DormantSectionTooltip);
+                cachedDormantHeaderCount = dormant.Count;
+                cachedDormantHeaderExpanded = expanded;
+            }
             GUILayout.BeginHorizontal();
             GUILayout.Space(8f);
-            if (GUILayout.Button(
-                    new GUIContent(
-                        $"{arrow} {LogisticsDormantPresentation.DormantSectionTitle(dormant.Count)}",
-                        "Routes created after the rewind point you rewound past. Each is dormant (not dispatching, not visible elsewhere) and reappears Paused when the re-flown timeline reaches its creation date. Delete removes one for good."),
-                    GUI.skin.label, GUILayout.ExpandWidth(true)))
+            if (GUILayout.Button(cachedDormantHeader, GUI.skin.label, GUILayout.ExpandWidth(true)))
                 ToggleExpanded(DormantSectionKey, "dormant section");
             GUILayout.EndHorizontal();
 
@@ -2531,6 +2547,28 @@ namespace Parsek
                         bool ok = RouteStore.RemoveDormantRoute(routeId);
                         ParsekLog.Info("UI",
                             $"Logistics: Delete dormant route={ShortId(routeId)} confirmed result={(ok ? "removed" : "not-found")}");
+                        // Delete-after-materialize race: the route can leave the
+                        // dormant list between dialog spawn and Confirm (the
+                        // orchestrator tick reached its CreatedUT). Tell the
+                        // player where it went instead of silently doing nothing;
+                        // the normal section's own Delete handles it from here.
+                        if (!ok && RouteStore.TryGetRoute(routeId, out _))
+                        {
+                            ParsekLog.Info("UI",
+                                $"Logistics: dormant route={ShortId(routeId)} re-materialized before " +
+                                "delete confirm; directing player to the routes section");
+                            try
+                            {
+                                ScreenMessages.PostScreenMessage(
+                                    $"[Parsek] Supply route '{display}' re-materialized while the " +
+                                    "confirmation was open. Delete it from its routes section instead.", 6f);
+                            }
+                            catch (System.Exception ex)
+                            {
+                                ParsekLog.Verbose("UI",
+                                    $"Logistics: screen message unavailable ({ex.GetType().Name})");
+                            }
+                        }
                     }),
                     new DialogGUIButton("Cancel", () =>
                     {

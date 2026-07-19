@@ -133,10 +133,12 @@ namespace Parsek
         /// the next <see cref="RouteDispatched"/> row, which leaves the timeline blind
         /// to a resume whose first cycle blocks on eligibility (or never fires). The
         /// reason is captured in <see cref="GameAction.RouteEndpointReason"/>
-        /// (<c>player-activate</c>, or <c>AutoResume:SourcesRestored</c> when a LIVE
+        /// (<c>player-activate</c>; <c>AutoResume:SourcesRestored</c> when a LIVE
         /// source-revalidation pass restores an Active-family status from
         /// MissingSourceRecording - a restored Paused emits nothing, it never
-        /// resumed). A Send Once arm is NOT a
+        /// resumed; or <c>AutoResume:CatchUp</c> when a live pass repairs an
+        /// unmatched RoutePaused row left by a flip that had to run silently in
+        /// load context). A Send Once arm is NOT a
         /// resume — it stamps <see cref="GameAction.RouteSendOnce"/> on its dispatched
         /// row instead. Free-standing like every route row (no <c>RecordingId</c>);
         /// retired at rewind by <c>RouteLedgerRetire</c> alongside types 23-29.
