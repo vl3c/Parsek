@@ -60,3 +60,13 @@ required = false
 type = "float"
 min = -90.0
 max = 90.0
+
+# Optional: consecutive AIRBORNE frozen-telemetry samples (bit-identical orbit
+# fields while UT advances) before the mission declares the vessel lost/destroyed
+# and terminates (design "vessel-destroyed terminal"). mlib.B2Params defaults it to
+# 10 when absent.
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000

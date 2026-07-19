@@ -80,6 +80,14 @@ CONNECT_BUDGET_SECONDS = 30.0
 CONNECT_MAX_ATTEMPTS = 10
 CONNECT_BACKOFF_SECONDS = 3.0
 
+# Consecutive telemetry-read failures that mean the active vessel is GONE (KSP
+# destroyed the craft and handed active-vessel to invalid debris) rather than a
+# one-off transient. Below this the read re-raises (the existing transient path);
+# at or above it read_snapshot emits a vessel_lost snapshot the phase machine
+# terminates on (design "First live B1 flown-mission run": vessel-destroyed
+# terminal).
+READ_FAIL_STREAK_LIMIT = 3
+
 # Per-frame telemetry poll cadence. The fly loop reads a snapshot, decides, and
 # executes actions this often; the design's telemetry log line is rate-limited to
 # ~1 Hz over this cadence.
@@ -161,6 +169,12 @@ class KrpcMissionControl(MissionControl):
         # "complete" is never inferred BEFORE the autopilot has ever been engaged
         # (NIT 8: pre-engage, enabled==False must NOT read as ascent-complete=True).
         self._mj_ever_enabled = False
+        # Consecutive telemetry-read failures. A one-off error still re-raises (the
+        # existing transient path); only a SUSTAINED streak (>= _READ_FAIL_LIMIT)
+        # means the active vessel is gone -- KSP destroyed the craft and handed
+        # active-vessel to invalid debris -- so we emit a vessel_lost snapshot the
+        # phase machine terminates on rather than let the mission burn its budget.
+        self._read_fail_streak = 0
         self.client_version = ""
         self.server_version = ""
 
@@ -179,49 +193,77 @@ class KrpcMissionControl(MissionControl):
             self._ascent = self._mechjeb.ascent_autopilot
 
     def read_snapshot(self) -> "mlib.TelemetrySnapshot":
-        sc = self._conn.space_center
-        v = sc.active_vessel
-        orbit = v.orbit
-        body_frame = orbit.body.reference_frame
-        flight_srf = v.flight(body_frame)
-        mj_enabled = False
-        mj_complete = False
-        if self._ascent is not None:
+        # Wrapped so a SUSTAINED read-failure streak (the active vessel destroyed +
+        # handed to invalid debris) becomes a vessel_lost snapshot the phase machine
+        # terminates on, while a one-off transient still re-raises (the existing
+        # error path). The streak resets on any successful read.
+        try:
+            sc = self._conn.space_center
+            v = sc.active_vessel
+            orbit = v.orbit
+            body_frame = orbit.body.reference_frame
+            flight_srf = v.flight(body_frame)
+            mj_enabled = False
+            mj_complete = False
+            if self._ascent is not None:
+                try:
+                    mj_enabled = bool(self._ascent.enabled)
+                    if mj_enabled:
+                        self._mj_ever_enabled = True
+                    # The AscentAutopilot disables itself once the ascent is complete;
+                    # "complete" = engaged EARLIER (latched) AND now disabled. Before it
+                    # has ever been engaged, disabled is PRELAUNCH, NOT complete (NIT 8).
+                    mj_complete = self._mj_ever_enabled and not mj_enabled
+                except Exception:
+                    mj_enabled = False
+                    mj_complete = False
+            snapshot = mlib.TelemetrySnapshot(
+                ut=float(sc.ut),
+                altitude=float(flight_srf.surface_altitude),
+                vertical_speed=float(flight_srf.vertical_speed),
+                apoapsis=float(orbit.apoapsis_altitude),
+                periapsis=float(orbit.periapsis_altitude),
+                eccentricity=float(orbit.eccentricity),
+                inclination=math.degrees(float(orbit.inclination)),
+                situation=_situation_name(v.situation),
+                # PENDING-OPERATOR / v1 LIMITATION: this reads the VESSEL-TOTAL SolidFuel,
+                # NOT the active-stage total. It is correct for the v1 B1 fixture (a
+                # single-SRB pad-hop, where vessel-total == active-stage SolidFuel), and
+                # the B1 "ASCENT -> COAST when solid fuel exhausted" transition relies on
+                # that. A MULTI-SRB or asparagus-staged craft would keep vessel-total
+                # SolidFuel > 0 while an earlier SRB stage is spent, so this would NOT
+                # detect the per-stage burnout -- reading the active decouple stage's own
+                # SolidFuel (v.resources_in_decouple_stage / a stage-scoped query) is the
+                # deferred fix when a multi-SRB fixture lands.
+                stage_solid_fuel=float(v.resources.amount("SolidFuel")),
+                mj_autopilot_enabled=mj_enabled,
+                mj_ascent_complete=mj_complete,
+                warp_mode=_warp_mode_name(sc),
+                warp_rate=float(getattr(sc, "warp_rate", 1.0)),
+            )
+            self._read_fail_streak = 0
+            return snapshot
+        except Exception:
+            self._read_fail_streak += 1
+            if self._read_fail_streak < READ_FAIL_STREAK_LIMIT:
+                # A one-off / transient read error: preserve the existing behaviour
+                # (the run_mission handler classifies a post-connect kRPC/socket drop
+                # as a flake, an internal bug as an error).
+                raise
+            # Sustained streak: the active vessel is gone. Emit a vessel_lost snapshot
+            # (best-effort UT so the phase-entry clock still advances) instead of
+            # re-raising, so the phase machine reaches its vessel-lost terminal.
+            ut = 0.0
             try:
-                mj_enabled = bool(self._ascent.enabled)
-                if mj_enabled:
-                    self._mj_ever_enabled = True
-                # The AscentAutopilot disables itself once the ascent is complete;
-                # "complete" = engaged EARLIER (latched) AND now disabled. Before it
-                # has ever been engaged, disabled is PRELAUNCH, NOT complete (NIT 8).
-                mj_complete = self._mj_ever_enabled and not mj_enabled
+                ut = float(self._conn.space_center.ut)
             except Exception:
-                mj_enabled = False
-                mj_complete = False
-        return mlib.TelemetrySnapshot(
-            ut=float(sc.ut),
-            altitude=float(flight_srf.surface_altitude),
-            vertical_speed=float(flight_srf.vertical_speed),
-            apoapsis=float(orbit.apoapsis_altitude),
-            periapsis=float(orbit.periapsis_altitude),
-            eccentricity=float(orbit.eccentricity),
-            inclination=math.degrees(float(orbit.inclination)),
-            situation=_situation_name(v.situation),
-            # PENDING-OPERATOR / v1 LIMITATION: this reads the VESSEL-TOTAL SolidFuel,
-            # NOT the active-stage total. It is correct for the v1 B1 fixture (a
-            # single-SRB pad-hop, where vessel-total == active-stage SolidFuel), and
-            # the B1 "ASCENT -> COAST when solid fuel exhausted" transition relies on
-            # that. A MULTI-SRB or asparagus-staged craft would keep vessel-total
-            # SolidFuel > 0 while an earlier SRB stage is spent, so this would NOT
-            # detect the per-stage burnout -- reading the active decouple stage's own
-            # SolidFuel (v.resources_in_decouple_stage / a stage-scoped query) is the
-            # deferred fix when a multi-SRB fixture lands.
-            stage_solid_fuel=float(v.resources.amount("SolidFuel")),
-            mj_autopilot_enabled=mj_enabled,
-            mj_ascent_complete=mj_complete,
-            warp_mode=_warp_mode_name(sc),
-            warp_rate=float(getattr(sc, "warp_rate", 1.0)),
-        )
+                ut = 0.0
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Telemetry",
+                "vessel-lost: telemetry read failed %d consecutive samples; "
+                "emitting vessel_lost snapshot ut=%s"
+                % (self._read_fail_streak, _fmt(ut))))
+            return mlib.TelemetrySnapshot(ut=ut, vessel_lost=True)
 
     def perform(self, action: "mlib.Action") -> None:
         sc = self._conn.space_center

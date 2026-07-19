@@ -423,5 +423,125 @@ class CliTests(unittest.TestCase):
         self.assertNotIn("krpc", sys.modules)
 
 
+# ---------------------------------------------------------------------------
+# KrpcMissionControl read-fail streak -> vessel_lost snapshot (design "First live
+# B1 flown-mission run": vessel-destroyed terminal).
+#
+# The FakeMissionControl above overrides read_snapshot wholesale, so it does NOT
+# exercise the REAL KrpcMissionControl.read_snapshot try/except streak logic. These
+# cells drive the real wrapper with a minimal fake kRPC ``_conn`` (a compact stand-in
+# for the space_center -> active_vessel -> orbit/flight/resources chain the body
+# reads) so the streak progression is covered directly: 2 failures re-raise, the 3rd
+# yields a vessel_lost snapshot, and a successful read resets the streak.
+# ---------------------------------------------------------------------------
+
+
+class _FakeFlight:
+    surface_altitude = 100.0
+    vertical_speed = -1.0
+
+
+class _FakeBody:
+    reference_frame = "body_frame"
+
+
+class _FakeOrbit:
+    apoapsis_altitude = 5000.0
+    periapsis_altitude = 1000.0
+    eccentricity = 0.1
+    inclination = 0.0
+    body = _FakeBody()
+
+
+class _FakeSituation:
+    name = "flying"
+
+
+class _FakeResources:
+    def amount(self, _name):
+        return 1.0
+
+
+class _FakeVessel:
+    situation = _FakeSituation()
+    orbit = _FakeOrbit()
+    resources = _FakeResources()
+
+    def flight(self, _frame):
+        return _FakeFlight()
+
+
+class _FakeSpaceCenter:
+    """A stand-in for the kRPC SpaceCenter. ``ut`` is always readable (so the
+    vessel-lost snapshot carries a real UT); ``active_vessel`` consumes the parent
+    conn's per-read script and RAISES on a scripted failure (the realistic shape of
+    a destroyed craft: sc is fine, the active vessel handle is invalid)."""
+    ut = 42.0
+    warp_rate = 1.0
+    warp_mode = None
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    @property
+    def active_vessel(self):
+        if not self._conn._consume_ok():
+            raise RuntimeError("active vessel invalid (handed to debris)")
+        return _FakeVessel()
+
+
+class _FakeConn:
+    """Minimal kRPC connection: ``space_center`` is plain (does not consume the
+    script), only ``active_vessel`` does, so the vessel-lost UT re-read still works.
+    ``results[i]`` True => read i succeeds, False => raises."""
+    def __init__(self, results):
+        self._results = list(results)
+        self._i = 0
+        self.space_center = _FakeSpaceCenter(self)
+
+    def _consume_ok(self):
+        ok = self._results[self._i] if self._i < len(self._results) else True
+        self._i += 1
+        return ok
+
+
+class ReadFailStreakTests(unittest.TestCase):
+    def _control(self, results):
+        ctrl = mission_runner.KrpcMissionControl()
+        ctrl._conn = _FakeConn(results)
+        ctrl._ascent = None
+        return ctrl
+
+    def test_two_failures_reraise_third_yields_vessel_lost(self):
+        """Below the streak limit a read failure re-raises (the existing transient
+        path); the 3rd consecutive failure emits a vessel_lost snapshot (UT still
+        readable) instead of re-raising, so the phase machine reaches its terminal."""
+        ctrl = self._control([False, False, False])
+        with self.assertRaises(Exception):
+            ctrl.read_snapshot()  # streak 1 -> re-raise
+        with self.assertRaises(Exception):
+            ctrl.read_snapshot()  # streak 2 -> re-raise
+        snap = ctrl.read_snapshot()  # streak 3 -> vessel_lost
+        self.assertTrue(snap.vessel_lost)
+        self.assertEqual(snap.ut, 42.0)
+
+    def test_successful_read_resets_streak(self):
+        """A successful read clears the streak, so a later pair of failures re-raises
+        again (not a spurious vessel_lost from an accumulated cross-run count)."""
+        ctrl = self._control([False, False, True, False, False, False])
+        with self.assertRaises(Exception):
+            ctrl.read_snapshot()  # streak 1
+        with self.assertRaises(Exception):
+            ctrl.read_snapshot()  # streak 2
+        good = ctrl.read_snapshot()  # success -> streak resets to 0
+        self.assertFalse(good.vessel_lost)
+        with self.assertRaises(Exception):
+            ctrl.read_snapshot()  # streak 1 again
+        with self.assertRaises(Exception):
+            ctrl.read_snapshot()  # streak 2 again
+        lost = ctrl.read_snapshot()  # streak 3 -> vessel_lost
+        self.assertTrue(lost.vessel_lost)
+
+
 if __name__ == "__main__":
     unittest.main()
