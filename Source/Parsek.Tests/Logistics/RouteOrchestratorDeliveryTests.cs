@@ -557,6 +557,87 @@ namespace Parsek.Tests.Logistics
             Assert.True(newDebited.Sequence > newDispatched.Sequence);
         }
 
+        // Route-timeline events contract hole (review finding 3, PR #1327): the
+        // delivered-replay crash-recovery branch used to transition to Active
+        // unconditionally, leaving a Send-Once route Active with BOTH flags still
+        // armed — stamping a second one-shot row and landing its pause marker one
+        // cycle late. The replay must honor the armed pause: consume the flags,
+        // pause, and emit the RoutePaused marker (the only new row; the dedup
+        // semantics for delivery/funds rows are unchanged).
+        [Fact]
+        public void IdempotentReplay_ArmedPause_PausesAndEmitsMarkerOnly()
+        {
+            var route = BuildInTransitKscRoute(id: "route-replay-oneshot");
+            route.PauseAfterCurrentCycle = true;
+            route.SendOnceArmed = true;
+            RouteStore.AddRoute(route);
+
+            string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles);
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RouteCargoDelivered,
+                UT = 150.0,
+                RouteId = route.Id,
+                RouteCycleId = cycleId,
+                RouteStopIndex = 0,
+                Sequence = 3,
+            });
+
+            int actionsBefore = Ledger.Actions.Count;
+            RouteOrchestrator.Tick(200.0, new EndpointLostFakeEnv());
+
+            // Armed pause honored: Paused (not Active), both flags consumed,
+            // replay counter bump preserved, pending state cleared.
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.False(route.PauseAfterCurrentCycle);
+            Assert.False(route.SendOnceArmed);
+            Assert.Equal(1, route.CompletedCycles);
+            Assert.False(route.PendingDeliveryUT.HasValue);
+
+            // Dedup preserved: exactly ONE new row, the RoutePaused marker at the
+            // armed-pause stride slot (stop 0 block: delivery +3, pause +4).
+            Assert.Equal(actionsBefore + 1, Ledger.Actions.Count);
+            GameAction paused = Ledger.Actions[Ledger.Actions.Count - 1];
+            Assert.Equal(GameActionType.RoutePaused, paused.Type);
+            Assert.Equal(route.Id, paused.RouteId);
+            Assert.Equal(200.0, paused.UT);
+            Assert.Equal(4, paused.Sequence);
+            Assert.Equal("delivered-replay-then-paused", paused.RouteEndpointReason);
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RouteDispatched);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("InTransit→Paused")
+                && l.Contains("delivered-replay-then-paused"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("LifecycleMarker")
+                && l.Contains("delivered-replay-then-paused"));
+        }
+
+        // catches: the armed-pause replay branch regressing the ordinary replay
+        // (no armed pause must still land Active with no marker row).
+        [Fact]
+        public void IdempotentReplay_NoArmedPause_StaysActiveWithNoMarker()
+        {
+            var route = BuildInTransitKscRoute(id: "route-replay-plain");
+            RouteStore.AddRoute(route);
+            Ledger.AddAction(new GameAction
+            {
+                Type = GameActionType.RouteCargoDelivered,
+                UT = 150.0,
+                RouteId = route.Id,
+                RouteCycleId = "cycle-0",
+                RouteStopIndex = 0,
+                Sequence = 3,
+            });
+
+            int actionsBefore = Ledger.Actions.Count;
+            RouteOrchestrator.Tick(200.0, new EndpointLostFakeEnv());
+
+            Assert.Equal(RouteStatus.Active, route.Status);
+            Assert.Equal(actionsBefore, Ledger.Actions.Count);
+            Assert.DoesNotContain(Ledger.Actions, a => a.Type == GameActionType.RoutePaused);
+        }
+
         // catches: reason string regression for UI consumers.
         [Fact]
         public void StatusTransition_PartialReason_VsFullReason()

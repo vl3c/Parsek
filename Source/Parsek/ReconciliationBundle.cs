@@ -245,9 +245,12 @@ namespace Parsek
             // stock-revert path, which already prunes these rows via
             // Ledger.PruneOrphanActionsAfterUT.)
             Ledger.Clear();
+            // Kept (post-retire) rows, reused below by the route seam's
+            // status-derivation + counter-reconstruction pass over kept routes.
+            List<GameAction> keptActions = null;
             if (bundle.Actions != null && bundle.Actions.Count > 0)
             {
-                var keptActions = Logistics.RouteLedgerRetire.RetireFutureRouteActions(
+                keptActions = Logistics.RouteLedgerRetire.RetireFutureRouteActions(
                     bundle.Actions, dropRouteRowsAfterUT, out int routeRowsRetired);
                 if (keptActions.Count > 0)
                     Ledger.AddActions(keptActions);
@@ -299,12 +302,37 @@ namespace Parsek
                     }
                 }
 
-                // Pre-cutoff kept routes: reconcile abandoned-future cycle state.
+                // Pre-cutoff kept routes: reconcile abandoned-future cycle
+                // state, then derive the timeline-correct pause state from the
+                // kept RoutePaused/RouteResumed rows, drop armed one-shot
+                // flags (they cannot be timestamped, so they never survive
+                // time travel), and reconstruct the cycle counters from the
+                // kept dispatch/delivery rows.
+                IReadOnlyList<GameAction> keptRows =
+                    (IReadOnlyList<GameAction>)keptActions ?? Array.Empty<GameAction>();
+                int derivedPaused = 0;
+                int derivedActive = 0;
+                int oneShotFlagsCleared = 0;
+                int countersReconstructed = 0;
                 for (int i = 0; i < keptRoutes.Count; i++)
                 {
+                    Logistics.Route kept = keptRoutes[i];
                     if (Logistics.RouteRewindClassifier.ResetCycleStateForRewind(
-                            keptRoutes[i], dropRouteRowsAfterUT))
+                            kept, dropRouteRowsAfterUT))
                         reconciled++;
+                    Logistics.RouteTimelineStatus derived =
+                        Logistics.RouteRewindClassifier.DeriveTimelineStatus(kept.Id, keptRows);
+                    if (Logistics.RouteRewindClassifier.ApplyDerivedTimelineStatus(kept, derived))
+                    {
+                        if (derived == Logistics.RouteTimelineStatus.Paused)
+                            derivedPaused++;
+                        else
+                            derivedActive++;
+                    }
+                    if (Logistics.RouteRewindClassifier.ClearArmedOneShotFlags(kept))
+                        oneShotFlagsCleared++;
+                    if (Logistics.RouteRewindClassifier.ReconstructCycleCounters(kept, keptRows))
+                        countersReconstructed++;
                 }
 
                 Logistics.RouteStore.InstallRoutesAtRewind(keptRoutes, dormantRoutes);
@@ -315,6 +343,15 @@ namespace Parsek
                         dropRouteRowsAfterUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
                         $": kept={keptRoutes.Count} (reconciled={reconciled}) " +
                         $"dormant={dormantRoutes.Count} (newly={newlyDormant})");
+                }
+                if (keptRoutes.Count > 0)
+                {
+                    ParsekLog.Info("ReconciliationBundle",
+                        "Restore: kept-route status fidelity at cutoff " +
+                        dropRouteRowsAfterUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                        $": derivedPaused={derivedPaused} derivedActive={derivedActive} " +
+                        $"oneShotFlagsCleared={oneShotFlagsCleared} " +
+                        $"countersReconstructed={countersReconstructed}");
                 }
             }
 

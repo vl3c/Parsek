@@ -196,7 +196,9 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.None, route.LastHoldKind);
             Assert.Null(route.LastPartialDeliverySummary);
             Assert.Null(route.PendingRecoveryCreditCycleId);
-            // Counters deliberately untouched (documented cosmetic residual).
+            // Counters untouched by THIS helper - the rewind seam reconstructs
+            // them separately via ReconstructCycleCounters (see
+            // RouteRewindStatusFidelityTests).
             Assert.Equal(7, route.CompletedCycles);
             Assert.Equal(1, route.SkippedCycles);
             // Legacy schedule pulled back to the cutoff (due promptly).

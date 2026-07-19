@@ -78,11 +78,24 @@ routes, exactly like recordings:
   cleared when they reference UTs beyond the cutoff (an InTransit status
   whose `CurrentCycleStartUT > cutoffUT` returns to Active), holds / partial
   reports stamped after the cutoff cleared, `PendingRecoveryCreditCycleId`
-  cleared when its dispatch UT is beyond the cutoff. `CompletedCycles` /
-  `SkippedCycles` are deliberately NOT recomputed: kept ledger rows use
-  cycle ids below the counter, so continuing the counter can never collide
-  with a kept row's cycleId (gap ids are harmless); the counter inflation is
-  a documented cosmetic residual with a todo follow-up.
+  cleared when its dispatch UT is beyond the cutoff.
+- **Kept-route status fidelity (follow-up slice, branch
+  `route-rewind-status-fidelity`):** after the reconcile, the seam derives
+  each kept route's timeline-correct pause state from the KEPT
+  `RoutePaused`/`RouteResumed` rows (`DeriveTimelineStatus`: latest kept
+  marker wins, UT then Sequence; `ApplyDerivedTimelineStatus`: a derived
+  pause flips only the ghost-driving/wait statuses, a derived resume only
+  un-pauses an explicitly `Paused` route, validity statuses / `InTransit` /
+  no-marker routes are untouched), unconditionally clears
+  `PauseAfterCurrentCycle` + `SendOnceArmed` (armed one-shots carry no
+  timestamp, so they never survive time travel), and reconstructs
+  `CompletedCycles`/`SkippedCycles` from the kept dispatch/delivery rows
+  (`ReconstructCycleCounters`: completed = distinct delivered kept cycle
+  ids, skipped = `(maxKeptDispatchOrdinal + 1) - completed` clamped >= 0,
+  both 0 with no kept dispatch rows; a dispatched-but-undelivered cycle at
+  the cutoff counts as skipped, preserving the uniqueness invariant
+  `Completed + Skipped > maxOrdinal`). The original "counters deliberately
+  NOT recomputed" residual is thereby closed.
 - The rollback / route-blind `Restore()` overload leaves route state
   untouched (mirrors Rec-1's +Infinity contract).
 - The rare forced-cold crash-reconcile path (LoadRoutesFrom before
@@ -133,8 +146,9 @@ routes, exactly like recordings:
   if playtesting wants it.
 - Legacy routes without `CreatedUT` never go dormant (survive rewind
   committed, today's behavior).
-- Counter inflation on pre-cutoff routes after rewind (2.2) - cosmetic,
-  follow-up todo.
+- ~~Counter inflation on pre-cutoff routes after rewind (2.2) - cosmetic,
+  follow-up todo.~~ CLOSED by the `route-rewind-status-fidelity` follow-up
+  slice (see 2.2: counters reconstructed from kept ledger rows).
 - The ratified "set-on-and-it-works" model is unchanged: only the
   definition's existence window becomes timeline-faithful.
 

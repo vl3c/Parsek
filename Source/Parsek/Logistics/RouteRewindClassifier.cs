@@ -24,6 +24,28 @@ namespace Parsek.Logistics
     /// orchestration lives in <c>ReconciliationBundle.Restore</c> and
     /// <c>RouteStore.MaterializeDueDormantRoutes</c>.</para>
     /// </summary>
+    /// <summary>
+    /// Timeline-derived pause state for a kept route at a rewind cutoff,
+    /// computed by <see cref="RouteRewindClassifier.DeriveTimelineStatus"/>
+    /// from the KEPT (post-Rec-1-retire) <see cref="GameActionType.RoutePaused"/>
+    /// / <see cref="GameActionType.RouteResumed"/> ledger rows.
+    /// </summary>
+    internal enum RouteTimelineStatus
+    {
+        /// <summary>No kept pause/resume marker for the route: it predates the
+        /// route-timeline-events feature or was never paused. Leave the live
+        /// status alone.</summary>
+        NoMarker = 0,
+
+        /// <summary>The latest kept marker at/before the cutoff is
+        /// <see cref="GameActionType.RoutePaused"/>.</summary>
+        Paused = 1,
+
+        /// <summary>The latest kept marker at/before the cutoff is
+        /// <see cref="GameActionType.RouteResumed"/>.</summary>
+        Active = 2,
+    }
+
     internal static class RouteRewindClassifier
     {
         private const string Tag = "Route";
@@ -91,10 +113,9 @@ namespace Parsek.Logistics
         /// Active), holds / partial reports stamped after the cutoff, and a
         /// pending recovery credit whose dispatch happened after the cutoff.
         /// <see cref="Route.CompletedCycles"/> / <see cref="Route.SkippedCycles"/>
-        /// are deliberately NOT recomputed: kept rows use cycle ids below the
-        /// counter, so continuing it can never collide with a kept cycleId
-        /// (gap ids are harmless); the inflation is a documented cosmetic
-        /// residual.</para>
+        /// are NOT touched here: the rewind seam reconstructs them from the
+        /// kept ledger rows via <see cref="ReconstructCycleCounters"/> right
+        /// after this reconcile.</para>
         /// </summary>
         /// <returns>True when anything changed (for batch counting).</returns>
         internal static bool ResetCycleStateForRewind(Route route, double cutoffUT)
@@ -178,6 +199,226 @@ namespace Parsek.Logistics
                 ParsekLog.Verbose(Tag,
                     $"RewindReconcile: route {RouteIds.Short(route.Id)} cycle state reset " +
                     $"at cutoff={cutoffUT.ToString("R", IC)} status={route.Status}");
+            }
+            return changed;
+        }
+
+        /// <summary>
+        /// Derives a KEPT route's timeline-correct pause state at a rewind
+        /// cutoff from the KEPT ledger rows (route-timeline events): the LATEST
+        /// <see cref="GameActionType.RoutePaused"/> /
+        /// <see cref="GameActionType.RouteResumed"/> row for
+        /// <paramref name="routeId"/> wins. <paramref name="keptActions"/> is
+        /// the post-Rec-1-retire list, so every route-typed row in it already
+        /// satisfies UT &lt;= cutoff — no cutoff parameter is needed. Ordering:
+        /// higher UT wins; ties at the same UT resolve by higher
+        /// <see cref="GameAction.Sequence"/> (a RouteResumed and a RoutePaused
+        /// at identical UT+Sequence are not producible by the emitters; list
+        /// order breaks that degenerate tie). Returns
+        /// <see cref="RouteTimelineStatus.NoMarker"/> when the route has no
+        /// kept marker (predates the feature, or was never paused/resumed).
+        /// Pure: null lists / null entries tolerated.
+        /// </summary>
+        internal static RouteTimelineStatus DeriveTimelineStatus(
+            string routeId, IReadOnlyList<GameAction> keptActions)
+        {
+            if (string.IsNullOrEmpty(routeId) || keptActions == null)
+                return RouteTimelineStatus.NoMarker;
+
+            bool found = false;
+            double bestUT = double.NegativeInfinity;
+            int bestSeq = int.MinValue;
+            RouteTimelineStatus best = RouteTimelineStatus.NoMarker;
+
+            for (int i = 0; i < keptActions.Count; i++)
+            {
+                GameAction a = keptActions[i];
+                if (a == null || !string.Equals(a.RouteId, routeId, StringComparison.Ordinal))
+                    continue;
+                if (a.Type != GameActionType.RoutePaused && a.Type != GameActionType.RouteResumed)
+                    continue;
+                if (found && (a.UT < bestUT || (a.UT == bestUT && a.Sequence < bestSeq)))
+                    continue;
+                found = true;
+                bestUT = a.UT;
+                bestSeq = a.Sequence;
+                best = a.Type == GameActionType.RoutePaused
+                    ? RouteTimelineStatus.Paused
+                    : RouteTimelineStatus.Active;
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// Applies a <see cref="DeriveTimelineStatus"/> verdict to a KEPT
+        /// route at the rewind seam. Rules:
+        /// derived <see cref="RouteTimelineStatus.Paused"/> flips only the
+        /// ghost-driving / wait statuses (<see cref="RouteStatus.Active"/>,
+        /// <see cref="RouteStatus.WaitingForResources"/>,
+        /// <see cref="RouteStatus.WaitingForFunds"/>,
+        /// <see cref="RouteStatus.DestinationFull"/>) to Paused; derived
+        /// <see cref="RouteTimelineStatus.Active"/> flips only a
+        /// <see cref="RouteStatus.Paused"/> route back to Active;
+        /// <see cref="RouteTimelineStatus.NoMarker"/> leaves the status alone.
+        /// The validity statuses (<see cref="RouteStatus.MissingSourceRecording"/>,
+        /// <see cref="RouteStatus.SourceChanged"/>,
+        /// <see cref="RouteStatus.EndpointLost"/>) are never touched — they
+        /// re-derive from the world elsewhere — and
+        /// <see cref="RouteStatus.InTransit"/> is owned by
+        /// <see cref="ResetCycleStateForRewind"/> (a pre-cutoff in-flight cycle
+        /// is real and must complete). Returns true when the status changed.
+        /// </summary>
+        internal static bool ApplyDerivedTimelineStatus(Route route, RouteTimelineStatus derived)
+        {
+            if (route == null || derived == RouteTimelineStatus.NoMarker)
+                return false;
+
+            if (derived == RouteTimelineStatus.Paused)
+            {
+                bool ghostDrivingOrWait =
+                    route.Status == RouteStatus.Active
+                    || route.Status == RouteStatus.WaitingForResources
+                    || route.Status == RouteStatus.WaitingForFunds
+                    || route.Status == RouteStatus.DestinationFull;
+                if (!ghostDrivingOrWait)
+                    return false;
+                route.TransitionTo(RouteStatus.Paused, "rewind-status-derivation");
+                return true;
+            }
+
+            // derived == Active: only un-pause an explicitly Paused route.
+            if (route.Status != RouteStatus.Paused)
+                return false;
+            route.TransitionTo(RouteStatus.Active, "rewind-status-derivation");
+            return true;
+        }
+
+        /// <summary>
+        /// Unconditionally clears the armed one-shot flags
+        /// (<see cref="Route.PauseAfterCurrentCycle"/>,
+        /// <see cref="Route.SendOnceArmed"/>) on a KEPT route at rewind.
+        /// Armed one-shots do not survive time travel: the flags carry no
+        /// timestamp, so there is no way to tell whether the arm happened
+        /// before or after the cutoff — and an arm that survived a rewind
+        /// would pause (or stamp Send Once provenance on) a re-flown cycle
+        /// the player never armed on the surviving timeline. Dropping a
+        /// pre-cutoff arm is the safe direction: the player can trivially
+        /// re-arm, while a phantom pause/one-shot cannot be traced.
+        /// Returns true when either flag was set.
+        /// </summary>
+        internal static bool ClearArmedOneShotFlags(Route route)
+        {
+            if (route == null)
+                return false;
+            bool changed = route.PauseAfterCurrentCycle || route.SendOnceArmed;
+            route.PauseAfterCurrentCycle = false;
+            route.SendOnceArmed = false;
+            if (changed)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RewindReconcile: route {RouteIds.Short(route.Id)} cleared armed one-shot " +
+                    "flags (PauseAfterCurrentCycle/SendOnceArmed do not survive time travel)");
+            }
+            return changed;
+        }
+
+        /// <summary>
+        /// Parses the cycle ordinal from a <c>cycle-N</c> style
+        /// <see cref="GameAction.RouteCycleId"/>: the numeric suffix after the
+        /// LAST '-'. Returns false for null/empty ids, ids without a dash, or
+        /// non-numeric suffixes (unparseable ids are ignored by
+        /// <see cref="ReconstructCycleCounters"/>).
+        /// </summary>
+        internal static bool TryParseCycleOrdinal(string cycleId, out int ordinal)
+        {
+            ordinal = -1;
+            if (string.IsNullOrEmpty(cycleId))
+                return false;
+            int dash = cycleId.LastIndexOf('-');
+            if (dash < 0 || dash == cycleId.Length - 1)
+                return false;
+            return int.TryParse(
+                cycleId.Substring(dash + 1),
+                System.Globalization.NumberStyles.None, IC, out ordinal);
+        }
+
+        /// <summary>
+        /// Best-effort reconstruction of a KEPT route's cycle counters from the
+        /// kept ledger rows at the rewind seam (fixes the documented cosmetic
+        /// counter-inflation residual). Let <c>maxOrdinal</c> be the highest
+        /// ordinal parsed from the route's kept
+        /// <see cref="GameActionType.RouteDispatched"/> rows' cycle ids
+        /// (unparseable ids ignored). If ANY kept dispatch rows exist:
+        /// <see cref="Route.CompletedCycles"/> = number of DISTINCT kept cycle
+        /// ids carrying a <see cref="GameActionType.RouteCargoDelivered"/> row,
+        /// and <see cref="Route.SkippedCycles"/> =
+        /// <c>(maxOrdinal + 1) - CompletedCycles</c> clamped to &gt;= 0. If NO
+        /// kept dispatch rows exist, both reset to 0.
+        ///
+        /// <para><b>Approximation (deliberate, safe):</b> a cycle dispatched
+        /// but not yet delivered at the cutoff counts as SKIPPED by this
+        /// reconstruction (its delivery re-runs live on the re-flown timeline
+        /// under a fresh cycle id). That is cosmetically imprecise but safe:
+        /// the only hard invariant is cycle-id uniqueness, which needs
+        /// <c>Completed + Skipped &gt; maxOrdinal</c> so the next live dispatch
+        /// can never re-use a kept row's cycle id — and
+        /// <c>Completed + max(0, maxOrdinal + 1 - Completed) &gt;=
+        /// maxOrdinal + 1</c> holds for every input.</para>
+        /// Returns true when either counter changed.
+        /// </summary>
+        internal static bool ReconstructCycleCounters(
+            Route route, IReadOnlyList<GameAction> keptActions)
+        {
+            if (route == null)
+                return false;
+
+            bool anyDispatchRows = false;
+            int maxOrdinal = -1;
+            HashSet<string> deliveredCycleIds = null;
+
+            if (keptActions != null)
+            {
+                for (int i = 0; i < keptActions.Count; i++)
+                {
+                    GameAction a = keptActions[i];
+                    if (a == null || !string.Equals(a.RouteId, route.Id, StringComparison.Ordinal))
+                        continue;
+                    if (a.Type == GameActionType.RouteDispatched)
+                    {
+                        anyDispatchRows = true;
+                        if (TryParseCycleOrdinal(a.RouteCycleId, out int ord) && ord > maxOrdinal)
+                            maxOrdinal = ord;
+                    }
+                    else if (a.Type == GameActionType.RouteCargoDelivered
+                        && !string.IsNullOrEmpty(a.RouteCycleId))
+                    {
+                        if (deliveredCycleIds == null)
+                            deliveredCycleIds = new HashSet<string>(StringComparer.Ordinal);
+                        deliveredCycleIds.Add(a.RouteCycleId);
+                    }
+                }
+            }
+
+            int completed = 0;
+            int skipped = 0;
+            if (anyDispatchRows)
+            {
+                completed = deliveredCycleIds != null ? deliveredCycleIds.Count : 0;
+                skipped = (maxOrdinal + 1) - completed;
+                if (skipped < 0)
+                    skipped = 0;
+            }
+
+            bool changed = route.CompletedCycles != completed || route.SkippedCycles != skipped;
+            if (changed)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RewindReconcile: route {RouteIds.Short(route.Id)} counters reconstructed " +
+                    $"completed {route.CompletedCycles.ToString(IC)}->{completed.ToString(IC)} " +
+                    $"skipped {route.SkippedCycles.ToString(IC)}->{skipped.ToString(IC)} " +
+                    $"maxKeptDispatchOrdinal={maxOrdinal.ToString(IC)}");
+                route.CompletedCycles = completed;
+                route.SkippedCycles = skipped;
             }
             return changed;
         }

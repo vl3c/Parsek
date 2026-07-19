@@ -3791,7 +3791,34 @@ namespace Parsek.Logistics
                 // a delivered cycle never leaves the route gated behind an
                 // old WaitRetryIntervalSec deadline.
                 route.NextEligibilityCheckUT = null;
-                route.TransitionTo(RouteStatus.Active, "delivered-replay");
+                // Honor an armed PauseAfterCurrentCycle on the replay too
+                // (route-timeline events, review finding 3 on PR #1327): the
+                // crash-recovery replay means the delivered row landed but the
+                // armed-pause tail in ApplyDeliveryFromPlan never ran, so
+                // without this branch a Send-Once route ended up Active with
+                // BOTH flags still armed — stamping a second one-shot row and
+                // landing its pause marker one cycle late. Mirrors the armed
+                // tail: flush the owed recovery credit (idempotent), consume
+                // the flags, pause, emit the RoutePaused marker at this
+                // window's stride slot (+4, after the delivered row's +3), and
+                // drop any held escrow (quiesce transition). The dedup
+                // semantics are preserved: no delivery/funds/debit row is
+                // (re-)emitted here — only the pause marker the crash lost.
+                if (route.PauseAfterCurrentCycle)
+                {
+                    EmitPendingRecoveryCredit(route, currentUT, env);
+                    route.PauseAfterCurrentCycle = false;
+                    route.SendOnceArmed = false;
+                    route.TransitionTo(RouteStatus.Paused, "delivered-replay-then-paused");
+                    EmitRouteLifecycleMarker(
+                        route, currentUT, GameActionType.RoutePaused,
+                        "delivered-replay-then-paused", stopIndex * SeqStride + 4);
+                    RouteStore.DropRouteEscrow(route.Id);
+                }
+                else
+                {
+                    route.TransitionTo(RouteStatus.Active, "delivered-replay");
+                }
                 return;
             }
 
