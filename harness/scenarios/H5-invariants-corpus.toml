@@ -60,7 +60,7 @@ count = { min = 272, max = 272 }
 # recording is deliberately degenerate, quarantine it via expectedFail keyed to
 # a todo-doc bug id rather than weakening failed=0. Update BOTH numbers here
 # and recordings.count above whenever the corpus changes.
-required  = ["RecordingInvariants walk: recordings=306 trees=276", "BATCH_COMPLETE v1 .* failed=0\\b"]
+required  = ["RecordingInvariants walk: recordings=306 trees=276\\b", "BATCH_COMPLETE v1 .* failed=0\\b"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 allowedAnomalies = []

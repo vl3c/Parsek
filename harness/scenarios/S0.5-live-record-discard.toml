@@ -70,7 +70,11 @@ count = { min = 0, max = 0 }
 # discardtree discarded=true confirms the discard verb ran against a real active
 # tree (deterministic: StopRecording leaves the tree active). ERROR is UPPERCASE
 # in ParsekLog.Write and the forbidden patterns are case-sensitive re.search.
-required  = ["Recording started", "Recording stopped", "discardtree discarded=true"]
+# The sidecar-reap line pins the discard-residue fix end-to-end alongside the
+# recordings.count = {0,0} disk expectation: this scenario's single live
+# recording is always unknown after the discard, so exactly one reap with zero
+# failures is the deterministic healthy shape.
+required  = ["Recording started", "Recording stopped", "discardtree discarded=true", "discardtree sidecar-reap: treeRecordings=1 knownAfterDiscard=0 reaped=1 failed=0\\b"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 # No map-render tracer is armed, so the Tier-C anomaly sweep has no data and must

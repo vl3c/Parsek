@@ -119,14 +119,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Reap_NullInputs_EmptyResult()
+        public void Reap_NullInputs_EmptyResult_FailClosed()
         {
             Assert.Empty(TestCommandRecordingVerbs.SelectDiscardReapRecordings(null, new HashSet<string>()));
-            // Null known set = fail-open to reaping (discard-to-empty is exactly the
-            // stranded case), so a non-known-set call still selects.
-            var reap = TestCommandRecordingVerbs.SelectDiscardReapRecordings(
-                new List<Recording> { Rec("dddd4444") }, null);
-            Assert.Single(reap);
+            // Null known set fails CLOSED (deletion guard convention): nothing reaps.
+            // The empty-store stranded case passes an EMPTY set, which still reaps.
+            Assert.Empty(TestCommandRecordingVerbs.SelectDiscardReapRecordings(
+                new List<Recording> { Rec("dddd4444") }, null));
+        }
+
+        // ----- DiscardReapSkipReason (Fable review of PR #1328, finding 1) -----
+        // In the Re-Fly / merge-journal / restore-in-progress load shapes the active
+        // tree holds the ONLY copy of committed recordings whose ids are absent from
+        // the known set; the reap must stand down entirely there.
+
+        [Fact]
+        public void ReapGate_NormalDiscard_NoSkip()
+        {
+            Assert.Null(TestCommandRecordingVerbs.DiscardReapSkipReason(
+                reFlyMarkerActive: false, mergeJournalActive: false, restoringActiveTree: false));
+        }
+
+        [Theory]
+        [InlineData(true, false, false, "refly-marker-active")]
+        [InlineData(false, true, false, "merge-journal-active")]
+        [InlineData(false, false, true, "restoring-active-tree")]
+        [InlineData(true, true, true, "refly-marker-active")]
+        public void ReapGate_UnsafeShapes_Skip(
+            bool reFly, bool journal, bool restoring, string expectedReason)
+        {
+            Assert.Equal(expectedReason, TestCommandRecordingVerbs.DiscardReapSkipReason(
+                reFlyMarkerActive: reFly, mergeJournalActive: journal, restoringActiveTree: restoring));
         }
     }
 }
