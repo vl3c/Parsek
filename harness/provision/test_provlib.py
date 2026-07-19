@@ -642,18 +642,14 @@ class SettingsDeltaTests(unittest.TestCase):
 
 
 class KrpcSettingsStampTests(unittest.TestCase):
-    """F3: kRPC ships settings.cfg with autoStartServers=False /
-    autoAcceptConnections=False / confirmRemoveClient=True, forcing a manual
-    in-game click every launch. stamp_krpc_settings rewrites the three keys for
-    unattended operation: edit-in-place when the shipped file is present, synth a
-    minimal node when absent, idempotent on re-stamp, and touch nothing else."""
-
-    EXPECTED = {"autoStartServers": "True",
-                "autoAcceptConnections": "True",
-                "confirmRemoveClient": "False"}
+    """F3 (golden-template semantics, post first-live-B1-run rewrite): the stamp
+    returns the COMPLETE golden settings.cfg regardless of input. Partial
+    edit-in-place was retired because kRPC's ConfigurationFile fields are
+    uninitialized (any omitted key loads as zero/false; maxTimePerUpdate=0
+    starves RPC execution while handshakes still succeed) and because kRPC
+    rewrites the file at exit anyway. These cells pin the golden shape."""
 
     def _keys(self, text):
-        """Parse the flat KEY = value children into a dict (ignores braces)."""
         out = {}
         for line in text.splitlines():
             k = provlib.settings_key_of(line)
@@ -661,65 +657,55 @@ class KrpcSettingsStampTests(unittest.TestCase):
                 out[k] = line.split("=", 1)[1].strip()
         return out
 
-    def test_three_exact_key_value_pairs(self):
-        self.assertEqual(
-            provlib.KRPC_SETTINGS_DELTAS,
-            (("autoStartServers", "True"),
-             ("autoAcceptConnections", "True"),
-             ("confirmRemoveClient", "False")))
+    def test_input_ignored_full_replace(self):
+        golden = provlib.stamp_krpc_settings(None)
+        partial = "KRPCConfiguration\n{\n\tautoStartServers = False\n}\n"
+        for shipped in (None, "", partial, "totally mangled { not a config"):
+            self.assertEqual(golden, provlib.stamp_krpc_settings(shipped))
 
-    def test_shipped_file_present_edit_in_place(self):
-        shipped = (
-            "KRPCConfiguration\n"
-            "{\n"
-            "\tmainWindowVisible = True\n"
-            "\tautoStartServers = False\n"
-            "\tautoAcceptConnections = False\n"
-            "\tconfirmRemoveClient = True\n"
-            "\trpcPort = 50000\n"
-            "}\n")
-        out = provlib.stamp_krpc_settings(shipped)
-        keys = self._keys(out)
-        for k, v in self.EXPECTED.items():
-            self.assertEqual(keys[k], v)
-        # Unrelated keys are preserved untouched (no other value hardcoded).
-        self.assertEqual(keys["mainWindowVisible"], "True")
-        self.assertEqual(keys["rpcPort"], "50000")
-        # Structure preserved: still a single-node config, keys inside the braces.
+    def test_idempotent(self):
+        once = provlib.stamp_krpc_settings(None)
+        self.assertEqual(once, provlib.stamp_krpc_settings(once))
+
+    def test_hands_free_keys(self):
+        keys = self._keys(provlib.stamp_krpc_settings(None))
+        self.assertEqual(keys["autoStartServers"], "True")
+        self.assertEqual(keys["autoAcceptConnections"], "True")
+        self.assertEqual(keys["confirmRemoveClient"], "False")
+
+    def test_every_executor_key_at_healthy_default(self):
+        # The load-bearing cells: these four zeroed out in the pre-golden partial
+        # file and killed ALL RPC execution (maxTimePerUpdate=0 budget).
+        keys = self._keys(provlib.stamp_krpc_settings(None))
+        self.assertEqual(keys["maxTimePerUpdate"], "5000")
+        self.assertEqual(keys["adaptiveRateControl"], "True")
+        self.assertEqual(keys["blockingRecv"], "True")
+        self.assertEqual(keys["recvTimeout"], "1000")
+        self.assertEqual(keys["pauseServerWithGame"], "False")
+        self.assertEqual(keys["logLevel"], "Info")
+
+    def test_server_node_item_wrapped_fixed_id(self):
+        out = provlib.stamp_krpc_settings(None)
+        lines = [l.strip() for l in out.splitlines()]
+        # ConfigurationStorage convention: servers { Item { ... settings { Item {...} } } }
+        si = lines.index("servers")
+        self.assertEqual(lines[si + 1], "{")
+        self.assertEqual(lines[si + 2], "Item")
+        self.assertIn("id = %s" % provlib.KRPC_DEFAULT_SERVER_ID, lines)
+        self.assertIn("protocol = ProtocolBuffersOverTCP", lines)
+        for key, value in (("address", "127.0.0.1"),
+                           ("rpc_port", "50000"),
+                           ("stream_port", "50001")):
+            ki = lines.index("key = %s" % key)
+            self.assertEqual(lines[ki + 1], "value = %s" % value)
+        self.assertEqual(out.count("name = Default Server"), 1)
+
+    def test_lf_terminated_single_node(self):
+        out = provlib.stamp_krpc_settings(None)
         self.assertTrue(out.startswith("KRPCConfiguration\n{"))
         self.assertTrue(out.endswith("}\n"))
-
-    def test_absent_file_synth_minimal_node(self):
-        for absent in (None, "", "   \n\t"):
-            out = provlib.stamp_krpc_settings(absent)
-            self.assertTrue(out.startswith("KRPCConfiguration\n{"))
-            self.assertTrue(out.rstrip().endswith("}"))
-            self.assertEqual(self._keys(out), self.EXPECTED)
-
-    def test_idempotent_restamp(self):
-        shipped = (
-            "KRPCConfiguration\n{\n"
-            "\tautoStartServers = False\n"
-            "\tautoAcceptConnections = False\n"
-            "\tconfirmRemoveClient = True\n}\n")
-        once = provlib.stamp_krpc_settings(shipped)
-        twice = provlib.stamp_krpc_settings(once)
-        self.assertEqual(once, twice)
-        # And a synth is idempotent too.
-        s1 = provlib.stamp_krpc_settings(None)
-        self.assertEqual(s1, provlib.stamp_krpc_settings(s1))
-
-    def test_missing_key_inserted_inside_node_not_appended(self):
-        # A shipped file that only carries one of the three keys: the other two
-        # must land BEFORE the closing brace, never after it (outside the node).
-        shipped = "KRPCConfiguration\n{\n\tautoStartServers = False\n}\n"
-        out = provlib.stamp_krpc_settings(shipped)
-        lines = out.splitlines()
-        brace_idx = max(i for i, l in enumerate(lines) if l.strip() == "}")
-        for k in self.EXPECTED:
-            key_idx = next(i for i, l in enumerate(lines) if provlib.settings_key_of(l) == k)
-            self.assertLess(key_idx, brace_idx, "%s must be inside the node" % k)
-        self.assertEqual(self._keys(out), self.EXPECTED)
+        self.assertNotIn("\r", out)
+        self.assertEqual(out.count("KRPCConfiguration"), 1)
 
 
 class KrpcSettingsStampShellTests(unittest.TestCase):

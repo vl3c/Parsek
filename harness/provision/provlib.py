@@ -377,80 +377,93 @@ def apply_settings(base_lines: Sequence[str], deltas: Dict[str, str]) -> List[st
 
 
 # ---------------------------------------------------------------------------
-# kRPC settings stamp (design SETTINGS / F3). Pure, ConfigNode-line-oriented.
+# kRPC settings stamp (design SETTINGS / F3). Pure.
 #
-# kRPC ships GameData/kRPC/PluginData/settings.cfg with autoStartServers=False /
-# autoAcceptConnections=False / confirmRemoveClient=True, which force a manual
-# in-game click every launch and defeat unattended operation. The provisioner
-# stamps the three keys hands-free. The shipped file is a ConfigNode
-# ``KRPCConfiguration { ... }`` with the three keys as FLAT children, so present
-# keys are rewritten in place (reusing settings_key_of / _rewrite_settings_value)
-# and any absent key is inserted just before the node's closing brace (NOT
-# appended at file end, which would land it OUTSIDE the node). An entirely absent
-# file synthesizes a minimal node carrying only the three keys.
-# ---------------------------------------------------------------------------
+# kRPC settings are authored as a COMPLETE golden template, never a partial
+# edit. Two live-proven failure modes force this (first live B1 run,
+# 2026-07-19):
+# (1) kRPC 0.5.4's ConfigurationFile [Persistent] fields are UNINITIALIZED, so
+#     any omitted key loads as zero/false, NOT as the healthy Configuration
+#     ctor default (that ctor only applies when NO file exists). A partial
+#     file therefore silently sets maxTimePerUpdate=0 + adaptiveRateControl=
+#     False, giving the RPC executor a 0ms budget: TCP handshakes still
+#     succeed but NO RPC is ever executed and every client hangs forever on
+#     its first call.
+# (2) Configuration.Servers defaults to an EMPTY list and the on-disk list
+#     format wraps entries in ``Item`` child nodes (ConfigurationStorage
+#     convention): servers { Item { id/name/protocol + settings { Item {
+#     key/value } } } }. A missing or wrongly-shaped servers node is silently
+#     ignored; kRPC then adds its own random-GUID default server and re-saves
+#     on exit, accumulating duplicates across boots.
+# The template carries every key at kRPC's ctor default, the three hands-free
+# overrides, and one ProtocolBuffersOverTCP server on 127.0.0.1:50000/50001
+# (the mission_runner contract) with a FIXED id so stamping is deterministic.
+# NOTE: kRPC rewrites this file at exit (adaptive rate retune, window
+# positions), so the on-disk bytes are a MUTABLE surface between provisions;
+# the stamp re-converges it on every provision/repair pass.
+KRPC_DEFAULT_SERVER_ID = "6aae4b41-0f5a-4f14-9b58-7a8d21e30001"
 
-# The three hands-free kRPC settings (order-stable for the synth + insert paths).
-KRPC_SETTINGS_DELTAS: Tuple[Tuple[str, str], ...] = (
-    ("autoStartServers", "True"),
-    ("autoAcceptConnections", "True"),
-    ("confirmRemoveClient", "False"),
+KRPC_GOLDEN_SETTINGS_LINES: Tuple[str, ...] = (
+    "KRPCConfiguration",
+    "{",
+    "\tmainWindowVisible = True",
+    "\tinfoWindowVisible = False",
+    "\tautoStartServers = True",
+    "\tautoAcceptConnections = True",
+    "\tconfirmRemoveClient = False",
+    "\tpauseServerWithGame = False",
+    "\tlogLevel = Info",
+    "\tverboseErrors = True",
+    "\toneRPCPerUpdate = False",
+    "\tmaxTimePerUpdate = 5000",
+    "\tadaptiveRateControl = True",
+    "\tblockingRecv = True",
+    "\trecvTimeout = 1000",
+    "\tservers",
+    "\t{",
+    "\t\tItem",
+    "\t\t{",
+    "\t\t\tid = " + KRPC_DEFAULT_SERVER_ID,
+    "\t\t\tname = Default Server",
+    "\t\t\tprotocol = ProtocolBuffersOverTCP",
+    "\t\t\tsettings",
+    "\t\t\t{",
+    "\t\t\t\tItem",
+    "\t\t\t\t{",
+    "\t\t\t\t\tkey = address",
+    "\t\t\t\t\tvalue = 127.0.0.1",
+    "\t\t\t\t}",
+    "\t\t\t\tItem",
+    "\t\t\t\t{",
+    "\t\t\t\t\tkey = rpc_port",
+    "\t\t\t\t\tvalue = 50000",
+    "\t\t\t\t}",
+    "\t\t\t\tItem",
+    "\t\t\t\t{",
+    "\t\t\t\t\tkey = stream_port",
+    "\t\t\t\t\tvalue = 50001",
+    "\t\t\t\t}",
+    "\t\t\t}",
+    "\t\t}",
+    "\t}",
+    "}",
 )
 
 
-def _synth_krpc_settings_lines() -> List[str]:
-    """Minimal KRPCConfiguration node carrying only the three hands-free keys
-    (used when the kRPC zip shipped no PluginData/settings.cfg)."""
-    lines = ["KRPCConfiguration", "{"]
-    for key, value in KRPC_SETTINGS_DELTAS:
-        lines.append("\t%s = %s" % (key, value))
-    lines.append("}")
-    return lines
-
-
-def _insert_krpc_keys_before_last_brace(lines: List[str], missing: Sequence[str]) -> List[str]:
-    """Insert the given missing keys just before the LAST closing-brace line (the
-    KRPCConfiguration node close), so an absent key lands INSIDE the node rather
-    than after it. Falls back to appending when no closing brace is found."""
-    deltas = dict(KRPC_SETTINGS_DELTAS)
-    inserts = ["\t%s = %s" % (k, deltas[k]) for k in missing]
-    idx = None
-    for i in range(len(lines) - 1, -1, -1):
-        if lines[i].strip() == "}":
-            idx = i
-            break
-    if idx is None:
-        return list(lines) + inserts
-    return list(lines[:idx]) + inserts + list(lines[idx:])
-
-
 def stamp_krpc_settings(shipped_text: Optional[str]) -> str:
-    """Return the stamped kRPC settings.cfg text with the three hands-free keys set.
+    """Return the FULL golden kRPC settings.cfg text (KRPC_GOLDEN_SETTINGS_LINES).
 
-    ``shipped_text`` is the kRPC-shipped PluginData/settings.cfg contents, or None
-    (or blank) when the zip carried no such file. Present keys are rewritten in
-    place (order / comments / unrelated keys preserved, EC-15 style); absent keys
-    are inserted before the KRPCConfiguration node's closing brace; an absent file
-    synthesizes a minimal node. Idempotent: re-stamping already-stamped text
-    yields the same text. Only the three keys are touched -- no other key's value
-    is hardcoded. The returned text is LF-terminated (the caller writes it
-    newline='\\n' so the on-disk hash matches)."""
-    deltas = dict(KRPC_SETTINGS_DELTAS)
-    if shipped_text is None or not shipped_text.strip():
-        return "\n".join(_synth_krpc_settings_lines()) + "\n"
-    result: List[str] = []
-    seen: set = set()
-    for line in shipped_text.splitlines():
-        key = settings_key_of(line)
-        if key is not None and key in deltas:
-            result.append(_rewrite_settings_value(line, deltas[key]))
-            seen.add(key)
-        else:
-            result.append(line)
-    missing = [k for k, _ in KRPC_SETTINGS_DELTAS if k not in seen]
-    if missing:
-        result = _insert_krpc_keys_before_last_brace(result, missing)
-    return "\n".join(result) + "\n"
+    ``shipped_text`` (the current on-disk / zip-shipped contents, or None) is
+    deliberately IGNORED: the harness owns this instance and the config must be
+    complete and deterministic. Partial preservation was retired after the first
+    live B1 run proved that (a) any omitted key loads as zero/false (kRPC's
+    ConfigurationFile fields are uninitialized), which with maxTimePerUpdate=0
+    permanently starves RPC execution while handshakes still succeed, and (b)
+    kRPC itself rewrites the file at exit, so preserved-in-place bytes drift
+    anyway. Trivially idempotent. The returned text is LF-terminated (the
+    caller writes it newline='\\n' so the on-disk hash matches)."""
+    _ = shipped_text
+    return "\n".join(KRPC_GOLDEN_SETTINGS_LINES) + "\n"
 
 
 # ---------------------------------------------------------------------------

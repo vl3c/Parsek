@@ -2033,11 +2033,15 @@ def _install_stack(ctx: ProvisionContext, stack: Sequence[str]) -> None:
             # item 2: arm the inventory from disk when the prior manifest predates it,
             # so the first post-M-A6.2 skip does not stamp an empty inventory (drift storm).
             inv["krpc"] = _prior_inventory(ctx, "krpc") or _inventory_of_folder(ctx, "krpc")
-            # kRPC settings.cfg (PluginData) is left in place; re-hash it so the
-            # manifest's krpcSettingsSha256 still describes the on-disk bytes.
-            sp = _krpc_settings_path(ctx)
-            if os.path.isfile(sp):
-                ctx.krpc_settings_sha = sha256_file(sp)  # type: ignore[attr-defined]
+            # kRPC settings.cfg (PluginData): RE-STAMP rather than re-hash. The
+            # stamp is idempotent, so a healthy file is byte-identical; a stale
+            # or hand-edited file CONVERGES back to the provisioner contract
+            # (hands-free keys + the default server node) instead of being
+            # silently absorbed into the manifest. Absorbing the on-disk hash
+            # here previously made the settings surface unrepairable through
+            # the SF9 skip (first live B1 run, 2026-07-19: a pre-server-node
+            # config could never be repaired without forcing a full re-extract).
+            _stamp_krpc_settings(ctx)
             log(ctx, "Info", "Install", "SF9 skip kRPC extraction (hash-match, pin stable)")
         else:
             zip_path = _cached_zip_path(ctx, "krpc", "releaseZipUrl")
@@ -2133,11 +2137,11 @@ def _krpc_settings_path(ctx: ProvisionContext) -> str:
 
 
 def _stamp_krpc_settings(ctx: ProvisionContext) -> None:
-    """F3: rewrite the kRPC PluginData/settings.cfg so the RPC server starts and
-    accepts connections without a per-launch in-game click. Edits the shipped file
-    in place when present, else writes a minimal node with just the three keys; the
-    pure transform is provlib.stamp_krpc_settings. Records ctx.krpc_settings_sha
-    over the ACTUAL on-disk bytes (LF-written) so VERIFY re-hashes the same bytes."""
+    """F3: rewrite the kRPC PluginData/settings.cfg with the COMPLETE golden
+    template (provlib.stamp_krpc_settings ignores the prior contents by design:
+    a partial file zero-defaults every omitted key and maxTimePerUpdate=0 kills
+    all RPC execution). Records ctx.krpc_settings_sha over the ACTUAL on-disk
+    bytes (LF-written) so VERIFY re-hashes the same bytes."""
     path = _krpc_settings_path(ctx)
     shipped = None
     if os.path.isfile(path):
@@ -2151,8 +2155,8 @@ def _stamp_krpc_settings(ctx: ProvisionContext) -> None:
     sha = sha256_file(path)
     ctx.krpc_settings_sha = sha  # type: ignore[attr-defined]
     log(ctx, "Info", "Install",
-        "kRPC settings stamped %s (autoStartServers/autoAcceptConnections/confirmRemoveClient) sha256=%s"
-        % ("in-place" if shipped is not None else "synth-minimal", sha))
+        "kRPC settings stamped golden-template (full key set + Item-wrapped default server; prior file %s) sha256=%s"
+        % ("replaced" if shipped is not None else "absent", sha))
 
 
 def _git_head(repo: str) -> str:
