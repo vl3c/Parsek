@@ -56,8 +56,8 @@ namespace Parsek.InGameTests
     /// <para><b>Re-entry discipline</b> (per the logistics in-game class-doc
     /// convention): the seam tests are synchronous (<c>void</c>) so the
     /// background 1 Hz scenario tick can never interleave with a half-arranged
-    /// store; the two coroutine tests yield only while waiting on the
-    /// production tick, with their stores isolated first.</para>
+    /// store; the one coroutine test yields only while waiting on the
+    /// production tick, with its store isolated first.</para>
     /// </summary>
     public sealed class RouteRewindTimelineRuntimeTests
     {
@@ -166,13 +166,15 @@ namespace Parsek.InGameTests
                     "Final pause row type mismatch");
 
                 // Grep-stable log contract: the production LifecycleMarker lines fired
-                // for both directions.
+                // for both directions. The "ut=" token pins the GENUINE emission line
+                // ("... reason=X ut=<UT> seq=...") - the "SKIPPED - live UT unresolved"
+                // warn variant carries no "ut=" and must never satisfy these.
                 InGameAssert.IsTrue(
-                    AnyLine(lines, "LifecycleMarker:", "type=RoutePaused", "reason=player-pause"),
-                    "No 'LifecycleMarker: ... type=RoutePaused ... reason=player-pause' log line observed");
+                    AnyLine(lines, "LifecycleMarker:", "type=RoutePaused", "reason=player-pause", "ut="),
+                    "No 'LifecycleMarker: ... type=RoutePaused ... reason=player-pause ut=' log line observed");
                 InGameAssert.IsTrue(
-                    AnyLine(lines, "LifecycleMarker:", "type=RouteResumed", "reason=player-activate"),
-                    "No 'LifecycleMarker: ... type=RouteResumed ... reason=player-activate' log line observed");
+                    AnyLine(lines, "LifecycleMarker:", "type=RouteResumed", "reason=player-activate", "ut="),
+                    "No 'LifecycleMarker: ... type=RouteResumed ... reason=player-activate ut=' log line observed");
 
                 ParsekLog.Info("TestRunner",
                     $"RouteRewindTimeline lifecycle: PASS routeId={routeId} " +
@@ -291,7 +293,12 @@ namespace Parsek.InGameTests
             string routeId = NewId("scenario-tick");
             double createdUT = liveUT + 1.5;
 
-            List<GameAction> preLedger = SnapshotLedger();
+            // NO ledger snapshot/restore here (PR #1334 review, interleave
+            // data-loss vector): this test writes no ledger rows itself (the
+            // materialized route is healthy and Paused, so the materialize-time
+            // RevalidateSources pass emits nothing for it), and a wholesale
+            // Clear + re-add in finally would silently delete any REAL row
+            // production appended during the up-to-10 s wait window.
             SnapshotRouteLists(out List<Route> preCommitted, out List<Route> preDormant);
             var committedRecs = new List<Recording>();
             bool treeAdded = false;
@@ -324,8 +331,7 @@ namespace Parsek.InGameTests
 
                 // Wait for ParsekScenario.Update -> RouteOrchestrator.Tick (1 UT-second
                 // cadence) to cross CreatedUT and drain the dormant list. ~10s wall
-                // budget; bail out early once materialized. If the game clock is not
-                // advancing (paused), skip rather than false-fail.
+                // budget; bail out early once materialized.
                 const float MaxWaitSeconds = 10f;
                 float startRealtime = Time.realtimeSinceStartup;
                 double startUT = Planetarium.GetUniversalTime();
@@ -337,21 +343,34 @@ namespace Parsek.InGameTests
                         materialized = true;
                         break;
                     }
-                    if (Time.realtimeSinceStartup - startRealtime > 4f
-                        && Planetarium.GetUniversalTime() - startUT < 0.5)
-                    {
-                        InGameAssert.Skip(
-                            "Game clock is not advancing (paused?); the scenario-driven tick cannot fire. " +
-                            $"utDelta={(Planetarium.GetUniversalTime() - startUT).ToString("R", IC)}");
-                    }
                     yield return null;
                 }
 
-                double waitedUT = Planetarium.GetUniversalTime() - startUT;
-                InGameAssert.IsTrue(materialized,
-                    "Dormant route was not materialized by the production ParsekScenario.Update tick within " +
-                    $"{MaxWaitSeconds.ToString(IC)}s (utAdvanced={waitedUT.ToString("R", IC)}, " +
-                    $"dormantCount={RouteStore.DormantRoutes.Count.ToString(IC)}) - the 1 Hz orchestrator wiring did not fire");
+                // Timeout classification (PR #1334 review, flake window): a missing
+                // materialization is only a WIRING failure when the clock genuinely
+                // passed CreatedUT with enough headroom for the 1 Hz tick cadence to
+                // have fired at least once past it (+2.0 UT-seconds: one full tick
+                // interval plus accumulator seeding slack). A paused or heavily
+                // lagged session (UT advanced, but not far enough) is an environment
+                // condition - Skip, attributably, instead of false-failing.
+                if (!materialized)
+                {
+                    double utNow = Planetarium.GetUniversalTime();
+                    double utAdvanced = utNow - startUT;
+                    double utNeeded = (createdUT + 2.0) - startUT;
+                    if (utNow < createdUT + 2.0)
+                    {
+                        InGameAssert.Skip(
+                            "Game clock too slow for the scenario-driven tick to reach the route's CreatedUT: " +
+                            $"advanced {utAdvanced.ToString("R", IC)} of the {utNeeded.ToString("R", IC)} UT-seconds " +
+                            $"needed in {MaxWaitSeconds.ToString(IC)}s wall time (paused or heavily lagged session)");
+                    }
+                    InGameAssert.Fail(
+                        "Dormant route was not materialized by the production ParsekScenario.Update tick within " +
+                        $"{MaxWaitSeconds.ToString(IC)}s even though UT passed CreatedUT+2.0 " +
+                        $"(utAdvanced={utAdvanced.ToString("R", IC)}, " +
+                        $"dormantCount={RouteStore.DormantRoutes.Count.ToString(IC)}) - the 1 Hz orchestrator wiring did not fire");
+                }
 
                 Route mat;
                 RouteStore.TryGetRoute(routeId, out mat);
@@ -362,7 +381,7 @@ namespace Parsek.InGameTests
 
                 ParsekLog.Info("TestRunner",
                     $"RouteRewindTimeline scenario-tick: PASS routeId={routeId} " +
-                    $"utAdvanced={waitedUT.ToString("R", IC)}");
+                    $"utAdvanced={(Planetarium.GetUniversalTime() - startUT).ToString("R", IC)}");
             }
             finally
             {
@@ -372,7 +391,9 @@ namespace Parsek.InGameTests
                     RecordingStore.RemoveCommittedInternal(committedRecs[i]);
                 if (treeAdded) RemoveCommittedTree(treeId);
                 MissionStore.PruneOrphans(RecordingStore.CommittedTrees);
-                RestoreLedger(preLedger);
+                // No ledger restore: this test writes no ledger rows (see the
+                // arrange-time note), and a wholesale restore would delete real
+                // rows appended by production during the wait window.
             }
         }
 
@@ -640,15 +661,17 @@ namespace Parsek.InGameTests
                 InGameAssert.AreEqual("AutoResume:CatchUp", catchUp.RouteEndpointReason,
                     "Catch-up row reason mismatch");
 
+                // "ut=" pins the genuine emission line, never the UT-unresolved warn
+                // variant (see the T1 comment).
                 InGameAssert.IsTrue(
-                    AnyLine(lines, "LifecycleMarker:", "reason=AutoPause:MissingSourceRecording"),
-                    "No AutoPause LifecycleMarker log line observed");
+                    AnyLine(lines, "LifecycleMarker:", "reason=AutoPause:MissingSourceRecording", "ut="),
+                    "No AutoPause LifecycleMarker emission log line observed");
                 InGameAssert.IsTrue(
-                    AnyLine(lines, "LifecycleMarker:", "reason=AutoResume:SourcesRestored"),
-                    "No AutoResume:SourcesRestored LifecycleMarker log line observed");
+                    AnyLine(lines, "LifecycleMarker:", "reason=AutoResume:SourcesRestored", "ut="),
+                    "No AutoResume:SourcesRestored LifecycleMarker emission log line observed");
                 InGameAssert.IsTrue(
-                    AnyLine(lines, "LifecycleMarker:", "reason=AutoResume:CatchUp"),
-                    "No AutoResume:CatchUp LifecycleMarker log line observed");
+                    AnyLine(lines, "LifecycleMarker:", "reason=AutoResume:CatchUp", "ut="),
+                    "No AutoResume:CatchUp LifecycleMarker emission log line observed");
 
                 ParsekLog.Info("TestRunner",
                     $"RouteRewindTimeline revalidate: PASS routeId={routeId} " +
@@ -989,18 +1012,34 @@ namespace Parsek.InGameTests
             return snapshot;
         }
 
+        /// <summary>
+        /// Restores the live ledger to the pre-test snapshot (Clear + AddActions,
+        /// the verified surfaces). A first-attempt failure would leave a
+        /// partially restored ledger, so one full retry runs before giving up;
+        /// a second failure Warn-logs both counts so the residue is attributable
+        /// in the batch log rather than silent.
+        /// </summary>
         private static void RestoreLedger(List<GameAction> snapshot)
         {
-            try
+            for (int attempt = 1; attempt <= 2; attempt++)
             {
-                Ledger.Clear();
-                if (snapshot != null && snapshot.Count > 0)
-                    Ledger.AddActions(snapshot);
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Warn("TestRunner",
-                    $"RouteRewindTimeline cleanup: ledger restore failed ({ex.GetType().Name}: {ex.Message})");
+                try
+                {
+                    Ledger.Clear();
+                    if (snapshot != null && snapshot.Count > 0)
+                        Ledger.AddActions(snapshot);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    int liveCount = 0;
+                    try { liveCount = Ledger.Actions != null ? Ledger.Actions.Count : 0; } catch { }
+                    ParsekLog.Warn("TestRunner",
+                        $"RouteRewindTimeline cleanup: ledger restore attempt {attempt.ToString(IC)}/2 failed " +
+                        $"({ex.GetType().Name}: {ex.Message}); snapshot={(snapshot?.Count ?? 0).ToString(IC)} " +
+                        $"live={liveCount.ToString(IC)}" +
+                        (attempt == 2 ? " - ledger may be partially restored" : "; retrying"));
+                }
             }
         }
 

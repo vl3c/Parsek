@@ -64,21 +64,36 @@ count = { min = 0, max = 0 }
 # One grep-stable line per behavior the wave shipped, all emitted by PRODUCTION
 # code paths the tests drive (not test-log echoes), plus the batch tally.
 # PENDING-OPERATOR: the first live run must confirm the seven tests PASS from
-# the gloops host (they Skip only on a null CurrentGame / frozen clock, neither
-# of which this driver produces).
+# the gloops host (they Skip only on a null CurrentGame / frozen-or-too-slow
+# clock, neither of which this driver produces).
+#
+# Contract hardening notes (PR #1334 review):
+# - The batch tally pins BOTH failed=0 AND skipped=0 (runner line format:
+#   "failed={2} skipped={3}", InGameTestRunner.cs:1074). Without the skipped
+#   pin, a permanently-skipping DormantRoute_MaterializesViaScenarioDrivenTick
+#   (the ONLY production-wiring proof) would stay invisible because the
+#   sibling dormant test emits the same Materialize line.
+# - Every LifecycleMarker regex ends in " ut=" so it can only match a genuine
+#   emission line ("... reason=X ut=<UT> seq=..."), never the "SKIPPED - live
+#   UT unresolved" warn line (RouteOrchestrator.cs:3613), which puts
+#   " SKIPPED" where the emission puts " ut=".
+# - ": routes at rewind cutoff" is emitted ONLY by the shared
+#   ReconcileStoreAtRewind classifier summary (newly-dormant or reconciled
+#   routes present) - unlike the InstallRoutesAtRewind line, it cannot be
+#   satisfied by a test's own store setup/teardown calls.
 required  = [
-  "LifecycleMarker: .*type=RoutePaused reason=player-pause",
-  "LifecycleMarker: .*type=RouteResumed reason=player-activate",
-  "LifecycleMarker: .*reason=AutoPause:MissingSourceRecording",
-  "LifecycleMarker: .*reason=AutoResume:SourcesRestored",
-  "LifecycleMarker: .*reason=AutoResume:CatchUp",
-  "InstallRoutesAtRewind: committed",
+  "LifecycleMarker: .*type=RoutePaused reason=player-pause ut=",
+  "LifecycleMarker: .*type=RouteResumed reason=player-activate ut=",
+  "LifecycleMarker: .*reason=AutoPause:MissingSourceRecording ut=",
+  "LifecycleMarker: .*reason=AutoResume:SourcesRestored ut=",
+  "LifecycleMarker: .*reason=AutoResume:CatchUp ut=",
+  ": routes at rewind cutoff",
   "Materialize: 1 dormant route\\(s\\) materialized",
   "kept-route status fidelity at cutoff",
   "Restore: retired 1 free-standing route row\\(s\\)",
   "Restore: dropped 1 pending science subject\\(s\\)",
   "RetireFutureRouteActionsAtRewind: removed 2 free-standing route",
-  "BATCH_COMPLETE v1 .* failed=0\\b",
+  "BATCH_COMPLETE v1 .* failed=0 skipped=0\\b",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
