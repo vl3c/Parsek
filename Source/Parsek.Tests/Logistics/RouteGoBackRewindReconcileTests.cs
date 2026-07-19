@@ -188,23 +188,45 @@ namespace Parsek.Tests.Logistics
         // ------------------------------------------------------------------
 
         /// <summary>Installs the shared fixture into RouteStore + Ledger.
-        /// Returns the four route instances (pre, post, q, sleeper).</summary>
+        /// Returns the four route instances (pre, post, q, sleeper).
+        /// "pre" carries a non-default abandoned-future value in EVERY field
+        /// <see cref="RouteRewindClassifier.ResetCycleStateForRewind"/>
+        /// reconciles (review finding B-1), so a divergence between the two
+        /// rewind exits in any of them surfaces in the parity snapshot.</summary>
         private static (Route pre, Route post, Route q, Route sleeper) InstallFixture()
         {
             // "pre": kept; abandoned-future cursor, armed flags, inflated
-            // counters, linked to the future route "post".
-            var pre = MakeRoute("pre", 100.0);
+            // counters, linked to the future route "post"; InTransit on an
+            // abandoned-future cycle with the full in-flight / hold /
+            // partial-report / recovery-credit / schedule state populated.
+            var pre = MakeRoute("pre", 100.0, RouteStatus.InTransit);
             pre.LastObservedLoopCycleIndex = 9;
             pre.PauseAfterCurrentCycle = true;
             pre.SendOnceArmed = true;
             pre.CompletedCycles = 9;
             pre.SkippedCycles = 9;
             pre.LinkedRouteId = "post";
+            pre.CurrentCycleStartUT = 800.0;          // > cutoff: clears, InTransit -> Active
+            pre.PendingDeliveryUT = 850.0;
+            pre.PendingStopIndex = 0;
+            pre.CurrentSegmentIndex = 2;
+            pre.NextEligibilityCheckUT = 900.0;
+            pre.NextDispatchUT = 4400.0;              // abandoned-future legacy schedule
+            pre.RecordHold(RouteDispatchEvaluator.EligibilityFailureKind.FundsShort,
+                "funds-short", 5.0, 700.0);           // hold stamped after the cutoff
+            pre.LastPartialDeliverySummary = "Ore 1/2";
+            pre.LastPartialDeliveryUT = 750.0;
+            pre.LastPartialDeliveryCycleId = "cycle-6";
+            pre.PendingRecoveryCreditCycleId = "cycle-6";
+            pre.PendingRecoveryCreditDispatchUT = 760.0;
             // "post": created after the cutoff -> dormant.
             var post = MakeRoute("post", 900.0);
             post.LinkedRouteId = "pre";
-            // "q": Paused at capture; kept markers end in RouteResumed.
+            // "q": Paused at capture; kept markers end in RouteResumed; carries
+            // a PRE-cutoff hold that both exits must preserve identically.
             var q = MakeRoute("q", 100.0, RouteStatus.Paused);
+            q.RecordHold(RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull,
+                "Ore", 0.0, 490.0);
             // an earlier-rewind sleeper carried forward.
             var sleeper = MakeRoute("older-sleeper", 950.0);
 
@@ -226,14 +248,31 @@ namespace Parsek.Tests.Logistics
         }
 
         /// <summary>Order-independent, field-complete snapshot of the
-        /// post-reconcile route-store state for parity comparison.</summary>
+        /// post-reconcile route-store state for parity comparison. Covers
+        /// every field <see cref="RouteRewindClassifier.ResetCycleStateForRewind"/>
+        /// reconciles (review finding B-1) in addition to the
+        /// status/counter/flag/link fields.</summary>
         private static List<string> SnapshotStoreState()
         {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            string D(double v) => v.ToString("R", ic);
+            string DN(double? v) => v.HasValue ? v.Value.ToString("R", ic) : "<null>";
+
             string Describe(Route r) =>
                 $"{r.Id}|{r.Status}|completed={r.CompletedCycles}|skipped={r.SkippedCycles}" +
                 $"|cursor={r.LastObservedLoopCycleIndex}|anchor={r.WindowAnchorCycleIndex}" +
                 $"|linked={r.LinkedRouteId ?? "<null>"}|partnerCycle={r.LastConsumedPartnerCycle}" +
-                $"|pauseAfter={r.PauseAfterCurrentCycle}|sendOnce={r.SendOnceArmed}";
+                $"|pauseAfter={r.PauseAfterCurrentCycle}|sendOnce={r.SendOnceArmed}" +
+                $"|cycleStart={DN(r.CurrentCycleStartUT)}|pendingDelivery={DN(r.PendingDeliveryUT)}" +
+                $"|pendingStop={r.PendingStopIndex}|segment={r.CurrentSegmentIndex}" +
+                $"|nextEligibility={DN(r.NextEligibilityCheckUT)}|nextDispatch={D(r.NextDispatchUT)}" +
+                $"|holdKind={r.LastHoldKind}|holdDetail={r.LastHoldDetail ?? "<null>"}" +
+                $"|holdShortfall={D(r.LastHoldShortfall)}|holdUT={D(r.LastHoldUT)}" +
+                $"|partialSummary={r.LastPartialDeliverySummary ?? "<null>"}" +
+                $"|partialUT={D(r.LastPartialDeliveryUT)}" +
+                $"|partialCycle={r.LastPartialDeliveryCycleId ?? "<null>"}" +
+                $"|recoveryCycle={r.PendingRecoveryCreditCycleId ?? "<null>"}" +
+                $"|recoveryDispatchUT={D(r.PendingRecoveryCreditDispatchUT)}";
 
             var lines = new List<string>();
             lines.AddRange(RouteStore.CommittedRoutes
@@ -289,8 +328,20 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(1, pre.CompletedCycles);
             Assert.Equal(1, pre.SkippedCycles);
             Assert.Null(pre.LinkedRouteId);
+            // The abandoned-future in-flight / hold / partial / recovery-credit
+            // / schedule state cleared (B-1 field coverage).
+            Assert.Null(pre.CurrentCycleStartUT);
+            Assert.Null(pre.PendingDeliveryUT);
+            Assert.Null(pre.NextEligibilityCheckUT);
+            Assert.Equal(cutoffUT, pre.NextDispatchUT); // pulled back to the cutoff
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.None, pre.LastHoldKind);
+            Assert.Null(pre.LastPartialDeliverySummary);
+            Assert.Null(pre.PendingRecoveryCreditCycleId);
             Route q = RouteStore.CommittedRoutes.First(r => r.Id == "q");
             Assert.Equal(RouteStatus.Active, q.Status);
+            // q's PRE-cutoff hold survives (both exits preserve it).
+            Assert.Equal(RouteDispatchEvaluator.EligibilityFailureKind.DestinationFull, q.LastHoldKind);
+            Assert.Equal(490.0, q.LastHoldUT);
             Assert.Equal(2, RouteStore.DormantRoutes.Count);
             Assert.Equal("pre",
                 RouteStore.DormantRoutes.First(r => r.Id == "post").LinkedRouteId);
@@ -360,30 +411,35 @@ namespace Parsek.Tests.Logistics
 
             string source = File.ReadAllText(scenarioPath);
 
+            // B-2: anchor every search INSIDE the HandleRewindOnLoad body
+            // (between its entry and exit RecState markers) so an unrelated
+            // occurrence of any gate string elsewhere in the file can never
+            // satisfy or weaken the ordering assertion.
             int entryIdx = source.IndexOf(
                 "HandleRewindOnLoad:entry", StringComparison.Ordinal);
-            int retireIdx = source.IndexOf(
-                "Ledger.RetireFutureRouteActionsAtRewind(", StringComparison.Ordinal);
-            int reconcileIdx = source.IndexOf(
-                "Logistics.RouteRewindClassifier.ReconcileStoreAtRewind(",
-                StringComparison.Ordinal);
-            int pruneIdx = source.IndexOf(
-                "GameStateStore.PruneBaselinesAfterUT(", StringComparison.Ordinal);
             int exitIdx = source.IndexOf(
                 "HandleRewindOnLoad:exit", StringComparison.Ordinal);
-
             Assert.True(entryIdx >= 0, "HandleRewindOnLoad entry marker missing");
-            Assert.True(retireIdx > entryIdx,
+            Assert.True(exitIdx > entryIdx, "HandleRewindOnLoad exit marker missing or before entry");
+            string body = source.Substring(entryIdx, exitIdx - entryIdx);
+
+            int retireIdx = body.IndexOf(
+                "Ledger.RetireFutureRouteActionsAtRewind(", StringComparison.Ordinal);
+            int reconcileIdx = body.IndexOf(
+                "Logistics.RouteRewindClassifier.ReconcileStoreAtRewind(",
+                StringComparison.Ordinal);
+            int pruneIdx = body.IndexOf(
+                "GameStateStore.PruneBaselinesAfterUT(", StringComparison.Ordinal);
+
+            Assert.True(retireIdx >= 0,
                 "HandleRewindOnLoad must call Ledger.RetireFutureRouteActionsAtRewind " +
-                "(go-back route-row retire) after its entry marker");
+                "(go-back route-row retire) inside its entry/exit markers");
             Assert.True(reconcileIdx > retireIdx,
                 "HandleRewindOnLoad must call RouteRewindClassifier.ReconcileStoreAtRewind " +
                 "AFTER the ledger retire (it consumes the kept rows)");
             Assert.True(pruneIdx > reconcileIdx,
                 "the route reconcile must run BEFORE the career-state cutoff walk " +
-                "(GameStateStore.PruneBaselinesAfterUT + recalc)");
-            Assert.True(exitIdx > pruneIdx,
-                "the whole block must sit inside HandleRewindOnLoad (before its exit marker)");
+                "(GameStateStore.PruneBaselinesAfterUT + recalc) inside HandleRewindOnLoad");
         }
     }
 }
