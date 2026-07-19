@@ -83,10 +83,16 @@ routes, exactly like recordings:
   `route-rewind-status-fidelity`):** after the reconcile, the seam derives
   each kept route's timeline-correct pause state from the KEPT
   `RoutePaused`/`RouteResumed` rows (`DeriveTimelineStatus`: latest kept
-  marker wins, UT then Sequence; a derived Active additionally requires at
-  least one kept `RoutePaused` row - a resume must resume something
-  recorded, so a marker-less pre-feature pause is never un-paused by an
-  older kept resume; `ApplyDerivedTimelineStatus`: a derived pause flips
+  PLAYER-DRIVEN marker wins, UT then Sequence; AUTO lifecycle rows whose
+  reason starts with `AutoPause:`/`AutoResume:` (RevalidateSources
+  source-validity flips, dormant-UI slice) are skipped from the scan -
+  they describe source validity, which re-derives from ERS after every
+  rewind, so replaying them as player intent would pause routes the
+  player never paused and poison the PreMissingStatus recovery baseline;
+  a null/empty reason stays player intent for legacy rows; a derived
+  Active additionally requires at least one kept player `RoutePaused`
+  row - a resume must resume something recorded, so a marker-less
+  pre-feature pause is never un-paused by an older kept resume; `ApplyDerivedTimelineStatus`: a derived pause flips
   only the ghost-driving/wait statuses, a derived resume only un-pauses an
   explicitly `Paused` route, `InTransit` / no-marker routes are untouched,
   and a validity status (MissingSourceRecording / SourceChanged /

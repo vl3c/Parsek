@@ -68,7 +68,8 @@ namespace Parsek.Tests.Logistics
         }
 
         private static GameAction Marker(
-            string routeId, GameActionType type, double ut, int sequence = 0)
+            string routeId, GameActionType type, double ut, int sequence = 0,
+            string reason = "test")
         {
             return new GameAction
             {
@@ -77,7 +78,7 @@ namespace Parsek.Tests.Logistics
                 RouteId = routeId,
                 RouteStopIndex = -1,
                 Sequence = sequence,
-                RouteEndpointReason = "test",
+                RouteEndpointReason = reason,
             };
         }
 
@@ -214,6 +215,79 @@ namespace Parsek.Tests.Logistics
             };
             Assert.Equal(RouteTimelineStatus.Active,
                 RouteRewindClassifier.DeriveTimelineStatus("r", pausedThenResumed));
+        }
+
+        // Cross-PR contract (the dormant-UI slice adds AUTO lifecycle rows for
+        // RevalidateSources source-validity flips): rows whose reason starts
+        // with "AutoPause:" / "AutoResume:" describe source VALIDITY, which
+        // re-derives from ERS after every rewind - they carry no player intent
+        // and are skipped entirely from the derivation scan. A null/empty
+        // reason stays player intent (legacy rows).
+        [Fact]
+        public void Derive_AutoLifecycleRows_AreIgnored()
+        {
+            // A kept AutoPause row alone derives nothing.
+            var autoPauseOnly = new List<GameAction>
+            {
+                Marker("r", GameActionType.RoutePaused, 100.0,
+                    reason: "AutoPause:MissingSourceRecording"),
+            };
+            Assert.Equal(RouteTimelineStatus.NoMarker,
+                RouteRewindClassifier.DeriveTimelineStatus("r", autoPauseOnly));
+
+            // A kept AutoResume row alone does not un-pause (skipped, and the
+            // player-pause gate would block it anyway).
+            var autoResumeOnly = new List<GameAction>
+            {
+                Marker("r", GameActionType.RouteResumed, 100.0,
+                    reason: "AutoResume:SourcesRestored"),
+            };
+            Assert.Equal(RouteTimelineStatus.NoMarker,
+                RouteRewindClassifier.DeriveTimelineStatus("r", autoResumeOnly));
+
+            // The latest PLAYER row wins over NEWER auto rows in both
+            // directions: player pause followed by AutoResume stays Paused...
+            var playerPauseThenAuto = new List<GameAction>
+            {
+                Marker("r", GameActionType.RoutePaused, 100.0, reason: "player-pause"),
+                Marker("r", GameActionType.RouteResumed, 200.0,
+                    reason: "AutoResume:CatchUp"),
+                Marker("r", GameActionType.RoutePaused, 300.0,
+                    reason: "AutoPause:SourceChanged"),
+            };
+            Assert.Equal(RouteTimelineStatus.Paused,
+                RouteRewindClassifier.DeriveTimelineStatus("r", playerPauseThenAuto));
+
+            // ...and player resume followed by AutoPause stays Active.
+            var playerResumeThenAutoPause = new List<GameAction>
+            {
+                Marker("r", GameActionType.RoutePaused, 50.0, reason: "player-pause"),
+                Marker("r", GameActionType.RouteResumed, 100.0, reason: "player-activate"),
+                Marker("r", GameActionType.RoutePaused, 200.0,
+                    reason: "AutoPause:MissingSourceRecording"),
+            };
+            Assert.Equal(RouteTimelineStatus.Active,
+                RouteRewindClassifier.DeriveTimelineStatus("r", playerResumeThenAutoPause));
+        }
+
+        [Fact]
+        public void Derive_NullOrEmptyReason_TreatedAsPlayerIntent()
+        {
+            // Legacy rows without a reason still carry intent (backward compat).
+            var rows = new List<GameAction>
+            {
+                Marker("r", GameActionType.RoutePaused, 100.0, reason: null),
+            };
+            Assert.Equal(RouteTimelineStatus.Paused,
+                RouteRewindClassifier.DeriveTimelineStatus("r", rows));
+
+            var emptyReason = new List<GameAction>
+            {
+                Marker("r", GameActionType.RoutePaused, 100.0, reason: ""),
+                Marker("r", GameActionType.RouteResumed, 200.0, reason: ""),
+            };
+            Assert.Equal(RouteTimelineStatus.Active,
+                RouteRewindClassifier.DeriveTimelineStatus("r", emptyReason));
         }
 
         // ------------------------------------------------------------------

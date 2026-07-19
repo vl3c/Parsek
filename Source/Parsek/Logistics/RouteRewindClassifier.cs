@@ -204,11 +204,53 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// Reason prefix stamped on AUTO-emitted <see cref="GameActionType.RoutePaused"/>
+        /// rows (source-validity flips in <c>RouteStore.RevalidateSources</c>;
+        /// the emitters live in the dormant-UI slice - the PREFIX string, not
+        /// their code, is the stable contract). Auto rows describe source
+        /// VALIDITY, not player intent, and are ignored by
+        /// <see cref="DeriveTimelineStatus"/>.
+        /// </summary>
+        private const string AutoPauseReasonPrefix = "AutoPause:";
+
+        /// <summary>Auto-resume counterpart of <see cref="AutoPauseReasonPrefix"/>
+        /// (e.g. <c>AutoResume:SourcesRestored</c> / <c>AutoResume:CatchUp</c>).</summary>
+        private const string AutoResumeReasonPrefix = "AutoResume:";
+
+        /// <summary>
+        /// True for an AUTO lifecycle marker (reason starts with
+        /// <see cref="AutoPauseReasonPrefix"/> / <see cref="AutoResumeReasonPrefix"/>,
+        /// ordinal). A null/empty reason is treated as PLAYER intent for
+        /// backward compatibility with legacy rows.
+        /// </summary>
+        private static bool IsAutoLifecycleRow(GameAction a)
+        {
+            string reason = a.RouteEndpointReason;
+            if (string.IsNullOrEmpty(reason))
+                return false;
+            return reason.StartsWith(AutoPauseReasonPrefix, StringComparison.Ordinal)
+                || reason.StartsWith(AutoResumeReasonPrefix, StringComparison.Ordinal);
+        }
+
+        /// <summary>
         /// Derives a KEPT route's timeline-correct pause state at a rewind
         /// cutoff from the KEPT ledger rows (route-timeline events): the LATEST
-        /// <see cref="GameActionType.RoutePaused"/> /
+        /// PLAYER-DRIVEN <see cref="GameActionType.RoutePaused"/> /
         /// <see cref="GameActionType.RouteResumed"/> row for
-        /// <paramref name="routeId"/> wins. <paramref name="keptActions"/> is
+        /// <paramref name="routeId"/> wins.
+        ///
+        /// <para><b>Auto rows are skipped entirely:</b> rows whose reason
+        /// starts with <c>AutoPause:</c> / <c>AutoResume:</c> (emitted by the
+        /// source-validity flips in <c>RevalidateSources</c>) describe source
+        /// VALIDITY, which re-derives from ERS via RevalidateSources after
+        /// every rewind - replaying them as player intent would pause a route
+        /// the player never paused (and poison the
+        /// <see cref="Route.PreMissingStatus"/> recovery baseline). Only
+        /// player-driven rows (<c>player-pause</c>, <c>player-activate</c>,
+        /// <c>delivered-then-paused</c>, <c>delivered-partial-then-paused</c>,
+        /// <c>delivered-replay-then-paused</c>, or a legacy null/empty reason)
+        /// carry intent, so the latest PLAYER row wins regardless of newer
+        /// auto rows.</para> <paramref name="keptActions"/> is
         /// the post-Rec-1-retire list, so every route-typed row in it already
         /// satisfies UT &lt;= cutoff — no cutoff parameter is needed. Ordering:
         /// higher UT wins; ties at the same UT resolve by higher
@@ -219,9 +261,10 @@ namespace Parsek.Logistics
         /// kept marker (predates the feature, or was never paused/resumed).
         ///
         /// <para><b>Resume-needs-a-recorded-pause gate:</b> a derived Active
-        /// verdict is only returned when at least one kept
+        /// verdict is only returned when at least one kept PLAYER-DRIVEN
         /// <see cref="GameActionType.RoutePaused"/> row exists for the route
-        /// (a resume must resume something recorded). Otherwise the resume
+        /// (a resume must resume something recorded; auto pause rows do not
+        /// satisfy the gate because they are skipped from the scan). Otherwise the resume
         /// row proves the route WAS paused at some marker-less point (a
         /// pre-feature pause, or one whose emission was skipped on an
         /// unresolved UT), and un-pausing on its evidence alone could undo a
@@ -251,6 +294,11 @@ namespace Parsek.Logistics
                 if (a == null || !string.Equals(a.RouteId, routeId, StringComparison.Ordinal))
                     continue;
                 if (a.Type != GameActionType.RoutePaused && a.Type != GameActionType.RouteResumed)
+                    continue;
+                // Auto lifecycle rows (source-validity flips) carry no player
+                // intent: skip them BEFORE the pause-row gate and the
+                // latest-marker scan, so the latest PLAYER row wins.
+                if (IsAutoLifecycleRow(a))
                     continue;
                 if (a.Type == GameActionType.RoutePaused)
                     anyPausedRow = true;
