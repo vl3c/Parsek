@@ -182,6 +182,7 @@ namespace Parsek.Tests.Logistics
             route.PendingRecoveryCreditDispatchUT = 760.0;
             route.CompletedCycles = 7;
             route.SkippedCycles = 1;
+            route.NextDispatchUT = 4400.0; // abandoned-future legacy schedule
 
             bool changed = RouteRewindClassifier.ResetCycleStateForRewind(route, 500.0);
 
@@ -198,6 +199,8 @@ namespace Parsek.Tests.Logistics
             // Counters deliberately untouched (documented cosmetic residual).
             Assert.Equal(7, route.CompletedCycles);
             Assert.Equal(1, route.SkippedCycles);
+            // Legacy schedule pulled back to the cutoff (due promptly).
+            Assert.Equal(500.0, route.NextDispatchUT);
         }
 
         [Fact]
@@ -274,6 +277,7 @@ namespace Parsek.Tests.Logistics
             route.LastConsumedPartnerCycle = 4;
             route.PendingRecoveryCreditCycleId = "cycle-4";
             route.PendingRecoveryCreditDispatchUT = 1000.0;
+            route.NextDispatchUT = 99999.0; // abandoned-future legacy schedule
 
             RouteRewindClassifier.ResetToFreshForMaterialize(route);
 
@@ -294,6 +298,8 @@ namespace Parsek.Tests.Logistics
             Assert.False(route.PauseAfterCurrentCycle);
             Assert.Equal(0, route.LastConsumedPartnerCycle);
             Assert.Null(route.PendingRecoveryCreditCycleId);
+            // Re-anchored to the creation point; activation pulls it up to now.
+            Assert.Equal(900.0, route.NextDispatchUT);
         }
 
         // ------------------------------------------------------------------
@@ -386,6 +392,44 @@ namespace Parsek.Tests.Logistics
             Assert.DoesNotContain(logLines, l => l.Contains("Materialize"));
         }
 
+        /// <summary>Minimal env stub: a dormant-only tick never evaluates any
+        /// committed route, so no member should ever be called.</summary>
+        private sealed class ThrowingEnv : IRouteRuntimeEnvironment
+        {
+            public bool IsCareer => false;
+            public bool TryResolveEndpoint(RouteEndpoint endpoint, out string reason)
+                => throw new InvalidOperationException("env must not be consulted");
+            public bool TryResolveEndpointVessel(RouteEndpoint endpoint, out Vessel vessel, out string reason)
+                => throw new InvalidOperationException("env must not be consulted");
+            public bool OriginHasCargo(Route route, out string lackingResource)
+                => throw new InvalidOperationException("env must not be consulted");
+            public bool KscFundsAvailable(Route route, out double shortfall)
+                => throw new InvalidOperationException("env must not be consulted");
+            public bool DestinationHasCapacity(Route route, out string fullResource)
+                => throw new InvalidOperationException("env must not be consulted");
+            public bool RouteHasValidSourcesInErs(Route route)
+                => throw new InvalidOperationException("env must not be consulted");
+        }
+
+        // Review finding 1 (PR #1329): the materialize call must sit BEFORE
+        // Tick's committed-count early return, or a save whose only routes are
+        // dormant never materializes. Driven through the real Tick entry.
+        [Fact]
+        public void Tick_DormantOnlyStore_StillMaterializes()
+        {
+            RouteStore.InstallRoutesAtRewind(
+                new List<Route>(),
+                new List<Route> { MakeRoute("sleeper", 900.0, "tree-s") });
+
+            RouteOrchestrator.Tick(950.0, new ThrowingEnv());
+
+            Assert.Single(RouteStore.CommittedRoutes);
+            Assert.Empty(RouteStore.DormantRoutes);
+            // The create-path guard mirror ran (manual-loop clear walked the
+            // route's source trees; headless it logs its outcome either way).
+            Assert.Contains(logLines, l => l.Contains("ForceClearManualLoopForRoute"));
+        }
+
         // ------------------------------------------------------------------
         // Store: codec round-trip
         // ------------------------------------------------------------------
@@ -429,6 +473,23 @@ namespace Parsek.Tests.Logistics
             RouteStore.LoadRoutesFrom(parent);
             Assert.Empty(RouteStore.CommittedRoutes);
             Assert.Single(RouteStore.DormantRoutes);
+        }
+
+        // Review finding 2 (PR #1329): the LoadRoutesFrom preamble must clear
+        // the in-memory dormant list - the forced-cold crash-reconcile path
+        // reloads a save without resetting RouteStore first, and a surviving
+        // in-memory dormant list would resurrect phantom sleepers.
+        [Fact]
+        public void Load_SaveWithoutDormantNode_ClearsInMemoryDormantList()
+        {
+            RouteStore.InstallRoutesAtRewind(
+                new List<Route>(),
+                new List<Route> { MakeRoute("phantom", 900.0) });
+
+            var parent = new ConfigNode("PARSEK");
+            RouteStore.LoadRoutesFrom(parent); // no ROUTES, no DORMANT_ROUTES
+
+            Assert.Empty(RouteStore.DormantRoutes);
         }
 
         [Fact]

@@ -593,27 +593,6 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Removes a dormant route by id (materialize-drop or future purge
-        /// paths). Returns true on removal.
-        /// </summary>
-        internal static bool RemoveDormantRoute(string id)
-        {
-            if (string.IsNullOrEmpty(id))
-                return false;
-            for (int i = 0; i < dormantRoutes.Count; i++)
-            {
-                if (dormantRoutes[i] != null
-                    && string.Equals(dormantRoutes[i].Id, id, System.StringComparison.Ordinal))
-                {
-                    dormantRoutes.RemoveAt(i);
-                    ParsekLog.Info(Tag, $"Dormant route {ShortId(id)} removed");
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        /// <summary>
         /// Materializes every dormant route whose creation point the timeline
         /// has reached (rewind-visibility extension). Called from the very top
         /// of <c>RouteOrchestrator.Tick</c> (BEFORE the committed-count early
@@ -652,6 +631,11 @@ namespace Parsek.Logistics
             int materialized = 0;
             int droppedOccupied = 0;
             var materializedNames = new List<string>();
+            // Processing order is dormant-list order (= classify order). Two
+            // dormant entries sharing one source tree (a deep-rewind sleeper
+            // plus a newer dormant twin) resolve first-in-list-wins: the first
+            // materializes, the second occupancy-drops. Deterministic; recency
+            // of player intent is deliberately not ranked.
             for (int i = 0; i < due.Count; i++)
             {
                 Route route = due[i];
@@ -673,7 +657,17 @@ namespace Parsek.Logistics
                 route.LinkedRouteId = null;
 
                 RouteRewindClassifier.ResetToFreshForMaterialize(route);
+                int countBeforeAdd = committedRoutes.Count;
                 AddRoute(route);
+                if (committedRoutes.Count == countBeforeAdd)
+                {
+                    // AddRoute rejected (duplicate id - unreachable via the
+                    // classify/load dedupes, but the count/notify must follow
+                    // the add's actual outcome, not assume it).
+                    ParsekLog.Warn(Tag,
+                        $"Materialize: AddRoute rejected dormant route {ShortId(route.Id)} - skipped");
+                    continue;
+                }
                 materialized++;
                 materializedNames.Add(route.Name ?? ShortId(route.Id));
 
@@ -1194,6 +1188,7 @@ namespace Parsek.Logistics
             int loaded = 0;
             int droppedCollision = 0;
             int droppedCodec = 0;
+            var seenDormantIds = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < routeNodes.Length; i++)
             {
                 Route route = Route.DeserializeFrom(routeNodes[i]);
@@ -1202,12 +1197,14 @@ namespace Parsek.Logistics
                     droppedCodec++;
                     continue;
                 }
-                if (TryGetRoute(route.Id, out _))
+                // Dedupe against BOTH the committed list and earlier dormant
+                // entries (a same-id pair only save-file surgery can produce).
+                if (TryGetRoute(route.Id, out _) || !seenDormantIds.Add(route.Id))
                 {
                     droppedCollision++;
                     ParsekLog.Warn(Tag,
                         $"LoadDormantRoutesFrom: dormant entry {ShortId(route.Id)} collides with a " +
-                        "committed route - dropped (committed wins)");
+                        "committed route or an earlier dormant entry - dropped (first wins)");
                     continue;
                 }
                 dormantRoutes.Add(route);

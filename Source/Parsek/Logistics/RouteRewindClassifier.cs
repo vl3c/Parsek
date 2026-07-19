@@ -138,6 +138,15 @@ namespace Parsek.Logistics
                 route.NextEligibilityCheckUT = null;
                 changed = true;
             }
+            // Legacy (non-loop) dispatch path: an abandoned-future NextDispatchUT
+            // would Skip("not-due-yet") every re-flown cycle until the abandoned
+            // UT - the same stall the cursor reset fixes for loop routes. Pull it
+            // back to the cutoff (due promptly); v0 loop routes never read it.
+            if (route.NextDispatchUT > cutoffUT)
+            {
+                route.NextDispatchUT = cutoffUT;
+                changed = true;
+            }
 
             // Holds / partial reports stamped in the abandoned future.
             if (route.LastHoldUT > cutoffUT)
@@ -264,6 +273,12 @@ namespace Parsek.Logistics
 
             route.TransitionTo(RouteStatus.Paused, "dormant-materialize");
             route.PreMissingStatus = RouteStatus.Active;
+            // Fresh-creation schedule anchor: the abandoned-future dispatch stamp
+            // must not survive (TryActivate only pulls a stale value UP, so a
+            // far-future NextDispatchUT would stall the legacy dispatch path
+            // until the abandoned UT). CreatedUT is the route's timeline anchor;
+            // activation pulls it up to the live UT.
+            route.NextDispatchUT = route.CreatedUT >= 0.0 ? route.CreatedUT : 0.0;
             route.CompletedCycles = 0;
             route.SkippedCycles = 0;
             route.LastObservedLoopCycleIndex = -1;
