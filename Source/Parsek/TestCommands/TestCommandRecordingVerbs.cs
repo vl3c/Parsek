@@ -62,5 +62,32 @@ namespace Parsek.TestCommands
                     ? new KeyValuePair<string, string>("discarded", "true")
                     : new KeyValuePair<string, string>("nothing", "true"),
             };
+
+        /// <summary>
+        /// Selects which recordings of a just-discarded active tree should have their
+        /// on-disk sidecars reaped. StartRecording's quickload-resume OnSave writes
+        /// ACTIVE-tree sidecars (.prec/.pann/_ghost.craft) to disk, but the shared
+        /// discard core is in-memory-only by design, so a discard-to-empty strands
+        /// those files forever (CleanOrphanFiles refuses to delete when the store has
+        /// zero known ids). Reap ONLY ids absent from the post-discard known-id set:
+        /// a committed-restore clone shares its committed original's id, which stays
+        /// known after the discard, so the original's files are never touched.
+        /// </summary>
+        internal static List<Recording> SelectDiscardReapRecordings(
+            List<Recording> discardedTreeRecordings, HashSet<string> knownIdsAfterDiscard)
+        {
+            var reap = new List<Recording>();
+            if (discardedTreeRecordings == null)
+                return reap;
+            foreach (var rec in discardedTreeRecordings)
+            {
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                    continue;
+                if (knownIdsAfterDiscard != null && knownIdsAfterDiscard.Contains(rec.RecordingId))
+                    continue;
+                reap.Add(rec);
+            }
+            return reap;
+        }
     }
 }

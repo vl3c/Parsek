@@ -80,5 +80,53 @@ namespace Parsek.Tests
             Assert.Equal("true", Val(p, "nothing"));
             Assert.False(Has(p, "discarded"));
         }
+
+        // ----- SelectDiscardReapRecordings (S0.5 discard-residue fix) -----
+        // The reap guard is what keeps the discard-sidecar cleanup from ever touching
+        // a committed original: only ids ABSENT from the post-discard known set reap.
+
+        private static Recording Rec(string id) => new Recording { RecordingId = id };
+
+        [Fact]
+        public void Reap_UncommittedId_Selected()
+        {
+            var reap = TestCommandRecordingVerbs.SelectDiscardReapRecordings(
+                new List<Recording> { Rec("aaaa1111") }, new HashSet<string>());
+            Assert.Single(reap);
+            Assert.Equal("aaaa1111", reap[0].RecordingId);
+        }
+
+        [Fact]
+        public void Reap_KnownId_Skipped_CommittedRestoreCloneSafe()
+        {
+            // A committed-restore clone shares the committed original's id; that id
+            // stays known after the discard, so its files must never be selected.
+            var reap = TestCommandRecordingVerbs.SelectDiscardReapRecordings(
+                new List<Recording> { Rec("aaaa1111"), Rec("bbbb2222") },
+                new HashSet<string> { "aaaa1111" });
+            Assert.Single(reap);
+            Assert.Equal("bbbb2222", reap[0].RecordingId);
+        }
+
+        [Fact]
+        public void Reap_NullAndEmptyIdEntries_Skipped()
+        {
+            var reap = TestCommandRecordingVerbs.SelectDiscardReapRecordings(
+                new List<Recording> { null, Rec(null), Rec(""), Rec("cccc3333") },
+                new HashSet<string>());
+            Assert.Single(reap);
+            Assert.Equal("cccc3333", reap[0].RecordingId);
+        }
+
+        [Fact]
+        public void Reap_NullInputs_EmptyResult()
+        {
+            Assert.Empty(TestCommandRecordingVerbs.SelectDiscardReapRecordings(null, new HashSet<string>()));
+            // Null known set = fail-open to reaping (discard-to-empty is exactly the
+            // stranded case), so a non-known-set call still selects.
+            var reap = TestCommandRecordingVerbs.SelectDiscardReapRecordings(
+                new List<Recording> { Rec("dddd4444") }, null);
+            Assert.Single(reap);
+        }
     }
 }

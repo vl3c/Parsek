@@ -1431,12 +1431,32 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // Capture the tree's recordings BEFORE teardown: StartRecording's
+            // quickload-resume OnSave already wrote their sidecars to disk, and the
+            // shared discard core is in-memory-only, so we reap uncommitted sidecars
+            // ourselves afterwards (see SelectDiscardReapRecordings for the guard).
+            var discardedRecordings = flight.ActiveTreeForDisplay?.Recordings != null
+                ? new List<Recording>(flight.ActiveTreeForDisplay.Recordings.Values)
+                : new List<Recording>();
+
             if (ParsekFlight.HasLiveRecorderForTagging())
                 flight.StopRecording();
             flight.AutoDiscardActiveTreeWithMessage(
                 reason: "test-command-discard",
                 screenMessage: "Recording discarded (test command)",
                 ledgerRecalcReason: "test-command-discard");
+
+            var knownIdsAfterDiscard = RecordingStore.BuildKnownRecordingIds();
+            var reapList = TestCommandRecordingVerbs.SelectDiscardReapRecordings(
+                discardedRecordings, knownIdsAfterDiscard);
+            int reaped = 0;
+            foreach (var rec in reapList)
+            {
+                RecordingStore.DeleteRecordingFiles(rec);
+                reaped++;
+            }
+            ParsekLog.Info(Tag,
+                $"discardtree sidecar-reap: treeRecordings={discardedRecordings.Count} knownAfterDiscard={knownIdsAfterDiscard.Count} reaped={reaped}");
 
             ParsekLog.Info(Tag, "discardtree discarded=true");
             SetExecResult("OK", TestCommandRecordingVerbs.BuildDiscardPayload(hadTree: true), null);

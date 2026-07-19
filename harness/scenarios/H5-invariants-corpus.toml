@@ -50,14 +50,17 @@ D16 = ["sidecar-prec", "schema-gate"]
 count = { min = 272, max = 272 }
 
 [expectations.logContracts]
-# "recordings=272" (word-boundary anchored so 2720 cannot spoof it) is the
+# The walk counts RECORDINGS, not injected trees: the 272-tree corpus hydrates
+# to 306 recordings across 276 walked trees (chain trees contain multiple
+# member recordings). The exact "recordings=306 trees=276" pair is the
 # HIGH-confidence guard that the full corpus hydrated into the store and was
 # walked - the R21/R22 index-integrity family. failed=0 is the invariant-clean
-# guard. PENDING-OPERATOR: the first live run must confirm the 272-corpus passes
-# the H5 core with zero Fail findings; if a synthetic recording is deliberately
-# degenerate, quarantine it via expectedFail keyed to a todo-doc bug id rather
-# than weakening failed=0.
-required  = ["RecordingInvariants walk: recordings=272\\b", "BATCH_COMPLETE v1 .* failed=0\\b"]
+# guard; the first live run (2026-07-19) confirmed fails=0 warns=0 over
+# recordings=306, resolving the former PENDING-OPERATOR check. If a synthetic
+# recording is deliberately degenerate, quarantine it via expectedFail keyed to
+# a todo-doc bug id rather than weakening failed=0. Update BOTH numbers here
+# and recordings.count above whenever the corpus changes.
+required  = ["RecordingInvariants walk: recordings=306 trees=276", "BATCH_COMPLETE v1 .* failed=0\\b"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 allowedAnomalies = []
