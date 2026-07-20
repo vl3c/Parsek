@@ -16,6 +16,7 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
+- After a rewind, surviving supply routes now restore their timeline-correct paused or active state, their completed and skipped cycle counters, and drop any armed Send Once or pause-after-cycle one-shot; a Send Once route recovering from a crash mid-delivery also pauses correctly now instead of staying active and sending a second cycle.
 - With Auto-merge recordings turned on (Settings), a vessel you leave surviving at the end of a mission (in orbit, landed, or splashed) now stays a real, controllable vessel on the timeline instead of becoming a visual-only ghost, and landed or splashed missions no longer interrupt with a confirmation prompt. Auto-merge is still off by default.
 - New recordings no longer store two overlapping trajectory sections for the same time span around time-warp seams, which made the ghost's playback position ambiguous in those windows. Existing recordings are left untouched.
 - Supply-route inventory delivery now uses every cargo container on the destination vessel: when the first container is full, items are delivered into the next container with a free slot instead of being reported as undelivered. Pickup already worked this way; delivery now matches it.
