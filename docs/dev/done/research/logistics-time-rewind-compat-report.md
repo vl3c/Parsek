@@ -78,6 +78,25 @@ review). Every claim below is anchored to `file:line` confirmed by direct reads.
 > `Restore(cutoff)` (post-cutoff routes go dormant and re-materialize at their
 > `CreatedUT`; kept routes get their cycle state reconciled). Read this
 > report's axis A / risk #9 / Q2 verdicts through that lens.
+>
+> **Second-exit correction (2026-07-19, preservation-branch forensic audit).**
+> The preservation branch has TWO in-session OnLoad exits, and the paragraph
+> above only covered the first (Re-Fly:
+> `RewindInvoker.ConsumePostLoad -> ReconciliationBundle.Restore(cutoff)`).
+> The SECOND exit - the plain go-back rewind / Rewind-to-Launch / warp-back
+> path, `ParsekScenario.HandleRewindOnLoad` - was ALSO route-blind: it never
+> runs `Ledger.PruneOrphanActionsAfterUT` (that call sits on the revert
+> branch only), so the abandoned-future free-standing route rows survived the
+> in-memory static ledger, kept routes carried abandoned-future loop cursors
+> (re-played cycles silently swallowed by the UT-blind dedup - "funds spent,
+> no goods" again), and routes created after the rewind target stayed
+> committed, visible, and firing before their own creation point. FIXED
+> (branch `fix-goback-route-reconcile`): `HandleRewindOnLoad` now retires the
+> future route rows in place (`Ledger.RetireFutureRouteActionsAtRewind`,
+> cutoff = `RewindContext.RewindAdjustedUT`, the UT the loaded save reverted
+> the world to) and runs the SAME route reconciliation as the Re-Fly seam via
+> the shared `RouteRewindClassifier.ReconcileStoreAtRewind` helper (both
+> exits now share one code path and cannot drift).
 
 ## 1. The two systems, in one paragraph each
 

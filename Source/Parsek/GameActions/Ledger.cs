@@ -258,6 +258,50 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Go-back rewind seam (<c>ParsekScenario.HandleRewindOnLoad</c>): retires
+        /// free-standing route ledger rows with UT strictly after the rewind cutoff
+        /// IN PLACE, mirroring the Rec-1 retire the Re-Fly seam performs in
+        /// <c>ReconciliationBundle.Restore(cutoff)</c> (which works on the bundle's
+        /// captured list instead). The go-back path never routes through
+        /// <see cref="PruneOrphanActionsAfterUT"/> (that is the revert branch), so
+        /// without this the abandoned-future route rows survive the rewind and the
+        /// UT-blind dispatch dedup swallows re-played cycles ("funds spent, no
+        /// goods" — the same failure Rec-1 fixed for Re-Fly).
+        ///
+        /// <para>Scoped strictly to route action Types carrying a non-empty
+        /// <see cref="GameAction.RouteId"/> (the
+        /// <c>RouteLedgerRetire.ShouldRetireRouteActionAtRewind</c> predicate, same
+        /// strict-<c>&gt;</c> boundary); every non-route action is untouched.
+        /// <paramref name="keptActions"/> receives an independent copy of the
+        /// surviving list for the caller's route-store reconcile, so callers never
+        /// read <see cref="Actions"/> raw (ERS/ELS discipline).</para>
+        /// </summary>
+        /// <returns>The number of route rows retired.</returns>
+        internal static int RetireFutureRouteActionsAtRewind(
+            double cutoffUT, out List<GameAction> keptActions)
+        {
+            keptActions = Logistics.RouteLedgerRetire.RetireFutureRouteActions(
+                actions, cutoffUT, out int retired);
+            if (retired > 0)
+            {
+                actions.Clear();
+                actions.AddRange(keptActions);
+                BumpStateVersion();
+                ParsekLog.Info("Ledger",
+                    $"RetireFutureRouteActionsAtRewind: removed {retired} free-standing route " +
+                    $"action(s) after UT {cutoffUT.ToString("R", CultureInfo.InvariantCulture)}, " +
+                    $"total={actions.Count}");
+            }
+            else
+            {
+                ParsekLog.Verbose("Ledger",
+                    "RetireFutureRouteActionsAtRewind: no free-standing route actions after UT " +
+                    $"{cutoffUT.ToString("R", CultureInfo.InvariantCulture)} (total={actions.Count})");
+            }
+            return retired;
+        }
+
+        /// <summary>
         /// Returns the UT of the most recent untagged (no recording id) vessel rollout spend
         /// (<see cref="GameActionType.FundsSpending"/> with <see cref="FundsSpendingSource.VesselBuild"/>),
         /// or <c>double.NaN</c> when none exists. This is the pad/runway placement UT of the
