@@ -46,3 +46,13 @@ min = 0.0
 required = true
 type = "number"
 min = 0.0
+
+# Optional: consecutive AIRBORNE frozen-telemetry samples (bit-identical orbit
+# fields while UT advances) before the mission declares the vessel lost/destroyed
+# and terminates (design "vessel-destroyed terminal"). mlib.B1Params defaults it to
+# 10 when absent.
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000

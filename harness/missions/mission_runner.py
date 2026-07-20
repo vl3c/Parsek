@@ -55,7 +55,7 @@ import sys
 import time
 import traceback
 from dataclasses import dataclass, replace
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 # The mission shells run as subprocesses (``python missions/<name>.py ...``) with
 # their own directory (missions/) as sys.path[0]; the pure decision library lives
@@ -79,6 +79,14 @@ import mlib  # noqa: E402  (deliberately after the sys.path bootstrap above)
 CONNECT_BUDGET_SECONDS = 30.0
 CONNECT_MAX_ATTEMPTS = 10
 CONNECT_BACKOFF_SECONDS = 3.0
+
+# Consecutive telemetry-read failures that mean the active vessel is GONE (KSP
+# destroyed the craft and handed active-vessel to invalid debris) rather than a
+# one-off transient. Below this the read re-raises (the existing transient path);
+# at or above it read_snapshot emits a vessel_lost snapshot the phase machine
+# terminates on (design "First live B1 flown-mission run": vessel-destroyed
+# terminal).
+READ_FAIL_STREAK_LIMIT = 3
 
 # Per-frame telemetry poll cadence. The fly loop reads a snapshot, decides, and
 # executes actions this often; the design's telemetry log line is rate-limited to
@@ -161,6 +169,12 @@ class KrpcMissionControl(MissionControl):
         # "complete" is never inferred BEFORE the autopilot has ever been engaged
         # (NIT 8: pre-engage, enabled==False must NOT read as ascent-complete=True).
         self._mj_ever_enabled = False
+        # Consecutive telemetry-read failures. A one-off error still re-raises (the
+        # existing transient path); only a SUSTAINED streak (>= _READ_FAIL_LIMIT)
+        # means the active vessel is gone -- KSP destroyed the craft and handed
+        # active-vessel to invalid debris -- so we emit a vessel_lost snapshot the
+        # phase machine terminates on rather than let the mission burn its budget.
+        self._read_fail_streak = 0
         self.client_version = ""
         self.server_version = ""
 
@@ -179,49 +193,78 @@ class KrpcMissionControl(MissionControl):
             self._ascent = self._mechjeb.ascent_autopilot
 
     def read_snapshot(self) -> "mlib.TelemetrySnapshot":
-        sc = self._conn.space_center
-        v = sc.active_vessel
-        orbit = v.orbit
-        body_frame = orbit.body.reference_frame
-        flight_srf = v.flight(body_frame)
-        mj_enabled = False
-        mj_complete = False
-        if self._ascent is not None:
+        # Wrapped so a SUSTAINED read-failure streak (the active vessel destroyed +
+        # handed to invalid debris) becomes a vessel_lost snapshot the phase machine
+        # terminates on, while a one-off transient still re-raises (the existing
+        # error path). The streak resets on any successful read.
+        try:
+            sc = self._conn.space_center
+            v = sc.active_vessel
+            orbit = v.orbit
+            body_frame = orbit.body.reference_frame
+            flight_srf = v.flight(body_frame)
+            mj_enabled = False
+            mj_complete = False
+            if self._ascent is not None:
+                try:
+                    mj_enabled = bool(self._ascent.enabled)
+                    if mj_enabled:
+                        self._mj_ever_enabled = True
+                    # The AscentAutopilot disables itself once the ascent is complete;
+                    # "complete" = engaged EARLIER (latched) AND now disabled. Before it
+                    # has ever been engaged, disabled is PRELAUNCH, NOT complete (NIT 8).
+                    mj_complete = self._mj_ever_enabled and not mj_enabled
+                except Exception:
+                    mj_enabled = False
+                    mj_complete = False
+            warp_mode, warp_rate = _read_warp_state(sc)
+            snapshot = mlib.TelemetrySnapshot(
+                ut=float(sc.ut),
+                altitude=float(flight_srf.surface_altitude),
+                vertical_speed=float(flight_srf.vertical_speed),
+                apoapsis=float(orbit.apoapsis_altitude),
+                periapsis=float(orbit.periapsis_altitude),
+                eccentricity=float(orbit.eccentricity),
+                inclination=math.degrees(float(orbit.inclination)),
+                situation=_situation_name(v.situation),
+                # PENDING-OPERATOR / v1 LIMITATION: this reads the VESSEL-TOTAL SolidFuel,
+                # NOT the active-stage total. It is correct for the v1 B1 fixture (a
+                # single-SRB pad-hop, where vessel-total == active-stage SolidFuel), and
+                # the B1 "ASCENT -> COAST when solid fuel exhausted" transition relies on
+                # that. A MULTI-SRB or asparagus-staged craft would keep vessel-total
+                # SolidFuel > 0 while an earlier SRB stage is spent, so this would NOT
+                # detect the per-stage burnout -- reading the active decouple stage's own
+                # SolidFuel (v.resources_in_decouple_stage / a stage-scoped query) is the
+                # deferred fix when a multi-SRB fixture lands.
+                stage_solid_fuel=float(v.resources.amount("SolidFuel")),
+                mj_autopilot_enabled=mj_enabled,
+                mj_ascent_complete=mj_complete,
+                warp_mode=warp_mode,
+                warp_rate=warp_rate,
+            )
+            self._read_fail_streak = 0
+            return snapshot
+        except Exception:
+            self._read_fail_streak += 1
+            if self._read_fail_streak < READ_FAIL_STREAK_LIMIT:
+                # A one-off / transient read error: preserve the existing behaviour
+                # (the run_mission handler classifies a post-connect kRPC/socket drop
+                # as a flake, an internal bug as an error).
+                raise
+            # Sustained streak: the active vessel is gone. Emit a vessel_lost snapshot
+            # (best-effort UT so the phase-entry clock still advances) instead of
+            # re-raising, so the phase machine reaches its vessel-lost terminal.
+            ut = 0.0
             try:
-                mj_enabled = bool(self._ascent.enabled)
-                if mj_enabled:
-                    self._mj_ever_enabled = True
-                # The AscentAutopilot disables itself once the ascent is complete;
-                # "complete" = engaged EARLIER (latched) AND now disabled. Before it
-                # has ever been engaged, disabled is PRELAUNCH, NOT complete (NIT 8).
-                mj_complete = self._mj_ever_enabled and not mj_enabled
+                ut = float(self._conn.space_center.ut)
             except Exception:
-                mj_enabled = False
-                mj_complete = False
-        return mlib.TelemetrySnapshot(
-            ut=float(sc.ut),
-            altitude=float(flight_srf.surface_altitude),
-            vertical_speed=float(flight_srf.vertical_speed),
-            apoapsis=float(orbit.apoapsis_altitude),
-            periapsis=float(orbit.periapsis_altitude),
-            eccentricity=float(orbit.eccentricity),
-            inclination=math.degrees(float(orbit.inclination)),
-            situation=_situation_name(v.situation),
-            # PENDING-OPERATOR / v1 LIMITATION: this reads the VESSEL-TOTAL SolidFuel,
-            # NOT the active-stage total. It is correct for the v1 B1 fixture (a
-            # single-SRB pad-hop, where vessel-total == active-stage SolidFuel), and
-            # the B1 "ASCENT -> COAST when solid fuel exhausted" transition relies on
-            # that. A MULTI-SRB or asparagus-staged craft would keep vessel-total
-            # SolidFuel > 0 while an earlier SRB stage is spent, so this would NOT
-            # detect the per-stage burnout -- reading the active decouple stage's own
-            # SolidFuel (v.resources_in_decouple_stage / a stage-scoped query) is the
-            # deferred fix when a multi-SRB fixture lands.
-            stage_solid_fuel=float(v.resources.amount("SolidFuel")),
-            mj_autopilot_enabled=mj_enabled,
-            mj_ascent_complete=mj_complete,
-            warp_mode=_warp_mode_name(sc),
-            warp_rate=float(getattr(sc, "warp_rate", 1.0)),
-        )
+                ut = 0.0
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Telemetry",
+                "vessel-lost: telemetry read failed %d consecutive samples; "
+                "emitting vessel_lost snapshot ut=%s"
+                % (self._read_fail_streak, _fmt(ut))))
+            return mlib.TelemetrySnapshot(ut=ut, vessel_lost=True)
 
     def perform(self, action: "mlib.Action") -> None:
         sc = self._conn.space_center
@@ -248,8 +291,13 @@ class KrpcMissionControl(MissionControl):
         elif kind == mlib.ACTION_MJ_ENGAGE_ASCENT:
             self._ascent.enabled = True
         elif kind == mlib.ACTION_MJ_EXECUTE_CIRCULARIZATION:
-            # The AscentAutopilot leaves a circularization node; execute it.
-            self._mechjeb.node_executor.execute_all_nodes()
+            # Execute the circularization node IF the autopilot left one.
+            # MechJeb's AscentAutopilot usually performs the circularization
+            # burn itself before self-disabling, so an empty node list here is
+            # the NORMAL completed case - and ExecuteAllNodes on an empty list
+            # is a server-side RPCError (first live B2 run 2026-07-20).
+            if len(v.control.nodes) > 0:
+                self._mechjeb.node_executor.execute_all_nodes()
         else:
             raise ValueError("unknown action kind: %r" % (kind,))
 
@@ -271,18 +319,23 @@ def _situation_name(situation) -> str:
     return str(name).upper()
 
 
-def _warp_mode_name(sc) -> str:
-    """Normalize the kRPC warp mode to NONE / RAILS / PHYSICS for the telemetry
-    log line (design WARP). Defensive: an unknown surface reports NONE."""
+def _read_warp_state(sc):
+    """Read (warp_mode, warp_rate) derived from ONE warp_rate sample. The rate
+    is read exactly once and the mode classified from THAT sample: reading them
+    as two separate RPCs let a ramp crossing 1.0 report mode NONE with a rate
+    above 1, which the guard treats as an inconsistent state (Fable review of
+    the PR #1328 tail, SF-1: a single-sample false MISSION-FLAKE risked on
+    every warp-engagement ramp). Defensive: an unknown surface reports
+    (NONE, 1.0)."""
     try:
         rate = float(getattr(sc, "warp_rate", 1.0))
-        if rate <= 1.0:
-            return "NONE"
+        if not (rate > 1.0):
+            return "NONE", rate
         mode = getattr(sc, "warp_mode", None)
         name = getattr(mode, "name", None) or str(mode)
-        return "RAILS" if "rail" in str(name).lower() else "PHYSICS"
+        return ("RAILS" if "rail" in str(name).lower() else "PHYSICS"), rate
     except Exception:
-        return "NONE"
+        return "NONE", 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +476,7 @@ def fly_loop(
     poll_interval: float = POLL_INTERVAL_SECONDS,
     settle_frames: int = DEFAULT_SETTLE_FRAMES,
     allow_rails_warp: bool = False,
+    max_physics_warp: float = 0.0,
 ):
     """Drive a mission's ``mlib`` phase machine to completion, bounded by BOTH the
     machine's per-phase budgets (inside ``decide``) AND a wall-clock ``deadline``
@@ -449,7 +503,35 @@ def fly_loop(
     consecutive in-tolerance snapshots). A flake terminal skips the settle-tail."""
     state = initial_state
     frames: List = []
+    # Seed the exception-state slot immediately: without this, a raise BEFORE
+    # the loop body's first publish (e.g. a malformed build_state result) would
+    # attach the PREVIOUS mission's final state to THIS mission's error result
+    # (Fable review of the PR #1328 tail, NIT-2).
+    _FLY_LOOP_LAST_STATE["state"] = state
+    try:
+        return _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
+                              poll_interval, settle_frames, allow_rails_warp, max_physics_warp, frames)
+    except Exception as exc:
+        # Preserve the ADVANCED machine state for the shell's error result:
+        # without this a mid-flight kRPC error reported phasesReached=[] even
+        # though the machine had reached CIRCULARIZE (first live B2 run).
+        # ``mission_state`` rides the exception; run_mission reads it back.
+        if not hasattr(exc, "mission_state"):
+            exc.mission_state = _FLY_LOOP_LAST_STATE.get("state", state)  # type: ignore[attr-defined]
+        raise
+
+
+# The loop body publishes its current state here each frame so the fly_loop
+# wrapper can attach it to an escaping exception (single-threaded shell; the
+# dict is overwritten per call and read only on the unwind path).
+_FLY_LOOP_LAST_STATE: Dict = {}
+
+
+def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
+                   poll_interval, settle_frames, allow_rails_warp, max_physics_warp, frames):
+    warp_violations = 0
     while not state.done:
+        _FLY_LOOP_LAST_STATE["state"] = state
         if clock() >= deadline:
             log.warn(state.phase, "wall budget elapsed in phase %s -> %s"
                      % (state.phase, mlib.MISSION_FLAKE))
@@ -457,14 +539,29 @@ def fly_loop(
         snapshot = control.read_snapshot()
         frames.append(snapshot)
         # Edge 7: an unexpected physics (or, for B1, any) warp state distorts the
-        # flight; flake naming the phase + warp state rather than record a warped run.
-        if mlib.is_unexpected_warp(snapshot.warp_mode, snapshot.warp_rate, allow_rails_warp):
-            log.warn(state.phase, "unexpected %s-warp x%s in phase %s (allow_rails=%s) -> %s"
+        # flight; flake naming the phase + warp state rather than record a warped
+        # run. DEBOUNCED to two CONSECUTIVE violating samples (Fable review of
+        # the PR #1328 tail, SF-1/SF-2): TimeWarp.CurrentRate is a jittery,
+        # continuously-ramping quantity, so a single sample caught mid-ramp or
+        # on a frame-hitch spike must not kill an otherwise clean flight; a
+        # REAL unexpected warp state persists across the 0.5s poll gap.
+        if mlib.is_unexpected_warp(snapshot.warp_mode, snapshot.warp_rate, allow_rails_warp,
+                                   max_physics_warp=max_physics_warp):
+            warp_violations += 1
+            log.warn(state.phase, "unexpected %s-warp x%s in phase %s (allow_rails=%s) strike %d/2"
                      % (snapshot.warp_mode, _fmt(snapshot.warp_rate), state.phase,
-                        allow_rails_warp, mlib.MISSION_FLAKE))
-            return replace(state, verdict=mlib.MISSION_FLAKE, flake_phase=state.phase, done=True), frames
+                        allow_rails_warp, warp_violations))
+            if warp_violations >= 2:
+                log.warn(state.phase, "unexpected warp persisted 2 consecutive samples -> %s"
+                         % (mlib.MISSION_FLAKE,))
+                return replace(state, verdict=mlib.MISSION_FLAKE, flake_phase=state.phase, done=True), frames
+        else:
+            warp_violations = 0
         prev_phase = state.phase
         state, actions = decide(state, snapshot)
+        # Re-publish post-decide: a perform() failure below must report the
+        # phase the machine had ALREADY entered this frame.
+        _FLY_LOOP_LAST_STATE["state"] = state
         if state.phase != prev_phase:
             log.info(state.phase, "phase %s -> %s ut=%s alt=%s ap=%s vsurf=%s"
                      % (prev_phase, state.phase, _fmt(snapshot.ut), _fmt(snapshot.altitude),
@@ -525,6 +622,12 @@ class MissionSpec:
     evaluate: Callable
     make_control: Callable[[], MissionControl]
     allow_rails_warp: bool = False
+    # Highest PERMITTED physics-warp rate (0.0 = never, the B1 default). B2
+    # sets 2.0: MechJeb's AscentAutopilot engages its own 2x physics warp
+    # during ascent and KRPC.MechJeb 0.8.1 exposes no toggle for it (observed
+    # live 2026-07-20). Above the bound (plus the ramp allowance) the warp
+    # guard still flakes the mission.
+    max_physics_warp: float = 0.0
 
 
 def run_mission(
@@ -593,7 +696,8 @@ def run_mission(
                 deadline = wall_start + float(budget)
                 state, frames = fly_loop(control, state, spec.decide, log, deadline,
                                          clock=clock, sleep=sleep,
-                                         allow_rails_warp=spec.allow_rails_warp)
+                                         allow_rails_warp=spec.allow_rails_warp,
+                                         max_physics_warp=spec.max_physics_warp)
                 phases_reached = list(state.phases_reached)
                 outcomes = spec.evaluate(frames, params)
                 for o in outcomes:
@@ -607,6 +711,11 @@ def run_mission(
                 verdict, reason = mlib.resolve_flight_verdict(state, outcomes)
     except Exception as exc:  # noqa: BLE001 -- caught so nothing escapes as a hang / unwritten result
         error = traceback.format_exc()
+        # Recover the advanced machine state fly_loop attached to the exception
+        # so the error result reports the phases the flight actually reached.
+        lost_state = getattr(exc, "mission_state", None)
+        if lost_state is not None and getattr(lost_state, "phases_reached", None):
+            phases_reached = list(lost_state.phases_reached)
         if connected:
             # A drop / kRPC RPC error AFTER a successful connect is autopilot-flake
             # (retryable on a fresh boot); a non-kRPC internal error stays ERROR.
@@ -614,10 +723,13 @@ def run_mission(
                 type(exc).__module__, type(exc).__name__)
             if exc_verdict == mlib.MISSION_FLAKE:
                 verdict = mlib.MISSION_FLAKE
-                reason = ("connection dropped / kRPC error post-connect: %s"
-                          % (type(exc).__name__,))
-                log.warn("Verdict", "post-connect drop (%s) -> %s"
-                         % (type(exc).__name__, mlib.MISSION_FLAKE))
+                # Carry the exception MESSAGE, not just the type: an RPCError's
+                # server-side text names the failing procedure/cause, and losing
+                # it cost a full diagnose cycle on the first live B2 run.
+                reason = ("connection dropped / kRPC error post-connect: %s: %s"
+                          % (type(exc).__name__, str(exc)[:300]))
+                log.warn("Verdict", "post-connect drop (%s: %s) -> %s"
+                         % (type(exc).__name__, str(exc)[:300], mlib.MISSION_FLAKE))
             else:
                 verdict = mlib.MISSION_ERROR
                 reason = "unexpected exception in mission"

@@ -80,5 +80,76 @@ namespace Parsek.Tests
             Assert.Equal("true", Val(p, "nothing"));
             Assert.False(Has(p, "discarded"));
         }
+
+        // ----- SelectDiscardReapRecordings (S0.5 discard-residue fix) -----
+        // The reap guard is what keeps the discard-sidecar cleanup from ever touching
+        // a committed original: only ids ABSENT from the post-discard known set reap.
+
+        private static Recording Rec(string id) => new Recording { RecordingId = id };
+
+        [Fact]
+        public void Reap_UncommittedId_Selected()
+        {
+            var reap = TestCommandRecordingVerbs.SelectDiscardReapRecordings(
+                new List<Recording> { Rec("aaaa1111") }, new HashSet<string>());
+            Assert.Single(reap);
+            Assert.Equal("aaaa1111", reap[0].RecordingId);
+        }
+
+        [Fact]
+        public void Reap_KnownId_Skipped_CommittedRestoreCloneSafe()
+        {
+            // A committed-restore clone shares the committed original's id; that id
+            // stays known after the discard, so its files must never be selected.
+            var reap = TestCommandRecordingVerbs.SelectDiscardReapRecordings(
+                new List<Recording> { Rec("aaaa1111"), Rec("bbbb2222") },
+                new HashSet<string> { "aaaa1111" });
+            Assert.Single(reap);
+            Assert.Equal("bbbb2222", reap[0].RecordingId);
+        }
+
+        [Fact]
+        public void Reap_NullAndEmptyIdEntries_Skipped()
+        {
+            var reap = TestCommandRecordingVerbs.SelectDiscardReapRecordings(
+                new List<Recording> { null, Rec(null), Rec(""), Rec("cccc3333") },
+                new HashSet<string>());
+            Assert.Single(reap);
+            Assert.Equal("cccc3333", reap[0].RecordingId);
+        }
+
+        [Fact]
+        public void Reap_NullInputs_EmptyResult_FailClosed()
+        {
+            Assert.Empty(TestCommandRecordingVerbs.SelectDiscardReapRecordings(null, new HashSet<string>()));
+            // Null known set fails CLOSED (deletion guard convention): nothing reaps.
+            // The empty-store stranded case passes an EMPTY set, which still reaps.
+            Assert.Empty(TestCommandRecordingVerbs.SelectDiscardReapRecordings(
+                new List<Recording> { Rec("dddd4444") }, null));
+        }
+
+        // ----- DiscardReapSkipReason (Fable review of PR #1328, finding 1) -----
+        // In the Re-Fly / merge-journal / restore-in-progress load shapes the active
+        // tree holds the ONLY copy of committed recordings whose ids are absent from
+        // the known set; the reap must stand down entirely there.
+
+        [Fact]
+        public void ReapGate_NormalDiscard_NoSkip()
+        {
+            Assert.Null(TestCommandRecordingVerbs.DiscardReapSkipReason(
+                reFlyMarkerActive: false, mergeJournalActive: false, restoringActiveTree: false));
+        }
+
+        [Theory]
+        [InlineData(true, false, false, "refly-marker-active")]
+        [InlineData(false, true, false, "merge-journal-active")]
+        [InlineData(false, false, true, "restoring-active-tree")]
+        [InlineData(true, true, true, "refly-marker-active")]
+        public void ReapGate_UnsafeShapes_Skip(
+            bool reFly, bool journal, bool restoring, string expectedReason)
+        {
+            Assert.Equal(expectedReason, TestCommandRecordingVerbs.DiscardReapSkipReason(
+                reFlyMarkerActive: reFly, mergeJournalActive: journal, restoringActiveTree: restoring));
+        }
     }
 }

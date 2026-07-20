@@ -189,6 +189,70 @@ class TelemetrySnapshot:
     mj_ascent_complete: bool = False       # carried evidence (B2)
     warp_mode: str = "NONE"                # NONE | RAILS | PHYSICS
     warp_rate: float = 1.0
+    vessel_lost: bool = False              # runner-signaled: active vessel unreadable
+                                           # (repeated telemetry-read failures); a
+                                           # phase-independent terminal loss signal.
+
+
+# ---------------------------------------------------------------------------
+# Frozen-telemetry detection (design "First live B1 flown-mission run":
+# vessel-destroyed terminal). Pure. When KSP destroys the active craft and hands
+# active-vessel to a debris fragment, kRPC keeps reporting situation=FLYING with
+# BIT-IDENTICAL orbit telemetry forever while UT advances; the phase machine would
+# otherwise wait out its whole descent budget. These helpers detect that stall.
+# ---------------------------------------------------------------------------
+
+# The five telemetry fields whose bitwise-identical repetition (while UT advances)
+# marks a dead/stale vessel object.
+FrozenSignature = Tuple[float, float, float, float, float]
+
+
+def frozen_signature(snapshot: TelemetrySnapshot) -> FrozenSignature:
+    """The frozen-telemetry signature of a snapshot:
+    ``(ut, altitude, vertical_speed, apoapsis, periapsis)``. ``advances_frozen``
+    compares two of these to decide whether a live craft has gone stale."""
+    return (snapshot.ut, snapshot.altitude, snapshot.vertical_speed,
+            snapshot.apoapsis, snapshot.periapsis)
+
+
+def advances_frozen(prev: Optional[FrozenSignature],
+                    curr: Optional[FrozenSignature]) -> bool:
+    """True iff ``curr`` is a FROZEN advance over ``prev``: the mission clock
+    strictly advanced (``curr`` UT finite and STRICTLY greater than ``prev`` UT)
+    while the OTHER four fields (altitude, vertical_speed, apoapsis, periapsis) are
+    BITWISE-EXACTLY equal (``==``) to ``prev``'s.
+
+    Exact equality is safe -- and in fact REQUIRED -- here: a LIVE craft's physics
+    jitters the low mantissa bits of altitude / vertical speed / apsides on every
+    single frame (integration noise, floating-origin re-centering), so two
+    consecutive live frames are essentially never bit-identical across all four.
+    Only a DEAD / stale vessel object -- KSP handed active-vessel to a destroyed
+    craft's debris and kRPC keeps returning the last cached orbit -- returns the
+    SAME floats forever while UT keeps ticking. A FROZEN UT (a paused game) does
+    NOT count: UT must strictly advance, so a legitimately paused sim (identical
+    full signature) is never mistaken for a dead vessel."""
+    if prev is None or curr is None:
+        return False
+    prev_ut, curr_ut = prev[0], curr[0]
+    if not _is_finite(prev_ut) or not _is_finite(curr_ut):
+        return False
+    if not (curr_ut > prev_ut):
+        return False
+    return curr[1:] == prev[1:]
+
+
+def _advance_frozen_count(prev_sig: Optional[FrozenSignature], prev_count: int,
+                          snapshot: TelemetrySnapshot,
+                          limit: int) -> Tuple[FrozenSignature, int, bool]:
+    """Advance the airborne frozen-telemetry counter for one frame (shared by the
+    B1 and B2 machines). Returns ``(new_sig, new_count, tripped)``: a FROZEN advance
+    over ``prev_sig`` increments the count, ANY non-frozen sample resets it to 0,
+    and ``tripped`` is True iff the count reached ``limit`` (a vessel-lost terminal).
+    The signature is always updated to the current frame so the next comparison uses
+    the latest UT."""
+    curr_sig = frozen_signature(snapshot)
+    new_count = prev_count + 1 if advances_frozen(prev_sig, curr_sig) else 0
+    return curr_sig, new_count, (new_count >= limit)
 
 
 @dataclass(frozen=True)
@@ -216,6 +280,9 @@ class B1Params:
     descent_timeout: float
     landed_situations: Tuple[str, ...]
     apoapsis_window: Tuple[float, float]   # (min, max), inclusive
+    frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
+                                           # vessel-lost terminal (spec key
+                                           # frozenTelemetrySamples)
 
 
 @dataclass(frozen=True)
@@ -231,6 +298,9 @@ class B2Params:
     ascent_timeout: float
     circularize_timeout: float
     launch_site_latitude: float = 0.0      # KSC due-east target ~0 deg (see docstring)
+    frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
+                                           # vessel-lost terminal (spec key
+                                           # frozenTelemetrySamples)
 
 
 def b1_params_from_dict(params: Dict) -> B1Params:
@@ -246,6 +316,7 @@ def b1_params_from_dict(params: Dict) -> B1Params:
         descent_timeout=float(params.get("descentTimeoutSeconds", 240)),
         landed_situations=tuple(params.get("landedSituations", ("LANDED", "SPLASHED"))),
         apoapsis_window=(float(window.get("min", 0.0)), float(window.get("max", 0.0))),
+        frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
     )
 
 
@@ -262,6 +333,7 @@ def b2_params_from_dict(params: Dict) -> B2Params:
         ascent_timeout=float(params.get("ascentTimeoutSeconds", 420)),
         circularize_timeout=float(params.get("circularizeTimeoutSeconds", 300)),
         launch_site_latitude=float(params.get("launchSiteLatitude", 0.0)),
+        frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
     )
 
 
@@ -286,6 +358,13 @@ class B1State:
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
     done: bool = False
+    # Frozen-telemetry (vessel-destroyed) detection carried across frames. On a
+    # terminal loss ``loss_reason`` names it and ``done`` is set; resolve_flight_verdict
+    # maps a non-None loss_reason to MISSION-ASSERT-FAIL (a destroyed vessel is a
+    # deterministic mission failure, not a flake).
+    frozen_sig: Optional[FrozenSignature] = None
+    frozen_count: int = 0
+    loss_reason: Optional[str] = None
 
 
 def b1_initial_state(params: B1Params) -> B1State:
@@ -346,6 +425,31 @@ def b1_decide(state: B1State, snapshot: TelemetrySnapshot) -> Tuple[B1State, Lis
         return state, []
 
     peak = _update_peak(state.peak_apoapsis, snapshot.apoapsis)
+
+    # Runner-signaled vessel loss (unreadable active vessel after repeated telemetry
+    # failures): a phase-INDEPENDENT terminal (design vessel-destroyed terminal). A
+    # destroyed vessel is a deterministic mission failure, not a flake.
+    if snapshot.vessel_lost:
+        return replace(
+            state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason="vessel-lost (unreadable after repeated telemetry failures)"), []
+
+    # Frozen-telemetry (vessel-destroyed) detection, AIRBORNE phases only: PRELAUNCH
+    # pad telemetry is legitimately static, so the detector never runs there (nor
+    # after done). When KSP hands active-vessel to a destroyed craft's debris, kRPC
+    # reports bit-identical orbit telemetry forever while UT ticks; catch that here
+    # rather than wait out the whole descent budget.
+    if state.phase in (B1_ASCENT, B1_COAST, B1_DESCENT):
+        limit = state.params.frozen_sample_limit
+        new_sig, new_count, tripped = _advance_frozen_count(
+            state.frozen_sig, state.frozen_count, snapshot, limit)
+        if tripped:
+            return replace(
+                state, peak_apoapsis=peak, frozen_sig=new_sig, frozen_count=new_count,
+                done=True, verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("vessel-lost (telemetry frozen %d consecutive samples "
+                             "while airborne; vessel presumed destroyed)" % limit)), []
+        state = replace(state, frozen_sig=new_sig, frozen_count=new_count)
 
     if state.phase == B1_PRELAUNCH:
         actions = [Action(ACTION_SET_THROTTLE, state.params.throttle),
@@ -421,6 +525,11 @@ class B2State:
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
     done: bool = False
+    # Frozen-telemetry (vessel-destroyed) detection carried across frames (mirrors
+    # B1State); a non-None loss_reason resolves to MISSION-ASSERT-FAIL.
+    frozen_sig: Optional[FrozenSignature] = None
+    frozen_count: int = 0
+    loss_reason: Optional[str] = None
 
 
 def b2_initial_state(params: B2Params) -> B2State:
@@ -464,17 +573,53 @@ def b2_decide(state: B2State, snapshot: TelemetrySnapshot) -> Tuple[B2State, Lis
     if state.done:
         return state, []
 
+    # Runner-signaled vessel loss: phase-independent terminal (mirrors B1).
+    if snapshot.vessel_lost:
+        return replace(
+            state, done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason="vessel-lost (unreadable after repeated telemetry failures)"), []
+
+    # Frozen-telemetry (vessel-destroyed) detection, AIRBORNE phases only (never
+    # PRELAUNCH, never after done); mirrors B1.
+    if state.phase in (B2_MJ_ASCENT, B2_CIRCULARIZE):
+        limit = state.params.frozen_sample_limit
+        new_sig, new_count, tripped = _advance_frozen_count(
+            state.frozen_sig, state.frozen_count, snapshot, limit)
+        if tripped:
+            return replace(
+                state, frozen_sig=new_sig, frozen_count=new_count, done=True,
+                verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("vessel-lost (telemetry frozen %d consecutive samples "
+                             "while airborne; vessel presumed destroyed)" % limit)), []
+        state = replace(state, frozen_sig=new_sig, frozen_count=new_count)
+
     if state.phase == B2_PRELAUNCH:
         actions = [
             Action(ACTION_MJ_SET_TARGET_APOAPSIS, state.params.target_apoapsis),
             Action(ACTION_MJ_ENABLE_AUTOSTAGE),
             Action(ACTION_MJ_ENGAGE_ASCENT),
+            # LAUNCH: MechJeb's AscentAutopilot engaged via kRPC does NOT
+            # ignite the first stage itself (first live B2 run 2026-07-20 sat
+            # in PRE_LAUNCH for the full ascent budget with the autopilot
+            # engaged); the mission activates the initial stage exactly like a
+            # GUI user pressing space, and MechJeb + autostage fly from there.
+            Action(ACTION_ACTIVATE_STAGE),
         ]
         return _b2_enter(state, B2_MJ_ASCENT, snapshot.ut), actions
 
     if state.phase == B2_MJ_ASCENT:
+        # Leave MJ-ASCENT only when the AscentAutopilot LATCHES complete
+        # (engaged earlier, now self-disabled). The old apoapsis-window
+        # condition fired MID-BURN (first live B2 run 2026-07-20: apoapsis
+        # crossed the window at 36 km while MechJeb was still flying) and the
+        # circularization action then executed an EMPTY node list, which the
+        # server answers with an RPCError. The apoapsis check remains as an
+        # AND-guard so a spurious early latch cannot advance a mission that
+        # never got near its target.
         target = state.params.target_apoapsis
-        if _is_finite(snapshot.apoapsis) and snapshot.apoapsis >= target - state.params.apo_error:
+        apo_reached = (_is_finite(snapshot.apoapsis)
+                       and snapshot.apoapsis >= target - state.params.apo_error)
+        if snapshot.mj_ascent_complete and apo_reached:
             return (_b2_enter(state, B2_CIRCULARIZE, snapshot.ut),
                     [Action(ACTION_MJ_EXECUTE_CIRCULARIZATION)])
         return _b2_stay_or_flake(state, snapshot), []
@@ -670,6 +815,12 @@ def resolve_flight_verdict(machine_state, outcomes) -> Tuple[str, str]:
     ASSERT-FAIL; a phase timeout -> FLAKE). Returns (verdict, reason)."""
     if getattr(machine_state, "verdict", None) == MISSION_FLAKE:
         return MISSION_FLAKE, "phase %s timed out" % (machine_state.flake_phase,)
+    # A vessel-lost / destroyed terminal is a deterministic mission failure (not a
+    # flake): return its reason verbatim BEFORE evaluating assertions, since a
+    # destroyed craft's residual telemetry could otherwise spuriously satisfy them.
+    loss_reason = getattr(machine_state, "loss_reason", None)
+    if loss_reason:
+        return MISSION_ASSERT_FAIL, loss_reason
     if all_assertions_met(outcomes):
         return MISSION_OK, "all telemetry assertions met"
     unmet = [o.name for o in outcomes if not o.met]
@@ -714,21 +865,34 @@ WARP_NONE = "NONE"
 WARP_RAILS = "RAILS"
 WARP_PHYSICS = "PHYSICS"
 
+# TimeWarp.CurrentRate ramps CONTINUOUSLY toward the selected step, so a
+# permitted 2x physics warp is routinely sampled at 2.0x-and-a-bit while
+# settling; the guard adds this allowance on top of max_physics_warp.
+PHYSICS_WARP_RAMP_ALLOWANCE = 0.25
 
-def is_unexpected_warp(warp_mode: str, warp_rate: float, allow_rails: bool) -> bool:
+
+def is_unexpected_warp(warp_mode: str, warp_rate: float, allow_rails: bool,
+                       max_physics_warp: float = 0.0) -> bool:
     """True iff the reported warp state is UNEXPECTED for a v1 mission (design
     edge 7). 1x (a non-finite or ``<= 1.0`` rate) is always fine. Above 1x:
-    PHYSICS warp is NEVER permitted (a determinism violation for BOTH missions --
-    it distorts the recorded trajectory and the physics); RAILS warp is permitted
-    ONLY when ``allow_rails`` (B2's exo-atmospheric coast, per its RAILS-or-1x
-    contract), and forbidden otherwise (B1's 1x-throughout contract). An unknown
-    warp mode above 1x is treated conservatively as unexpected. On True the shell
-    flakes the mission naming the phase + the warp state."""
+    PHYSICS warp is permitted only up to ``max_physics_warp`` (default 0.0 =
+    never; the mission spec sets the bound - B2 uses 4.0, the stock physics
+    ceiling, because MechJeb's AscentAutopilot engages its own physics warp
+    during ascent escalating to 4x and KRPC.MechJeb 0.8.1 exposes no toggle
+    for it - observed live 2026-07-20; the comparison carries a small ramp
+    allowance since TimeWarp.CurrentRate is continuous while ramping toward
+    the step rate). Above that bound it stays a determinism violation. RAILS warp is permitted ONLY when ``allow_rails``
+    (B2's exo-atmospheric coast, per its RAILS-or-1x contract), and forbidden
+    otherwise (B1's 1x-throughout contract). An unknown warp mode above 1x is
+    treated conservatively as unexpected. On True the shell flakes the mission
+    naming the phase + the warp state."""
     if not _is_finite(warp_rate) or warp_rate <= 1.0:
         return False
     mode = str(warp_mode or "").upper()
     if mode == WARP_PHYSICS:
-        return True
+        if not _is_finite(max_physics_warp) or max_physics_warp <= 0.0:
+            return True
+        return warp_rate > max_physics_warp + PHYSICS_WARP_RAMP_ALLOWANCE
     if mode == WARP_RAILS:
         return not allow_rails
     # Above 1x with an unrecognized / NONE mode is an inconsistent, unexpected state.

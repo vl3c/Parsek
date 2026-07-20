@@ -14,4 +14,5 @@ krpc==0.5.4
 # 3.20.3 would be an unverified guess), verifies `import krpc` + a generated-code
 # smoke, freezes the RESOLVED protobuf version into the .venv-stamp, and only THEN is
 # that resolved version promoted to the committed pin here.
-# protobuf==<RESOLVED>   # PROVISIONAL: filled in from the .venv-stamp after the first verified bootstrap by bootstrap_venv.py --promote; do NOT hand-pin before that.
+# protobuf pin promoted from the first verified .venv-stamp (RESOLVED by pip):
+protobuf==7.35.1

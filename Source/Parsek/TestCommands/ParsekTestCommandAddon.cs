@@ -1431,12 +1431,55 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // Capture the tree's recordings and the reap-gate signals BEFORE teardown:
+            // StartRecording's quickload-resume OnSave already wrote their sidecars to
+            // disk, and the shared discard core is in-memory-only, so we reap
+            // uncommitted sidecars ourselves afterwards (see SelectDiscardReapRecordings
+            // and DiscardReapSkipReason for the two guards).
+            var discardedRecordings = flight.ActiveTreeForDisplay?.Recordings != null
+                ? new List<Recording>(flight.ActiveTreeForDisplay.Recordings.Values)
+                : new List<Recording>();
+            var scenario = ParsekScenario.Instance;
+            string reapSkipReason = TestCommandRecordingVerbs.DiscardReapSkipReason(
+                reFlyMarkerActive: scenario?.ActiveReFlySessionMarker != null,
+                mergeJournalActive: scenario?.ActiveMergeJournal != null,
+                restoringActiveTree: ParsekFlight.restoringActiveTree);
+
             if (ParsekFlight.HasLiveRecorderForTagging())
                 flight.StopRecording();
             flight.AutoDiscardActiveTreeWithMessage(
                 reason: "test-command-discard",
                 screenMessage: "Recording discarded (test command)",
                 ledgerRecalcReason: "test-command-discard");
+
+            if (reapSkipReason != null)
+            {
+                ParsekLog.Info(Tag, $"discardtree sidecar-reap: skipped reason={reapSkipReason}");
+            }
+            else
+            {
+                var knownIdsAfterDiscard = RecordingStore.BuildKnownRecordingIds();
+                var reapList = TestCommandRecordingVerbs.SelectDiscardReapRecordings(
+                    discardedRecordings, knownIdsAfterDiscard);
+                int reaped = 0;
+                int reapFailed = 0;
+                foreach (var rec in reapList)
+                {
+                    try
+                    {
+                        RecordingStore.DeleteRecordingFiles(rec);
+                        reaped++;
+                    }
+                    catch (Exception ex)
+                    {
+                        reapFailed++;
+                        ParsekLog.Warn(Tag,
+                            $"discardtree sidecar-reap failed for id={rec.RecordingId}: {ex.Message}");
+                    }
+                }
+                ParsekLog.Info(Tag,
+                    $"discardtree sidecar-reap: treeRecordings={discardedRecordings.Count} knownAfterDiscard={knownIdsAfterDiscard.Count} reaped={reaped} failed={reapFailed}");
+            }
 
             ParsekLog.Info(Tag, "discardtree discarded=true");
             SetExecResult("OK", TestCommandRecordingVerbs.BuildDiscardPayload(hadTree: true), null);

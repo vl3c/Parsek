@@ -205,6 +205,34 @@ def _git_has_commit(clone_dir: str, commit: str) -> bool:
     return out.returncode == 0
 
 
+def _normalize_repo_url(url: str) -> str:
+    """Case-insensitive compare form for git remote URLs: trailing slashes and a
+    trailing .git are cosmetic."""
+    u = (url or "").strip().rstrip("/")
+    if u.lower().endswith(".git"):
+        u = u[:-4]
+    return u.lower()
+
+
+def _git_origin_matches(clone_dir: str, repo_url: str) -> bool:
+    """Read-only: True if ``clone_dir``'s origin URL matches the pinned
+    sourceRepo. A mismatch means the pin's fork moved since the cache was
+    cloned (e.g. KRPC.MechJeb genhis -> darchambault); fetching from the stale
+    origin can never deliver the new tag/commit. An unreadable origin also
+    counts as a mismatch; the refetch path re-points a WRONG origin, while a
+    clone with NO origin remote at all fails the subsequent set-url and aborts
+    EC-4 fail-loud (delete the cache dir to recover)."""
+    if not repo_url:
+        return True  # no pin to compare against; EC-4 aborts later anyway
+    out = subprocess.run(
+        ["git", "-C", clone_dir, "config", "--get", "remote.origin.url"],
+        capture_output=True, text=True,
+    )
+    if out.returncode != 0:
+        return False
+    return _normalize_repo_url(out.stdout) == _normalize_repo_url(repo_url)
+
+
 def _shallow_clone_source(ctx: ProvisionContext, comp: str, repo_url: str,
                           cache_dir: str, commit: str) -> bool:
     """Blobless clone the pinned repo into ``cache_dir`` (all refs, no blobs, no
@@ -227,12 +255,32 @@ def _shallow_clone_source(ctx: ProvisionContext, comp: str, repo_url: str,
 
 
 def _fetch_source_commit(ctx: ProvisionContext, comp: str, cache_dir: str,
-                         commit: str) -> bool:
-    """Refetch a stale cache clone (moved pin / interrupted earlier fetch), then
-    assert the pinned commit is present."""
+                         commit: str, repo_url: str = "") -> bool:
+    """Refetch a stale cache clone (moved pin / interrupted earlier fetch / a
+    fork re-pin), then assert the pinned commit is present. When ``repo_url``
+    is given and the clone's origin differs (cached-wrong-origin), origin is
+    re-pointed FIRST - fetching from a stale fork can never deliver the new
+    pin's tag/commit."""
+    if repo_url and not _git_origin_matches(cache_dir, repo_url):
+        log(ctx, "Info", "Source",
+            "%s origin re-pointed to %s (fork re-pin; stale cache origin)" % (comp, repo_url))
+        res = subprocess.run(
+            ["git", "-C", cache_dir, "remote", "set-url", "origin", repo_url],
+            capture_output=True, text=True,
+        )
+        if res.returncode != 0:
+            abort(ctx, "Source", "EC-4",
+                  "git remote set-url in %s failed: %s"
+                  % (cache_dir, (res.stderr or "").strip()[:200]))
+            return False
     log(ctx, "Info", "Source", "%s fetch in %s (pinned commit missing)" % (comp, cache_dir))
+    # --force on tags: after a fork re-pin a SAME-NAMED tag can exist on both
+    # remotes and a non-forced fetch refuses to clobber the cached one,
+    # aborting a repair that should converge (Fable review NIT-8). Forcing is
+    # safe here: the pinned remote is the identity authority and PIN
+    # peel-verifies the tag afterwards.
     res = subprocess.run(
-        ["git", "-C", cache_dir, "fetch", "--filter=blob:none", "--tags", "origin"],
+        ["git", "-C", cache_dir, "fetch", "--filter=blob:none", "--tags", "--force", "origin"],
         capture_output=True, text=True,
     )
     if res.returncode != 0:
@@ -271,8 +319,10 @@ def _ensure_git_source(ctx: ProvisionContext, comp: str,
     override_present = bool(override) and os.path.isdir(os.path.join(override, ".git"))
     cache_has_git = os.path.isdir(os.path.join(cache_dir, ".git"))
     cache_has_commit = cache_has_git and _git_has_commit(cache_dir, commit)
+    cache_origin_matches = (not cache_has_git) or _git_origin_matches(cache_dir, repo_url)
     decision = provlib.resolve_git_source(
-        cache_dir, commit, override, override_present, cache_has_git, cache_has_commit)
+        cache_dir, commit, override, override_present, cache_has_git,
+        cache_has_commit, cache_origin_matches)
     log(ctx, "Info", "Source",
         "%s source-resolution action=%s reason=%s dir=%s (repo=%s commit=%s)"
         % (comp, decision.action, decision.reason, decision.source_dir,
@@ -299,8 +349,8 @@ def _ensure_git_source(ctx: ProvisionContext, comp: str,
         return None
     if decision.action == "clone":
         ok = _shallow_clone_source(ctx, comp, repo_url, cache_dir, commit)
-    else:  # refetch-cache
-        ok = _fetch_source_commit(ctx, comp, cache_dir, commit)
+    else:  # refetch-cache (incl. cached-wrong-origin: fetch re-points origin first)
+        ok = _fetch_source_commit(ctx, comp, cache_dir, commit, repo_url)
     memo[comp] = cache_dir if ok else None
     return cache_dir if ok else None
 
@@ -576,7 +626,9 @@ def phase_pair(ctx: ProvisionContext) -> None:
             % (kmj.get("fork"), kmj.get("tag"), kmj.get("pairedKrpcTag"), krpc_tag,
                "OK" if decision.ok else "MISMATCH"))
         if not decision.ok:
-            abort(ctx, "Pair", "EC-14", "genhis 0.7.1 pairing assertion failed for v0.5.4")
+            abort(ctx, "Pair", "EC-14",
+                  "krpc_mechjeb (fork=%s, tag=%s) is not a web-verified pair for kRPC v0.5.4 "
+                  "(see provlib.PROVEN_KRPC_MECHJEB_PAIRS_V054)" % (kmj.get("fork"), kmj.get("tag")))
     else:
         log(ctx, "Amber", "Pair",
             "non-v0.5.4 kRPC pinned: pairing UNVERIFIED locally. Web-verify at "
@@ -2033,11 +2085,15 @@ def _install_stack(ctx: ProvisionContext, stack: Sequence[str]) -> None:
             # item 2: arm the inventory from disk when the prior manifest predates it,
             # so the first post-M-A6.2 skip does not stamp an empty inventory (drift storm).
             inv["krpc"] = _prior_inventory(ctx, "krpc") or _inventory_of_folder(ctx, "krpc")
-            # kRPC settings.cfg (PluginData) is left in place; re-hash it so the
-            # manifest's krpcSettingsSha256 still describes the on-disk bytes.
-            sp = _krpc_settings_path(ctx)
-            if os.path.isfile(sp):
-                ctx.krpc_settings_sha = sha256_file(sp)  # type: ignore[attr-defined]
+            # kRPC settings.cfg (PluginData): RE-STAMP rather than re-hash. The
+            # stamp is idempotent, so a healthy file is byte-identical; a stale
+            # or hand-edited file CONVERGES back to the provisioner contract
+            # (hands-free keys + the default server node) instead of being
+            # silently absorbed into the manifest. Absorbing the on-disk hash
+            # here previously made the settings surface unrepairable through
+            # the SF9 skip (first live B1 run, 2026-07-19: a pre-server-node
+            # config could never be repaired without forcing a full re-extract).
+            _stamp_krpc_settings(ctx)
             log(ctx, "Info", "Install", "SF9 skip kRPC extraction (hash-match, pin stable)")
         else:
             zip_path = _cached_zip_path(ctx, "krpc", "releaseZipUrl")
@@ -2133,11 +2189,11 @@ def _krpc_settings_path(ctx: ProvisionContext) -> str:
 
 
 def _stamp_krpc_settings(ctx: ProvisionContext) -> None:
-    """F3: rewrite the kRPC PluginData/settings.cfg so the RPC server starts and
-    accepts connections without a per-launch in-game click. Edits the shipped file
-    in place when present, else writes a minimal node with just the three keys; the
-    pure transform is provlib.stamp_krpc_settings. Records ctx.krpc_settings_sha
-    over the ACTUAL on-disk bytes (LF-written) so VERIFY re-hashes the same bytes."""
+    """F3: rewrite the kRPC PluginData/settings.cfg with the COMPLETE golden
+    template (provlib.stamp_krpc_settings ignores the prior contents by design:
+    a partial file zero-defaults every omitted key and maxTimePerUpdate=0 kills
+    all RPC execution). Records ctx.krpc_settings_sha over the ACTUAL on-disk
+    bytes (LF-written) so VERIFY re-hashes the same bytes."""
     path = _krpc_settings_path(ctx)
     shipped = None
     if os.path.isfile(path):
@@ -2151,8 +2207,8 @@ def _stamp_krpc_settings(ctx: ProvisionContext) -> None:
     sha = sha256_file(path)
     ctx.krpc_settings_sha = sha  # type: ignore[attr-defined]
     log(ctx, "Info", "Install",
-        "kRPC settings stamped %s (autoStartServers/autoAcceptConnections/confirmRemoveClient) sha256=%s"
-        % ("in-place" if shipped is not None else "synth-minimal", sha))
+        "kRPC settings stamped golden-template (full key set + Item-wrapped default server; prior file %s) sha256=%s"
+        % ("replaced" if shipped is not None else "absent", sha))
 
 
 def _git_head(repo: str) -> str:

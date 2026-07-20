@@ -64,6 +64,35 @@ def drive_b2(state, frames):
     return state, per_frame
 
 
+def _b1_params_with_limit(limit):
+    """B1_PARAMS with a custom frozen_sample_limit (frozen dataclasses expose
+    __dict__, the spread pattern the existing tests use)."""
+    return B1_PARAMS.__class__(**{**B1_PARAMS.__dict__, "frozen_sample_limit": limit})
+
+
+def _b2_params_with_limit(limit):
+    return B2_PARAMS.__class__(**{**B2_PARAMS.__dict__, "frozen_sample_limit": limit})
+
+
+def _b1_descent_state(params, **overrides):
+    """A B1State pinned in DESCENT for the frozen-telemetry tests."""
+    base = mlib.b1_initial_state(params)
+    fields = {**base.__dict__, "phase": mlib.B1_DESCENT, "phase_entry_ut": 0.0}
+    fields.update(overrides)
+    return base.__class__(**fields)
+
+
+# Bit-identical (dead/stale-vessel) fields a frozen run repeats while UT advances.
+_FROZEN_FIELDS = dict(altitude=1000.0, vertical_speed=-5.0, apoapsis=14000.0, periapsis=500.0)
+
+
+def _frozen_frames(n, start_ut=1.0, **field_overrides):
+    """``n`` snapshots with advancing UT and IDENTICAL other fields -- the stalled
+    dead-vessel telemetry the detector must catch."""
+    fields = {**_FROZEN_FIELDS, **field_overrides}
+    return [snap(ut=start_ut + i, **fields) for i in range(n)]
+
+
 # ---------------------------------------------------------------------------
 # B1 phase state machine.
 # ---------------------------------------------------------------------------
@@ -177,7 +206,10 @@ class B2MachineTests(unittest.TestCase):
     when periapsis is raised -- asserting orbit before circularization, or never
     leaving MJ-ASCENT, would false-flake or false-pass."""
 
-    def test_prelaunch_engages_mechjeb(self):
+    def test_prelaunch_engages_mechjeb_and_launches(self):
+        # The trailing ACTIVATE_STAGE is load-bearing: MechJeb's AscentAutopilot
+        # engaged via kRPC does NOT ignite the first stage itself (first live B2
+        # run 2026-07-20 sat in PRE_LAUNCH for the whole ascent budget).
         state = mlib.b2_initial_state(B2_PARAMS)
         new, actions = mlib.b2_decide(state, snap(ut=0.0))
         self.assertEqual(new.phase, mlib.B2_MJ_ASCENT)
@@ -185,16 +217,19 @@ class B2MachineTests(unittest.TestCase):
             Action(mlib.ACTION_MJ_SET_TARGET_APOAPSIS, 80000.0),
             Action(mlib.ACTION_MJ_ENABLE_AUTOSTAGE),
             Action(mlib.ACTION_MJ_ENGAGE_ASCENT),
+            Action(mlib.ACTION_ACTIVATE_STAGE),
         ])
 
     def test_full_happy_path(self):
-        # Regression: MJ-ASCENT holds until apoapsis at target, CIRCULARIZE holds
-        # until periapsis at target, then ORBIT.
+        # Regression: MJ-ASCENT holds until the autopilot LATCHES complete AND
+        # apoapsis is at target (apoapsis alone fired mid-burn on the first live
+        # B2 run and executed an empty node list), CIRCULARIZE holds until
+        # periapsis at target, then ORBIT.
         state = mlib.b2_initial_state(B2_PARAMS)
         frames = [
             snap(ut=0.0),                                       # PRELAUNCH->MJ-ASCENT
             snap(ut=60.0, apoapsis=40000.0),                    # MJ-ASCENT (climbing)
-            snap(ut=180.0, apoapsis=78000.0),                   # MJ-ASCENT->CIRCULARIZE (>=75000)
+            snap(ut=180.0, apoapsis=78000.0, mj_ascent_complete=True),  # ->CIRCULARIZE (latched + >=75000)
             snap(ut=200.0, apoapsis=80000.0, periapsis=20000.0),  # CIRCULARIZE (pe rising)
             snap(ut=260.0, apoapsis=80000.0, periapsis=79000.0),  # CIRCULARIZE->ORBIT (>=75000)
         ]
@@ -498,10 +533,27 @@ class WarpGuardTests(unittest.TestCase):
         self.assertFalse(mlib.is_unexpected_warp(mlib.WARP_RAILS, 1.0, False))
         self.assertFalse(mlib.is_unexpected_warp(mlib.WARP_PHYSICS, 0.5, True))
 
-    def test_physics_warp_always_unexpected(self):
-        # PHYSICS warp above 1x is a determinism violation for BOTH missions.
+    def test_physics_warp_unexpected_by_default(self):
+        # PHYSICS warp above 1x is a determinism violation at the default
+        # max_physics_warp=0.0 (B1's contract).
         self.assertTrue(mlib.is_unexpected_warp(mlib.WARP_PHYSICS, 4.0, False))
         self.assertTrue(mlib.is_unexpected_warp(mlib.WARP_PHYSICS, 4.0, True))
+        self.assertTrue(mlib.is_unexpected_warp(mlib.WARP_PHYSICS, 1.2, False))
+
+    def test_physics_warp_permitted_up_to_bound(self):
+        # B2 (max_physics_warp=2.0): MechJeb's own ascent warp (ramping 1.1-2.0x,
+        # observed live 2026-07-20) is permitted, including the continuous ramp
+        # slightly above the step rate; clearly above the bound still flakes.
+        self.assertFalse(mlib.is_unexpected_warp(
+            mlib.WARP_PHYSICS, 1.486, False, max_physics_warp=2.0))
+        self.assertFalse(mlib.is_unexpected_warp(
+            mlib.WARP_PHYSICS, 2.0 + mlib.PHYSICS_WARP_RAMP_ALLOWANCE, False,
+            max_physics_warp=2.0))
+        self.assertTrue(mlib.is_unexpected_warp(
+            mlib.WARP_PHYSICS, 3.0, False, max_physics_warp=2.0))
+        # A non-finite bound fails closed (never permits).
+        self.assertTrue(mlib.is_unexpected_warp(
+            mlib.WARP_PHYSICS, 1.5, False, max_physics_warp=float("nan")))
 
     def test_rails_warp_gated_by_allow_rails(self):
         # B1 (allow_rails=False) forbids RAILS warp; B2 (True) permits it.
@@ -677,6 +729,222 @@ class MissionResultTests(unittest.TestCase):
         })
         self.assertEqual(q.target_apoapsis, 80000.0)
         self.assertEqual(q.launch_site_latitude, 0.0)
+
+
+# ---------------------------------------------------------------------------
+# Vessel-lost / frozen-telemetry terminal (design "First live B1 flown-mission
+# run": vessel-destroyed terminal).
+# ---------------------------------------------------------------------------
+
+
+class FrozenTelemetryPrimitiveTests(unittest.TestCase):
+    """Guards the pure frozen-telemetry primitives: a frozen ADVANCE needs UT to
+    strictly increase while the other four fields stay bit-identical; a frozen UT
+    (paused game) or any field change is NOT an advance."""
+
+    def _sig(self, **kw):
+        return mlib.frozen_signature(snap(**kw))
+
+    def test_advance_requires_ut_strictly_greater(self):
+        a = self._sig(ut=1.0, **_FROZEN_FIELDS)
+        b = self._sig(ut=2.0, **_FROZEN_FIELDS)
+        self.assertTrue(mlib.advances_frozen(a, b))
+        # Frozen UT (identical full signature, a paused sim) is NOT an advance.
+        self.assertFalse(mlib.advances_frozen(a, a))
+        # UT going backwards is not an advance either.
+        self.assertFalse(mlib.advances_frozen(b, a))
+
+    def test_advance_requires_other_fields_bit_identical(self):
+        a = self._sig(ut=1.0, **_FROZEN_FIELDS)
+        changed = dict(_FROZEN_FIELDS, apoapsis=14000.0001)
+        b = mlib.frozen_signature(snap(ut=2.0, **changed))
+        self.assertFalse(mlib.advances_frozen(a, b))
+
+    def test_none_and_nan_never_advance(self):
+        a = self._sig(ut=1.0, **_FROZEN_FIELDS)
+        self.assertFalse(mlib.advances_frozen(None, a))
+        self.assertFalse(mlib.advances_frozen(a, None))
+        nan = self._sig(ut=float("nan"), **_FROZEN_FIELDS)
+        self.assertFalse(mlib.advances_frozen(a, nan))
+        self.assertFalse(mlib.advances_frozen(nan, a))
+
+
+class VesselLostTerminalTests(unittest.TestCase):
+    """Guards the runner-signaled vessel-lost terminal (design vessel-destroyed
+    terminal): a ``vessel_lost`` snapshot terminates ANY phase as MISSION-ASSERT-FAIL
+    with a loss_reason, and the machine is inert afterwards."""
+
+    def test_vessel_lost_in_descent_terminates_assert_fail_and_is_idempotent(self):
+        state = _b1_descent_state(B1_PARAMS)
+        new, actions = mlib.b1_decide(state, snap(ut=10.0, vessel_lost=True))
+        self.assertTrue(new.done)
+        self.assertEqual(new.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIsNotNone(new.loss_reason)
+        self.assertIn("vessel-lost", new.loss_reason)
+        self.assertEqual(actions, [])
+        # Once done the machine is inert (no repeated actions, state unchanged).
+        again, acts2 = mlib.b1_decide(new, snap(ut=11.0))
+        self.assertIs(again, new)
+        self.assertEqual(acts2, [])
+
+    def test_vessel_lost_in_prelaunch_also_terminates(self):
+        # Runner-signaled loss is PHASE-INDEPENDENT: it fires even in PRELAUNCH,
+        # where the frozen-telemetry detector is deliberately gated off.
+        state = mlib.b1_initial_state(B1_PARAMS)
+        new, actions = mlib.b1_decide(state, snap(ut=0.0, vessel_lost=True))
+        self.assertTrue(new.done)
+        self.assertEqual(new.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("vessel-lost", new.loss_reason)
+        self.assertEqual(actions, [])
+        self.assertEqual(new.phase, mlib.B1_PRELAUNCH)  # never left prelaunch
+
+    def test_vessel_lost_terminates_b2(self):
+        state = mlib.b2_initial_state(B2_PARAMS)
+        state, _ = mlib.b2_decide(state, snap(ut=0.0))  # -> MJ-ASCENT
+        new, actions = mlib.b2_decide(state, snap(ut=1.0, vessel_lost=True))
+        self.assertTrue(new.done)
+        self.assertEqual(new.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("vessel-lost", new.loss_reason)
+        self.assertEqual(actions, [])
+
+
+class FrozenTelemetryTerminalTests(unittest.TestCase):
+    """Guards the airborne frozen-telemetry terminal (design vessel-destroyed
+    terminal): N consecutive frozen samples terminate as MISSION-ASSERT-FAIL, a
+    field change or a frozen UT resets the run, and PRELAUNCH is exempt."""
+
+    def _seed_sig(self, **kw):
+        # A prior sample matching the frozen run's fields with a LOWER ut, so the
+        # first frozen frame already registers as advance #1 (the Nth frozen frame
+        # then trips the terminal at exactly the limit).
+        return mlib.frozen_signature(snap(ut=0.0, **dict(_FROZEN_FIELDS, **kw)))
+
+    def test_frozen_descent_terminates_at_exactly_the_limit(self):
+        limit = 4
+        params = _b1_params_with_limit(limit)
+        seed = self._seed_sig()
+        # N-1 frozen samples: counter climbs but still running.
+        before, _ = drive_b1(_b1_descent_state(params, frozen_sig=seed),
+                             _frozen_frames(limit - 1))
+        self.assertFalse(before.done)
+        self.assertIsNone(before.loss_reason)
+        self.assertEqual(before.frozen_count, limit - 1)
+        # The Nth frozen sample trips the terminal.
+        after, _ = drive_b1(_b1_descent_state(params, frozen_sig=seed),
+                            _frozen_frames(limit))
+        self.assertTrue(after.done)
+        self.assertEqual(after.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("frozen", after.loss_reason)
+        self.assertIn(str(limit), after.loss_reason)
+
+    def test_change_in_any_single_field_resets_the_counter(self):
+        limit = 5
+        params = _b1_params_with_limit(limit)
+        for field_name in ("altitude", "vertical_speed", "apoapsis", "periapsis"):
+            state = _b1_descent_state(params, frozen_sig=self._seed_sig())
+            frames = _frozen_frames(limit - 1)  # count -> limit-1
+            # A live sample changing ONE field (UT still advancing) breaks the run.
+            changed = dict(_FROZEN_FIELDS)
+            changed[field_name] = _FROZEN_FIELDS[field_name] + 1.0
+            frames.append(snap(ut=float(limit), **changed))
+            state, _ = drive_b1(state, frames)
+            self.assertEqual(state.frozen_count, 0,
+                             "changing %s must reset the counter" % field_name)
+            self.assertFalse(state.done, "changing %s must not terminate" % field_name)
+
+    def test_frozen_ut_does_not_increment_counter(self):
+        # A paused game repeats the FULL signature (UT included). UT never advances,
+        # so no frame is a frozen ADVANCE -> the counter stays 0, never terminal.
+        limit = 4
+        params = _b1_params_with_limit(limit)
+        seed = self._seed_sig()
+        paused = [snap(ut=0.0, **_FROZEN_FIELDS) for _ in range(2 * limit)]
+        state, _ = drive_b1(_b1_descent_state(params, frozen_sig=seed), paused)
+        self.assertEqual(state.frozen_count, 0)
+        self.assertFalse(state.done)
+        self.assertIsNone(state.loss_reason)
+
+    def test_prelaunch_static_telemetry_never_trips(self):
+        # PRELAUNCH pad telemetry is legitimately static; the detector is gated off
+        # there. Prime the counter to limit-1 with a matching signature and feed a
+        # frozen-advance-looking frame: it must NOT terminate -- it just enters ASCENT.
+        limit = 2
+        params = _b1_params_with_limit(limit)
+        state = mlib.b1_initial_state(params)  # PRELAUNCH
+        state = state.__class__(**{**state.__dict__,
+                                   "frozen_sig": self._seed_sig(),
+                                   "frozen_count": limit - 1})
+        new, _ = mlib.b1_decide(state, snap(ut=1.0, **_FROZEN_FIELDS))
+        self.assertEqual(new.phase, mlib.B1_ASCENT)
+        self.assertIsNone(new.loss_reason)
+        self.assertFalse(new.done)
+
+    def test_frozen_mj_ascent_terminates_b2(self):
+        # B2 sibling: the same frozen-telemetry terminal fires in MJ-ASCENT.
+        limit = 4
+        params = _b2_params_with_limit(limit)
+        base = mlib.b2_initial_state(params)
+        # Airborne-but-short-of-target orbit fields, so MJ-ASCENT does not transition
+        # (apoapsis 50000 < target 75000 threshold) while the freeze accumulates.
+        fields = dict(altitude=30000.0, vertical_speed=100.0, apoapsis=50000.0, periapsis=-100000.0)
+        seed = mlib.frozen_signature(snap(ut=0.0, **fields))
+        state = base.__class__(**{**base.__dict__, "phase": mlib.B2_MJ_ASCENT,
+                                  "phase_entry_ut": 0.0, "frozen_sig": seed})
+        frames = [snap(ut=1.0 + i, **fields) for i in range(limit)]
+        state, _ = drive_b2(state, frames)
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("frozen", state.loss_reason)
+
+
+class LossReasonVerdictTests(unittest.TestCase):
+    """Guards resolve_flight_verdict's loss_reason branch (design vessel-destroyed
+    terminal): a non-None loss_reason maps to MISSION-ASSERT-FAIL and is returned
+    VERBATIM, BEFORE any assertion evaluation."""
+
+    def test_loss_reason_returned_verbatim_before_assertions(self):
+        state = mlib.b1_initial_state(B1_PARAMS)
+        reason = "vessel-lost (custom terminal reason)"
+        lost = state.__class__(**{**state.__dict__,
+                                  "verdict": mlib.MISSION_ASSERT_FAIL,
+                                  "loss_reason": reason, "done": True})
+        # Assertions that WOULD all be met: proves the loss_reason path short-circuits
+        # BEFORE assertion evaluation (a destroyed craft's residual telemetry, which
+        # could spuriously satisfy the window, must never certify the flight OK).
+        all_met = mlib.evaluate_b1_assertions(
+            [snap(apoapsis=14000.0, situation="LANDED") for _ in range(4)], B1_PARAMS)
+        self.assertTrue(mlib.all_assertions_met(all_met))
+        verdict, out_reason = mlib.resolve_flight_verdict(lost, all_met)
+        self.assertEqual(verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertEqual(out_reason, reason)  # verbatim, not "all telemetry assertions met"
+
+
+class FrozenSampleLimitParamTests(unittest.TestCase):
+    """Guards the frozenTelemetrySamples missionParam: absent -> default 10,
+    present -> parsed int, for both B1 and B2."""
+
+    _B1 = {
+        "throttle": 1.0, "apoapsisWindowMeters": {"min": 6000, "max": 30000},
+        "chuteDeployAltMeters": 2500, "landedSituations": ["LANDED", "SPLASHED"],
+        "ascentTimeoutSeconds": 90, "coastTimeoutSeconds": 180, "descentTimeoutSeconds": 240,
+    }
+    _B2 = {
+        "targetApoapsisMeters": 80000, "targetPeriapsisMeters": 80000,
+        "apoErrorMeters": 5000, "periErrorMeters": 5000, "eccentricityMax": 0.02,
+        "inclinationErrorDeg": 2.0, "ascentTimeoutSeconds": 420, "circularizeTimeoutSeconds": 300,
+    }
+
+    def test_b1_default_and_parsed(self):
+        self.assertEqual(mlib.b1_params_from_dict(self._B1).frozen_sample_limit, 10)
+        p = mlib.b1_params_from_dict({**self._B1, "frozenTelemetrySamples": 25})
+        self.assertEqual(p.frozen_sample_limit, 25)
+        self.assertIsInstance(p.frozen_sample_limit, int)
+
+    def test_b2_default_and_parsed(self):
+        self.assertEqual(mlib.b2_params_from_dict(self._B2).frozen_sample_limit, 10)
+        q = mlib.b2_params_from_dict({**self._B2, "frozenTelemetrySamples": 7})
+        self.assertEqual(q.frozen_sample_limit, 7)
+        self.assertIsInstance(q.frozen_sample_limit, int)
 
 
 if __name__ == "__main__":

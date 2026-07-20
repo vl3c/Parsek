@@ -344,10 +344,13 @@ class Runtime:
                       cwd: str, stdout_path: str):
         """Spawn the mission SUBPROCESS with the venv python (design handoff step 3).
         stdout+stderr are captured to stdout_path so run.py can fold the mission's
-        [Mission] lines into the per-invocation harness log after it exits."""
+        [Mission] lines into the per-invocation harness log after it exits.
+        -u (unbuffered): without it python fully buffers stdout to the file, so a
+        budget-expired kill loses EVERY line the mission printed and the hang site
+        is undiagnosable (first live B1 run, 2026-07-19)."""
         out = open(stdout_path, "w", encoding="utf-8")
         try:
-            return subprocess.Popen([venv_python, mission_py] + list(args), cwd=cwd,
+            return subprocess.Popen([venv_python, "-u", mission_py] + list(args), cwd=cwd,
                                     stdout=out, stderr=subprocess.STDOUT)
         finally:
             out.close()
