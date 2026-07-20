@@ -87,7 +87,19 @@ count = { min = 1 }
 # The re-fly milestones prove the strip-respawn cycle ran end-to-end. The TimeJump
 # spawn / stripped-vessel / situation-corrected respawn asserts are PENDING-OPERATOR
 # (live-only), named in the coordinator runbook.
-required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete"]
+#
+# Route-rewind timeline wave additions: InvokeRewind's post-load path is
+# RewindInvoker.ConsumePostLoad -> ReconciliationBundle.Restore(cutoff) (NOT the
+# HandleRewindOnLoad go-back branch, so no "OnLoad go-back:" lines here). The
+# cutoff-carrying restore line proves the route-retire + pending-science-aware
+# Restore overload ran, and the terminal "Restored:" summary now carries the
+# pendingScience= count unconditionally. The conditional lines (retired route
+# rows / dormanted routes / dropped science) cannot be required: the rewind-b9
+# fixture carries no routes or pending science - the unattended H6 scenario owns
+# those.
+required  = ["Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
+             "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
+             "Restored: recs=.* pendingScience="]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 allowedAnomalies = []
