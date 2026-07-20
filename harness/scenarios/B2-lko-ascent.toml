@@ -60,8 +60,12 @@ D14 = ["kerbin"]
 # RED=0 over all of them - Parsek modeling staging debris is CORRECT
 # behavior the original {1,1} expectation failed to model). min stays 1
 # (the main recording must exist even if debris admission varies); max is
-# main + 6 boosters.
-count = { min = 1, max = 7 }
+# main + 6 boosters + 1 for the launch-escape tower (the live flight produced
+# exactly 7 - the LES jettison did not record - but whether that is
+# deterministic under MechJeb autostage is unestablished, so the window
+# absorbs an 8th rather than redding on staging-timing variance; Fable
+# review of the PR #1328 tail, WATCH-4).
+count = { min = 1, max = 8 }
 
 [expectations.logContracts]
 required  = ["Recording started", "Recording stopped"]

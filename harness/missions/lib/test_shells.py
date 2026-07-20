@@ -339,6 +339,29 @@ class WarpGuardShellTests(unittest.TestCase):
         self.assertIn(mlib.B1_ASCENT, result["reason"])
         self.assertTrue(control.closed)
 
+    def test_single_warp_spike_does_not_flake(self):
+        """Fable review of the PR #1328 tail (SF-1/SF-2): the warp guard is
+        DEBOUNCED to two CONSECUTIVE violating samples. One spike sample (a
+        ramp crossing 1.0 read as mode NONE with rate above 1, or a
+        frame-hitch rate blip) followed by a clean sample must NOT flake -- the
+        B1 flight continues to LANDED and MISSION-OK."""
+        frames = [
+            snap(ut=0.0, stage_solid_fuel=1.0, situation="PRE_LAUNCH"),
+            snap(ut=1.0, stage_solid_fuel=0.9, situation="FLYING",
+                 warp_mode="NONE", warp_rate=1.05),  # single ramp-race spike
+            snap(ut=2.0, stage_solid_fuel=0.0, situation="FLYING",
+                 altitude=3000.0, apoapsis=5000.0),                       # ASCENT->COAST
+            snap(ut=10.0, situation="FLYING", altitude=4900.0, apoapsis=5000.0,
+                 vertical_speed=-1.0),                                    # COAST->DESCENT
+            snap(ut=20.0, situation="FLYING", altitude=1000.0, apoapsis=5000.0,
+                 vertical_speed=-50.0),                                   # chute deploys
+            snap(ut=40.0, situation="LANDED", altitude=100.0, apoapsis=5000.0),
+        ]
+        control = FakeMissionControl(frames)
+        code, result = run(b1_pad_hop.SPEC, B1_PARAMS, control)
+        self.assertNotEqual(result["verdict"], mlib.MISSION_FLAKE, result)
+        self.assertIn(mlib.B1_LANDED, result["phasesReached"])
+
     def test_rails_warp_coast_does_not_flake_b2(self):
         """B2 permits RAILS warp on its exo-atmospheric coast (allow_rails_warp), so
         a RAILS-warp frame during the ascent/coast must NOT flake -- it flies through
@@ -547,3 +570,32 @@ class ReadFailStreakTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReadWarpStateTests(unittest.TestCase):
+    """Fable review of the PR #1328 tail (SF-1): warp mode and rate derive from
+    ONE rate sample, so mode NONE with rate above 1 can no longer be produced
+    by a two-RPC race inside the runner itself."""
+
+    class _FakeSc:
+        def __init__(self, rate, mode_name):
+            self.warp_rate = rate
+            self.warp_mode = type("M", (), {"name": mode_name})()
+
+    def test_rate_at_or_below_one_is_none(self):
+        mode, rate = mission_runner._read_warp_state(self._FakeSc(0.99, "PHYSICS"))
+        self.assertEqual(mode, "NONE")
+        self.assertEqual(rate, 0.99)
+
+    def test_rate_above_one_classifies_mode(self):
+        mode, rate = mission_runner._read_warp_state(self._FakeSc(4.12, "PHYSICS"))
+        self.assertEqual((mode, rate), ("PHYSICS", 4.12))
+        mode, rate = mission_runner._read_warp_state(self._FakeSc(50.0, "Rails"))
+        self.assertEqual((mode, rate), ("RAILS", 50.0))
+
+    def test_unreadable_surface_reports_none_1x(self):
+        class Boom:
+            @property
+            def warp_rate(self):
+                raise RuntimeError("dead connection")
+        self.assertEqual(mission_runner._read_warp_state(Boom()), ("NONE", 1.0))

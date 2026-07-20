@@ -409,7 +409,9 @@ def apply_settings(base_lines: Sequence[str], deltas: Dict[str, str]) -> List[st
 #     key/value } } } }. A missing or wrongly-shaped servers node is silently
 #     ignored; kRPC then adds its own random-GUID default server and re-saves
 #     on exit, accumulating duplicates across boots.
-# The template carries every key at kRPC's ctor default, the three hands-free
+# The template carries every EXECUTOR-RELEVANT key at kRPC's ctor default (the
+# cosmetic window-position nodes are deliberately omitted and zero-default to
+# 0,0 - harmless, and kRPC rewrites them anyway), the three hands-free
 # overrides, and one ProtocolBuffersOverTCP server on 127.0.0.1:50000/50001
 # (the mission_runner contract) with a FIXED id so stamping is deterministic.
 # NOTE: kRPC rewrites this file at exit (adaptive rate retune, window

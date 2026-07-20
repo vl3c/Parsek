@@ -217,6 +217,7 @@ class KrpcMissionControl(MissionControl):
                 except Exception:
                     mj_enabled = False
                     mj_complete = False
+            warp_mode, warp_rate = _read_warp_state(sc)
             snapshot = mlib.TelemetrySnapshot(
                 ut=float(sc.ut),
                 altitude=float(flight_srf.surface_altitude),
@@ -238,8 +239,8 @@ class KrpcMissionControl(MissionControl):
                 stage_solid_fuel=float(v.resources.amount("SolidFuel")),
                 mj_autopilot_enabled=mj_enabled,
                 mj_ascent_complete=mj_complete,
-                warp_mode=_warp_mode_name(sc),
-                warp_rate=float(getattr(sc, "warp_rate", 1.0)),
+                warp_mode=warp_mode,
+                warp_rate=warp_rate,
             )
             self._read_fail_streak = 0
             return snapshot
@@ -318,18 +319,23 @@ def _situation_name(situation) -> str:
     return str(name).upper()
 
 
-def _warp_mode_name(sc) -> str:
-    """Normalize the kRPC warp mode to NONE / RAILS / PHYSICS for the telemetry
-    log line (design WARP). Defensive: an unknown surface reports NONE."""
+def _read_warp_state(sc):
+    """Read (warp_mode, warp_rate) derived from ONE warp_rate sample. The rate
+    is read exactly once and the mode classified from THAT sample: reading them
+    as two separate RPCs let a ramp crossing 1.0 report mode NONE with a rate
+    above 1, which the guard treats as an inconsistent state (Fable review of
+    the PR #1328 tail, SF-1: a single-sample false MISSION-FLAKE risked on
+    every warp-engagement ramp). Defensive: an unknown surface reports
+    (NONE, 1.0)."""
     try:
         rate = float(getattr(sc, "warp_rate", 1.0))
-        if rate <= 1.0:
-            return "NONE"
+        if not (rate > 1.0):
+            return "NONE", rate
         mode = getattr(sc, "warp_mode", None)
         name = getattr(mode, "name", None) or str(mode)
-        return "RAILS" if "rail" in str(name).lower() else "PHYSICS"
+        return ("RAILS" if "rail" in str(name).lower() else "PHYSICS"), rate
     except Exception:
-        return "NONE"
+        return "NONE", 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -497,6 +503,11 @@ def fly_loop(
     consecutive in-tolerance snapshots). A flake terminal skips the settle-tail."""
     state = initial_state
     frames: List = []
+    # Seed the exception-state slot immediately: without this, a raise BEFORE
+    # the loop body's first publish (e.g. a malformed build_state result) would
+    # attach the PREVIOUS mission's final state to THIS mission's error result
+    # (Fable review of the PR #1328 tail, NIT-2).
+    _FLY_LOOP_LAST_STATE["state"] = state
     try:
         return _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                               poll_interval, settle_frames, allow_rails_warp, max_physics_warp, frames)
@@ -518,6 +529,7 @@ _FLY_LOOP_LAST_STATE: Dict = {}
 
 def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                    poll_interval, settle_frames, allow_rails_warp, max_physics_warp, frames):
+    warp_violations = 0
     while not state.done:
         _FLY_LOOP_LAST_STATE["state"] = state
         if clock() >= deadline:
@@ -527,13 +539,24 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         snapshot = control.read_snapshot()
         frames.append(snapshot)
         # Edge 7: an unexpected physics (or, for B1, any) warp state distorts the
-        # flight; flake naming the phase + warp state rather than record a warped run.
+        # flight; flake naming the phase + warp state rather than record a warped
+        # run. DEBOUNCED to two CONSECUTIVE violating samples (Fable review of
+        # the PR #1328 tail, SF-1/SF-2): TimeWarp.CurrentRate is a jittery,
+        # continuously-ramping quantity, so a single sample caught mid-ramp or
+        # on a frame-hitch spike must not kill an otherwise clean flight; a
+        # REAL unexpected warp state persists across the 0.5s poll gap.
         if mlib.is_unexpected_warp(snapshot.warp_mode, snapshot.warp_rate, allow_rails_warp,
                                    max_physics_warp=max_physics_warp):
-            log.warn(state.phase, "unexpected %s-warp x%s in phase %s (allow_rails=%s) -> %s"
+            warp_violations += 1
+            log.warn(state.phase, "unexpected %s-warp x%s in phase %s (allow_rails=%s) strike %d/2"
                      % (snapshot.warp_mode, _fmt(snapshot.warp_rate), state.phase,
-                        allow_rails_warp, mlib.MISSION_FLAKE))
-            return replace(state, verdict=mlib.MISSION_FLAKE, flake_phase=state.phase, done=True), frames
+                        allow_rails_warp, warp_violations))
+            if warp_violations >= 2:
+                log.warn(state.phase, "unexpected warp persisted 2 consecutive samples -> %s"
+                         % (mlib.MISSION_FLAKE,))
+                return replace(state, verdict=mlib.MISSION_FLAKE, flake_phase=state.phase, done=True), frames
+        else:
+            warp_violations = 0
         prev_phase = state.phase
         state, actions = decide(state, snapshot)
         # Re-publish post-decide: a perform() failure below must report the

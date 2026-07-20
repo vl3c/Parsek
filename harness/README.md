@@ -46,6 +46,13 @@ kRPC / KRPC.MechJeb git sources are cloned into `provision/.cache/<comp>-src`
 (NOT the umbrella `mods/` clones); `--krpc-src <path>` optionally overrides the
 kRPC source with an existing clone.
 
+The instance's kRPC `PluginData/settings.cfg` is OWNED by the provisioner: every
+provision/repair pass overwrites it with the complete golden template
+(`provlib.KRPC_GOLDEN_SETTINGS_LINES`), discarding any hand or in-game edits by
+design - a PARTIAL file zero-defaults every omitted key and silently disables
+all RPC execution (maxTimePerUpdate=0). Tune kRPC by editing the template, not
+the instance file.
+
 Full enumeration + submodule split recipe:
 `docs/dev/design-autotest-stack-setup.md` ("Module boundary and submodule
 readiness"), cross-referenced from `docs/dev/design-autotest-harness-core.md`.

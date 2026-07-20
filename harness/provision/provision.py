@@ -218,8 +218,10 @@ def _git_origin_matches(clone_dir: str, repo_url: str) -> bool:
     """Read-only: True if ``clone_dir``'s origin URL matches the pinned
     sourceRepo. A mismatch means the pin's fork moved since the cache was
     cloned (e.g. KRPC.MechJeb genhis -> darchambault); fetching from the stale
-    origin can never deliver the new tag/commit. An unreadable origin counts
-    as a mismatch so the refetch path re-points it."""
+    origin can never deliver the new tag/commit. An unreadable origin also
+    counts as a mismatch; the refetch path re-points a WRONG origin, while a
+    clone with NO origin remote at all fails the subsequent set-url and aborts
+    EC-4 fail-loud (delete the cache dir to recover)."""
     if not repo_url:
         return True  # no pin to compare against; EC-4 aborts later anyway
     out = subprocess.run(
@@ -272,8 +274,13 @@ def _fetch_source_commit(ctx: ProvisionContext, comp: str, cache_dir: str,
                   % (cache_dir, (res.stderr or "").strip()[:200]))
             return False
     log(ctx, "Info", "Source", "%s fetch in %s (pinned commit missing)" % (comp, cache_dir))
+    # --force on tags: after a fork re-pin a SAME-NAMED tag can exist on both
+    # remotes and a non-forced fetch refuses to clobber the cached one,
+    # aborting a repair that should converge (Fable review NIT-8). Forcing is
+    # safe here: the pinned remote is the identity authority and PIN
+    # peel-verifies the tag afterwards.
     res = subprocess.run(
-        ["git", "-C", cache_dir, "fetch", "--filter=blob:none", "--tags", "origin"],
+        ["git", "-C", cache_dir, "fetch", "--filter=blob:none", "--tags", "--force", "origin"],
         capture_output=True, text=True,
     )
     if res.returncode != 0:

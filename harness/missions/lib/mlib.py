@@ -876,12 +876,12 @@ def is_unexpected_warp(warp_mode: str, warp_rate: float, allow_rails: bool,
     """True iff the reported warp state is UNEXPECTED for a v1 mission (design
     edge 7). 1x (a non-finite or ``<= 1.0`` rate) is always fine. Above 1x:
     PHYSICS warp is permitted only up to ``max_physics_warp`` (default 0.0 =
-    never; B2 sets 2.0 because MechJeb's AscentAutopilot engages its own 2x
-    physics warp during ascent and KRPC.MechJeb 0.8.1 exposes no toggle for it
-    - observed live 2026-07-20 at ramping rates 1.1-1.5x; the comparison
-    carries a small ramp allowance since TimeWarp.CurrentRate is continuous
-    while ramping toward the step rate). Above that bound it stays a
-    determinism violation. RAILS warp is permitted ONLY when ``allow_rails``
+    never; the mission spec sets the bound - B2 uses 4.0, the stock physics
+    ceiling, because MechJeb's AscentAutopilot engages its own physics warp
+    during ascent escalating to 4x and KRPC.MechJeb 0.8.1 exposes no toggle
+    for it - observed live 2026-07-20; the comparison carries a small ramp
+    allowance since TimeWarp.CurrentRate is continuous while ramping toward
+    the step rate). Above that bound it stays a determinism violation. RAILS warp is permitted ONLY when ``allow_rails``
     (B2's exo-atmospheric coast, per its RAILS-or-1x contract), and forbidden
     otherwise (B1's 1x-throughout contract). An unknown warp mode above 1x is
     treated conservatively as unexpected. On True the shell flakes the mission
