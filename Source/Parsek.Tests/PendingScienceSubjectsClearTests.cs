@@ -354,6 +354,188 @@ namespace Parsek.Tests
             Assert.Empty(GameStateRecorder.PendingScienceSubjects);
         }
 
+        // ---- Re-fly pending-science audit (2026-07-19): tag-vs-window sanity
+        // check in the tree routing. A stale subject leaking across a rewind
+        // keeps its origin tag while its captureUT lies outside the tagged
+        // recording's window; the routing must warn and fall back to capture-UT
+        // window attribution instead of trusting the tag blindly. Post-window
+        // captures with NO covering window keep the tag (the BUG-A on-rails
+        // anchor in ConvertScienceSubjects owns that case).
+
+        [Fact]
+        public void NotifyLedgerTreeCommitted_TaggedSubjectOutsideWindow_ReRoutesByCaptureUt_NoCredit()
+        {
+            // Tagged rec-head (window [100, 200]) but captured at 250, which lies
+            // inside rec-fork's window [200, 300] — the re-fly leak shape after the
+            // origin split. The routing warns + re-routes to rec-fork, where the
+            // downstream tag check skips it as cross-recording: no science credited.
+            SeedSubject(
+                "goo@MunSrfLanded",
+                5.0f,
+                captureUT: 250.0,
+                recordingId: "rec-head",
+                reasonKey: "ScienceTransmission");
+
+            var recHead = MakeRec("rec-head", 100.0, 200.0);
+            var recFork = MakeRec("rec-fork", 200.0, 300.0);
+            StageRecordings(recHead, recFork);
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-window-sanity",
+                TreeName = "Window Sanity Tree",
+                RootRecordingId = recHead.RecordingId,
+                ActiveRecordingId = recFork.RecordingId
+            };
+            tree.Recordings[recHead.RecordingId] = recHead;
+            tree.Recordings[recFork.RecordingId] = recFork;
+
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
+
+            // No ScienceEarning anywhere: the mis-tagged capture must not credit
+            // rec-head (tag) nor rec-fork (cross-recording skip).
+            Assert.Equal(0, Ledger.Actions.Count(a => a.Type == GameActionType.ScienceEarning));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("Tree science routing") &&
+                l.Contains("goo@MunSrfLanded") &&
+                l.Contains("re-routing by capture UT to 'rec-fork'"));
+        }
+
+        [Fact]
+        public void NotifyLedgerTreeCommitted_TaggedSubjectBeyondAllWindows_KeepsTagAttribution_BugACredit()
+        {
+            // BUG-A regression guard: a tagged capture BEYOND every window (the
+            // recorder stayed live through on-rails warp, trajectory bounds ended
+            // earlier) keeps its tag attribution and still credits, anchored at
+            // the recording's end bound.
+            SeedSubject(
+                "temperatureScan@MunInSpaceLow",
+                4.0f,
+                captureUT: 500.0,
+                recordingId: "rec-onrails",
+                reasonKey: "ScienceTransmission");
+
+            var rec = MakeRec("rec-onrails", 100.0, 200.0);
+            StageRecordings(rec);
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-onrails",
+                TreeName = "OnRails Tree",
+                RootRecordingId = rec.RecordingId,
+                ActiveRecordingId = rec.RecordingId
+            };
+            tree.Recordings[rec.RecordingId] = rec;
+
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
+
+            var action = Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.ScienceEarning));
+            Assert.Equal("rec-onrails", action.RecordingId);
+            Assert.Equal("temperatureScan@MunInSpaceLow", action.SubjectId);
+            // BUG-A anchor: resolved start clamps to the recording's end bound.
+            Assert.Equal(200.0f, action.StartUT);
+
+            // C-2: the legitimate BUG-A keep-tag path fires on every normal
+            // warp-mission commit, so it must log VERBOSE, not WARN.
+            Assert.Contains(logLines, l =>
+                l.Contains("[VERBOSE]") &&
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("Tree science routing") &&
+                l.Contains("temperatureScan@MunInSpaceLow") &&
+                l.Contains("keeping tag attribution"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("Tree science routing"));
+        }
+
+        [Fact]
+        public void NotifyLedgerTreeCommitted_ChainedTaggedSubjectInSuccessorGapWindow_KeepsTagAttribution_BugACredit()
+        {
+            // C-1 regression: on a CHAINED flight the science windows are built
+            // with chain-gap closure (the successor's StartUT is pulled back to
+            // the predecessor's EndUT), so the legitimate BUG-A capture — tagged
+            // segment A during A's live on-rails tail, after A's trajectory
+            // bounds ended — lands inside segment B's ADJUSTED window. The
+            // routing must NOT re-route to the chain sibling (that would drop
+            // the science via the downstream cross-recording check); it keeps
+            // the tag and the science credits to segment A, anchored at A's end
+            // bound.
+            SeedSubject(
+                "gravityScan@MunInSpaceHigh",
+                6.0f,
+                captureUT: 220.0,
+                recordingId: "seg-A",
+                reasonKey: "ScienceTransmission");
+
+            var segA = MakeRec("seg-A", 100.0, 200.0);
+            segA.ChainId = "chain-1";
+            segA.ChainIndex = 0;
+            var segB = MakeRec("seg-B", 250.0, 300.0);
+            segB.ChainId = "chain-1";
+            segB.ChainIndex = 1;
+            StageRecordings(segA, segB);
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-chain-gap",
+                TreeName = "Chain Gap Tree",
+                RootRecordingId = segA.RecordingId,
+                ActiveRecordingId = segB.RecordingId
+            };
+            tree.Recordings[segA.RecordingId] = segA;
+            tree.Recordings[segB.RecordingId] = segB;
+
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
+
+            // captureUT 220 lies in the gap [200, 250], which the gap-adjusted
+            // seg-B window [200, 300] covers. The chain carve-out keeps the tag:
+            // exactly one ScienceEarning, on seg-A, anchored at seg-A's end.
+            var action = Assert.Single(Ledger.Actions.Where(a => a.Type == GameActionType.ScienceEarning));
+            Assert.Equal("seg-A", action.RecordingId);
+            Assert.Equal("gravityScan@MunInSpaceHigh", action.SubjectId);
+            Assert.Equal(200.0f, action.StartUT);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[VERBOSE]") &&
+                l.Contains("Tree science routing") &&
+                l.Contains("gravityScan@MunInSpaceHigh") &&
+                l.Contains("chain sibling") &&
+                l.Contains("keeping tag attribution"));
+            Assert.DoesNotContain(logLines, l => l.Contains("re-routing by capture UT"));
+        }
+
+        [Fact]
+        public void NotifyLedgerTreeCommitted_TaggedSubjectImplausibleCaptureUt_NoWarn_TagRoutingUnchanged()
+        {
+            // NaN captureUT gives no basis to distrust the tag: no sanity warn,
+            // routing lands in the tagged bucket exactly as before (downstream
+            // still rejects the NaN capture, so no action is emitted).
+            SeedSubject(
+                "barometerScan@KerbinInSpaceHigh",
+                2.0f,
+                captureUT: double.NaN,
+                recordingId: "rec-nan",
+                reasonKey: "ScienceTransmission");
+
+            var rec = MakeRec("rec-nan", 100.0, 200.0);
+            StageRecordings(rec);
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-nan",
+                TreeName = "NaN Tree",
+                RootRecordingId = rec.RecordingId,
+                ActiveRecordingId = rec.RecordingId
+            };
+            tree.Recordings[rec.RecordingId] = rec;
+
+            LedgerOrchestrator.NotifyLedgerTreeCommitted(tree);
+
+            Assert.Equal(0, Ledger.Actions.Count(a => a.Type == GameActionType.ScienceEarning));
+            Assert.DoesNotContain(logLines, l => l.Contains("Tree science routing"));
+        }
+
         [Fact]
         public void NotifyLedgerTreeCommitted_OrchestratorThrows_RetainsPendingScience()
         {
