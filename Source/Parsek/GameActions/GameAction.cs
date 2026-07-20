@@ -39,9 +39,11 @@ namespace Parsek
         /// <summary>
         /// Scheduler decided the cycle is good to go after destination + origin + funds
         /// checks (design doc §6.1 step 5). Carries <c>RouteId</c>, <c>RouteCycleId</c>,
-        /// and the scheduled dispatch UT. Resumes immediately after a <see cref="RoutePaused"/>
-        /// row — there is no explicit RouteUnpaused/RouteResumed type because the next
-        /// RouteDispatched IS the resumption signal.
+        /// and the scheduled dispatch UT. Also carries the sparse
+        /// <see cref="GameAction.RouteSendOnce"/> marker when the cycle was armed by
+        /// the player's Send Once one-shot instead of the auto-dispatch loop. A durable
+        /// player resume is recorded explicitly as <see cref="RouteResumed"/>; a
+        /// RouteDispatched row alone only proves a cycle fired.
         /// </summary>
         RouteDispatched       = 23,
 
@@ -63,10 +65,17 @@ namespace Parsek
         RouteCargoDelivered   = 25,
 
         /// <summary>
-        /// Player Pause action, OR auto-pause when status transitions to EndpointLost /
+        /// Player Pause action, OR auto-pause when status transitions to
         /// MissingSourceRecording / SourceChanged (design doc §6.6, §10.6). The reason is
-        /// captured in <see cref="GameAction.RouteEndpointReason"/>. §10.6 needs this row
-        /// in the timeline so revert past a dispatch can correctly suspend future cycles.
+        /// captured in <see cref="GameAction.RouteEndpointReason"/>: <c>player-pause</c>,
+        /// the armed pause-after-cycle <c>delivered-then-paused</c> /
+        /// <c>delivered-partial-then-paused</c>, or the LIVE source-revalidation
+        /// auto-flips <c>AutoPause:MissingSourceRecording</c> /
+        /// <c>AutoPause:SourceChanged</c> (OnLoad revalidation passes stay silent -
+        /// caller-gated via <c>RouteStore.RevalidateSources(reason, liveEmitUT)</c>).
+        /// An EndpointLost transition emits <see cref="RouteEndpointLost"/> instead.
+        /// §10.6 needs this row in the timeline so revert past a dispatch can
+        /// correctly suspend future cycles.
         /// </summary>
         RoutePaused           = 26,
 
@@ -115,7 +124,26 @@ namespace Parsek
         /// Sequence is assigned AFTER <see cref="RouteDispatched"/> (Seq0) so the
         /// ledger walker sees dispatch first at the shared UT.
         /// </summary>
-        RouteCargoPickedUp = 29
+        RouteCargoPickedUp = 29,
+
+        /// <summary>
+        /// Player Activate action turning a <see cref="RoutePaused"/> route back into
+        /// an auto-dispatching one (route-timeline events; design doc §6.6). The
+        /// explicit durable-resume marker: earlier revisions inferred resumption from
+        /// the next <see cref="RouteDispatched"/> row, which leaves the timeline blind
+        /// to a resume whose first cycle blocks on eligibility (or never fires). The
+        /// reason is captured in <see cref="GameAction.RouteEndpointReason"/>
+        /// (<c>player-activate</c>; <c>AutoResume:SourcesRestored</c> when a LIVE
+        /// source-revalidation pass restores an Active-family status from
+        /// MissingSourceRecording - a restored Paused emits nothing, it never
+        /// resumed; or <c>AutoResume:CatchUp</c> when a live pass repairs an
+        /// unmatched RoutePaused row left by a flip that had to run silently in
+        /// load context). A Send Once arm is NOT a
+        /// resume — it stamps <see cref="GameAction.RouteSendOnce"/> on its dispatched
+        /// row instead. Free-standing like every route row (no <c>RecordingId</c>);
+        /// retired at rewind by <c>RouteLedgerRetire</c> alongside types 23-29.
+        /// </summary>
+        RouteResumed = 30
     }
 
     /// <summary>How science was collected — transmitted from orbit or recovered on the ground.</summary>
@@ -541,8 +569,22 @@ namespace Parsek
         public float RouteKscFundsCost;
 
         /// <summary>
+        /// True on a <see cref="GameActionType.RouteDispatched"/> row whose cycle was
+        /// armed by the player's Send Once one-shot (route-timeline events): the route
+        /// dispatches this single cycle and auto-pauses after delivery, so the
+        /// dispatched row plus the following <see cref="GameActionType.RoutePaused"/>
+        /// row bracket the individual run in the timeline. Stamped from the persisted
+        /// <c>Route.SendOnceArmed</c> flag at emit time. Sparse in the codec (omitted
+        /// when false) so ordinary auto-cycle rows stay byte-identical. Consumed by
+        /// <see cref="RouteModule"/> to accept a send-once dispatch on a paused route
+        /// without the dispatch-on-paused warning.
+        /// </summary>
+        public bool RouteSendOnce;
+
+        /// <summary>
         /// Short human/machine-readable reason for a
-        /// <see cref="GameActionType.RoutePaused"/> or
+        /// <see cref="GameActionType.RoutePaused"/>,
+        /// <see cref="GameActionType.RouteResumed"/> or
         /// <see cref="GameActionType.RouteEndpointLost"/> row (design doc §6.6, §10.1,
         /// §10.2, §10.15, §10.16). Typical values: <c>"PlayerPause"</c>,
         /// <c>"AutoPause:EndpointLost"</c>, <c>"AutoPause:MissingSourceRecording"</c>,
@@ -753,6 +795,9 @@ namespace Parsek
                 case GameActionType.RouteCargoPickedUp:
                     SerializeRouteCargoPickedUp(node);
                     break;
+                case GameActionType.RouteResumed:
+                    SerializeRouteResumed(node);
+                    break;
             }
         }
 
@@ -892,6 +937,9 @@ namespace Parsek
                     break;
                 case GameActionType.RouteCargoPickedUp:
                     DeserializeRouteCargoPickedUp(node, a);
+                    break;
+                case GameActionType.RouteResumed:
+                    DeserializeRouteResumed(node, a);
                     break;
             }
 
@@ -1257,11 +1305,18 @@ namespace Parsek
         private void SerializeRouteDispatched(ConfigNode n)
         {
             WriteRouteCommon(n);
+            // Sparse Send Once provenance (route-timeline events): only a one-shot
+            // cycle writes the key, so auto-cycle rows stay byte-identical.
+            if (RouteSendOnce)
+                n.AddValue("routeSendOnce", RouteSendOnce.ToString());
         }
 
         private static void DeserializeRouteDispatched(ConfigNode n, GameAction a)
         {
             ReadRouteCommon(n, a);
+            string sendOnceStr = n.GetValue("routeSendOnce");
+            if (sendOnceStr != null)
+                bool.TryParse(sendOnceStr, out a.RouteSendOnce);
         }
 
         private void SerializeRouteCargoDebited(ConfigNode n)
@@ -1323,6 +1378,21 @@ namespace Parsek
         }
 
         private static void DeserializeRoutePaused(ConfigNode n, GameAction a)
+        {
+            ReadRouteCommon(n, a);
+            a.RouteEndpointReason = n.GetValue("routeEndpointReason");
+        }
+
+        // RouteResumed (route-timeline events): the durable player-resume marker.
+        // Same wire shape as RoutePaused — route identity plus the free-form reason.
+        private void SerializeRouteResumed(ConfigNode n)
+        {
+            WriteRouteCommon(n);
+            if (!string.IsNullOrEmpty(RouteEndpointReason))
+                n.AddValue("routeEndpointReason", RouteEndpointReason);
+        }
+
+        private static void DeserializeRouteResumed(ConfigNode n, GameAction a)
         {
             ReadRouteCommon(n, a);
             a.RouteEndpointReason = n.GetValue("routeEndpointReason");

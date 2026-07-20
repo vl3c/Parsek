@@ -8,11 +8,18 @@ All notable changes to Parsek are documented here.
 
 ### Features
 
+- Supply-route pause and resume actions are now recorded on the career timeline, so rewinding past them restores the route's pause history consistently with everything else; Send Once runs are marked as one-shot cycles in the timeline, and the "Sending one cycle" state now survives save and reload.
+- Supply routes now respect the timeline across a rewind: a route created after the rewind point disappears from the Logistics window and stops dispatching (previously it kept running before its own creation), goes dormant instead of being lost, and automatically reappears (paused, ready to re-activate) once the re-flown timeline passes its original creation point, as long as its source recordings still exist. Routes created before the rewind point now also resume their delivery schedule correctly on the re-flown timeline instead of silently skipping cycles.
+- Dormant routes are no longer invisible: the Logistics window shows a collapsed "Dormant Routes" section listing each one with the date it will reappear and a Delete button, and a route that auto-pauses or recovers because its source recordings vanished or changed during play now records that pause and resume on the career timeline.
+
 - Supply routes no longer lose cargo when the destination is full: a route now waits ("Held: no room for X" / "Held: no slot for 'part'") until the destination has room for the full delivery, instead of charging the origin and silently dropping whatever did not fit. If room disappears mid-cycle, the route's detail panel now reports exactly what was lost.
 - A supply route held on a missing stored part now names the part instead of showing an internal code, and says when the part is actually there but its charge, fuel, or contents no longer match the recorded cargo.
 
 ### Fixes
 
+- The plain go-back rewind (Rewind to Launch / warp back) now reconciles supply routes the same way a Re-Fly rewind does: routes created after the rewind target go dormant instead of continuing to run before their own creation point, and surviving routes correctly re-deliver re-played cycles instead of silently skipping them.
+- After a rewind, surviving supply routes now restore their timeline-correct paused or active state, their completed and skipped cycle counters, and drop any armed Send Once or pause-after-cycle one-shot; a Send Once route recovering from a crash mid-delivery also pauses correctly now instead of staying active and sending a second cycle.
+- Science gathered after a rewind point is no longer paid out when that timeline is undone by a Re-Fly: experiment results captured between the rewind point and the rewind itself are now discarded with the rest of the abandoned future, instead of being silently credited at the merge for an experiment that never happened on the surviving timeline.
 - With Auto-merge recordings turned on (Settings), a vessel you leave surviving at the end of a mission (in orbit, landed, or splashed) now stays a real, controllable vessel on the timeline instead of becoming a visual-only ghost, and landed or splashed missions no longer interrupt with a confirmation prompt. Auto-merge is still off by default.
 - New recordings no longer store two overlapping trajectory sections for the same time span around time-warp seams, which made the ghost's playback position ambiguous in those windows. Existing recordings are left untouched.
 - Supply-route inventory delivery now uses every cargo container on the destination vessel: when the first container is full, items are delivered into the next container with a free slot instead of being reported as undelivered. Pickup already worked this way; delivery now matches it.
@@ -48,6 +55,7 @@ All notable changes to Parsek are documented here.
 - Added the developer-only ledger oracle: the harness now cross-checks career money, science, and reputation against two independent witnesses (what stock KSP granted at event time, and what the save file says afterwards), with Parsek's own arithmetic deliberately excluded from both, so any amount the ledger invents or loses is caught as a drift. Live verification pending an operator session; everything else is headless-tested.
 - The automated-testing harness now re-runs only a flaked verifier tool (a wedged analyzer or a transient log check) against the same run instead of re-flying the whole ~10-minute scenario, and correctly reads a multi-category in-game test batch's combined pass/fail summary. Developer-only tooling; no gameplay change.
 - The developer-only test-command channel now lets research-node run in Science mode (where R&D is live) in addition to Career, and gained a SaveGame verb that persists the current game in-place so a test can save and reload within one launch. Inert in a normal game; no gameplay change.
+- Added an in-game test category and an unattended automated-test scenario covering this release's route-and-rewind behaviors (pause/resume timeline rows, dormant routes across a rewind, restored route status and counters, discarded post-rewind science) so they are verified automatically instead of by manual playtest. Test-tooling only; no gameplay change.
 
 ## 0.10.3
 

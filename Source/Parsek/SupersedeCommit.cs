@@ -746,10 +746,26 @@ namespace Parsek
         /// synchronous behavior with <paramref name="preserveMarker"/> =
         /// <c>false</c>.
         /// </para>
+        ///
+        /// <para>
+        /// <paramref name="onLoadContext"/> (route-timeline events): set by
+        /// <see cref="MergeJournalOrchestrator.RunFinisher"/>, which re-drives
+        /// this flip FROM <see cref="ParsekScenario.OnLoad"/> after a crash -
+        /// that path must never write route auto-pause/resume ledger rows (on
+        /// the scene-change branch Planetarium can report a stale nonzero UT
+        /// during OnLoad; on the cold branch UT is 0). The finisher's flips
+        /// therefore stay SILENT: a route flip driven by the recovered merge
+        /// leaves no marker row. That lost-marker residual is repaired by the
+        /// revalidation catch-up net (<c>RouteStore.AutoResumeCatchUpReason</c>)
+        /// on the next live pass. The live callers (<see cref="CommitSupersede"/>,
+        /// <see cref="MergeJournalOrchestrator.RunMerge"/>) leave it false and
+        /// emit through <see cref="ParsekScenario.BumpSupersedeStateVersionLive"/>,
+        /// whose own OnLoad-in-progress guard is the second net.
+        /// </para>
         /// </summary>
         internal static void FlipMergeStateAndClearTransient(
             ReFlySessionMarker marker, Recording provisional, ParsekScenario scenario,
-            bool preserveMarker)
+            bool preserveMarker, bool onLoadContext = false)
         {
             if (marker == null || provisional == null
                 || object.ReferenceEquals(null, scenario)) return;
@@ -780,7 +796,18 @@ namespace Parsek
             string priorTarget = provisional.SupersedeTargetId;
             provisional.SupersedeTargetId = null;
 
-            scenario.BumpSupersedeStateVersion();
+            // Route-timeline events: on the live merge paths (player-driven
+            // commit via CommitSupersede / RunMerge) emit auto-pause /
+            // auto-resume markers for any route whose sources this supersede
+            // just retired or restored; the Live helper's OnLoad-in-progress
+            // guard plus the explicit onLoadContext flag (RunFinisher re-drives
+            // this flip FROM OnLoad after a crash) keep every load-context
+            // execution silent. A finisher-silenced flip is repaired by the
+            // catch-up net on the next live pass.
+            if (onLoadContext)
+                scenario.BumpSupersedeStateVersion();
+            else
+                scenario.BumpSupersedeStateVersionLive();
             if (restoredPlayback)
             {
                 ParsekLog.Verbose(Tag,
@@ -1875,6 +1902,10 @@ namespace Parsek
                 // quicksave, never by this predicate, so supersede must not block on
                 // it.
                 case GameActionType.RouteCargoPickedUp:
+                // RouteResumed (route-timeline events): the durable player-resume
+                // marker, scheduler-emitted like RoutePaused; carries no world
+                // mutation, so supersede must not strict-block or retry-block on it.
+                case GameActionType.RouteResumed:
                     return false;
             }
 

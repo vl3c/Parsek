@@ -1197,6 +1197,58 @@ namespace Parsek.Tests
             Assert.Equal("AutoPause:SourceChanged", result.RouteEndpointReason);
         }
 
+        // Route-timeline events: the durable player-resume marker round-trips with
+        // the same wire shape as RoutePaused (route identity + free-form reason).
+        [Fact]
+        public void Serialize_RouteResumed_RoundTripsReason()
+        {
+            var original = new GameAction
+            {
+                UT = 52500.0,
+                Type = GameActionType.RouteResumed,
+                RouteId = "route-resume",
+                RouteEndpointReason = "player-activate"
+            };
+
+            var result = RoundTrip(original);
+
+            Assert.Equal(GameActionType.RouteResumed, result.Type);
+            Assert.Equal("route-resume", result.RouteId);
+            Assert.Equal("player-activate", result.RouteEndpointReason);
+        }
+
+        // Route-timeline events: the sparse Send Once stamp on a dispatched row
+        // round-trips when true and writes NO key when false (auto-cycle rows
+        // stay byte-identical).
+        [Fact]
+        public void Serialize_RouteDispatched_RouteSendOnce_RoundTripsAndStaysSparse()
+        {
+            var sendOnce = new GameAction
+            {
+                UT = 52600.0,
+                Type = GameActionType.RouteDispatched,
+                RouteId = "route-oneshot",
+                RouteCycleId = "cycle-0",
+                RouteSendOnce = true
+            };
+            var result = RoundTrip(sendOnce);
+            Assert.True(result.RouteSendOnce);
+            Assert.Equal("route-oneshot", result.RouteId);
+
+            var autoCycle = new GameAction
+            {
+                UT = 52700.0,
+                Type = GameActionType.RouteDispatched,
+                RouteId = "route-auto",
+                RouteCycleId = "cycle-1"
+            };
+            var parent = new ConfigNode("ROOT");
+            autoCycle.SerializeInto(parent);
+            var node = parent.GetNode("GAME_ACTION");
+            Assert.Null(node.GetValue("routeSendOnce"));
+            Assert.False(RoundTrip(autoCycle).RouteSendOnce);
+        }
+
         [Fact]
         public void Serialize_RouteEndpointLost_RoundTripsReason()
         {

@@ -59,6 +59,45 @@ review). Every claim below is anchored to `file:line` confirmed by direct reads.
 
 ---
 
+> **CORRECTION ADDENDUM (2026-07-19, dormant-routes plan review).** The axis-A
+> claim "route definitions + counters revert via the RP `.sfs` ROUTES node
+> (`RouteStore.LoadRoutesFrom`, `ParsekScenario.cs:3343`)" - load-bearing for
+> section 2's table, Q2's "works correctly", risk #9 "sound", and Rec-1's
+> "counters revert via .sfs" story - was WRONG at ratification time:
+> `LoadRoutesFrom` sits on the COLD-START branch of `ParsekScenario.OnLoad`
+> (`initialLoadDone == false`) and never runs on an in-session load, including
+> the rewind's RP quicksave load (the preservation branch dispatches
+> `RewindInvoker.ConsumePostLoad` with the in-memory RouteStore untouched). So
+> before the dormant-routes extension: a route created after the RP survived
+> the rewind and kept dispatching before its own creation point, and
+> pre-cutoff routes kept abandoned-future loop cursors that silently swallowed
+> re-flown cycles (partially defeating Rec-1's re-delivery). Both are fixed by
+> the dormant-routes extension
+> (`docs/dev/plans/plan-route-rewind-dormant-visibility.md`):
+> `ReconciliationBundle` now captures + classifies the route lists at
+> `Restore(cutoff)` (post-cutoff routes go dormant and re-materialize at their
+> `CreatedUT`; kept routes get their cycle state reconciled). Read this
+> report's axis A / risk #9 / Q2 verdicts through that lens.
+>
+> **Second-exit correction (2026-07-19, preservation-branch forensic audit).**
+> The preservation branch has TWO in-session OnLoad exits, and the paragraph
+> above only covered the first (Re-Fly:
+> `RewindInvoker.ConsumePostLoad -> ReconciliationBundle.Restore(cutoff)`).
+> The SECOND exit - the plain go-back rewind / Rewind-to-Launch / warp-back
+> path, `ParsekScenario.HandleRewindOnLoad` - was ALSO route-blind: it never
+> runs `Ledger.PruneOrphanActionsAfterUT` (that call sits on the revert
+> branch only), so the abandoned-future free-standing route rows survived the
+> in-memory static ledger, kept routes carried abandoned-future loop cursors
+> (re-played cycles silently swallowed by the UT-blind dedup - "funds spent,
+> no goods" again), and routes created after the rewind target stayed
+> committed, visible, and firing before their own creation point. FIXED
+> (branch `fix-goback-route-reconcile`): `HandleRewindOnLoad` now retires the
+> future route rows in place (`Ledger.RetireFutureRouteActionsAtRewind`,
+> cutoff = `RewindContext.RewindAdjustedUT`, the UT the loaded save reverted
+> the world to) and runs the SAME route reconciliation as the Re-Fly seam via
+> the shared `RouteRewindClassifier.ReconcileStoreAtRewind` helper (both
+> exits now share one code path and cannot drift).
+
 ## 1. The two systems, in one paragraph each
 
 **Supply routes (logistics).** A committed Supply Run (a flown, docked, undocked, cargo-transferring
@@ -249,6 +288,10 @@ Because `EmitLoopCycle`/`cycleId` is cadence-source-agnostic, Rec-1 fixes the in
 Separately decide whether inter-body routes should be **hard-blocked until M5** — if so, add an explicit
 cross-parent *creation reject* (with a player-facing reason) now, so "same-body only" is enforced rather
 than merely intended.
+
+> **Addendum (2026-07-19):** decision CLOSED. M5 inter-body synodic-faithful scheduling shipped in
+> 0.10.3 (PR #1238, in-game gate passed 2026-07-08), so inter-body routes are ratified as supported and
+> no creation gate is added.
 
 ### Rec-3 — Close the non-rewind discard leak (separate root cause)
 Risk #6 is independent of Rec-1: a plain discard or `ReFlyDiscard` has no quicksave, so physical

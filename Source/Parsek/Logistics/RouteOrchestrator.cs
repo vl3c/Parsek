@@ -136,6 +136,11 @@ namespace Parsek.Logistics
             // Disable the auto-cycle loop. After the upcoming cycle's delivery,
             // ApplyDelivery transitions the route to Paused instead of Active.
             route.PauseAfterCurrentCycle = true;
+            // Route-timeline events: persist the Send Once provenance so (a) the UI
+            // "Sending one cycle" state survives save/reload and (b) the dispatched
+            // ledger row is stamped RouteSendOnce, bracketing the one-shot run in
+            // the timeline together with the auto-pause row that follows delivery.
+            route.SendOnceArmed = true;
 
             // Un-pause so the dispatch evaluator can fire on the next tick.
             if (route.Status == RouteStatus.Paused)
@@ -183,6 +188,9 @@ namespace Parsek.Logistics
             }
 
             route.PauseAfterCurrentCycle = false;
+            // Activate supersedes any pending Send Once one-shot (the route now
+            // auto-dispatches, so one-shot provenance must not linger).
+            route.SendOnceArmed = false;
             route.NextEligibilityCheckUT = null;
             if (route.NextDispatchUT < currentUT)
                 route.NextDispatchUT = currentUT;
@@ -228,6 +236,10 @@ namespace Parsek.Logistics
             route.ClearHold("player-activate");
 
             route.TransitionTo(RouteStatus.Active, "player-activate");
+            // Route-timeline events: the durable resume marker. Recorded explicitly
+            // because the next RouteDispatched row can be arbitrarily far away (or
+            // never come, on a route that blocks on eligibility after resume).
+            EmitRouteLifecycleMarker(route, currentUT, GameActionType.RouteResumed, "player-activate");
             ParsekLog.Info(Tag,
                 $"TryActivate: route={ShortIdForLog(route)} now Active " +
                 $"nextDispatchUT={route.NextDispatchUT.ToString("R", IC)} " +
@@ -301,6 +313,16 @@ namespace Parsek.Logistics
             if (route.Status == RouteStatus.InTransit)
             {
                 route.PauseAfterCurrentCycle = true;
+                // A player Pause during a Send-Once cycle supersedes the one-shot
+                // provenance: the arm's dispatch row was already stamped at emit,
+                // and the UI label must flip from "Sending one cycle" to the
+                // pausing-after-cycle state (review finding 1, PR #1327).
+                if (route.SendOnceArmed)
+                {
+                    route.SendOnceArmed = false;
+                    ParsekLog.Info(Tag,
+                        $"TryPause: route={ShortIdForLog(route)} cleared Send Once arm (pause supersedes one-shot)");
+                }
                 ParsekLog.Info(Tag,
                     $"TryPause: route={ShortIdForLog(route)} InTransit — armed PauseAfterCurrentCycle " +
                     "(current cycle finishes, then route pauses)");
@@ -321,7 +343,18 @@ namespace Parsek.Logistics
             RouteStore.DropRouteEscrow(route.Id);
 
             route.PauseAfterCurrentCycle = false;
+            // A pending Send Once one-shot is cancelled by an explicit pause; the
+            // never-fired arm leaves no ledger trace (nothing dispatched).
+            if (route.SendOnceArmed)
+            {
+                route.SendOnceArmed = false;
+                ParsekLog.Info(Tag,
+                    $"TryPause: route={ShortIdForLog(route)} cleared pending Send Once arm");
+            }
             route.TransitionTo(RouteStatus.Paused, "player-pause");
+            // Route-timeline events: record the pause point so the ledger timeline
+            // carries the player's pause history (retired at rewind past it).
+            EmitRouteLifecycleMarker(route, currentUT, GameActionType.RoutePaused, "player-pause");
             return true;
         }
 
@@ -353,6 +386,12 @@ namespace Parsek.Logistics
                 ParsekLog.Warn(Tag, "Tick: null env — skipped");
                 return;
             }
+
+            // Dormant-routes extension: materialize due dormant routes BEFORE
+            // the committed-count early return, so a save whose only routes are
+            // dormant still materializes at their creation point. No-cost when
+            // the dormant list is empty.
+            RouteStore.MaterializeDueDormantRoutes(currentUT);
 
             var routes = RouteStore.CommittedRoutes;
             if (routes == null || routes.Count == 0)
@@ -3416,7 +3455,10 @@ namespace Parsek.Logistics
             }
 
             // RouteDispatched — the scheduler-decision marker. No manifest;
-            // the debit row carries the resources/funds payload.
+            // the debit row carries the resources/funds payload. The sparse
+            // RouteSendOnce stamp (route-timeline events) marks a cycle armed by
+            // the player's Send Once one-shot so the individual run is
+            // identifiable in the timeline.
             var dispatchedAction = new GameAction
             {
                 Type = GameActionType.RouteDispatched,
@@ -3425,6 +3467,7 @@ namespace Parsek.Logistics
                 RouteCycleId = cycleId,
                 RouteStopIndex = dispatchStopIndex,
                 Sequence = dispatchSeqBase + 0,
+                RouteSendOnce = route.SendOnceArmed,
             };
 
             // RouteCargoDebited — the physical/funds debit. Carries the cost
@@ -3542,6 +3585,55 @@ namespace Parsek.Logistics
                 default:
                     return RouteDispatchEvaluator.EligibilityFailureKind.None;
             }
+        }
+
+        /// <summary>
+        /// Emits a route lifecycle marker row (<see cref="GameActionType.RoutePaused"/> /
+        /// <see cref="GameActionType.RouteResumed"/>) so player pause/resume points are
+        /// recorded in the timeline (route-timeline events). Free-standing like every
+        /// route row; a rewind retires it via <c>RouteLedgerRetire</c> when it is
+        /// stamped after the cutoff. Skips with a Warn when the UT could not be
+        /// resolved (degenerate off-Unity context): a marker carrying a bogus UT would
+        /// survive every rewind cutoff and misplace the event on the timeline. The
+        /// guard treats 0 as unresolved too — some UI fallbacks surface 0 instead of
+        /// -1 when Planetarium is unavailable, and UT=0 is never a trustworthy
+        /// timeline position (the BUG-F cold-load lesson); no real route can exist
+        /// at the very first instant of a save.
+        /// <paramref name="emitter"/> is the test seam (mirrors
+        /// <c>ApplyDeliveryContext.LedgerEmitter</c>); null routes to
+        /// <see cref="Ledger.AddAction"/>.
+        /// </summary>
+        internal static void EmitRouteLifecycleMarker(
+            Route route, double currentUT, GameActionType type, string reason,
+            int sequence = 0, Action<GameAction> emitter = null)
+        {
+            if (currentUT <= 0.0)
+            {
+                ParsekLog.Warn(Tag,
+                    $"LifecycleMarker: route {ShortIdForLog(route)} type={type} " +
+                    $"reason={reason ?? "<none>"} SKIPPED - live UT unresolved " +
+                    "(marker would carry a bogus timeline position)");
+                return;
+            }
+
+            var action = new GameAction
+            {
+                Type = type,
+                UT = currentUT,
+                RouteId = route.Id,
+                RouteStopIndex = -1,
+                Sequence = sequence,
+                RouteEndpointReason = reason,
+            };
+            if (emitter != null)
+                emitter(action);
+            else
+                Ledger.AddAction(action);
+
+            ParsekLog.Info(Tag,
+                $"LifecycleMarker: route {ShortIdForLog(route)} type={type} " +
+                $"reason={reason ?? "<none>"} ut={currentUT.ToString("R", IC)} " +
+                $"seq={sequence.ToString(IC)}");
         }
 
         /// <summary>
@@ -3699,7 +3791,34 @@ namespace Parsek.Logistics
                 // a delivered cycle never leaves the route gated behind an
                 // old WaitRetryIntervalSec deadline.
                 route.NextEligibilityCheckUT = null;
-                route.TransitionTo(RouteStatus.Active, "delivered-replay");
+                // Honor an armed PauseAfterCurrentCycle on the replay too
+                // (route-timeline events, review finding 3 on PR #1327): the
+                // crash-recovery replay means the delivered row landed but the
+                // armed-pause tail in ApplyDeliveryFromPlan never ran, so
+                // without this branch a Send-Once route ended up Active with
+                // BOTH flags still armed — stamping a second one-shot row and
+                // landing its pause marker one cycle late. Mirrors the armed
+                // tail: flush the owed recovery credit (idempotent), consume
+                // the flags, pause, emit the RoutePaused marker at this
+                // window's stride slot (+4, after the delivered row's +3), and
+                // drop any held escrow (quiesce transition). The dedup
+                // semantics are preserved: no delivery/funds/debit row is
+                // (re-)emitted here — only the pause marker the crash lost.
+                if (route.PauseAfterCurrentCycle)
+                {
+                    EmitPendingRecoveryCredit(route, currentUT, env);
+                    route.PauseAfterCurrentCycle = false;
+                    route.SendOnceArmed = false;
+                    route.TransitionTo(RouteStatus.Paused, "delivered-replay-then-paused");
+                    EmitRouteLifecycleMarker(
+                        route, currentUT, GameActionType.RoutePaused,
+                        "delivered-replay-then-paused", stopIndex * SeqStride + 4);
+                    RouteStore.DropRouteEscrow(route.Id);
+                }
+                else
+                {
+                    route.TransitionTo(RouteStatus.Active, "delivered-replay");
+                }
                 return;
             }
 
@@ -4039,8 +4158,17 @@ namespace Parsek.Logistics
                     route, ctx.CurrentUT, new ApplyDeliveryEnvAdapter(ctx.IsCareer));
 
                 route.PauseAfterCurrentCycle = false;
+                // Route-timeline events: the one-shot completed; drop the Send Once
+                // provenance (the dispatched row was already stamped at emit time).
+                route.SendOnceArmed = false;
                 string reason = plan.IsPartial ? "delivered-partial-then-paused" : "delivered-then-paused";
                 route.TransitionTo(RouteStatus.Paused, reason);
+                // Record the armed-pause point in the timeline. Sequence +4 lands it
+                // after this window's stride block (dispatch +0 / debit +1 / pickup +2 /
+                // delivery +3) so the (UT, Sequence) order reads delivery-then-pause.
+                EmitRouteLifecycleMarker(
+                    route, ctx.CurrentUT, GameActionType.RoutePaused, reason,
+                    deliverySeqBase + 4, ctx.LedgerEmitter);
                 // M4b escrow-strand fix (PR #1180 clean-review Finding 1): a Send-Once-armed
                 // MULTI-STOP route can pause HERE mid-PARTIAL-cycle (an early window delivered
                 // this tick, a later window still pending), so it never reaches the
@@ -4901,13 +5029,28 @@ namespace Parsek.Logistics
         /// </summary>
         internal static void ResetStopFireState(Route route)
         {
+            ResetStopFireStateReturningChanged(route);
+        }
+
+        /// <summary>
+        /// <see cref="ResetStopFireState"/> variant reporting whether any stop's
+        /// sub-gate actually moved, for batch counting at the rewind-reconcile
+        /// site (<c>RouteRewindClassifier.ResetCycleStateForRewind</c>).
+        /// </summary>
+        internal static bool ResetStopFireStateReturningChanged(Route route)
+        {
             if (route == null || route.Stops == null)
-                return;
+                return false;
+            bool changed = false;
             for (int i = 0; i < route.Stops.Count; i++)
             {
-                if (route.Stops[i] != null)
+                if (route.Stops[i] != null && route.Stops[i].LastFiredCycleIndex != -1)
+                {
                     route.Stops[i].LastFiredCycleIndex = -1;
+                    changed = true;
+                }
             }
+            return changed;
         }
 
         private static Dictionary<string, double> CloneManifest(Dictionary<string, double> source)

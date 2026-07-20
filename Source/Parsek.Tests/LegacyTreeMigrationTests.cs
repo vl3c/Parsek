@@ -89,6 +89,9 @@ namespace Parsek.Tests
         // removal is live at emit, reverted by the rewind quicksave), so it mirrors
         // RouteCargoDelivered and stays false.
         [InlineData(GameActionType.RouteCargoPickedUp,   false)]
+        // RouteResumed (route-timeline events): a scheduler state flip like
+        // RoutePaused; moves no resource pool.
+        [InlineData(GameActionType.RouteResumed,         false)]
         public void IsResourceImpactingAction_Theory(GameActionType type, bool expected)
         {
             Assert.Equal(expected, LedgerOrchestrator.IsResourceImpactingAction(type));

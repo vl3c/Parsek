@@ -572,11 +572,17 @@ namespace Parsek
             {
                 // Re-run merge-state flip + transient clear. Idempotent —
                 // rewrites the same fields with the same inputs.
+                // onLoadContext: RunFinisher executes FROM ParsekScenario.OnLoad
+                // (both call sites), so the flip's route revalidation must stay
+                // silent - no auto-pause/resume ledger row from load context.
+                // The lost-marker residual is repaired by the revalidation
+                // catch-up net on the next live pass.
                 SupersedeCommit.FlipMergeStateAndClearTransient(
                     scenario.ActiveReFlySessionMarker,
                     ResolveProvisional(scenario),
                     scenario,
-                    preserveMarker: true);
+                    preserveMarker: true,
+                    onLoadContext: true);
                 AdvancePhase(scenario, MergeJournal.Phases.Durable1Done);
                 DurableSave("finisher-durable1", persistSynchronously: false);
                 stepsDriven++;

@@ -20,6 +20,7 @@ namespace Parsek.Logistics
     {
         private const string Tag = "Route";
         private const string RoutesParentNodeName = "ROUTES";
+        private const string DormantRoutesParentNodeName = "DORMANT_ROUTES";
         private const string RouteChildNodeName = "ROUTE";
         private const string DismissedCandidatesNodeName = "DISMISSED_ROUTE_CANDIDATES";
         private const string DismissedTreeIdValueName = "treeId";
@@ -29,6 +30,26 @@ namespace Parsek.Logistics
 
         /// <summary>Read-only view of currently committed routes.</summary>
         internal static IReadOnlyList<Route> CommittedRoutes => committedRoutes;
+
+        /// <summary>
+        /// Dormant routes (rewind-visibility extension, plan
+        /// <c>docs/dev/plans/plan-route-rewind-dormant-visibility.md</c>):
+        /// routes whose <see cref="Route.CreatedUT"/> lies AFTER the last
+        /// rewind cutoff. Invisible to every committed-route consumer (the
+        /// orchestrator tick, RouteTreeGuard, the candidate finder, and the
+        /// Logistics window all read <see cref="CommittedRoutes"/> only), so a
+        /// dormant route cannot fire, bind its tree, or render. Populated by
+        /// <c>RouteRewindClassifier.ReconcileStoreAtRewind</c> from BOTH rewind
+        /// exits (<c>ReconciliationBundle.Restore(cutoff)</c> on Re-Fly and
+        /// <c>ParsekScenario.HandleRewindOnLoad</c> on a go-back); drained by
+        /// <see cref="MaterializeDueDormantRoutes"/> when the re-flown
+        /// timeline passes each route's creation point. Persisted as the
+        /// sparse DORMANT_ROUTES sibling of ROUTES.
+        /// </summary>
+        private static readonly List<Route> dormantRoutes = new List<Route>();
+
+        /// <summary>Read-only view of dormant routes.</summary>
+        internal static IReadOnlyList<Route> DormantRoutes => dormantRoutes;
 
         // -----------------------------------------------------------------
         // M6 candidate intent helper: dismissed route-candidate trees.
@@ -302,10 +323,37 @@ namespace Parsek.Logistics
                 }
             }
 
+            // Route-timeline events: stamp the creation UT once, at the moment the
+            // route is committed to the store. Never rewritten (a reload re-adds
+            // routes with the persisted value already set). -1 stays when the live
+            // UT cannot be resolved (off-Unity context, e.g. unit tests).
+            if (route.CreatedUT < 0.0)
+                route.CreatedUT = TryReadLiveUniversalTime();
+
             committedRoutes.Add(route);
             int stopCount = route.Stops != null ? route.Stops.Count : 0;
             ParsekLog.Info(Tag,
-                $"Route {ShortId(route.Id)} added: status={route.Status} stops={stopCount}");
+                $"Route {ShortId(route.Id)} added: status={route.Status} stops={stopCount} " +
+                $"createdUT={route.CreatedUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Defensive live-UT read for the <see cref="AddRoute"/> creation stamp:
+        /// returns -1 when Planetarium is unavailable (early load, off-Unity test
+        /// context), mirroring the <c>RouteOrchestrator.TryPause</c> pattern.
+        /// </summary>
+        private static double TryReadLiveUniversalTime()
+        {
+            try
+            {
+                return Planetarium.GetUniversalTime();
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"AddRoute: live UT resolution threw {ex.GetType().Name}; createdUT stays -1");
+                return -1.0;
+            }
         }
 
         /// <summary>
@@ -520,6 +568,213 @@ namespace Parsek.Logistics
             return true;
         }
 
+        // -----------------------------------------------------------------
+        // Dormant routes (rewind-visibility extension)
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// Rewind seam: wholesale-replaces BOTH route lists with the
+        /// classified results from <c>RouteRewindClassifier.Classify</c>
+        /// (called by <c>ReconciliationBundle.Restore(cutoff)</c>). Mirrors
+        /// the bundle's replace-not-merge contract for recordings. Null lists
+        /// install empty.
+        /// </summary>
+        internal static void InstallRoutesAtRewind(List<Route> committed, List<Route> dormant)
+        {
+            int prevCommitted = committedRoutes.Count;
+            int prevDormant = dormantRoutes.Count;
+            committedRoutes.Clear();
+            dormantRoutes.Clear();
+            if (committed != null)
+                committedRoutes.AddRange(committed);
+            if (dormant != null)
+                dormantRoutes.AddRange(dormant);
+            ParsekLog.Info(Tag,
+                $"InstallRoutesAtRewind: committed {prevCommitted}->{committedRoutes.Count} " +
+                $"dormant {prevDormant}->{dormantRoutes.Count}");
+        }
+
+        /// <summary>
+        /// Materializes every dormant route whose creation point the timeline
+        /// has reached (rewind-visibility extension). Called from the very top
+        /// of <c>RouteOrchestrator.Tick</c> (BEFORE the committed-count early
+        /// return, so a save whose only routes are dormant still
+        /// materializes); ~1 Hz, all scenes. Early-returns on an empty list.
+        ///
+        /// <para>Per due route: DROP when a committed route occupies any of
+        /// its source trees (the player re-created a route over that tree
+        /// during the re-fly - live intent wins); otherwise reset-to-fresh
+        /// (<c>RouteRewindClassifier.ResetToFreshForMaterialize</c>, Status
+        /// Paused), re-link the round-trip pair via <see cref="LinkRoutes"/>
+        /// when the former partner is present, add, clear any manual loop the
+        /// tree acquired during the re-fly, and revalidate sources so a
+        /// superseded tree surfaces as MissingSourceRecording instead of
+        /// silently pretending health.</para>
+        /// </summary>
+        /// <returns>Number of routes materialized this pass.</returns>
+        internal static int MaterializeDueDormantRoutes(double currentUT)
+        {
+            if (dormantRoutes.Count == 0)
+                return 0;
+
+            List<Route> due = null;
+            for (int i = 0; i < dormantRoutes.Count; i++)
+            {
+                Route r = dormantRoutes[i];
+                if (r != null && RouteRewindClassifier.IsDormantRouteDue(r, currentUT))
+                {
+                    if (due == null) due = new List<Route>();
+                    due.Add(r);
+                }
+            }
+            if (due == null)
+                return 0;
+
+            int materialized = 0;
+            int droppedOccupied = 0;
+            var materializedNames = new List<string>();
+            // Processing order is dormant-list order (= classify order). Two
+            // dormant entries sharing one source tree (a deep-rewind sleeper
+            // plus a newer dormant twin) resolve first-in-list-wins: the first
+            // materializes, the second occupancy-drops. Deterministic; recency
+            // of player intent is deliberately not ranked.
+            for (int i = 0; i < due.Count; i++)
+            {
+                Route route = due[i];
+                dormantRoutes.Remove(route);
+
+                if (RouteRewindClassifier.IsTreeOccupied(route, committedRoutes))
+                {
+                    droppedOccupied++;
+                    ParsekLog.Info(Tag,
+                        $"Materialize: dormant route {ShortId(route.Id)} '{route.Name ?? "<unnamed>"}' " +
+                        "DROPPED - a committed route occupies its source tree (live intent wins)");
+                    continue;
+                }
+
+                // Former-partner hint: re-link when the partner is committed or
+                // co-materializing this pass (LinkRoutes resets both cursors and
+                // enforces mutuality); otherwise sever the hint.
+                string partnerHint = route.LinkedRouteId;
+                route.LinkedRouteId = null;
+
+                RouteRewindClassifier.ResetToFreshForMaterialize(route);
+                int countBeforeAdd = committedRoutes.Count;
+                AddRoute(route);
+                if (committedRoutes.Count == countBeforeAdd)
+                {
+                    // AddRoute rejected (duplicate id - unreachable via the
+                    // classify/load dedupes, but the count/notify must follow
+                    // the add's actual outcome, not assume it).
+                    ParsekLog.Warn(Tag,
+                        $"Materialize: AddRoute rejected dormant route {ShortId(route.Id)} - skipped");
+                    continue;
+                }
+                materialized++;
+                materializedNames.Add(route.Name ?? ShortId(route.Id));
+
+                if (!string.IsNullOrEmpty(partnerHint))
+                {
+                    // The partner may be committed already, or later in `due`
+                    // (in which case this LinkRoutes fails on the unknown id and
+                    // the partner's own pass re-links using ITS hint).
+                    if (TryGetRoute(partnerHint, out _))
+                        LinkRoutes(route.Id, partnerHint);
+                    else
+                        ParsekLog.Verbose(Tag,
+                            $"Materialize: route {ShortId(route.Id)} former partner " +
+                            $"{ShortId(partnerHint)} not committed (yet) - link severed or deferred to partner's pass");
+                }
+
+                // A manual loop acquired by the tree during the re-fly must not
+                // co-drive it once the route binds again (mirror of the create
+                // paths).
+                RouteTreeGuard.ForceClearManualLoopForRoute(route, currentUT);
+
+                PostMaterializeScreenMessage(route);
+            }
+
+            if (materialized > 0)
+            {
+                // Live pass: currentUT is the orchestrator tick's live UT
+                // (>= every materialized route's CreatedUT), so a materialized
+                // route whose sources were superseded during the re-fly stamps
+                // its AutoPause:MissingSourceRecording row at the correct
+                // timeline position (route-timeline events).
+                RevalidateSources("dormant-materialize", currentUT);
+                ParsekLog.Info(Tag,
+                    $"Materialize: {materialized} dormant route(s) materialized at " +
+                    $"ut={currentUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"({string.Join(", ", materializedNames)}); {droppedOccupied} dropped occupied; " +
+                    $"{dormantRoutes.Count} still dormant");
+            }
+            else if (droppedOccupied > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"Materialize: 0 materialized, {droppedOccupied} dropped occupied; " +
+                    $"{dormantRoutes.Count} still dormant");
+            }
+            return materialized;
+        }
+
+        /// <summary>
+        /// Remove a dormant route by Id (the Logistics window's Dormant-section
+        /// Delete). Returns true on removal, false on miss or on an empty/null
+        /// id (both logged at Warn). No partner-link hygiene is needed: dormant
+        /// entries were severed two-sidedly at classify time (no committed route
+        /// points at a dormant one; a dormant twin's former-partner hint fails
+        /// its <see cref="TryGetRoute"/> lookup at materialize and severs
+        /// gracefully). Escrow: a route entering the dormant list should hold
+        /// none (the rewind's scene switch clears all escrow), but the removal
+        /// drops its reservation defensively anyway so this method's hygiene is
+        /// self-contained rather than dependent on the clear-site ordering -
+        /// idempotent no-op when nothing is held.
+        /// </summary>
+        internal static bool RemoveDormantRoute(string id)
+        {
+            if (string.IsNullOrEmpty(id))
+            {
+                ParsekLog.Warn(Tag, "RemoveDormantRoute: null or empty id - ignored");
+                return false;
+            }
+
+            for (int i = 0; i < dormantRoutes.Count; i++)
+            {
+                Route r = dormantRoutes[i];
+                if (r != null && string.Equals(r.Id, id, System.StringComparison.Ordinal))
+                {
+                    dormantRoutes.RemoveAt(i);
+                    DropRouteEscrow(id);
+                    ParsekLog.Info(Tag,
+                        $"Dormant route {ShortId(id)} removed (deleted before re-materializing); " +
+                        $"{dormantRoutes.Count} still dormant");
+                    return true;
+                }
+            }
+
+            ParsekLog.Warn(Tag, $"RemoveDormantRoute: dormant route {ShortId(id)} not found (full={id})");
+            return false;
+        }
+
+        /// <summary>
+        /// Best-effort player notification for a materialized route; guarded
+        /// so an off-Unity context (unit tests) never throws.
+        /// </summary>
+        private static void PostMaterializeScreenMessage(Route route)
+        {
+            try
+            {
+                ScreenMessages.PostScreenMessage(
+                    $"[Parsek] Supply route '{route.Name ?? "<unnamed>"}' available again " +
+                    "(timeline reached its creation point)", 6f);
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"Materialize: screen message unavailable ({ex.GetType().Name})");
+            }
+        }
+
         /// <summary>
         /// Clear in-memory state. Test seam — production paths should
         /// remove individual routes through <see cref="RemoveRoute"/>.
@@ -528,6 +783,7 @@ namespace Parsek.Logistics
         {
             int prevCount = committedRoutes.Count;
             committedRoutes.Clear();
+            dormantRoutes.Clear();
             // M4b Phase B2: the escrow is shared static state, so a
             // [Collection("Sequential")] test that reserves must not leak its
             // reservation into the next test. Clear it here alongside the routes.
@@ -819,6 +1075,7 @@ namespace Parsek.Logistics
             // write. A previously-saved ROUTES / dismissed-candidates node with
             // stale entries would otherwise survive an empty-store save.
             parent.RemoveNodes(RoutesParentNodeName);
+            parent.RemoveNodes(DormantRoutesParentNodeName);
             parent.RemoveNodes(DismissedCandidatesNodeName);
             parent.RemoveNodes(PromptedCandidatesNodeName);
 
@@ -838,6 +1095,22 @@ namespace Parsek.Logistics
                 }
 
                 ParsekLog.Info(Tag, $"SaveRoutesTo: wrote {committedRoutes.Count} route(s)");
+            }
+
+            // Dormant routes (rewind-visibility extension): sparse sibling
+            // node - written only when at least one route is dormant, so a
+            // save with none stays byte-identical.
+            if (dormantRoutes.Count > 0)
+            {
+                ConfigNode dormantNode = parent.AddNode(DormantRoutesParentNodeName);
+                for (int i = 0; i < dormantRoutes.Count; i++)
+                {
+                    Route route = dormantRoutes[i];
+                    if (route == null) continue;
+                    ConfigNode routeNode = dormantNode.AddNode(RouteChildNodeName);
+                    route.SerializeInto(routeNode);
+                }
+                ParsekLog.Info(Tag, $"SaveRoutesTo: wrote {dormantRoutes.Count} dormant route(s)");
             }
 
             // M6 candidate intent helper: sparse sibling node - written only
@@ -885,6 +1158,7 @@ namespace Parsek.Logistics
             // Mirrors MilestoneStore.LoadMilestoneFile / RecordingStore load
             // semantics so callers do not have to manage the reset themselves.
             committedRoutes.Clear();
+            dormantRoutes.Clear();
             dismissedCandidateTreeIds.Clear();
             promptedCandidateTreeIds.Clear();
 
@@ -905,6 +1179,9 @@ namespace Parsek.Logistics
             ConfigNode routesNode = parent.GetNode(RoutesParentNodeName);
             if (routesNode == null)
             {
+                // Dormant routes are a sparse SIBLING of ROUTES, so they load
+                // even when the committed list is empty (an all-dormant save).
+                LoadDormantRoutesFrom(parent);
                 ParsekLog.Verbose(Tag, "LoadRoutesFrom: no ROUTES node, 0 loaded");
                 return 0;
             }
@@ -925,6 +1202,8 @@ namespace Parsek.Logistics
                 loaded++;
             }
 
+            LoadDormantRoutesFrom(parent);
+
             if (dropped > 0)
             {
                 ParsekLog.Info(Tag,
@@ -936,6 +1215,51 @@ namespace Parsek.Logistics
             }
 
             return loaded;
+        }
+
+        /// <summary>
+        /// Loads the sparse <c>DORMANT_ROUTES</c> sibling node (absent = the
+        /// common no-dormant path, stays quiet). Runs AFTER the committed list
+        /// is populated so an entry whose id collides with a committed route
+        /// is dropped (Warn, committed wins) - a shape only save-file surgery
+        /// or a bug can produce, since a route lives in exactly one list.
+        /// </summary>
+        private static void LoadDormantRoutesFrom(ConfigNode parent)
+        {
+            ConfigNode dormantNode = parent.GetNode(DormantRoutesParentNodeName);
+            if (dormantNode == null)
+                return;
+
+            ConfigNode[] routeNodes = dormantNode.GetNodes(RouteChildNodeName);
+            int loaded = 0;
+            int droppedCollision = 0;
+            int droppedCodec = 0;
+            var seenDormantIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < routeNodes.Length; i++)
+            {
+                Route route = Route.DeserializeFrom(routeNodes[i]);
+                if (route == null)
+                {
+                    droppedCodec++;
+                    continue;
+                }
+                // Dedupe against BOTH the committed list and earlier dormant
+                // entries (a same-id pair only save-file surgery can produce).
+                if (TryGetRoute(route.Id, out _) || !seenDormantIds.Add(route.Id))
+                {
+                    droppedCollision++;
+                    ParsekLog.Warn(Tag,
+                        $"LoadDormantRoutesFrom: dormant entry {ShortId(route.Id)} collides with a " +
+                        "committed route or an earlier dormant entry - dropped (first wins)");
+                    continue;
+                }
+                dormantRoutes.Add(route);
+                loaded++;
+            }
+            ParsekLog.Info(Tag,
+                $"LoadDormantRoutesFrom: loaded {loaded} dormant route(s)" +
+                (droppedCollision > 0 ? $", {droppedCollision} collision-dropped" : string.Empty) +
+                (droppedCodec > 0 ? $", {droppedCodec} codec-dropped" : string.Empty));
         }
 
         /// <summary>
@@ -1032,8 +1356,27 @@ namespace Parsek.Logistics
         /// the next save/load cycle.
         /// </remarks>
         /// <param name="reason">Free-form audit string included in every transition log line.</param>
+        /// <param name="liveEmitUT">
+        /// Caller-gated timeline UT for auto-pause / auto-resume ledger markers
+        /// (route-timeline events). The default (-1, or any value &lt;= 0) keeps
+        /// this pass SILENT - no ledger row is written for any flip - which is
+        /// the mandatory shape for the <see cref="ParsekScenario.OnLoad"/> call
+        /// sites (ledger writes during load are unsafe, and load-time status
+        /// flicker would spam rows). LIVE call sites (a re-fly supersede commit
+        /// via <see cref="ParsekScenario.BumpSupersedeStateVersion(double)"/>,
+        /// and the dormant-materialize pass in
+        /// <see cref="MaterializeDueDormantRoutes"/>) resolve the live UT
+        /// defensively and pass it, so a route auto-flipping into
+        /// <see cref="RouteStatus.MissingSourceRecording"/> /
+        /// <see cref="RouteStatus.SourceChanged"/> stamps a
+        /// <see cref="GameActionType.RoutePaused"/> row and a recovery back to
+        /// an Active-family status stamps a
+        /// <see cref="GameActionType.RouteResumed"/> row on the timeline.
+        /// <see cref="RouteOrchestrator.EmitRouteLifecycleMarker"/>'s own
+        /// UT &lt;= 0 guard is the second safety net.
+        /// </param>
         /// <returns>The number of routes whose status changed during this pass.</returns>
-        internal static int RevalidateSources(string reason)
+        internal static int RevalidateSources(string reason, double liveEmitUT = -1.0)
         {
             string reasonOrNone = reason ?? "<none>";
 
@@ -1044,6 +1387,9 @@ namespace Parsek.Logistics
 
             int total = committedRoutes.Count;
             int transitioned = 0;
+            // Route ids that already got a lifecycle marker THIS pass, so the
+            // catch-up net below never doubles a row the flip loop just wrote.
+            HashSet<string> markerEmittedThisPass = null;
 
             for (int ri = 0; ri < committedRoutes.Count; ri++)
             {
@@ -1096,6 +1442,22 @@ namespace Parsek.Logistics
                     route.TransitionTo(next, $"{reasonOrNone}/{cause}");
                     transitioned++;
 
+                    // Route-timeline events: auto-pause / auto-resume ledger
+                    // markers, caller-gated on liveEmitUT (see the param doc) and
+                    // emitted AFTER the transition so the ledger row never
+                    // precedes the state it records. One row per actual flip;
+                    // the no-flip path above never reaches here.
+                    if (TryDecideAutoLifecycleMarker(prev, next, liveEmitUT,
+                            out GameActionType markerType, out string markerReason))
+                    {
+                        RouteOrchestrator.EmitRouteLifecycleMarker(
+                            route, liveEmitUT, markerType, markerReason);
+                        if (markerEmittedThisPass == null)
+                            markerEmittedThisPass = new HashSet<string>(StringComparer.Ordinal);
+                        if (!string.IsNullOrEmpty(route.Id))
+                            markerEmittedThisPass.Add(route.Id);
+                    }
+
                     // Clear the remembered baseline once we have left the missing
                     // state, so a future into-missing edge re-captures fresh and a
                     // healthy route never carries a stale pre-missing status. Reset
@@ -1112,11 +1474,118 @@ namespace Parsek.Logistics
                 }
             }
 
+            // Catch-up net (route-timeline events robustness): a LIVE pass also
+            // repairs any UNMATCHED AutoPause row left behind by a silent flip
+            // (a load-context revalidation, the merge-journal finisher, or any
+            // future silent seam). One RouteResumed row per route whose status
+            // is Active-family while its latest kept lifecycle row still says
+            // paused; idempotent because the emitted row becomes the latest.
+            int caughtUp = 0;
+            if (liveEmitUT > 0.0)
+                caughtUp = EmitCatchUpResumeMarkers(liveEmitUT, markerEmittedThisPass);
+
             ParsekLog.Info(Tag,
                 $"RevalidateSources reason={reasonOrNone} routes={total} transitioned={transitioned} " +
-                $"ersIndexed={ersIndexed} ersTotal={ersTotal}");
+                $"caughtUp={caughtUp} ersIndexed={ersIndexed} ersTotal={ersTotal}");
 
             return transitioned;
+        }
+
+        /// <summary>
+        /// The catch-up half of the auto-pause / auto-resume marker net: on a
+        /// LIVE revalidation pass, any committed route whose status is
+        /// Active-family but whose LATEST kept lifecycle row
+        /// (<see cref="GameActionType.RoutePaused"/> /
+        /// <see cref="GameActionType.RouteResumed"/>, any reason, read through
+        /// <see cref="EffectiveState.ComputeELS"/> so retired / tombstoned rows
+        /// do not count) is still a RoutePaused gets a
+        /// <see cref="GameActionType.RouteResumed"/> row with
+        /// <see cref="AutoResumeCatchUpReason"/>. This repairs pause history
+        /// desyncs left by flips that had to run silently (load-context
+        /// revalidation, the merge-journal finisher, the mid-rewind supersede
+        /// rollback) - without it, <c>RouteModule</c>'s walk keeps
+        /// <c>state.Paused</c> forever and warns on every dispatched row.
+        /// Idempotent: once emitted, the resume row IS the latest lifecycle row
+        /// (<see cref="Ledger.AddAction"/> bumps the ledger version, so the
+        /// next pass's ELS read sees it). Routes that already emitted a marker
+        /// this pass are skipped (their row is authoritative and newer than the
+        /// index built below). Returns the number of catch-up rows emitted.
+        /// </summary>
+        private static int EmitCatchUpResumeMarkers(
+            double liveEmitUT, HashSet<string> markerEmittedThisPass)
+        {
+            if (committedRoutes.Count == 0)
+                return 0;
+
+            Dictionary<string, GameActionType> latestByRoute =
+                BuildLatestLifecycleRowIndex(EffectiveState.ComputeELS());
+            if (latestByRoute.Count == 0)
+                return 0;
+
+            int emitted = 0;
+            for (int i = 0; i < committedRoutes.Count; i++)
+            {
+                Route route = committedRoutes[i];
+                if (route == null || string.IsNullOrEmpty(route.Id))
+                    continue;
+                if (markerEmittedThisPass != null && markerEmittedThisPass.Contains(route.Id))
+                    continue;
+                if (!NeedsCatchUpResume(route.Status,
+                        latestByRoute.TryGetValue(route.Id, out GameActionType latest)
+                            ? latest
+                            : (GameActionType?)null))
+                    continue;
+
+                RouteOrchestrator.EmitRouteLifecycleMarker(
+                    route, liveEmitUT, GameActionType.RouteResumed, AutoResumeCatchUpReason);
+                emitted++;
+            }
+            return emitted;
+        }
+
+        /// <summary>
+        /// Pure decision for the catch-up resume row: true when the route is
+        /// running (Active-family) while the ledger's latest kept lifecycle row
+        /// still says paused. A route with NO lifecycle row (null) needs
+        /// nothing; a latest RouteResumed is already consistent; a non-running
+        /// status must not resume.
+        /// </summary>
+        internal static bool NeedsCatchUpResume(
+            RouteStatus status, GameActionType? latestLifecycleRowType)
+        {
+            return IsActiveFamilyStatus(status)
+                && latestLifecycleRowType == GameActionType.RoutePaused;
+        }
+
+        /// <summary>
+        /// Builds a routeId -&gt; latest-lifecycle-row-type index from a kept
+        /// (ELS) action list. Only <see cref="GameActionType.RoutePaused"/> /
+        /// <see cref="GameActionType.RouteResumed"/> rows with a route id
+        /// participate. "Latest" = highest UT, later list position winning ties
+        /// (matches the ledger walk's stable (UT, position) order). Pure and
+        /// internal for direct testing.
+        /// </summary>
+        internal static Dictionary<string, GameActionType> BuildLatestLifecycleRowIndex(
+            IReadOnlyList<GameAction> keptActions)
+        {
+            var latestType = new Dictionary<string, GameActionType>(StringComparer.Ordinal);
+            if (keptActions == null)
+                return latestType;
+
+            var latestUt = new Dictionary<string, double>(StringComparer.Ordinal);
+            for (int i = 0; i < keptActions.Count; i++)
+            {
+                GameAction a = keptActions[i];
+                if (a == null || string.IsNullOrEmpty(a.RouteId))
+                    continue;
+                if (a.Type != GameActionType.RoutePaused && a.Type != GameActionType.RouteResumed)
+                    continue;
+                if (latestUt.TryGetValue(a.RouteId, out double bestUt) && a.UT < bestUt)
+                    continue; // an earlier row never displaces; >= keeps later list position
+                latestUt[a.RouteId] = a.UT;
+                latestType[a.RouteId] = a.Type;
+            }
+            return latestType;
         }
 
         /// <summary>
@@ -1325,6 +1794,81 @@ namespace Parsek.Logistics
         {
             return status == RouteStatus.MissingSourceRecording
                 || status == RouteStatus.SourceChanged;
+        }
+
+        // Route-timeline events: auto-pause / auto-resume marker reason tokens.
+        // Stable strings (never derived from enum names) so a ledger row written
+        // today survives any future enum rename byte-identically.
+        internal const string AutoPauseMissingSourceReason = "AutoPause:MissingSourceRecording";
+        internal const string AutoPauseSourceChangedReason = "AutoPause:SourceChanged";
+        internal const string AutoResumeSourcesRestoredReason = "AutoResume:SourcesRestored";
+        internal const string AutoResumeCatchUpReason = "AutoResume:CatchUp";
+
+        /// <summary>
+        /// True for the statuses the Logistics window's Active section holds
+        /// (everything that is not the player-intent <see cref="RouteStatus.Paused"/>
+        /// and not a source-problem stop state): the "route is meant to be
+        /// running" family. Drives the auto-resume marker gate - a recovery
+        /// that restores a deliberate Paused is NOT a resume.
+        /// </summary>
+        internal static bool IsActiveFamilyStatus(RouteStatus status)
+        {
+            return status != RouteStatus.Paused && !IsSourceProblemStatus(status);
+        }
+
+        /// <summary>
+        /// Pure decision for the auto-pause / auto-resume ledger markers a
+        /// LIVE <see cref="RevalidateSources(string, double)"/> pass emits
+        /// (route-timeline events). Returns true with the marker type + reason
+        /// when a row must be written; false keeps the flip silent.
+        /// <list type="bullet">
+        ///   <item><paramref name="liveEmitUT"/> &lt;= 0: never emit (the
+        ///     OnLoad-silent gate; load passes leave the ledger untouched).</item>
+        ///   <item>No flip (<paramref name="prev"/> == <paramref name="next"/>):
+        ///     never emit (defensive; the caller only invokes on a flip).</item>
+        ///   <item>INTO a source-problem state from a non-source-problem state:
+        ///     <see cref="GameActionType.RoutePaused"/> with
+        ///     <see cref="AutoPauseMissingSourceReason"/> /
+        ///     <see cref="AutoPauseSourceChangedReason"/>. A Missing &lt;-&gt;
+        ///     SourceChanged shuffle emits nothing (already auto-paused).</item>
+        ///   <item>Recovery from <see cref="RouteStatus.MissingSourceRecording"/>
+        ///     to an Active-family status:
+        ///     <see cref="GameActionType.RouteResumed"/> with
+        ///     <see cref="AutoResumeSourcesRestoredReason"/>. A recovery that
+        ///     restores <see cref="RouteStatus.Paused"/> emits nothing - the
+        ///     route was deliberately paused before its sources vanished, so
+        ///     nothing resumed.</item>
+        /// </list>
+        /// </summary>
+        internal static bool TryDecideAutoLifecycleMarker(
+            RouteStatus prev, RouteStatus next, double liveEmitUT,
+            out GameActionType type, out string reason)
+        {
+            type = default;
+            reason = null;
+
+            if (liveEmitUT <= 0.0)
+                return false; // OnLoad-silent gate: load passes never write rows.
+            if (prev == next)
+                return false; // no flip, no row (defensive).
+
+            if (IsSourceProblemStatus(next) && !IsSourceProblemStatus(prev))
+            {
+                type = GameActionType.RoutePaused;
+                reason = next == RouteStatus.MissingSourceRecording
+                    ? AutoPauseMissingSourceReason
+                    : AutoPauseSourceChangedReason;
+                return true;
+            }
+
+            if (prev == RouteStatus.MissingSourceRecording && IsActiveFamilyStatus(next))
+            {
+                type = GameActionType.RouteResumed;
+                reason = AutoResumeSourcesRestoredReason;
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>

@@ -23,6 +23,7 @@ namespace Parsek.Tests.Logistics
             GameActionType.RouteEndpointLost,      // 27
             GameActionType.RouteRecoveryCredited,  // 28
             GameActionType.RouteCargoPickedUp,     // 29
+            GameActionType.RouteResumed,           // 30
         };
 
         private static readonly GameActionType[] NonRouteTypes =
@@ -39,7 +40,7 @@ namespace Parsek.Tests.Logistics
         // ---- IsRouteActionType ----
 
         [Fact]
-        public void IsRouteActionType_TrueForEverySevenRouteType()
+        public void IsRouteActionType_TrueForEveryRouteType()
         {
             foreach (var t in RouteTypes)
                 Assert.True(RouteLedgerRetire.IsRouteActionType(t), $"{t} should be a route type");
