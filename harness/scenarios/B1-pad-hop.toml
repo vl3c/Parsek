@@ -1,21 +1,22 @@
 schema = 1
 id = "B1-pad-hop"
-# pending-fixture (NOT daily): the fixtures/saves/b1-pad-craft template is not
-# committed yet, so a --cadence daily run would INVALID(staging) this terminally and
-# self-quarantine a scenario that never ran. Re-tier to "daily" once the fixture lands.
-tier = "pending-fixture"
+# nightly: the fixtures/saves/b1-pad-craft template is committed (operator
+# 2026-07-19) and the mission is live-proven flyable (2026-07-19/20 runs, all
+# phases reached); flown missions are too long for daily.
+tier = "nightly"
 description = "Pad hop: pre-placed craft, throttle+stage, coast, chute, land; assert apoapsis window + landed."
 instanceProfile = "stock-minimal"
 tags = ["B1", "S0.1", "flown"]
 
 [fixture]
 # The pre-placed vessel rides IN the fixture save (no VAB flow in v1). LoadGame
-# drops straight into FLIGHT with this vessel on the pad. PENDING-OPERATOR: the
-# fixture save does not exist yet. The vessel is KSP's own stock "Jumping Flea"
+# drops straight into FLIGHT with this vessel on the pad. Fixture committed
+# (operator 2026-07-19). The vessel is KSP's own stock "Jumping Flea"
 # (Ships/VAB/Jumping Flea.craft: mk1pod.v2 + parachuteSingle + RT-5 Flea
-# solidBooster.sm.v2 + fins) - the operator just VAB-loads it, launches to the
-# pad, and saves; no craft-building. Its full-throttle hop fits the apoapsis
-# window below. See the operator runbook's M-B1 section.
+# solidBooster.sm.v2 + fins). Its full-throttle hop fits the apoapsis window
+# below. NOTE: the stack ALWAYS breaks apart at touchdown (~9 m/s vs the
+# booster's 7 m/s tolerance); per the operator decision 2026-07-20 (option A)
+# that chute-deployed impact is a SUCCESSFUL end (the mlib DOWN terminal).
 saveTemplate       = "fixtures/saves/b1-pad-craft"
 injectedRecordings = "none"
 craft              = []
@@ -56,9 +57,13 @@ D14 = ["kerbin"]
 # A flown scenario PRODUCES a recording, so recordings are expected. count.min>=1
 # keeps the REC-001/REC-003 log rules MANDATORY (M-A5 verifier 4): a dropped
 # recording reds. The analyzer (Forbid) over the produced recording is the
-# Parsek correctness gate.
+# Parsek correctness gate. max models the touchdown BREAKUP debris: the Jumping
+# Flea always breaks apart at touchdown (live crashes 2026-07-19/20; one run
+# produced 4 breakup-child pids), and per-run child-count variance is
+# unestablished, so the window absorbs main + up to 5 children rather than
+# redding on breakup-timing variance.
 [expectations.recordings]
-count = { min = 1, max = 1 }
+count = { min = 1, max = 6 }
 
 [expectations.logContracts]
 required  = ["Recording started", "Recording stopped"]

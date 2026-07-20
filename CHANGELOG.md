@@ -56,6 +56,8 @@ All notable changes to Parsek are documented here.
 - The automated-testing harness now re-runs only a flaked verifier tool (a wedged analyzer or a transient log check) against the same run instead of re-flying the whole ~10-minute scenario, and correctly reads a multi-category in-game test batch's combined pass/fail summary. Developer-only tooling; no gameplay change.
 - The developer-only test-command channel now lets research-node run in Science mode (where R&D is live) in addition to Career, and gained a SaveGame verb that persists the current game in-place so a test can save and reload within one launch. Inert in a normal game; no gameplay change.
 - Added an in-game test category and an unattended automated-test scenario covering this release's route-and-rewind behaviors (pause/resume timeline rows, dormant routes across a rewind, restored route status and counters, discarded post-rewind science) so they are verified automatically instead of by manual playtest. Test-tooling only; no gameplay change.
+- The pad-hop automated test flight now counts a chute-deployed breakup at touchdown as a successful end (per operator decision; the stock test craft always breaks apart on landing), instead of failing every run. Test-tooling only; no gameplay change.
+- Added a new autopilot-flown automated test scenario: ascend to orbit, deorbit, reenter, and splash down intact, with the full flight (dropped boosters and the deorbited stage included) recorded and verified. Live proof pending an operator session. Test-tooling only; no gameplay change.
 
 ## 0.10.3
 

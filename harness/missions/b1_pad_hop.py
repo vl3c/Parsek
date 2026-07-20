@@ -44,8 +44,13 @@ def decide(state, snapshot):
     return mlib.b1_decide(state, snapshot)
 
 
-def evaluate(frames, params: dict) -> List[mlib.AssertionOutcome]:
-    return mlib.evaluate_b1_assertions(frames, mlib.b1_params_from_dict(params))
+def evaluate(frames, params: dict, state=None) -> List[mlib.AssertionOutcome]:
+    # A DOWN terminal (operator decision 2026-07-20, option A: chute-deployed
+    # impact at touchdown is a SUCCESSFUL end) satisfies the landedSituation
+    # assertion; the machine state carries which end it was.
+    down = getattr(state, "phase", None) == mlib.B1_DOWN
+    return mlib.evaluate_b1_assertions(frames, mlib.b1_params_from_dict(params),
+                                       down_terminal=down)
 
 
 def make_control() -> mission_runner.MissionControl:

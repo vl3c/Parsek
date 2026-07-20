@@ -541,7 +541,8 @@ class CommittedSpecValidationTests(unittest.TestCase):
         """Direct guard on the exact BLOCKER-1 shape: an autopilot spec's ``steps``
         must live in the ``[driver]`` table with the mission handoff step present,
         NOT re-nested under ``[driver.missionParams]``."""
-        for name in ("B1-pad-hop.toml", "B2-lko-ascent.toml"):
+        for name in ("B1-pad-hop.toml", "B2-lko-ascent.toml",
+                     "B4-reentry-splashdown.toml"):
             with self.subTest(spec=name):
                 with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
                     spec = tomllib.load(fh)

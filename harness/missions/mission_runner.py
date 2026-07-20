@@ -218,6 +218,14 @@ class KrpcMissionControl(MissionControl):
                     mj_enabled = False
                     mj_complete = False
             warp_mode, warp_rate = _read_warp_state(sc)
+            # AutoPilot pointing error (degrees). kRPC raises when the AP is not
+            # engaged; NaN then, which the B4 attitude AND-gate treats as
+            # not-aligned (a wedged AP ends as the bounded deorbit-budget flake,
+            # never a throttle-up on an unknown attitude).
+            try:
+                ap_error = float(v.auto_pilot.error)
+            except Exception:
+                ap_error = float("nan")
             snapshot = mlib.TelemetrySnapshot(
                 ut=float(sc.ut),
                 altitude=float(flight_srf.surface_altitude),
@@ -239,6 +247,7 @@ class KrpcMissionControl(MissionControl):
                 stage_solid_fuel=float(v.resources.amount("SolidFuel")),
                 mj_autopilot_enabled=mj_enabled,
                 mj_ascent_complete=mj_complete,
+                ap_error=ap_error,
                 warp_mode=warp_mode,
                 warp_rate=warp_rate,
             )
@@ -298,6 +307,38 @@ class KrpcMissionControl(MissionControl):
             # is a server-side RPCError (first live B2 run 2026-07-20).
             if len(v.control.nodes) > 0:
                 self._mechjeb.node_executor.execute_all_nodes()
+        elif kind == mlib.ACTION_AP_POINT_RETROGRADE:
+            # kRPC's NATIVE AutoPilot (NOT MechJeb SmartASS): point orbital
+            # retrograde. Surface verified against the installed krpc 0.5.4
+            # python client source (harness/missions/.venv): Vessel.auto_pilot,
+            # AutoPilot.reference_frame / target_direction setters, engage();
+            # Vessel.orbital_reference_frame's y-axis is the orbital PROGRADE
+            # direction, so retrograde is (0, -1, 0) in that frame. Live
+            # behavior proof rides the first B4 operator run.
+            ap = v.auto_pilot
+            ap.reference_frame = v.orbital_reference_frame
+            ap.target_direction = (0.0, -1.0, 0.0)
+            # Heavy-stack tuning: the AP's default 5s deceleration time is
+            # tuned for agile craft and limit-cycles on a low-torque stack
+            # like the post-circularization Kerbal X (pod reaction wheel
+            # turning the whole orbiter), overshooting the target repeatedly.
+            # A longer deceleration window makes the approach critically
+            # damped at the cost of a slower (but converging) flip.
+            try:
+                ap.deceleration_time = (15.0, 15.0, 15.0)
+            except Exception:
+                pass  # tuning is best-effort; the attitude gate is the safety
+            ap.engage()
+        elif kind == mlib.ACTION_AP_DISENGAGE:
+            v.auto_pilot.disengage()
+        elif kind == mlib.ACTION_WARP_TO:
+            # Blocking RAILS warp to the machine-chosen target UT (bounded hops;
+            # mlib emits now + warpHopSeconds per decision frame). Blocking is
+            # acceptable: the fly loop's poll gap simply widens across the call,
+            # and the B4 phase budgets are game-time so the warped span is
+            # budgeted correctly. The warp guard permits RAILS via the spec's
+            # allow_rails_warp.
+            sc.warp_to(float(action.value))
         else:
             raise ValueError("unknown action kind: %r" % (kind,))
 
@@ -571,15 +612,22 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             log.info(state.phase, "action %s value=%s" % (action.kind, _fmt(action.value)))
         log.verbose_rate_limited(
             "telemetry", state.phase,
-            "telemetry ap=%s pe=%s ecc=%s inc=%s situation=%s warp=%sx%s"
+            "telemetry ap=%s pe=%s ecc=%s inc=%s situation=%s warp=%sx%s apErr=%s"
             % (_fmt(snapshot.apoapsis), _fmt(snapshot.periapsis), _fmt(snapshot.eccentricity),
-               _fmt(snapshot.inclination), snapshot.situation, snapshot.warp_mode, _fmt(snapshot.warp_rate)))
+               _fmt(snapshot.inclination), snapshot.situation, snapshot.warp_mode,
+               _fmt(snapshot.warp_rate), _fmt(snapshot.ap_error)))
         if state.done:
             break
         sleep(poll_interval)
 
     # Settle-tail (real terminal only): gather K-ish settled samples for debounce.
-    if state.verdict is None:
+    # A DOWN-terminal state (mlib.B1State.skip_settle_tail, operator decision
+    # 2026-07-20 option A) skips the tail: the vessel is GONE, so the tail would
+    # only gather vessel_lost / garbage frames. LANDED / ORBIT / SPLASHDOWN keep it.
+    if state.verdict is None and getattr(state, "skip_settle_tail", False):
+        log.info(state.phase, "settle tail skipped: terminal marks vessel gone "
+                              "(skip_settle_tail set)")
+    elif state.verdict is None:
         for _ in range(max(0, settle_frames)):
             if clock() >= deadline:
                 break
@@ -608,7 +656,10 @@ class MissionSpec:
       - ``name``:        the mission id written into the result.
       - ``build_state``: params-dict -> the mlib initial phase-machine state.
       - ``decide``:      the mlib per-frame decision fn ``(state, snapshot) -> (state, actions)``.
-      - ``evaluate``:    frames -> list[mlib.AssertionOutcome].
+      - ``evaluate``:    ``(frames, params, state) -> list[mlib.AssertionOutcome]``.
+        ``state`` is the TERMINATED phase-machine state (carried evidence: B1's
+        DOWN terminal, B4's phases_reached / chute_deployed); shells that only
+        need frames accept and ignore it (``state=None`` default).
       - ``make_control``: () -> a real MissionControl (KrpcMissionControl); tests
         inject their own control and never call this.
       - ``allow_rails_warp``: whether RAILS warp is a PERMITTED warp state for this
@@ -699,7 +750,7 @@ def run_mission(
                                          allow_rails_warp=spec.allow_rails_warp,
                                          max_physics_warp=spec.max_physics_warp)
                 phases_reached = list(state.phases_reached)
-                outcomes = spec.evaluate(frames, params)
+                outcomes = spec.evaluate(frames, params, state)
                 for o in outcomes:
                     v = o.value
                     non_finite = isinstance(v, float) and not math.isfinite(v)

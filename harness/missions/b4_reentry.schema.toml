@@ -1,0 +1,122 @@
+# Declared param schema for mission b4_reentry (B2 ascent + deorbit + reentry +
+# splashdown; see docs/dev/todo-and-known-bugs.md "B4 reentry + splashdown").
+#
+# hlib.validate_spec does NOT read this file itself: run.py (shell / I/O) parses
+# every harness/missions/<mission>.schema.toml with tomllib into a registry
+# { mission-name -> schema-dict } and INJECTS it as validate_spec's
+# `mission_schemas` argument. hlib's PURE validator (_validate_mission_params)
+# then drives required-key presence and per-value type/range checks from the
+# `params` table below. Shape consumed by hlib:
+#   {"params": {"<name>": {"required": bool, "type": "<t>", "min": <num?>, "max": <num?>}}}
+# Every value here is a tolerance / threshold / budget, never a golden
+# trajectory (design "Determinism guardrails").
+#
+# The ascent half is B2's ascent params verbatim. B2's eccentricityMax /
+# inclinationErrorDeg / launchSiteLatitude are deliberately ABSENT: B4 makes no
+# orbital-precision assertions (the orbit is a waypoint the deorbit burn then
+# deliberately wrecks), so those would be dead params here.
+
+[params.targetApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.targetPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.apoErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.periErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.ascentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.circularizeTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# Deorbit burn target: burn retrograde until periapsis <= this, then cut + coast.
+[params.deorbitPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+# GAME-time attitude-settle wait between engaging the retrograde AutoPilot and
+# throttling up (a pure wait-in-phase condition in the machine, never a sleep).
+[params.retroSettleSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# AND-gate with the settle wait: the AutoPilot pointing error (degrees) must be
+# at/below this before the deorbit burn starts. Time-only settling burned
+# mid-flip on the first live B4 flight (2026-07-20): the Kerbal X needs a ~180
+# degree turn to retrograde and throttle-up caught it pointing radial.
+[params.maxAttitudeErrorDeg]
+required = false
+type = "number"
+min = 0.5
+max = 45.0
+
+# Bounded rails-warp hops fire only above this altitude (and only while
+# descending); below it the machine polls at 1x down to the chute altitude.
+[params.warpAboveAltMeters]
+required = true
+type = "number"
+min = 0.0
+
+# One warp hop = ACTION_WARP_TO with value = now + this many seconds, re-issued
+# per decision frame while above the threshold (bounded hops keep the machine in
+# control; the atmosphere-entry UT is never computed).
+[params.warpHopSeconds]
+required = true
+type = "number"
+min = 1.0
+
+[params.chuteDeployAltMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.deorbitTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# GAME-time budget: the rails hops advance it fast, but a burn that ends before
+# apoapsis coasts at 1x (warp gates on vertical_speed < 0) and must fit too.
+[params.reentryTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.descentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.landedSituations]
+required = true
+type = "list"
+
+# Optional: consecutive AIRBORNE frozen-telemetry samples (bit-identical orbit
+# fields while UT advances) before the mission declares the vessel lost/destroyed
+# and terminates (design "vessel-destroyed terminal"). mlib.B4Params defaults it
+# to 10 when absent. In B4 this is ALWAYS an ASSERT-FAIL loss (survival is the
+# contract; no B1-style DOWN success terminal).
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000

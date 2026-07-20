@@ -820,18 +820,22 @@ class FrozenTelemetryTerminalTests(unittest.TestCase):
         return mlib.frozen_signature(snap(ut=0.0, **dict(_FROZEN_FIELDS, **kw)))
 
     def test_frozen_descent_terminates_at_exactly_the_limit(self):
+        # The freeze sits ABOVE the chute-deploy altitude (5000 m > 2500 m) so
+        # the chute never deploys mid-freeze: with the chute deployed the same
+        # trip is now the DOWN success terminal (option A, B1DownTerminalTests);
+        # this cell guards the chute-less ASSERT-FAIL path at the exact limit.
         limit = 4
         params = _b1_params_with_limit(limit)
-        seed = self._seed_sig()
+        seed = self._seed_sig(altitude=5000.0)
         # N-1 frozen samples: counter climbs but still running.
         before, _ = drive_b1(_b1_descent_state(params, frozen_sig=seed),
-                             _frozen_frames(limit - 1))
+                             _frozen_frames(limit - 1, altitude=5000.0))
         self.assertFalse(before.done)
         self.assertIsNone(before.loss_reason)
         self.assertEqual(before.frozen_count, limit - 1)
         # The Nth frozen sample trips the terminal.
         after, _ = drive_b1(_b1_descent_state(params, frozen_sig=seed),
-                            _frozen_frames(limit))
+                            _frozen_frames(limit, altitude=5000.0))
         self.assertTrue(after.done)
         self.assertEqual(after.verdict, mlib.MISSION_ASSERT_FAIL)
         self.assertIn("frozen", after.loss_reason)
@@ -945,6 +949,480 @@ class FrozenSampleLimitParamTests(unittest.TestCase):
         q = mlib.b2_params_from_dict({**self._B2, "frozenTelemetrySamples": 7})
         self.assertEqual(q.frozen_sample_limit, 7)
         self.assertIsInstance(q.frozen_sample_limit, int)
+
+
+# ---------------------------------------------------------------------------
+# B1 DOWN success terminal (operator decision 2026-07-20, option A): a
+# chute-deployed impact at touchdown is a SUCCESSFUL end; B4 owns survival.
+# ---------------------------------------------------------------------------
+
+
+class B1DownTerminalTests(unittest.TestCase):
+    """Guards the DOWN terminal: vessel-lost / frozen in DESCENT with the chute
+    deployed ends DOWN (done, NO loss_reason, verdict None so assertions decide,
+    settle tail skipped); without the chute -- and in every other phase -- the
+    loss stays the ASSERT-FAIL loss_reason terminal. A regression here either
+    fails every live B1 run (the Jumping Flea always breaks apart at touchdown)
+    or silently passes a mid-air destruction."""
+
+    def test_vessel_lost_in_descent_with_chute_is_down(self):
+        state = _b1_descent_state(B1_PARAMS, chute_deployed=True)
+        new, actions = mlib.b1_decide(state, snap(ut=10.0, vessel_lost=True))
+        self.assertTrue(new.done)
+        self.assertEqual(new.phase, mlib.B1_DOWN)
+        self.assertIsNone(new.verdict)          # assertions decide, not the loss path
+        self.assertIsNone(new.loss_reason)
+        self.assertTrue(new.skip_settle_tail)   # vessel gone: no settle tail
+        self.assertEqual(new.phases_reached[-1], mlib.B1_DOWN)
+        self.assertEqual(actions, [])
+        # Idempotent once done.
+        again, acts2 = mlib.b1_decide(new, snap(ut=11.0))
+        self.assertIs(again, new)
+        self.assertEqual(acts2, [])
+
+    def test_vessel_lost_in_descent_without_chute_stays_assert_fail(self):
+        # No chute deployed: the craft was destroyed mid-air, not a DOWN success.
+        state = _b1_descent_state(B1_PARAMS)  # chute_deployed defaults False
+        new, _ = mlib.b1_decide(state, snap(ut=10.0, vessel_lost=True))
+        self.assertTrue(new.done)
+        self.assertEqual(new.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("vessel-lost", new.loss_reason)
+        self.assertNotEqual(new.phase, mlib.B1_DOWN)
+        self.assertFalse(new.skip_settle_tail)
+
+    def test_frozen_limit_in_descent_with_chute_is_down(self):
+        # The frozen-telemetry variant of the same signal: N frozen samples with
+        # the chute deployed end DOWN, not ASSERT-FAIL.
+        limit = 4
+        params = _b1_params_with_limit(limit)
+        seed = mlib.frozen_signature(snap(ut=0.0, **_FROZEN_FIELDS))
+        state = _b1_descent_state(params, chute_deployed=True, frozen_sig=seed)
+        state, _ = drive_b1(state, _frozen_frames(limit))
+        self.assertTrue(state.done)
+        self.assertEqual(state.phase, mlib.B1_DOWN)
+        self.assertIsNone(state.verdict)
+        self.assertIsNone(state.loss_reason)
+        self.assertTrue(state.skip_settle_tail)
+
+    def test_frozen_limit_in_descent_without_chute_stays_assert_fail(self):
+        # The telemetry freezes ABOVE the chute-deploy altitude (5000 m > 2500 m),
+        # so the chute never deploys during the freeze run: a chute-less frozen
+        # DESCENT is a mid-air destruction, not a DOWN success.
+        limit = 4
+        params = _b1_params_with_limit(limit)
+        seed = mlib.frozen_signature(snap(ut=0.0, **dict(_FROZEN_FIELDS, altitude=5000.0)))
+        state = _b1_descent_state(params, frozen_sig=seed)
+        state, _ = drive_b1(state, _frozen_frames(limit, altitude=5000.0))
+        self.assertTrue(state.done)
+        self.assertFalse(state.chute_deployed)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("frozen", state.loss_reason)
+        self.assertNotEqual(state.phase, mlib.B1_DOWN)
+
+    def test_earlier_phase_loss_still_fails_even_with_chute_flag(self):
+        # DOWN is DESCENT-scoped: a loss in COAST fails even if the chute flag
+        # were somehow set (a premature deploy does not make an ascent loss OK).
+        base = mlib.b1_initial_state(B1_PARAMS)
+        state = base.__class__(**{**base.__dict__, "phase": mlib.B1_COAST,
+                                  "phase_entry_ut": 0.0, "chute_deployed": True})
+        new, _ = mlib.b1_decide(state, snap(ut=5.0, vessel_lost=True))
+        self.assertTrue(new.done)
+        self.assertEqual(new.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("vessel-lost", new.loss_reason)
+        self.assertNotEqual(new.phase, mlib.B1_DOWN)
+
+    def test_down_state_with_met_assertions_resolves_mission_ok(self):
+        # End-to-end verdict: DOWN (no loss_reason, verdict None) + met
+        # assertions -> MISSION-OK.
+        state = _b1_descent_state(B1_PARAMS, chute_deployed=True)
+        state, _ = mlib.b1_decide(state, snap(ut=10.0, vessel_lost=True))
+        outs = mlib.evaluate_b1_assertions(
+            [snap(apoapsis=14000.0) for _ in range(4)], B1_PARAMS, down_terminal=True)
+        verdict, reason = mlib.resolve_flight_verdict(state, outs)
+        self.assertEqual(verdict, mlib.MISSION_OK, reason)
+
+    def test_landed_situation_assertion_accepts_down(self):
+        # The final frames of a DOWN flight carry no landed situation (the craft
+        # is debris); down_terminal=True satisfies landedSituation and NAMES the
+        # end in the value so the result JSON says which end it was.
+        frames = [snap(apoapsis=14000.0, situation="FLYING"),
+                  snap(ut=1.0, vessel_lost=True)]
+        outs = mlib.evaluate_b1_assertions(frames, B1_PARAMS, down_terminal=True)
+        sit = outs[1]
+        self.assertEqual(sit.name, "landedSituation")
+        self.assertTrue(sit.met)
+        self.assertEqual(sit.value, "DOWN(chute-deployed impact)")
+        self.assertTrue(sit.detail["downTerminal"])
+        # Without the flag the same frames stay UNMET (the plain path unchanged).
+        outs = mlib.evaluate_b1_assertions(frames, B1_PARAMS)
+        self.assertFalse(outs[1].met)
+        self.assertFalse(outs[1].detail["downTerminal"])
+
+
+# ---------------------------------------------------------------------------
+# B4 reentry+splashdown machine, params, and assertions.
+# ---------------------------------------------------------------------------
+
+
+B4_PARAMS = mlib.B4Params(
+    target_apoapsis=80000.0,
+    target_periapsis=80000.0,
+    apo_error=5000.0,
+    peri_error=5000.0,
+    ascent_timeout=420.0,
+    circularize_timeout=300.0,
+    deorbit_periapsis=25000.0,
+    retro_settle_seconds=10.0,
+    warp_above_alt=45000.0,
+    warp_hop_seconds=120.0,
+    chute_deploy_alt=3000.0,
+    deorbit_timeout=300.0,
+    reentry_timeout=3600.0,
+    descent_timeout=600.0,
+    landed_situations=("LANDED", "SPLASHED"),
+)
+
+
+def drive_b4(state, frames):
+    per_frame = []
+    for f in frames:
+        state, actions = mlib.b4_decide(state, f)
+        per_frame.append(actions)
+    return state, per_frame
+
+
+def _b4_state(phase, **overrides):
+    """A B4State pinned in ``phase`` with phase_entry_ut=0."""
+    base = mlib.b4_initial_state(B4_PARAMS)
+    fields = {**base.__dict__, "phase": phase, "phase_entry_ut": 0.0}
+    fields.update(overrides)
+    return base.__class__(**fields)
+
+
+class B4MachineTests(unittest.TestCase):
+    """Guards the B4 machine: the ascent half must behave exactly like B2 (latch
+    AND window, staged launch, guarded circularize), ORBIT must NOT be terminal,
+    the deorbit burn must wait out the attitude settle and stop at the periapsis
+    target, warp hops must fire only above the altitude threshold while
+    descending, and the splashdown situation is the only success terminal."""
+
+    def test_full_happy_path_walk(self):
+        state = mlib.b4_initial_state(B4_PARAMS)
+        frames = [
+            snap(ut=0.0),                                               # 0 PRELAUNCH->MJ-ASCENT
+            snap(ut=60.0, apoapsis=40000.0),                            # 1 climbing
+            snap(ut=180.0, apoapsis=78000.0, mj_ascent_complete=True),  # 2 ->CIRCULARIZE
+            snap(ut=200.0, apoapsis=80000.0, periapsis=20000.0),        # 3 pe rising
+            snap(ut=260.0, apoapsis=80000.0, periapsis=79000.0),        # 4 ->ORBIT (not done!)
+            snap(ut=261.0, apoapsis=80000.0, periapsis=79000.0,
+                 altitude=80000.0),                                     # 5 ORBIT->DEORBIT (retro AP)
+            snap(ut=265.0, apoapsis=80001.0, periapsis=79000.0,
+                 altitude=80001.0),                                     # 6 settle wait (4s < 10s)
+            snap(ut=272.0, apoapsis=80002.0, periapsis=79000.5,
+                 altitude=80002.0),                                     # 7 settled -> throttle up
+            snap(ut=280.0, apoapsis=80002.0, periapsis=60000.0,
+                 altitude=80000.0),                                     # 8 burning
+            snap(ut=300.0, apoapsis=80002.0, periapsis=24000.0,
+                 altitude=79000.0),                                     # 9 ->REENTRY (cut+release+stage)
+            snap(ut=310.0, altitude=70000.0, vertical_speed=50.0,
+                 periapsis=24000.0),                                    # 10 ascending: NO warp
+            snap(ut=320.0, altitude=71000.0, vertical_speed=-10.0,
+                 periapsis=24000.0),                                    # 11 descending high -> hop
+            snap(ut=440.0, altitude=50000.0, vertical_speed=-200.0,
+                 periapsis=24000.0),                                    # 12 still high -> hop
+            snap(ut=560.0, altitude=40000.0, vertical_speed=-300.0,
+                 periapsis=24000.0),                                    # 13 below threshold: no warp
+            snap(ut=600.0, altitude=2500.0, vertical_speed=-200.0),     # 14 ->SPLASHDOWN + chute
+            snap(ut=650.0, altitude=1000.0, vertical_speed=-8.0,
+                 situation="FLYING"),                                   # 15 descending on chute
+            snap(ut=700.0, altitude=0.0, situation="SPLASHED"),         # 16 terminal
+        ]
+        state, per_frame = drive_b4(state, frames)
+        self.assertTrue(state.done)
+        self.assertEqual(state.phase, mlib.B4_SPLASHDOWN)
+        self.assertIsNone(state.verdict)
+        self.assertIsNone(state.loss_reason)
+        self.assertTrue(state.chute_deployed)
+        self.assertEqual(state.phases_reached,
+                         (mlib.B4_PRELAUNCH, mlib.B4_MJ_ASCENT, mlib.B4_CIRCULARIZE,
+                          mlib.B4_ORBIT, mlib.B4_DEORBIT, mlib.B4_REENTRY,
+                          mlib.B4_SPLASHDOWN))
+        # Frame-by-frame actions: launch, circularize, retro AP, settle silence,
+        # throttle, burn-end triple, warp hops only on 11/12, chute on 14.
+        self.assertEqual(per_frame[0], [
+            Action(mlib.ACTION_MJ_SET_TARGET_APOAPSIS, 80000.0),
+            Action(mlib.ACTION_MJ_ENABLE_AUTOSTAGE),
+            Action(mlib.ACTION_MJ_ENGAGE_ASCENT),
+            Action(mlib.ACTION_ACTIVATE_STAGE)])
+        self.assertEqual(per_frame[2], [Action(mlib.ACTION_MJ_EXECUTE_CIRCULARIZATION)])
+        self.assertEqual(per_frame[4], [])
+        self.assertEqual(per_frame[5], [Action(mlib.ACTION_AP_POINT_RETROGRADE)])
+        self.assertEqual(per_frame[6], [])   # attitude still settling: no throttle
+        self.assertEqual(per_frame[7], [Action(mlib.ACTION_SET_THROTTLE, 1.0)])
+        self.assertEqual(per_frame[8], [])   # burn latch: throttle issued ONCE
+        self.assertEqual(per_frame[9], [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+                                        Action(mlib.ACTION_AP_DISENGAGE),
+                                        Action(mlib.ACTION_ACTIVATE_STAGE)])
+        self.assertEqual(per_frame[10], [])  # ascending: warp gated off
+        self.assertEqual(per_frame[11], [Action(mlib.ACTION_WARP_TO, 320.0 + 120.0)])
+        self.assertEqual(per_frame[12], [Action(mlib.ACTION_WARP_TO, 440.0 + 120.0)])
+        self.assertEqual(per_frame[13], [])  # below warpAboveAltMeters: no hop
+        self.assertEqual(per_frame[14], [Action(mlib.ACTION_DEPLOY_CHUTE)])
+        self.assertEqual(per_frame[16], [])
+
+    def test_orbit_is_not_terminal(self):
+        # Regression vs B2 (where ORBIT sets done): B4 must keep flying.
+        state = _b4_state(mlib.B4_CIRCULARIZE)
+        state, _ = mlib.b4_decide(state, snap(ut=10.0, periapsis=79000.0))
+        self.assertEqual(state.phase, mlib.B4_ORBIT)
+        self.assertFalse(state.done)
+
+    def test_mj_ascent_needs_latch_and_window(self):
+        # VERBATIM the B2 gate: window alone (no latch) must not advance.
+        state = _b4_state(mlib.B4_MJ_ASCENT)
+        state, actions = mlib.b4_decide(state, snap(ut=60.0, apoapsis=78000.0))
+        self.assertEqual(state.phase, mlib.B4_MJ_ASCENT)
+        self.assertEqual(actions, [])
+        # Latch alone (apoapsis short) must not advance either.
+        state, actions = mlib.b4_decide(
+            state, snap(ut=61.0, apoapsis=60000.0, mj_ascent_complete=True))
+        self.assertEqual(state.phase, mlib.B4_MJ_ASCENT)
+        self.assertEqual(actions, [])
+
+    def test_deorbit_burn_waits_out_settle_then_throttles_once(self):
+        state = _b4_state(mlib.B4_DEORBIT)
+        # Before the 10 s settle: no throttle (ap_error defaults 0.0 = aligned).
+        state, actions = mlib.b4_decide(state, snap(ut=4.0, periapsis=79000.0))
+        self.assertEqual(actions, [])
+        self.assertFalse(state.burn_started)
+        # Past the settle AND aligned: exactly one throttle-up.
+        state, actions = mlib.b4_decide(state, snap(ut=11.0, periapsis=79000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_THROTTLE, 1.0)])
+        self.assertTrue(state.burn_started)
+        state, actions = mlib.b4_decide(state, snap(ut=12.0, periapsis=70000.0))
+        self.assertEqual(actions, [])
+
+    def test_deorbit_burn_gated_on_attitude_error(self):
+        # First live B4 flight (2026-07-20): a time-only settle burned mid-flip
+        # (ship pointing radial, apoapsis 84km -> 382km). The burn must wait
+        # for BOTH the settle time AND AutoPilot alignment.
+        state = _b4_state(mlib.B4_DEORBIT)
+        # Settled but still flipping (90 deg off): no throttle.
+        state, actions = mlib.b4_decide(
+            state, snap(ut=20.0, periapsis=79000.0, ap_error=90.0))
+        self.assertEqual(actions, [])
+        self.assertFalse(state.burn_started)
+        # Still misaligned above the 5 deg default: no throttle.
+        state, actions = mlib.b4_decide(
+            state, snap(ut=30.0, periapsis=79000.0, ap_error=5.1))
+        self.assertEqual(actions, [])
+        self.assertFalse(state.burn_started)
+        # Aligned: throttle up.
+        state, actions = mlib.b4_decide(
+            state, snap(ut=40.0, periapsis=79000.0, ap_error=3.2))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_THROTTLE, 1.0)])
+        self.assertTrue(state.burn_started)
+
+    def test_deorbit_nan_attitude_error_never_burns(self):
+        # NaN = AP unreadable/not engaged: the gate fails closed and the phase
+        # ends as the bounded deorbit-budget flake, never a blind burn.
+        state = _b4_state(mlib.B4_DEORBIT)
+        state, actions = mlib.b4_decide(
+            state, snap(ut=50.0, periapsis=79000.0, ap_error=float("nan")))
+        self.assertEqual(actions, [])
+        self.assertFalse(state.burn_started)
+        # Budget expiry (deorbit_timeout default 300) -> MISSION-FLAKE.
+        state, actions = mlib.b4_decide(
+            state, snap(ut=400.0, periapsis=79000.0, ap_error=float("nan")))
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertTrue(state.done)
+
+    def test_vessel_lost_in_deorbit_is_assert_fail(self):
+        state = _b4_state(mlib.B4_DEORBIT, burn_started=True)
+        new, actions = mlib.b4_decide(state, snap(ut=20.0, vessel_lost=True))
+        self.assertTrue(new.done)
+        self.assertEqual(new.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("vessel-lost", new.loss_reason)
+        self.assertEqual(actions, [])
+
+    def test_vessel_lost_in_splashdown_with_chute_is_still_assert_fail(self):
+        # B4 has NO DOWN equivalent: even chute-deployed, a lost vessel in the
+        # descent is a failed survival contract (the reentry burned it up or the
+        # splashdown destroyed it).
+        state = _b4_state(mlib.B4_SPLASHDOWN, chute_deployed=True)
+        new, _ = mlib.b4_decide(state, snap(ut=20.0, vessel_lost=True))
+        self.assertTrue(new.done)
+        self.assertEqual(new.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("vessel-lost", new.loss_reason)
+        self.assertFalse(getattr(new, "skip_settle_tail", False))
+
+    def test_frozen_telemetry_in_reentry_is_assert_fail(self):
+        limit = 4
+        params = B4_PARAMS.__class__(**{**B4_PARAMS.__dict__, "frozen_sample_limit": limit})
+        fields = dict(altitude=60000.0, vertical_speed=-200.0,
+                      apoapsis=80000.0, periapsis=24000.0)
+        seed = mlib.frozen_signature(snap(ut=0.0, **fields))
+        base = mlib.b4_initial_state(params)
+        state = base.__class__(**{**base.__dict__, "phase": mlib.B4_REENTRY,
+                                  "phase_entry_ut": 0.0, "frozen_sig": seed})
+        frames = [snap(ut=1.0 + i, **fields) for i in range(limit)]
+        state, _ = drive_b4(state, frames)
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("frozen", state.loss_reason)
+
+    def test_budget_flakes_name_their_phase(self):
+        # Every timed phase must flake past its budget, naming itself.
+        cells = [
+            (mlib.B4_MJ_ASCENT, snap(ut=500.0, apoapsis=40000.0)),          # > 420
+            (mlib.B4_CIRCULARIZE, snap(ut=400.0, periapsis=20000.0)),       # > 300
+            (mlib.B4_DEORBIT, snap(ut=400.0, periapsis=79000.0)),           # > 300
+            (mlib.B4_REENTRY, snap(ut=4000.0, altitude=60000.0,
+                                   vertical_speed=-10.0)),                  # > 3600
+            (mlib.B4_SPLASHDOWN, snap(ut=700.0, altitude=500.0,
+                                      situation="FLYING")),                 # > 600
+        ]
+        for phase, frame in cells:
+            with self.subTest(phase=phase):
+                overrides = {"burn_started": True} if phase == mlib.B4_DEORBIT else {}
+                state = _b4_state(phase, **overrides)
+                state, actions = mlib.b4_decide(state, frame)
+                self.assertTrue(state.done)
+                self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+                self.assertEqual(state.flake_phase, phase)
+                self.assertEqual(actions, [], "a flaked frame must emit no actions")
+
+    def test_no_warp_hop_on_flaked_reentry_frame(self):
+        # The frame that flakes REENTRY must not ALSO command a warp hop.
+        state = _b4_state(mlib.B4_REENTRY)
+        state, actions = mlib.b4_decide(
+            state, snap(ut=4000.0, altitude=60000.0, vertical_speed=-100.0))
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(actions, [])
+
+    def test_done_state_is_idempotent(self):
+        state = _b4_state(mlib.B4_SPLASHDOWN, done=True)
+        new, actions = mlib.b4_decide(state, snap(ut=999.0))
+        self.assertIs(new, state)
+        self.assertEqual(actions, [])
+
+
+class B4ParamTests(unittest.TestCase):
+    """Guards b4_params_from_dict: spec keys parse into the typed params, and the
+    deorbit-side defaults hold when the optional keys are absent."""
+
+    _REQUIRED = {
+        "targetApoapsisMeters": 80000, "targetPeriapsisMeters": 80000,
+        "apoErrorMeters": 5000, "periErrorMeters": 5000,
+        "ascentTimeoutSeconds": 420, "circularizeTimeoutSeconds": 300,
+        "deorbitPeriapsisMeters": 25000, "retroSettleSeconds": 10,
+        "warpAboveAltMeters": 45000, "warpHopSeconds": 120,
+        "chuteDeployAltMeters": 3000, "deorbitTimeoutSeconds": 300,
+        "reentryTimeoutSeconds": 3600, "descentTimeoutSeconds": 600,
+        "landedSituations": ["LANDED", "SPLASHED"],
+    }
+
+    def test_full_spec_dict_round_trip(self):
+        p = mlib.b4_params_from_dict(dict(self._REQUIRED))
+        self.assertEqual(p.target_apoapsis, 80000.0)
+        self.assertEqual(p.deorbit_periapsis, 25000.0)
+        self.assertEqual(p.retro_settle_seconds, 10.0)
+        self.assertEqual(p.warp_above_alt, 45000.0)
+        self.assertEqual(p.warp_hop_seconds, 120.0)
+        self.assertEqual(p.chute_deploy_alt, 3000.0)
+        self.assertEqual(p.landed_situations, ("LANDED", "SPLASHED"))
+        self.assertEqual(p.frozen_sample_limit, 10)  # default when absent
+
+    def test_defaults_when_keys_absent(self):
+        p = mlib.b4_params_from_dict({})
+        self.assertEqual(p.deorbit_periapsis, 25000.0)
+        self.assertEqual(p.retro_settle_seconds, 10.0)
+        self.assertEqual(p.warp_above_alt, 45000.0)
+        self.assertEqual(p.warp_hop_seconds, 120.0)
+        self.assertEqual(p.chute_deploy_alt, 3000.0)
+        self.assertEqual(p.deorbit_timeout, 300.0)
+        self.assertEqual(p.reentry_timeout, 3600.0)
+        self.assertEqual(p.descent_timeout, 600.0)
+        self.assertEqual(p.frozen_sample_limit, 10)
+
+    def test_frozen_limit_parsed(self):
+        p = mlib.b4_params_from_dict({**self._REQUIRED, "frozenTelemetrySamples": 7})
+        self.assertEqual(p.frozen_sample_limit, 7)
+        self.assertIsInstance(p.frozen_sample_limit, int)
+
+
+class B4AssertionTests(unittest.TestCase):
+    """Guards evaluate_b4_assertions: terminal-focused, derivable from frames +
+    phase evidence, no orbital precision post-deorbit."""
+
+    def _phases(self, through_orbit=True):
+        if through_orbit:
+            return (mlib.B4_PRELAUNCH, mlib.B4_MJ_ASCENT, mlib.B4_CIRCULARIZE,
+                    mlib.B4_ORBIT, mlib.B4_DEORBIT, mlib.B4_REENTRY, mlib.B4_SPLASHDOWN)
+        return (mlib.B4_PRELAUNCH, mlib.B4_MJ_ASCENT)
+
+    def _frames(self, peak=80000.0, final="SPLASHED"):
+        return [snap(apoapsis=peak, situation="FLYING"),
+                snap(apoapsis=peak - 100.0, situation=final)]
+
+    def test_all_met(self):
+        outs = mlib.evaluate_b4_assertions(self._frames(), B4_PARAMS,
+                                           phases_reached=self._phases(),
+                                           chute_deployed=True)
+        self.assertEqual([o.name for o in outs],
+                         ["reachedOrbit", "apoapsisFloor", "landedSituation",
+                          "chuteDeployed"])
+        self.assertTrue(mlib.all_assertions_met(outs))
+        self.assertEqual(outs[0].value, mlib.B4_SPLASHDOWN)  # deepest phase
+        self.assertEqual(outs[1].value, 80000.0)             # the peak
+        self.assertEqual(outs[2].value, "SPLASHED")
+
+    def test_orbit_never_reached_unmet(self):
+        outs = mlib.evaluate_b4_assertions(self._frames(), B4_PARAMS,
+                                           phases_reached=self._phases(False),
+                                           chute_deployed=True)
+        self.assertFalse(outs[0].met)
+        self.assertEqual(outs[0].value, mlib.B4_MJ_ASCENT)
+
+    def test_apoapsis_floor_boundary_inclusive(self):
+        # floor = 80000 - 5000 = 75000: exactly 75000 met, just below unmet.
+        outs = mlib.evaluate_b4_assertions(self._frames(peak=75000.0), B4_PARAMS,
+                                           phases_reached=self._phases(),
+                                           chute_deployed=True)
+        self.assertTrue(outs[1].met)
+        outs = mlib.evaluate_b4_assertions(self._frames(peak=74999.0), B4_PARAMS,
+                                           phases_reached=self._phases(),
+                                           chute_deployed=True)
+        self.assertFalse(outs[1].met)
+
+    def test_all_nan_apoapsis_unmet_value_null(self):
+        frames = [snap(apoapsis=float("nan"), situation="SPLASHED") for _ in range(3)]
+        outs = mlib.evaluate_b4_assertions(frames, B4_PARAMS,
+                                           phases_reached=self._phases(),
+                                           chute_deployed=True)
+        self.assertFalse(outs[1].met)
+        self.assertIsNone(outs[1].to_dict()["value"])
+
+    def test_final_situation_and_chute(self):
+        outs = mlib.evaluate_b4_assertions(self._frames(final="FLYING"), B4_PARAMS,
+                                           phases_reached=self._phases(),
+                                           chute_deployed=False)
+        self.assertFalse(outs[2].met)   # never landed
+        self.assertFalse(outs[3].met)   # chute never deployed
+        self.assertIs(outs[3].value, False)
+
+    def test_loss_reason_short_circuits_before_assertions(self):
+        # A B4 vessel-lost terminal must fail even with all-met assertions (the
+        # survival contract; mirrors the B1 LossReasonVerdictTests cell).
+        state = _b4_state(mlib.B4_REENTRY)
+        state, _ = mlib.b4_decide(state, snap(ut=20.0, vessel_lost=True))
+        outs = mlib.evaluate_b4_assertions(self._frames(), B4_PARAMS,
+                                           phases_reached=self._phases(),
+                                           chute_deployed=True)
+        self.assertTrue(mlib.all_assertions_met(outs))
+        verdict, reason = mlib.resolve_flight_verdict(state, outs)
+        self.assertEqual(verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("vessel-lost", reason)
 
 
 if __name__ == "__main__":
