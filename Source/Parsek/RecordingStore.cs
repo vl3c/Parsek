@@ -5768,6 +5768,15 @@ namespace Parsek
             // changes explicitly) to keep ERS coherent.
             int skippedImmutable = rollback.SkippedImmutableForkCount;
             int demotedImmutable = rollback.DemotedImmutablePreservationCount;
+            // Route-timeline events: DELIBERATELY the silent bump, not the Live
+            // variant. Both callers are rewind seams - ExecuteRewindSaveLoad
+            // (mid-rewind, pre-LoadScene: Planetarium still reports the
+            // pre-rewind UT, and a row stamped there would land in the
+            // rewound-out future while the route set is about to be wholesale
+            // reinstalled by ReconciliationBundle.Restore) and
+            // ReapplyRewindSupersedeDropAfterLoad (OnLoad). Any resulting
+            // silent flip is repaired by the revalidation catch-up net on the
+            // next live pass.
             if (dropped > 0 || retired > 0 || retiredOldSides > 0)
                 scenario.BumpSupersedeStateVersion();
 

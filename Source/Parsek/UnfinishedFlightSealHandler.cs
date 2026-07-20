@@ -102,7 +102,9 @@ namespace Parsek
             bool persistedBeforeReap = true;
             if (!object.ReferenceEquals(null, scenario))
             {
-                scenario.BumpSupersedeStateVersion();
+                // Live variant (route-timeline events): Seal is a player click
+                // in the Unfinished Flights UI; the tip flip changes ERS.
+                scenario.BumpSupersedeStateVersionLive();
                 persistedBeforeReap = PersistSealBeforeReap();
             }
 

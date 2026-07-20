@@ -269,7 +269,9 @@ namespace Parsek
             {
                 scenario.ActiveReFlySessionMarker = null;
                 Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
-                scenario.BumpSupersedeStateVersion();
+                // Live variant (route-timeline events): Retry is a player click
+                // in flight; ERS visibility shifts here must stamp route markers.
+                scenario.BumpSupersedeStateVersionLive();
                 ReFlyRevertButtonGate.Apply("RetryHandler:marker-cleared");
                 // #688 follow-up: drop the captured pre-Re-Fly anchor
                 // trajectory snapshot (matches SupersedeCommit's cleanup;
@@ -367,7 +369,8 @@ namespace Parsek
                     scenario.ActiveReFlySessionMarker = null;
                     Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
                     scenario.ActiveMergeJournal = null;
-                    scenario.BumpSupersedeStateVersion();
+                    // Live variant (route-timeline events): player Discard click.
+                    scenario.BumpSupersedeStateVersionLive();
                     ReFlyRevertButtonGate.Apply("DiscardReFlyHandler:rp-unresolvable");
                     // #688 follow-up: drop the captured pre-Re-Fly anchor
                     // trajectory snapshot — the discarded session is dead
@@ -427,7 +430,8 @@ namespace Parsek
                 scenario.ActiveReFlySessionMarker = null;
                 Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
                 scenario.ActiveMergeJournal = null;
-                scenario.BumpSupersedeStateVersion();
+                // Live variant (route-timeline events): player Discard click.
+                scenario.BumpSupersedeStateVersionLive();
                 // Apply now so the failure paths in steps 8-9 (which may bail
                 // and leave the player in flight) do not strand a forced
                 // CanRevertToPostInit. The success path transitions out of

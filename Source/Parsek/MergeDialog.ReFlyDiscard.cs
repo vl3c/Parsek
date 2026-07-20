@@ -300,7 +300,10 @@ namespace Parsek
             scenario.ActiveReFlySessionMarker = null;
             Parsek.Rendering.RenderSessionState.Clear("marker-cleared");
             scenario.ActiveMergeJournal = null;
-            scenario.BumpSupersedeStateVersion();
+            // Live variant (route-timeline events): the Re-Fly discard dialog
+            // choice is player-driven; a route whose sources this discard
+            // restores or retires stamps its auto-pause / auto-resume marker.
+            scenario.BumpSupersedeStateVersionLive();
             ReFlyRevertButtonGate.Apply("MergeDialog:discard-refly-attempt");
             SupersedeCommit.ClearPreReFlyAnchorSnapshotsForSession(sessionId);
 

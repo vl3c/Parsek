@@ -87,8 +87,10 @@ namespace Parsek
                 demotedTip = true;
             }
 
+            // Live variant (route-timeline events): Stash is a player click in
+            // the Unfinished Flights UI; the tip demotion changes ERS.
             if ((stashedNow || demotedTip) && !object.ReferenceEquals(null, scenario))
-                scenario.BumpSupersedeStateVersion();
+                scenario.BumpSupersedeStateVersionLive();
 
             Recording terminalTip = EffectiveState.ResolveChainTerminalRecording(rec);
             string terminal = terminalTip?.TerminalStateValue.HasValue == true
