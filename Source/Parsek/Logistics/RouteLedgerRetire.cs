@@ -28,9 +28,12 @@ namespace Parsek.Logistics
     ///
     /// <para><b>Parity, not a new behavior.</b> The STOCK-revert path already drops
     /// these rows via <c>Ledger.PruneOrphanActionsAfterUT</c> (untagged orphan rows
-    /// after a cutoff). Rewind-to-Separation is the ONLY revert that preserves them,
-    /// because it routes through <c>ReconciliationBundle</c> (which deliberately
-    /// snapshots the full ledger) instead of that prune. This helper restores parity:
+    /// after a cutoff). TWO rewind exits preserve them and therefore route through
+    /// this retire: Rewind-to-Separation (Re-Fly) preserves the full ledger via
+    /// <c>ReconciliationBundle</c> (retire runs in <c>Restore(cutoff)</c>), and the
+    /// plain go-back rewind (<c>ParsekScenario.HandleRewindOnLoad</c>) preserves the
+    /// in-memory static ledger across the in-session load (retire runs in place via
+    /// <c>Ledger.RetireFutureRouteActionsAtRewind</c>). This helper restores parity:
     /// route rows revert on a rewind exactly as they already do on a stock revert,
     /// scoped to route action Types instead of "untagged".</para>
     ///

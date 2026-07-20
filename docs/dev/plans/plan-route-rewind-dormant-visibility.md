@@ -116,6 +116,27 @@ routes, exactly like recordings:
   "counters deliberately NOT recomputed" residual is thereby closed.
 - The rollback / route-blind `Restore()` overload leaves route state
   untouched (mirrors Rec-1's +Infinity contract).
+- **Both rewind exits reconcile (go-back fix, branch
+  `fix-goback-route-reconcile`; preservation-branch audit 2026-07-19):** the
+  whole classify + dormanting hygiene + kept-route reconcile + install block
+  above is the shared helper `RouteRewindClassifier.ReconcileStoreAtRewind`,
+  called by BOTH in-session rewind exits: the Re-Fly seam
+  (`ReconciliationBundle.Restore(cutoff)`, behavior-identical to the
+  pre-extraction inline block) and the plain go-back rewind
+  (`ParsekScenario.HandleRewindOnLoad`), which previously contained zero
+  route handling (kept routes carried abandoned-future loop cursors; routes
+  created after the rewind target stayed committed, visible, and firing
+  before their own creation point). The go-back exit first retires the
+  abandoned-future free-standing route rows IN PLACE via
+  `Ledger.RetireFutureRouteActionsAtRewind(cutoff)` - Rec-1 retire parity;
+  the go-back path never runs the revert branch's
+  `Ledger.PruneOrphanActionsAfterUT`, so the rows would otherwise survive -
+  then runs the shared reconcile over the kept rows, all BEFORE the career
+  cutoff walk and while `RewindContext.RewindAdjustedUT` (the UT the loaded
+  save reverted the world to, the go-back's Rec-1-contract cutoff) is still
+  populated. The block emits no ledger actions (OnLoad-safe). Gated by
+  xUnit parity + source-text hookup tests
+  (`RouteGoBackRewindReconcileTests`).
 - The rare forced-cold crash-reconcile path (LoadRoutesFrom before
   ConsumePostLoad) is coherent: Restore replaces whatever was loaded.
 
