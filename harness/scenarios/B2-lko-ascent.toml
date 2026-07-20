@@ -54,7 +54,14 @@ D4  = ["atmospheric", "exo-propulsive"]
 D14 = ["kerbin"]
 
 [expectations.recordings]
-count = { min = 1, max = 1 }
+# The flight commits ONE main ascent recording, but the Kerbal X drops six
+# boosters on the way up and each becomes a parent-anchored debris child
+# recording (first live B2 flight 2026-07-20: exactly 7 sidecars, analyzer
+# RED=0 over all of them - Parsek modeling staging debris is CORRECT
+# behavior the original {1,1} expectation failed to model). min stays 1
+# (the main recording must exist even if debris admission varies); max is
+# main + 6 boosters.
+count = { min = 1, max = 7 }
 
 [expectations.logContracts]
 required  = ["Recording started", "Recording stopped"]

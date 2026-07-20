@@ -598,12 +598,28 @@ def b2_decide(state: B2State, snapshot: TelemetrySnapshot) -> Tuple[B2State, Lis
             Action(ACTION_MJ_SET_TARGET_APOAPSIS, state.params.target_apoapsis),
             Action(ACTION_MJ_ENABLE_AUTOSTAGE),
             Action(ACTION_MJ_ENGAGE_ASCENT),
+            # LAUNCH: MechJeb's AscentAutopilot engaged via kRPC does NOT
+            # ignite the first stage itself (first live B2 run 2026-07-20 sat
+            # in PRE_LAUNCH for the full ascent budget with the autopilot
+            # engaged); the mission activates the initial stage exactly like a
+            # GUI user pressing space, and MechJeb + autostage fly from there.
+            Action(ACTION_ACTIVATE_STAGE),
         ]
         return _b2_enter(state, B2_MJ_ASCENT, snapshot.ut), actions
 
     if state.phase == B2_MJ_ASCENT:
+        # Leave MJ-ASCENT only when the AscentAutopilot LATCHES complete
+        # (engaged earlier, now self-disabled). The old apoapsis-window
+        # condition fired MID-BURN (first live B2 run 2026-07-20: apoapsis
+        # crossed the window at 36 km while MechJeb was still flying) and the
+        # circularization action then executed an EMPTY node list, which the
+        # server answers with an RPCError. The apoapsis check remains as an
+        # AND-guard so a spurious early latch cannot advance a mission that
+        # never got near its target.
         target = state.params.target_apoapsis
-        if _is_finite(snapshot.apoapsis) and snapshot.apoapsis >= target - state.params.apo_error:
+        apo_reached = (_is_finite(snapshot.apoapsis)
+                       and snapshot.apoapsis >= target - state.params.apo_error)
+        if snapshot.mj_ascent_complete and apo_reached:
             return (_b2_enter(state, B2_CIRCULARIZE, snapshot.ut),
                     [Action(ACTION_MJ_EXECUTE_CIRCULARIZATION)])
         return _b2_stay_or_flake(state, snapshot), []
@@ -849,21 +865,34 @@ WARP_NONE = "NONE"
 WARP_RAILS = "RAILS"
 WARP_PHYSICS = "PHYSICS"
 
+# TimeWarp.CurrentRate ramps CONTINUOUSLY toward the selected step, so a
+# permitted 2x physics warp is routinely sampled at 2.0x-and-a-bit while
+# settling; the guard adds this allowance on top of max_physics_warp.
+PHYSICS_WARP_RAMP_ALLOWANCE = 0.25
 
-def is_unexpected_warp(warp_mode: str, warp_rate: float, allow_rails: bool) -> bool:
+
+def is_unexpected_warp(warp_mode: str, warp_rate: float, allow_rails: bool,
+                       max_physics_warp: float = 0.0) -> bool:
     """True iff the reported warp state is UNEXPECTED for a v1 mission (design
     edge 7). 1x (a non-finite or ``<= 1.0`` rate) is always fine. Above 1x:
-    PHYSICS warp is NEVER permitted (a determinism violation for BOTH missions --
-    it distorts the recorded trajectory and the physics); RAILS warp is permitted
-    ONLY when ``allow_rails`` (B2's exo-atmospheric coast, per its RAILS-or-1x
-    contract), and forbidden otherwise (B1's 1x-throughout contract). An unknown
-    warp mode above 1x is treated conservatively as unexpected. On True the shell
-    flakes the mission naming the phase + the warp state."""
+    PHYSICS warp is permitted only up to ``max_physics_warp`` (default 0.0 =
+    never; B2 sets 2.0 because MechJeb's AscentAutopilot engages its own 2x
+    physics warp during ascent and KRPC.MechJeb 0.8.1 exposes no toggle for it
+    - observed live 2026-07-20 at ramping rates 1.1-1.5x; the comparison
+    carries a small ramp allowance since TimeWarp.CurrentRate is continuous
+    while ramping toward the step rate). Above that bound it stays a
+    determinism violation. RAILS warp is permitted ONLY when ``allow_rails``
+    (B2's exo-atmospheric coast, per its RAILS-or-1x contract), and forbidden
+    otherwise (B1's 1x-throughout contract). An unknown warp mode above 1x is
+    treated conservatively as unexpected. On True the shell flakes the mission
+    naming the phase + the warp state."""
     if not _is_finite(warp_rate) or warp_rate <= 1.0:
         return False
     mode = str(warp_mode or "").upper()
     if mode == WARP_PHYSICS:
-        return True
+        if not _is_finite(max_physics_warp) or max_physics_warp <= 0.0:
+            return True
+        return warp_rate > max_physics_warp + PHYSICS_WARP_RAMP_ALLOWANCE
     if mode == WARP_RAILS:
         return not allow_rails
     # Above 1x with an unrecognized / NONE mode is an inconsistent, unexpected state.

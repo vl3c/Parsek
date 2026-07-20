@@ -204,7 +204,8 @@ class HappyPathTests(unittest.TestCase):
                        inclination=0.3, situation="ORBITING")
         frames = [
             snap(ut=0.0, apoapsis=1000, periapsis=0, eccentricity=0.9, inclination=0.3, situation="PRE_LAUNCH"),
-            snap(ut=100.0, apoapsis=78000, periapsis=1000, eccentricity=0.8, inclination=0.3, situation="FLYING"),  # -> CIRCULARIZE
+            snap(ut=100.0, apoapsis=78000, periapsis=1000, eccentricity=0.8, inclination=0.3,
+                 situation="FLYING", mj_ascent_complete=True),  # latched -> CIRCULARIZE
             snap(ut=120.0, apoapsis=80000, periapsis=40000, eccentricity=0.3, inclination=0.3, situation="FLYING"),
             snap(ut=140.0, apoapsis=80000, periapsis=70000, eccentricity=0.1, inclination=0.3, situation="FLYING"),
             settled,  # periapsis 80000 -> ORBIT
@@ -348,7 +349,8 @@ class WarpGuardShellTests(unittest.TestCase):
         frames = [
             snap(ut=0.0, apoapsis=1000, periapsis=0, eccentricity=0.9, inclination=0.3, situation="PRE_LAUNCH"),
             snap(ut=100.0, apoapsis=78000, periapsis=1000, eccentricity=0.8, inclination=0.3,
-                 situation="FLYING", warp_mode="RAILS", warp_rate=50.0),  # -> CIRCULARIZE, rails OK for B2
+                 situation="FLYING", warp_mode="RAILS", warp_rate=50.0,
+                 mj_ascent_complete=True),  # latched -> CIRCULARIZE, rails OK for B2
             snap(ut=120.0, apoapsis=80000, periapsis=40000, eccentricity=0.3, inclination=0.3, situation="FLYING"),
             snap(ut=140.0, apoapsis=80000, periapsis=70000, eccentricity=0.1, inclination=0.3, situation="FLYING"),
             settled,

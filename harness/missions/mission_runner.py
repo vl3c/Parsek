@@ -55,7 +55,7 @@ import sys
 import time
 import traceback
 from dataclasses import dataclass, replace
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 # The mission shells run as subprocesses (``python missions/<name>.py ...``) with
 # their own directory (missions/) as sys.path[0]; the pure decision library lives
@@ -290,8 +290,13 @@ class KrpcMissionControl(MissionControl):
         elif kind == mlib.ACTION_MJ_ENGAGE_ASCENT:
             self._ascent.enabled = True
         elif kind == mlib.ACTION_MJ_EXECUTE_CIRCULARIZATION:
-            # The AscentAutopilot leaves a circularization node; execute it.
-            self._mechjeb.node_executor.execute_all_nodes()
+            # Execute the circularization node IF the autopilot left one.
+            # MechJeb's AscentAutopilot usually performs the circularization
+            # burn itself before self-disabling, so an empty node list here is
+            # the NORMAL completed case - and ExecuteAllNodes on an empty list
+            # is a server-side RPCError (first live B2 run 2026-07-20).
+            if len(v.control.nodes) > 0:
+                self._mechjeb.node_executor.execute_all_nodes()
         else:
             raise ValueError("unknown action kind: %r" % (kind,))
 
@@ -465,6 +470,7 @@ def fly_loop(
     poll_interval: float = POLL_INTERVAL_SECONDS,
     settle_frames: int = DEFAULT_SETTLE_FRAMES,
     allow_rails_warp: bool = False,
+    max_physics_warp: float = 0.0,
 ):
     """Drive a mission's ``mlib`` phase machine to completion, bounded by BOTH the
     machine's per-phase budgets (inside ``decide``) AND a wall-clock ``deadline``
@@ -491,7 +497,29 @@ def fly_loop(
     consecutive in-tolerance snapshots). A flake terminal skips the settle-tail."""
     state = initial_state
     frames: List = []
+    try:
+        return _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
+                              poll_interval, settle_frames, allow_rails_warp, max_physics_warp, frames)
+    except Exception as exc:
+        # Preserve the ADVANCED machine state for the shell's error result:
+        # without this a mid-flight kRPC error reported phasesReached=[] even
+        # though the machine had reached CIRCULARIZE (first live B2 run).
+        # ``mission_state`` rides the exception; run_mission reads it back.
+        if not hasattr(exc, "mission_state"):
+            exc.mission_state = _FLY_LOOP_LAST_STATE.get("state", state)  # type: ignore[attr-defined]
+        raise
+
+
+# The loop body publishes its current state here each frame so the fly_loop
+# wrapper can attach it to an escaping exception (single-threaded shell; the
+# dict is overwritten per call and read only on the unwind path).
+_FLY_LOOP_LAST_STATE: Dict = {}
+
+
+def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
+                   poll_interval, settle_frames, allow_rails_warp, max_physics_warp, frames):
     while not state.done:
+        _FLY_LOOP_LAST_STATE["state"] = state
         if clock() >= deadline:
             log.warn(state.phase, "wall budget elapsed in phase %s -> %s"
                      % (state.phase, mlib.MISSION_FLAKE))
@@ -500,13 +528,17 @@ def fly_loop(
         frames.append(snapshot)
         # Edge 7: an unexpected physics (or, for B1, any) warp state distorts the
         # flight; flake naming the phase + warp state rather than record a warped run.
-        if mlib.is_unexpected_warp(snapshot.warp_mode, snapshot.warp_rate, allow_rails_warp):
+        if mlib.is_unexpected_warp(snapshot.warp_mode, snapshot.warp_rate, allow_rails_warp,
+                                   max_physics_warp=max_physics_warp):
             log.warn(state.phase, "unexpected %s-warp x%s in phase %s (allow_rails=%s) -> %s"
                      % (snapshot.warp_mode, _fmt(snapshot.warp_rate), state.phase,
                         allow_rails_warp, mlib.MISSION_FLAKE))
             return replace(state, verdict=mlib.MISSION_FLAKE, flake_phase=state.phase, done=True), frames
         prev_phase = state.phase
         state, actions = decide(state, snapshot)
+        # Re-publish post-decide: a perform() failure below must report the
+        # phase the machine had ALREADY entered this frame.
+        _FLY_LOOP_LAST_STATE["state"] = state
         if state.phase != prev_phase:
             log.info(state.phase, "phase %s -> %s ut=%s alt=%s ap=%s vsurf=%s"
                      % (prev_phase, state.phase, _fmt(snapshot.ut), _fmt(snapshot.altitude),
@@ -567,6 +599,12 @@ class MissionSpec:
     evaluate: Callable
     make_control: Callable[[], MissionControl]
     allow_rails_warp: bool = False
+    # Highest PERMITTED physics-warp rate (0.0 = never, the B1 default). B2
+    # sets 2.0: MechJeb's AscentAutopilot engages its own 2x physics warp
+    # during ascent and KRPC.MechJeb 0.8.1 exposes no toggle for it (observed
+    # live 2026-07-20). Above the bound (plus the ramp allowance) the warp
+    # guard still flakes the mission.
+    max_physics_warp: float = 0.0
 
 
 def run_mission(
@@ -635,7 +673,8 @@ def run_mission(
                 deadline = wall_start + float(budget)
                 state, frames = fly_loop(control, state, spec.decide, log, deadline,
                                          clock=clock, sleep=sleep,
-                                         allow_rails_warp=spec.allow_rails_warp)
+                                         allow_rails_warp=spec.allow_rails_warp,
+                                         max_physics_warp=spec.max_physics_warp)
                 phases_reached = list(state.phases_reached)
                 outcomes = spec.evaluate(frames, params)
                 for o in outcomes:
@@ -649,6 +688,11 @@ def run_mission(
                 verdict, reason = mlib.resolve_flight_verdict(state, outcomes)
     except Exception as exc:  # noqa: BLE001 -- caught so nothing escapes as a hang / unwritten result
         error = traceback.format_exc()
+        # Recover the advanced machine state fly_loop attached to the exception
+        # so the error result reports the phases the flight actually reached.
+        lost_state = getattr(exc, "mission_state", None)
+        if lost_state is not None and getattr(lost_state, "phases_reached", None):
+            phases_reached = list(lost_state.phases_reached)
         if connected:
             # A drop / kRPC RPC error AFTER a successful connect is autopilot-flake
             # (retryable on a fresh boot); a non-kRPC internal error stays ERROR.
@@ -656,10 +700,13 @@ def run_mission(
                 type(exc).__module__, type(exc).__name__)
             if exc_verdict == mlib.MISSION_FLAKE:
                 verdict = mlib.MISSION_FLAKE
-                reason = ("connection dropped / kRPC error post-connect: %s"
-                          % (type(exc).__name__,))
-                log.warn("Verdict", "post-connect drop (%s) -> %s"
-                         % (type(exc).__name__, mlib.MISSION_FLAKE))
+                # Carry the exception MESSAGE, not just the type: an RPCError's
+                # server-side text names the failing procedure/cause, and losing
+                # it cost a full diagnose cycle on the first live B2 run.
+                reason = ("connection dropped / kRPC error post-connect: %s: %s"
+                          % (type(exc).__name__, str(exc)[:300]))
+                log.warn("Verdict", "post-connect drop (%s: %s) -> %s"
+                         % (type(exc).__name__, str(exc)[:300], mlib.MISSION_FLAKE))
             else:
                 verdict = mlib.MISSION_ERROR
                 reason = "unexpected exception in mission"

@@ -57,9 +57,17 @@ SPEC = mission_runner.MissionSpec(
     evaluate=evaluate,
     make_control=make_control,
     # B2 permits RAILS warp on its exo-atmospheric coast (design edge 7 /
-    # guardrails: "RAILS warp only for exoatmospheric coasts"); PHYSICS warp is
-    # still never permitted. B1 keeps the default False (1x throughout).
+    # guardrails: "RAILS warp only for exoatmospheric coasts"). B1 keeps the
+    # default False (1x throughout).
     allow_rails_warp=True,
+    # MechJeb's AscentAutopilot engages its OWN physics warp during ascent,
+    # escalating to the STOCK physics-warp ceiling of 4x, and KRPC.MechJeb
+    # 0.8.1 exposes no toggle for it (observed live 2026-07-20: ramping
+    # 1.1-1.5x early, 3.96-4.12x later; a 2x bound flaked the real flight).
+    # Bound at the stock ceiling: physics warp is legitimate gameplay Parsek
+    # must record correctly, and anything above the mode's own maximum (plus
+    # the ramp allowance) is an inconsistent state that still flakes.
+    max_physics_warp=4.0,
 )
 
 

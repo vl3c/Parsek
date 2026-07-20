@@ -206,7 +206,10 @@ class B2MachineTests(unittest.TestCase):
     when periapsis is raised -- asserting orbit before circularization, or never
     leaving MJ-ASCENT, would false-flake or false-pass."""
 
-    def test_prelaunch_engages_mechjeb(self):
+    def test_prelaunch_engages_mechjeb_and_launches(self):
+        # The trailing ACTIVATE_STAGE is load-bearing: MechJeb's AscentAutopilot
+        # engaged via kRPC does NOT ignite the first stage itself (first live B2
+        # run 2026-07-20 sat in PRE_LAUNCH for the whole ascent budget).
         state = mlib.b2_initial_state(B2_PARAMS)
         new, actions = mlib.b2_decide(state, snap(ut=0.0))
         self.assertEqual(new.phase, mlib.B2_MJ_ASCENT)
@@ -214,16 +217,19 @@ class B2MachineTests(unittest.TestCase):
             Action(mlib.ACTION_MJ_SET_TARGET_APOAPSIS, 80000.0),
             Action(mlib.ACTION_MJ_ENABLE_AUTOSTAGE),
             Action(mlib.ACTION_MJ_ENGAGE_ASCENT),
+            Action(mlib.ACTION_ACTIVATE_STAGE),
         ])
 
     def test_full_happy_path(self):
-        # Regression: MJ-ASCENT holds until apoapsis at target, CIRCULARIZE holds
-        # until periapsis at target, then ORBIT.
+        # Regression: MJ-ASCENT holds until the autopilot LATCHES complete AND
+        # apoapsis is at target (apoapsis alone fired mid-burn on the first live
+        # B2 run and executed an empty node list), CIRCULARIZE holds until
+        # periapsis at target, then ORBIT.
         state = mlib.b2_initial_state(B2_PARAMS)
         frames = [
             snap(ut=0.0),                                       # PRELAUNCH->MJ-ASCENT
             snap(ut=60.0, apoapsis=40000.0),                    # MJ-ASCENT (climbing)
-            snap(ut=180.0, apoapsis=78000.0),                   # MJ-ASCENT->CIRCULARIZE (>=75000)
+            snap(ut=180.0, apoapsis=78000.0, mj_ascent_complete=True),  # ->CIRCULARIZE (latched + >=75000)
             snap(ut=200.0, apoapsis=80000.0, periapsis=20000.0),  # CIRCULARIZE (pe rising)
             snap(ut=260.0, apoapsis=80000.0, periapsis=79000.0),  # CIRCULARIZE->ORBIT (>=75000)
         ]
@@ -527,10 +533,27 @@ class WarpGuardTests(unittest.TestCase):
         self.assertFalse(mlib.is_unexpected_warp(mlib.WARP_RAILS, 1.0, False))
         self.assertFalse(mlib.is_unexpected_warp(mlib.WARP_PHYSICS, 0.5, True))
 
-    def test_physics_warp_always_unexpected(self):
-        # PHYSICS warp above 1x is a determinism violation for BOTH missions.
+    def test_physics_warp_unexpected_by_default(self):
+        # PHYSICS warp above 1x is a determinism violation at the default
+        # max_physics_warp=0.0 (B1's contract).
         self.assertTrue(mlib.is_unexpected_warp(mlib.WARP_PHYSICS, 4.0, False))
         self.assertTrue(mlib.is_unexpected_warp(mlib.WARP_PHYSICS, 4.0, True))
+        self.assertTrue(mlib.is_unexpected_warp(mlib.WARP_PHYSICS, 1.2, False))
+
+    def test_physics_warp_permitted_up_to_bound(self):
+        # B2 (max_physics_warp=2.0): MechJeb's own ascent warp (ramping 1.1-2.0x,
+        # observed live 2026-07-20) is permitted, including the continuous ramp
+        # slightly above the step rate; clearly above the bound still flakes.
+        self.assertFalse(mlib.is_unexpected_warp(
+            mlib.WARP_PHYSICS, 1.486, False, max_physics_warp=2.0))
+        self.assertFalse(mlib.is_unexpected_warp(
+            mlib.WARP_PHYSICS, 2.0 + mlib.PHYSICS_WARP_RAMP_ALLOWANCE, False,
+            max_physics_warp=2.0))
+        self.assertTrue(mlib.is_unexpected_warp(
+            mlib.WARP_PHYSICS, 3.0, False, max_physics_warp=2.0))
+        # A non-finite bound fails closed (never permits).
+        self.assertTrue(mlib.is_unexpected_warp(
+            mlib.WARP_PHYSICS, 1.5, False, max_physics_warp=float("nan")))
 
     def test_rails_warp_gated_by_allow_rails(self):
         # B1 (allow_rails=False) forbids RAILS warp; B2 (True) permits it.
