@@ -31,6 +31,7 @@ namespace Parsek.Tests
             GroupHierarchyStore.ResetForTesting();
             GroupHierarchyStore.ResetGroupsForTesting();
             MilestoneStore.ResetForTesting();
+            GameStateRecorder.PendingScienceSubjects.Clear();
         }
 
         public void Dispose()
@@ -46,6 +47,7 @@ namespace Parsek.Tests
             GroupHierarchyStore.ResetForTesting();
             GroupHierarchyStore.ResetGroupsForTesting();
             MilestoneStore.ResetForTesting();
+            GameStateRecorder.PendingScienceSubjects.Clear();
         }
 
         private static ParsekScenario MakeScenario()
@@ -306,6 +308,102 @@ namespace Parsek.Tests
 
             Assert.Equal(2, Ledger.Actions.Count);
             Assert.Contains(Ledger.Actions, a => a.ActionId == "route-disp");
+        }
+
+        // ---- Re-fly pending-science reconciliation (preservation-branch audit,
+        // 2026-07-19): PendingScienceSubjects is in-memory only and the re-fly
+        // load skips the quickload discard, so the bundle must capture the list
+        // and Restore(cutoff) must drop entries captured strictly after the
+        // rewind boundary. Assertions are scoped to this fixture's own seeded
+        // entries (the ctor/Dispose clear the static list).
+
+        private static void SeedPendingScience(string subjectId, double captureUT, string recordingId = "rec1")
+        {
+            GameStateRecorder.PendingScienceSubjects.Add(new PendingScienceSubject
+            {
+                subjectId = subjectId,
+                science = 3.0f,
+                subjectMaxValue = 10.0f,
+                captureUT = captureUT,
+                reasonKey = "ScienceTransmission",
+                recordingId = recordingId
+            });
+        }
+
+        [Fact]
+        public void Restore_WithCutoff_DropsPendingScienceStrictlyAfterCutoff_KeepsAtAndBefore()
+        {
+            MakeScenario();
+            SeedPendingScience("bundle-sci-before@Kerbin", 900.0);
+            SeedPendingScience("bundle-sci-at@Kerbin", 1000.0);
+            SeedPendingScience("bundle-sci-after@Kerbin", 1200.0);
+
+            var bundle = ReconciliationBundle.Capture();
+            // Capture is UNCHANGED: the bundle holds all three entries so the
+            // failed-load rollback can restore them intact.
+            Assert.Equal(3, bundle.PendingScienceSubjects.Count);
+
+            // Simulate the post-load world: entries accumulated in-memory are
+            // whatever survived the in-process load (same list). Add a stray
+            // entry to prove Restore REPLACES contents (no merge).
+            SeedPendingScience("bundle-sci-stray@Kerbin", 950.0);
+
+            ReconciliationBundle.Restore(bundle, 1000.0);
+
+            var live = GameStateRecorder.PendingScienceSubjects;
+            Assert.Equal(2, live.Count);
+            Assert.Contains(live, s => s.subjectId == "bundle-sci-before@Kerbin");
+            // Boundary contract: an entry stamped exactly at the cutoff fired
+            // at-or-before the state the quicksave embeds — kept (strict >).
+            Assert.Contains(live, s => s.subjectId == "bundle-sci-at@Kerbin");
+            Assert.DoesNotContain(live, s => s.subjectId == "bundle-sci-after@Kerbin");
+            Assert.DoesNotContain(live, s => s.subjectId == "bundle-sci-stray@Kerbin");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReconciliationBundle]") &&
+                l.Contains("dropped 1 pending science subject(s) with captureUT > cutoff 1000"));
+        }
+
+        [Fact]
+        public void Restore_Parameterless_RestoresPendingScienceWholesale_RollbackContract()
+        {
+            MakeScenario();
+            SeedPendingScience("bundle-sci-past@Kerbin", 900.0);
+            SeedPendingScience("bundle-sci-future@Kerbin", 999999.0);
+            SeedPendingScience("bundle-sci-nan@Kerbin", double.NaN);
+
+            var bundle = ReconciliationBundle.Capture();
+            GameStateRecorder.PendingScienceSubjects.Clear();
+
+            // Parameterless overload = +inf cutoff = blind wholesale restore
+            // (the failed-load rollback stays in the pre-rewind world, so every
+            // captured entry must come back, including future-dated and
+            // unclassifiable NaN entries).
+            ReconciliationBundle.Restore(bundle);
+
+            var live = GameStateRecorder.PendingScienceSubjects;
+            Assert.Equal(3, live.Count);
+            Assert.Contains(live, s => s.subjectId == "bundle-sci-past@Kerbin");
+            Assert.Contains(live, s => s.subjectId == "bundle-sci-future@Kerbin");
+            Assert.Contains(live, s => s.subjectId == "bundle-sci-nan@Kerbin");
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[ReconciliationBundle]") && l.Contains("pending science subject(s) with captureUT"));
+        }
+
+        [Fact]
+        public void Restore_WithCutoff_KeepsNaNCaptureUtPendingScience()
+        {
+            MakeScenario();
+            SeedPendingScience("bundle-sci-nan2@Kerbin", double.NaN);
+
+            var bundle = ReconciliationBundle.Capture();
+            GameStateRecorder.PendingScienceSubjects.Clear();
+
+            ReconciliationBundle.Restore(bundle, 1000.0);
+
+            // NaN > cutoff is false: unclassifiable entries keep today's behavior.
+            Assert.Single(GameStateRecorder.PendingScienceSubjects);
+            Assert.Equal("bundle-sci-nan2@Kerbin", GameStateRecorder.PendingScienceSubjects[0].subjectId);
         }
     }
 }

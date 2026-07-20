@@ -39,7 +39,9 @@ namespace Parsek.Logistics
         /// orchestrator tick, RouteTreeGuard, the candidate finder, and the
         /// Logistics window all read <see cref="CommittedRoutes"/> only), so a
         /// dormant route cannot fire, bind its tree, or render. Populated by
-        /// <c>ReconciliationBundle.Restore</c> at a rewind; drained by
+        /// <c>RouteRewindClassifier.ReconcileStoreAtRewind</c> from BOTH rewind
+        /// exits (<c>ReconciliationBundle.Restore(cutoff)</c> on Re-Fly and
+        /// <c>ParsekScenario.HandleRewindOnLoad</c> on a go-back); drained by
         /// <see cref="MaterializeDueDormantRoutes"/> when the re-flown
         /// timeline passes each route's creation point. Persisted as the
         /// sparse DORMANT_ROUTES sibling of ROUTES.

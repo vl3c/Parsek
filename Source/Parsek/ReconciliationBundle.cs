@@ -87,6 +87,21 @@ namespace Parsek
         public List<Logistics.Route> DormantRoutes;
 
         /// <summary>
+        /// Shallow snapshot of <c>GameStateRecorder.PendingScienceSubjects</c>
+        /// (value-type entries, so the copies are independent). The pending
+        /// science list is in-memory only (never serialized to .sfs) and the
+        /// re-fly load deliberately skips the quickload discard
+        /// (<c>ParsekScenario.ShouldRunQuickloadDiscard</c> returns false while
+        /// the session/invoke is active), so without bundle coverage a subject
+        /// captured after the rewind point would survive the revert and later be
+        /// credited at the merge for an experiment that never happened on the
+        /// surviving timeline. <c>Restore(cutoff)</c> classifies these by
+        /// <c>captureUT</c>; the parameterless rollback overload restores them
+        /// wholesale (blind).
+        /// </summary>
+        public List<PendingScienceSubject> PendingScienceSubjects;
+
+        /// <summary>
         /// Captures a <see cref="ReconciliationBundle"/> from the current in-memory
         /// state. Creates shallow copies so later mutations do not leak into the
         /// bundle.
@@ -110,7 +125,16 @@ namespace Parsek
                 Milestones = new List<Milestone>(),
                 Routes = new List<Logistics.Route>(),
                 DormantRoutes = new List<Logistics.Route>(),
+                PendingScienceSubjects = new List<PendingScienceSubject>(),
             };
+
+            // Pending science subjects: shallow snapshot (struct entries copy by value).
+            var pendingScience = GameStateRecorder.PendingScienceSubjects;
+            if (pendingScience != null)
+            {
+                for (int i = 0; i < pendingScience.Count; i++)
+                    bundle.PendingScienceSubjects.Add(pendingScience[i]);
+            }
 
             // Routes (dormant-routes extension): both lists, shallow.
             var committedRoutesSnapshot = Logistics.RouteStore.CommittedRoutes;
@@ -191,7 +215,8 @@ namespace Parsek
                 $"marker={(bundle.ActiveReFlySessionMarker != null)} " +
                 $"journal={(bundle.ActiveMergeJournal != null)} " +
                 $"crew={bundle.CrewReplacements.Count} groups={bundle.GroupParents.Count} " +
-                $"hidden={bundle.HiddenGroups.Count} milestones={bundle.Milestones.Count}");
+                $"hidden={bundle.HiddenGroups.Count} milestones={bundle.Milestones.Count} " +
+                $"pendingScience={bundle.PendingScienceSubjects.Count}");
 
             return bundle;
         }
@@ -216,6 +241,17 @@ namespace Parsek
         /// (<c>TryRestoreBundle</c>) and every test / other caller use the parameterless
         /// overload above (<c>+inf</c> =&gt; retire nothing), so they stay route-blind
         /// and non-route reconstruction is byte-identical.
+        /// <para>
+        /// The same cutoff also classifies the captured
+        /// <see cref="PendingScienceSubjects"/>: entries with
+        /// <c>captureUT &gt; cutoff</c> belong to the abandoned future and are
+        /// dropped on the SUCCESS path; the parameterless (+inf) rollback
+        /// restores the list wholesale. Strict <c>&gt;</c> mirrors the Rec-1
+        /// contract (see <c>RouteLedgerRetire.ShouldRetireRouteActionAtRewind</c>):
+        /// an entry stamped exactly at the cutoff fired at-or-before the state
+        /// the loaded quicksave embeds, so its effect is part of the reverted
+        /// world and the entry must be kept. Do NOT "fix" this to <c>&gt;=</c>.
+        /// </para>
         /// </summary>
         public static void Restore(ReconciliationBundle bundle, double dropRouteRowsAfterUT)
         {
@@ -245,9 +281,12 @@ namespace Parsek
             // stock-revert path, which already prunes these rows via
             // Ledger.PruneOrphanActionsAfterUT.)
             Ledger.Clear();
+            // Kept (post-retire) rows, reused below by the route seam's
+            // status-derivation + counter-reconstruction pass over kept routes.
+            List<GameAction> keptActions = null;
             if (bundle.Actions != null && bundle.Actions.Count > 0)
             {
-                var keptActions = Logistics.RouteLedgerRetire.RetireFutureRouteActions(
+                keptActions = Logistics.RouteLedgerRetire.RetireFutureRouteActions(
                     bundle.Actions, dropRouteRowsAfterUT, out int routeRowsRetired);
                 if (keptActions.Count > 0)
                     Ledger.AddActions(keptActions);
@@ -268,54 +307,57 @@ namespace Parsek
             // cycles against abandoned-future cursors. The parameterless
             // rollback overload (+inf) stays route-blind: no classification, no
             // reconcile, lists untouched - matching the Rec-1 contract.
+            // The whole seam is the SHARED helper
+            // RouteRewindClassifier.ReconcileStoreAtRewind so the go-back
+            // rewind exit (ParsekScenario.HandleRewindOnLoad) runs the exact
+            // same reconciliation and the two exits cannot drift.
             if (!double.IsPositiveInfinity(dropRouteRowsAfterUT))
             {
-                Logistics.RouteRewindClassifier.Classify(
+                Logistics.RouteRewindClassifier.ReconcileStoreAtRewind(
                     bundle.Routes,
                     bundle.DormantRoutes,
                     dropRouteRowsAfterUT,
-                    out List<Logistics.Route> keptRoutes,
-                    out List<Logistics.Route> dormantRoutes);
+                    keptActions,
+                    logTag: "ReconciliationBundle",
+                    logPrefix: "Restore");
+            }
 
-                int newlyDormant = dormantRoutes.Count - (bundle.DormantRoutes?.Count ?? 0);
-                int reconciled = 0;
-
-                // Dormanting hygiene: drop escrow + sever the committed
-                // partner's back-reference (RemoveRoute-style); the dormant
-                // entry keeps its LinkedRouteId as a former-partner hint for
-                // the materialize-time re-link.
-                for (int i = 0; i < dormantRoutes.Count; i++)
+            // Pending science subjects: replace the live list's contents with the
+            // captured snapshot. The list is in-memory only and the re-fly load
+            // skips the quickload discard, so without this replace a subject
+            // captured AFTER the rewind point would survive the revert still
+            // tagged with its origin recording id and be credited at the merge
+            // to a kept, non-superseded recording (science for an experiment
+            // that never happened on the surviving timeline — tombstones cannot
+            // reach a ScienceEarning row created after the merge). SUCCESS path
+            // (finite cutoff): keep entries with captureUT <= cutoff, drop the
+            // strictly-after ones (Rec-1 strict-> contract, see the overload
+            // doc). Rollback (+inf): restore wholesale, blind — entries with a
+            // NaN captureUT also restore on both paths because NaN > cutoff is
+            // false (unclassifiable entries keep today's behavior).
+            var livePendingScience = GameStateRecorder.PendingScienceSubjects;
+            livePendingScience.Clear();
+            int pendingScienceDropped = 0;
+            if (bundle.PendingScienceSubjects != null)
+            {
+                for (int i = 0; i < bundle.PendingScienceSubjects.Count; i++)
                 {
-                    Logistics.Route d = dormantRoutes[i];
-                    Logistics.RouteStore.DropRouteEscrow(d.Id);
-                    for (int j = 0; j < keptRoutes.Count; j++)
+                    var subj = bundle.PendingScienceSubjects[i];
+                    if (subj.captureUT > dropRouteRowsAfterUT)
                     {
-                        Logistics.Route kept = keptRoutes[j];
-                        if (kept != null && string.Equals(kept.LinkedRouteId, d.Id, StringComparison.Ordinal))
-                        {
-                            kept.LinkedRouteId = null;
-                            kept.LastConsumedPartnerCycle = 0;
-                        }
+                        pendingScienceDropped++;
+                        continue;
                     }
+                    livePendingScience.Add(subj);
                 }
-
-                // Pre-cutoff kept routes: reconcile abandoned-future cycle state.
-                for (int i = 0; i < keptRoutes.Count; i++)
-                {
-                    if (Logistics.RouteRewindClassifier.ResetCycleStateForRewind(
-                            keptRoutes[i], dropRouteRowsAfterUT))
-                        reconciled++;
-                }
-
-                Logistics.RouteStore.InstallRoutesAtRewind(keptRoutes, dormantRoutes);
-                if (newlyDormant > 0 || reconciled > 0)
-                {
-                    ParsekLog.Info("ReconciliationBundle",
-                        "Restore: routes at rewind cutoff " +
-                        dropRouteRowsAfterUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
-                        $": kept={keptRoutes.Count} (reconciled={reconciled}) " +
-                        $"dormant={dormantRoutes.Count} (newly={newlyDormant})");
-                }
+            }
+            if (pendingScienceDropped > 0)
+            {
+                ParsekLog.Info("ReconciliationBundle",
+                    "Restore: dropped " + pendingScienceDropped.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                    " pending science subject(s) with captureUT > cutoff " +
+                    dropRouteRowsAfterUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
+                    $" (kept={livePendingScience.Count})");
             }
 
             // Scenario lists (may be null if the scenario hasn't loaded yet).
@@ -384,7 +426,8 @@ namespace Parsek
                 $"marker={(bundle.ActiveReFlySessionMarker != null)} " +
                 $"journal={(bundle.ActiveMergeJournal != null)} " +
                 $"crew={(bundle.CrewReplacements?.Count ?? 0)} groups={(bundle.GroupParents?.Count ?? 0)} " +
-                $"hidden={(bundle.HiddenGroups?.Count ?? 0)} milestones={(bundle.Milestones?.Count ?? 0)}");
+                $"hidden={(bundle.HiddenGroups?.Count ?? 0)} milestones={(bundle.Milestones?.Count ?? 0)} " +
+                $"pendingScience={livePendingScience.Count} pendingScienceDropped={pendingScienceDropped}");
         }
     }
 }
