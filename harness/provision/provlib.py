@@ -156,18 +156,32 @@ class PairDecision:
     requires_web_verify: bool
 
 
+# Web-verified (fork, tag) pairs for the kRPC v0.5.4 pin (GT-6 / EC-14). Adding
+# a row REQUIRES a documented verification:
+#   - ("genhis", "v0.7.1"): CHANGELOG-proven ("Updated for kRPC 0.5.4"),
+#     verified 2026-07-11. Predates MechJeb 2.15.x (reflection drift).
+#   - ("darchambault", "v0.8.1"): release notes state kRPC 0.5.4 / KSP 1.12 /
+#     MechJeb2 2.15.0; verified 2026-07-20 against the release page during the
+#     fork re-pin (see docs/dev/reference-krpc-automation.md section 5 in the
+#     umbrella docs and the todo entry for the live-boot confirmation).
+PROVEN_KRPC_MECHJEB_PAIRS_V054: Tuple[Tuple[str, str], ...] = (
+    ("genhis", "v0.7.1"),
+    ("darchambault", "v0.8.1"),
+)
+
+
 def evaluate_krpc_mechjeb_pair(krpc_tag: str, fork: str, tag: str, paired_krpc_tag: str) -> PairDecision:
     """Decide whether the pinned KRPC.MechJeb pairs with the pinned kRPC (GT-6).
 
-    Under the v0.5.4 kRPC pin the only CHANGELOG-proven pair is genhis v0.7.1
-    (``pairedKrpcTag == v0.5.4``); any deviation is EC-14 ``mismatch``. Under a
-    non-v0.5.4 kRPC pin the pairing cannot be verified locally: return
-    ``verify-required-nonv054`` with ``requires_web_verify=True`` so the caller
-    refuses to guess and prints the web-verification procedure (EC-14 deferred
-    branch)."""
+    Under the v0.5.4 kRPC pin only the web-verified rows of
+    ``PROVEN_KRPC_MECHJEB_PAIRS_V054`` pass (with ``pairedKrpcTag == v0.5.4``);
+    any other combination is EC-14 ``mismatch``. Under a non-v0.5.4 kRPC pin the
+    pairing cannot be verified locally: return ``verify-required-nonv054`` with
+    ``requires_web_verify=True`` so the caller refuses to guess and prints the
+    web-verification procedure (EC-14 deferred branch)."""
     if krpc_tag != "v0.5.4":
         return PairDecision(False, "verify-required-nonv054", True)
-    ok = fork == "genhis" and tag == "v0.7.1" and paired_krpc_tag == "v0.5.4"
+    ok = (fork, tag) in PROVEN_KRPC_MECHJEB_PAIRS_V054 and paired_krpc_tag == "v0.5.4"
     return PairDecision(ok, "match" if ok else "mismatch", False)
 
 
@@ -929,6 +943,7 @@ def resolve_git_source(
     override_present: bool = False,
     cache_has_git: bool = False,
     cache_has_commit: bool = False,
+    cache_origin_matches: bool = True,
 ) -> GitSourceDecision:
     """Decide where a git-pinned component's source is read from.
 
@@ -936,6 +951,10 @@ def resolve_git_source(
       - ``--krpc-src`` OVERRIDE wins when given (a dev pointing at an existing
         clone, e.g. the umbrella ``mods/krpc``); ``override_present`` reports
         whether it is actually a git clone so the shell can abort cleanly.
+      - REFETCH with ``cached-wrong-origin`` when the cache clone exists but its
+        origin URL no longer matches the pinned ``sourceRepo`` (a fork re-pin);
+        the shell re-points origin before fetching. Checked BEFORE reuse: PIN
+        peel-verifies the tag, which only the pinned remote carries.
       - REUSE the module-owned ``cache_dir`` clone when it already contains the
         pinned ``commit`` (``cached-and-has-commit``) -- no network.
       - REFETCH when the cache clone exists but lacks the pinned commit
@@ -943,12 +962,22 @@ def resolve_git_source(
       - CLONE when no cache clone exists yet (``absent``).
 
     Pure: the shell computes ``override_present`` / ``cache_has_git`` /
-    ``cache_has_commit`` with read-only probes and executes the clone/fetch.
+    ``cache_has_commit`` / ``cache_origin_matches`` with read-only probes and
+    executes the clone/fetch.
     """
     if override_path:
         return GitSourceDecision(
             "use-override", override_path, False,
             "override-present" if override_present else "override-missing")
+    if cache_has_git and not cache_origin_matches:
+        # A re-pinned sourceRepo (e.g. the KRPC.MechJeb genhis -> darchambault
+        # fork move, 2026-07-20) leaves the cached clone pointing at the OLD
+        # remote: fetches then run against the wrong repo, the new tag/commit
+        # never arrives, and PIN mismatches with a misleading message. Even a
+        # present commit is not enough - PIN peel-verifies the TAG, which only
+        # exists on the pinned remote - so a wrong-origin cache always
+        # refetches (the shell re-points origin first).
+        return GitSourceDecision("refetch-cache", cache_dir, True, "cached-wrong-origin")
     if cache_has_git and cache_has_commit:
         return GitSourceDecision("reuse-cache", cache_dir, False, "cached-and-has-commit")
     if cache_has_git:

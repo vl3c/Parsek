@@ -89,32 +89,40 @@ downloadUrl = "https://ksp.sarbian.com/jenkins/job/MechJeb2-Release/45/artifact/
 sha256 = "3bd39e02c41a8e405eb980764aa14635af1ed50521119fe85c8a054d8cffc926"
 
 [krpc_mechjeb]
-# GT-6: genhis 0.7.1 pairs with kRPC 0.5.4 (CHANGELOG-proven: 0.7.1 "Updated for
-# kRPC 0.5.4"). v0.7.1 is a lightweight tag == HEAD commit below. Verified
-# 2026-07-11 in mods/KRPC.MechJeb (origin https://github.com/genhis/KRPC.MechJeb).
-fork = "genhis"                    # "genhis" | "darchambault"
-tag = "v0.7.1"
-commit = "398bc337492c5f725c83ab1aac85c32a1c0349ea"
+# GT-6 REVISED 2026-07-20: re-pinned from genhis 0.7.1 to the darchambault fork
+# v0.8.1. Genhis 0.7.1 predates MechJeb 2.15.x and its by-name reflection into
+# MechJeb internals fails against our MechJeb2 2.15.1.0 pin ("MuMech.X not
+# found" spam at load, InitInstance NRE, AscentAutopilot/ManeuverPlanner dead,
+# a per-boot "kRPC.MechJeb may not work properly" popup) - observed live during
+# the first B1 flown-mission bring-up. darchambault v0.8.1 states KSP 1.12 /
+# kRPC 0.5.4 / MechJeb2 2.15.0 compatibility (2.15.1 residual drift possible;
+# verified by one live boot - see the todo entry). v0.8.1 is a lightweight tag
+# == the commit below (git ls-remote verified 2026-07-20). Full fork rationale:
+# umbrella docs/dev/reference-krpc-automation.md section 5.
+fork = "darchambault"              # "genhis" | "darchambault"
+tag = "v0.8.1"
+commit = "1a0575f49af55d4567c5b2c0dab60bc1d4559b00"
 # sourceRepo: the pinned KRPC.MechJeb upstream (matches `fork`). PIN peel-verifies
 # the pin from a module-owned shallow clone under
 # harness/provision/.cache/krpc_mechjeb-src (same self-contained mechanism as
 # [krpc]), NOT the umbrella mods/ clone. INSTALL still uses the prebuilt release
 # zip (below); this clone exists only for the read-only identity assertion.
-sourceRepo = "https://github.com/genhis/KRPC.MechJeb"
-# localClone: NO LONGER read by default (see [krpc].localClone note).
+sourceRepo = "https://github.com/darchambault/KRPC.MechJeb"
+# localClone: NO LONGER read by default (see [krpc].localClone note). Still
+# points at the genhis clone; the identity assertion uses sourceRepo above.
 localClone = "mods/KRPC.MechJeb"
 pairedKrpcTag = "v0.5.4"           # asserted against [krpc].tag at PAIR
-pairedMechjebLine = "2.14.3+"      # from CHANGELOG 0.7.0/0.7.1
-# INSTALL sources the PREBUILT KRPC.MechJeb.dll from the genhis v0.7.1 GitHub
-# release zip (which ships a ready binary + KRPC.MechJeb.json at the zip root)
-# rather than compiling from mods/KRPC.MechJeb: the release is the reproducible,
-# ABI-matched artifact and avoids a second from-source shim build. The git
-# tag+commit above remain the pin IDENTITY (asserted read-only at PIN).
-# RESOLVED 2026-07-12: downloaded from the official Genhis release; sha256sum
-# over the 156159-byte zip. Layout confirmed: KRPC.MechJeb.dll + KRPC.MechJeb.json
-# at the zip root (dropped into GameData/kRPC/ per its README).
-downloadUrl = "https://github.com/Genhis/KRPC.MechJeb/releases/download/v0.7.1/krpc-mechjeb-0.7.1.zip"
-releaseZipSha256 = "5922a6d73d77093999f1ff485688c739cf6157f56f61086050a54dbd8bb83246"
+pairedMechjebLine = "2.15.0+"      # darchambault v0.8.x release notes
+# INSTALL sources the PREBUILT KRPC.MechJeb.dll from the darchambault v0.8.1
+# GitHub release zip (ships the ready binary + KRPC.MechJeb.json at the zip
+# root, same layout as the genhis releases) rather than compiling from source:
+# the release is the reproducible, ABI-matched artifact. The git tag+commit
+# above remain the pin IDENTITY (asserted read-only at PIN).
+# RESOLVED 2026-07-20: downloaded from the official darchambault release;
+# sha256 over the 168603-byte zip. Layout confirmed: KRPC.MechJeb.dll +
+# KRPC.MechJeb.json at the zip root (dropped into GameData/kRPC/).
+downloadUrl = "https://github.com/darchambault/KRPC.MechJeb/releases/download/v0.8.1/krpc-mechjeb-0.8.1.zip"
+releaseZipSha256 = "3b4d6689452d5c2d1b2a3d68711aa65e5458a2a14bba46341b54dc768c63a7be"
 # O-5/EC-14: only if a non-v0.5.4 kRPC is ever pinned -- confirm the fork+tag via
 #   https://github.com/Genhis/KRPC.MechJeb/releases
 #   https://github.com/darchambault/KRPC.MechJeb/releases

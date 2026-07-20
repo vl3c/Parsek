@@ -205,6 +205,32 @@ def _git_has_commit(clone_dir: str, commit: str) -> bool:
     return out.returncode == 0
 
 
+def _normalize_repo_url(url: str) -> str:
+    """Case-insensitive compare form for git remote URLs: trailing slashes and a
+    trailing .git are cosmetic."""
+    u = (url or "").strip().rstrip("/")
+    if u.lower().endswith(".git"):
+        u = u[:-4]
+    return u.lower()
+
+
+def _git_origin_matches(clone_dir: str, repo_url: str) -> bool:
+    """Read-only: True if ``clone_dir``'s origin URL matches the pinned
+    sourceRepo. A mismatch means the pin's fork moved since the cache was
+    cloned (e.g. KRPC.MechJeb genhis -> darchambault); fetching from the stale
+    origin can never deliver the new tag/commit. An unreadable origin counts
+    as a mismatch so the refetch path re-points it."""
+    if not repo_url:
+        return True  # no pin to compare against; EC-4 aborts later anyway
+    out = subprocess.run(
+        ["git", "-C", clone_dir, "config", "--get", "remote.origin.url"],
+        capture_output=True, text=True,
+    )
+    if out.returncode != 0:
+        return False
+    return _normalize_repo_url(out.stdout) == _normalize_repo_url(repo_url)
+
+
 def _shallow_clone_source(ctx: ProvisionContext, comp: str, repo_url: str,
                           cache_dir: str, commit: str) -> bool:
     """Blobless clone the pinned repo into ``cache_dir`` (all refs, no blobs, no
@@ -227,9 +253,24 @@ def _shallow_clone_source(ctx: ProvisionContext, comp: str, repo_url: str,
 
 
 def _fetch_source_commit(ctx: ProvisionContext, comp: str, cache_dir: str,
-                         commit: str) -> bool:
-    """Refetch a stale cache clone (moved pin / interrupted earlier fetch), then
-    assert the pinned commit is present."""
+                         commit: str, repo_url: str = "") -> bool:
+    """Refetch a stale cache clone (moved pin / interrupted earlier fetch / a
+    fork re-pin), then assert the pinned commit is present. When ``repo_url``
+    is given and the clone's origin differs (cached-wrong-origin), origin is
+    re-pointed FIRST - fetching from a stale fork can never deliver the new
+    pin's tag/commit."""
+    if repo_url and not _git_origin_matches(cache_dir, repo_url):
+        log(ctx, "Info", "Source",
+            "%s origin re-pointed to %s (fork re-pin; stale cache origin)" % (comp, repo_url))
+        res = subprocess.run(
+            ["git", "-C", cache_dir, "remote", "set-url", "origin", repo_url],
+            capture_output=True, text=True,
+        )
+        if res.returncode != 0:
+            abort(ctx, "Source", "EC-4",
+                  "git remote set-url in %s failed: %s"
+                  % (cache_dir, (res.stderr or "").strip()[:200]))
+            return False
     log(ctx, "Info", "Source", "%s fetch in %s (pinned commit missing)" % (comp, cache_dir))
     res = subprocess.run(
         ["git", "-C", cache_dir, "fetch", "--filter=blob:none", "--tags", "origin"],
@@ -271,8 +312,10 @@ def _ensure_git_source(ctx: ProvisionContext, comp: str,
     override_present = bool(override) and os.path.isdir(os.path.join(override, ".git"))
     cache_has_git = os.path.isdir(os.path.join(cache_dir, ".git"))
     cache_has_commit = cache_has_git and _git_has_commit(cache_dir, commit)
+    cache_origin_matches = (not cache_has_git) or _git_origin_matches(cache_dir, repo_url)
     decision = provlib.resolve_git_source(
-        cache_dir, commit, override, override_present, cache_has_git, cache_has_commit)
+        cache_dir, commit, override, override_present, cache_has_git,
+        cache_has_commit, cache_origin_matches)
     log(ctx, "Info", "Source",
         "%s source-resolution action=%s reason=%s dir=%s (repo=%s commit=%s)"
         % (comp, decision.action, decision.reason, decision.source_dir,
@@ -299,8 +342,8 @@ def _ensure_git_source(ctx: ProvisionContext, comp: str,
         return None
     if decision.action == "clone":
         ok = _shallow_clone_source(ctx, comp, repo_url, cache_dir, commit)
-    else:  # refetch-cache
-        ok = _fetch_source_commit(ctx, comp, cache_dir, commit)
+    else:  # refetch-cache (incl. cached-wrong-origin: fetch re-points origin first)
+        ok = _fetch_source_commit(ctx, comp, cache_dir, commit, repo_url)
     memo[comp] = cache_dir if ok else None
     return cache_dir if ok else None
 
@@ -576,7 +619,9 @@ def phase_pair(ctx: ProvisionContext) -> None:
             % (kmj.get("fork"), kmj.get("tag"), kmj.get("pairedKrpcTag"), krpc_tag,
                "OK" if decision.ok else "MISMATCH"))
         if not decision.ok:
-            abort(ctx, "Pair", "EC-14", "genhis 0.7.1 pairing assertion failed for v0.5.4")
+            abort(ctx, "Pair", "EC-14",
+                  "krpc_mechjeb (fork=%s, tag=%s) is not a web-verified pair for kRPC v0.5.4 "
+                  "(see provlib.PROVEN_KRPC_MECHJEB_PAIRS_V054)" % (kmj.get("fork"), kmj.get("tag")))
     else:
         log(ctx, "Amber", "Pair",
             "non-v0.5.4 kRPC pinned: pairing UNVERIFIED locally. Web-verify at "

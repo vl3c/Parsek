@@ -910,6 +910,40 @@ class GitSourceResolutionTests(unittest.TestCase):
         self.assertEqual(d.source_dir, self.CACHE)
         self.assertTrue(d.fetch)
 
+    # ----- cached-wrong-origin (fork re-pin; KRPC.MechJeb genhis -> darchambault,
+    # 2026-07-20). A stale-origin cache refetches EVEN when the commit is present:
+    # PIN peel-verifies the TAG, which only the pinned remote carries. -----
+
+    def test_wrong_origin_refetches_even_with_commit_present(self):
+        d = provlib.resolve_git_source(
+            self.CACHE, self.COMMIT, cache_has_git=True, cache_has_commit=True,
+            cache_origin_matches=False)
+        self.assertEqual(d.action, "refetch-cache")
+        self.assertEqual(d.reason, "cached-wrong-origin")
+        self.assertTrue(d.fetch)
+
+    def test_wrong_origin_refetches_without_commit(self):
+        d = provlib.resolve_git_source(
+            self.CACHE, self.COMMIT, cache_has_git=True, cache_has_commit=False,
+            cache_origin_matches=False)
+        self.assertEqual(d.action, "refetch-cache")
+        self.assertEqual(d.reason, "cached-wrong-origin")
+
+    def test_wrong_origin_irrelevant_without_cache(self):
+        # No cache clone at all: absent wins regardless of the origin flag.
+        d = provlib.resolve_git_source(
+            self.CACHE, self.COMMIT, cache_has_git=False, cache_has_commit=False,
+            cache_origin_matches=False)
+        self.assertEqual(d.action, "clone")
+        self.assertEqual(d.reason, "absent")
+
+    def test_override_wins_over_wrong_origin(self):
+        d = provlib.resolve_git_source(
+            self.CACHE, self.COMMIT, override_path="/dev/mods/krpc",
+            override_present=True, cache_has_git=True, cache_has_commit=True,
+            cache_origin_matches=False)
+        self.assertEqual(d.action, "use-override")
+
     def test_override_present_wins_over_cache(self):
         # An explicit --krpc-src clone beats the cache even when the cache is good.
         d = provlib.resolve_git_source(
@@ -1203,10 +1237,21 @@ class PairDecisionTests(unittest.TestCase):
         self.assertEqual(d.reason, "match")
         self.assertFalse(d.requires_web_verify)
 
-    def test_v054_wrong_fork_mismatch(self):
+    def test_v054_darchambault_081_matches(self):
+        # Web-verified 2026-07-20 during the fork re-pin (MechJeb 2.15.x compat).
+        d = provlib.evaluate_krpc_mechjeb_pair("v0.5.4", "darchambault", "v0.8.1", "v0.5.4")
+        self.assertTrue(d.ok)
+        self.assertEqual(d.reason, "match")
+        self.assertFalse(d.requires_web_verify)
+
+    def test_v054_cross_fork_tag_mismatch(self):
+        # A fork/tag combination NOT in the proven table stays a mismatch, even
+        # when the fork and the tag each appear in other rows.
         d = provlib.evaluate_krpc_mechjeb_pair("v0.5.4", "darchambault", "v0.7.1", "v0.5.4")
         self.assertFalse(d.ok)
         self.assertEqual(d.reason, "mismatch")
+        d2 = provlib.evaluate_krpc_mechjeb_pair("v0.5.4", "genhis", "v0.8.1", "v0.5.4")
+        self.assertFalse(d2.ok)
 
     def test_v054_wrong_paired_tag_mismatch(self):
         d = provlib.evaluate_krpc_mechjeb_pair("v0.5.4", "genhis", "v0.7.1", "v0.5.3")
