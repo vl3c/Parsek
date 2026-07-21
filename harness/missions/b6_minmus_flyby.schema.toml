@@ -1,0 +1,155 @@
+# Declared param schema for mission b6_minmus_flyby -- a COPY of
+# b5_mun_flyby.schema.toml (the mission is a thin alias over the shared
+# body-parameterized B5 machine; run.py resolves <mission>.schema.toml by
+# name, so the alias needs its own file). Keep in sync with the B5 schema.
+#
+# hlib.validate_spec does NOT read this file itself: run.py (shell / I/O) parses
+# every harness/missions/<mission>.schema.toml with tomllib into a registry
+# { mission-name -> schema-dict } and INJECTS it as validate_spec's
+# `mission_schemas` argument. hlib's PURE validator (_validate_mission_params)
+# then drives required-key presence and per-value type/range checks from the
+# `params` table below. Shape consumed by hlib:
+#   {"params": {"<name>": {"required": bool, "type": "<t>", "min": <num?>, "max": <num?>}}}
+# Every value here is a tolerance / threshold / budget, never a golden
+# trajectory (design "Determinism guardrails").
+#
+# The ascent half is B2's ascent params verbatim. B2's eccentricityMax /
+# inclinationErrorDeg / launchSiteLatitude are deliberately ABSENT: like B4, B5
+# makes no orbital-precision assertions (the parking orbit is a waypoint the TLI
+# burn then deliberately leaves).
+
+[params.targetApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.targetPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.apoErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.periErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.ascentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.circularizeTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# Transfer target / home SOI body names (kRPC orbit.body.name values). The
+# machine's SOI gates compare snapshot.body against these.
+[params.targetBodyName]
+required = true
+type = "string"
+
+[params.homeBodyName]
+required = true
+type = "string"
+
+# TRANSFER-BURN exit floor: the TLI burn must have raised apoapsis at/above
+# this (evidence the NodeExecutor actually burned toward the target, not just
+# consumed an empty node list).
+[params.transferMinApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+# > 0: after the TLI burn, plan + execute a MechJeb course correction to this
+# target-flyby periapsis (metres) -- pins the flyby geometry and keeps the
+# periapsis off the terrain. 0 disables the two correction phases.
+[params.courseCorrectPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+# PLAN-* phase budget (GAME seconds). PLAN-TRANSFER expiry flakes (no transfer
+# = no mission); PLAN-CORRECTION expiry falls through to the coast (the
+# correction is best-effort).
+[params.planTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# Re-issue a failed plan every this many game seconds while no node appeared
+# (a no-encounter plan throws server-side and leaves the node list empty).
+[params.planRetrySeconds]
+required = false
+type = "number"
+min = 1.0
+max = 600.0
+
+# TRANSFER-BURN / CORRECTION-BURN budget (GAME seconds): the NodeExecutor
+# autowarps to the node (up to ~1 parking orbit ahead) then burns it.
+[params.transferBurnTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# COAST-TO-TARGET budget (GAME seconds; the LKO->Mun transfer coast is ~2 days
+# of game time, advanced fast by the bounded rails hops).
+[params.coastTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# TARGET-FLYBY budget (GAME seconds; SOI entry to SOI exit).
+[params.flybyTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# One COAST-TO-TARGET warp hop = ACTION_WARP_TO with value = now + this many
+# seconds, re-issued per decision frame (bounded hops keep the machine in
+# control; the SOI-entry UT is never computed).
+[params.coastWarpHopSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# One TARGET-FLYBY warp hop (smaller, so the min-altitude flyby evidence is
+# sampled reasonably through periapsis).
+[params.flybyWarpHopSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# Flyby min-altitude assertion floor (metres above the target body; the Mun has
+# ~7 km peaks). The machine tracks the min finite altitude inside the target
+# SOI; the assertion requires it at/above this floor.
+[params.targetPeriapsisFloorMeters]
+required = true
+type = "number"
+min = 0.0
+
+# dv cap (m/s) an acceptable course-correction plan must fit under. A genuine
+# correction is a small tweak; the runner removes an over-cap plan's nodes so
+# PLAN-CORRECTION's bounded fall-through coasts on the raw Hohmann intercept
+# (second live flight 2026-07-21: an oversized "correction" wedged the
+# executor until the burn budget flaked).
+[params.maxCorrectionDvMps]
+required = false
+type = "number"
+min = 1.0
+max = 2000.0
+
+# Optional: consecutive AIRBORNE frozen-telemetry samples (bit-identical orbit
+# fields while UT advances) before the mission declares the vessel lost and
+# terminates. mlib.B5Params defaults it to 10 when absent. Always an
+# ASSERT-FAIL loss in B5 (survival is the contract).
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000

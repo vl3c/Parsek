@@ -34,6 +34,7 @@ import b1_pad_hop             # noqa: E402
 import b2_lko_ascent          # noqa: E402
 import b4_reentry             # noqa: E402
 import b5_mun_flyby           # noqa: E402
+import b6_minmus_flyby        # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -859,6 +860,31 @@ class B5ShellTests(unittest.TestCase):
         # Settle tail RAN (RETURN keeps it): more reads than scripted frames.
         self.assertGreater(control.reads, len(self._happy_frames()))
         self.assertTrue(control.closed)
+
+    def test_b6_minmus_alias_flies_same_machine(self):
+        """b6_minmus_flyby is a thin alias over the shared B5 machine: the same
+        happy-path frame script with body=Minmus and Minmus-sized params flies
+        to MISSION-OK. Guards the alias shell drifting from the B5 wiring."""
+        params = dict(B5_PARAMS, targetBodyName="Minmus",
+                      transferMinApoapsisMeters=40_000_000,
+                      courseCorrectPeriapsisMeters=20000,
+                      targetPeriapsisFloorMeters=6000)
+        frames = [
+            (snap(**{**f.__dict__, "body": "Minmus"}) if f.body == "Mun" else f)
+            for f in self._happy_frames()
+        ]
+        # The transfer-apoapsis floor is Minmus-sized: raise the burn-done frames.
+        frames = [
+            (snap(**{**f.__dict__, "apoapsis": 46_000_000.0})
+             if f.apoapsis == 11_500_000.0 else f)
+            for f in frames
+        ]
+        control = FakeMissionControl(frames)
+        code, result = run(b6_minmus_flyby.SPEC, params, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        targets = [a for a in control.actions if a.kind == mlib.ACTION_SET_TARGET_BODY]
+        self.assertEqual(targets, [mlib.Action(mlib.ACTION_SET_TARGET_BODY, text="Minmus")])
 
     def test_b5_flyby_ejection_is_assert_fail(self):
         """A flyby that slings the craft out of the home system (body=Sun inside

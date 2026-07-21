@@ -1,0 +1,93 @@
+schema = 1
+id = "B6-minmus-flyby"
+# nightly: same fixture and machine as B5, different target body. NOT YET
+# LIVE-PROVEN: budgets below are estimates pending the first live flight
+# (fly AFTER B5 passes; every B5 live finding transfers here).
+tier = "nightly"
+description = "Minmus flyby / free-return: MechJeb ascent to LKO, ManeuverPlanner Hohmann transfer to Minmus, autowarped burn, dv-capped course-correction, cross-SOI coast, Minmus flyby, return into Kerbin SOI."
+instanceProfile = "stock-minimal"
+tags = ["B6", "flown", "mechjeb", "minmus", "cross-soi"]
+
+[fixture]
+# Same pre-placed Kerbal X fixture as B2/B4/B5.
+saveTemplate       = "fixtures/saves/b2-lko-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+# Thin alias over the body-parameterized B5 machine (see b6_minmus_flyby.py);
+# the flight differs from B5 only in these params.
+mission = "b6_minmus_flyby"
+
+# `steps` MUST stay in the [driver] table (above the [driver.missionParams]
+# header). Budget arithmetic (ESTIMATED): the ~46,400 km Minmus transfer coast
+# is ~9 days of game time vs the Mun's ~1-2 days -- more rails hops, so the
+# wall budget grows: missionBudget 3000 >= 30 connect + ascent ~250 +
+# circularize ~100 + plan+burn ~300 + correction ~120 + coast hops ~600 +
+# flyby hops ~300 + settle + margin. runtime 3300 >= 240 LoadGame + 3000.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 3000 },
+  { cmd = "CommitTree",                                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                        expect = "OK" },
+]
+
+# Ascent half = B2's proven tolerances verbatim; transfer half = B5's proven
+# shape re-sized for Minmus (validated against b6_minmus_flyby.schema.toml).
+[driver.missionParams]
+targetApoapsisMeters       = 80000
+targetPeriapsisMeters      = 80000
+apoErrorMeters             = 5000
+periErrorMeters            = 5000
+ascentTimeoutSeconds       = 420
+circularizeTimeoutSeconds  = 300
+targetBodyName             = "Minmus"
+homeBodyName               = "Kerbin"
+# Minmus orbits at ~46,400 km; a transfer burn that raised apoapsis past
+# 40,000 km is unambiguous burn evidence (floor, not a window).
+transferMinApoapsisMeters  = 40000000
+# Course-correct the flyby periapsis to 20 km: above the ~5.7 km Minmus peaks
+# + the 6 km assertion floor. Same 100 m/s dv cap as B5 (an over-cap plan is
+# removed and the coast flies the raw intercept).
+courseCorrectPeriapsisMeters = 20000
+maxCorrectionDvMps         = 100
+planTimeoutSeconds         = 300
+planRetrySeconds           = 30
+# The burn itself is B5-sized, but the executor may autowarp up to a full
+# parking orbit to the node first; same 4000 game-second budget as B5.
+transferBurnTimeoutSeconds = 4000
+# ~9-day transfer coast (game seconds) + margin; the 1-hour rails hops
+# advance it ~9x faster than B5's 30-minute hops per RPC round-trip.
+coastTimeoutSeconds        = 2000000
+flybyTimeoutSeconds        = 400000
+coastWarpHopSeconds        = 3600
+flybyWarpHopSeconds        = 600
+targetPeriapsisFloorMeters = 6000
+
+# Coverage: same cross-SOI recording cells as B5 with the minmus body axis.
+[dimensionsCovered]
+D1  = ["auto-record-launch"]
+D3  = ["orbital-checkpoint"]
+D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
+D14 = ["kerbin", "minmus", "warp-rails"]
+
+[expectations.recordings]
+# Same as B5: main + up to 6 boosters + LES margin; nothing staged post-ascent.
+count = { min = 1, max = 8 }
+
+[expectations.logContracts]
+required  = ["Recording started", "Recording stopped"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+budgetSeconds = 3300
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
