@@ -364,20 +364,33 @@ class KrpcMissionControl(MissionControl):
             sc.target_body = sc.bodies[str(action.text)]
         elif kind == mlib.ACTION_MJ_PLAN_TRANSFER:
             # KRPC.MechJeb 0.8.1: maneuver_planner.operation_transfer.make_nodes()
-            # (a Hohmann transfer to the current target). INTERCEPT-ONLY: the
-            # capture/insertion options are forced OFF so the plan is a single
-            # TLI node -- with them on, MechJeb plans the arrival burn as a
-            # SECOND node and the flyby machine would either fly an unwanted
-            # capture or park waiting for an empty node list (first live B5
-            # flight 2026-07-21). A plan with no valid window/target throws a
-            # server-side OperationException: log + swallow, node_count stays 0,
-            # and the machine's bounded re-plan cadence owns the retry
-            # (re-issuing is safe ONLY while no node exists).
+            # (a Hohmann transfer to the current target). INTERCEPT-ONLY BUT
+            # TARGETED -- semantics verified against the DECOMPILED MechJeb
+            # 2.15.1 OperationGeneric (2026-07-21):
+            #   capture=False      -> the GUI's "intercept only" checkbox
+            #                         (Capture = !intercept_only); a single TLI
+            #                         node, no arrival/insertion second node
+            #                         (which the first live flight showed parks
+            #                         the flyby machine).
+            #   plan_capture=False -> belt+braces (only read when Capture).
+            #   rendezvous=True    -> the TARGETED-INTERCEPT flag: it flows into
+            #                         DeltaVAndTimeForHohmannTransfer as the
+            #                         "arrive AT the target" mode. False is the
+            #                         GUI's phase-blind "Transfer" (reach the
+            #                         target's ALTITUDE at arbitrary phase) --
+            #                         forcing it False on the third live flight
+            #                         produced a deterministic no-encounter
+            #                         coast (ap 11.4M, fell back to Kerbin) with
+            #                         a persistent ~403 m/s re-aim demand.
+            # A plan with no valid window/target throws a server-side
+            # OperationException: log + swallow, node_count stays 0, and the
+            # machine's bounded re-plan cadence owns the retry (re-issuing is
+            # safe ONLY while no node exists).
             try:
                 op = self._mechjeb.maneuver_planner.operation_transfer
                 op.capture = False
                 op.plan_capture = False
-                op.rendezvous = False
+                op.rendezvous = True
                 op.make_nodes()
             except Exception as exc:
                 _stdout_sink(mlib.format_mission_log_line(
