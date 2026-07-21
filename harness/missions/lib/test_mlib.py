@@ -1446,5 +1446,320 @@ class B4AssertionTests(unittest.TestCase):
         self.assertIn("vessel-lost", reason)
 
 
+B5_PARAMS = mlib.B5Params(
+    target_apoapsis=80000.0,
+    target_periapsis=80000.0,
+    apo_error=5000.0,
+    peri_error=5000.0,
+    ascent_timeout=420.0,
+    circularize_timeout=300.0,
+    target_body="Mun",
+    home_body="Kerbin",
+    transfer_min_apoapsis=10_000_000.0,
+    course_correct_periapsis=60000.0,
+    plan_timeout=300.0,
+    plan_retry_seconds=30.0,
+    transfer_burn_timeout=4000.0,
+    coast_timeout=400_000.0,
+    flyby_timeout=300_000.0,
+    coast_warp_hop_seconds=1800.0,
+    flyby_warp_hop_seconds=600.0,
+    target_periapsis_floor=10000.0,
+)
+
+
+def drive_b5(state, frames):
+    per_frame = []
+    for f in frames:
+        state, actions = mlib.b5_decide(state, f)
+        per_frame.append(actions)
+    return state, per_frame
+
+
+def _b5_state(phase, **overrides):
+    """A B5State pinned in ``phase`` with phase_entry_ut=0."""
+    base = mlib.b5_initial_state(B5_PARAMS)
+    fields = {**base.__dict__, "phase": phase, "phase_entry_ut": 0.0}
+    fields.update(overrides)
+    return base.__class__(**fields)
+
+
+class B5MachineTests(unittest.TestCase):
+    """Guards the B5 machine: the ascent half must behave exactly like B4/B2,
+    the plan phases must hand a node to the executor exactly once and re-plan
+    only while no node exists, the TLI-burn exit needs BOTH an empty node list
+    AND the apoapsis floor, the coast/flyby SOI gates dispatch on body name
+    (with "" staying in phase), and RETURN entry is the only success terminal."""
+
+    def test_full_happy_path_walk(self):
+        state = mlib.b5_initial_state(B5_PARAMS)
+        frames = [
+            snap(ut=0.0, body="Kerbin"),                                # 0 PRELAUNCH->MJ-ASCENT
+            snap(ut=180.0, apoapsis=78000.0, mj_ascent_complete=True,
+                 body="Kerbin"),                                        # 1 ->CIRCULARIZE
+            snap(ut=260.0, apoapsis=80000.0, periapsis=79000.0,
+                 body="Kerbin"),                                        # 2 ->ORBIT
+            snap(ut=261.0, apoapsis=80000.0, periapsis=79000.0,
+                 body="Kerbin"),                                        # 3 ORBIT->PLAN-TRANSFER (target+plan)
+            snap(ut=265.0, apoapsis=80000.0, periapsis=79000.0,
+                 body="Kerbin", node_count=1),                          # 4 node -> TRANSFER-BURN (execute)
+            snap(ut=300.0, apoapsis=80000.0, periapsis=79000.0,
+                 body="Kerbin", node_count=1),                          # 5 executor warping/burning
+            snap(ut=2200.0, apoapsis=11_500_000.0, periapsis=79000.0,
+                 body="Kerbin", node_count=0),                          # 6 burn done -> PLAN-CORRECTION
+            snap(ut=2230.0, apoapsis=11_500_000.0, body="Kerbin",
+                 node_count=1),                                         # 7 node -> CORRECTION-BURN (execute)
+            snap(ut=2400.0, apoapsis=11_500_000.0, body="Kerbin",
+                 node_count=0),                                         # 8 -> COAST-TO-TARGET
+            snap(ut=2500.0, apoapsis=11_500_000.0, body="Kerbin"),      # 9 coast -> hop
+            snap(ut=4300.0, apoapsis=11_500_000.0, body="Kerbin"),      # 10 coast -> hop
+            snap(ut=40_000.0, altitude=2_000_000.0, body="Mun"),        # 11 SOI! -> TARGET-FLYBY
+            snap(ut=40_100.0, altitude=800_000.0, body="Mun"),          # 12 inbound -> hop
+            snap(ut=40_700.0, altitude=61_000.0, body="Mun"),           # 13 periapsis area -> hop
+            snap(ut=41_300.0, altitude=900_000.0, body="Mun"),          # 14 outbound -> hop
+            snap(ut=80_000.0, altitude=3_000_000.0, body="Kerbin"),     # 15 home SOI -> RETURN terminal
+        ]
+        state, per_frame = drive_b5(state, frames)
+        self.assertTrue(state.done)
+        self.assertEqual(state.phase, mlib.B5_RETURN)
+        self.assertIsNone(state.verdict)
+        self.assertIsNone(state.loss_reason)
+        self.assertEqual(state.min_target_altitude, 61_000.0)
+        self.assertEqual(state.phases_reached,
+                         (mlib.B5_PRELAUNCH, mlib.B5_MJ_ASCENT, mlib.B5_CIRCULARIZE,
+                          mlib.B5_ORBIT, mlib.B5_PLAN_TRANSFER, mlib.B5_TRANSFER_BURN,
+                          mlib.B5_PLAN_CORRECTION, mlib.B5_CORRECTION_BURN,
+                          mlib.B5_COAST_TO_TARGET, mlib.B5_TARGET_FLYBY,
+                          mlib.B5_RETURN))
+        self.assertEqual(per_frame[0], [
+            Action(mlib.ACTION_MJ_SET_TARGET_APOAPSIS, 80000.0),
+            Action(mlib.ACTION_MJ_ENABLE_AUTOSTAGE),
+            Action(mlib.ACTION_MJ_ENGAGE_ASCENT),
+            Action(mlib.ACTION_ACTIVATE_STAGE)])
+        self.assertEqual(per_frame[1], [Action(mlib.ACTION_MJ_EXECUTE_CIRCULARIZATION)])
+        self.assertEqual(per_frame[3], [
+            Action(mlib.ACTION_SET_TARGET_BODY, text="Mun"),
+            Action(mlib.ACTION_MJ_PLAN_TRANSFER)])
+        self.assertEqual(per_frame[4], [Action(mlib.ACTION_MJ_EXECUTE_NODES)])
+        self.assertEqual(per_frame[5], [])   # executor owns the burn: machine silent
+        self.assertEqual(per_frame[6], [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0)])
+        self.assertEqual(per_frame[7], [Action(mlib.ACTION_MJ_EXECUTE_NODES)])
+        self.assertEqual(per_frame[8], [])   # CORRECTION-BURN -> COAST transition frame
+        self.assertEqual(per_frame[9], [Action(mlib.ACTION_WARP_TO, 2500.0 + 1800.0)])
+        self.assertEqual(per_frame[10], [Action(mlib.ACTION_WARP_TO, 4300.0 + 1800.0)])
+        self.assertEqual(per_frame[11], [])  # SOI-entry transition frame: no hop
+        self.assertEqual(per_frame[12], [Action(mlib.ACTION_WARP_TO, 40_100.0 + 600.0)])
+        self.assertEqual(per_frame[13], [Action(mlib.ACTION_WARP_TO, 40_700.0 + 600.0)])
+        self.assertEqual(per_frame[15], [])  # RETURN terminal: no actions
+
+    def test_plan_transfer_replans_only_while_no_node(self):
+        # A failed plan (server-side OperationException -> no node) re-issues on
+        # the bounded cadence; a node appearing hands off EXACTLY once.
+        state = _b5_state(mlib.B5_PLAN_TRANSFER, last_plan_ut=0.0)
+        # 10s after the last plan: below the 30s cadence, no re-plan.
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin"))
+        self.assertEqual(actions, [])
+        # 35s: cadence reached, re-plan (still no node).
+        state, actions = mlib.b5_decide(state, snap(ut=35.0, body="Kerbin"))
+        self.assertEqual(actions, [Action(mlib.ACTION_MJ_PLAN_TRANSFER)])
+        self.assertEqual(state.last_plan_ut, 35.0)
+        # Node appeared: execute + transition; NEVER another plan (stacking guard).
+        state, actions = mlib.b5_decide(state, snap(ut=40.0, body="Kerbin", node_count=1))
+        self.assertEqual(actions, [Action(mlib.ACTION_MJ_EXECUTE_NODES)])
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+
+    def test_plan_transfer_timeout_flakes(self):
+        # PLAN-TRANSFER expiry is a FLAKE (no transfer = no mission), unlike
+        # PLAN-CORRECTION's fall-through.
+        state = _b5_state(mlib.B5_PLAN_TRANSFER, last_plan_ut=0.0)
+        state, _ = mlib.b5_decide(state, snap(ut=301.0, body="Kerbin"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.B5_PLAN_TRANSFER)
+
+    def test_plan_correction_timeout_falls_through_to_coast(self):
+        # The correction is best-effort: budget expiry proceeds to the coast
+        # instead of flaking (MechJeb may transiently see no encounter).
+        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
+        state, actions = mlib.b5_decide(state, snap(ut=301.0, body="Kerbin"))
+        self.assertFalse(state.done)
+        self.assertIsNone(state.verdict)
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(actions, [])
+
+    def test_transfer_burn_needs_empty_nodes_and_apoapsis_floor(self):
+        state = _b5_state(mlib.B5_TRANSFER_BURN)
+        # Nodes empty but apoapsis still low (executor aborted without burning):
+        # stay -- the budget owns the outcome.
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, apoapsis=90000.0,
+                                              body="Kerbin", node_count=0))
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+        # Apoapsis high but a node still pending: stay (mid-burn).
+        state, _ = mlib.b5_decide(state, snap(ut=20.0, apoapsis=11_000_000.0,
+                                              body="Kerbin", node_count=1))
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+        # Both: advance (course correction enabled -> PLAN-CORRECTION).
+        state, actions = mlib.b5_decide(state, snap(ut=30.0, apoapsis=11_000_000.0,
+                                                    body="Kerbin", node_count=0))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
+        self.assertEqual(actions, [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0)])
+
+    def test_transfer_burn_skips_correction_when_disabled(self):
+        params = mlib.B5Params(**{**B5_PARAMS.__dict__, "course_correct_periapsis": 0.0})
+        base = mlib.b5_initial_state(params)
+        state = base.__class__(**{**base.__dict__, "phase": mlib.B5_TRANSFER_BURN,
+                                  "phase_entry_ut": 0.0})
+        state, actions = mlib.b5_decide(state, snap(ut=30.0, apoapsis=11_000_000.0,
+                                                    body="Kerbin", node_count=0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(actions, [])
+
+    def test_coast_hop_gated_on_home_body_and_no_nodes(self):
+        state = _b5_state(mlib.B5_COAST_TO_TARGET)
+        # A pending node suppresses the hop (never warp past a maneuver).
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin", node_count=1))
+        self.assertEqual(actions, [])
+        # Clean coast: one bounded hop.
+        state, actions = mlib.b5_decide(state, snap(ut=20.0, body="Kerbin"))
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO, 20.0 + 1800.0)])
+
+    def test_coast_empty_body_stays_without_hop(self):
+        # "" = no reading this frame: NOT the ejected terminal, NOT a hop.
+        state = _b5_state(mlib.B5_COAST_TO_TARGET)
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, body=""))
+        self.assertFalse(state.done)
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(actions, [])
+
+    def test_coast_foreign_body_is_ejected_assert_fail(self):
+        state = _b5_state(mlib.B5_COAST_TO_TARGET)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Sun"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("left home SOI", state.loss_reason)
+        self.assertIn("Sun", state.loss_reason)
+
+    def test_flyby_tracks_min_altitude_and_returns_home(self):
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, altitude=500_000.0, body="Mun"))
+        state, _ = mlib.b5_decide(state, snap(ut=20.0, altitude=65_000.0, body="Mun"))
+        state, _ = mlib.b5_decide(state, snap(ut=30.0, altitude=200_000.0, body="Mun"))
+        self.assertEqual(state.min_target_altitude, 65_000.0)
+        state, actions = mlib.b5_decide(state, snap(ut=40.0, altitude=3_000_000.0,
+                                                    body="Kerbin"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.phase, mlib.B5_RETURN)
+        self.assertIsNone(state.verdict)
+        self.assertEqual(actions, [])
+
+    def test_flyby_ejection_to_sun_is_assert_fail(self):
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Sun"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("ejected", state.loss_reason)
+
+    def test_vessel_lost_any_phase_is_assert_fail(self):
+        for phase in (mlib.B5_TRANSFER_BURN, mlib.B5_COAST_TO_TARGET,
+                      mlib.B5_TARGET_FLYBY):
+            state = _b5_state(phase)
+            state, _ = mlib.b5_decide(state, snap(ut=10.0, vessel_lost=True))
+            self.assertTrue(state.done)
+            self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+            self.assertIn("vessel-lost", state.loss_reason)
+
+    def test_frozen_telemetry_terminal(self):
+        # Bit-identical orbit fields while UT advances, limit frames -> loss.
+        state = _b5_state(mlib.B5_COAST_TO_TARGET)
+        fields = dict(altitude=500_000.0, vertical_speed=100.0,
+                      apoapsis=11_000_000.0, periapsis=79_000.0, body="Kerbin")
+        state, _ = mlib.b5_decide(state, snap(ut=1.0, **fields))
+        for i in range(B5_PARAMS.frozen_sample_limit):
+            state, _ = mlib.b5_decide(state, snap(ut=2.0 + i, **fields))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("frozen", state.loss_reason)
+
+    def test_done_machine_is_idempotent(self):
+        state = _b5_state(mlib.B5_RETURN, done=True)
+        state2, actions = mlib.b5_decide(state, snap(ut=99.0, body="Kerbin"))
+        self.assertIs(state2, state)
+        self.assertEqual(actions, [])
+
+
+class B5ParamTests(unittest.TestCase):
+    def test_params_from_dict_full(self):
+        p = mlib.b5_params_from_dict({
+            "targetApoapsisMeters": 90000, "targetPeriapsisMeters": 85000,
+            "apoErrorMeters": 4000, "periErrorMeters": 3000,
+            "ascentTimeoutSeconds": 500, "circularizeTimeoutSeconds": 200,
+            "targetBodyName": "Minmus", "homeBodyName": "Kerbin",
+            "transferMinApoapsisMeters": 40_000_000,
+            "courseCorrectPeriapsisMeters": 30000,
+            "planTimeoutSeconds": 200, "planRetrySeconds": 15,
+            "transferBurnTimeoutSeconds": 5000,
+            "coastTimeoutSeconds": 900_000, "flybyTimeoutSeconds": 400_000,
+            "coastWarpHopSeconds": 3600, "flybyWarpHopSeconds": 300,
+            "targetPeriapsisFloorMeters": 20000,
+            "frozenTelemetrySamples": 5,
+        })
+        self.assertEqual(p.target_body, "Minmus")
+        self.assertEqual(p.transfer_min_apoapsis, 40_000_000.0)
+        self.assertEqual(p.course_correct_periapsis, 30000.0)
+        self.assertEqual(p.plan_retry_seconds, 15.0)
+        self.assertEqual(p.coast_warp_hop_seconds, 3600.0)
+        self.assertEqual(p.target_periapsis_floor, 20000.0)
+        self.assertEqual(p.frozen_sample_limit, 5)
+
+    def test_params_defaults(self):
+        p = mlib.b5_params_from_dict({})
+        self.assertEqual(p.target_body, "Mun")
+        self.assertEqual(p.home_body, "Kerbin")
+        self.assertEqual(p.course_correct_periapsis, 60000.0)
+        self.assertEqual(p.target_periapsis_floor, 10000.0)
+
+
+class B5AssertionTests(unittest.TestCase):
+    def test_all_met_on_full_flight(self):
+        phases = (mlib.B5_PRELAUNCH, mlib.B5_MJ_ASCENT, mlib.B5_CIRCULARIZE,
+                  mlib.B5_ORBIT, mlib.B5_PLAN_TRANSFER, mlib.B5_TRANSFER_BURN,
+                  mlib.B5_COAST_TO_TARGET, mlib.B5_TARGET_FLYBY, mlib.B5_RETURN)
+        outcomes = mlib.evaluate_b5_assertions(
+            [], B5_PARAMS, phases_reached=phases, min_target_altitude=61_000.0)
+        self.assertEqual([o.name for o in outcomes],
+                         ["reachedOrbit", "reachedTargetSoi",
+                          "flybyPeriapsisFloor", "returnedToHome"])
+        self.assertTrue(mlib.all_assertions_met(outcomes))
+        by_name = {o.name: o for o in outcomes}
+        self.assertEqual(by_name["reachedTargetSoi"].value, "Mun")
+        self.assertEqual(by_name["flybyPeriapsisFloor"].value, 61_000.0)
+        self.assertEqual(by_name["returnedToHome"].value, "Kerbin")
+
+    def test_flyby_floor_unmet_below_floor(self):
+        phases = (mlib.B5_ORBIT, mlib.B5_TARGET_FLYBY, mlib.B5_RETURN)
+        outcomes = mlib.evaluate_b5_assertions(
+            [], B5_PARAMS, phases_reached=phases, min_target_altitude=8_000.0)
+        by_name = {o.name: o for o in outcomes}
+        self.assertFalse(by_name["flybyPeriapsisFloor"].met)
+
+    def test_flyby_floor_unmet_when_never_sampled(self):
+        # None (never inside the target SOI, or no finite altitude) is UNMET,
+        # never a silent pass; the serialized value scrubs to JSON null.
+        outcomes = mlib.evaluate_b5_assertions(
+            [], B5_PARAMS, phases_reached=(mlib.B5_ORBIT,), min_target_altitude=None)
+        by_name = {o.name: o for o in outcomes}
+        self.assertFalse(by_name["flybyPeriapsisFloor"].met)
+        self.assertIsNone(by_name["flybyPeriapsisFloor"].to_dict()["value"])
+
+    def test_missing_phases_unmet(self):
+        outcomes = mlib.evaluate_b5_assertions(
+            [], B5_PARAMS, phases_reached=(mlib.B5_PRELAUNCH, mlib.B5_MJ_ASCENT),
+            min_target_altitude=None)
+        by_name = {o.name: o for o in outcomes}
+        self.assertFalse(by_name["reachedOrbit"].met)
+        self.assertFalse(by_name["reachedTargetSoi"].met)
+        self.assertFalse(by_name["returnedToHome"].met)
+
+
 if __name__ == "__main__":
     unittest.main()

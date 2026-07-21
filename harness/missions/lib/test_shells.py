@@ -33,6 +33,7 @@ import mission_runner         # noqa: E402
 import b1_pad_hop             # noqa: E402
 import b2_lko_ascent          # noqa: E402
 import b4_reentry             # noqa: E402
+import b5_mun_flyby           # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +98,27 @@ B2_PARAMS = {
     "ascentTimeoutSeconds": 420,
     "circularizeTimeoutSeconds": 300,
     "launchSiteLatitude": 0.0,
+}
+
+B5_PARAMS = {
+    "targetApoapsisMeters": 80000,
+    "targetPeriapsisMeters": 80000,
+    "apoErrorMeters": 5000,
+    "periErrorMeters": 5000,
+    "ascentTimeoutSeconds": 420,
+    "circularizeTimeoutSeconds": 300,
+    "targetBodyName": "Mun",
+    "homeBodyName": "Kerbin",
+    "transferMinApoapsisMeters": 10000000,
+    "courseCorrectPeriapsisMeters": 60000,
+    "planTimeoutSeconds": 300,
+    "planRetrySeconds": 30,
+    "transferBurnTimeoutSeconds": 4000,
+    "coastTimeoutSeconds": 400000,
+    "flybyTimeoutSeconds": 300000,
+    "coastWarpHopSeconds": 1800,
+    "flybyWarpHopSeconds": 600,
+    "targetPeriapsisFloorMeters": 10000,
 }
 
 B4_PARAMS = {
@@ -487,6 +509,7 @@ class _FakeFlight:
 
 class _FakeBody:
     reference_frame = "body_frame"
+    name = "Kerbin"
 
 
 class _FakeOrbit:
@@ -506,10 +529,15 @@ class _FakeResources:
         return 1.0
 
 
+class _FakeNodeControl:
+    nodes = ()
+
+
 class _FakeVessel:
     situation = _FakeSituation()
     orbit = _FakeOrbit()
     resources = _FakeResources()
+    control = _FakeNodeControl()
 
     def flight(self, _frame):
         return _FakeFlight()
@@ -766,4 +794,82 @@ class B4ShellTests(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertIn("vessel-lost", result["reason"])
         self.assertIn(mlib.B4_REENTRY, result["phasesReached"])
+        self.assertTrue(control.closed)
+
+
+class B5ShellTests(unittest.TestCase):
+    """B5 shell wiring over the fake seam: ascent -> transfer plan/burn ->
+    correction -> cross-SOI coast -> flyby -> RETURN terminal, with the new
+    target/plan/execute actions and the body-name SOI gates flowing end to end."""
+
+    def _happy_frames(self):
+        return [
+            snap(ut=0.0, apoapsis=1000, periapsis=0, situation="PRE_LAUNCH",
+                 body="Kerbin"),
+            snap(ut=100.0, apoapsis=78000, periapsis=1000, situation="FLYING",
+                 mj_ascent_complete=True, body="Kerbin"),        # -> CIRCULARIZE
+            snap(ut=140.0, apoapsis=80000, periapsis=79000, altitude=79000.0,
+                 situation="ORBITING", body="Kerbin"),           # -> ORBIT
+            snap(ut=141.0, apoapsis=80001, periapsis=79000, altitude=79001.0,
+                 situation="ORBITING", body="Kerbin"),           # ORBIT -> PLAN (target+plan)
+            snap(ut=150.0, apoapsis=80001, periapsis=79000, altitude=79002.0,
+                 situation="ORBITING", body="Kerbin",
+                 node_count=1),                                  # node -> TRANSFER-BURN (execute)
+            snap(ut=2200.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=90000.0, situation="ORBITING", body="Kerbin",
+                 node_count=0),                                  # burn done -> PLAN-CORRECTION
+            snap(ut=2230.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=95000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1),                                  # node -> CORRECTION-BURN
+            snap(ut=2300.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=99000.0, situation="ORBITING", body="Kerbin",
+                 node_count=0),                                  # -> COAST-TO-TARGET
+            snap(ut=2400.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=200_000.0, situation="ORBITING", body="Kerbin"),  # hop
+            snap(ut=40_000.0, apoapsis=200_000.0, periapsis=60_000.0,
+                 altitude=1_500_000.0, situation="ESCAPING", body="Mun"),   # -> TARGET-FLYBY
+            snap(ut=40_600.0, apoapsis=200_000.0, periapsis=60_000.0,
+                 altitude=61_000.0, situation="ESCAPING", body="Mun"),      # periapsis + hop
+            snap(ut=80_000.0, apoapsis=12_000_000.0, periapsis=35_000.0,
+                 altitude=4_000_000.0, situation="ORBITING",
+                 body="Kerbin"),                                 # home SOI -> RETURN terminal
+        ]
+
+    def test_b5_happy_path_writes_mission_ok(self):
+        """B5 flies ascent -> transfer -> flyby -> free-return; the settle tail
+        runs on the RETURN terminal and all four assertions are met ->
+        MISSION-OK. Guards the shell mis-wiring the new target/plan/execute
+        actions or terminating at ORBIT like B2."""
+        control = FakeMissionControl(self._happy_frames())
+        code, result = run(b5_mun_flyby.SPEC, B5_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        kinds = [a.kind for a in control.actions]
+        for kind in (mlib.ACTION_MJ_ENGAGE_ASCENT, mlib.ACTION_SET_TARGET_BODY,
+                     mlib.ACTION_MJ_PLAN_TRANSFER, mlib.ACTION_MJ_EXECUTE_NODES,
+                     mlib.ACTION_MJ_PLAN_COURSE_CORRECT, mlib.ACTION_WARP_TO):
+            self.assertIn(kind, kinds)
+        # The target-body action carried the body NAME in text.
+        targets = [a for a in control.actions if a.kind == mlib.ACTION_SET_TARGET_BODY]
+        self.assertEqual(targets, [mlib.Action(mlib.ACTION_SET_TARGET_BODY, text="Mun")])
+        # Exactly two execute-nodes handoffs: the TLI and the correction.
+        executes = [a for a in control.actions if a.kind == mlib.ACTION_MJ_EXECUTE_NODES]
+        self.assertEqual(len(executes), 2)
+        self.assertTrue(all(a["met"] for a in result["assertions"]), result["assertions"])
+        # Settle tail RAN (RETURN keeps it): more reads than scripted frames.
+        self.assertGreater(control.reads, len(self._happy_frames()))
+        self.assertTrue(control.closed)
+
+    def test_b5_flyby_ejection_is_assert_fail(self):
+        """A flyby that slings the craft out of the home system (body=Sun inside
+        TARGET-FLYBY) is MISSION-ASSERT-FAIL with the ejected loss reason."""
+        frames = self._happy_frames()[:11] + [
+            snap(ut=90_000.0, altitude=90_000_000.0, situation="ESCAPING",
+                 body="Sun")]
+        control = FakeMissionControl(frames)
+        code, result = run(b5_mun_flyby.SPEC, B5_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_ASSERT_FAIL, result)
+        self.assertNotEqual(code, 0)
+        self.assertIn("ejected", result["reason"])
+        self.assertIn(mlib.B5_TARGET_FLYBY, result["phasesReached"])
         self.assertTrue(control.closed)

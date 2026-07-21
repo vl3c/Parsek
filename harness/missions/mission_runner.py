@@ -250,6 +250,14 @@ class KrpcMissionControl(MissionControl):
                 ap_error=ap_error,
                 warp_mode=warp_mode,
                 warp_rate=warp_rate,
+                # SOI body + pending-node evidence (B5 cross-SOI gates + the
+                # PLAN/BURN transitions). Direct reads: a failure re-raises into
+                # the surrounding try/except and counts toward the vessel-lost
+                # read-fail streak, consistent with every other field here. The
+                # machine-side guard for an EMPTY body ("" = no reading) treats
+                # it as stay-in-phase, never as the ejected terminal.
+                body=str(orbit.body.name),
+                node_count=int(len(v.control.nodes)),
             )
             self._read_fail_streak = 0
             return snapshot
@@ -348,6 +356,46 @@ class KrpcMissionControl(MissionControl):
             # budgeted correctly. The warp guard permits RAILS via the spec's
             # allow_rails_warp.
             sc.warp_to(float(action.value))
+        elif kind == mlib.ACTION_SET_TARGET_BODY:
+            # B5: target the transfer body (the ManeuverPlanner's OperationTransfer
+            # is a Hohmann-to-target and needs it). Surface verified against the
+            # pinned kRPC 0.5.4 source (SpaceCenter.TargetBody settable property,
+            # SpaceCenter.Bodies name dict).
+            sc.target_body = sc.bodies[str(action.text)]
+        elif kind == mlib.ACTION_MJ_PLAN_TRANSFER:
+            # KRPC.MechJeb 0.8.1: maneuver_planner.operation_transfer.make_nodes()
+            # (a Hohmann transfer to the current target). A plan with no valid
+            # window/target throws a server-side OperationException: log + swallow,
+            # node_count stays 0, and the machine's bounded re-plan cadence owns
+            # the retry (re-issuing is safe ONLY while no node exists).
+            try:
+                self._mechjeb.maneuver_planner.operation_transfer.make_nodes()
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Plan", "operation_transfer.make_nodes failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_MJ_PLAN_COURSE_CORRECT:
+            # KRPC.MechJeb 0.8.1: course-correct the existing target encounter to
+            # the machine-chosen flyby periapsis (metres). Same throw/log/swallow
+            # contract as the transfer plan; MechJeb transiently sees no encounter
+            # right after a burn and the machine re-plans on its bounded cadence.
+            try:
+                op = self._mechjeb.maneuver_planner.operation_course_correction
+                op.course_correct_final_pe_a = float(action.value)
+                op.make_nodes()
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Plan",
+                    "operation_course_correction.make_nodes failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_MJ_EXECUTE_NODES:
+            # Hand the planned node(s) to MechJeb's NodeExecutor with autowarp:
+            # it rails-warps to each node and burns it (the warp guard permits
+            # RAILS via allow_rails_warp). Guarded on node count like the B2
+            # circularize case: ExecuteAllNodes on an empty list is a server-side
+            # RPCError (first live B2 run 2026-07-20).
+            if len(v.control.nodes) > 0:
+                ne = self._mechjeb.node_executor
+                ne.autowarp = True
+                ne.execute_all_nodes()
         else:
             raise ValueError("unknown action kind: %r" % (kind,))
 
@@ -618,12 +666,21 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                         _fmt(snapshot.apoapsis), _fmt(snapshot.vertical_speed)))
         for action in actions:
             control.perform(action)
-            log.info(state.phase, "action %s value=%s" % (action.kind, _fmt(action.value)))
+            log.info(state.phase, "action %s value=%s%s"
+                     % (action.kind, _fmt(action.value),
+                        (" text=%s" % action.text) if getattr(action, "text", None) else ""))
+        # alt/vspeed/body/nodes ride the line too: B4 attempt-1 (2026-07-21)
+        # stalled in REENTRY with a line that omitted altitude, leaving
+        # frozen-physics vs normal-coast undiagnosable from the log. Log what
+        # the machines gate on.
         log.verbose_rate_limited(
             "telemetry", state.phase,
-            "telemetry ap=%s pe=%s ecc=%s inc=%s situation=%s warp=%sx%s apErr=%s"
+            "telemetry ap=%s pe=%s ecc=%s inc=%s alt=%s vspd=%s body=%s nodes=%d "
+            "situation=%s warp=%sx%s apErr=%s"
             % (_fmt(snapshot.apoapsis), _fmt(snapshot.periapsis), _fmt(snapshot.eccentricity),
-               _fmt(snapshot.inclination), snapshot.situation, snapshot.warp_mode,
+               _fmt(snapshot.inclination), _fmt(snapshot.altitude),
+               _fmt(snapshot.vertical_speed), snapshot.body or "?", snapshot.node_count,
+               snapshot.situation, snapshot.warp_mode,
                _fmt(snapshot.warp_rate), _fmt(snapshot.ap_error)))
         if state.done:
             break

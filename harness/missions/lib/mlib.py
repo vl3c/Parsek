@@ -124,6 +124,31 @@ B4_SPLASHDOWN = "SPLASHDOWN"
 B4_PHASES: Tuple[str, ...] = (B4_PRELAUNCH, B4_MJ_ASCENT, B4_CIRCULARIZE, B4_ORBIT,
                               B4_DEORBIT, B4_REENTRY, B4_SPLASHDOWN)
 
+# B5 phase names (mission b5_mun_flyby: the B2 ascent, then a MechJeb
+# ManeuverPlanner Hohmann transfer to the Mun, a NodeExecutor-autowarped TLI
+# burn, an optional course-correction refinement, a rails-warp coast across the
+# SOI boundary, the flyby itself, and the return into Kerbin SOI; see
+# docs/dev/todo-and-known-bugs.md "B5 Mun flyby / free-return"). RETURN is the
+# success terminal: it is entered (and ``done`` set) the frame the vessel's SOI
+# body is the home body again AFTER the flyby -- the settle tail then runs
+# on-rails in Kerbin SOI. Like B4, survival is the contract: any vessel-lost /
+# frozen terminal in ANY phase is an ASSERT-FAIL loss.
+B5_PRELAUNCH = "PRELAUNCH"
+B5_MJ_ASCENT = "MJ-ASCENT"
+B5_CIRCULARIZE = "CIRCULARIZE"
+B5_ORBIT = "ORBIT"
+B5_PLAN_TRANSFER = "PLAN-TRANSFER"
+B5_TRANSFER_BURN = "TRANSFER-BURN"
+B5_PLAN_CORRECTION = "PLAN-CORRECTION"
+B5_CORRECTION_BURN = "CORRECTION-BURN"
+B5_COAST_TO_TARGET = "COAST-TO-TARGET"
+B5_TARGET_FLYBY = "TARGET-FLYBY"
+B5_RETURN = "RETURN"
+B5_PHASES: Tuple[str, ...] = (B5_PRELAUNCH, B5_MJ_ASCENT, B5_CIRCULARIZE, B5_ORBIT,
+                              B5_PLAN_TRANSFER, B5_TRANSFER_BURN, B5_PLAN_CORRECTION,
+                              B5_CORRECTION_BURN, B5_COAST_TO_TARGET, B5_TARGET_FLYBY,
+                              B5_RETURN)
+
 # Connect-retry decision tokens (design "Connection lifecycle" step 2).
 CONNECT_RETRY = "RETRY"
 CONNECT_TIMEOUT = "TIMEOUT"
@@ -148,6 +173,20 @@ ACTION_MJ_EXECUTE_CIRCULARIZATION = "mj_execute_circularization"  # value = None
 ACTION_AP_POINT_RETROGRADE = "ap_point_retrograde"         # value = None
 ACTION_AP_DISENGAGE = "ap_disengage"                       # value = None
 ACTION_WARP_TO = "warp_to"                                 # value = target UT (s)
+# B5 transfer-planning actions (KRPC.MechJeb ManeuverPlanner + NodeExecutor;
+# surfaces verified against the darchambault KRPC.MechJeb 0.8.1 source at the
+# provisioner's pinned commit: ManeuverPlanner.OperationTransfer /
+# OperationCourseCorrection.CourseCorrectFinalPeA / Operation.MakeNodes,
+# NodeExecutor.Autowarp / ExecuteAllNodes). SET_TARGET_BODY carries the body
+# NAME in ``text`` (Action.value stays float-only); the runner resolves it via
+# space_center.bodies[name]. The PLAN_* runner cases wrap make_nodes in
+# try/except (a no-encounter plan throws server-side OperationException) so a
+# failed plan is a logged warn + no node, and the machine's bounded re-plan /
+# fall-through logic owns the outcome -- never an unhandled mission error.
+ACTION_SET_TARGET_BODY = "set_target_body"                 # text = body name
+ACTION_MJ_PLAN_TRANSFER = "mj_plan_transfer"               # value = None
+ACTION_MJ_PLAN_COURSE_CORRECT = "mj_plan_course_correct"   # value = periapsis m
+ACTION_MJ_EXECUTE_NODES = "mj_execute_nodes"               # value = None (autowarp)
 
 # K-consecutive debounce depth (see module docstring).
 DEFAULT_DEBOUNCE_K = 3
@@ -234,6 +273,13 @@ class TelemetrySnapshot:
     # instead of simulating a perfectly aligned ship (Fable review of PR #1335,
     # SF-2 - the exact failure mode this field exists to prevent).
     ap_error: float = float("nan")
+    # Current SOI body name (orbit.body.name) and pending maneuver-node count
+    # (len(vessel.control.nodes)) -- the B5 cross-SOI / node-execution evidence.
+    # ``body`` defaults to "" (unknown), NOT a real body name: the B5 SOI gates
+    # compare against the spec's home/target names, so an unpopulated field
+    # matches NEITHER and fails closed (same fail-closed rationale as ap_error).
+    body: str = ""
+    node_count: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -301,9 +347,12 @@ def _advance_frozen_count(prev_sig: Optional[FrozenSignature], prev_count: int,
 class Action:
     """One control action the phase machine asks the shell to perform this frame.
     ``kind`` is one of the ``ACTION_*`` constants; ``value`` carries the numeric
-    argument (throttle fraction, target apoapsis) or None for a no-arg action."""
+    argument (throttle fraction, target apoapsis) or None for a no-arg action.
+    ``text`` carries a string argument (the SET_TARGET_BODY body name) -- a
+    separate field so ``value`` stays float-only for every numeric consumer."""
     kind: str
     value: Optional[float] = None
+    text: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -449,6 +498,83 @@ def b4_params_from_dict(params: Dict) -> B4Params:
         reentry_timeout=float(params.get("reentryTimeoutSeconds", 3600)),
         descent_timeout=float(params.get("descentTimeoutSeconds", 600)),
         landed_situations=tuple(params.get("landedSituations", ("LANDED", "SPLASHED"))),
+        frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
+    )
+
+
+@dataclass(frozen=True)
+class B5Params:
+    """B5 Mun-flyby tuning (spec [driver.missionParams] for b5_mun_flyby). The
+    ascent half reuses B2's ascent params verbatim; the transfer half adds the
+    target/home body names, the plan/burn/coast/flyby phase budgets, the bounded
+    warp-hop shapes, the transfer-apoapsis floor, and the optional
+    course-correction periapsis. All tolerances / thresholds / budgets, never a
+    golden trajectory. Every *_timeout is GAME seconds (the rails hops and the
+    NodeExecutor autowarp advance them fast)."""
+    target_apoapsis: float
+    target_periapsis: float
+    apo_error: float
+    peri_error: float
+    ascent_timeout: float
+    circularize_timeout: float
+    target_body: str = "Mun"               # transfer target SOI body name
+    home_body: str = "Kerbin"              # departure/return SOI body name
+    transfer_min_apoapsis: float = 10_000_000.0
+                                           # TRANSFER-BURN exit floor: the TLI burn
+                                           # must have raised apoapsis at/above this
+                                           # (evidence the executor actually burned,
+                                           # not just consumed an empty node list)
+    course_correct_periapsis: float = 60000.0
+                                           # > 0: plan+execute a MechJeb course
+                                           # correction to this target-flyby
+                                           # periapsis after the TLI burn (pins the
+                                           # flyby geometry, keeps the periapsis
+                                           # off the terrain); 0 disables the two
+                                           # correction phases entirely
+    plan_timeout: float = 300.0            # PLAN-* phase budget (game s)
+    plan_retry_seconds: float = 30.0       # re-issue a failed plan every this many
+                                           # game seconds while no node appeared
+    transfer_burn_timeout: float = 4000.0  # TRANSFER-/CORRECTION-BURN budget: the
+                                           # NodeExecutor autowarps to the node (up
+                                           # to ~1 orbit ahead) then burns
+    coast_timeout: float = 400_000.0       # COAST-TO-TARGET budget (game s; the
+                                           # LKO->Mun transfer coast is ~2 days)
+    flyby_timeout: float = 300_000.0       # TARGET-FLYBY budget (game s)
+    coast_warp_hop_seconds: float = 1800.0 # one COAST-TO-TARGET warp hop
+    flyby_warp_hop_seconds: float = 600.0  # one TARGET-FLYBY warp hop (smaller so
+                                           # the min-altitude evidence is sampled
+                                           # reasonably through periapsis)
+    target_periapsis_floor: float = 10000.0
+                                           # flyby min-altitude assertion floor
+                                           # (metres above the target body; the Mun
+                                           # has ~7 km peaks)
+    frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
+                                           # vessel-lost terminal (spec key
+                                           # frozenTelemetrySamples)
+
+
+def b5_params_from_dict(params: Dict) -> B5Params:
+    """Build ``B5Params`` from a spec ``missionParams`` dict."""
+    params = params or {}
+    return B5Params(
+        target_apoapsis=float(params.get("targetApoapsisMeters", 80000)),
+        target_periapsis=float(params.get("targetPeriapsisMeters", 80000)),
+        apo_error=float(params.get("apoErrorMeters", 5000)),
+        peri_error=float(params.get("periErrorMeters", 5000)),
+        ascent_timeout=float(params.get("ascentTimeoutSeconds", 420)),
+        circularize_timeout=float(params.get("circularizeTimeoutSeconds", 300)),
+        target_body=str(params.get("targetBodyName", "Mun")),
+        home_body=str(params.get("homeBodyName", "Kerbin")),
+        transfer_min_apoapsis=float(params.get("transferMinApoapsisMeters", 10_000_000)),
+        course_correct_periapsis=float(params.get("courseCorrectPeriapsisMeters", 60000)),
+        plan_timeout=float(params.get("planTimeoutSeconds", 300)),
+        plan_retry_seconds=float(params.get("planRetrySeconds", 30)),
+        transfer_burn_timeout=float(params.get("transferBurnTimeoutSeconds", 4000)),
+        coast_timeout=float(params.get("coastTimeoutSeconds", 400_000)),
+        flyby_timeout=float(params.get("flybyTimeoutSeconds", 300_000)),
+        coast_warp_hop_seconds=float(params.get("coastWarpHopSeconds", 1800)),
+        flyby_warp_hop_seconds=float(params.get("flybyWarpHopSeconds", 600)),
+        target_periapsis_floor=float(params.get("targetPeriapsisFloorMeters", 10000)),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
     )
 
@@ -1082,6 +1208,301 @@ def _b4_stay_or_flake(state: B4State, snapshot: TelemetrySnapshot, peak: Optiona
 
 
 # ---------------------------------------------------------------------------
+# B5 phase state machine (mission b5_mun_flyby). Pure.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class B5State:
+    """B5 Mun-flyby machine state. ``verdict`` / ``flake_phase`` / ``done``
+    mirror B4. ``done`` fires in RETURN (back in home SOI after the flyby;
+    verdict None, the settle tail RUNS) or on a flake / loss terminal. Survival
+    is the contract (no DOWN-style carve-out). ``min_target_altitude`` is the
+    running min finite altitude while inside the target SOI (the flyby-floor
+    evidence); ``last_plan_ut`` stamps the most recent PLAN-* action so a failed
+    plan re-issues on the bounded ``plan_retry_seconds`` cadence."""
+    params: B5Params
+    phase: str = B5_PRELAUNCH
+    phase_entry_ut: float = 0.0
+    peak_apoapsis: Optional[float] = None
+    min_target_altitude: Optional[float] = None
+    last_plan_ut: float = 0.0
+    phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    done: bool = False
+    frozen_sig: Optional[FrozenSignature] = None
+    frozen_count: int = 0
+    loss_reason: Optional[str] = None
+
+
+def b5_initial_state(params: B5Params) -> B5State:
+    """Fresh B5 machine at PRELAUNCH."""
+    return B5State(params=params)
+
+
+def _b5_phase_budget(params: B5Params, phase: str) -> Optional[float]:
+    """The bounded game-time budget for a timed B5 phase, or None for the
+    untimed PRELAUNCH / one-frame ORBIT waypoint / terminal RETURN."""
+    if phase == B5_MJ_ASCENT:
+        return params.ascent_timeout
+    if phase == B5_CIRCULARIZE:
+        return params.circularize_timeout
+    if phase in (B5_PLAN_TRANSFER, B5_PLAN_CORRECTION):
+        return params.plan_timeout
+    if phase in (B5_TRANSFER_BURN, B5_CORRECTION_BURN):
+        return params.transfer_burn_timeout
+    if phase == B5_COAST_TO_TARGET:
+        return params.coast_timeout
+    if phase == B5_TARGET_FLYBY:
+        return params.flyby_timeout
+    return None
+
+
+def _b5_over_budget(state: B5State, snapshot: TelemetrySnapshot) -> bool:
+    budget = _b5_phase_budget(state.params, state.phase)
+    if budget is None:
+        return False
+    if not _is_finite(snapshot.ut):
+        return False
+    return (snapshot.ut - state.phase_entry_ut) > budget
+
+
+def _b5_enter(state: B5State, new_phase: str, ut: float,
+              peak: Optional[float]) -> B5State:
+    """Transition into ``new_phase``, stamping the phase-entry UT and appending
+    to ``phases_reached``. RETURN is the only phase whose ENTRY terminates the
+    machine (done, verdict None -- the assertions decide)."""
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(
+        state,
+        phase=new_phase,
+        phase_entry_ut=entry,
+        peak_apoapsis=peak,
+        phases_reached=state.phases_reached + (new_phase,),
+        done=(new_phase == B5_RETURN),
+    )
+
+
+def _b5_stay_or_flake(state: B5State, snapshot: TelemetrySnapshot,
+                      peak: Optional[float]) -> B5State:
+    if _b5_over_budget(state, snapshot):
+        return replace(state, peak_apoapsis=peak, verdict=MISSION_FLAKE,
+                       flake_phase=state.phase, done=True)
+    return replace(state, peak_apoapsis=peak)
+
+
+def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[float],
+                   plan_action: Action, burn_phase: str,
+                   on_timeout_phase: Optional[str]) -> Tuple[B5State, List[Action]]:
+    """Shared PLAN-TRANSFER / PLAN-CORRECTION logic: once a maneuver node exists,
+    hand it to the autowarping NodeExecutor and enter ``burn_phase``; while no
+    node exists, re-issue ``plan_action`` on the bounded ``plan_retry_seconds``
+    cadence (a no-encounter / transient planner failure throws server-side and
+    leaves node_count at 0 -- the re-plan is safe because it fires ONLY while
+    node_count == 0, so a successful plan can never stack a second node).
+    ``on_timeout_phase``: PLAN-CORRECTION falls through to the coast on budget
+    expiry (the correction is a best-effort refinement, not a mission
+    requirement); PLAN-TRANSFER passes None and flakes (no node = no mission)."""
+    if snapshot.node_count >= 1:
+        return (_b5_enter(state, burn_phase, snapshot.ut, peak),
+                [Action(ACTION_MJ_EXECUTE_NODES)])
+    if _b5_over_budget(state, snapshot) and on_timeout_phase is not None:
+        return _b5_enter(state, on_timeout_phase, snapshot.ut, peak), []
+    stayed = _b5_stay_or_flake(state, snapshot, peak)
+    if stayed.done:
+        return stayed, []
+    if (_is_finite(snapshot.ut)
+            and (snapshot.ut - state.last_plan_ut) >= state.params.plan_retry_seconds):
+        return replace(stayed, last_plan_ut=snapshot.ut), [plan_action]
+    return stayed, []
+
+
+def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, List[Action]]:
+    """Advance the B5 Mun-flyby machine one frame; return (new_state, actions).
+
+    Transitions:
+      - PRELAUNCH -> MJ-ASCENT -> CIRCULARIZE -> ORBIT: VERBATIM the B4/B2
+        MechJeb ascent (engage + launch, completion latch AND apoapsis window,
+        guarded circularize, periapsis gate).
+      - ORBIT -> PLAN-TRANSFER: one-frame waypoint; set the target body and ask
+        the MechJeb ManeuverPlanner for a Hohmann transfer to it.
+      - PLAN-TRANSFER -> TRANSFER-BURN: a maneuver node exists -> hand it to the
+        autowarping NodeExecutor. While no node: bounded re-plan every
+        planRetrySeconds; budget expiry flakes (no transfer = no mission).
+      - TRANSFER-BURN -> PLAN-CORRECTION (courseCorrectPeriapsisMeters > 0) or
+        COAST-TO-TARGET: the node list is empty again (the executor consumed
+        it) AND apoapsis >= transferMinApoapsisMeters (evidence the TLI burn
+        actually raised the orbit; an executor that aborts without burning
+        waits out the budget -> flake).
+      - PLAN-CORRECTION -> CORRECTION-BURN: same node logic as PLAN-TRANSFER,
+        but budget expiry FALLS THROUGH to COAST-TO-TARGET (the correction is a
+        best-effort geometry refinement -- MechJeb may transiently see no
+        encounter to correct; the flyby-floor assertion still guards the
+        outcome).
+      - CORRECTION-BURN -> COAST-TO-TARGET: node list empty again (no apoapsis
+        gate: a correction is a small vector tweak).
+      - COAST-TO-TARGET: bounded rails-warp hops (one WARP_TO = now +
+        coastWarpHopSeconds per decision frame) while the SOI body is still the
+        home body. body == target -> TARGET-FLYBY. body neither home nor target
+        (nor "", the fail-closed unknown) -> ASSERT-FAIL (ejected: the craft
+        left the home system without meeting the target).
+      - TARGET-FLYBY: track the min finite altitude (the flyby-floor evidence);
+        smaller bounded hops (flybyWarpHopSeconds) while inside the target SOI.
+        body == home -> RETURN (terminal: done, verdict None, the settle tail
+        runs on-rails in home SOI). body neither -> ASSERT-FAIL (slung out of
+        the home system).
+    Vessel-lost / frozen telemetry in ANY phase -> ASSERT-FAIL loss_reason
+    (survival is the contract). A timed phase out-running its budget yields
+    MISSION-FLAKE naming the stuck phase (except the PLAN-CORRECTION
+    fall-through above). Once ``done`` the machine is idempotent.
+    """
+    if state.done:
+        return state, []
+
+    peak = _update_peak(state.peak_apoapsis, snapshot.apoapsis)
+
+    if snapshot.vessel_lost:
+        return replace(
+            state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason="vessel-lost (unreadable after repeated telemetry failures)"), []
+
+    if state.phase != B5_PRELAUNCH:
+        limit = state.params.frozen_sample_limit
+        new_sig, new_count, tripped = _advance_frozen_count(
+            state.frozen_sig, state.frozen_count, snapshot, limit)
+        if tripped:
+            return replace(
+                state, peak_apoapsis=peak, frozen_sig=new_sig, frozen_count=new_count,
+                done=True, verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("vessel-lost (telemetry frozen %d consecutive samples "
+                             "while airborne; vessel presumed destroyed)" % limit)), []
+        state = replace(state, frozen_sig=new_sig, frozen_count=new_count)
+
+    # Flyby-floor evidence: min finite altitude while inside the target SOI.
+    if (state.phase == B5_TARGET_FLYBY and snapshot.body == state.params.target_body
+            and _is_finite(snapshot.altitude)):
+        prev = state.min_target_altitude
+        if prev is None or snapshot.altitude < prev:
+            state = replace(state, min_target_altitude=float(snapshot.altitude))
+
+    if state.phase == B5_PRELAUNCH:
+        actions = [
+            Action(ACTION_MJ_SET_TARGET_APOAPSIS, state.params.target_apoapsis),
+            Action(ACTION_MJ_ENABLE_AUTOSTAGE),
+            Action(ACTION_MJ_ENGAGE_ASCENT),
+            Action(ACTION_ACTIVATE_STAGE),
+        ]
+        return _b5_enter(state, B5_MJ_ASCENT, snapshot.ut, peak), actions
+
+    if state.phase == B5_MJ_ASCENT:
+        target = state.params.target_apoapsis
+        apo_reached = (_is_finite(snapshot.apoapsis)
+                       and snapshot.apoapsis >= target - state.params.apo_error)
+        if snapshot.mj_ascent_complete and apo_reached:
+            return (_b5_enter(state, B5_CIRCULARIZE, snapshot.ut, peak),
+                    [Action(ACTION_MJ_EXECUTE_CIRCULARIZATION)])
+        return _b5_stay_or_flake(state, snapshot, peak), []
+
+    if state.phase == B5_CIRCULARIZE:
+        target = state.params.target_periapsis
+        if _is_finite(snapshot.periapsis) and snapshot.periapsis >= target - state.params.peri_error:
+            return _b5_enter(state, B5_ORBIT, snapshot.ut, peak), []
+        return _b5_stay_or_flake(state, snapshot, peak), []
+
+    if state.phase == B5_ORBIT:
+        # One-frame waypoint (reachedOrbit evidence): set the transfer target and
+        # ask the ManeuverPlanner for the Hohmann transfer, then wait for the node.
+        entered = _b5_enter(state, B5_PLAN_TRANSFER, snapshot.ut, peak)
+        entered = replace(entered, last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0)
+        return entered, [
+            Action(ACTION_SET_TARGET_BODY, text=state.params.target_body),
+            Action(ACTION_MJ_PLAN_TRANSFER),
+        ]
+
+    if state.phase == B5_PLAN_TRANSFER:
+        return _b5_plan_phase(
+            state, snapshot, peak,
+            plan_action=Action(ACTION_MJ_PLAN_TRANSFER),
+            burn_phase=B5_TRANSFER_BURN,
+            on_timeout_phase=None)
+
+    if state.phase == B5_TRANSFER_BURN:
+        burn_done = (snapshot.node_count == 0
+                     and _is_finite(snapshot.apoapsis)
+                     and snapshot.apoapsis >= state.params.transfer_min_apoapsis)
+        if burn_done:
+            if state.params.course_correct_periapsis > 0.0:
+                entered = _b5_enter(state, B5_PLAN_CORRECTION, snapshot.ut, peak)
+                entered = replace(entered,
+                                  last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0)
+                return entered, [Action(ACTION_MJ_PLAN_COURSE_CORRECT,
+                                        state.params.course_correct_periapsis)]
+            return _b5_enter(state, B5_COAST_TO_TARGET, snapshot.ut, peak), []
+        return _b5_stay_or_flake(state, snapshot, peak), []
+
+    if state.phase == B5_PLAN_CORRECTION:
+        return _b5_plan_phase(
+            state, snapshot, peak,
+            plan_action=Action(ACTION_MJ_PLAN_COURSE_CORRECT,
+                               state.params.course_correct_periapsis),
+            burn_phase=B5_CORRECTION_BURN,
+            on_timeout_phase=B5_COAST_TO_TARGET)
+
+    if state.phase == B5_CORRECTION_BURN:
+        if snapshot.node_count == 0:
+            return _b5_enter(state, B5_COAST_TO_TARGET, snapshot.ut, peak), []
+        return _b5_stay_or_flake(state, snapshot, peak), []
+
+    if state.phase == B5_COAST_TO_TARGET:
+        if snapshot.body == state.params.target_body:
+            return _b5_enter(state, B5_TARGET_FLYBY, snapshot.ut, peak), []
+        if snapshot.body not in ("", state.params.home_body):
+            # A REAL foreign body name (e.g. "Sun") is the ejected terminal; ""
+            # (no reading this frame) is NOT -- it stays in phase with no hop,
+            # and a sustained unreadable vessel dies at the vessel-lost terminal.
+            return replace(
+                state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("left home SOI without reaching the target: body=%r "
+                             "(expected %r or %r)"
+                             % (snapshot.body, state.params.home_body,
+                                state.params.target_body))), []
+        stayed = _b5_stay_or_flake(state, snapshot, peak)
+        if stayed.done:
+            return stayed, []
+        actions: List[Action] = []
+        if (snapshot.body == state.params.home_body
+                and _is_finite(snapshot.ut) and snapshot.node_count == 0):
+            actions.append(Action(ACTION_WARP_TO,
+                                  snapshot.ut + state.params.coast_warp_hop_seconds))
+        return stayed, actions
+
+    if state.phase == B5_TARGET_FLYBY:
+        if snapshot.body == state.params.home_body:
+            # The free-return: back in home SOI after the flyby. Terminal (done,
+            # verdict None); the settle tail runs on-rails in home SOI.
+            return _b5_enter(state, B5_RETURN, snapshot.ut, peak), []
+        if snapshot.body not in ("", state.params.target_body):
+            return replace(
+                state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("flyby ejected the craft from the home system: body=%r "
+                             "(expected %r or %r)"
+                             % (snapshot.body, state.params.target_body,
+                                state.params.home_body))), []
+        stayed = _b5_stay_or_flake(state, snapshot, peak)
+        if stayed.done:
+            return stayed, []
+        actions = []
+        if snapshot.body == state.params.target_body and _is_finite(snapshot.ut):
+            actions.append(Action(ACTION_WARP_TO,
+                                  snapshot.ut + state.params.flyby_warp_hop_seconds))
+        return stayed, actions
+
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase, done=True,
+                   peak_apoapsis=peak), []
+
+
+# ---------------------------------------------------------------------------
 # Telemetry-assertion evaluators (design "Telemetry assertions" + guardrails).
 # Pure over a list of TelemetrySnapshot frames.
 # ---------------------------------------------------------------------------
@@ -1287,6 +1708,55 @@ def evaluate_b4_assertions(frames, params: B4Params,
                              bool(chute_deployed), {})
 
     return [orbit, apo, sit, chute]
+
+
+def evaluate_b5_assertions(frames, params: B5Params,
+                           phases_reached=(),
+                           min_target_altitude: Optional[float] = None,
+                           k: int = DEFAULT_DEBOUNCE_K) -> List[AssertionOutcome]:
+    """Evaluate the four B5 driver-validity assertions: terminal-focused phase +
+    flyby evidence, NEVER a golden trajectory (the transfer geometry is
+    MechJeb's business; ours is that the flyby actually happened and came back).
+
+    - ``reachedOrbit``:        ORBIT appears in ``phases_reached``.
+    - ``reachedTargetSoi``:    TARGET-FLYBY appears in ``phases_reached`` (the
+      SOI body actually became the target -- cross-SOI evidence).
+    - ``flybyPeriapsisFloor``: the min finite altitude recorded inside the
+      target SOI is at/above targetPeriapsisFloorMeters (the flyby cleared the
+      terrain; a crashed flyby dies at the vessel-lost terminal first, so this
+      guards the SAMPLED closest approach). Evidence is machine-carried
+      (min_target_altitude), coarse under warp hops -- a floor, not a window.
+    - ``returnedToHome``:      RETURN appears in ``phases_reached`` (the machine
+      terminated back in home SOI after the flyby -- the free-return).
+
+    ``k`` is retained for signature symmetry but unused: every B5 assertion is
+    phase / min evidence, not a noisy per-frame window."""
+    del frames  # phase + machine evidence carry everything; kept for seam symmetry
+    phases = tuple(phases_reached or ())
+
+    orbit_met = B5_ORBIT in phases
+    orbit = AssertionOutcome("reachedOrbit", orbit_met,
+                             (phases[-1] if phases else None),
+                             {"required": B5_ORBIT})
+
+    soi_met = B5_TARGET_FLYBY in phases
+    soi = AssertionOutcome("reachedTargetSoi", soi_met,
+                           (params.target_body if soi_met else None),
+                           {"required": B5_TARGET_FLYBY, "target": params.target_body})
+
+    floor = params.target_periapsis_floor
+    floor_met = min_target_altitude is not None and min_target_altitude >= floor
+    flyby = AssertionOutcome("flybyPeriapsisFloor", floor_met,
+                             (min_target_altitude if min_target_altitude is not None
+                              else float("nan")),
+                             {"floor": floor})
+
+    ret_met = B5_RETURN in phases
+    ret = AssertionOutcome("returnedToHome", ret_met,
+                           (params.home_body if ret_met else None),
+                           {"required": B5_RETURN, "home": params.home_body})
+
+    return [orbit, soi, flyby, ret]
 
 
 def _value_or_nan(v: Optional[float]) -> float:

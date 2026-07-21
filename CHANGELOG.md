@@ -58,6 +58,7 @@ All notable changes to Parsek are documented here.
 - Added an in-game test category and an unattended automated-test scenario covering this release's route-and-rewind behaviors (pause/resume timeline rows, dormant routes across a rewind, restored route status and counters, discarded post-rewind science) so they are verified automatically instead of by manual playtest. Test-tooling only; no gameplay change.
 - The pad-hop automated test flight now counts a chute-deployed breakup at touchdown as a successful end, but only when the craft actually reached the ground (last tracked altitude under 500 m); a high-altitude loss still fails the run. Test-tooling only; no gameplay change.
 - Added a new autopilot-flown automated test scenario, proven live: ascend to orbit, deorbit, reenter, and splash down intact, with the full flight (dropped boosters and the deorbited stage included) recorded and verified green. Test-tooling only; no gameplay change.
+- Added a Mun flyby / free-return autopilot-flown test scenario: ascend to orbit, plan and execute a transfer to the Mun, fly through its sphere of influence, and return into Kerbin's, covering cross-SOI recording under time warp. Test-tooling only; no gameplay change.
 
 ## 0.10.3
 
