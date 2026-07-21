@@ -133,6 +133,16 @@ required = true
 type = "number"
 min = 0.0
 
+# Correction ROUNDS: COAST-TO-TARGET enters PLAN-CORRECTION once per entry
+# when altitude crosses that trigger (0 = immediately post-TLI). A mid-coast
+# round is live-proven necessary: executor residual over the long coast
+# drifted a corrected +60 km flyby periapsis to -29 km (impact) on the fourth
+# B5 flight; refining near the trigger altitude prices the residual at a few
+# m/s.
+[params.correctionTriggerAltsMeters]
+required = false
+type = "list"
+
 # dv cap (m/s) an acceptable course-correction plan must fit under. A genuine
 # correction is a small tweak; the runner removes an over-cap plan's nodes so
 # PLAN-CORRECTION's bounded fall-through coasts on the raw Hohmann intercept

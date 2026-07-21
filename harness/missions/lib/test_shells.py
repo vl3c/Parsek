@@ -818,15 +818,27 @@ class B5ShellTests(unittest.TestCase):
                  node_count=1),                                  # node -> TRANSFER-BURN (execute)
             snap(ut=2200.0, apoapsis=11_500_000.0, periapsis=79000,
                  altitude=90000.0, situation="ORBITING", body="Kerbin",
-                 node_count=0),                                  # burn done -> PLAN-CORRECTION
+                 node_count=0),                                  # burn done -> COAST
+            snap(ut=2210.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=93000.0, situation="ORBITING",
+                 body="Kerbin"),                                 # trigger 0 -> PLAN-CORRECTION (round 1)
             snap(ut=2230.0, apoapsis=11_500_000.0, periapsis=79000,
                  altitude=95000.0, situation="ORBITING", body="Kerbin",
                  node_count=1),                                  # node -> CORRECTION-BURN
             snap(ut=2300.0, apoapsis=11_500_000.0, periapsis=79000,
                  altitude=99000.0, situation="ORBITING", body="Kerbin",
-                 node_count=0),                                  # -> COAST-TO-TARGET
+                 node_count=0),                                  # -> COAST (round 1 done)
             snap(ut=2400.0, apoapsis=11_500_000.0, periapsis=79000,
-                 altitude=200_000.0, situation="ORBITING", body="Kerbin"),  # hop
+                 altitude=200_000.0, situation="ORBITING", body="Kerbin"),  # hop (below trigger 2)
+            snap(ut=8000.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=6_500_000.0, situation="ORBITING",
+                 body="Kerbin"),                                 # trigger 6M -> PLAN-CORRECTION (round 2)
+            snap(ut=8010.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=6_510_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1),                                  # node -> CORRECTION-BURN
+            snap(ut=8100.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=6_600_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=0),                                  # -> COAST (round 2 done)
             snap(ut=40_000.0, apoapsis=200_000.0, periapsis=60_000.0,
                  altitude=1_500_000.0, situation="ESCAPING", body="Mun"),   # -> TARGET-FLYBY
             snap(ut=40_600.0, apoapsis=200_000.0, periapsis=60_000.0,
@@ -853,9 +865,10 @@ class B5ShellTests(unittest.TestCase):
         # The target-body action carried the body NAME in text.
         targets = [a for a in control.actions if a.kind == mlib.ACTION_SET_TARGET_BODY]
         self.assertEqual(targets, [mlib.Action(mlib.ACTION_SET_TARGET_BODY, text="Mun")])
-        # Exactly two execute-nodes handoffs: the TLI and the correction.
+        # Exactly three execute-nodes handoffs: the TLI + the two correction
+        # rounds (post-TLI trigger 0 and the mid-coast 6M refinement).
         executes = [a for a in control.actions if a.kind == mlib.ACTION_MJ_EXECUTE_NODES]
-        self.assertEqual(len(executes), 2)
+        self.assertEqual(len(executes), 3)
         self.assertTrue(all(a["met"] for a in result["assertions"]), result["assertions"])
         # Settle tail RAN (RETURN keeps it): more reads than scripted frames.
         self.assertGreater(control.reads, len(self._happy_frames()))
@@ -889,7 +902,7 @@ class B5ShellTests(unittest.TestCase):
     def test_b5_flyby_ejection_is_assert_fail(self):
         """A flyby that slings the craft out of the home system (body=Sun inside
         TARGET-FLYBY) is MISSION-ASSERT-FAIL with the ejected loss reason."""
-        frames = self._happy_frames()[:11] + [
+        frames = self._happy_frames()[:15] + [
             snap(ut=90_000.0, altitude=90_000_000.0, situation="ESCAPING",
                  body="Sun")]
         control = FakeMissionControl(frames)

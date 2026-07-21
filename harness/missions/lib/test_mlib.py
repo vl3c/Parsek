@@ -1506,18 +1506,32 @@ class B5MachineTests(unittest.TestCase):
             snap(ut=300.0, apoapsis=80000.0, periapsis=79000.0,
                  body="Kerbin", node_count=1),                          # 5 executor warping/burning
             snap(ut=2200.0, apoapsis=11_500_000.0, periapsis=79000.0,
-                 body="Kerbin", node_count=0),                          # 6 burn done -> PLAN-CORRECTION
+                 body="Kerbin", node_count=0,
+                 altitude=90_000.0),                                    # 6 burn done -> COAST
+            snap(ut=2210.0, apoapsis=11_500_000.0, body="Kerbin",
+                 altitude=95_000.0),                                    # 7 trigger 0 -> PLAN-CORRECTION (round 1)
             snap(ut=2230.0, apoapsis=11_500_000.0, body="Kerbin",
-                 node_count=1),                                         # 7 node -> CORRECTION-BURN (execute)
+                 node_count=1),                                         # 8 node -> CORRECTION-BURN (execute)
             snap(ut=2400.0, apoapsis=11_500_000.0, body="Kerbin",
-                 node_count=0),                                         # 8 -> COAST-TO-TARGET
-            snap(ut=2500.0, apoapsis=11_500_000.0, body="Kerbin"),      # 9 coast -> hop
-            snap(ut=4300.0, apoapsis=11_500_000.0, body="Kerbin"),      # 10 coast -> hop
-            snap(ut=40_000.0, altitude=2_000_000.0, body="Mun"),        # 11 SOI! -> TARGET-FLYBY
-            snap(ut=40_100.0, altitude=800_000.0, body="Mun"),          # 12 inbound -> hop
-            snap(ut=40_700.0, altitude=61_000.0, body="Mun"),           # 13 periapsis area -> hop
-            snap(ut=41_300.0, altitude=900_000.0, body="Mun"),          # 14 outbound -> hop
-            snap(ut=80_000.0, altitude=3_000_000.0, body="Kerbin"),     # 15 home SOI -> RETURN terminal
+                 node_count=0),                                         # 9 -> COAST (round 1 done)
+            snap(ut=2500.0, apoapsis=11_500_000.0, body="Kerbin",
+                 altitude=200_000.0),                                   # 10 coast (below trigger 2) -> hop
+            snap(ut=8000.0, apoapsis=11_500_000.0, body="Kerbin",
+                 altitude=6_500_000.0),                                 # 11 trigger 6M -> PLAN-CORRECTION (round 2)
+            snap(ut=8010.0, apoapsis=11_500_000.0, body="Kerbin",
+                 altitude=6_510_000.0, node_count=1),                   # 12 node -> CORRECTION-BURN
+            snap(ut=8100.0, apoapsis=11_500_000.0, body="Kerbin",
+                 altitude=6_600_000.0, node_count=0),                   # 13 -> COAST (round 2 done)
+            snap(ut=9000.0, apoapsis=11_500_000.0, body="Kerbin",
+                 altitude=7_000_000.0),                                 # 14 coast (rounds spent) -> hop
+            snap(ut=40_000.0, altitude=2_000_000.0, body="Mun"),        # 15 SOI! -> TARGET-FLYBY
+            snap(ut=40_100.0, altitude=800_000.0, body="Mun",
+                 periapsis=61_000.0),                                   # 16 inbound -> hop
+            snap(ut=40_700.0, altitude=61_000.0, body="Mun",
+                 periapsis=61_000.0),                                   # 17 periapsis area -> hop
+            snap(ut=41_300.0, altitude=900_000.0, body="Mun",
+                 periapsis=61_000.0),                                   # 18 outbound -> hop
+            snap(ut=80_000.0, altitude=3_000_000.0, body="Kerbin"),     # 19 home SOI -> RETURN terminal
         ]
         state, per_frame = drive_b5(state, frames)
         self.assertTrue(state.done)
@@ -1525,9 +1539,13 @@ class B5MachineTests(unittest.TestCase):
         self.assertIsNone(state.verdict)
         self.assertIsNone(state.loss_reason)
         self.assertEqual(state.min_target_altitude, 61_000.0)
+        self.assertEqual(state.correction_rounds_done, 2)
         self.assertEqual(state.phases_reached,
                          (mlib.B5_PRELAUNCH, mlib.B5_MJ_ASCENT, mlib.B5_CIRCULARIZE,
                           mlib.B5_ORBIT, mlib.B5_PLAN_TRANSFER, mlib.B5_TRANSFER_BURN,
+                          mlib.B5_COAST_TO_TARGET,
+                          mlib.B5_PLAN_CORRECTION, mlib.B5_CORRECTION_BURN,
+                          mlib.B5_COAST_TO_TARGET,
                           mlib.B5_PLAN_CORRECTION, mlib.B5_CORRECTION_BURN,
                           mlib.B5_COAST_TO_TARGET, mlib.B5_TARGET_FLYBY,
                           mlib.B5_RETURN))
@@ -1542,16 +1560,21 @@ class B5MachineTests(unittest.TestCase):
             Action(mlib.ACTION_MJ_PLAN_TRANSFER)])
         self.assertEqual(per_frame[4], [Action(mlib.ACTION_MJ_EXECUTE_NODES)])
         self.assertEqual(per_frame[5], [])   # executor owns the burn: machine silent
-        self.assertEqual(per_frame[6], [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
-                                               limit=100.0)])
-        self.assertEqual(per_frame[7], [Action(mlib.ACTION_MJ_EXECUTE_NODES)])
-        self.assertEqual(per_frame[8], [])   # CORRECTION-BURN -> COAST transition frame
-        self.assertEqual(per_frame[9], [Action(mlib.ACTION_WARP_TO, 2500.0 + 1800.0)])
-        self.assertEqual(per_frame[10], [Action(mlib.ACTION_WARP_TO, 4300.0 + 1800.0)])
-        self.assertEqual(per_frame[11], [])  # SOI-entry transition frame: no hop
-        self.assertEqual(per_frame[12], [Action(mlib.ACTION_WARP_TO, 40_100.0 + 600.0)])
-        self.assertEqual(per_frame[13], [Action(mlib.ACTION_WARP_TO, 40_700.0 + 600.0)])
-        self.assertEqual(per_frame[15], [])  # RETURN terminal: no actions
+        self.assertEqual(per_frame[6], [])   # TRANSFER-BURN -> COAST transition frame
+        self.assertEqual(per_frame[7], [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
+                                               limit=150.0)])
+        self.assertEqual(per_frame[8], [Action(mlib.ACTION_MJ_EXECUTE_NODES)])
+        self.assertEqual(per_frame[9], [])   # CORRECTION-BURN -> COAST transition frame
+        self.assertEqual(per_frame[10], [Action(mlib.ACTION_WARP_TO, 2500.0 + 1800.0)])
+        self.assertEqual(per_frame[11], [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
+                                                limit=150.0)])
+        self.assertEqual(per_frame[12], [Action(mlib.ACTION_MJ_EXECUTE_NODES)])
+        self.assertEqual(per_frame[13], [])  # round 2 done -> COAST transition frame
+        self.assertEqual(per_frame[14], [Action(mlib.ACTION_WARP_TO, 9000.0 + 1800.0)])
+        self.assertEqual(per_frame[15], [])  # SOI-entry transition frame: no hop
+        self.assertEqual(per_frame[16], [Action(mlib.ACTION_WARP_TO, 40_100.0 + 600.0)])
+        self.assertEqual(per_frame[17], [Action(mlib.ACTION_WARP_TO, 40_700.0 + 600.0)])
+        self.assertEqual(per_frame[19], [])  # RETURN terminal: no actions
 
     def test_plan_transfer_replans_only_while_no_node(self):
         # A failed plan (server-side OperationException -> no node) re-issues on
@@ -1580,12 +1603,15 @@ class B5MachineTests(unittest.TestCase):
 
     def test_plan_correction_timeout_falls_through_to_coast(self):
         # The correction is best-effort: budget expiry proceeds to the coast
-        # instead of flaking (MechJeb may transiently see no encounter).
+        # instead of flaking (MechJeb may transiently see no encounter), and
+        # CONSUMES the round so a disqualified plan can never re-trigger
+        # immediately (the next trigger altitude owns any further refinement).
         state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
         state, actions = mlib.b5_decide(state, snap(ut=301.0, body="Kerbin"))
         self.assertFalse(state.done)
         self.assertIsNone(state.verdict)
         self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.correction_rounds_done, 1)
         self.assertEqual(actions, [])
 
     def test_transfer_burn_needs_empty_nodes_and_apoapsis_floor(self):
@@ -1599,12 +1625,18 @@ class B5MachineTests(unittest.TestCase):
         state, _ = mlib.b5_decide(state, snap(ut=20.0, apoapsis=11_000_000.0,
                                               body="Kerbin", node_count=1))
         self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
-        # Both: advance (course correction enabled -> PLAN-CORRECTION).
+        # Both: advance into the coast (the correction rounds are
+        # COAST-triggered now, never a direct TRANSFER-BURN branch).
         state, actions = mlib.b5_decide(state, snap(ut=30.0, apoapsis=11_000_000.0,
                                                     body="Kerbin", node_count=0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(actions, [])
+        # The first COAST frame crosses trigger 0 -> PLAN-CORRECTION (round 1).
+        state, actions = mlib.b5_decide(state, snap(ut=40.0, apoapsis=11_000_000.0,
+                                                    altitude=90_000.0, body="Kerbin"))
         self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
         self.assertEqual(actions, [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
-                                          limit=100.0)])
+                                          limit=150.0)])
 
     def test_transfer_burn_capture_stray_node_cleared_on_exit(self):
         # First live B5 flight (2026-07-21, both attempts): OperationTransfer
@@ -1624,14 +1656,12 @@ class B5MachineTests(unittest.TestCase):
                                                     body="Kerbin", node_count=2))
         self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
         self.assertEqual(actions, [])
-        # TLI consumed (2 -> 1) + floor: exit, clearing the stray arrival node
-        # BEFORE the correction plan.
+        # TLI consumed (2 -> 1) + floor: exit into the coast, clearing the
+        # stray arrival node on the way out.
         state, actions = mlib.b5_decide(state, snap(ut=200.0, apoapsis=11_300_000.0,
                                                     body="Kerbin", node_count=1))
-        self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
-        self.assertEqual(actions, [
-            Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES),
-            Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0, limit=100.0)])
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(actions, [Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
 
     def test_correction_burn_exits_on_consumed_not_empty(self):
         # CORRECTION-BURN mirrors the consumed-not-empty exit; a clean single
@@ -1642,20 +1672,45 @@ class B5MachineTests(unittest.TestCase):
         self.assertEqual(state.planned_node_count, 1)
         state, actions = mlib.b5_decide(state, snap(ut=60.0, body="Kerbin", node_count=0))
         self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.correction_rounds_done, 1)
         self.assertEqual(actions, [])
 
-    def test_transfer_burn_skips_correction_when_disabled(self):
+    def test_coast_skips_correction_when_disabled(self):
+        # courseCorrectPeriapsisMeters=0 disables the rounds entirely: the first
+        # coast frame hops instead of entering PLAN-CORRECTION.
         params = mlib.B5Params(**{**B5_PARAMS.__dict__, "course_correct_periapsis": 0.0})
         base = mlib.b5_initial_state(params)
-        state = base.__class__(**{**base.__dict__, "phase": mlib.B5_TRANSFER_BURN,
+        state = base.__class__(**{**base.__dict__, "phase": mlib.B5_COAST_TO_TARGET,
                                   "phase_entry_ut": 0.0})
         state, actions = mlib.b5_decide(state, snap(ut=30.0, apoapsis=11_000_000.0,
-                                                    body="Kerbin", node_count=0))
+                                                    altitude=90_000.0, body="Kerbin"))
         self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
-        self.assertEqual(actions, [])
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO, 30.0 + 1800.0)])
+
+    def test_coast_correction_rounds_trigger_by_altitude(self):
+        # Round 1 (trigger 0) fires on the first coast frame; after it is done,
+        # the coast hops BELOW trigger 2 (6M) and enters round 2 at/above it;
+        # with both rounds spent, the coast only hops.
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=1)
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, altitude=200_000.0,
+                                                    body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO, 10.0 + 1800.0)])
+        state, actions = mlib.b5_decide(state, snap(ut=20.0, altitude=6_200_000.0,
+                                                    body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
+        self.assertEqual(actions, [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
+                                          limit=150.0)])
+        # Simulate the round completing; a later high-altitude frame only hops.
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        state, actions = mlib.b5_decide(state, snap(ut=30.0, altitude=8_000_000.0,
+                                                    body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO, 30.0 + 1800.0)])
 
     def test_coast_hop_gated_on_home_body_and_no_nodes(self):
-        state = _b5_state(mlib.B5_COAST_TO_TARGET)
+        # rounds_done=2: both correction rounds spent, pure hop behavior.
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
         # A pending node suppresses the hop (never warp past a maneuver).
         state, actions = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin", node_count=1))
         self.assertEqual(actions, [])
@@ -1691,6 +1746,26 @@ class B5MachineTests(unittest.TestCase):
         self.assertEqual(state.phase, mlib.B5_RETURN)
         self.assertIsNone(state.verdict)
         self.assertEqual(actions, [])
+
+    def test_flyby_never_warps_toward_a_known_impact(self):
+        # Flight 4 (2026-07-21): warping into a sub-surface-periapsis crash
+        # wedges the blocking warp_to under the paused Flight Results dialog
+        # for the rest of the mission budget. Low + impact-bound -> poll at 1x
+        # (the vessel-lost detectors then end the crash cleanly in seconds).
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        # High altitude, impact periapsis: still hop (plenty of warp room).
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, altitude=800_000.0, periapsis=-28_000.0, body="Mun"))
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO, 10.0 + 600.0)])
+        # Below the guard altitude with a sub-surface periapsis: NO hop.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=20.0, altitude=300_000.0, periapsis=-28_000.0, body="Mun"))
+        self.assertEqual(actions, [])
+        self.assertFalse(state.done)
+        # Same altitude with a POSITIVE periapsis: hop as normal.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=30.0, altitude=300_000.0, periapsis=61_000.0, body="Mun"))
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO, 30.0 + 600.0)])
 
     def test_flyby_ejection_to_sun_is_assert_fail(self):
         state = _b5_state(mlib.B5_TARGET_FLYBY)
@@ -1757,11 +1832,14 @@ class B5ParamTests(unittest.TestCase):
         self.assertEqual(p.home_body, "Kerbin")
         self.assertEqual(p.course_correct_periapsis, 60000.0)
         self.assertEqual(p.target_periapsis_floor, 10000.0)
-        self.assertEqual(p.max_correction_dv, 100.0)
+        self.assertEqual(p.max_correction_dv, 150.0)
+        self.assertEqual(p.correction_trigger_alts, (0.0, 6_000_000.0))
 
     def test_params_correction_dv_cap_from_dict(self):
-        p = mlib.b5_params_from_dict({"maxCorrectionDvMps": 40})
+        p = mlib.b5_params_from_dict({"maxCorrectionDvMps": 40,
+                                      "correctionTriggerAltsMeters": [0, 3_000_000]})
         self.assertEqual(p.max_correction_dv, 40.0)
+        self.assertEqual(p.correction_trigger_alts, (0.0, 3_000_000.0))
 
 
 class B5AssertionTests(unittest.TestCase):

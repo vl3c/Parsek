@@ -189,6 +189,12 @@ ACTION_MJ_PLAN_COURSE_CORRECT = "mj_plan_course_correct"   # value = periapsis m
 ACTION_MJ_EXECUTE_NODES = "mj_execute_nodes"               # value = None (autowarp)
 ACTION_MJ_ABORT_AND_CLEAR_NODES = "mj_abort_and_clear_nodes"  # value = None
 
+# TARGET-FLYBY impact-warp guard: below this altitude with a SUB-SURFACE
+# periapsis the machine stops issuing warp hops and polls at 1x, so a crash
+# happens under live telemetry (clean vessel-lost terminal in seconds) instead
+# of inside a blocking warp_to wedged by the paused Flight Results dialog.
+IMPACT_WARP_GUARD_ALT = 400_000.0
+
 # K-consecutive debounce depth (see module docstring).
 DEFAULT_DEBOUNCE_K = 3
 
@@ -535,7 +541,23 @@ class B5Params:
                                            # flyby geometry, keeps the periapsis
                                            # off the terrain); 0 disables the two
                                            # correction phases entirely
-    max_correction_dv: float = 100.0       # dv cap (m/s) an acceptable correction
+    correction_trigger_alts: Tuple[float, ...] = (0.0, 6_000_000.0)
+                                           # correction ROUNDS: COAST-TO-TARGET
+                                           # enters PLAN-CORRECTION once per
+                                           # entry when altitude crosses each
+                                           # trigger (0 = immediately post-TLI).
+                                           # Round 2+ exists because a single
+                                           # early correction is LIVE-PROVEN
+                                           # insufficient (flight 4, 2026-07-21:
+                                           # the ~100 m/s post-TLI correction
+                                           # flew, but a ~1.5 m/s lateral
+                                           # executor residual over the 14,000 s
+                                           # coast moved the flyby periapsis
+                                           # from the intended 60 km to -29 km =
+                                           # impact); a mid-coast refinement
+                                           # prices the residual at a few m/s
+                                           # (spec key correctionTriggerAltsMeters)
+    max_correction_dv: float = 150.0       # dv cap (m/s) an acceptable correction
                                            # plan must fit under: a genuine
                                            # course correction is a small tweak,
                                            # and the second live flight
@@ -584,7 +606,9 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         home_body=str(params.get("homeBodyName", "Kerbin")),
         transfer_min_apoapsis=float(params.get("transferMinApoapsisMeters", 10_000_000)),
         course_correct_periapsis=float(params.get("courseCorrectPeriapsisMeters", 60000)),
-        max_correction_dv=float(params.get("maxCorrectionDvMps", 100.0)),
+        correction_trigger_alts=tuple(
+            float(a) for a in params.get("correctionTriggerAltsMeters", (0.0, 6_000_000.0))),
+        max_correction_dv=float(params.get("maxCorrectionDvMps", 150.0)),
         plan_timeout=float(params.get("planTimeoutSeconds", 300)),
         plan_retry_seconds=float(params.get("planRetrySeconds", 30)),
         transfer_burn_timeout=float(params.get("transferBurnTimeoutSeconds", 4000)),
@@ -1253,6 +1277,10 @@ class B5State:
     # transfer coast until the burn budget flakes (first live B5 flight,
     # 2026-07-21 - both attempts). Stray leftover nodes are cleared at the exit.
     planned_node_count: int = 0
+    # Correction rounds completed (planned+burned, fell through, or timed out).
+    # COAST-TO-TARGET enters PLAN-CORRECTION once per params.correction_trigger_alts
+    # entry when the altitude crosses that round's trigger.
+    correction_rounds_done: int = 0
     phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -1470,24 +1498,26 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         if burn_done:
             cleanup = ([Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)]
                        if snapshot.node_count > 0 else [])
-            if state.params.course_correct_periapsis > 0.0:
-                entered = _b5_enter(state, B5_PLAN_CORRECTION, snapshot.ut, peak)
-                entered = replace(entered,
-                                  last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0)
-                return entered, cleanup + [Action(ACTION_MJ_PLAN_COURSE_CORRECT,
-                                                  state.params.course_correct_periapsis,
-                                                  limit=state.params.max_correction_dv)]
+            # Always into the coast: the correction rounds are COAST-triggered
+            # (per correction_trigger_alts; trigger 0 fires on the first coast
+            # frame, reproducing the old immediate post-TLI correction).
             return _b5_enter(state, B5_COAST_TO_TARGET, snapshot.ut, peak), cleanup
         return _b5_stay_or_flake(state, snapshot, peak), []
 
     if state.phase == B5_PLAN_CORRECTION:
-        return _b5_plan_phase(
+        new_state, actions = _b5_plan_phase(
             state, snapshot, peak,
             plan_action=Action(ACTION_MJ_PLAN_COURSE_CORRECT,
                                state.params.course_correct_periapsis,
                                limit=state.params.max_correction_dv),
             burn_phase=B5_CORRECTION_BURN,
             on_timeout_phase=B5_COAST_TO_TARGET)
+        if new_state.phase == B5_COAST_TO_TARGET:
+            # Timeout fall-through consumes this round (a disqualified/failed
+            # plan never blocks the coast; the NEXT round may still refine).
+            new_state = replace(new_state,
+                                correction_rounds_done=state.correction_rounds_done + 1)
+        return new_state, actions
 
     if state.phase == B5_CORRECTION_BURN:
         # Same consumed-not-empty exit as TRANSFER-BURN (no apoapsis gate: a
@@ -1495,7 +1525,10 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         if snapshot.node_count < max(state.planned_node_count, 1):
             cleanup = ([Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)]
                        if snapshot.node_count > 0 else [])
-            return _b5_enter(state, B5_COAST_TO_TARGET, snapshot.ut, peak), cleanup
+            entered = _b5_enter(state, B5_COAST_TO_TARGET, snapshot.ut, peak)
+            entered = replace(entered,
+                              correction_rounds_done=state.correction_rounds_done + 1)
+            return entered, cleanup
         return _b5_stay_or_flake(state, snapshot, peak), []
 
     if state.phase == B5_COAST_TO_TARGET:
@@ -1514,6 +1547,23 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         stayed = _b5_stay_or_flake(state, snapshot, peak)
         if stayed.done:
             return stayed, []
+        # Correction rounds: one PLAN-CORRECTION entry per trigger altitude.
+        # Round 2+ is LIVE-PROVEN necessary (flight 4: the post-TLI correction
+        # flew, but executor residual over the long coast drifted the flyby
+        # periapsis from +60 km to -29 km = impact; a mid-coast refinement
+        # prices the residual at a few m/s).
+        triggers = state.params.correction_trigger_alts
+        if (state.params.course_correct_periapsis > 0.0
+                and state.correction_rounds_done < len(triggers)
+                and snapshot.body == state.params.home_body
+                and _is_finite(snapshot.altitude)
+                and snapshot.altitude >= triggers[state.correction_rounds_done]):
+            entered = _b5_enter(state, B5_PLAN_CORRECTION, snapshot.ut, peak)
+            entered = replace(entered,
+                              last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0)
+            return entered, [Action(ACTION_MJ_PLAN_COURSE_CORRECT,
+                                    state.params.course_correct_periapsis,
+                                    limit=state.params.max_correction_dv)]
         actions: List[Action] = []
         if (snapshot.body == state.params.home_body
                 and _is_finite(snapshot.ut) and snapshot.node_count == 0):
@@ -1536,8 +1586,19 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         stayed = _b5_stay_or_flake(state, snapshot, peak)
         if stayed.done:
             return stayed, []
+        # NEVER warp toward a known impact: on a sub-surface periapsis at low
+        # altitude the crash happens INSIDE a blocking warp_to, KSP pops the
+        # Flight Results dialog which PAUSES the game clock, and the mission
+        # process wedges in that RPC until the mission budget reaps it (flight
+        # 4, 2026-07-21: pe -28.7 km, ~17 wasted minutes). Polling at 1x lets
+        # the vessel-lost / frozen detectors end the mission cleanly in seconds
+        # after the impact instead.
+        impact_bound = (_is_finite(snapshot.periapsis) and snapshot.periapsis < 0.0
+                        and _is_finite(snapshot.altitude)
+                        and snapshot.altitude < IMPACT_WARP_GUARD_ALT)
         actions = []
-        if snapshot.body == state.params.target_body and _is_finite(snapshot.ut):
+        if (snapshot.body == state.params.target_body and _is_finite(snapshot.ut)
+                and not impact_bound):
             actions.append(Action(ACTION_WARP_TO,
                                   snapshot.ut + state.params.flyby_warp_hop_seconds))
         return stayed, actions
