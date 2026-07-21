@@ -1,8 +1,9 @@
 schema = 1
 id = "B4-reentry-splashdown"
-# nightly: fixture committed (shares b2-lko-craft with B2) and the whole ascent
-# half is the live-proven B2 path; flown missions are too long for daily.
-# PENDING-LIVE-PROOF: the deorbit/reentry/splashdown half has not flown live yet.
+# nightly: fixture committed (shares b2-lko-craft with B2) and flown missions
+# are too long for daily. LIVE-PROVEN 2026-07-20: the full cycle PASSed (ascent,
+# ~350s retrograde flip, aligned deorbit burn, stage drop, exo warp hops, chute
+# at 2950m, splashdown; flakedThenPassed).
 tier = "nightly"
 description = "Full flight cycle: MechJeb ascent to LKO, retrograde deorbit burn, staged reentry, chute splashdown INTACT; assert orbit reached + landed situation + chute."
 instanceProfile = "stock-minimal"
@@ -22,11 +23,12 @@ mission = "b4_reentry"
 # `steps` MUST stay in the [driver] table, so it is declared ABOVE the
 # [driver.missionParams] header (a key after the sub-table header would be scoped
 # to driver.missionParams.steps and the spec would validate as having zero steps).
-# Budget arithmetic (design invariant): missionBudget 1200 (WALL) >= 30 connect +
-# ascent ~250 + circularize ~100 + deorbit ~80 + reentry (mostly rails-warped;
-# wall cost per 120s game hop shrinks with the rails rate, but a pre-apoapsis 1x
-# coast stretch is possible) + chute descent ~300 + margin. Phase budgets in
-# missionParams are GAME time; runtime 1500 >= 240 LoadGame + 1200 mission + margin.
+# Budget arithmetic (design invariant, re-sized to the LIVE-MEASURED flight):
+# missionBudget 1600 (WALL) >= 30 connect + ascent ~250 + circularize ~100 +
+# deorbit ~350 flip + burn (the pod reaction wheel turns the fuel-heavy orbiter
+# at ~0.5 deg/s, measured 2026-07-20) + reentry (exo-only rails hops above 70km;
+# real-time below) + chute descent ~375 + margin. Phase budgets in missionParams
+# are GAME time (deorbit 600); runtime 1900 >= 240 LoadGame + 1600 mission + margin.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
@@ -48,7 +50,7 @@ ascentTimeoutSeconds      = 420
 circularizeTimeoutSeconds = 300
 deorbitPeriapsisMeters    = 25000
 retroSettleSeconds        = 10
-warpAboveAltMeters        = 45000
+warpAboveAltMeters        = 70000
 warpHopSeconds            = 120
 chuteDeployAltMeters      = 3000
 # 600, not 300: the pod reaction wheel flips the whole fuel-heavy orbiter

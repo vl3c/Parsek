@@ -315,6 +315,15 @@ class KrpcMissionControl(MissionControl):
             # Vessel.orbital_reference_frame's y-axis is the orbital PROGRADE
             # direction, so retrograde is (0, -1, 0) in that frame. Live
             # behavior proof rides the first B4 operator run.
+            # Defensive: if the (abnormal) circularize path left MechJeb's node
+            # executor running, abort it first - two autopilots fighting over
+            # attitude wedges the flip until the deorbit budget flakes (Fable
+            # review of PR #1335, NIT).
+            if self._mechjeb is not None:
+                try:
+                    self._mechjeb.node_executor.abort()
+                except Exception:
+                    pass
             ap = v.auto_pilot
             ap.reference_frame = v.orbital_reference_frame
             ap.target_direction = (0.0, -1.0, 0.0)

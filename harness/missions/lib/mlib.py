@@ -226,10 +226,14 @@ class TelemetrySnapshot:
     warp_mode: str = "NONE"                # NONE | RAILS | PHYSICS
     warp_rate: float = 1.0
     vessel_lost: bool = False              # runner-signaled: active vessel unreadable
-    ap_error: float = 0.0                  # kRPC AutoPilot pointing error (deg);
-                                           # NaN when unreadable/not engaged
                                            # (repeated telemetry-read failures); a
                                            # phase-independent terminal loss signal.
+    # kRPC AutoPilot pointing error (deg); NaN when unreadable/not engaged.
+    # Defaults to NaN, NOT 0.0: the B4 attitude gate treats NaN as not-aligned,
+    # so a runner or fake that FORGETS to populate the field fails closed
+    # instead of simulating a perfectly aligned ship (Fable review of PR #1335,
+    # SF-2 - the exact failure mode this field exists to prevent).
+    ap_error: float = float("nan")
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +325,11 @@ class B1Params:
     frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
                                            # vessel-lost terminal (spec key
                                            # frozenTelemetrySamples)
+    down_max_alt: float = 500.0            # DOWN requires the last finite altitude
+                                           # at/below this: option A says "reached
+                                           # the ground", so a post-chute loss AT
+                                           # ALTITUDE stays an ASSERT-FAIL (spec
+                                           # key downMaxAltMeters)
 
 
 @dataclass(frozen=True)
@@ -368,7 +377,12 @@ class B4Params:
                                            # caught it pointing RADIAL, and the radial
                                            # burn raised apoapsis to 382km while pushing
                                            # periapsis through the exit gate.
-    warp_above_alt: float = 45000.0        # bounded warp hops only above this altitude
+    warp_above_alt: float = 70000.0        # bounded warp hops only above this altitude.
+                                           # 70km = the atmosphere ceiling: below it KSP
+                                           # cannot rails-warp, so a 120s hop runs at
+                                           # physics warp with zero mid-call snapshots and
+                                           # can blow through the chute gate (Fable review
+                                           # of PR #1335, SF-3); hops are EXO-ONLY.
     warp_hop_seconds: float = 120.0        # one WARP_TO hop = now + this many seconds
     chute_deploy_alt: float = 3000.0       # deploy chutes at/below this altitude
     deorbit_timeout: float = 300.0
@@ -394,6 +408,7 @@ def b1_params_from_dict(params: Dict) -> B1Params:
         landed_situations=tuple(params.get("landedSituations", ("LANDED", "SPLASHED"))),
         apoapsis_window=(float(window.get("min", 0.0)), float(window.get("max", 0.0))),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
+        down_max_alt=float(params.get("downMaxAltMeters", 500)),
     )
 
 
@@ -427,7 +442,7 @@ def b4_params_from_dict(params: Dict) -> B4Params:
         deorbit_periapsis=float(params.get("deorbitPeriapsisMeters", 25000)),
         retro_settle_seconds=float(params.get("retroSettleSeconds", 10)),
         max_attitude_error_deg=float(params.get("maxAttitudeErrorDeg", 5.0)),
-        warp_above_alt=float(params.get("warpAboveAltMeters", 45000)),
+        warp_above_alt=float(params.get("warpAboveAltMeters", 70000)),
         warp_hop_seconds=float(params.get("warpHopSeconds", 120)),
         chute_deploy_alt=float(params.get("chuteDeployAltMeters", 3000)),
         deorbit_timeout=float(params.get("deorbitTimeoutSeconds", 300)),
@@ -466,6 +481,12 @@ class B1State:
     frozen_sig: Optional[FrozenSignature] = None
     frozen_count: int = 0
     loss_reason: Optional[str] = None
+    # Last FINITE altitude seen on a live (non-vessel_lost) frame. The DOWN
+    # terminal requires it at/below downMaxAltMeters: option A's wording is
+    # "reached the ground", so a craft lost at altitude after the chute deploys
+    # (chute ripped, mid-air breakup) must NOT be awarded DOWN (Fable review of
+    # PR #1335, SF-1).
+    last_finite_altitude: Optional[float] = None
     # DOWN-terminal marker for the shell (operator decision 2026-07-20, option A):
     # a DOWN terminal means the vessel is GONE, so the fly loop's settle tail would
     # only gather vessel_lost / garbage frames -- the loop checks this via
@@ -543,17 +564,26 @@ def b1_decide(state: B1State, snapshot: TelemetrySnapshot) -> Tuple[B1State, Lis
 
     peak = _update_peak(state.peak_apoapsis, snapshot.apoapsis)
 
+    # Track the last FINITE altitude from live frames (a vessel_lost snapshot
+    # carries benign defaults and must not contribute). The DOWN eligibility
+    # gate reads this: option A's "reached the ground" leg.
+    if not snapshot.vessel_lost and _is_finite(snapshot.altitude):
+        state = replace(state, last_finite_altitude=snapshot.altitude)
+
     # Runner-signaled vessel loss (unreadable active vessel after repeated telemetry
     # failures): a phase-INDEPENDENT terminal (design vessel-destroyed terminal).
-    # In DESCENT with the chute already deployed this is the DOWN success terminal
-    # (option A); everywhere else a destroyed vessel is a deterministic mission
-    # failure, not a flake.
+    # In DESCENT with the chute deployed AND the craft last seen at/below
+    # downMaxAltMeters this is the DOWN success terminal (option A: flew + chute
+    # + reached the ground); a post-chute loss AT ALTITUDE (chute ripped,
+    # mid-air breakup) stays a deterministic mission failure (Fable review of
+    # PR #1335, SF-1).
     if snapshot.vessel_lost:
-        if state.phase == B1_DESCENT and state.chute_deployed:
+        if _b1_down_eligible(state):
             return _b1_enter_down(state, snapshot.ut, peak), []
         return replace(
             state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
-            loss_reason="vessel-lost (unreadable after repeated telemetry failures)"), []
+            loss_reason=_b1_loss_reason_with_altitude(
+                state, "vessel-lost (unreadable after repeated telemetry failures)")), []
 
     # Frozen-telemetry (vessel-destroyed) detection, AIRBORNE phases only: PRELAUNCH
     # pad telemetry is legitimately static, so the detector never runs there (nor
@@ -565,14 +595,15 @@ def b1_decide(state: B1State, snapshot: TelemetrySnapshot) -> Tuple[B1State, Lis
         new_sig, new_count, tripped = _advance_frozen_count(
             state.frozen_sig, state.frozen_count, snapshot, limit)
         if tripped:
-            if state.phase == B1_DESCENT and state.chute_deployed:
+            if _b1_down_eligible(state):
                 down = _b1_enter_down(state, snapshot.ut, peak)
                 return replace(down, frozen_sig=new_sig, frozen_count=new_count), []
             return replace(
                 state, peak_apoapsis=peak, frozen_sig=new_sig, frozen_count=new_count,
                 done=True, verdict=MISSION_ASSERT_FAIL,
-                loss_reason=("vessel-lost (telemetry frozen %d consecutive samples "
-                             "while airborne; vessel presumed destroyed)" % limit)), []
+                loss_reason=_b1_loss_reason_with_altitude(
+                    state, "vessel-lost (telemetry frozen %d consecutive samples "
+                           "while airborne; vessel presumed destroyed)" % limit)), []
         state = replace(state, frozen_sig=new_sig, frozen_count=new_count)
 
     if state.phase == B1_PRELAUNCH:
@@ -622,6 +653,28 @@ def _b1_enter(state: B1State, new_phase: str, ut: float, peak: Optional[float]) 
         phases_reached=state.phases_reached + (new_phase,),
         done=(new_phase == B1_LANDED),
     )
+
+
+def _b1_down_eligible(state: B1State) -> bool:
+    """True iff a vessel loss right now qualifies as the DOWN success terminal:
+    DESCENT phase, chute deployed, AND the craft was last seen at/below
+    downMaxAltMeters (option A: flew + chute deployed + REACHED THE GROUND).
+    A post-chute loss at altitude fails all the way to ASSERT-FAIL (Fable
+    review of PR #1335, SF-1: without the altitude leg, a chute-ripped mid-air
+    breakup at 1800m was awarded DOWN)."""
+    return (state.phase == B1_DESCENT
+            and state.chute_deployed
+            and state.last_finite_altitude is not None
+            and _is_finite(state.last_finite_altitude)
+            and state.last_finite_altitude <= state.params.down_max_alt)
+
+
+def _b1_loss_reason_with_altitude(state: B1State, base: str) -> str:
+    """Append the last known altitude to a loss reason so a DOWN-ineligible
+    post-chute loss names WHERE the craft was lost."""
+    if state.last_finite_altitude is None or not _is_finite(state.last_finite_altitude):
+        return base
+    return "%s; last altitude %.0fm" % (base, state.last_finite_altitude)
 
 
 def _b1_enter_down(state: B1State, ut: float, peak: Optional[float]) -> B1State:

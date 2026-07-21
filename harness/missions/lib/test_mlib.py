@@ -967,6 +967,9 @@ class B1DownTerminalTests(unittest.TestCase):
 
     def test_vessel_lost_in_descent_with_chute_is_down(self):
         state = _b1_descent_state(B1_PARAMS, chute_deployed=True)
+        # Establish the "reached the ground" leg: last finite altitude below
+        # downMaxAltMeters (default 500) before the loss frame.
+        state, _ = mlib.b1_decide(state, snap(ut=9.0, altitude=120.0))
         new, actions = mlib.b1_decide(state, snap(ut=10.0, vessel_lost=True))
         self.assertTrue(new.done)
         self.assertEqual(new.phase, mlib.B1_DOWN)
@@ -992,17 +995,32 @@ class B1DownTerminalTests(unittest.TestCase):
 
     def test_frozen_limit_in_descent_with_chute_is_down(self):
         # The frozen-telemetry variant of the same signal: N frozen samples with
-        # the chute deployed end DOWN, not ASSERT-FAIL.
+        # the chute deployed end DOWN, not ASSERT-FAIL. The freeze altitude sits
+        # BELOW downMaxAltMeters (a freeze at altitude is the chute-ripped case
+        # and stays ASSERT-FAIL - see the at-altitude sibling test).
         limit = 4
         params = _b1_params_with_limit(limit)
-        seed = mlib.frozen_signature(snap(ut=0.0, **_FROZEN_FIELDS))
+        low = dict(_FROZEN_FIELDS, altitude=150.0)
+        seed = mlib.frozen_signature(snap(ut=0.0, **low))
         state = _b1_descent_state(params, chute_deployed=True, frozen_sig=seed)
-        state, _ = drive_b1(state, _frozen_frames(limit))
+        state, _ = drive_b1(state, _frozen_frames(limit, altitude=150.0))
         self.assertTrue(state.done)
         self.assertEqual(state.phase, mlib.B1_DOWN)
         self.assertIsNone(state.verdict)
         self.assertIsNone(state.loss_reason)
         self.assertTrue(state.skip_settle_tail)
+
+    def test_post_chute_loss_at_altitude_stays_assert_fail(self):
+        # Fable review of PR #1335, SF-1 (the masking scenario): chute deployed
+        # at 2500m, craft destroyed at ~1800m (chute ripped / mid-air breakup).
+        # "Reached the ground" is NOT satisfied, so DOWN must NOT be awarded.
+        state = _b1_descent_state(B1_PARAMS, chute_deployed=True)
+        state, _ = mlib.b1_decide(state, snap(ut=9.0, altitude=1800.0))
+        new, _ = mlib.b1_decide(state, snap(ut=10.0, vessel_lost=True))
+        self.assertTrue(new.done)
+        self.assertNotEqual(new.phase, mlib.B1_DOWN)
+        self.assertEqual(new.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("last altitude 1800m", new.loss_reason)
 
     def test_frozen_limit_in_descent_without_chute_stays_assert_fail(self):
         # The telemetry freezes ABOVE the chute-deploy altitude (5000 m > 2500 m),
@@ -1035,6 +1053,7 @@ class B1DownTerminalTests(unittest.TestCase):
         # End-to-end verdict: DOWN (no loss_reason, verdict None) + met
         # assertions -> MISSION-OK.
         state = _b1_descent_state(B1_PARAMS, chute_deployed=True)
+        state, _ = mlib.b1_decide(state, snap(ut=9.0, altitude=80.0))
         state, _ = mlib.b1_decide(state, snap(ut=10.0, vessel_lost=True))
         outs = mlib.evaluate_b1_assertions(
             [snap(apoapsis=14000.0) for _ in range(4)], B1_PARAMS, down_terminal=True)
@@ -1119,7 +1138,7 @@ class B4MachineTests(unittest.TestCase):
             snap(ut=265.0, apoapsis=80001.0, periapsis=79000.0,
                  altitude=80001.0),                                     # 6 settle wait (4s < 10s)
             snap(ut=272.0, apoapsis=80002.0, periapsis=79000.5,
-                 altitude=80002.0),                                     # 7 settled -> throttle up
+                 altitude=80002.0, ap_error=1.5),                       # 7 settled + aligned -> throttle
             snap(ut=280.0, apoapsis=80002.0, periapsis=60000.0,
                  altitude=80000.0),                                     # 8 burning
             snap(ut=300.0, apoapsis=80002.0, periapsis=24000.0,
@@ -1128,8 +1147,8 @@ class B4MachineTests(unittest.TestCase):
                  periapsis=24000.0),                                    # 10 ascending: NO warp
             snap(ut=320.0, altitude=71000.0, vertical_speed=-10.0,
                  periapsis=24000.0),                                    # 11 descending high -> hop
-            snap(ut=440.0, altitude=50000.0, vertical_speed=-200.0,
-                 periapsis=24000.0),                                    # 12 still high -> hop
+            snap(ut=440.0, altitude=75000.0, vertical_speed=-200.0,
+                 periapsis=24000.0),                                    # 12 still exo -> hop (70km floor, SF-3)
             snap(ut=560.0, altitude=40000.0, vertical_speed=-300.0,
                  periapsis=24000.0),                                    # 13 below threshold: no warp
             snap(ut=600.0, altitude=2500.0, vertical_speed=-200.0),     # 14 ->SPLASHDOWN + chute
@@ -1191,15 +1210,17 @@ class B4MachineTests(unittest.TestCase):
 
     def test_deorbit_burn_waits_out_settle_then_throttles_once(self):
         state = _b4_state(mlib.B4_DEORBIT)
-        # Before the 10 s settle: no throttle (ap_error defaults 0.0 = aligned).
-        state, actions = mlib.b4_decide(state, snap(ut=4.0, periapsis=79000.0))
+        # Before the 10 s settle: no throttle even when aligned (the snapshot
+        # ap_error default is NaN = not aligned per SF-2, so aligned frames set
+        # it explicitly).
+        state, actions = mlib.b4_decide(state, snap(ut=4.0, periapsis=79000.0, ap_error=0.0))
         self.assertEqual(actions, [])
         self.assertFalse(state.burn_started)
         # Past the settle AND aligned: exactly one throttle-up.
-        state, actions = mlib.b4_decide(state, snap(ut=11.0, periapsis=79000.0))
+        state, actions = mlib.b4_decide(state, snap(ut=11.0, periapsis=79000.0, ap_error=0.0))
         self.assertEqual(actions, [Action(mlib.ACTION_SET_THROTTLE, 1.0)])
         self.assertTrue(state.burn_started)
-        state, actions = mlib.b4_decide(state, snap(ut=12.0, periapsis=70000.0))
+        state, actions = mlib.b4_decide(state, snap(ut=12.0, periapsis=70000.0, ap_error=0.0))
         self.assertEqual(actions, [])
 
     def test_deorbit_burn_gated_on_attitude_error(self):
@@ -1337,7 +1358,7 @@ class B4ParamTests(unittest.TestCase):
         p = mlib.b4_params_from_dict({})
         self.assertEqual(p.deorbit_periapsis, 25000.0)
         self.assertEqual(p.retro_settle_seconds, 10.0)
-        self.assertEqual(p.warp_above_alt, 45000.0)
+        self.assertEqual(p.warp_above_alt, 70000.0)  # exo-only hops (SF-3)
         self.assertEqual(p.warp_hop_seconds, 120.0)
         self.assertEqual(p.chute_deploy_alt, 3000.0)
         self.assertEqual(p.deorbit_timeout, 300.0)

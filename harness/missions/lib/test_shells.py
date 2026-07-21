@@ -636,6 +636,10 @@ _B1_DESCENT_WITH_CHUTE_FRAMES = [
     snap(ut=4.0, vertical_speed=-5.0, apoapsis=14000, situation="FLYING"),    # -> DESCENT
     snap(ut=6.0, altitude=2000.0, vertical_speed=-30.0, apoapsis=14000,
          situation="FLYING"),                                                 # chute deploys
+    # Below downMaxAltMeters (500): the DOWN eligibility gate's "reached the
+    # ground" leg (SF-1) needs the last finite altitude near the surface.
+    snap(ut=7.5, altitude=60.0, vertical_speed=-9.0, apoapsis=14000,
+         situation="FLYING"),
 ]
 
 
@@ -713,7 +717,7 @@ class B4ShellTests(unittest.TestCase):
             snap(ut=141.0, apoapsis=80001, periapsis=79000, altitude=79001.0,
                  situation="ORBITING"),                          # ORBIT -> DEORBIT (retro AP)
             snap(ut=155.0, apoapsis=80002, periapsis=79000.5, altitude=79002.0,
-                 situation="ORBITING"),                          # settled -> throttle up
+                 situation="ORBITING", ap_error=2.0),            # settled + aligned -> throttle up
             snap(ut=170.0, apoapsis=80002, periapsis=24000, altitude=79000.0,
                  situation="ORBITING"),                          # -> REENTRY (cut+release+stage)
             snap(ut=180.0, apoapsis=80002, periapsis=24000, altitude=70000.0,
