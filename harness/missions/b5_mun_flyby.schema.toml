@@ -152,6 +152,16 @@ type = "number"
 min = 1.0
 max = 2000.0
 
+# BURN-phase stagnation watchdog (game seconds): once the orbit has CHANGED
+# since burn entry and then sat static at 1x with the node still pending for
+# this long, the executor is wedged holding a completed node -> abort+clear
+# and move on (fifth live flight 2026-07-22). Optional; mlib defaults 120.
+[params.burnStagnantSeconds]
+required = false
+type = "number"
+min = 30.0
+max = 3600.0
+
 # Optional: consecutive AIRBORNE frozen-telemetry samples (bit-identical orbit
 # fields while UT advances) before the mission declares the vessel lost and
 # terminates. mlib.B5Params defaults it to 10 when absent. Always an

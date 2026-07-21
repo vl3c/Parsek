@@ -436,6 +436,16 @@ class KrpcMissionControl(MissionControl):
             if len(v.control.nodes) > 0:
                 ne = self._mechjeb.node_executor
                 ne.autowarp = True
+                # Tolerance 1.0 m/s, not the 0.1 default: chasing a sub-0.1
+                # residual with the Kerbal X's low-torque pod reaction wheel is
+                # how the executor wedges holding a completed node (fifth live
+                # flight 2026-07-22: burn done, node never consumed, phase
+                # budget flaked). A 1 m/s sloppier finish is irrelevant here --
+                # the mid-coast correction round refines the trajectory anyway.
+                try:
+                    ne.tolerance = 1.0
+                except Exception:
+                    pass  # best-effort; the machine's stagnation watchdog owns the wedge
                 ne.execute_all_nodes()
         elif kind == mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES:
             # B5 burn-exit cleanup: stop the executor (it may be autowarping

@@ -1675,6 +1675,75 @@ class B5MachineTests(unittest.TestCase):
         self.assertEqual(state.correction_rounds_done, 1)
         self.assertEqual(actions, [])
 
+    def test_correction_burn_stagnation_watchdog_unwedges_executor(self):
+        """Fifth live flight (2026-07-22): the executor BURNED the correction
+        node then held it forever (orbit changed, then static at 1x, node
+        pending) until the phase budget flaked. The watchdog treats
+        changed-since-entry + static-at-1x for burnStagnantSeconds as burn
+        complete: abort+clear the stale node and consume the round."""
+        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, apoapsis=11_480_000.0,
+                                              periapsis=76_000.0, body="Kerbin",
+                                              node_count=1))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        # The burn: apsides moving frame to frame (never static).
+        state, _ = mlib.b5_decide(state, snap(ut=20.0, apoapsis=11_400_000.0,
+                                              periapsis=20_000.0, body="Kerbin",
+                                              node_count=1))
+        # Post-burn wedge: orbit static at warp NONE, node still pending.
+        wedged = dict(apoapsis=11_322_716.568, periapsis=-89_356.291,
+                      body="Kerbin", node_count=1)
+        state, _ = mlib.b5_decide(state, snap(ut=30.0, **wedged))
+        state, _ = mlib.b5_decide(state, snap(ut=40.0, **wedged))   # static since 40
+        state, actions = mlib.b5_decide(state, snap(ut=100.0, **wedged))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)      # 60s < 120s: wait
+        self.assertEqual(actions, [])
+        state, actions = mlib.b5_decide(state, snap(ut=161.0, **wedged))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)      # 121s: unwedge
+        self.assertEqual(state.correction_rounds_done, 1)
+        self.assertEqual(actions, [Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
+
+    def test_burn_stagnation_never_counts_autowarp_or_prealignment(self):
+        """RAILS autowarp toward the node (static orbit, warp != NONE) and the
+        pre-burn attitude alignment (orbit UNCHANGED since entry) must never
+        trip the watchdog."""
+        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, apoapsis=11_480_000.0,
+                                              periapsis=76_000.0, body="Kerbin",
+                                              node_count=1))
+        # Pre-burn alignment: orbit identical to entry, warp NONE, long wait.
+        pre = dict(apoapsis=11_480_000.0, periapsis=76_000.0, body="Kerbin",
+                   node_count=1)
+        for ut in (20.0, 40.0, 400.0, 800.0):
+            state, actions = mlib.b5_decide(state, snap(ut=ut, **pre))
+            self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+            self.assertEqual(actions, [])
+        # Autowarp: orbit static AND CHANGED since entry, but warp is RAILS.
+        warped = dict(apoapsis=11_322_000.0, periapsis=-89_000.0, body="Kerbin",
+                      node_count=1, warp_mode="RAILS", warp_rate=100.0)
+        for ut in (900.0, 1200.0, 1500.0):
+            state, actions = mlib.b5_decide(state, snap(ut=ut, **warped))
+            self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+            self.assertEqual(actions, [])
+
+    def test_transfer_burn_stagnation_under_floor_flakes(self):
+        """A wedged executor after an UNDER-FLOOR TLI (no transfer to coast on)
+        is a bounded flake, never a silent coast to nowhere."""
+        state = _b5_state(mlib.B5_PLAN_TRANSFER, last_plan_ut=0.0)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, apoapsis=84_000.0,
+                                              periapsis=79_000.0, body="Kerbin",
+                                              node_count=1))
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+        # Partial burn to 5M (under the 10M floor), then wedged static.
+        wedged = dict(apoapsis=5_000_000.0, periapsis=76_000.0, body="Kerbin",
+                      node_count=1)
+        state, _ = mlib.b5_decide(state, snap(ut=20.0, **wedged))
+        state, _ = mlib.b5_decide(state, snap(ut=30.0, **wedged))
+        state, _ = mlib.b5_decide(state, snap(ut=160.0, **wedged))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.B5_TRANSFER_BURN)
+
     def test_coast_skips_correction_when_disabled(self):
         # courseCorrectPeriapsisMeters=0 disables the rounds entirely: the first
         # coast frame hops instead of entering PLAN-CORRECTION.

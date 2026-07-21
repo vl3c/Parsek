@@ -587,6 +587,17 @@ class B5Params:
                                            # flyby min-altitude assertion floor
                                            # (metres above the target body; the Mun
                                            # has ~7 km peaks)
+    burn_stagnant_seconds: float = 120.0   # BURN-phase watchdog: once the orbit
+                                           # has CHANGED since burn entry (a burn
+                                           # happened) and then sat static at 1x
+                                           # for this many game seconds with the
+                                           # node still pending, the executor is
+                                           # wedged holding a completed node ->
+                                           # abort+clear and move on (spec key
+                                           # burnStagnantSeconds). Pre-burn
+                                           # attitude alignment (orbit unchanged
+                                           # since entry) and RAILS autowarp
+                                           # never count.
     frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
                                            # vessel-lost terminal (spec key
                                            # frozenTelemetrySamples)
@@ -617,6 +628,7 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         coast_warp_hop_seconds=float(params.get("coastWarpHopSeconds", 1800)),
         flyby_warp_hop_seconds=float(params.get("flybyWarpHopSeconds", 600)),
         target_periapsis_floor=float(params.get("targetPeriapsisFloorMeters", 10000)),
+        burn_stagnant_seconds=float(params.get("burnStagnantSeconds", 120)),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
     )
 
@@ -1281,6 +1293,21 @@ class B5State:
     # COAST-TO-TARGET enters PLAN-CORRECTION once per params.correction_trigger_alts
     # entry when the altitude crosses that round's trigger.
     correction_rounds_done: int = 0
+    # Burn-stagnation watchdog (fifth live flight 2026-07-22: the executor
+    # BURNED the correction node then held it forever -- burn visibly done,
+    # node never consumed, no warp, phase budget flaked). ``burn_entry_ap`` /
+    # ``burn_entry_pe`` snapshot the orbit at BURN-phase entry (has-a-burn-
+    # happened evidence); ``burn_prev_ap`` / ``burn_prev_pe`` the previous
+    # frame's orbit; ``burn_static_since`` the UT the orbit went static at 1x
+    # (warp NONE) -- static through RAILS autowarp toward the node is the
+    # LEGITIMATE wait and never counts. Once the orbit has changed since entry
+    # AND been static at 1x for burnStagnantSeconds, the burn is treated as
+    # effectively complete: abort+clear the stale node and move on.
+    burn_entry_ap: Optional[float] = None
+    burn_entry_pe: Optional[float] = None
+    burn_prev_ap: Optional[float] = None
+    burn_prev_pe: Optional[float] = None
+    burn_static_since: Optional[float] = None
     phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -1346,6 +1373,46 @@ def _b5_stay_or_flake(state: B5State, snapshot: TelemetrySnapshot,
     return replace(state, peak_apoapsis=peak)
 
 
+# Burn-stagnation watchdog thresholds: "the burn happened" = an apsis moved
+# more than _BURN_CHANGED_EPS since BURN-phase entry; "static" = frame-to-frame
+# apsis movement under _BURN_STATIC_EPS (a coasting conic is rock-stable; any
+# thrust moves the apsides at km/s-class rates).
+_BURN_CHANGED_EPS = 10_000.0
+_BURN_STATIC_EPS = 50.0
+
+
+def _b5_track_burn_stagnation(state: B5State,
+                              snapshot: TelemetrySnapshot) -> Tuple[B5State, bool]:
+    """Advance the BURN-phase stagnation watchdog one frame; return
+    (new_state, stuck). ``stuck`` = the orbit CHANGED since burn entry (a burn
+    demonstrably happened) and has now sat static at 1x (warp NONE) for
+    burn_stagnant_seconds -- the executor is wedged holding a completed node
+    (fifth live flight 2026-07-22). RAILS autowarp toward the node (static
+    orbit, warp != NONE) and the pre-burn attitude alignment (orbit unchanged
+    since entry) never count."""
+    ap, pe, ut = snapshot.apoapsis, snapshot.periapsis, snapshot.ut
+    if not (_is_finite(ap) and _is_finite(pe) and _is_finite(ut)):
+        return replace(state, burn_prev_ap=None, burn_prev_pe=None,
+                       burn_static_since=None), False
+    static = (state.burn_prev_ap is not None and state.burn_prev_pe is not None
+              and abs(ap - state.burn_prev_ap) < _BURN_STATIC_EPS
+              and abs(pe - state.burn_prev_pe) < _BURN_STATIC_EPS
+              and snapshot.warp_mode == WARP_NONE)
+    since = state.burn_static_since
+    if static:
+        if since is None:
+            since = ut
+    else:
+        since = None
+    burned = (state.burn_entry_ap is not None and state.burn_entry_pe is not None
+              and (abs(ap - state.burn_entry_ap) > _BURN_CHANGED_EPS
+                   or abs(pe - state.burn_entry_pe) > _BURN_CHANGED_EPS))
+    stuck = (burned and since is not None
+             and (ut - since) >= state.params.burn_stagnant_seconds)
+    return replace(state, burn_prev_ap=ap, burn_prev_pe=pe,
+                   burn_static_since=since), stuck
+
+
 def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[float],
                    plan_action: Action, burn_phase: str,
                    on_timeout_phase: Optional[str]) -> Tuple[B5State, List[Action]]:
@@ -1360,7 +1427,13 @@ def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[f
     requirement); PLAN-TRANSFER passes None and flakes (no node = no mission)."""
     if snapshot.node_count >= 1:
         entered = _b5_enter(state, burn_phase, snapshot.ut, peak)
-        entered = replace(entered, planned_node_count=snapshot.node_count)
+        entered = replace(
+            entered, planned_node_count=snapshot.node_count,
+            # Arm the burn-stagnation watchdog: snapshot the entry orbit and
+            # clear the frame-to-frame tracking.
+            burn_entry_ap=(snapshot.apoapsis if _is_finite(snapshot.apoapsis) else None),
+            burn_entry_pe=(snapshot.periapsis if _is_finite(snapshot.periapsis) else None),
+            burn_prev_ap=None, burn_prev_pe=None, burn_static_since=None)
         return entered, [Action(ACTION_MJ_EXECUTE_NODES)]
     if _b5_over_budget(state, snapshot) and on_timeout_phase is not None:
         return _b5_enter(state, on_timeout_phase, snapshot.ut, peak), []
@@ -1491,17 +1564,23 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # (first live B5 flight 2026-07-21). Stray leftover nodes (that unwanted
         # capture burn) are aborted+cleared at the exit so the executor never
         # flies them and the coast hops are not suppressed by node_count > 0.
+        state, stuck = _b5_track_burn_stagnation(state, snapshot)
         consumed = snapshot.node_count < max(state.planned_node_count, 1)
-        burn_done = (consumed
-                     and _is_finite(snapshot.apoapsis)
+        floor_met = (_is_finite(snapshot.apoapsis)
                      and snapshot.apoapsis >= state.params.transfer_min_apoapsis)
-        if burn_done:
+        if (consumed or stuck) and floor_met:
             cleanup = ([Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)]
                        if snapshot.node_count > 0 else [])
             # Always into the coast: the correction rounds are COAST-triggered
             # (per correction_trigger_alts; trigger 0 fires on the first coast
             # frame, reproducing the old immediate post-TLI correction).
             return _b5_enter(state, B5_COAST_TO_TARGET, snapshot.ut, peak), cleanup
+        if stuck:
+            # A burn happened, the executor wedged, and the apoapsis floor is
+            # NOT met: the TLI under-burned -- no transfer exists to coast on.
+            # An autopilot failure, so a bounded flake (retry per policy).
+            return replace(state, peak_apoapsis=peak, verdict=MISSION_FLAKE,
+                           flake_phase=state.phase, done=True), []
         return _b5_stay_or_flake(state, snapshot, peak), []
 
     if state.phase == B5_PLAN_CORRECTION:
@@ -1522,7 +1601,11 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
     if state.phase == B5_CORRECTION_BURN:
         # Same consumed-not-empty exit as TRANSFER-BURN (no apoapsis gate: a
         # correction is a small vector tweak); strays cleared on the way out.
-        if snapshot.node_count < max(state.planned_node_count, 1):
+        # A stagnation-watchdog trip also exits: the burn happened and the
+        # executor is wedged holding the completed node (fifth live flight) --
+        # the imperfect-but-burned correction stands, the next round refines.
+        state, stuck = _b5_track_burn_stagnation(state, snapshot)
+        if snapshot.node_count < max(state.planned_node_count, 1) or stuck:
             cleanup = ([Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)]
                        if snapshot.node_count > 0 else [])
             entered = _b5_enter(state, B5_COAST_TO_TARGET, snapshot.ut, peak)
