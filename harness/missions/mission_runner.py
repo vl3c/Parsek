@@ -364,12 +364,21 @@ class KrpcMissionControl(MissionControl):
             sc.target_body = sc.bodies[str(action.text)]
         elif kind == mlib.ACTION_MJ_PLAN_TRANSFER:
             # KRPC.MechJeb 0.8.1: maneuver_planner.operation_transfer.make_nodes()
-            # (a Hohmann transfer to the current target). A plan with no valid
-            # window/target throws a server-side OperationException: log + swallow,
-            # node_count stays 0, and the machine's bounded re-plan cadence owns
-            # the retry (re-issuing is safe ONLY while no node exists).
+            # (a Hohmann transfer to the current target). INTERCEPT-ONLY: the
+            # capture/insertion options are forced OFF so the plan is a single
+            # TLI node -- with them on, MechJeb plans the arrival burn as a
+            # SECOND node and the flyby machine would either fly an unwanted
+            # capture or park waiting for an empty node list (first live B5
+            # flight 2026-07-21). A plan with no valid window/target throws a
+            # server-side OperationException: log + swallow, node_count stays 0,
+            # and the machine's bounded re-plan cadence owns the retry
+            # (re-issuing is safe ONLY while no node exists).
             try:
-                self._mechjeb.maneuver_planner.operation_transfer.make_nodes()
+                op = self._mechjeb.maneuver_planner.operation_transfer
+                op.capture = False
+                op.plan_capture = False
+                op.rendezvous = False
+                op.make_nodes()
             except Exception as exc:
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Plan", "operation_transfer.make_nodes failed: %s" % (exc,)))
@@ -396,6 +405,19 @@ class KrpcMissionControl(MissionControl):
                 ne = self._mechjeb.node_executor
                 ne.autowarp = True
                 ne.execute_all_nodes()
+        elif kind == mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES:
+            # B5 burn-exit cleanup: stop the executor (it may be autowarping
+            # toward a stray arrival node) and remove every remaining node, so
+            # the coast hops are not suppressed by node_count > 0 and no
+            # unwanted capture burn ever flies. Abort is best-effort (a not-
+            # running executor may throw); remove_nodes is the load-bearing
+            # part (kRPC Control.RemoveNodes, verified in the pinned source).
+            if self._mechjeb is not None:
+                try:
+                    self._mechjeb.node_executor.abort()
+                except Exception:
+                    pass
+            v.control.remove_nodes()
         else:
             raise ValueError("unknown action kind: %r" % (kind,))
 

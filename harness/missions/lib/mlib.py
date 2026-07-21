@@ -187,6 +187,7 @@ ACTION_SET_TARGET_BODY = "set_target_body"                 # text = body name
 ACTION_MJ_PLAN_TRANSFER = "mj_plan_transfer"               # value = None
 ACTION_MJ_PLAN_COURSE_CORRECT = "mj_plan_course_correct"   # value = periapsis m
 ACTION_MJ_EXECUTE_NODES = "mj_execute_nodes"               # value = None (autowarp)
+ACTION_MJ_ABORT_AND_CLEAR_NODES = "mj_abort_and_clear_nodes"  # value = None
 
 # K-consecutive debounce depth (see module docstring).
 DEFAULT_DEBOUNCE_K = 3
@@ -1227,6 +1228,14 @@ class B5State:
     peak_apoapsis: Optional[float] = None
     min_target_altitude: Optional[float] = None
     last_plan_ut: float = 0.0
+    # Node count at the moment a plan handed off to the executor. The BURN-phase
+    # exit is "the executor CONSUMED the first node" (node_count dropped below
+    # this), NOT "the node list is empty": MechJeb's OperationTransfer plans a
+    # capture/arrival burn as a SECOND node when its capture options are on, and
+    # waiting for zero then parks the machine through the whole autowarped
+    # transfer coast until the burn budget flakes (first live B5 flight,
+    # 2026-07-21 - both attempts). Stray leftover nodes are cleared at the exit.
+    planned_node_count: int = 0
     phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -1305,8 +1314,9 @@ def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[f
     expiry (the correction is a best-effort refinement, not a mission
     requirement); PLAN-TRANSFER passes None and flakes (no node = no mission)."""
     if snapshot.node_count >= 1:
-        return (_b5_enter(state, burn_phase, snapshot.ut, peak),
-                [Action(ACTION_MJ_EXECUTE_NODES)])
+        entered = _b5_enter(state, burn_phase, snapshot.ut, peak)
+        entered = replace(entered, planned_node_count=snapshot.node_count)
+        return entered, [Action(ACTION_MJ_EXECUTE_NODES)]
     if _b5_over_budget(state, snapshot) and on_timeout_phase is not None:
         return _b5_enter(state, on_timeout_phase, snapshot.ut, peak), []
     stayed = _b5_stay_or_flake(state, snapshot, peak)
@@ -1428,17 +1438,28 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             on_timeout_phase=None)
 
     if state.phase == B5_TRANSFER_BURN:
-        burn_done = (snapshot.node_count == 0
+        # Exit = the executor CONSUMED the first (TLI) node -- node_count fell
+        # below the count the plan handed off -- AND the apoapsis floor proves a
+        # real burn. NOT node_count == 0: OperationTransfer may plan a
+        # capture/arrival burn as a second node, and waiting for zero parks the
+        # machine through the whole autowarped coast until the budget flakes
+        # (first live B5 flight 2026-07-21). Stray leftover nodes (that unwanted
+        # capture burn) are aborted+cleared at the exit so the executor never
+        # flies them and the coast hops are not suppressed by node_count > 0.
+        consumed = snapshot.node_count < max(state.planned_node_count, 1)
+        burn_done = (consumed
                      and _is_finite(snapshot.apoapsis)
                      and snapshot.apoapsis >= state.params.transfer_min_apoapsis)
         if burn_done:
+            cleanup = ([Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)]
+                       if snapshot.node_count > 0 else [])
             if state.params.course_correct_periapsis > 0.0:
                 entered = _b5_enter(state, B5_PLAN_CORRECTION, snapshot.ut, peak)
                 entered = replace(entered,
                                   last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0)
-                return entered, [Action(ACTION_MJ_PLAN_COURSE_CORRECT,
-                                        state.params.course_correct_periapsis)]
-            return _b5_enter(state, B5_COAST_TO_TARGET, snapshot.ut, peak), []
+                return entered, cleanup + [Action(ACTION_MJ_PLAN_COURSE_CORRECT,
+                                                  state.params.course_correct_periapsis)]
+            return _b5_enter(state, B5_COAST_TO_TARGET, snapshot.ut, peak), cleanup
         return _b5_stay_or_flake(state, snapshot, peak), []
 
     if state.phase == B5_PLAN_CORRECTION:
@@ -1450,8 +1471,12 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             on_timeout_phase=B5_COAST_TO_TARGET)
 
     if state.phase == B5_CORRECTION_BURN:
-        if snapshot.node_count == 0:
-            return _b5_enter(state, B5_COAST_TO_TARGET, snapshot.ut, peak), []
+        # Same consumed-not-empty exit as TRANSFER-BURN (no apoapsis gate: a
+        # correction is a small vector tweak); strays cleared on the way out.
+        if snapshot.node_count < max(state.planned_node_count, 1):
+            cleanup = ([Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)]
+                       if snapshot.node_count > 0 else [])
+            return _b5_enter(state, B5_COAST_TO_TARGET, snapshot.ut, peak), cleanup
         return _b5_stay_or_flake(state, snapshot, peak), []
 
     if state.phase == B5_COAST_TO_TARGET:

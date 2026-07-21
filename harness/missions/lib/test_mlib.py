@@ -1604,6 +1604,44 @@ class B5MachineTests(unittest.TestCase):
         self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
         self.assertEqual(actions, [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0)])
 
+    def test_transfer_burn_capture_stray_node_cleared_on_exit(self):
+        # First live B5 flight (2026-07-21, both attempts): OperationTransfer
+        # planned a capture/arrival burn as a SECOND node; the executor consumed
+        # the TLI node (2 -> 1) and autowarped toward the arrival node while the
+        # old node_count==0 exit parked the machine until the burn budget
+        # flaked. The exit is now "node_count fell below the planned handoff
+        # count AND the apoapsis floor", with the stray aborted+cleared.
+        state = _b5_state(mlib.B5_PLAN_TRANSFER, last_plan_ut=0.0)
+        # Plan produced TWO nodes: handoff records planned_node_count=2.
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin", node_count=2))
+        self.assertEqual(actions, [Action(mlib.ACTION_MJ_EXECUTE_NODES)])
+        self.assertEqual(state.planned_node_count, 2)
+        # Mid-TLI: apoapsis crosses the floor but BOTH nodes still pending --
+        # must NOT exit (the burn is still flying).
+        state, actions = mlib.b5_decide(state, snap(ut=100.0, apoapsis=10_500_000.0,
+                                                    body="Kerbin", node_count=2))
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+        self.assertEqual(actions, [])
+        # TLI consumed (2 -> 1) + floor: exit, clearing the stray arrival node
+        # BEFORE the correction plan.
+        state, actions = mlib.b5_decide(state, snap(ut=200.0, apoapsis=11_300_000.0,
+                                                    body="Kerbin", node_count=1))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
+        self.assertEqual(actions, [
+            Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES),
+            Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0)])
+
+    def test_correction_burn_exits_on_consumed_not_empty(self):
+        # CORRECTION-BURN mirrors the consumed-not-empty exit; a clean single
+        # node (1 -> 0) exits with no cleanup action.
+        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin", node_count=1))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        self.assertEqual(state.planned_node_count, 1)
+        state, actions = mlib.b5_decide(state, snap(ut=60.0, body="Kerbin", node_count=0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(actions, [])
+
     def test_transfer_burn_skips_correction_when_disabled(self):
         params = mlib.B5Params(**{**B5_PARAMS.__dict__, "course_correct_periapsis": 0.0})
         base = mlib.b5_initial_state(params)
