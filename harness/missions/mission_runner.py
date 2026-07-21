@@ -387,10 +387,29 @@ class KrpcMissionControl(MissionControl):
             # the machine-chosen flyby periapsis (metres). Same throw/log/swallow
             # contract as the transfer plan; MechJeb transiently sees no encounter
             # right after a burn and the machine re-plans on its bounded cadence.
+            # DV CAP (action.limit, m/s): a genuine course correction is a SMALL
+            # tweak. The second live flight (2026-07-21) had MechJeb plan an
+            # oversized "correction" (executing it re-shaped the transfer,
+            # ap 11.4M -> 16.6M, and wedged the executor until the burn budget
+            # flaked). An over-cap plan's nodes are removed here, so the machine
+            # sees node_count stay 0 and PLAN-CORRECTION's bounded fall-through
+            # coasts on the raw Hohmann intercept instead.
             try:
                 op = self._mechjeb.maneuver_planner.operation_course_correction
                 op.course_correct_final_pe_a = float(action.value)
-                op.make_nodes()
+                nodes = op.make_nodes()
+                cap = float(action.limit) if action.limit else 0.0
+                if cap > 0.0 and nodes:
+                    total_dv = 0.0
+                    for n in nodes:
+                        total_dv += abs(float(n.delta_v))
+                    if total_dv > cap:
+                        v.control.remove_nodes()
+                        _stdout_sink(mlib.format_mission_log_line(
+                            "Warn", "Plan",
+                            "course-correction dv %.1f m/s exceeds cap %.1f; "
+                            "plan removed (correction disqualified, coast will "
+                            "fly the raw intercept)" % (total_dv, cap)))
             except Exception as exc:
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Plan",

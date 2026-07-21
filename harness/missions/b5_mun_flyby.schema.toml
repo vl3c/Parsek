@@ -131,6 +131,17 @@ required = true
 type = "number"
 min = 0.0
 
+# dv cap (m/s) an acceptable course-correction plan must fit under. A genuine
+# correction is a small tweak; the runner removes an over-cap plan's nodes so
+# PLAN-CORRECTION's bounded fall-through coasts on the raw Hohmann intercept
+# (second live flight 2026-07-21: an oversized "correction" wedged the
+# executor until the burn budget flaked).
+[params.maxCorrectionDvMps]
+required = false
+type = "number"
+min = 1.0
+max = 2000.0
+
 # Optional: consecutive AIRBORNE frozen-telemetry samples (bit-identical orbit
 # fields while UT advances) before the mission declares the vessel lost and
 # terminates. mlib.B5Params defaults it to 10 when absent. Always an

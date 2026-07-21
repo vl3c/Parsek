@@ -58,6 +58,9 @@ transferMinApoapsisMeters  = 10000000
 # peaks + the 10 km assertion floor, low enough for a real gravity-assist
 # flyby geometry.
 courseCorrectPeriapsisMeters = 60000
+# A genuine course correction is a small tweak; an over-cap plan is removed by
+# the runner and the coast flies the raw Hohmann intercept (live flight 2).
+maxCorrectionDvMps         = 100
 planTimeoutSeconds         = 300
 planRetrySeconds           = 30
 transferBurnTimeoutSeconds = 4000

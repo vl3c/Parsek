@@ -1542,7 +1542,8 @@ class B5MachineTests(unittest.TestCase):
             Action(mlib.ACTION_MJ_PLAN_TRANSFER)])
         self.assertEqual(per_frame[4], [Action(mlib.ACTION_MJ_EXECUTE_NODES)])
         self.assertEqual(per_frame[5], [])   # executor owns the burn: machine silent
-        self.assertEqual(per_frame[6], [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0)])
+        self.assertEqual(per_frame[6], [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
+                                               limit=100.0)])
         self.assertEqual(per_frame[7], [Action(mlib.ACTION_MJ_EXECUTE_NODES)])
         self.assertEqual(per_frame[8], [])   # CORRECTION-BURN -> COAST transition frame
         self.assertEqual(per_frame[9], [Action(mlib.ACTION_WARP_TO, 2500.0 + 1800.0)])
@@ -1602,7 +1603,8 @@ class B5MachineTests(unittest.TestCase):
         state, actions = mlib.b5_decide(state, snap(ut=30.0, apoapsis=11_000_000.0,
                                                     body="Kerbin", node_count=0))
         self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
-        self.assertEqual(actions, [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0)])
+        self.assertEqual(actions, [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
+                                          limit=100.0)])
 
     def test_transfer_burn_capture_stray_node_cleared_on_exit(self):
         # First live B5 flight (2026-07-21, both attempts): OperationTransfer
@@ -1629,7 +1631,7 @@ class B5MachineTests(unittest.TestCase):
         self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
         self.assertEqual(actions, [
             Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES),
-            Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0)])
+            Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0, limit=100.0)])
 
     def test_correction_burn_exits_on_consumed_not_empty(self):
         # CORRECTION-BURN mirrors the consumed-not-empty exit; a clean single
@@ -1755,6 +1757,11 @@ class B5ParamTests(unittest.TestCase):
         self.assertEqual(p.home_body, "Kerbin")
         self.assertEqual(p.course_correct_periapsis, 60000.0)
         self.assertEqual(p.target_periapsis_floor, 10000.0)
+        self.assertEqual(p.max_correction_dv, 100.0)
+
+    def test_params_correction_dv_cap_from_dict(self):
+        p = mlib.b5_params_from_dict({"maxCorrectionDvMps": 40})
+        self.assertEqual(p.max_correction_dv, 40.0)
 
 
 class B5AssertionTests(unittest.TestCase):

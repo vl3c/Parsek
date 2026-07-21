@@ -350,10 +350,13 @@ class Action:
     ``kind`` is one of the ``ACTION_*`` constants; ``value`` carries the numeric
     argument (throttle fraction, target apoapsis) or None for a no-arg action.
     ``text`` carries a string argument (the SET_TARGET_BODY body name) -- a
-    separate field so ``value`` stays float-only for every numeric consumer."""
+    separate field so ``value`` stays float-only for every numeric consumer.
+    ``limit`` carries a secondary numeric bound (the PLAN_COURSE_CORRECT dv cap
+    the runner disqualifies an oversized correction plan against)."""
     kind: str
     value: Optional[float] = None
     text: Optional[str] = None
+    limit: Optional[float] = None
 
 
 # ---------------------------------------------------------------------------
@@ -532,6 +535,19 @@ class B5Params:
                                            # flyby geometry, keeps the periapsis
                                            # off the terrain); 0 disables the two
                                            # correction phases entirely
+    max_correction_dv: float = 100.0       # dv cap (m/s) an acceptable correction
+                                           # plan must fit under: a genuine
+                                           # course correction is a small tweak,
+                                           # and the second live flight
+                                           # (2026-07-21) proved an oversized
+                                           # "correction" (ap 11.4M -> 16.6M)
+                                           # wedges the executor until the burn
+                                           # budget flakes. The runner removes a
+                                           # too-big plan's nodes, so PLAN-
+                                           # CORRECTION times out and falls
+                                           # through to the coast on the raw
+                                           # Hohmann intercept (spec key
+                                           # maxCorrectionDvMps)
     plan_timeout: float = 300.0            # PLAN-* phase budget (game s)
     plan_retry_seconds: float = 30.0       # re-issue a failed plan every this many
                                            # game seconds while no node appeared
@@ -568,6 +584,7 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         home_body=str(params.get("homeBodyName", "Kerbin")),
         transfer_min_apoapsis=float(params.get("transferMinApoapsisMeters", 10_000_000)),
         course_correct_periapsis=float(params.get("courseCorrectPeriapsisMeters", 60000)),
+        max_correction_dv=float(params.get("maxCorrectionDvMps", 100.0)),
         plan_timeout=float(params.get("planTimeoutSeconds", 300)),
         plan_retry_seconds=float(params.get("planRetrySeconds", 30)),
         transfer_burn_timeout=float(params.get("transferBurnTimeoutSeconds", 4000)),
@@ -1458,7 +1475,8 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 entered = replace(entered,
                                   last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0)
                 return entered, cleanup + [Action(ACTION_MJ_PLAN_COURSE_CORRECT,
-                                                  state.params.course_correct_periapsis)]
+                                                  state.params.course_correct_periapsis,
+                                                  limit=state.params.max_correction_dv)]
             return _b5_enter(state, B5_COAST_TO_TARGET, snapshot.ut, peak), cleanup
         return _b5_stay_or_flake(state, snapshot, peak), []
 
@@ -1466,7 +1484,8 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         return _b5_plan_phase(
             state, snapshot, peak,
             plan_action=Action(ACTION_MJ_PLAN_COURSE_CORRECT,
-                               state.params.course_correct_periapsis),
+                               state.params.course_correct_periapsis,
+                               limit=state.params.max_correction_dv),
             burn_phase=B5_CORRECTION_BURN,
             on_timeout_phase=B5_COAST_TO_TARGET)
 
