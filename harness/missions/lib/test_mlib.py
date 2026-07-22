@@ -555,6 +555,28 @@ class WarpGuardTests(unittest.TestCase):
         self.assertTrue(mlib.is_unexpected_warp(
             mlib.WARP_PHYSICS, 1.5, False, max_physics_warp=float("nan")))
 
+    def test_rails_decay_physics_label_not_unexpected_when_rails_allowed(self):
+        # B7 review MAJOR-1 (the finding-19b insight applied to this guard):
+        # commanding a physics flip mid-rails-ramp flips TimeWarp.Mode to LOW
+        # immediately while CurrentRate still decays from 100,000x -- kRPC
+        # truthfully reports PHYSICS at 4.4-5.3x (flight 7 logged SIX
+        # near-flake strikes). Stock physics warp cannot exceed 4x, so a
+        # rails-allowed mission treats the over-ceiling PHYSICS label as the
+        # rails-decay artifact it is.
+        for rate in (4.36, 4.76, 5.32, 48_000.0):
+            self.assertFalse(mlib.is_unexpected_warp(
+                mlib.WARP_PHYSICS, rate, True, max_physics_warp=4.0))
+            self.assertFalse(mlib.is_unexpected_warp(
+                mlib.WARP_PHYSICS, rate, True))  # even with no physics grant
+        # A rails-FORBIDDEN mission (B1) still flakes the artifact: rails
+        # decay implies rails ran, which its contract forbids outright.
+        self.assertTrue(mlib.is_unexpected_warp(
+            mlib.WARP_PHYSICS, 5.32, False, max_physics_warp=4.0))
+        # In-ceiling PHYSICS rates are still judged by the physics bound
+        # alone (a genuine 4x flip under a 2.0 grant remains a violation).
+        self.assertTrue(mlib.is_unexpected_warp(
+            mlib.WARP_PHYSICS, 3.9, True, max_physics_warp=2.0))
+
     def test_rails_warp_gated_by_allow_rails(self):
         # B1 (allow_rails=False) forbids RAILS warp; B2 (True) permits it.
         self.assertTrue(mlib.is_unexpected_warp(mlib.WARP_RAILS, 50.0, False))
@@ -3377,6 +3399,30 @@ class B7InterplanetaryTests(unittest.TestCase):
             warp_mode="PHYSICS", warp_rate=2.0))
         self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
         self.assertEqual(state.correction_rounds_done, 1)
+
+    def test_native_warp_retarget_is_asymmetric(self):
+        # B7 review MINOR-4: a LATER fresh target within 2% of the remaining
+        # span holds (proportional SOI-estimate jitter must not churn the
+        # warp socket), while an EARLIER shift beyond the 120 s floor still
+        # retargets promptly (a stale later target would carry the warp past
+        # the boundary at speed).
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, body="Kerbin", altitude=8_000_000.0,
+            time_to_soi=200_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO_UT, 199_980.0)])
+        # LATER by 460 s on a ~194k span (2% = ~3,880): HOLD.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=6_000.0, body="Kerbin", altitude=9_000_000.0,
+            time_to_soi=194_470.0, warping_to=199_980.0,
+            warp_mode="RAILS", warp_rate=10_000.0))
+        self.assertEqual(actions, [])
+        # LATER beyond 2%: re-issue.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=6_010.0, body="Kerbin", altitude=9_000_000.0,
+            time_to_soi=198_470.0, warping_to=199_980.0,
+            warp_mode="RAILS", warp_rate=10_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO_UT, 204_450.0)])
 
     def test_no_encounter_coast_fires_the_round_early(self):
         # Finding 18 (fourth flight): the phase-angle ejection produced NO

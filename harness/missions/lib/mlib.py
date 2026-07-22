@@ -2263,8 +2263,22 @@ def _b5_native_warp(state: B5State, snapshot: TelemetrySnapshot,
     stepper, so warp_cmd is pinned to 0 (the runner's cancel path also zeroes
     the real factors)."""
     ut = snapshot.ut
+    # Retarget thresholds are ASYMMETRIC (B7 review MINOR-4): interplanetary
+    # SOI estimates jitter PROPORTIONALLY (flight 7 showed 200 s / 4,000 s
+    # flip-flops on the Kerbin-exit / Duna legs, each retarget costing a
+    # cancel + socket teardown + ramp restart). A fresh target EARLIER than
+    # the commanded one always retargets at the absolute 120 s floor -- a
+    # stale later target would carry the warp PAST the boundary at speed --
+    # while a LATER fresh target tolerates 2% of the remaining span before
+    # churning (arriving early is harmless: the machine re-polls and
+    # re-warps). Close-in behavior is byte-identical to the proven B5
+    # contract (the floor dominates below 6,000 s spans).
+    span = (target - ut) if _is_finite(ut) else 0.0
+    later_threshold = max(WARP_RETARGET_THRESHOLD_SECONDS, 0.02 * span)
+    diff = (target - state.warp_to_cmd) if state.warp_to_cmd is not None else 0.0
     if (state.warp_to_cmd is None
-            or abs(target - state.warp_to_cmd) > WARP_RETARGET_THRESHOLD_SECONDS):
+            or diff < -WARP_RETARGET_THRESHOLD_SECONDS
+            or diff > later_threshold):
         issued = replace(state, warp_to_cmd=float(target),
                          last_warp_issue_ut=(ut if _is_finite(ut) else 0.0),
                          warp_cmd=0)
@@ -3364,6 +3378,12 @@ WARP_PHYSICS = "PHYSICS"
 # settling; the guard adds this allowance on top of max_physics_warp.
 PHYSICS_WARP_RAMP_ALLOWANCE = 0.25
 
+# Stock KSP physics (LOW) warp cannot exceed 4x: a PHYSICS-labeled rate above
+# this ceiling is by construction the rails-ramp-decay artifact finding 19b
+# characterized (TimeWarp.Mode flips to LOW immediately on command while
+# CurrentRate still decays from the rails rate).
+STOCK_PHYSICS_WARP_CEILING = 4.0
+
 
 def is_unexpected_warp(warp_mode: str, warp_rate: float, allow_rails: bool,
                        max_physics_warp: float = 0.0) -> bool:
@@ -3384,9 +3404,21 @@ def is_unexpected_warp(warp_mode: str, warp_rate: float, allow_rails: bool,
         return False
     mode = str(warp_mode or "").upper()
     if mode == WARP_PHYSICS:
-        if not _is_finite(max_physics_warp) or max_physics_warp <= 0.0:
-            return True
-        return warp_rate > max_physics_warp + PHYSICS_WARP_RAMP_ALLOWANCE
+        if _is_finite(max_physics_warp) and max_physics_warp > 0.0 \
+                and warp_rate <= max_physics_warp + PHYSICS_WARP_RAMP_ALLOWANCE:
+            return False
+        # PHYSICS-labeled ABOVE the stock physics ceiling (review of the B7
+        # branch, MAJOR-1 = the finding-19b insight applied to this guard):
+        # commanding a physics flip mid-rails-ramp flips TimeWarp.Mode to LOW
+        # immediately while CurrentRate still DECAYS from the rails rate, so
+        # kRPC truthfully reports PHYSICS at 4.4-5.3x (flight 7 logged SIX
+        # near-flake strikes from exactly this). Stock physics warp cannot
+        # exceed 4x, so a rails-allowed mission treats the over-ceiling
+        # PHYSICS label as the rails-decay artifact it is; a rails-forbidden
+        # mission (B1) still flakes it.
+        if allow_rails and warp_rate > STOCK_PHYSICS_WARP_CEILING:
+            return False
+        return True
     if mode == WARP_RAILS:
         return not allow_rails
     # Above 1x with an unrecognized / NONE mode is an inconsistent, unexpected state.

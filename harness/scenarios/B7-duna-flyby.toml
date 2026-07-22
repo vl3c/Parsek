@@ -1,11 +1,14 @@
 schema = 1
 id = "B7-duna-flyby"
 # nightly: same committed Kerbal X fixture as B2/B4/B5/B6; the FIRST interplanetary
-# flown mission (Kerbin -> Sun -> Duna -> Sun). NOT YET LIVE-PROVEN: this spec is
-# PENDING (a) the mlib B7 diff plan (docs/dev/design-autotest-b7-duna.md) landing,
-# and (b) a first live flight to peel the tuning. Every budget below is ESTIMATED
-# from the warp-altitude arithmetic in the design doc, not measured. Keep tier
-# nightly but treat the first runs as tuning flights (retry once absorbs a flake).
+# flown mission (Kerbin -> Sun -> Duna -> Sun). LIVE-PROVEN 2026-07-22 (seventh
+# flight of the peel campaign): PASS attempt 1, wall 752 s, all verifiers green,
+# warp audit clean -- single-node phase-angle ejection (mid-burn flameout staged,
+# executor resumed), machine-CREATED Duna encounter (no-encounter trigger +
+# heliocentric course-correct), 546 km flyby, Sun-exit free return. Budgets below
+# are MEASURED by flights 1-7 (ascent 2400 / circularize 6000 / rough park
+# windows); courseCorrectPeriapsisMeters 300 km is the finding-16d margin applied
+# AFTER the passing flight (which flew 50 km and landed safe-high at 546 km).
 #
 # CENTRAL SIZING FACT (design doc "Ejection-window wait"): an 80 km parking orbit
 # caps rails warp at 50x (Kerbin altitude-limit table), so the ~200-day
@@ -18,7 +21,7 @@ id = "B7-duna-flyby"
 tier = "nightly"
 description = "Duna interplanetary flyby: MechJeb ascent to a HIGH (700 km) park, OperationInterplanetaryTransfer ejection at the next Kerbin->Duna window (WaitForPhaseAngle), autowarped hyperbolic ejection burn, heliocentric coast with time-to-SOI-triggered corrections, Duna flyby, exit into Sun SOI; assert orbit + target SOI reached + flyby floor + returned-to-exit (Sun)."
 instanceProfile = "stock-minimal"
-tags = ["B7", "pending-live-proof", "mechjeb", "duna", "interplanetary", "cross-soi"]
+tags = ["B7", "flown", "mechjeb", "duna", "interplanetary", "cross-soi"]
 
 [fixture]
 # Same pre-placed Kerbal X fixture as B2/B4/B5/B6. NOTE (live-prove): the fixture's
@@ -123,8 +126,6 @@ viaBodyNames               = ["Sun"]
 # years and is out of scope. RETURN (the success terminal) fires on body == Sun
 # AFTER the flyby.
 returnBodyName             = "Sun"
-# Course-correct the Duna flyby periapsis to 50 km: above the ~8 km Duna peaks +
-# the 15 km assertion floor, low enough for a real flyby geometry.
 # Finding 16d margin (B5 flights 22-25): MechJeb's course-correct
 # under-delivers toward LOW periapsis targets by ~90-100 km while always
 # burning the right direction, and the mission contract is the 15 km FLOOR,
@@ -160,8 +161,8 @@ flybyTimeoutSeconds        = 500000
 # limit during the post-ejection escape; the per-body altitude clamp handles the low
 # Duna-flyby legs automatically.
 coastWarpFactor            = 7
-# Flyby: 100x floor near periapsis, stair up to 10,000x on the outer Duna-SOI legs;
-# the Duna altitude table clamps a 50 km periapsis to ~10x (design doc note).
+# Flyby: 1000x floor near periapsis (factor 5), stair up to 10,000x on the outer
+# Duna-SOI legs; the per-body altitude clamp shapes low passes automatically.
 flybyWarpFactor            = 5
 flybyMaxWarpFactor         = 6
 # No-1x-coast lane (delta-review E1: nodeWarpLeadSeconds is RETIRED -- the
