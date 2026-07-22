@@ -75,6 +75,7 @@ coastWarpFactor            = 6
 flybyWarpFactor            = 5
 flybyMaxWarpFactor         = 6
 nodeWarpLeadSeconds        = 120
+soiLeadSeconds             = 60
 flipPhysicsWarpFactor      = 1
 targetPeriapsisFloorMeters = 6000
 

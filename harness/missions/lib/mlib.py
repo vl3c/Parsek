@@ -214,6 +214,21 @@ ACTION_SET_RAILS_WARP = "set_rails_warp"                   # value = factor inde
 # self-healing emission discipline as set_rails_warp; the machine always drops
 # to 0 BEFORE any throttle-up so a burn never integrates at scaled physics dt.
 ACTION_SET_PHYSICS_WARP = "set_physics_warp"               # value = factor index
+# Native fire-and-forget warp-to-UT (Path A, docs/dev/research/
+# native-warp-to-ut.md): the runner's WarpService issues SpaceCenter.WarpTo
+# on a DEDICATED second kRPC connection owned by a daemon thread, so the
+# primary telemetry connection never blocks (per-connection RPC
+# serialization, pinned kRPC Core.cs). The server's own stepper adapts the
+# factor both ways against the game's live altitude limits - table-free
+# native adaptation, the operator's design principle. value = target UT.
+# CONTRACT: while a native warp is active (TelemetrySnapshot.warping_to
+# finite) the machine MUST NOT emit set_rails_warp - two writers fight and
+# WarpTo wins within 1-2 frames (research doc, scheduler analysis).
+ACTION_WARP_TO_UT = "warp_to_ut"                           # value = target UT (s)
+# Cancel the native warp: the runner closes the warp connection (the server
+# discards the continuation next FixedUpdate) and zeroes both warp factors
+# from the primary connection. Idempotent when no warp is active.
+ACTION_CANCEL_WARP = "cancel_warp"                         # value = None
 
 # TARGET-FLYBY impact-warp guard: below this altitude with a SUB-SURFACE
 # periapsis the machine stops issuing warp hops and polls at 1x, so a crash
@@ -233,6 +248,17 @@ RAILS_WARP_RATES = (1.0, 5.0, 10.0, 50.0, 100.0, 1000.0, 10000.0, 100000.0)
 
 # Worst-case decision latency the stair-down must absorb: two ~0.5 s polls.
 _WARP_SAFETY_SECONDS = 1.0
+
+# Native warp-to-UT re-issue threshold (game s): a fresh target computed from
+# a shifted SOI estimate re-issues the warp only when it moved more than this
+# from the commanded target (kRPC WarpTo cannot retarget; the runner cancels
+# and re-issues, so churn must be bounded).
+WARP_RETARGET_THRESHOLD_SECONDS = 120.0
+
+# Native warp self-healing bound (game s): if the game reports NO active warp
+# (warping_to NaN) while the machine still expects one (target ahead, no
+# cancel issued), re-issue at most once per this many game seconds.
+WARP_REISSUE_SECONDS = 30.0
 
 
 def rails_factor_for_distance(dist_m: float, speed_mps: float, cap: int) -> int:
@@ -445,6 +471,12 @@ class TelemetrySnapshot:
     # past the whole target SOI (the B7 Duna hazard: 100,000x x 0.5 s real =
     # 50,000 game seconds, comparable to an entire Duna SOI transit).
     time_to_soi: float = float("nan")
+    # Native warp-to-UT state (runner WarpService): the TARGET UT while a
+    # native SpaceCenter.WarpTo is active on the dedicated warp connection,
+    # NaN when idle. NaN fails CLOSED for the machine's do-not-touch-rails
+    # rule (an unknown warp state is treated as idle, and the bounded
+    # self-healing re-issue owns a genuinely lost warp).
+    warping_to: float = float("nan")
 
 
 # ---------------------------------------------------------------------------
@@ -765,11 +797,20 @@ class B5Params:
                                            # (spec key flybyMaxWarpFactor)
     node_warp_lead: float = 120.0          # warp-toward-node lead window (game
                                            # s): a coast frame with a pending
-                                           # node warps via the TIME stair
+                                           # node issues a NATIVE warp_to_ut
                                            # toward node_ut minus this lead,
                                            # and holds 1x inside it (room for
                                            # the flip + settle before the burn
                                            # gate; spec key nodeWarpLeadSeconds)
+    soi_lead: float = 60.0                 # native SOI warp lead (game s): the
+                                           # post-correction coast and the
+                                           # flyby outer legs warp_to_ut to
+                                           # now + time_to_soi - this lead, so
+                                           # the machine regains 1x-poll
+                                           # control just before the boundary
+                                           # and the body-change frame is
+                                           # never inside a high-rate warp
+                                           # (spec key soiLeadSeconds)
     flip_physics_warp: int = 1             # CORRECTION-BURN pre-burn attitude
                                            # flip physics-warp factor INDEX
                                            # (1 = 2x, MechJeb's own WarpToUT
@@ -859,6 +900,7 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         flyby_warp_factor=int(params.get("flybyWarpFactor", 5)),
         flyby_max_warp_factor=int(params.get("flybyMaxWarpFactor", 6)),
         node_warp_lead=float(params.get("nodeWarpLeadSeconds", 120.0)),
+        soi_lead=float(params.get("soiLeadSeconds", 60.0)),
         flip_physics_warp=int(params.get("flipPhysicsWarpFactor", 1)),
         target_periapsis_floor=float(params.get("targetPeriapsisFloorMeters", 10000)),
         burn_stagnant_seconds=float(params.get("burnStagnantSeconds", 120)),
@@ -1566,6 +1608,15 @@ class B5State:
     # mild physics warp; same on-change + self-healing discipline). Always 0
     # outside CORRECTION-BURN, and always driven back to 0 before throttle-up.
     phys_warp_cmd: int = 0
+    # Native warp-to-UT command state (Path A): the target UT the machine
+    # last COMMANDED via warp_to_ut, None when no native warp is expected.
+    # Cleared on arrival (ut >= target), on cancel, and on every phase exit
+    # that cancels. While set, the machine never emits set_rails_warp.
+    warp_to_cmd: Optional[float] = None
+    # Game-time stamp of the last warp_to_ut emission (initial, retarget, or
+    # self-heal re-issue) - bounds the self-healing re-issue to once per
+    # WARP_REISSUE_SECONDS.
+    last_warp_issue_ut: float = 0.0
     phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -1717,6 +1768,60 @@ def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[f
     return stayed, []
 
 
+def _b5_clear_arrived_warp(state: B5State, snapshot: TelemetrySnapshot) -> B5State:
+    """Clear the native warp command once the target UT is reached: the
+    server-side WarpTo stepper zeroes the factor itself on natural completion
+    (pinned kRPC SpaceCenter.cs WarpTo), so arrival needs no cancel action --
+    only the machine's expectation flag drops."""
+    if (state.warp_to_cmd is not None and _is_finite(snapshot.ut)
+            and snapshot.ut >= state.warp_to_cmd):
+        return replace(state, warp_to_cmd=None)
+    return state
+
+
+def _b5_native_warp(state: B5State, snapshot: TelemetrySnapshot,
+                    target: float) -> Tuple[B5State, List[Action]]:
+    """Drive the native warp_to_ut command toward ``target`` one frame.
+
+    Emission discipline (mirrors the rails on-change + self-healing rules):
+      - No command yet, or the fresh target moved more than
+        WARP_RETARGET_THRESHOLD_SECONDS from the commanded one (an SOI
+        estimate shift): (re-)issue warp_to_ut. The runner cancels any
+        in-flight warp before re-issuing (kRPC WarpTo cannot retarget).
+      - Self-heal: the game reports NO active warp (warping_to NaN) while the
+        commanded target is still ahead -- re-issue, bounded to once per
+        WARP_REISSUE_SECONDS of game time so a genuinely-completing warp is
+        never spammed.
+    While a native warp is commanded the rails factor belongs to the server
+    stepper, so warp_cmd is pinned to 0 (the runner's cancel path also zeroes
+    the real factors)."""
+    ut = snapshot.ut
+    if (state.warp_to_cmd is None
+            or abs(target - state.warp_to_cmd) > WARP_RETARGET_THRESHOLD_SECONDS):
+        issued = replace(state, warp_to_cmd=float(target),
+                         last_warp_issue_ut=(ut if _is_finite(ut) else 0.0),
+                         warp_cmd=0)
+        return issued, [Action(ACTION_WARP_TO_UT, float(target))]
+    if (not _is_finite(snapshot.warping_to)
+            and _is_finite(ut) and ut < state.warp_to_cmd
+            and (ut - state.last_warp_issue_ut) >= WARP_REISSUE_SECONDS):
+        healed = replace(state, last_warp_issue_ut=ut, warp_cmd=0)
+        return healed, [Action(ACTION_WARP_TO_UT, float(state.warp_to_cmd))]
+    return state, []
+
+
+def _b5_cancel_native_warp(state: B5State,
+                           snapshot: TelemetrySnapshot) -> Tuple[B5State, List[Action]]:
+    """Emit cancel_warp when a native warp is commanded OR the game still
+    reports one active (warping_to finite); no-op otherwise. The runner's
+    cancel closes the warp connection and zeroes both warp factors, so
+    warp_cmd resets to 0 with it."""
+    if state.warp_to_cmd is None and not _is_finite(snapshot.warping_to):
+        return state, []
+    return (replace(state, warp_to_cmd=None, warp_cmd=0),
+            [Action(ACTION_CANCEL_WARP)])
+
+
 def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, List[Action]]:
     """Advance the B5 Mun-flyby machine one frame; return (new_state, actions).
 
@@ -1741,23 +1846,30 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         outcome).
       - CORRECTION-BURN -> COAST-TO-TARGET: node list empty again (no apoapsis
         gate: a correction is a small vector tweak).
-      - COAST-TO-TARGET: non-blocking rails warp (on-change + self-healing
-        set_rails_warp) while the SOI body is still the home body. The factor
-        is the MIN of: the trigger-distance stair (toward the next correction
-        trigger), the warp-toward-node TIME stair when a node is pending
-        (node_ut - nodeWarpLeadSeconds; 1x inside the lead window / NaN),
-        the SOI-approach time stair (floored at flybyWarpFactor so the
-        boundary crosses at ~100x), and the per-body altitude-legality clamp.
+      - COAST-TO-TARGET (Path A native warp + rails stair): a pending node
+        issues a NATIVE warp_to_ut to node_ut - nodeWarpLeadSeconds (1x
+        inside the lead window / NaN node UT, fail closed); the
+        correction-trigger approach keeps the LIVE-PROVEN rails distance
+        stair (SOI time bound + altitude-legality clamp); the
+        post-correction coast issues a NATIVE warp_to_ut to
+        now + time_to_soi - soiLeadSeconds (re-issued only when the SOI
+        estimate shifts > WARP_RETARGET_THRESHOLD_SECONDS; self-healed at
+        most once per WARP_REISSUE_SECONDS when the game reports no active
+        warp); otherwise the held rails coast factor. While a native warp is
+        commanded the machine NEVER emits set_rails_warp (cancel first).
         body == target -> TARGET-FLYBY. body neither home nor target
-        (nor "", the fail-closed unknown) -> ASSERT-FAIL (ejected: the craft
-        left the home system without meeting the target).
-      - TARGET-FLYBY: track the min finite altitude (the flyby-floor evidence);
-        hold flybyWarpFactor near periapsis, stair up toward
-        flybyMaxWarpFactor with the (altitude - periapsis) distance on the
-        outer legs, altitude-legality clamped; 1x on the impact guard.
-        body == home -> RETURN (terminal: done, verdict None, the settle tail
-        runs on-rails in home SOI). body neither -> ASSERT-FAIL (slung out of
-        the home system).
+        (nor "", which HOLDS with no warp change) -> ASSERT-FAIL (ejected:
+        the craft left the home system without meeting the target).
+      - TARGET-FLYBY: track the min finite altitude (the flyby-floor
+        evidence); the outer SOI legs issue a NATIVE warp_to_ut to the SOI
+        EXIT minus soiLeadSeconds (the game's own altitude limits shape the
+        periapsis passage at the proven ~100x cadence); inside the lead
+        window / no estimate the rails stair fallback runs (flybyWarpFactor
+        floor, flybyMaxWarpFactor cap, legality clamp). The impact guard is
+        AUTHORITATIVE: it cancels any native warp and holds 1x.
+        body == home -> RETURN (terminal: done, verdict None; cancels any
+        native warp; the settle tail runs in home SOI). body neither ->
+        ASSERT-FAIL (slung out of the home system).
     Vessel-lost / frozen telemetry in ANY phase -> ASSERT-FAIL loss_reason
     (survival is the contract). A timed phase out-running its budget yields
     MISSION-FLAKE naming the stuck phase (except the PLAN-CORRECTION
@@ -2020,60 +2132,85 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             entered = _b5_enter(state, B5_PLAN_CORRECTION, snapshot.ut, peak)
             entered = replace(entered,
                               last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0,
-                              warp_cmd=0)
-            prelude = ([Action(ACTION_SET_RAILS_WARP, 0.0)] if state.warp_cmd != 0 else [])
+                              warp_cmd=0, warp_to_cmd=None)
+            # Prelude: stop ALL warp before planning -- cancel an active
+            # native warp (which also zeroes the rails factors runner-side),
+            # else drop a held rails factor.
+            if state.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
+                prelude = [Action(ACTION_CANCEL_WARP)]
+            elif state.warp_cmd != 0:
+                prelude = [Action(ACTION_SET_RAILS_WARP, 0.0)]
+            else:
+                prelude = []
             return entered, prelude + [Action(ACTION_MJ_PLAN_COURSE_CORRECT,
                                               state.params.course_correct_periapsis,
                                               limit=state.params.max_correction_dv)]
-        # Non-blocking rails warp (on-change + self-healing emissions): full
-        # coast speed while nothing is imminent; approaching the next
-        # correction trigger the factor STAIRS DOWN with the remaining
-        # distance (operator-reported: the old binary band held 1x for its
-        # entire 2,000 km, ~40 real minutes) so 1x happens only in the last
-        # moments before the trigger. No home-body reading still forces 1x.
-        if snapshot.body != state.params.home_body:
-            desired = 0
-        elif snapshot.node_count != 0:
-            # Warp TOWARD a pending node (operator directive 2026-07-22:
-            # time-based stair-down as the warp-to-node primitive, never the
-            # blocking warp_to RPC). Outside the lead window the factor
-            # stairs down with the remaining time to node_ut - lead; inside
-            # it -- or on a NaN node_ut, fail closed -- the coast holds 1x
-            # (the pre-directive contract) so nothing warps past a burn.
+        # Warp policy (Path A, docs/dev/research/native-warp-to-ut.md): the
+        # NATIVE fire-and-forget warp_to_ut owns the long time-bound waits
+        # (pending node, post-correction coast to the SOI boundary) -- the
+        # game adapts the factor against its own live limits, table-free.
+        # The rails distance stair stays for the correction-trigger altitude
+        # approach (distance-based, live-proven) and as the fallback.
+        if snapshot.body == "":
+            # No reading this frame: HOLD (never cancel/re-command warp on a
+            # transient blank; sustained unreadability dies at vessel-lost).
+            return stayed, []
+        stayed = _b5_clear_arrived_warp(stayed, snapshot)
+        native_target: Optional[float] = None
+        desired = 0
+        if snapshot.node_count != 0:
+            # (a) Pending node: NATIVE warp to node_ut minus the lead window
+            # (room for the flip + settle before the burn gate). Inside the
+            # lead window -- or on a NaN node_ut, fail closed -- hold 1x so
+            # nothing ever warps past a burn on no evidence.
             if _is_finite(snapshot.node_ut) and _is_finite(snapshot.ut):
-                desired = rails_factor_for_time(
-                    snapshot.node_ut - state.params.node_warp_lead - snapshot.ut,
-                    state.params.coast_warp_factor)
-            else:
-                desired = 0
+                tgt = snapshot.node_ut - state.params.node_warp_lead
+                if snapshot.ut < tgt:
+                    native_target = tgt
         elif rounds_pending and _is_finite(snapshot.altitude):
+            # Correction-trigger approach: the LIVE-PROVEN rails distance
+            # stair (1x only in the last moments before the trigger), with
+            # the SOI time bound and the altitude-legality clamp.
             dist = triggers[state.correction_rounds_done] - snapshot.altitude
             desired = rails_factor_for_distance(
                 dist, snapshot.vertical_speed, state.params.coast_warp_factor)
+            if desired > 0 and _is_finite(snapshot.time_to_soi):
+                desired = min(desired, max(
+                    rails_factor_for_time(snapshot.time_to_soi,
+                                          state.params.coast_warp_factor),
+                    state.params.flyby_warp_factor))
+            if desired > 0:
+                desired = min(desired, max_legal_rails_factor(
+                    snapshot.body, snapshot.altitude))
+        elif (_is_finite(snapshot.time_to_soi) and _is_finite(snapshot.ut)
+                and snapshot.time_to_soi > state.params.soi_lead):
+            # (b) Post-correction coast: NATIVE warp to the SOI boundary
+            # minus soi_lead, so the machine regains 1x-poll control just
+            # before the body change (never crosses inside a high-rate warp;
+            # the old 10,000x poll overshoot class is gone). Re-issued only
+            # when the SOI estimate shifts > WARP_RETARGET_THRESHOLD_SECONDS.
+            native_target = snapshot.ut + snapshot.time_to_soi - state.params.soi_lead
         else:
+            # No encounter (or inside the SOI lead window): held rails coast
+            # factor with the legacy SOI time bound + legality clamp -- the
+            # documented fallback when the native primitive has no target.
             desired = state.params.coast_warp_factor
-        if desired > 0 and _is_finite(snapshot.time_to_soi):
-            # SOI-approach bound: one 0.5 s poll at 10,000x advances up to
-            # ~5,000 game-s past the boundary (survivable in a 2,430 km Mun
-            # SOI, mission-fatal in B7 where 100,000x could blow through the
-            # whole Duna SOI between polls). Stair the factor down with the
-            # remaining time, FLOORED at the flyby factor: crossing at ~100x
-            # bounds the overshoot to ~100 game-s and hands TARGET-FLYBY its
-            # own held factor with no 1x cliff at the boundary. NaN (no SOI
-            # change on the trajectory) skips the bound.
-            desired = min(desired, max(
-                rails_factor_for_time(snapshot.time_to_soi,
-                                      state.params.coast_warp_factor),
-                state.params.flyby_warp_factor))
-        if desired > 0:
-            # Altitude-legality clamp (STOCK_WARP_ALTITUDE_LIMITS): command
-            # only achievable factors, so the emission discipline escalates
-            # the factor as the vessel climbs past each per-body limit --
-            # KSP clamps a too-high set to the legal maximum and NEVER
-            # auto-raises it afterwards (a commanded 6 near the 80 km
-            # parking orbit silently ran the whole leg at 50x).
-            desired = min(desired, max_legal_rails_factor(
-                snapshot.body, snapshot.altitude))
+            if desired > 0 and _is_finite(snapshot.time_to_soi):
+                desired = min(desired, max(
+                    rails_factor_for_time(snapshot.time_to_soi,
+                                          state.params.coast_warp_factor),
+                    state.params.flyby_warp_factor))
+            if desired > 0:
+                desired = min(desired, max_legal_rails_factor(
+                    snapshot.body, snapshot.altitude))
+        if native_target is not None:
+            return _b5_native_warp(stayed, snapshot, native_target)
+        if stayed.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
+            # Rails intent while a native warp is (expected) active: CANCEL
+            # first -- never two warp writers in the same frame (WarpTo wins
+            # the fight within 1-2 frames; research doc scheduler analysis).
+            # The rails command follows on the next poll.
+            return _b5_cancel_native_warp(stayed, snapshot)
         actions: List[Action] = []
         # Emit on change, PLUS re-assert when the game is NOT actually rails-
         # warping despite a nonzero command (fifteenth flight: operator manual
@@ -2090,9 +2227,13 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
     if state.phase == B5_TARGET_FLYBY:
         if snapshot.body == state.params.home_body:
             # The free-return: back in home SOI after the flyby. Terminal (done,
-            # verdict None); the settle tail runs at 1x in home SOI.
+            # verdict None); the settle tail runs at 1x in home SOI. Cancel an
+            # active native warp (which zeroes the factors runner-side), else
+            # drop a held rails factor.
             entered = _b5_enter(state, B5_RETURN, snapshot.ut, peak)
-            entered = replace(entered, warp_cmd=0)
+            entered = replace(entered, warp_cmd=0, warp_to_cmd=None)
+            if state.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
+                return entered, [Action(ACTION_CANCEL_WARP)]
             return entered, ([Action(ACTION_SET_RAILS_WARP, 0.0)]
                              if state.warp_cmd != 0 else [])
         if snapshot.body not in ("", state.params.target_body):
@@ -2105,20 +2246,35 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         stayed = _b5_stay_or_flake(state, snapshot, peak)
         if stayed.done:
             return stayed, []
+        if snapshot.body == "":
+            # No reading this frame: HOLD (never cancel/re-command warp on a
+            # transient blank; sustained unreadability dies at vessel-lost).
+            return stayed, []
+        stayed = _b5_clear_arrived_warp(stayed, snapshot)
         # NEVER warp toward a known impact (finding 4's Flight Results wedge):
-        # on a sub-surface periapsis at low altitude, hold 1x so the crash
-        # lands under live telemetry and the vessel-lost detectors end the
-        # mission in seconds. Otherwise: the flyby factor (100x, the proven
-        # min-altitude evidence cadence) is the FLOOR near periapsis, and the
-        # factor STAIRS UP toward flybyMaxWarpFactor with the remaining
-        # (altitude - periapsis) distance on the outer legs -- the flat-100x
-        # SOI transit took minutes of wall time for kilometre-scale outer-leg
-        # motion. Altitude-legality clamps the command to what the game will
-        # actually grant (Mun 100x needs >= 25 km, 1000x >= 50 km).
+        # on a sub-surface periapsis at low altitude, the guard is
+        # AUTHORITATIVE -- it CANCELS an active native warp and holds 1x so
+        # the crash lands under live telemetry and the vessel-lost detectors
+        # end the mission in seconds.
         impact_bound = (_is_finite(snapshot.periapsis) and snapshot.periapsis < 0.0
                         and _is_finite(snapshot.altitude)
                         and snapshot.altitude < IMPACT_WARP_GUARD_ALT)
-        if snapshot.body == state.params.target_body and not impact_bound:
+        native_target = None
+        if impact_bound:
+            desired = 0
+        elif (_is_finite(snapshot.time_to_soi) and _is_finite(snapshot.ut)
+                and snapshot.time_to_soi > state.params.soi_lead):
+            # (c) Outer flyby legs: NATIVE warp to the SOI EXIT minus
+            # soi_lead. The game's own altitude limits shape the passage
+            # (e.g. Mun periapsis at 60 km runs at most 100x -- the proven
+            # min-altitude evidence cadence -- while the outer legs run
+            # 1000x+), table-free.
+            native_target = snapshot.ut + snapshot.time_to_soi - state.params.soi_lead
+        else:
+            # Inside the exit lead window / no SOI estimate: the rails stair
+            # fallback -- flyby factor floor near periapsis, stair toward
+            # flybyMaxWarpFactor with the (altitude - periapsis) distance,
+            # altitude-legality clamped.
             pe_ref = (max(snapshot.periapsis, 0.0)
                       if _is_finite(snapshot.periapsis) else 0.0)
             dist = ((snapshot.altitude - pe_ref)
@@ -2127,8 +2283,13 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 dist, snapshot.vertical_speed, state.params.flyby_max_warp_factor)
             desired = min(max(state.params.flyby_warp_factor, stair),
                           max_legal_rails_factor(snapshot.body, snapshot.altitude))
-        else:
-            desired = 0
+        if native_target is not None:
+            return _b5_native_warp(stayed, snapshot, native_target)
+        if stayed.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
+            # 1x/rails intent while a native warp is (expected) active --
+            # including the impact guard's authoritative stop: CANCEL first,
+            # rails (if any) follows next poll.
+            return _b5_cancel_native_warp(stayed, snapshot)
         actions = []
         # Emit on change, PLUS re-assert when the game is NOT actually rails-
         # warping despite a nonzero command (fifteenth flight: operator manual

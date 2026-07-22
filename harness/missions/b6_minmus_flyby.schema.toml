@@ -140,14 +140,26 @@ min = 0
 max = 7
 
 # Warp-toward-node lead window (GAME seconds): a coast frame with a pending
-# node rails-warps via the time stair toward node UT minus this lead, and
-# holds 1x inside it (room for the attitude flip + settle before the burn
-# gate). NaN/unknown node UT fails closed to 1x. Optional; mlib defaults 120.
+# node issues a NATIVE warp_to_ut (Path A WarpService; the game adapts the
+# factor) toward node UT minus this lead, and holds 1x inside it (room for
+# the attitude flip + settle before the burn gate). NaN/unknown node UT
+# fails closed to 1x. Optional; mlib defaults 120.
 [params.nodeWarpLeadSeconds]
 required = false
 type = "number"
 min = 10.0
 max = 3600.0
+
+# Native SOI warp lead (GAME seconds): the post-correction coast and the
+# flyby outer legs issue a native warp_to_ut to now + timeToSoi minus this
+# lead, so the machine regains 1x-poll control just before the boundary and
+# the body change never happens inside a high-rate warp. Optional; mlib
+# defaults 60.
+[params.soiLeadSeconds]
+required = false
+type = "number"
+min = 5.0
+max = 600.0
 
 # CORRECTION-BURN pre-burn attitude-flip physics warp factor INDEX (0-3;
 # 1 = 2x, MechJeb's own WarpToUT physics cap). The flip is the single

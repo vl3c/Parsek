@@ -52,6 +52,7 @@ import json
 import math
 import os
 import sys
+import threading
 import time
 import traceback
 from dataclasses import dataclass, replace
@@ -107,6 +108,210 @@ DEFAULT_SETTLE_FRAMES = mlib.DEFAULT_DEBOUNCE_K + 1
 # never engages on such a node -- sixth live B5 flight 2026-07-22) and the
 # residual it would fix is within the flyby floor's margin anyway.
 NEGLIGIBLE_CORRECTION_DV = 0.5
+
+# Native-warp watchdog (Path A, docs/dev/research/native-warp-to-ut.md):
+# WALL seconds of game-UT standstill tolerated while a WarpService warp is
+# active before the watchdog acts. First action on a stall is the pause probe
+# (a dialog pause does NOT freeze the kRPC server -- PauseServerWithGame
+# defaults false -- so KRPC.Paused is readable AND clearable from the primary
+# connection); a stall that persists WITHOUT a pause (or after clearing one)
+# cancels the warp so the mission never rides a wedged continuation.
+WARP_STALL_WALL_SECONDS = 10.0
+
+# WarpService thread-join allowance on cancel (the server discards the
+# dropped connection's continuation on its next FixedUpdate; the thread's
+# blocked receive raises out well inside this).
+WARP_CANCEL_JOIN_SECONDS = 5.0
+
+
+class WarpStallTracker:
+    """PURE stall detector for the native-warp watchdog: tracks the last time
+    game UT ADVANCED (wall-clock stamped) and reports a stall once it has
+    stood still for ``stall_seconds`` of wall time while a warp is active.
+    The caller resets it whenever no warp is active. Kept free of I/O so the
+    watchdog decision is unit-testable headless."""
+
+    def __init__(self, stall_seconds: float = WARP_STALL_WALL_SECONDS) -> None:
+        self.stall_seconds = float(stall_seconds)
+        self._last_ut: Optional[float] = None
+        self._last_advance_wall: Optional[float] = None
+
+    def reset(self) -> None:
+        self._last_ut = None
+        self._last_advance_wall = None
+
+    def update(self, wall_now: float, ut: float) -> bool:
+        """Feed one (wall clock, game UT) sample; True = UT has not advanced
+        for at least ``stall_seconds`` of wall time. A non-finite UT counts
+        as no-advance (fail closed toward detection: a stalled/unreadable
+        clock is exactly the wedge class the watchdog exists for)."""
+        finite = isinstance(ut, (int, float)) and not isinstance(ut, bool) \
+            and math.isfinite(ut)
+        if self._last_advance_wall is None:
+            self._last_ut = float(ut) if finite else None
+            self._last_advance_wall = wall_now
+            return False
+        if finite and (self._last_ut is None or float(ut) > self._last_ut + 1e-6):
+            self._last_ut = float(ut)
+            self._last_advance_wall = wall_now
+            return False
+        return (wall_now - self._last_advance_wall) >= self.stall_seconds
+
+
+class WarpService:
+    """Owns a DEDICATED second kRPC connection whose only job is to sit inside
+    the blocking ``SpaceCenter.WarpTo`` RPC, on a daemon background thread --
+    the primary telemetry connection never blocks (per-connection RPC
+    serialization, pinned kRPC Core.cs; research doc section 1). The thread
+    touches ONLY its own connection object; shared state (target, error text)
+    sits behind a lock. The thread NEVER raises into the main loop: any
+    exception (including the deliberate socket close from ``cancel``) is
+    logged and the service goes idle.
+
+    Cancel contract (research doc): close the warp socket -- the server
+    discards the continuation on its next FixedUpdate -- then the PRIMARY
+    connection zeroes both warp factors (the dropped stepper leaves the rate
+    where it was)."""
+
+    def __init__(self, host: str, rpc_port: int, stream_port: int,
+                 connect_fn: Optional[Callable] = None,
+                 client_name: str = "parsek-warp") -> None:
+        self._addr = (str(host), int(rpc_port), int(stream_port))
+        self._client_name = client_name
+        self._connect_fn = connect_fn        # test seam; None = krpc.connect
+        self._lock = threading.Lock()
+        self._conn = None
+        self._thread: Optional[threading.Thread] = None
+        self._target_ut = float("nan")
+        self._cancelled = threading.Event()
+
+    # -- state ---------------------------------------------------------------
+
+    @property
+    def active(self) -> bool:
+        t = self._thread
+        return t is not None and t.is_alive()
+
+    @property
+    def target_ut(self) -> float:
+        """The commanded target UT while active, NaN when idle (the
+        TelemetrySnapshot.warping_to source: fail closed to idle)."""
+        with self._lock:
+            return self._target_ut if self.active else float("nan")
+
+    # -- commands ------------------------------------------------------------
+
+    def warp_to_ut(self, ut: float, primary_sc) -> None:
+        """Fire-and-forget native warp: spawn the daemon thread that connects
+        its own client and blocks inside SpaceCenter.WarpTo. An active warp is
+        cancelled first (kRPC WarpTo cannot retarget; research doc: WarpTo
+        while engaged is a no-op server-side for the STOCK path and a second
+        continuation for ours -- never let two run)."""
+        if self.active:
+            self.cancel(primary_sc)
+        with self._lock:
+            self._target_ut = float(ut)
+        self._cancelled.clear()
+        thread = threading.Thread(
+            target=self._run, args=(float(ut),),
+            name="parsek-warp-to-ut", daemon=True)
+        with self._lock:
+            self._thread = thread
+        thread.start()
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "Warp", "native warp_to dispatched target ut=%.3f" % float(ut)))
+
+    def cancel(self, primary_sc) -> None:
+        """Hard-cancel: drop the warp connection, join the thread (bounded),
+        then zero BOTH warp factors from the primary connection (the dropped
+        continuation leaves the rate where it was). Idempotent."""
+        self._cancelled.set()
+        with self._lock:
+            conn = self._conn
+            self._conn = None
+            thread = self._thread
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Warp", "warp connection close failed: %s" % (exc,)))
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=WARP_CANCEL_JOIN_SECONDS)
+        with self._lock:
+            self._thread = None
+            self._target_ut = float("nan")
+        if primary_sc is not None:
+            # The dropped stepper leaves warp at its last rate: always pair
+            # the socket drop with the factor reset (research doc, residual
+            # risks). Best-effort: a dead primary is the transport-drop path.
+            try:
+                primary_sc.rails_warp_factor = 0
+                primary_sc.physics_warp_factor = 0
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Warp", "post-cancel factor reset failed: %s" % (exc,)))
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "Warp", "native warp cancelled (factors zeroed)"))
+
+    def close(self) -> None:
+        """Teardown at mission end: drop the warp connection + thread. No
+        factor reset (the whole client is going away)."""
+        self._cancelled.set()
+        with self._lock:
+            conn = self._conn
+            self._conn = None
+            thread = self._thread
+            self._thread = None
+            self._target_ut = float("nan")
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=WARP_CANCEL_JOIN_SECONDS)
+
+    # -- background thread ---------------------------------------------------
+
+    def _run(self, ut: float) -> None:
+        """Thread body: connect the dedicated client, sit inside WarpTo, go
+        idle. EVERY exception is caught and logged -- the deliberate cancel
+        (socket closed under the blocked receive) lands here too and is
+        logged at Info, anything else at Warn. Nothing propagates."""
+        conn = None
+        try:
+            if self._connect_fn is not None:
+                conn = self._connect_fn()
+            else:
+                import krpc  # LAZY: only the warp thread needs it
+                host, rpc_port, stream_port = self._addr
+                conn = krpc.connect(name=self._client_name, address=host,
+                                    rpc_port=rpc_port, stream_port=stream_port)
+            with self._lock:
+                if self._cancelled.is_set():
+                    self._conn = None
+                else:
+                    self._conn = conn
+            if self._cancelled.is_set():
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                return
+            conn.space_center.warp_to(ut)
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Warp", "native warp_to completed at target ut=%.3f" % ut))
+        except Exception as exc:
+            level = "Info" if self._cancelled.is_set() else "Warn"
+            _stdout_sink(mlib.format_mission_log_line(
+                level, "Warp", "warp thread ended (%s: %s)"
+                % (type(exc).__name__, str(exc)[:160])))
+        finally:
+            with self._lock:
+                if self._conn is conn:
+                    self._conn = None
+                self._target_ut = float("nan")
 
 
 # ---------------------------------------------------------------------------
@@ -183,10 +388,17 @@ class KrpcMissionControl(MissionControl):
         self._read_fail_streak = 0
         self.client_version = ""
         self.server_version = ""
+        # Native-warp service (Path A): built lazily on the first warp_to_ut
+        # action, with the address captured at open(). The stall tracker is
+        # the pure watchdog core; wall clock injectable for tests.
+        self._warp: Optional[WarpService] = None
+        self._warp_stall = WarpStallTracker()
+        self._addr: Optional[Tuple[str, int, int]] = None
 
     def open(self, host: str, rpc_port: int, stream_port: int) -> None:
         import krpc  # LAZY: the base interpreter must import this shell with no krpc.
 
+        self._addr = (str(host), int(rpc_port), int(stream_port))
         self._conn = krpc.connect(
             name=self._client_name, address=host,
             rpc_port=int(rpc_port), stream_port=int(stream_port))
@@ -278,8 +490,14 @@ class KrpcMissionControl(MissionControl):
                 # -> NaN), which the machine's SOI bound skips (fail open).
                 node_ut=(float(nodes[0].ut) if nodes else float("nan")),
                 time_to_soi=float(orbit.time_to_soi_change),
+                # Native warp state: target UT while the WarpService warp is
+                # active, NaN when idle (the machine's do-not-touch-rails
+                # gate + self-healing re-issue read this).
+                warping_to=(self._warp.target_ut if self._warp is not None
+                            else float("nan")),
             )
             self._read_fail_streak = 0
+            self._warp_watchdog(sc, snapshot.ut)
             return snapshot
         except Exception:
             self._read_fail_streak += 1
@@ -503,6 +721,20 @@ class KrpcMissionControl(MissionControl):
             # physics warp is MechJeb's own WarpToUT 2.0x physics cap
             # (decompiled 2.15.1 MechJebModuleWarpController).
             sc.physics_warp_factor = int(action.value)
+        elif kind == mlib.ACTION_WARP_TO_UT:
+            # Native fire-and-forget warp (Path A): the WarpService's
+            # dedicated second connection blocks inside SpaceCenter.WarpTo on
+            # a daemon thread; this primary connection keeps polling. An
+            # active warp is cancelled + re-issued (retarget contract).
+            self._ensure_warp_service().warp_to_ut(float(action.value), sc)
+            self._warp_stall.reset()
+        elif kind == mlib.ACTION_CANCEL_WARP:
+            # Hard-cancel the native warp: drop the warp socket (server
+            # discards the continuation next FixedUpdate) + zero both warp
+            # factors from THIS primary connection. Idempotent when idle.
+            if self._warp is not None:
+                self._warp.cancel(sc)
+            self._warp_stall.reset()
         elif kind == mlib.ACTION_AP_POINT_NODE:
             # DIY correction burner (live finding 8): point kRPC's NATIVE
             # AutoPilot along the first node's burn vector. Node.ReferenceFrame's
@@ -587,7 +819,66 @@ class KrpcMissionControl(MissionControl):
         else:
             raise ValueError("unknown action kind: %r" % (kind,))
 
+    def _ensure_warp_service(self) -> "WarpService":
+        if self._warp is None:
+            if self._addr is None:
+                raise RuntimeError("warp_to_ut before open(): no address")
+            host, rpc_port, stream_port = self._addr
+            self._warp = WarpService(host, rpc_port, stream_port,
+                                     client_name=self._client_name + "-warp")
+        return self._warp
+
+    def _warp_watchdog(self, sc, ut: float) -> None:
+        """Per-poll native-warp watchdog (fly-loop contract, research doc):
+        while a WarpService warp is active, a game-UT standstill of
+        WARP_STALL_WALL_SECONDS first probes KRPC.Paused -- a dialog pause
+        does NOT freeze the kRPC server (PauseServerWithGame defaults false),
+        so the pause is cleared remotely and the warp resumes -- and cancels
+        the warp when the stall has no pause to clear (a wedged continuation
+        must never outlive the watchdog). Never raises: every probe is
+        best-effort and a failure escalates to the cancel path."""
+        warp = self._warp
+        if warp is None or not warp.active:
+            self._warp_stall.reset()
+            return
+        if not self._warp_stall.update(time.monotonic(), ut):
+            return
+        paused = False
+        try:
+            paused = bool(self._conn.krpc.paused)
+        except Exception as exc:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Warp", "watchdog pause probe failed: %s" % (exc,)))
+        if paused:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Warp",
+                "UT stalled %ds mid-warp with game PAUSED; clearing pause"
+                % int(self._warp_stall.stall_seconds)))
+            try:
+                self._conn.krpc.paused = False
+                self._warp_stall.reset()
+                return
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Warp", "unpause failed (%s); cancelling warp" % (exc,)))
+        else:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Warp",
+                "UT stalled %ds mid-warp (not paused); cancelling warp"
+                % int(self._warp_stall.stall_seconds)))
+        try:
+            warp.cancel(sc)
+        finally:
+            self._warp_stall.reset()
+
     def close(self) -> None:
+        warp = self._warp
+        self._warp = None
+        if warp is not None:
+            try:
+                warp.close()
+            except Exception:
+                pass
         conn = self._conn
         self._conn = None
         if conn is not None:
@@ -879,12 +1170,13 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         log.verbose_rate_limited(
             "telemetry", state.phase,
             "telemetry ap=%s pe=%s ecc=%s inc=%s alt=%s vspd=%s body=%s nodes=%d "
-            "nodeDv=%s nodeUt=%s tts=%s lf=%s thr=%s situation=%s warp=%sx%s apErr=%s"
+            "nodeDv=%s nodeUt=%s tts=%s warpTo=%s lf=%s thr=%s situation=%s "
+            "warp=%sx%s apErr=%s"
             % (_fmt(snapshot.apoapsis), _fmt(snapshot.periapsis), _fmt(snapshot.eccentricity),
                _fmt(snapshot.inclination), _fmt(snapshot.altitude),
                _fmt(snapshot.vertical_speed), snapshot.body or "?", snapshot.node_count,
                _fmt(snapshot.node_dv), _fmt(snapshot.node_ut), _fmt(snapshot.time_to_soi),
-               _fmt(snapshot.liquid_fuel), _fmt(snapshot.throttle),
+               _fmt(snapshot.warping_to), _fmt(snapshot.liquid_fuel), _fmt(snapshot.throttle),
                snapshot.situation, snapshot.warp_mode,
                _fmt(snapshot.warp_rate), _fmt(snapshot.ap_error)))
         if state.done:

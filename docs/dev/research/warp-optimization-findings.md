@@ -223,6 +223,67 @@ hardcoded, so the win is capped and the risk concentrated.)
 | B6 Minmus | same classes, longer Kerbin leg + 9-day coast | **~6-10 min** |
 | B7 Duna (projected) | without these fixes: ~300-day transfer at a clamped/flat factor + SOI blow-through risk | factor-7 coast becomes SAFE (~5-10 min wall for the whole heliocentric leg via the time stair); ejection-window waits warp instead of idling at 1x |
 
+## Implemented: Path A (native warp-to-UT, 2026-07-22, branch native-warp)
+
+Follow-up to the ranking in `docs/dev/research/native-warp-to-ut.md`: Path A
+(second-connection SpaceCenter.WarpTo) is now implemented per the research
+doc's WarpService sketch and fly-loop watchdog contract.
+
+Runner side (`mission_runner.py`):
+
+- `WarpService`: a DEDICATED second kRPC connection owned by a daemon
+  background thread that sits inside the blocking `SpaceCenter.WarpTo`; the
+  primary telemetry connection never blocks (per-connection RPC
+  serialization, pinned kRPC Core.cs). The thread touches only its own
+  connection object; shared state (target UT, cancel flag) lives behind a
+  lock + `threading.Event`; every thread exception is logged and the service
+  goes idle -- nothing ever raises into the fly loop. `cancel()` closes the
+  warp socket (the server discards the continuation next FixedUpdate) and
+  the PRIMARY connection zeroes both warp factors (the dropped stepper
+  leaves the rate where it was). Retarget = cancel + re-issue (kRPC WarpTo
+  cannot retarget). Injectable `connect_fn` makes it headless-testable.
+- `TelemetrySnapshot.warping_to`: the target UT while the service warp is
+  active, NaN when idle (fail closed). Telemetry line carries `warpTo=`.
+- Watchdog (`_warp_watchdog` + pure `WarpStallTracker`): while a warp is
+  active, a game-UT standstill of `WARP_STALL_WALL_SECONDS` (10 s wall)
+  first probes `KRPC.Paused` (a dialog pause does NOT freeze the kRPC
+  server -- `PauseServerWithGame` defaults false -- so the pause is cleared
+  remotely and the warp resumes), and cancels the warp when the stall has
+  no pause to clear.
+
+Machine side (`mlib.py`, actions `warp_to_ut` / `cancel_warp`):
+
+- COAST pending node: ONE native warp to `node_ut - nodeWarpLeadSeconds`
+  (1x inside the lead window; NaN node UT fails closed to 1x).
+- COAST post-correction (rounds spent, `time_to_soi` finite and beyond
+  `soiLeadSeconds`, default 60): native warp to `now + time_to_soi -
+  soiLeadSeconds`; re-issued only when the SOI estimate shifts more than
+  `WARP_RETARGET_THRESHOLD_SECONDS` (120 game-s).
+- TARGET-FLYBY outer legs: native warp to the SOI EXIT minus the lead; the
+  game's own altitude limits shape the periapsis passage (Mun 60 km
+  periapsis runs at most 100x -- exactly the proven evidence cadence),
+  table-free.
+- The correction-trigger altitude approach KEEPS the live-proven rails
+  distance stair (+ SOI time bound + altitude-legality clamp), and the
+  rails stair remains the documented fallback whenever the native primitive
+  has no target (no encounter, inside a lead window).
+- Contract: while a native warp is commanded/active the machine NEVER emits
+  `set_rails_warp` (two writers fight; WarpTo wins within 1-2 frames) -- a
+  rails intent first emits `cancel_warp` and the factor follows next poll.
+  Self-healing: `warping_to` NaN while the commanded target is ahead
+  re-issues at most once per `WARP_REISSUE_SECONDS` (30 game-s). Arrival
+  (`ut >= target`) clears silently (the server stepper zeroes the factor).
+- Guards preserved verbatim: the impact guard is AUTHORITATIVE (cancels an
+  active native warp, holds 1x), RETURN entry and the correction-trigger
+  prelude cancel, frozen/vessel-lost detectors, aligned debounce, give-ups,
+  and the physics-warp flip are untouched.
+
+This supersedes the section-3 poll-driven SOI stair for the no-trigger legs
+(the stair remains for trigger approaches + fallback) and implements the
+operator's table-free native-adaptation principle for every long time-bound
+wait -- including B7's day-scale ejection-window holds, which now cost one
+RPC instead of thousands of polls.
+
 ## Live-tuning expectations for the next flight
 
 - Watch the first correction flip under `warp=PHYSICSx2`: if the kRPC AP
