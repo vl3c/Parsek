@@ -2037,59 +2037,120 @@ class B5MachineTests(unittest.TestCase):
                                                     altitude=8_000_000.0))
         self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
 
-    def test_coast_warps_toward_pending_node_ut(self):
-        """Operator directive 2026-07-22: 'warp to maneuver node' as a
-        TIME-based stair-down, never the blocking warp_to. A far-future node
-        warps at the stair factor for the remaining time-to-(node - lead); the
-        factor stairs down as the node approaches; inside the lead window the
-        coast holds 1x for the flip + settle."""
+    def test_coast_native_warps_toward_pending_node(self):
+        """Path A: a pending node issues ONE native warp_to_ut toward
+        node_ut - nodeWarpLeadSeconds; while the game reports the warp active
+        the machine emits nothing (and never a rails factor); past the target
+        the command clears with no action; a NaN node_ut never warps."""
         state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
-        # Node 40,000 s out (minus the 120 s lead): 10,000x fits the stair.
+        # Node 40,000 s out: one native warp to node_ut - 120.
         state, actions = mlib.b5_decide(state, snap(
             ut=1000.0, body="Kerbin", altitude=8_000_000.0,
             node_count=1, node_ut=41_000.0))
-        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
-        # 5,000 s remaining: 10,000x would overshoot; 1000x fits.
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO_UT, 40_880.0)])
+        self.assertEqual(state.warp_to_cmd, 40_880.0)
+        self.assertEqual(state.warp_cmd, 0)
+        # Warp active (warping_to = target): silent hold, no rails emission.
         state, actions = mlib.b5_decide(state, snap(
-            ut=36_000.0, body="Kerbin", altitude=8_000_000.0,
-            node_count=1, node_ut=41_000.0, warp_mode="RAILS",
-            warp_rate=10_000.0))
-        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
-        # 30 s remaining outside the lead: only 10x fits.
-        state, actions = mlib.b5_decide(state, snap(
-            ut=40_850.0, body="Kerbin", altitude=8_000_000.0,
-            node_count=1, node_ut=41_000.0, warp_mode="RAILS",
-            warp_rate=1000.0))
-        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 2.0)])
-        # Inside the 120 s lead window: 1x (room for the flip + settle).
+            ut=20_000.0, body="Kerbin", altitude=8_000_000.0,
+            node_count=1, node_ut=41_000.0, warping_to=40_880.0,
+            warp_mode="RAILS", warp_rate=10_000.0))
+        self.assertEqual(actions, [])
+        # Past the target (inside the lead window): command clears, no
+        # action needed (the server stepper zeroed the factor on arrival).
         state, actions = mlib.b5_decide(state, snap(
             ut=40_900.0, body="Kerbin", altitude=8_000_000.0,
-            node_count=1, node_ut=41_000.0, warp_mode="RAILS", warp_rate=10.0))
-        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+            node_count=1, node_ut=41_000.0))
+        self.assertEqual(actions, [])
+        self.assertIsNone(state.warp_to_cmd)
+        # NaN node_ut (fail closed): no warp of any kind.
+        fresh = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        fresh, actions = mlib.b5_decide(fresh, snap(
+            ut=10.0, body="Kerbin", altitude=8_000_000.0, node_count=1))
+        self.assertEqual(actions, [])
+        self.assertIsNone(fresh.warp_to_cmd)
 
-    def test_coast_soi_approach_stairs_down_to_flyby_floor(self):
-        """The SOI-approach bound: a finite time_to_soi stairs the coast
-        factor down (one 0.5 s poll at 10,000x could advance ~5,000 game-s
-        past the boundary -- fatal for small SOIs / B7), FLOORED at the flyby
-        factor so the boundary still crosses at ~100x, never a 1x cliff."""
+    def test_coast_native_warp_self_heal_is_bounded(self):
+        """Self-healing: warping_to NaN while the commanded target is still
+        ahead re-issues the SAME warp, at most once per 30 game-s."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
+                          warp_to_cmd=40_880.0, last_warp_issue_ut=1000.0)
+        # 10 game-s after the issue: inside the re-issue bound, no spam.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=1010.0, body="Kerbin", altitude=8_000_000.0,
+            node_count=1, node_ut=41_000.0))
+        self.assertEqual(actions, [])
+        # 35 game-s after the issue and still no active warp: re-issue once.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=1035.0, body="Kerbin", altitude=8_000_000.0,
+            node_count=1, node_ut=41_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO_UT, 40_880.0)])
+        self.assertEqual(state.last_warp_issue_ut, 1035.0)
+
+    def test_coast_soi_native_warp_and_retarget_threshold(self):
+        """Path A (b): the post-correction coast issues a native warp to
+        now + time_to_soi - soiLeadSeconds; small SOI-estimate drift holds,
+        a shift beyond 120 s re-issues; inside the lead window the rails
+        fallback (time stair floored at the flyby factor) takes over."""
         state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
-        # Encounter 200,000 s out: no bound bites, full coast factor.
+        # Encounter 200,000 s out: one native warp to boundary minus 60 s.
         state, actions = mlib.b5_decide(state, snap(
             ut=10.0, body="Kerbin", altitude=8_000_000.0, time_to_soi=200_000.0))
-        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
-        # 5,000 s to the boundary: 10,000x no longer fits -> 1000x.
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO_UT, 199_950.0)])
+        # Estimate drift under the 120 s threshold: hold (warp active).
         state, actions = mlib.b5_decide(state, snap(
-            ut=20.0, body="Kerbin", altitude=9_000_000.0, time_to_soi=5_000.0,
+            ut=5_000.0, body="Kerbin", altitude=9_000_000.0,
+            time_to_soi=195_040.0, warping_to=199_950.0,
             warp_mode="RAILS", warp_rate=10_000.0))
-        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
-        # 30 s to the boundary: the raw stair says 10x, but the flyby-factor
-        # FLOOR keeps 100x (bounded ~100 game-s overshoot into a
-        # 2,430,000 m-radius SOI is nothing; a 1x cliff at the boundary is
-        # real wall time). Fresh state so the emission is observable.
-        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        self.assertEqual(actions, [])
+        # Estimate shifted 400 s: re-issue at the fresh target.
         state, actions = mlib.b5_decide(state, snap(
+            ut=6_000.0, body="Kerbin", altitude=9_000_000.0,
+            time_to_soi=193_550.0, warping_to=199_950.0,
+            warp_mode="RAILS", warp_rate=10_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO_UT, 199_490.0)])
+        self.assertEqual(state.warp_to_cmd, 199_490.0)
+        # Inside the 60 s lead window: rails fallback -- time stair floored
+        # at the flyby factor (never a 1x cliff at the boundary). Fresh state
+        # so the emission is observable without a preceding cancel.
+        fresh = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        fresh, actions = mlib.b5_decide(fresh, snap(
             ut=30.0, body="Kerbin", altitude=10_000_000.0, time_to_soi=30.0))
         self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
+
+    def test_coast_rails_intent_cancels_active_native_warp_first(self):
+        """Never two warp writers: when the machine wants a rails factor but
+        a native warp is still (expected) active -- e.g. the encounter was
+        lost mid-warp -- it emits CANCEL first and the rails command follows
+        on the next poll."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
+                          warp_to_cmd=500_000.0, last_warp_issue_ut=10.0)
+        # Encounter gone (tts NaN): rails fallback wanted, native active ->
+        # CANCEL only this frame.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=20.0, body="Kerbin", altitude=8_000_000.0,
+            warping_to=500_000.0, warp_mode="RAILS", warp_rate=10_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_CANCEL_WARP)])
+        self.assertIsNone(state.warp_to_cmd)
+        self.assertEqual(state.warp_cmd, 0)
+        # Next poll (warp idle): the rails coast factor flows.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=21.0, body="Kerbin", altitude=8_000_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+
+    def test_coast_trigger_prelude_cancels_native_warp(self):
+        """Crossing a correction trigger with a native warp active cancels
+        it in the prelude (instead of the rails-0 prelude) before planning."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=1,
+                          warp_to_cmd=777_777.0)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=100.0, body="Kerbin", altitude=6_200_000.0,
+            warping_to=777_777.0, warp_mode="RAILS", warp_rate=1000.0))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
+        self.assertIsNone(state.warp_to_cmd)
+        self.assertEqual(actions, [Action(mlib.ACTION_CANCEL_WARP),
+                                   Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
+                                          limit=150.0)])
 
     def test_coast_empty_body_stays_without_hop(self):
         # "" = no reading this frame: NOT the ejected terminal, NOT a hop.
@@ -2160,6 +2221,63 @@ class B5MachineTests(unittest.TestCase):
             ut=20.0, altitude=20_000.0, periapsis=15_000.0, body="Mun",
             warp_mode="RAILS", warp_rate=100.0))
         self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 3.0)])
+
+    def test_flyby_outer_leg_native_warps_to_soi_exit(self):
+        """Path A (c): the flyby outer legs issue one native warp_to_ut to
+        the SOI EXIT minus soiLeadSeconds; the game's own altitude limits
+        shape the periapsis passage. Inside the lead window the rails stair
+        fallback takes over."""
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=100.0, altitude=2_000_000.0, periapsis=60_000.0, body="Mun",
+            time_to_soi=8_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO_UT, 8_040.0)])
+        self.assertEqual(state.warp_to_cmd, 8_040.0)
+        # Active warp: silent hold (never a rails emission alongside).
+        state, actions = mlib.b5_decide(state, snap(
+            ut=2_000.0, altitude=500_000.0, periapsis=60_000.0, body="Mun",
+            time_to_soi=6_090.0, warping_to=8_040.0,
+            warp_mode="RAILS", warp_rate=1000.0))
+        self.assertEqual(actions, [])
+        # Near the exit (tts <= lead): fallback rails stair. Fresh state so
+        # the emission is observable without a preceding cancel frame.
+        fresh = _b5_state(mlib.B5_TARGET_FLYBY)
+        fresh, actions = mlib.b5_decide(fresh, snap(
+            ut=9_000.0, altitude=2_300_000.0, periapsis=60_000.0, body="Mun",
+            time_to_soi=40.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+
+    def test_flyby_impact_guard_cancels_native_warp(self):
+        """The impact guard stays AUTHORITATIVE over the native warp: a
+        sub-surface periapsis below the guard altitude cancels an active
+        warp_to_ut immediately, then holds 1x under live telemetry."""
+        state = _b5_state(mlib.B5_TARGET_FLYBY, warp_to_cmd=99_999.0,
+                          last_warp_issue_ut=10.0)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=20.0, altitude=300_000.0, periapsis=-28_000.0, body="Mun",
+            time_to_soi=5_000.0, warping_to=99_999.0,
+            warp_mode="RAILS", warp_rate=1000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_CANCEL_WARP)])
+        self.assertIsNone(state.warp_to_cmd)
+        self.assertFalse(state.done)
+        # Warp idle next poll: 1x holds silently (warp_cmd already 0).
+        state, actions = mlib.b5_decide(state, snap(
+            ut=21.0, altitude=299_000.0, periapsis=-28_000.0, body="Mun",
+            time_to_soi=5_000.0))
+        self.assertEqual(actions, [])
+
+    def test_return_entry_cancels_native_warp(self):
+        """Terminal RETURN entry cancels an active native warp (the settle
+        tail must run at the game's own 1x, not inside a leftover warp)."""
+        state = _b5_state(mlib.B5_TARGET_FLYBY, warp_to_cmd=90_000.0,
+                          last_warp_issue_ut=10.0)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=80_000.0, altitude=3_000_000.0, body="Kerbin",
+            warping_to=90_000.0, warp_mode="RAILS", warp_rate=1000.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.phase, mlib.B5_RETURN)
+        self.assertIsNone(state.warp_to_cmd)
+        self.assertEqual(actions, [Action(mlib.ACTION_CANCEL_WARP)])
 
     def test_flyby_ejection_to_sun_is_assert_fail(self):
         state = _b5_state(mlib.B5_TARGET_FLYBY)

@@ -19,8 +19,11 @@ Each test names the regression it guards. NO krpc, NO KSP, NO network, NO real
 filesystem write (an in-memory writer captures the result JSON).
 """
 
+import math
 import os
 import sys
+import threading
+import time
 import unittest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -604,6 +607,160 @@ class _FakeConn:
         ok = self._results[self._i] if self._i < len(self._results) else True
         self._i += 1
         return ok
+
+
+class _FakeWarpSpaceCenter:
+    """Stand-in for the warp connection's space_center: warp_to blocks on a
+    gate like the real RPC blocks on the server, then raises when the fake
+    socket was closed under it (the real cancel path)."""
+
+    def __init__(self, gate, conn):
+        self._gate = gate
+        self._conn = conn
+        self.warped_to = []
+
+    def warp_to(self, ut):
+        self.warped_to.append(float(ut))
+        self._gate.wait(timeout=5.0)
+        if self._conn.closed:
+            raise ConnectionAbortedError("warp socket closed")
+
+
+class _FakeWarpConn:
+    def __init__(self, gate):
+        self.closed = False
+        self._gate = gate
+        self.space_center = _FakeWarpSpaceCenter(gate, self)
+
+    def close(self):
+        self.closed = True
+        self._gate.set()
+
+
+class _FakePrimarySc:
+    """Primary-connection space_center stand-in recording the post-cancel
+    factor resets."""
+    def __init__(self):
+        self.rails_sets = []
+        self.physics_sets = []
+
+    @property
+    def rails_warp_factor(self):
+        return 0
+
+    @rails_warp_factor.setter
+    def rails_warp_factor(self, value):
+        self.rails_sets.append(int(value))
+
+    @property
+    def physics_warp_factor(self):
+        return 0
+
+    @physics_warp_factor.setter
+    def physics_warp_factor(self, value):
+        self.physics_sets.append(int(value))
+
+
+def _wait_until(pred, timeout=2.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if pred():
+            return True
+        time.sleep(0.01)
+    return pred()
+
+
+class WarpServiceTests(unittest.TestCase):
+    """Headless WarpService contract tests over an injected fake connection:
+    the daemon thread owns its own connection, active/target state reads
+    correctly, cancel closes the socket + zeroes the primary factors, natural
+    completion goes idle, and a thread exception never propagates."""
+
+    def _service(self, gate):
+        conn = _FakeWarpConn(gate)
+        svc = mission_runner.WarpService(
+            "127.0.0.1", 50000, 50001, connect_fn=lambda: conn)
+        return svc, conn
+
+    def test_warp_to_ut_is_fire_and_forget_and_exposes_target(self):
+        gate = threading.Event()
+        svc, conn = self._service(gate)
+        try:
+            svc.warp_to_ut(12345.0, _FakePrimarySc())
+            self.assertTrue(_wait_until(
+                lambda: conn.space_center.warped_to == [12345.0]))
+            self.assertTrue(svc.active)
+            self.assertEqual(svc.target_ut, 12345.0)
+        finally:
+            gate.set()
+            svc.close()
+
+    def test_natural_completion_goes_idle(self):
+        gate = threading.Event()
+        svc, conn = self._service(gate)
+        svc.warp_to_ut(500.0, _FakePrimarySc())
+        self.assertTrue(_wait_until(lambda: len(conn.space_center.warped_to) == 1))
+        gate.set()  # the RPC returns (arrival)
+        self.assertTrue(_wait_until(lambda: not svc.active))
+        self.assertTrue(math.isnan(svc.target_ut))
+
+    def test_cancel_closes_socket_and_zeroes_factors(self):
+        gate = threading.Event()
+        svc, conn = self._service(gate)
+        sc = _FakePrimarySc()
+        svc.warp_to_ut(9999.0, sc)
+        self.assertTrue(_wait_until(lambda: len(conn.space_center.warped_to) == 1))
+        svc.cancel(sc)
+        self.assertTrue(conn.closed)
+        self.assertFalse(svc.active)
+        self.assertTrue(math.isnan(svc.target_ut))
+        self.assertEqual(sc.rails_sets, [0])
+        self.assertEqual(sc.physics_sets, [0])
+
+    def test_connect_failure_never_raises_into_caller(self):
+        svc = mission_runner.WarpService(
+            "127.0.0.1", 50000, 50001,
+            connect_fn=lambda: (_ for _ in ()).throw(OSError("no server")))
+        sc = _FakePrimarySc()
+        svc.warp_to_ut(777.0, sc)  # must not raise
+        self.assertTrue(_wait_until(lambda: not svc.active))
+        self.assertTrue(math.isnan(svc.target_ut))
+        svc.close()
+
+
+class WarpStallTrackerTests(unittest.TestCase):
+    """Pure watchdog core: UT standstill for the wall deadline = stall; any
+    UT advance re-arms; non-finite UT counts as no-advance (fail closed
+    toward detection); reset clears history."""
+
+    def test_advancing_ut_never_stalls(self):
+        t = mission_runner.WarpStallTracker(stall_seconds=10.0)
+        self.assertFalse(t.update(0.0, 100.0))
+        self.assertFalse(t.update(5.0, 5100.0))
+        self.assertFalse(t.update(20.0, 155100.0))
+
+    def test_frozen_ut_stalls_after_deadline(self):
+        t = mission_runner.WarpStallTracker(stall_seconds=10.0)
+        self.assertFalse(t.update(0.0, 100.0))
+        self.assertFalse(t.update(5.0, 100.0))      # 5 s standstill: not yet
+        self.assertTrue(t.update(10.0, 100.0))      # 10 s standstill: stall
+        # An advance re-arms.
+        self.assertFalse(t.update(11.0, 200.0))
+        self.assertFalse(t.update(15.0, 200.0))
+        self.assertTrue(t.update(21.5, 200.0))
+
+    def test_nan_ut_counts_as_no_advance(self):
+        t = mission_runner.WarpStallTracker(stall_seconds=10.0)
+        self.assertFalse(t.update(0.0, 100.0))
+        self.assertFalse(t.update(6.0, float("nan")))
+        self.assertTrue(t.update(10.0, float("nan")))
+
+    def test_reset_clears_history(self):
+        t = mission_runner.WarpStallTracker(stall_seconds=10.0)
+        self.assertFalse(t.update(0.0, 100.0))
+        t.reset()
+        self.assertFalse(t.update(30.0, 100.0))     # fresh baseline, no stall
+        self.assertTrue(t.update(40.0, 100.0))
 
 
 class ReadFailStreakTests(unittest.TestCase):

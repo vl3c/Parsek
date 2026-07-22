@@ -85,9 +85,15 @@ coastWarpFactor            = 6
 # 10,000x on the outer SOI legs.
 flybyWarpFactor            = 5
 flybyMaxWarpFactor         = 6
-# Pending-node coasts warp toward node UT minus this lead (time stair, non-
-# blocking); 1x only inside the lead window.
+# Pending-node coasts issue a NATIVE warp_to_ut (Path A WarpService: a
+# dedicated second kRPC connection sits in SpaceCenter.WarpTo; the game
+# adapts the factor, table-free) toward node UT minus this lead; 1x only
+# inside the lead window.
 nodeWarpLeadSeconds        = 120
+# Post-correction coast + flyby outer legs natively warp to
+# now + timeToSoi - this lead, regaining 1x-poll control just before every
+# SOI boundary.
+soiLeadSeconds             = 60
 # Correction-burn attitude flip at 2x physics warp (dropped to 1x before
 # throttle-up); set 0 to revert to the proven 1x flip if the kRPC AP
 # misbehaves under physics warp on the live craft.
