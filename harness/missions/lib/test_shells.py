@@ -327,14 +327,38 @@ class PhaseStallTests(unittest.TestCase):
 
 
 class MidFlightExceptionTests(unittest.TestCase):
-    def test_raise_mid_flight_writes_error_with_traceback(self):
-        """The fake raises a non-kRPC RuntimeError on the 2nd telemetry read; the
-        shell catches it, classifies MISSION-ERROR (edge 9 internal bug), writes a
-        traceback string, closes in the finally, exits nonzero. Guards an exception
-        leaking as a hang or as no result file, and guards an internal bug being
-        mis-filed as a flake."""
-        frames = [snap(ut=0.0, stage_solid_fuel=1.0, situation="PRE_LAUNCH"), snap()]
+    def test_one_off_read_exception_is_tolerated_not_fatal(self):
+        """Seventh live B5 flight (2026-07-22): a server-ANSWERED read failure
+        (a vessel-state RPC error at impact) must NOT kill the mission on the
+        first raise -- the fly loop tolerates non-transport read exceptions so
+        the control seam's read-fail streak can escalate to the vessel-lost
+        terminal. A ONE-OFF such raise polls on and the flight completes."""
+        frames = [
+            snap(ut=0.0, stage_solid_fuel=1.0, apoapsis=14000, situation="PRE_LAUNCH"),
+            snap(ut=1.0, stage_solid_fuel=0.5, apoapsis=14000, situation="FLYING"),
+            snap(ut=2.0, stage_solid_fuel=0.0, apoapsis=14000, situation="FLYING"),
+            snap(ut=4.0, vertical_speed=-5.0, apoapsis=14000, situation="FLYING"),
+            snap(ut=6.0, altitude=2000, apoapsis=14000, situation="FLYING"),
+            snap(ut=7.0, altitude=100, apoapsis=14000, situation="LANDED"),
+        ]
         control = FakeMissionControl(frames, raise_on_read_index=1)
+        code, result = run(b1_pad_hop.SPEC, B1_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        self.assertTrue(control.closed)
+
+    def test_raise_in_perform_writes_error_with_traceback(self):
+        """An internal bug OUTSIDE the tolerated read path (perform raising a
+        non-kRPC RuntimeError) still classifies MISSION-ERROR (edge 9), writes
+        a traceback string, closes in the finally, exits nonzero. Guards an
+        exception leaking as a hang or as no result file, and guards an
+        internal bug being mis-filed as a flake."""
+        class _PerformBoom(FakeMissionControl):
+            def perform(self, action):
+                raise RuntimeError("perform blew up mid-flight")
+
+        frames = [snap(ut=0.0, stage_solid_fuel=1.0, situation="PRE_LAUNCH"), snap()]
+        control = _PerformBoom(frames)
         code, result = run(b1_pad_hop.SPEC, B1_PARAMS, control)
         self.assertEqual(result["verdict"], mlib.MISSION_ERROR)
         self.assertNotEqual(code, 0)

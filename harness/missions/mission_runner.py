@@ -465,17 +465,16 @@ class KrpcMissionControl(MissionControl):
                     pass  # best-effort; the machine's stagnation watchdog owns the wedge
                 ne.execute_all_nodes()
         elif kind == mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES:
-            # B5 burn-exit cleanup: stop the executor (it may be autowarping
-            # toward a stray arrival node) and remove every remaining node, so
-            # the coast hops are not suppressed by node_count > 0 and no
-            # unwanted capture burn ever flies. Abort is best-effort (a not-
-            # running executor may throw); remove_nodes is the load-bearing
-            # part (kRPC Control.RemoveNodes, verified in the pinned source).
-            if self._mechjeb is not None:
-                try:
-                    self._mechjeb.node_executor.abort()
-                except Exception:
-                    pass
+            # B5 burn-exit cleanup: remove every remaining node, so the coast
+            # hops are not suppressed by node_count > 0 and no unwanted burn
+            # ever flies. Deliberately NO node_executor.abort() call: MechJeb's
+            # executor aborts ITSELF on the next physics frame once the node
+            # list is empty (decompiled 2.15.1 OnFixedUpdate: !_hasNodes ->
+            # Abort()), and an EXTERNAL Abort() is the prime suspect for the
+            # poisoned re-engage observed on flights 6-7 (every fresh
+            # ExecuteAllNodes works; every post-external-abort one never
+            # starts). Letting MechJeb run its own abort path keeps its
+            # attitude/thrust user bookkeeping consistent.
             v.control.remove_nodes()
         else:
             raise ValueError("unknown action kind: %r" % (kind,))
@@ -715,7 +714,22 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             log.warn(state.phase, "wall budget elapsed in phase %s -> %s"
                      % (state.phase, mlib.MISSION_FLAKE))
             return replace(state, verdict=mlib.MISSION_FLAKE, flake_phase=state.phase, done=True), frames
-        snapshot = control.read_snapshot()
+        try:
+            snapshot = control.read_snapshot()
+        except Exception as exc:  # noqa: BLE001
+            if mlib.is_transport_drop_exception(type(exc).__name__):
+                raise  # dead connection: the retryable-flake path (edges 5/8)
+            # A server-ANSWERED read failure (vessel-state RPC error, e.g. the
+            # maneuver-nodes read on a just-destroyed vessel -- seventh live B5
+            # flight): tolerate and poll on. Bounded inherently: the control
+            # seam's read-fail streak escalates to a vessel_lost snapshot
+            # within READ_FAIL_STREAK_LIMIT consecutive failures, so at most
+            # two of these continues happen before the machine reaches its
+            # honest vessel-lost terminal.
+            log.warn(state.phase, "telemetry read failed (%s: %s); polling on"
+                     % (type(exc).__name__, str(exc)[:160]))
+            sleep(poll_interval)
+            continue
         frames.append(snapshot)
         # Edge 7: an unexpected physics (or, for B1, any) warp state distorts the
         # flight; flake naming the phase + warp state rather than record a warped

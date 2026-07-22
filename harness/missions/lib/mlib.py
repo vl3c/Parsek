@@ -2097,6 +2097,28 @@ CONNECTION_DROP_EXCEPTION_NAMES = frozenset({
     "RPCError", "StreamError",
 })
 
+# TRANSPORT-layer drops only (socket dead, stream torn): the fly loop re-raises
+# these immediately (a dead connection is the retryable-flake path, edges 5/8).
+# Deliberately NARROWER than CONNECTION_DROP_EXCEPTION_NAMES: an RPCError-class
+# failure means the server ANSWERED -- a vessel-state problem (e.g. the
+# maneuver-nodes read failing on a just-destroyed vessel, seventh live B5
+# flight 2026-07-22) -- which the fly loop TOLERATES so the control seam's
+# read-fail streak can escalate to the honest vessel-lost terminal instead of
+# killing the mission as MISSION-ERROR on the first raise.
+TRANSPORT_DROP_EXCEPTION_NAMES = frozenset({
+    "ConnectionError", "ConnectionResetError", "ConnectionAbortedError",
+    "ConnectionRefusedError", "BrokenPipeError", "TimeoutError", "socket.timeout",
+    "StreamError", "EOFError", "OSError",
+})
+
+
+def is_transport_drop_exception(exc_name: Optional[str]) -> bool:
+    """True iff the exception NAME is a transport-layer connection drop the fly
+    loop must re-raise immediately (vs a server-answered RPC failure it
+    tolerates into the read-fail streak). Pure by name so mlib never imports
+    krpc."""
+    return str(exc_name or "") in TRANSPORT_DROP_EXCEPTION_NAMES
+
 
 def classify_post_connect_exception(exc_module: Optional[str], exc_name: Optional[str]) -> str:
     """Classify an exception raised AFTER a successful connect (design edge 5 / 8
