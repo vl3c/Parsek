@@ -267,6 +267,8 @@ class KrpcMissionControl(MissionControl):
                 body=str(orbit.body.name),
                 node_count=len(nodes),
                 node_dv=(float(nodes[0].remaining_delta_v) if nodes else float("nan")),
+                liquid_fuel=float(v.resources.amount("LiquidFuel")),
+                throttle=float(v.control.throttle),
             )
             self._read_fail_streak = 0
             return snapshot
@@ -473,10 +475,12 @@ class KrpcMissionControl(MissionControl):
                 ap = v.auto_pilot
                 ap.reference_frame = nodes[0].reference_frame
                 ap.target_direction = (0.0, 1.0, 0.0)
-                try:
-                    ap.deceleration_time = (15.0, 15.0, 15.0)
-                except Exception:
-                    pass  # tuning is best-effort; the attitude gate is the safety
+                # NO deceleration_time override here (unlike the B4 retro
+                # hold): the tenth live flight measured a 0.06 deg/s crawl
+                # from near-anti-parallel with the (15,15,15) tuning -- the
+                # kRPC defaults turn far faster, and the DIY burn's rough
+                # 30-degree start gate + chase-the-vector burning tolerate the
+                # coarser hold.
                 ap.engage()
         elif kind == mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES:
             # B5 burn-exit cleanup: remove every remaining node, so the coast
@@ -785,11 +789,12 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         log.verbose_rate_limited(
             "telemetry", state.phase,
             "telemetry ap=%s pe=%s ecc=%s inc=%s alt=%s vspd=%s body=%s nodes=%d "
-            "nodeDv=%s situation=%s warp=%sx%s apErr=%s"
+            "nodeDv=%s lf=%s thr=%s situation=%s warp=%sx%s apErr=%s"
             % (_fmt(snapshot.apoapsis), _fmt(snapshot.periapsis), _fmt(snapshot.eccentricity),
                _fmt(snapshot.inclination), _fmt(snapshot.altitude),
                _fmt(snapshot.vertical_speed), snapshot.body or "?", snapshot.node_count,
-               _fmt(snapshot.node_dv), snapshot.situation, snapshot.warp_mode,
+               _fmt(snapshot.node_dv), _fmt(snapshot.liquid_fuel), _fmt(snapshot.throttle),
+               snapshot.situation, snapshot.warp_mode,
                _fmt(snapshot.warp_rate), _fmt(snapshot.ap_error)))
         if state.done:
             break

@@ -556,6 +556,7 @@ class _FakeResources:
 
 class _FakeNodeControl:
     nodes = ()
+    throttle = 0.0
 
 
 class _FakeVessel:

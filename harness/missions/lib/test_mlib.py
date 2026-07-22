@@ -1690,10 +1690,12 @@ class B5MachineTests(unittest.TestCase):
                                                     node_count=1, node_dv=100.0,
                                                     ap_error=1.0))
         self.assertEqual(actions, [])
-        # Settled but misaligned: no throttle.
+        # Settled but misaligned (|error| beyond the rough 30-degree start
+        # gate; the sign is irrelevant -- live kRPC readings go negative): no
+        # throttle.
         state, actions = mlib.b5_decide(state, snap(ut=21.0, body="Kerbin",
                                                     node_count=1, node_dv=100.0,
-                                                    ap_error=12.0))
+                                                    ap_error=-178.0))
         self.assertEqual(actions, [])
         # Settled AND aligned: exactly one throttle-up.
         state, actions = mlib.b5_decide(state, snap(ut=25.0, body="Kerbin",

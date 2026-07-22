@@ -300,6 +300,12 @@ class TelemetrySnapshot:
     # fails closed: the DIY correction burner's cut/overshoot gates never fire
     # on it, and its bounded give-up owns the outcome.
     node_dv: float = float("nan")
+    # Vessel-total LiquidFuel + the live throttle READBACK (control.throttle).
+    # Diagnosability channels (tenth live flight: a zero-thrust "burn" was
+    # undiagnosable dry-tanks vs held-throttle vs wrong-pointing without them);
+    # no machine gate reads them yet.
+    liquid_fuel: float = float("nan")
+    throttle: float = float("nan")
 
 
 # ---------------------------------------------------------------------------
@@ -632,10 +638,19 @@ class B5Params:
                                            # (AND-gated with the attitude error,
                                            # the B4-proven pattern; spec key
                                            # correctionSettleSeconds)
-    max_attitude_error_deg: float = 5.0    # AND-gate: AutoPilot pointing error
-                                           # must be at/below this before the
-                                           # DIY burn starts (NaN never passes;
-                                           # spec key maxAttitudeErrorDeg)
+    max_attitude_error_deg: float = 30.0   # AND-gate: |AutoPilot pointing
+                                           # error| must be at/below this
+                                           # before the DIY burn starts (NaN
+                                           # never passes). 30, not B4's 5: the
+                                           # DIY burn CHASES the node's
+                                           # remaining vector, so a rough-
+                                           # pointed low-throttle start self-
+                                           # corrects, and near-anti-parallel
+                                           # AP convergence is glacial on this
+                                           # craft (tenth live flight: 0.06
+                                           # deg/s) -- demanding 5 deg starves
+                                           # the round into its give-up (spec
+                                           # key maxAttitudeErrorDeg)
     frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
                                            # vessel-lost terminal (spec key
                                            # frozenTelemetrySamples)
@@ -671,7 +686,7 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         correction_throttle=float(params.get("correctionThrottle", 0.25)),
         correction_cut_dv=float(params.get("correctionCutDvMps", 2.0)),
         correction_settle_seconds=float(params.get("correctionSettleSeconds", 10)),
-        max_attitude_error_deg=float(params.get("maxAttitudeErrorDeg", 5.0)),
+        max_attitude_error_deg=float(params.get("maxAttitudeErrorDeg", 30.0)),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
     )
 
@@ -1247,8 +1262,11 @@ def b4_decide(state: B4State, snapshot: TelemetrySnapshot) -> Tuple[B4State, Lis
             # on the first live B4 flight (radial burn, apoapsis 84km -> 382km).
             # A NaN error (AP unreadable) never passes, so a wedged autopilot
             # ends as the bounded deorbit-budget flake, never a wild burn.
+            # abs(): live B5/B6 flights (2026-07-22) showed kRPC's error
+            # reading NEGATIVE (-178 deg mid-flip) -- a signed reading must
+            # never satisfy a <=-only gate while pointing the wrong way.
             aligned = (_is_finite(snapshot.ap_error)
-                       and snapshot.ap_error <= state.params.max_attitude_error_deg)
+                       and abs(snapshot.ap_error) <= state.params.max_attitude_error_deg)
             stayed = _b4_stay_or_flake(state, snapshot, peak)
             if settled and aligned and not stayed.done:
                 return replace(stayed, burn_started=True), [Action(ACTION_SET_THROTTLE, 1.0)]
@@ -1686,15 +1704,32 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             return entered, cleanup
 
         dv = snapshot.node_dv
+        # ``improved`` = the remaining dv made real progress this frame (a
+        # strict drop below the tracked minimum). While a burn is live, each
+        # improvement re-stamps ``burn_static_since`` (the progress anchor);
+        # a FROZEN dv leaves the anchor put, so no-progress accrues.
+        improved = (_is_finite(dv)
+                    and (state.min_node_dv is None or dv < state.min_node_dv - 0.01))
         if _is_finite(dv) and (state.min_node_dv is None or dv < state.min_node_dv):
             state = replace(state, min_node_dv=float(dv))
 
         if state.corr_burn_started:
+            if improved and _is_finite(snapshot.ut):
+                state = replace(state, burn_static_since=snapshot.ut)
             overshoot = (_is_finite(dv) and state.min_node_dv is not None
                          and dv > state.min_node_dv + 0.5)
+            # NO-PROGRESS give-up (tenth live flight 2026-07-22: a B6 "burn"
+            # sat with the remaining dv FROZEN for 2500 frames -- zero thrust
+            # despite the throttle command): if the remaining dv has not
+            # dropped within burnStagnantSeconds of the throttle-up (or the
+            # last progress), nothing is burning; give the round up cleanly.
+            no_progress = (_is_finite(snapshot.ut)
+                           and state.burn_static_since is not None
+                           and (snapshot.ut - state.burn_static_since)
+                           >= state.params.burn_stagnant_seconds)
             if (snapshot.node_count == 0
                     or (_is_finite(dv) and dv <= state.params.correction_cut_dv)
-                    or overshoot):
+                    or overshoot or no_progress):
                 return _corr_exit(state)
             return _b5_stay_or_flake(state, snapshot, peak), []
 
@@ -1709,12 +1744,21 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             return _corr_exit(state)
         settled = (_is_finite(snapshot.ut)
                    and (snapshot.ut - state.phase_entry_ut) >= state.params.correction_settle_seconds)
+        # abs(): kRPC's error reads NEGATIVE in some regimes (-178 deg
+        # mid-flip on the tenth live flight) -- a signed reading must never
+        # satisfy a <=-only gate while pointing the wrong way. The 30-degree
+        # default (vs B4's 5) is deliberate: the DIY burn CHASES the node's
+        # remaining vector (the AP tracks node.reference_frame), so a
+        # rough-pointed low-throttle start self-corrects, and the overshoot +
+        # no-progress guards own the failure modes.
         aligned = (_is_finite(snapshot.ap_error)
-                   and snapshot.ap_error <= state.params.max_attitude_error_deg)
+                   and abs(snapshot.ap_error) <= state.params.max_attitude_error_deg)
         stayed = _b5_stay_or_flake(state, snapshot, peak)
         if settled and aligned and not stayed.done:
-            return (replace(stayed, corr_burn_started=True),
-                    [Action(ACTION_SET_THROTTLE, state.params.correction_throttle)])
+            started = replace(stayed, corr_burn_started=True,
+                              burn_static_since=(snapshot.ut if _is_finite(snapshot.ut)
+                                                 else None))
+            return started, [Action(ACTION_SET_THROTTLE, state.params.correction_throttle)]
         return stayed, []
 
     if state.phase == B5_COAST_TO_TARGET:
