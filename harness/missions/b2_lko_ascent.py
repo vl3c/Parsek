@@ -41,7 +41,9 @@ def decide(state, snapshot):
     return mlib.b2_decide(state, snapshot)
 
 
-def evaluate(frames, params: dict) -> List[mlib.AssertionOutcome]:
+def evaluate(frames, params: dict, state=None) -> List[mlib.AssertionOutcome]:
+    # ``state`` (the terminated machine state) is part of the shared evaluate
+    # seam; B2's orbit assertions need only the frames.
     return mlib.evaluate_b2_assertions(frames, mlib.b2_params_from_dict(params))
 
 

@@ -16,6 +16,9 @@ Covered here (design docs/dev/design-autotest-mission-library.md):
     PRELAUNCH -> ASCENT -> COAST -> DESCENT -> LANDED (design "Mission B1").
   - B2 LKO-ascent phase state machine (``b2_initial_state`` / ``b2_decide``):
     PRELAUNCH -> MJ-ASCENT -> CIRCULARIZE -> ORBIT (design "Mission B2").
+  - B4 reentry+splashdown phase state machine (``b4_initial_state`` /
+    ``b4_decide``): the B2 ascent verbatim, then ORBIT -> DEORBIT -> REENTRY ->
+    SPLASHDOWN (terminal). Survival REQUIRED: no DOWN success terminal.
   - Telemetry-assertion evaluators (``evaluate_b1_assertions`` /
     ``evaluate_b2_assertions``): inclusive tolerance windows, NaN/Inf never
     passes, K-consecutive debounce over noisy warp-edge frames (design
@@ -83,13 +86,20 @@ MISSION_VERDICTS: Tuple[str, ...] = (
     MISSION_FLAKE, MISSION_ERROR,
 )
 
-# B1 phase names (design "Mission B1: pad-hop").
+# B1 phase names (design "Mission B1: pad-hop"). DOWN is the chute-deployed-impact
+# SUCCESS terminal (operator decision 2026-07-20, option A): the hop flew, the chute
+# deployed, and the craft reached the ground -- a breakup at touchdown is a
+# successful B1 end (the stock Jumping Flea ALWAYS breaks apart at ~9 m/s touchdown
+# vs the booster's 7 m/s tolerance; the craft-survives-intact contract is owned by
+# the separate B4 mission).
 B1_PRELAUNCH = "PRELAUNCH"
 B1_ASCENT = "ASCENT"
 B1_COAST = "COAST"
 B1_DESCENT = "DESCENT"
 B1_LANDED = "LANDED"
-B1_PHASES: Tuple[str, ...] = (B1_PRELAUNCH, B1_ASCENT, B1_COAST, B1_DESCENT, B1_LANDED)
+B1_DOWN = "DOWN"
+B1_PHASES: Tuple[str, ...] = (B1_PRELAUNCH, B1_ASCENT, B1_COAST, B1_DESCENT,
+                              B1_LANDED, B1_DOWN)
 
 # B2 phase names (design "Mission B2: LKO-ascent").
 B2_PRELAUNCH = "PRELAUNCH"
@@ -97,6 +107,22 @@ B2_MJ_ASCENT = "MJ-ASCENT"
 B2_CIRCULARIZE = "CIRCULARIZE"
 B2_ORBIT = "ORBIT"
 B2_PHASES: Tuple[str, ...] = (B2_PRELAUNCH, B2_MJ_ASCENT, B2_CIRCULARIZE, B2_ORBIT)
+
+# B4 phase names (mission b4_reentry: the B2 ascent, then deorbit / reentry /
+# splashdown; see docs/dev/todo-and-known-bugs.md "B4 reentry + splashdown").
+# ORBIT is NOT terminal in B4; SPLASHDOWN is the chute-descent phase whose landed
+# situation is the terminal. B4's contract REQUIRES survival: there is no B1-style
+# DOWN success terminal here -- any vessel-lost / frozen terminal in ANY phase is
+# an ASSERT-FAIL loss.
+B4_PRELAUNCH = "PRELAUNCH"
+B4_MJ_ASCENT = "MJ-ASCENT"
+B4_CIRCULARIZE = "CIRCULARIZE"
+B4_ORBIT = "ORBIT"
+B4_DEORBIT = "DEORBIT"
+B4_REENTRY = "REENTRY"
+B4_SPLASHDOWN = "SPLASHDOWN"
+B4_PHASES: Tuple[str, ...] = (B4_PRELAUNCH, B4_MJ_ASCENT, B4_CIRCULARIZE, B4_ORBIT,
+                              B4_DEORBIT, B4_REENTRY, B4_SPLASHDOWN)
 
 # Connect-retry decision tokens (design "Connection lifecycle" step 2).
 CONNECT_RETRY = "RETRY"
@@ -112,6 +138,16 @@ ACTION_MJ_SET_TARGET_APOAPSIS = "mj_set_target_apoapsis"   # value = metres
 ACTION_MJ_ENABLE_AUTOSTAGE = "mj_enable_autostage"         # value = None
 ACTION_MJ_ENGAGE_ASCENT = "mj_engage_ascent"               # value = None
 ACTION_MJ_EXECUTE_CIRCULARIZATION = "mj_execute_circularization"  # value = None
+# B4 deorbit/reentry actions. AP_* drive kRPC's NATIVE AutoPilot (vessel.auto_pilot:
+# reference_frame = vessel.orbital_reference_frame, target_direction = (0, -1, 0)
+# = orbital retrograde, engage() / disengage(); surface verified against the
+# installed krpc 0.5.4 python client source in harness/missions/.venv), NOT
+# MechJeb SmartASS. WARP_TO carries an ABSOLUTE target UT; the runner implements
+# it with sc.warp_to(ut) (blocking RAILS warp -- permitted, the B4 spec sets
+# allow_rails_warp).
+ACTION_AP_POINT_RETROGRADE = "ap_point_retrograde"         # value = None
+ACTION_AP_DISENGAGE = "ap_disengage"                       # value = None
+ACTION_WARP_TO = "warp_to"                                 # value = target UT (s)
 
 # K-consecutive debounce depth (see module docstring).
 DEFAULT_DEBOUNCE_K = 3
@@ -192,6 +228,12 @@ class TelemetrySnapshot:
     vessel_lost: bool = False              # runner-signaled: active vessel unreadable
                                            # (repeated telemetry-read failures); a
                                            # phase-independent terminal loss signal.
+    # kRPC AutoPilot pointing error (deg); NaN when unreadable/not engaged.
+    # Defaults to NaN, NOT 0.0: the B4 attitude gate treats NaN as not-aligned,
+    # so a runner or fake that FORGETS to populate the field fails closed
+    # instead of simulating a perfectly aligned ship (Fable review of PR #1335,
+    # SF-2 - the exact failure mode this field exists to prevent).
+    ap_error: float = float("nan")
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +325,11 @@ class B1Params:
     frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
                                            # vessel-lost terminal (spec key
                                            # frozenTelemetrySamples)
+    down_max_alt: float = 500.0            # DOWN requires the last finite altitude
+                                           # at/below this: option A says "reached
+                                           # the ground", so a post-chute loss AT
+                                           # ALTITUDE stays an ASSERT-FAIL (spec
+                                           # key downMaxAltMeters)
 
 
 @dataclass(frozen=True)
@@ -303,6 +350,50 @@ class B2Params:
                                            # frozenTelemetrySamples)
 
 
+@dataclass(frozen=True)
+class B4Params:
+    """B4 reentry+splashdown tuning (spec [driver.missionParams] for b4_reentry).
+    The ascent half reuses B2's ascent params verbatim (target apsides + errors +
+    the two ascent budgets); the deorbit/reentry half adds the burn target, the
+    attitude-settle wait, the bounded warp-hop shape, the chute altitude, and the
+    three descent-side phase budgets. All tolerances / thresholds / budgets, never
+    a golden trajectory. B2's eccentricityMax / inclinationErrorDeg /
+    launchSiteLatitude are deliberately ABSENT: B4 makes no orbital-precision
+    assertions (its orbit is a waypoint, not the terminal), so those would be dead
+    params here."""
+    target_apoapsis: float
+    target_periapsis: float
+    apo_error: float
+    peri_error: float
+    ascent_timeout: float
+    circularize_timeout: float
+    deorbit_periapsis: float = 25000.0     # burn until periapsis <= this (metres)
+    retro_settle_seconds: float = 10.0     # MINIMUM game-time settle before throttle-up
+    max_attitude_error_deg: float = 5.0    # AND-gate: AutoPilot error must be at/below
+                                           # this before the burn starts. The first live
+                                           # B4 flight (2026-07-20) burned mid-flip on
+                                           # the fixed 10s wait alone: the Kerbal X needs
+                                           # a ~180 deg turn to retrograde, throttle-up
+                                           # caught it pointing RADIAL, and the radial
+                                           # burn raised apoapsis to 382km while pushing
+                                           # periapsis through the exit gate.
+    warp_above_alt: float = 70000.0        # bounded warp hops only above this altitude.
+                                           # 70km = the atmosphere ceiling: below it KSP
+                                           # cannot rails-warp, so a 120s hop runs at
+                                           # physics warp with zero mid-call snapshots and
+                                           # can blow through the chute gate (Fable review
+                                           # of PR #1335, SF-3); hops are EXO-ONLY.
+    warp_hop_seconds: float = 120.0        # one WARP_TO hop = now + this many seconds
+    chute_deploy_alt: float = 3000.0       # deploy chutes at/below this altitude
+    deorbit_timeout: float = 300.0
+    reentry_timeout: float = 3600.0        # game-time; rails hops advance it fast
+    descent_timeout: float = 600.0
+    landed_situations: Tuple[str, ...] = ("LANDED", "SPLASHED")
+    frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
+                                           # vessel-lost terminal (spec key
+                                           # frozenTelemetrySamples)
+
+
 def b1_params_from_dict(params: Dict) -> B1Params:
     """Build ``B1Params`` from a spec ``missionParams`` dict. The apoapsis window
     is the ``{min, max}`` sub-table (a WINDOW, design). Tolerant of int/float."""
@@ -317,6 +408,7 @@ def b1_params_from_dict(params: Dict) -> B1Params:
         landed_situations=tuple(params.get("landedSituations", ("LANDED", "SPLASHED"))),
         apoapsis_window=(float(window.get("min", 0.0)), float(window.get("max", 0.0))),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
+        down_max_alt=float(params.get("downMaxAltMeters", 500)),
     )
 
 
@@ -333,6 +425,30 @@ def b2_params_from_dict(params: Dict) -> B2Params:
         ascent_timeout=float(params.get("ascentTimeoutSeconds", 420)),
         circularize_timeout=float(params.get("circularizeTimeoutSeconds", 300)),
         launch_site_latitude=float(params.get("launchSiteLatitude", 0.0)),
+        frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
+    )
+
+
+def b4_params_from_dict(params: Dict) -> B4Params:
+    """Build ``B4Params`` from a spec ``missionParams`` dict."""
+    params = params or {}
+    return B4Params(
+        target_apoapsis=float(params.get("targetApoapsisMeters", 80000)),
+        target_periapsis=float(params.get("targetPeriapsisMeters", 80000)),
+        apo_error=float(params.get("apoErrorMeters", 5000)),
+        peri_error=float(params.get("periErrorMeters", 5000)),
+        ascent_timeout=float(params.get("ascentTimeoutSeconds", 420)),
+        circularize_timeout=float(params.get("circularizeTimeoutSeconds", 300)),
+        deorbit_periapsis=float(params.get("deorbitPeriapsisMeters", 25000)),
+        retro_settle_seconds=float(params.get("retroSettleSeconds", 10)),
+        max_attitude_error_deg=float(params.get("maxAttitudeErrorDeg", 5.0)),
+        warp_above_alt=float(params.get("warpAboveAltMeters", 70000)),
+        warp_hop_seconds=float(params.get("warpHopSeconds", 120)),
+        chute_deploy_alt=float(params.get("chuteDeployAltMeters", 3000)),
+        deorbit_timeout=float(params.get("deorbitTimeoutSeconds", 300)),
+        reentry_timeout=float(params.get("reentryTimeoutSeconds", 3600)),
+        descent_timeout=float(params.get("descentTimeoutSeconds", 600)),
+        landed_situations=tuple(params.get("landedSituations", ("LANDED", "SPLASHED"))),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
     )
 
@@ -365,6 +481,18 @@ class B1State:
     frozen_sig: Optional[FrozenSignature] = None
     frozen_count: int = 0
     loss_reason: Optional[str] = None
+    # Last FINITE altitude seen on a live (non-vessel_lost) frame. The DOWN
+    # terminal requires it at/below downMaxAltMeters: option A's wording is
+    # "reached the ground", so a craft lost at altitude after the chute deploys
+    # (chute ripped, mid-air breakup) must NOT be awarded DOWN (Fable review of
+    # PR #1335, SF-1).
+    last_finite_altitude: Optional[float] = None
+    # DOWN-terminal marker for the shell (operator decision 2026-07-20, option A):
+    # a DOWN terminal means the vessel is GONE, so the fly loop's settle tail would
+    # only gather vessel_lost / garbage frames -- the loop checks this via
+    # getattr(state, "skip_settle_tail", False) and skips the tail. LANDED keeps
+    # its settle tail (a surviving craft has real settled frames to sample).
+    skip_settle_tail: bool = False
 
 
 def b1_initial_state(params: B1Params) -> B1State:
@@ -416,6 +544,16 @@ def b1_decide(state: B1State, snapshot: TelemetrySnapshot) -> Tuple[B1State, Lis
       - DESCENT: deploy the chute once altitude <= chuteDeployAltMeters, then
         DESCENT -> LANDED when the situation is a landed/splashed one. Bounded by
         descentTimeoutSeconds.
+      - DESCENT -> DOWN (operator decision 2026-07-20, option A): when either
+        vessel-lost signal fires (a runner vessel_lost snapshot, or the frozen
+        counter reaching its limit) AND the chute is already deployed, the hop
+        FLEW, the CHUTE DEPLOYED, and the craft REACHED THE GROUND -- a
+        chute-deployed breakup at touchdown is a SUCCESSFUL end (the Jumping Flea
+        always breaks apart at ~9 m/s vs the booster's 7 m/s tolerance; B4 owns
+        the craft-survives-intact contract). DOWN is a real terminal: done, NO
+        loss_reason, verdict stays None so the assertions decide. Without the
+        chute deployed -- and in every other phase -- the loss stays the
+        ASSERT-FAIL loss_reason terminal.
     Any timed phase that out-runs its budget yields MISSION-FLAKE naming the stuck
     phase (``state.verdict`` / ``state.flake_phase``), so a wedged autopilot never
     hangs. Once ``done`` the machine is idempotent (returns the state unchanged,
@@ -426,13 +564,26 @@ def b1_decide(state: B1State, snapshot: TelemetrySnapshot) -> Tuple[B1State, Lis
 
     peak = _update_peak(state.peak_apoapsis, snapshot.apoapsis)
 
+    # Track the last FINITE altitude from live frames (a vessel_lost snapshot
+    # carries benign defaults and must not contribute). The DOWN eligibility
+    # gate reads this: option A's "reached the ground" leg.
+    if not snapshot.vessel_lost and _is_finite(snapshot.altitude):
+        state = replace(state, last_finite_altitude=snapshot.altitude)
+
     # Runner-signaled vessel loss (unreadable active vessel after repeated telemetry
-    # failures): a phase-INDEPENDENT terminal (design vessel-destroyed terminal). A
-    # destroyed vessel is a deterministic mission failure, not a flake.
+    # failures): a phase-INDEPENDENT terminal (design vessel-destroyed terminal).
+    # In DESCENT with the chute deployed AND the craft last seen at/below
+    # downMaxAltMeters this is the DOWN success terminal (option A: flew + chute
+    # + reached the ground); a post-chute loss AT ALTITUDE (chute ripped,
+    # mid-air breakup) stays a deterministic mission failure (Fable review of
+    # PR #1335, SF-1).
     if snapshot.vessel_lost:
+        if _b1_down_eligible(state):
+            return _b1_enter_down(state, snapshot.ut, peak), []
         return replace(
             state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
-            loss_reason="vessel-lost (unreadable after repeated telemetry failures)"), []
+            loss_reason=_b1_loss_reason_with_altitude(
+                state, "vessel-lost (unreadable after repeated telemetry failures)")), []
 
     # Frozen-telemetry (vessel-destroyed) detection, AIRBORNE phases only: PRELAUNCH
     # pad telemetry is legitimately static, so the detector never runs there (nor
@@ -444,11 +595,15 @@ def b1_decide(state: B1State, snapshot: TelemetrySnapshot) -> Tuple[B1State, Lis
         new_sig, new_count, tripped = _advance_frozen_count(
             state.frozen_sig, state.frozen_count, snapshot, limit)
         if tripped:
+            if _b1_down_eligible(state):
+                down = _b1_enter_down(state, snapshot.ut, peak)
+                return replace(down, frozen_sig=new_sig, frozen_count=new_count), []
             return replace(
                 state, peak_apoapsis=peak, frozen_sig=new_sig, frozen_count=new_count,
                 done=True, verdict=MISSION_ASSERT_FAIL,
-                loss_reason=("vessel-lost (telemetry frozen %d consecutive samples "
-                             "while airborne; vessel presumed destroyed)" % limit)), []
+                loss_reason=_b1_loss_reason_with_altitude(
+                    state, "vessel-lost (telemetry frozen %d consecutive samples "
+                           "while airborne; vessel presumed destroyed)" % limit)), []
         state = replace(state, frozen_sig=new_sig, frozen_count=new_count)
 
     if state.phase == B1_PRELAUNCH:
@@ -497,6 +652,47 @@ def _b1_enter(state: B1State, new_phase: str, ut: float, peak: Optional[float]) 
         peak_apoapsis=peak,
         phases_reached=state.phases_reached + (new_phase,),
         done=(new_phase == B1_LANDED),
+    )
+
+
+def _b1_down_eligible(state: B1State) -> bool:
+    """True iff a vessel loss right now qualifies as the DOWN success terminal:
+    DESCENT phase, chute deployed, AND the craft was last seen at/below
+    downMaxAltMeters (option A: flew + chute deployed + REACHED THE GROUND).
+    A post-chute loss at altitude fails all the way to ASSERT-FAIL (Fable
+    review of PR #1335, SF-1: without the altitude leg, a chute-ripped mid-air
+    breakup at 1800m was awarded DOWN)."""
+    return (state.phase == B1_DESCENT
+            and state.chute_deployed
+            and state.last_finite_altitude is not None
+            and _is_finite(state.last_finite_altitude)
+            and state.last_finite_altitude <= state.params.down_max_alt)
+
+
+def _b1_loss_reason_with_altitude(state: B1State, base: str) -> str:
+    """Append the last known altitude to a loss reason so a DOWN-ineligible
+    post-chute loss names WHERE the craft was lost."""
+    if state.last_finite_altitude is None or not _is_finite(state.last_finite_altitude):
+        return base
+    return "%s; last altitude %.0fm" % (base, state.last_finite_altitude)
+
+
+def _b1_enter_down(state: B1State, ut: float, peak: Optional[float]) -> B1State:
+    """DOWN success terminal (operator decision 2026-07-20, option A): the craft
+    reached the ground under a deployed chute and broke apart / became unreadable
+    at touchdown. done=True, appended to phases_reached, NO loss_reason, verdict
+    stays None so the assertions decide OK vs ASSERT-FAIL. skip_settle_tail marks
+    the vessel as gone so the shell's settle tail (which would only gather
+    vessel_lost / garbage frames) is skipped."""
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(
+        state,
+        phase=B1_DOWN,
+        phase_entry_ut=entry,
+        peak_apoapsis=peak,
+        phases_reached=state.phases_reached + (B1_DOWN,),
+        done=True,
+        skip_settle_tail=True,
     )
 
 
@@ -651,6 +847,241 @@ def _b2_stay_or_flake(state: B2State, snapshot: TelemetrySnapshot) -> B2State:
 
 
 # ---------------------------------------------------------------------------
+# B4 phase state machine (mission b4_reentry). Pure. The ascent half reuses the
+# B2 semantics VERBATIM (PRELAUNCH staged launch, the ascent-complete latch AND
+# apoapsis window, the guarded circularize); ORBIT is a waypoint, not a terminal.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class B4State:
+    """B4 reentry+splashdown machine state. ``verdict`` / ``flake_phase`` / ``done``
+    mirror B1/B2. ``done`` fires only in SPLASHDOWN on a landed/splashed situation
+    (verdict None; the settle tail RUNS -- evidence for the assertions) or on a
+    flake / loss terminal. B4 REQUIRES survival: any vessel-lost / frozen terminal
+    in ANY phase is an ASSERT-FAIL ``loss_reason`` (no B1-style DOWN equivalent).
+    ``peak_apoapsis`` / ``chute_deployed`` are carried evidence for the evaluator;
+    ``burn_started`` latches the one deorbit throttle-up after the attitude
+    settle."""
+    params: B4Params
+    phase: str = B4_PRELAUNCH
+    phase_entry_ut: float = 0.0
+    peak_apoapsis: Optional[float] = None
+    chute_deployed: bool = False
+    burn_started: bool = False
+    phases_reached: Tuple[str, ...] = (B4_PRELAUNCH,)
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    done: bool = False
+    frozen_sig: Optional[FrozenSignature] = None
+    frozen_count: int = 0
+    loss_reason: Optional[str] = None
+
+
+def b4_initial_state(params: B4Params) -> B4State:
+    """Fresh B4 machine at PRELAUNCH."""
+    return B4State(params=params)
+
+
+def _b4_phase_budget(params: B4Params, phase: str) -> Optional[float]:
+    """The bounded game-time budget for a timed B4 phase, or None for the untimed
+    PRELAUNCH / one-frame ORBIT waypoint. SPLASHDOWN's budget is the chute-descent
+    wait (descentTimeoutSeconds); its clock stops mattering once ``done``."""
+    if phase == B4_MJ_ASCENT:
+        return params.ascent_timeout
+    if phase == B4_CIRCULARIZE:
+        return params.circularize_timeout
+    if phase == B4_DEORBIT:
+        return params.deorbit_timeout
+    if phase == B4_REENTRY:
+        return params.reentry_timeout
+    if phase == B4_SPLASHDOWN:
+        return params.descent_timeout
+    return None
+
+
+def _b4_over_budget(state: B4State, snapshot: TelemetrySnapshot) -> bool:
+    budget = _b4_phase_budget(state.params, state.phase)
+    if budget is None:
+        return False
+    if not _is_finite(snapshot.ut):
+        return False
+    return (snapshot.ut - state.phase_entry_ut) > budget
+
+
+def b4_decide(state: B4State, snapshot: TelemetrySnapshot) -> Tuple[B4State, List[Action]]:
+    """Advance the B4 reentry+splashdown machine one frame; return (new_state, actions).
+
+    Transitions:
+      - PRELAUNCH -> MJ-ASCENT: VERBATIM the B2 launch (set MechJeb target
+        apoapsis, enable autostage, engage the AscentAutopilot, then
+        ACTIVATE_STAGE -- MechJeb does not ignite the first stage itself).
+      - MJ-ASCENT -> CIRCULARIZE: VERBATIM B2 -- the autopilot's
+        engaged-then-self-disabled completion latch (mj_ascent_complete) AND the
+        apoapsis window, then the (shell-guarded) circularization action. Bounded
+        by ascentTimeoutSeconds.
+      - CIRCULARIZE -> ORBIT: VERBATIM B2 -- periapsis within periErrorMeters of
+        target. Bounded by circularizeTimeoutSeconds. ORBIT is NOT terminal here.
+      - ORBIT -> DEORBIT: on the next frame, point the NATIVE kRPC AutoPilot
+        retrograde (ACTION_AP_POINT_RETROGRADE) and enter DEORBIT.
+      - DEORBIT: wait retroSettleSeconds of GAME time (a pure wait-in-phase
+        condition, never a sleep) for the attitude to settle, throttle up once,
+        and burn until periapsis <= deorbitPeriapsisMeters; then cut throttle,
+        release attitude control (ACTION_AP_DISENGAGE), stage ONCE (the dropped
+        service stage becomes debris Parsek records), and enter REENTRY. Bounded
+        by deorbitTimeoutSeconds.
+      - REENTRY: coast to the atmosphere in bounded RAILS-warp HOPS: while
+        altitude > warpAboveAltMeters AND descending (vertical_speed < 0), emit
+        one ACTION_WARP_TO with value = snapshot.ut + warpHopSeconds per decision
+        frame -- bounded hops keep the machine in control and avoid computing the
+        atmosphere-entry UT. Below the threshold: plain polling; at/below
+        chuteDeployAltMeters deploy the chutes and enter SPLASHDOWN (the chute
+        descent wait). Bounded by reentryTimeoutSeconds (game time; the hops
+        advance it fast). NOTE: a still-ASCENDING exo coast (the burn ended
+        before apoapsis) polls at 1x until vertical_speed goes negative, per the
+        warp condition -- the wall budget must absorb that stretch.
+      - SPLASHDOWN: situation in landedSituations -> terminal (done, verdict
+        None; the settle tail RUNS so the assertions have settled evidence).
+        Bounded by descentTimeoutSeconds.
+    Vessel-lost / frozen telemetry in ANY phase -> ASSERT-FAIL loss_reason (B4's
+    contract REQUIRES survival; there is no DOWN success terminal). A timed phase
+    out-running its budget yields MISSION-FLAKE naming the stuck phase. Once
+    ``done`` the machine is idempotent.
+    """
+    if state.done:
+        return state, []
+
+    peak = _update_peak(state.peak_apoapsis, snapshot.apoapsis)
+
+    # Runner-signaled vessel loss: phase-independent ASSERT-FAIL terminal. B4 has
+    # NO chute-deployed DOWN carve-out -- survival is the contract.
+    if snapshot.vessel_lost:
+        return replace(
+            state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason="vessel-lost (unreadable after repeated telemetry failures)"), []
+
+    # Frozen-telemetry (vessel-destroyed) detection, every phase except PRELAUNCH
+    # (pad telemetry is legitimately static). Mirrors B1/B2.
+    if state.phase != B4_PRELAUNCH:
+        limit = state.params.frozen_sample_limit
+        new_sig, new_count, tripped = _advance_frozen_count(
+            state.frozen_sig, state.frozen_count, snapshot, limit)
+        if tripped:
+            return replace(
+                state, peak_apoapsis=peak, frozen_sig=new_sig, frozen_count=new_count,
+                done=True, verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("vessel-lost (telemetry frozen %d consecutive samples "
+                             "while airborne; vessel presumed destroyed)" % limit)), []
+        state = replace(state, frozen_sig=new_sig, frozen_count=new_count)
+
+    if state.phase == B4_PRELAUNCH:
+        actions = [
+            Action(ACTION_MJ_SET_TARGET_APOAPSIS, state.params.target_apoapsis),
+            Action(ACTION_MJ_ENABLE_AUTOSTAGE),
+            Action(ACTION_MJ_ENGAGE_ASCENT),
+            # LAUNCH: same as B2 -- MechJeb's engaged AscentAutopilot does not
+            # ignite the first stage (first live B2 run 2026-07-20).
+            Action(ACTION_ACTIVATE_STAGE),
+        ]
+        return _b4_enter(state, B4_MJ_ASCENT, snapshot.ut, peak), actions
+
+    if state.phase == B4_MJ_ASCENT:
+        # VERBATIM the B2 gate: completion latch AND apoapsis window (the window
+        # alone fired mid-burn on the first live B2 run).
+        target = state.params.target_apoapsis
+        apo_reached = (_is_finite(snapshot.apoapsis)
+                       and snapshot.apoapsis >= target - state.params.apo_error)
+        if snapshot.mj_ascent_complete and apo_reached:
+            return (_b4_enter(state, B4_CIRCULARIZE, snapshot.ut, peak),
+                    [Action(ACTION_MJ_EXECUTE_CIRCULARIZATION)])
+        return _b4_stay_or_flake(state, snapshot, peak), []
+
+    if state.phase == B4_CIRCULARIZE:
+        target = state.params.target_periapsis
+        if _is_finite(snapshot.periapsis) and snapshot.periapsis >= target - state.params.peri_error:
+            return _b4_enter(state, B4_ORBIT, snapshot.ut, peak), []
+        return _b4_stay_or_flake(state, snapshot, peak), []
+
+    if state.phase == B4_ORBIT:
+        # ORBIT is a one-frame waypoint (phase evidence for the reachedOrbit
+        # assertion): immediately point retrograde and enter DEORBIT.
+        return (_b4_enter(state, B4_DEORBIT, snapshot.ut, peak),
+                [Action(ACTION_AP_POINT_RETROGRADE)])
+
+    if state.phase == B4_DEORBIT:
+        if _is_finite(snapshot.periapsis) and snapshot.periapsis <= state.params.deorbit_periapsis:
+            # Burn done: cut throttle, release the autopilot, stage once (the
+            # service stage becomes recorded debris), coast into REENTRY.
+            return (_b4_enter(state, B4_REENTRY, snapshot.ut, peak),
+                    [Action(ACTION_CUT_THROTTLE, 0.0),
+                     Action(ACTION_AP_DISENGAGE),
+                     Action(ACTION_ACTIVATE_STAGE)])
+        if not state.burn_started:
+            settled = (_is_finite(snapshot.ut)
+                       and (snapshot.ut - state.phase_entry_ut) >= state.params.retro_settle_seconds)
+            # Attitude AND-gate: throttle up only once the AutoPilot reports the
+            # ship actually POINTING retrograde. A time-only wait burned mid-flip
+            # on the first live B4 flight (radial burn, apoapsis 84km -> 382km).
+            # A NaN error (AP unreadable) never passes, so a wedged autopilot
+            # ends as the bounded deorbit-budget flake, never a wild burn.
+            aligned = (_is_finite(snapshot.ap_error)
+                       and snapshot.ap_error <= state.params.max_attitude_error_deg)
+            stayed = _b4_stay_or_flake(state, snapshot, peak)
+            if settled and aligned and not stayed.done:
+                return replace(stayed, burn_started=True), [Action(ACTION_SET_THROTTLE, 1.0)]
+            return stayed, []
+        return _b4_stay_or_flake(state, snapshot, peak), []
+
+    if state.phase == B4_REENTRY:
+        alt_finite = _is_finite(snapshot.altitude)
+        if alt_finite and snapshot.altitude <= state.params.chute_deploy_alt:
+            entered = _b4_enter(state, B4_SPLASHDOWN, snapshot.ut, peak)
+            return replace(entered, chute_deployed=True), [Action(ACTION_DEPLOY_CHUTE)]
+        stayed = _b4_stay_or_flake(state, snapshot, peak)
+        if stayed.done:
+            return stayed, []
+        actions: List[Action] = []
+        if (alt_finite and snapshot.altitude > state.params.warp_above_alt
+                and _is_finite(snapshot.vertical_speed) and snapshot.vertical_speed < 0.0
+                and _is_finite(snapshot.ut)):
+            # One bounded hop per decision frame; never computes atmosphere-entry UT.
+            actions.append(Action(ACTION_WARP_TO, snapshot.ut + state.params.warp_hop_seconds))
+        return stayed, actions
+
+    if state.phase == B4_SPLASHDOWN:
+        if snapshot.situation in state.params.landed_situations:
+            # Terminal: done with verdict None -- the settle tail RUNS and the
+            # assertions decide OK vs ASSERT-FAIL.
+            return replace(state, peak_apoapsis=peak, done=True), []
+        return _b4_stay_or_flake(state, snapshot, peak), []
+
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase, done=True,
+                   peak_apoapsis=peak), []
+
+
+def _b4_enter(state: B4State, new_phase: str, ut: float, peak: Optional[float]) -> B4State:
+    """Transition into ``new_phase``, stamping the phase-entry UT for the budget
+    clock and appending to ``phases_reached``. No phase entry sets ``done`` --
+    B4's only success terminal is the landed/splashed situation INSIDE
+    SPLASHDOWN."""
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(
+        state,
+        phase=new_phase,
+        phase_entry_ut=entry,
+        peak_apoapsis=peak,
+        phases_reached=state.phases_reached + (new_phase,),
+    )
+
+
+def _b4_stay_or_flake(state: B4State, snapshot: TelemetrySnapshot, peak: Optional[float]) -> B4State:
+    if _b4_over_budget(state, snapshot):
+        return replace(state, peak_apoapsis=peak, verdict=MISSION_FLAKE,
+                       flake_phase=state.phase, done=True)
+    return replace(state, peak_apoapsis=peak)
+
+
+# ---------------------------------------------------------------------------
 # Telemetry-assertion evaluators (design "Telemetry assertions" + guardrails).
 # Pure over a list of TelemetrySnapshot frames.
 # ---------------------------------------------------------------------------
@@ -715,7 +1146,8 @@ def _peak_finite(frames, getter) -> Optional[float]:
 
 
 def evaluate_b1_assertions(frames, params: B1Params,
-                           k: int = DEFAULT_DEBOUNCE_K) -> List[AssertionOutcome]:
+                           k: int = DEFAULT_DEBOUNCE_K,
+                           down_terminal: bool = False) -> List[AssertionOutcome]:
     """Evaluate the two B1 driver-validity assertions over the flight frames.
 
     - ``apoapsisWindow``: the PEAK apoapsis must sit within apoapsisWindowMeters
@@ -726,7 +1158,13 @@ def evaluate_b1_assertions(frames, params: B1Params,
       way up do NOT satisfy it. NaN/Inf apoapsis frames are filtered out of the max
       (they never inflate or pass it); a flight with no finite apoapsis reading is
       UNMET (peak None). The reported value is that peak (evidence).
-    - ``landedSituation``: the FINAL situation must be one of landedSituations.
+    - ``landedSituation``: the FINAL situation must be one of landedSituations,
+      OR the machine ended in the DOWN terminal (``down_terminal=True``, operator
+      decision 2026-07-20 option A: a chute-deployed impact IS the craft reaching
+      the ground; the destroyed craft's final frames carry no landed situation to
+      read). The DOWN end is named in the outcome's value
+      ("DOWN(chute-deployed impact)" vs the raw situation string) and flagged in
+      the detail (``downTerminal``) so the result JSON says which end it was.
       (A situation is a discrete kRPC enum, not a noisy float, so it is read from
       the last frame directly rather than debounced.)
 
@@ -744,10 +1182,16 @@ def evaluate_b1_assertions(frames, params: B1Params,
                            peak if peak is not None else float("nan"),
                            {"window": [lo, hi]})
 
-    final_situation = frames[-1].situation if frames else None
-    sit_met = final_situation in params.landed_situations
-    sit = AssertionOutcome("landedSituation", sit_met, final_situation,
-                           {"accepted": list(params.landed_situations)})
+    if down_terminal:
+        sit = AssertionOutcome("landedSituation", True, "DOWN(chute-deployed impact)",
+                               {"accepted": list(params.landed_situations),
+                                "downTerminal": True})
+    else:
+        final_situation = frames[-1].situation if frames else None
+        sit_met = final_situation in params.landed_situations
+        sit = AssertionOutcome("landedSituation", sit_met, final_situation,
+                               {"accepted": list(params.landed_situations),
+                                "downTerminal": False})
     return [apo, sit]
 
 
@@ -796,6 +1240,53 @@ def evaluate_b2_assertions(frames, params: B2Params,
         {"target": params.launch_site_latitude, "tolerance": params.inclination_error})
 
     return [apo, peri, ecc, inc]
+
+
+def evaluate_b4_assertions(frames, params: B4Params,
+                           phases_reached=(), chute_deployed: bool = False,
+                           k: int = DEFAULT_DEBOUNCE_K) -> List[AssertionOutcome]:
+    """Evaluate the four B4 driver-validity assertions: terminal-focused and
+    derivable from the frames + the machine's phase evidence, NEVER
+    orbital-precision post-deorbit (the orbit is a waypoint, and the deorbit burn
+    deliberately wrecks it).
+
+    - ``reachedOrbit``:    ORBIT appears in ``phases_reached`` (phase evidence);
+      the reported value is the deepest phase reached.
+    - ``apoapsisFloor``:   the PEAK finite apoapsis over the whole flight is >=
+      targetApoapsisMeters - apoErrorMeters (the ascent actually got there; a
+      floor, not a window -- the deorbit tail never lowers the recorded peak).
+    - ``landedSituation``: the FINAL situation is one of landedSituations (the
+      splashdown/landing that B4's survival contract requires).
+    - ``chuteDeployed``:   the machine deployed the chutes (carried evidence).
+
+    ``k`` is retained for signature symmetry with the B1/B2 evaluators but unused:
+    every B4 assertion is a settled terminal / peak quantity, not a noisy
+    per-frame window needing K-consecutive debounce.
+    """
+    frames = list(frames or [])
+    phases = tuple(phases_reached or ())
+
+    orbit_met = B4_ORBIT in phases
+    orbit = AssertionOutcome("reachedOrbit", orbit_met,
+                             (phases[-1] if phases else None),
+                             {"required": B4_ORBIT})
+
+    floor = params.target_apoapsis - params.apo_error
+    peak = _peak_finite(frames, lambda f: f.apoapsis)
+    apo_met = peak is not None and peak >= floor
+    apo = AssertionOutcome("apoapsisFloor", apo_met,
+                           peak if peak is not None else float("nan"),
+                           {"floor": floor})
+
+    final_situation = frames[-1].situation if frames else None
+    sit_met = final_situation in params.landed_situations
+    sit = AssertionOutcome("landedSituation", sit_met, final_situation,
+                           {"accepted": list(params.landed_situations)})
+
+    chute = AssertionOutcome("chuteDeployed", bool(chute_deployed),
+                             bool(chute_deployed), {})
+
+    return [orbit, apo, sit, chute]
 
 
 def _value_or_nan(v: Optional[float]) -> float:

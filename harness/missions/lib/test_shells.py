@@ -32,6 +32,7 @@ import mlib                    # noqa: E402  (missions/lib is the discovery root
 import mission_runner         # noqa: E402
 import b1_pad_hop             # noqa: E402
 import b2_lko_ascent          # noqa: E402
+import b4_reentry             # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +97,24 @@ B2_PARAMS = {
     "ascentTimeoutSeconds": 420,
     "circularizeTimeoutSeconds": 300,
     "launchSiteLatitude": 0.0,
+}
+
+B4_PARAMS = {
+    "targetApoapsisMeters": 80000,
+    "targetPeriapsisMeters": 80000,
+    "apoErrorMeters": 5000,
+    "periErrorMeters": 5000,
+    "ascentTimeoutSeconds": 420,
+    "circularizeTimeoutSeconds": 300,
+    "deorbitPeriapsisMeters": 25000,
+    "retroSettleSeconds": 10,
+    "warpAboveAltMeters": 45000,
+    "warpHopSeconds": 120,
+    "chuteDeployAltMeters": 3000,
+    "deorbitTimeoutSeconds": 300,
+    "reentryTimeoutSeconds": 3600,
+    "descentTimeoutSeconds": 600,
+    "landedSituations": ["LANDED", "SPLASHED"],
 }
 
 
@@ -599,3 +618,152 @@ class ReadWarpStateTests(unittest.TestCase):
             def warp_rate(self):
                 raise RuntimeError("dead connection")
         self.assertEqual(mission_runner._read_warp_state(Boom()), ("NONE", 1.0))
+
+
+# ---------------------------------------------------------------------------
+# B1 DOWN terminal through the shell (operator decision 2026-07-20, option A):
+# a chute-deployed touchdown breakup is MISSION-OK, and the settle tail is
+# skipped (a DOWN terminal means the vessel is gone -- the tail would only
+# gather vessel_lost / garbage frames).
+# ---------------------------------------------------------------------------
+
+
+# The scripted B1 flight up to a chute-deployed DESCENT; a vessel_lost frame
+# appended to it produces the DOWN terminal, a LANDED frame the classic landing.
+_B1_DESCENT_WITH_CHUTE_FRAMES = [
+    snap(ut=0.0, stage_solid_fuel=1.0, apoapsis=14000, situation="PRE_LAUNCH"),
+    snap(ut=2.0, stage_solid_fuel=0.0, apoapsis=14000, situation="FLYING"),   # -> COAST
+    snap(ut=4.0, vertical_speed=-5.0, apoapsis=14000, situation="FLYING"),    # -> DESCENT
+    snap(ut=6.0, altitude=2000.0, vertical_speed=-30.0, apoapsis=14000,
+         situation="FLYING"),                                                 # chute deploys
+    # Below downMaxAltMeters (500): the DOWN eligibility gate's "reached the
+    # ground" leg (SF-1) needs the last finite altitude near the surface.
+    snap(ut=7.5, altitude=60.0, vertical_speed=-9.0, apoapsis=14000,
+         situation="FLYING"),
+]
+
+
+class DownTerminalShellTests(unittest.TestCase):
+    def test_b1_down_terminal_is_mission_ok_and_skips_settle_tail(self):
+        """The live B1 shape: the Jumping Flea breaks apart at touchdown (~9 m/s
+        vs the booster's 7 m/s tolerance) and the runner emits a vessel_lost
+        snapshot -- with the chute deployed that is the DOWN SUCCESS terminal:
+        MISSION-OK, exit 0, landedSituation met naming the DOWN end, and NO
+        settle-tail reads (the vessel is gone). Guards the old behavior (every
+        live B1 run ASSERT-FAILed at touchdown) from coming back."""
+        frames = _B1_DESCENT_WITH_CHUTE_FRAMES + [snap(ut=8.0, vessel_lost=True)]
+        control = FakeMissionControl(frames)
+        code, result = run(b1_pad_hop.SPEC, B1_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        self.assertEqual(result["phasesReached"][-1], mlib.B1_DOWN)
+        # Settle tail SKIPPED: exactly one read per scripted frame, none after done.
+        self.assertEqual(control.reads, len(frames))
+        names = {a["name"]: a for a in result["assertions"]}
+        self.assertTrue(names["apoapsisWindow"]["met"])
+        sit = names["landedSituation"]
+        self.assertTrue(sit["met"])
+        self.assertEqual(sit["value"], "DOWN(chute-deployed impact)")
+        self.assertTrue(sit["downTerminal"])
+        kinds = [a.kind for a in control.actions]
+        self.assertIn(mlib.ACTION_DEPLOY_CHUTE, kinds)
+        self.assertTrue(control.closed)
+
+    def test_b1_landed_terminal_keeps_settle_tail(self):
+        """Contrast cell: a SURVIVING craft (classic LANDED terminal) still
+        samples the settle tail -- reads = scripted frames + settle frames.
+        Guards the skip from over-firing on the healthy landing path."""
+        frames = _B1_DESCENT_WITH_CHUTE_FRAMES + [
+            snap(ut=8.0, altitude=0.0, apoapsis=14000, situation="LANDED")]
+        control = FakeMissionControl(frames)
+        code, result = run(b1_pad_hop.SPEC, B1_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(result["phasesReached"][-1], mlib.B1_LANDED)
+        self.assertEqual(control.reads,
+                         len(frames) + mission_runner.DEFAULT_SETTLE_FRAMES)
+        sit = {a["name"]: a for a in result["assertions"]}["landedSituation"]
+        self.assertEqual(sit["value"], "LANDED")
+        self.assertFalse(sit["downTerminal"])
+
+    def test_b1_lost_without_chute_is_assert_fail_through_shell(self):
+        """A vessel lost in DESCENT BEFORE the chute deployed stays a failed
+        mission through the whole shell path (loss_reason short-circuits the
+        met assertions)."""
+        frames = _B1_DESCENT_WITH_CHUTE_FRAMES[:3] + [  # never reaches chute alt
+            snap(ut=6.0, altitude=5000.0, vertical_speed=-40.0, apoapsis=14000,
+                 situation="FLYING"),
+            snap(ut=8.0, vessel_lost=True)]
+        control = FakeMissionControl(frames)
+        code, result = run(b1_pad_hop.SPEC, B1_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_ASSERT_FAIL, result)
+        self.assertNotEqual(code, 0)
+        self.assertIn("vessel-lost", result["reason"])
+        self.assertNotIn(mlib.B1_DOWN, result["phasesReached"])
+
+
+# ---------------------------------------------------------------------------
+# B4 reentry+splashdown through the shell.
+# ---------------------------------------------------------------------------
+
+
+class B4ShellTests(unittest.TestCase):
+    def _happy_frames(self):
+        return [
+            snap(ut=0.0, apoapsis=1000, periapsis=0, situation="PRE_LAUNCH"),
+            snap(ut=100.0, apoapsis=78000, periapsis=1000, situation="FLYING",
+                 mj_ascent_complete=True),                       # -> CIRCULARIZE
+            snap(ut=140.0, apoapsis=80000, periapsis=79000, altitude=79000.0,
+                 situation="ORBITING"),                          # -> ORBIT
+            snap(ut=141.0, apoapsis=80001, periapsis=79000, altitude=79001.0,
+                 situation="ORBITING"),                          # ORBIT -> DEORBIT (retro AP)
+            snap(ut=155.0, apoapsis=80002, periapsis=79000.5, altitude=79002.0,
+                 situation="ORBITING", ap_error=2.0),            # settled + aligned -> throttle up
+            snap(ut=170.0, apoapsis=80002, periapsis=24000, altitude=79000.0,
+                 situation="ORBITING"),                          # -> REENTRY (cut+release+stage)
+            snap(ut=180.0, apoapsis=80002, periapsis=24000, altitude=70000.0,
+                 vertical_speed=-100.0, situation="SUB_ORBITAL"),  # warp hop
+            snap(ut=300.0, apoapsis=80002, periapsis=24000, altitude=40000.0,
+                 vertical_speed=-400.0, situation="SUB_ORBITAL"),  # below threshold: poll
+            snap(ut=400.0, apoapsis=80002, periapsis=24000, altitude=2500.0,
+                 vertical_speed=-150.0, situation="FLYING"),     # -> SPLASHDOWN + chute
+            snap(ut=500.0, apoapsis=80002, altitude=0.0, situation="SPLASHED"),  # terminal
+        ]
+
+    def test_b4_happy_path_writes_mission_ok(self):
+        """B4 flies ascent -> orbit -> deorbit -> reentry -> splashdown; the
+        settle tail runs on the SPLASHED terminal and all four assertions are
+        met -> MISSION-OK. Guards the shell mis-wiring the new AP/warp actions
+        or terminating at ORBIT like B2."""
+        control = FakeMissionControl(self._happy_frames())
+        code, result = run(b4_reentry.SPEC, B4_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        self.assertEqual(result["mission"], "b4_reentry")
+        self.assertEqual(result["phasesReached"][-1], mlib.B4_SPLASHDOWN)
+        self.assertIn(mlib.B4_ORBIT, result["phasesReached"])
+        kinds = [a.kind for a in control.actions]
+        for kind in (mlib.ACTION_MJ_ENGAGE_ASCENT, mlib.ACTION_AP_POINT_RETROGRADE,
+                     mlib.ACTION_SET_THROTTLE, mlib.ACTION_CUT_THROTTLE,
+                     mlib.ACTION_AP_DISENGAGE, mlib.ACTION_WARP_TO,
+                     mlib.ACTION_DEPLOY_CHUTE):
+            self.assertIn(kind, kinds)
+        # The warp hop carried an ABSOLUTE target UT = frame ut + hop seconds.
+        warps = [a for a in control.actions if a.kind == mlib.ACTION_WARP_TO]
+        self.assertEqual(warps, [mlib.Action(mlib.ACTION_WARP_TO, 180.0 + 120.0)])
+        self.assertTrue(all(a["met"] for a in result["assertions"]), result["assertions"])
+        # Settle tail RAN (SPLASHDOWN keeps it): more reads than scripted frames.
+        self.assertGreater(control.reads, len(self._happy_frames()))
+        self.assertTrue(control.closed)
+
+    def test_b4_vessel_lost_mid_reentry_is_assert_fail(self):
+        """B4's survival contract: a vessel_lost snapshot during REENTRY (burned
+        up) is MISSION-ASSERT-FAIL even though the ascent went perfectly -- no
+        B1-style DOWN success end exists here."""
+        frames = self._happy_frames()[:7] + [snap(ut=200.0, vessel_lost=True)]
+        control = FakeMissionControl(frames)
+        code, result = run(b4_reentry.SPEC, B4_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_ASSERT_FAIL, result)
+        self.assertNotEqual(code, 0)
+        self.assertIn("vessel-lost", result["reason"])
+        self.assertIn(mlib.B4_REENTRY, result["phasesReached"])
+        self.assertTrue(control.closed)

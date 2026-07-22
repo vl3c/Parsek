@@ -1,18 +1,17 @@
 schema = 1
 id = "B2-lko-ascent"
-# pending-fixture (NOT daily): the fixtures/saves/b2-lko-craft template is not
-# committed yet, so a --cadence daily run would INVALID(staging) this terminally and
-# self-quarantine a scenario that never ran. Re-tier to "daily" once the fixture lands.
-tier = "pending-fixture"
+# nightly: the fixtures/saves/b2-lko-craft template is committed (operator
+# 2026-07-19) and the mission is live-proven flyable (B2 PASS 2026-07-20,
+# MISSION-OK, all verifiers green); flown missions are too long for daily.
+tier = "nightly"
 description = "LKO ascent: MechJeb AscentAutopilot to an 80 km near-circular orbit; assert orbit-parameter windows."
 instanceProfile = "stock-minimal"
 tags = ["B2", "S0.2", "flown", "mechjeb"]
 
 [fixture]
-# Pre-placed LKO-capable rocket on the pad. PENDING-OPERATOR: the fixture save
-# does not exist yet. The vessel is KSP's own stock "Kerbal X"
-# (Ships/VAB/Kerbal X.craft, the canonical two-stage Mainsail orbiter) - the
-# operator just VAB-loads it, launches to the pad, and saves; no craft-building.
+# Pre-placed LKO-capable rocket on the pad. Fixture committed (operator
+# 2026-07-19). The vessel is KSP's own stock "Kerbal X"
+# (Ships/VAB/Kerbal X.craft, the canonical two-stage Mainsail orbiter).
 # See the operator runbook's M-B1 section.
 saveTemplate       = "fixtures/saves/b2-lko-craft"
 injectedRecordings = "none"

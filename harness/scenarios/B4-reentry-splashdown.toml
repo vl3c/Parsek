@@ -1,0 +1,98 @@
+schema = 1
+id = "B4-reentry-splashdown"
+# nightly: fixture committed (shares b2-lko-craft with B2) and flown missions
+# are too long for daily. LIVE-PROVEN 2026-07-20: the full cycle PASSed (ascent,
+# ~350s retrograde flip, aligned deorbit burn, stage drop, exo warp hops, chute
+# at 2950m, splashdown; flakedThenPassed).
+tier = "nightly"
+description = "Full flight cycle: MechJeb ascent to LKO, retrograde deorbit burn, staged reentry, chute splashdown INTACT; assert orbit reached + landed situation + chute."
+instanceProfile = "stock-minimal"
+tags = ["B4", "flown", "mechjeb", "reentry"]
+
+[fixture]
+# Same pre-placed Kerbal X fixture as B2 (committed 2026-07-19): the ascent half
+# is byte-for-byte the B2 mission path; only the post-ORBIT phases are new.
+saveTemplate       = "fixtures/saves/b2-lko-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b4_reentry"
+
+# `steps` MUST stay in the [driver] table, so it is declared ABOVE the
+# [driver.missionParams] header (a key after the sub-table header would be scoped
+# to driver.missionParams.steps and the spec would validate as having zero steps).
+# Budget arithmetic (design invariant, re-sized to the LIVE-MEASURED flight):
+# missionBudget 1600 (WALL) >= 30 connect + ascent ~250 + circularize ~100 +
+# deorbit ~350 flip + burn (the pod reaction wheel turns the fuel-heavy orbiter
+# at ~0.5 deg/s, measured 2026-07-20) + reentry (exo-only rails hops above 70km;
+# real-time below) + chute descent ~375 + margin. Phase budgets in missionParams
+# are GAME time (deorbit 600); runtime 1900 >= 240 LoadGame + 1600 mission + margin.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 1600 },
+  { cmd = "CommitTree",                                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                        expect = "OK" },
+]
+
+# Ascent half = B2's proven tolerances verbatim; deorbit/reentry half all
+# thresholds / budgets (validated against b4_reentry.schema.toml), never a
+# golden trajectory. Phase timeouts are GAME seconds (rails hops advance them
+# fast; reentryTimeoutSeconds is sized for a worst-case near-full-orbit coast).
+[driver.missionParams]
+targetApoapsisMeters      = 80000
+targetPeriapsisMeters     = 80000
+apoErrorMeters            = 5000
+periErrorMeters           = 5000
+ascentTimeoutSeconds      = 420
+circularizeTimeoutSeconds = 300
+deorbitPeriapsisMeters    = 25000
+retroSettleSeconds        = 10
+warpAboveAltMeters        = 70000
+warpHopSeconds            = 120
+chuteDeployAltMeters      = 3000
+# 600, not 300: the pod reaction wheel flips the whole fuel-heavy orbiter
+# at ~0.5 deg/s (live 2026-07-20: 175 deg to go = ~340s of game time before
+# the attitude gate opens), plus the burn itself.
+deorbitTimeoutSeconds     = 600
+reentryTimeoutSeconds     = 3600
+descentTimeoutSeconds     = 600
+landedSituations          = ["LANDED", "SPLASHED"]
+
+# Coverage: the registry (harness/coverage/registry.toml) has no dedicated
+# reentry/splashdown recording value; nearest existing cells are cited instead:
+# D4 atmospheric (the reentry aero phase + launch) / exo-propulsive (ascent +
+# deorbit burns) / exo-ballistic (the post-burn coast), and D14 warp-rails (the
+# machine-issued warp_to hops record under rails warp). Gap noted in the todo
+# doc's B4 section.
+[dimensionsCovered]
+D1  = ["auto-record-launch"]
+D3  = ["orbital-checkpoint"]
+D4  = ["atmospheric", "exo-propulsive", "exo-ballistic"]
+D14 = ["kerbin", "warp-rails"]
+
+[expectations.recordings]
+# Main ascent recording + up to 6 dropped Kerbal X boosters recorded as
+# parent-anchored debris children (exactly 7 sidecars on the live B2 flight
+# 2026-07-20) + 1 LES-tower margin (unestablished under MechJeb autostage, same
+# WATCH-4 rationale as B2's max 8) + 1 for the deorbited service stage B4 stages
+# off before reentry. min stays 1: the main recording must exist even if debris
+# admission varies.
+count = { min = 1, max = 9 }
+
+[expectations.logContracts]
+required  = ["Recording started", "Recording stopped"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+budgetSeconds = 1900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

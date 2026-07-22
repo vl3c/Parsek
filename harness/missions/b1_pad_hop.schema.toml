@@ -56,3 +56,12 @@ required = false
 type = "int"
 min = 2
 max = 1000
+
+# DOWN eligibility: the last finite altitude must be at/below this for a
+# post-chute vessel loss to count as the DOWN success terminal (option A:
+# "reached the ground"). A loss at altitude stays an ASSERT-FAIL.
+[params.downMaxAltMeters]
+required = false
+type = "number"
+min = 10.0
+max = 5000.0
