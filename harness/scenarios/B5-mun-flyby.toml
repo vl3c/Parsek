@@ -7,6 +7,12 @@ id = "B5-mun-flyby"
 # certification, wall 824 s - zero operator warp intervention end to end),
 # seventeenth (wall 854 s under the warp-optimization package: altitude-legal
 # factor selection, physics-warp flips, stair-downs).
+# NO-1X CERTIFICATION 2026-07-22 (twenty-sixth flight, the operator PR gate):
+# PASS attempt 1, wall 465 s, flyby 138.9 km, under the complete finding-15/16
+# stack (flameout staging popped the dry core twice mid-burn, 250 km
+# course-correct target, arrival-quality gate quiet above the floor) --
+# warp_audit --fail-on-violation exit 0 with ZERO contiguous AND ZERO
+# cumulative 1x-coast violations.
 tier = "nightly"
 description = "Mun flyby / free-return: MechJeb ascent to LKO, ManeuverPlanner Hohmann transfer, autowarped TLI burn, course-correction, cross-SOI coast, Mun flyby, return into Kerbin SOI; assert orbit + target SOI reached + flyby floor + returned home."
 instanceProfile = "stock-minimal"
