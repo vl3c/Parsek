@@ -3340,6 +3340,63 @@ class B7InterplanetaryTests(unittest.TestCase):
     return-body flyby terminal, the exit-body assertion report, a full B7
     happy-path walk, and the defaults-preserve-B5 contract."""
 
+    def test_no_encounter_coast_fires_the_round_early(self):
+        # Finding 18 (fourth flight): the phase-angle ejection produced NO
+        # Duna encounter -- tts NaN across the whole heliocentric coast --
+        # so the time triggers never fired and the coast flaked past Duna's
+        # orbit. A debounced encounter-less time-mode coast over a via body
+        # now fires the pending round early so the course-correct plan can
+        # CREATE the encounter.
+        state = _b7_state(mlib.B5_COAST_TO_TARGET)
+        for i in range(mlib.NO_ENCOUNTER_DEBOUNCE_FRAMES - 1):
+            state, _ = mlib.b5_decide(state, snap(
+                ut=10.0 + i, body="Sun", altitude=13_500_000_000.0))
+            self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.no_encounter_streak,
+                         mlib.NO_ENCOUNTER_DEBOUNCE_FRAMES - 1)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=20.0, body="Sun", altitude=13_500_000_000.0))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
+        self.assertEqual(state.no_encounter_streak, 0)
+        self.assertIn(Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT,
+                             B7_PARAMS.course_correct_periapsis,
+                             limit=B7_PARAMS.max_correction_dv), actions)
+
+    def test_no_encounter_gate_fail_closed_terms(self):
+        cases = (
+            dict(time_to_soi=25_000_000.0),  # encounter EXISTS (above the round-0
+                                             # threshold): the time trigger owns
+                                             # the eventual fire, not this gate
+            dict(body="Kerbin"),             # home SOI escape: not a via body
+            dict(node_count=1,
+                 node_ut=100_000.0),         # a node is pending
+        )
+        for kw in cases:
+            state = _b7_state(mlib.B5_COAST_TO_TARGET)
+            fired = False
+            for i in range(mlib.NO_ENCOUNTER_DEBOUNCE_FRAMES + 2):
+                s = dict(ut=10.0 + i, body="Sun", altitude=13_500_000_000.0)
+                s.update(kw)
+                state, _ = mlib.b5_decide(state, snap(**s))
+                fired = fired or state.phase == mlib.B5_PLAN_CORRECTION
+            self.assertFalse(fired, "gate fired for %r" % (kw,))
+            self.assertEqual(state.no_encounter_streak, 0)
+        # Rounds exhausted: never fires (bounded).
+        state = _b7_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        for i in range(mlib.NO_ENCOUNTER_DEBOUNCE_FRAMES + 2):
+            state, _ = mlib.b5_decide(state, snap(
+                ut=10.0 + i, body="Sun", altitude=13_500_000_000.0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+
+    def test_no_encounter_gate_is_time_mode_only(self):
+        # B5/B6 (altitude mode): a NaN-tts home coast must never fire it.
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=1)
+        for i in range(mlib.NO_ENCOUNTER_DEBOUNCE_FRAMES + 2):
+            state, _ = mlib.b5_decide(state, snap(
+                ut=10.0 + i, body="Kerbin", altitude=2_000_000.0))
+        self.assertEqual(state.no_encounter_streak, 0)
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+
     def test_orbit_emits_interplanetary_plan(self):
         # B7: ORBIT plans via OperationInterplanetaryTransfer...
         state = _b7_state(mlib.B5_ORBIT)

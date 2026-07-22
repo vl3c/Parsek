@@ -288,6 +288,15 @@ ARRIVAL_RECORRECT_MIN_TTS_SECONDS = 600.0
 # across the coast (patched conics are deterministic on rails).
 ARRIVAL_RECORRECT_MAX_TTS_SECONDS = 3600.0
 
+# No-encounter early correction trigger (finding 18, B7 fourth flight
+# 2026-07-22): the phase-angle interplanetary ejection reliably produces NO
+# target encounter (design Q5's contrary assumption REFUTED live), so in
+# TIME mode over a via body a debounced encounter-less trajectory fires the
+# pending correction round early -- the course-correct plan CREATES the
+# encounter mid-course. The debounce guards transient NaN tts reads at SOI
+# transitions.
+NO_ENCOUNTER_DEBOUNCE_FRAMES = 3
+
 # DIY-burner aligned-gate debounce: the throttle fires only after this many
 # CONSECUTIVE in-gate attitude readings. The fourteenth live flight proved a
 # single-frame transient error reading (slipping between rate-limited samples)
@@ -1829,6 +1838,9 @@ class B5State:
     # floor, and extra (non-altitude-triggered) rounds granted so far.
     arrival_bad_streak: int = 0
     extra_rounds_done: int = 0
+    # No-encounter early trigger (finding 18): consecutive time-mode via-
+    # body coast frames with NO target encounter on the trajectory.
+    no_encounter_streak: int = 0
     phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -2680,6 +2692,31 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         rounds_pending = _b5_rounds_pending(state)
         if _b5_correction_round_ready(state, snapshot):
             return _b5_enter_plan_correction(state, snapshot, peak)
+        # NO-ENCOUNTER EARLY TRIGGER (finding 18, B7 fourth flight): the
+        # phase-angle interplanetary ejection produced NO target encounter
+        # (tts NaN the whole heliocentric coast), the time-to-SOI triggers
+        # correctly never fired (fail-closed), and the coast sailed past
+        # Duna's orbit to the budget flake. In TIME mode over a via body
+        # with NO encounter on the trajectory, fire the pending round EARLY
+        # (debounced against transient NaN reads) so the course-correct
+        # plan can CREATE the encounter mid-course; a planner that cannot
+        # (throws server-side) burns the round through the existing
+        # PLAN_MAX_ATTEMPTS fall-through, keeping the failure bounded.
+        # Design Q5's "expected reliable encounter" assumption is REFUTED
+        # live; this replaces its accepted-flake posture.
+        no_encounter = (bool(state.params.correction_trigger_time_to_soi)
+                        and rounds_pending
+                        and snapshot.body in state.params.via_bodies
+                        and snapshot.node_count == 0
+                        and not _is_finite(snapshot.time_to_soi))
+        if no_encounter:
+            streak = stayed.no_encounter_streak + 1
+            if streak >= NO_ENCOUNTER_DEBOUNCE_FRAMES:
+                granted = replace(stayed, no_encounter_streak=0)
+                return _b5_enter_plan_correction(granted, snapshot, peak)
+            stayed = replace(stayed, no_encounter_streak=streak)
+        elif stayed.no_encounter_streak:
+            stayed = replace(stayed, no_encounter_streak=0)
         # ARRIVAL-QUALITY RE-CORRECTION (finding 16, twenty-third flight):
         # both altitude rounds executed to <1 m/s residual and the arrival
         # was STILL pe -31.8 km -- the blind altitude triggers cannot see
@@ -3565,6 +3602,7 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("impact_certain_streak", "impactStreak"),
     ("arrival_bad_streak", "arrivalBadStreak"),
     ("extra_rounds_done", "extraRounds"),
+    ("no_encounter_streak", "noEncounterStreak"),
 )
 
 # Fields whose CHANGE is a sparse, decision-relevant gate/latch event worth
@@ -3597,6 +3635,7 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     # and MAX_ARRIVAL_EXTRA_ROUNDS.
     ("arrival_bad_streak", "arrivalBadStreak"),
     ("extra_rounds_done", "extraRounds"),
+    ("no_encounter_streak", "noEncounterStreak"),
 )
 
 _MACHINE_FIELD_ABSENT = object()
