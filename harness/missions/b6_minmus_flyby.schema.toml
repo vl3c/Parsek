@@ -126,13 +126,6 @@ type = "int"
 min = 0
 max = 7
 
-# Drop to 1x this many metres BELOW the next correction trigger altitude (at
-# 1000x one poll moves the ship up to ~750 km). Optional; mlib defaults 2M.
-[params.warpSlowdownMarginMeters]
-required = false
-type = "number"
-min = 100000.0
-
 # Flyby min-altitude assertion floor (metres above the target body; the Mun has
 # ~7 km peaks). The machine tracks the min finite altitude inside the target
 # SOI; the assertion requires it at/above this floor.

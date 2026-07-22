@@ -219,6 +219,29 @@ IMPACT_WARP_GUARD_ALT = 400_000.0
 # one odd frame must never start a burn.
 ALIGNED_DEBOUNCE_FRAMES = 2
 
+# KSP rails warp rates by factor index (stock table).
+RAILS_WARP_RATES = (1.0, 5.0, 10.0, 50.0, 100.0, 1000.0, 10000.0, 100000.0)
+
+# Worst-case decision latency the stair-down must absorb: two ~0.5 s polls.
+_WARP_SAFETY_SECONDS = 1.0
+
+
+def rails_factor_for_distance(dist_m: float, speed_mps: float, cap: int) -> int:
+    """The highest rails factor index (<= cap) whose warped travel over the
+    safety window still fits inside ``dist_m`` -- the operator-reported fix for
+    the 1x crawl (sixteenth flight round: the old slow-down band dropped to 1x
+    for its ENTIRE 2,000 km, ~40 real minutes at coast speeds; the stair-down
+    holds 1000x far out and only reaches 1x in the last moments). A tiny or
+    non-finite speed is floored at 10 m/s (conservative: slower closure allows
+    MORE warp only when the distance genuinely shrinks slowly)."""
+    if not _is_finite(dist_m) or dist_m <= 0.0:
+        return 0
+    speed = max(abs(speed_mps), 10.0) if _is_finite(speed_mps) else 10.0
+    for idx in range(min(cap, len(RAILS_WARP_RATES) - 1), 0, -1):
+        if RAILS_WARP_RATES[idx] * speed * _WARP_SAFETY_SECONDS <= dist_m:
+            return idx
+    return 0
+
 # K-consecutive debounce depth (see module docstring).
 DEFAULT_DEBOUNCE_K = 3
 
@@ -623,14 +646,6 @@ class B5Params:
                                            # 100x: slower so the min-altitude
                                            # evidence samples reasonably through
                                            # periapsis; spec key flybyWarpFactor)
-    warp_slowdown_margin: float = 2_000_000.0
-                                           # drop to 1x this many metres BELOW
-                                           # the next correction trigger
-                                           # altitude: at 1000x one 0.5 s poll
-                                           # moves the ship up to ~750 km, so
-                                           # the margin must swallow several
-                                           # polls of motion (spec key
-                                           # warpSlowdownMarginMeters)
     target_periapsis_floor: float = 10000.0
                                            # flyby min-altitude assertion floor
                                            # (metres above the target body; the Mun
@@ -709,7 +724,6 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         flyby_timeout=float(params.get("flybyTimeoutSeconds", 300_000)),
         coast_warp_factor=int(params.get("coastWarpFactor", 6)),
         flyby_warp_factor=int(params.get("flybyWarpFactor", 5)),
-        warp_slowdown_margin=float(params.get("warpSlowdownMarginMeters", 2_000_000)),
         target_periapsis_floor=float(params.get("targetPeriapsisFloorMeters", 10000)),
         burn_stagnant_seconds=float(params.get("burnStagnantSeconds", 120)),
         burn_nostart_seconds=float(params.get("burnNoStartSeconds", 600)),
@@ -1837,16 +1851,21 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             return entered, prelude + [Action(ACTION_MJ_PLAN_COURSE_CORRECT,
                                               state.params.course_correct_periapsis,
                                               limit=state.params.max_correction_dv)]
-        # Non-blocking rails warp (on-change emissions only): full coast speed
-        # while nothing is imminent; 1x inside the slow-down margin below the
-        # next trigger, with a pending node, or without a home-body reading.
-        trigger_near = (rounds_pending and _is_finite(snapshot.altitude)
-                        and snapshot.altitude >= (triggers[state.correction_rounds_done]
-                                                  - state.params.warp_slowdown_margin))
-        desired = (state.params.coast_warp_factor
-                   if (snapshot.body == state.params.home_body
-                       and snapshot.node_count == 0 and not trigger_near)
-                   else 0)
+        # Non-blocking rails warp (on-change + self-healing emissions): full
+        # coast speed while nothing is imminent; approaching the next
+        # correction trigger the factor STAIRS DOWN with the remaining
+        # distance (operator-reported: the old binary band held 1x for its
+        # entire 2,000 km, ~40 real minutes) so 1x happens only in the last
+        # moments before the trigger. Pending node / no home-body reading
+        # still force 1x.
+        if snapshot.body != state.params.home_body or snapshot.node_count != 0:
+            desired = 0
+        elif rounds_pending and _is_finite(snapshot.altitude):
+            dist = triggers[state.correction_rounds_done] - snapshot.altitude
+            desired = rails_factor_for_distance(
+                dist, snapshot.vertical_speed, state.params.coast_warp_factor)
+        else:
+            desired = state.params.coast_warp_factor
         actions: List[Action] = []
         # Emit on change, PLUS re-assert when the game is NOT actually rails-
         # warping despite a nonzero command (fifteenth flight: operator manual

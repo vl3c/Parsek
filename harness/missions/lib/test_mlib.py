@@ -1464,7 +1464,6 @@ B5_PARAMS = mlib.B5Params(
     flyby_timeout=300_000.0,
     coast_warp_factor=6,
     flyby_warp_factor=5,
-    warp_slowdown_margin=2_000_000.0,
     target_periapsis_floor=10000.0,
 )
 
@@ -1886,15 +1885,48 @@ class B5MachineTests(unittest.TestCase):
                                                     body="Kerbin"))  # warp NONE
         self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
 
-    def test_coast_slowdown_band_below_trigger_drops_warp(self):
-        # Inside warpSlowdownMarginMeters below the next trigger: hold 1x so a
-        # 1000x poll step cannot blow through the trigger altitude.
+    def test_coast_stairs_warp_down_toward_trigger(self):
+        """Operator-reported bug (sixteenth flight round): the old binary
+        slow-down band held 1x for its ENTIRE 2,000 km (~40 real minutes at
+        coast speeds). The factor now STAIRS DOWN with remaining distance:
+        1000x far out, reduced factors approaching, 1x only in the last
+        moments."""
+        # Far below the 6M trigger at 800 m/s: 1000x (index 5) fits; the full
+        # 10,000x cap would overshoot the remaining 1.5M in one safety window.
         state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=1,
-                          warp_cmd=6)
-        state, actions = mlib.b5_decide(state, snap(ut=10.0, altitude=4_500_000.0,
-                                                    body="Kerbin"))
-        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+                          warp_cmd=0)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, altitude=4_500_000.0, vertical_speed=800.0, body="Kerbin"))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
+        # ~100 km out: 1000x would overshoot; 100x fits.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=20.0, altitude=5_900_000.0, vertical_speed=800.0, body="Kerbin",
+            warp_mode="RAILS", warp_rate=1000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 4.0)])
+        # ~5 km out: only 5x fits.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=30.0, altitude=5_995_000.0, vertical_speed=800.0, body="Kerbin",
+            warp_mode="RAILS", warp_rate=100.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 1.0)])
+        # A few hundred metres out: 1x.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=40.0, altitude=5_999_600.0, vertical_speed=800.0, body="Kerbin",
+            warp_mode="RAILS", warp_rate=5.0))
         self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+
+    def test_rails_factor_for_distance_pure(self):
+        # Index map: 5 = 1000x, 6 = 10,000x (RAILS_WARP_RATES).
+        self.assertEqual(mlib.rails_factor_for_distance(9_000_000, 800.0, 6), 6)
+        self.assertEqual(mlib.rails_factor_for_distance(5_800_000, 800.0, 6), 5)
+        self.assertEqual(mlib.rails_factor_for_distance(100_000, 800.0, 6), 4)
+        self.assertEqual(mlib.rails_factor_for_distance(5_000, 800.0, 6), 1)
+        self.assertEqual(mlib.rails_factor_for_distance(500, 800.0, 6), 0)
+        self.assertEqual(mlib.rails_factor_for_distance(-100, 800.0, 6), 0)
+        self.assertEqual(mlib.rails_factor_for_distance(float("nan"), 800.0, 6), 0)
+        # Tiny/zero closure speed floors at 10 m/s (conservative).
+        self.assertEqual(mlib.rails_factor_for_distance(50_000, 0.0, 6), 5)
+        # The cap is honored.
+        self.assertEqual(mlib.rails_factor_for_distance(5_800_000, 800.0, 3), 3)
 
     def test_coast_warp_gated_on_home_body_and_no_nodes(self):
         # rounds_done=2: both correction rounds spent, pure warp management.
@@ -2005,7 +2037,6 @@ class B5ParamTests(unittest.TestCase):
             "transferBurnTimeoutSeconds": 5000,
             "coastTimeoutSeconds": 900_000, "flybyTimeoutSeconds": 400_000,
             "coastWarpFactor": 7, "flybyWarpFactor": 4,
-            "warpSlowdownMarginMeters": 3_000_000,
             "targetPeriapsisFloorMeters": 20000,
             "frozenTelemetrySamples": 5,
         })
@@ -2015,7 +2046,6 @@ class B5ParamTests(unittest.TestCase):
         self.assertEqual(p.plan_retry_seconds, 15.0)
         self.assertEqual(p.coast_warp_factor, 7)
         self.assertEqual(p.flyby_warp_factor, 4)
-        self.assertEqual(p.warp_slowdown_margin, 3_000_000.0)
         self.assertEqual(p.target_periapsis_floor, 20000.0)
         self.assertEqual(p.frozen_sample_limit, 5)
 
