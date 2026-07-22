@@ -63,10 +63,17 @@ homeBodyName               = "Kerbin"
 # The Mun orbits at ~12,000 km; a TLI that raised apoapsis past 10,000 km is
 # unambiguous evidence the burn happened (floor, not a window).
 transferMinApoapsisMeters  = 10000000
-# Course-correct the flyby periapsis to 60 km: comfortably above the ~7 km Mun
-# peaks + the 10 km assertion floor, low enough for a real gravity-assist
-# flyby geometry.
-courseCorrectPeriapsisMeters = 60000
+# Course-correct target 250 km (finding 16d, flights 22-25): MechJeb's
+# OperationCourseCorrection systematically UNDER-DELIVERS toward low
+# periapsis targets -- four flights of nextPe evidence: a 60 km request
+# repeatedly arrived at pe -22..-33 km, and even the in-window extra round's
+# 9.5 m/s plan (claiming 60 km) moved the prediction only +2.7 km where the
+# geometry needed ~39 m/s. Every plan burns the RIGHT direction, just far
+# too little, so the fix is margin: target 250 km and let the characterized
+# ~90-100 km bias land the arrival comfortably above the 10 km assertion
+# floor (the contract is the FLOOR; the proven passes flew 956-1,142 km).
+# The finding-16 arrival-quality gate stays as the closed-loop guard.
+courseCorrectPeriapsisMeters = 250000
 # The dv cap blocks the WILD-BURN INSANITY class only (finding 2's 15,930
 # m/s transfer-reshape plans), NOT genuine corrections: the DIY burner +
 # aligned debounce + no-progress give-up now own the wild-burn risk, and
