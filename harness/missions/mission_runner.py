@@ -472,15 +472,29 @@ class KrpcMissionControl(MissionControl):
             # deceleration tuning as the B4 retro flip.
             nodes = v.control.nodes
             if len(nodes) > 0:
+                # Release MechJeb's throttle hold FIRST (eleventh live flight,
+                # via the new thr= readback: after the TLI executor runs,
+                # set_throttle commands read back 0.000 -- MechJeb's thrust
+                # controller keeps zeroing the throttle until the executor's
+                # full abort teardown runs). This mirrors B4's proven
+                # AP_POINT_RETROGRADE pattern, whose SET_THROTTLE always
+                # worked because it aborts the executor before engaging the
+                # native AP. Executor re-use poisoning is moot: corrections
+                # never touch the executor again.
+                if self._mechjeb is not None:
+                    try:
+                        self._mechjeb.node_executor.abort()
+                    except Exception:
+                        pass
                 ap = v.auto_pilot
                 ap.reference_frame = nodes[0].reference_frame
                 ap.target_direction = (0.0, 1.0, 0.0)
                 # NO deceleration_time override here (unlike the B4 retro
                 # hold): the tenth live flight measured a 0.06 deg/s crawl
                 # from near-anti-parallel with the (15,15,15) tuning -- the
-                # kRPC defaults turn far faster, and the DIY burn's rough
-                # 30-degree start gate + chase-the-vector burning tolerate the
-                # coarser hold.
+                # kRPC defaults turn far faster (confirmed ~0.5 deg/s on the
+                # eleventh flight), and the DIY burn's rough 30-degree start
+                # gate + chase-the-vector burning tolerate the coarser hold.
                 ap.engage()
         elif kind == mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES:
             # B5 burn-exit cleanup: remove every remaining node, so the coast
