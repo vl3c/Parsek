@@ -759,7 +759,10 @@ class KrpcMissionControl(MissionControl):
             # AutoPilot along the first node's burn vector. Node.ReferenceFrame's
             # y-axis IS the burn vector (pinned kRPC source); same heavy-stack
             # deceleration tuning as the B4 retro flip.
-            nodes = control_handle.nodes
+            # (v.control here, NOT read_snapshot's cached control_handle --
+            # that local lives in a different method; the twentieth flight
+            # died on exactly that NameError at CORRECTION-BURN entry.)
+            nodes = v.control.nodes
             if len(nodes) > 0:
                 # Release MechJeb's throttle hold FIRST (eleventh live flight,
                 # via the new thr= readback: after the TLI executor runs,
