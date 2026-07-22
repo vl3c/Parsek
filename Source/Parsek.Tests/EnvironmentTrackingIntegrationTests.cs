@@ -244,11 +244,19 @@ namespace Parsek.Tests
             Assert.Equal(ReferenceFrame.Absolute, reopened.referenceFrame);
             Assert.Equal(TrackSectionSource.Active, reopened.source);
             Assert.Equal(lastPoint.ut, reopened.startUT);
-            Assert.True(reopened.startUT <= recorder.TrackSections[0].endUT);
+            // INV2 disjoint-cover: the closed section's stop-frame overhang
+            // (endUT 110.0 past its last frame 109.5) is clamped down to the
+            // boundary seed so the two sections touch exactly, never overlap.
+            Assert.Equal(lastPoint.ut, recorder.TrackSections[0].endUT);
+            Assert.Equal(recorder.TrackSections[0].endUT, reopened.startUT);
             Assert.Equal(120.0, reopened.endUT);
             Assert.Single(reopened.frames);
             Assert.Equal(lastPoint.ut, reopened.frames[0].ut);
             Assert.Equal(lastPoint.altitude, reopened.frames[0].altitude);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Recorder]")
+                && l.Contains("clamped closed TrackSection endUT")
+                && l.Contains("boundary seed UT=109.500"));
         }
 
         [Fact]
@@ -446,9 +454,10 @@ namespace Parsek.Tests
             Assert.Equal(anchorRecordingId, reopened.anchorRecordingId);
             Assert.Equal(0u, reopened.anchorVesselId);
             Assert.Equal(lastPoint.ut, reopened.startUT);
-            // Existing payload sections resume at their last seed point, which
-            // may intentionally overlap the previous section's closed end.
-            Assert.True(reopened.startUT <= recorder.TrackSections[0].endUT);
+            // Existing payload sections resume at their last seed point; the
+            // closed section's stop-frame overhang is clamped down to the same
+            // UT so the seam is an exact touch (INV2 disjoint-cover).
+            Assert.Equal(recorder.TrackSections[0].endUT, reopened.startUT);
             Assert.Single(reopened.frames);
             Assert.Equal(lastPoint.ut, reopened.frames[0].ut);
         }
@@ -545,6 +554,231 @@ namespace Parsek.Tests
             Assert.Equal(resumedSegment.bodyName, currentOrbitSegment.bodyName);
             Assert.Equal(resumedSegment.semiMajorAxis, currentOrbitSegment.semiMajorAxis);
         }
+
+        #endregion
+
+        #region Stop/resume seam disjoint-cover clamp (INV2-NO-DOUBLE-COVER)
+
+        [Fact]
+        public void RestoreTrackSectionAfterFalseAlarm_B5BoosterSeparationShape_ClampsStopFrameOverhang()
+        {
+            // Mirror of the 2026-07-22 B5 Mun-impact triage repro: the debris-only
+            // staging split closed the ascent section at the stop-frame UT (48.48)
+            // one tick past its last recorded frame (48.46), then the false-alarm
+            // resume back-aligned the reopened section's startUT to 48.46 —
+            // a one-tick interior overlap that reached the .prec sidecar when the
+            // vessel was destroyed before CommitTree. The producer-side clamp must
+            // pull the closed endUT down to the boundary seed so the sections
+            // touch exactly.
+            var lastFrame = new TrajectoryPoint
+            {
+                ut = 48.460000000001976,
+                altitude = 5200.0,
+                bodyName = "Kerbin"
+            };
+
+            recorder.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 39.380000000000557,
+                endUT = 48.480000000001979,
+                frames = new List<TrajectoryPoint> { lastFrame },
+                checkpoints = new List<OrbitSegment>()
+            });
+            recorder.Recording.Add(lastFrame);
+
+            recorder.RestoreTrackSectionAfterFalseAlarm(48.500000000001976);
+            recorder.CloseCurrentTrackSection(64.1);
+
+            Assert.Equal(2, recorder.TrackSections.Count);
+            Assert.Equal(lastFrame.ut, recorder.TrackSections[0].endUT);
+            Assert.Equal(lastFrame.ut, recorder.TrackSections[1].startUT);
+            // Exact touch — INV2's interior-overlap sweep (`start < coverEnd`)
+            // treats end(A) == start(B) as clean.
+            Assert.Equal(recorder.TrackSections[0].endUT, recorder.TrackSections[1].startUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Recorder]")
+                && l.Contains("aligning reopened TrackSection startUT"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Recorder]")
+                && l.Contains("clamped closed TrackSection endUT")
+                && l.Contains("disjoint-cover"));
+        }
+
+        [Fact]
+        public void TryClampClosedSectionEnd_OverhangWithNoPayloadPastSeed_Clamps()
+        {
+            var sections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    startUT = 100.0,
+                    endUT = 110.02,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 110.0 }
+                    },
+                    checkpoints = new List<OrbitSegment>()
+                }
+            };
+
+            bool clamped = FlightRecorder.TryClampClosedSectionEndToBoundarySeed(
+                sections, 110.0, out double previousEndUT);
+
+            Assert.True(clamped);
+            Assert.Equal(110.02, previousEndUT);
+            Assert.Equal(110.0, sections[0].endUT);
+        }
+
+        [Fact]
+        public void TryClampClosedSectionEnd_ExactTouch_DoesNothing()
+        {
+            var sections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    startUT = 100.0,
+                    endUT = 110.0,
+                    frames = new List<TrajectoryPoint>(),
+                    checkpoints = new List<OrbitSegment>()
+                }
+            };
+
+            bool clamped = FlightRecorder.TryClampClosedSectionEndToBoundarySeed(
+                sections, 110.0, out _);
+
+            Assert.False(clamped);
+            Assert.Equal(110.0, sections[0].endUT);
+        }
+
+        [Fact]
+        public void TryClampClosedSectionEnd_SeedBelowSectionStart_RefusesInversion()
+        {
+            var sections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    startUT = 100.0,
+                    endUT = 110.0,
+                    frames = new List<TrajectoryPoint>(),
+                    checkpoints = new List<OrbitSegment>()
+                }
+            };
+
+            bool clamped = FlightRecorder.TryClampClosedSectionEndToBoundarySeed(
+                sections, 99.0, out _);
+
+            Assert.False(clamped);
+            Assert.Equal(110.0, sections[0].endUT);
+        }
+
+        [Fact]
+        public void TryClampClosedSectionEnd_FramePastSeed_RefusesDataLoss()
+        {
+            var sections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    startUT = 100.0,
+                    endUT = 110.02,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 110.01 }
+                    },
+                    checkpoints = new List<OrbitSegment>()
+                }
+            };
+
+            bool clamped = FlightRecorder.TryClampClosedSectionEndToBoundarySeed(
+                sections, 110.0, out _);
+
+            Assert.False(clamped);
+            Assert.Equal(110.02, sections[0].endUT);
+        }
+
+        [Fact]
+        public void TryClampClosedSectionEnd_BodyFixedFramePastSeed_RefusesDataLoss()
+        {
+            var sections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    startUT = 100.0,
+                    endUT = 110.02,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 109.9 }
+                    },
+                    bodyFixedFrames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 110.01 }
+                    },
+                    checkpoints = new List<OrbitSegment>()
+                }
+            };
+
+            bool clamped = FlightRecorder.TryClampClosedSectionEndToBoundarySeed(
+                sections, 110.0, out _);
+
+            Assert.False(clamped);
+            Assert.Equal(110.02, sections[0].endUT);
+        }
+
+        [Fact]
+        public void TryClampClosedSectionEnd_CheckpointPastSeed_RefusesDataLoss()
+        {
+            var sections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    startUT = 100.0,
+                    endUT = 110.02,
+                    frames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 109.9 }
+                    },
+                    checkpoints = new List<OrbitSegment>
+                    {
+                        new OrbitSegment { startUT = 100.0, endUT = 110.01 }
+                    }
+                }
+            };
+
+            bool clamped = FlightRecorder.TryClampClosedSectionEndToBoundarySeed(
+                sections, 110.0, out _);
+
+            Assert.False(clamped);
+            Assert.Equal(110.02, sections[0].endUT);
+        }
+
+        [Fact]
+        public void TryClampClosedSectionEnd_EmptyListOrNonFiniteSeed_DoesNothing()
+        {
+            Assert.False(FlightRecorder.TryClampClosedSectionEndToBoundarySeed(
+                new List<TrackSection>(), 110.0, out _));
+            Assert.False(FlightRecorder.TryClampClosedSectionEndToBoundarySeed(
+                null, 110.0, out _));
+
+            var sections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    startUT = 100.0,
+                    endUT = 110.02,
+                    frames = new List<TrajectoryPoint>(),
+                    checkpoints = new List<OrbitSegment>()
+                }
+            };
+            Assert.False(FlightRecorder.TryClampClosedSectionEndToBoundarySeed(
+                sections, double.NaN, out _));
+            Assert.Equal(110.02, sections[0].endUT);
+        }
+
+        #endregion
+
+        #region Restore environment resync
 
         [Fact]
         public void TryApplyRestoreEnvironmentResync_MatchingTailEnvironmentRelabelsOpenSection()
