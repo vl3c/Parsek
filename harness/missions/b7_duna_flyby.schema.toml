@@ -1,0 +1,316 @@
+# Declared param schema for mission b7_duna_flyby -- a COPY of
+# b5_mun_flyby.schema.toml (the mission is a thin alias over the shared
+# body-parameterized B5 machine; run.py resolves <mission>.schema.toml by
+# name, so the alias needs its own file) PLUS the five B7 interplanetary keys
+# at the bottom. Keep the shared block in sync with the B5 schema; the B7
+# additions belong only here.
+#
+# hlib.validate_spec does NOT read this file itself: run.py (shell / I/O) parses
+# every harness/missions/<mission>.schema.toml with tomllib into a registry
+# { mission-name -> schema-dict } and INJECTS it as validate_spec's
+# `mission_schemas` argument. hlib's PURE validator (_validate_mission_params)
+# then drives required-key presence and per-value type/range checks from the
+# `params` table below. Shape consumed by hlib:
+#   {"params": {"<name>": {"required": bool, "type": "<t>", "min": <num?>, "max": <num?>}}}
+# Every value here is a tolerance / threshold / budget, never a golden
+# trajectory (design "Determinism guardrails").
+#
+# The ascent half is B2's ascent params verbatim. B2's eccentricityMax /
+# inclinationErrorDeg / launchSiteLatitude are deliberately ABSENT: like B4/B5,
+# B7 makes no orbital-precision assertions (the parking orbit is a waypoint the
+# ejection burn then deliberately leaves on a HYPERBOLIC escape).
+
+[params.targetApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.targetPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.apoErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.periErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.ascentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.circularizeTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# Transfer target / home SOI body names (kRPC orbit.body.name values). The
+# machine's SOI gates compare snapshot.body against these. B7: target Duna,
+# home Kerbin.
+[params.targetBodyName]
+required = true
+type = "string"
+
+[params.homeBodyName]
+required = true
+type = "string"
+
+# TRANSFER-BURN exit floor for the moon Hohmann shape (B5/B6). B7 sets
+# ejectionEccFloor > 0 and DISABLES this apoapsis-floor evidence (a hyperbolic
+# escape drives the Kerbin-frame apoapsis negative), but the key stays required
+# for schema symmetry with the shared block; B7 sets it to 0.
+[params.transferMinApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+# > 0: after the ejection/TLI burn, plan + execute a MechJeb course correction
+# to this target-flyby periapsis (metres) -- pins the flyby geometry and keeps
+# the periapsis off the terrain. 0 disables the two correction phases.
+[params.courseCorrectPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+# PLAN-* phase budget (GAME seconds). PLAN-TRANSFER expiry flakes (no transfer
+# = no mission); PLAN-CORRECTION expiry falls through to the coast (the
+# correction is best-effort).
+[params.planTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# Re-issue a failed plan every this many game seconds while no node appeared
+# (a no-window/no-encounter plan throws server-side and leaves the node list
+# empty).
+[params.planRetrySeconds]
+required = false
+type = "number"
+min = 1.0
+max = 600.0
+
+# TRANSFER-BURN / CORRECTION-BURN budget (GAME seconds). For B7 this must cover
+# the ENTIRE ejection-window wait: OperationInterplanetaryTransfer plans the
+# node at the next Kerbin->Duna window, up to ~1 synodic period (~20,000,000
+# game s) ahead, and the NodeExecutor autowarp advances game time to it. Sized
+# in the B7 spec at ~25,000,000; hence the wide max here.
+[params.transferBurnTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+max = 40000000.0
+
+# COAST-TO-TARGET budget (GAME seconds). For B7 the heliocentric Kerbin->Duna
+# transfer coast is ~7,000,000 game s (the recorded Duna tof); sized with
+# margin in the spec.
+[params.coastTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# TARGET-FLYBY budget (GAME seconds; SOI entry to SOI exit). Duna's SOI is large
+# (~47.9 Mm radius) so the transit is hours of game time.
+[params.flybyTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# Non-blocking rails-warp factors (KSP factor INDEX 0-7; the machine holds
+# the factor via on-change set_rails_warp emissions and keeps polling -- no
+# blocking warp RPC, no per-hop ramp sawtooth). Optional; mlib defaults 6
+# (10,000x) coast cap / 5 (100x) flyby floor. Every commanded factor is
+# additionally pre-clamped to the stock per-body altitude-limit table
+# (mlib.STOCK_WARP_ALTITUDE_LIMITS) so the command is always achievable and
+# escalates as the vessel climbs. B7 sets coastWarpFactor = 7 (100,000x, legal
+# far from the Sun) for the ~200-day + ~300-day heliocentric legs.
+[params.coastWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+[params.flybyWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+# TARGET-FLYBY stair-down cap: far above periapsis the factor rises toward
+# this with the remaining (altitude - periapsis) distance, falling back to
+# the flybyWarpFactor floor near periapsis. Optional; mlib defaults 6.
+[params.flybyMaxWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+# AIM-THEN-WARP node-arrival margin (GAME seconds): the correction burn aims
+# first, then natively warps to node UT minus this margin; 1x exists only
+# inside it (nodeWarpLeadSeconds is RETIRED -- delta-review E1). Optional;
+# mlib defaults 15.
+[params.nodeArrivalMarginSeconds]
+required = false
+type = "number"
+min = 5.0
+max = 600.0
+
+# PLAN-* phase rails hold factor INDEX (legality-clamped; 2 = 10x). Optional;
+# mlib defaults 2.
+[params.planWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+# Native-warp SOI lead (GAME seconds): coast/flyby legs warp to the SOI
+# change minus this lead. Optional; mlib defaults 30.
+[params.soiLeadSeconds]
+required = false
+type = "number"
+min = 5.0
+max = 3600.0
+
+# CORRECTION-BURN pre-burn attitude-flip physics warp factor INDEX (0-3;
+# 1 = 2x). Optional; mlib defaults 1.
+[params.flipPhysicsWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 3
+
+# Flyby min-altitude assertion floor (metres above the target body). Duna has
+# ~8 km peaks; B7 sets 15 km. The machine tracks the min finite altitude inside
+# the target SOI; the assertion requires it at/above this floor.
+[params.targetPeriapsisFloorMeters]
+required = true
+type = "number"
+min = 0.0
+
+# Correction ROUNDS (ALTITUDE mode, B5/B6): COAST-TO-TARGET enters
+# PLAN-CORRECTION once per entry when the HOME-body altitude crosses that
+# trigger. B7 leaves this EMPTY and uses correctionTriggerTimeToSoiSeconds
+# instead (the heliocentric coast is in Sun SOI, so a Kerbin-altitude trigger
+# can never fire mid-coast).
+[params.correctionTriggerAltsMeters]
+required = false
+type = "list"
+
+# dv cap (m/s) an acceptable course-correction plan must fit under.
+[params.maxCorrectionDvMps]
+required = false
+type = "number"
+min = 1.0
+max = 2000.0
+
+# BURN-phase stagnation watchdog (game seconds). Optional; mlib defaults 120.
+[params.burnStagnantSeconds]
+required = false
+type = "number"
+min = 30.0
+max = 3600.0
+
+# CORRECTION-BURN no-start watchdog (game seconds). Optional; mlib defaults 600.
+[params.burnNoStartSeconds]
+required = false
+type = "number"
+min = 60.0
+max = 3600.0
+
+# DIY correction burner (live finding 8). All optional.
+[params.correctionThrottle]
+required = false
+type = "number"
+min = 0.05
+max = 1.0
+
+[params.correctionCutDvMps]
+required = false
+type = "number"
+min = 0.5
+max = 20.0
+
+[params.correctionSettleSeconds]
+required = false
+type = "number"
+min = 1.0
+max = 120.0
+
+[params.maxAttitudeErrorDeg]
+required = false
+type = "number"
+min = 0.5
+max = 45.0
+
+# Optional: consecutive AIRBORNE frozen-telemetry samples before the mission
+# declares the vessel lost. mlib.B5Params defaults it to 10. Always an
+# ASSERT-FAIL loss (survival is the contract).
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000
+
+# --------------------------------------------------------------------------
+# B7 INTERPLANETARY ADDITIONS (absent / defaulted-off in the B5/B6 schemas).
+# Each defaults in mlib.B5Params to its B5-preserving value, so the Mun/Minmus
+# specs stay byte-identical; B7 turns them on. See
+# docs/dev/design-autotest-b7-duna.md for the machine diff.
+# --------------------------------------------------------------------------
+
+# Ask MechJeb's ManeuverPlanner for an OperationInterplanetaryTransfer
+# (WaitForPhaseAngle) instead of the moon Hohmann OperationTransfer. The
+# ejection node lands at the next Kerbin->Duna window (up to ~1 synodic ahead).
+# Optional; mlib.B5Params defaults false (moon Hohmann shape, B5/B6). B7: true.
+[params.interplanetaryTransfer]
+required = false
+type = "bool"
+
+# Legal INTERMEDIATE coast SOI body names between home and target. Today's
+# machine reads any foreign body in the coast as the ejected ASSERT-FAIL
+# terminal; a via body is exempted (the craft is expected to pass through it)
+# AND is a legal rails-warp body for the coast. Optional; mlib defaults ()
+# (B5/B6: no intermediate -- Kerbin directly to the Mun/Minmus). B7: ["Sun"].
+[params.viaBodyNames]
+required = false
+type = "list"
+
+# Terminal EXIT SOI body after the flyby. RETURN (the success terminal) fires
+# when body == this AFTER TARGET-FLYBY. Empty string means "use homeBodyName"
+# (the B5/B6 free-return into Kerbin SOI). B7: "Sun" -- a Duna flyby exits into
+# heliocentric space, and a free-return to Kerbin takes years (out of scope).
+# Optional; mlib defaults "" (-> homeBodyName).
+[params.returnBodyName]
+required = false
+type = "string"
+
+# Hyperbolic ejection burn-done evidence: > 0 makes TRANSFER-BURN's exit
+# "the Kerbin-frame eccentricity reached this (an escape trajectory) OR the
+# craft already left the home SOI" instead of the apoapsis floor (an escape
+# burn drives the Kerbin-frame apoapsis negative, so transferMinApoapsisMeters
+# cannot be the evidence). Optional; mlib defaults 0.0 (apoapsis-floor
+# evidence, B5/B6). B7: 1.05 (comfortably > 1, below any physically-plausible
+# reading noise).
+[params.ejectionEccFloor]
+required = false
+type = "number"
+min = 0.0
+max = 100.0
+
+# Correction ROUNDS (TIME-TO-SOI mode, B7). A DESCENDING list of time-to-target-
+# SOI thresholds (GAME seconds): COAST-TO-TARGET enters PLAN-CORRECTION once per
+# entry when the trajectory shows a Duna encounter (finite time_to_soi) AND
+# time_to_soi has fallen at/below that round's threshold. A large first
+# threshold fires the EARLY round right after Sun-SOI entry (fix the ejection
+# error); a small last threshold fires the LATE round a few days before Duna
+# SOI entry (fine-tune the flyby periapsis). Non-empty SELECTS time mode and
+# supersedes correctionTriggerAltsMeters. Optional; mlib defaults () (altitude
+# mode, B5/B6).
+[params.correctionTriggerTimeToSoiSeconds]
+required = false
+type = "list"

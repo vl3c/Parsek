@@ -709,6 +709,23 @@ class KrpcMissionControl(MissionControl):
             except Exception as exc:
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Plan", "operation_transfer.make_nodes failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER:
+            # KRPC.MechJeb 0.8.1 maneuver_planner.operation_interplanetary_transfer
+            # (pinned source ManeuverPlanner.cs:79 OperationInterplanetaryTransfer
+            # KRPCProperty -> MuMech.OperationInterplanetaryTransfer; the only
+            # surface is WaitForPhaseAngle, Maneuver/OperationInterplanetaryTransfer.cs).
+            # WaitForPhaseAngle=True plans the ejection node at the next transfer
+            # window (up to ~1 synodic ahead). Same throw/log/swallow contract as
+            # operation_transfer: a no-window plan throws server-side, node_count
+            # stays 0, and the machine's bounded re-plan owns the retry.
+            try:
+                op = self._mechjeb.maneuver_planner.operation_interplanetary_transfer
+                op.wait_for_phase_angle = True
+                op.make_nodes()
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Plan",
+                    "operation_interplanetary_transfer.make_nodes failed: %s" % (exc,)))
         elif kind == mlib.ACTION_MJ_PLAN_COURSE_CORRECT:
             # KRPC.MechJeb 0.8.1: course-correct the existing target encounter to
             # the machine-chosen flyby periapsis (metres). Same throw/log/swallow

@@ -185,6 +185,9 @@ ACTION_WARP_TO = "warp_to"                                 # value = target UT (
 # fall-through logic owns the outcome -- never an unhandled mission error.
 ACTION_SET_TARGET_BODY = "set_target_body"                 # text = body name
 ACTION_MJ_PLAN_TRANSFER = "mj_plan_transfer"               # value = None
+# B7 interplanetary transfer plan (MechJeb OperationInterplanetaryTransfer with
+# WaitForPhaseAngle). Same PLAN_* try/except contract as ACTION_MJ_PLAN_TRANSFER.
+ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER = "mj_plan_interplanetary_transfer"  # value None
 ACTION_MJ_PLAN_COURSE_CORRECT = "mj_plan_course_correct"   # value = periapsis m
 ACTION_MJ_EXECUTE_NODES = "mj_execute_nodes"               # value = None (autowarp)
 ACTION_MJ_ABORT_AND_CLEAR_NODES = "mj_abort_and_clear_nodes"  # value = None
@@ -1014,6 +1017,32 @@ class B5Params:
                                            # deg/s) -- demanding 5 deg starves
                                            # the round into its give-up (spec
                                            # key maxAttitudeErrorDeg)
+    via_bodies: Tuple[str, ...] = ()
+                                           # legal INTERMEDIATE coast SOI bodies
+                                           # (B7: ("Sun",)); exempt from the coast
+                                           # ejection check and legal rails-warp
+                                           # bodies. () = B5/B6 (no intermediate).
+                                           # Spec key viaBodyNames.
+    return_body: str = ""                  # terminal EXIT SOI body after the flyby;
+                                           # "" -> home_body (B5/B6 free-return).
+                                           # B7: "Sun". Spec key returnBodyName.
+    interplanetary_transfer: bool = False  # ORBIT/PLAN-TRANSFER use
+                                           # OperationInterplanetaryTransfer instead
+                                           # of the moon OperationTransfer. B7: True.
+                                           # Spec key interplanetaryTransfer.
+    ejection_ecc_floor: float = 0.0        # > 0: TRANSFER-BURN burn-done evidence is
+                                           # a hyperbolic home-frame ecc (>= this in
+                                           # home SOI) OR already-left-home, NOT the
+                                           # apoapsis floor. B7: 1.05. 0 = apoapsis
+                                           # floor (B5/B6). Spec key ejectionEccFloor.
+    correction_trigger_time_to_soi: Tuple[float, ...] = ()
+                                           # DESCENDING time-to-target-SOI thresholds
+                                           # (game s) for heliocentric correction
+                                           # rounds; non-empty SELECTS time mode and
+                                           # supersedes correction_trigger_alts.
+                                           # B7: (20_000_000, 500_000). () = altitude
+                                           # mode (B5/B6). Spec key
+                                           # correctionTriggerTimeToSoiSeconds.
     frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
                                            # vessel-lost terminal (spec key
                                            # frozenTelemetrySamples)
@@ -1055,6 +1084,12 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         correction_cut_dv=float(params.get("correctionCutDvMps", 2.0)),
         correction_settle_seconds=float(params.get("correctionSettleSeconds", 10)),
         max_attitude_error_deg=float(params.get("maxAttitudeErrorDeg", 30.0)),
+        via_bodies=tuple(str(b) for b in params.get("viaBodyNames", ())),
+        return_body=str(params.get("returnBodyName", "")),
+        interplanetary_transfer=bool(params.get("interplanetaryTransfer", False)),
+        ejection_ecc_floor=float(params.get("ejectionEccFloor", 0.0)),
+        correction_trigger_time_to_soi=tuple(
+            float(t) for t in params.get("correctionTriggerTimeToSoiSeconds", ())),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
     )
 
@@ -1859,6 +1894,94 @@ def _b5_stay_or_flake(state: B5State, snapshot: TelemetrySnapshot,
     return replace(state, peak_apoapsis=peak)
 
 
+# ---------------------------------------------------------------------------
+# B7 interplanetary helpers (design docs/dev/design-autotest-b7-duna.md,
+# section 5.4). All pure; with the B7 params at their defaults every helper
+# reproduces the pre-B7 B5/B6 code path byte-identically.
+# ---------------------------------------------------------------------------
+
+
+def _b5_return_body(params: B5Params) -> str:
+    """The terminal exit SOI body: return_body if set, else home_body (B5/B6
+    free-return)."""
+    return params.return_body or params.home_body
+
+
+def _b5_coast_bodies(params: B5Params) -> Tuple[str, ...]:
+    """Bodies whose presence in COAST-TO-TARGET is NOT an ejection: "" (no
+    reading), the home body, and every via body."""
+    return ("", params.home_body) + params.via_bodies
+
+
+def _b5_warp_bodies(params: B5Params) -> Tuple[str, ...]:
+    """Bodies over which the coast legitimately operates (home + via).
+    Excludes "": an empty reading holds warp state and counts the blank-body
+    dwell instead. Also the body domain of the arrival-quality re-correct
+    gate (finding 16): with via bodies the heliocentric coast can grant the
+    extra round too; with via_bodies=() this is exactly (home_body,), the
+    pre-B7 gate."""
+    return (params.home_body,) + params.via_bodies
+
+
+def _b5_transfer_plan_action(params: B5Params) -> Action:
+    """The transfer plan action: interplanetary (WaitForPhaseAngle) when
+    interplanetary_transfer, else the moon Hohmann transfer."""
+    if params.interplanetary_transfer:
+        return Action(ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER)
+    return Action(ACTION_MJ_PLAN_TRANSFER)
+
+
+def _b5_transfer_burn_done(params: B5Params, snapshot: TelemetrySnapshot) -> bool:
+    """TRANSFER-BURN burn-done evidence. B5/B6: the home-frame apoapsis reached
+    transfer_min_apoapsis. B7 (ejection_ecc_floor > 0): a HYPERBOLIC home-frame
+    eccentricity (>= floor while still in the home SOI) OR the craft ALREADY
+    left the home SOI (body is a via body / the target -- the heliocentric
+    frame's ecc is < 1 and would falsely fail the first disjunct). NaN ecc
+    fails closed."""
+    if params.ejection_ecc_floor > 0.0:
+        if snapshot.body in params.via_bodies or snapshot.body == params.target_body:
+            return True
+        return (snapshot.body == params.home_body
+                and _is_finite(snapshot.eccentricity)
+                and snapshot.eccentricity >= params.ejection_ecc_floor)
+    return (_is_finite(snapshot.apoapsis)
+            and snapshot.apoapsis >= params.transfer_min_apoapsis)
+
+
+def _b5_correction_triggers(params: B5Params) -> Tuple[float, ...]:
+    """The active correction-round trigger list: the time-to-SOI list when set
+    (B7), else the altitude list (B5/B6)."""
+    return params.correction_trigger_time_to_soi or params.correction_trigger_alts
+
+
+def _b5_rounds_pending(state: B5State) -> bool:
+    """True iff more correction rounds may still fire (corrections enabled and
+    fewer rounds done than triggers)."""
+    return (state.params.course_correct_periapsis > 0.0
+            and state.correction_rounds_done < len(_b5_correction_triggers(state.params)))
+
+
+def _b5_correction_round_ready(state: B5State, snapshot: TelemetrySnapshot) -> bool:
+    """True iff the current correction round's trigger has fired this frame.
+    TIME mode (B7): body is a via body AND time_to_soi finite AND <= the round's
+    threshold (fires in heliocentric space, never during the home-SOI escape,
+    and only while a target encounter exists -- which is also
+    OperationCourseCorrection's precondition).
+    ALTITUDE mode (B5/B6): body == home AND altitude finite AND >= the round's
+    threshold. Both NaN-fail-closed."""
+    p = state.params
+    if not _b5_rounds_pending(state):
+        return False
+    idx = state.correction_rounds_done
+    if p.correction_trigger_time_to_soi:
+        return (snapshot.body in p.via_bodies
+                and _is_finite(snapshot.time_to_soi)
+                and snapshot.time_to_soi <= p.correction_trigger_time_to_soi[idx])
+    return (snapshot.body == p.home_body
+            and _is_finite(snapshot.altitude)
+            and snapshot.altitude >= p.correction_trigger_alts[idx])
+
+
 # Burn-stagnation watchdog thresholds: "the burn happened" = an apsis moved
 # more than _BURN_CHANGED_EPS since BURN-phase entry; "static" = frame-to-frame
 # apsis movement under _BURN_STATIC_EPS (a coasting conic is rock-stable; any
@@ -2181,9 +2304,13 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         most once per WARP_REISSUE_SECONDS when the game reports no active
         warp); otherwise the held rails coast factor. While a native warp is
         commanded the machine NEVER emits set_rails_warp (cancel first).
-        body == target -> TARGET-FLYBY. body neither home nor target
-        (nor "", which HOLDS with no warp change) -> ASSERT-FAIL (ejected:
-        the craft left the home system without meeting the target).
+        B7 (correctionTriggerTimeToSoiSeconds non-empty) triggers rounds on
+        TIME-TO-TARGET-SOI thresholds over a via body instead, approaching a
+        pending trigger with a native warp_to_ut to the trigger UT and a
+        factor-2-floored rails time stair inside soiLeadSeconds of it.
+        body == target -> TARGET-FLYBY. body not in the coast set (home +
+        viaBodyNames; "" HOLDS with no warp change) -> ASSERT-FAIL (ejected:
+        the craft left the allowed coast bodies without meeting the target).
       - TARGET-FLYBY: track the min finite altitude (the flyby-floor
         evidence); the outer SOI legs issue a NATIVE warp_to_ut to the SOI
         EXIT minus soiLeadSeconds (the game's own altitude limits shape the
@@ -2191,9 +2318,10 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         window / no estimate the rails stair fallback runs (flybyWarpFactor
         floor, flybyMaxWarpFactor cap, legality clamp). The impact guard is
         AUTHORITATIVE: it cancels any native warp and holds 1x.
-        body == home -> RETURN (terminal: done, verdict None; cancels any
-        native warp; the settle tail runs in home SOI). body neither ->
-        ASSERT-FAIL (slung out of the home system).
+        body == the exit body (returnBodyName, defaulting to home) -> RETURN
+        (terminal: done, verdict None; cancels any native warp; the settle
+        tail runs in the exit SOI). body neither target nor exit ->
+        ASSERT-FAIL (slung off-course).
     Vessel-lost / frozen telemetry in ANY phase -> ASSERT-FAIL loss_reason
     (survival is the contract). A timed phase out-running its budget yields
     MISSION-FLAKE naming the stuck phase (except the PLAN-CORRECTION
@@ -2254,20 +2382,22 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
 
     if state.phase == B5_ORBIT:
         # One-frame waypoint (reachedOrbit evidence): set the transfer target and
-        # ask the ManeuverPlanner for the Hohmann transfer, then wait for the node.
+        # ask the ManeuverPlanner for the transfer (moon Hohmann, or the B7
+        # interplanetary window plan when interplanetary_transfer), then wait
+        # for the node.
         entered = _b5_enter(state, B5_PLAN_TRANSFER, snapshot.ut, peak)
         entered = replace(entered,
                           last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0,
                           plan_attempts=1)
         return entered, [
             Action(ACTION_SET_TARGET_BODY, text=state.params.target_body),
-            Action(ACTION_MJ_PLAN_TRANSFER),
+            _b5_transfer_plan_action(state.params),
         ]
 
     if state.phase == B5_PLAN_TRANSFER:
         return _b5_plan_phase(
             state, snapshot, peak,
-            plan_action=Action(ACTION_MJ_PLAN_TRANSFER),
+            plan_action=_b5_transfer_plan_action(state.params),
             burn_phase=B5_TRANSFER_BURN,
             on_timeout_phase=None)
 
@@ -2285,8 +2415,12 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # (six live flights: the TLI executor always started).
         state, stuck, _nostart = _b5_track_burn_stagnation(state, snapshot)
         consumed = snapshot.node_count < max(state.planned_node_count, 1)
-        floor_met = (_is_finite(snapshot.apoapsis)
-                     and snapshot.apoapsis >= state.params.transfer_min_apoapsis)
+        # Burn-done evidence: the B5/B6 apoapsis floor, or the B7 hyperbolic
+        # ejection gate when ejection_ecc_floor > 0 (an escape burn drives the
+        # home-frame apoapsis NEGATIVE, so the floor cannot be the evidence).
+        # For B7 the under-burn flake below means "the ejection did not make
+        # the orbit hyperbolic".
+        floor_met = _b5_transfer_burn_done(state.params, snapshot)
         if (consumed or stuck) and floor_met:
             cleanup = ([Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)]
                        if snapshot.node_count > 0 else [])
@@ -2497,31 +2631,31 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
     if state.phase == B5_COAST_TO_TARGET:
         if snapshot.body == state.params.target_body:
             return _b5_enter(state, B5_TARGET_FLYBY, snapshot.ut, peak), []
-        if snapshot.body not in ("", state.params.home_body):
-            # A REAL foreign body name (e.g. "Sun") is the ejected terminal; ""
-            # (no reading this frame) is NOT -- it stays in phase with no hop,
-            # and a sustained unreadable vessel dies at the vessel-lost terminal.
+        if snapshot.body not in _b5_coast_bodies(state.params):
+            # A REAL foreign body name is the ejected terminal; "" (no reading
+            # this frame) is NOT -- it stays in phase with no hop, and a
+            # sustained unreadable vessel dies at the vessel-lost terminal. A
+            # via body (B7: the Sun) is a legal INTERMEDIATE coast SOI, never
+            # an ejection.
             return replace(
                 state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
                 loss_reason=("left home SOI without reaching the target: body=%r "
-                             "(expected %r or %r)"
-                             % (snapshot.body, state.params.home_body,
+                             "(allowed %r, target %r)"
+                             % (snapshot.body, _b5_coast_bodies(state.params),
                                 state.params.target_body))), []
         stayed = _b5_stay_or_flake(state, snapshot, peak)
         if stayed.done:
             return stayed, []
-        # Correction rounds: one PLAN-CORRECTION entry per trigger altitude.
-        # Round 2+ is LIVE-PROVEN necessary (flight 4: the post-TLI correction
-        # flew, but executor residual over the long coast drifted the flyby
-        # periapsis from +60 km to -29 km = impact; a mid-coast refinement
-        # prices the residual at a few m/s).
-        triggers = state.params.correction_trigger_alts
-        rounds_pending = (state.params.course_correct_periapsis > 0.0
-                          and state.correction_rounds_done < len(triggers))
-        if (rounds_pending
-                and snapshot.body == state.params.home_body
-                and _is_finite(snapshot.altitude)
-                and snapshot.altitude >= triggers[state.correction_rounds_done]):
+        # Correction rounds: one PLAN-CORRECTION entry per trigger (altitude
+        # thresholds for B5/B6; DESCENDING time-to-target-SOI thresholds for
+        # B7's heliocentric coast -- a Kerbin-altitude trigger can never fire
+        # in Sun SOI). Round 2+ is LIVE-PROVEN necessary (flight 4: the
+        # post-TLI correction flew, but executor residual over the long coast
+        # drifted the flyby periapsis from +60 km to -29 km = impact; a
+        # mid-coast refinement prices the residual at a few m/s).
+        triggers = _b5_correction_triggers(state.params)
+        rounds_pending = _b5_rounds_pending(state)
+        if _b5_correction_round_ready(state, snapshot):
             return _b5_enter_plan_correction(state, snapshot, peak)
         # ARRIVAL-QUALITY RE-CORRECTION (finding 16, twenty-third flight):
         # both altitude rounds executed to <1 m/s residual and the arrival
@@ -2533,7 +2667,11 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         arrival_bad = (not rounds_pending
                        and state.params.course_correct_periapsis > 0.0
                        and stayed.extra_rounds_done < MAX_ARRIVAL_EXTRA_ROUNDS
-                       and snapshot.body == state.params.home_body
+                       # Body domain: home for B5/B6 ((home,) == the pre-B7
+                       # gate); home OR via for B7, so the heliocentric coast
+                       # can grant the extra round too (next_body == target
+                       # still gates the encounter).
+                       and snapshot.body in _b5_warp_bodies(state.params)
                        and snapshot.node_count == 0
                        and snapshot.next_body == state.params.target_body
                        and _is_finite(snapshot.next_pe)
@@ -2579,12 +2717,14 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 tgt = snapshot.node_ut - state.params.node_arrival_margin
                 if snapshot.ut < tgt:
                     native_target = tgt
-        elif rounds_pending and _is_finite(snapshot.altitude):
-            # Correction-trigger approach: the LIVE-PROVEN rails distance
-            # stair, FLOORED at factor 2 (operator PR gate: the last metres
-            # before a trigger rode 1x; at 10x the trigger overshoot is
-            # <= ~5 game-s per poll, and a trigger is a refinement point,
-            # not a wall), with the SOI time bound and the legality clamp.
+        elif (rounds_pending and not state.params.correction_trigger_time_to_soi
+                and _is_finite(snapshot.altitude)):
+            # Correction-trigger approach, ALTITUDE mode (B5/B6): the
+            # LIVE-PROVEN rails distance stair, FLOORED at factor 2 (operator
+            # PR gate: the last metres before a trigger rode 1x; at 10x the
+            # trigger overshoot is <= ~5 game-s per poll, and a trigger is a
+            # refinement point, not a wall), with the SOI time bound and the
+            # legality clamp.
             dist = triggers[state.correction_rounds_done] - snapshot.altitude
             desired = max(rails_factor_for_distance(
                 dist, snapshot.vertical_speed, state.params.coast_warp_factor), 2)
@@ -2594,6 +2734,36 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                                           state.params.coast_warp_factor),
                     state.params.flyby_warp_factor))
             if desired > 0:
+                desired = min(desired, max_legal_rails_factor(
+                    snapshot.body, snapshot.altitude))
+        elif (rounds_pending and state.params.correction_trigger_time_to_soi
+                and snapshot.body in state.params.via_bodies
+                and _is_finite(snapshot.time_to_soi) and _is_finite(snapshot.ut)):
+            # Correction-trigger approach, TIME mode (B7): approach the next
+            # round's time-to-SOI threshold on the CURRENT native-first
+            # policy. dt = time to the trigger; time_to_soi falls 1:1 with
+            # UT, so the trigger UT is now + dt -- warping natively TO it is
+            # inherently SOI-safe (the trigger precedes the boundary by
+            # threshold > 0 game-s) and never passes the trigger un-polled
+            # (arrival is followed by a poll, and the readiness gate fires at
+            # tts <= threshold). Inside soi_lead of the trigger the rails
+            # time stair takes over, floored at factor 2 (the altitude
+            # mode's no-1x floor: a trigger is a refinement point, not a
+            # wall; overshoot at 10x is <= ~5 game-s per poll), with the
+            # same SOI time bound + legality clamp as the altitude stair.
+            # Confined to via bodies: the home-SOI escape leg rides the SOI
+            # native-warp branch below instead (warp to the home SOI exit).
+            dt = (snapshot.time_to_soi
+                  - state.params.correction_trigger_time_to_soi[state.correction_rounds_done])
+            if dt > state.params.soi_lead:
+                native_target = snapshot.ut + dt
+            else:
+                desired = max(rails_factor_for_time(
+                    dt, state.params.coast_warp_factor), 2)
+                desired = min(desired, max(
+                    rails_factor_for_time(snapshot.time_to_soi,
+                                          state.params.coast_warp_factor),
+                    state.params.flyby_warp_factor))
                 desired = min(desired, max_legal_rails_factor(
                     snapshot.body, snapshot.altitude))
         elif (_is_finite(snapshot.time_to_soi) and _is_finite(snapshot.ut)
@@ -2638,24 +2808,26 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         return stayed, actions
 
     if state.phase == B5_TARGET_FLYBY:
-        if snapshot.body == state.params.home_body:
-            # The free-return: back in home SOI after the flyby. Terminal (done,
-            # verdict None); the settle tail runs at 1x in home SOI. Cancel an
-            # active native warp (which zeroes the factors runner-side), else
-            # drop a held rails factor.
+        return_body = _b5_return_body(state.params)
+        if snapshot.body == return_body:
+            # The exit: back in the return body's SOI after the flyby (home
+            # for the B5/B6 free-return, Sun for B7 -- a Duna flyby exits
+            # heliocentric). Terminal (done, verdict None); the settle tail
+            # runs at 1x in the exit SOI. Cancel an active native warp (which
+            # zeroes the factors runner-side), else drop a held rails factor.
             entered = _b5_enter(state, B5_RETURN, snapshot.ut, peak)
             entered = replace(entered, warp_cmd=0, warp_to_cmd=None)
             if state.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
                 return entered, [Action(ACTION_CANCEL_WARP)]
             return entered, ([Action(ACTION_SET_RAILS_WARP, 0.0)]
                              if state.warp_cmd != 0 else [])
-        if snapshot.body not in ("", state.params.target_body):
+        if snapshot.body not in ("", state.params.target_body, return_body):
             return replace(
                 state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
-                loss_reason=("flyby ejected the craft from the home system: body=%r "
-                             "(expected %r or %r)"
+                loss_reason=("flyby ejected the craft off-course: body=%r "
+                             "(expected %r or exit %r)"
                              % (snapshot.body, state.params.target_body,
-                                state.params.home_body))), []
+                                return_body))), []
         stayed = _b5_stay_or_flake(state, snapshot, peak)
         if stayed.done:
             return stayed, []
@@ -2986,7 +3158,10 @@ def evaluate_b5_assertions(frames, params: B5Params,
       floor but ABOVE the terrain can slip between samples and still read as
       met -- the floor certifies the sampled track, not a continuous minimum.
     - ``returnedToHome``:      RETURN appears in ``phases_reached`` (the machine
-      terminated back in home SOI after the flyby -- the free-return).
+      terminated back in the EXIT body's SOI after the flyby: the home body for
+      the B5/B6 free-return, return_body -- Sun -- for B7; the reported value
+      and the returnBody detail name the actual exit body, the assertion NAME
+      is kept for result-schema stability).
 
     ``k`` is retained for signature symmetry but unused: every B5 assertion is
     phase / min evidence, not a noisy per-frame window."""
@@ -3010,10 +3185,14 @@ def evaluate_b5_assertions(frames, params: B5Params,
                               else float("nan")),
                              {"floor": floor})
 
+    return_body = _b5_return_body(params)
     ret_met = B5_RETURN in phases
+    # Name kept for schema/result-diff stability (design Q1); the value and
+    # detail carry the actual EXIT body (home for B5/B6, Sun for B7), so a B7
+    # row reads "returned to the exit body".
     ret = AssertionOutcome("returnedToHome", ret_met,
-                           (params.home_body if ret_met else None),
-                           {"required": B5_RETURN, "home": params.home_body})
+                           (return_body if ret_met else None),
+                           {"required": B5_RETURN, "returnBody": return_body})
 
     return [orbit, soi, flyby, ret]
 

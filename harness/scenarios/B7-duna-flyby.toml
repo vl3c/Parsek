@@ -1,0 +1,196 @@
+schema = 1
+id = "B7-duna-flyby"
+# nightly: same committed Kerbal X fixture as B2/B4/B5/B6; the FIRST interplanetary
+# flown mission (Kerbin -> Sun -> Duna -> Sun). NOT YET LIVE-PROVEN: this spec is
+# PENDING (a) the mlib B7 diff plan (docs/dev/design-autotest-b7-duna.md) landing,
+# and (b) a first live flight to peel the tuning. Every budget below is ESTIMATED
+# from the warp-altitude arithmetic in the design doc, not measured. Keep tier
+# nightly but treat the first runs as tuning flights (retry once absorbs a flake).
+#
+# CENTRAL SIZING FACT (design doc "Ejection-window wait"): an 80 km parking orbit
+# caps rails warp at 50x (Kerbin altitude-limit table), so the ~200-day
+# (~20,000,000 game s) ejection-window wait would cost ~111 HOURS of wall time --
+# infeasible. B7 therefore parks at 700 km (>= the 600 km factor-7 limit), where the
+# wait warps at 100,000x and costs ~200 real s. The dv cost of the high park vs the
+# 80 km B5/B6 park (~100-150 m/s net, Oberth-offset) is the first live-prove item;
+# the survey's Duna feasibility (orbiter ~1500-1600 m/s after 80 km circ; ejection
+# ~1050-1080 at the window) leaves margin, but from 700 km it is tighter.
+tier = "nightly"
+description = "Duna interplanetary flyby: MechJeb ascent to a HIGH (700 km) park, OperationInterplanetaryTransfer ejection at the next Kerbin->Duna window (WaitForPhaseAngle), autowarped hyperbolic ejection burn, heliocentric coast with time-to-SOI-triggered corrections, Duna flyby, exit into Sun SOI; assert orbit + target SOI reached + flyby floor + returned-to-exit (Sun)."
+instanceProfile = "stock-minimal"
+tags = ["B7", "pending-live-proof", "mechjeb", "duna", "interplanetary", "cross-soi"]
+
+[fixture]
+# Same pre-placed Kerbal X fixture as B2/B4/B5/B6. NOTE (live-prove): the fixture's
+# UT determines how far ahead the next Kerbin->Duna window is (0..1 synodic ~=
+# 20,000,000 game s). The budgets below assume the synodic worst case; a fixture
+# near a window flies faster, never slower.
+saveTemplate       = "fixtures/saves/b2-lko-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+# Thin alias over the body-parameterized B5 machine (see b7_duna_flyby.py); the
+# flight differs from B5/B6 only in these params, which turn on the interplanetary
+# behavior the shared machine gains from the design-doc diff plan.
+mission = "b7_duna_flyby"
+
+# `steps` MUST stay in the [driver] table (declared ABOVE the
+# [driver.missionParams] header, or a key after the sub-table header would scope to
+# driver.missionParams.steps and the spec would validate as zero steps).
+#
+# Budget arithmetic (ESTIMATED; all WALL seconds unless noted). Warp-altitude
+# math is in the design doc; the dominant term is the ejection-window autowarp.
+#   connect                                       30
+#   ascent to 700 km park (higher apoapsis coast) 350
+#   circularize at 700 km                         100
+#   plan ejection (retry cadence)                 60
+#   ejection-window autowarp + burn:
+#       ~20,000,000 game s at 100,000x  = 200 real
+#       + hyperbolic ejection burn      ~ 60      260
+#   heliocentric coast:
+#       ~7,000,000 game s tof at 100,000x = 70 real
+#       + SOI-approach stair-down slack ~ 50      120
+#   2 correction rounds (time-to-SOI-triggered):
+#       each ~ 340 flip + 60 burn + 30 settle     860
+#   Duna flyby (SOI transit at altitude-clamped
+#       10x-100x near a 50 km periapsis)          400
+#   settle tail                                    30
+#   margin (ejection-wait ramp-up + autowarp not
+#       always max + first-flight tuning)         290
+#   ------------------------------------------------
+#   missionBudget (WALL)                         2500  -> rounded to 3600 for the
+#       synodic worst case + MechJeb autowarp ramp uncertainty.
+# runtime 4200 >= 240 LoadGame + 3600 mission + margin. Phase budgets in
+# missionParams are GAME time (rails autowarp advances them fast).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 3600 },
+  { cmd = "CommitTree",                                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                        expect = "OK" },
+]
+
+# Ascent half = B2's shape re-targeted to a HIGH park; transfer half = B5's shape
+# extended to interplanetary (validated against b7_duna_flyby.schema.toml), never a
+# golden trajectory. Phase timeouts are GAME seconds.
+[driver.missionParams]
+# HIGH 700 km circular park (design doc "Ejection-window wait"): 700 km >= the
+# 600 km Kerbin factor-7 altitude limit, so the ~200-day ejection-window wait
+# rails-warps at 100,000x (~200 real s) instead of the 50x an 80 km park caps at
+# (~111 hr). apo/peri error widened to 15 km for the longer high-apoapsis ascent.
+targetApoapsisMeters       = 700000
+targetPeriapsisMeters      = 700000
+apoErrorMeters             = 15000
+periErrorMeters            = 15000
+# The 700 km ascent coasts longer to apoapsis than the 80 km B5 ascent; give it room.
+ascentTimeoutSeconds       = 1200
+circularizeTimeoutSeconds  = 600
+targetBodyName             = "Duna"
+homeBodyName               = "Kerbin"
+# DISABLED for B7: an escape burn drives the Kerbin-frame apoapsis NEGATIVE, so the
+# apoapsis floor cannot be the burn-done evidence. ejectionEccFloor replaces it.
+# Kept present (schema required key) at 0 = the moon-Hohmann evidence is off.
+transferMinApoapsisMeters  = 0
+# Hyperbolic ejection burn-done evidence: TRANSFER-BURN exits when the Kerbin-frame
+# eccentricity reaches 1.05 (a real escape trajectory) OR the craft already left
+# Kerbin SOI (body is a via body / the target). 1.05 is comfortably > 1 and below
+# any plausible reading noise.
+ejectionEccFloor           = 1.05
+# Use MechJeb's OperationInterplanetaryTransfer (WaitForPhaseAngle) instead of the
+# moon Hohmann OperationTransfer: it plans the ejection node at the next
+# Kerbin->Duna window.
+interplanetaryTransfer     = true
+# The coast legally crosses Kerbin -> Sun -> Duna; "Sun" is an intermediate coast
+# body, NOT the ejected ASSERT-FAIL terminal, and is a legal rails-warp body.
+viaBodyNames               = ["Sun"]
+# A Duna flyby exits into heliocentric (Sun) space; a free-return to Kerbin takes
+# years and is out of scope. RETURN (the success terminal) fires on body == Sun
+# AFTER the flyby.
+returnBodyName             = "Sun"
+# Course-correct the Duna flyby periapsis to 50 km: above the ~8 km Duna peaks +
+# the 15 km assertion floor, low enough for a real flyby geometry.
+courseCorrectPeriapsisMeters = 50000
+# Interplanetary mid-course corrections can be larger than the moon ones (ejection
+# aim errors over a ~300-day coast); an over-cap plan is still removed and the coast
+# flies the raw intercept. 200 vs B5's 150.
+maxCorrectionDvMps         = 200
+# Correction ROUNDS in TIME-TO-DUNA-SOI mode (the coast is in Sun SOI, so the B5
+# Kerbin-altitude trigger can never fire). DESCENDING thresholds (game s):
+#   round 0 @ 20,000,000  -> fires right after Sun-SOI entry (tof ~7M < 20M, so
+#                            time_to_soi is already below it): fix the ejection error.
+#   round 1 @    500,000  -> fires ~500,000 game s (~5.8 Earth days) before Duna
+#                            SOI entry: fine-tune the flyby periapsis.
+# correctionTriggerAltsMeters is left EMPTY (time mode supersedes altitude mode).
+correctionTriggerAltsMeters       = []
+correctionTriggerTimeToSoiSeconds = [20000000, 500000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+# GAME seconds. Must cover the ENTIRE ejection-window wait: the NodeExecutor
+# autowarp advances game time to the node (up to ~1 synodic ~= 20,000,000 game s
+# ahead) then burns. 25,000,000 = synodic worst case + burn margin.
+transferBurnTimeoutSeconds = 25000000
+# GAME seconds. Heliocentric Kerbin->Duna tof ~7,000,000 game s (the recorded Duna
+# transfer time) + margin.
+coastTimeoutSeconds        = 12000000
+# GAME seconds. Duna SOI (~47.9 Mm radius) transit is hours of game time.
+flybyTimeoutSeconds        = 500000
+# Warp shaping. coastWarpFactor = 7 (100,000x): legal far from the Sun (heliocentric
+# distance >> the 65,400 km Sun factor-7 limit) AND above the 600 km Kerbin factor-7
+# limit during the post-ejection escape; the per-body altitude clamp handles the low
+# Duna-flyby legs automatically.
+coastWarpFactor            = 7
+# Flyby: 100x floor near periapsis, stair up to 10,000x on the outer Duna-SOI legs;
+# the Duna altitude table clamps a 50 km periapsis to ~10x (design doc note).
+flybyWarpFactor            = 5
+flybyMaxWarpFactor         = 6
+# No-1x-coast lane (delta-review E1: nodeWarpLeadSeconds is RETIRED -- the
+# burn phase aims first, then natively warps to node UT minus this margin).
+nodeArrivalMarginSeconds   = 15
+planWarpFactor             = 2
+soiLeadSeconds             = 30
+flipPhysicsWarpFactor      = 1
+# Flyby min-altitude assertion floor: 15 km, above the ~8 km Duna peaks. The machine
+# tracks the min finite altitude inside Duna SOI; the assertion requires it >= floor.
+targetPeriapsisFloorMeters = 15000
+
+# Coverage: the Kerbin -> Sun -> Duna -> Sun traverse is the multi-SOI cross-body
+# recording -- D4 cohesive-cross-body-coast (the ExoBallistic heliocentric coast
+# kept cohesive across the Kerbin/Sun/Duna body changes), D3 orbital-checkpoint
+# (on-rails checkpoints across the high-warp legs), D14 kerbin + duna + soi-count
+# (the multi-SOI traverse) + warp-rails + warp-high (100,000x). GAPS (noted, not
+# citable): the D14 registry has NO "sun" value, and there is no dedicated
+# interplanetary / flyby / heliocentric-coast dimension value (same gap class as
+# B5's flyby gap + the todo doc's B5 coverage-gap note). Grow the registry in the
+# same PR if a value is added.
+[dimensionsCovered]
+D1  = ["auto-record-launch"]
+D3  = ["orbital-checkpoint"]
+D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
+D14 = ["kerbin", "duna", "soi-count", "warp-rails", "warp-high"]
+
+[expectations.recordings]
+# Main ascent recording + up to 6 dropped Kerbal X boosters recorded as
+# parent-anchored debris children + 1 LES-tower margin (same WATCH-4 rationale as
+# B2/B4/B5/B6's max 8). B7 stages nothing after the ascent (the orbiter stage flies
+# the raise-to-700 km + ejection + correction burns), so no extra deorbited-stage
+# sidecar. min stays 1: the main recording must exist even if debris admission varies.
+count = { min = 1, max = 8 }
+
+[expectations.logContracts]
+required  = ["Recording started", "Recording stopped"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+budgetSeconds = 4200
+
+[retry]
+# First flights are tuning flights; a single retry absorbs a transient flake (a
+# no-window plan, a correction that transiently sees no encounter, an autowarp ramp).
+policy = "once"
+
+[expectedFail]
+bugId = ""
