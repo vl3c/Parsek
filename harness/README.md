@@ -70,10 +70,17 @@ newest-first (design authority: `docs/dev/design-live-observability.md`):
 - `results/<ts>_harness.log` - the per-invocation harness log (which step the
   orchestrator is in; the mission stdout is folded in AFTER the mission
   exits, so mid-flight you read the mission log directly).
-- `results/<runId>_status.json` - OPTIONAL live status file (Phase 2 of the
-  design; the mission rewrites it atomically every ~2 s with the decoded
-  snapshot + machine state). The status CLI prefers it when present and
-  fresh, and falls back to log parsing when absent.
+- `results/<runId>_status.json` - the live status file (Phase 2, shipped):
+  every production mission rewrites it atomically every ~2 s with the
+  decoded snapshot, the machine decision state (phase, rounds,
+  planAttempts, bodyBlank, burn latches, warp commands), and the last 10
+  sparse events. The status CLI prefers it when fresh and falls back to
+  log parsing (older runs / a stalled mission process).
+- In-log observability (Phase 2): a ~5 s rate-limited `machine phase=...`
+  decision-state line, a trailing `ut=` token on the telemetry line, loud
+  `gate <field> old->new | <snapshot values>` lines on every machine
+  latch/gate flip, and a 20-frame `window dump` (compact one-line-per-frame
+  ring buffer) on phase transitions / flakes / vessel-lost / gate flips.
 
 `status.py` renders all of that as one panel so an operator report ("looks
 stuck at 1x", "warp oscillating") maps to machine state in ONE step:
@@ -81,6 +88,8 @@ stuck at 1x", "warp oscillating") maps to machine state in ONE step:
 ```
 python status.py                    # newest run, one shot
 python status.py --watch 5         # re-render every 5 s
+python warp_audit.py results/<runId>_mission.stdout.log   # no-1x-coast PR-gate audit
+python warp_audit.py <log> --fail-on-violation            # exit 1 on any 1x coast segment
 python status.py --run 2026-07-22_1210    # a specific run (prefix ok)
 python status.py --raw 40          # last 40 raw mission-stdout lines
 python status.py --head 650        # REPLAY: panel as of the first 650 lines

@@ -55,6 +55,7 @@ import sys
 import threading
 import time
 import traceback
+from collections import deque
 from dataclasses import dataclass, replace
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -122,6 +123,18 @@ WARP_STALL_WALL_SECONDS = 10.0
 # dropped connection's continuation on its next FixedUpdate; the thread's
 # blocked receive raises out well inside this).
 WARP_CANCEL_JOIN_SECONDS = 5.0
+
+# Live observability (design docs/dev/design-live-observability.md Phase 2).
+# MACHINE-STATE line cadence (2a): the decision state verbatim, rate-limited
+# alongside the ~1 Hz telemetry line.
+MACHINE_STATE_INTERVAL_SECONDS = 5.0
+# Event-window ring buffer depth (2c): at the 0.5 s poll cadence, 20 frames
+# is a ~10 s flight-data-recorder window dumped once on transition / flake /
+# vessel-lost / gate-flip.
+RING_BUFFER_FRAMES = 20
+# Live status file rewrite cadence (2d): results/<runId>_status.json,
+# atomic tmp+os.replace, best-effort (never blocks the fly loop).
+STATUS_WRITE_INTERVAL_SECONDS = 2.0
 
 
 class WarpStallTracker:
@@ -703,6 +716,15 @@ class KrpcMissionControl(MissionControl):
                             "course-correction dv %.2f m/s is negligible "
                             "(< %.1f); plan removed (trajectory already good)"
                             % (total_dv, NEGLIGIBLE_CORRECTION_DV)))
+                    else:
+                        # classify=fly (design-live-observability 2b): the
+                        # ACCEPTED verdict was the only silent disposition --
+                        # log it so every classify outcome is a sparse event.
+                        _stdout_sink(mlib.format_mission_log_line(
+                            "Info", "Plan",
+                            "course-correction dv %.2f m/s classified fly "
+                            "(cap %.1f, floor %.1f); plan accepted"
+                            % (total_dv, cap, NEGLIGIBLE_CORRECTION_DV)))
             except Exception as exc:
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Plan",
@@ -1014,6 +1036,70 @@ def _stdout_sink(line: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Live status file (design-live-observability 2d): the mission atomically
+# rewrites results/<runId>_status.json every ~2 s so the supervisor-side
+# status.py reads decoded machine state instead of parsing the log tail.
+# BEST-EFFORT by contract: every failure is swallowed (a stale/missing status
+# file degrades status.py to log parsing; it must NEVER block the fly loop).
+# ---------------------------------------------------------------------------
+
+
+def status_path_for(result_path: str) -> str:
+    """Derive the live status-file path from the mission-result path:
+    ``<runId>_mission.json`` -> ``<runId>_status.json`` (the shape status.py
+    prefers); any other result name gets a ``.status.json`` sibling."""
+    if result_path.endswith("_mission.json"):
+        return result_path[:-len("_mission.json")] + "_status.json"
+    return result_path + ".status.json"
+
+
+class StatusFileWriter:
+    """Cadence-bounded atomic JSON status writer. ``maybe_write(builder)``
+    calls the zero-arg ``builder`` only when the interval elapsed (payload
+    construction is skipped off-cadence too), serializes deterministically,
+    writes ``path + '.tmp'`` and ``os.replace``s it into place (same atomic
+    pattern as ``_write_result_file``). Every exception -- builder, dumps,
+    filesystem -- is swallowed: the status file is observability, never a
+    mission dependency."""
+
+    def __init__(self, path: str,
+                 clock: Callable[[], float] = time.monotonic,
+                 interval: float = STATUS_WRITE_INTERVAL_SECONDS,
+                 base: Optional[Dict] = None) -> None:
+        self.path = path
+        self.interval = float(interval)
+        self._clock = clock
+        self._last_write: Optional[float] = None
+        self.writes = 0          # diagnostics/tests
+        self.failures = 0        # diagnostics/tests
+        # Static payload fields (mission name, port) merged into every write.
+        self.base: Dict = dict(base or {})
+        # Last ~10 sparse event lines (Info/Warn/Error), fed by the logger
+        # sink tee run_mission installs; rides the payload's "events" block.
+        self.recent_events: deque = deque(maxlen=10)
+
+    def maybe_write(self, builder: Callable[[], Dict]) -> bool:
+        """Write if due; True only when a write happened."""
+        try:
+            now = self._clock()
+            if (self._last_write is not None
+                    and (now - self._last_write) < self.interval):
+                return False
+            payload = builder()
+            text = json.dumps(payload, sort_keys=True)
+            tmp = self.path + ".tmp"
+            with open(tmp, "w", encoding="ascii", newline="\n") as fh:
+                fh.write(text)
+            os.replace(tmp, self.path)
+            self._last_write = now
+            self.writes += 1
+            return True
+        except Exception:  # noqa: BLE001 -- best-effort by contract (2d/2e)
+            self.failures += 1
+            return False
+
+
+# ---------------------------------------------------------------------------
 # Bounded connect + fly loops (I/O; every wait bounded, design "A mission never
 # hangs"). Every decision is delegated to mlib.
 # ---------------------------------------------------------------------------
@@ -1076,6 +1162,7 @@ def fly_loop(
     settle_frames: int = DEFAULT_SETTLE_FRAMES,
     allow_rails_warp: bool = False,
     max_physics_warp: float = 0.0,
+    status_writer: Optional[StatusFileWriter] = None,
 ):
     """Drive a mission's ``mlib`` phase machine to completion, bounded by BOTH the
     machine's per-phase budgets (inside ``decide``) AND a wall-clock ``deadline``
@@ -1109,7 +1196,8 @@ def fly_loop(
     _FLY_LOOP_LAST_STATE["state"] = state
     try:
         return _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
-                              poll_interval, settle_frames, allow_rails_warp, max_physics_warp, frames)
+                              poll_interval, settle_frames, allow_rails_warp, max_physics_warp, frames,
+                              status_writer)
     except Exception as exc:
         # Preserve the ADVANCED machine state for the shell's error result:
         # without this a mid-flight kRPC error reported phasesReached=[] even
@@ -1127,13 +1215,20 @@ _FLY_LOOP_LAST_STATE: Dict = {}
 
 
 def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
-                   poll_interval, settle_frames, allow_rails_warp, max_physics_warp, frames):
+                   poll_interval, settle_frames, allow_rails_warp, max_physics_warp, frames,
+                   status_writer=None):
     warp_violations = 0
+    # Event-window ring buffer (design-live-observability 2c): the last
+    # RING_BUFFER_FRAMES raw snapshots in compact one-line form, dumped ONCE
+    # at Verbose on transition / flake / vessel-lost / gate-flip so the
+    # frames BETWEEN rate-limited telemetry samples are recoverable post-hoc.
+    ring: deque = deque(maxlen=RING_BUFFER_FRAMES)
     while not state.done:
         _FLY_LOOP_LAST_STATE["state"] = state
         if clock() >= deadline:
             log.warn(state.phase, "wall budget elapsed in phase %s -> %s"
                      % (state.phase, mlib.MISSION_FLAKE))
+            _dump_event_window(log, state.phase, ring, "wall-budget-flake")
             return replace(state, verdict=mlib.MISSION_FLAKE, flake_phase=state.phase, done=True), frames
         try:
             snapshot = control.read_snapshot()
@@ -1152,6 +1247,7 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             sleep(poll_interval)
             continue
         frames.append(snapshot)
+        ring.append(mlib.format_snapshot_compact(snapshot))
         # Edge 7: an unexpected physics (or, for B1, any) warp state distorts the
         # flight; flake naming the phase + warp state rather than record a warped
         # run. DEBOUNCED to two CONSECUTIVE violating samples (Fable review of
@@ -1168,9 +1264,11 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             if warp_violations >= 2:
                 log.warn(state.phase, "unexpected warp persisted 2 consecutive samples -> %s"
                          % (mlib.MISSION_FLAKE,))
+                _dump_event_window(log, state.phase, ring, "warp-flake")
                 return replace(state, verdict=mlib.MISSION_FLAKE, flake_phase=state.phase, done=True), frames
         else:
             warp_violations = 0
+        prev_state = state
         prev_phase = state.phase
         state, actions = decide(state, snapshot)
         # Re-publish post-decide: a perform() failure below must report the
@@ -1180,6 +1278,19 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             log.info(state.phase, "phase %s -> %s ut=%s alt=%s ap=%s vsurf=%s"
                      % (prev_phase, state.phase, _fmt(snapshot.ut), _fmt(snapshot.altitude),
                         _fmt(snapshot.apoapsis), _fmt(snapshot.vertical_speed)))
+        # GATE-EVIDENCE lines (design-live-observability 2b): every sparse
+        # machine latch/gate flip logs the exact values that decided it, on
+        # the frame it happened -- a single-frame transient (e.g. the
+        # attitude-error dip that opens the throttle gate between telemetry
+        # samples) is loud by definition, independent of any rate limit.
+        gate_changes = mlib.diff_machine_state(prev_state, state)
+        for change in gate_changes:
+            log.info(state.phase,
+                     "gate %s | ut=%s alt=%s nodeDv=%s apErr=%s thr=%s warp=%sx%s"
+                     % (change, _fmt(snapshot.ut), _fmt(snapshot.altitude),
+                        _fmt(snapshot.node_dv), _fmt(snapshot.ap_error),
+                        _fmt(snapshot.throttle), snapshot.warp_mode,
+                        _fmt(snapshot.warp_rate)))
         for action in actions:
             control.perform(action)
             log.info(state.phase, "action %s value=%s%s"
@@ -1193,14 +1304,40 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             "telemetry", state.phase,
             "telemetry ap=%s pe=%s ecc=%s inc=%s alt=%s vspd=%s body=%s nodes=%d "
             "nodeDv=%s nodeUt=%s tts=%s warpTo=%s lf=%s thr=%s situation=%s "
-            "warp=%sx%s apErr=%s"
+            "warp=%sx%s apErr=%s ut=%s"
             % (_fmt(snapshot.apoapsis), _fmt(snapshot.periapsis), _fmt(snapshot.eccentricity),
                _fmt(snapshot.inclination), _fmt(snapshot.altitude),
                _fmt(snapshot.vertical_speed), snapshot.body or "?", snapshot.node_count,
                _fmt(snapshot.node_dv), _fmt(snapshot.node_ut), _fmt(snapshot.time_to_soi),
                _fmt(snapshot.warping_to), _fmt(snapshot.liquid_fuel), _fmt(snapshot.throttle),
                snapshot.situation, snapshot.warp_mode,
-               _fmt(snapshot.warp_rate), _fmt(snapshot.ap_error)))
+               _fmt(snapshot.warp_rate), _fmt(snapshot.ap_error), _fmt(snapshot.ut)))
+        # MACHINE-STATE line (design-live-observability 2a): the decision
+        # state verbatim on a ~5 s cadence, so an operator report maps to
+        # machine state without inference.
+        log.verbose_rate_limited(
+            "machine", state.phase,
+            mlib.format_machine_state(state, snapshot.ut),
+            interval=MACHINE_STATE_INTERVAL_SECONDS)
+        # Event-window dump (2c): once per trigger frame, most significant
+        # reason wins (a terminal frame usually also flips gates).
+        dump_reason = None
+        if state.done and getattr(state, "verdict", None) is not None:
+            dump_reason = "terminal-%s" % state.verdict
+        elif snapshot.vessel_lost:
+            dump_reason = "vessel-lost"
+        elif state.phase != prev_phase:
+            dump_reason = "phase-transition"
+        elif gate_changes:
+            dump_reason = "gate-flip"
+        if dump_reason is not None:
+            _dump_event_window(log, state.phase, ring, dump_reason)
+        # LIVE STATUS FILE (2d): atomic best-effort rewrite every ~2 s; the
+        # builder only runs when the write is due, and every failure is
+        # swallowed inside maybe_write (never blocks the fly loop).
+        if status_writer is not None:
+            status_writer.maybe_write(
+                lambda: _build_status_payload(status_writer, state, snapshot))
         if state.done:
             break
         sleep(poll_interval)
@@ -1225,6 +1362,36 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                    _fmt(snapshot.inclination), snapshot.situation))
             sleep(poll_interval)
     return state, frames
+
+
+def _dump_event_window(log, phase: str, ring, reason: str) -> None:
+    """Dump the event-window ring buffer ONCE at Verbose (design 2c): a
+    header naming the trigger + one compact line per buffered frame, oldest
+    first. Bounded by RING_BUFFER_FRAMES; triggers are sparse by contract."""
+    lines = list(ring)
+    log.verbose(phase, "window dump reason=%s frames=%d (oldest first)"
+                % (reason, len(lines)))
+    for index, line in enumerate(lines):
+        log.verbose(phase, "window[%02d/%d] %s" % (index + 1, len(lines), line))
+
+
+def _build_status_payload(status_writer: "StatusFileWriter", state,
+                          snapshot) -> Dict:
+    """The live status-file payload (design 2d): static base fields + phase +
+    machine-state dict + decoded snapshot + the last sparse events. Pure
+    apart from the wall timestamp."""
+    payload = dict(status_writer.base)
+    payload["schema"] = 1
+    payload["wallWritten"] = time.time()
+    payload["phase"] = getattr(state, "phase", "?")
+    payload["phasesReached"] = list(getattr(state, "phases_reached", ()))
+    verdict = getattr(state, "verdict", None)
+    if verdict is not None:
+        payload["verdict"] = verdict
+    payload["machine"] = mlib.machine_state_dict(state, snapshot.ut)
+    payload["snapshot"] = mlib.snapshot_dict(snapshot)
+    payload["events"] = list(status_writer.recent_events)
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -1281,6 +1448,7 @@ def run_mission(
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
     writer: Optional[Callable[[str, str], None]] = None,
+    status_writer: Optional[StatusFileWriter] = None,
 ) -> int:
     """Fly ``spec`` end-to-end and write the mission-result JSON. Returns the
     process exit code (0 only on MISSION-OK; nonzero on every non-OK verdict so
@@ -1299,6 +1467,29 @@ def run_mission(
         log = MissionLogger(sink=_stdout_sink, clock=clock)
     if control is None:
         control = spec.make_control()
+    if status_writer is None and writer is None:
+        # Production run (real filesystem result writer): stand up the live
+        # status file next to the result (design-live-observability 2d).
+        # Tests that inject an in-memory result writer get NO status file
+        # unless they pass one explicitly (hermetic by default).
+        status_writer = StatusFileWriter(
+            status_path_for(result_path), clock=clock,
+            base={"mission": spec.name, "rpcPort": rpc_port})
+    if status_writer is not None:
+        # Tee the logger sink: every sparse Info/Warn/Error line also lands
+        # in the status payload's last-10 events (telemetry / machine /
+        # settle lines are VerboseRateLimited and excluded by prefix).
+        base_sink = log.sink
+
+        def _tee_sink(line: str, _orig=base_sink,
+                      _events=status_writer.recent_events) -> None:
+            if (line.startswith("[Mission][Info]")
+                    or line.startswith("[Mission][Warn]")
+                    or line.startswith("[Mission][Error]")):
+                _events.append(line)
+            _orig(line)
+
+        log.sink = _tee_sink
     if writer is None:
         writer = _write_result_file
 
@@ -1341,7 +1532,8 @@ def run_mission(
                                          clock=clock, sleep=sleep,
                                          settle_frames=spec.settle_frames,
                                          allow_rails_warp=spec.allow_rails_warp,
-                                         max_physics_warp=spec.max_physics_warp)
+                                         max_physics_warp=spec.max_physics_warp,
+                                         status_writer=status_writer)
                 phases_reached = list(state.phases_reached)
                 outcomes = spec.evaluate(frames, params, state)
                 for o in outcomes:
