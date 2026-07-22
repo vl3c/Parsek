@@ -537,6 +537,7 @@ class KrpcMissionControl(MissionControl):
                 node_count=len(nodes),
                 node_dv=(float(nodes[0].remaining_delta_v) if nodes else float("nan")),
                 liquid_fuel=float(resources.amount("LiquidFuel")),
+                electric_charge=float(resources.amount("ElectricCharge")),
                 throttle=float(control_handle.throttle),
                 # Flameout-staging evidence (twenty-second flight): total
                 # thrust the ACTIVE engines can produce right now; 0.0 while
@@ -1362,13 +1363,14 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             "telemetry", state.phase,
             "telemetry ap=%s pe=%s ecc=%s inc=%s alt=%s vspd=%s body=%s nodes=%d "
             "nodeDv=%s nodeUt=%s tts=%s nextBody=%s nextPe=%s warpTo=%s lf=%s "
-            "thr=%s avThr=%s situation=%s warp=%sx%s apErr=%s ut=%s"
+            "ec=%s thr=%s avThr=%s situation=%s warp=%sx%s apErr=%s ut=%s"
             % (_fmt(snapshot.apoapsis), _fmt(snapshot.periapsis), _fmt(snapshot.eccentricity),
                _fmt(snapshot.inclination), _fmt(snapshot.altitude),
                _fmt(snapshot.vertical_speed), snapshot.body or "?", snapshot.node_count,
                _fmt(snapshot.node_dv), _fmt(snapshot.node_ut), _fmt(snapshot.time_to_soi),
                snapshot.next_body or "?", _fmt(snapshot.next_pe),
-               _fmt(snapshot.warping_to), _fmt(snapshot.liquid_fuel), _fmt(snapshot.throttle),
+               _fmt(snapshot.warping_to), _fmt(snapshot.liquid_fuel),
+               _fmt(snapshot.electric_charge), _fmt(snapshot.throttle),
                _fmt(snapshot.available_thrust), snapshot.situation, snapshot.warp_mode,
                _fmt(snapshot.warp_rate), _fmt(snapshot.ap_error), _fmt(snapshot.ut)))
         # MACHINE-STATE line (design-live-observability 2a): the decision

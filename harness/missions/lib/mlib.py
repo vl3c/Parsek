@@ -297,6 +297,16 @@ ARRIVAL_RECORRECT_MAX_TTS_SECONDS = 3600.0
 # transitions.
 NO_ENCOUNTER_DEBOUNCE_FRAMES = 3
 
+# No-start clock countability bound (finding 19b, B7 sixth flight): when the
+# flip is commanded from a 100,000x coast, KSP flips TimeWarp.Mode to LOW
+# (kRPC reports PHYSICS) IMMEDIATELY while CurrentRate is still DECAYING from
+# 100,000 (observed 5.32 = mid-decay), so a mode-label re-anchor still let
+# 600 game-s of decay tail consume the whole alignment budget in ~1 wall-s.
+# Frames whose OBSERVED rate exceeds this bound are never alignment time,
+# whatever the mode label says; genuine 1x-4x flip frames count, keeping the
+# give-up bounded (stock physics warp maxes at 4x).
+NOSTART_COUNTABLE_RATE_MAX = 4.5
+
 # DIY-burner aligned-gate debounce: the throttle fires only after this many
 # CONSECUTIVE in-gate attitude readings. The fourteenth live flight proved a
 # single-frame transient error reading (slipping between rate-limited samples)
@@ -567,6 +577,11 @@ class TelemetrySnapshot:
     # no machine gate reads them yet.
     liquid_fuel: float = float("nan")
     throttle: float = float("nan")
+    # Vessel-total ElectricCharge (finding-19b diagnosability channel): a
+    # solar-panel-less craft on a multi-day interplanetary coast can drain
+    # its battery, and dead reaction wheels present EXACTLY like the frozen
+    # apErr the B7 heliocentric flips showed. No machine gate reads it yet.
+    electric_charge: float = float("nan")
     # kRPC Vessel.AvailableThrust (N): total thrust the ACTIVE engines can
     # produce right now -- 0.0 when the active stage is dry / flamed out /
     # engineless (twenty-second live flight: the core died mid-correction and
@@ -2592,16 +2607,24 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             # time is not alignment time).
             state = replace(state, warp_to_cmd=None, aligned_streak=0,
                             corr_nostart_anchor_ut=float(snapshot.ut))
-        # RAILS FRAMES ARE NOT ALIGNMENT TIME (finding 19, B7 fifth flight):
-        # a round granted from a 100,000x heliocentric coast enters this
-        # phase mid-RAMP-DOWN (KSP ramps rails over several polls), and the
-        # GAME-time no-start budget (600 s) evaporates in two polls -- both
-        # no-encounter rounds were consumed with the full plan unburned and
-        # apErr frozen ~110 deg, the ship never having tried to turn. While
-        # the game is still rails-warping (and no aim-warp of ours is in
-        # flight), keep re-anchoring the clock; it starts counting at the
-        # first non-rails frame, exactly like the aim-warp arrival re-anchor.
-        if (snapshot.warp_mode == WARP_RAILS and _is_finite(snapshot.ut)):
+        # HIGH-RATE FRAMES ARE NOT ALIGNMENT TIME (findings 19/19b, B7
+        # fifth + sixth flights): a round granted from a 100,000x
+        # heliocentric coast enters this phase mid-RAMP-DOWN and the
+        # GAME-time no-start budget (600 s) evaporates in ~two polls --
+        # both no-encounter rounds were consumed with the full plan
+        # unburned and apErr frozen ~110 deg, the ship never having tried
+        # to turn. 19b: the mode LABEL cannot gate this -- commanding the
+        # physics flip mid-ramp flips TimeWarp.Mode to LOW immediately
+        # while CurrentRate is still decaying from 100,000 (kRPC truthfully
+        # reports PHYSICS at 5.32x), so the re-anchor keys on the OBSERVED
+        # RATE: any frame above the legitimate flip regime re-anchors the
+        # clock; genuine 1x-4x flip frames count, keeping the give-up
+        # bounded. Same warp-time-is-not-alignment-time principle as the
+        # aim-warp arrival re-anchor.
+        if (_is_finite(snapshot.ut)
+                and (snapshot.warp_mode == WARP_RAILS
+                     or (_is_finite(snapshot.warp_rate)
+                         and snapshot.warp_rate > NOSTART_COUNTABLE_RATE_MAX))):
             state = replace(state, corr_nostart_anchor_ut=float(snapshot.ut))
         # Alignment never converging is bounded: give the round up after
         # burnNoStartSeconds rather than flake the whole mission. The clock

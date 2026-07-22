@@ -3357,14 +3357,24 @@ class B7InterplanetaryTests(unittest.TestCase):
             warp_mode="RAILS", warp_rate=48_000.0))
         self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
         self.assertEqual(state.corr_nostart_anchor_ut, 50_000.0)
-        # Ramp done: the clock counts from the LAST rails frame. A non-rails
-        # frame inside the budget stays; one past it gives the round up.
+        # 19b: the decay TAIL reads mode PHYSICS at >4x (KSP flips
+        # TimeWarp.Mode to LOW immediately while CurrentRate still decays
+        # from 100,000) -- high-RATE frames re-anchor regardless of label.
         state, _ = mlib.b5_decide(state, snap(
-            ut=50_100.0, body="Sun", node_count=1, node_dv=108.7))
+            ut=55_000.0, body="Sun", node_count=1, node_dv=108.7,
+            warp_mode="PHYSICS", warp_rate=5.32))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        self.assertEqual(state.corr_nostart_anchor_ut, 55_000.0)
+        # Ramp done: genuine flip frames (<= 4x) COUNT. Inside the budget
+        # stays; past it gives the round up (bounded).
+        state, _ = mlib.b5_decide(state, snap(
+            ut=55_100.0, body="Sun", node_count=1, node_dv=108.7,
+            warp_mode="PHYSICS", warp_rate=2.0))
         self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
         state, _ = mlib.b5_decide(state, snap(
-            ut=50_000.0 + B7_PARAMS.burn_nostart_seconds + 1.0,
-            body="Sun", node_count=1, node_dv=108.7))
+            ut=55_000.0 + B7_PARAMS.burn_nostart_seconds + 1.0,
+            body="Sun", node_count=1, node_dv=108.7,
+            warp_mode="PHYSICS", warp_rate=2.0))
         self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
         self.assertEqual(state.correction_rounds_done, 1)
 
