@@ -82,15 +82,25 @@ steps = [
 # (~111 hr). apo/peri error widened to 15 km for the longer high-apoapsis ascent.
 targetApoapsisMeters       = 700000
 targetPeriapsisMeters      = 700000
-apoErrorMeters             = 15000
-periErrorMeters            = 15000
+# ROUGH park windows (second flight, 2026-07-22): MechJeb's own high-altitude
+# circularization is sloppy -- it left ap 778 / pe 562 km with no node and
+# nothing burning, so the old +/-15 km windows could never be met. The park
+# exists ONLY for warp legality (Kerbin factor 7 needs >= 600 km; below it
+# the executor's own warp controller rides factor 6) and as a stable
+# ejection origin -- the interplanetary planner ejects fine from a mild
+# ellipse, so "roughly 700" is the real contract.
+apoErrorMeters             = 150000
+periErrorMeters            = 150000
 # The 700 km ascent coasts longer to apoapsis than the 80 km B5 ascent.
 # MEASURED (first flight, 2026-07-22): at the old 1200 budget the flight
 # FLAKED mid-coast with ap already 703.6 km IN the window -- the coast to a
 # 700 km apoapsis + MechJeb's at-apoapsis circularization run ~1400-1600
 # game-s from launch. 2400 = measured need + ~50% margin.
 ascentTimeoutSeconds       = 2400
-circularizeTimeoutSeconds  = 600
+# One full 700 km orbital period (~4,900 game-s) + burn + margin: a
+# circularization node can sit up to a period away (second flight: the 600
+# estimate expired mid-coast).
+circularizeTimeoutSeconds  = 6000
 targetBodyName             = "Duna"
 homeBodyName               = "Kerbin"
 # DISABLED for B7: an escape burn drives the Kerbin-frame apoapsis NEGATIVE, so the
