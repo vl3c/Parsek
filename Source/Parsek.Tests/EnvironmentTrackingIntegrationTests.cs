@@ -608,6 +608,49 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RestoreTrackSectionAfterFalseAlarm_SeedBelowClosedSectionStart_RefusesClampAndWarns()
+        {
+            // Residual containment shape: when the closed section's only frame is a
+            // boundary seed written BEFORE its own startUT (staging within one sample
+            // interval of an env transition), the back-align reopens below the closed
+            // section's startUT. The clamp must refuse (would invert the section) and
+            // warn that the overlap survives for commit-time merge resolution.
+            var seedFrame = new TrajectoryPoint
+            {
+                ut = 109.5,
+                altitude = 4200.0,
+                bodyName = "Kerbin"
+            };
+
+            recorder.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 110.0,
+                endUT = 110.02,
+                frames = new List<TrajectoryPoint> { seedFrame },
+                checkpoints = new List<OrbitSegment>()
+            });
+            recorder.Recording.Add(seedFrame);
+
+            recorder.RestoreTrackSectionAfterFalseAlarm(110.04);
+            recorder.CloseCurrentTrackSection(120.0);
+
+            Assert.Equal(2, recorder.TrackSections.Count);
+            // Closed section untouched: clamping to 109.5 would invert it.
+            Assert.Equal(110.02, recorder.TrackSections[0].endUT);
+            Assert.Equal(seedFrame.ut, recorder.TrackSections[1].startUT);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Recorder]")
+                && l.Contains("clamp refused")
+                && l.Contains("reason=would-invert-section")
+                && l.Contains("overlap left for commit-time merge resolution"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("clamped closed TrackSection endUT"));
+        }
+
+        [Fact]
         public void TryClampClosedSectionEnd_OverhangWithNoPayloadPastSeed_Clamps()
         {
             var sections = new List<TrackSection>
@@ -625,11 +668,42 @@ namespace Parsek.Tests
             };
 
             bool clamped = FlightRecorder.TryClampClosedSectionEndToBoundarySeed(
-                sections, 110.0, out double previousEndUT);
+                sections, 110.0, out double previousEndUT, out string refusalReason);
 
             Assert.True(clamped);
+            Assert.Null(refusalReason);
             Assert.Equal(110.02, previousEndUT);
             Assert.Equal(110.0, sections[0].endUT);
+        }
+
+        [Fact]
+        public void TryClampClosedSectionEnd_MultiFrameSection_RecomputesSampleRateForClampedDuration()
+        {
+            var sections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    startUT = 100.0,
+                    endUT = 112.0,
+                    // 4 frames over what becomes a 10s span after the clamp.
+                    frames = new List<TrajectoryPoint>
+                    {
+                        new TrajectoryPoint { ut = 101.0 },
+                        new TrajectoryPoint { ut = 104.0 },
+                        new TrajectoryPoint { ut = 107.0 },
+                        new TrajectoryPoint { ut = 110.0 }
+                    },
+                    checkpoints = new List<OrbitSegment>(),
+                    sampleRateHz = (float)(4 / 12.0) // pre-clamp value from CloseCurrentTrackSection
+                }
+            };
+
+            bool clamped = FlightRecorder.TryClampClosedSectionEndToBoundarySeed(
+                sections, 110.0, out _, out _);
+
+            Assert.True(clamped);
+            Assert.Equal(110.0, sections[0].endUT);
+            Assert.Equal(0.4f, sections[0].sampleRateHz, 0.001f);
         }
 
         [Fact]
@@ -647,9 +721,11 @@ namespace Parsek.Tests
             };
 
             bool clamped = FlightRecorder.TryClampClosedSectionEndToBoundarySeed(
-                sections, 110.0, out _);
+                sections, 110.0, out _, out string refusalReason);
 
             Assert.False(clamped);
+            // Common no-overhang no-op — not a diagnosable refusal.
+            Assert.Null(refusalReason);
             Assert.Equal(110.0, sections[0].endUT);
         }
 
@@ -668,9 +744,10 @@ namespace Parsek.Tests
             };
 
             bool clamped = FlightRecorder.TryClampClosedSectionEndToBoundarySeed(
-                sections, 99.0, out _);
+                sections, 99.0, out _, out string refusalReason);
 
             Assert.False(clamped);
+            Assert.Equal("would-invert-section", refusalReason);
             Assert.Equal(110.0, sections[0].endUT);
         }
 
@@ -692,9 +769,10 @@ namespace Parsek.Tests
             };
 
             bool clamped = FlightRecorder.TryClampClosedSectionEndToBoundarySeed(
-                sections, 110.0, out _);
+                sections, 110.0, out _, out string refusalReason);
 
             Assert.False(clamped);
+            Assert.Equal("payload-past-seed", refusalReason);
             Assert.Equal(110.02, sections[0].endUT);
         }
 
@@ -720,9 +798,10 @@ namespace Parsek.Tests
             };
 
             bool clamped = FlightRecorder.TryClampClosedSectionEndToBoundarySeed(
-                sections, 110.0, out _);
+                sections, 110.0, out _, out string refusalReason);
 
             Assert.False(clamped);
+            Assert.Equal("payload-past-seed", refusalReason);
             Assert.Equal(110.02, sections[0].endUT);
         }
 
@@ -747,9 +826,10 @@ namespace Parsek.Tests
             };
 
             bool clamped = FlightRecorder.TryClampClosedSectionEndToBoundarySeed(
-                sections, 110.0, out _);
+                sections, 110.0, out _, out string refusalReason);
 
             Assert.False(clamped);
+            Assert.Equal("payload-past-seed", refusalReason);
             Assert.Equal(110.02, sections[0].endUT);
         }
 
@@ -757,9 +837,9 @@ namespace Parsek.Tests
         public void TryClampClosedSectionEnd_EmptyListOrNonFiniteSeed_DoesNothing()
         {
             Assert.False(FlightRecorder.TryClampClosedSectionEndToBoundarySeed(
-                new List<TrackSection>(), 110.0, out _));
+                new List<TrackSection>(), 110.0, out _, out _));
             Assert.False(FlightRecorder.TryClampClosedSectionEndToBoundarySeed(
-                null, 110.0, out _));
+                null, 110.0, out _, out _));
 
             var sections = new List<TrackSection>
             {
@@ -772,7 +852,7 @@ namespace Parsek.Tests
                 }
             };
             Assert.False(FlightRecorder.TryClampClosedSectionEndToBoundarySeed(
-                sections, double.NaN, out _));
+                sections, double.NaN, out _, out _));
             Assert.Equal(110.02, sections[0].endUT);
         }
 

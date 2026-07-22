@@ -7955,13 +7955,29 @@ namespace Parsek
             // recorded in (boundary seed, stop-frame UT], so clamping the closed
             // endUT down to the seed loses no data and makes the sections touch
             // exactly.
-            if (TryClampClosedSectionEndToBoundarySeed(TrackSections, sectionStartUT, out double overhangEndUT))
+            if (TryClampClosedSectionEndToBoundarySeed(
+                    TrackSections, sectionStartUT, out double overhangEndUT, out string clampRefusalReason))
             {
                 ParsekLog.Info("Recorder",
                     $"ResumeAfterFalseAlarm: clamped closed TrackSection endUT " +
                     $"from {overhangEndUT.ToString("F3", CultureInfo.InvariantCulture)} " +
                     $"to boundary seed UT={sectionStartUT.ToString("F3", CultureInfo.InvariantCulture)} " +
                     $"(stop-frame overhang held no recorded data; disjoint-cover)");
+            }
+            else if (clampRefusalReason != null)
+            {
+                // An overhang exists but the clamp refused: the interior overlap
+                // survives in the pending tree and only SessionMerger.MergeTree at
+                // commit can heal it (a destroy-before-commit persist would carry
+                // it to the sidecar). Rare, diagnostically important — log it.
+                TrackSection lastPersisted = TrackSections[TrackSections.Count - 1];
+                ParsekLog.Warn("Recorder",
+                    $"ResumeAfterFalseAlarm: closed TrackSection endUT " +
+                    $"{lastPersisted.endUT.ToString("F3", CultureInfo.InvariantCulture)} overhangs " +
+                    $"boundary seed UT={sectionStartUT.ToString("F3", CultureInfo.InvariantCulture)} " +
+                    $"but clamp refused (reason={clampRefusalReason}, " +
+                    $"sectionStartUT={lastPersisted.startUT.ToString("F3", CultureInfo.InvariantCulture)}) — " +
+                    $"overlap left for commit-time merge resolution");
             }
 
             StartNewTrackSection(resumeEnv, resumeRef, sectionStartUT, resumeSource);
@@ -8001,11 +8017,17 @@ namespace Parsek
         /// startUT, or when the section carries any authored payload (frames,
         /// body-fixed frames, or checkpoints) past the seed UT: in those shapes the
         /// overhang window holds real data and truncating it would lose coverage.
+        /// <paramref name="refusalReason"/> is non-null only when an overhang exists
+        /// but the clamp refused (would-invert-section / payload-past-seed) — the
+        /// diagnostically important refusals where the persisted overlap survives;
+        /// the common no-section / no-overhang no-ops leave it null.
         /// </summary>
         internal static bool TryClampClosedSectionEndToBoundarySeed(
-            List<TrackSection> sections, double boundarySeedUT, out double previousEndUT)
+            List<TrackSection> sections, double boundarySeedUT,
+            out double previousEndUT, out string refusalReason)
         {
             previousEndUT = double.NaN;
+            refusalReason = null;
             if (sections == null || sections.Count == 0)
                 return false;
             if (!IsFinite(boundarySeedUT))
@@ -8020,16 +8042,32 @@ namespace Parsek
 
             // Never invert the section.
             if (boundarySeedUT < last.startUT - SectionBoundaryUtEpsilon)
+            {
+                refusalReason = "would-invert-section";
                 return false;
+            }
 
             // Any authored payload past the seed means the overhang window holds
             // real data (not the empty stop-frame tail) — refuse to truncate it.
             // Predicted checkpoints are included deliberately: conservative guard.
             if (SectionHasPayloadPastUT(last, boundarySeedUT + SectionBoundaryUtEpsilon))
+            {
+                refusalReason = "payload-past-seed";
                 return false;
+            }
 
             previousEndUT = last.endUT;
             last.endUT = boundarySeedUT;
+
+            // Keep the stored sample rate consistent with the shrunk duration
+            // (CloseCurrentTrackSection computed it against the pre-clamp endUT).
+            if (last.frames != null && last.frames.Count > 1)
+            {
+                double clampedDuration = last.endUT - last.startUT;
+                if (clampedDuration > 0)
+                    last.sampleRateHz = (float)(last.frames.Count / clampedDuration);
+            }
+
             sections[lastIdx] = last;
             return true;
         }
