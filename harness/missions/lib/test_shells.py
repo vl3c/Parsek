@@ -19,8 +19,11 @@ Each test names the regression it guards. NO krpc, NO KSP, NO network, NO real
 filesystem write (an in-memory writer captures the result JSON).
 """
 
+import math
 import os
 import sys
+import threading
+import time
 import unittest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -33,6 +36,8 @@ import mission_runner         # noqa: E402
 import b1_pad_hop             # noqa: E402
 import b2_lko_ascent          # noqa: E402
 import b4_reentry             # noqa: E402
+import b5_mun_flyby           # noqa: E402
+import b6_minmus_flyby        # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +102,27 @@ B2_PARAMS = {
     "ascentTimeoutSeconds": 420,
     "circularizeTimeoutSeconds": 300,
     "launchSiteLatitude": 0.0,
+}
+
+B5_PARAMS = {
+    "targetApoapsisMeters": 80000,
+    "targetPeriapsisMeters": 80000,
+    "apoErrorMeters": 5000,
+    "periErrorMeters": 5000,
+    "ascentTimeoutSeconds": 420,
+    "circularizeTimeoutSeconds": 300,
+    "targetBodyName": "Mun",
+    "homeBodyName": "Kerbin",
+    "transferMinApoapsisMeters": 10000000,
+    "courseCorrectPeriapsisMeters": 60000,
+    "planTimeoutSeconds": 300,
+    "planRetrySeconds": 30,
+    "transferBurnTimeoutSeconds": 4000,
+    "coastTimeoutSeconds": 400000,
+    "flybyTimeoutSeconds": 300000,
+    "coastWarpFactor": 6,
+    "flybyWarpFactor": 5,
+    "targetPeriapsisFloorMeters": 10000,
 }
 
 B4_PARAMS = {
@@ -304,14 +330,38 @@ class PhaseStallTests(unittest.TestCase):
 
 
 class MidFlightExceptionTests(unittest.TestCase):
-    def test_raise_mid_flight_writes_error_with_traceback(self):
-        """The fake raises a non-kRPC RuntimeError on the 2nd telemetry read; the
-        shell catches it, classifies MISSION-ERROR (edge 9 internal bug), writes a
-        traceback string, closes in the finally, exits nonzero. Guards an exception
-        leaking as a hang or as no result file, and guards an internal bug being
-        mis-filed as a flake."""
-        frames = [snap(ut=0.0, stage_solid_fuel=1.0, situation="PRE_LAUNCH"), snap()]
+    def test_one_off_read_exception_is_tolerated_not_fatal(self):
+        """Seventh live B5 flight (2026-07-22): a server-ANSWERED read failure
+        (a vessel-state RPC error at impact) must NOT kill the mission on the
+        first raise -- the fly loop tolerates non-transport read exceptions so
+        the control seam's read-fail streak can escalate to the vessel-lost
+        terminal. A ONE-OFF such raise polls on and the flight completes."""
+        frames = [
+            snap(ut=0.0, stage_solid_fuel=1.0, apoapsis=14000, situation="PRE_LAUNCH"),
+            snap(ut=1.0, stage_solid_fuel=0.5, apoapsis=14000, situation="FLYING"),
+            snap(ut=2.0, stage_solid_fuel=0.0, apoapsis=14000, situation="FLYING"),
+            snap(ut=4.0, vertical_speed=-5.0, apoapsis=14000, situation="FLYING"),
+            snap(ut=6.0, altitude=2000, apoapsis=14000, situation="FLYING"),
+            snap(ut=7.0, altitude=100, apoapsis=14000, situation="LANDED"),
+        ]
         control = FakeMissionControl(frames, raise_on_read_index=1)
+        code, result = run(b1_pad_hop.SPEC, B1_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        self.assertTrue(control.closed)
+
+    def test_raise_in_perform_writes_error_with_traceback(self):
+        """An internal bug OUTSIDE the tolerated read path (perform raising a
+        non-kRPC RuntimeError) still classifies MISSION-ERROR (edge 9), writes
+        a traceback string, closes in the finally, exits nonzero. Guards an
+        exception leaking as a hang or as no result file, and guards an
+        internal bug being mis-filed as a flake."""
+        class _PerformBoom(FakeMissionControl):
+            def perform(self, action):
+                raise RuntimeError("perform blew up mid-flight")
+
+        frames = [snap(ut=0.0, stage_solid_fuel=1.0, situation="PRE_LAUNCH"), snap()]
+        control = _PerformBoom(frames)
         code, result = run(b1_pad_hop.SPEC, B1_PARAMS, control)
         self.assertEqual(result["verdict"], mlib.MISSION_ERROR)
         self.assertNotEqual(code, 0)
@@ -487,6 +537,7 @@ class _FakeFlight:
 
 class _FakeBody:
     reference_frame = "body_frame"
+    name = "Kerbin"
 
 
 class _FakeOrbit:
@@ -495,6 +546,9 @@ class _FakeOrbit:
     eccentricity = 0.1
     inclination = 0.0
     body = _FakeBody()
+    # No SOI change on the trajectory: kRPC returns NaN (the machine's
+    # SOI-approach warp bound skips it, fail open).
+    time_to_soi_change = float("nan")
 
 
 class _FakeSituation:
@@ -506,10 +560,17 @@ class _FakeResources:
         return 1.0
 
 
+class _FakeNodeControl:
+    nodes = ()
+    throttle = 0.0
+
+
 class _FakeVessel:
     situation = _FakeSituation()
     orbit = _FakeOrbit()
     resources = _FakeResources()
+    control = _FakeNodeControl()
+    available_thrust = 215_000.0
 
     def flight(self, _frame):
         return _FakeFlight()
@@ -547,6 +608,160 @@ class _FakeConn:
         ok = self._results[self._i] if self._i < len(self._results) else True
         self._i += 1
         return ok
+
+
+class _FakeWarpSpaceCenter:
+    """Stand-in for the warp connection's space_center: warp_to blocks on a
+    gate like the real RPC blocks on the server, then raises when the fake
+    socket was closed under it (the real cancel path)."""
+
+    def __init__(self, gate, conn):
+        self._gate = gate
+        self._conn = conn
+        self.warped_to = []
+
+    def warp_to(self, ut):
+        self.warped_to.append(float(ut))
+        self._gate.wait(timeout=5.0)
+        if self._conn.closed:
+            raise ConnectionAbortedError("warp socket closed")
+
+
+class _FakeWarpConn:
+    def __init__(self, gate):
+        self.closed = False
+        self._gate = gate
+        self.space_center = _FakeWarpSpaceCenter(gate, self)
+
+    def close(self):
+        self.closed = True
+        self._gate.set()
+
+
+class _FakePrimarySc:
+    """Primary-connection space_center stand-in recording the post-cancel
+    factor resets."""
+    def __init__(self):
+        self.rails_sets = []
+        self.physics_sets = []
+
+    @property
+    def rails_warp_factor(self):
+        return 0
+
+    @rails_warp_factor.setter
+    def rails_warp_factor(self, value):
+        self.rails_sets.append(int(value))
+
+    @property
+    def physics_warp_factor(self):
+        return 0
+
+    @physics_warp_factor.setter
+    def physics_warp_factor(self, value):
+        self.physics_sets.append(int(value))
+
+
+def _wait_until(pred, timeout=2.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if pred():
+            return True
+        time.sleep(0.01)
+    return pred()
+
+
+class WarpServiceTests(unittest.TestCase):
+    """Headless WarpService contract tests over an injected fake connection:
+    the daemon thread owns its own connection, active/target state reads
+    correctly, cancel closes the socket + zeroes the primary factors, natural
+    completion goes idle, and a thread exception never propagates."""
+
+    def _service(self, gate):
+        conn = _FakeWarpConn(gate)
+        svc = mission_runner.WarpService(
+            "127.0.0.1", 50000, 50001, connect_fn=lambda: conn)
+        return svc, conn
+
+    def test_warp_to_ut_is_fire_and_forget_and_exposes_target(self):
+        gate = threading.Event()
+        svc, conn = self._service(gate)
+        try:
+            svc.warp_to_ut(12345.0, _FakePrimarySc())
+            self.assertTrue(_wait_until(
+                lambda: conn.space_center.warped_to == [12345.0]))
+            self.assertTrue(svc.active)
+            self.assertEqual(svc.target_ut, 12345.0)
+        finally:
+            gate.set()
+            svc.close()
+
+    def test_natural_completion_goes_idle(self):
+        gate = threading.Event()
+        svc, conn = self._service(gate)
+        svc.warp_to_ut(500.0, _FakePrimarySc())
+        self.assertTrue(_wait_until(lambda: len(conn.space_center.warped_to) == 1))
+        gate.set()  # the RPC returns (arrival)
+        self.assertTrue(_wait_until(lambda: not svc.active))
+        self.assertTrue(math.isnan(svc.target_ut))
+
+    def test_cancel_closes_socket_and_zeroes_factors(self):
+        gate = threading.Event()
+        svc, conn = self._service(gate)
+        sc = _FakePrimarySc()
+        svc.warp_to_ut(9999.0, sc)
+        self.assertTrue(_wait_until(lambda: len(conn.space_center.warped_to) == 1))
+        svc.cancel(sc)
+        self.assertTrue(conn.closed)
+        self.assertFalse(svc.active)
+        self.assertTrue(math.isnan(svc.target_ut))
+        self.assertEqual(sc.rails_sets, [0])
+        self.assertEqual(sc.physics_sets, [0])
+
+    def test_connect_failure_never_raises_into_caller(self):
+        svc = mission_runner.WarpService(
+            "127.0.0.1", 50000, 50001,
+            connect_fn=lambda: (_ for _ in ()).throw(OSError("no server")))
+        sc = _FakePrimarySc()
+        svc.warp_to_ut(777.0, sc)  # must not raise
+        self.assertTrue(_wait_until(lambda: not svc.active))
+        self.assertTrue(math.isnan(svc.target_ut))
+        svc.close()
+
+
+class WarpStallTrackerTests(unittest.TestCase):
+    """Pure watchdog core: UT standstill for the wall deadline = stall; any
+    UT advance re-arms; non-finite UT counts as no-advance (fail closed
+    toward detection); reset clears history."""
+
+    def test_advancing_ut_never_stalls(self):
+        t = mission_runner.WarpStallTracker(stall_seconds=10.0)
+        self.assertFalse(t.update(0.0, 100.0))
+        self.assertFalse(t.update(5.0, 5100.0))
+        self.assertFalse(t.update(20.0, 155100.0))
+
+    def test_frozen_ut_stalls_after_deadline(self):
+        t = mission_runner.WarpStallTracker(stall_seconds=10.0)
+        self.assertFalse(t.update(0.0, 100.0))
+        self.assertFalse(t.update(5.0, 100.0))      # 5 s standstill: not yet
+        self.assertTrue(t.update(10.0, 100.0))      # 10 s standstill: stall
+        # An advance re-arms.
+        self.assertFalse(t.update(11.0, 200.0))
+        self.assertFalse(t.update(15.0, 200.0))
+        self.assertTrue(t.update(21.5, 200.0))
+
+    def test_nan_ut_counts_as_no_advance(self):
+        t = mission_runner.WarpStallTracker(stall_seconds=10.0)
+        self.assertFalse(t.update(0.0, 100.0))
+        self.assertFalse(t.update(6.0, float("nan")))
+        self.assertTrue(t.update(10.0, float("nan")))
+
+    def test_reset_clears_history(self):
+        t = mission_runner.WarpStallTracker(stall_seconds=10.0)
+        self.assertFalse(t.update(0.0, 100.0))
+        t.reset()
+        self.assertFalse(t.update(30.0, 100.0))     # fresh baseline, no stall
+        self.assertTrue(t.update(40.0, 100.0))
 
 
 class ReadFailStreakTests(unittest.TestCase):
@@ -766,4 +981,148 @@ class B4ShellTests(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertIn("vessel-lost", result["reason"])
         self.assertIn(mlib.B4_REENTRY, result["phasesReached"])
+        self.assertTrue(control.closed)
+
+
+class B5ShellTests(unittest.TestCase):
+    """B5 shell wiring over the fake seam: ascent -> transfer plan/burn ->
+    correction -> cross-SOI coast -> flyby -> RETURN terminal, with the new
+    target/plan/execute actions and the body-name SOI gates flowing end to end."""
+
+    def _happy_frames(self):
+        return [
+            snap(ut=0.0, apoapsis=1000, periapsis=0, situation="PRE_LAUNCH",
+                 body="Kerbin"),
+            snap(ut=100.0, apoapsis=78000, periapsis=1000, situation="FLYING",
+                 mj_ascent_complete=True, body="Kerbin"),        # -> CIRCULARIZE
+            snap(ut=140.0, apoapsis=80000, periapsis=79000, altitude=79000.0,
+                 situation="ORBITING", body="Kerbin"),           # -> ORBIT
+            snap(ut=141.0, apoapsis=80001, periapsis=79000, altitude=79001.0,
+                 situation="ORBITING", body="Kerbin"),           # ORBIT -> PLAN (target+plan)
+            snap(ut=150.0, apoapsis=80001, periapsis=79000, altitude=79002.0,
+                 situation="ORBITING", body="Kerbin",
+                 node_count=1),                                  # node -> TRANSFER-BURN (execute)
+            snap(ut=2200.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=90000.0, situation="ORBITING", body="Kerbin",
+                 node_count=0),                                  # burn done -> COAST
+            snap(ut=2210.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=93000.0, situation="ORBITING",
+                 body="Kerbin"),                                 # trigger 0 -> PLAN-CORRECTION (round 1)
+            snap(ut=2230.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=95000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1),                                  # node -> CORRECTION-BURN (AP point)
+            snap(ut=2245.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=97000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=100.0, ap_error=1.0),     # streak 1 -> flip physics warp
+            snap(ut=2300.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=99000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=100.0, ap_error=1.0,
+                 warp_mode="PHYSICS", warp_rate=2.0),            # streak 2 -> drop physics warp
+            snap(ut=2302.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=99500.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=100.0, ap_error=1.0),     # warp NONE -> throttle
+            snap(ut=2400.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=200_000.0, situation="ORBITING", body="Kerbin"),  # node gone -> cut pair, COAST
+            snap(ut=8000.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=6_500_000.0, situation="ORBITING",
+                 body="Kerbin"),                                 # trigger 6M -> PLAN-CORRECTION (round 2)
+            snap(ut=8010.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=6_510_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1),                                  # node -> CORRECTION-BURN (AP point)
+            snap(ut=8025.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=6_520_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=4.0, ap_error=0.8),       # streak 1 -> flip physics warp
+            snap(ut=8030.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=6_525_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=4.0, ap_error=0.7,
+                 warp_mode="PHYSICS", warp_rate=2.0),            # streak 2 -> drop physics warp
+            snap(ut=8035.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=6_530_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=4.0, ap_error=0.7),       # warp NONE -> throttle
+            snap(ut=8100.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=6_600_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=0),                                  # node consumed -> cut pair, COAST
+            snap(ut=40_000.0, apoapsis=200_000.0, periapsis=60_000.0,
+                 altitude=1_500_000.0, situation="ESCAPING", body="Mun"),   # -> TARGET-FLYBY
+            snap(ut=40_600.0, apoapsis=200_000.0, periapsis=60_000.0,
+                 altitude=61_000.0, situation="ESCAPING", body="Mun"),      # periapsis + hop
+            snap(ut=80_000.0, apoapsis=12_000_000.0, periapsis=35_000.0,
+                 altitude=4_000_000.0, situation="ORBITING",
+                 body="Kerbin"),                                 # home SOI -> RETURN terminal
+        ]
+
+    def test_b5_happy_path_writes_mission_ok(self):
+        """B5 flies ascent -> transfer -> flyby -> free-return with NO settle
+        tail (spec settle_frames=0, review SF-4) and all four assertions are
+        met -> MISSION-OK. Guards the shell mis-wiring the new
+        target/plan/execute actions or terminating at ORBIT like B2."""
+        control = FakeMissionControl(self._happy_frames())
+        code, result = run(b5_mun_flyby.SPEC, B5_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        kinds = [a.kind for a in control.actions]
+        for kind in (mlib.ACTION_MJ_ENGAGE_ASCENT, mlib.ACTION_SET_TARGET_BODY,
+                     mlib.ACTION_MJ_PLAN_TRANSFER, mlib.ACTION_MJ_EXECUTE_NODES,
+                     mlib.ACTION_MJ_PLAN_COURSE_CORRECT, mlib.ACTION_AP_POINT_NODE,
+                     mlib.ACTION_SET_RAILS_WARP, mlib.ACTION_SET_PHYSICS_WARP,
+                     mlib.ACTION_SET_THROTTLE):
+            self.assertIn(kind, kinds)
+        # The flip's physics warp is always DROPPED (a 0 command) before any
+        # throttle-up, and each round both raises and drops it.
+        phys = [a.value for a in control.actions
+                if a.kind == mlib.ACTION_SET_PHYSICS_WARP]
+        self.assertEqual(phys, [1.0, 0.0, 1.0, 0.0])
+        # The target-body action carried the body NAME in text.
+        targets = [a for a in control.actions if a.kind == mlib.ACTION_SET_TARGET_BODY]
+        self.assertEqual(targets, [mlib.Action(mlib.ACTION_SET_TARGET_BODY, text="Mun")])
+        # Exactly ONE executor handoff (the TLI); both correction rounds fly
+        # the DIY burner (AP-point + throttle), never MechJeb's executor.
+        executes = [a for a in control.actions if a.kind == mlib.ACTION_MJ_EXECUTE_NODES]
+        self.assertEqual(len(executes), 1)
+        points = [a for a in control.actions if a.kind == mlib.ACTION_AP_POINT_NODE]
+        self.assertEqual(len(points), 2)
+        self.assertTrue(all(a["met"] for a in result["assertions"]), result["assertions"])
+        # NO settle tail (review SF-4: B5's assertions are machine-carried and
+        # evaluate discards frames, so post-RETURN reads are pure flake
+        # surface): reads stop EXACTLY at the terminal frame.
+        self.assertEqual(control.reads, len(self._happy_frames()))
+        self.assertTrue(control.closed)
+
+    def test_b6_minmus_alias_flies_same_machine(self):
+        """b6_minmus_flyby is a thin alias over the shared B5 machine: the same
+        happy-path frame script with body=Minmus and Minmus-sized params flies
+        to MISSION-OK. Guards the alias shell drifting from the B5 wiring."""
+        params = dict(B5_PARAMS, targetBodyName="Minmus",
+                      transferMinApoapsisMeters=40_000_000,
+                      courseCorrectPeriapsisMeters=20000,
+                      targetPeriapsisFloorMeters=6000)
+        frames = [
+            (snap(**{**f.__dict__, "body": "Minmus"}) if f.body == "Mun" else f)
+            for f in self._happy_frames()
+        ]
+        # The transfer-apoapsis floor is Minmus-sized: raise the burn-done frames.
+        frames = [
+            (snap(**{**f.__dict__, "apoapsis": 46_000_000.0})
+             if f.apoapsis == 11_500_000.0 else f)
+            for f in frames
+        ]
+        control = FakeMissionControl(frames)
+        code, result = run(b6_minmus_flyby.SPEC, params, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        targets = [a for a in control.actions if a.kind == mlib.ACTION_SET_TARGET_BODY]
+        self.assertEqual(targets, [mlib.Action(mlib.ACTION_SET_TARGET_BODY, text="Minmus")])
+
+    def test_b5_flyby_ejection_is_assert_fail(self):
+        """A flyby that slings the craft out of the home system (body=Sun inside
+        TARGET-FLYBY) is MISSION-ASSERT-FAIL with the ejected loss reason."""
+        frames = self._happy_frames()[:19] + [
+            snap(ut=90_000.0, altitude=90_000_000.0, situation="ESCAPING",
+                 body="Sun")]
+        control = FakeMissionControl(frames)
+        code, result = run(b5_mun_flyby.SPEC, B5_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_ASSERT_FAIL, result)
+        self.assertNotEqual(code, 0)
+        self.assertIn("ejected", result["reason"])
+        self.assertIn(mlib.B5_TARGET_FLYBY, result["phasesReached"])
         self.assertTrue(control.closed)

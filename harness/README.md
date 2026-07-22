@@ -57,6 +57,53 @@ Full enumeration + submodule split recipe:
 `docs/dev/design-autotest-stack-setup.md` ("Module boundary and submodule
 readiness"), cross-referenced from `docs/dev/design-autotest-harness-core.md`.
 
+## Live observability (what is the run doing RIGHT NOW)
+
+The observability surface for a running (or just-finished) mission flight,
+newest-first (design authority: `docs/dev/design-live-observability.md`):
+
+- `results/<runId>_mission.stdout.log` - the LIVE mission log. Written
+  unbuffered by the mission subprocess, so its tail is current to the last
+  poll frame (~0.5 s). Line format `[Mission][LEVEL][Phase] message`;
+  telemetry lines are rate-limited to ~1 Hz, phase transitions / actions /
+  [Plan]/[Point]/[Throttle]/[Warp] events are loud one-shot lines.
+- `results/<ts>_harness.log` - the per-invocation harness log (which step the
+  orchestrator is in; the mission stdout is folded in AFTER the mission
+  exits, so mid-flight you read the mission log directly).
+- `results/<runId>_status.json` - the live status file (Phase 2, shipped):
+  every production mission rewrites it atomically every ~2 s with the
+  decoded snapshot, the machine decision state (phase, rounds,
+  planAttempts, bodyBlank, burn latches, warp commands), and the last 10
+  sparse events. The status CLI prefers it when fresh and falls back to
+  log parsing (older runs / a stalled mission process).
+- In-log observability (Phase 2): a ~5 s rate-limited `machine phase=...`
+  decision-state line, a trailing `ut=` token on the telemetry line, loud
+  `gate <field> old->new | <snapshot values>` lines on every machine
+  latch/gate flip, and a 20-frame `window dump` (compact one-line-per-frame
+  ring buffer) on phase transitions / flakes / vessel-lost / gate flips.
+
+`status.py` renders all of that as one panel so an operator report ("looks
+stuck at 1x", "warp oscillating") maps to machine state in ONE step:
+
+```
+python status.py                    # newest run, one shot
+python status.py --watch 5         # re-render every 5 s
+python warp_audit.py results/<runId>_mission.stdout.log   # no-1x-coast PR-gate audit
+python warp_audit.py <log> --fail-on-violation            # exit 1 on any 1x coast segment
+python status.py --run 2026-07-22_1210    # a specific run (prefix ok)
+python status.py --raw 40          # last 40 raw mission-stdout lines
+python status.py --head 650        # REPLAY: panel as of the first 650 lines
+```
+
+The panel shows: scenario + attempt + run age, log liveness (last-write age),
+current phase with time-in-phase (game est. via the time-to-SOI drift, wall
+est. via the 1 Hz telemetry cadence, budget from the scenario TOML), the last
+telemetry line decoded one labeled field per line, the last sparse events,
+the full phase history with durations, and a heuristic WHAT IS IT DOING line
+(e.g. it names a PLAN-CORRECTION over-cap plan-removal loop -- which looks
+like a silent 1x hang in game -- and predicts the fall-through time).
+Stdlib only; parsers are pure functions tested in `lib/test_status.py`.
+
 ## Running the tests
 
 ```

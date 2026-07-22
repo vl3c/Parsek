@@ -1,0 +1,161 @@
+schema = 1
+id = "B5-mun-flyby"
+# nightly: fixture committed (shares b2-lko-craft with B2/B4) and the flyby is
+# the longest flown mission yet (transfer coast + flyby, mostly under rails
+# warp). LIVE-PROVEN 2026-07-22 across three flights: fifteenth (PASS attempt
+# 1, wall 625 s, full finding-1..12 stack), SIXTEENTH (hands-off
+# certification, wall 824 s - zero operator warp intervention end to end),
+# seventeenth (wall 854 s under the warp-optimization package: altitude-legal
+# factor selection, physics-warp flips, stair-downs).
+# NO-1X CERTIFICATION 2026-07-22 (twenty-sixth flight, the operator PR gate):
+# PASS attempt 1, wall 465 s, flyby 138.9 km, under the complete finding-15/16
+# stack (flameout staging popped the dry core twice mid-burn, 250 km
+# course-correct target, arrival-quality gate quiet above the floor) --
+# warp_audit --fail-on-violation exit 0 with ZERO contiguous AND ZERO
+# cumulative 1x-coast violations.
+tier = "nightly"
+description = "Mun flyby / free-return: MechJeb ascent to LKO, ManeuverPlanner Hohmann transfer, autowarped TLI burn, course-correction, cross-SOI coast, Mun flyby, return into Kerbin SOI; assert orbit + target SOI reached + flyby floor + returned home."
+instanceProfile = "stock-minimal"
+tags = ["B5", "flown", "mechjeb", "mun", "cross-soi"]
+
+[fixture]
+# Same pre-placed Kerbal X fixture as B2/B4 (committed 2026-07-19): the ascent
+# half is byte-for-byte the B2 mission path; only the post-ORBIT phases are new.
+saveTemplate       = "fixtures/saves/b2-lko-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b5_mun_flyby"
+
+# `steps` MUST stay in the [driver] table, so it is declared ABOVE the
+# [driver.missionParams] header (a key after the sub-table header would be
+# scoped to driver.missionParams.steps and the spec would validate as having
+# zero steps).
+# Budget arithmetic (MEASURED: passing flights ran wall 625 / 824 / 854 s;
+# the 2400 missionBudget is ~3x the observed worst case to absorb correction
+# give-ups + retries): missionBudget 2400 (WALL) >= 30 connect + ascent ~250
+# + circularize ~100 + plan+TLI burn ~300 (autowarp compresses the node wait)
+# + corrections ~2x150 (2x-physics flips) + coast ~100 (native warp_to_ut /
+# altitude-legal rails; warp changes only when an action is imminent) + flyby
+# ~60 (native warp to SOI exit; 100x floor near periapsis) + margin. Phase
+# budgets in missionParams are GAME time.
+# runtime 2900 (review SF-5) >= 240 LoadGame + ~5 SetSetting + 2400 mission
+# + ~120 CommitTree + ~60 FlushAndQuit + ~75 margin: the post-mission seam
+# steps must survive a FULL-budget mission (a slow PASS was previously
+# reaped mid-commit with only ~60 s left after the mission step).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 2400 },
+  { cmd = "CommitTree",                                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                        expect = "OK" },
+]
+
+# Ascent half = B2's proven tolerances verbatim; transfer half all thresholds /
+# budgets (validated against b5_mun_flyby.schema.toml), never a golden
+# trajectory. Phase timeouts are GAME seconds (rails hops + NodeExecutor
+# autowarp advance them fast).
+[driver.missionParams]
+targetApoapsisMeters       = 80000
+targetPeriapsisMeters      = 80000
+apoErrorMeters             = 5000
+periErrorMeters            = 5000
+ascentTimeoutSeconds       = 420
+circularizeTimeoutSeconds  = 300
+targetBodyName             = "Mun"
+homeBodyName               = "Kerbin"
+# The Mun orbits at ~12,000 km; a TLI that raised apoapsis past 10,000 km is
+# unambiguous evidence the burn happened (floor, not a window).
+transferMinApoapsisMeters  = 10000000
+# Course-correct target 250 km (finding 16d, flights 22-25): MechJeb's
+# OperationCourseCorrection systematically UNDER-DELIVERS toward low
+# periapsis targets -- four flights of nextPe evidence: a 60 km request
+# repeatedly arrived at pe -22..-33 km, and even the in-window extra round's
+# 9.5 m/s plan (claiming 60 km) moved the prediction only +2.7 km where the
+# geometry needed ~39 m/s. Every plan burns the RIGHT direction, just far
+# too little, so the fix is margin: target 250 km and let the characterized
+# ~90-100 km bias land the arrival comfortably above the 10 km assertion
+# floor (the contract is the FLOOR; the proven passes flew 956-1,142 km).
+# The finding-16 arrival-quality gate stays as the closed-loop guard.
+courseCorrectPeriapsisMeters = 250000
+# The dv cap blocks the WILD-BURN INSANITY class only (finding 2's 15,930
+# m/s transfer-reshape plans), NOT genuine corrections: the DIY burner +
+# aligned debounce + no-progress give-up now own the wild-burn risk, and
+# round-2 economics after a real round-1 burn legitimately reach ~170 m/s
+# (seventeenth flight: 169-171 m/s quotes were disqualified by the old 150
+# cap and the round 1x-idled to its plan give-up; finding 14).
+maxCorrectionDvMps         = 300
+# Two rounds: post-TLI (trigger 0) + a mid-coast refinement at 6,000 km -- the
+# fourth flight proved executor residual drifts a corrected +60 km periapsis
+# to -29 km (impact) over the long coast without the second round.
+correctionTriggerAltsMeters = [0, 6000000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+transferBurnTimeoutSeconds = 4000
+coastTimeoutSeconds        = 400000
+flybyTimeoutSeconds        = 300000
+# Warp shaping (2026-07-22 warp-optimization pass; see
+# docs/dev/research/warp-optimization-findings.md). Factors are KSP rails
+# INDEXES; every command is pre-clamped to the stock per-body altitude-limit
+# table so it is achievable and escalates as the vessel climbs (a commanded 6
+# near the 80 km parking orbit used to run the whole leg silently at 50x).
+coastWarpFactor            = 6
+# Flyby: 100x floor near periapsis (the proven evidence cadence), stair up to
+# 10,000x on the outer SOI legs.
+flybyWarpFactor            = 5
+flybyMaxWarpFactor         = 6
+# AIM-THEN-WARP (operator PR gate, no-1x-coast): the correction burn aims
+# first (2x-physics flip + aligned debounce), then natively warps to node
+# UT minus this margin -- rails warp freezes orientation -- and re-verifies
+# on arrival. 1x exists only inside this margin plus the re-verify frames.
+nodeArrivalMarginSeconds   = 15
+# PLAN-* phases ride 10x (legality-clamped) between plan attempts; with
+# planRetrySeconds 10 the 3-attempt bound costs ~30 game-s, ~3 wall-s.
+planWarpFactor             = 2
+# Post-correction coast + flyby outer legs natively warp to
+# now + timeToSoi - this lead; the inside-lead fallback rides the 100x
+# flyby floor, never 1x.
+soiLeadSeconds             = 30
+# Correction-burn attitude flip at 2x physics warp (dropped to 1x before
+# throttle-up); set 0 to revert to the proven 1x flip if the kRPC AP
+# misbehaves under physics warp on the live craft.
+flipPhysicsWarpFactor      = 1
+targetPeriapsisFloorMeters = 10000
+
+# Coverage: the transfer coast + flyby are the cross-SOI recording cells -- D4
+# cohesive-cross-body-coast (the ExoBallistic Kerbin->Mun->Kerbin coast kept
+# cohesive by the optimizer), D3 orbital-checkpoint (on-rails checkpoints
+# across the warp hops), D14 kerbin + mun + warp-rails. No dedicated flyby /
+# free-return value exists in the registry; gap noted in the todo doc's B5
+# section alongside B4's reentry gap.
+[dimensionsCovered]
+D1  = ["auto-record-launch"]
+D3  = ["orbital-checkpoint"]
+D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
+D14 = ["kerbin", "mun", "warp-rails"]
+
+[expectations.recordings]
+# Main ascent recording + up to 6 dropped Kerbal X boosters recorded as
+# parent-anchored debris children + 1 LES-tower margin (same WATCH-4 rationale
+# as B2/B4's max 8) + 1 for the flameout-staged dry core (live finding 15:
+# the machine pops the next stage when a commanded burn reads zero available
+# thrust, so the jettisoned core can appear as one more debris child). min
+# stays 1: the main recording must exist even if debris admission varies.
+count = { min = 1, max = 9 }
+
+[expectations.logContracts]
+required  = ["Recording started", "Recording stopped"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+budgetSeconds = 2900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

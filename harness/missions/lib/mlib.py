@@ -124,6 +124,31 @@ B4_SPLASHDOWN = "SPLASHDOWN"
 B4_PHASES: Tuple[str, ...] = (B4_PRELAUNCH, B4_MJ_ASCENT, B4_CIRCULARIZE, B4_ORBIT,
                               B4_DEORBIT, B4_REENTRY, B4_SPLASHDOWN)
 
+# B5 phase names (mission b5_mun_flyby: the B2 ascent, then a MechJeb
+# ManeuverPlanner Hohmann transfer to the Mun, a NodeExecutor-autowarped TLI
+# burn, an optional course-correction refinement, a rails-warp coast across the
+# SOI boundary, the flyby itself, and the return into Kerbin SOI; see
+# docs/dev/todo-and-known-bugs.md "B5 Mun flyby / free-return"). RETURN is the
+# success terminal: it is entered (and ``done`` set) the frame the vessel's SOI
+# body is the home body again AFTER the flyby -- the settle tail then runs
+# on-rails in Kerbin SOI. Like B4, survival is the contract: any vessel-lost /
+# frozen terminal in ANY phase is an ASSERT-FAIL loss.
+B5_PRELAUNCH = "PRELAUNCH"
+B5_MJ_ASCENT = "MJ-ASCENT"
+B5_CIRCULARIZE = "CIRCULARIZE"
+B5_ORBIT = "ORBIT"
+B5_PLAN_TRANSFER = "PLAN-TRANSFER"
+B5_TRANSFER_BURN = "TRANSFER-BURN"
+B5_PLAN_CORRECTION = "PLAN-CORRECTION"
+B5_CORRECTION_BURN = "CORRECTION-BURN"
+B5_COAST_TO_TARGET = "COAST-TO-TARGET"
+B5_TARGET_FLYBY = "TARGET-FLYBY"
+B5_RETURN = "RETURN"
+B5_PHASES: Tuple[str, ...] = (B5_PRELAUNCH, B5_MJ_ASCENT, B5_CIRCULARIZE, B5_ORBIT,
+                              B5_PLAN_TRANSFER, B5_TRANSFER_BURN, B5_PLAN_CORRECTION,
+                              B5_CORRECTION_BURN, B5_COAST_TO_TARGET, B5_TARGET_FLYBY,
+                              B5_RETURN)
+
 # Connect-retry decision tokens (design "Connection lifecycle" step 2).
 CONNECT_RETRY = "RETRY"
 CONNECT_TIMEOUT = "TIMEOUT"
@@ -148,6 +173,284 @@ ACTION_MJ_EXECUTE_CIRCULARIZATION = "mj_execute_circularization"  # value = None
 ACTION_AP_POINT_RETROGRADE = "ap_point_retrograde"         # value = None
 ACTION_AP_DISENGAGE = "ap_disengage"                       # value = None
 ACTION_WARP_TO = "warp_to"                                 # value = target UT (s)
+# B5 transfer-planning actions (KRPC.MechJeb ManeuverPlanner + NodeExecutor;
+# surfaces verified against the darchambault KRPC.MechJeb 0.8.1 source at the
+# provisioner's pinned commit: ManeuverPlanner.OperationTransfer /
+# OperationCourseCorrection.CourseCorrectFinalPeA / Operation.MakeNodes,
+# NodeExecutor.Autowarp / ExecuteAllNodes). SET_TARGET_BODY carries the body
+# NAME in ``text`` (Action.value stays float-only); the runner resolves it via
+# space_center.bodies[name]. The PLAN_* runner cases wrap make_nodes in
+# try/except (a no-encounter plan throws server-side OperationException) so a
+# failed plan is a logged warn + no node, and the machine's bounded re-plan /
+# fall-through logic owns the outcome -- never an unhandled mission error.
+ACTION_SET_TARGET_BODY = "set_target_body"                 # text = body name
+ACTION_MJ_PLAN_TRANSFER = "mj_plan_transfer"               # value = None
+ACTION_MJ_PLAN_COURSE_CORRECT = "mj_plan_course_correct"   # value = periapsis m
+ACTION_MJ_EXECUTE_NODES = "mj_execute_nodes"               # value = None (autowarp)
+ACTION_MJ_ABORT_AND_CLEAR_NODES = "mj_abort_and_clear_nodes"  # value = None
+# B5 DIY correction burner (live finding 8): point kRPC's NATIVE AutoPilot
+# along the first maneuver node's burn vector (node.reference_frame, direction
+# (0, 1, 0) -- that frame's y-axis IS the burn vector, pinned-source verified).
+# MechJeb's NodeExecutor is NOT used for corrections: its close-in-node path
+# demands AlignedAndSettled (< 1 deg AND angular velocity < 0.001 rad/s,
+# decompiled 2.15.1 StateWarpAlign) which the low-torque Kerbal X never meets,
+# parking every close-in correction node forever.
+ACTION_AP_POINT_NODE = "ap_point_node"                     # value = None
+# Non-blocking rails-warp control (operator design critique 2026-07-22: the
+# per-hop warp_to ramp-down/up sawtooth made warp oscillate mid-coast; warp
+# should change only when an action is imminent). value = the KSP rails warp
+# factor INDEX (0 = 1x .. 7 = 100,000x; the server clamps to the altitude-
+# legal maximum). The machine emits this ON CHANGE only and keeps polling --
+# no blocking RPC, so telemetry (frozen/ejection detectors) stays continuous
+# and the Flight-Results-dialog wedge class (finding 4) is structurally gone
+# from the B5 coast.
+ACTION_SET_RAILS_WARP = "set_rails_warp"                   # value = factor index
+# Physics (LOW mode) warp control for segments that need RUNNING physics --
+# today the correction-burn attitude flip (a ~340 s 1x crawl on the low-torque
+# Kerbal X). value = the KSP physics warp factor INDEX (0 = 1x .. 3 = 4x; the
+# server clamps via kRPC PhysicsWarpFactor.Clamp(0, 3)). Precedent: MechJeb's
+# own WarpToUT runs attitude-holding segments at physics warp capped 2.0x
+# (decompiled 2.15.1 MechJebModuleWarpController.WarpToUT). Same on-change +
+# self-healing emission discipline as set_rails_warp; the machine always drops
+# to 0 BEFORE any throttle-up so a burn never integrates at scaled physics dt.
+ACTION_SET_PHYSICS_WARP = "set_physics_warp"               # value = factor index
+# Native fire-and-forget warp-to-UT (Path A, docs/dev/research/
+# native-warp-to-ut.md): the runner's WarpService issues SpaceCenter.WarpTo
+# on a DEDICATED second kRPC connection owned by a daemon thread, so the
+# primary telemetry connection never blocks (per-connection RPC
+# serialization, pinned kRPC Core.cs). The server's own stepper adapts the
+# factor both ways against the game's live altitude limits - table-free
+# native adaptation, the operator's design principle. value = target UT.
+# CONTRACT: while a native warp is active (TelemetrySnapshot.warping_to
+# finite) the machine MUST NOT emit set_rails_warp - two writers fight and
+# WarpTo wins within 1-2 frames (research doc, scheduler analysis).
+ACTION_WARP_TO_UT = "warp_to_ut"                           # value = target UT (s)
+# Cancel the native warp: the runner closes the warp connection (the server
+# discards the continuation next FixedUpdate) and zeroes both warp factors
+# from the primary connection. Idempotent when no warp is active.
+ACTION_CANCEL_WARP = "cancel_warp"                         # value = None
+
+# TARGET-FLYBY impact-warp guard: below this altitude with a SUB-SURFACE
+# periapsis the machine stops issuing warp hops and polls at 1x, so a crash
+# happens under live telemetry (clean vessel-lost terminal in seconds) instead
+# of inside a blocking warp_to wedged by the paused Flight Results dialog.
+IMPACT_WARP_GUARD_ALT = 400_000.0
+
+# TARGET-FLYBY impact-certain EARLY TERMINAL (twenty-second live flight
+# 2026-07-22): once the impact-warp guard condition (sub-surface periapsis
+# below the guard altitude) has held for this many CONSECUTIVE frames, the
+# mission outcome is decided -- no correction capability exists inside the
+# target SOI -- so the machine terminates ASSERT-FAIL immediately instead of
+# riding the descent at 1x to physical destruction (589 wall-seconds on the
+# certification flight; the audit's only 1x-coast violation). The debounce
+# keeps a transient periapsis mis-read from ending a live mission.
+IMPACT_TERMINAL_DEBOUNCE_FRAMES = 5
+
+# Flameout staging (twenty-second live flight 2026-07-22): mid-correction the
+# Kerbal X CORE stage ran dry (LiquidFuel froze at exactly 720.0 -- the full,
+# unreachable X200-16 upper tank) and BOTH correction rounds no-progress-gave-
+# up against a flamed-out engine; the under-corrected arrival was an impact
+# trajectory. During a COMMANDED burn (throttle readback above the epsilon),
+# ZERO available thrust for FLAMEOUT_DEBOUNCE_FRAMES consecutive frames means
+# the active stage is dry -> pop ONE stage and keep burning, bounded at
+# MAX_FLAMEOUT_STAGES per mission (a mis-read must not cascade the whole
+# stack; the flyby floor assertion still judges the outcome).
+FLAMEOUT_THROTTLE_EPS = 0.01
+FLAMEOUT_DEBOUNCE_FRAMES = 2
+MAX_FLAMEOUT_STAGES = 2
+
+# Arrival-quality re-correction (twenty-third live flight 2026-07-22, finding
+# 16): both altitude-triggered correction rounds executed to <1 m/s residual
+# and the flyby STILL arrived at pe -31.8 km -- the blind altitude triggers
+# cannot see arrival quality, and at 6,000 km leverage (~12.8 km of arrival-pe
+# shift per m/s) small post-burn effects move the arrival tens of km. Once
+# the altitude rounds are exhausted, a PREDICTED arrival periapsis (patched-
+# conic next_orbit at the target body) below the flyby floor for
+# ARRIVAL_BAD_DEBOUNCE_FRAMES consecutive frames (conic reads flap at 1000x
+# rails) grants a bounded extra PLAN-CORRECTION round, only while more than
+# ARRIVAL_RECORRECT_MIN_TTS_SECONDS remain to the SOI crossing (a plan + aim
+# + burn cannot complete closer in; past that, the impact-certain terminal
+# owns a bad arrival). NaN next_pe / wrong next_body never fire the gate.
+ARRIVAL_BAD_DEBOUNCE_FRAMES = 3
+MAX_ARRIVAL_EXTRA_ROUNDS = 2
+ARRIVAL_RECORRECT_MIN_TTS_SECONDS = 600.0
+# High-precision window UPPER bound (twenty-fourth flight): an extra round
+# fired immediately on detection at tts ~12,700 s moved the prediction only
+# -33.7 -> -29.3 km -- at that leverage (~12.8 km of arrival shift per m/s)
+# the 2.0 m/s cut residual alone is +/-25 km and MechJeb's long-range plan
+# quality adds more, so far-out extras CANNOT converge on the target.
+# Precision per m/s improves linearly toward the encounter (~3.6 km per m/s
+# at 3,600 s, cut residual +/-7 km), so the extras hold until the coast
+# carries the craft inside this bound; the sub-floor prediction is stable
+# across the coast (patched conics are deterministic on rails).
+ARRIVAL_RECORRECT_MAX_TTS_SECONDS = 3600.0
+
+# DIY-burner aligned-gate debounce: the throttle fires only after this many
+# CONSECUTIVE in-gate attitude readings. The fourteenth live flight proved a
+# single-frame transient error reading (slipping between rate-limited samples)
+# opened the gate at a true ~98 deg off-axis and fired a ~200 m/s wild burn;
+# one odd frame must never start a burn.
+ALIGNED_DEBOUNCE_FRAMES = 2
+
+# KSP rails warp rates by factor index (stock table).
+RAILS_WARP_RATES = (1.0, 5.0, 10.0, 50.0, 100.0, 1000.0, 10000.0, 100000.0)
+
+# Worst-case decision latency the stair-down must absorb: two ~0.5 s polls.
+_WARP_SAFETY_SECONDS = 1.0
+
+# Native warp-to-UT re-issue threshold (game s): a fresh target computed from
+# a shifted SOI estimate re-issues the warp only when it moved more than this
+# from the commanded target (kRPC WarpTo cannot retarget; the runner cancels
+# and re-issues, so churn must be bounded).
+WARP_RETARGET_THRESHOLD_SECONDS = 120.0
+
+# Native warp self-healing bound (game s): if the game reports NO active warp
+# (warping_to NaN) while the machine still expects one (target ahead, no
+# cancel issued), re-issue at most once per this many game seconds.
+WARP_REISSUE_SECONDS = 30.0
+
+# PLAN-* attempt bound (live finding 14): a plan that keeps being produced
+# and DISQUALIFIED runner-side (over-cap removal) is indistinguishable from a
+# no-encounter failure to the machine (node_count stays 0), and the old
+# cadence loop sat at 1x re-planning for the full 300 s planTimeoutSeconds
+# (seventeenth-flight round 2: 169-171 m/s quotes vs the old 150 cap, five
+# removals). After this many attempts with no node, the next cadence check
+# takes the timeout path EARLY (PLAN-TRANSFER: flake; PLAN-CORRECTION: fall
+# through + consume the round) -- worst case 1x drops from 300 s to ~90 s.
+PLAN_MAX_ATTEMPTS = 3
+
+
+def rails_factor_for_distance(dist_m: float, speed_mps: float, cap: int) -> int:
+    """The highest rails factor index (<= cap) whose warped travel over the
+    safety window still fits inside ``dist_m`` -- the operator-reported fix for
+    the 1x crawl (sixteenth flight round: the old slow-down band dropped to 1x
+    for its ENTIRE 2,000 km, ~40 real minutes at coast speeds; the stair-down
+    holds 1000x far out and only reaches 1x in the last moments). A tiny or
+    non-finite speed is floored at 10 m/s (conservative: slower closure allows
+    MORE warp only when the distance genuinely shrinks slowly)."""
+    if not _is_finite(dist_m) or dist_m <= 0.0:
+        return 0
+    speed = max(abs(speed_mps), 10.0) if _is_finite(speed_mps) else 10.0
+    for idx in range(min(cap, len(RAILS_WARP_RATES) - 1), 0, -1):
+        if RAILS_WARP_RATES[idx] * speed * _WARP_SAFETY_SECONDS <= dist_m:
+            return idx
+    return 0
+
+
+def rails_factor_for_time(dt_s: float, cap: int) -> int:
+    """The highest rails factor index (<= cap) whose warped GAME-time advance
+    over the safety window still fits inside ``dt_s`` seconds -- the TIME
+    sibling of ``rails_factor_for_distance`` (operator directive 2026-07-22:
+    "warp to maneuver node" as a non-blocking time-based stair-down, never the
+    blocking warp_to RPC). One safety window at factor idx advances
+    RAILS_WARP_RATES[idx] * _WARP_SAFETY_SECONDS game seconds, so the stair
+    holds 100,000x while days remain, 1000x inside ~3 hours, and 1x only in
+    the last seconds. NaN / non-positive remaining time returns 0 (fail
+    closed: an unknown wait is never warped over)."""
+    if not _is_finite(dt_s) or dt_s <= 0.0:
+        return 0
+    for idx in range(min(cap, len(RAILS_WARP_RATES) - 1), 0, -1):
+        if RAILS_WARP_RATES[idx] * _WARP_SAFETY_SECONDS <= dt_s:
+            return idx
+    return 0
+
+
+# Stock per-body rails-warp minimum-altitude tables (metres ASL), index ==
+# rails factor index. GROUND TRUTH extracted 2026-07-22 from the dev install's
+# serialized CelestialBody.timeWarpAltitudeLimits arrays (KSP 1.12.5
+# sharedassets9.assets PSystem prefab, all 17 bodies mapped by the adjacent
+# bodyName string; consistent 1112-byte object stride). kRPC's RailsWarpFactor
+# setter clamps a commanded factor via CanRailsWarpAt, which compares
+# vessel.mainBody.GetAltitude(CoM) against EXACTLY these raw values (pinned
+# kRPC 0.5.4 SpaceCenter.cs CanRailsWarpAt -> TimeWarp.GetAltitudeLimit ->
+# body.timeWarpAltitudeLimits[i]; no atmosphere fold-in -- the in-atmosphere
+# rails block is a separate stock gate our exo-only warp commands never hit).
+# A commanded factor above the legal maximum silently produces RAILS at the
+# CLAMPED lower rate, and KSP never auto-escalates as the vessel climbs, so
+# the machine must choose factors from this table itself or a whole coast leg
+# runs slow (live-observed: factor 6 commanded near the 80 km parking orbit
+# ran at 50x). Values are data, not tolerances: do not tune.
+STOCK_WARP_ALTITUDE_LIMITS = {
+    "Sun":    (0.0, 3270000.0, 3270000.0, 6540000.0, 13080000.0, 26160000.0, 52320000.0, 65400000.0),
+    "Moho":   (0.0, 10000.0, 10000.0, 30000.0, 50000.0, 100000.0, 200000.0, 300000.0),
+    "Eve":    (0.0, 30000.0, 30000.0, 60000.0, 120000.0, 240000.0, 480000.0, 600000.0),
+    "Gilly":  (0.0, 8000.0, 8000.0, 8000.0, 20000.0, 40000.0, 80000.0, 100000.0),
+    "Kerbin": (0.0, 30000.0, 30000.0, 60000.0, 120000.0, 240000.0, 480000.0, 600000.0),
+    "Mun":    (0.0, 5000.0, 5000.0, 10000.0, 25000.0, 50000.0, 100000.0, 200000.0),
+    "Minmus": (0.0, 3000.0, 3000.0, 6000.0, 12000.0, 24000.0, 48000.0, 60000.0),
+    "Duna":   (0.0, 30000.0, 30000.0, 60000.0, 100000.0, 300000.0, 600000.0, 800000.0),
+    "Ike":    (0.0, 5000.0, 5000.0, 10000.0, 25000.0, 50000.0, 100000.0, 200000.0),
+    "Dres":   (0.0, 10000.0, 10000.0, 30000.0, 50000.0, 100000.0, 200000.0, 300000.0),
+    "Jool":   (0.0, 0.0, 15000.0, 60000.0, 150000.0, 300000.0, 600000.0, 1200000.0),
+    "Laythe": (0.0, 30000.0, 30000.0, 60000.0, 120000.0, 240000.0, 480000.0, 600000.0),
+    "Vall":   (0.0, 24500.0, 24500.0, 24500.0, 40000.0, 60000.0, 80000.0, 100000.0),
+    "Tylo":   (0.0, 30000.0, 30000.0, 60000.0, 120000.0, 240000.0, 480000.0, 600000.0),
+    "Bop":    (0.0, 24500.0, 24500.0, 24500.0, 40000.0, 60000.0, 80000.0, 100000.0),
+    "Pol":    (0.0, 5000.0, 5000.0, 5000.0, 8000.0, 12000.0, 30000.0, 90000.0),
+    "Eeloo":  (0.0, 4000.0, 4000.0, 20000.0, 30000.0, 40000.0, 70000.0, 150000.0),
+}
+
+
+def max_legal_rails_factor(body: str, altitude_m: float) -> int:
+    """The highest rails factor index the stock altitude-limit table permits
+    for ``body`` at ``altitude_m`` -- the client-side mirror of the kRPC
+    RailsWarpFactor clamp, so the machine only ever COMMANDS achievable
+    factors. Two payoffs: (1) commanded == achievable, so the on-change
+    emission discipline ESCALATES the factor as the vessel climbs past each
+    limit (KSP never auto-raises a clamped rate); (2) the self-healing
+    re-emit never fights an unachievable command. Legality is altitude >=
+    limit (kRPC CanRailsWarpAt rejects strictly-below). FAIL-OPEN to the top
+    factor for an unknown body name or a non-finite altitude: the server
+    clamp is the hard backstop, and a one-frame altitude blip must not
+    sawtooth an otherwise-held warp down to 1x. NOTE: callers pass the
+    machine's SURFACE altitude while the game compares sea-level altitude;
+    surface <= ASL everywhere, so the mismatch only ever UNDER-commands (by
+    terrain height, a few km) -- never an illegal command."""
+    limits = STOCK_WARP_ALTITUDE_LIMITS.get(body)
+    if limits is None or not _is_finite(altitude_m):
+        return len(RAILS_WARP_RATES) - 1
+    best = 0
+    for idx in range(len(limits)):
+        if altitude_m >= limits[idx]:
+            best = idx
+    return best
+
+# classify_correction_plan verdicts (review SF-3: the runner's plan
+# accept/remove decision extracted into a pure, threshold-testable decider).
+PLAN_FLY = "fly"
+PLAN_OVER_CAP = "over_cap"
+PLAN_NEGLIGIBLE = "negligible"
+
+
+def classify_correction_plan(total_dv: float, cap: float,
+                             negligible_floor: float) -> str:
+    """Classify a planned course-correction's total dv (m/s):
+
+      - "over_cap":   the plan must be REMOVED -- it exceeds the dv cap (a
+                      genuine correction is a small tweak; second live flight:
+                      an oversized plan wedged the executor), OR the dv is
+                      non-finite. NaN FAILS CLOSED to over_cap: a plan whose
+                      cost cannot be quantified never flies -- removal is the
+                      safe outcome because PLAN-CORRECTION's bounded
+                      fall-through simply coasts on the raw intercept and the
+                      NEXT trigger round may still refine.
+      - "negligible": the plan must be REMOVED -- total dv below the floor is
+                      smaller than the executor ever engages on (sixth live
+                      flight) and within the flyby floor's margin.
+      - "fly":        hand it to the burner.
+
+    Boundaries are INCLUSIVE-fly on the cap (dv == cap flies; only strictly
+    greater disqualifies) and EXCLUSIVE-fly on the floor (dv == floor flies;
+    only strictly below is negligible), matching the live-proven runner
+    comparisons this extracts. cap <= 0 (or non-finite) disables the cap."""
+    if not _is_finite(total_dv):
+        return PLAN_OVER_CAP
+    if _is_finite(cap) and cap > 0.0 and total_dv > cap:
+        return PLAN_OVER_CAP
+    if total_dv < negligible_floor:
+        return PLAN_NEGLIGIBLE
+    return PLAN_FLY
+
 
 # K-consecutive debounce depth (see module docstring).
 DEFAULT_DEBOUNCE_K = 3
@@ -234,6 +537,58 @@ class TelemetrySnapshot:
     # instead of simulating a perfectly aligned ship (Fable review of PR #1335,
     # SF-2 - the exact failure mode this field exists to prevent).
     ap_error: float = float("nan")
+    # Current SOI body name (orbit.body.name) and pending maneuver-node count
+    # (len(vessel.control.nodes)) -- the B5 cross-SOI / node-execution evidence.
+    # ``body`` defaults to "" (unknown), NOT a real body name: the B5 SOI gates
+    # compare against the spec's home/target names, so an unpopulated field
+    # matches NEITHER and fails closed (same fail-closed rationale as ap_error).
+    body: str = ""
+    node_count: int = 0
+    # Remaining delta-v (m/s) of the FIRST maneuver node (kRPC
+    # Node.RemainingDeltaV); NaN when no node exists or the read failed. NaN
+    # fails closed: the DIY correction burner's cut/overshoot gates never fire
+    # on it, and its bounded give-up owns the outcome.
+    node_dv: float = float("nan")
+    # Vessel-total LiquidFuel + the live throttle READBACK (control.throttle).
+    # Diagnosability channels (tenth live flight: a zero-thrust "burn" was
+    # undiagnosable dry-tanks vs held-throttle vs wrong-pointing without them);
+    # no machine gate reads them yet.
+    liquid_fuel: float = float("nan")
+    throttle: float = float("nan")
+    # kRPC Vessel.AvailableThrust (N): total thrust the ACTIVE engines can
+    # produce right now -- 0.0 when the active stage is dry / flamed out /
+    # engineless (twenty-second live flight: the core died mid-correction and
+    # both rounds burned nothing). NaN when the read failed; NaN fails closed
+    # (the flameout staging gate never pops a stage on a missing reading).
+    available_thrust: float = float("nan")
+    # Patched-conic NEXT orbit (kRPC Orbit.NextOrbit), read only while an SOI
+    # change is on the trajectory: the body name the craft will arrive at and
+    # the PREDICTED arrival periapsis altitude (m) there -- the arrival-
+    # quality evidence the twenty-third flight was blind to (both correction
+    # rounds executed to <1 m/s residual, arrival still pe -31.8 km). "" /
+    # NaN when absent or unreadable; both fail closed (the arrival
+    # re-correction gate never fires without a positive target-body match
+    # and a finite sub-floor reading).
+    next_body: str = ""
+    next_pe: float = float("nan")
+    # UT (s) of the FIRST maneuver node (kRPC Node.UT); NaN when no node
+    # exists or the read failed. NaN fails closed: the coast's warp-toward-
+    # node stair never engages on it (1x, exactly the pre-directive
+    # behavior), so an unreadable node is never warped past.
+    node_ut: float = float("nan")
+    # Seconds until the current orbit changes SOI (kRPC Orbit.TimeToSOIChange);
+    # NaN when no SOI change is on the trajectory. NaN fails OPEN for the
+    # coast's SOI-approach warp bound (no encounter = nothing to overshoot);
+    # a finite value bounds the factor so one 0.5 s poll can never advance
+    # past the whole target SOI (the B7 Duna hazard: 100,000x x 0.5 s real =
+    # 50,000 game seconds, comparable to an entire Duna SOI transit).
+    time_to_soi: float = float("nan")
+    # Native warp-to-UT state (runner WarpService): the TARGET UT while a
+    # native SpaceCenter.WarpTo is active on the dedicated warp connection,
+    # NaN when idle. NaN fails CLOSED for the machine's do-not-touch-rails
+    # rule (an unknown warp state is treated as idle, and the bounded
+    # self-healing re-issue owns a genuinely lost warp).
+    warping_to: float = float("nan")
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +646,18 @@ def _advance_frozen_count(prev_sig: Optional[FrozenSignature], prev_count: int,
     over ``prev_sig`` increments the count, ANY non-frozen sample resets it to 0,
     and ``tripped`` is True iff the count reached ``limit`` (a vessel-lost terminal).
     The signature is always updated to the current frame so the next comparison uses
-    the latest UT."""
+    the latest UT.
+
+    WARP GATE (review N-A4): the detector only advances at 1x (warp_mode
+    NONE). Frozen-vessel staleness is a 1x symptom -- kRPC returning the same
+    cached floats while the physics runs -- whereas an ON-RAILS craft in a
+    (near-)circular orbit can legitimately report bit-identical apsides while
+    UT advances (the latent false-trip class). A warped frame HOLDS the
+    signature and count unchanged: it is evidence in neither direction, and a
+    genuinely dead vessel still trips on the surrounding 1x frames (its
+    fields never change across the warp either)."""
+    if snapshot.warp_mode != WARP_NONE:
+        return prev_sig, prev_count, False
     curr_sig = frozen_signature(snapshot)
     new_count = prev_count + 1 if advances_frozen(prev_sig, curr_sig) else 0
     return curr_sig, new_count, (new_count >= limit)
@@ -301,9 +667,15 @@ def _advance_frozen_count(prev_sig: Optional[FrozenSignature], prev_count: int,
 class Action:
     """One control action the phase machine asks the shell to perform this frame.
     ``kind`` is one of the ``ACTION_*`` constants; ``value`` carries the numeric
-    argument (throttle fraction, target apoapsis) or None for a no-arg action."""
+    argument (throttle fraction, target apoapsis) or None for a no-arg action.
+    ``text`` carries a string argument (the SET_TARGET_BODY body name) -- a
+    separate field so ``value`` stays float-only for every numeric consumer.
+    ``limit`` carries a secondary numeric bound (the PLAN_COURSE_CORRECT dv cap
+    the runner disqualifies an oversized correction plan against)."""
     kind: str
     value: Optional[float] = None
+    text: Optional[str] = None
+    limit: Optional[float] = None
 
 
 # ---------------------------------------------------------------------------
@@ -449,6 +821,240 @@ def b4_params_from_dict(params: Dict) -> B4Params:
         reentry_timeout=float(params.get("reentryTimeoutSeconds", 3600)),
         descent_timeout=float(params.get("descentTimeoutSeconds", 600)),
         landed_situations=tuple(params.get("landedSituations", ("LANDED", "SPLASHED"))),
+        frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
+    )
+
+
+@dataclass(frozen=True)
+class B5Params:
+    """B5 Mun-flyby tuning (spec [driver.missionParams] for b5_mun_flyby). The
+    ascent half reuses B2's ascent params verbatim; the transfer half adds the
+    target/home body names, the plan/burn/coast/flyby phase budgets, the bounded
+    warp-hop shapes, the transfer-apoapsis floor, and the optional
+    course-correction periapsis. All tolerances / thresholds / budgets, never a
+    golden trajectory. Every *_timeout is GAME seconds (the rails hops and the
+    NodeExecutor autowarp advance them fast)."""
+    target_apoapsis: float
+    target_periapsis: float
+    apo_error: float
+    peri_error: float
+    ascent_timeout: float
+    circularize_timeout: float
+    target_body: str = "Mun"               # transfer target SOI body name
+    home_body: str = "Kerbin"              # departure/return SOI body name
+    transfer_min_apoapsis: float = 10_000_000.0
+                                           # TRANSFER-BURN exit floor: the TLI burn
+                                           # must have raised apoapsis at/above this
+                                           # (evidence the executor actually burned,
+                                           # not just consumed an empty node list)
+    course_correct_periapsis: float = 60000.0
+                                           # > 0: plan+execute a MechJeb course
+                                           # correction to this target-flyby
+                                           # periapsis after the TLI burn (pins the
+                                           # flyby geometry, keeps the periapsis
+                                           # off the terrain); 0 disables the two
+                                           # correction phases entirely
+    correction_trigger_alts: Tuple[float, ...] = (0.0, 6_000_000.0)
+                                           # correction ROUNDS: COAST-TO-TARGET
+                                           # enters PLAN-CORRECTION once per
+                                           # entry when altitude crosses each
+                                           # trigger (0 = immediately post-TLI).
+                                           # Round 2+ exists because a single
+                                           # early correction is LIVE-PROVEN
+                                           # insufficient (flight 4, 2026-07-21:
+                                           # the ~100 m/s post-TLI correction
+                                           # flew, but a ~1.5 m/s lateral
+                                           # executor residual over the 14,000 s
+                                           # coast moved the flyby periapsis
+                                           # from the intended 60 km to -29 km =
+                                           # impact); a mid-coast refinement
+                                           # prices the residual at a few m/s
+                                           # (spec key correctionTriggerAltsMeters)
+    max_correction_dv: float = 150.0       # dv cap (m/s) an acceptable correction
+                                           # plan must fit under: a genuine
+                                           # course correction is a small tweak,
+                                           # and the second live flight
+                                           # (2026-07-21) proved an oversized
+                                           # "correction" (ap 11.4M -> 16.6M)
+                                           # wedges the executor until the burn
+                                           # budget flakes. The runner removes a
+                                           # too-big plan's nodes, so PLAN-
+                                           # CORRECTION times out and falls
+                                           # through to the coast on the raw
+                                           # Hohmann intercept (spec key
+                                           # maxCorrectionDvMps)
+    plan_timeout: float = 300.0            # PLAN-* phase budget (game s)
+    plan_retry_seconds: float = 10.0       # re-issue a failed plan every this many
+                                           # game seconds while no node appeared
+                                           # (10, was 30: planning is an RPC and
+                                           # the plan phases now ride rails warp,
+                                           # so the 3-attempt bound costs ~30
+                                           # game-s instead of ~90 s at 1x --
+                                           # operator PR gate, no-1x-coast)
+    plan_warp_factor: int = 2              # PLAN-* rails factor INDEX held
+                                           # between plan attempts (2 = 10x,
+                                           # altitude-legality-clamped):
+                                           # make_nodes needs no 1x, and a 10x
+                                           # hold bounds plan-position drift to
+                                           # ~5 game-s per poll (spec key
+                                           # planWarpFactor; operator PR gate)
+    transfer_burn_timeout: float = 4000.0  # TRANSFER-/CORRECTION-BURN budget: the
+                                           # NodeExecutor autowarps to the node (up
+                                           # to ~1 orbit ahead) then burns
+    coast_timeout: float = 400_000.0       # COAST-TO-TARGET budget (game s; the
+                                           # LKO->Mun transfer coast is ~2 days)
+    flyby_timeout: float = 300_000.0       # TARGET-FLYBY budget (game s)
+    coast_warp_factor: int = 6             # COAST-TO-TARGET rails warp factor
+                                           # index (6 = 1000x): held via the
+                                           # non-blocking set_rails_warp while
+                                           # nothing is imminent (spec key
+                                           # coastWarpFactor)
+    flyby_warp_factor: int = 5             # TARGET-FLYBY rails factor FLOOR
+                                           # (5 = 100x: the proven min-altitude
+                                           # evidence cadence through periapsis;
+                                           # ALSO the SOI-approach floor -- the
+                                           # coast's time-to-SOI stair never
+                                           # drops below it, so the boundary is
+                                           # crossed at ~100x, bounding the
+                                           # per-poll overshoot into the SOI to
+                                           # ~100 game-s; spec key
+                                           # flybyWarpFactor)
+    flyby_max_warp_factor: int = 6         # TARGET-FLYBY stair-down CAP: far
+                                           # from periapsis the factor rises
+                                           # toward this with the remaining
+                                           # (altitude - periapsis) distance,
+                                           # falling back to the
+                                           # flyby_warp_factor floor near
+                                           # periapsis (the 100x SOI transit
+                                           # took minutes of wall time; the
+                                           # outer legs are safe at 1000x+).
+                                           # Altitude-legality still clamps
+                                           # (spec key flybyMaxWarpFactor)
+    node_arrival_margin: float = 15.0      # AIM-THEN-WARP arrival margin (game
+                                           # s): after the attitude flip locks
+                                           # (aligned debounce) the machine
+                                           # warps natively to node_ut minus
+                                           # this margin -- rails warp FREEZES
+                                           # vessel orientation, so the burn
+                                           # vector holds through the warp and
+                                           # only this short window plus the
+                                           # re-verify frames run at 1x before
+                                           # the throttle (spec key
+                                           # nodeArrivalMarginSeconds; operator
+                                           # PR gate, no-1x-coast; retires
+                                           # nodeWarpLeadSeconds)
+    soi_lead: float = 30.0                 # native SOI warp lead (game s): the
+                                           # post-correction coast and the
+                                           # flyby outer legs warp_to_ut to
+                                           # now + time_to_soi - this lead, so
+                                           # the machine regains poll control
+                                           # just before the boundary (the
+                                           # inside-lead fallback rides the
+                                           # flyby-factor floor, ~100x, never
+                                           # 1x) and the body-change frame is
+                                           # never inside a high-rate warp.
+                                           # 30, was 60: halves the low-rate
+                                           # window per crossing (spec key
+                                           # soiLeadSeconds; operator PR gate)
+    flip_physics_warp: int = 1             # CORRECTION-BURN pre-burn attitude
+                                           # flip physics-warp factor INDEX
+                                           # (1 = 2x, MechJeb's own WarpToUT
+                                           # physics cap -- decompiled 2.15.1;
+                                           # the ~340 s 1x flip halves). 0
+                                           # reverts to the proven 1x flip.
+                                           # Always dropped to 0 BEFORE
+                                           # throttle-up (spec key
+                                           # flipPhysicsWarpFactor)
+    target_periapsis_floor: float = 10000.0
+                                           # flyby min-altitude assertion floor
+                                           # (metres above the target body; the Mun
+                                           # has ~7 km peaks)
+    burn_stagnant_seconds: float = 120.0   # BURN-phase watchdog: once the orbit
+                                           # has CHANGED since burn entry (a burn
+                                           # happened) and then sat static at 1x
+                                           # for this many game seconds with the
+                                           # node still pending, the executor is
+                                           # wedged holding a completed node ->
+                                           # abort+clear and move on (spec key
+                                           # burnStagnantSeconds). Pre-burn
+                                           # attitude alignment (orbit unchanged
+                                           # since entry) and RAILS autowarp
+                                           # never count.
+    burn_nostart_seconds: float = 600.0    # CORRECTION-BURN give-up bound (game
+                                           # s): if the DIY burner's attitude
+                                           # gate has not opened this long after
+                                           # phase entry, the alignment never
+                                           # converged -> cut/disengage/clear
+                                           # and consume the round. Must exceed
+                                           # the worst-case pre-burn flip
+                                           # (~340 s on the Kerbal X pod wheel;
+                                           # spec key burnNoStartSeconds).
+    correction_throttle: float = 0.25      # DIY correction burn throttle (low
+                                           # for cut precision; spec key
+                                           # correctionThrottle)
+    correction_cut_dv: float = 2.0         # cut the DIY burn when the node's
+                                           # remaining dv is at/below this m/s
+                                           # (spec key correctionCutDvMps)
+    correction_settle_seconds: float = 10.0
+                                           # MINIMUM game-time settle after
+                                           # AP_POINT_NODE before throttle-up
+                                           # (AND-gated with the attitude error,
+                                           # the B4-proven pattern; spec key
+                                           # correctionSettleSeconds)
+    max_attitude_error_deg: float = 30.0   # AND-gate: |AutoPilot pointing
+                                           # error| must be at/below this
+                                           # before the DIY burn starts (NaN
+                                           # never passes). 30, not B4's 5: the
+                                           # DIY burn CHASES the node's
+                                           # remaining vector, so a rough-
+                                           # pointed low-throttle start self-
+                                           # corrects, and near-anti-parallel
+                                           # AP convergence is glacial on this
+                                           # craft (tenth live flight: 0.06
+                                           # deg/s) -- demanding 5 deg starves
+                                           # the round into its give-up (spec
+                                           # key maxAttitudeErrorDeg)
+    frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
+                                           # vessel-lost terminal (spec key
+                                           # frozenTelemetrySamples)
+
+
+def b5_params_from_dict(params: Dict) -> B5Params:
+    """Build ``B5Params`` from a spec ``missionParams`` dict."""
+    params = params or {}
+    return B5Params(
+        target_apoapsis=float(params.get("targetApoapsisMeters", 80000)),
+        target_periapsis=float(params.get("targetPeriapsisMeters", 80000)),
+        apo_error=float(params.get("apoErrorMeters", 5000)),
+        peri_error=float(params.get("periErrorMeters", 5000)),
+        ascent_timeout=float(params.get("ascentTimeoutSeconds", 420)),
+        circularize_timeout=float(params.get("circularizeTimeoutSeconds", 300)),
+        target_body=str(params.get("targetBodyName", "Mun")),
+        home_body=str(params.get("homeBodyName", "Kerbin")),
+        transfer_min_apoapsis=float(params.get("transferMinApoapsisMeters", 10_000_000)),
+        course_correct_periapsis=float(params.get("courseCorrectPeriapsisMeters", 60000)),
+        correction_trigger_alts=tuple(
+            float(a) for a in params.get("correctionTriggerAltsMeters", (0.0, 6_000_000.0))),
+        max_correction_dv=float(params.get("maxCorrectionDvMps", 150.0)),
+        plan_timeout=float(params.get("planTimeoutSeconds", 300)),
+        plan_retry_seconds=float(params.get("planRetrySeconds", 10)),
+        plan_warp_factor=int(params.get("planWarpFactor", 2)),
+        transfer_burn_timeout=float(params.get("transferBurnTimeoutSeconds", 4000)),
+        coast_timeout=float(params.get("coastTimeoutSeconds", 400_000)),
+        flyby_timeout=float(params.get("flybyTimeoutSeconds", 300_000)),
+        coast_warp_factor=int(params.get("coastWarpFactor", 6)),
+        flyby_warp_factor=int(params.get("flybyWarpFactor", 5)),
+        flyby_max_warp_factor=int(params.get("flybyMaxWarpFactor", 6)),
+        node_arrival_margin=float(params.get("nodeArrivalMarginSeconds", 15.0)),
+        soi_lead=float(params.get("soiLeadSeconds", 30.0)),
+        flip_physics_warp=int(params.get("flipPhysicsWarpFactor", 1)),
+        target_periapsis_floor=float(params.get("targetPeriapsisFloorMeters", 10000)),
+        burn_stagnant_seconds=float(params.get("burnStagnantSeconds", 120)),
+        burn_nostart_seconds=float(params.get("burnNoStartSeconds", 600)),
+        correction_throttle=float(params.get("correctionThrottle", 0.25)),
+        correction_cut_dv=float(params.get("correctionCutDvMps", 2.0)),
+        correction_settle_seconds=float(params.get("correctionSettleSeconds", 10)),
+        max_attitude_error_deg=float(params.get("maxAttitudeErrorDeg", 30.0)),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
     )
 
@@ -1024,8 +1630,11 @@ def b4_decide(state: B4State, snapshot: TelemetrySnapshot) -> Tuple[B4State, Lis
             # on the first live B4 flight (radial burn, apoapsis 84km -> 382km).
             # A NaN error (AP unreadable) never passes, so a wedged autopilot
             # ends as the bounded deorbit-budget flake, never a wild burn.
+            # abs(): live B5/B6 flights (2026-07-22) showed kRPC's error
+            # reading NEGATIVE (-178 deg mid-flip) -- a signed reading must
+            # never satisfy a <=-only gate while pointing the wrong way.
             aligned = (_is_finite(snapshot.ap_error)
-                       and snapshot.ap_error <= state.params.max_attitude_error_deg)
+                       and abs(snapshot.ap_error) <= state.params.max_attitude_error_deg)
             stayed = _b4_stay_or_flake(state, snapshot, peak)
             if settled and aligned and not stayed.done:
                 return replace(stayed, burn_started=True), [Action(ACTION_SET_THROTTLE, 1.0)]
@@ -1079,6 +1688,1073 @@ def _b4_stay_or_flake(state: B4State, snapshot: TelemetrySnapshot, peak: Optiona
         return replace(state, peak_apoapsis=peak, verdict=MISSION_FLAKE,
                        flake_phase=state.phase, done=True)
     return replace(state, peak_apoapsis=peak)
+
+
+# ---------------------------------------------------------------------------
+# B5 phase state machine (mission b5_mun_flyby). Pure.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class B5State:
+    """B5 Mun-flyby machine state. ``verdict`` / ``flake_phase`` / ``done``
+    mirror B4. ``done`` fires in RETURN (back in home SOI after the flyby;
+    verdict None, the settle tail RUNS) or on a flake / loss terminal. Survival
+    is the contract (no DOWN-style carve-out). ``min_target_altitude`` is the
+    running min finite altitude while inside the target SOI (the flyby-floor
+    evidence); ``last_plan_ut`` stamps the most recent PLAN-* action so a failed
+    plan re-issues on the bounded ``plan_retry_seconds`` cadence."""
+    params: B5Params
+    phase: str = B5_PRELAUNCH
+    phase_entry_ut: float = 0.0
+    peak_apoapsis: Optional[float] = None
+    min_target_altitude: Optional[float] = None
+    last_plan_ut: float = 0.0
+    # Node count at the moment a plan handed off to the executor. The BURN-phase
+    # exit is "the executor CONSUMED the first node" (node_count dropped below
+    # this), NOT "the node list is empty": MechJeb's OperationTransfer plans a
+    # capture/arrival burn as a SECOND node when its capture options are on, and
+    # waiting for zero then parks the machine through the whole autowarped
+    # transfer coast until the burn budget flakes (first live B5 flight,
+    # 2026-07-21 - both attempts). Stray leftover nodes are cleared at the exit.
+    planned_node_count: int = 0
+    # Correction rounds completed (planned+burned, fell through, or timed out).
+    # COAST-TO-TARGET enters PLAN-CORRECTION once per params.correction_trigger_alts
+    # entry when the altitude crosses that round's trigger.
+    correction_rounds_done: int = 0
+    # Burn-stagnation watchdog (fifth live flight 2026-07-22: the executor
+    # BURNED the correction node then held it forever -- burn visibly done,
+    # node never consumed, no warp, phase budget flaked). ``burn_entry_ap`` /
+    # ``burn_entry_pe`` snapshot the orbit at BURN-phase entry (has-a-burn-
+    # happened evidence); ``burn_prev_ap`` / ``burn_prev_pe`` the previous
+    # frame's orbit; ``burn_static_since`` the UT the orbit went static at 1x
+    # (warp NONE) -- static through RAILS autowarp toward the node is the
+    # LEGITIMATE wait and never counts. Once the orbit has changed since entry
+    # AND been static at 1x for burnStagnantSeconds, the burn is treated as
+    # effectively complete: abort+clear the stale node and move on.
+    burn_entry_ap: Optional[float] = None
+    burn_entry_pe: Optional[float] = None
+    burn_prev_ap: Optional[float] = None
+    burn_prev_pe: Optional[float] = None
+    burn_static_since: Optional[float] = None
+    # DIY correction-burner state (live finding 8): ``corr_burn_started``
+    # latches the one throttle-up per round; ``min_node_dv`` tracks the lowest
+    # finite remaining node dv seen this burn (the overshoot gate compares
+    # against it -- a RISING remaining dv means the ship is burning past the
+    # node vector).
+    corr_burn_started: bool = False
+    min_node_dv: Optional[float] = None
+    # Consecutive in-gate attitude readings (ALIGNED_DEBOUNCE_FRAMES gate).
+    aligned_streak: int = 0
+    # Last COMMANDED rails warp factor (the on-change emission discipline for
+    # set_rails_warp: warp only ever changes when the machine wants a
+    # different speed -- operator design critique 2026-07-22).
+    warp_cmd: int = 0
+    # Last COMMANDED physics warp factor (the CORRECTION-BURN flip runs at
+    # mild physics warp; same on-change + self-healing discipline). Always 0
+    # outside CORRECTION-BURN, and always driven back to 0 before throttle-up.
+    phys_warp_cmd: int = 0
+    # Native warp-to-UT command state (Path A): the target UT the machine
+    # last COMMANDED via warp_to_ut, None when no native warp is expected.
+    # Cleared on arrival (ut >= target), on cancel, and on every phase exit
+    # that cancels. While set, the machine never emits set_rails_warp.
+    warp_to_cmd: Optional[float] = None
+    # Game-time stamp of the last warp_to_ut emission (initial, retarget, or
+    # self-heal re-issue) - bounds the self-healing re-issue to once per
+    # WARP_REISSUE_SECONDS.
+    last_warp_issue_ut: float = 0.0
+    # Consecutive COAST/FLYBY frames with body == "" (no SOI reading). The
+    # blank-body hold is fail-closed per frame, but unbounded it would idle
+    # at 1x until the GAME-time coast budget expired (~111 wall-hours at 1x;
+    # review SF-2) -- at frozen_sample_limit consecutive blanks the vessel is
+    # declared lost. Reset by any frame with a real body reading.
+    body_blank_count: int = 0
+    # Plan emissions this PLAN-* phase (live finding 14): the entry emission
+    # counts as attempt 1; each cadence re-plan increments; at
+    # PLAN_MAX_ATTEMPTS with node_count still 0 the next cadence check takes
+    # the timeout path early. Reset (to 1) on every PLAN-* entry.
+    plan_attempts: int = 0
+    # AIM-THEN-WARP no-start anchor (operator PR gate): the UT the native
+    # warp-to-node ARRIVED in CORRECTION-BURN, re-anchoring the
+    # burnNoStartSeconds give-up (time spent inside the rails warp toward the
+    # node is not alignment time). None = no arrival yet; the give-up counts
+    # from phase entry.
+    corr_nostart_anchor_ut: Optional[float] = None
+    # Flameout staging (twenty-second flight): consecutive frames a COMMANDED
+    # burn read zero available thrust, and stages popped so far (bounded by
+    # MAX_FLAMEOUT_STAGES for the whole mission -- staging is irreversible,
+    # so the budget never resets between rounds/phases).
+    flameout_streak: int = 0
+    flameout_stages_done: int = 0
+    # Impact-certain early-terminal debounce (TARGET-FLYBY): consecutive
+    # frames the impact-warp guard condition held.
+    impact_certain_streak: int = 0
+    # Arrival-quality re-correction (finding 16): consecutive coast frames
+    # the predicted target-body arrival periapsis read below the flyby
+    # floor, and extra (non-altitude-triggered) rounds granted so far.
+    arrival_bad_streak: int = 0
+    extra_rounds_done: int = 0
+    phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    done: bool = False
+    frozen_sig: Optional[FrozenSignature] = None
+    frozen_count: int = 0
+    loss_reason: Optional[str] = None
+
+
+def b5_initial_state(params: B5Params) -> B5State:
+    """Fresh B5 machine at PRELAUNCH."""
+    return B5State(params=params)
+
+
+def _b5_phase_budget(params: B5Params, phase: str) -> Optional[float]:
+    """The bounded game-time budget for a timed B5 phase, or None for the
+    untimed PRELAUNCH / one-frame ORBIT waypoint / terminal RETURN."""
+    if phase == B5_MJ_ASCENT:
+        return params.ascent_timeout
+    if phase == B5_CIRCULARIZE:
+        return params.circularize_timeout
+    if phase in (B5_PLAN_TRANSFER, B5_PLAN_CORRECTION):
+        return params.plan_timeout
+    if phase in (B5_TRANSFER_BURN, B5_CORRECTION_BURN):
+        return params.transfer_burn_timeout
+    if phase == B5_COAST_TO_TARGET:
+        return params.coast_timeout
+    if phase == B5_TARGET_FLYBY:
+        return params.flyby_timeout
+    return None
+
+
+def _b5_over_budget(state: B5State, snapshot: TelemetrySnapshot) -> bool:
+    budget = _b5_phase_budget(state.params, state.phase)
+    if budget is None:
+        return False
+    if not _is_finite(snapshot.ut):
+        return False
+    return (snapshot.ut - state.phase_entry_ut) > budget
+
+
+def _b5_enter(state: B5State, new_phase: str, ut: float,
+              peak: Optional[float]) -> B5State:
+    """Transition into ``new_phase``, stamping the phase-entry UT and appending
+    to ``phases_reached``. RETURN is the only phase whose ENTRY terminates the
+    machine (done, verdict None -- the assertions decide)."""
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(
+        state,
+        phase=new_phase,
+        phase_entry_ut=entry,
+        peak_apoapsis=peak,
+        phases_reached=state.phases_reached + (new_phase,),
+        done=(new_phase == B5_RETURN),
+    )
+
+
+def _b5_stay_or_flake(state: B5State, snapshot: TelemetrySnapshot,
+                      peak: Optional[float]) -> B5State:
+    if _b5_over_budget(state, snapshot):
+        return replace(state, peak_apoapsis=peak, verdict=MISSION_FLAKE,
+                       flake_phase=state.phase, done=True)
+    return replace(state, peak_apoapsis=peak)
+
+
+# Burn-stagnation watchdog thresholds: "the burn happened" = an apsis moved
+# more than _BURN_CHANGED_EPS since BURN-phase entry; "static" = frame-to-frame
+# apsis movement under _BURN_STATIC_EPS (a coasting conic is rock-stable; any
+# thrust moves the apsides at km/s-class rates).
+_BURN_CHANGED_EPS = 10_000.0
+_BURN_STATIC_EPS = 50.0
+
+
+def _b5_track_burn_stagnation(
+        state: B5State,
+        snapshot: TelemetrySnapshot) -> Tuple[B5State, bool, bool]:
+    """Advance the BURN-phase stagnation watchdog one frame; return
+    (new_state, stuck_after_burn, stuck_no_start).
+
+    ``stuck_after_burn``: the orbit CHANGED since burn entry (a burn
+    demonstrably happened) and has now sat static at 1x (warp NONE) for
+    burn_stagnant_seconds -- the executor is wedged holding a completed node
+    (fifth live flight 2026-07-22).
+    ``stuck_no_start``: the orbit is UNCHANGED since entry and has sat static
+    at 1x for burn_nostart_seconds -- the executor never began (sixth live
+    flight: execute issued, no warp, no burn, wall budget died). The longer
+    bound leaves room for the legitimate pre-burn attitude flip (~340 s).
+    RAILS autowarp toward the node (static orbit, warp != NONE) never counts
+    toward either."""
+    ap, pe, ut = snapshot.apoapsis, snapshot.periapsis, snapshot.ut
+    if not (_is_finite(ap) and _is_finite(pe) and _is_finite(ut)):
+        return replace(state, burn_prev_ap=None, burn_prev_pe=None,
+                       burn_static_since=None), False, False
+    static = (state.burn_prev_ap is not None and state.burn_prev_pe is not None
+              and abs(ap - state.burn_prev_ap) < _BURN_STATIC_EPS
+              and abs(pe - state.burn_prev_pe) < _BURN_STATIC_EPS
+              and snapshot.warp_mode == WARP_NONE)
+    since = state.burn_static_since
+    if static:
+        if since is None:
+            since = ut
+    else:
+        since = None
+    burned = (state.burn_entry_ap is not None and state.burn_entry_pe is not None
+              and (abs(ap - state.burn_entry_ap) > _BURN_CHANGED_EPS
+                   or abs(pe - state.burn_entry_pe) > _BURN_CHANGED_EPS))
+    static_span = (ut - since) if since is not None else 0.0
+    stuck_after_burn = burned and since is not None \
+        and static_span >= state.params.burn_stagnant_seconds
+    stuck_no_start = (not burned) and since is not None \
+        and static_span >= state.params.burn_nostart_seconds
+    return replace(state, burn_prev_ap=ap, burn_prev_pe=pe,
+                   burn_static_since=since), stuck_after_burn, stuck_no_start
+
+
+def _b5_flameout_stage(state: B5State,
+                       snapshot: TelemetrySnapshot) -> Tuple[B5State, List[Action]]:
+    """Flameout-staging watchdog for the BURN phases (twenty-second live
+    flight 2026-07-22): a COMMANDED burn -- throttle READBACK above
+    FLAMEOUT_THROTTLE_EPS -- reading ZERO available thrust means the active
+    stage is dry or flamed out (the Kerbal X core died mid-correction with
+    the full X200-16 upper tank unreachable behind its decoupler; both
+    correction rounds no-progress-gave-up burning nothing and the
+    under-corrected arrival was an impact). After FLAMEOUT_DEBOUNCE_FRAMES
+    consecutive such frames, pop ONE stage (ACTION_ACTIVATE_STAGE) and
+    re-stamp the no-progress anchor so the fresh stage earns a full progress
+    window; bounded at MAX_FLAMEOUT_STAGES per mission. A NaN
+    available_thrust or throttle fails closed: a missing reading never pops
+    stages (the no-progress give-up still owns that outcome)."""
+    flamed = (_is_finite(snapshot.throttle)
+              and snapshot.throttle > FLAMEOUT_THROTTLE_EPS
+              and _is_finite(snapshot.available_thrust)
+              and snapshot.available_thrust <= 0.0)
+    if not flamed:
+        if state.flameout_streak:
+            return replace(state, flameout_streak=0), []
+        return state, []
+    streak = state.flameout_streak + 1
+    if (streak >= FLAMEOUT_DEBOUNCE_FRAMES
+            and state.flameout_stages_done < MAX_FLAMEOUT_STAGES):
+        return (replace(state, flameout_streak=0,
+                        flameout_stages_done=state.flameout_stages_done + 1,
+                        burn_static_since=(float(snapshot.ut)
+                                           if _is_finite(snapshot.ut)
+                                           else state.burn_static_since)),
+                [Action(ACTION_ACTIVATE_STAGE)])
+    # Delta-review C1: CAP the streak at the debounce depth -- past the
+    # stage budget every flamed frame would otherwise increment it forever,
+    # and each increment is a gate line + a 21-line window dump (~5,000
+    # noise lines across a 120 s exhausted-budget flameout episode).
+    return replace(state, flameout_streak=min(streak,
+                                              FLAMEOUT_DEBOUNCE_FRAMES)), []
+
+
+def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[float],
+                   plan_action: Action, burn_phase: str,
+                   on_timeout_phase: Optional[str],
+                   handoff_action: Action = Action(ACTION_MJ_EXECUTE_NODES)) -> Tuple[B5State, List[Action]]:
+    """Shared PLAN-TRANSFER / PLAN-CORRECTION logic: once a maneuver node exists,
+    hand it to the autowarping NodeExecutor and enter ``burn_phase``; while no
+    node exists, re-issue ``plan_action`` on the bounded ``plan_retry_seconds``
+    cadence (a no-encounter / transient planner failure throws server-side and
+    leaves node_count at 0 -- the re-plan is safe because it fires ONLY while
+    node_count == 0, so a successful plan can never stack a second node).
+    ``on_timeout_phase``: PLAN-CORRECTION falls through to the coast on budget
+    expiry (the correction is a best-effort refinement, not a mission
+    requirement); PLAN-TRANSFER passes None and flakes (no node = no mission)."""
+    if snapshot.node_count >= 1:
+        entered = _b5_enter(state, burn_phase, snapshot.ut, peak)
+        entered = replace(
+            entered, planned_node_count=snapshot.node_count,
+            # Arm the burn-stagnation watchdog: snapshot the entry orbit and
+            # clear the frame-to-frame tracking. Also reset the DIY-burner
+            # latches for a correction round.
+            burn_entry_ap=(snapshot.apoapsis if _is_finite(snapshot.apoapsis) else None),
+            burn_entry_pe=(snapshot.periapsis if _is_finite(snapshot.periapsis) else None),
+            burn_prev_ap=None, burn_prev_pe=None, burn_static_since=None,
+            corr_burn_started=False, min_node_dv=None, aligned_streak=0,
+            # Delta-review A2: a stale streak of 1 left by a prior burn's
+            # exit frame would weaken the next burn's flameout debounce to a
+            # single frame -- exactly the transient the debounce exists for.
+            corr_nostart_anchor_ut=None, flameout_streak=0)
+        return entered, [handoff_action]
+    if _b5_over_budget(state, snapshot) and on_timeout_phase is not None:
+        return _b5_enter(state, on_timeout_phase, snapshot.ut, peak), []
+    stayed = _b5_stay_or_flake(state, snapshot, peak)
+    if stayed.done:
+        return stayed, []
+    # PLAN-phase rails hold (operator PR gate, no-1x-coast): planning is an
+    # RPC -- make_nodes needs no 1x -- so between attempts the machine rides
+    # planWarpFactor (default 10x, altitude-legality-clamped), bounding plan-
+    # position drift to ~5 game-s per poll. The frozen detector is warp-gated
+    # (review N-A4), so these frames advance no staleness count.
+    actions: List[Action] = []
+    desired = min(state.params.plan_warp_factor,
+                  max_legal_rails_factor(snapshot.body, snapshot.altitude))
+    if _rails_emit_needed(desired, stayed.warp_cmd, snapshot):
+        actions.append(Action(ACTION_SET_RAILS_WARP, float(desired)))
+        stayed = replace(stayed, warp_cmd=desired)
+    if (_is_finite(snapshot.ut)
+            and (snapshot.ut - state.last_plan_ut) >= state.params.plan_retry_seconds):
+        # Plan-attempt give-up (live finding 14): PLAN_MAX_ATTEMPTS plans in
+        # and still no node -- whether the planner keeps failing server-side
+        # or the runner keeps DISQUALIFYING the plans (over-cap removal, which
+        # the machine cannot distinguish) -- take the timeout path EARLY
+        # instead of idling out the full plan budget: PLAN-CORRECTION
+        # falls through to the coast (the caller consumes the round),
+        # PLAN-TRANSFER flakes (no transfer = no mission).
+        if state.plan_attempts >= PLAN_MAX_ATTEMPTS:
+            if on_timeout_phase is not None:
+                return _b5_enter(stayed, on_timeout_phase, snapshot.ut, peak), actions
+            return replace(state, peak_apoapsis=peak, verdict=MISSION_FLAKE,
+                           flake_phase=state.phase, done=True), []
+        return (replace(stayed, last_plan_ut=snapshot.ut,
+                        plan_attempts=state.plan_attempts + 1),
+                actions + [plan_action])
+    return stayed, actions
+
+
+def _b5_enter_plan_correction(state: B5State, snapshot: TelemetrySnapshot,
+                              peak: Optional[float]) -> Tuple[B5State, List[Action]]:
+    """Shared PLAN-CORRECTION entry (altitude trigger + finding-16 arrival-
+    quality re-correct). Prelude: bring warp under PLAN control before
+    planning -- cancel an active native warp (which also zeroes the rails
+    factors runner-side; the plan phase re-raises to its own factor next
+    frame), else step a held rails factor straight to the plan hold
+    (operator PR gate: never 1x -- planning is an RPC and 10x bounds
+    plan-position drift to ~5 game-s per poll)."""
+    entered = _b5_enter(state, B5_PLAN_CORRECTION, snapshot.ut, peak)
+    plan_hold = min(state.params.plan_warp_factor,
+                    max_legal_rails_factor(snapshot.body, snapshot.altitude))
+    if state.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
+        prelude = [Action(ACTION_CANCEL_WARP)]
+        entered_warp_cmd = 0
+    elif state.warp_cmd != plan_hold:
+        prelude = [Action(ACTION_SET_RAILS_WARP, float(plan_hold))]
+        entered_warp_cmd = plan_hold
+    else:
+        prelude = []
+        entered_warp_cmd = state.warp_cmd
+    entered = replace(entered,
+                      last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0,
+                      warp_cmd=entered_warp_cmd, warp_to_cmd=None,
+                      body_blank_count=0, plan_attempts=1)
+    return entered, prelude + [Action(ACTION_MJ_PLAN_COURSE_CORRECT,
+                                      state.params.course_correct_periapsis,
+                                      limit=state.params.max_correction_dv)]
+
+
+def _rails_emit_needed(desired: int, warp_cmd: int,
+                       snapshot: TelemetrySnapshot) -> bool:
+    """The rails-factor emission discipline, all three directions:
+      - ON CHANGE: the desired factor differs from the last commanded one.
+      - UNDER-WARP self-heal (fifteenth flight): the game is NOT rails-warping
+        despite a nonzero command (manual changes / KSP's own drops).
+      - OVER-WARP pull-down (review SF-1): the game is rails-warping FASTER
+        than the desired factor's rate (manual warp-up, or a stale high rate
+        left behind) -- including desired == 0, where any sustained rails rate
+        above 1x must be pulled back down. The 1% tolerance ignores rate-ramp
+        jitter around the commanded rate.
+    Callers only reach this when NO native warp is commanded/active (the
+    native branches return earlier with hold/cancel), so a WarpService warp
+    legitimately running rates the stair never commanded is exempt by
+    construction."""
+    if desired != warp_cmd:
+        return True
+    if desired > 0 and snapshot.warp_mode != WARP_RAILS:
+        return True
+    if (snapshot.warp_mode == WARP_RAILS and _is_finite(snapshot.warp_rate)
+            and snapshot.warp_rate > RAILS_WARP_RATES[desired] * 1.01):
+        return True
+    return False
+
+
+def _b5_clear_arrived_warp(state: B5State, snapshot: TelemetrySnapshot) -> B5State:
+    """Clear the native warp command once the target UT is reached: the
+    server-side WarpTo stepper zeroes the factor itself on natural completion
+    (pinned kRPC SpaceCenter.cs WarpTo), so arrival needs no cancel action --
+    only the machine's expectation flag drops."""
+    if (state.warp_to_cmd is not None and _is_finite(snapshot.ut)
+            and snapshot.ut >= state.warp_to_cmd):
+        return replace(state, warp_to_cmd=None)
+    return state
+
+
+def _b5_native_warp(state: B5State, snapshot: TelemetrySnapshot,
+                    target: float) -> Tuple[B5State, List[Action]]:
+    """Drive the native warp_to_ut command toward ``target`` one frame.
+
+    Emission discipline (mirrors the rails on-change + self-healing rules):
+      - No command yet, or the fresh target moved more than
+        WARP_RETARGET_THRESHOLD_SECONDS from the commanded one (an SOI
+        estimate shift): (re-)issue warp_to_ut. The runner cancels any
+        in-flight warp before re-issuing (kRPC WarpTo cannot retarget).
+      - Self-heal: the game reports NO active warp (warping_to NaN) while the
+        commanded target is still ahead -- re-issue, bounded to once per
+        WARP_REISSUE_SECONDS of game time so a genuinely-completing warp is
+        never spammed.
+    While a native warp is commanded the rails factor belongs to the server
+    stepper, so warp_cmd is pinned to 0 (the runner's cancel path also zeroes
+    the real factors)."""
+    ut = snapshot.ut
+    if (state.warp_to_cmd is None
+            or abs(target - state.warp_to_cmd) > WARP_RETARGET_THRESHOLD_SECONDS):
+        issued = replace(state, warp_to_cmd=float(target),
+                         last_warp_issue_ut=(ut if _is_finite(ut) else 0.0),
+                         warp_cmd=0)
+        return issued, [Action(ACTION_WARP_TO_UT, float(target))]
+    if (not _is_finite(snapshot.warping_to)
+            and _is_finite(ut) and ut < state.warp_to_cmd
+            and (ut - state.last_warp_issue_ut) >= WARP_REISSUE_SECONDS):
+        healed = replace(state, last_warp_issue_ut=ut, warp_cmd=0)
+        return healed, [Action(ACTION_WARP_TO_UT, float(state.warp_to_cmd))]
+    return state, []
+
+
+def _b5_hold_blank_body(stayed: B5State) -> Tuple[B5State, List[Action]]:
+    """One COAST/FLYBY frame with body == "" (no SOI reading): HOLD all warp
+    state (never cancel/re-command on a transient blank), but BOUND the dwell
+    (review SF-2) -- at frozen_sample_limit consecutive blanks the vessel is
+    treated as lost (the coast budget is GAME time, so an unbounded 1x blank
+    hold could idle for ~111 wall-hours before the outer watchdog fired)."""
+    count = stayed.body_blank_count + 1
+    limit = stayed.params.frozen_sample_limit
+    if count >= limit:
+        return replace(
+            stayed, body_blank_count=count, done=True,
+            verdict=MISSION_ASSERT_FAIL,
+            loss_reason=("vessel-lost (SOI body unreadable %d consecutive "
+                         "samples; vessel presumed destroyed or unreadable)"
+                         % count)), []
+    return replace(stayed, body_blank_count=count), []
+
+
+def _b5_cancel_native_warp(state: B5State,
+                           snapshot: TelemetrySnapshot) -> Tuple[B5State, List[Action]]:
+    """Emit cancel_warp when a native warp is commanded OR the game still
+    reports one active (warping_to finite); no-op otherwise. The runner's
+    cancel closes the warp connection and zeroes both warp factors, so
+    warp_cmd resets to 0 with it."""
+    if state.warp_to_cmd is None and not _is_finite(snapshot.warping_to):
+        return state, []
+    return (replace(state, warp_to_cmd=None, warp_cmd=0),
+            [Action(ACTION_CANCEL_WARP)])
+
+
+def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, List[Action]]:
+    """Advance the B5 Mun-flyby machine one frame; return (new_state, actions).
+
+    Transitions:
+      - PRELAUNCH -> MJ-ASCENT -> CIRCULARIZE -> ORBIT: VERBATIM the B4/B2
+        MechJeb ascent (engage + launch, completion latch AND apoapsis window,
+        guarded circularize, periapsis gate).
+      - ORBIT -> PLAN-TRANSFER: one-frame waypoint; set the target body and ask
+        the MechJeb ManeuverPlanner for a Hohmann transfer to it.
+      - PLAN-TRANSFER -> TRANSFER-BURN: a maneuver node exists -> hand it to the
+        autowarping NodeExecutor. While no node: bounded re-plan every
+        planRetrySeconds; budget expiry flakes (no transfer = no mission).
+      - TRANSFER-BURN -> PLAN-CORRECTION (courseCorrectPeriapsisMeters > 0) or
+        COAST-TO-TARGET: the node list is empty again (the executor consumed
+        it) AND apoapsis >= transferMinApoapsisMeters (evidence the TLI burn
+        actually raised the orbit; an executor that aborts without burning
+        waits out the budget -> flake).
+      - PLAN-CORRECTION -> CORRECTION-BURN: same node logic as PLAN-TRANSFER,
+        but budget expiry FALLS THROUGH to COAST-TO-TARGET (the correction is a
+        best-effort geometry refinement -- MechJeb may transiently see no
+        encounter to correct; the flyby-floor assertion still guards the
+        outcome).
+      - CORRECTION-BURN -> COAST-TO-TARGET: AIM-THEN-WARP (operator PR gate):
+        point at the node (2x-physics flip + aligned debounce), natively warp
+        to node_ut - nodeArrivalMarginSeconds with the orientation frozen by
+        rails, re-verify the streak on arrival (drift re-enters the flip;
+        the no-start give-up re-anchors at arrival), throttle, then exit on
+        cut/overshoot/no-progress/node-consumed (no apoapsis gate: a
+        correction is a small vector tweak).
+      - COAST-TO-TARGET (Path A native warp + rails stair; operator PR gate
+        no-1x-coast): a pending node issues a NATIVE warp_to_ut to
+        node_ut - nodeArrivalMarginSeconds (1x only inside the margin / NaN
+        node UT, fail closed); the correction-trigger approach keeps the
+        LIVE-PROVEN rails distance stair floored at factor 2 (SOI time
+        bound + altitude-legality clamp); the
+        post-correction coast issues a NATIVE warp_to_ut to
+        now + time_to_soi - soiLeadSeconds (re-issued only when the SOI
+        estimate shifts > WARP_RETARGET_THRESHOLD_SECONDS; self-healed at
+        most once per WARP_REISSUE_SECONDS when the game reports no active
+        warp); otherwise the held rails coast factor. While a native warp is
+        commanded the machine NEVER emits set_rails_warp (cancel first).
+        body == target -> TARGET-FLYBY. body neither home nor target
+        (nor "", which HOLDS with no warp change) -> ASSERT-FAIL (ejected:
+        the craft left the home system without meeting the target).
+      - TARGET-FLYBY: track the min finite altitude (the flyby-floor
+        evidence); the outer SOI legs issue a NATIVE warp_to_ut to the SOI
+        EXIT minus soiLeadSeconds (the game's own altitude limits shape the
+        periapsis passage at the proven ~100x cadence); inside the lead
+        window / no estimate the rails stair fallback runs (flybyWarpFactor
+        floor, flybyMaxWarpFactor cap, legality clamp). The impact guard is
+        AUTHORITATIVE: it cancels any native warp and holds 1x.
+        body == home -> RETURN (terminal: done, verdict None; cancels any
+        native warp; the settle tail runs in home SOI). body neither ->
+        ASSERT-FAIL (slung out of the home system).
+    Vessel-lost / frozen telemetry in ANY phase -> ASSERT-FAIL loss_reason
+    (survival is the contract). A timed phase out-running its budget yields
+    MISSION-FLAKE naming the stuck phase (except the PLAN-CORRECTION
+    fall-through above). Once ``done`` the machine is idempotent.
+    """
+    if state.done:
+        return state, []
+
+    peak = _update_peak(state.peak_apoapsis, snapshot.apoapsis)
+
+    if snapshot.vessel_lost:
+        return replace(
+            state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason="vessel-lost (unreadable after repeated telemetry failures)"), []
+
+    if state.phase != B5_PRELAUNCH:
+        limit = state.params.frozen_sample_limit
+        new_sig, new_count, tripped = _advance_frozen_count(
+            state.frozen_sig, state.frozen_count, snapshot, limit)
+        if tripped:
+            return replace(
+                state, peak_apoapsis=peak, frozen_sig=new_sig, frozen_count=new_count,
+                done=True, verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("vessel-lost (telemetry frozen %d consecutive samples "
+                             "while airborne; vessel presumed destroyed)" % limit)), []
+        state = replace(state, frozen_sig=new_sig, frozen_count=new_count)
+
+    # Flyby-floor evidence: min finite altitude while inside the target SOI.
+    if (state.phase == B5_TARGET_FLYBY and snapshot.body == state.params.target_body
+            and _is_finite(snapshot.altitude)):
+        prev = state.min_target_altitude
+        if prev is None or snapshot.altitude < prev:
+            state = replace(state, min_target_altitude=float(snapshot.altitude))
+
+    if state.phase == B5_PRELAUNCH:
+        actions = [
+            Action(ACTION_MJ_SET_TARGET_APOAPSIS, state.params.target_apoapsis),
+            Action(ACTION_MJ_ENABLE_AUTOSTAGE),
+            Action(ACTION_MJ_ENGAGE_ASCENT),
+            Action(ACTION_ACTIVATE_STAGE),
+        ]
+        return _b5_enter(state, B5_MJ_ASCENT, snapshot.ut, peak), actions
+
+    if state.phase == B5_MJ_ASCENT:
+        target = state.params.target_apoapsis
+        apo_reached = (_is_finite(snapshot.apoapsis)
+                       and snapshot.apoapsis >= target - state.params.apo_error)
+        if snapshot.mj_ascent_complete and apo_reached:
+            return (_b5_enter(state, B5_CIRCULARIZE, snapshot.ut, peak),
+                    [Action(ACTION_MJ_EXECUTE_CIRCULARIZATION)])
+        return _b5_stay_or_flake(state, snapshot, peak), []
+
+    if state.phase == B5_CIRCULARIZE:
+        target = state.params.target_periapsis
+        if _is_finite(snapshot.periapsis) and snapshot.periapsis >= target - state.params.peri_error:
+            return _b5_enter(state, B5_ORBIT, snapshot.ut, peak), []
+        return _b5_stay_or_flake(state, snapshot, peak), []
+
+    if state.phase == B5_ORBIT:
+        # One-frame waypoint (reachedOrbit evidence): set the transfer target and
+        # ask the ManeuverPlanner for the Hohmann transfer, then wait for the node.
+        entered = _b5_enter(state, B5_PLAN_TRANSFER, snapshot.ut, peak)
+        entered = replace(entered,
+                          last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0,
+                          plan_attempts=1)
+        return entered, [
+            Action(ACTION_SET_TARGET_BODY, text=state.params.target_body),
+            Action(ACTION_MJ_PLAN_TRANSFER),
+        ]
+
+    if state.phase == B5_PLAN_TRANSFER:
+        return _b5_plan_phase(
+            state, snapshot, peak,
+            plan_action=Action(ACTION_MJ_PLAN_TRANSFER),
+            burn_phase=B5_TRANSFER_BURN,
+            on_timeout_phase=None)
+
+    if state.phase == B5_TRANSFER_BURN:
+        # Exit = the executor CONSUMED the first (TLI) node -- node_count fell
+        # below the count the plan handed off -- AND the apoapsis floor proves a
+        # real burn. NOT node_count == 0: OperationTransfer may plan a
+        # capture/arrival burn as a second node, and waiting for zero parks the
+        # machine through the whole autowarped coast until the budget flakes
+        # (first live B5 flight 2026-07-21). Stray leftover nodes (that unwanted
+        # capture burn) are aborted+cleared at the exit so the executor never
+        # flies them and the coast hops are not suppressed by node_count > 0.
+        # TRANSFER-BURN uses only the after-burn wedge signal: a no-start TLI
+        # has produced no transfer, and the phase budget owns that outcome
+        # (six live flights: the TLI executor always started).
+        state, stuck, _nostart = _b5_track_burn_stagnation(state, snapshot)
+        consumed = snapshot.node_count < max(state.planned_node_count, 1)
+        floor_met = (_is_finite(snapshot.apoapsis)
+                     and snapshot.apoapsis >= state.params.transfer_min_apoapsis)
+        if (consumed or stuck) and floor_met:
+            cleanup = ([Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)]
+                       if snapshot.node_count > 0 else [])
+            # Always into the coast: the correction rounds are COAST-triggered
+            # (per correction_trigger_alts; trigger 0 fires on the first coast
+            # frame, reproducing the old immediate post-TLI correction).
+            return _b5_enter(state, B5_COAST_TO_TARGET, snapshot.ut, peak), cleanup
+        if stuck:
+            # A burn happened, the executor wedged, and the apoapsis floor is
+            # NOT met: the TLI under-burned -- no transfer exists to coast on.
+            # An autopilot failure, so a bounded flake (retry per policy).
+            return replace(state, peak_apoapsis=peak, verdict=MISSION_FLAKE,
+                           flake_phase=state.phase, done=True), []
+        stayed = _b5_stay_or_flake(state, snapshot, peak)
+        if stayed.done:
+            return stayed, []
+        # Flameout staging AFTER the exit/flake checks (delta-review A1/A3:
+        # an exit frame must neither consume a stage-budget slot for a
+        # dropped action nor stage a vessel on a dead mission). The MechJeb
+        # executor holds the throttle but never stages -- a dry stage
+        # mid-TLI would otherwise idle to the wedge detectors; its throttle
+        # readback 0 during the autowarp coast keeps the gate closed there.
+        return _b5_flameout_stage(stayed, snapshot)
+
+    if state.phase == B5_PLAN_CORRECTION:
+        new_state, actions = _b5_plan_phase(
+            state, snapshot, peak,
+            plan_action=Action(ACTION_MJ_PLAN_COURSE_CORRECT,
+                               state.params.course_correct_periapsis,
+                               limit=state.params.max_correction_dv),
+            burn_phase=B5_CORRECTION_BURN,
+            on_timeout_phase=B5_COAST_TO_TARGET,
+            # DIY burner handoff (live finding 8): point the native AP at the
+            # node instead of engaging MechJeb's executor, whose close-in-node
+            # AlignedAndSettled gate the Kerbal X can never satisfy.
+            handoff_action=Action(ACTION_AP_POINT_NODE))
+        if new_state.phase == B5_COAST_TO_TARGET:
+            # Timeout fall-through consumes this round (a disqualified/failed
+            # plan never blocks the coast; the NEXT round may still refine).
+            new_state = replace(new_state,
+                                correction_rounds_done=state.correction_rounds_done + 1)
+        return new_state, actions
+
+    if state.phase == B5_CORRECTION_BURN:
+        # DIY correction burner (live finding 8): the B4-proven native-AP
+        # pattern. Settle + attitude AND-gate, one low-throttle burn, cut when
+        # the node's remaining dv reaches the cut threshold or starts RISING
+        # (burning past the vector). Every exit consumes the round and cleans
+        # up (throttle, AP, leftover nodes); the flyby floor assertion still
+        # judges the outcome.
+        def _corr_exit(st: B5State) -> Tuple[B5State, List[Action]]:
+            entered = _b5_enter(st, B5_COAST_TO_TARGET, snapshot.ut, peak)
+            entered = replace(entered,
+                              correction_rounds_done=st.correction_rounds_done + 1,
+                              corr_burn_started=False, min_node_dv=None,
+                              phys_warp_cmd=0, warp_to_cmd=None,
+                              corr_nostart_anchor_ut=None)
+            cleanup = [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_AP_DISENGAGE)]
+            if st.phys_warp_cmd != 0:
+                # The flip ran under physics warp and the burn never started
+                # (node vanished / alignment give-up): drop it on the way out.
+                cleanup.append(Action(ACTION_SET_PHYSICS_WARP, 0.0))
+            if st.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
+                # An aim-then-warp native warp is still in flight (node
+                # vanished mid-warp / give-up): cancel it on the way out.
+                cleanup.append(Action(ACTION_CANCEL_WARP))
+            if snapshot.node_count > 0:
+                cleanup.append(Action(ACTION_MJ_ABORT_AND_CLEAR_NODES))
+            return entered, cleanup
+
+        dv = snapshot.node_dv
+        # ``improved`` = the remaining dv made real progress this frame (a
+        # strict drop below the tracked minimum). While a burn is live, each
+        # improvement re-stamps ``burn_static_since`` (the progress anchor);
+        # a FROZEN dv leaves the anchor put, so no-progress accrues.
+        improved = (_is_finite(dv)
+                    and (state.min_node_dv is None or dv < state.min_node_dv - 0.01))
+        if _is_finite(dv) and (state.min_node_dv is None or dv < state.min_node_dv):
+            state = replace(state, min_node_dv=float(dv))
+
+        if state.corr_burn_started:
+            if improved and _is_finite(snapshot.ut):
+                state = replace(state, burn_static_since=snapshot.ut)
+            overshoot = (_is_finite(dv) and state.min_node_dv is not None
+                         and dv > state.min_node_dv + 0.5)
+            # NO-PROGRESS give-up (tenth live flight 2026-07-22: a B6 "burn"
+            # sat with the remaining dv FROZEN for 2500 frames -- zero thrust
+            # despite the throttle command): if the remaining dv has not
+            # dropped within burnStagnantSeconds of the throttle-up (or the
+            # last progress), nothing is burning; give the round up cleanly.
+            no_progress = (_is_finite(snapshot.ut)
+                           and state.burn_static_since is not None
+                           and (snapshot.ut - state.burn_static_since)
+                           >= state.params.burn_stagnant_seconds)
+            if (snapshot.node_count == 0
+                    or (_is_finite(dv) and dv <= state.params.correction_cut_dv)
+                    or overshoot or no_progress):
+                return _corr_exit(state)
+            stayed = _b5_stay_or_flake(state, snapshot, peak)
+            if stayed.done:
+                return stayed, []
+            # Flameout staging AFTER the exit/flake checks (delta-review
+            # A1/A3): a dry stage under a commanded throttle pops the next
+            # stage and re-stamps the progress anchor instead of idling out
+            # the no-progress window against an engine that cannot burn
+            # (twenty-second flight); an exit frame neither consumes a
+            # budget slot for a dropped action nor stages a dead mission.
+            # The pop lands ~1 s after flameout, ~119 s before the
+            # no-progress give-up could co-fire.
+            return _b5_flameout_stage(stayed, snapshot)
+
+        # Pre-burn: node vanished (defensive; the plan handoff requires one) ->
+        # give the round up cleanly (cancels a mid-flight aim-warp too).
+        if snapshot.node_count == 0:
+            return _corr_exit(state)
+        # AIM-THEN-WARP warp-hold (operator PR gate, no-1x-coast): the aim
+        # locked and the native warp toward node_ut - nodeArrivalMarginSeconds
+        # is running -- rails warp FREEZES orientation, so the machine just
+        # holds (self-healed, bounded by the burn budget). Give-up clocks do
+        # not count warp time.
+        if state.warp_to_cmd is not None:
+            if not (_is_finite(snapshot.ut) and snapshot.ut >= state.warp_to_cmd):
+                held = _b5_stay_or_flake(state, snapshot, peak)
+                if held.done:
+                    # Budget flake mid-warp: leave nothing warped behind.
+                    return (replace(held, warp_to_cmd=None),
+                            [Action(ACTION_CANCEL_WARP)])
+                return _b5_native_warp(held, snapshot, state.warp_to_cmd)
+            # ARRIVAL: the server stepper zeroed the factor on completion.
+            # Re-verify the attitude from FRESH readings (the streak re-earns
+            # its full debounce -- rails should have held the orientation; a
+            # drifted apErr re-enters the 2x-physics flip below, bounded by
+            # the re-anchored give-up) and restart the no-start clock (warp
+            # time is not alignment time).
+            state = replace(state, warp_to_cmd=None, aligned_streak=0,
+                            corr_nostart_anchor_ut=float(snapshot.ut))
+        # Alignment never converging is bounded: give the round up after
+        # burnNoStartSeconds rather than flake the whole mission. The clock
+        # counts from phase entry, or from the aim-warp ARRIVAL when one ran.
+        nostart_anchor = (state.corr_nostart_anchor_ut
+                          if state.corr_nostart_anchor_ut is not None
+                          else state.phase_entry_ut)
+        if (_is_finite(snapshot.ut)
+                and (snapshot.ut - nostart_anchor) >= state.params.burn_nostart_seconds):
+            return _corr_exit(state)
+        settled = (_is_finite(snapshot.ut)
+                   and (snapshot.ut - state.phase_entry_ut) >= state.params.correction_settle_seconds)
+        # abs(): kRPC's error reads NEGATIVE in some regimes (-178 deg
+        # mid-flip on the tenth live flight) -- a signed reading must never
+        # satisfy a <=-only gate while pointing the wrong way. The 30-degree
+        # default (vs B4's 5) is deliberate: the DIY burn CHASES the node's
+        # remaining vector (the AP tracks node.reference_frame), so a
+        # rough-pointed low-throttle start self-corrects, and the overshoot +
+        # no-progress guards own the failure modes. K-CONSECUTIVE debounce
+        # (ALIGNED_DEBOUNCE_FRAMES): a single-frame transient reading fired a
+        # ~200 m/s wild burn at a true ~98 deg off-axis (fourteenth flight).
+        aligned = (_is_finite(snapshot.ap_error)
+                   and abs(snapshot.ap_error) <= state.params.max_attitude_error_deg)
+        # Capped at the debounce depth (delta-review C1): the gate only ever
+        # tests >= ALIGNED_DEBOUNCE_FRAMES, and an uncapped streak emits a
+        # gate line + 21-line window dump per aligned settle frame.
+        streak = (min(state.aligned_streak + 1, ALIGNED_DEBOUNCE_FRAMES)
+                  if aligned else 0)
+        stayed = replace(_b5_stay_or_flake(state, snapshot, peak),
+                         aligned_streak=streak)
+        if stayed.done:
+            # Budget flake mid-flip: leave nothing warped behind.
+            return stayed, ([Action(ACTION_SET_PHYSICS_WARP, 0.0)]
+                            if state.phys_warp_cmd != 0 else [])
+        if settled and streak >= ALIGNED_DEBOUNCE_FRAMES:
+            # BURN ONLY AT 1x: the flip may run under mild physics warp, but a
+            # throttle-up at scaled physics dt would coarsen the cut/overshoot
+            # gates, so the warp is dropped FIRST and the throttle waits for a
+            # frame that reads warp NONE (one extra ~0.5 s poll, the B4-proven
+            # settle discipline).
+            if state.phys_warp_cmd != 0 or snapshot.warp_mode != WARP_NONE:
+                return (replace(stayed, phys_warp_cmd=0),
+                        [Action(ACTION_SET_PHYSICS_WARP, 0.0)])
+            # AIM DONE -> WARP TO THE NODE (operator PR gate, no-1x-coast):
+            # the burn vector is inertially fixed and rails warp FREEZES the
+            # vessel orientation, so with the attitude locked the machine
+            # warps natively to node_ut - nodeArrivalMarginSeconds instead of
+            # 1x-coasting the wait. Fires only while the node is still beyond
+            # the margin (post-arrival frames fail this bound, so the warp
+            # can never re-issue); the streak resets so arrival re-earns the
+            # full aligned debounce.
+            if (_is_finite(snapshot.node_ut) and _is_finite(snapshot.ut)
+                    and snapshot.ut < snapshot.node_ut - state.params.node_arrival_margin):
+                aim_target = snapshot.node_ut - state.params.node_arrival_margin
+                return _b5_native_warp(replace(stayed, aligned_streak=0),
+                                       snapshot, aim_target)
+            started = replace(stayed, corr_burn_started=True,
+                              burn_static_since=(snapshot.ut if _is_finite(snapshot.ut)
+                                                 else None))
+            return started, [Action(ACTION_SET_THROTTLE, state.params.correction_throttle)]
+        # Still flipping/settling: run the attitude flip under mild PHYSICS
+        # warp (default 2x -- MechJeb's own WarpToUT physics cap; the ~340 s
+        # 1x crawl was the single biggest 1x wall-time block in the mission).
+        # Same on-change + self-healing emission discipline as the rails
+        # factor; flipPhysicsWarpFactor=0 disables (byte-identical old flip).
+        desired_phys = state.params.flip_physics_warp
+        if (desired_phys != state.phys_warp_cmd
+                or (desired_phys > 0 and snapshot.warp_mode != WARP_PHYSICS)):
+            return (replace(stayed, phys_warp_cmd=desired_phys),
+                    [Action(ACTION_SET_PHYSICS_WARP, float(desired_phys))])
+        return stayed, []
+
+    if state.phase == B5_COAST_TO_TARGET:
+        if snapshot.body == state.params.target_body:
+            return _b5_enter(state, B5_TARGET_FLYBY, snapshot.ut, peak), []
+        if snapshot.body not in ("", state.params.home_body):
+            # A REAL foreign body name (e.g. "Sun") is the ejected terminal; ""
+            # (no reading this frame) is NOT -- it stays in phase with no hop,
+            # and a sustained unreadable vessel dies at the vessel-lost terminal.
+            return replace(
+                state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("left home SOI without reaching the target: body=%r "
+                             "(expected %r or %r)"
+                             % (snapshot.body, state.params.home_body,
+                                state.params.target_body))), []
+        stayed = _b5_stay_or_flake(state, snapshot, peak)
+        if stayed.done:
+            return stayed, []
+        # Correction rounds: one PLAN-CORRECTION entry per trigger altitude.
+        # Round 2+ is LIVE-PROVEN necessary (flight 4: the post-TLI correction
+        # flew, but executor residual over the long coast drifted the flyby
+        # periapsis from +60 km to -29 km = impact; a mid-coast refinement
+        # prices the residual at a few m/s).
+        triggers = state.params.correction_trigger_alts
+        rounds_pending = (state.params.course_correct_periapsis > 0.0
+                          and state.correction_rounds_done < len(triggers))
+        if (rounds_pending
+                and snapshot.body == state.params.home_body
+                and _is_finite(snapshot.altitude)
+                and snapshot.altitude >= triggers[state.correction_rounds_done]):
+            return _b5_enter_plan_correction(state, snapshot, peak)
+        # ARRIVAL-QUALITY RE-CORRECTION (finding 16, twenty-third flight):
+        # both altitude rounds executed to <1 m/s residual and the arrival
+        # was STILL pe -31.8 km -- the blind altitude triggers cannot see
+        # arrival quality. Once they are exhausted, a debounced sub-floor
+        # PREDICTED arrival periapsis at the target body grants a bounded
+        # extra round, while enough coast remains to fly it. Every term
+        # fails closed: NaN next_pe / blank next_body / NaN tts never fire.
+        arrival_bad = (not rounds_pending
+                       and state.params.course_correct_periapsis > 0.0
+                       and stayed.extra_rounds_done < MAX_ARRIVAL_EXTRA_ROUNDS
+                       and snapshot.body == state.params.home_body
+                       and snapshot.node_count == 0
+                       and snapshot.next_body == state.params.target_body
+                       and _is_finite(snapshot.next_pe)
+                       and snapshot.next_pe < state.params.target_periapsis_floor
+                       and _is_finite(snapshot.time_to_soi)
+                       and snapshot.time_to_soi > ARRIVAL_RECORRECT_MIN_TTS_SECONDS
+                       # High-precision window (twenty-fourth flight): far-out
+                       # extras moved the arrival only ~2-4 km each; the
+                       # extras HOLD until the coast is inside the bound.
+                       and snapshot.time_to_soi < ARRIVAL_RECORRECT_MAX_TTS_SECONDS)
+        if arrival_bad:
+            streak = stayed.arrival_bad_streak + 1
+            if streak >= ARRIVAL_BAD_DEBOUNCE_FRAMES:
+                granted = replace(stayed, arrival_bad_streak=0,
+                                  extra_rounds_done=stayed.extra_rounds_done + 1)
+                return _b5_enter_plan_correction(granted, snapshot, peak)
+            stayed = replace(stayed, arrival_bad_streak=streak)
+        elif stayed.arrival_bad_streak:
+            stayed = replace(stayed, arrival_bad_streak=0)
+        # Warp policy (Path A, docs/dev/research/native-warp-to-ut.md): the
+        # NATIVE fire-and-forget warp_to_ut owns the long time-bound waits
+        # (pending node, post-correction coast to the SOI boundary) -- the
+        # game adapts the factor against its own live limits, table-free.
+        # The rails distance stair stays for the correction-trigger altitude
+        # approach (distance-based, live-proven) and as the fallback.
+        if snapshot.body == "":
+            # No reading this frame: HOLD (never cancel/re-command warp on a
+            # transient blank), bounded by the blank-body dwell (SF-2).
+            return _b5_hold_blank_body(stayed)
+        if stayed.body_blank_count:
+            stayed = replace(stayed, body_blank_count=0)
+        stayed = _b5_clear_arrived_warp(stayed, snapshot)
+        native_target: Optional[float] = None
+        desired = 0
+        if snapshot.node_count != 0:
+            # (a) Pending node: NATIVE warp to node_ut minus the ARRIVAL
+            # MARGIN (operator PR gate: nodeWarpLeadSeconds retired -- the
+            # burn phase aims BEFORE warping, so no flip window is needed
+            # here). 1x is allowed ONLY inside the margin, or on a NaN
+            # node_ut (unknown UT = potentially inside the margin, fail
+            # closed -- nothing ever warps past a burn on no evidence).
+            if _is_finite(snapshot.node_ut) and _is_finite(snapshot.ut):
+                tgt = snapshot.node_ut - state.params.node_arrival_margin
+                if snapshot.ut < tgt:
+                    native_target = tgt
+        elif rounds_pending and _is_finite(snapshot.altitude):
+            # Correction-trigger approach: the LIVE-PROVEN rails distance
+            # stair, FLOORED at factor 2 (operator PR gate: the last metres
+            # before a trigger rode 1x; at 10x the trigger overshoot is
+            # <= ~5 game-s per poll, and a trigger is a refinement point,
+            # not a wall), with the SOI time bound and the legality clamp.
+            dist = triggers[state.correction_rounds_done] - snapshot.altitude
+            desired = max(rails_factor_for_distance(
+                dist, snapshot.vertical_speed, state.params.coast_warp_factor), 2)
+            if desired > 0 and _is_finite(snapshot.time_to_soi):
+                desired = min(desired, max(
+                    rails_factor_for_time(snapshot.time_to_soi,
+                                          state.params.coast_warp_factor),
+                    state.params.flyby_warp_factor))
+            if desired > 0:
+                desired = min(desired, max_legal_rails_factor(
+                    snapshot.body, snapshot.altitude))
+        elif (_is_finite(snapshot.time_to_soi) and _is_finite(snapshot.ut)
+                and snapshot.time_to_soi > state.params.soi_lead):
+            # (b) Post-correction coast: NATIVE warp to the SOI boundary
+            # minus soi_lead, so the machine regains 1x-poll control just
+            # before the body change (never crosses inside a high-rate warp;
+            # the old 10,000x poll overshoot class is gone). Re-issued only
+            # when the SOI estimate shifts > WARP_RETARGET_THRESHOLD_SECONDS.
+            native_target = snapshot.ut + snapshot.time_to_soi - state.params.soi_lead
+        else:
+            # No encounter (or inside the SOI lead window): held rails coast
+            # factor with the legacy SOI time bound + legality clamp -- the
+            # documented fallback when the native primitive has no target.
+            desired = state.params.coast_warp_factor
+            if desired > 0 and _is_finite(snapshot.time_to_soi):
+                desired = min(desired, max(
+                    rails_factor_for_time(snapshot.time_to_soi,
+                                          state.params.coast_warp_factor),
+                    state.params.flyby_warp_factor))
+            if desired > 0:
+                desired = min(desired, max_legal_rails_factor(
+                    snapshot.body, snapshot.altitude))
+        if native_target is not None:
+            return _b5_native_warp(stayed, snapshot, native_target)
+        if stayed.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
+            # Rails intent while a native warp is (expected) active: CANCEL
+            # first -- never two warp writers in the same frame (WarpTo wins
+            # the fight within 1-2 frames; research doc scheduler analysis).
+            # The rails command follows on the next poll.
+            return _b5_cancel_native_warp(stayed, snapshot)
+        actions: List[Action] = []
+        # Emission discipline (_rails_emit_needed): on change, PLUS the
+        # under-warp self-heal (fifteenth flight: manual changes / KSP drops
+        # silently overrode the held factor), PLUS the over-warp pull-down
+        # (review SF-1: the game rails-warping FASTER than desired -- incl.
+        # desired 0 -- must be pulled back). Idempotent re-emission of the
+        # same factor is harmless. Native-warp frames never reach here.
+        if _rails_emit_needed(desired, state.warp_cmd, snapshot):
+            actions.append(Action(ACTION_SET_RAILS_WARP, float(desired)))
+            stayed = replace(stayed, warp_cmd=desired)
+        return stayed, actions
+
+    if state.phase == B5_TARGET_FLYBY:
+        if snapshot.body == state.params.home_body:
+            # The free-return: back in home SOI after the flyby. Terminal (done,
+            # verdict None); the settle tail runs at 1x in home SOI. Cancel an
+            # active native warp (which zeroes the factors runner-side), else
+            # drop a held rails factor.
+            entered = _b5_enter(state, B5_RETURN, snapshot.ut, peak)
+            entered = replace(entered, warp_cmd=0, warp_to_cmd=None)
+            if state.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
+                return entered, [Action(ACTION_CANCEL_WARP)]
+            return entered, ([Action(ACTION_SET_RAILS_WARP, 0.0)]
+                             if state.warp_cmd != 0 else [])
+        if snapshot.body not in ("", state.params.target_body):
+            return replace(
+                state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("flyby ejected the craft from the home system: body=%r "
+                             "(expected %r or %r)"
+                             % (snapshot.body, state.params.target_body,
+                                state.params.home_body))), []
+        stayed = _b5_stay_or_flake(state, snapshot, peak)
+        if stayed.done:
+            return stayed, []
+        if snapshot.body == "":
+            # No reading this frame: HOLD (never cancel/re-command warp on a
+            # transient blank), bounded by the blank-body dwell (SF-2).
+            return _b5_hold_blank_body(stayed)
+        if stayed.body_blank_count:
+            stayed = replace(stayed, body_blank_count=0)
+        stayed = _b5_clear_arrived_warp(stayed, snapshot)
+        # NEVER warp toward a known impact (finding 4's Flight Results wedge):
+        # on a sub-surface periapsis at low altitude, the guard is
+        # AUTHORITATIVE -- it CANCELS an active native warp and holds 1x so
+        # the crash lands under live telemetry and the vessel-lost detectors
+        # end the mission in seconds.
+        impact_bound = (_is_finite(snapshot.periapsis) and snapshot.periapsis < 0.0
+                        and _is_finite(snapshot.altitude)
+                        and snapshot.altitude < IMPACT_WARP_GUARD_ALT)
+        # IMPACT-CERTAIN EARLY TERMINAL (twenty-second flight): the guard
+        # condition sustained for IMPACT_TERMINAL_DEBOUNCE_FRAMES means the
+        # outcome is decided -- a sub-surface periapsis inside the target SOI
+        # with no correction capability left ends in destruction regardless
+        # -- so terminate ASSERT-FAIL now instead of riding the descent at 1x
+        # to the physical crash (589 wall-seconds on the certification
+        # flight; the audit's only 1x-coast violation). The first debounce
+        # frames keep the guard's warp-cancel/1x-hold behavior, so a
+        # transient periapsis mis-read costs five 1x polls, never a mission.
+        if impact_bound:
+            streak = stayed.impact_certain_streak + 1
+            if streak >= IMPACT_TERMINAL_DEBOUNCE_FRAMES:
+                terminal = replace(
+                    stayed, peak_apoapsis=peak, done=True,
+                    verdict=MISSION_ASSERT_FAIL,
+                    loss_reason=("flyby impact certain: sub-surface periapsis "
+                                 "%.0f m at altitude %.0f m for %d consecutive "
+                                 "frames -- early terminal (not waiting for "
+                                 "physical destruction)"
+                                 % (snapshot.periapsis, snapshot.altitude,
+                                    streak)))
+                if (stayed.warp_to_cmd is not None
+                        or _is_finite(snapshot.warping_to)):
+                    return (replace(terminal, warp_to_cmd=None),
+                            [Action(ACTION_CANCEL_WARP)])
+                return terminal, ([Action(ACTION_SET_RAILS_WARP, 0.0)]
+                                  if stayed.warp_cmd != 0 else [])
+            stayed = replace(stayed, impact_certain_streak=streak)
+        elif stayed.impact_certain_streak:
+            stayed = replace(stayed, impact_certain_streak=0)
+        native_target = None
+        if impact_bound:
+            desired = 0
+        elif (_is_finite(snapshot.time_to_soi) and _is_finite(snapshot.ut)
+                and snapshot.time_to_soi > state.params.soi_lead):
+            # (c) Outer flyby legs: NATIVE warp to the SOI EXIT minus
+            # soi_lead. The game's own altitude limits shape the passage
+            # (e.g. Mun periapsis at 60 km runs at most 100x -- the proven
+            # min-altitude evidence cadence -- while the outer legs run
+            # 1000x+), table-free.
+            native_target = snapshot.ut + snapshot.time_to_soi - state.params.soi_lead
+        else:
+            # Inside the exit lead window / no SOI estimate: the rails stair
+            # fallback -- flyby factor floor near periapsis, stair toward
+            # flybyMaxWarpFactor with the (altitude - periapsis) distance,
+            # altitude-legality clamped. A NON-FINITE altitude forces 1x
+            # (review N-A5, fail-closed symmetry: with no altitude reading
+            # neither the stair distance nor the legality clamp is
+            # trustworthy, and the impact guard above could not have armed).
+            if not _is_finite(snapshot.altitude):
+                desired = 0
+            else:
+                pe_ref = (max(snapshot.periapsis, 0.0)
+                          if _is_finite(snapshot.periapsis) else 0.0)
+                stair = rails_factor_for_distance(
+                    snapshot.altitude - pe_ref, snapshot.vertical_speed,
+                    state.params.flyby_max_warp_factor)
+                desired = min(max(state.params.flyby_warp_factor, stair),
+                              max_legal_rails_factor(snapshot.body,
+                                                     snapshot.altitude))
+        if native_target is not None:
+            return _b5_native_warp(stayed, snapshot, native_target)
+        if stayed.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
+            # 1x/rails intent while a native warp is (expected) active --
+            # including the impact guard's authoritative stop: CANCEL first,
+            # rails (if any) follows next poll.
+            return _b5_cancel_native_warp(stayed, snapshot)
+        actions = []
+        # Emission discipline (_rails_emit_needed): on change, PLUS the
+        # under-warp self-heal (fifteenth flight: manual changes / KSP drops
+        # silently overrode the held factor), PLUS the over-warp pull-down
+        # (review SF-1: the game rails-warping FASTER than desired -- incl.
+        # desired 0 -- must be pulled back). Idempotent re-emission of the
+        # same factor is harmless. Native-warp frames never reach here.
+        if _rails_emit_needed(desired, state.warp_cmd, snapshot):
+            actions.append(Action(ACTION_SET_RAILS_WARP, float(desired)))
+            stayed = replace(stayed, warp_cmd=desired)
+        return stayed, actions
+
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase, done=True,
+                   peak_apoapsis=peak), []
 
 
 # ---------------------------------------------------------------------------
@@ -1289,6 +2965,59 @@ def evaluate_b4_assertions(frames, params: B4Params,
     return [orbit, apo, sit, chute]
 
 
+def evaluate_b5_assertions(frames, params: B5Params,
+                           phases_reached=(),
+                           min_target_altitude: Optional[float] = None,
+                           k: int = DEFAULT_DEBOUNCE_K) -> List[AssertionOutcome]:
+    """Evaluate the four B5 driver-validity assertions: terminal-focused phase +
+    flyby evidence, NEVER a golden trajectory (the transfer geometry is
+    MechJeb's business; ours is that the flyby actually happened and came back).
+
+    - ``reachedOrbit``:        ORBIT appears in ``phases_reached``.
+    - ``reachedTargetSoi``:    TARGET-FLYBY appears in ``phases_reached`` (the
+      SOI body actually became the target -- cross-SOI evidence).
+    - ``flybyPeriapsisFloor``: the min finite altitude recorded inside the
+      target SOI is at/above targetPeriapsisFloorMeters (the flyby cleared the
+      terrain; a crashed flyby dies at the vessel-lost terminal first, so this
+      guards the SAMPLED closest approach). Evidence is machine-carried
+      (min_target_altitude), coarse under warp hops -- a floor, not a window.
+      SAMPLING BAND CAVEAT (review N-A3): the evidence is polled ~every 50
+      game-s at the 100x periapsis cadence, so a true periapsis BELOW the
+      floor but ABOVE the terrain can slip between samples and still read as
+      met -- the floor certifies the sampled track, not a continuous minimum.
+    - ``returnedToHome``:      RETURN appears in ``phases_reached`` (the machine
+      terminated back in home SOI after the flyby -- the free-return).
+
+    ``k`` is retained for signature symmetry but unused: every B5 assertion is
+    phase / min evidence, not a noisy per-frame window."""
+    del frames  # phase + machine evidence carry everything; kept for seam symmetry
+    phases = tuple(phases_reached or ())
+
+    orbit_met = B5_ORBIT in phases
+    orbit = AssertionOutcome("reachedOrbit", orbit_met,
+                             (phases[-1] if phases else None),
+                             {"required": B5_ORBIT})
+
+    soi_met = B5_TARGET_FLYBY in phases
+    soi = AssertionOutcome("reachedTargetSoi", soi_met,
+                           (params.target_body if soi_met else None),
+                           {"required": B5_TARGET_FLYBY, "target": params.target_body})
+
+    floor = params.target_periapsis_floor
+    floor_met = min_target_altitude is not None and min_target_altitude >= floor
+    flyby = AssertionOutcome("flybyPeriapsisFloor", floor_met,
+                             (min_target_altitude if min_target_altitude is not None
+                              else float("nan")),
+                             {"floor": floor})
+
+    ret_met = B5_RETURN in phases
+    ret = AssertionOutcome("returnedToHome", ret_met,
+                           (params.home_body if ret_met else None),
+                           {"required": B5_RETURN, "home": params.home_body})
+
+    return [orbit, soi, flyby, ret]
+
+
 def _value_or_nan(v: Optional[float]) -> float:
     return v if v is not None else float("nan")
 
@@ -1411,6 +3140,28 @@ CONNECTION_DROP_EXCEPTION_NAMES = frozenset({
     "ConnectionRefusedError", "BrokenPipeError", "TimeoutError", "socket.timeout",
     "RPCError", "StreamError",
 })
+
+# TRANSPORT-layer drops only (socket dead, stream torn): the fly loop re-raises
+# these immediately (a dead connection is the retryable-flake path, edges 5/8).
+# Deliberately NARROWER than CONNECTION_DROP_EXCEPTION_NAMES: an RPCError-class
+# failure means the server ANSWERED -- a vessel-state problem (e.g. the
+# maneuver-nodes read failing on a just-destroyed vessel, seventh live B5
+# flight 2026-07-22) -- which the fly loop TOLERATES so the control seam's
+# read-fail streak can escalate to the honest vessel-lost terminal instead of
+# killing the mission as MISSION-ERROR on the first raise.
+TRANSPORT_DROP_EXCEPTION_NAMES = frozenset({
+    "ConnectionError", "ConnectionResetError", "ConnectionAbortedError",
+    "ConnectionRefusedError", "BrokenPipeError", "TimeoutError", "socket.timeout",
+    "StreamError", "EOFError", "OSError",
+})
+
+
+def is_transport_drop_exception(exc_name: Optional[str]) -> bool:
+    """True iff the exception NAME is a transport-layer connection drop the fly
+    loop must re-raise immediately (vs a server-answered RPC failure it
+    tolerates into the read-fail streak). Pure by name so mlib never imports
+    krpc."""
+    return str(exc_name or "") in TRANSPORT_DROP_EXCEPTION_NAMES
 
 
 def classify_post_connect_exception(exc_module: Optional[str], exc_name: Optional[str]) -> str:
@@ -1575,3 +3326,205 @@ def format_mission_log_line(level: str, phase: str, message: str) -> str:
     Diagnostic Logging). ``level`` / ``phase`` pass through so a caller typo is
     visible, not swallowed."""
     return "[Mission][%s][%s] %s" % (level, phase, message)
+
+
+# ---------------------------------------------------------------------------
+# Live observability helpers (design docs/dev/design-live-observability.md
+# Phase 2). Pure: format/diff DECISION state so the fly loop can log it
+# verbatim and the supervisor-side status CLI can read it without inference.
+# All output is ASCII key=value tokens, decodable by status.py's generic
+# parse_kv_tokens.
+# ---------------------------------------------------------------------------
+
+# (state attribute, log/JSON key) pairs for the machine-state line + status
+# file. getattr-with-default keeps this generic over B1/B2/B4/B5 states:
+# absent fields render as "-" (line) / are omitted (dict). burn_static_since
+# is deliberately NOT here raw; it is rendered as the derived burnStaticAge
+# (the AGE is the diagnostic quantity; the raw UT stamp is meaningless
+# without the current UT).
+MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
+    ("phase", "phase"),
+    ("phase_entry_ut", "entryUt"),
+    ("correction_rounds_done", "rounds"),
+    ("plan_attempts", "planAttempts"),
+    ("body_blank_count", "bodyBlank"),
+    ("corr_burn_started", "corrBurnStarted"),
+    ("aligned_streak", "alignedStreak"),
+    ("min_node_dv", "minNodeDv"),
+    ("warp_cmd", "warpCmd"),
+    ("phys_warp_cmd", "physWarpCmd"),
+    ("warp_to_cmd", "warpToCmd"),
+    ("last_warp_issue_ut", "lastWarpIssueUt"),
+    ("planned_node_count", "plannedNodes"),
+    ("last_plan_ut", "lastPlanUt"),
+    ("frozen_count", "frozenCount"),
+    ("flameout_streak", "flameoutStreak"),
+    ("flameout_stages_done", "flameoutStages"),
+    ("impact_certain_streak", "impactStreak"),
+    ("arrival_bad_streak", "arrivalBadStreak"),
+    ("extra_rounds_done", "extraRounds"),
+)
+
+# Fields whose CHANGE is a sparse, decision-relevant gate/latch event worth
+# one loud Info line (design 2b). Excluded as per-frame-noisy: phase (the
+# transition line already logs it), phase_entry_ut / last_plan_ut /
+# last_warp_issue_ut (stamps), min_node_dv (tracks every burn frame),
+# frozen_count (the vessel-lost terminal is loud on its own). Included
+# despite being counters: plan_attempts (one line per ~30 s re-plan cadence),
+# aligned_streak (bounded by the debounce depth), body_blank_count (every
+# blank-body frame IS an anomaly and the count is capped by
+# frozen_sample_limit).
+MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
+    ("correction_rounds_done", "rounds"),
+    ("plan_attempts", "planAttempts"),
+    ("body_blank_count", "bodyBlank"),
+    ("corr_burn_started", "corrBurnStarted"),
+    ("aligned_streak", "alignedStreak"),
+    ("warp_cmd", "warpCmd"),
+    ("phys_warp_cmd", "physWarpCmd"),
+    ("warp_to_cmd", "warpToCmd"),
+    ("planned_node_count", "plannedNodes"),
+    # Twenty-second flight additions, both bounded by their debounce depths:
+    # a flameout-stage pop and the impact-certain countdown are exactly the
+    # sparse decision events the gate lines exist for.
+    ("flameout_streak", "flameoutStreak"),
+    ("flameout_stages_done", "flameoutStages"),
+    ("impact_certain_streak", "impactStreak"),
+    # Finding 16 (arrival-quality re-correct): the sub-floor-arrival
+    # countdown and the extra-round grant, bounded by the debounce depth
+    # and MAX_ARRIVAL_EXTRA_ROUNDS.
+    ("arrival_bad_streak", "arrivalBadStreak"),
+    ("extra_rounds_done", "extraRounds"),
+)
+
+_MACHINE_FIELD_ABSENT = object()
+
+
+def _obs_fmt(value) -> str:
+    """Observability value formatting: None -> 'none', absent -> '-', floats
+    3dp / 'nan', bools as True/False, everything else str."""
+    if value is _MACHINE_FIELD_ABSENT:
+        return "-"
+    if value is None:
+        return "none"
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return "nan"
+        return "%.3f" % value
+    return str(value)
+
+
+def _json_safe(value):
+    """JSON-safe scalar: non-finite floats -> None (strict-parser friendly;
+    json.dumps would otherwise emit bare NaN)."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def machine_state_dict(state, ut: float = float("nan")) -> Dict:
+    """The machine's decision state as a JSON-safe {key: value} dict (the
+    status-file ``machine`` block, design 2d). Fields the state object lacks
+    are omitted; ``burnStaticAge`` is derived from ``burn_static_since`` and
+    the current ``ut`` (None while not static or unknown)."""
+    out: Dict = {}
+    for attr, key in MACHINE_STATE_FIELDS:
+        value = getattr(state, attr, _MACHINE_FIELD_ABSENT)
+        if value is _MACHINE_FIELD_ABSENT:
+            continue
+        out[key] = _json_safe(value)
+    since = getattr(state, "burn_static_since", None)
+    if _is_finite(since) and _is_finite(ut):
+        out["burnStaticAge"] = _json_safe(float(ut) - float(since))
+    elif hasattr(state, "burn_static_since"):
+        out["burnStaticAge"] = None
+    return out
+
+
+def format_machine_state(state, ut: float = float("nan")) -> str:
+    """One rate-limited MACHINE-STATE log message (design 2a): the decision
+    state verbatim, ``machine phase=... rounds=... planAttempts=...``. Works
+    for any B-state via getattr (absent fields render '-'), so the fly loop
+    emits it unconditionally."""
+    parts = ["machine"]
+    for attr, key in MACHINE_STATE_FIELDS:
+        parts.append("%s=%s" % (key, _obs_fmt(getattr(state, attr,
+                                                      _MACHINE_FIELD_ABSENT))))
+    since = getattr(state, "burn_static_since", _MACHINE_FIELD_ABSENT)
+    if since is _MACHINE_FIELD_ABSENT:
+        age = _MACHINE_FIELD_ABSENT
+    elif _is_finite(since) and _is_finite(ut):
+        age = float(ut) - float(since)
+    else:
+        age = None
+    parts.append("burnStaticAge=%s" % _obs_fmt(age))
+    return " ".join(parts)
+
+
+def diff_machine_state(prev, new) -> List[str]:
+    """Sparse gate/latch flips between two machine states (design 2b): one
+    ``key old->new`` string per MACHINE_DIFF_FIELDS change. Pure; the fly
+    loop wraps each entry in a loud Info 'gate ...' line with the snapshot
+    values that decided it. States lacking a field on BOTH sides contribute
+    nothing; a field present on one side only is a change ('-' side)."""
+    changes: List[str] = []
+    for attr, key in MACHINE_DIFF_FIELDS:
+        old = getattr(prev, attr, _MACHINE_FIELD_ABSENT)
+        cur = getattr(new, attr, _MACHINE_FIELD_ABSENT)
+        if old is _MACHINE_FIELD_ABSENT and cur is _MACHINE_FIELD_ABSENT:
+            continue
+        if _values_equal(old, cur):
+            continue
+        changes.append("%s %s->%s" % (key, _obs_fmt(old), _obs_fmt(cur)))
+    return changes
+
+
+def _values_equal(a, b) -> bool:
+    """Equality that treats NaN == NaN (a NaN->NaN 'change' would spam)."""
+    if isinstance(a, float) and isinstance(b, float):
+        if math.isnan(a) and math.isnan(b):
+            return True
+    return a == b
+
+
+def snapshot_dict(snapshot: TelemetrySnapshot) -> Dict:
+    """The latest telemetry snapshot as a JSON-safe dict (the status-file
+    ``snapshot`` block, design 2d). Non-finite floats -> None."""
+    return {
+        "ut": _json_safe(snapshot.ut),
+        "altitude": _json_safe(snapshot.altitude),
+        "verticalSpeed": _json_safe(snapshot.vertical_speed),
+        "apoapsis": _json_safe(snapshot.apoapsis),
+        "periapsis": _json_safe(snapshot.periapsis),
+        "eccentricity": _json_safe(snapshot.eccentricity),
+        "inclination": _json_safe(snapshot.inclination),
+        "situation": snapshot.situation,
+        "body": snapshot.body,
+        "nodeCount": snapshot.node_count,
+        "nodeDv": _json_safe(snapshot.node_dv),
+        "nodeUt": _json_safe(snapshot.node_ut),
+        "timeToSoi": _json_safe(snapshot.time_to_soi),
+        "warpingTo": _json_safe(snapshot.warping_to),
+        "liquidFuel": _json_safe(snapshot.liquid_fuel),
+        "throttle": _json_safe(snapshot.throttle),
+        "warpMode": snapshot.warp_mode,
+        "warpRate": _json_safe(snapshot.warp_rate),
+        "apError": _json_safe(snapshot.ap_error),
+        "vesselLost": snapshot.vessel_lost,
+    }
+
+
+def format_snapshot_compact(snapshot: TelemetrySnapshot) -> str:
+    """One-line-per-frame compact snapshot form for the event-window ring
+    buffer (design 2c): the fields the machines gate on, ~100 chars."""
+    return ("ut=%s alt=%s ap=%s pe=%s body=%s nodes=%d nodeDv=%s thr=%s "
+            "apErr=%s warp=%sx%s sit=%s%s"
+            % (_obs_fmt(snapshot.ut), _obs_fmt(snapshot.altitude),
+               _obs_fmt(snapshot.apoapsis), _obs_fmt(snapshot.periapsis),
+               snapshot.body or "?", snapshot.node_count,
+               _obs_fmt(snapshot.node_dv), _obs_fmt(snapshot.throttle),
+               _obs_fmt(snapshot.ap_error), snapshot.warp_mode,
+               _obs_fmt(snapshot.warp_rate), snapshot.situation or "?",
+               " LOST" if snapshot.vessel_lost else ""))

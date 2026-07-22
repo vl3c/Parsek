@@ -1,0 +1,113 @@
+schema = 1
+id = "B6-minmus-flyby"
+# nightly: same fixture and machine as B5, different target body.
+# LIVE-PROVEN 2026-07-22: PASS (flakedThenPassed) - Minmus SOI entered, 512 km
+# flyby, free-return into Kerbin SOI, wall 1167 s; the non-blocking rails-warp
+# rework validated live end to end (held 1000x coast, single factor changes).
+tier = "nightly"
+description = "Minmus flyby / free-return: MechJeb ascent to LKO, ManeuverPlanner Hohmann transfer to Minmus, autowarped burn, dv-capped course-correction, cross-SOI coast, Minmus flyby, return into Kerbin SOI."
+instanceProfile = "stock-minimal"
+tags = ["B6", "flown", "mechjeb", "minmus", "cross-soi"]
+
+[fixture]
+# Same pre-placed Kerbal X fixture as B2/B4/B5.
+saveTemplate       = "fixtures/saves/b2-lko-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+# Thin alias over the body-parameterized B5 machine (see b6_minmus_flyby.py);
+# the flight differs from B5 only in these params.
+mission = "b6_minmus_flyby"
+
+# `steps` MUST stay in the [driver] table (above the [driver.missionParams]
+# header). Budget arithmetic (ESTIMATED): the ~46,400 km Minmus transfer coast
+# is ~9 days of game time vs the Mun's ~1-2 days -- more rails hops, so the
+# wall budget grows: missionBudget 3000 >= 30 connect + ascent ~250 +
+# circularize ~100 + plan+burn ~300 + correction ~120 + coast hops ~600 +
+# flyby hops ~300 + settle + margin.
+# runtime 3500 (review SF-5) >= 240 LoadGame + ~5 SetSetting + 3000 mission
+# + ~120 CommitTree + ~60 FlushAndQuit + ~75 margin: the post-mission seam
+# steps must survive a FULL-budget mission (previously only ~60 s remained).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 3000 },
+  { cmd = "CommitTree",                                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                        expect = "OK" },
+]
+
+# Ascent half = B2's proven tolerances verbatim; transfer half = B5's proven
+# shape re-sized for Minmus (validated against b6_minmus_flyby.schema.toml).
+[driver.missionParams]
+targetApoapsisMeters       = 80000
+targetPeriapsisMeters      = 80000
+apoErrorMeters             = 5000
+periErrorMeters            = 5000
+ascentTimeoutSeconds       = 420
+circularizeTimeoutSeconds  = 300
+targetBodyName             = "Minmus"
+homeBodyName               = "Kerbin"
+# Minmus orbits at ~46,400 km; a transfer burn that raised apoapsis past
+# 40,000 km is unambiguous burn evidence (floor, not a window).
+transferMinApoapsisMeters  = 40000000
+# Course-correct the flyby periapsis to 20 km: above the ~5.7 km Minmus peaks
+# + the 6 km assertion floor. Same dv cap as B5: it blocks the wild-burn
+# insanity class only, not genuine corrections (the DIY burner + aligned
+# debounce + no-progress give-up own the wild-burn risk; B5's seventeenth
+# flight priced a legitimate round-2 at ~170 m/s; finding 14).
+courseCorrectPeriapsisMeters = 20000
+maxCorrectionDvMps         = 300
+# Two rounds like B5: post-TLI + a mid-coast refinement at 20,000 km (Minmus
+# orbits at ~46,400 km).
+correctionTriggerAltsMeters = [0, 20000000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+# The burn itself is B5-sized, but the executor may autowarp up to a full
+# parking orbit to the node first; same 4000 game-second budget as B5.
+transferBurnTimeoutSeconds = 4000
+# ~9-day transfer coast (game seconds) + margin; runs at a HELD 10,000x via
+# non-blocking set_rails_warp, no per-hop ramp sawtooth.
+coastTimeoutSeconds        = 2000000
+flybyTimeoutSeconds        = 400000
+# Warp shaping (2026-07-22 warp-optimization pass; see
+# docs/dev/research/warp-optimization-findings.md and the B5 spec comments).
+# Same values as B5; note the Minmus altitude-limit table is the tightest of
+# the three bodies (100x needs >= 12 km, 10,000x >= 48 km), which the
+# machine's per-body clamp handles automatically during the low flyby.
+coastWarpFactor            = 6
+flybyWarpFactor            = 5
+flybyMaxWarpFactor         = 6
+nodeArrivalMarginSeconds   = 15
+planWarpFactor             = 2
+soiLeadSeconds             = 30
+flipPhysicsWarpFactor      = 1
+targetPeriapsisFloorMeters = 6000
+
+# Coverage: same cross-SOI recording cells as B5 with the minmus body axis.
+[dimensionsCovered]
+D1  = ["auto-record-launch"]
+D3  = ["orbital-checkpoint"]
+D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
+D14 = ["kerbin", "minmus", "warp-rails"]
+
+[expectations.recordings]
+# Same as B5: main + up to 6 boosters + LES margin + 1 flameout-staged dry
+# core (live finding 15).
+count = { min = 1, max = 9 }
+
+[expectations.logContracts]
+required  = ["Recording started", "Recording stopped"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+budgetSeconds = 3500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

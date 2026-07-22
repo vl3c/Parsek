@@ -1358,7 +1358,8 @@ class B4ParamTests(unittest.TestCase):
         p = mlib.b4_params_from_dict({})
         self.assertEqual(p.deorbit_periapsis, 25000.0)
         self.assertEqual(p.retro_settle_seconds, 10.0)
-        self.assertEqual(p.warp_above_alt, 70000.0)  # exo-only hops (SF-3)
+        self.assertEqual(p.warp_above_alt, 70000.0)
+  # exo-only hops (SF-3)
         self.assertEqual(p.warp_hop_seconds, 120.0)
         self.assertEqual(p.chute_deploy_alt, 3000.0)
         self.assertEqual(p.deorbit_timeout, 300.0)
@@ -1444,6 +1445,1806 @@ class B4AssertionTests(unittest.TestCase):
         verdict, reason = mlib.resolve_flight_verdict(state, outs)
         self.assertEqual(verdict, mlib.MISSION_ASSERT_FAIL)
         self.assertIn("vessel-lost", reason)
+
+
+B5_PARAMS = mlib.B5Params(
+    target_apoapsis=80000.0,
+    target_periapsis=80000.0,
+    apo_error=5000.0,
+    peri_error=5000.0,
+    ascent_timeout=420.0,
+    circularize_timeout=300.0,
+    target_body="Mun",
+    home_body="Kerbin",
+    transfer_min_apoapsis=10_000_000.0,
+    course_correct_periapsis=60000.0,
+    plan_timeout=300.0,
+    plan_retry_seconds=30.0,
+    transfer_burn_timeout=4000.0,
+    coast_timeout=400_000.0,
+    flyby_timeout=300_000.0,
+    coast_warp_factor=6,
+    flyby_warp_factor=5,
+    target_periapsis_floor=10000.0,
+)
+
+
+def drive_b5(state, frames):
+    per_frame = []
+    for f in frames:
+        state, actions = mlib.b5_decide(state, f)
+        per_frame.append(actions)
+    return state, per_frame
+
+
+def _b5_state(phase, **overrides):
+    """A B5State pinned in ``phase`` with phase_entry_ut=0."""
+    base = mlib.b5_initial_state(B5_PARAMS)
+    fields = {**base.__dict__, "phase": phase, "phase_entry_ut": 0.0}
+    fields.update(overrides)
+    return base.__class__(**fields)
+
+
+class B5MachineTests(unittest.TestCase):
+    """Guards the B5 machine: the ascent half must behave exactly like B4/B2,
+    the plan phases must hand a node to the executor exactly once and re-plan
+    only while no node exists, the TLI-burn exit needs BOTH an empty node list
+    AND the apoapsis floor, the coast/flyby SOI gates dispatch on body name
+    (with "" staying in phase), and RETURN entry is the only success terminal."""
+
+    def test_full_happy_path_walk(self):
+        state = mlib.b5_initial_state(B5_PARAMS)
+        frames = [
+            snap(ut=0.0, body="Kerbin"),                                # 0 PRELAUNCH->MJ-ASCENT
+            snap(ut=180.0, apoapsis=78000.0, mj_ascent_complete=True,
+                 body="Kerbin"),                                        # 1 ->CIRCULARIZE
+            snap(ut=260.0, apoapsis=80000.0, periapsis=79000.0,
+                 body="Kerbin"),                                        # 2 ->ORBIT
+            snap(ut=261.0, apoapsis=80000.0, periapsis=79000.0,
+                 body="Kerbin"),                                        # 3 ORBIT->PLAN-TRANSFER (target+plan)
+            snap(ut=265.0, apoapsis=80000.0, periapsis=79000.0,
+                 body="Kerbin", node_count=1),                          # 4 node -> TRANSFER-BURN (execute)
+            snap(ut=300.0, apoapsis=80000.0, periapsis=79000.0,
+                 body="Kerbin", node_count=1),                          # 5 executor warping/burning
+            snap(ut=2200.0, apoapsis=11_500_000.0, periapsis=79000.0,
+                 body="Kerbin", node_count=0,
+                 altitude=90_000.0),                                    # 6 burn done -> COAST
+            snap(ut=2210.0, apoapsis=11_500_000.0, body="Kerbin",
+                 altitude=95_000.0),                                    # 7 trigger 0 -> PLAN-CORRECTION (round 1)
+            snap(ut=2230.0, apoapsis=11_500_000.0, body="Kerbin",
+                 node_count=1),                                         # 8 node -> CORRECTION-BURN (AP point)
+            snap(ut=2235.0, apoapsis=11_500_000.0, body="Kerbin",
+                 node_count=1, node_dv=110.0, ap_error=1.4),            # 9 settling (streak 1) -> flip phys warp
+            snap(ut=2245.0, apoapsis=11_500_000.0, body="Kerbin",
+                 node_count=1, node_dv=110.0, ap_error=1.2,
+                 warp_mode="PHYSICS", warp_rate=2.0),                   # 10 settled + streak 2 -> drop phys warp
+            snap(ut=2247.0, apoapsis=11_500_000.0, body="Kerbin",
+                 node_count=1, node_dv=110.0, ap_error=1.1),            # 11 warp NONE -> throttle
+            snap(ut=2260.0, apoapsis=11_400_000.0, body="Kerbin",
+                 node_count=1, node_dv=40.0, ap_error=1.0),             # 12 burning
+            snap(ut=2270.0, apoapsis=11_350_000.0, body="Kerbin",
+                 node_count=1, node_dv=1.5, ap_error=1.0),              # 13 dv <= cut -> cut triple
+            snap(ut=2400.0, apoapsis=11_350_000.0, body="Kerbin",
+                 altitude=200_000.0),                                   # 14 coast: stair capped by ALTITUDE limits
+            snap(ut=8000.0, apoapsis=11_350_000.0, body="Kerbin",
+                 altitude=6_500_000.0),                                 # 15 trigger 6M -> PLAN-CORRECTION (round 2)
+            snap(ut=8010.0, apoapsis=11_350_000.0, body="Kerbin",
+                 altitude=6_510_000.0, node_count=1),                   # 16 node -> CORRECTION-BURN (AP point)
+            snap(ut=8018.0, apoapsis=11_350_000.0, body="Kerbin",
+                 altitude=6_515_000.0, node_count=1, node_dv=4.0,
+                 ap_error=0.9),                                         # 17 settling (streak 1) -> flip phys warp
+            snap(ut=8025.0, apoapsis=11_350_000.0, body="Kerbin",
+                 altitude=6_520_000.0, node_count=1, node_dv=4.0,
+                 ap_error=0.8, warp_mode="PHYSICS", warp_rate=2.0),     # 18 settled + streak 2 -> drop phys warp
+            snap(ut=8030.0, apoapsis=11_350_000.0, body="Kerbin",
+                 altitude=6_525_000.0, node_count=0),                   # 19 node consumed -> cut pair
+            snap(ut=9000.0, apoapsis=11_350_000.0, body="Kerbin",
+                 altitude=7_000_000.0),                                 # 20 coast (rounds spent) -> full warp
+            snap(ut=40_000.0, altitude=2_000_000.0, body="Mun"),        # 21 SOI! -> TARGET-FLYBY
+            snap(ut=40_100.0, altitude=800_000.0, body="Mun",
+                 periapsis=61_000.0),                                   # 22 outer leg -> flyby stair above floor
+            snap(ut=40_700.0, altitude=61_000.0, body="Mun",
+                 periapsis=61_000.0, warp_mode="RAILS",
+                 warp_rate=1000.0),                                     # 23 periapsis area -> flyby floor
+            snap(ut=80_000.0, altitude=3_000_000.0, body="Kerbin"),     # 24 home SOI -> RETURN terminal
+        ]
+        state, per_frame = drive_b5(state, frames)
+        self.assertTrue(state.done)
+        self.assertEqual(state.phase, mlib.B5_RETURN)
+        self.assertIsNone(state.verdict)
+        self.assertIsNone(state.loss_reason)
+        self.assertEqual(state.min_target_altitude, 61_000.0)
+        self.assertEqual(state.correction_rounds_done, 2)
+        self.assertEqual(state.phases_reached,
+                         (mlib.B5_PRELAUNCH, mlib.B5_MJ_ASCENT, mlib.B5_CIRCULARIZE,
+                          mlib.B5_ORBIT, mlib.B5_PLAN_TRANSFER, mlib.B5_TRANSFER_BURN,
+                          mlib.B5_COAST_TO_TARGET,
+                          mlib.B5_PLAN_CORRECTION, mlib.B5_CORRECTION_BURN,
+                          mlib.B5_COAST_TO_TARGET,
+                          mlib.B5_PLAN_CORRECTION, mlib.B5_CORRECTION_BURN,
+                          mlib.B5_COAST_TO_TARGET, mlib.B5_TARGET_FLYBY,
+                          mlib.B5_RETURN))
+        self.assertEqual(per_frame[0], [
+            Action(mlib.ACTION_MJ_SET_TARGET_APOAPSIS, 80000.0),
+            Action(mlib.ACTION_MJ_ENABLE_AUTOSTAGE),
+            Action(mlib.ACTION_MJ_ENGAGE_ASCENT),
+            Action(mlib.ACTION_ACTIVATE_STAGE)])
+        self.assertEqual(per_frame[1], [Action(mlib.ACTION_MJ_EXECUTE_CIRCULARIZATION)])
+        self.assertEqual(per_frame[3], [
+            Action(mlib.ACTION_SET_TARGET_BODY, text="Mun"),
+            Action(mlib.ACTION_MJ_PLAN_TRANSFER)])
+        self.assertEqual(per_frame[4], [Action(mlib.ACTION_MJ_EXECUTE_NODES)])
+        self.assertEqual(per_frame[5], [])   # executor owns the TLI: machine silent
+        self.assertEqual(per_frame[6], [])   # TRANSFER-BURN -> COAST transition frame
+        # Trigger prelude steps straight to the PLAN rails hold (10x --
+        # operator PR gate: plan phases never idle at 1x).
+        self.assertEqual(per_frame[7], [Action(mlib.ACTION_SET_RAILS_WARP, 2.0),
+                                        Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
+                                               limit=150.0)])
+        self.assertEqual(per_frame[8], [Action(mlib.ACTION_AP_POINT_NODE)])
+        # Flip under mild physics warp (streak 1, still settling), dropped on
+        # the gate-open frame, throttle only on the following warp-NONE frame.
+        self.assertEqual(per_frame[9], [Action(mlib.ACTION_SET_PHYSICS_WARP, 1.0)])
+        self.assertEqual(per_frame[10], [Action(mlib.ACTION_SET_PHYSICS_WARP, 0.0)])
+        self.assertEqual(per_frame[11], [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
+        self.assertEqual(per_frame[12], [])  # burn latch: throttle issued ONCE
+        self.assertEqual(per_frame[13], [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+                                         Action(mlib.ACTION_AP_DISENGAGE),
+                                         Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
+        # 200 km Kerbin: the trigger stair wants 6 (10,000x) but the stock
+        # altitude table only legalizes 100x there -- command the ACHIEVABLE 4
+        # (the old commanded-6 ran the whole leg silently clamped to 50x).
+        self.assertEqual(per_frame[14], [Action(mlib.ACTION_SET_RAILS_WARP, 4.0)])
+        self.assertEqual(per_frame[15], [Action(mlib.ACTION_SET_RAILS_WARP, 2.0),
+                                         Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
+                                                limit=150.0)])
+        self.assertEqual(per_frame[16], [Action(mlib.ACTION_AP_POINT_NODE)])
+        self.assertEqual(per_frame[17], [Action(mlib.ACTION_SET_PHYSICS_WARP, 1.0)])
+        self.assertEqual(per_frame[18], [Action(mlib.ACTION_SET_PHYSICS_WARP, 0.0)])
+        self.assertEqual(per_frame[19], [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+                                         Action(mlib.ACTION_AP_DISENGAGE)])
+        self.assertEqual(per_frame[20], [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+        self.assertEqual(per_frame[21], [])  # SOI-entry transition frame
+        # Outer flyby leg: the stair runs ABOVE the 100x floor (self-healing
+        # re-emit: the game reads warp NONE despite the held command).
+        self.assertEqual(per_frame[22], [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+        # Periapsis area: back down to the flyby floor, altitude-legal at 61 km.
+        self.assertEqual(per_frame[23], [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
+        self.assertEqual(per_frame[24], [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])  # RETURN: drop warp
+
+    def test_plan_transfer_replans_only_while_no_node(self):
+        # A failed plan (server-side OperationException -> no node) re-issues on
+        # the bounded cadence; a node appearing hands off EXACTLY once.
+        state = _b5_state(mlib.B5_PLAN_TRANSFER, last_plan_ut=0.0)
+        # 10s after the last plan: below the 30s cadence, no re-plan.
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin"))
+        self.assertEqual(actions, [])
+        # 35s: cadence reached, re-plan (still no node).
+        state, actions = mlib.b5_decide(state, snap(ut=35.0, body="Kerbin"))
+        self.assertEqual(actions, [Action(mlib.ACTION_MJ_PLAN_TRANSFER)])
+        self.assertEqual(state.last_plan_ut, 35.0)
+        # Node appeared: execute + transition; NEVER another plan (stacking guard).
+        state, actions = mlib.b5_decide(state, snap(ut=40.0, body="Kerbin", node_count=1))
+        self.assertEqual(actions, [Action(mlib.ACTION_MJ_EXECUTE_NODES)])
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+
+    def test_plan_transfer_timeout_flakes(self):
+        # PLAN-TRANSFER expiry is a FLAKE (no transfer = no mission), unlike
+        # PLAN-CORRECTION's fall-through.
+        state = _b5_state(mlib.B5_PLAN_TRANSFER, last_plan_ut=0.0)
+        state, _ = mlib.b5_decide(state, snap(ut=301.0, body="Kerbin"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.B5_PLAN_TRANSFER)
+
+    def test_plan_correction_timeout_falls_through_to_coast(self):
+        # The correction is best-effort: budget expiry proceeds to the coast
+        # instead of flaking (MechJeb may transiently see no encounter), and
+        # CONSUMES the round so a disqualified plan can never re-trigger
+        # immediately (the next trigger altitude owns any further refinement).
+        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
+        state, actions = mlib.b5_decide(state, snap(ut=301.0, body="Kerbin"))
+        self.assertFalse(state.done)
+        self.assertIsNone(state.verdict)
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.correction_rounds_done, 1)
+        self.assertEqual(actions, [])
+
+    def test_transfer_burn_needs_empty_nodes_and_apoapsis_floor(self):
+        state = _b5_state(mlib.B5_TRANSFER_BURN)
+        # Nodes empty but apoapsis still low (executor aborted without burning):
+        # stay -- the budget owns the outcome.
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, apoapsis=90000.0,
+                                              body="Kerbin", node_count=0))
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+        # Apoapsis high but a node still pending: stay (mid-burn).
+        state, _ = mlib.b5_decide(state, snap(ut=20.0, apoapsis=11_000_000.0,
+                                              body="Kerbin", node_count=1))
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+        # Both: advance into the coast (the correction rounds are
+        # COAST-triggered now, never a direct TRANSFER-BURN branch).
+        state, actions = mlib.b5_decide(state, snap(ut=30.0, apoapsis=11_000_000.0,
+                                                    body="Kerbin", node_count=0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(actions, [])
+        # The first COAST frame crosses trigger 0 -> PLAN-CORRECTION (round 1).
+        state, actions = mlib.b5_decide(state, snap(ut=40.0, apoapsis=11_000_000.0,
+                                                    altitude=90_000.0, body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
+        # The prelude steps straight to the PLAN rails hold (operator PR
+        # gate: plan phases never idle at 1x).
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 2.0),
+                                   Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
+                                          limit=150.0)])
+
+    def test_transfer_burn_capture_stray_node_cleared_on_exit(self):
+        # First live B5 flight (2026-07-21, both attempts): OperationTransfer
+        # planned a capture/arrival burn as a SECOND node; the executor consumed
+        # the TLI node (2 -> 1) and autowarped toward the arrival node while the
+        # old node_count==0 exit parked the machine until the burn budget
+        # flaked. The exit is now "node_count fell below the planned handoff
+        # count AND the apoapsis floor", with the stray aborted+cleared.
+        state = _b5_state(mlib.B5_PLAN_TRANSFER, last_plan_ut=0.0)
+        # Plan produced TWO nodes: handoff records planned_node_count=2.
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin", node_count=2))
+        self.assertEqual(actions, [Action(mlib.ACTION_MJ_EXECUTE_NODES)])
+        self.assertEqual(state.planned_node_count, 2)
+        # Mid-TLI: apoapsis crosses the floor but BOTH nodes still pending --
+        # must NOT exit (the burn is still flying).
+        state, actions = mlib.b5_decide(state, snap(ut=100.0, apoapsis=10_500_000.0,
+                                                    body="Kerbin", node_count=2))
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+        self.assertEqual(actions, [])
+        # TLI consumed (2 -> 1) + floor: exit into the coast, clearing the
+        # stray arrival node on the way out.
+        state, actions = mlib.b5_decide(state, snap(ut=200.0, apoapsis=11_300_000.0,
+                                                    body="Kerbin", node_count=1))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(actions, [Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
+
+    def test_correction_burn_diy_cut_on_threshold(self):
+        # DIY burner happy flow: AP-point handoff, settle+align gate, ONE
+        # throttle, cut when remaining dv reaches the threshold (round
+        # consumed, full cleanup incl. clearing the sub-threshold node).
+        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin", node_count=1))
+        self.assertEqual(actions, [Action(mlib.ACTION_AP_POINT_NODE)])
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        # Aligned but not settled (5 s < 10 s): no throttle; the flip engages
+        # mild physics warp (on-change).
+        state, actions = mlib.b5_decide(state, snap(ut=15.0, body="Kerbin",
+                                                    node_count=1, node_dv=100.0,
+                                                    ap_error=1.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_PHYSICS_WARP, 1.0)])
+        # Settled but misaligned (|error| beyond the rough 30-degree start
+        # gate; the sign is irrelevant -- live kRPC readings go negative): no
+        # throttle; physics warp HELD (no re-emission while the game reads
+        # PHYSICS).
+        state, actions = mlib.b5_decide(state, snap(ut=21.0, body="Kerbin",
+                                                    node_count=1, node_dv=100.0,
+                                                    ap_error=-178.0,
+                                                    warp_mode="PHYSICS",
+                                                    warp_rate=2.0))
+        self.assertEqual(actions, [])
+        # First aligned frame after the misalign reset: streak 1 of 2, no fire.
+        state, actions = mlib.b5_decide(state, snap(ut=23.0, body="Kerbin",
+                                                    node_count=1, node_dv=100.0,
+                                                    ap_error=1.0,
+                                                    warp_mode="PHYSICS",
+                                                    warp_rate=2.0))
+        self.assertEqual(actions, [])
+        # Settled AND aligned for the debounce depth: the gate opens, but the
+        # burn must start at 1x -- the physics warp is dropped FIRST.
+        state, actions = mlib.b5_decide(state, snap(ut=25.0, body="Kerbin",
+                                                    node_count=1, node_dv=100.0,
+                                                    ap_error=1.0,
+                                                    warp_mode="PHYSICS",
+                                                    warp_rate=2.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_PHYSICS_WARP, 0.0)])
+        self.assertFalse(state.corr_burn_started)
+        # Next frame reads warp NONE: exactly one throttle-up.
+        state, actions = mlib.b5_decide(state, snap(ut=26.0, body="Kerbin",
+                                                    node_count=1, node_dv=100.0,
+                                                    ap_error=1.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
+        self.assertTrue(state.corr_burn_started)
+        # Cut at/below the threshold.
+        state, actions = mlib.b5_decide(state, snap(ut=40.0, body="Kerbin",
+                                                    node_count=1, node_dv=1.8,
+                                                    ap_error=1.0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.correction_rounds_done, 1)
+        self.assertEqual(actions, [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+                                   Action(mlib.ACTION_AP_DISENGAGE),
+                                   Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
+
+    def test_transfer_burn_stagnation_watchdog_unwedges_executor(self):
+        """Fifth live flight (2026-07-22): the executor BURNED a node then held
+        it forever (orbit changed, then static at 1x, node pending) until the
+        phase budget flaked. In TRANSFER-BURN the watchdog treats
+        changed-since-entry + static-at-1x for burnStagnantSeconds as burn
+        complete (with the apoapsis floor met): abort+clear the stale node and
+        coast."""
+        state = _b5_state(mlib.B5_PLAN_TRANSFER, last_plan_ut=0.0)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, apoapsis=84_000.0,
+                                              periapsis=79_000.0, body="Kerbin",
+                                              node_count=1))
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+        # The burn: apsides moving frame to frame (never static).
+        state, _ = mlib.b5_decide(state, snap(ut=20.0, apoapsis=5_000_000.0,
+                                              periapsis=76_000.0, body="Kerbin",
+                                              node_count=1))
+        # Post-burn wedge ABOVE the floor: orbit static at 1x, node pending.
+        wedged = dict(apoapsis=11_322_716.568, periapsis=76_555.0,
+                      body="Kerbin", node_count=1)
+        state, _ = mlib.b5_decide(state, snap(ut=30.0, **wedged))
+        state, _ = mlib.b5_decide(state, snap(ut=40.0, **wedged))   # static run starts
+        state, actions = mlib.b5_decide(state, snap(ut=100.0, **wedged))
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)        # < 120s: wait
+        self.assertEqual(actions, [])
+        state, actions = mlib.b5_decide(state, snap(ut=161.0, **wedged))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)      # unwedge + coast
+        self.assertEqual(actions, [Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
+
+    def test_transfer_burn_autowarp_never_counts_as_stagnant(self):
+        """RAILS autowarp toward the node (static orbit, warp != NONE) never
+        counts toward the TRANSFER-BURN watchdog, no matter how long."""
+        state = _b5_state(mlib.B5_PLAN_TRANSFER, last_plan_ut=0.0)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, apoapsis=84_000.0,
+                                              periapsis=79_000.0, body="Kerbin",
+                                              node_count=1))
+        warped = dict(apoapsis=84_000.0, periapsis=79_000.0, body="Kerbin",
+                      node_count=1, warp_mode="RAILS", warp_rate=100.0)
+        for ut in (900.0, 1200.0, 1500.0, 2500.0):
+            state, actions = mlib.b5_decide(state, snap(ut=ut, **warped))
+            self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+            self.assertEqual(actions, [])
+
+    def test_correction_burn_alignment_giveup_consumes_round(self):
+        """DIY burner: if the attitude gate never opens (AP wedged / never
+        aligned), the round is given up cleanly at burnNoStartSeconds -- cut +
+        disengage + clear -- instead of flaking the mission."""
+        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, apoapsis=11_480_000.0,
+                                                    periapsis=76_000.0, body="Kerbin",
+                                                    node_count=1))
+        self.assertEqual(actions, [Action(mlib.ACTION_AP_POINT_NODE)])
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        # Never aligned (ap_error NaN default fails closed): tolerated up to
+        # the give-up bound; the flip engages physics warp once and holds it.
+        pre = dict(apoapsis=11_480_000.0, periapsis=76_000.0, body="Kerbin",
+                   node_count=1)
+        state, actions = mlib.b5_decide(state, snap(ut=20.0, **pre))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_PHYSICS_WARP, 1.0)])
+        for ut in (400.0, 600.0):
+            state, actions = mlib.b5_decide(state, snap(
+                ut=ut, warp_mode="PHYSICS", warp_rate=2.0, **pre))
+            self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+            self.assertEqual(actions, [])
+        # ...then given up: round consumed, full cleanup INCLUDING dropping
+        # the flip's physics warp on the way out.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=611.0, warp_mode="PHYSICS", warp_rate=2.0, **pre))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.correction_rounds_done, 1)
+        self.assertEqual(state.phys_warp_cmd, 0)
+        self.assertEqual(actions, [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+                                   Action(mlib.ACTION_AP_DISENGAGE),
+                                   Action(mlib.ACTION_SET_PHYSICS_WARP, 0.0),
+                                   Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
+
+    def test_correction_burn_overshoot_cuts(self):
+        """DIY burner: a RISING remaining node dv (burning past the vector)
+        cuts immediately even though the cut threshold was never reached."""
+        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin", node_count=1))
+        state, _ = mlib.b5_decide(state, snap(ut=20.0, body="Kerbin",
+                                              node_count=1, node_dv=50.0,
+                                              ap_error=1.0))     # streak 1 of 2 (flip phys warp)
+        state, actions = mlib.b5_decide(state, snap(ut=25.0, body="Kerbin",
+                                                    node_count=1, node_dv=50.0,
+                                                    ap_error=1.0,
+                                                    warp_mode="PHYSICS",
+                                                    warp_rate=2.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_PHYSICS_WARP, 0.0)])
+        state, actions = mlib.b5_decide(state, snap(ut=26.0, body="Kerbin",
+                                                    node_count=1, node_dv=50.0,
+                                                    ap_error=1.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
+        state, actions = mlib.b5_decide(state, snap(ut=30.0, body="Kerbin",
+                                                    node_count=1, node_dv=8.0,
+                                                    ap_error=1.0))
+        self.assertEqual(actions, [])
+        # dv rising well past the observed minimum: overshoot -> cut.
+        state, actions = mlib.b5_decide(state, snap(ut=35.0, body="Kerbin",
+                                                    node_count=1, node_dv=9.0,
+                                                    ap_error=1.0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.correction_rounds_done, 1)
+        self.assertEqual(actions, [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+                                   Action(mlib.ACTION_AP_DISENGAGE),
+                                   Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
+
+    def test_correction_burn_aim_then_warp_happy_path(self):
+        """OPERATOR PR GATE (no-1x-coast): the correction burn AIMS first
+        (2x-physics flip + aligned debounce), then natively warps to
+        node_ut - nodeArrivalMarginSeconds (rails freezes orientation),
+        re-verifies the streak on arrival, and throttles -- the old 1x wait
+        to the node is gone."""
+        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin",
+                                                    node_count=1, node_ut=2000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_AP_POINT_NODE)])
+        # Flip at 2x physics while settling (streak 1).
+        state, actions = mlib.b5_decide(state, snap(ut=15.0, body="Kerbin",
+                                                    node_count=1, node_ut=2000.0,
+                                                    node_dv=50.0, ap_error=1.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_PHYSICS_WARP, 1.0)])
+        # Gate opens: physics warp dropped first.
+        state, actions = mlib.b5_decide(state, snap(ut=25.0, body="Kerbin",
+                                                    node_count=1, node_ut=2000.0,
+                                                    node_dv=50.0, ap_error=1.0,
+                                                    warp_mode="PHYSICS",
+                                                    warp_rate=2.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_PHYSICS_WARP, 0.0)])
+        # AIM DONE at 1x: warp natively to node_ut - 15; streak resets so the
+        # arrival re-earns the debounce.
+        state, actions = mlib.b5_decide(state, snap(ut=26.0, body="Kerbin",
+                                                    node_count=1, node_ut=2000.0,
+                                                    node_dv=50.0, ap_error=1.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO_UT, 1985.0)])
+        self.assertEqual(state.warp_to_cmd, 1985.0)
+        self.assertEqual(state.aligned_streak, 0)
+        # Mid-warp: silent hold (no flip, no rails, no give-up ticking).
+        state, actions = mlib.b5_decide(state, snap(ut=1000.0, body="Kerbin",
+                                                    node_count=1, node_ut=2000.0,
+                                                    node_dv=50.0, ap_error=1.0,
+                                                    warping_to=1985.0,
+                                                    warp_mode="RAILS",
+                                                    warp_rate=1000.0))
+        self.assertEqual(actions, [])
+        # ARRIVAL: command clears, no-start clock re-anchors, and the
+        # re-verify runs the flip machinery for the fresh debounce (rails
+        # held the attitude, so this is the documented 2-frame churn).
+        state, actions = mlib.b5_decide(state, snap(ut=1990.0, body="Kerbin",
+                                                    node_count=1, node_ut=2000.0,
+                                                    node_dv=50.0, ap_error=1.0))
+        self.assertIsNone(state.warp_to_cmd)
+        self.assertEqual(state.corr_nostart_anchor_ut, 1990.0)
+        self.assertEqual(state.aligned_streak, 1)
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_PHYSICS_WARP, 1.0)])
+        state, actions = mlib.b5_decide(state, snap(ut=1991.0, body="Kerbin",
+                                                    node_count=1, node_ut=2000.0,
+                                                    node_dv=50.0, ap_error=1.0,
+                                                    warp_mode="PHYSICS",
+                                                    warp_rate=2.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_PHYSICS_WARP, 0.0)])
+        # Re-verified at 1x inside the margin: throttle (no re-warp -- the
+        # node is within the arrival margin now).
+        state, actions = mlib.b5_decide(state, snap(ut=1992.0, body="Kerbin",
+                                                    node_count=1, node_ut=2000.0,
+                                                    node_dv=50.0, ap_error=1.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
+        self.assertTrue(state.corr_burn_started)
+
+    def test_correction_burn_aim_warp_nostart_anchor_and_drift_reflip(self):
+        """The no-start give-up must NOT fire on arrival after a long warp
+        (warp time is not alignment time), and a drifted attitude on arrival
+        re-enters the 2x-physics flip bounded by the re-anchored give-up."""
+        state = _b5_state(mlib.B5_CORRECTION_BURN,
+                          warp_to_cmd=3000.0, last_warp_issue_ut=20.0,
+                          phase_entry_ut=0.0)
+        # Arrival 3010 game-s after phase entry (5x burnNoStartSeconds):
+        # DRIFTED attitude -> no give-up, the flip re-engages instead.
+        state, actions = mlib.b5_decide(state, snap(ut=3010.0, body="Kerbin",
+                                                    node_count=1, node_ut=3015.0,
+                                                    node_dv=50.0, ap_error=100.0))
+        self.assertFalse(state.done)
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        self.assertIsNone(state.warp_to_cmd)
+        self.assertEqual(state.corr_nostart_anchor_ut, 3010.0)
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_PHYSICS_WARP, 1.0)])
+        # Still misaligned 590 s after the ARRIVAL anchor: not yet.
+        state, actions = mlib.b5_decide(state, snap(ut=3600.0, body="Kerbin",
+                                                    node_count=1, node_ut=3015.0,
+                                                    node_dv=50.0, ap_error=100.0,
+                                                    warp_mode="PHYSICS",
+                                                    warp_rate=2.0))
+        self.assertFalse(state.done)
+        # 601 s after the anchor: the give-up fires (round consumed).
+        state, actions = mlib.b5_decide(state, snap(ut=3611.0, body="Kerbin",
+                                                    node_count=1, node_ut=3015.0,
+                                                    node_dv=50.0, ap_error=100.0,
+                                                    warp_mode="PHYSICS",
+                                                    warp_rate=2.0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.correction_rounds_done, 1)
+
+    def test_correction_burn_node_vanish_mid_warp_cancels(self):
+        """A node that vanishes while the aim-warp is in flight exits the
+        round cleanly AND cancels the native warp."""
+        state = _b5_state(mlib.B5_CORRECTION_BURN,
+                          warp_to_cmd=5000.0, last_warp_issue_ut=20.0)
+        state, actions = mlib.b5_decide(state, snap(ut=1000.0, body="Kerbin",
+                                                    node_count=0,
+                                                    warping_to=5000.0,
+                                                    warp_mode="RAILS",
+                                                    warp_rate=1000.0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.correction_rounds_done, 1)
+        self.assertIsNone(state.warp_to_cmd)
+        self.assertEqual(actions, [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+                                   Action(mlib.ACTION_AP_DISENGAGE),
+                                   Action(mlib.ACTION_CANCEL_WARP)])
+
+    def test_plan_phase_holds_rails_warp_between_attempts(self):
+        """OPERATOR PR GATE: plan phases ride the legality-clamped
+        planWarpFactor (10x) between attempts -- never 1x."""
+        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=100.0,
+                          phase_entry_ut=100.0)
+        # First frame after entry (no cadence due): the hold is commanded.
+        state, actions = mlib.b5_decide(state, snap(ut=105.0, altitude=90_000.0,
+                                                    body="Kerbin"))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 2.0)])
+        # Held silently while the game rails at 10x.
+        state, actions = mlib.b5_decide(state, snap(ut=107.0, altitude=95_000.0,
+                                                    body="Kerbin",
+                                                    warp_mode="RAILS",
+                                                    warp_rate=10.0))
+        self.assertEqual(actions, [])
+
+    def test_no_1x_coast_invariant(self):
+        """OPERATOR PR GATE INVARIANT: in COAST-TO-TARGET and TARGET-FLYBY
+        the machine never COMMANDS rails factor 0 or 1 except when (a) the
+        impact guard is active, (b) a pending node is inside the arrival
+        margin or its UT is unknown (fail closed), or (c) the body/altitude
+        reading is blank (fail closed). The altitude-legality clamp is a
+        hard game constraint and the grid stays at exo altitudes where it
+        never binds below 2. Native warp_to_ut emissions are always legal."""
+        coast_grid = [
+            # rounds pending: trigger stair across the whole approach band
+            dict(rounds=0, kw=dict(ut=10.0, altitude=90_000.0, body="Kerbin",
+                                   vertical_speed=800.0)),
+            dict(rounds=1, kw=dict(ut=10.0, altitude=4_500_000.0, body="Kerbin",
+                                   vertical_speed=800.0)),
+            dict(rounds=1, kw=dict(ut=10.0, altitude=5_900_000.0, body="Kerbin",
+                                   vertical_speed=800.0)),
+            dict(rounds=1, kw=dict(ut=10.0, altitude=5_995_000.0, body="Kerbin",
+                                   vertical_speed=800.0)),
+            dict(rounds=1, kw=dict(ut=10.0, altitude=5_999_900.0, body="Kerbin",
+                                   vertical_speed=800.0)),
+            # rounds spent: no encounter / far encounter / inside SOI lead
+            dict(rounds=2, kw=dict(ut=10.0, altitude=8_000_000.0, body="Kerbin")),
+            dict(rounds=2, kw=dict(ut=10.0, altitude=8_000_000.0, body="Kerbin",
+                                   time_to_soi=200_000.0)),
+            dict(rounds=2, kw=dict(ut=10.0, altitude=10_000_000.0, body="Kerbin",
+                                   time_to_soi=25.0)),
+            dict(rounds=2, kw=dict(ut=10.0, altitude=10_000_000.0, body="Kerbin",
+                                   time_to_soi=5.0)),
+            # pending node far out (native warp, no rails)
+            dict(rounds=2, kw=dict(ut=10.0, altitude=8_000_000.0, body="Kerbin",
+                                   node_count=1, node_ut=50_000.0)),
+        ]
+        for case in coast_grid:
+            state = _b5_state(mlib.B5_COAST_TO_TARGET,
+                              correction_rounds_done=case["rounds"])
+            state, actions = mlib.b5_decide(state, snap(**case["kw"]))
+            if state.phase != mlib.B5_COAST_TO_TARGET:
+                continue  # trigger crossings enter PLAN (its own hold)
+            for a in actions:
+                if a.kind == mlib.ACTION_SET_RAILS_WARP:
+                    self.assertGreaterEqual(a.value, 2.0, case)
+        flyby_grid = [
+            dict(kw=dict(ut=10.0, altitude=2_000_000.0, periapsis=60_000.0,
+                         body="Mun")),
+            dict(kw=dict(ut=10.0, altitude=61_000.0, periapsis=56_000.0,
+                         body="Mun")),
+            dict(kw=dict(ut=10.0, altitude=20_000.0, periapsis=15_000.0,
+                         body="Mun")),
+            dict(kw=dict(ut=10.0, altitude=2_300_000.0, periapsis=60_000.0,
+                         body="Mun", time_to_soi=20.0)),
+            dict(kw=dict(ut=10.0, altitude=2_000_000.0, periapsis=60_000.0,
+                         body="Mun", time_to_soi=8_000.0)),
+        ]
+        for case in flyby_grid:
+            state = _b5_state(mlib.B5_TARGET_FLYBY)
+            state, actions = mlib.b5_decide(state, snap(**case["kw"]))
+            for a in actions:
+                if a.kind == mlib.ACTION_SET_RAILS_WARP:
+                    self.assertGreaterEqual(a.value, 2.0, case)
+        # The allowed-0 cases stay 0: impact guard...
+        state = _b5_state(mlib.B5_TARGET_FLYBY, warp_cmd=5)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, altitude=300_000.0, periapsis=-28_000.0, body="Mun"))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+        # ...and a pending node with an unknown UT (fail closed).
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
+                          warp_cmd=6)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, altitude=8_000_000.0, body="Kerbin", node_count=1))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+
+    def test_correction_burn_no_progress_gives_up(self):
+        """BLOCKER-1 (review): the finding-9b NO-PROGRESS give-up. A started
+        burn whose remaining node dv FREEZES (zero thrust despite the throttle
+        command -- tenth live flight) is given up after burnStagnantSeconds of
+        no progress: exit to COAST, round consumed, full cleanup."""
+        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin", node_count=1))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        # Flip + gate open + throttle-up (phys warp raised then dropped).
+        state, _ = mlib.b5_decide(state, snap(ut=15.0, body="Kerbin", node_count=1,
+                                              node_dv=50.0, ap_error=1.0))
+        state, _ = mlib.b5_decide(state, snap(ut=25.0, body="Kerbin", node_count=1,
+                                              node_dv=50.0, ap_error=1.0,
+                                              warp_mode="PHYSICS", warp_rate=2.0))
+        state, actions = mlib.b5_decide(state, snap(ut=26.0, body="Kerbin",
+                                                    node_count=1, node_dv=50.0,
+                                                    ap_error=1.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
+        # One frame of real progress re-stamps the anchor (ut=30).
+        state, actions = mlib.b5_decide(state, snap(ut=30.0, body="Kerbin",
+                                                    node_count=1, node_dv=49.0,
+                                                    ap_error=1.0))
+        self.assertEqual(actions, [])
+        # dv FROZEN at 49: under the 120 s bound, still tolerated...
+        state, actions = mlib.b5_decide(state, snap(ut=149.0, body="Kerbin",
+                                                    node_count=1, node_dv=49.0,
+                                                    ap_error=1.0))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        self.assertEqual(actions, [])
+        # ...and given up once 120 s pass with no progress since the anchor.
+        state, actions = mlib.b5_decide(state, snap(ut=151.0, body="Kerbin",
+                                                    node_count=1, node_dv=49.0,
+                                                    ap_error=1.0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.correction_rounds_done, 1)
+        self.assertEqual(actions, [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+                                   Action(mlib.ACTION_AP_DISENGAGE),
+                                   Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
+
+    def test_correction_burn_steady_progress_never_gives_up(self):
+        """BLOCKER-1 contrast: a strictly-dropping remaining dv re-stamps the
+        progress anchor every frame, so the no-progress give-up NEVER fires
+        across a span far beyond burnStagnantSeconds; the burn ends at the
+        normal cut threshold."""
+        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin", node_count=1))
+        state, _ = mlib.b5_decide(state, snap(ut=15.0, body="Kerbin", node_count=1,
+                                              node_dv=400.0, ap_error=1.0))
+        state, _ = mlib.b5_decide(state, snap(ut=25.0, body="Kerbin", node_count=1,
+                                              node_dv=400.0, ap_error=1.0,
+                                              warp_mode="PHYSICS", warp_rate=2.0))
+        state, actions = mlib.b5_decide(state, snap(ut=26.0, body="Kerbin",
+                                                    node_count=1, node_dv=400.0,
+                                                    ap_error=1.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
+        # 400 game-s of slow but STEADY progress (dv drops ~1 m/s per frame,
+        # frames 40 s apart -- each drop re-stamps the anchor). The apoapsis
+        # moves per frame (a live burn moves the apsides), so the separate
+        # frozen-telemetry detector never counts these frames.
+        dv = 400.0
+        for i in range(1, 11):
+            dv -= 1.0
+            state, actions = mlib.b5_decide(state, snap(
+                ut=26.0 + 40.0 * i, body="Kerbin", node_count=1,
+                node_dv=dv, ap_error=1.0,
+                apoapsis=11_000_000.0 + 10_000.0 * i))
+            self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN, i)
+            self.assertEqual(actions, [], i)
+        # Normal cut still owns the exit.
+        state, actions = mlib.b5_decide(state, snap(ut=500.0, body="Kerbin",
+                                                    node_count=1, node_dv=1.5,
+                                                    ap_error=1.0,
+                                                    apoapsis=11_500_000.0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(actions, [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+                                   Action(mlib.ACTION_AP_DISENGAGE),
+                                   Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
+
+    def test_plan_attempt_giveup_correction_falls_through(self):
+        """Finding 14: three disqualified/failed plans (node_count stays 0 --
+        the machine cannot tell over-cap removal from a no-encounter throw)
+        end PLAN-CORRECTION at the NEXT cadence check instead of 1x-idling
+        out the 300 s plan budget; the round is consumed."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=0)
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, altitude=90_000.0,
+                                                    body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
+        self.assertEqual(state.plan_attempts, 1)   # entry emission = attempt 1
+        self.assertEqual(actions[-1].kind, mlib.ACTION_MJ_PLAN_COURSE_CORRECT)
+        # Cadence re-plans: attempts 2 and 3 (the plan phase HOLDS its 10x
+        # rails factor between attempts -- operator PR gate; the RAILS
+        # fixture keeps the emission discipline silent).
+        state, actions = mlib.b5_decide(state, snap(ut=41.0, altitude=95_000.0,
+                                                    body="Kerbin",
+                                                    warp_mode="RAILS",
+                                                    warp_rate=10.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT,
+                                          60000.0, limit=150.0)])
+        self.assertEqual(state.plan_attempts, 2)
+        state, actions = mlib.b5_decide(state, snap(ut=72.0, altitude=100_000.0,
+                                                    body="Kerbin",
+                                                    warp_mode="RAILS",
+                                                    warp_rate=10.0))
+        self.assertEqual(state.plan_attempts, 3)
+        self.assertEqual(actions, [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT,
+                                          60000.0, limit=150.0)])
+        # Next cadence with still no node: give up EARLY (~90 s, not 300).
+        state, actions = mlib.b5_decide(state, snap(ut=103.0, altitude=105_000.0,
+                                                    body="Kerbin",
+                                                    warp_mode="RAILS",
+                                                    warp_rate=10.0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.correction_rounds_done, 1)
+        self.assertEqual(actions, [])
+
+    def test_plan_attempt_giveup_transfer_flakes(self):
+        """Finding 14: PLAN-TRANSFER takes the same early give-up as a FLAKE
+        (no transfer = no mission), not a silent fall-through."""
+        state = _b5_state(mlib.B5_ORBIT)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_PLAN_TRANSFER)
+        self.assertEqual(state.plan_attempts, 1)
+        state, _ = mlib.b5_decide(state, snap(ut=41.0, altitude=80_000.0,
+                                              body="Kerbin"))
+        state, _ = mlib.b5_decide(state, snap(ut=72.0, altitude=80_000.0,
+                                              body="Kerbin", warp_mode="RAILS",
+                                              warp_rate=10.0))
+        self.assertEqual(state.plan_attempts, 3)
+        state, _ = mlib.b5_decide(state, snap(ut=103.0, altitude=80_000.0,
+                                              body="Kerbin", warp_mode="RAILS",
+                                              warp_rate=10.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.B5_PLAN_TRANSFER)
+
+    def test_plan_attempt_three_with_node_still_hands_off(self):
+        """Finding 14: a node appearing on (or after) attempt 3 still hands
+        off to the burner normally -- the give-up only fires while
+        node_count is 0 at a cadence check."""
+        state = _b5_state(mlib.B5_ORBIT)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin"))
+        state, _ = mlib.b5_decide(state, snap(ut=41.0, altitude=80_000.0,
+                                              body="Kerbin"))
+        state, _ = mlib.b5_decide(state, snap(ut=72.0, altitude=80_000.0,
+                                              body="Kerbin", warp_mode="RAILS",
+                                              warp_rate=10.0))
+        self.assertEqual(state.plan_attempts, 3)
+        state, actions = mlib.b5_decide(state, snap(ut=90.0, body="Kerbin",
+                                                    node_count=1))
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+        self.assertEqual(actions, [Action(mlib.ACTION_MJ_EXECUTE_NODES)])
+
+    def test_transfer_burn_stagnation_under_floor_flakes(self):
+        """A wedged executor after an UNDER-FLOOR TLI (no transfer to coast on)
+        is a bounded flake, never a silent coast to nowhere."""
+        state = _b5_state(mlib.B5_PLAN_TRANSFER, last_plan_ut=0.0)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, apoapsis=84_000.0,
+                                              periapsis=79_000.0, body="Kerbin",
+                                              node_count=1))
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+        # Partial burn to 5M (under the 10M floor), then wedged static.
+        wedged = dict(apoapsis=5_000_000.0, periapsis=76_000.0, body="Kerbin",
+                      node_count=1)
+        state, _ = mlib.b5_decide(state, snap(ut=20.0, **wedged))
+        state, _ = mlib.b5_decide(state, snap(ut=30.0, **wedged))
+        state, _ = mlib.b5_decide(state, snap(ut=160.0, **wedged))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.B5_TRANSFER_BURN)
+
+    def test_coast_skips_correction_when_disabled(self):
+        # courseCorrectPeriapsisMeters=0 disables the rounds entirely: the first
+        # coast frame warps instead of entering PLAN-CORRECTION. At 90 km over
+        # Kerbin the stock altitude table legalizes only 50x (factor 3): the
+        # command is pre-clamped to the ACHIEVABLE factor, never the raw cap.
+        params = mlib.B5Params(**{**B5_PARAMS.__dict__, "course_correct_periapsis": 0.0})
+        base = mlib.b5_initial_state(params)
+        state = base.__class__(**{**base.__dict__, "phase": mlib.B5_COAST_TO_TARGET,
+                                  "phase_entry_ut": 0.0})
+        state, actions = mlib.b5_decide(state, snap(ut=30.0, apoapsis=11_000_000.0,
+                                                    altitude=90_000.0, body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 3.0)])
+        # High over Kerbin (>= 600 km) everything is legal: the full cap flows.
+        state, actions = mlib.b5_decide(state, snap(ut=40.0, apoapsis=11_000_000.0,
+                                                    altitude=8_000_000.0,
+                                                    body="Kerbin", warp_mode="RAILS",
+                                                    warp_rate=50.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+
+    def test_coast_correction_rounds_trigger_by_altitude(self):
+        # Round 1 (trigger 0) fires on the first coast frame; after it is done,
+        # the coast warps BELOW trigger 2's slow-down band and enters round 2
+        # at/above the trigger (dropping warp first); with both rounds spent,
+        # the coast holds full warp with NO re-emission.
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=1)
+        # 200 km: the trigger stair wants the full cap but the stock Kerbin
+        # table legalizes only 100x (factor 4) there -- command the achievable.
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, altitude=200_000.0,
+                                                    body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 4.0)])
+        state, actions = mlib.b5_decide(state, snap(ut=20.0, altitude=6_200_000.0,
+                                                    body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
+        # Prelude steps the held factor straight to the PLAN rails hold
+        # (never 1x -- operator PR gate).
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 2.0),
+                                   Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
+                                          limit=150.0)])
+        # Both rounds spent: full warp emitted once, then held silently.
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        state, actions = mlib.b5_decide(state, snap(ut=30.0, altitude=8_000_000.0,
+                                                    body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+        state, actions = mlib.b5_decide(state, snap(ut=40.0, altitude=8_400_000.0,
+                                                    body="Kerbin", warp_mode="RAILS",
+                                                    warp_rate=1000.0))
+        self.assertEqual(actions, [])   # factor held AND game warping: NO emission
+
+    def test_coast_reasserts_warp_when_game_dropped_it(self):
+        # Fifteenth flight: manual warp changes (or KSP's own drops) override
+        # the held factor; the on-change discipline must re-assert whenever the
+        # game is not rails-warping despite a nonzero command.
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
+                          warp_cmd=6)
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, altitude=8_000_000.0,
+                                                    body="Kerbin"))  # warp NONE
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+
+    def test_coast_stairs_warp_down_toward_trigger(self):
+        """Operator-reported bug (sixteenth flight round): the old binary
+        slow-down band held 1x for its ENTIRE 2,000 km (~40 real minutes at
+        coast speeds). The factor now STAIRS DOWN with remaining distance:
+        1000x far out, reduced factors approaching, 1x only in the last
+        moments."""
+        # Far below the 6M trigger at 800 m/s: 1000x (index 5) fits; the full
+        # 10,000x cap would overshoot the remaining 1.5M in one safety window.
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=1,
+                          warp_cmd=0)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, altitude=4_500_000.0, vertical_speed=800.0, body="Kerbin"))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
+        # ~100 km out: 1000x would overshoot; 100x fits.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=20.0, altitude=5_900_000.0, vertical_speed=800.0, body="Kerbin",
+            warp_mode="RAILS", warp_rate=1000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 4.0)])
+        # ~5 km out: the raw stair says 5x, but the no-1x-coast FLOOR keeps
+        # 10x (operator PR gate: a trigger is a refinement point, not a
+        # wall; overshoot at 10x is <= ~5 game-s per poll).
+        state, actions = mlib.b5_decide(state, snap(
+            ut=30.0, altitude=5_995_000.0, vertical_speed=800.0, body="Kerbin",
+            warp_mode="RAILS", warp_rate=100.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 2.0)])
+        # A few hundred metres out: still the factor-2 floor, held silently.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=40.0, altitude=5_999_600.0, vertical_speed=800.0, body="Kerbin",
+            warp_mode="RAILS", warp_rate=10.0))
+        self.assertEqual(actions, [])
+
+    def test_rails_factor_for_distance_pure(self):
+        # Index map: 5 = 1000x, 6 = 10,000x (RAILS_WARP_RATES).
+        self.assertEqual(mlib.rails_factor_for_distance(9_000_000, 800.0, 6), 6)
+        self.assertEqual(mlib.rails_factor_for_distance(5_800_000, 800.0, 6), 5)
+        self.assertEqual(mlib.rails_factor_for_distance(100_000, 800.0, 6), 4)
+        self.assertEqual(mlib.rails_factor_for_distance(5_000, 800.0, 6), 1)
+        self.assertEqual(mlib.rails_factor_for_distance(500, 800.0, 6), 0)
+        self.assertEqual(mlib.rails_factor_for_distance(-100, 800.0, 6), 0)
+        self.assertEqual(mlib.rails_factor_for_distance(float("nan"), 800.0, 6), 0)
+        # Tiny/zero closure speed floors at 10 m/s (conservative).
+        self.assertEqual(mlib.rails_factor_for_distance(50_000, 0.0, 6), 5)
+        # The cap is honored.
+        self.assertEqual(mlib.rails_factor_for_distance(5_800_000, 800.0, 3), 3)
+
+    def test_rails_factor_for_time_pure(self):
+        # Highest factor whose rate * 1 s safety window fits the remaining
+        # game time. Index map: 5 = 1000x, 6 = 10,000x, 7 = 100,000x.
+        self.assertEqual(mlib.rails_factor_for_time(2_000_000.0, 7), 7)
+        self.assertEqual(mlib.rails_factor_for_time(50_000.0, 7), 6)
+        self.assertEqual(mlib.rails_factor_for_time(50_000.0, 6), 6)
+        self.assertEqual(mlib.rails_factor_for_time(5_000.0, 6), 5)
+        self.assertEqual(mlib.rails_factor_for_time(30.0, 6), 2)
+        self.assertEqual(mlib.rails_factor_for_time(3.0, 6), 0)
+        # Fail closed: unknown / non-positive remaining time never warps.
+        self.assertEqual(mlib.rails_factor_for_time(0.0, 6), 0)
+        self.assertEqual(mlib.rails_factor_for_time(-10.0, 6), 0)
+        self.assertEqual(mlib.rails_factor_for_time(float("nan"), 6), 0)
+        # The cap is honored.
+        self.assertEqual(mlib.rails_factor_for_time(2_000_000.0, 5), 5)
+
+    def test_max_legal_rails_factor_pure(self):
+        # Ground-truth stock tables (extracted from the dev install's
+        # serialized CelestialBody.timeWarpAltitudeLimits; see mlib).
+        # Kerbin: 80 km parking orbit legalizes only 50x (factor 3) -- the
+        # live-observed clamp that silently ran a commanded 10,000x at 50x.
+        self.assertEqual(mlib.max_legal_rails_factor("Kerbin", 80_000.0), 3)
+        self.assertEqual(mlib.max_legal_rails_factor("Kerbin", 119_999.0), 3)
+        self.assertEqual(mlib.max_legal_rails_factor("Kerbin", 120_000.0), 4)
+        self.assertEqual(mlib.max_legal_rails_factor("Kerbin", 240_000.0), 5)
+        self.assertEqual(mlib.max_legal_rails_factor("Kerbin", 480_000.0), 6)
+        self.assertEqual(mlib.max_legal_rails_factor("Kerbin", 600_000.0), 7)
+        self.assertEqual(mlib.max_legal_rails_factor("Kerbin", 8_000_000.0), 7)
+        # Legality is altitude >= limit (kRPC CanRailsWarpAt rejects strictly
+        # below), so the boundary value itself is legal.
+        self.assertEqual(mlib.max_legal_rails_factor("Mun", 25_000.0), 4)
+        self.assertEqual(mlib.max_legal_rails_factor("Mun", 24_999.0), 3)
+        self.assertEqual(mlib.max_legal_rails_factor("Minmus", 60_000.0), 7)
+        self.assertEqual(mlib.max_legal_rails_factor("Minmus", 5_000.0), 2)
+        self.assertEqual(mlib.max_legal_rails_factor("Duna", 100_000.0), 4)
+        self.assertEqual(mlib.max_legal_rails_factor("Sun", 13_500_000_000.0), 7)
+        # Fail OPEN (top factor) for unknown bodies / non-finite altitude: the
+        # server clamp is the backstop, and a one-frame altitude blip must not
+        # sawtooth a held warp down to 1x.
+        self.assertEqual(mlib.max_legal_rails_factor("ModdedBody", 1_000.0), 7)
+        self.assertEqual(mlib.max_legal_rails_factor("", 1_000.0), 7)
+        self.assertEqual(mlib.max_legal_rails_factor("Kerbin", float("nan")), 7)
+
+    def test_coast_warp_gated_on_home_body_and_no_nodes(self):
+        # rounds_done=2: both correction rounds spent, pure warp management.
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        # A pending node with an UNKNOWN UT (NaN, fail closed) keeps warp DOWN
+        # (never warp past a maneuver on no evidence); factor already 0 -> no
+        # emission.
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin",
+                                                    altitude=8_000_000.0,
+                                                    node_count=1))
+        self.assertEqual(actions, [])
+        # Clean coast: full factor emitted on change.
+        state, actions = mlib.b5_decide(state, snap(ut=20.0, body="Kerbin",
+                                                    altitude=8_000_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+
+    def test_coast_native_warps_toward_pending_node(self):
+        """Path A: a pending node issues ONE native warp_to_ut toward
+        node_ut - nodeWarpLeadSeconds; while the game reports the warp active
+        the machine emits nothing (and never a rails factor); past the target
+        the command clears with no action; a NaN node_ut never warps."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        # Node 40,000 s out: one native warp to node_ut - 15 (the arrival
+        # margin; nodeWarpLeadSeconds is retired -- operator PR gate: the
+        # burn phase aims BEFORE warping, so no flip window is needed).
+        state, actions = mlib.b5_decide(state, snap(
+            ut=1000.0, body="Kerbin", altitude=8_000_000.0,
+            node_count=1, node_ut=41_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO_UT, 40_985.0)])
+        self.assertEqual(state.warp_to_cmd, 40_985.0)
+        self.assertEqual(state.warp_cmd, 0)
+        # Warp active (warping_to = target): silent hold, no rails emission.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=20_000.0, body="Kerbin", altitude=8_000_000.0,
+            node_count=1, node_ut=41_000.0, warping_to=40_985.0,
+            warp_mode="RAILS", warp_rate=10_000.0))
+        self.assertEqual(actions, [])
+        # Past the target (inside the arrival margin): command clears, no
+        # action needed (the server stepper zeroed the factor on arrival).
+        state, actions = mlib.b5_decide(state, snap(
+            ut=40_990.0, body="Kerbin", altitude=8_000_000.0,
+            node_count=1, node_ut=41_000.0))
+        self.assertEqual(actions, [])
+        self.assertIsNone(state.warp_to_cmd)
+        # NaN node_ut (fail closed): no warp of any kind.
+        fresh = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        fresh, actions = mlib.b5_decide(fresh, snap(
+            ut=10.0, body="Kerbin", altitude=8_000_000.0, node_count=1))
+        self.assertEqual(actions, [])
+        self.assertIsNone(fresh.warp_to_cmd)
+
+    def test_coast_native_warp_self_heal_is_bounded(self):
+        """Self-healing: warping_to NaN while the commanded target is still
+        ahead re-issues the SAME warp, at most once per 30 game-s."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
+                          warp_to_cmd=40_985.0, last_warp_issue_ut=1000.0)
+        # 10 game-s after the issue: inside the re-issue bound, no spam.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=1010.0, body="Kerbin", altitude=8_000_000.0,
+            node_count=1, node_ut=41_000.0))
+        self.assertEqual(actions, [])
+        # 35 game-s after the issue and still no active warp: re-issue once.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=1035.0, body="Kerbin", altitude=8_000_000.0,
+            node_count=1, node_ut=41_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO_UT, 40_985.0)])
+        self.assertEqual(state.last_warp_issue_ut, 1035.0)
+
+    def test_coast_soi_native_warp_and_retarget_threshold(self):
+        """Path A (b): the post-correction coast issues a native warp to
+        now + time_to_soi - soiLeadSeconds; small SOI-estimate drift holds,
+        a shift beyond 120 s re-issues; inside the lead window the rails
+        fallback (time stair floored at the flyby factor) takes over."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        # Encounter 200,000 s out: one native warp to boundary minus 30 s.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, body="Kerbin", altitude=8_000_000.0, time_to_soi=200_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO_UT, 199_980.0)])
+        # Estimate drift under the 120 s threshold: hold (warp active).
+        state, actions = mlib.b5_decide(state, snap(
+            ut=5_000.0, body="Kerbin", altitude=9_000_000.0,
+            time_to_soi=195_010.0, warping_to=199_980.0,
+            warp_mode="RAILS", warp_rate=10_000.0))
+        self.assertEqual(actions, [])
+        # Estimate shifted ~460 s: re-issue at the fresh target.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=6_000.0, body="Kerbin", altitude=9_000_000.0,
+            time_to_soi=193_550.0, warping_to=199_980.0,
+            warp_mode="RAILS", warp_rate=10_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO_UT, 199_520.0)])
+        self.assertEqual(state.warp_to_cmd, 199_520.0)
+        # Inside the 30 s lead window: rails fallback -- time stair floored
+        # at the flyby factor (never a 1x cliff at the boundary). Fresh state
+        # so the emission is observable without a preceding cancel.
+        fresh = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        fresh, actions = mlib.b5_decide(fresh, snap(
+            ut=30.0, body="Kerbin", altitude=10_000_000.0, time_to_soi=25.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
+
+    def test_coast_rails_intent_cancels_active_native_warp_first(self):
+        """Never two warp writers: when the machine wants a rails factor but
+        a native warp is still (expected) active -- e.g. the encounter was
+        lost mid-warp -- it emits CANCEL first and the rails command follows
+        on the next poll."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
+                          warp_to_cmd=500_000.0, last_warp_issue_ut=10.0)
+        # Encounter gone (tts NaN): rails fallback wanted, native active ->
+        # CANCEL only this frame.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=20.0, body="Kerbin", altitude=8_000_000.0,
+            warping_to=500_000.0, warp_mode="RAILS", warp_rate=10_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_CANCEL_WARP)])
+        self.assertIsNone(state.warp_to_cmd)
+        self.assertEqual(state.warp_cmd, 0)
+        # Next poll (warp idle): the rails coast factor flows.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=21.0, body="Kerbin", altitude=8_000_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+
+    def test_coast_trigger_prelude_cancels_native_warp(self):
+        """Crossing a correction trigger with a native warp active cancels
+        it in the prelude (instead of the rails-0 prelude) before planning."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=1,
+                          warp_to_cmd=777_777.0)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=100.0, body="Kerbin", altitude=6_200_000.0,
+            warping_to=777_777.0, warp_mode="RAILS", warp_rate=1000.0))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
+        self.assertIsNone(state.warp_to_cmd)
+        self.assertEqual(actions, [Action(mlib.ACTION_CANCEL_WARP),
+                                   Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
+                                          limit=150.0)])
+
+    def test_coast_empty_body_stays_without_hop(self):
+        # "" = no reading this frame: NOT the ejected terminal, NOT a hop.
+        state = _b5_state(mlib.B5_COAST_TO_TARGET)
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, body=""))
+        self.assertFalse(state.done)
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(actions, [])
+
+    def test_coast_blank_body_dwell_is_bounded(self):
+        """Review SF-2: a PERSISTENT body=="" hold is bounded -- at
+        frozen_sample_limit consecutive blanks the vessel is declared lost
+        (the old unbounded 1x hold could idle ~111 wall-hours against the
+        GAME-time coast budget). A real body reading resets the dwell."""
+        limit = B5_PARAMS.frozen_sample_limit
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        # 5 blanks, then a real reading: the dwell resets.
+        for i in range(5):
+            state, _ = mlib.b5_decide(state, snap(
+                ut=10.0 + i, altitude=100_000.0 + i, body=""))
+        self.assertEqual(state.body_blank_count, 5)
+        state, _ = mlib.b5_decide(state, snap(ut=20.0, altitude=8_000_000.0,
+                                              body="Kerbin"))
+        self.assertEqual(state.body_blank_count, 0)
+        self.assertFalse(state.done)
+        # limit consecutive blanks: vessel-lost terminal. Altitudes vary per
+        # frame so the (1x-gated) frozen detector is not the tripping party.
+        for i in range(limit - 1):
+            state, _ = mlib.b5_decide(state, snap(
+                ut=30.0 + i, altitude=200_000.0 + i, body=""))
+            self.assertFalse(state.done, i)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=30.0 + limit, altitude=300_000.0, body=""))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("unreadable", state.loss_reason)
+
+    def test_flyby_blank_body_dwell_is_bounded(self):
+        """Review SF-2, the FLYBY side of the blank-body dwell bound."""
+        limit = B5_PARAMS.frozen_sample_limit
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        for i in range(limit - 1):
+            state, _ = mlib.b5_decide(state, snap(
+                ut=10.0 + i, altitude=500_000.0 + i, body=""))
+            self.assertFalse(state.done, i)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=10.0 + limit, altitude=600_000.0, body=""))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("unreadable", state.loss_reason)
+
+    def test_rails_over_warp_pull_down(self):
+        """Review SF-1: the self-heal is now bidirectional. The game rails-
+        warping FASTER than the desired factor (manual warp-up / stale rate)
+        re-commands the desired factor -- including desired 0."""
+        # Held factor 4 (100x legal ceiling at 200 km) but the game reads
+        # RAILS x1000: re-command 4.
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=1,
+                          warp_cmd=4)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, altitude=200_000.0, body="Kerbin",
+            warp_mode="RAILS", warp_rate=1000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 4.0)])
+        # Desired 0 (pending node, unknown UT) while the game rails at 50x:
+        # pull down to 1x even though warp_cmd is already 0.
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=20.0, altitude=8_000_000.0, body="Kerbin", node_count=1,
+            warp_mode="RAILS", warp_rate=50.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+        # In-tolerance rate at the commanded factor: NO emission (the 1%
+        # allowance ignores ramp jitter).
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
+                          warp_cmd=6)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=30.0, altitude=8_000_000.0, body="Kerbin",
+            warp_mode="RAILS", warp_rate=10_000.0))
+        self.assertEqual(actions, [])
+
+    def test_native_warp_exempt_from_over_warp_pull_down(self):
+        """Review SF-1: while a native warp_to_ut is commanded/active the
+        game legitimately runs rates the rails stair never commanded -- the
+        pull-down must NOT fire (no rails emission at all)."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
+                          warp_to_cmd=150_000.0, last_warp_issue_ut=10.0)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=20.0, altitude=8_000_000.0, body="Kerbin",
+            time_to_soi=150_040.0, warping_to=150_000.0,
+            warp_mode="RAILS", warp_rate=10_000.0))
+        self.assertEqual(actions, [])
+        self.assertEqual(state.warp_to_cmd, 150_000.0)
+
+    def test_frozen_detector_ignores_warped_frames(self):
+        """Review N-A4: the frozen-telemetry detector only advances at 1x. A
+        (near-)circular orbit on RAILS can legitimately report bit-identical
+        apsides while UT advances -- 12 constant-orbit frames under RAILS
+        must NOT trip the vessel-lost terminal."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
+                          warp_cmd=6)
+        fields = dict(altitude=8_000_000.0, vertical_speed=100.0,
+                      apoapsis=11_000_000.0, periapsis=79_000.0, body="Kerbin",
+                      warp_mode="RAILS", warp_rate=10_000.0)
+        for i in range(B5_PARAMS.frozen_sample_limit + 2):
+            state, _ = mlib.b5_decide(state, snap(ut=10.0 + i, **fields))
+            self.assertFalse(state.done, i)
+        self.assertEqual(state.frozen_count, 0)
+
+    def test_flyby_non_finite_altitude_forces_1x(self):
+        """Review N-A5: fail-closed symmetry -- with no altitude reading the
+        flyby stair and legality clamp are both blind, so the factor drops
+        to 1x instead of riding the floor."""
+        state = _b5_state(mlib.B5_TARGET_FLYBY, warp_cmd=5)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, altitude=float("nan"), periapsis=60_000.0, body="Mun",
+            warp_mode="RAILS", warp_rate=100.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+        self.assertFalse(state.done)
+
+    def test_coast_foreign_body_is_ejected_assert_fail(self):
+        state = _b5_state(mlib.B5_COAST_TO_TARGET)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Sun"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("left home SOI", state.loss_reason)
+        self.assertIn("Sun", state.loss_reason)
+
+    def test_flyby_tracks_min_altitude_and_returns_home(self):
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, altitude=500_000.0, body="Mun"))
+        state, _ = mlib.b5_decide(state, snap(ut=20.0, altitude=65_000.0, body="Mun"))
+        state, _ = mlib.b5_decide(state, snap(ut=30.0, altitude=200_000.0, body="Mun"))
+        self.assertEqual(state.min_target_altitude, 65_000.0)
+        state, actions = mlib.b5_decide(state, snap(ut=40.0, altitude=3_000_000.0,
+                                                    body="Kerbin"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.phase, mlib.B5_RETURN)
+        self.assertIsNone(state.verdict)
+        # RETURN entry drops warp for the settle tail (a factor was held).
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+
+    def test_flyby_never_warps_toward_a_known_impact(self):
+        # Flight 4 (2026-07-21): warping into a sub-surface-periapsis crash
+        # wedges the blocking warp_to under the paused Flight Results dialog
+        # for the rest of the mission budget. Low + impact-bound -> poll at 1x
+        # (the vessel-lost detectors then end the crash cleanly in seconds).
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        # High altitude, impact periapsis: still warp (plenty of room); far
+        # from periapsis the stair runs ABOVE the 100x floor.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, altitude=800_000.0, periapsis=-28_000.0, body="Mun"))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+        # Below the guard altitude with a sub-surface periapsis: drop to 1x.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=20.0, altitude=300_000.0, periapsis=-28_000.0, body="Mun"))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+        self.assertFalse(state.done)
+        # Same altitude with a POSITIVE periapsis: warp again (239 km above
+        # the periapsis still fits the 10,000x stair at the floored speed).
+        state, actions = mlib.b5_decide(state, snap(
+            ut=30.0, altitude=300_000.0, periapsis=61_000.0, body="Mun"))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+
+    def test_flyby_stair_floors_at_flyby_factor_and_altitude_clamps(self):
+        """TARGET-FLYBY factor policy: stair up toward flybyMaxWarpFactor far
+        above periapsis, hold the proven flybyWarpFactor (100x evidence
+        cadence) near periapsis, and never command over the stock Mun
+        altitude-limit table (100x needs >= 25 km, 1000x >= 50 km)."""
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        # Near periapsis (5 km above it): stair collapses, the 100x floor
+        # holds, and 61 km altitude legalizes exactly factor 5 on the Mun.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, altitude=61_000.0, periapsis=56_000.0, body="Mun"))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
+        # Descending at 20 km altitude: 100x is NOT legal below 25 km on the
+        # Mun -- command the achievable 50x instead of fighting the clamp.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=20.0, altitude=20_000.0, periapsis=15_000.0, body="Mun",
+            warp_mode="RAILS", warp_rate=100.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 3.0)])
+
+    def test_flyby_outer_leg_native_warps_to_soi_exit(self):
+        """Path A (c): the flyby outer legs issue one native warp_to_ut to
+        the SOI EXIT minus soiLeadSeconds; the game's own altitude limits
+        shape the periapsis passage. Inside the lead window the rails stair
+        fallback takes over."""
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=100.0, altitude=2_000_000.0, periapsis=60_000.0, body="Mun",
+            time_to_soi=8_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO_UT, 8_070.0)])
+        self.assertEqual(state.warp_to_cmd, 8_070.0)
+        # Active warp: silent hold (never a rails emission alongside).
+        state, actions = mlib.b5_decide(state, snap(
+            ut=2_000.0, altitude=500_000.0, periapsis=60_000.0, body="Mun",
+            time_to_soi=6_090.0, warping_to=8_070.0,
+            warp_mode="RAILS", warp_rate=1000.0))
+        self.assertEqual(actions, [])
+        # Near the exit (tts <= lead): fallback rails stair. Fresh state so
+        # the emission is observable without a preceding cancel frame.
+        fresh = _b5_state(mlib.B5_TARGET_FLYBY)
+        fresh, actions = mlib.b5_decide(fresh, snap(
+            ut=9_000.0, altitude=2_300_000.0, periapsis=60_000.0, body="Mun",
+            time_to_soi=20.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+
+    def test_flyby_impact_guard_cancels_native_warp(self):
+        """The impact guard stays AUTHORITATIVE over the native warp: a
+        sub-surface periapsis below the guard altitude cancels an active
+        warp_to_ut immediately, then holds 1x under live telemetry."""
+        state = _b5_state(mlib.B5_TARGET_FLYBY, warp_to_cmd=99_999.0,
+                          last_warp_issue_ut=10.0)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=20.0, altitude=300_000.0, periapsis=-28_000.0, body="Mun",
+            time_to_soi=5_000.0, warping_to=99_999.0,
+            warp_mode="RAILS", warp_rate=1000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_CANCEL_WARP)])
+        self.assertIsNone(state.warp_to_cmd)
+        self.assertFalse(state.done)
+        # Warp idle next poll: 1x holds silently (warp_cmd already 0).
+        state, actions = mlib.b5_decide(state, snap(
+            ut=21.0, altitude=299_000.0, periapsis=-28_000.0, body="Mun",
+            time_to_soi=5_000.0))
+        self.assertEqual(actions, [])
+
+    def test_return_entry_cancels_native_warp(self):
+        """Terminal RETURN entry cancels an active native warp (the settle
+        tail must run at the game's own 1x, not inside a leftover warp)."""
+        state = _b5_state(mlib.B5_TARGET_FLYBY, warp_to_cmd=90_000.0,
+                          last_warp_issue_ut=10.0)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=80_000.0, altitude=3_000_000.0, body="Kerbin",
+            warping_to=90_000.0, warp_mode="RAILS", warp_rate=1000.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.phase, mlib.B5_RETURN)
+        self.assertIsNone(state.warp_to_cmd)
+        self.assertEqual(actions, [Action(mlib.ACTION_CANCEL_WARP)])
+
+    def test_flyby_ejection_to_sun_is_assert_fail(self):
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Sun"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("ejected", state.loss_reason)
+
+    def test_vessel_lost_any_phase_is_assert_fail(self):
+        for phase in (mlib.B5_TRANSFER_BURN, mlib.B5_COAST_TO_TARGET,
+                      mlib.B5_TARGET_FLYBY):
+            state = _b5_state(phase)
+            state, _ = mlib.b5_decide(state, snap(ut=10.0, vessel_lost=True))
+            self.assertTrue(state.done)
+            self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+            self.assertIn("vessel-lost", state.loss_reason)
+
+    def test_frozen_telemetry_terminal(self):
+        # Bit-identical orbit fields while UT advances, limit frames -> loss.
+        state = _b5_state(mlib.B5_COAST_TO_TARGET)
+        fields = dict(altitude=500_000.0, vertical_speed=100.0,
+                      apoapsis=11_000_000.0, periapsis=79_000.0, body="Kerbin")
+        state, _ = mlib.b5_decide(state, snap(ut=1.0, **fields))
+        for i in range(B5_PARAMS.frozen_sample_limit):
+            state, _ = mlib.b5_decide(state, snap(ut=2.0 + i, **fields))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("frozen", state.loss_reason)
+
+    def test_done_machine_is_idempotent(self):
+        state = _b5_state(mlib.B5_RETURN, done=True)
+        state2, actions = mlib.b5_decide(state, snap(ut=99.0, body="Kerbin"))
+        self.assertIs(state2, state)
+        self.assertEqual(actions, [])
+
+
+class B5ParamTests(unittest.TestCase):
+    def test_params_from_dict_full(self):
+        p = mlib.b5_params_from_dict({
+            "targetApoapsisMeters": 90000, "targetPeriapsisMeters": 85000,
+            "apoErrorMeters": 4000, "periErrorMeters": 3000,
+            "ascentTimeoutSeconds": 500, "circularizeTimeoutSeconds": 200,
+            "targetBodyName": "Minmus", "homeBodyName": "Kerbin",
+            "transferMinApoapsisMeters": 40_000_000,
+            "courseCorrectPeriapsisMeters": 30000,
+            "planTimeoutSeconds": 200, "planRetrySeconds": 15,
+            "transferBurnTimeoutSeconds": 5000,
+            "coastTimeoutSeconds": 900_000, "flybyTimeoutSeconds": 400_000,
+            "coastWarpFactor": 7, "flybyWarpFactor": 4,
+            "flybyMaxWarpFactor": 7, "nodeArrivalMarginSeconds": 20,
+            "planWarpFactor": 3,
+            "flipPhysicsWarpFactor": 2,
+            "targetPeriapsisFloorMeters": 20000,
+            "frozenTelemetrySamples": 5,
+        })
+        self.assertEqual(p.target_body, "Minmus")
+        self.assertEqual(p.transfer_min_apoapsis, 40_000_000.0)
+        self.assertEqual(p.course_correct_periapsis, 30000.0)
+        self.assertEqual(p.plan_retry_seconds, 15.0)
+        self.assertEqual(p.coast_warp_factor, 7)
+        self.assertEqual(p.flyby_warp_factor, 4)
+        self.assertEqual(p.flyby_max_warp_factor, 7)
+        self.assertEqual(p.node_arrival_margin, 20.0)
+        self.assertEqual(p.plan_warp_factor, 3)
+        self.assertEqual(p.flip_physics_warp, 2)
+        self.assertEqual(p.target_periapsis_floor, 20000.0)
+        self.assertEqual(p.frozen_sample_limit, 5)
+
+    def test_params_defaults(self):
+        p = mlib.b5_params_from_dict({})
+        self.assertEqual(p.target_body, "Mun")
+        self.assertEqual(p.home_body, "Kerbin")
+        self.assertEqual(p.course_correct_periapsis, 60000.0)
+        self.assertEqual(p.target_periapsis_floor, 10000.0)
+        self.assertEqual(p.max_correction_dv, 150.0)
+        self.assertEqual(p.correction_trigger_alts, (0.0, 6_000_000.0))
+        self.assertEqual(p.flyby_max_warp_factor, 6)
+        self.assertEqual(p.node_arrival_margin, 15.0)
+        self.assertEqual(p.plan_warp_factor, 2)
+        self.assertEqual(p.soi_lead, 30.0)
+        self.assertEqual(p.plan_retry_seconds, 10.0)
+        self.assertEqual(p.flip_physics_warp, 1)
+
+    def test_params_correction_dv_cap_from_dict(self):
+        p = mlib.b5_params_from_dict({"maxCorrectionDvMps": 40,
+                                      "correctionTriggerAltsMeters": [0, 3_000_000]})
+        self.assertEqual(p.max_correction_dv, 40.0)
+        self.assertEqual(p.correction_trigger_alts, (0.0, 3_000_000.0))
+
+    def test_max_attitude_error_default_pinned(self):
+        # Review N-C3: the 30-degree DIY-burner gate default is deliberate
+        # (finding 9c: demanding 5 starves the round; the burn self-corrects
+        # from a rough start) -- pin it so a drive-by "tighten the tolerance"
+        # edit trips a test.
+        self.assertEqual(mlib.b5_params_from_dict({}).max_attitude_error_deg, 30.0)
+
+    def test_attitude_gate_boundary_is_inclusive(self):
+        """Review N-C3: the aligned gate is |error| <= max_attitude_error_deg,
+        INCLUSIVE at the boundary: 29.9 and exactly 30.0 count toward the
+        streak, 30.1 resets it."""
+        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin", node_count=1))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        state, _ = mlib.b5_decide(state, snap(ut=15.0, body="Kerbin", node_count=1,
+                                              node_dv=50.0, ap_error=-29.9))
+        self.assertEqual(state.aligned_streak, 1)
+        state, _ = mlib.b5_decide(state, snap(ut=16.0, body="Kerbin", node_count=1,
+                                              node_dv=50.0, ap_error=30.0,
+                                              warp_mode="PHYSICS", warp_rate=2.0))
+        self.assertEqual(state.aligned_streak, 2)
+        state, _ = mlib.b5_decide(state, snap(ut=17.0, body="Kerbin", node_count=1,
+                                              node_dv=50.0, ap_error=30.1,
+                                              warp_mode="PHYSICS", warp_rate=2.0))
+        self.assertEqual(state.aligned_streak, 0)
+
+
+class CorrectionPlanClassifierTests(unittest.TestCase):
+    """Review SF-3: the runner's plan accept/remove decision is the pure
+    mlib.classify_correction_plan; thresholds pinned here."""
+
+    def test_fly_band(self):
+        self.assertEqual(mlib.classify_correction_plan(50.0, 150.0, 0.5),
+                         mlib.PLAN_FLY)
+        # Cap boundary is INCLUSIVE-fly (dv == cap flies; only strictly
+        # greater disqualifies -- the live comparison this extracts).
+        self.assertEqual(mlib.classify_correction_plan(150.0, 150.0, 0.5),
+                         mlib.PLAN_FLY)
+        # Floor boundary is EXCLUSIVE-negligible (dv == floor flies).
+        self.assertEqual(mlib.classify_correction_plan(0.5, 150.0, 0.5),
+                         mlib.PLAN_FLY)
+
+    def test_over_cap(self):
+        self.assertEqual(mlib.classify_correction_plan(150.01, 150.0, 0.5),
+                         mlib.PLAN_OVER_CAP)
+        self.assertEqual(mlib.classify_correction_plan(15_930.0, 150.0, 0.5),
+                         mlib.PLAN_OVER_CAP)
+
+    def test_negligible(self):
+        self.assertEqual(mlib.classify_correction_plan(0.49, 150.0, 0.5),
+                         mlib.PLAN_NEGLIGIBLE)
+        self.assertEqual(mlib.classify_correction_plan(0.0, 150.0, 0.5),
+                         mlib.PLAN_NEGLIGIBLE)
+
+    def test_nan_dv_fails_closed_to_over_cap(self):
+        # An unquantifiable plan never flies; removal is safe (the round
+        # falls through and the coast keeps the raw intercept).
+        self.assertEqual(mlib.classify_correction_plan(float("nan"), 150.0, 0.5),
+                         mlib.PLAN_OVER_CAP)
+        self.assertEqual(mlib.classify_correction_plan(float("inf"), 150.0, 0.5),
+                         mlib.PLAN_OVER_CAP)
+
+    def test_cap_zero_disables_cap(self):
+        self.assertEqual(mlib.classify_correction_plan(9_999.0, 0.0, 0.5),
+                         mlib.PLAN_FLY)
+        self.assertEqual(mlib.classify_correction_plan(9_999.0, -1.0, 0.5),
+                         mlib.PLAN_FLY)
+
+
+class B5AssertionTests(unittest.TestCase):
+    def test_all_met_on_full_flight(self):
+        phases = (mlib.B5_PRELAUNCH, mlib.B5_MJ_ASCENT, mlib.B5_CIRCULARIZE,
+                  mlib.B5_ORBIT, mlib.B5_PLAN_TRANSFER, mlib.B5_TRANSFER_BURN,
+                  mlib.B5_COAST_TO_TARGET, mlib.B5_TARGET_FLYBY, mlib.B5_RETURN)
+        outcomes = mlib.evaluate_b5_assertions(
+            [], B5_PARAMS, phases_reached=phases, min_target_altitude=61_000.0)
+        self.assertEqual([o.name for o in outcomes],
+                         ["reachedOrbit", "reachedTargetSoi",
+                          "flybyPeriapsisFloor", "returnedToHome"])
+        self.assertTrue(mlib.all_assertions_met(outcomes))
+        by_name = {o.name: o for o in outcomes}
+        self.assertEqual(by_name["reachedTargetSoi"].value, "Mun")
+        self.assertEqual(by_name["flybyPeriapsisFloor"].value, 61_000.0)
+        self.assertEqual(by_name["returnedToHome"].value, "Kerbin")
+
+    def test_flyby_floor_unmet_below_floor(self):
+        phases = (mlib.B5_ORBIT, mlib.B5_TARGET_FLYBY, mlib.B5_RETURN)
+        outcomes = mlib.evaluate_b5_assertions(
+            [], B5_PARAMS, phases_reached=phases, min_target_altitude=8_000.0)
+        by_name = {o.name: o for o in outcomes}
+        self.assertFalse(by_name["flybyPeriapsisFloor"].met)
+
+    def test_flyby_floor_unmet_when_never_sampled(self):
+        # None (never inside the target SOI, or no finite altitude) is UNMET,
+        # never a silent pass; the serialized value scrubs to JSON null.
+        outcomes = mlib.evaluate_b5_assertions(
+            [], B5_PARAMS, phases_reached=(mlib.B5_ORBIT,), min_target_altitude=None)
+        by_name = {o.name: o for o in outcomes}
+        self.assertFalse(by_name["flybyPeriapsisFloor"].met)
+        self.assertIsNone(by_name["flybyPeriapsisFloor"].to_dict()["value"])
+
+    def test_missing_phases_unmet(self):
+        outcomes = mlib.evaluate_b5_assertions(
+            [], B5_PARAMS, phases_reached=(mlib.B5_PRELAUNCH, mlib.B5_MJ_ASCENT),
+            min_target_altitude=None)
+        by_name = {o.name: o for o in outcomes}
+        self.assertFalse(by_name["reachedOrbit"].met)
+        self.assertFalse(by_name["reachedTargetSoi"].met)
+        self.assertFalse(by_name["returnedToHome"].met)
+
+
+class B5FlameoutStagingTests(unittest.TestCase):
+    """Twenty-second live flight (2026-07-22): the Kerbal X core ran dry
+    mid-correction (LiquidFuel froze at exactly 720.0 -- the full X200-16
+    upper tank behind its decoupler) and both correction rounds burned
+    NOTHING against a flamed-out engine. The machine must pop the next stage
+    when a COMMANDED burn reads zero available thrust, debounced and bounded,
+    and must never pop on a missing reading."""
+
+    def _burning_state(self, **overrides):
+        return _b5_state(mlib.B5_CORRECTION_BURN, corr_burn_started=True,
+                         min_node_dv=39.0, burn_static_since=100.0,
+                         **overrides)
+
+    def _flamed_snap(self, ut, **kw):
+        kw.setdefault("body", "Kerbin")
+        kw.setdefault("node_count", 1)
+        kw.setdefault("node_dv", 39.0)
+        kw.setdefault("throttle", 0.25)
+        kw.setdefault("available_thrust", 0.0)
+        return snap(ut=ut, **kw)
+
+    def test_flameout_stages_after_debounce_and_restamps_progress_anchor(self):
+        state = self._burning_state()
+        # Frame 1: streak builds, no stage yet (debounce).
+        state, actions = mlib.b5_decide(state, self._flamed_snap(200.0))
+        self.assertEqual(actions, [])
+        self.assertEqual(state.flameout_streak, 1)
+        self.assertEqual(state.flameout_stages_done, 0)
+        # Frame 2: debounce met -> exactly one ACTIVATE_STAGE; the
+        # no-progress anchor re-stamps so the fresh stage earns a full
+        # progress window.
+        state, actions = mlib.b5_decide(state, self._flamed_snap(201.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_ACTIVATE_STAGE)])
+        self.assertEqual(state.flameout_stages_done, 1)
+        self.assertEqual(state.flameout_streak, 0)
+        self.assertEqual(state.burn_static_since, 201.0)
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        self.assertFalse(state.done)
+
+    def test_single_flamed_frame_never_stages(self):
+        state = self._burning_state()
+        state, actions = mlib.b5_decide(state, self._flamed_snap(200.0))
+        self.assertEqual(actions, [])
+        # Thrust back (transient reading): streak resets, still no stage.
+        state, actions = mlib.b5_decide(state, self._flamed_snap(
+            201.0, available_thrust=215_000.0))
+        self.assertEqual(actions, [])
+        self.assertEqual(state.flameout_streak, 0)
+        self.assertEqual(state.flameout_stages_done, 0)
+
+    def test_nan_available_thrust_or_throttle_fails_closed(self):
+        state = self._burning_state()
+        for _ in range(4):
+            state, actions = mlib.b5_decide(state, self._flamed_snap(
+                200.0, available_thrust=float("nan")))
+            self.assertEqual(actions, [])
+        self.assertEqual(state.flameout_stages_done, 0)
+        state = self._burning_state()
+        for _ in range(4):
+            state, actions = mlib.b5_decide(state, self._flamed_snap(
+                200.0, throttle=float("nan")))
+            self.assertEqual(actions, [])
+        self.assertEqual(state.flameout_stages_done, 0)
+
+    def test_zero_throttle_never_stages(self):
+        # TRANSFER-BURN autowarp coast: the executor holds throttle 0 between
+        # the handoff and the burn -- available_thrust 0 there must not pop.
+        state = _b5_state(mlib.B5_TRANSFER_BURN, planned_node_count=1)
+        for ut in (10.0, 11.0, 12.0):
+            state, actions = mlib.b5_decide(state, snap(
+                ut=ut, body="Kerbin", node_count=1, apoapsis=84_000.0,
+                periapsis=79_000.0, throttle=0.0, available_thrust=0.0))
+            self.assertEqual(actions, [])
+        self.assertEqual(state.flameout_stages_done, 0)
+
+    def test_stage_budget_is_bounded(self):
+        state = self._burning_state(
+            flameout_stages_done=mlib.MAX_FLAMEOUT_STAGES)
+        for ut in (200.0, 201.0, 202.0, 203.0):
+            state, actions = mlib.b5_decide(state, self._flamed_snap(ut))
+            self.assertEqual(actions, [])
+        self.assertEqual(state.flameout_stages_done, mlib.MAX_FLAMEOUT_STAGES)
+        # The no-progress give-up still owns the outcome past the budget.
+        state, _ = mlib.b5_decide(state, self._flamed_snap(
+            100.0 + B5_PARAMS.burn_stagnant_seconds))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+
+    def test_transfer_burn_flameout_stages_under_executor_throttle(self):
+        # The MechJeb executor holds the throttle but never stages: a dry
+        # stage mid-TLI pops here too.
+        state = _b5_state(mlib.B5_TRANSFER_BURN, planned_node_count=1)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, body="Kerbin", node_count=1, apoapsis=2_000_000.0,
+            periapsis=79_000.0, throttle=1.0, available_thrust=0.0))
+        self.assertEqual(actions, [])
+        state, actions = mlib.b5_decide(state, snap(
+            ut=11.0, body="Kerbin", node_count=1, apoapsis=2_000_000.0,
+            periapsis=79_000.0, throttle=1.0, available_thrust=0.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_ACTIVATE_STAGE)])
+        self.assertEqual(state.flameout_stages_done, 1)
+
+    def test_stale_streak_is_reset_on_burn_entry(self):
+        # Delta-review A2: a streak of 1 left behind by a prior burn's exit
+        # frame must not weaken the next burn's debounce to a single frame.
+        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0,
+                          flameout_streak=1)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin",
+                                              node_count=1))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        self.assertEqual(state.flameout_streak, 0)
+
+    def test_exit_frame_never_consumes_a_stage_slot(self):
+        # Delta-review A1: the pop debounce completing on the same frame the
+        # cut threshold is crossed must exit WITHOUT burning a budget slot.
+        state = self._burning_state(flameout_streak=1)
+        state, actions = mlib.b5_decide(state, self._flamed_snap(
+            200.0, node_dv=1.5))  # dv <= cut: exit wins
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.flameout_stages_done, 0)
+        self.assertNotIn(Action(mlib.ACTION_ACTIVATE_STAGE), actions)
+
+    def test_flameout_fields_ride_machine_state_and_diff(self):
+        before = self._burning_state()
+        after = before.__class__(**{**before.__dict__,
+                                    "flameout_stages_done": 1})
+        line = mlib.format_machine_state(after, 100.0)
+        self.assertIn("flameoutStages=1", line)
+        changes = mlib.diff_machine_state(before, after)
+        self.assertTrue(any("flameoutStages 0->1" in c for c in changes))
+
+
+class B5ArrivalRecorrectTests(unittest.TestCase):
+    """Finding 16 (twenty-third flight): both altitude-triggered rounds
+    executed to <1 m/s residual and the arrival was STILL pe -31.8 km. Once
+    the altitude rounds are exhausted, a debounced sub-floor PREDICTED
+    arrival periapsis (patched-conic next_orbit at the target body) grants a
+    bounded extra PLAN-CORRECTION round while enough coast remains; every
+    term fails closed."""
+
+    def _coast_state(self, **overrides):
+        # Both altitude rounds consumed (B5_PARAMS default triggers = [0, 6M]).
+        overrides.setdefault("correction_rounds_done", 2)
+        return _b5_state(mlib.B5_COAST_TO_TARGET, **overrides)
+
+    def _bad_snap(self, ut, **kw):
+        kw.setdefault("body", "Kerbin")
+        kw.setdefault("altitude", 8_000_000.0)
+        kw.setdefault("next_body", "Mun")
+        kw.setdefault("next_pe", -30_000.0)
+        # Inside the high-precision window (twenty-fourth flight: far-out
+        # extras moved the arrival only ~2-4 km each and were wasted).
+        kw.setdefault("time_to_soi", 3_000.0)
+        return snap(ut=ut, **kw)
+
+    def test_sustained_sub_floor_arrival_grants_extra_round(self):
+        state = self._coast_state()
+        for i in range(mlib.ARRIVAL_BAD_DEBOUNCE_FRAMES - 1):
+            state, actions = mlib.b5_decide(state, self._bad_snap(10.0 + i))
+            self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.arrival_bad_streak,
+                         mlib.ARRIVAL_BAD_DEBOUNCE_FRAMES - 1)
+        state, actions = mlib.b5_decide(state, self._bad_snap(20.0))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
+        self.assertEqual(state.extra_rounds_done, 1)
+        self.assertEqual(state.arrival_bad_streak, 0)
+        self.assertEqual(state.plan_attempts, 1)
+        self.assertIn(Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT,
+                             B5_PARAMS.course_correct_periapsis,
+                             limit=B5_PARAMS.max_correction_dv), actions)
+
+    def test_fail_closed_terms_never_fire(self):
+        cases = (
+            dict(next_body="Sun"),                    # wrong arrival body
+            dict(next_body=""),                       # no reading
+            dict(next_pe=float("nan")),               # unreadable pe
+            dict(next_pe=61_000.0),                   # healthy arrival
+            dict(time_to_soi=float("nan")),           # unknown crossing
+            dict(time_to_soi=300.0),                  # too close to fly it
+            dict(time_to_soi=9_000.0),                # too FAR: hold for the
+                                                      # high-precision window
+            dict(node_count=1, node_ut=100_000.0,
+                 next_pe=-30_000.0),                  # a node is pending
+        )
+        for kw in cases:
+            state = self._coast_state()
+            for i in range(mlib.ARRIVAL_BAD_DEBOUNCE_FRAMES + 2):
+                state, _ = mlib.b5_decide(state, self._bad_snap(10.0 + i, **kw))
+            self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET,
+                             "gate fired for %r" % (kw,))
+            self.assertEqual(state.extra_rounds_done, 0)
+
+    def test_never_fires_while_altitude_rounds_pending(self):
+        # Below the round-2 trigger with round 1 consumed: the altitude
+        # machinery owns the next round; the arrival gate must stay quiet.
+        state = self._coast_state(correction_rounds_done=1)
+        for i in range(mlib.ARRIVAL_BAD_DEBOUNCE_FRAMES + 2):
+            state, _ = mlib.b5_decide(state, self._bad_snap(
+                10.0 + i, altitude=2_000_000.0))
+        self.assertEqual(state.extra_rounds_done, 0)
+        self.assertEqual(state.arrival_bad_streak, 0)
+
+    def test_extra_rounds_are_bounded(self):
+        state = self._coast_state(
+            extra_rounds_done=mlib.MAX_ARRIVAL_EXTRA_ROUNDS)
+        for i in range(mlib.ARRIVAL_BAD_DEBOUNCE_FRAMES + 2):
+            state, _ = mlib.b5_decide(state, self._bad_snap(10.0 + i))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.extra_rounds_done, mlib.MAX_ARRIVAL_EXTRA_ROUNDS)
+
+    def test_healthy_frame_resets_the_streak(self):
+        state = self._coast_state()
+        state, _ = mlib.b5_decide(state, self._bad_snap(10.0))
+        state, _ = mlib.b5_decide(state, self._bad_snap(11.0))
+        self.assertEqual(state.arrival_bad_streak, 2)
+        state, _ = mlib.b5_decide(state, self._bad_snap(12.0, next_pe=61_000.0))
+        self.assertEqual(state.arrival_bad_streak, 0)
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+
+    def test_granted_round_flows_into_the_burn_machinery(self):
+        # The extra round is a REAL round: node arrives -> CORRECTION-BURN
+        # via the standard plan handoff, and its exit bumps rounds to 3.
+        state = self._coast_state()
+        for i in range(mlib.ARRIVAL_BAD_DEBOUNCE_FRAMES):
+            state, _ = mlib.b5_decide(state, self._bad_snap(10.0 + i))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
+        state, actions = mlib.b5_decide(state, self._bad_snap(
+            20.0, node_count=1, node_dv=12.0))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        self.assertIn(Action(mlib.ACTION_AP_POINT_NODE), actions)
+
+
+class B5ImpactTerminalTests(unittest.TestCase):
+    """Twenty-second live flight: an under-corrected arrival put the flyby on
+    a sub-surface periapsis and the mission rode the descent 589 wall-seconds
+    at 1x to physical destruction (the certification audit's only 1x-coast
+    violation). Sustained impact-bound frames now terminate ASSERT-FAIL
+    early; a short transient still only costs 1x polls."""
+
+    def _impact_snap(self, ut, **kw):
+        kw.setdefault("body", "Mun")
+        kw.setdefault("altitude", 300_000.0)
+        kw.setdefault("periapsis", -28_000.0)
+        return snap(ut=ut, **kw)
+
+    def test_sustained_impact_bound_terminates_assert_fail(self):
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        for i in range(mlib.IMPACT_TERMINAL_DEBOUNCE_FRAMES - 1):
+            state, _ = mlib.b5_decide(state, self._impact_snap(10.0 + i))
+            self.assertFalse(state.done)
+        self.assertEqual(state.impact_certain_streak,
+                         mlib.IMPACT_TERMINAL_DEBOUNCE_FRAMES - 1)
+        state, actions = mlib.b5_decide(state, self._impact_snap(20.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("impact certain", state.loss_reason)
+        self.assertIn("early terminal", state.loss_reason)
+        # No warp was held (the guard zeroed it on frame 1): silent exit.
+        self.assertEqual(actions, [])
+
+    def test_terminal_cancels_active_native_warp(self):
+        state = _b5_state(mlib.B5_TARGET_FLYBY,
+                          impact_certain_streak=mlib.IMPACT_TERMINAL_DEBOUNCE_FRAMES - 1,
+                          warp_to_cmd=99_999.0, last_warp_issue_ut=5.0)
+        state, actions = mlib.b5_decide(state, self._impact_snap(
+            20.0, warping_to=99_999.0, warp_mode="RAILS", warp_rate=1000.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIsNone(state.warp_to_cmd)
+        self.assertEqual(actions, [Action(mlib.ACTION_CANCEL_WARP)])
+
+    def test_transient_impact_reading_resets_the_streak(self):
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        state, _ = mlib.b5_decide(state, self._impact_snap(10.0))
+        state, _ = mlib.b5_decide(state, self._impact_snap(11.0))
+        self.assertEqual(state.impact_certain_streak, 2)
+        # One healthy frame (positive periapsis) resets the countdown.
+        state, _ = mlib.b5_decide(state, self._impact_snap(
+            12.0, periapsis=61_000.0))
+        self.assertEqual(state.impact_certain_streak, 0)
+        self.assertFalse(state.done)
+        # Streak re-earns from zero.
+        state, _ = mlib.b5_decide(state, self._impact_snap(13.0))
+        self.assertEqual(state.impact_certain_streak, 1)
+        self.assertFalse(state.done)
+
+    def test_high_altitude_impact_periapsis_never_counts(self):
+        # Above the guard altitude the outcome is NOT decided (corrections /
+        # SOI exit may still change it): no streak, no terminal.
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        for i in range(mlib.IMPACT_TERMINAL_DEBOUNCE_FRAMES + 2):
+            state, _ = mlib.b5_decide(state, self._impact_snap(
+                10.0 + i, altitude=800_000.0))
+            self.assertFalse(state.done)
+        self.assertEqual(state.impact_certain_streak, 0)
 
 
 if __name__ == "__main__":

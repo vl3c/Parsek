@@ -1,0 +1,269 @@
+# Declared param schema for mission b5_mun_flyby (B2 ascent + Mun transfer +
+# flyby + free-return; see docs/dev/todo-and-known-bugs.md "B5 Mun flyby").
+#
+# hlib.validate_spec does NOT read this file itself: run.py (shell / I/O) parses
+# every harness/missions/<mission>.schema.toml with tomllib into a registry
+# { mission-name -> schema-dict } and INJECTS it as validate_spec's
+# `mission_schemas` argument. hlib's PURE validator (_validate_mission_params)
+# then drives required-key presence and per-value type/range checks from the
+# `params` table below. Shape consumed by hlib:
+#   {"params": {"<name>": {"required": bool, "type": "<t>", "min": <num?>, "max": <num?>}}}
+# Every value here is a tolerance / threshold / budget, never a golden
+# trajectory (design "Determinism guardrails").
+#
+# The ascent half is B2's ascent params verbatim. B2's eccentricityMax /
+# inclinationErrorDeg / launchSiteLatitude are deliberately ABSENT: like B4, B5
+# makes no orbital-precision assertions (the parking orbit is a waypoint the TLI
+# burn then deliberately leaves).
+
+[params.targetApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.targetPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.apoErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.periErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.ascentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.circularizeTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# Transfer target / home SOI body names (kRPC orbit.body.name values). The
+# machine's SOI gates compare snapshot.body against these.
+[params.targetBodyName]
+required = true
+type = "string"
+
+[params.homeBodyName]
+required = true
+type = "string"
+
+# TRANSFER-BURN exit floor: the TLI burn must have raised apoapsis at/above
+# this (evidence the NodeExecutor actually burned toward the target, not just
+# consumed an empty node list).
+[params.transferMinApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+# > 0: after the TLI burn, plan + execute a MechJeb course correction to this
+# target-flyby periapsis (metres) -- pins the flyby geometry and keeps the
+# periapsis off the terrain. 0 disables the two correction phases.
+[params.courseCorrectPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+# PLAN-* phase budget (GAME seconds). PLAN-TRANSFER expiry flakes (no transfer
+# = no mission); PLAN-CORRECTION expiry falls through to the coast (the
+# correction is best-effort).
+[params.planTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# Re-issue a failed plan every this many game seconds while no node appeared
+# (a no-encounter plan throws server-side and leaves the node list empty).
+[params.planRetrySeconds]
+required = false
+type = "number"
+min = 1.0
+max = 600.0
+
+# TRANSFER-BURN / CORRECTION-BURN budget (GAME seconds): the NodeExecutor
+# autowarps to the node (up to ~1 parking orbit ahead) then burns it.
+[params.transferBurnTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# COAST-TO-TARGET budget (GAME seconds; the LKO->Mun transfer coast is ~2 days
+# of game time, advanced fast by the bounded rails hops).
+[params.coastTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# TARGET-FLYBY budget (GAME seconds; SOI entry to SOI exit).
+[params.flybyTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# Non-blocking rails-warp factors (KSP factor INDEX 0-7; the machine holds
+# the factor via on-change set_rails_warp emissions and keeps polling -- no
+# blocking warp RPC, no per-hop ramp sawtooth). Optional; mlib defaults 6
+# (10,000x) coast cap / 5 (100x) flyby floor. Every commanded factor is
+# additionally pre-clamped to the stock per-body altitude-limit table
+# (mlib.STOCK_WARP_ALTITUDE_LIMITS) so the command is always achievable and
+# escalates as the vessel climbs.
+[params.coastWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+[params.flybyWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+# TARGET-FLYBY stair-down cap: far above periapsis the factor rises toward
+# this with the remaining (altitude - periapsis) distance, falling back to
+# the flybyWarpFactor floor (the proven 100x evidence cadence) near
+# periapsis. Optional; mlib defaults 6 (10,000x).
+[params.flybyMaxWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+# AIM-THEN-WARP arrival margin (GAME seconds; operator PR gate,
+# no-1x-coast): after the attitude flip locks, CORRECTION-BURN warps
+# natively to node UT minus this margin (rails warp freezes orientation);
+# the coast's pending-node path uses the same margin. 1x is allowed only
+# inside the margin or on a NaN node UT (fail closed). Replaces the retired
+# nodeWarpLeadSeconds. Optional; mlib defaults 15.
+[params.nodeArrivalMarginSeconds]
+required = false
+type = "number"
+min = 5.0
+max = 120.0
+
+# PLAN-* rails hold factor INDEX (operator PR gate): the plan phases ride
+# this altitude-legality-clamped factor between plan attempts instead of 1x
+# (make_nodes is an RPC; 10x bounds plan-position drift to ~5 game-s per
+# poll). Optional; mlib defaults 2 (10x).
+[params.planWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+# Native SOI warp lead (GAME seconds): the post-correction coast and the
+# flyby outer legs issue a native warp_to_ut to now + timeToSoi minus this
+# lead, so the machine regains poll control just before the boundary (the
+# inside-lead fallback rides the flyby-factor floor, never 1x) and the body
+# change never happens inside a high-rate warp. Optional; mlib defaults 30
+# (operator PR gate: halved from 60).
+[params.soiLeadSeconds]
+required = false
+type = "number"
+min = 5.0
+max = 600.0
+
+# CORRECTION-BURN pre-burn attitude-flip physics warp factor INDEX (0-3;
+# 1 = 2x, MechJeb's own WarpToUT physics cap). The flip is the single
+# biggest 1x wall-time block (~340 s worst case); 2x physics halves it. The
+# machine always drops physics warp to 0 BEFORE throttle-up. 0 disables
+# (the proven 1x flip). Optional; mlib defaults 1.
+[params.flipPhysicsWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 3
+
+# Flyby min-altitude assertion floor (metres above the target body; the Mun has
+# ~7 km peaks). The machine tracks the min finite altitude inside the target
+# SOI; the assertion requires it at/above this floor.
+[params.targetPeriapsisFloorMeters]
+required = true
+type = "number"
+min = 0.0
+
+# Correction ROUNDS: COAST-TO-TARGET enters PLAN-CORRECTION once per entry
+# when altitude crosses that trigger (0 = immediately post-TLI). A mid-coast
+# round is live-proven necessary: executor residual over the long coast
+# drifted a corrected +60 km flyby periapsis to -29 km (impact) on the fourth
+# B5 flight; refining near the trigger altitude prices the residual at a few
+# m/s.
+[params.correctionTriggerAltsMeters]
+required = false
+type = "list"
+
+# dv cap (m/s) an acceptable course-correction plan must fit under. A genuine
+# correction is a small tweak; the runner removes an over-cap plan's nodes so
+# PLAN-CORRECTION's bounded fall-through coasts on the raw Hohmann intercept
+# (second live flight 2026-07-21: an oversized "correction" wedged the
+# executor until the burn budget flaked).
+[params.maxCorrectionDvMps]
+required = false
+type = "number"
+min = 1.0
+max = 2000.0
+
+# BURN-phase stagnation watchdog (game seconds): once the orbit has CHANGED
+# since burn entry and then sat static at 1x with the node still pending for
+# this long, the executor is wedged holding a completed node -> abort+clear
+# and move on (fifth live flight 2026-07-22). Optional; mlib defaults 120.
+[params.burnStagnantSeconds]
+required = false
+type = "number"
+min = 30.0
+max = 3600.0
+
+# CORRECTION-BURN no-start watchdog (game seconds): orbit UNCHANGED since burn
+# entry and static at 1x for this long = the executor never began -> abort+
+# clear and consume the round. Must exceed the worst-case pre-burn attitude
+# flip (~340 s). Optional; mlib defaults 600.
+[params.burnNoStartSeconds]
+required = false
+type = "number"
+min = 60.0
+max = 3600.0
+
+# DIY correction burner (live finding 8: MechJeb's executor demands an
+# AlignedAndSettled gate a low-torque craft never meets for close-in nodes, so
+# corrections are flown with the native AP + throttle). All optional.
+[params.correctionThrottle]
+required = false
+type = "number"
+min = 0.05
+max = 1.0
+
+[params.correctionCutDvMps]
+required = false
+type = "number"
+min = 0.5
+max = 20.0
+
+[params.correctionSettleSeconds]
+required = false
+type = "number"
+min = 1.0
+max = 120.0
+
+[params.maxAttitudeErrorDeg]
+required = false
+type = "number"
+min = 0.5
+max = 45.0
+
+# Optional: consecutive AIRBORNE frozen-telemetry samples (bit-identical orbit
+# fields while UT advances) before the mission declares the vessel lost and
+# terminates. mlib.B5Params defaults it to 10 when absent. Always an
+# ASSERT-FAIL loss in B5 (survival is the contract).
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000
