@@ -62,6 +62,9 @@ SPEC = mission_runner.MissionSpec(
     # RAILS; MechJeb-ascent physics warp capped at the stock 4x ceiling.
     allow_rails_warp=True,
     max_physics_warp=4.0,
+    # No settle tail (review SF-4): same rationale as B5 -- machine-carried
+    # assertions, frames discarded, post-RETURN reads are pure flake surface.
+    settle_frames=0,
 )
 
 

@@ -260,6 +260,16 @@ WARP_RETARGET_THRESHOLD_SECONDS = 120.0
 # cancel issued), re-issue at most once per this many game seconds.
 WARP_REISSUE_SECONDS = 30.0
 
+# PLAN-* attempt bound (live finding 14): a plan that keeps being produced
+# and DISQUALIFIED runner-side (over-cap removal) is indistinguishable from a
+# no-encounter failure to the machine (node_count stays 0), and the old
+# cadence loop sat at 1x re-planning for the full 300 s planTimeoutSeconds
+# (seventeenth-flight round 2: 169-171 m/s quotes vs the old 150 cap, five
+# removals). After this many attempts with no node, the next cadence check
+# takes the timeout path EARLY (PLAN-TRANSFER: flake; PLAN-CORRECTION: fall
+# through + consume the round) -- worst case 1x drops from 300 s to ~90 s.
+PLAN_MAX_ATTEMPTS = 3
+
 
 def rails_factor_for_distance(dist_m: float, speed_mps: float, cap: int) -> int:
     """The highest rails factor index (<= cap) whose warped travel over the
@@ -355,6 +365,43 @@ def max_legal_rails_factor(body: str, altitude_m: float) -> int:
         if altitude_m >= limits[idx]:
             best = idx
     return best
+
+# classify_correction_plan verdicts (review SF-3: the runner's plan
+# accept/remove decision extracted into a pure, threshold-testable decider).
+PLAN_FLY = "fly"
+PLAN_OVER_CAP = "over_cap"
+PLAN_NEGLIGIBLE = "negligible"
+
+
+def classify_correction_plan(total_dv: float, cap: float,
+                             negligible_floor: float) -> str:
+    """Classify a planned course-correction's total dv (m/s):
+
+      - "over_cap":   the plan must be REMOVED -- it exceeds the dv cap (a
+                      genuine correction is a small tweak; second live flight:
+                      an oversized plan wedged the executor), OR the dv is
+                      non-finite. NaN FAILS CLOSED to over_cap: a plan whose
+                      cost cannot be quantified never flies -- removal is the
+                      safe outcome because PLAN-CORRECTION's bounded
+                      fall-through simply coasts on the raw intercept and the
+                      NEXT trigger round may still refine.
+      - "negligible": the plan must be REMOVED -- total dv below the floor is
+                      smaller than the executor ever engages on (sixth live
+                      flight) and within the flyby floor's margin.
+      - "fly":        hand it to the burner.
+
+    Boundaries are INCLUSIVE-fly on the cap (dv == cap flies; only strictly
+    greater disqualifies) and EXCLUSIVE-fly on the floor (dv == floor flies;
+    only strictly below is negligible), matching the live-proven runner
+    comparisons this extracts. cap <= 0 (or non-finite) disables the cap."""
+    if not _is_finite(total_dv):
+        return PLAN_OVER_CAP
+    if _is_finite(cap) and cap > 0.0 and total_dv > cap:
+        return PLAN_OVER_CAP
+    if total_dv < negligible_floor:
+        return PLAN_NEGLIGIBLE
+    return PLAN_FLY
+
 
 # K-consecutive debounce depth (see module docstring).
 DEFAULT_DEBOUNCE_K = 3
@@ -534,7 +581,18 @@ def _advance_frozen_count(prev_sig: Optional[FrozenSignature], prev_count: int,
     over ``prev_sig`` increments the count, ANY non-frozen sample resets it to 0,
     and ``tripped`` is True iff the count reached ``limit`` (a vessel-lost terminal).
     The signature is always updated to the current frame so the next comparison uses
-    the latest UT."""
+    the latest UT.
+
+    WARP GATE (review N-A4): the detector only advances at 1x (warp_mode
+    NONE). Frozen-vessel staleness is a 1x symptom -- kRPC returning the same
+    cached floats while the physics runs -- whereas an ON-RAILS craft in a
+    (near-)circular orbit can legitimately report bit-identical apsides while
+    UT advances (the latent false-trip class). A warped frame HOLDS the
+    signature and count unchanged: it is evidence in neither direction, and a
+    genuinely dead vessel still trips on the surrounding 1x frames (its
+    fields never change across the warp either)."""
+    if snapshot.warp_mode != WARP_NONE:
+        return prev_sig, prev_count, False
     curr_sig = frozen_signature(snapshot)
     new_count = prev_count + 1 if advances_frozen(prev_sig, curr_sig) else 0
     return curr_sig, new_count, (new_count >= limit)
@@ -1617,6 +1675,17 @@ class B5State:
     # self-heal re-issue) - bounds the self-healing re-issue to once per
     # WARP_REISSUE_SECONDS.
     last_warp_issue_ut: float = 0.0
+    # Consecutive COAST/FLYBY frames with body == "" (no SOI reading). The
+    # blank-body hold is fail-closed per frame, but unbounded it would idle
+    # at 1x until the GAME-time coast budget expired (~111 wall-hours at 1x;
+    # review SF-2) -- at frozen_sample_limit consecutive blanks the vessel is
+    # declared lost. Reset by any frame with a real body reading.
+    body_blank_count: int = 0
+    # Plan emissions this PLAN-* phase (live finding 14): the entry emission
+    # counts as attempt 1; each cadence re-plan increments; at
+    # PLAN_MAX_ATTEMPTS with node_count still 0 the next cadence check takes
+    # the timeout path early. Reset (to 1) on every PLAN-* entry.
+    plan_attempts: int = 0
     phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -1764,8 +1833,47 @@ def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[f
         return stayed, []
     if (_is_finite(snapshot.ut)
             and (snapshot.ut - state.last_plan_ut) >= state.params.plan_retry_seconds):
-        return replace(stayed, last_plan_ut=snapshot.ut), [plan_action]
+        # Plan-attempt give-up (live finding 14): PLAN_MAX_ATTEMPTS plans in
+        # and still no node -- whether the planner keeps failing server-side
+        # or the runner keeps DISQUALIFYING the plans (over-cap removal, which
+        # the machine cannot distinguish) -- take the timeout path EARLY
+        # instead of 1x-idling out the full plan budget: PLAN-CORRECTION
+        # falls through to the coast (the caller consumes the round),
+        # PLAN-TRANSFER flakes (no transfer = no mission).
+        if state.plan_attempts >= PLAN_MAX_ATTEMPTS:
+            if on_timeout_phase is not None:
+                return _b5_enter(state, on_timeout_phase, snapshot.ut, peak), []
+            return replace(state, peak_apoapsis=peak, verdict=MISSION_FLAKE,
+                           flake_phase=state.phase, done=True), []
+        return (replace(stayed, last_plan_ut=snapshot.ut,
+                        plan_attempts=state.plan_attempts + 1),
+                [plan_action])
     return stayed, []
+
+
+def _rails_emit_needed(desired: int, warp_cmd: int,
+                       snapshot: TelemetrySnapshot) -> bool:
+    """The rails-factor emission discipline, all three directions:
+      - ON CHANGE: the desired factor differs from the last commanded one.
+      - UNDER-WARP self-heal (fifteenth flight): the game is NOT rails-warping
+        despite a nonzero command (manual changes / KSP's own drops).
+      - OVER-WARP pull-down (review SF-1): the game is rails-warping FASTER
+        than the desired factor's rate (manual warp-up, or a stale high rate
+        left behind) -- including desired == 0, where any sustained rails rate
+        above 1x must be pulled back down. The 1% tolerance ignores rate-ramp
+        jitter around the commanded rate.
+    Callers only reach this when NO native warp is commanded/active (the
+    native branches return earlier with hold/cancel), so a WarpService warp
+    legitimately running rates the stair never commanded is exempt by
+    construction."""
+    if desired != warp_cmd:
+        return True
+    if desired > 0 and snapshot.warp_mode != WARP_RAILS:
+        return True
+    if (snapshot.warp_mode == WARP_RAILS and _is_finite(snapshot.warp_rate)
+            and snapshot.warp_rate > RAILS_WARP_RATES[desired] * 1.01):
+        return True
+    return False
 
 
 def _b5_clear_arrived_warp(state: B5State, snapshot: TelemetrySnapshot) -> B5State:
@@ -1808,6 +1916,24 @@ def _b5_native_warp(state: B5State, snapshot: TelemetrySnapshot,
         healed = replace(state, last_warp_issue_ut=ut, warp_cmd=0)
         return healed, [Action(ACTION_WARP_TO_UT, float(state.warp_to_cmd))]
     return state, []
+
+
+def _b5_hold_blank_body(stayed: B5State) -> Tuple[B5State, List[Action]]:
+    """One COAST/FLYBY frame with body == "" (no SOI reading): HOLD all warp
+    state (never cancel/re-command on a transient blank), but BOUND the dwell
+    (review SF-2) -- at frozen_sample_limit consecutive blanks the vessel is
+    treated as lost (the coast budget is GAME time, so an unbounded 1x blank
+    hold could idle for ~111 wall-hours before the outer watchdog fired)."""
+    count = stayed.body_blank_count + 1
+    limit = stayed.params.frozen_sample_limit
+    if count >= limit:
+        return replace(
+            stayed, body_blank_count=count, done=True,
+            verdict=MISSION_ASSERT_FAIL,
+            loss_reason=("vessel-lost (SOI body unreadable %d consecutive "
+                         "samples; vessel presumed destroyed or unreadable)"
+                         % count)), []
+    return replace(stayed, body_blank_count=count), []
 
 
 def _b5_cancel_native_warp(state: B5State,
@@ -1932,7 +2058,9 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # One-frame waypoint (reachedOrbit evidence): set the transfer target and
         # ask the ManeuverPlanner for the Hohmann transfer, then wait for the node.
         entered = _b5_enter(state, B5_PLAN_TRANSFER, snapshot.ut, peak)
-        entered = replace(entered, last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0)
+        entered = replace(entered,
+                          last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0,
+                          plan_attempts=1)
         return entered, [
             Action(ACTION_SET_TARGET_BODY, text=state.params.target_body),
             Action(ACTION_MJ_PLAN_TRANSFER),
@@ -2132,7 +2260,8 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             entered = _b5_enter(state, B5_PLAN_CORRECTION, snapshot.ut, peak)
             entered = replace(entered,
                               last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0,
-                              warp_cmd=0, warp_to_cmd=None)
+                              warp_cmd=0, warp_to_cmd=None,
+                              body_blank_count=0, plan_attempts=1)
             # Prelude: stop ALL warp before planning -- cancel an active
             # native warp (which also zeroes the rails factors runner-side),
             # else drop a held rails factor.
@@ -2153,8 +2282,10 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # approach (distance-based, live-proven) and as the fallback.
         if snapshot.body == "":
             # No reading this frame: HOLD (never cancel/re-command warp on a
-            # transient blank; sustained unreadability dies at vessel-lost).
-            return stayed, []
+            # transient blank), bounded by the blank-body dwell (SF-2).
+            return _b5_hold_blank_body(stayed)
+        if stayed.body_blank_count:
+            stayed = replace(stayed, body_blank_count=0)
         stayed = _b5_clear_arrived_warp(stayed, snapshot)
         native_target: Optional[float] = None
         desired = 0
@@ -2212,14 +2343,13 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             # The rails command follows on the next poll.
             return _b5_cancel_native_warp(stayed, snapshot)
         actions: List[Action] = []
-        # Emit on change, PLUS re-assert when the game is NOT actually rails-
-        # warping despite a nonzero command (fifteenth flight: operator manual
-        # warp changes -- and KSP's own automatic drops -- silently overrode
-        # the held factor and the on-change-only discipline never re-asserted,
-        # coasting at 1x to the wall budget). Idempotent re-emission of the
-        # same factor is harmless.
-        if (desired != state.warp_cmd
-                or (desired > 0 and snapshot.warp_mode != WARP_RAILS)):
+        # Emission discipline (_rails_emit_needed): on change, PLUS the
+        # under-warp self-heal (fifteenth flight: manual changes / KSP drops
+        # silently overrode the held factor), PLUS the over-warp pull-down
+        # (review SF-1: the game rails-warping FASTER than desired -- incl.
+        # desired 0 -- must be pulled back). Idempotent re-emission of the
+        # same factor is harmless. Native-warp frames never reach here.
+        if _rails_emit_needed(desired, state.warp_cmd, snapshot):
             actions.append(Action(ACTION_SET_RAILS_WARP, float(desired)))
             stayed = replace(stayed, warp_cmd=desired)
         return stayed, actions
@@ -2248,8 +2378,10 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             return stayed, []
         if snapshot.body == "":
             # No reading this frame: HOLD (never cancel/re-command warp on a
-            # transient blank; sustained unreadability dies at vessel-lost).
-            return stayed, []
+            # transient blank), bounded by the blank-body dwell (SF-2).
+            return _b5_hold_blank_body(stayed)
+        if stayed.body_blank_count:
+            stayed = replace(stayed, body_blank_count=0)
         stayed = _b5_clear_arrived_warp(stayed, snapshot)
         # NEVER warp toward a known impact (finding 4's Flight Results wedge):
         # on a sub-surface periapsis at low altitude, the guard is
@@ -2274,15 +2406,21 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             # Inside the exit lead window / no SOI estimate: the rails stair
             # fallback -- flyby factor floor near periapsis, stair toward
             # flybyMaxWarpFactor with the (altitude - periapsis) distance,
-            # altitude-legality clamped.
-            pe_ref = (max(snapshot.periapsis, 0.0)
-                      if _is_finite(snapshot.periapsis) else 0.0)
-            dist = ((snapshot.altitude - pe_ref)
-                    if _is_finite(snapshot.altitude) else float("nan"))
-            stair = rails_factor_for_distance(
-                dist, snapshot.vertical_speed, state.params.flyby_max_warp_factor)
-            desired = min(max(state.params.flyby_warp_factor, stair),
-                          max_legal_rails_factor(snapshot.body, snapshot.altitude))
+            # altitude-legality clamped. A NON-FINITE altitude forces 1x
+            # (review N-A5, fail-closed symmetry: with no altitude reading
+            # neither the stair distance nor the legality clamp is
+            # trustworthy, and the impact guard above could not have armed).
+            if not _is_finite(snapshot.altitude):
+                desired = 0
+            else:
+                pe_ref = (max(snapshot.periapsis, 0.0)
+                          if _is_finite(snapshot.periapsis) else 0.0)
+                stair = rails_factor_for_distance(
+                    snapshot.altitude - pe_ref, snapshot.vertical_speed,
+                    state.params.flyby_max_warp_factor)
+                desired = min(max(state.params.flyby_warp_factor, stair),
+                              max_legal_rails_factor(snapshot.body,
+                                                     snapshot.altitude))
         if native_target is not None:
             return _b5_native_warp(stayed, snapshot, native_target)
         if stayed.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
@@ -2291,14 +2429,13 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             # rails (if any) follows next poll.
             return _b5_cancel_native_warp(stayed, snapshot)
         actions = []
-        # Emit on change, PLUS re-assert when the game is NOT actually rails-
-        # warping despite a nonzero command (fifteenth flight: operator manual
-        # warp changes -- and KSP's own automatic drops -- silently overrode
-        # the held factor and the on-change-only discipline never re-asserted,
-        # coasting at 1x to the wall budget). Idempotent re-emission of the
-        # same factor is harmless.
-        if (desired != state.warp_cmd
-                or (desired > 0 and snapshot.warp_mode != WARP_RAILS)):
+        # Emission discipline (_rails_emit_needed): on change, PLUS the
+        # under-warp self-heal (fifteenth flight: manual changes / KSP drops
+        # silently overrode the held factor), PLUS the over-warp pull-down
+        # (review SF-1: the game rails-warping FASTER than desired -- incl.
+        # desired 0 -- must be pulled back). Idempotent re-emission of the
+        # same factor is harmless. Native-warp frames never reach here.
+        if _rails_emit_needed(desired, state.warp_cmd, snapshot):
             actions.append(Action(ACTION_SET_RAILS_WARP, float(desired)))
             stayed = replace(stayed, warp_cmd=desired)
         return stayed, actions
@@ -2531,6 +2668,10 @@ def evaluate_b5_assertions(frames, params: B5Params,
       terrain; a crashed flyby dies at the vessel-lost terminal first, so this
       guards the SAMPLED closest approach). Evidence is machine-carried
       (min_target_altitude), coarse under warp hops -- a floor, not a window.
+      SAMPLING BAND CAVEAT (review N-A3): the evidence is polled ~every 50
+      game-s at the 100x periapsis cadence, so a true periapsis BELOW the
+      floor but ABOVE the terrain can slip between samples and still read as
+      met -- the floor certifies the sampled track, not a continuous minimum.
     - ``returnedToHome``:      RETURN appears in ``phases_reached`` (the machine
       terminated back in home SOI after the flyby -- the free-return).
 
