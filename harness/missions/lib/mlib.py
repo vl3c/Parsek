@@ -212,6 +212,13 @@ ACTION_SET_RAILS_WARP = "set_rails_warp"                   # value = factor inde
 # of inside a blocking warp_to wedged by the paused Flight Results dialog.
 IMPACT_WARP_GUARD_ALT = 400_000.0
 
+# DIY-burner aligned-gate debounce: the throttle fires only after this many
+# CONSECUTIVE in-gate attitude readings. The fourteenth live flight proved a
+# single-frame transient error reading (slipping between rate-limited samples)
+# opened the gate at a true ~98 deg off-axis and fired a ~200 m/s wild burn;
+# one odd frame must never start a burn.
+ALIGNED_DEBOUNCE_FRAMES = 2
+
 # K-consecutive debounce depth (see module docstring).
 DEFAULT_DEBOUNCE_K = 3
 
@@ -1399,6 +1406,8 @@ class B5State:
     # node vector).
     corr_burn_started: bool = False
     min_node_dv: Optional[float] = None
+    # Consecutive in-gate attitude readings (ALIGNED_DEBOUNCE_FRAMES gate).
+    aligned_streak: int = 0
     # Last COMMANDED rails warp factor (the on-change emission discipline for
     # set_rails_warp: warp only ever changes when the machine wants a
     # different speed -- operator design critique 2026-07-22).
@@ -1541,7 +1550,7 @@ def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[f
             burn_entry_ap=(snapshot.apoapsis if _is_finite(snapshot.apoapsis) else None),
             burn_entry_pe=(snapshot.periapsis if _is_finite(snapshot.periapsis) else None),
             burn_prev_ap=None, burn_prev_pe=None, burn_static_since=None,
-            corr_burn_started=False, min_node_dv=None)
+            corr_burn_started=False, min_node_dv=None, aligned_streak=0)
         return entered, [handoff_action]
     if _b5_over_budget(state, snapshot) and on_timeout_phase is not None:
         return _b5_enter(state, on_timeout_phase, snapshot.ut, peak), []
@@ -1777,11 +1786,15 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # default (vs B4's 5) is deliberate: the DIY burn CHASES the node's
         # remaining vector (the AP tracks node.reference_frame), so a
         # rough-pointed low-throttle start self-corrects, and the overshoot +
-        # no-progress guards own the failure modes.
+        # no-progress guards own the failure modes. K-CONSECUTIVE debounce
+        # (ALIGNED_DEBOUNCE_FRAMES): a single-frame transient reading fired a
+        # ~200 m/s wild burn at a true ~98 deg off-axis (fourteenth flight).
         aligned = (_is_finite(snapshot.ap_error)
                    and abs(snapshot.ap_error) <= state.params.max_attitude_error_deg)
-        stayed = _b5_stay_or_flake(state, snapshot, peak)
-        if settled and aligned and not stayed.done:
+        streak = state.aligned_streak + 1 if aligned else 0
+        stayed = replace(_b5_stay_or_flake(state, snapshot, peak),
+                         aligned_streak=streak)
+        if settled and streak >= ALIGNED_DEBOUNCE_FRAMES and not stayed.done:
             started = replace(stayed, corr_burn_started=True,
                               burn_static_since=(snapshot.ut if _is_finite(snapshot.ut)
                                                  else None))
@@ -1835,7 +1848,14 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                        and snapshot.node_count == 0 and not trigger_near)
                    else 0)
         actions: List[Action] = []
-        if desired != state.warp_cmd:
+        # Emit on change, PLUS re-assert when the game is NOT actually rails-
+        # warping despite a nonzero command (fifteenth flight: operator manual
+        # warp changes -- and KSP's own automatic drops -- silently overrode
+        # the held factor and the on-change-only discipline never re-asserted,
+        # coasting at 1x to the wall budget). Idempotent re-emission of the
+        # same factor is harmless.
+        if (desired != state.warp_cmd
+                or (desired > 0 and snapshot.warp_mode != WARP_RAILS)):
             actions.append(Action(ACTION_SET_RAILS_WARP, float(desired)))
             stayed = replace(stayed, warp_cmd=desired)
         return stayed, actions
@@ -1870,7 +1890,14 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                    if (snapshot.body == state.params.target_body and not impact_bound)
                    else 0)
         actions = []
-        if desired != state.warp_cmd:
+        # Emit on change, PLUS re-assert when the game is NOT actually rails-
+        # warping despite a nonzero command (fifteenth flight: operator manual
+        # warp changes -- and KSP's own automatic drops -- silently overrode
+        # the held factor and the on-change-only discipline never re-asserted,
+        # coasting at 1x to the wall budget). Idempotent re-emission of the
+        # same factor is harmless.
+        if (desired != state.warp_cmd
+                or (desired > 0 and snapshot.warp_mode != WARP_RAILS)):
             actions.append(Action(ACTION_SET_RAILS_WARP, float(desired)))
             stayed = replace(stayed, warp_cmd=desired)
         return stayed, actions

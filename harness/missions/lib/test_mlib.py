@@ -1514,7 +1514,7 @@ class B5MachineTests(unittest.TestCase):
             snap(ut=2230.0, apoapsis=11_500_000.0, body="Kerbin",
                  node_count=1),                                         # 8 node -> CORRECTION-BURN (AP point)
             snap(ut=2235.0, apoapsis=11_500_000.0, body="Kerbin",
-                 node_count=1, node_dv=110.0, ap_error=30.0),           # 9 settling / flipping
+                 node_count=1, node_dv=110.0, ap_error=1.4),            # 9 aligned, still settling (streak 1)
             snap(ut=2245.0, apoapsis=11_500_000.0, body="Kerbin",
                  node_count=1, node_dv=110.0, ap_error=1.2),            # 10 settled+aligned -> throttle
             snap(ut=2260.0, apoapsis=11_400_000.0, body="Kerbin",
@@ -1527,19 +1527,23 @@ class B5MachineTests(unittest.TestCase):
                  altitude=6_500_000.0),                                 # 14 trigger 6M -> PLAN-CORRECTION (round 2)
             snap(ut=8010.0, apoapsis=11_350_000.0, body="Kerbin",
                  altitude=6_510_000.0, node_count=1),                   # 15 node -> CORRECTION-BURN (AP point)
+            snap(ut=8018.0, apoapsis=11_350_000.0, body="Kerbin",
+                 altitude=6_515_000.0, node_count=1, node_dv=4.0,
+                 ap_error=0.9),                                         # 16 aligned, still settling (streak 1)
             snap(ut=8025.0, apoapsis=11_350_000.0, body="Kerbin",
                  altitude=6_520_000.0, node_count=1, node_dv=4.0,
-                 ap_error=0.8),                                         # 16 settled+aligned -> throttle
+                 ap_error=0.8),                                         # 17 settled + streak 2 -> throttle
             snap(ut=8030.0, apoapsis=11_350_000.0, body="Kerbin",
-                 altitude=6_525_000.0, node_count=0),                   # 17 node consumed -> cut pair
+                 altitude=6_525_000.0, node_count=0),                   # 18 node consumed -> cut pair
             snap(ut=9000.0, apoapsis=11_350_000.0, body="Kerbin",
-                 altitude=7_000_000.0),                                 # 18 coast (rounds spent) -> hop
-            snap(ut=40_000.0, altitude=2_000_000.0, body="Mun"),        # 19 SOI! -> TARGET-FLYBY
+                 altitude=7_000_000.0),                                 # 19 coast (rounds spent) -> full warp
+            snap(ut=40_000.0, altitude=2_000_000.0, body="Mun"),        # 20 SOI! -> TARGET-FLYBY
             snap(ut=40_100.0, altitude=800_000.0, body="Mun",
-                 periapsis=61_000.0),                                   # 20 inbound -> hop
+                 periapsis=61_000.0),                                   # 21 inbound -> flyby factor
             snap(ut=40_700.0, altitude=61_000.0, body="Mun",
-                 periapsis=61_000.0),                                   # 21 periapsis area -> hop
-            snap(ut=80_000.0, altitude=3_000_000.0, body="Kerbin"),     # 22 home SOI -> RETURN terminal
+                 periapsis=61_000.0, warp_mode="RAILS",
+                 warp_rate=100.0),                                      # 22 periapsis area (held factor)
+            snap(ut=80_000.0, altitude=3_000_000.0, body="Kerbin"),     # 23 home SOI -> RETURN terminal
         ]
         state, per_frame = drive_b5(state, frames)
         self.assertTrue(state.done)
@@ -1583,14 +1587,15 @@ class B5MachineTests(unittest.TestCase):
                                          Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
                                                 limit=150.0)])
         self.assertEqual(per_frame[15], [Action(mlib.ACTION_AP_POINT_NODE)])
-        self.assertEqual(per_frame[16], [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
-        self.assertEqual(per_frame[17], [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+        self.assertEqual(per_frame[16], [])  # aligned but streak 1 of 2: no throttle
+        self.assertEqual(per_frame[17], [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
+        self.assertEqual(per_frame[18], [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
                                          Action(mlib.ACTION_AP_DISENGAGE)])
-        self.assertEqual(per_frame[18], [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
-        self.assertEqual(per_frame[19], [])  # SOI-entry transition frame
-        self.assertEqual(per_frame[20], [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
-        self.assertEqual(per_frame[21], [])  # factor unchanged: NO emission
-        self.assertEqual(per_frame[22], [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])  # RETURN: drop warp
+        self.assertEqual(per_frame[19], [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+        self.assertEqual(per_frame[20], [])  # SOI-entry transition frame
+        self.assertEqual(per_frame[21], [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
+        self.assertEqual(per_frame[22], [])  # factor unchanged: NO emission
+        self.assertEqual(per_frame[23], [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])  # RETURN: drop warp
 
     def test_plan_transfer_replans_only_while_no_node(self):
         # A failed plan (server-side OperationException -> no node) re-issues on
@@ -1699,7 +1704,12 @@ class B5MachineTests(unittest.TestCase):
                                                     node_count=1, node_dv=100.0,
                                                     ap_error=-178.0))
         self.assertEqual(actions, [])
-        # Settled AND aligned: exactly one throttle-up.
+        # First aligned frame after the misalign reset: streak 1 of 2, no fire.
+        state, actions = mlib.b5_decide(state, snap(ut=23.0, body="Kerbin",
+                                                    node_count=1, node_dv=100.0,
+                                                    ap_error=1.0))
+        self.assertEqual(actions, [])
+        # Settled AND aligned for the debounce depth: exactly one throttle-up.
         state, actions = mlib.b5_decide(state, snap(ut=25.0, body="Kerbin",
                                                     node_count=1, node_dv=100.0,
                                                     ap_error=1.0))
@@ -1788,6 +1798,9 @@ class B5MachineTests(unittest.TestCase):
         cuts immediately even though the cut threshold was never reached."""
         state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
         state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin", node_count=1))
+        state, _ = mlib.b5_decide(state, snap(ut=20.0, body="Kerbin",
+                                              node_count=1, node_dv=50.0,
+                                              ap_error=1.0))     # streak 1 of 2
         state, actions = mlib.b5_decide(state, snap(ut=25.0, body="Kerbin",
                                                     node_count=1, node_dv=50.0,
                                                     ap_error=1.0))
@@ -1859,8 +1872,19 @@ class B5MachineTests(unittest.TestCase):
         self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
         self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
         state, actions = mlib.b5_decide(state, snap(ut=40.0, altitude=8_400_000.0,
-                                                    body="Kerbin"))
-        self.assertEqual(actions, [])   # factor unchanged: NO emission
+                                                    body="Kerbin", warp_mode="RAILS",
+                                                    warp_rate=1000.0))
+        self.assertEqual(actions, [])   # factor held AND game warping: NO emission
+
+    def test_coast_reasserts_warp_when_game_dropped_it(self):
+        # Fifteenth flight: manual warp changes (or KSP's own drops) override
+        # the held factor; the on-change discipline must re-assert whenever the
+        # game is not rails-warping despite a nonzero command.
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
+                          warp_cmd=6)
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, altitude=8_000_000.0,
+                                                    body="Kerbin"))  # warp NONE
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
 
     def test_coast_slowdown_band_below_trigger_drops_warp(self):
         # Inside warpSlowdownMarginMeters below the next trigger: hold 1x so a

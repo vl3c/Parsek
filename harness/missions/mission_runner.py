@@ -521,6 +521,21 @@ class KrpcMissionControl(MissionControl):
                     v.control.rcs = False
                 except Exception:
                     pass
+                # SmartASS OFF: force-release MechJeb's ATTITUDE controller
+                # (the crawl + throttle hold survived the executor abort AND
+                # sas=False on the fourteenth flight -- MechJeb's attitude
+                # module is the remaining candidate holder, and Smart A.S.S.
+                # Off is its exposed release lever; pinned-source verified
+                # SmartASSAutopilotMode.Off + Update(false)).
+                try:
+                    sa = self._mechjeb.smart_ass
+                    sa.autopilot_mode = self._mechjeb.SmartASSAutopilotMode.off
+                    sa.update(False)
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Info", "Point", "smart-ass forced OFF"))
+                except Exception as exc:
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Warn", "Point", "smart-ass OFF failed: %s" % (exc,)))
                 ap = v.auto_pilot
                 ap.reference_frame = nodes[0].reference_frame
                 ap.target_direction = (0.0, 1.0, 0.0)
