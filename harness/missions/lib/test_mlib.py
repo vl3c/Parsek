@@ -1703,25 +1703,41 @@ class B5MachineTests(unittest.TestCase):
         self.assertEqual(state.correction_rounds_done, 1)
         self.assertEqual(actions, [Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
 
-    def test_burn_stagnation_never_counts_autowarp_or_prealignment(self):
-        """RAILS autowarp toward the node (static orbit, warp != NONE) and the
-        pre-burn attitude alignment (orbit UNCHANGED since entry) must never
-        trip the watchdog."""
+    def test_burn_stagnation_never_counts_autowarp_and_tolerates_alignment(self):
+        """RAILS autowarp toward the node (static orbit, warp != NONE) never
+        counts toward EITHER watchdog. The pre-burn attitude alignment (orbit
+        UNCHANGED since entry, static at 1x) is tolerated up to
+        burnNoStartSeconds (600 > the ~340 s Kerbal X flip), then treated as a
+        never-started executor (sixth live flight): abort+clear, round
+        consumed."""
         state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
         state, _ = mlib.b5_decide(state, snap(ut=10.0, apoapsis=11_480_000.0,
                                               periapsis=76_000.0, body="Kerbin",
                                               node_count=1))
-        # Pre-burn alignment: orbit identical to entry, warp NONE, long wait.
+        # Pre-burn alignment: orbit identical to entry, warp NONE -- tolerated
+        # through the worst-case flip window.
         pre = dict(apoapsis=11_480_000.0, periapsis=76_000.0, body="Kerbin",
                    node_count=1)
-        for ut in (20.0, 40.0, 400.0, 800.0):
+        for ut in (20.0, 40.0, 400.0, 600.0):
             state, actions = mlib.b5_decide(state, snap(ut=ut, **pre))
             self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
             self.assertEqual(actions, [])
-        # Autowarp: orbit static AND CHANGED since entry, but warp is RAILS.
+        # Past burnNoStartSeconds of static-at-1x with NO burn: never-started
+        # executor -> abort+clear + round consumed (static since ut=40).
+        state, actions = mlib.b5_decide(state, snap(ut=641.0, **pre))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.correction_rounds_done, 1)
+        self.assertEqual(actions, [Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
+        # Autowarp: orbit static AND CHANGED since entry, but warp is RAILS --
+        # a fresh burn phase riding autowarp never trips either signal.
+        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0,
+                          correction_rounds_done=1)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, apoapsis=11_480_000.0,
+                                              periapsis=76_000.0, body="Kerbin",
+                                              node_count=1))
         warped = dict(apoapsis=11_322_000.0, periapsis=-89_000.0, body="Kerbin",
                       node_count=1, warp_mode="RAILS", warp_rate=100.0)
-        for ut in (900.0, 1200.0, 1500.0):
+        for ut in (900.0, 1200.0, 1500.0, 2500.0):
             state, actions = mlib.b5_decide(state, snap(ut=ut, **warped))
             self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
             self.assertEqual(actions, [])

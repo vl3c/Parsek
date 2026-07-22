@@ -102,6 +102,12 @@ POLL_INTERVAL_SECONDS = 0.5
 # above the default debounce depth. Not sampled on a flake (we are aborting).
 DEFAULT_SETTLE_FRAMES = mlib.DEFAULT_DEBOUNCE_K + 1
 
+# A course-correction plan below this total dv (m/s) is removed instead of
+# executed: it is smaller than the NodeExecutor's 1.0 m/s tolerance (which
+# never engages on such a node -- sixth live B5 flight 2026-07-22) and the
+# residual it would fix is within the flyby floor's margin anyway.
+NEGLIGIBLE_CORRECTION_DV = 0.5
+
 
 # ---------------------------------------------------------------------------
 # Injectable telemetry/control seam (design Mental Model "kRPC calls behind an
@@ -411,18 +417,29 @@ class KrpcMissionControl(MissionControl):
                 op = self._mechjeb.maneuver_planner.operation_course_correction
                 op.course_correct_final_pe_a = float(action.value)
                 nodes = op.make_nodes()
-                cap = float(action.limit) if action.limit else 0.0
-                if cap > 0.0 and nodes:
+                if nodes:
                     total_dv = 0.0
                     for n in nodes:
                         total_dv += abs(float(n.delta_v))
-                    if total_dv > cap:
+                    cap = float(action.limit) if action.limit else 0.0
+                    if cap > 0.0 and total_dv > cap:
                         v.control.remove_nodes()
                         _stdout_sink(mlib.format_mission_log_line(
                             "Warn", "Plan",
                             "course-correction dv %.1f m/s exceeds cap %.1f; "
                             "plan removed (correction disqualified, coast will "
                             "fly the raw intercept)" % (total_dv, cap)))
+                    elif total_dv < NEGLIGIBLE_CORRECTION_DV:
+                        # A node smaller than the executor's own 1.0 m/s
+                        # tolerance never engages (sixth live flight: execute
+                        # issued, no warp, no burn); a sub-0.5 m/s residual is
+                        # also within the flyby floor's margin. Skip the round.
+                        v.control.remove_nodes()
+                        _stdout_sink(mlib.format_mission_log_line(
+                            "Info", "Plan",
+                            "course-correction dv %.2f m/s is negligible "
+                            "(< %.1f); plan removed (trajectory already good)"
+                            % (total_dv, NEGLIGIBLE_CORRECTION_DV)))
             except Exception as exc:
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Plan",

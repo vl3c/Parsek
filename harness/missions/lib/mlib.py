@@ -598,6 +598,17 @@ class B5Params:
                                            # attitude alignment (orbit unchanged
                                            # since entry) and RAILS autowarp
                                            # never count.
+    burn_nostart_seconds: float = 600.0    # CORRECTION-BURN no-start watchdog:
+                                           # orbit UNCHANGED since entry and
+                                           # static at 1x for this long = the
+                                           # executor never began (sixth live
+                                           # flight 2026-07-22: round-2 execute
+                                           # issued, no warp, no burn, wall
+                                           # budget died) -> abort+clear and
+                                           # consume the round. Must exceed the
+                                           # worst-case pre-burn flip (~340 s on
+                                           # the Kerbal X pod wheel; spec key
+                                           # burnNoStartSeconds).
     frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
                                            # vessel-lost terminal (spec key
                                            # frozenTelemetrySamples)
@@ -629,6 +640,7 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         flyby_warp_hop_seconds=float(params.get("flybyWarpHopSeconds", 600)),
         target_periapsis_floor=float(params.get("targetPeriapsisFloorMeters", 10000)),
         burn_stagnant_seconds=float(params.get("burnStagnantSeconds", 120)),
+        burn_nostart_seconds=float(params.get("burnNoStartSeconds", 600)),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
     )
 
@@ -1381,19 +1393,26 @@ _BURN_CHANGED_EPS = 10_000.0
 _BURN_STATIC_EPS = 50.0
 
 
-def _b5_track_burn_stagnation(state: B5State,
-                              snapshot: TelemetrySnapshot) -> Tuple[B5State, bool]:
+def _b5_track_burn_stagnation(
+        state: B5State,
+        snapshot: TelemetrySnapshot) -> Tuple[B5State, bool, bool]:
     """Advance the BURN-phase stagnation watchdog one frame; return
-    (new_state, stuck). ``stuck`` = the orbit CHANGED since burn entry (a burn
+    (new_state, stuck_after_burn, stuck_no_start).
+
+    ``stuck_after_burn``: the orbit CHANGED since burn entry (a burn
     demonstrably happened) and has now sat static at 1x (warp NONE) for
     burn_stagnant_seconds -- the executor is wedged holding a completed node
-    (fifth live flight 2026-07-22). RAILS autowarp toward the node (static
-    orbit, warp != NONE) and the pre-burn attitude alignment (orbit unchanged
-    since entry) never count."""
+    (fifth live flight 2026-07-22).
+    ``stuck_no_start``: the orbit is UNCHANGED since entry and has sat static
+    at 1x for burn_nostart_seconds -- the executor never began (sixth live
+    flight: execute issued, no warp, no burn, wall budget died). The longer
+    bound leaves room for the legitimate pre-burn attitude flip (~340 s).
+    RAILS autowarp toward the node (static orbit, warp != NONE) never counts
+    toward either."""
     ap, pe, ut = snapshot.apoapsis, snapshot.periapsis, snapshot.ut
     if not (_is_finite(ap) and _is_finite(pe) and _is_finite(ut)):
         return replace(state, burn_prev_ap=None, burn_prev_pe=None,
-                       burn_static_since=None), False
+                       burn_static_since=None), False, False
     static = (state.burn_prev_ap is not None and state.burn_prev_pe is not None
               and abs(ap - state.burn_prev_ap) < _BURN_STATIC_EPS
               and abs(pe - state.burn_prev_pe) < _BURN_STATIC_EPS
@@ -1407,10 +1426,13 @@ def _b5_track_burn_stagnation(state: B5State,
     burned = (state.burn_entry_ap is not None and state.burn_entry_pe is not None
               and (abs(ap - state.burn_entry_ap) > _BURN_CHANGED_EPS
                    or abs(pe - state.burn_entry_pe) > _BURN_CHANGED_EPS))
-    stuck = (burned and since is not None
-             and (ut - since) >= state.params.burn_stagnant_seconds)
+    static_span = (ut - since) if since is not None else 0.0
+    stuck_after_burn = burned and since is not None \
+        and static_span >= state.params.burn_stagnant_seconds
+    stuck_no_start = (not burned) and since is not None \
+        and static_span >= state.params.burn_nostart_seconds
     return replace(state, burn_prev_ap=ap, burn_prev_pe=pe,
-                   burn_static_since=since), stuck
+                   burn_static_since=since), stuck_after_burn, stuck_no_start
 
 
 def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[float],
@@ -1564,7 +1586,10 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # (first live B5 flight 2026-07-21). Stray leftover nodes (that unwanted
         # capture burn) are aborted+cleared at the exit so the executor never
         # flies them and the coast hops are not suppressed by node_count > 0.
-        state, stuck = _b5_track_burn_stagnation(state, snapshot)
+        # TRANSFER-BURN uses only the after-burn wedge signal: a no-start TLI
+        # has produced no transfer, and the phase budget owns that outcome
+        # (six live flights: the TLI executor always started).
+        state, stuck, _nostart = _b5_track_burn_stagnation(state, snapshot)
         consumed = snapshot.node_count < max(state.planned_node_count, 1)
         floor_met = (_is_finite(snapshot.apoapsis)
                      and snapshot.apoapsis >= state.params.transfer_min_apoapsis)
@@ -1601,11 +1626,13 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
     if state.phase == B5_CORRECTION_BURN:
         # Same consumed-not-empty exit as TRANSFER-BURN (no apoapsis gate: a
         # correction is a small vector tweak); strays cleared on the way out.
-        # A stagnation-watchdog trip also exits: the burn happened and the
-        # executor is wedged holding the completed node (fifth live flight) --
-        # the imperfect-but-burned correction stands, the next round refines.
-        state, stuck = _b5_track_burn_stagnation(state, snapshot)
-        if snapshot.node_count < max(state.planned_node_count, 1) or stuck:
+        # A stagnation-watchdog trip also exits: after-burn = the executor is
+        # wedged holding the completed node (fifth live flight; the
+        # imperfect-but-burned correction stands, the next round refines);
+        # no-start = the executor never began (sixth live flight; the round is
+        # skipped, the assertion floor still guards the outcome).
+        state, stuck, nostart = _b5_track_burn_stagnation(state, snapshot)
+        if snapshot.node_count < max(state.planned_node_count, 1) or stuck or nostart:
             cleanup = ([Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)]
                        if snapshot.node_count > 0 else [])
             entered = _b5_enter(state, B5_COAST_TO_TARGET, snapshot.ut, peak)

@@ -162,6 +162,16 @@ type = "number"
 min = 30.0
 max = 3600.0
 
+# CORRECTION-BURN no-start watchdog (game seconds): orbit UNCHANGED since burn
+# entry and static at 1x for this long = the executor never began -> abort+
+# clear and consume the round. Must exceed the worst-case pre-burn attitude
+# flip (~340 s). Optional; mlib defaults 600.
+[params.burnNoStartSeconds]
+required = false
+type = "number"
+min = 60.0
+max = 3600.0
+
 # Optional: consecutive AIRBORNE frozen-telemetry samples (bit-identical orbit
 # fields while UT advances) before the mission declares the vessel lost and
 # terminates. mlib.B5Params defaults it to 10 when absent. Always an
