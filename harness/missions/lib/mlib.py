@@ -196,6 +196,15 @@ ACTION_MJ_ABORT_AND_CLEAR_NODES = "mj_abort_and_clear_nodes"  # value = None
 # decompiled 2.15.1 StateWarpAlign) which the low-torque Kerbal X never meets,
 # parking every close-in correction node forever.
 ACTION_AP_POINT_NODE = "ap_point_node"                     # value = None
+# Non-blocking rails-warp control (operator design critique 2026-07-22: the
+# per-hop warp_to ramp-down/up sawtooth made warp oscillate mid-coast; warp
+# should change only when an action is imminent). value = the KSP rails warp
+# factor INDEX (0 = 1x .. 7 = 100,000x; the server clamps to the altitude-
+# legal maximum). The machine emits this ON CHANGE only and keeps polling --
+# no blocking RPC, so telemetry (frozen/ejection detectors) stays continuous
+# and the Flight-Results-dialog wedge class (finding 4) is structurally gone
+# from the B5 coast.
+ACTION_SET_RAILS_WARP = "set_rails_warp"                   # value = factor index
 
 # TARGET-FLYBY impact-warp guard: below this altitude with a SUB-SURFACE
 # periapsis the machine stops issuing warp hops and polls at 1x, so a crash
@@ -598,10 +607,23 @@ class B5Params:
     coast_timeout: float = 400_000.0       # COAST-TO-TARGET budget (game s; the
                                            # LKO->Mun transfer coast is ~2 days)
     flyby_timeout: float = 300_000.0       # TARGET-FLYBY budget (game s)
-    coast_warp_hop_seconds: float = 1800.0 # one COAST-TO-TARGET warp hop
-    flyby_warp_hop_seconds: float = 600.0  # one TARGET-FLYBY warp hop (smaller so
-                                           # the min-altitude evidence is sampled
-                                           # reasonably through periapsis)
+    coast_warp_factor: int = 6             # COAST-TO-TARGET rails warp factor
+                                           # index (6 = 1000x): held via the
+                                           # non-blocking set_rails_warp while
+                                           # nothing is imminent (spec key
+                                           # coastWarpFactor)
+    flyby_warp_factor: int = 5             # TARGET-FLYBY rails factor (5 =
+                                           # 100x: slower so the min-altitude
+                                           # evidence samples reasonably through
+                                           # periapsis; spec key flybyWarpFactor)
+    warp_slowdown_margin: float = 2_000_000.0
+                                           # drop to 1x this many metres BELOW
+                                           # the next correction trigger
+                                           # altitude: at 1000x one 0.5 s poll
+                                           # moves the ship up to ~750 km, so
+                                           # the margin must swallow several
+                                           # polls of motion (spec key
+                                           # warpSlowdownMarginMeters)
     target_periapsis_floor: float = 10000.0
                                            # flyby min-altitude assertion floor
                                            # (metres above the target body; the Mun
@@ -678,8 +700,9 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         transfer_burn_timeout=float(params.get("transferBurnTimeoutSeconds", 4000)),
         coast_timeout=float(params.get("coastTimeoutSeconds", 400_000)),
         flyby_timeout=float(params.get("flybyTimeoutSeconds", 300_000)),
-        coast_warp_hop_seconds=float(params.get("coastWarpHopSeconds", 1800)),
-        flyby_warp_hop_seconds=float(params.get("flybyWarpHopSeconds", 600)),
+        coast_warp_factor=int(params.get("coastWarpFactor", 6)),
+        flyby_warp_factor=int(params.get("flybyWarpFactor", 5)),
+        warp_slowdown_margin=float(params.get("warpSlowdownMarginMeters", 2_000_000)),
         target_periapsis_floor=float(params.get("targetPeriapsisFloorMeters", 10000)),
         burn_stagnant_seconds=float(params.get("burnStagnantSeconds", 120)),
         burn_nostart_seconds=float(params.get("burnNoStartSeconds", 600)),
@@ -1376,6 +1399,10 @@ class B5State:
     # node vector).
     corr_burn_started: bool = False
     min_node_dv: Optional[float] = None
+    # Last COMMANDED rails warp factor (the on-change emission discipline for
+    # set_rails_warp: warp only ever changes when the machine wants a
+    # different speed -- operator design critique 2026-07-22).
+    warp_cmd: int = 0
     phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -1783,29 +1810,44 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # periapsis from +60 km to -29 km = impact; a mid-coast refinement
         # prices the residual at a few m/s).
         triggers = state.params.correction_trigger_alts
-        if (state.params.course_correct_periapsis > 0.0
-                and state.correction_rounds_done < len(triggers)
+        rounds_pending = (state.params.course_correct_periapsis > 0.0
+                          and state.correction_rounds_done < len(triggers))
+        if (rounds_pending
                 and snapshot.body == state.params.home_body
                 and _is_finite(snapshot.altitude)
                 and snapshot.altitude >= triggers[state.correction_rounds_done]):
             entered = _b5_enter(state, B5_PLAN_CORRECTION, snapshot.ut, peak)
             entered = replace(entered,
-                              last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0)
-            return entered, [Action(ACTION_MJ_PLAN_COURSE_CORRECT,
-                                    state.params.course_correct_periapsis,
-                                    limit=state.params.max_correction_dv)]
+                              last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0,
+                              warp_cmd=0)
+            prelude = ([Action(ACTION_SET_RAILS_WARP, 0.0)] if state.warp_cmd != 0 else [])
+            return entered, prelude + [Action(ACTION_MJ_PLAN_COURSE_CORRECT,
+                                              state.params.course_correct_periapsis,
+                                              limit=state.params.max_correction_dv)]
+        # Non-blocking rails warp (on-change emissions only): full coast speed
+        # while nothing is imminent; 1x inside the slow-down margin below the
+        # next trigger, with a pending node, or without a home-body reading.
+        trigger_near = (rounds_pending and _is_finite(snapshot.altitude)
+                        and snapshot.altitude >= (triggers[state.correction_rounds_done]
+                                                  - state.params.warp_slowdown_margin))
+        desired = (state.params.coast_warp_factor
+                   if (snapshot.body == state.params.home_body
+                       and snapshot.node_count == 0 and not trigger_near)
+                   else 0)
         actions: List[Action] = []
-        if (snapshot.body == state.params.home_body
-                and _is_finite(snapshot.ut) and snapshot.node_count == 0):
-            actions.append(Action(ACTION_WARP_TO,
-                                  snapshot.ut + state.params.coast_warp_hop_seconds))
+        if desired != state.warp_cmd:
+            actions.append(Action(ACTION_SET_RAILS_WARP, float(desired)))
+            stayed = replace(stayed, warp_cmd=desired)
         return stayed, actions
 
     if state.phase == B5_TARGET_FLYBY:
         if snapshot.body == state.params.home_body:
             # The free-return: back in home SOI after the flyby. Terminal (done,
-            # verdict None); the settle tail runs on-rails in home SOI.
-            return _b5_enter(state, B5_RETURN, snapshot.ut, peak), []
+            # verdict None); the settle tail runs at 1x in home SOI.
+            entered = _b5_enter(state, B5_RETURN, snapshot.ut, peak)
+            entered = replace(entered, warp_cmd=0)
+            return entered, ([Action(ACTION_SET_RAILS_WARP, 0.0)]
+                             if state.warp_cmd != 0 else [])
         if snapshot.body not in ("", state.params.target_body):
             return replace(
                 state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
@@ -1816,21 +1858,21 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         stayed = _b5_stay_or_flake(state, snapshot, peak)
         if stayed.done:
             return stayed, []
-        # NEVER warp toward a known impact: on a sub-surface periapsis at low
-        # altitude the crash happens INSIDE a blocking warp_to, KSP pops the
-        # Flight Results dialog which PAUSES the game clock, and the mission
-        # process wedges in that RPC until the mission budget reaps it (flight
-        # 4, 2026-07-21: pe -28.7 km, ~17 wasted minutes). Polling at 1x lets
-        # the vessel-lost / frozen detectors end the mission cleanly in seconds
-        # after the impact instead.
+        # NEVER warp toward a known impact (finding 4's Flight Results wedge):
+        # on a sub-surface periapsis at low altitude, hold 1x so the crash
+        # lands under live telemetry and the vessel-lost detectors end the
+        # mission in seconds. Otherwise hold the (slower) flyby factor so the
+        # min-altitude evidence samples reasonably through periapsis.
         impact_bound = (_is_finite(snapshot.periapsis) and snapshot.periapsis < 0.0
                         and _is_finite(snapshot.altitude)
                         and snapshot.altitude < IMPACT_WARP_GUARD_ALT)
+        desired = (state.params.flyby_warp_factor
+                   if (snapshot.body == state.params.target_body and not impact_bound)
+                   else 0)
         actions = []
-        if (snapshot.body == state.params.target_body and _is_finite(snapshot.ut)
-                and not impact_bound):
-            actions.append(Action(ACTION_WARP_TO,
-                                  snapshot.ut + state.params.flyby_warp_hop_seconds))
+        if desired != state.warp_cmd:
+            actions.append(Action(ACTION_SET_RAILS_WARP, float(desired)))
+            stayed = replace(stayed, warp_cmd=desired)
         return stayed, actions
 
     return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase, done=True,

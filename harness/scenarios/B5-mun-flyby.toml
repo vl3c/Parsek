@@ -28,9 +28,10 @@ mission = "b5_mun_flyby"
 # zero steps).
 # Budget arithmetic (ESTIMATED, pending the first live flight): missionBudget
 # 2400 (WALL) >= 30 connect + ascent ~250 + circularize ~100 + plan+TLI burn
-# ~300 (autowarp compresses the node wait) + correction ~120 + coast hops ~300
-# (the ~2-day game-time transfer advances in 1800s rails hops) + flyby hops
-# ~300 + settle + margin. Phase budgets in missionParams are GAME time.
+# ~300 (autowarp compresses the node wait) + corrections ~2x150 + coast ~200
+# (the ~2-day game-time transfer runs at a HELD 1000x via non-blocking
+# set_rails_warp; warp changes only when an action is imminent) + flyby ~120
+# at 100x + settle + margin. Phase budgets in missionParams are GAME time.
 # runtime 2700 >= 240 LoadGame + 2400 mission + margin.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
@@ -73,8 +74,8 @@ planRetrySeconds           = 30
 transferBurnTimeoutSeconds = 4000
 coastTimeoutSeconds        = 400000
 flybyTimeoutSeconds        = 300000
-coastWarpHopSeconds        = 1800
-flybyWarpHopSeconds        = 600
+coastWarpFactor            = 6
+flybyWarpFactor            = 5
 targetPeriapsisFloorMeters = 10000
 
 # Coverage: the transfer coast + flyby are the cross-SOI recording cells -- D4

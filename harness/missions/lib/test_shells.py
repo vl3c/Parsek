@@ -117,8 +117,8 @@ B5_PARAMS = {
     "transferBurnTimeoutSeconds": 4000,
     "coastTimeoutSeconds": 400000,
     "flybyTimeoutSeconds": 300000,
-    "coastWarpHopSeconds": 1800,
-    "flybyWarpHopSeconds": 600,
+    "coastWarpFactor": 6,
+    "flybyWarpFactor": 5,
     "targetPeriapsisFloorMeters": 10000,
 }
 
@@ -892,7 +892,7 @@ class B5ShellTests(unittest.TestCase):
         for kind in (mlib.ACTION_MJ_ENGAGE_ASCENT, mlib.ACTION_SET_TARGET_BODY,
                      mlib.ACTION_MJ_PLAN_TRANSFER, mlib.ACTION_MJ_EXECUTE_NODES,
                      mlib.ACTION_MJ_PLAN_COURSE_CORRECT, mlib.ACTION_AP_POINT_NODE,
-                     mlib.ACTION_WARP_TO):
+                     mlib.ACTION_SET_RAILS_WARP):
             self.assertIn(kind, kinds)
         # The target-body action carried the body NAME in text.
         targets = [a for a in control.actions if a.kind == mlib.ACTION_SET_TARGET_BODY]

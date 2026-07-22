@@ -465,6 +465,12 @@ class KrpcMissionControl(MissionControl):
                 ne = self._mechjeb.node_executor
                 ne.autowarp = True
                 ne.execute_all_nodes()
+        elif kind == mlib.ACTION_SET_RAILS_WARP:
+            # Non-blocking rails warp (operator design critique: warp changes
+            # only when an action is imminent -- no more per-hop ramp sawtooth,
+            # no blocking RPC to wedge under a dialog). The server clamps the
+            # factor to the altitude-legal maximum; 0 = 1x.
+            sc.rails_warp_factor = int(action.value)
         elif kind == mlib.ACTION_AP_POINT_NODE:
             # DIY correction burner (live finding 8): point kRPC's NATIVE
             # AutoPilot along the first node's burn vector. Node.ReferenceFrame's
@@ -489,12 +495,18 @@ class KrpcMissionControl(MissionControl):
                 ap = v.auto_pilot
                 ap.reference_frame = nodes[0].reference_frame
                 ap.target_direction = (0.0, 1.0, 0.0)
-                # NO deceleration_time override here (unlike the B4 retro
-                # hold): the tenth live flight measured a 0.06 deg/s crawl
-                # from near-anti-parallel with the (15,15,15) tuning -- the
-                # kRPC defaults turn far faster (confirmed ~0.5 deg/s on the
-                # eleventh flight), and the DIY burn's rough 30-degree start
-                # gate + chase-the-vector burning tolerate the coarser hold.
+                # deceleration_time (15,15,15), the B4-PROVEN tuning. Finding
+                # 9(c) had this BACKWARDS: on a low-torque craft this window
+                # RAISES the angular-velocity cap (the AP permits spin it can
+                # stop within the window; omega_max ~ alpha * window). With
+                # the override removed the twelfth flight crawled at
+                # ~0.05 deg/s under kRPC's default ~0.5 s stopping profile;
+                # B4's measured 0.5 deg/s flip runs (15,15,15). Operator
+                # observed the 1x multi-hour coast live and flagged it.
+                try:
+                    ap.deceleration_time = (15.0, 15.0, 15.0)
+                except Exception:
+                    pass  # best-effort; the give-up bound owns a slow flip
                 ap.engage()
         elif kind == mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES:
             # B5 burn-exit cleanup: remove every remaining node, so the coast

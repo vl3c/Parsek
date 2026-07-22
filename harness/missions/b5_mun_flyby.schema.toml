@@ -108,20 +108,28 @@ required = true
 type = "number"
 min = 1.0
 
-# One COAST-TO-TARGET warp hop = ACTION_WARP_TO with value = now + this many
-# seconds, re-issued per decision frame (bounded hops keep the machine in
-# control; the SOI-entry UT is never computed).
-[params.coastWarpHopSeconds]
-required = true
-type = "number"
-min = 1.0
+# Non-blocking rails-warp factors (KSP factor INDEX 0-7; the machine holds
+# the factor via on-change set_rails_warp emissions and keeps polling -- no
+# blocking warp RPC, no per-hop ramp sawtooth). Optional; mlib defaults 6
+# (1000x) coast / 5 (100x) flyby.
+[params.coastWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
 
-# One TARGET-FLYBY warp hop (smaller, so the min-altitude flyby evidence is
-# sampled reasonably through periapsis).
-[params.flybyWarpHopSeconds]
-required = true
+[params.flybyWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+# Drop to 1x this many metres BELOW the next correction trigger altitude (at
+# 1000x one poll moves the ship up to ~750 km). Optional; mlib defaults 2M.
+[params.warpSlowdownMarginMeters]
+required = false
 type = "number"
-min = 1.0
+min = 100000.0
 
 # Flyby min-altitude assertion floor (metres above the target body; the Mun has
 # ~7 km peaks). The machine tracks the min finite altitude inside the target

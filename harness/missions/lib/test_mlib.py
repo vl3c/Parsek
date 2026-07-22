@@ -1462,8 +1462,9 @@ B5_PARAMS = mlib.B5Params(
     transfer_burn_timeout=4000.0,
     coast_timeout=400_000.0,
     flyby_timeout=300_000.0,
-    coast_warp_hop_seconds=1800.0,
-    flyby_warp_hop_seconds=600.0,
+    coast_warp_factor=6,
+    flyby_warp_factor=5,
+    warp_slowdown_margin=2_000_000.0,
     target_periapsis_floor=10000.0,
 )
 
@@ -1577,18 +1578,19 @@ class B5MachineTests(unittest.TestCase):
         self.assertEqual(per_frame[12], [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
                                          Action(mlib.ACTION_AP_DISENGAGE),
                                          Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
-        self.assertEqual(per_frame[13], [Action(mlib.ACTION_WARP_TO, 2400.0 + 1800.0)])
-        self.assertEqual(per_frame[14], [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
+        self.assertEqual(per_frame[13], [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+        self.assertEqual(per_frame[14], [Action(mlib.ACTION_SET_RAILS_WARP, 0.0),
+                                         Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
                                                 limit=150.0)])
         self.assertEqual(per_frame[15], [Action(mlib.ACTION_AP_POINT_NODE)])
         self.assertEqual(per_frame[16], [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
         self.assertEqual(per_frame[17], [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
                                          Action(mlib.ACTION_AP_DISENGAGE)])
-        self.assertEqual(per_frame[18], [Action(mlib.ACTION_WARP_TO, 9000.0 + 1800.0)])
-        self.assertEqual(per_frame[19], [])  # SOI-entry transition frame: no hop
-        self.assertEqual(per_frame[20], [Action(mlib.ACTION_WARP_TO, 40_100.0 + 600.0)])
-        self.assertEqual(per_frame[21], [Action(mlib.ACTION_WARP_TO, 40_700.0 + 600.0)])
-        self.assertEqual(per_frame[22], [])  # RETURN terminal: no actions
+        self.assertEqual(per_frame[18], [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+        self.assertEqual(per_frame[19], [])  # SOI-entry transition frame
+        self.assertEqual(per_frame[20], [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
+        self.assertEqual(per_frame[21], [])  # factor unchanged: NO emission
+        self.assertEqual(per_frame[22], [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])  # RETURN: drop warp
 
     def test_plan_transfer_replans_only_while_no_node(self):
         # A failed plan (server-side OperationException -> no node) re-issues on
@@ -1832,38 +1834,54 @@ class B5MachineTests(unittest.TestCase):
         state, actions = mlib.b5_decide(state, snap(ut=30.0, apoapsis=11_000_000.0,
                                                     altitude=90_000.0, body="Kerbin"))
         self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
-        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO, 30.0 + 1800.0)])
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
 
     def test_coast_correction_rounds_trigger_by_altitude(self):
         # Round 1 (trigger 0) fires on the first coast frame; after it is done,
-        # the coast hops BELOW trigger 2 (6M) and enters round 2 at/above it;
-        # with both rounds spent, the coast only hops.
+        # the coast warps BELOW trigger 2's slow-down band and enters round 2
+        # at/above the trigger (dropping warp first); with both rounds spent,
+        # the coast holds full warp with NO re-emission.
         state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=1)
         state, actions = mlib.b5_decide(state, snap(ut=10.0, altitude=200_000.0,
                                                     body="Kerbin"))
         self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
-        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO, 10.0 + 1800.0)])
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
         state, actions = mlib.b5_decide(state, snap(ut=20.0, altitude=6_200_000.0,
                                                     body="Kerbin"))
         self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
-        self.assertEqual(actions, [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 0.0),
+                                   Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
                                           limit=150.0)])
-        # Simulate the round completing; a later high-altitude frame only hops.
+        # Both rounds spent: full warp emitted once, then held silently.
         state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
         state, actions = mlib.b5_decide(state, snap(ut=30.0, altitude=8_000_000.0,
                                                     body="Kerbin"))
         self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
-        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO, 30.0 + 1800.0)])
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+        state, actions = mlib.b5_decide(state, snap(ut=40.0, altitude=8_400_000.0,
+                                                    body="Kerbin"))
+        self.assertEqual(actions, [])   # factor unchanged: NO emission
 
-    def test_coast_hop_gated_on_home_body_and_no_nodes(self):
-        # rounds_done=2: both correction rounds spent, pure hop behavior.
+    def test_coast_slowdown_band_below_trigger_drops_warp(self):
+        # Inside warpSlowdownMarginMeters below the next trigger: hold 1x so a
+        # 1000x poll step cannot blow through the trigger altitude.
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=1,
+                          warp_cmd=6)
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, altitude=4_500_000.0,
+                                                    body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+
+    def test_coast_warp_gated_on_home_body_and_no_nodes(self):
+        # rounds_done=2: both correction rounds spent, pure warp management.
         state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
-        # A pending node suppresses the hop (never warp past a maneuver).
+        # A pending node keeps warp DOWN (never warp past a maneuver); factor
+        # already 0 -> no emission.
         state, actions = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin", node_count=1))
         self.assertEqual(actions, [])
-        # Clean coast: one bounded hop.
+        # Clean coast: full factor emitted on change.
         state, actions = mlib.b5_decide(state, snap(ut=20.0, body="Kerbin"))
-        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO, 20.0 + 1800.0)])
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
 
     def test_coast_empty_body_stays_without_hop(self):
         # "" = no reading this frame: NOT the ejected terminal, NOT a hop.
@@ -1892,7 +1910,8 @@ class B5MachineTests(unittest.TestCase):
         self.assertTrue(state.done)
         self.assertEqual(state.phase, mlib.B5_RETURN)
         self.assertIsNone(state.verdict)
-        self.assertEqual(actions, [])
+        # RETURN entry drops warp for the settle tail (warp_cmd was 5).
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])
 
     def test_flyby_never_warps_toward_a_known_impact(self):
         # Flight 4 (2026-07-21): warping into a sub-surface-periapsis crash
@@ -1900,19 +1919,19 @@ class B5MachineTests(unittest.TestCase):
         # for the rest of the mission budget. Low + impact-bound -> poll at 1x
         # (the vessel-lost detectors then end the crash cleanly in seconds).
         state = _b5_state(mlib.B5_TARGET_FLYBY)
-        # High altitude, impact periapsis: still hop (plenty of warp room).
+        # High altitude, impact periapsis: still warp (plenty of room).
         state, actions = mlib.b5_decide(state, snap(
             ut=10.0, altitude=800_000.0, periapsis=-28_000.0, body="Mun"))
-        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO, 10.0 + 600.0)])
-        # Below the guard altitude with a sub-surface periapsis: NO hop.
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
+        # Below the guard altitude with a sub-surface periapsis: drop to 1x.
         state, actions = mlib.b5_decide(state, snap(
             ut=20.0, altitude=300_000.0, periapsis=-28_000.0, body="Mun"))
-        self.assertEqual(actions, [])
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])
         self.assertFalse(state.done)
-        # Same altitude with a POSITIVE periapsis: hop as normal.
+        # Same altitude with a POSITIVE periapsis: warp again.
         state, actions = mlib.b5_decide(state, snap(
             ut=30.0, altitude=300_000.0, periapsis=61_000.0, body="Mun"))
-        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO, 30.0 + 600.0)])
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
 
     def test_flyby_ejection_to_sun_is_assert_fail(self):
         state = _b5_state(mlib.B5_TARGET_FLYBY)
@@ -1961,7 +1980,8 @@ class B5ParamTests(unittest.TestCase):
             "planTimeoutSeconds": 200, "planRetrySeconds": 15,
             "transferBurnTimeoutSeconds": 5000,
             "coastTimeoutSeconds": 900_000, "flybyTimeoutSeconds": 400_000,
-            "coastWarpHopSeconds": 3600, "flybyWarpHopSeconds": 300,
+            "coastWarpFactor": 7, "flybyWarpFactor": 4,
+            "warpSlowdownMarginMeters": 3_000_000,
             "targetPeriapsisFloorMeters": 20000,
             "frozenTelemetrySamples": 5,
         })
@@ -1969,7 +1989,9 @@ class B5ParamTests(unittest.TestCase):
         self.assertEqual(p.transfer_min_apoapsis, 40_000_000.0)
         self.assertEqual(p.course_correct_periapsis, 30000.0)
         self.assertEqual(p.plan_retry_seconds, 15.0)
-        self.assertEqual(p.coast_warp_hop_seconds, 3600.0)
+        self.assertEqual(p.coast_warp_factor, 7)
+        self.assertEqual(p.flyby_warp_factor, 4)
+        self.assertEqual(p.warp_slowdown_margin, 3_000_000.0)
         self.assertEqual(p.target_periapsis_floor, 20000.0)
         self.assertEqual(p.frozen_sample_limit, 5)
 
