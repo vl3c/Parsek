@@ -84,8 +84,12 @@ targetApoapsisMeters       = 700000
 targetPeriapsisMeters      = 700000
 apoErrorMeters             = 15000
 periErrorMeters            = 15000
-# The 700 km ascent coasts longer to apoapsis than the 80 km B5 ascent; give it room.
-ascentTimeoutSeconds       = 1200
+# The 700 km ascent coasts longer to apoapsis than the 80 km B5 ascent.
+# MEASURED (first flight, 2026-07-22): at the old 1200 budget the flight
+# FLAKED mid-coast with ap already 703.6 km IN the window -- the coast to a
+# 700 km apoapsis + MechJeb's at-apoapsis circularization run ~1400-1600
+# game-s from launch. 2400 = measured need + ~50% margin.
+ascentTimeoutSeconds       = 2400
 circularizeTimeoutSeconds  = 600
 targetBodyName             = "Duna"
 homeBodyName               = "Kerbin"
