@@ -125,7 +125,12 @@ viaBodyNames               = ["Sun"]
 returnBodyName             = "Sun"
 # Course-correct the Duna flyby periapsis to 50 km: above the ~8 km Duna peaks +
 # the 15 km assertion floor, low enough for a real flyby geometry.
-courseCorrectPeriapsisMeters = 50000
+# Finding 16d margin (B5 flights 22-25): MechJeb's course-correct
+# under-delivers toward LOW periapsis targets by ~90-100 km while always
+# burning the right direction, and the mission contract is the 15 km FLOOR,
+# not a window -- target generously so the bias lands the arrival far above
+# the floor (the B5 250 km target arrived +138.9 km and PASSED).
+courseCorrectPeriapsisMeters = 300000
 # Interplanetary mid-course corrections can be larger than the moon ones (ejection
 # aim errors over a ~300-day coast); an over-cap plan is still removed and the coast
 # flies the raw intercept. 200 vs B5's 150.
