@@ -3038,6 +3038,53 @@ class B5FlameoutStagingTests(unittest.TestCase):
             100.0 + B5_PARAMS.burn_stagnant_seconds))
         self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
 
+    def test_transfer_burn_flameout_with_collapsed_throttle_stages(self):
+        # Finding 17 (B7 third flight): the MechJeb executor COLLAPSES the
+        # throttle to zero when the engine dies mid-burn (ejection flamed
+        # out at 476.9 of 797.6 m/s remaining, thr readback 0.000), so the
+        # commanded-throttle evidence is blind under it. A burn that
+        # demonstrably ran (orbit changed since entry) with the node still
+        # pending + zero available thrust stages anyway.
+        state = _b5_state(mlib.B5_TRANSFER_BURN, planned_node_count=1,
+                          burn_entry_ap=778_000.0, burn_entry_pe=560_000.0)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, body="Kerbin", node_count=1, node_dv=476.9,
+            apoapsis=2_541_000.0, periapsis=562_000.0,
+            throttle=0.0, available_thrust=0.0))
+        self.assertEqual(actions, [])
+        state, actions = mlib.b5_decide(state, snap(
+            ut=11.0, body="Kerbin", node_count=1, node_dv=476.9,
+            apoapsis=2_541_000.0, periapsis=562_000.0,
+            throttle=0.0, available_thrust=0.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_ACTIVATE_STAGE)])
+        self.assertEqual(state.flameout_stages_done, 1)
+
+    def test_transfer_burn_preburn_zero_thrust_never_stages(self):
+        # Pre-burn (orbit UNCHANGED since entry): zero available thrust with
+        # a collapsed throttle must not pop -- no burn evidence exists.
+        state = _b5_state(mlib.B5_TRANSFER_BURN, planned_node_count=1,
+                          burn_entry_ap=778_000.0, burn_entry_pe=560_000.0)
+        for ut in (10.0, 11.0, 12.0, 13.0):
+            state, actions = mlib.b5_decide(state, snap(
+                ut=ut, body="Kerbin", node_count=1, node_dv=797.6,
+                apoapsis=778_000.0, periapsis=560_000.0,
+                throttle=0.0, available_thrust=0.0))
+            self.assertEqual(actions, [])
+        self.assertEqual(state.flameout_stages_done, 0)
+
+    def test_transfer_burn_consumed_node_never_stages_mid_burn_path(self):
+        # Node consumed (count fell below the handoff): the mid-burn
+        # evidence is gone; a zero-thrust frame must not pop.
+        state = _b5_state(mlib.B5_TRANSFER_BURN, planned_node_count=1,
+                          burn_entry_ap=778_000.0, burn_entry_pe=560_000.0)
+        for ut in (10.0, 11.0, 12.0):
+            state, actions = mlib.b5_decide(state, snap(
+                ut=ut, body="Kerbin", node_count=0,
+                apoapsis=2_541_000.0, periapsis=562_000.0,
+                throttle=0.0, available_thrust=0.0))
+            self.assertNotIn(Action(mlib.ACTION_ACTIVATE_STAGE), actions)
+        self.assertEqual(state.flameout_stages_done, 0)
+
     def test_transfer_burn_flameout_stages_under_executor_throttle(self):
         # The MechJeb executor holds the throttle but never stages: a dry
         # stage mid-TLI pops here too.

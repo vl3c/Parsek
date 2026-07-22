@@ -1992,9 +1992,14 @@ _BURN_STATIC_EPS = 50.0
 
 def _b5_track_burn_stagnation(
         state: B5State,
-        snapshot: TelemetrySnapshot) -> Tuple[B5State, bool, bool]:
+        snapshot: TelemetrySnapshot) -> Tuple[B5State, bool, bool, bool]:
     """Advance the BURN-phase stagnation watchdog one frame; return
-    (new_state, stuck_after_burn, stuck_no_start).
+    (new_state, stuck_after_burn, stuck_no_start, burned).
+
+    ``burned`` (finding 17): the orbit changed since burn entry -- a burn
+    demonstrably ran. TRANSFER-BURN's executor-flameout staging gate reads
+    it (the executor collapses the throttle when the engine dies, so
+    burn-evidence must come from the orbit, not the throttle readback).
 
     ``stuck_after_burn``: the orbit CHANGED since burn entry (a burn
     demonstrably happened) and has now sat static at 1x (warp NONE) for
@@ -2009,7 +2014,7 @@ def _b5_track_burn_stagnation(
     ap, pe, ut = snapshot.apoapsis, snapshot.periapsis, snapshot.ut
     if not (_is_finite(ap) and _is_finite(pe) and _is_finite(ut)):
         return replace(state, burn_prev_ap=None, burn_prev_pe=None,
-                       burn_static_since=None), False, False
+                       burn_static_since=None), False, False, False
     static = (state.burn_prev_ap is not None and state.burn_prev_pe is not None
               and abs(ap - state.burn_prev_ap) < _BURN_STATIC_EPS
               and abs(pe - state.burn_prev_pe) < _BURN_STATIC_EPS
@@ -2028,12 +2033,14 @@ def _b5_track_burn_stagnation(
         and static_span >= state.params.burn_stagnant_seconds
     stuck_no_start = (not burned) and since is not None \
         and static_span >= state.params.burn_nostart_seconds
-    return replace(state, burn_prev_ap=ap, burn_prev_pe=pe,
-                   burn_static_since=since), stuck_after_burn, stuck_no_start
+    return (replace(state, burn_prev_ap=ap, burn_prev_pe=pe,
+                    burn_static_since=since),
+            stuck_after_burn, stuck_no_start, burned)
 
 
 def _b5_flameout_stage(state: B5State,
-                       snapshot: TelemetrySnapshot) -> Tuple[B5State, List[Action]]:
+                       snapshot: TelemetrySnapshot,
+                       mid_burn: bool = False) -> Tuple[B5State, List[Action]]:
     """Flameout-staging watchdog for the BURN phases (twenty-second live
     flight 2026-07-22): a COMMANDED burn -- throttle READBACK above
     FLAMEOUT_THROTTLE_EPS -- reading ZERO available thrust means the active
@@ -2045,11 +2052,21 @@ def _b5_flameout_stage(state: B5State,
     re-stamp the no-progress anchor so the fresh stage earns a full progress
     window; bounded at MAX_FLAMEOUT_STAGES per mission. A NaN
     available_thrust or throttle fails closed: a missing reading never pops
-    stages (the no-progress give-up still owns that outcome)."""
-    flamed = (_is_finite(snapshot.throttle)
-              and snapshot.throttle > FLAMEOUT_THROTTLE_EPS
-              and _is_finite(snapshot.available_thrust)
-              and snapshot.available_thrust <= 0.0)
+    stages (the no-progress give-up still owns that outcome).
+
+    ``mid_burn`` (finding 17, B7 third flight 2026-07-22): the MechJeb
+    NodeExecutor COLLAPSES the throttle to zero when the engine dies (the
+    B7 ejection flamed out at 476.9 of 797.6 m/s remaining, thr readback
+    0.000), so the commanded-throttle evidence never fires under it. The
+    TRANSFER-BURN caller passes mid_burn=True when a burn DEMONSTRABLY ran
+    (orbit changed since phase entry) and the node is still pending --
+    zero available thrust then means the stage died mid-burn regardless of
+    the collapsed throttle."""
+    flamed = (_is_finite(snapshot.available_thrust)
+              and snapshot.available_thrust <= 0.0
+              and (mid_burn
+                   or (_is_finite(snapshot.throttle)
+                       and snapshot.throttle > FLAMEOUT_THROTTLE_EPS)))
     if not flamed:
         if state.flameout_streak:
             return replace(state, flameout_streak=0), []
@@ -2413,7 +2430,7 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # TRANSFER-BURN uses only the after-burn wedge signal: a no-start TLI
         # has produced no transfer, and the phase budget owns that outcome
         # (six live flights: the TLI executor always started).
-        state, stuck, _nostart = _b5_track_burn_stagnation(state, snapshot)
+        state, stuck, _nostart, burned = _b5_track_burn_stagnation(state, snapshot)
         consumed = snapshot.node_count < max(state.planned_node_count, 1)
         # Burn-done evidence: the B5/B6 apoapsis floor, or the B7 hyperbolic
         # ejection gate when ejection_ecc_floor > 0 (an escape burn drives the
@@ -2439,11 +2456,17 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             return stayed, []
         # Flameout staging AFTER the exit/flake checks (delta-review A1/A3:
         # an exit frame must neither consume a stage-budget slot for a
-        # dropped action nor stage a vessel on a dead mission). The MechJeb
-        # executor holds the throttle but never stages -- a dry stage
-        # mid-TLI would otherwise idle to the wedge detectors; its throttle
-        # readback 0 during the autowarp coast keeps the gate closed there.
-        return _b5_flameout_stage(stayed, snapshot)
+        # dropped action nor stage a vessel on a dead mission). mid_burn
+        # evidence (finding 17, B7 third flight): the MechJeb executor
+        # COLLAPSES the throttle to zero when the engine dies (the ejection
+        # flamed out at 476.9 of 797.6 m/s remaining, thr readback 0.000),
+        # so the commanded-throttle gate is blind under it -- a burn that
+        # demonstrably ran (orbit changed since entry) with the node still
+        # pending substitutes as the burn evidence. Pre-burn autowarp coast
+        # frames stay closed: nothing has burned yet, and the engine is
+        # alive (avThr > 0) until the moment it dies mid-burn.
+        mid_burn = burned and snapshot.node_count >= max(state.planned_node_count, 1)
+        return _b5_flameout_stage(stayed, snapshot, mid_burn=mid_burn)
 
     if state.phase == B5_PLAN_CORRECTION:
         new_state, actions = _b5_plan_phase(
