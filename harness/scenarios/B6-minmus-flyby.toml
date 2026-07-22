@@ -62,12 +62,20 @@ planRetrySeconds           = 30
 # The burn itself is B5-sized, but the executor may autowarp up to a full
 # parking orbit to the node first; same 4000 game-second budget as B5.
 transferBurnTimeoutSeconds = 4000
-# ~9-day transfer coast (game seconds) + margin; runs at a HELD 1000x via
-# non-blocking set_rails_warp (~13 min real), no per-hop ramp sawtooth.
+# ~9-day transfer coast (game seconds) + margin; runs at a HELD 10,000x via
+# non-blocking set_rails_warp, no per-hop ramp sawtooth.
 coastTimeoutSeconds        = 2000000
 flybyTimeoutSeconds        = 400000
+# Warp shaping (2026-07-22 warp-optimization pass; see
+# docs/dev/research/warp-optimization-findings.md and the B5 spec comments).
+# Same values as B5; note the Minmus altitude-limit table is the tightest of
+# the three bodies (100x needs >= 12 km, 10,000x >= 48 km), which the
+# machine's per-body clamp handles automatically during the low flyby.
 coastWarpFactor            = 6
 flybyWarpFactor            = 5
+flybyMaxWarpFactor         = 6
+nodeWarpLeadSeconds        = 120
+flipPhysicsWarpFactor      = 1
 targetPeriapsisFloorMeters = 6000
 
 # Coverage: same cross-SOI recording cells as B5 with the minmus body axis.

@@ -269,6 +269,15 @@ class KrpcMissionControl(MissionControl):
                 node_dv=(float(nodes[0].remaining_delta_v) if nodes else float("nan")),
                 liquid_fuel=float(v.resources.amount("LiquidFuel")),
                 throttle=float(v.control.throttle),
+                # Warp-toward-node + SOI-approach warp bounds (operator
+                # directive 2026-07-22). Node.UT is the burn instant of the
+                # first pending node (NaN with no node: the machine's
+                # warp-toward-node stair fails closed to 1x).
+                # Orbit.TimeToSOIChange is NaN when no SOI change is on the
+                # trajectory (pinned kRPC 0.5.4 Orbit.cs: UTsoi - UT, negative
+                # -> NaN), which the machine's SOI bound skips (fail open).
+                node_ut=(float(nodes[0].ut) if nodes else float("nan")),
+                time_to_soi=float(orbit.time_to_soi_change),
             )
             self._read_fail_streak = 0
             return snapshot
@@ -481,8 +490,19 @@ class KrpcMissionControl(MissionControl):
             # Non-blocking rails warp (operator design critique: warp changes
             # only when an action is imminent -- no more per-hop ramp sawtooth,
             # no blocking RPC to wedge under a dialog). The server clamps the
-            # factor to the altitude-legal maximum; 0 = 1x.
+            # factor to the altitude-legal maximum; 0 = 1x. The machine now
+            # pre-clamps via mlib.max_legal_rails_factor so the commanded
+            # factor is achievable and escalates as the vessel climbs (KSP
+            # never auto-raises a clamped rate).
             sc.rails_warp_factor = int(action.value)
+        elif kind == mlib.ACTION_SET_PHYSICS_WARP:
+            # Non-blocking PHYSICS warp (the correction-burn attitude flip
+            # runs at 2x; the machine always drops to 0 before throttle-up).
+            # kRPC clamps to [0, 3] (pinned 0.5.4 SpaceCenter.cs
+            # PhysicsWarpFactor setter); precedent for flipping under mild
+            # physics warp is MechJeb's own WarpToUT 2.0x physics cap
+            # (decompiled 2.15.1 MechJebModuleWarpController).
+            sc.physics_warp_factor = int(action.value)
         elif kind == mlib.ACTION_AP_POINT_NODE:
             # DIY correction burner (live finding 8): point kRPC's NATIVE
             # AutoPilot along the first node's burn vector. Node.ReferenceFrame's
@@ -859,11 +879,12 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         log.verbose_rate_limited(
             "telemetry", state.phase,
             "telemetry ap=%s pe=%s ecc=%s inc=%s alt=%s vspd=%s body=%s nodes=%d "
-            "nodeDv=%s lf=%s thr=%s situation=%s warp=%sx%s apErr=%s"
+            "nodeDv=%s nodeUt=%s tts=%s lf=%s thr=%s situation=%s warp=%sx%s apErr=%s"
             % (_fmt(snapshot.apoapsis), _fmt(snapshot.periapsis), _fmt(snapshot.eccentricity),
                _fmt(snapshot.inclination), _fmt(snapshot.altitude),
                _fmt(snapshot.vertical_speed), snapshot.body or "?", snapshot.node_count,
-               _fmt(snapshot.node_dv), _fmt(snapshot.liquid_fuel), _fmt(snapshot.throttle),
+               _fmt(snapshot.node_dv), _fmt(snapshot.node_ut), _fmt(snapshot.time_to_soi),
+               _fmt(snapshot.liquid_fuel), _fmt(snapshot.throttle),
                snapshot.situation, snapshot.warp_mode,
                _fmt(snapshot.warp_rate), _fmt(snapshot.ap_error)))
         if state.done:

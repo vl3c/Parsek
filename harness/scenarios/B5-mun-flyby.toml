@@ -29,9 +29,10 @@ mission = "b5_mun_flyby"
 # Budget arithmetic (ESTIMATED, pending the first live flight): missionBudget
 # 2400 (WALL) >= 30 connect + ascent ~250 + circularize ~100 + plan+TLI burn
 # ~300 (autowarp compresses the node wait) + corrections ~2x150 + coast ~200
-# (the ~2-day game-time transfer runs at a HELD 1000x via non-blocking
+# (the ~2-day game-time transfer runs at a HELD 10,000x via non-blocking
 # set_rails_warp; warp changes only when an action is imminent) + flyby ~120
-# at 100x + settle + margin. Phase budgets in missionParams are GAME time.
+# (100x floor near periapsis, 1000x+ outer legs) + settle + margin. Phase
+# budgets in missionParams are GAME time.
 # runtime 2700 >= 240 LoadGame + 2400 mission + margin.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
@@ -74,8 +75,23 @@ planRetrySeconds           = 30
 transferBurnTimeoutSeconds = 4000
 coastTimeoutSeconds        = 400000
 flybyTimeoutSeconds        = 300000
+# Warp shaping (2026-07-22 warp-optimization pass; see
+# docs/dev/research/warp-optimization-findings.md). Factors are KSP rails
+# INDEXES; every command is pre-clamped to the stock per-body altitude-limit
+# table so it is achievable and escalates as the vessel climbs (a commanded 6
+# near the 80 km parking orbit used to run the whole leg silently at 50x).
 coastWarpFactor            = 6
+# Flyby: 100x floor near periapsis (the proven evidence cadence), stair up to
+# 10,000x on the outer SOI legs.
 flybyWarpFactor            = 5
+flybyMaxWarpFactor         = 6
+# Pending-node coasts warp toward node UT minus this lead (time stair, non-
+# blocking); 1x only inside the lead window.
+nodeWarpLeadSeconds        = 120
+# Correction-burn attitude flip at 2x physics warp (dropped to 1x before
+# throttle-up); set 0 to revert to the proven 1x flip if the kRPC AP
+# misbehaves under physics warp on the live craft.
+flipPhysicsWarpFactor      = 1
 targetPeriapsisFloorMeters = 10000
 
 # Coverage: the transfer coast + flyby are the cross-SOI recording cells -- D4

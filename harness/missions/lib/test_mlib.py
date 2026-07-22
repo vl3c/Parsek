@@ -1513,36 +1513,39 @@ class B5MachineTests(unittest.TestCase):
             snap(ut=2230.0, apoapsis=11_500_000.0, body="Kerbin",
                  node_count=1),                                         # 8 node -> CORRECTION-BURN (AP point)
             snap(ut=2235.0, apoapsis=11_500_000.0, body="Kerbin",
-                 node_count=1, node_dv=110.0, ap_error=1.4),            # 9 aligned, still settling (streak 1)
+                 node_count=1, node_dv=110.0, ap_error=1.4),            # 9 settling (streak 1) -> flip phys warp
             snap(ut=2245.0, apoapsis=11_500_000.0, body="Kerbin",
-                 node_count=1, node_dv=110.0, ap_error=1.2),            # 10 settled+aligned -> throttle
+                 node_count=1, node_dv=110.0, ap_error=1.2,
+                 warp_mode="PHYSICS", warp_rate=2.0),                   # 10 settled + streak 2 -> drop phys warp
+            snap(ut=2247.0, apoapsis=11_500_000.0, body="Kerbin",
+                 node_count=1, node_dv=110.0, ap_error=1.1),            # 11 warp NONE -> throttle
             snap(ut=2260.0, apoapsis=11_400_000.0, body="Kerbin",
-                 node_count=1, node_dv=40.0, ap_error=1.0),             # 11 burning
+                 node_count=1, node_dv=40.0, ap_error=1.0),             # 12 burning
             snap(ut=2270.0, apoapsis=11_350_000.0, body="Kerbin",
-                 node_count=1, node_dv=1.5, ap_error=1.0),              # 12 dv <= cut -> cut triple
+                 node_count=1, node_dv=1.5, ap_error=1.0),              # 13 dv <= cut -> cut triple
             snap(ut=2400.0, apoapsis=11_350_000.0, body="Kerbin",
-                 altitude=200_000.0),                                   # 13 coast (below trigger 2) -> hop
+                 altitude=200_000.0),                                   # 14 coast: stair capped by ALTITUDE limits
             snap(ut=8000.0, apoapsis=11_350_000.0, body="Kerbin",
-                 altitude=6_500_000.0),                                 # 14 trigger 6M -> PLAN-CORRECTION (round 2)
+                 altitude=6_500_000.0),                                 # 15 trigger 6M -> PLAN-CORRECTION (round 2)
             snap(ut=8010.0, apoapsis=11_350_000.0, body="Kerbin",
-                 altitude=6_510_000.0, node_count=1),                   # 15 node -> CORRECTION-BURN (AP point)
+                 altitude=6_510_000.0, node_count=1),                   # 16 node -> CORRECTION-BURN (AP point)
             snap(ut=8018.0, apoapsis=11_350_000.0, body="Kerbin",
                  altitude=6_515_000.0, node_count=1, node_dv=4.0,
-                 ap_error=0.9),                                         # 16 aligned, still settling (streak 1)
+                 ap_error=0.9),                                         # 17 settling (streak 1) -> flip phys warp
             snap(ut=8025.0, apoapsis=11_350_000.0, body="Kerbin",
                  altitude=6_520_000.0, node_count=1, node_dv=4.0,
-                 ap_error=0.8),                                         # 17 settled + streak 2 -> throttle
+                 ap_error=0.8, warp_mode="PHYSICS", warp_rate=2.0),     # 18 settled + streak 2 -> drop phys warp
             snap(ut=8030.0, apoapsis=11_350_000.0, body="Kerbin",
-                 altitude=6_525_000.0, node_count=0),                   # 18 node consumed -> cut pair
+                 altitude=6_525_000.0, node_count=0),                   # 19 node consumed -> cut pair
             snap(ut=9000.0, apoapsis=11_350_000.0, body="Kerbin",
-                 altitude=7_000_000.0),                                 # 19 coast (rounds spent) -> full warp
-            snap(ut=40_000.0, altitude=2_000_000.0, body="Mun"),        # 20 SOI! -> TARGET-FLYBY
+                 altitude=7_000_000.0),                                 # 20 coast (rounds spent) -> full warp
+            snap(ut=40_000.0, altitude=2_000_000.0, body="Mun"),        # 21 SOI! -> TARGET-FLYBY
             snap(ut=40_100.0, altitude=800_000.0, body="Mun",
-                 periapsis=61_000.0),                                   # 21 inbound -> flyby factor
+                 periapsis=61_000.0),                                   # 22 outer leg -> flyby stair above floor
             snap(ut=40_700.0, altitude=61_000.0, body="Mun",
                  periapsis=61_000.0, warp_mode="RAILS",
-                 warp_rate=100.0),                                      # 22 periapsis area (held factor)
-            snap(ut=80_000.0, altitude=3_000_000.0, body="Kerbin"),     # 23 home SOI -> RETURN terminal
+                 warp_rate=1000.0),                                     # 23 periapsis area -> flyby floor
+            snap(ut=80_000.0, altitude=3_000_000.0, body="Kerbin"),     # 24 home SOI -> RETURN terminal
         ]
         state, per_frame = drive_b5(state, frames)
         self.assertTrue(state.done)
@@ -1575,26 +1578,35 @@ class B5MachineTests(unittest.TestCase):
         self.assertEqual(per_frame[7], [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
                                                limit=150.0)])
         self.assertEqual(per_frame[8], [Action(mlib.ACTION_AP_POINT_NODE)])
-        self.assertEqual(per_frame[9], [])   # settling / mid-flip: no throttle
-        self.assertEqual(per_frame[10], [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
-        self.assertEqual(per_frame[11], [])  # burn latch: throttle issued ONCE
-        self.assertEqual(per_frame[12], [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+        # Flip under mild physics warp (streak 1, still settling), dropped on
+        # the gate-open frame, throttle only on the following warp-NONE frame.
+        self.assertEqual(per_frame[9], [Action(mlib.ACTION_SET_PHYSICS_WARP, 1.0)])
+        self.assertEqual(per_frame[10], [Action(mlib.ACTION_SET_PHYSICS_WARP, 0.0)])
+        self.assertEqual(per_frame[11], [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
+        self.assertEqual(per_frame[12], [])  # burn latch: throttle issued ONCE
+        self.assertEqual(per_frame[13], [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
                                          Action(mlib.ACTION_AP_DISENGAGE),
                                          Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
-        self.assertEqual(per_frame[13], [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
-        self.assertEqual(per_frame[14], [Action(mlib.ACTION_SET_RAILS_WARP, 0.0),
+        # 200 km Kerbin: the trigger stair wants 6 (10,000x) but the stock
+        # altitude table only legalizes 100x there -- command the ACHIEVABLE 4
+        # (the old commanded-6 ran the whole leg silently clamped to 50x).
+        self.assertEqual(per_frame[14], [Action(mlib.ACTION_SET_RAILS_WARP, 4.0)])
+        self.assertEqual(per_frame[15], [Action(mlib.ACTION_SET_RAILS_WARP, 0.0),
                                          Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
                                                 limit=150.0)])
-        self.assertEqual(per_frame[15], [Action(mlib.ACTION_AP_POINT_NODE)])
-        self.assertEqual(per_frame[16], [])  # aligned but streak 1 of 2: no throttle
-        self.assertEqual(per_frame[17], [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
-        self.assertEqual(per_frame[18], [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+        self.assertEqual(per_frame[16], [Action(mlib.ACTION_AP_POINT_NODE)])
+        self.assertEqual(per_frame[17], [Action(mlib.ACTION_SET_PHYSICS_WARP, 1.0)])
+        self.assertEqual(per_frame[18], [Action(mlib.ACTION_SET_PHYSICS_WARP, 0.0)])
+        self.assertEqual(per_frame[19], [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
                                          Action(mlib.ACTION_AP_DISENGAGE)])
-        self.assertEqual(per_frame[19], [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
-        self.assertEqual(per_frame[20], [])  # SOI-entry transition frame
-        self.assertEqual(per_frame[21], [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
-        self.assertEqual(per_frame[22], [])  # factor unchanged: NO emission
-        self.assertEqual(per_frame[23], [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])  # RETURN: drop warp
+        self.assertEqual(per_frame[20], [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+        self.assertEqual(per_frame[21], [])  # SOI-entry transition frame
+        # Outer flyby leg: the stair runs ABOVE the 100x floor (self-healing
+        # re-emit: the game reads warp NONE despite the held command).
+        self.assertEqual(per_frame[22], [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+        # Periapsis area: back down to the flyby floor, altitude-legal at 61 km.
+        self.assertEqual(per_frame[23], [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
+        self.assertEqual(per_frame[24], [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])  # RETURN: drop warp
 
     def test_plan_transfer_replans_only_while_no_node(self):
         # A failed plan (server-side OperationException -> no node) re-issues on
@@ -1691,25 +1703,40 @@ class B5MachineTests(unittest.TestCase):
         state, actions = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin", node_count=1))
         self.assertEqual(actions, [Action(mlib.ACTION_AP_POINT_NODE)])
         self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
-        # Aligned but not settled (5 s < 10 s): no throttle.
+        # Aligned but not settled (5 s < 10 s): no throttle; the flip engages
+        # mild physics warp (on-change).
         state, actions = mlib.b5_decide(state, snap(ut=15.0, body="Kerbin",
                                                     node_count=1, node_dv=100.0,
                                                     ap_error=1.0))
-        self.assertEqual(actions, [])
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_PHYSICS_WARP, 1.0)])
         # Settled but misaligned (|error| beyond the rough 30-degree start
         # gate; the sign is irrelevant -- live kRPC readings go negative): no
-        # throttle.
+        # throttle; physics warp HELD (no re-emission while the game reads
+        # PHYSICS).
         state, actions = mlib.b5_decide(state, snap(ut=21.0, body="Kerbin",
                                                     node_count=1, node_dv=100.0,
-                                                    ap_error=-178.0))
+                                                    ap_error=-178.0,
+                                                    warp_mode="PHYSICS",
+                                                    warp_rate=2.0))
         self.assertEqual(actions, [])
         # First aligned frame after the misalign reset: streak 1 of 2, no fire.
         state, actions = mlib.b5_decide(state, snap(ut=23.0, body="Kerbin",
                                                     node_count=1, node_dv=100.0,
-                                                    ap_error=1.0))
+                                                    ap_error=1.0,
+                                                    warp_mode="PHYSICS",
+                                                    warp_rate=2.0))
         self.assertEqual(actions, [])
-        # Settled AND aligned for the debounce depth: exactly one throttle-up.
+        # Settled AND aligned for the debounce depth: the gate opens, but the
+        # burn must start at 1x -- the physics warp is dropped FIRST.
         state, actions = mlib.b5_decide(state, snap(ut=25.0, body="Kerbin",
+                                                    node_count=1, node_dv=100.0,
+                                                    ap_error=1.0,
+                                                    warp_mode="PHYSICS",
+                                                    warp_rate=2.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_PHYSICS_WARP, 0.0)])
+        self.assertFalse(state.corr_burn_started)
+        # Next frame reads warp NONE: exactly one throttle-up.
+        state, actions = mlib.b5_decide(state, snap(ut=26.0, body="Kerbin",
                                                     node_count=1, node_dv=100.0,
                                                     ap_error=1.0))
         self.assertEqual(actions, [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
@@ -1777,19 +1804,27 @@ class B5MachineTests(unittest.TestCase):
         self.assertEqual(actions, [Action(mlib.ACTION_AP_POINT_NODE)])
         self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
         # Never aligned (ap_error NaN default fails closed): tolerated up to
-        # the give-up bound...
+        # the give-up bound; the flip engages physics warp once and holds it.
         pre = dict(apoapsis=11_480_000.0, periapsis=76_000.0, body="Kerbin",
                    node_count=1)
-        for ut in (20.0, 400.0, 600.0):
-            state, actions = mlib.b5_decide(state, snap(ut=ut, **pre))
+        state, actions = mlib.b5_decide(state, snap(ut=20.0, **pre))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_PHYSICS_WARP, 1.0)])
+        for ut in (400.0, 600.0):
+            state, actions = mlib.b5_decide(state, snap(
+                ut=ut, warp_mode="PHYSICS", warp_rate=2.0, **pre))
             self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
             self.assertEqual(actions, [])
-        # ...then given up: round consumed, full cleanup.
-        state, actions = mlib.b5_decide(state, snap(ut=611.0, **pre))
+        # ...then given up: round consumed, full cleanup INCLUDING dropping
+        # the flip's physics warp on the way out.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=611.0, warp_mode="PHYSICS", warp_rate=2.0, **pre))
         self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
         self.assertEqual(state.correction_rounds_done, 1)
+        self.assertEqual(state.phys_warp_cmd, 0)
         self.assertEqual(actions, [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
                                    Action(mlib.ACTION_AP_DISENGAGE),
+                                   Action(mlib.ACTION_SET_PHYSICS_WARP, 0.0),
                                    Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
 
     def test_correction_burn_overshoot_cuts(self):
@@ -1799,8 +1834,14 @@ class B5MachineTests(unittest.TestCase):
         state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin", node_count=1))
         state, _ = mlib.b5_decide(state, snap(ut=20.0, body="Kerbin",
                                               node_count=1, node_dv=50.0,
-                                              ap_error=1.0))     # streak 1 of 2
+                                              ap_error=1.0))     # streak 1 of 2 (flip phys warp)
         state, actions = mlib.b5_decide(state, snap(ut=25.0, body="Kerbin",
+                                                    node_count=1, node_dv=50.0,
+                                                    ap_error=1.0,
+                                                    warp_mode="PHYSICS",
+                                                    warp_rate=2.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_PHYSICS_WARP, 0.0)])
+        state, actions = mlib.b5_decide(state, snap(ut=26.0, body="Kerbin",
                                                     node_count=1, node_dv=50.0,
                                                     ap_error=1.0))
         self.assertEqual(actions, [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
@@ -1838,7 +1879,9 @@ class B5MachineTests(unittest.TestCase):
 
     def test_coast_skips_correction_when_disabled(self):
         # courseCorrectPeriapsisMeters=0 disables the rounds entirely: the first
-        # coast frame hops instead of entering PLAN-CORRECTION.
+        # coast frame warps instead of entering PLAN-CORRECTION. At 90 km over
+        # Kerbin the stock altitude table legalizes only 50x (factor 3): the
+        # command is pre-clamped to the ACHIEVABLE factor, never the raw cap.
         params = mlib.B5Params(**{**B5_PARAMS.__dict__, "course_correct_periapsis": 0.0})
         base = mlib.b5_initial_state(params)
         state = base.__class__(**{**base.__dict__, "phase": mlib.B5_COAST_TO_TARGET,
@@ -1846,6 +1889,12 @@ class B5MachineTests(unittest.TestCase):
         state, actions = mlib.b5_decide(state, snap(ut=30.0, apoapsis=11_000_000.0,
                                                     altitude=90_000.0, body="Kerbin"))
         self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 3.0)])
+        # High over Kerbin (>= 600 km) everything is legal: the full cap flows.
+        state, actions = mlib.b5_decide(state, snap(ut=40.0, apoapsis=11_000_000.0,
+                                                    altitude=8_000_000.0,
+                                                    body="Kerbin", warp_mode="RAILS",
+                                                    warp_rate=50.0))
         self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
 
     def test_coast_correction_rounds_trigger_by_altitude(self):
@@ -1854,10 +1903,12 @@ class B5MachineTests(unittest.TestCase):
         # at/above the trigger (dropping warp first); with both rounds spent,
         # the coast holds full warp with NO re-emission.
         state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=1)
+        # 200 km: the trigger stair wants the full cap but the stock Kerbin
+        # table legalizes only 100x (factor 4) there -- command the achievable.
         state, actions = mlib.b5_decide(state, snap(ut=10.0, altitude=200_000.0,
                                                     body="Kerbin"))
         self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
-        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 4.0)])
         state, actions = mlib.b5_decide(state, snap(ut=20.0, altitude=6_200_000.0,
                                                     body="Kerbin"))
         self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
@@ -1928,16 +1979,117 @@ class B5MachineTests(unittest.TestCase):
         # The cap is honored.
         self.assertEqual(mlib.rails_factor_for_distance(5_800_000, 800.0, 3), 3)
 
+    def test_rails_factor_for_time_pure(self):
+        # Highest factor whose rate * 1 s safety window fits the remaining
+        # game time. Index map: 5 = 1000x, 6 = 10,000x, 7 = 100,000x.
+        self.assertEqual(mlib.rails_factor_for_time(2_000_000.0, 7), 7)
+        self.assertEqual(mlib.rails_factor_for_time(50_000.0, 7), 6)
+        self.assertEqual(mlib.rails_factor_for_time(50_000.0, 6), 6)
+        self.assertEqual(mlib.rails_factor_for_time(5_000.0, 6), 5)
+        self.assertEqual(mlib.rails_factor_for_time(30.0, 6), 2)
+        self.assertEqual(mlib.rails_factor_for_time(3.0, 6), 0)
+        # Fail closed: unknown / non-positive remaining time never warps.
+        self.assertEqual(mlib.rails_factor_for_time(0.0, 6), 0)
+        self.assertEqual(mlib.rails_factor_for_time(-10.0, 6), 0)
+        self.assertEqual(mlib.rails_factor_for_time(float("nan"), 6), 0)
+        # The cap is honored.
+        self.assertEqual(mlib.rails_factor_for_time(2_000_000.0, 5), 5)
+
+    def test_max_legal_rails_factor_pure(self):
+        # Ground-truth stock tables (extracted from the dev install's
+        # serialized CelestialBody.timeWarpAltitudeLimits; see mlib).
+        # Kerbin: 80 km parking orbit legalizes only 50x (factor 3) -- the
+        # live-observed clamp that silently ran a commanded 10,000x at 50x.
+        self.assertEqual(mlib.max_legal_rails_factor("Kerbin", 80_000.0), 3)
+        self.assertEqual(mlib.max_legal_rails_factor("Kerbin", 119_999.0), 3)
+        self.assertEqual(mlib.max_legal_rails_factor("Kerbin", 120_000.0), 4)
+        self.assertEqual(mlib.max_legal_rails_factor("Kerbin", 240_000.0), 5)
+        self.assertEqual(mlib.max_legal_rails_factor("Kerbin", 480_000.0), 6)
+        self.assertEqual(mlib.max_legal_rails_factor("Kerbin", 600_000.0), 7)
+        self.assertEqual(mlib.max_legal_rails_factor("Kerbin", 8_000_000.0), 7)
+        # Legality is altitude >= limit (kRPC CanRailsWarpAt rejects strictly
+        # below), so the boundary value itself is legal.
+        self.assertEqual(mlib.max_legal_rails_factor("Mun", 25_000.0), 4)
+        self.assertEqual(mlib.max_legal_rails_factor("Mun", 24_999.0), 3)
+        self.assertEqual(mlib.max_legal_rails_factor("Minmus", 60_000.0), 7)
+        self.assertEqual(mlib.max_legal_rails_factor("Minmus", 5_000.0), 2)
+        self.assertEqual(mlib.max_legal_rails_factor("Duna", 100_000.0), 4)
+        self.assertEqual(mlib.max_legal_rails_factor("Sun", 13_500_000_000.0), 7)
+        # Fail OPEN (top factor) for unknown bodies / non-finite altitude: the
+        # server clamp is the backstop, and a one-frame altitude blip must not
+        # sawtooth a held warp down to 1x.
+        self.assertEqual(mlib.max_legal_rails_factor("ModdedBody", 1_000.0), 7)
+        self.assertEqual(mlib.max_legal_rails_factor("", 1_000.0), 7)
+        self.assertEqual(mlib.max_legal_rails_factor("Kerbin", float("nan")), 7)
+
     def test_coast_warp_gated_on_home_body_and_no_nodes(self):
         # rounds_done=2: both correction rounds spent, pure warp management.
         state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
-        # A pending node keeps warp DOWN (never warp past a maneuver); factor
-        # already 0 -> no emission.
-        state, actions = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin", node_count=1))
+        # A pending node with an UNKNOWN UT (NaN, fail closed) keeps warp DOWN
+        # (never warp past a maneuver on no evidence); factor already 0 -> no
+        # emission.
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin",
+                                                    altitude=8_000_000.0,
+                                                    node_count=1))
         self.assertEqual(actions, [])
         # Clean coast: full factor emitted on change.
-        state, actions = mlib.b5_decide(state, snap(ut=20.0, body="Kerbin"))
+        state, actions = mlib.b5_decide(state, snap(ut=20.0, body="Kerbin",
+                                                    altitude=8_000_000.0))
         self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+
+    def test_coast_warps_toward_pending_node_ut(self):
+        """Operator directive 2026-07-22: 'warp to maneuver node' as a
+        TIME-based stair-down, never the blocking warp_to. A far-future node
+        warps at the stair factor for the remaining time-to-(node - lead); the
+        factor stairs down as the node approaches; inside the lead window the
+        coast holds 1x for the flip + settle."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        # Node 40,000 s out (minus the 120 s lead): 10,000x fits the stair.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=1000.0, body="Kerbin", altitude=8_000_000.0,
+            node_count=1, node_ut=41_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+        # 5,000 s remaining: 10,000x would overshoot; 1000x fits.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=36_000.0, body="Kerbin", altitude=8_000_000.0,
+            node_count=1, node_ut=41_000.0, warp_mode="RAILS",
+            warp_rate=10_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
+        # 30 s remaining outside the lead: only 10x fits.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=40_850.0, body="Kerbin", altitude=8_000_000.0,
+            node_count=1, node_ut=41_000.0, warp_mode="RAILS",
+            warp_rate=1000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 2.0)])
+        # Inside the 120 s lead window: 1x (room for the flip + settle).
+        state, actions = mlib.b5_decide(state, snap(
+            ut=40_900.0, body="Kerbin", altitude=8_000_000.0,
+            node_count=1, node_ut=41_000.0, warp_mode="RAILS", warp_rate=10.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+
+    def test_coast_soi_approach_stairs_down_to_flyby_floor(self):
+        """The SOI-approach bound: a finite time_to_soi stairs the coast
+        factor down (one 0.5 s poll at 10,000x could advance ~5,000 game-s
+        past the boundary -- fatal for small SOIs / B7), FLOORED at the flyby
+        factor so the boundary still crosses at ~100x, never a 1x cliff."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        # Encounter 200,000 s out: no bound bites, full coast factor.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, body="Kerbin", altitude=8_000_000.0, time_to_soi=200_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+        # 5,000 s to the boundary: 10,000x no longer fits -> 1000x.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=20.0, body="Kerbin", altitude=9_000_000.0, time_to_soi=5_000.0,
+            warp_mode="RAILS", warp_rate=10_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
+        # 30 s to the boundary: the raw stair says 10x, but the flyby-factor
+        # FLOOR keeps 100x (bounded ~100 game-s overshoot into a
+        # 2,430,000 m-radius SOI is nothing; a 1x cliff at the boundary is
+        # real wall time). Fresh state so the emission is observable.
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=30.0, body="Kerbin", altitude=10_000_000.0, time_to_soi=30.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
 
     def test_coast_empty_body_stays_without_hop(self):
         # "" = no reading this frame: NOT the ejected terminal, NOT a hop.
@@ -1966,7 +2118,7 @@ class B5MachineTests(unittest.TestCase):
         self.assertTrue(state.done)
         self.assertEqual(state.phase, mlib.B5_RETURN)
         self.assertIsNone(state.verdict)
-        # RETURN entry drops warp for the settle tail (warp_cmd was 5).
+        # RETURN entry drops warp for the settle tail (a factor was held).
         self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])
 
     def test_flyby_never_warps_toward_a_known_impact(self):
@@ -1975,19 +2127,39 @@ class B5MachineTests(unittest.TestCase):
         # for the rest of the mission budget. Low + impact-bound -> poll at 1x
         # (the vessel-lost detectors then end the crash cleanly in seconds).
         state = _b5_state(mlib.B5_TARGET_FLYBY)
-        # High altitude, impact periapsis: still warp (plenty of room).
+        # High altitude, impact periapsis: still warp (plenty of room); far
+        # from periapsis the stair runs ABOVE the 100x floor.
         state, actions = mlib.b5_decide(state, snap(
             ut=10.0, altitude=800_000.0, periapsis=-28_000.0, body="Mun"))
-        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
         # Below the guard altitude with a sub-surface periapsis: drop to 1x.
         state, actions = mlib.b5_decide(state, snap(
             ut=20.0, altitude=300_000.0, periapsis=-28_000.0, body="Mun"))
         self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])
         self.assertFalse(state.done)
-        # Same altitude with a POSITIVE periapsis: warp again.
+        # Same altitude with a POSITIVE periapsis: warp again (239 km above
+        # the periapsis still fits the 10,000x stair at the floored speed).
         state, actions = mlib.b5_decide(state, snap(
             ut=30.0, altitude=300_000.0, periapsis=61_000.0, body="Mun"))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+
+    def test_flyby_stair_floors_at_flyby_factor_and_altitude_clamps(self):
+        """TARGET-FLYBY factor policy: stair up toward flybyMaxWarpFactor far
+        above periapsis, hold the proven flybyWarpFactor (100x evidence
+        cadence) near periapsis, and never command over the stock Mun
+        altitude-limit table (100x needs >= 25 km, 1000x >= 50 km)."""
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        # Near periapsis (5 km above it): stair collapses, the 100x floor
+        # holds, and 61 km altitude legalizes exactly factor 5 on the Mun.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, altitude=61_000.0, periapsis=56_000.0, body="Mun"))
         self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
+        # Descending at 20 km altitude: 100x is NOT legal below 25 km on the
+        # Mun -- command the achievable 50x instead of fighting the clamp.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=20.0, altitude=20_000.0, periapsis=15_000.0, body="Mun",
+            warp_mode="RAILS", warp_rate=100.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 3.0)])
 
     def test_flyby_ejection_to_sun_is_assert_fail(self):
         state = _b5_state(mlib.B5_TARGET_FLYBY)
@@ -2037,6 +2209,8 @@ class B5ParamTests(unittest.TestCase):
             "transferBurnTimeoutSeconds": 5000,
             "coastTimeoutSeconds": 900_000, "flybyTimeoutSeconds": 400_000,
             "coastWarpFactor": 7, "flybyWarpFactor": 4,
+            "flybyMaxWarpFactor": 7, "nodeWarpLeadSeconds": 300,
+            "flipPhysicsWarpFactor": 2,
             "targetPeriapsisFloorMeters": 20000,
             "frozenTelemetrySamples": 5,
         })
@@ -2046,6 +2220,9 @@ class B5ParamTests(unittest.TestCase):
         self.assertEqual(p.plan_retry_seconds, 15.0)
         self.assertEqual(p.coast_warp_factor, 7)
         self.assertEqual(p.flyby_warp_factor, 4)
+        self.assertEqual(p.flyby_max_warp_factor, 7)
+        self.assertEqual(p.node_warp_lead, 300.0)
+        self.assertEqual(p.flip_physics_warp, 2)
         self.assertEqual(p.target_periapsis_floor, 20000.0)
         self.assertEqual(p.frozen_sample_limit, 5)
 
@@ -2057,6 +2234,9 @@ class B5ParamTests(unittest.TestCase):
         self.assertEqual(p.target_periapsis_floor, 10000.0)
         self.assertEqual(p.max_correction_dv, 150.0)
         self.assertEqual(p.correction_trigger_alts, (0.0, 6_000_000.0))
+        self.assertEqual(p.flyby_max_warp_factor, 6)
+        self.assertEqual(p.node_warp_lead, 120.0)
+        self.assertEqual(p.flip_physics_warp, 1)
 
     def test_params_correction_dv_cap_from_dict(self):
         p = mlib.b5_params_from_dict({"maxCorrectionDvMps": 40,

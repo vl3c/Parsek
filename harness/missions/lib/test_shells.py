@@ -543,6 +543,9 @@ class _FakeOrbit:
     eccentricity = 0.1
     inclination = 0.0
     body = _FakeBody()
+    # No SOI change on the trajectory: kRPC returns NaN (the machine's
+    # SOI-approach warp bound skips it, fail open).
+    time_to_soi_change = float("nan")
 
 
 class _FakeSituation:
@@ -852,12 +855,16 @@ class B5ShellTests(unittest.TestCase):
                  node_count=1),                                  # node -> CORRECTION-BURN (AP point)
             snap(ut=2245.0, apoapsis=11_500_000.0, periapsis=79000,
                  altitude=97000.0, situation="ORBITING", body="Kerbin",
-                 node_count=1, node_dv=100.0, ap_error=1.0),     # settled+aligned -> throttle
+                 node_count=1, node_dv=100.0, ap_error=1.0),     # streak 1 -> flip physics warp
             snap(ut=2300.0, apoapsis=11_500_000.0, periapsis=79000,
                  altitude=99000.0, situation="ORBITING", body="Kerbin",
-                 node_count=1, node_dv=1.5, ap_error=1.0),       # dv <= cut -> cut triple, COAST
+                 node_count=1, node_dv=100.0, ap_error=1.0,
+                 warp_mode="PHYSICS", warp_rate=2.0),            # streak 2 -> drop physics warp
+            snap(ut=2302.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=99500.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=100.0, ap_error=1.0),     # warp NONE -> throttle
             snap(ut=2400.0, apoapsis=11_500_000.0, periapsis=79000,
-                 altitude=200_000.0, situation="ORBITING", body="Kerbin"),  # hop (below trigger 2)
+                 altitude=200_000.0, situation="ORBITING", body="Kerbin"),  # node gone -> cut pair, COAST
             snap(ut=8000.0, apoapsis=11_500_000.0, periapsis=79000,
                  altitude=6_500_000.0, situation="ORBITING",
                  body="Kerbin"),                                 # trigger 6M -> PLAN-CORRECTION (round 2)
@@ -866,7 +873,14 @@ class B5ShellTests(unittest.TestCase):
                  node_count=1),                                  # node -> CORRECTION-BURN (AP point)
             snap(ut=8025.0, apoapsis=11_500_000.0, periapsis=79000,
                  altitude=6_520_000.0, situation="ORBITING", body="Kerbin",
-                 node_count=1, node_dv=4.0, ap_error=0.8),       # settled+aligned -> throttle
+                 node_count=1, node_dv=4.0, ap_error=0.8),       # streak 1 -> flip physics warp
+            snap(ut=8030.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=6_525_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=4.0, ap_error=0.7,
+                 warp_mode="PHYSICS", warp_rate=2.0),            # streak 2 -> drop physics warp
+            snap(ut=8035.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=6_530_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=4.0, ap_error=0.7),       # warp NONE -> throttle
             snap(ut=8100.0, apoapsis=11_500_000.0, periapsis=79000,
                  altitude=6_600_000.0, situation="ORBITING", body="Kerbin",
                  node_count=0),                                  # node consumed -> cut pair, COAST
@@ -892,8 +906,14 @@ class B5ShellTests(unittest.TestCase):
         for kind in (mlib.ACTION_MJ_ENGAGE_ASCENT, mlib.ACTION_SET_TARGET_BODY,
                      mlib.ACTION_MJ_PLAN_TRANSFER, mlib.ACTION_MJ_EXECUTE_NODES,
                      mlib.ACTION_MJ_PLAN_COURSE_CORRECT, mlib.ACTION_AP_POINT_NODE,
-                     mlib.ACTION_SET_RAILS_WARP):
+                     mlib.ACTION_SET_RAILS_WARP, mlib.ACTION_SET_PHYSICS_WARP,
+                     mlib.ACTION_SET_THROTTLE):
             self.assertIn(kind, kinds)
+        # The flip's physics warp is always DROPPED (a 0 command) before any
+        # throttle-up, and each round both raises and drops it.
+        phys = [a.value for a in control.actions
+                if a.kind == mlib.ACTION_SET_PHYSICS_WARP]
+        self.assertEqual(phys, [1.0, 0.0, 1.0, 0.0])
         # The target-body action carried the body NAME in text.
         targets = [a for a in control.actions if a.kind == mlib.ACTION_SET_TARGET_BODY]
         self.assertEqual(targets, [mlib.Action(mlib.ACTION_SET_TARGET_BODY, text="Mun")])
@@ -936,7 +956,7 @@ class B5ShellTests(unittest.TestCase):
     def test_b5_flyby_ejection_is_assert_fail(self):
         """A flyby that slings the craft out of the home system (body=Sun inside
         TARGET-FLYBY) is MISSION-ASSERT-FAIL with the ejected loss reason."""
-        frames = self._happy_frames()[:16] + [
+        frames = self._happy_frames()[:19] + [
             snap(ut=90_000.0, altitude=90_000_000.0, situation="ESCAPING",
                  body="Sun")]
         control = FakeMissionControl(frames)
