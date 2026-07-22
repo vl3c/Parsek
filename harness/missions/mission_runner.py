@@ -507,6 +507,11 @@ class KrpcMissionControl(MissionControl):
                 node_dv=(float(nodes[0].remaining_delta_v) if nodes else float("nan")),
                 liquid_fuel=float(resources.amount("LiquidFuel")),
                 throttle=float(control_handle.throttle),
+                # Flameout-staging evidence (twenty-second flight): total
+                # thrust the ACTIVE engines can produce right now; 0.0 while
+                # a burn is commanded = the active stage is dry/flamed out
+                # (the machine pops the next stage, bounded).
+                available_thrust=float(v.available_thrust),
                 # Warp-toward-node + SOI-approach warp bounds (operator
                 # directive 2026-07-22). Node.UT is the burn instant of the
                 # first pending node (NaN with no node: the machine's
@@ -1286,11 +1291,12 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         gate_changes = mlib.diff_machine_state(prev_state, state)
         for change in gate_changes:
             log.info(state.phase,
-                     "gate %s | ut=%s alt=%s nodeDv=%s apErr=%s thr=%s warp=%sx%s"
+                     "gate %s | ut=%s alt=%s nodeDv=%s apErr=%s thr=%s avThr=%s "
+                     "warp=%sx%s"
                      % (change, _fmt(snapshot.ut), _fmt(snapshot.altitude),
                         _fmt(snapshot.node_dv), _fmt(snapshot.ap_error),
-                        _fmt(snapshot.throttle), snapshot.warp_mode,
-                        _fmt(snapshot.warp_rate)))
+                        _fmt(snapshot.throttle), _fmt(snapshot.available_thrust),
+                        snapshot.warp_mode, _fmt(snapshot.warp_rate)))
         for action in actions:
             control.perform(action)
             log.info(state.phase, "action %s value=%s%s"
@@ -1303,14 +1309,14 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         log.verbose_rate_limited(
             "telemetry", state.phase,
             "telemetry ap=%s pe=%s ecc=%s inc=%s alt=%s vspd=%s body=%s nodes=%d "
-            "nodeDv=%s nodeUt=%s tts=%s warpTo=%s lf=%s thr=%s situation=%s "
+            "nodeDv=%s nodeUt=%s tts=%s warpTo=%s lf=%s thr=%s avThr=%s situation=%s "
             "warp=%sx%s apErr=%s ut=%s"
             % (_fmt(snapshot.apoapsis), _fmt(snapshot.periapsis), _fmt(snapshot.eccentricity),
                _fmt(snapshot.inclination), _fmt(snapshot.altitude),
                _fmt(snapshot.vertical_speed), snapshot.body or "?", snapshot.node_count,
                _fmt(snapshot.node_dv), _fmt(snapshot.node_ut), _fmt(snapshot.time_to_soi),
                _fmt(snapshot.warping_to), _fmt(snapshot.liquid_fuel), _fmt(snapshot.throttle),
-               snapshot.situation, snapshot.warp_mode,
+               _fmt(snapshot.available_thrust), snapshot.situation, snapshot.warp_mode,
                _fmt(snapshot.warp_rate), _fmt(snapshot.ap_error), _fmt(snapshot.ut)))
         # MACHINE-STATE line (design-live-observability 2a): the decision
         # state verbatim on a ~5 s cadence, so an operator report maps to

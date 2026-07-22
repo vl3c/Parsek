@@ -126,10 +126,11 @@ D14 = ["kerbin", "mun", "warp-rails"]
 [expectations.recordings]
 # Main ascent recording + up to 6 dropped Kerbal X boosters recorded as
 # parent-anchored debris children + 1 LES-tower margin (same WATCH-4 rationale
-# as B2/B4's max 8). B5 stages nothing after the ascent (the TLI + correction
-# burns fly the orbiter stage), so no extra deorbited-stage sidecar. min stays
-# 1: the main recording must exist even if debris admission varies.
-count = { min = 1, max = 8 }
+# as B2/B4's max 8) + 1 for the flameout-staged dry core (live finding 15:
+# the machine pops the next stage when a commanded burn reads zero available
+# thrust, so the jettisoned core can appear as one more debris child). min
+# stays 1: the main recording must exist even if debris admission varies.
+count = { min = 1, max = 9 }
 
 [expectations.logContracts]
 required  = ["Recording started", "Recording stopped"]

@@ -236,6 +236,29 @@ ACTION_CANCEL_WARP = "cancel_warp"                         # value = None
 # of inside a blocking warp_to wedged by the paused Flight Results dialog.
 IMPACT_WARP_GUARD_ALT = 400_000.0
 
+# TARGET-FLYBY impact-certain EARLY TERMINAL (twenty-second live flight
+# 2026-07-22): once the impact-warp guard condition (sub-surface periapsis
+# below the guard altitude) has held for this many CONSECUTIVE frames, the
+# mission outcome is decided -- no correction capability exists inside the
+# target SOI -- so the machine terminates ASSERT-FAIL immediately instead of
+# riding the descent at 1x to physical destruction (589 wall-seconds on the
+# certification flight; the audit's only 1x-coast violation). The debounce
+# keeps a transient periapsis mis-read from ending a live mission.
+IMPACT_TERMINAL_DEBOUNCE_FRAMES = 5
+
+# Flameout staging (twenty-second live flight 2026-07-22): mid-correction the
+# Kerbal X CORE stage ran dry (LiquidFuel froze at exactly 720.0 -- the full,
+# unreachable X200-16 upper tank) and BOTH correction rounds no-progress-gave-
+# up against a flamed-out engine; the under-corrected arrival was an impact
+# trajectory. During a COMMANDED burn (throttle readback above the epsilon),
+# ZERO available thrust for FLAMEOUT_DEBOUNCE_FRAMES consecutive frames means
+# the active stage is dry -> pop ONE stage and keep burning, bounded at
+# MAX_FLAMEOUT_STAGES per mission (a mis-read must not cascade the whole
+# stack; the flyby floor assertion still judges the outcome).
+FLAMEOUT_THROTTLE_EPS = 0.01
+FLAMEOUT_DEBOUNCE_FRAMES = 2
+MAX_FLAMEOUT_STAGES = 2
+
 # DIY-burner aligned-gate debounce: the throttle fires only after this many
 # CONSECUTIVE in-gate attitude readings. The fourteenth live flight proved a
 # single-frame transient error reading (slipping between rate-limited samples)
@@ -506,6 +529,12 @@ class TelemetrySnapshot:
     # no machine gate reads them yet.
     liquid_fuel: float = float("nan")
     throttle: float = float("nan")
+    # kRPC Vessel.AvailableThrust (N): total thrust the ACTIVE engines can
+    # produce right now -- 0.0 when the active stage is dry / flamed out /
+    # engineless (twenty-second live flight: the core died mid-correction and
+    # both rounds burned nothing). NaN when the read failed; NaN fails closed
+    # (the flameout staging gate never pops a stage on a missing reading).
+    available_thrust: float = float("nan")
     # UT (s) of the FIRST maneuver node (kRPC Node.UT); NaN when no node
     # exists or the read failed. NaN fails closed: the coast's warp-toward-
     # node stair never engages on it (1x, exactly the pre-directive
@@ -1715,6 +1744,15 @@ class B5State:
     # node is not alignment time). None = no arrival yet; the give-up counts
     # from phase entry.
     corr_nostart_anchor_ut: Optional[float] = None
+    # Flameout staging (twenty-second flight): consecutive frames a COMMANDED
+    # burn read zero available thrust, and stages popped so far (bounded by
+    # MAX_FLAMEOUT_STAGES for the whole mission -- staging is irreversible,
+    # so the budget never resets between rounds/phases).
+    flameout_streak: int = 0
+    flameout_stages_done: int = 0
+    # Impact-certain early-terminal debounce (TARGET-FLYBY): consecutive
+    # frames the impact-warp guard condition held.
+    impact_certain_streak: int = 0
     phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -1828,6 +1866,40 @@ def _b5_track_burn_stagnation(
         and static_span >= state.params.burn_nostart_seconds
     return replace(state, burn_prev_ap=ap, burn_prev_pe=pe,
                    burn_static_since=since), stuck_after_burn, stuck_no_start
+
+
+def _b5_flameout_stage(state: B5State,
+                       snapshot: TelemetrySnapshot) -> Tuple[B5State, List[Action]]:
+    """Flameout-staging watchdog for the BURN phases (twenty-second live
+    flight 2026-07-22): a COMMANDED burn -- throttle READBACK above
+    FLAMEOUT_THROTTLE_EPS -- reading ZERO available thrust means the active
+    stage is dry or flamed out (the Kerbal X core died mid-correction with
+    the full X200-16 upper tank unreachable behind its decoupler; both
+    correction rounds no-progress-gave-up burning nothing and the
+    under-corrected arrival was an impact). After FLAMEOUT_DEBOUNCE_FRAMES
+    consecutive such frames, pop ONE stage (ACTION_ACTIVATE_STAGE) and
+    re-stamp the no-progress anchor so the fresh stage earns a full progress
+    window; bounded at MAX_FLAMEOUT_STAGES per mission. A NaN
+    available_thrust or throttle fails closed: a missing reading never pops
+    stages (the no-progress give-up still owns that outcome)."""
+    flamed = (_is_finite(snapshot.throttle)
+              and snapshot.throttle > FLAMEOUT_THROTTLE_EPS
+              and _is_finite(snapshot.available_thrust)
+              and snapshot.available_thrust <= 0.0)
+    if not flamed:
+        if state.flameout_streak:
+            return replace(state, flameout_streak=0), []
+        return state, []
+    streak = state.flameout_streak + 1
+    if (streak >= FLAMEOUT_DEBOUNCE_FRAMES
+            and state.flameout_stages_done < MAX_FLAMEOUT_STAGES):
+        return (replace(state, flameout_streak=0,
+                        flameout_stages_done=state.flameout_stages_done + 1,
+                        burn_static_since=(float(snapshot.ut)
+                                           if _is_finite(snapshot.ut)
+                                           else state.burn_static_since)),
+                [Action(ACTION_ACTIVATE_STAGE)])
+    return replace(state, flameout_streak=streak), []
 
 
 def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[float],
@@ -2133,6 +2205,11 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # has produced no transfer, and the phase budget owns that outcome
         # (six live flights: the TLI executor always started).
         state, stuck, _nostart = _b5_track_burn_stagnation(state, snapshot)
+        # Flameout staging: the MechJeb executor holds the throttle but never
+        # stages -- a dry stage mid-TLI would otherwise idle to the wedge
+        # detectors. Throttle readback 0 during its autowarp coast keeps the
+        # gate closed there.
+        state, stage_actions = _b5_flameout_stage(state, snapshot)
         consumed = snapshot.node_count < max(state.planned_node_count, 1)
         floor_met = (_is_finite(snapshot.apoapsis)
                      and snapshot.apoapsis >= state.params.transfer_min_apoapsis)
@@ -2149,7 +2226,7 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             # An autopilot failure, so a bounded flake (retry per policy).
             return replace(state, peak_apoapsis=peak, verdict=MISSION_FLAKE,
                            flake_phase=state.phase, done=True), []
-        return _b5_stay_or_flake(state, snapshot, peak), []
+        return _b5_stay_or_flake(state, snapshot, peak), stage_actions
 
     if state.phase == B5_PLAN_CORRECTION:
         new_state, actions = _b5_plan_phase(
@@ -2208,6 +2285,11 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             state = replace(state, min_node_dv=float(dv))
 
         if state.corr_burn_started:
+            # Flameout staging BEFORE the give-up gates: a dry stage under a
+            # commanded throttle pops the next stage (re-stamping the
+            # progress anchor) instead of idling out the no-progress window
+            # against an engine that cannot burn (twenty-second flight).
+            state, stage_actions = _b5_flameout_stage(state, snapshot)
             if improved and _is_finite(snapshot.ut):
                 state = replace(state, burn_static_since=snapshot.ut)
             overshoot = (_is_finite(dv) and state.min_node_dv is not None
@@ -2225,7 +2307,7 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                     or (_is_finite(dv) and dv <= state.params.correction_cut_dv)
                     or overshoot or no_progress):
                 return _corr_exit(state)
-            return _b5_stay_or_flake(state, snapshot, peak), []
+            return _b5_stay_or_flake(state, snapshot, peak), stage_actions
 
         # Pre-burn: node vanished (defensive; the plan handoff requires one) ->
         # give the round up cleanly (cancels a mid-flight aim-warp too).
@@ -2494,6 +2576,36 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         impact_bound = (_is_finite(snapshot.periapsis) and snapshot.periapsis < 0.0
                         and _is_finite(snapshot.altitude)
                         and snapshot.altitude < IMPACT_WARP_GUARD_ALT)
+        # IMPACT-CERTAIN EARLY TERMINAL (twenty-second flight): the guard
+        # condition sustained for IMPACT_TERMINAL_DEBOUNCE_FRAMES means the
+        # outcome is decided -- a sub-surface periapsis inside the target SOI
+        # with no correction capability left ends in destruction regardless
+        # -- so terminate ASSERT-FAIL now instead of riding the descent at 1x
+        # to the physical crash (589 wall-seconds on the certification
+        # flight; the audit's only 1x-coast violation). The first debounce
+        # frames keep the guard's warp-cancel/1x-hold behavior, so a
+        # transient periapsis mis-read costs five 1x polls, never a mission.
+        if impact_bound:
+            streak = stayed.impact_certain_streak + 1
+            if streak >= IMPACT_TERMINAL_DEBOUNCE_FRAMES:
+                terminal = replace(
+                    stayed, peak_apoapsis=peak, done=True,
+                    verdict=MISSION_ASSERT_FAIL,
+                    loss_reason=("flyby impact certain: sub-surface periapsis "
+                                 "%.0f m at altitude %.0f m for %d consecutive "
+                                 "frames -- early terminal (not waiting for "
+                                 "physical destruction)"
+                                 % (snapshot.periapsis, snapshot.altitude,
+                                    streak)))
+                if (stayed.warp_to_cmd is not None
+                        or _is_finite(snapshot.warping_to)):
+                    return (replace(terminal, warp_to_cmd=None),
+                            [Action(ACTION_CANCEL_WARP)])
+                return terminal, ([Action(ACTION_SET_RAILS_WARP, 0.0)]
+                                  if stayed.warp_cmd != 0 else [])
+            stayed = replace(stayed, impact_certain_streak=streak)
+        elif stayed.impact_certain_streak:
+            stayed = replace(stayed, impact_certain_streak=0)
         native_target = None
         if impact_bound:
             desired = 0
@@ -3148,6 +3260,9 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("planned_node_count", "plannedNodes"),
     ("last_plan_ut", "lastPlanUt"),
     ("frozen_count", "frozenCount"),
+    ("flameout_streak", "flameoutStreak"),
+    ("flameout_stages_done", "flameoutStages"),
+    ("impact_certain_streak", "impactStreak"),
 )
 
 # Fields whose CHANGE is a sparse, decision-relevant gate/latch event worth
@@ -3169,6 +3284,12 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("phys_warp_cmd", "physWarpCmd"),
     ("warp_to_cmd", "warpToCmd"),
     ("planned_node_count", "plannedNodes"),
+    # Twenty-second flight additions, both bounded by their debounce depths:
+    # a flameout-stage pop and the impact-certain countdown are exactly the
+    # sparse decision events the gate lines exist for.
+    ("flameout_streak", "flameoutStreak"),
+    ("flameout_stages_done", "flameoutStages"),
+    ("impact_certain_streak", "impactStreak"),
 )
 
 _MACHINE_FIELD_ABSENT = object()

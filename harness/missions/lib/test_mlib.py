@@ -2951,5 +2951,181 @@ class B5AssertionTests(unittest.TestCase):
         self.assertFalse(by_name["returnedToHome"].met)
 
 
+class B5FlameoutStagingTests(unittest.TestCase):
+    """Twenty-second live flight (2026-07-22): the Kerbal X core ran dry
+    mid-correction (LiquidFuel froze at exactly 720.0 -- the full X200-16
+    upper tank behind its decoupler) and both correction rounds burned
+    NOTHING against a flamed-out engine. The machine must pop the next stage
+    when a COMMANDED burn reads zero available thrust, debounced and bounded,
+    and must never pop on a missing reading."""
+
+    def _burning_state(self, **overrides):
+        return _b5_state(mlib.B5_CORRECTION_BURN, corr_burn_started=True,
+                         min_node_dv=39.0, burn_static_since=100.0,
+                         **overrides)
+
+    def _flamed_snap(self, ut, **kw):
+        kw.setdefault("body", "Kerbin")
+        kw.setdefault("node_count", 1)
+        kw.setdefault("node_dv", 39.0)
+        kw.setdefault("throttle", 0.25)
+        kw.setdefault("available_thrust", 0.0)
+        return snap(ut=ut, **kw)
+
+    def test_flameout_stages_after_debounce_and_restamps_progress_anchor(self):
+        state = self._burning_state()
+        # Frame 1: streak builds, no stage yet (debounce).
+        state, actions = mlib.b5_decide(state, self._flamed_snap(200.0))
+        self.assertEqual(actions, [])
+        self.assertEqual(state.flameout_streak, 1)
+        self.assertEqual(state.flameout_stages_done, 0)
+        # Frame 2: debounce met -> exactly one ACTIVATE_STAGE; the
+        # no-progress anchor re-stamps so the fresh stage earns a full
+        # progress window.
+        state, actions = mlib.b5_decide(state, self._flamed_snap(201.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_ACTIVATE_STAGE)])
+        self.assertEqual(state.flameout_stages_done, 1)
+        self.assertEqual(state.flameout_streak, 0)
+        self.assertEqual(state.burn_static_since, 201.0)
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        self.assertFalse(state.done)
+
+    def test_single_flamed_frame_never_stages(self):
+        state = self._burning_state()
+        state, actions = mlib.b5_decide(state, self._flamed_snap(200.0))
+        self.assertEqual(actions, [])
+        # Thrust back (transient reading): streak resets, still no stage.
+        state, actions = mlib.b5_decide(state, self._flamed_snap(
+            201.0, available_thrust=215_000.0))
+        self.assertEqual(actions, [])
+        self.assertEqual(state.flameout_streak, 0)
+        self.assertEqual(state.flameout_stages_done, 0)
+
+    def test_nan_available_thrust_or_throttle_fails_closed(self):
+        state = self._burning_state()
+        for _ in range(4):
+            state, actions = mlib.b5_decide(state, self._flamed_snap(
+                200.0, available_thrust=float("nan")))
+            self.assertEqual(actions, [])
+        self.assertEqual(state.flameout_stages_done, 0)
+        state = self._burning_state()
+        for _ in range(4):
+            state, actions = mlib.b5_decide(state, self._flamed_snap(
+                200.0, throttle=float("nan")))
+            self.assertEqual(actions, [])
+        self.assertEqual(state.flameout_stages_done, 0)
+
+    def test_zero_throttle_never_stages(self):
+        # TRANSFER-BURN autowarp coast: the executor holds throttle 0 between
+        # the handoff and the burn -- available_thrust 0 there must not pop.
+        state = _b5_state(mlib.B5_TRANSFER_BURN, planned_node_count=1)
+        for ut in (10.0, 11.0, 12.0):
+            state, actions = mlib.b5_decide(state, snap(
+                ut=ut, body="Kerbin", node_count=1, apoapsis=84_000.0,
+                periapsis=79_000.0, throttle=0.0, available_thrust=0.0))
+            self.assertEqual(actions, [])
+        self.assertEqual(state.flameout_stages_done, 0)
+
+    def test_stage_budget_is_bounded(self):
+        state = self._burning_state(
+            flameout_stages_done=mlib.MAX_FLAMEOUT_STAGES)
+        for ut in (200.0, 201.0, 202.0, 203.0):
+            state, actions = mlib.b5_decide(state, self._flamed_snap(ut))
+            self.assertEqual(actions, [])
+        self.assertEqual(state.flameout_stages_done, mlib.MAX_FLAMEOUT_STAGES)
+        # The no-progress give-up still owns the outcome past the budget.
+        state, _ = mlib.b5_decide(state, self._flamed_snap(
+            100.0 + B5_PARAMS.burn_stagnant_seconds))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+
+    def test_transfer_burn_flameout_stages_under_executor_throttle(self):
+        # The MechJeb executor holds the throttle but never stages: a dry
+        # stage mid-TLI pops here too.
+        state = _b5_state(mlib.B5_TRANSFER_BURN, planned_node_count=1)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, body="Kerbin", node_count=1, apoapsis=2_000_000.0,
+            periapsis=79_000.0, throttle=1.0, available_thrust=0.0))
+        self.assertEqual(actions, [])
+        state, actions = mlib.b5_decide(state, snap(
+            ut=11.0, body="Kerbin", node_count=1, apoapsis=2_000_000.0,
+            periapsis=79_000.0, throttle=1.0, available_thrust=0.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_ACTIVATE_STAGE)])
+        self.assertEqual(state.flameout_stages_done, 1)
+
+    def test_flameout_fields_ride_machine_state_and_diff(self):
+        before = self._burning_state()
+        after = before.__class__(**{**before.__dict__,
+                                    "flameout_stages_done": 1})
+        line = mlib.format_machine_state(after, 100.0)
+        self.assertIn("flameoutStages=1", line)
+        changes = mlib.diff_machine_state(before, after)
+        self.assertTrue(any("flameoutStages 0->1" in c for c in changes))
+
+
+class B5ImpactTerminalTests(unittest.TestCase):
+    """Twenty-second live flight: an under-corrected arrival put the flyby on
+    a sub-surface periapsis and the mission rode the descent 589 wall-seconds
+    at 1x to physical destruction (the certification audit's only 1x-coast
+    violation). Sustained impact-bound frames now terminate ASSERT-FAIL
+    early; a short transient still only costs 1x polls."""
+
+    def _impact_snap(self, ut, **kw):
+        kw.setdefault("body", "Mun")
+        kw.setdefault("altitude", 300_000.0)
+        kw.setdefault("periapsis", -28_000.0)
+        return snap(ut=ut, **kw)
+
+    def test_sustained_impact_bound_terminates_assert_fail(self):
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        for i in range(mlib.IMPACT_TERMINAL_DEBOUNCE_FRAMES - 1):
+            state, _ = mlib.b5_decide(state, self._impact_snap(10.0 + i))
+            self.assertFalse(state.done)
+        self.assertEqual(state.impact_certain_streak,
+                         mlib.IMPACT_TERMINAL_DEBOUNCE_FRAMES - 1)
+        state, actions = mlib.b5_decide(state, self._impact_snap(20.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("impact certain", state.loss_reason)
+        self.assertIn("early terminal", state.loss_reason)
+        # No warp was held (the guard zeroed it on frame 1): silent exit.
+        self.assertEqual(actions, [])
+
+    def test_terminal_cancels_active_native_warp(self):
+        state = _b5_state(mlib.B5_TARGET_FLYBY,
+                          impact_certain_streak=mlib.IMPACT_TERMINAL_DEBOUNCE_FRAMES - 1,
+                          warp_to_cmd=99_999.0, last_warp_issue_ut=5.0)
+        state, actions = mlib.b5_decide(state, self._impact_snap(
+            20.0, warping_to=99_999.0, warp_mode="RAILS", warp_rate=1000.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIsNone(state.warp_to_cmd)
+        self.assertEqual(actions, [Action(mlib.ACTION_CANCEL_WARP)])
+
+    def test_transient_impact_reading_resets_the_streak(self):
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        state, _ = mlib.b5_decide(state, self._impact_snap(10.0))
+        state, _ = mlib.b5_decide(state, self._impact_snap(11.0))
+        self.assertEqual(state.impact_certain_streak, 2)
+        # One healthy frame (positive periapsis) resets the countdown.
+        state, _ = mlib.b5_decide(state, self._impact_snap(
+            12.0, periapsis=61_000.0))
+        self.assertEqual(state.impact_certain_streak, 0)
+        self.assertFalse(state.done)
+        # Streak re-earns from zero.
+        state, _ = mlib.b5_decide(state, self._impact_snap(13.0))
+        self.assertEqual(state.impact_certain_streak, 1)
+        self.assertFalse(state.done)
+
+    def test_high_altitude_impact_periapsis_never_counts(self):
+        # Above the guard altitude the outcome is NOT decided (corrections /
+        # SOI exit may still change it): no streak, no terminal.
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        for i in range(mlib.IMPACT_TERMINAL_DEBOUNCE_FRAMES + 2):
+            state, _ = mlib.b5_decide(state, self._impact_snap(
+                10.0 + i, altitude=800_000.0))
+            self.assertFalse(state.done)
+        self.assertEqual(state.impact_certain_streak, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

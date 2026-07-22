@@ -570,6 +570,7 @@ class _FakeVessel:
     orbit = _FakeOrbit()
     resources = _FakeResources()
     control = _FakeNodeControl()
+    available_thrust = 215_000.0
 
     def flight(self, _frame):
         return _FakeFlight()

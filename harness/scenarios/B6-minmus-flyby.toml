@@ -93,8 +93,9 @@ D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-co
 D14 = ["kerbin", "minmus", "warp-rails"]
 
 [expectations.recordings]
-# Same as B5: main + up to 6 boosters + LES margin; nothing staged post-ascent.
-count = { min = 1, max = 8 }
+# Same as B5: main + up to 6 boosters + LES margin + 1 flameout-staged dry
+# core (live finding 15).
+count = { min = 1, max = 9 }
 
 [expectations.logContracts]
 required  = ["Recording started", "Recording stopped"]
