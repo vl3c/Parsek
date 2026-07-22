@@ -259,6 +259,22 @@ FLAMEOUT_THROTTLE_EPS = 0.01
 FLAMEOUT_DEBOUNCE_FRAMES = 2
 MAX_FLAMEOUT_STAGES = 2
 
+# Arrival-quality re-correction (twenty-third live flight 2026-07-22, finding
+# 16): both altitude-triggered correction rounds executed to <1 m/s residual
+# and the flyby STILL arrived at pe -31.8 km -- the blind altitude triggers
+# cannot see arrival quality, and at 6,000 km leverage (~12.8 km of arrival-pe
+# shift per m/s) small post-burn effects move the arrival tens of km. Once
+# the altitude rounds are exhausted, a PREDICTED arrival periapsis (patched-
+# conic next_orbit at the target body) below the flyby floor for
+# ARRIVAL_BAD_DEBOUNCE_FRAMES consecutive frames (conic reads flap at 1000x
+# rails) grants a bounded extra PLAN-CORRECTION round, only while more than
+# ARRIVAL_RECORRECT_MIN_TTS_SECONDS remain to the SOI crossing (a plan + aim
+# + burn cannot complete closer in; past that, the impact-certain terminal
+# owns a bad arrival). NaN next_pe / wrong next_body never fire the gate.
+ARRIVAL_BAD_DEBOUNCE_FRAMES = 3
+MAX_ARRIVAL_EXTRA_ROUNDS = 2
+ARRIVAL_RECORRECT_MIN_TTS_SECONDS = 600.0
+
 # DIY-burner aligned-gate debounce: the throttle fires only after this many
 # CONSECUTIVE in-gate attitude readings. The fourteenth live flight proved a
 # single-frame transient error reading (slipping between rate-limited samples)
@@ -535,6 +551,16 @@ class TelemetrySnapshot:
     # both rounds burned nothing). NaN when the read failed; NaN fails closed
     # (the flameout staging gate never pops a stage on a missing reading).
     available_thrust: float = float("nan")
+    # Patched-conic NEXT orbit (kRPC Orbit.NextOrbit), read only while an SOI
+    # change is on the trajectory: the body name the craft will arrive at and
+    # the PREDICTED arrival periapsis altitude (m) there -- the arrival-
+    # quality evidence the twenty-third flight was blind to (both correction
+    # rounds executed to <1 m/s residual, arrival still pe -31.8 km). "" /
+    # NaN when absent or unreadable; both fail closed (the arrival
+    # re-correction gate never fires without a positive target-body match
+    # and a finite sub-floor reading).
+    next_body: str = ""
+    next_pe: float = float("nan")
     # UT (s) of the FIRST maneuver node (kRPC Node.UT); NaN when no node
     # exists or the read failed. NaN fails closed: the coast's warp-toward-
     # node stair never engages on it (1x, exactly the pre-directive
@@ -1753,6 +1779,11 @@ class B5State:
     # Impact-certain early-terminal debounce (TARGET-FLYBY): consecutive
     # frames the impact-warp guard condition held.
     impact_certain_streak: int = 0
+    # Arrival-quality re-correction (finding 16): consecutive coast frames
+    # the predicted target-body arrival periapsis read below the flyby
+    # floor, and extra (non-altitude-triggered) rounds granted so far.
+    arrival_bad_streak: int = 0
+    extra_rounds_done: int = 0
     phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -1899,7 +1930,12 @@ def _b5_flameout_stage(state: B5State,
                                            if _is_finite(snapshot.ut)
                                            else state.burn_static_since)),
                 [Action(ACTION_ACTIVATE_STAGE)])
-    return replace(state, flameout_streak=streak), []
+    # Delta-review C1: CAP the streak at the debounce depth -- past the
+    # stage budget every flamed frame would otherwise increment it forever,
+    # and each increment is a gate line + a 21-line window dump (~5,000
+    # noise lines across a 120 s exhausted-budget flameout episode).
+    return replace(state, flameout_streak=min(streak,
+                                              FLAMEOUT_DEBOUNCE_FRAMES)), []
 
 
 def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[float],
@@ -1926,7 +1962,10 @@ def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[f
             burn_entry_pe=(snapshot.periapsis if _is_finite(snapshot.periapsis) else None),
             burn_prev_ap=None, burn_prev_pe=None, burn_static_since=None,
             corr_burn_started=False, min_node_dv=None, aligned_streak=0,
-            corr_nostart_anchor_ut=None)
+            # Delta-review A2: a stale streak of 1 left by a prior burn's
+            # exit frame would weaken the next burn's flameout debounce to a
+            # single frame -- exactly the transient the debounce exists for.
+            corr_nostart_anchor_ut=None, flameout_streak=0)
         return entered, [handoff_action]
     if _b5_over_budget(state, snapshot) and on_timeout_phase is not None:
         return _b5_enter(state, on_timeout_phase, snapshot.ut, peak), []
@@ -1962,6 +2001,36 @@ def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[f
                         plan_attempts=state.plan_attempts + 1),
                 actions + [plan_action])
     return stayed, actions
+
+
+def _b5_enter_plan_correction(state: B5State, snapshot: TelemetrySnapshot,
+                              peak: Optional[float]) -> Tuple[B5State, List[Action]]:
+    """Shared PLAN-CORRECTION entry (altitude trigger + finding-16 arrival-
+    quality re-correct). Prelude: bring warp under PLAN control before
+    planning -- cancel an active native warp (which also zeroes the rails
+    factors runner-side; the plan phase re-raises to its own factor next
+    frame), else step a held rails factor straight to the plan hold
+    (operator PR gate: never 1x -- planning is an RPC and 10x bounds
+    plan-position drift to ~5 game-s per poll)."""
+    entered = _b5_enter(state, B5_PLAN_CORRECTION, snapshot.ut, peak)
+    plan_hold = min(state.params.plan_warp_factor,
+                    max_legal_rails_factor(snapshot.body, snapshot.altitude))
+    if state.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
+        prelude = [Action(ACTION_CANCEL_WARP)]
+        entered_warp_cmd = 0
+    elif state.warp_cmd != plan_hold:
+        prelude = [Action(ACTION_SET_RAILS_WARP, float(plan_hold))]
+        entered_warp_cmd = plan_hold
+    else:
+        prelude = []
+        entered_warp_cmd = state.warp_cmd
+    entered = replace(entered,
+                      last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0,
+                      warp_cmd=entered_warp_cmd, warp_to_cmd=None,
+                      body_blank_count=0, plan_attempts=1)
+    return entered, prelude + [Action(ACTION_MJ_PLAN_COURSE_CORRECT,
+                                      state.params.course_correct_periapsis,
+                                      limit=state.params.max_correction_dv)]
 
 
 def _rails_emit_needed(desired: int, warp_cmd: int,
@@ -2205,11 +2274,6 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # has produced no transfer, and the phase budget owns that outcome
         # (six live flights: the TLI executor always started).
         state, stuck, _nostart = _b5_track_burn_stagnation(state, snapshot)
-        # Flameout staging: the MechJeb executor holds the throttle but never
-        # stages -- a dry stage mid-TLI would otherwise idle to the wedge
-        # detectors. Throttle readback 0 during its autowarp coast keeps the
-        # gate closed there.
-        state, stage_actions = _b5_flameout_stage(state, snapshot)
         consumed = snapshot.node_count < max(state.planned_node_count, 1)
         floor_met = (_is_finite(snapshot.apoapsis)
                      and snapshot.apoapsis >= state.params.transfer_min_apoapsis)
@@ -2226,7 +2290,16 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             # An autopilot failure, so a bounded flake (retry per policy).
             return replace(state, peak_apoapsis=peak, verdict=MISSION_FLAKE,
                            flake_phase=state.phase, done=True), []
-        return _b5_stay_or_flake(state, snapshot, peak), stage_actions
+        stayed = _b5_stay_or_flake(state, snapshot, peak)
+        if stayed.done:
+            return stayed, []
+        # Flameout staging AFTER the exit/flake checks (delta-review A1/A3:
+        # an exit frame must neither consume a stage-budget slot for a
+        # dropped action nor stage a vessel on a dead mission). The MechJeb
+        # executor holds the throttle but never stages -- a dry stage
+        # mid-TLI would otherwise idle to the wedge detectors; its throttle
+        # readback 0 during the autowarp coast keeps the gate closed there.
+        return _b5_flameout_stage(stayed, snapshot)
 
     if state.phase == B5_PLAN_CORRECTION:
         new_state, actions = _b5_plan_phase(
@@ -2285,11 +2358,6 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             state = replace(state, min_node_dv=float(dv))
 
         if state.corr_burn_started:
-            # Flameout staging BEFORE the give-up gates: a dry stage under a
-            # commanded throttle pops the next stage (re-stamping the
-            # progress anchor) instead of idling out the no-progress window
-            # against an engine that cannot burn (twenty-second flight).
-            state, stage_actions = _b5_flameout_stage(state, snapshot)
             if improved and _is_finite(snapshot.ut):
                 state = replace(state, burn_static_since=snapshot.ut)
             overshoot = (_is_finite(dv) and state.min_node_dv is not None
@@ -2307,7 +2375,18 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                     or (_is_finite(dv) and dv <= state.params.correction_cut_dv)
                     or overshoot or no_progress):
                 return _corr_exit(state)
-            return _b5_stay_or_flake(state, snapshot, peak), stage_actions
+            stayed = _b5_stay_or_flake(state, snapshot, peak)
+            if stayed.done:
+                return stayed, []
+            # Flameout staging AFTER the exit/flake checks (delta-review
+            # A1/A3): a dry stage under a commanded throttle pops the next
+            # stage and re-stamps the progress anchor instead of idling out
+            # the no-progress window against an engine that cannot burn
+            # (twenty-second flight); an exit frame neither consumes a
+            # budget slot for a dropped action nor stages a dead mission.
+            # The pop lands ~1 s after flameout, ~119 s before the
+            # no-progress give-up could co-fire.
+            return _b5_flameout_stage(stayed, snapshot)
 
         # Pre-burn: node vanished (defensive; the plan handoff requires one) ->
         # give the round up cleanly (cancels a mid-flight aim-warp too).
@@ -2356,7 +2435,11 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # ~200 m/s wild burn at a true ~98 deg off-axis (fourteenth flight).
         aligned = (_is_finite(snapshot.ap_error)
                    and abs(snapshot.ap_error) <= state.params.max_attitude_error_deg)
-        streak = state.aligned_streak + 1 if aligned else 0
+        # Capped at the debounce depth (delta-review C1): the gate only ever
+        # tests >= ALIGNED_DEBOUNCE_FRAMES, and an uncapped streak emits a
+        # gate line + 21-line window dump per aligned settle frame.
+        streak = (min(state.aligned_streak + 1, ALIGNED_DEBOUNCE_FRAMES)
+                  if aligned else 0)
         stayed = replace(_b5_stay_or_flake(state, snapshot, peak),
                          aligned_streak=streak)
         if stayed.done:
@@ -2429,32 +2512,33 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 and snapshot.body == state.params.home_body
                 and _is_finite(snapshot.altitude)
                 and snapshot.altitude >= triggers[state.correction_rounds_done]):
-            entered = _b5_enter(state, B5_PLAN_CORRECTION, snapshot.ut, peak)
-            # Prelude: bring warp under PLAN control before planning --
-            # cancel an active native warp (which also zeroes the rails
-            # factors runner-side; the plan phase re-raises to its own
-            # factor next frame), else step a held rails factor straight to
-            # the plan hold (operator PR gate: never 1x -- planning is an
-            # RPC and 10x bounds plan-position drift to ~5 game-s per poll).
-            plan_hold = min(state.params.plan_warp_factor,
-                            max_legal_rails_factor(snapshot.body,
-                                                   snapshot.altitude))
-            if state.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
-                prelude = [Action(ACTION_CANCEL_WARP)]
-                entered_warp_cmd = 0
-            elif state.warp_cmd != plan_hold:
-                prelude = [Action(ACTION_SET_RAILS_WARP, float(plan_hold))]
-                entered_warp_cmd = plan_hold
-            else:
-                prelude = []
-                entered_warp_cmd = state.warp_cmd
-            entered = replace(entered,
-                              last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0,
-                              warp_cmd=entered_warp_cmd, warp_to_cmd=None,
-                              body_blank_count=0, plan_attempts=1)
-            return entered, prelude + [Action(ACTION_MJ_PLAN_COURSE_CORRECT,
-                                              state.params.course_correct_periapsis,
-                                              limit=state.params.max_correction_dv)]
+            return _b5_enter_plan_correction(state, snapshot, peak)
+        # ARRIVAL-QUALITY RE-CORRECTION (finding 16, twenty-third flight):
+        # both altitude rounds executed to <1 m/s residual and the arrival
+        # was STILL pe -31.8 km -- the blind altitude triggers cannot see
+        # arrival quality. Once they are exhausted, a debounced sub-floor
+        # PREDICTED arrival periapsis at the target body grants a bounded
+        # extra round, while enough coast remains to fly it. Every term
+        # fails closed: NaN next_pe / blank next_body / NaN tts never fire.
+        arrival_bad = (not rounds_pending
+                       and state.params.course_correct_periapsis > 0.0
+                       and stayed.extra_rounds_done < MAX_ARRIVAL_EXTRA_ROUNDS
+                       and snapshot.body == state.params.home_body
+                       and snapshot.node_count == 0
+                       and snapshot.next_body == state.params.target_body
+                       and _is_finite(snapshot.next_pe)
+                       and snapshot.next_pe < state.params.target_periapsis_floor
+                       and _is_finite(snapshot.time_to_soi)
+                       and snapshot.time_to_soi > ARRIVAL_RECORRECT_MIN_TTS_SECONDS)
+        if arrival_bad:
+            streak = stayed.arrival_bad_streak + 1
+            if streak >= ARRIVAL_BAD_DEBOUNCE_FRAMES:
+                granted = replace(stayed, arrival_bad_streak=0,
+                                  extra_rounds_done=stayed.extra_rounds_done + 1)
+                return _b5_enter_plan_correction(granted, snapshot, peak)
+            stayed = replace(stayed, arrival_bad_streak=streak)
+        elif stayed.arrival_bad_streak:
+            stayed = replace(stayed, arrival_bad_streak=0)
         # Warp policy (Path A, docs/dev/research/native-warp-to-ut.md): the
         # NATIVE fire-and-forget warp_to_ut owns the long time-bound waits
         # (pending node, post-correction coast to the SOI boundary) -- the
@@ -3263,6 +3347,8 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("flameout_streak", "flameoutStreak"),
     ("flameout_stages_done", "flameoutStages"),
     ("impact_certain_streak", "impactStreak"),
+    ("arrival_bad_streak", "arrivalBadStreak"),
+    ("extra_rounds_done", "extraRounds"),
 )
 
 # Fields whose CHANGE is a sparse, decision-relevant gate/latch event worth
@@ -3290,6 +3376,11 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("flameout_streak", "flameoutStreak"),
     ("flameout_stages_done", "flameoutStages"),
     ("impact_certain_streak", "impactStreak"),
+    # Finding 16 (arrival-quality re-correct): the sub-floor-arrival
+    # countdown and the extra-round grant, bounded by the debounce depth
+    # and MAX_ARRIVAL_EXTRA_ROUNDS.
+    ("arrival_bad_streak", "arrivalBadStreak"),
+    ("extra_rounds_done", "extraRounds"),
 )
 
 _MACHINE_FIELD_ABSENT = object()

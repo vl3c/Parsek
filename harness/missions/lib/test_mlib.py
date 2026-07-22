@@ -3052,6 +3052,26 @@ class B5FlameoutStagingTests(unittest.TestCase):
         self.assertEqual(actions, [Action(mlib.ACTION_ACTIVATE_STAGE)])
         self.assertEqual(state.flameout_stages_done, 1)
 
+    def test_stale_streak_is_reset_on_burn_entry(self):
+        # Delta-review A2: a streak of 1 left behind by a prior burn's exit
+        # frame must not weaken the next burn's debounce to a single frame.
+        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0,
+                          flameout_streak=1)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin",
+                                              node_count=1))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        self.assertEqual(state.flameout_streak, 0)
+
+    def test_exit_frame_never_consumes_a_stage_slot(self):
+        # Delta-review A1: the pop debounce completing on the same frame the
+        # cut threshold is crossed must exit WITHOUT burning a budget slot.
+        state = self._burning_state(flameout_streak=1)
+        state, actions = mlib.b5_decide(state, self._flamed_snap(
+            200.0, node_dv=1.5))  # dv <= cut: exit wins
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.flameout_stages_done, 0)
+        self.assertNotIn(Action(mlib.ACTION_ACTIVATE_STAGE), actions)
+
     def test_flameout_fields_ride_machine_state_and_diff(self):
         before = self._burning_state()
         after = before.__class__(**{**before.__dict__,
@@ -3060,6 +3080,102 @@ class B5FlameoutStagingTests(unittest.TestCase):
         self.assertIn("flameoutStages=1", line)
         changes = mlib.diff_machine_state(before, after)
         self.assertTrue(any("flameoutStages 0->1" in c for c in changes))
+
+
+class B5ArrivalRecorrectTests(unittest.TestCase):
+    """Finding 16 (twenty-third flight): both altitude-triggered rounds
+    executed to <1 m/s residual and the arrival was STILL pe -31.8 km. Once
+    the altitude rounds are exhausted, a debounced sub-floor PREDICTED
+    arrival periapsis (patched-conic next_orbit at the target body) grants a
+    bounded extra PLAN-CORRECTION round while enough coast remains; every
+    term fails closed."""
+
+    def _coast_state(self, **overrides):
+        # Both altitude rounds consumed (B5_PARAMS default triggers = [0, 6M]).
+        overrides.setdefault("correction_rounds_done", 2)
+        return _b5_state(mlib.B5_COAST_TO_TARGET, **overrides)
+
+    def _bad_snap(self, ut, **kw):
+        kw.setdefault("body", "Kerbin")
+        kw.setdefault("altitude", 8_000_000.0)
+        kw.setdefault("next_body", "Mun")
+        kw.setdefault("next_pe", -30_000.0)
+        kw.setdefault("time_to_soi", 9_000.0)
+        return snap(ut=ut, **kw)
+
+    def test_sustained_sub_floor_arrival_grants_extra_round(self):
+        state = self._coast_state()
+        for i in range(mlib.ARRIVAL_BAD_DEBOUNCE_FRAMES - 1):
+            state, actions = mlib.b5_decide(state, self._bad_snap(10.0 + i))
+            self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.arrival_bad_streak,
+                         mlib.ARRIVAL_BAD_DEBOUNCE_FRAMES - 1)
+        state, actions = mlib.b5_decide(state, self._bad_snap(20.0))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
+        self.assertEqual(state.extra_rounds_done, 1)
+        self.assertEqual(state.arrival_bad_streak, 0)
+        self.assertEqual(state.plan_attempts, 1)
+        self.assertIn(Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT,
+                             B5_PARAMS.course_correct_periapsis,
+                             limit=B5_PARAMS.max_correction_dv), actions)
+
+    def test_fail_closed_terms_never_fire(self):
+        cases = (
+            dict(next_body="Sun"),                    # wrong arrival body
+            dict(next_body=""),                       # no reading
+            dict(next_pe=float("nan")),               # unreadable pe
+            dict(next_pe=61_000.0),                   # healthy arrival
+            dict(time_to_soi=float("nan")),           # unknown crossing
+            dict(time_to_soi=300.0),                  # too close to fly it
+            dict(node_count=1, node_ut=100_000.0,
+                 next_pe=-30_000.0),                  # a node is pending
+        )
+        for kw in cases:
+            state = self._coast_state()
+            for i in range(mlib.ARRIVAL_BAD_DEBOUNCE_FRAMES + 2):
+                state, _ = mlib.b5_decide(state, self._bad_snap(10.0 + i, **kw))
+            self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET,
+                             "gate fired for %r" % (kw,))
+            self.assertEqual(state.extra_rounds_done, 0)
+
+    def test_never_fires_while_altitude_rounds_pending(self):
+        # Below the round-2 trigger with round 1 consumed: the altitude
+        # machinery owns the next round; the arrival gate must stay quiet.
+        state = self._coast_state(correction_rounds_done=1)
+        for i in range(mlib.ARRIVAL_BAD_DEBOUNCE_FRAMES + 2):
+            state, _ = mlib.b5_decide(state, self._bad_snap(
+                10.0 + i, altitude=2_000_000.0))
+        self.assertEqual(state.extra_rounds_done, 0)
+        self.assertEqual(state.arrival_bad_streak, 0)
+
+    def test_extra_rounds_are_bounded(self):
+        state = self._coast_state(
+            extra_rounds_done=mlib.MAX_ARRIVAL_EXTRA_ROUNDS)
+        for i in range(mlib.ARRIVAL_BAD_DEBOUNCE_FRAMES + 2):
+            state, _ = mlib.b5_decide(state, self._bad_snap(10.0 + i))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.extra_rounds_done, mlib.MAX_ARRIVAL_EXTRA_ROUNDS)
+
+    def test_healthy_frame_resets_the_streak(self):
+        state = self._coast_state()
+        state, _ = mlib.b5_decide(state, self._bad_snap(10.0))
+        state, _ = mlib.b5_decide(state, self._bad_snap(11.0))
+        self.assertEqual(state.arrival_bad_streak, 2)
+        state, _ = mlib.b5_decide(state, self._bad_snap(12.0, next_pe=61_000.0))
+        self.assertEqual(state.arrival_bad_streak, 0)
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+
+    def test_granted_round_flows_into_the_burn_machinery(self):
+        # The extra round is a REAL round: node arrives -> CORRECTION-BURN
+        # via the standard plan handoff, and its exit bumps rounds to 3.
+        state = self._coast_state()
+        for i in range(mlib.ARRIVAL_BAD_DEBOUNCE_FRAMES):
+            state, _ = mlib.b5_decide(state, self._bad_snap(10.0 + i))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
+        state, actions = mlib.b5_decide(state, self._bad_snap(
+            20.0, node_count=1, node_dv=12.0))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        self.assertIn(Action(mlib.ACTION_AP_POINT_NODE), actions)
 
 
 class B5ImpactTerminalTests(unittest.TestCase):

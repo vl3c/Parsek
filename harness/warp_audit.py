@@ -193,18 +193,56 @@ def build_segments(samples: List[Sample]) -> List[Segment]:
     return segments
 
 
+def _is_one_x(seg: Segment) -> bool:
+    return seg.mode == "NONE" or seg.bucket <= ONE_X_RATE_MAX
+
+
+def _one_x_duration(seg: Segment) -> float:
+    """Best duration estimate for a 1x segment (delta-review D2): the wall
+    estimate (samples x 1 s) systematically UNDERCOUNTS when polls run
+    slower than 1 Hz (RPC latency, blocking perform calls), while at 1x the
+    game-time span equals real wall time -- so take the larger of the two.
+    A non-finite game estimate falls back to the wall estimate."""
+    game = seg.game_est
+    if not math.isfinite(game):
+        return seg.wall_est
+    return max(seg.wall_est, game)
+
+
+def cumulative_one_x(segments: List[Segment],
+                     min_wall_seconds: float = 30.0
+                     ) -> List[Tuple[str, float, int]]:
+    """Delta-review D1: per-phase TOTAL 1x time across ALL segments in the
+    coast-class phases. A fragmented 1x profile (1x/warp sawtooth, a ramp
+    sample splitting a block, a phase-boundary split) defeats the contiguous
+    per-segment threshold while the coast still spends most of its wall time
+    at 1x -- the CUMULATIVE total is gated on the same threshold,
+    independent of contiguity. Returns (phase, total_seconds,
+    segment_count) for each phase at/over the threshold."""
+    totals: dict = {}
+    counts: dict = {}
+    for seg in segments:
+        if seg.phase not in VIOLATION_PHASES or not _is_one_x(seg):
+            continue
+        totals[seg.phase] = totals.get(seg.phase, 0.0) + _one_x_duration(seg)
+        counts[seg.phase] = counts.get(seg.phase, 0) + 1
+    return [(phase, totals[phase], counts[phase])
+            for phase in VIOLATION_PHASES
+            if totals.get(phase, 0.0) >= min_wall_seconds]
+
+
 def find_violations(segments: List[Segment], events: List[Event],
                     min_wall_seconds: float = 30.0) -> List[Violation]:
-    """Every 1x segment inside a coast-class phase whose estimated wall
-    duration is at least ``min_wall_seconds``, with the nearest surrounding
-    context events."""
+    """Every 1x segment inside a coast-class phase whose estimated duration
+    (max of wall and game estimates, delta-review D2) is at least
+    ``min_wall_seconds``, with the nearest surrounding context events."""
     out: List[Violation] = []
     for seg in segments:
         if seg.phase not in VIOLATION_PHASES:
             continue
-        if not (seg.mode == "NONE" or seg.bucket <= ONE_X_RATE_MAX):
+        if not _is_one_x(seg):
             continue
-        if seg.wall_est < min_wall_seconds:
+        if _one_x_duration(seg) < min_wall_seconds:
             continue
         before = None
         after = None
@@ -227,7 +265,9 @@ def _fmt_secs(v: float) -> str:
 
 
 def render_report(segments: List[Segment], violations: List[Violation],
-                  min_wall_seconds: float, source: str) -> str:
+                  min_wall_seconds: float, source: str,
+                  cumulative: Optional[List[Tuple[str, float, int]]] = None
+                  ) -> str:
     lines: List[str] = []
     lines.append("WARP AUDIT  %s" % source)
     lines.append("")
@@ -254,15 +294,28 @@ def render_report(segments: List[Segment], violations: List[Violation],
         if v.after is not None:
             lines.append("    after:  L%d [%s] %s"
                          % (v.after.line_no, v.after.phase, v.after.text))
+    lines.append("")
+    lines.append("CUMULATIVE 1X (per coast phase, ALL 1x segments summed -- "
+                 "fragmentation cannot dodge the gate):")
+    if not cumulative:
+        lines.append("  NONE - no coast phase totals %ds of 1x."
+                     % int(min_wall_seconds))
+    for phase, total, count in (cumulative or []):
+        lines.append("  CUMULATIVE-VIOLATION %-18s total ~%ss across %d "
+                     "1x segment(s)" % (phase, _fmt_secs(total), count))
     return "\n".join(lines)
 
 
 def audit_log_text(text: str, min_wall_seconds: float = 30.0,
-                   source: str = "<log>") -> Tuple[str, List[Violation]]:
+                   source: str = "<log>"
+                   ) -> Tuple[str, List[Violation], List[Tuple[str, float, int]]]:
     samples, events = parse_log_lines(text.splitlines())
     segments = build_segments(samples)
     violations = find_violations(segments, events, min_wall_seconds)
-    return render_report(segments, violations, min_wall_seconds, source), violations
+    cumulative = cumulative_one_x(segments, min_wall_seconds)
+    report = render_report(segments, violations, min_wall_seconds, source,
+                           cumulative)
+    return report, violations, cumulative
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -276,9 +329,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = parser.parse_args(argv)
     with open(args.log, "r", encoding="utf-8", errors="replace") as f:
         text = f.read()
-    report, violations = audit_log_text(text, args.min_wall, args.log)
+    report, violations, cumulative = audit_log_text(text, args.min_wall,
+                                                    args.log)
     print(report)
-    if args.fail_on_violation and violations:
+    if args.fail_on_violation and (violations or cumulative):
         return 1
     return 0
 

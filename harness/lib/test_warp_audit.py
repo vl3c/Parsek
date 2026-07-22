@@ -114,8 +114,11 @@ class Real1210FlightTests(unittest.TestCase):
         return warp_audit.audit_log_text(text, min_wall, "1210")
 
     def test_known_violation_detected(self):
-        report, violations = self._audit()
+        report, violations, cumulative = self._audit()
         self.assertEqual(len(violations), 1, report)
+        # The cumulative gate (delta-review D1) must ALSO flag the phase.
+        self.assertTrue(any(phase == "PLAN-CORRECTION"
+                            for phase, _total, _n in cumulative), report)
         v = violations[0]
         self.assertEqual(v.segment.phase, "PLAN-CORRECTION")
         self.assertGreaterEqual(v.segment.wall_est, 250.0)
@@ -129,9 +132,11 @@ class Real1210FlightTests(unittest.TestCase):
     def test_burn_phase_1x_is_exempt(self):
         # The TLI executor's pre-burn alignment sat ~54 wall-s at 1x in
         # TRANSFER-BURN -- a burn phase, exempt from the coast invariant.
-        _report, violations = self._audit()
+        _report, violations, cumulative = self._audit()
         self.assertTrue(all(v.segment.phase != "TRANSFER-BURN"
                             for v in violations))
+        self.assertTrue(all(phase != "TRANSFER-BURN"
+                            for phase, _total, _n in cumulative))
 
 
 class PostFixProfileTests(unittest.TestCase):
@@ -158,9 +163,10 @@ class PostFixProfileTests(unittest.TestCase):
         tele("TARGET-FLYBY", "RAILS", 100.0, 225000.0, n=10)
         # A SHORT 1x tail at the SOI hand-back: under the 30 s threshold.
         tele("COAST-TO-TARGET", "NONE", 1.0, 226000.0, n=5)
-        report, violations = warp_audit.audit_log_text(
+        report, violations, cumulative = warp_audit.audit_log_text(
             "\n".join(lines), 30.0, "postfix")
         self.assertEqual(violations, [], report)
+        self.assertEqual(cumulative, [], report)
         self.assertIn("NONE - coast profile is warped end to end.", report)
 
     def test_fail_threshold_boundary(self):
@@ -172,12 +178,62 @@ class PostFixProfileTests(unittest.TestCase):
                 "nodes=0 nodeDv=nan nodeUt=nan tts=nan warpTo=nan lf=1.0 "
                 "thr=0.000 situation=ORBITING warp=NONEx1.000 apErr=nan "
                 "ut=%d.0" % (8000000 + i, 100 + i))
-        _report, violations = warp_audit.audit_log_text(
+        _report, violations, _cum = warp_audit.audit_log_text(
             "\n".join(lines), 30.0, "boundary")
         self.assertEqual(len(violations), 1)   # exactly 30 samples = 30 s
-        _report, violations = warp_audit.audit_log_text(
+        _report, violations, _cum = warp_audit.audit_log_text(
             "\n".join(lines[:29]), 30.0, "boundary")
         self.assertEqual(violations, [])
+
+    def test_fragmented_sawtooth_trips_the_cumulative_gate(self):
+        """Delta-review D1: a 1x/warp sawtooth (the oscillation class the
+        operator named) keeps every contiguous 1x block under the threshold
+        while the coast spends most of its wall time at 1x -- the CUMULATIVE
+        per-phase total must flag it."""
+        lines = []
+
+        def tele(mode, rate, ut, n):
+            for i in range(n):
+                lines.append(
+                    "[Mission][VerboseRateLimited][COAST-TO-TARGET] telemetry "
+                    "ap=1.0 pe=1.0 ecc=0.1 inc=0.1 alt=8000000.0 vspd=1.0 "
+                    "body=Kerbin nodes=0 nodeDv=nan nodeUt=nan tts=nan "
+                    "warpTo=nan lf=1.0 thr=0.000 situation=ORBITING "
+                    "warp=%sx%.3f apErr=nan ut=%.1f"
+                    % (mode, rate, ut + i * rate))
+        # Four 20 s 1x blocks separated by single warp blips: no contiguous
+        # block reaches 30 s, the phase total is 80 s.
+        base = 1000.0
+        for k in range(4):
+            tele("NONE", 1.0, base, 20)
+            base += 20.0
+            tele("RAILS", 100.0, base, 1)
+            base += 100.0
+        report, violations, cumulative = warp_audit.audit_log_text(
+            "\n".join(lines), 30.0, "sawtooth")
+        self.assertEqual(violations, [], report)   # each block dodges 30 s
+        self.assertEqual(len(cumulative), 1, report)
+        phase, total, count = cumulative[0]
+        self.assertEqual(phase, "COAST-TO-TARGET")
+        self.assertGreaterEqual(total, 79.0)
+        self.assertEqual(count, 4)
+        self.assertIn("CUMULATIVE-VIOLATION COAST-TO-TARGET", report)
+
+    def test_slow_polls_cannot_undercount_a_1x_block(self):
+        """Delta-review D2: 25 samples spanning 60 game-s at 1x (polls slower
+        than 1 Hz) must still trip the 30 s gate via the game-time span."""
+        lines = []
+        for i in range(25):
+            lines.append(
+                "[Mission][VerboseRateLimited][COAST-TO-TARGET] telemetry "
+                "ap=1.0 pe=1.0 ecc=0.1 inc=0.1 alt=8000000.0 vspd=1.0 "
+                "body=Kerbin nodes=0 nodeDv=nan nodeUt=nan tts=nan "
+                "warpTo=nan lf=1.0 thr=0.000 situation=ORBITING "
+                "warp=NONEx1.000 apErr=nan ut=%.1f" % (100.0 + i * 2.5))
+        _report, violations, cumulative = warp_audit.audit_log_text(
+            "\n".join(lines), 30.0, "slowpoll")
+        self.assertEqual(len(violations), 1)   # 60 game-s at 1x = 60 wall-s
+        self.assertEqual(len(cumulative), 1)
 
 
 if __name__ == "__main__":

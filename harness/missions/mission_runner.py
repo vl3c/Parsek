@@ -196,7 +196,15 @@ class WarpService:
         self._conn = None
         self._thread: Optional[threading.Thread] = None
         self._target_ut = float("nan")
+        # Per-dispatch cancellation (delta-review B1): every warp_to_ut
+        # mints a FRESH Event + a generation number the thread captures. A
+        # zombie thread from a timed-out cancel join (old thread stuck in
+        # krpc.connect past the 5 s bound) then sees ITS OWN still-set event
+        # -- the next dispatch can no longer clear it out from under the
+        # zombie -- and its state writes (conn store, target NaN) are
+        # generation-guarded so it can never clobber the live warp's state.
         self._cancelled = threading.Event()
+        self._generation = 0
 
     # -- state ---------------------------------------------------------------
 
@@ -224,9 +232,12 @@ class WarpService:
             self.cancel(primary_sc)
         with self._lock:
             self._target_ut = float(ut)
-        self._cancelled.clear()
+            self._generation += 1
+            generation = self._generation
+            cancelled = threading.Event()
+            self._cancelled = cancelled
         thread = threading.Thread(
-            target=self._run, args=(float(ut),),
+            target=self._run, args=(float(ut), generation, cancelled),
             name="parsek-warp-to-ut", daemon=True)
         with self._lock:
             self._thread = thread
@@ -287,11 +298,15 @@ class WarpService:
 
     # -- background thread ---------------------------------------------------
 
-    def _run(self, ut: float) -> None:
+    def _run(self, ut: float, generation: int,
+             cancelled: threading.Event) -> None:
         """Thread body: connect the dedicated client, sit inside WarpTo, go
         idle. EVERY exception is caught and logged -- the deliberate cancel
         (socket closed under the blocked receive) lands here too and is
-        logged at Info, anything else at Warn. Nothing propagates."""
+        logged at Info, anything else at Warn. Nothing propagates.
+        ``generation``/``cancelled`` are THIS dispatch's own (delta-review
+        B1): a zombie from a timed-out cancel join checks its own event and
+        writes shared state only while its generation is still current."""
         conn = None
         try:
             if self._connect_fn is not None:
@@ -302,11 +317,10 @@ class WarpService:
                 conn = krpc.connect(name=self._client_name, address=host,
                                     rpc_port=rpc_port, stream_port=stream_port)
             with self._lock:
-                if self._cancelled.is_set():
-                    self._conn = None
-                else:
+                stale = cancelled.is_set() or self._generation != generation
+                if not stale:
                     self._conn = conn
-            if self._cancelled.is_set():
+            if stale:
                 try:
                     conn.close()
                 except Exception:
@@ -316,15 +330,16 @@ class WarpService:
             _stdout_sink(mlib.format_mission_log_line(
                 "Info", "Warp", "native warp_to completed at target ut=%.3f" % ut))
         except Exception as exc:
-            level = "Info" if self._cancelled.is_set() else "Warn"
+            level = "Info" if cancelled.is_set() else "Warn"
             _stdout_sink(mlib.format_mission_log_line(
                 level, "Warp", "warp thread ended (%s: %s)"
                 % (type(exc).__name__, str(exc)[:160])))
         finally:
             with self._lock:
-                if self._conn is conn:
-                    self._conn = None
-                self._target_ut = float("nan")
+                if self._generation == generation:
+                    if self._conn is conn:
+                        self._conn = None
+                    self._target_ut = float("nan")
 
 
 # ---------------------------------------------------------------------------
@@ -471,6 +486,22 @@ class KrpcMissionControl(MissionControl):
             except Exception:
                 ap_error = float("nan")
             nodes = control_handle.nodes
+            # Patched-conic arrival evidence (finding 16): the NEXT orbit's
+            # body + periapsis, read only while an SOI change is predicted.
+            # Own try/except: a conic repatch mid-read must degrade to the
+            # fail-closed NaN/"", never count toward the vessel-lost streak.
+            next_body = ""
+            next_pe = float("nan")
+            try:
+                tts = float(orbit.time_to_soi_change)
+                if math.isfinite(tts):
+                    next_orbit = orbit.next_orbit
+                    if next_orbit is not None:
+                        next_body = str(next_orbit.body.name)
+                        next_pe = float(next_orbit.periapsis_altitude)
+            except Exception:
+                next_body = ""
+                next_pe = float("nan")
             snapshot = mlib.TelemetrySnapshot(
                 ut=float(sc.ut),
                 altitude=float(flight_srf.surface_altitude),
@@ -521,6 +552,8 @@ class KrpcMissionControl(MissionControl):
                 # -> NaN), which the machine's SOI bound skips (fail open).
                 node_ut=(float(nodes[0].ut) if nodes else float("nan")),
                 time_to_soi=float(orbit.time_to_soi_change),
+                next_body=next_body,
+                next_pe=next_pe,
                 # Native warp state: target UT while the WarpService warp is
                 # active, NaN when idle (the machine's do-not-touch-rails
                 # gate + self-healing re-issue read this).
@@ -594,7 +627,7 @@ class KrpcMissionControl(MissionControl):
             # burn itself before self-disabling, so an empty node list here is
             # the NORMAL completed case - and ExecuteAllNodes on an empty list
             # is a server-side RPCError (first live B2 run 2026-07-20).
-            if len(v.control.nodes) > 0:
+            if len(control.nodes) > 0:
                 self._mechjeb.node_executor.execute_all_nodes()
         elif kind == mlib.ACTION_AP_POINT_RETROGRADE:
             # kRPC's NATIVE AutoPilot (NOT MechJeb SmartASS): point orbital
@@ -746,7 +779,7 @@ class KrpcMissionControl(MissionControl):
             # it throws server-side and the executor keeps its 0.1 default.
             # TLI-scale nodes execute fine on the defaults (the far-node
             # autowarp branch carries them); corrections use the DIY burner.
-            if len(v.control.nodes) > 0:
+            if len(control.nodes) > 0:
                 ne = self._mechjeb.node_executor
                 ne.autowarp = True
                 ne.execute_all_nodes()
@@ -786,10 +819,11 @@ class KrpcMissionControl(MissionControl):
             # AutoPilot along the first node's burn vector. Node.ReferenceFrame's
             # y-axis IS the burn vector (pinned kRPC source); same heavy-stack
             # deceleration tuning as the B4 retro flip.
-            # (v.control here, NOT read_snapshot's cached control_handle --
-            # that local lives in a different method; the twentieth flight
-            # died on exactly that NameError at CORRECTION-BURN entry.)
-            nodes = v.control.nodes
+            # (perform's OWN control local, NOT read_snapshot's cached
+            # control_handle -- that local lives in a different method; the
+            # twentieth flight died on exactly that NameError at
+            # CORRECTION-BURN entry.)
+            nodes = control.nodes
             if len(nodes) > 0:
                 # Release MechJeb's throttle hold FIRST (eleventh live flight,
                 # via the new thr= readback: after the TLI executor runs,
@@ -1292,11 +1326,12 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         for change in gate_changes:
             log.info(state.phase,
                      "gate %s | ut=%s alt=%s nodeDv=%s apErr=%s thr=%s avThr=%s "
-                     "warp=%sx%s"
+                     "nextPe=%s warp=%sx%s"
                      % (change, _fmt(snapshot.ut), _fmt(snapshot.altitude),
                         _fmt(snapshot.node_dv), _fmt(snapshot.ap_error),
                         _fmt(snapshot.throttle), _fmt(snapshot.available_thrust),
-                        snapshot.warp_mode, _fmt(snapshot.warp_rate)))
+                        _fmt(snapshot.next_pe), snapshot.warp_mode,
+                        _fmt(snapshot.warp_rate)))
         for action in actions:
             control.perform(action)
             log.info(state.phase, "action %s value=%s%s"
@@ -1309,12 +1344,13 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         log.verbose_rate_limited(
             "telemetry", state.phase,
             "telemetry ap=%s pe=%s ecc=%s inc=%s alt=%s vspd=%s body=%s nodes=%d "
-            "nodeDv=%s nodeUt=%s tts=%s warpTo=%s lf=%s thr=%s avThr=%s situation=%s "
-            "warp=%sx%s apErr=%s ut=%s"
+            "nodeDv=%s nodeUt=%s tts=%s nextBody=%s nextPe=%s warpTo=%s lf=%s "
+            "thr=%s avThr=%s situation=%s warp=%sx%s apErr=%s ut=%s"
             % (_fmt(snapshot.apoapsis), _fmt(snapshot.periapsis), _fmt(snapshot.eccentricity),
                _fmt(snapshot.inclination), _fmt(snapshot.altitude),
                _fmt(snapshot.vertical_speed), snapshot.body or "?", snapshot.node_count,
                _fmt(snapshot.node_dv), _fmt(snapshot.node_ut), _fmt(snapshot.time_to_soi),
+               snapshot.next_body or "?", _fmt(snapshot.next_pe),
                _fmt(snapshot.warping_to), _fmt(snapshot.liquid_fuel), _fmt(snapshot.throttle),
                _fmt(snapshot.available_thrust), snapshot.situation, snapshot.warp_mode,
                _fmt(snapshot.warp_rate), _fmt(snapshot.ap_error), _fmt(snapshot.ut)))
