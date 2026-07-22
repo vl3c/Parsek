@@ -232,6 +232,7 @@ class KrpcMissionControl(MissionControl):
                 ap_error = float(v.auto_pilot.error)
             except Exception:
                 ap_error = float("nan")
+            nodes = v.control.nodes
             snapshot = mlib.TelemetrySnapshot(
                 ut=float(sc.ut),
                 altitude=float(flight_srf.surface_altitude),
@@ -257,13 +258,15 @@ class KrpcMissionControl(MissionControl):
                 warp_mode=warp_mode,
                 warp_rate=warp_rate,
                 # SOI body + pending-node evidence (B5 cross-SOI gates + the
-                # PLAN/BURN transitions). Direct reads: a failure re-raises into
-                # the surrounding try/except and counts toward the vessel-lost
-                # read-fail streak, consistent with every other field here. The
-                # machine-side guard for an EMPTY body ("" = no reading) treats
-                # it as stay-in-phase, never as the ejected terminal.
+                # PLAN/BURN transitions) + the first node's remaining dv (the
+                # DIY correction burner's cut/overshoot gates). Direct reads: a
+                # failure re-raises into the surrounding try/except and counts
+                # toward the vessel-lost read-fail streak (the fly loop
+                # tolerates non-transport raises). The machine-side guards for
+                # an EMPTY body ("" = no reading) and a NaN node_dv fail closed.
                 body=str(orbit.body.name),
-                node_count=int(len(v.control.nodes)),
+                node_count=len(nodes),
+                node_dv=(float(nodes[0].remaining_delta_v) if nodes else float("nan")),
             )
             self._read_fail_streak = 0
             return snapshot
@@ -450,20 +453,31 @@ class KrpcMissionControl(MissionControl):
             # RAILS via allow_rails_warp). Guarded on node count like the B2
             # circularize case: ExecuteAllNodes on an empty list is a server-side
             # RPCError (first live B2 run 2026-07-20).
+            # NOTE: no tolerance override -- the KRPC.MechJeb 0.8.1 wrapper
+            # never initializes its Tolerance backing object (InitInstance
+            # sets only leadTime, verified in the pinned source), so setting
+            # it throws server-side and the executor keeps its 0.1 default.
+            # TLI-scale nodes execute fine on the defaults (the far-node
+            # autowarp branch carries them); corrections use the DIY burner.
             if len(v.control.nodes) > 0:
                 ne = self._mechjeb.node_executor
                 ne.autowarp = True
-                # Tolerance 1.0 m/s, not the 0.1 default: chasing a sub-0.1
-                # residual with the Kerbal X's low-torque pod reaction wheel is
-                # how the executor wedges holding a completed node (fifth live
-                # flight 2026-07-22: burn done, node never consumed, phase
-                # budget flaked). A 1 m/s sloppier finish is irrelevant here --
-                # the mid-coast correction round refines the trajectory anyway.
-                try:
-                    ne.tolerance = 1.0
-                except Exception:
-                    pass  # best-effort; the machine's stagnation watchdog owns the wedge
                 ne.execute_all_nodes()
+        elif kind == mlib.ACTION_AP_POINT_NODE:
+            # DIY correction burner (live finding 8): point kRPC's NATIVE
+            # AutoPilot along the first node's burn vector. Node.ReferenceFrame's
+            # y-axis IS the burn vector (pinned kRPC source); same heavy-stack
+            # deceleration tuning as the B4 retro flip.
+            nodes = v.control.nodes
+            if len(nodes) > 0:
+                ap = v.auto_pilot
+                ap.reference_frame = nodes[0].reference_frame
+                ap.target_direction = (0.0, 1.0, 0.0)
+                try:
+                    ap.deceleration_time = (15.0, 15.0, 15.0)
+                except Exception:
+                    pass  # tuning is best-effort; the attitude gate is the safety
+                ap.engage()
         elif kind == mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES:
             # B5 burn-exit cleanup: remove every remaining node, so the coast
             # hops are not suppressed by node_count > 0 and no unwanted burn
@@ -771,11 +785,11 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         log.verbose_rate_limited(
             "telemetry", state.phase,
             "telemetry ap=%s pe=%s ecc=%s inc=%s alt=%s vspd=%s body=%s nodes=%d "
-            "situation=%s warp=%sx%s apErr=%s"
+            "nodeDv=%s situation=%s warp=%sx%s apErr=%s"
             % (_fmt(snapshot.apoapsis), _fmt(snapshot.periapsis), _fmt(snapshot.eccentricity),
                _fmt(snapshot.inclination), _fmt(snapshot.altitude),
                _fmt(snapshot.vertical_speed), snapshot.body or "?", snapshot.node_count,
-               snapshot.situation, snapshot.warp_mode,
+               _fmt(snapshot.node_dv), snapshot.situation, snapshot.warp_mode,
                _fmt(snapshot.warp_rate), _fmt(snapshot.ap_error)))
         if state.done:
             break

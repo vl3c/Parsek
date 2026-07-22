@@ -188,6 +188,14 @@ ACTION_MJ_PLAN_TRANSFER = "mj_plan_transfer"               # value = None
 ACTION_MJ_PLAN_COURSE_CORRECT = "mj_plan_course_correct"   # value = periapsis m
 ACTION_MJ_EXECUTE_NODES = "mj_execute_nodes"               # value = None (autowarp)
 ACTION_MJ_ABORT_AND_CLEAR_NODES = "mj_abort_and_clear_nodes"  # value = None
+# B5 DIY correction burner (live finding 8): point kRPC's NATIVE AutoPilot
+# along the first maneuver node's burn vector (node.reference_frame, direction
+# (0, 1, 0) -- that frame's y-axis IS the burn vector, pinned-source verified).
+# MechJeb's NodeExecutor is NOT used for corrections: its close-in-node path
+# demands AlignedAndSettled (< 1 deg AND angular velocity < 0.001 rad/s,
+# decompiled 2.15.1 StateWarpAlign) which the low-torque Kerbal X never meets,
+# parking every close-in correction node forever.
+ACTION_AP_POINT_NODE = "ap_point_node"                     # value = None
 
 # TARGET-FLYBY impact-warp guard: below this altitude with a SUB-SURFACE
 # periapsis the machine stops issuing warp hops and polls at 1x, so a crash
@@ -287,6 +295,11 @@ class TelemetrySnapshot:
     # matches NEITHER and fails closed (same fail-closed rationale as ap_error).
     body: str = ""
     node_count: int = 0
+    # Remaining delta-v (m/s) of the FIRST maneuver node (kRPC
+    # Node.RemainingDeltaV); NaN when no node exists or the read failed. NaN
+    # fails closed: the DIY correction burner's cut/overshoot gates never fire
+    # on it, and its bounded give-up owns the outcome.
+    node_dv: float = float("nan")
 
 
 # ---------------------------------------------------------------------------
@@ -598,17 +611,31 @@ class B5Params:
                                            # attitude alignment (orbit unchanged
                                            # since entry) and RAILS autowarp
                                            # never count.
-    burn_nostart_seconds: float = 600.0    # CORRECTION-BURN no-start watchdog:
-                                           # orbit UNCHANGED since entry and
-                                           # static at 1x for this long = the
-                                           # executor never began (sixth live
-                                           # flight 2026-07-22: round-2 execute
-                                           # issued, no warp, no burn, wall
-                                           # budget died) -> abort+clear and
-                                           # consume the round. Must exceed the
-                                           # worst-case pre-burn flip (~340 s on
-                                           # the Kerbal X pod wheel; spec key
-                                           # burnNoStartSeconds).
+    burn_nostart_seconds: float = 600.0    # CORRECTION-BURN give-up bound (game
+                                           # s): if the DIY burner's attitude
+                                           # gate has not opened this long after
+                                           # phase entry, the alignment never
+                                           # converged -> cut/disengage/clear
+                                           # and consume the round. Must exceed
+                                           # the worst-case pre-burn flip
+                                           # (~340 s on the Kerbal X pod wheel;
+                                           # spec key burnNoStartSeconds).
+    correction_throttle: float = 0.25      # DIY correction burn throttle (low
+                                           # for cut precision; spec key
+                                           # correctionThrottle)
+    correction_cut_dv: float = 2.0         # cut the DIY burn when the node's
+                                           # remaining dv is at/below this m/s
+                                           # (spec key correctionCutDvMps)
+    correction_settle_seconds: float = 10.0
+                                           # MINIMUM game-time settle after
+                                           # AP_POINT_NODE before throttle-up
+                                           # (AND-gated with the attitude error,
+                                           # the B4-proven pattern; spec key
+                                           # correctionSettleSeconds)
+    max_attitude_error_deg: float = 5.0    # AND-gate: AutoPilot pointing error
+                                           # must be at/below this before the
+                                           # DIY burn starts (NaN never passes;
+                                           # spec key maxAttitudeErrorDeg)
     frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
                                            # vessel-lost terminal (spec key
                                            # frozenTelemetrySamples)
@@ -641,6 +668,10 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         target_periapsis_floor=float(params.get("targetPeriapsisFloorMeters", 10000)),
         burn_stagnant_seconds=float(params.get("burnStagnantSeconds", 120)),
         burn_nostart_seconds=float(params.get("burnNoStartSeconds", 600)),
+        correction_throttle=float(params.get("correctionThrottle", 0.25)),
+        correction_cut_dv=float(params.get("correctionCutDvMps", 2.0)),
+        correction_settle_seconds=float(params.get("correctionSettleSeconds", 10)),
+        max_attitude_error_deg=float(params.get("maxAttitudeErrorDeg", 5.0)),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
     )
 
@@ -1320,6 +1351,13 @@ class B5State:
     burn_prev_ap: Optional[float] = None
     burn_prev_pe: Optional[float] = None
     burn_static_since: Optional[float] = None
+    # DIY correction-burner state (live finding 8): ``corr_burn_started``
+    # latches the one throttle-up per round; ``min_node_dv`` tracks the lowest
+    # finite remaining node dv seen this burn (the overshoot gate compares
+    # against it -- a RISING remaining dv means the ship is burning past the
+    # node vector).
+    corr_burn_started: bool = False
+    min_node_dv: Optional[float] = None
     phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -1437,7 +1475,8 @@ def _b5_track_burn_stagnation(
 
 def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[float],
                    plan_action: Action, burn_phase: str,
-                   on_timeout_phase: Optional[str]) -> Tuple[B5State, List[Action]]:
+                   on_timeout_phase: Optional[str],
+                   handoff_action: Action = Action(ACTION_MJ_EXECUTE_NODES)) -> Tuple[B5State, List[Action]]:
     """Shared PLAN-TRANSFER / PLAN-CORRECTION logic: once a maneuver node exists,
     hand it to the autowarping NodeExecutor and enter ``burn_phase``; while no
     node exists, re-issue ``plan_action`` on the bounded ``plan_retry_seconds``
@@ -1452,11 +1491,13 @@ def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[f
         entered = replace(
             entered, planned_node_count=snapshot.node_count,
             # Arm the burn-stagnation watchdog: snapshot the entry orbit and
-            # clear the frame-to-frame tracking.
+            # clear the frame-to-frame tracking. Also reset the DIY-burner
+            # latches for a correction round.
             burn_entry_ap=(snapshot.apoapsis if _is_finite(snapshot.apoapsis) else None),
             burn_entry_pe=(snapshot.periapsis if _is_finite(snapshot.periapsis) else None),
-            burn_prev_ap=None, burn_prev_pe=None, burn_static_since=None)
-        return entered, [Action(ACTION_MJ_EXECUTE_NODES)]
+            burn_prev_ap=None, burn_prev_pe=None, burn_static_since=None,
+            corr_burn_started=False, min_node_dv=None)
+        return entered, [handoff_action]
     if _b5_over_budget(state, snapshot) and on_timeout_phase is not None:
         return _b5_enter(state, on_timeout_phase, snapshot.ut, peak), []
     stayed = _b5_stay_or_flake(state, snapshot, peak)
@@ -1615,7 +1656,11 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                                state.params.course_correct_periapsis,
                                limit=state.params.max_correction_dv),
             burn_phase=B5_CORRECTION_BURN,
-            on_timeout_phase=B5_COAST_TO_TARGET)
+            on_timeout_phase=B5_COAST_TO_TARGET,
+            # DIY burner handoff (live finding 8): point the native AP at the
+            # node instead of engaging MechJeb's executor, whose close-in-node
+            # AlignedAndSettled gate the Kerbal X can never satisfy.
+            handoff_action=Action(ACTION_AP_POINT_NODE))
         if new_state.phase == B5_COAST_TO_TARGET:
             # Timeout fall-through consumes this round (a disqualified/failed
             # plan never blocks the coast; the NEXT round may still refine).
@@ -1624,22 +1669,53 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         return new_state, actions
 
     if state.phase == B5_CORRECTION_BURN:
-        # Same consumed-not-empty exit as TRANSFER-BURN (no apoapsis gate: a
-        # correction is a small vector tweak); strays cleared on the way out.
-        # A stagnation-watchdog trip also exits: after-burn = the executor is
-        # wedged holding the completed node (fifth live flight; the
-        # imperfect-but-burned correction stands, the next round refines);
-        # no-start = the executor never began (sixth live flight; the round is
-        # skipped, the assertion floor still guards the outcome).
-        state, stuck, nostart = _b5_track_burn_stagnation(state, snapshot)
-        if snapshot.node_count < max(state.planned_node_count, 1) or stuck or nostart:
-            cleanup = ([Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)]
-                       if snapshot.node_count > 0 else [])
-            entered = _b5_enter(state, B5_COAST_TO_TARGET, snapshot.ut, peak)
+        # DIY correction burner (live finding 8): the B4-proven native-AP
+        # pattern. Settle + attitude AND-gate, one low-throttle burn, cut when
+        # the node's remaining dv reaches the cut threshold or starts RISING
+        # (burning past the vector). Every exit consumes the round and cleans
+        # up (throttle, AP, leftover nodes); the flyby floor assertion still
+        # judges the outcome.
+        def _corr_exit(st: B5State) -> Tuple[B5State, List[Action]]:
+            entered = _b5_enter(st, B5_COAST_TO_TARGET, snapshot.ut, peak)
             entered = replace(entered,
-                              correction_rounds_done=state.correction_rounds_done + 1)
+                              correction_rounds_done=st.correction_rounds_done + 1,
+                              corr_burn_started=False, min_node_dv=None)
+            cleanup = [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_AP_DISENGAGE)]
+            if snapshot.node_count > 0:
+                cleanup.append(Action(ACTION_MJ_ABORT_AND_CLEAR_NODES))
             return entered, cleanup
-        return _b5_stay_or_flake(state, snapshot, peak), []
+
+        dv = snapshot.node_dv
+        if _is_finite(dv) and (state.min_node_dv is None or dv < state.min_node_dv):
+            state = replace(state, min_node_dv=float(dv))
+
+        if state.corr_burn_started:
+            overshoot = (_is_finite(dv) and state.min_node_dv is not None
+                         and dv > state.min_node_dv + 0.5)
+            if (snapshot.node_count == 0
+                    or (_is_finite(dv) and dv <= state.params.correction_cut_dv)
+                    or overshoot):
+                return _corr_exit(state)
+            return _b5_stay_or_flake(state, snapshot, peak), []
+
+        # Pre-burn: node vanished (defensive; the plan handoff requires one) ->
+        # give the round up cleanly.
+        if snapshot.node_count == 0:
+            return _corr_exit(state)
+        # Alignment never converging is bounded: give the round up after
+        # burnNoStartSeconds rather than flake the whole mission.
+        if (_is_finite(snapshot.ut)
+                and (snapshot.ut - state.phase_entry_ut) >= state.params.burn_nostart_seconds):
+            return _corr_exit(state)
+        settled = (_is_finite(snapshot.ut)
+                   and (snapshot.ut - state.phase_entry_ut) >= state.params.correction_settle_seconds)
+        aligned = (_is_finite(snapshot.ap_error)
+                   and snapshot.ap_error <= state.params.max_attitude_error_deg)
+        stayed = _b5_stay_or_flake(state, snapshot, peak)
+        if settled and aligned and not stayed.done:
+            return (replace(stayed, corr_burn_started=True),
+                    [Action(ACTION_SET_THROTTLE, state.params.correction_throttle)])
+        return stayed, []
 
     if state.phase == B5_COAST_TO_TARGET:
         if snapshot.body == state.params.target_body:

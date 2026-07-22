@@ -848,10 +848,13 @@ class B5ShellTests(unittest.TestCase):
                  body="Kerbin"),                                 # trigger 0 -> PLAN-CORRECTION (round 1)
             snap(ut=2230.0, apoapsis=11_500_000.0, periapsis=79000,
                  altitude=95000.0, situation="ORBITING", body="Kerbin",
-                 node_count=1),                                  # node -> CORRECTION-BURN
+                 node_count=1),                                  # node -> CORRECTION-BURN (AP point)
+            snap(ut=2245.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=97000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=100.0, ap_error=1.0),     # settled+aligned -> throttle
             snap(ut=2300.0, apoapsis=11_500_000.0, periapsis=79000,
                  altitude=99000.0, situation="ORBITING", body="Kerbin",
-                 node_count=0),                                  # -> COAST (round 1 done)
+                 node_count=1, node_dv=1.5, ap_error=1.0),       # dv <= cut -> cut triple, COAST
             snap(ut=2400.0, apoapsis=11_500_000.0, periapsis=79000,
                  altitude=200_000.0, situation="ORBITING", body="Kerbin"),  # hop (below trigger 2)
             snap(ut=8000.0, apoapsis=11_500_000.0, periapsis=79000,
@@ -859,10 +862,13 @@ class B5ShellTests(unittest.TestCase):
                  body="Kerbin"),                                 # trigger 6M -> PLAN-CORRECTION (round 2)
             snap(ut=8010.0, apoapsis=11_500_000.0, periapsis=79000,
                  altitude=6_510_000.0, situation="ORBITING", body="Kerbin",
-                 node_count=1),                                  # node -> CORRECTION-BURN
+                 node_count=1),                                  # node -> CORRECTION-BURN (AP point)
+            snap(ut=8025.0, apoapsis=11_500_000.0, periapsis=79000,
+                 altitude=6_520_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=4.0, ap_error=0.8),       # settled+aligned -> throttle
             snap(ut=8100.0, apoapsis=11_500_000.0, periapsis=79000,
                  altitude=6_600_000.0, situation="ORBITING", body="Kerbin",
-                 node_count=0),                                  # -> COAST (round 2 done)
+                 node_count=0),                                  # node consumed -> cut pair, COAST
             snap(ut=40_000.0, apoapsis=200_000.0, periapsis=60_000.0,
                  altitude=1_500_000.0, situation="ESCAPING", body="Mun"),   # -> TARGET-FLYBY
             snap(ut=40_600.0, apoapsis=200_000.0, periapsis=60_000.0,
@@ -884,15 +890,18 @@ class B5ShellTests(unittest.TestCase):
         kinds = [a.kind for a in control.actions]
         for kind in (mlib.ACTION_MJ_ENGAGE_ASCENT, mlib.ACTION_SET_TARGET_BODY,
                      mlib.ACTION_MJ_PLAN_TRANSFER, mlib.ACTION_MJ_EXECUTE_NODES,
-                     mlib.ACTION_MJ_PLAN_COURSE_CORRECT, mlib.ACTION_WARP_TO):
+                     mlib.ACTION_MJ_PLAN_COURSE_CORRECT, mlib.ACTION_AP_POINT_NODE,
+                     mlib.ACTION_WARP_TO):
             self.assertIn(kind, kinds)
         # The target-body action carried the body NAME in text.
         targets = [a for a in control.actions if a.kind == mlib.ACTION_SET_TARGET_BODY]
         self.assertEqual(targets, [mlib.Action(mlib.ACTION_SET_TARGET_BODY, text="Mun")])
-        # Exactly three execute-nodes handoffs: the TLI + the two correction
-        # rounds (post-TLI trigger 0 and the mid-coast 6M refinement).
+        # Exactly ONE executor handoff (the TLI); both correction rounds fly
+        # the DIY burner (AP-point + throttle), never MechJeb's executor.
         executes = [a for a in control.actions if a.kind == mlib.ACTION_MJ_EXECUTE_NODES]
-        self.assertEqual(len(executes), 3)
+        self.assertEqual(len(executes), 1)
+        points = [a for a in control.actions if a.kind == mlib.ACTION_AP_POINT_NODE]
+        self.assertEqual(len(points), 2)
         self.assertTrue(all(a["met"] for a in result["assertions"]), result["assertions"])
         # Settle tail RAN (RETURN keeps it): more reads than scripted frames.
         self.assertGreater(control.reads, len(self._happy_frames()))
@@ -926,7 +935,7 @@ class B5ShellTests(unittest.TestCase):
     def test_b5_flyby_ejection_is_assert_fail(self):
         """A flyby that slings the craft out of the home system (body=Sun inside
         TARGET-FLYBY) is MISSION-ASSERT-FAIL with the ejected loss reason."""
-        frames = self._happy_frames()[:15] + [
+        frames = self._happy_frames()[:16] + [
             snap(ut=90_000.0, altitude=90_000_000.0, situation="ESCAPING",
                  body="Sun")]
         control = FakeMissionControl(frames)

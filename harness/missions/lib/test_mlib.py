@@ -1511,27 +1511,34 @@ class B5MachineTests(unittest.TestCase):
             snap(ut=2210.0, apoapsis=11_500_000.0, body="Kerbin",
                  altitude=95_000.0),                                    # 7 trigger 0 -> PLAN-CORRECTION (round 1)
             snap(ut=2230.0, apoapsis=11_500_000.0, body="Kerbin",
-                 node_count=1),                                         # 8 node -> CORRECTION-BURN (execute)
-            snap(ut=2400.0, apoapsis=11_500_000.0, body="Kerbin",
-                 node_count=0),                                         # 9 -> COAST (round 1 done)
-            snap(ut=2500.0, apoapsis=11_500_000.0, body="Kerbin",
-                 altitude=200_000.0),                                   # 10 coast (below trigger 2) -> hop
-            snap(ut=8000.0, apoapsis=11_500_000.0, body="Kerbin",
-                 altitude=6_500_000.0),                                 # 11 trigger 6M -> PLAN-CORRECTION (round 2)
-            snap(ut=8010.0, apoapsis=11_500_000.0, body="Kerbin",
-                 altitude=6_510_000.0, node_count=1),                   # 12 node -> CORRECTION-BURN
-            snap(ut=8100.0, apoapsis=11_500_000.0, body="Kerbin",
-                 altitude=6_600_000.0, node_count=0),                   # 13 -> COAST (round 2 done)
-            snap(ut=9000.0, apoapsis=11_500_000.0, body="Kerbin",
-                 altitude=7_000_000.0),                                 # 14 coast (rounds spent) -> hop
-            snap(ut=40_000.0, altitude=2_000_000.0, body="Mun"),        # 15 SOI! -> TARGET-FLYBY
+                 node_count=1),                                         # 8 node -> CORRECTION-BURN (AP point)
+            snap(ut=2235.0, apoapsis=11_500_000.0, body="Kerbin",
+                 node_count=1, node_dv=110.0, ap_error=30.0),           # 9 settling / flipping
+            snap(ut=2245.0, apoapsis=11_500_000.0, body="Kerbin",
+                 node_count=1, node_dv=110.0, ap_error=1.2),            # 10 settled+aligned -> throttle
+            snap(ut=2260.0, apoapsis=11_400_000.0, body="Kerbin",
+                 node_count=1, node_dv=40.0, ap_error=1.0),             # 11 burning
+            snap(ut=2270.0, apoapsis=11_350_000.0, body="Kerbin",
+                 node_count=1, node_dv=1.5, ap_error=1.0),              # 12 dv <= cut -> cut triple
+            snap(ut=2400.0, apoapsis=11_350_000.0, body="Kerbin",
+                 altitude=200_000.0),                                   # 13 coast (below trigger 2) -> hop
+            snap(ut=8000.0, apoapsis=11_350_000.0, body="Kerbin",
+                 altitude=6_500_000.0),                                 # 14 trigger 6M -> PLAN-CORRECTION (round 2)
+            snap(ut=8010.0, apoapsis=11_350_000.0, body="Kerbin",
+                 altitude=6_510_000.0, node_count=1),                   # 15 node -> CORRECTION-BURN (AP point)
+            snap(ut=8025.0, apoapsis=11_350_000.0, body="Kerbin",
+                 altitude=6_520_000.0, node_count=1, node_dv=4.0,
+                 ap_error=0.8),                                         # 16 settled+aligned -> throttle
+            snap(ut=8030.0, apoapsis=11_350_000.0, body="Kerbin",
+                 altitude=6_525_000.0, node_count=0),                   # 17 node consumed -> cut pair
+            snap(ut=9000.0, apoapsis=11_350_000.0, body="Kerbin",
+                 altitude=7_000_000.0),                                 # 18 coast (rounds spent) -> hop
+            snap(ut=40_000.0, altitude=2_000_000.0, body="Mun"),        # 19 SOI! -> TARGET-FLYBY
             snap(ut=40_100.0, altitude=800_000.0, body="Mun",
-                 periapsis=61_000.0),                                   # 16 inbound -> hop
+                 periapsis=61_000.0),                                   # 20 inbound -> hop
             snap(ut=40_700.0, altitude=61_000.0, body="Mun",
-                 periapsis=61_000.0),                                   # 17 periapsis area -> hop
-            snap(ut=41_300.0, altitude=900_000.0, body="Mun",
-                 periapsis=61_000.0),                                   # 18 outbound -> hop
-            snap(ut=80_000.0, altitude=3_000_000.0, body="Kerbin"),     # 19 home SOI -> RETURN terminal
+                 periapsis=61_000.0),                                   # 21 periapsis area -> hop
+            snap(ut=80_000.0, altitude=3_000_000.0, body="Kerbin"),     # 22 home SOI -> RETURN terminal
         ]
         state, per_frame = drive_b5(state, frames)
         self.assertTrue(state.done)
@@ -1559,22 +1566,29 @@ class B5MachineTests(unittest.TestCase):
             Action(mlib.ACTION_SET_TARGET_BODY, text="Mun"),
             Action(mlib.ACTION_MJ_PLAN_TRANSFER)])
         self.assertEqual(per_frame[4], [Action(mlib.ACTION_MJ_EXECUTE_NODES)])
-        self.assertEqual(per_frame[5], [])   # executor owns the burn: machine silent
+        self.assertEqual(per_frame[5], [])   # executor owns the TLI: machine silent
         self.assertEqual(per_frame[6], [])   # TRANSFER-BURN -> COAST transition frame
         self.assertEqual(per_frame[7], [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
                                                limit=150.0)])
-        self.assertEqual(per_frame[8], [Action(mlib.ACTION_MJ_EXECUTE_NODES)])
-        self.assertEqual(per_frame[9], [])   # CORRECTION-BURN -> COAST transition frame
-        self.assertEqual(per_frame[10], [Action(mlib.ACTION_WARP_TO, 2500.0 + 1800.0)])
-        self.assertEqual(per_frame[11], [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
+        self.assertEqual(per_frame[8], [Action(mlib.ACTION_AP_POINT_NODE)])
+        self.assertEqual(per_frame[9], [])   # settling / mid-flip: no throttle
+        self.assertEqual(per_frame[10], [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
+        self.assertEqual(per_frame[11], [])  # burn latch: throttle issued ONCE
+        self.assertEqual(per_frame[12], [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+                                         Action(mlib.ACTION_AP_DISENGAGE),
+                                         Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
+        self.assertEqual(per_frame[13], [Action(mlib.ACTION_WARP_TO, 2400.0 + 1800.0)])
+        self.assertEqual(per_frame[14], [Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 60000.0,
                                                 limit=150.0)])
-        self.assertEqual(per_frame[12], [Action(mlib.ACTION_MJ_EXECUTE_NODES)])
-        self.assertEqual(per_frame[13], [])  # round 2 done -> COAST transition frame
-        self.assertEqual(per_frame[14], [Action(mlib.ACTION_WARP_TO, 9000.0 + 1800.0)])
-        self.assertEqual(per_frame[15], [])  # SOI-entry transition frame: no hop
-        self.assertEqual(per_frame[16], [Action(mlib.ACTION_WARP_TO, 40_100.0 + 600.0)])
-        self.assertEqual(per_frame[17], [Action(mlib.ACTION_WARP_TO, 40_700.0 + 600.0)])
-        self.assertEqual(per_frame[19], [])  # RETURN terminal: no actions
+        self.assertEqual(per_frame[15], [Action(mlib.ACTION_AP_POINT_NODE)])
+        self.assertEqual(per_frame[16], [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
+        self.assertEqual(per_frame[17], [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+                                         Action(mlib.ACTION_AP_DISENGAGE)])
+        self.assertEqual(per_frame[18], [Action(mlib.ACTION_WARP_TO, 9000.0 + 1800.0)])
+        self.assertEqual(per_frame[19], [])  # SOI-entry transition frame: no hop
+        self.assertEqual(per_frame[20], [Action(mlib.ACTION_WARP_TO, 40_100.0 + 600.0)])
+        self.assertEqual(per_frame[21], [Action(mlib.ACTION_WARP_TO, 40_700.0 + 600.0)])
+        self.assertEqual(per_frame[22], [])  # RETURN terminal: no actions
 
     def test_plan_transfer_replans_only_while_no_node(self):
         # A failed plan (server-side OperationException -> no node) re-issues on
@@ -1663,84 +1677,130 @@ class B5MachineTests(unittest.TestCase):
         self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
         self.assertEqual(actions, [Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
 
-    def test_correction_burn_exits_on_consumed_not_empty(self):
-        # CORRECTION-BURN mirrors the consumed-not-empty exit; a clean single
-        # node (1 -> 0) exits with no cleanup action.
+    def test_correction_burn_diy_cut_on_threshold(self):
+        # DIY burner happy flow: AP-point handoff, settle+align gate, ONE
+        # throttle, cut when remaining dv reaches the threshold (round
+        # consumed, full cleanup incl. clearing the sub-threshold node).
         state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
-        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin", node_count=1))
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin", node_count=1))
+        self.assertEqual(actions, [Action(mlib.ACTION_AP_POINT_NODE)])
         self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
-        self.assertEqual(state.planned_node_count, 1)
-        state, actions = mlib.b5_decide(state, snap(ut=60.0, body="Kerbin", node_count=0))
+        # Aligned but not settled (5 s < 10 s): no throttle.
+        state, actions = mlib.b5_decide(state, snap(ut=15.0, body="Kerbin",
+                                                    node_count=1, node_dv=100.0,
+                                                    ap_error=1.0))
+        self.assertEqual(actions, [])
+        # Settled but misaligned: no throttle.
+        state, actions = mlib.b5_decide(state, snap(ut=21.0, body="Kerbin",
+                                                    node_count=1, node_dv=100.0,
+                                                    ap_error=12.0))
+        self.assertEqual(actions, [])
+        # Settled AND aligned: exactly one throttle-up.
+        state, actions = mlib.b5_decide(state, snap(ut=25.0, body="Kerbin",
+                                                    node_count=1, node_dv=100.0,
+                                                    ap_error=1.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
+        self.assertTrue(state.corr_burn_started)
+        # Cut at/below the threshold.
+        state, actions = mlib.b5_decide(state, snap(ut=40.0, body="Kerbin",
+                                                    node_count=1, node_dv=1.8,
+                                                    ap_error=1.0))
         self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
         self.assertEqual(state.correction_rounds_done, 1)
-        self.assertEqual(actions, [])
+        self.assertEqual(actions, [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+                                   Action(mlib.ACTION_AP_DISENGAGE),
+                                   Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
 
-    def test_correction_burn_stagnation_watchdog_unwedges_executor(self):
-        """Fifth live flight (2026-07-22): the executor BURNED the correction
-        node then held it forever (orbit changed, then static at 1x, node
-        pending) until the phase budget flaked. The watchdog treats
+    def test_transfer_burn_stagnation_watchdog_unwedges_executor(self):
+        """Fifth live flight (2026-07-22): the executor BURNED a node then held
+        it forever (orbit changed, then static at 1x, node pending) until the
+        phase budget flaked. In TRANSFER-BURN the watchdog treats
         changed-since-entry + static-at-1x for burnStagnantSeconds as burn
-        complete: abort+clear the stale node and consume the round."""
-        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
-        state, _ = mlib.b5_decide(state, snap(ut=10.0, apoapsis=11_480_000.0,
+        complete (with the apoapsis floor met): abort+clear the stale node and
+        coast."""
+        state = _b5_state(mlib.B5_PLAN_TRANSFER, last_plan_ut=0.0)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, apoapsis=84_000.0,
+                                              periapsis=79_000.0, body="Kerbin",
+                                              node_count=1))
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+        # The burn: apsides moving frame to frame (never static).
+        state, _ = mlib.b5_decide(state, snap(ut=20.0, apoapsis=5_000_000.0,
                                               periapsis=76_000.0, body="Kerbin",
                                               node_count=1))
-        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
-        # The burn: apsides moving frame to frame (never static).
-        state, _ = mlib.b5_decide(state, snap(ut=20.0, apoapsis=11_400_000.0,
-                                              periapsis=20_000.0, body="Kerbin",
-                                              node_count=1))
-        # Post-burn wedge: orbit static at warp NONE, node still pending.
-        wedged = dict(apoapsis=11_322_716.568, periapsis=-89_356.291,
+        # Post-burn wedge ABOVE the floor: orbit static at 1x, node pending.
+        wedged = dict(apoapsis=11_322_716.568, periapsis=76_555.0,
                       body="Kerbin", node_count=1)
         state, _ = mlib.b5_decide(state, snap(ut=30.0, **wedged))
-        state, _ = mlib.b5_decide(state, snap(ut=40.0, **wedged))   # static since 40
+        state, _ = mlib.b5_decide(state, snap(ut=40.0, **wedged))   # static run starts
         state, actions = mlib.b5_decide(state, snap(ut=100.0, **wedged))
-        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)      # 60s < 120s: wait
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)        # < 120s: wait
         self.assertEqual(actions, [])
         state, actions = mlib.b5_decide(state, snap(ut=161.0, **wedged))
-        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)      # 121s: unwedge
-        self.assertEqual(state.correction_rounds_done, 1)
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)      # unwedge + coast
         self.assertEqual(actions, [Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
 
-    def test_burn_stagnation_never_counts_autowarp_and_tolerates_alignment(self):
+    def test_transfer_burn_autowarp_never_counts_as_stagnant(self):
         """RAILS autowarp toward the node (static orbit, warp != NONE) never
-        counts toward EITHER watchdog. The pre-burn attitude alignment (orbit
-        UNCHANGED since entry, static at 1x) is tolerated up to
-        burnNoStartSeconds (600 > the ~340 s Kerbal X flip), then treated as a
-        never-started executor (sixth live flight): abort+clear, round
-        consumed."""
-        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
-        state, _ = mlib.b5_decide(state, snap(ut=10.0, apoapsis=11_480_000.0,
-                                              periapsis=76_000.0, body="Kerbin",
+        counts toward the TRANSFER-BURN watchdog, no matter how long."""
+        state = _b5_state(mlib.B5_PLAN_TRANSFER, last_plan_ut=0.0)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, apoapsis=84_000.0,
+                                              periapsis=79_000.0, body="Kerbin",
                                               node_count=1))
-        # Pre-burn alignment: orbit identical to entry, warp NONE -- tolerated
-        # through the worst-case flip window.
-        pre = dict(apoapsis=11_480_000.0, periapsis=76_000.0, body="Kerbin",
-                   node_count=1)
-        for ut in (20.0, 40.0, 400.0, 600.0):
-            state, actions = mlib.b5_decide(state, snap(ut=ut, **pre))
-            self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
-            self.assertEqual(actions, [])
-        # Past burnNoStartSeconds of static-at-1x with NO burn: never-started
-        # executor -> abort+clear + round consumed (static since ut=40).
-        state, actions = mlib.b5_decide(state, snap(ut=641.0, **pre))
-        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
-        self.assertEqual(state.correction_rounds_done, 1)
-        self.assertEqual(actions, [Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
-        # Autowarp: orbit static AND CHANGED since entry, but warp is RAILS --
-        # a fresh burn phase riding autowarp never trips either signal.
-        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0,
-                          correction_rounds_done=1)
-        state, _ = mlib.b5_decide(state, snap(ut=10.0, apoapsis=11_480_000.0,
-                                              periapsis=76_000.0, body="Kerbin",
-                                              node_count=1))
-        warped = dict(apoapsis=11_322_000.0, periapsis=-89_000.0, body="Kerbin",
+        warped = dict(apoapsis=84_000.0, periapsis=79_000.0, body="Kerbin",
                       node_count=1, warp_mode="RAILS", warp_rate=100.0)
         for ut in (900.0, 1200.0, 1500.0, 2500.0):
             state, actions = mlib.b5_decide(state, snap(ut=ut, **warped))
+            self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+            self.assertEqual(actions, [])
+
+    def test_correction_burn_alignment_giveup_consumes_round(self):
+        """DIY burner: if the attitude gate never opens (AP wedged / never
+        aligned), the round is given up cleanly at burnNoStartSeconds -- cut +
+        disengage + clear -- instead of flaking the mission."""
+        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, apoapsis=11_480_000.0,
+                                                    periapsis=76_000.0, body="Kerbin",
+                                                    node_count=1))
+        self.assertEqual(actions, [Action(mlib.ACTION_AP_POINT_NODE)])
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        # Never aligned (ap_error NaN default fails closed): tolerated up to
+        # the give-up bound...
+        pre = dict(apoapsis=11_480_000.0, periapsis=76_000.0, body="Kerbin",
+                   node_count=1)
+        for ut in (20.0, 400.0, 600.0):
+            state, actions = mlib.b5_decide(state, snap(ut=ut, **pre))
             self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
             self.assertEqual(actions, [])
+        # ...then given up: round consumed, full cleanup.
+        state, actions = mlib.b5_decide(state, snap(ut=611.0, **pre))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.correction_rounds_done, 1)
+        self.assertEqual(actions, [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+                                   Action(mlib.ACTION_AP_DISENGAGE),
+                                   Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
+
+    def test_correction_burn_overshoot_cuts(self):
+        """DIY burner: a RISING remaining node dv (burning past the vector)
+        cuts immediately even though the cut threshold was never reached."""
+        state = _b5_state(mlib.B5_PLAN_CORRECTION, last_plan_ut=0.0)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin", node_count=1))
+        state, actions = mlib.b5_decide(state, snap(ut=25.0, body="Kerbin",
+                                                    node_count=1, node_dv=50.0,
+                                                    ap_error=1.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
+        state, actions = mlib.b5_decide(state, snap(ut=30.0, body="Kerbin",
+                                                    node_count=1, node_dv=8.0,
+                                                    ap_error=1.0))
+        self.assertEqual(actions, [])
+        # dv rising well past the observed minimum: overshoot -> cut.
+        state, actions = mlib.b5_decide(state, snap(ut=35.0, body="Kerbin",
+                                                    node_count=1, node_dv=9.0,
+                                                    ap_error=1.0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.correction_rounds_done, 1)
+        self.assertEqual(actions, [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+                                   Action(mlib.ACTION_AP_DISENGAGE),
+                                   Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
 
     def test_transfer_burn_stagnation_under_floor_flakes(self):
         """A wedged executor after an UNDER-FLOOR TLI (no transfer to coast on)
