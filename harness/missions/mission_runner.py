@@ -301,6 +301,18 @@ class KrpcMissionControl(MissionControl):
         kind = action.kind
         if kind == mlib.ACTION_SET_THROTTLE:
             control.throttle = float(action.value if action.value is not None else 0.0)
+            # Immediate readback (thirteenth flight diagnosability): a set that
+            # does not stick means another controller (MechJeb thrust module)
+            # is zeroing the throttle every frame -- name it loudly.
+            try:
+                back = float(control.throttle)
+                if abs(back - float(action.value or 0.0)) > 0.01:
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Warn", "Throttle",
+                        "set_throttle %.2f did not stick (readback %.2f): another "
+                        "controller holds the throttle" % (float(action.value or 0.0), back)))
+            except Exception:
+                pass
         elif kind == mlib.ACTION_CUT_THROTTLE:
             control.throttle = 0.0
         elif kind == mlib.ACTION_ACTIVATE_STAGE:
@@ -488,10 +500,27 @@ class KrpcMissionControl(MissionControl):
                 # native AP. Executor re-use poisoning is moot: corrections
                 # never touch the executor again.
                 if self._mechjeb is not None:
+                    # LOUD abort (thirteenth flight: corrections still zero-
+                    # thrust + 0.07 deg/s crawl -- something retains vessel
+                    # control; a silently-failed abort would explain it, so
+                    # log the outcome + the executor's enabled state).
                     try:
                         self._mechjeb.node_executor.abort()
-                    except Exception:
-                        pass
+                        _stdout_sink(mlib.format_mission_log_line(
+                            "Info", "Point", "executor abort ok; enabled=%s"
+                            % (self._mechjeb.node_executor.enabled,)))
+                    except Exception as exc:
+                        _stdout_sink(mlib.format_mission_log_line(
+                            "Warn", "Point", "executor abort FAILED: %s" % (exc,)))
+                # SAS/RCS off before engaging the kRPC AP (standard practice;
+                # a stock SAS hold left on by MechJeb's teardown would cancel
+                # most of the wheel torque = exactly the measured 0.07 deg/s
+                # crawl that survived every AP-tuning change).
+                try:
+                    v.control.sas = False
+                    v.control.rcs = False
+                except Exception:
+                    pass
                 ap = v.auto_pilot
                 ap.reference_frame = nodes[0].reference_frame
                 ap.target_direction = (0.0, 1.0, 0.0)
