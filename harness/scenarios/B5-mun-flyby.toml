@@ -2,10 +2,10 @@ schema = 1
 id = "B5-mun-flyby"
 # nightly: fixture committed (shares b2-lko-craft with B2/B4) and the flyby is
 # the longest flown mission yet (transfer coast + flyby, mostly under rails
-# warp). LIVE-PROVEN 2026-07-22: PASS on attempt 1 after eight live-finding
-# flights (ascent, TLI via the MechJeb executor, DIY native-AP correction
-# burn, cross-SOI coast, flyby at 1,142 km, free-return into Kerbin SOI;
-# wall 1015 s, all verifiers green).
+# warp). LIVE-PROVEN 2026-07-22 (fifteenth flight, full finding-1..12 stack):
+# PASS on attempt 1, wall 625 s - ascent, targeted TLI, debounced DIY
+# correction burn, self-healing non-blocking rails warp, 1,138 km flyby,
+# free-return into Kerbin SOI, all verifiers green.
 tier = "nightly"
 description = "Mun flyby / free-return: MechJeb ascent to LKO, ManeuverPlanner Hohmann transfer, autowarped TLI burn, course-correction, cross-SOI coast, Mun flyby, return into Kerbin SOI; assert orbit + target SOI reached + flyby floor + returned home."
 instanceProfile = "stock-minimal"
