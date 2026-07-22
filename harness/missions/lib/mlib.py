@@ -205,6 +205,15 @@ ACTION_AP_POINT_NODE = "ap_point_node"                     # value = None
 # and the Flight-Results-dialog wedge class (finding 4) is structurally gone
 # from the B5 coast.
 ACTION_SET_RAILS_WARP = "set_rails_warp"                   # value = factor index
+# Physics (LOW mode) warp control for segments that need RUNNING physics --
+# today the correction-burn attitude flip (a ~340 s 1x crawl on the low-torque
+# Kerbal X). value = the KSP physics warp factor INDEX (0 = 1x .. 3 = 4x; the
+# server clamps via kRPC PhysicsWarpFactor.Clamp(0, 3)). Precedent: MechJeb's
+# own WarpToUT runs attitude-holding segments at physics warp capped 2.0x
+# (decompiled 2.15.1 MechJebModuleWarpController.WarpToUT). Same on-change +
+# self-healing emission discipline as set_rails_warp; the machine always drops
+# to 0 BEFORE any throttle-up so a burn never integrates at scaled physics dt.
+ACTION_SET_PHYSICS_WARP = "set_physics_warp"               # value = factor index
 
 # TARGET-FLYBY impact-warp guard: below this altitude with a SUB-SURFACE
 # periapsis the machine stops issuing warp hops and polls at 1x, so a crash
@@ -241,6 +250,85 @@ def rails_factor_for_distance(dist_m: float, speed_mps: float, cap: int) -> int:
         if RAILS_WARP_RATES[idx] * speed * _WARP_SAFETY_SECONDS <= dist_m:
             return idx
     return 0
+
+
+def rails_factor_for_time(dt_s: float, cap: int) -> int:
+    """The highest rails factor index (<= cap) whose warped GAME-time advance
+    over the safety window still fits inside ``dt_s`` seconds -- the TIME
+    sibling of ``rails_factor_for_distance`` (operator directive 2026-07-22:
+    "warp to maneuver node" as a non-blocking time-based stair-down, never the
+    blocking warp_to RPC). One safety window at factor idx advances
+    RAILS_WARP_RATES[idx] * _WARP_SAFETY_SECONDS game seconds, so the stair
+    holds 100,000x while days remain, 1000x inside ~3 hours, and 1x only in
+    the last seconds. NaN / non-positive remaining time returns 0 (fail
+    closed: an unknown wait is never warped over)."""
+    if not _is_finite(dt_s) or dt_s <= 0.0:
+        return 0
+    for idx in range(min(cap, len(RAILS_WARP_RATES) - 1), 0, -1):
+        if RAILS_WARP_RATES[idx] * _WARP_SAFETY_SECONDS <= dt_s:
+            return idx
+    return 0
+
+
+# Stock per-body rails-warp minimum-altitude tables (metres ASL), index ==
+# rails factor index. GROUND TRUTH extracted 2026-07-22 from the dev install's
+# serialized CelestialBody.timeWarpAltitudeLimits arrays (KSP 1.12.5
+# sharedassets9.assets PSystem prefab, all 17 bodies mapped by the adjacent
+# bodyName string; consistent 1112-byte object stride). kRPC's RailsWarpFactor
+# setter clamps a commanded factor via CanRailsWarpAt, which compares
+# vessel.mainBody.GetAltitude(CoM) against EXACTLY these raw values (pinned
+# kRPC 0.5.4 SpaceCenter.cs CanRailsWarpAt -> TimeWarp.GetAltitudeLimit ->
+# body.timeWarpAltitudeLimits[i]; no atmosphere fold-in -- the in-atmosphere
+# rails block is a separate stock gate our exo-only warp commands never hit).
+# A commanded factor above the legal maximum silently produces RAILS at the
+# CLAMPED lower rate, and KSP never auto-escalates as the vessel climbs, so
+# the machine must choose factors from this table itself or a whole coast leg
+# runs slow (live-observed: factor 6 commanded near the 80 km parking orbit
+# ran at 50x). Values are data, not tolerances: do not tune.
+STOCK_WARP_ALTITUDE_LIMITS = {
+    "Sun":    (0.0, 3270000.0, 3270000.0, 6540000.0, 13080000.0, 26160000.0, 52320000.0, 65400000.0),
+    "Moho":   (0.0, 10000.0, 10000.0, 30000.0, 50000.0, 100000.0, 200000.0, 300000.0),
+    "Eve":    (0.0, 30000.0, 30000.0, 60000.0, 120000.0, 240000.0, 480000.0, 600000.0),
+    "Gilly":  (0.0, 8000.0, 8000.0, 8000.0, 20000.0, 40000.0, 80000.0, 100000.0),
+    "Kerbin": (0.0, 30000.0, 30000.0, 60000.0, 120000.0, 240000.0, 480000.0, 600000.0),
+    "Mun":    (0.0, 5000.0, 5000.0, 10000.0, 25000.0, 50000.0, 100000.0, 200000.0),
+    "Minmus": (0.0, 3000.0, 3000.0, 6000.0, 12000.0, 24000.0, 48000.0, 60000.0),
+    "Duna":   (0.0, 30000.0, 30000.0, 60000.0, 100000.0, 300000.0, 600000.0, 800000.0),
+    "Ike":    (0.0, 5000.0, 5000.0, 10000.0, 25000.0, 50000.0, 100000.0, 200000.0),
+    "Dres":   (0.0, 10000.0, 10000.0, 30000.0, 50000.0, 100000.0, 200000.0, 300000.0),
+    "Jool":   (0.0, 0.0, 15000.0, 60000.0, 150000.0, 300000.0, 600000.0, 1200000.0),
+    "Laythe": (0.0, 30000.0, 30000.0, 60000.0, 120000.0, 240000.0, 480000.0, 600000.0),
+    "Vall":   (0.0, 24500.0, 24500.0, 24500.0, 40000.0, 60000.0, 80000.0, 100000.0),
+    "Tylo":   (0.0, 30000.0, 30000.0, 60000.0, 120000.0, 240000.0, 480000.0, 600000.0),
+    "Bop":    (0.0, 24500.0, 24500.0, 24500.0, 40000.0, 60000.0, 80000.0, 100000.0),
+    "Pol":    (0.0, 5000.0, 5000.0, 5000.0, 8000.0, 12000.0, 30000.0, 90000.0),
+    "Eeloo":  (0.0, 4000.0, 4000.0, 20000.0, 30000.0, 40000.0, 70000.0, 150000.0),
+}
+
+
+def max_legal_rails_factor(body: str, altitude_m: float) -> int:
+    """The highest rails factor index the stock altitude-limit table permits
+    for ``body`` at ``altitude_m`` -- the client-side mirror of the kRPC
+    RailsWarpFactor clamp, so the machine only ever COMMANDS achievable
+    factors. Two payoffs: (1) commanded == achievable, so the on-change
+    emission discipline ESCALATES the factor as the vessel climbs past each
+    limit (KSP never auto-raises a clamped rate); (2) the self-healing
+    re-emit never fights an unachievable command. Legality is altitude >=
+    limit (kRPC CanRailsWarpAt rejects strictly-below). FAIL-OPEN to the top
+    factor for an unknown body name or a non-finite altitude: the server
+    clamp is the hard backstop, and a one-frame altitude blip must not
+    sawtooth an otherwise-held warp down to 1x. NOTE: callers pass the
+    machine's SURFACE altitude while the game compares sea-level altitude;
+    surface <= ASL everywhere, so the mismatch only ever UNDER-commands (by
+    terrain height, a few km) -- never an illegal command."""
+    limits = STOCK_WARP_ALTITUDE_LIMITS.get(body)
+    if limits is None or not _is_finite(altitude_m):
+        return len(RAILS_WARP_RATES) - 1
+    best = 0
+    for idx in range(len(limits)):
+        if altitude_m >= limits[idx]:
+            best = idx
+    return best
 
 # K-consecutive debounce depth (see module docstring).
 DEFAULT_DEBOUNCE_K = 3
@@ -345,6 +433,18 @@ class TelemetrySnapshot:
     # no machine gate reads them yet.
     liquid_fuel: float = float("nan")
     throttle: float = float("nan")
+    # UT (s) of the FIRST maneuver node (kRPC Node.UT); NaN when no node
+    # exists or the read failed. NaN fails closed: the coast's warp-toward-
+    # node stair never engages on it (1x, exactly the pre-directive
+    # behavior), so an unreadable node is never warped past.
+    node_ut: float = float("nan")
+    # Seconds until the current orbit changes SOI (kRPC Orbit.TimeToSOIChange);
+    # NaN when no SOI change is on the trajectory. NaN fails OPEN for the
+    # coast's SOI-approach warp bound (no encounter = nothing to overshoot);
+    # a finite value bounds the factor so one 0.5 s poll can never advance
+    # past the whole target SOI (the B7 Duna hazard: 100,000x x 0.5 s real =
+    # 50,000 game seconds, comparable to an entire Duna SOI transit).
+    time_to_soi: float = float("nan")
 
 
 # ---------------------------------------------------------------------------
@@ -642,10 +742,43 @@ class B5Params:
                                            # non-blocking set_rails_warp while
                                            # nothing is imminent (spec key
                                            # coastWarpFactor)
-    flyby_warp_factor: int = 5             # TARGET-FLYBY rails factor (5 =
-                                           # 100x: slower so the min-altitude
-                                           # evidence samples reasonably through
-                                           # periapsis; spec key flybyWarpFactor)
+    flyby_warp_factor: int = 5             # TARGET-FLYBY rails factor FLOOR
+                                           # (5 = 100x: the proven min-altitude
+                                           # evidence cadence through periapsis;
+                                           # ALSO the SOI-approach floor -- the
+                                           # coast's time-to-SOI stair never
+                                           # drops below it, so the boundary is
+                                           # crossed at ~100x, bounding the
+                                           # per-poll overshoot into the SOI to
+                                           # ~100 game-s; spec key
+                                           # flybyWarpFactor)
+    flyby_max_warp_factor: int = 6         # TARGET-FLYBY stair-down CAP: far
+                                           # from periapsis the factor rises
+                                           # toward this with the remaining
+                                           # (altitude - periapsis) distance,
+                                           # falling back to the
+                                           # flyby_warp_factor floor near
+                                           # periapsis (the 100x SOI transit
+                                           # took minutes of wall time; the
+                                           # outer legs are safe at 1000x+).
+                                           # Altitude-legality still clamps
+                                           # (spec key flybyMaxWarpFactor)
+    node_warp_lead: float = 120.0          # warp-toward-node lead window (game
+                                           # s): a coast frame with a pending
+                                           # node warps via the TIME stair
+                                           # toward node_ut minus this lead,
+                                           # and holds 1x inside it (room for
+                                           # the flip + settle before the burn
+                                           # gate; spec key nodeWarpLeadSeconds)
+    flip_physics_warp: int = 1             # CORRECTION-BURN pre-burn attitude
+                                           # flip physics-warp factor INDEX
+                                           # (1 = 2x, MechJeb's own WarpToUT
+                                           # physics cap -- decompiled 2.15.1;
+                                           # the ~340 s 1x flip halves). 0
+                                           # reverts to the proven 1x flip.
+                                           # Always dropped to 0 BEFORE
+                                           # throttle-up (spec key
+                                           # flipPhysicsWarpFactor)
     target_periapsis_floor: float = 10000.0
                                            # flyby min-altitude assertion floor
                                            # (metres above the target body; the Mun
@@ -724,6 +857,9 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         flyby_timeout=float(params.get("flybyTimeoutSeconds", 300_000)),
         coast_warp_factor=int(params.get("coastWarpFactor", 6)),
         flyby_warp_factor=int(params.get("flybyWarpFactor", 5)),
+        flyby_max_warp_factor=int(params.get("flybyMaxWarpFactor", 6)),
+        node_warp_lead=float(params.get("nodeWarpLeadSeconds", 120.0)),
+        flip_physics_warp=int(params.get("flipPhysicsWarpFactor", 1)),
         target_periapsis_floor=float(params.get("targetPeriapsisFloorMeters", 10000)),
         burn_stagnant_seconds=float(params.get("burnStagnantSeconds", 120)),
         burn_nostart_seconds=float(params.get("burnNoStartSeconds", 600)),
@@ -1426,6 +1562,10 @@ class B5State:
     # set_rails_warp: warp only ever changes when the machine wants a
     # different speed -- operator design critique 2026-07-22).
     warp_cmd: int = 0
+    # Last COMMANDED physics warp factor (the CORRECTION-BURN flip runs at
+    # mild physics warp; same on-change + self-healing discipline). Always 0
+    # outside CORRECTION-BURN, and always driven back to 0 before throttle-up.
+    phys_warp_cmd: int = 0
     phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -1601,13 +1741,20 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         outcome).
       - CORRECTION-BURN -> COAST-TO-TARGET: node list empty again (no apoapsis
         gate: a correction is a small vector tweak).
-      - COAST-TO-TARGET: bounded rails-warp hops (one WARP_TO = now +
-        coastWarpHopSeconds per decision frame) while the SOI body is still the
-        home body. body == target -> TARGET-FLYBY. body neither home nor target
+      - COAST-TO-TARGET: non-blocking rails warp (on-change + self-healing
+        set_rails_warp) while the SOI body is still the home body. The factor
+        is the MIN of: the trigger-distance stair (toward the next correction
+        trigger), the warp-toward-node TIME stair when a node is pending
+        (node_ut - nodeWarpLeadSeconds; 1x inside the lead window / NaN),
+        the SOI-approach time stair (floored at flybyWarpFactor so the
+        boundary crosses at ~100x), and the per-body altitude-legality clamp.
+        body == target -> TARGET-FLYBY. body neither home nor target
         (nor "", the fail-closed unknown) -> ASSERT-FAIL (ejected: the craft
         left the home system without meeting the target).
       - TARGET-FLYBY: track the min finite altitude (the flyby-floor evidence);
-        smaller bounded hops (flybyWarpHopSeconds) while inside the target SOI.
+        hold flybyWarpFactor near periapsis, stair up toward
+        flybyMaxWarpFactor with the (altitude - periapsis) distance on the
+        outer legs, altitude-legality clamped; 1x on the impact guard.
         body == home -> RETURN (terminal: done, verdict None, the settle tail
         runs on-rails in home SOI). body neither -> ASSERT-FAIL (slung out of
         the home system).
@@ -1747,8 +1894,13 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             entered = _b5_enter(st, B5_COAST_TO_TARGET, snapshot.ut, peak)
             entered = replace(entered,
                               correction_rounds_done=st.correction_rounds_done + 1,
-                              corr_burn_started=False, min_node_dv=None)
+                              corr_burn_started=False, min_node_dv=None,
+                              phys_warp_cmd=0)
             cleanup = [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_AP_DISENGAGE)]
+            if st.phys_warp_cmd != 0:
+                # The flip ran under physics warp and the burn never started
+                # (node vanished / alignment give-up): drop it on the way out.
+                cleanup.append(Action(ACTION_SET_PHYSICS_WARP, 0.0))
             if snapshot.node_count > 0:
                 cleanup.append(Action(ACTION_MJ_ABORT_AND_CLEAR_NODES))
             return entered, cleanup
@@ -1808,11 +1960,33 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         streak = state.aligned_streak + 1 if aligned else 0
         stayed = replace(_b5_stay_or_flake(state, snapshot, peak),
                          aligned_streak=streak)
-        if settled and streak >= ALIGNED_DEBOUNCE_FRAMES and not stayed.done:
+        if stayed.done:
+            # Budget flake mid-flip: leave nothing warped behind.
+            return stayed, ([Action(ACTION_SET_PHYSICS_WARP, 0.0)]
+                            if state.phys_warp_cmd != 0 else [])
+        if settled and streak >= ALIGNED_DEBOUNCE_FRAMES:
+            # BURN ONLY AT 1x: the flip may run under mild physics warp, but a
+            # throttle-up at scaled physics dt would coarsen the cut/overshoot
+            # gates, so the warp is dropped FIRST and the throttle waits for a
+            # frame that reads warp NONE (one extra ~0.5 s poll, the B4-proven
+            # settle discipline).
+            if state.phys_warp_cmd != 0 or snapshot.warp_mode != WARP_NONE:
+                return (replace(stayed, phys_warp_cmd=0),
+                        [Action(ACTION_SET_PHYSICS_WARP, 0.0)])
             started = replace(stayed, corr_burn_started=True,
                               burn_static_since=(snapshot.ut if _is_finite(snapshot.ut)
                                                  else None))
             return started, [Action(ACTION_SET_THROTTLE, state.params.correction_throttle)]
+        # Still flipping/settling: run the attitude flip under mild PHYSICS
+        # warp (default 2x -- MechJeb's own WarpToUT physics cap; the ~340 s
+        # 1x crawl was the single biggest 1x wall-time block in the mission).
+        # Same on-change + self-healing emission discipline as the rails
+        # factor; flipPhysicsWarpFactor=0 disables (byte-identical old flip).
+        desired_phys = state.params.flip_physics_warp
+        if (desired_phys != state.phys_warp_cmd
+                or (desired_phys > 0 and snapshot.warp_mode != WARP_PHYSICS)):
+            return (replace(stayed, phys_warp_cmd=desired_phys),
+                    [Action(ACTION_SET_PHYSICS_WARP, float(desired_phys))])
         return stayed, []
 
     if state.phase == B5_COAST_TO_TARGET:
@@ -1856,16 +2030,50 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # correction trigger the factor STAIRS DOWN with the remaining
         # distance (operator-reported: the old binary band held 1x for its
         # entire 2,000 km, ~40 real minutes) so 1x happens only in the last
-        # moments before the trigger. Pending node / no home-body reading
-        # still force 1x.
-        if snapshot.body != state.params.home_body or snapshot.node_count != 0:
+        # moments before the trigger. No home-body reading still forces 1x.
+        if snapshot.body != state.params.home_body:
             desired = 0
+        elif snapshot.node_count != 0:
+            # Warp TOWARD a pending node (operator directive 2026-07-22:
+            # time-based stair-down as the warp-to-node primitive, never the
+            # blocking warp_to RPC). Outside the lead window the factor
+            # stairs down with the remaining time to node_ut - lead; inside
+            # it -- or on a NaN node_ut, fail closed -- the coast holds 1x
+            # (the pre-directive contract) so nothing warps past a burn.
+            if _is_finite(snapshot.node_ut) and _is_finite(snapshot.ut):
+                desired = rails_factor_for_time(
+                    snapshot.node_ut - state.params.node_warp_lead - snapshot.ut,
+                    state.params.coast_warp_factor)
+            else:
+                desired = 0
         elif rounds_pending and _is_finite(snapshot.altitude):
             dist = triggers[state.correction_rounds_done] - snapshot.altitude
             desired = rails_factor_for_distance(
                 dist, snapshot.vertical_speed, state.params.coast_warp_factor)
         else:
             desired = state.params.coast_warp_factor
+        if desired > 0 and _is_finite(snapshot.time_to_soi):
+            # SOI-approach bound: one 0.5 s poll at 10,000x advances up to
+            # ~5,000 game-s past the boundary (survivable in a 2,430 km Mun
+            # SOI, mission-fatal in B7 where 100,000x could blow through the
+            # whole Duna SOI between polls). Stair the factor down with the
+            # remaining time, FLOORED at the flyby factor: crossing at ~100x
+            # bounds the overshoot to ~100 game-s and hands TARGET-FLYBY its
+            # own held factor with no 1x cliff at the boundary. NaN (no SOI
+            # change on the trajectory) skips the bound.
+            desired = min(desired, max(
+                rails_factor_for_time(snapshot.time_to_soi,
+                                      state.params.coast_warp_factor),
+                state.params.flyby_warp_factor))
+        if desired > 0:
+            # Altitude-legality clamp (STOCK_WARP_ALTITUDE_LIMITS): command
+            # only achievable factors, so the emission discipline escalates
+            # the factor as the vessel climbs past each per-body limit --
+            # KSP clamps a too-high set to the legal maximum and NEVER
+            # auto-raises it afterwards (a commanded 6 near the 80 km
+            # parking orbit silently ran the whole leg at 50x).
+            desired = min(desired, max_legal_rails_factor(
+                snapshot.body, snapshot.altitude))
         actions: List[Action] = []
         # Emit on change, PLUS re-assert when the game is NOT actually rails-
         # warping despite a nonzero command (fifteenth flight: operator manual
@@ -1900,14 +2108,27 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # NEVER warp toward a known impact (finding 4's Flight Results wedge):
         # on a sub-surface periapsis at low altitude, hold 1x so the crash
         # lands under live telemetry and the vessel-lost detectors end the
-        # mission in seconds. Otherwise hold the (slower) flyby factor so the
-        # min-altitude evidence samples reasonably through periapsis.
+        # mission in seconds. Otherwise: the flyby factor (100x, the proven
+        # min-altitude evidence cadence) is the FLOOR near periapsis, and the
+        # factor STAIRS UP toward flybyMaxWarpFactor with the remaining
+        # (altitude - periapsis) distance on the outer legs -- the flat-100x
+        # SOI transit took minutes of wall time for kilometre-scale outer-leg
+        # motion. Altitude-legality clamps the command to what the game will
+        # actually grant (Mun 100x needs >= 25 km, 1000x >= 50 km).
         impact_bound = (_is_finite(snapshot.periapsis) and snapshot.periapsis < 0.0
                         and _is_finite(snapshot.altitude)
                         and snapshot.altitude < IMPACT_WARP_GUARD_ALT)
-        desired = (state.params.flyby_warp_factor
-                   if (snapshot.body == state.params.target_body and not impact_bound)
-                   else 0)
+        if snapshot.body == state.params.target_body and not impact_bound:
+            pe_ref = (max(snapshot.periapsis, 0.0)
+                      if _is_finite(snapshot.periapsis) else 0.0)
+            dist = ((snapshot.altitude - pe_ref)
+                    if _is_finite(snapshot.altitude) else float("nan"))
+            stair = rails_factor_for_distance(
+                dist, snapshot.vertical_speed, state.params.flyby_max_warp_factor)
+            desired = min(max(state.params.flyby_warp_factor, stair),
+                          max_legal_rails_factor(snapshot.body, snapshot.altitude))
+        else:
+            desired = 0
         actions = []
         # Emit on change, PLUS re-assert when the game is NOT actually rails-
         # warping despite a nonzero command (fifteenth flight: operator manual

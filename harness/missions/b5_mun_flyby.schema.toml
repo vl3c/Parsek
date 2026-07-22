@@ -111,7 +111,10 @@ min = 1.0
 # Non-blocking rails-warp factors (KSP factor INDEX 0-7; the machine holds
 # the factor via on-change set_rails_warp emissions and keeps polling -- no
 # blocking warp RPC, no per-hop ramp sawtooth). Optional; mlib defaults 6
-# (1000x) coast / 5 (100x) flyby.
+# (10,000x) coast cap / 5 (100x) flyby floor. Every commanded factor is
+# additionally pre-clamped to the stock per-body altitude-limit table
+# (mlib.STOCK_WARP_ALTITUDE_LIMITS) so the command is always achievable and
+# escalates as the vessel climbs.
 [params.coastWarpFactor]
 required = false
 type = "int"
@@ -123,6 +126,37 @@ required = false
 type = "int"
 min = 0
 max = 7
+
+# TARGET-FLYBY stair-down cap: far above periapsis the factor rises toward
+# this with the remaining (altitude - periapsis) distance, falling back to
+# the flybyWarpFactor floor (the proven 100x evidence cadence) near
+# periapsis. Optional; mlib defaults 6 (10,000x).
+[params.flybyMaxWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+# Warp-toward-node lead window (GAME seconds): a coast frame with a pending
+# node rails-warps via the time stair toward node UT minus this lead, and
+# holds 1x inside it (room for the attitude flip + settle before the burn
+# gate). NaN/unknown node UT fails closed to 1x. Optional; mlib defaults 120.
+[params.nodeWarpLeadSeconds]
+required = false
+type = "number"
+min = 10.0
+max = 3600.0
+
+# CORRECTION-BURN pre-burn attitude-flip physics warp factor INDEX (0-3;
+# 1 = 2x, MechJeb's own WarpToUT physics cap). The flip is the single
+# biggest 1x wall-time block (~340 s worst case); 2x physics halves it. The
+# machine always drops physics warp to 0 BEFORE throttle-up. 0 disables
+# (the proven 1x flip). Optional; mlib defaults 1.
+[params.flipPhysicsWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 3
 
 # Flyby min-altitude assertion floor (metres above the target body; the Mun has
 # ~7 km peaks). The machine tracks the min finite altitude inside the target
