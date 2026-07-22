@@ -3340,6 +3340,34 @@ class B7InterplanetaryTests(unittest.TestCase):
     return-body flyby terminal, the exit-body assertion report, a full B7
     happy-path walk, and the defaults-preserve-B5 contract."""
 
+    def test_rails_frames_do_not_consume_the_nostart_budget(self):
+        # Finding 19 (fifth flight): a round granted from a 100,000x coast
+        # enters CORRECTION-BURN mid-ramp-down and the GAME-time no-start
+        # budget evaporated in two polls -- both rounds consumed with the
+        # plan unburned and apErr frozen. Rails frames must re-anchor the
+        # clock; it counts only from the first non-rails frame.
+        state = _b7_state(mlib.B5_CORRECTION_BURN, planned_node_count=1)
+        # Two rails ramp-down polls spanning 40,000 game-s: NO give-up.
+        state, _ = mlib.b5_decide(state, snap(
+            ut=10_000.0, body="Sun", node_count=1, node_dv=108.7,
+            warp_mode="RAILS", warp_rate=100_000.0))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=50_000.0, body="Sun", node_count=1, node_dv=108.7,
+            warp_mode="RAILS", warp_rate=48_000.0))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        self.assertEqual(state.corr_nostart_anchor_ut, 50_000.0)
+        # Ramp done: the clock counts from the LAST rails frame. A non-rails
+        # frame inside the budget stays; one past it gives the round up.
+        state, _ = mlib.b5_decide(state, snap(
+            ut=50_100.0, body="Sun", node_count=1, node_dv=108.7))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=50_000.0 + B7_PARAMS.burn_nostart_seconds + 1.0,
+            body="Sun", node_count=1, node_dv=108.7))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.correction_rounds_done, 1)
+
     def test_no_encounter_coast_fires_the_round_early(self):
         # Finding 18 (fourth flight): the phase-angle ejection produced NO
         # Duna encounter -- tts NaN across the whole heliocentric coast --

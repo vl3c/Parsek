@@ -2592,9 +2592,21 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             # time is not alignment time).
             state = replace(state, warp_to_cmd=None, aligned_streak=0,
                             corr_nostart_anchor_ut=float(snapshot.ut))
+        # RAILS FRAMES ARE NOT ALIGNMENT TIME (finding 19, B7 fifth flight):
+        # a round granted from a 100,000x heliocentric coast enters this
+        # phase mid-RAMP-DOWN (KSP ramps rails over several polls), and the
+        # GAME-time no-start budget (600 s) evaporates in two polls -- both
+        # no-encounter rounds were consumed with the full plan unburned and
+        # apErr frozen ~110 deg, the ship never having tried to turn. While
+        # the game is still rails-warping (and no aim-warp of ours is in
+        # flight), keep re-anchoring the clock; it starts counting at the
+        # first non-rails frame, exactly like the aim-warp arrival re-anchor.
+        if (snapshot.warp_mode == WARP_RAILS and _is_finite(snapshot.ut)):
+            state = replace(state, corr_nostart_anchor_ut=float(snapshot.ut))
         # Alignment never converging is bounded: give the round up after
         # burnNoStartSeconds rather than flake the whole mission. The clock
-        # counts from phase entry, or from the aim-warp ARRIVAL when one ran.
+        # counts from phase entry, the aim-warp ARRIVAL, or the last
+        # rails-warped frame.
         nostart_anchor = (state.corr_nostart_anchor_ut
                           if state.corr_nostart_anchor_ut is not None
                           else state.phase_entry_ut)
