@@ -274,6 +274,16 @@ MAX_FLAMEOUT_STAGES = 2
 ARRIVAL_BAD_DEBOUNCE_FRAMES = 3
 MAX_ARRIVAL_EXTRA_ROUNDS = 2
 ARRIVAL_RECORRECT_MIN_TTS_SECONDS = 600.0
+# High-precision window UPPER bound (twenty-fourth flight): an extra round
+# fired immediately on detection at tts ~12,700 s moved the prediction only
+# -33.7 -> -29.3 km -- at that leverage (~12.8 km of arrival shift per m/s)
+# the 2.0 m/s cut residual alone is +/-25 km and MechJeb's long-range plan
+# quality adds more, so far-out extras CANNOT converge on the target.
+# Precision per m/s improves linearly toward the encounter (~3.6 km per m/s
+# at 3,600 s, cut residual +/-7 km), so the extras hold until the coast
+# carries the craft inside this bound; the sub-floor prediction is stable
+# across the coast (patched conics are deterministic on rails).
+ARRIVAL_RECORRECT_MAX_TTS_SECONDS = 3600.0
 
 # DIY-burner aligned-gate debounce: the throttle fires only after this many
 # CONSECUTIVE in-gate attitude readings. The fourteenth live flight proved a
@@ -2529,7 +2539,11 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                        and _is_finite(snapshot.next_pe)
                        and snapshot.next_pe < state.params.target_periapsis_floor
                        and _is_finite(snapshot.time_to_soi)
-                       and snapshot.time_to_soi > ARRIVAL_RECORRECT_MIN_TTS_SECONDS)
+                       and snapshot.time_to_soi > ARRIVAL_RECORRECT_MIN_TTS_SECONDS
+                       # High-precision window (twenty-fourth flight): far-out
+                       # extras moved the arrival only ~2-4 km each; the
+                       # extras HOLD until the coast is inside the bound.
+                       and snapshot.time_to_soi < ARRIVAL_RECORRECT_MAX_TTS_SECONDS)
         if arrival_bad:
             streak = stayed.arrival_bad_streak + 1
             if streak >= ARRIVAL_BAD_DEBOUNCE_FRAMES:

@@ -3100,7 +3100,9 @@ class B5ArrivalRecorrectTests(unittest.TestCase):
         kw.setdefault("altitude", 8_000_000.0)
         kw.setdefault("next_body", "Mun")
         kw.setdefault("next_pe", -30_000.0)
-        kw.setdefault("time_to_soi", 9_000.0)
+        # Inside the high-precision window (twenty-fourth flight: far-out
+        # extras moved the arrival only ~2-4 km each and were wasted).
+        kw.setdefault("time_to_soi", 3_000.0)
         return snap(ut=ut, **kw)
 
     def test_sustained_sub_floor_arrival_grants_extra_round(self):
@@ -3127,6 +3129,8 @@ class B5ArrivalRecorrectTests(unittest.TestCase):
             dict(next_pe=61_000.0),                   # healthy arrival
             dict(time_to_soi=float("nan")),           # unknown crossing
             dict(time_to_soi=300.0),                  # too close to fly it
+            dict(time_to_soi=9_000.0),                # too FAR: hold for the
+                                                      # high-precision window
             dict(node_count=1, node_ut=100_000.0,
                  next_pe=-30_000.0),                  # a node is pending
         )
