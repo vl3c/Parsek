@@ -31,9 +31,10 @@ reachable by an automated scenario today:
   surface. The autopilot driver (M-B1) is structurally unable to drive ANY
   EVA interaction - even the trivial exit-and-reboard-on-the-ladder case has
   no entry point (A4's HARD rating is only about jetpack control).
-- The seam's 18 implemented verbs cover lifecycle, recording, re-fly, jumps,
-  and KSC career actions, but nothing kerbal-physical; no reserved name
-  covers EVA either.
+- The seam's 15 implemented verbs (`TestCommandVerbs.cs`, mirrored at
+  `hlib.py` `IMPLEMENTED_SEAM_VERBS`) cover lifecycle, recording, re-fly,
+  jumps, and KSC career actions, but nothing kerbal-physical; no reserved
+  name covers EVA either.
 - Parsek's EVA machinery is branch-heavy recording code: mid-recording EVA
   tree branches (`ParsekFlight.OnCrewOnEva`, `ParsekFlight.cs:7838`), the
   background-parent route (`TryStartEvaBranchFromBackgroundParent`, `:7734`),
@@ -92,15 +93,19 @@ unchanged. New terms:
         v  journal CLAIMED (WAL, at-most-once)
         |
         v  thin applier: EvaExit  -> FlightEVA.fetch.spawnEVA(...)
-                                     (+ optional ladder release)
-                         PlantFlag-> KerbalEVA.PlantFlag(); then answer
-                                     the "SiteRename" popup via its button
+                                     (+ optional ladder release + dwell)
+                         PlantFlag-> bounded-wait the stock plant gate,
+                                     THEN KerbalEVA.PlantFlag(); then
+                                     answer the "SiteRename" popup via
+                                     its own button callback
                          EvaBoard -> KerbalEVA.BoardPart(part)
         |
         v  two-phase PENDING holds the FIFO head until:
-             EvaExit:   EVA vessel live + active + settled
-             PlantFlag: flag vessel exists + dialog answered + settled
-             EvaBoard:  EVA vessel gone + crew confirmed aboard + settled
+             EvaExit:   EVA vessel live + active + settled (+ dwell)
+             PlantFlag: gate opened -> plant fired -> flag vessel exists
+                        + dialog answered + settled
+             EvaBoard:  EVA vessel gone + crew aboard target + target is
+                        active vessel + board-merge quiescent + settled
         |
         v  journal EXECUTED -> terminal response -> DONE
 ```
@@ -169,10 +174,10 @@ deferred-field PopupDialog callback trap applies verbatim).
 
 No persisted format changes. Three NEW implemented verb names (never in the
 M-A2 reserved list, so this is additive like `SaveGame`, not a promotion):
-`EvaExit`, `EvaBoard`, `PlantFlag`. Verb table moves 18 -> 21 implemented; the
-11 reserved names are untouched (`TestCommandVerbs.cs:37/:57`). The hlib
-companion move (`IMPLEMENTED_SEAM_VERBS`, `hlib.py:111`) lands in the same PR
-or the harness rejects the specs before KSP ever sees them (M-C1 precedent).
+`EvaExit`, `EvaBoard`, `PlantFlag`. Verb table moves 15 -> 18 implemented;
+the 11 reserved names are untouched (`TestCommandVerbs.cs`). The hlib
+companion changes (below, Behavior) land in the same PR or the harness
+rejects the specs before KSP ever sees them (M-C1 precedent).
 
 ### DispatchState extension (`TestCommandDispatcher.cs`)
 
@@ -187,7 +192,7 @@ bool FlightEvaPresent;       // FlightEVA.fetch != null
 ```
 
 Existing dispatch rows are unaffected (new bits default false, unread by the
-21 existing verbs).
+15 existing verbs).
 
 ### Per-verb precondition rows
 
@@ -197,9 +202,13 @@ Existing dispatch rows are unaffected (new bits default false, unread by the
 | `PlantFlag` | `RequiresFlight` | defer `not-eva` while !ActiveVesselIsEva (the preceding EvaExit's auto-switch may still be settling) |
 | `EvaBoard` | `RequiresFlight` | defer `not-eva` while !ActiveVesselIsEva |
 
-The finer preconditions (kerbal aboard, plant gate open, proximity) need live
-object resolution and are executor-side refusals, mirroring how `KscAction`
-resolves targets in the applier and refuses via the pure decider.
+The finer preconditions (kerbal aboard, proximity, the stable flag lock)
+need live object resolution and are executor-side refusals, mirroring how
+`KscAction` resolves targets in the applier and refuses via the pure
+decider. The stock PLANT GATE is deliberately NOT a dispatch precondition
+or an executor refusal: it is a bounded WAIT inside PlantFlag's two-phase
+execution (F1, Behavior below), because it is transiently false while the
+kerbal lands.
 
 ### Pure deciders (new files `TestCommandEvaExit/PlantFlag/EvaBoard.cs`)
 
@@ -212,10 +221,24 @@ internal static string ResolveKerbalArg(string arg, IList<string> crewNames,
     // (InvariantCulture ordinal) else "kerbal-not-aboard".
 internal static EvaExitCompletionDecision DecideEvaExitCompletion(
     double elapsed, bool evaVesselExists, bool evaVesselIsActive,
-    bool sceneSettled, bool releaseRequested, bool releaseApplied, double budget);
-    // CompleteOk = exists AND active AND settled AND (!requested OR applied).
+    bool sceneSettled, bool releaseRequested, bool releaseApplied,
+    bool settleElapsed, double budget);
+    // CompleteOk = exists AND active AND settled AND (!requested OR applied)
+    // AND settleElapsed (the optional settleSeconds dwell, F7: lets Parsek's
+    // deferred EVA auto-record arm before the next FIFO command).
 
 // TestCommandPlantFlag
+enum PlantGateDecision { KeepWaiting, ProceedToPlant, RejectStableLock,
+                         GateTimeout }
+internal static PlantGateDecision DecidePlantGateWait(
+    double elapsed, bool gateOpen, bool stableLockClosed, double budget);
+    // BOUNDED-WAIT pre-plant phase (F1): gateOpen samples
+    // Events["PlantFlag"].active EVERY poll; a transiently-closed gate
+    // (mid-fall, stumble, ragdoll recovery) is KeepWaiting, NEVER a terminal
+    // reject. stableLockClosed = the AC flag unlock read directly
+    // (GameVariables.UnlockedEVAFlags) - the one cause that cannot flip
+    // mid-mission -> RejectStableLock. Budget expiry with the gate never
+    // open -> GateTimeout.
 enum FlagPlantCompletionDecision { StillWaiting, CompleteOk, FlagTimeout }
 internal static FlagPlantCompletionDecision DecideFlagPlantCompletion(
     double elapsed, bool flagSiteVesselExists, bool dialogAnswered,
@@ -232,9 +255,12 @@ internal static bool IsWithinBoardRange(double distanceMeters, double bound);
     // stock API's missing distance check.
 internal static BoardCompletionDecision DecideBoardCompletion(
     double elapsed, bool evaVesselGone, bool crewAboardTarget,
+    bool targetIsActiveVessel, bool boardMergeQuiescent,
     bool sceneSettled, double budget);
     // CompleteOk = EVA vessel destroyed AND kerbal in target part crew AND
-    // settled. crewAboardTarget IS the effect confirmation (BoardPart is void).
+    // the TARGET is the active vessel AND Parsek's board-merge is quiescent
+    // AND settled (F2, see EvaBoard Behavior). crewAboardTarget IS the
+    // effect confirmation (BoardPart is void).
 ```
 
 All three follow `TestCommandLoadGame.DecideLoadCompletion` ordering: positive
@@ -244,10 +270,17 @@ completion first, then budget, `StillWaiting` as the default.
 
 ### EvaExit (two-phase, irreversible)
 
-**Args.** `kerbal=<name>` (optional; default = first crew member of the active
-vessel), `release=<true|false>` (optional, default `false`; run the ladder
-let-go after the spawn settles, so the kerbal drops to the ground for a
-following `PlantFlag`).
+**Args.** `kerbal=<name>` (optional; default = first crew member of the
+active vessel), `release=<true|false>` (optional, default `false`; run the
+ladder let-go after the spawn settles, so the kerbal drops to the ground for
+a following `PlantFlag`), `settleSeconds=<float>` (optional, default `0`;
+extra dwell held AFTER the base completion conjuncts before CompleteOk -
+opt-in, keeps the default Parsek-agnostic; EVA-2 uses it so Parsek's
+DEFERRED EVA AUTO-RECORD arms and samples before the next FIFO command
+races it, F7). Spec authors write arg values RAW ("Valentina Kerman");
+`run.py encode_value` performs the wire percent-encoding and escapes `%`
+itself, so a pre-encoded value would double-encode and the verb would
+refuse `kerbal-not-aboard`.
 
 **Resolution + refusals (executor).** Refuse `no-crew` when the active
 vessel has no crew, `kerbal-not-aboard` when the named kerbal does not
@@ -256,18 +289,26 @@ airlock transform.
 
 **Execution (CLAIMED side effect).** Call
 `FlightEVA.fetch.spawnEVA(pcm, fromPart, airlock, tryAllHatches: true)`. A
-null return is `ERROR msg=eva-refused` (obstructed hatch / fairing / mod
-veto; stock's specific reason is only a screen message, and its own line is
-in KSP.log). Non-null: `PendingVerdict`, FIFO head held.
+null return is `REJECTED msg=eva-refused` - a stock refusal with NO side
+effect (obstructed hatch / fairing / mod veto; stock's specific reason is
+only a screen message, and its own line is in KSP.log), so it sits in the
+no-side-effect REJECTED family like every other refusal. Non-null:
+`PendingVerdict`, FIFO head held; the applier remembers `fromPart.vessel`'s
+pid in an in-memory `lastEvaExitFromPid` (non-durable, cleared on process
+restart) for `EvaBoard`'s default target (F9).
 
 **Two-phase completion.** Poll `DecideEvaExitCompletion`: the spawned EVA
 vessel exists, it is `FlightGlobals.ActiveVessel` (auto-switch completed),
-scene settled, and - when `release=true` - the release applied. The applier
-performs the release during polling: once the EVA vessel is active and
-`OnALadder` is true, run `fsm.RunEvent(On_ladderLetGo)` once; a kerbal
-already off the ladder marks releaseApplied without the event (logged).
-Terminal `OK` payload `kerbal=<name> evaPid=<pid> released=<bool>`; budget
-expiry -> `ERROR msg=eva-exit-timeout`.
+scene settled, when `release=true` the release applied, and the
+`settleSeconds` dwell (if any) elapsed. The applier performs the release
+during polling: once the EVA vessel is active and `OnALadder` is true, run
+`fsm.RunEvent(On_ladderLetGo)` once; a kerbal already off the ladder marks
+releaseApplied without the event (logged). NOTE: release completion is
+deliberately NOT gated on ground contact - the kerbal may complete mid-fall;
+the ground-contact wait belongs to `PlantFlag`'s bounded-wait gate (F1),
+which is the consumer that needs it. Terminal `OK` payload `kerbal=<name>
+evaPid=<pid> released=<bool>`; budget expiry -> `ERROR
+msg=eva-exit-timeout`.
 
 **What completion deliberately does NOT assert.** Whether Parsek branched the
 tree, started an auto-record, or did nothing (settings off) is NOT part of the
@@ -284,37 +325,54 @@ re-staged), so the at-most-once property stands on the CLAIMED gate alone;
 the conservative-INTERRUPTED path stays as the defensive contract for the
 restart the v1 harness never performs. Not repeated per verb below.
 
-### PlantFlag (two-phase, irreversible, dialog-answering)
+### PlantFlag (two-phase, bounded-wait gate, irreversible, dialog-answering)
 
 **Args.** none in v1 (the site keeps the stock default name; a `name=` arg
 needs a private-field write into the dialog state and is deferred).
 
-**Refusals (executor).** Resolve the `KerbalEVA` controller from the active
-vessel; refuse `not-eva` if absent. Read `Events["PlantFlag"].active`; false
--> `REJECTED msg=cannot-plant-flag` (covers no ground contact, zero flag
-items, ragdoll, astronaut-complex flag lock, construction mode) - checked
-BEFORE `PlantFlag()` so a refused plant never leaks a flag item (stock
-decrements first, ground truth 3).
+**Bounded-wait plant gate (F1).** The stock gate
+(`Events["PlantFlag"].active`) is TRANSIENTLY false while the kerbal is
+mid-fall / stumbling / ragdoll-recovering after an `EvaExit release=true` -
+whose completion deliberately does not wait for ground contact - so a
+single one-shot read would terminally REJECT a plant that succeeds two
+seconds later (the EVA-1 near-deterministic failure). The verb therefore
+treats the gate as a WAIT, not a precondition snapshot:
+- Instant refusals, only for STABLY-closed causes: `not-eva` (no
+  `KerbalEVA` on the active vessel) and `flag-lock-stable` when
+  `GameVariables.UnlockedEVAFlags(AC level)` is false (the facility level
+  cannot change mid-mission).
+- Otherwise the verb returns `PendingVerdict` immediately and polls the
+  gate through `DecidePlantGateWait` within its budget; a closed gate is
+  `KeepWaiting`. On gate-open the applier calls `PlantFlag()` (the CLAIMED
+  side effect fires exactly once, on that transition) and moves to the
+  dialog phase. Budget expiry with the gate never open -> `ERROR
+  msg=flag-gate-timeout`, `msg` carrying the last observed gate state. A
+  zero-flag-items kerbal is not headlessly distinguishable (the counter is
+  not public) and rides the bounded wait to `flag-gate-timeout`
+  (documented). Because `PlantFlag()` is only called on an OPEN gate, no
+  flag item is ever leaked on a refusal path (stock decrements first,
+  ground truth 3).
 
-**Execution.** Call `PlantFlag()`; return `PendingVerdict`.
-
-**Two-phase completion.** The FSM runs heading acquire + animation
-(seconds), spawns the `FlagSite` vessel, opens the "SiteRename" popup. The
-applier polls: when a live `PopupDialog` named "SiteRename" exists, invoke
-the DISMISS button's own callback (deterministic default site name; accept
-is gated on a typed-in name the seam does not provide) and set
-dialogAnswered. `afterFlagPlanted` fires inside that callback, synchronously
-in the command frame - exactly when `OnAfterFlagPlanted` captures the
-`FlagEvent` (`ParsekFlight.cs:10839`). CompleteOk once flag vessel exists +
-dialogAnswered + settled; terminal `OK` payload `flagSite=<vesselName>
-body=<body> lat=<lat> lon=<lon>`. Budget expiry (animation never completed
-or dialog never spawned) -> `ERROR msg=flag-timeout` (the decremented flag
-item is lost; documented, not recovered).
+**Dialog phase (after the gate opened and `PlantFlag()` ran).** The FSM
+runs heading acquire + animation (seconds), spawns the `FlagSite` vessel,
+opens the "SiteRename" popup. The applier polls: when a live `PopupDialog`
+named "SiteRename" exists, invoke the DISMISS button's own callback
+(deterministic default site name; accept is gated on a typed-in name the
+seam does not provide) and set dialogAnswered. `afterFlagPlanted` fires
+inside that callback, synchronously in the command frame - exactly when
+`OnAfterFlagPlanted` captures the `FlagEvent` (`ParsekFlight.cs:10839`).
+CompleteOk once flag vessel exists + dialogAnswered + settled; terminal
+`OK` payload `flagSite=<vesselName> body=<body> lat=<lat> lon=<lon>`.
+Budget expiry after the plant fired (animation never completed or dialog
+never spawned) -> `ERROR msg=flag-timeout` (the decremented flag item is
+lost; documented, not recovered).
 
 ### EvaBoard (two-phase, irreversible)
 
-**Args.** `targetPid=<vesselPersistentId>` (optional; default = the vessel the
-kerbal EVA'd from if it is loaded, else the nearest loaded non-EVA vessel).
+**Args.** `targetPid=<vesselPersistentId>` (optional; default = the addon's
+in-memory `lastEvaExitFromPid` from the preceding `EvaExit` if that vessel
+is still loaded - non-durable, cleared on process restart, F9 - else the
+nearest loaded non-EVA vessel).
 
 **Resolution + refusals (executor).** Refuse `not-eva` (active vessel not an
 EVA kerbal), `unknown-target` (`targetPid` not a loaded vessel),
@@ -327,33 +385,73 @@ the seam's honesty bound, since stock `BoardPart` would teleport).
 is void and refuses via screen message only, so nothing is concluded from
 the call itself.
 
-**Two-phase completion (effect confirmation).** Poll `DecideBoardCompletion`:
-EVA vessel gone, the kerbal's name in the target part's `protoModuleCrew`,
-scene settled; terminal `OK` payload `kerbal=<name> boardedPid=<pid>`. If
-the crew manifest never changes (stock refused: `CanBoard` off, capacity
-raced away, science-data prompt pending) the budget converts to `ERROR
-msg=board-timeout` - never a false OK on a silently refused board (the M-C1
-blocked-committed doctrine applied to a void API). Parsek's board-merge path
-(`ChainToVesselPending` -> `HandleTreeBoardMerge`) runs independently of the
-seam.
+**Two-phase completion (effect confirmation + board-merge quiescence, F2).**
+Poll `DecideBoardCompletion` over FIVE conjuncts: EVA vessel gone, the
+kerbal's name in the target part's `protoModuleCrew`, the TARGET is
+`FlightGlobals.ActiveVessel` (KSP's post-board focus switch completed),
+Parsek's board-merge is QUIESCENT, and scene settled. The quiescence
+conjunct exists because crew-aboard + vessel-gone is true BEFORE
+`OnVesselSwitchComplete` sets `ChainToVesselPending`
+(`ParsekFlight.cs:3388-3399`, the ONLY emitter of "detected boarding from
+EVA") and before `HandleTreeBoardMerge` (`ParsekFlight.cs:11878`) runs in
+`Update()`; a next FIFO command landing in that window corrupts the merge
+(a `StopRecording` kills the merge tokens; EVA-3's second `EvaExit`
+mis-routes through auto-record while `IsRecording` is momentarily false).
+`StructuralSplitPending` does NOT cover this window. The applier samples
+quiescence via a second internal read-only accessor on `ParsekFlight`
+(same pattern as the pending-split bit): quiescent =
+`!(recorder?.ChainToVesselPending ?? false) && pendingBoardingTargetPid == 0`.
+On a no-tree run Parsek never arms either token (`OnCrewBoardVessel`
+returns early with no chain/tree), so the conjunct reads true and is
+inert. Terminal `OK` payload `kerbal=<name> boardedPid=<pid>`. If the crew
+manifest never changes (stock refused: `CanBoard` off, capacity raced away,
+science-data prompt pending) the budget converts to `ERROR
+msg=board-timeout` - never a false OK on a silently refused board (the
+M-C1 blocked-committed doctrine applied to a void API).
 
-### Budgets and harness classification
+### Budgets, hlib companions, harness classification
 
-| verb | deferral budget | completion budget | rationale |
-|---|---|---|---|
-| `EvaExit` | default 60 s | 90 s | spawn + auto-switch + settle (+ ladder release) |
-| `PlantFlag` | default 60 s | 120 s | heading acquire + plant animation + dialog answer |
-| `EvaBoard` | default 60 s | 90 s | board + vessel teardown + focus switch + settle |
+The C# seam has ONE per-verb budget: `DeferralBudget.BudgetSeconds` governs
+BOTH the head-deferral wait (`ParsekTestCommandAddon.cs:937`) AND the
+two-phase completion wait (`TryCompleteTwoPhase`,
+`ParsekTestCommandAddon.cs:775`). M-C2 therefore declares ONE per-verb
+`DeferralBudget` constant each, sized to cover the verb's worst case of
+head-defer PLUS completion (no new completion-budget seam is introduced):
 
-None is a `DEFERRED_SEAM_VERB` in hlib terms (all complete well under the
-540 s cap). Harness classification follows M-C1 verbatim: EVERY refusal or
-timeout above (`no-crew`, `kerbal-not-aboard`, `no-airlock`, `eva-refused`,
-`eva-exit-timeout`, `not-eva`, `cannot-plant-flag`, `flag-timeout`,
-`unknown-target`, `no-boardable-part`, `target-full`, `not-near-target`,
-`board-timeout`) is driver-INVALID retry-once (proposed subkind
-`driver-eva`); a verb `OK` whose produced save reds the verifier chain is
-PARSEK-FAIL, orthogonal. The subkind spelling is a harness wiring detail; an
-`expect = "OK"` mismatch already classifies retry-once-then-INVALID today.
+| verb | DeferralBudget | sizing rationale |
+|---|---|---|
+| `EvaExit` | 120 s | dispatch defer (split-pending / scene settle) + spawn + auto-switch + release + optional settleSeconds dwell |
+| `PlantFlag` | 180 s | not-eva defer + the F1 bounded-wait plant gate (landing settle) + heading acquire + animation + dialog answer |
+| `EvaBoard` | 120 s | not-eva defer + board + vessel teardown + focus switch + board-merge quiescence + settle |
+
+hlib companion changes (SAME PR, or the harness misclassifies before KSP
+ever sees a command):
+
+1. Move the three names into `IMPLEMENTED_SEAM_VERBS` (mirror of the C#
+   table).
+2. Add `DISPATCH_DEFERRAL_BUDGET_SECONDS` entries `EvaExit: 120`,
+   `PlantFlag: 180`, `EvaBoard: 120` (F5). Without them the harness
+   step-wait uses the 60 s `DISPATCH_DEFERRAL_DEFAULT_SECONDS` + margin and
+   would stop out-waiting PlantFlag at ~120 s while the seam's own verdict
+   lands at up to 180 s - converting a retryable seam TIMEOUT into a
+   terminal KILLED (budget watchdog kill). None is a `DEFERRED_SEAM_VERB`
+   (all well under the 540 s cap); they ride the per-verb dict like
+   `AnswerMergeDialog` / `KscAction`.
+3. Teach `hlib.spec_expects_live_recording` that a `SetSetting
+   autoRecordOnEva=true` step implies live recording (F6): today it returns
+   True only for `StartRecording` / `autoRecordOnLaunch=true`, so EVA-2 - a
+   genuinely-recording run - would have its REC-001/REC-003 marker rules
+   SUPPRESSED (oracle invariant 5 would be silently false).
+
+Harness classification follows M-C1 verbatim: EVERY refusal or timeout
+above (`no-crew`, `kerbal-not-aboard`, `no-airlock`, `eva-refused`,
+`eva-exit-timeout`, `not-eva`, `flag-lock-stable`, `flag-gate-timeout`,
+`flag-timeout`, `unknown-target`, `no-boardable-part`, `target-full`,
+`not-near-target`, `board-timeout`) is driver-INVALID retry-once (proposed
+subkind `driver-eva`); a verb `OK` whose produced save reds the verifier
+chain is PARSEK-FAIL, orthogonal. The subkind spelling is a harness wiring
+detail; an `expect = "OK"` mismatch already classifies
+retry-once-then-INVALID today.
 
 ## Driver architecture decision
 
@@ -381,16 +479,30 @@ mission to reach LKO, then the EVA verb tail).
 
 Shared conventions: `instanceProfile = "stock-minimal"`,
 `injectedRecordings = "none"`, `autoRecordOnLaunch=false` +
-`verboseLogging=true` pinned after LoadGame (several oracle lines are
-Verbose), analyzer Forbid as always, sandbox fixtures (no career gates on
-EVA/flags; ledger oracle inert by design - oracle section).
+`verboseLogging=true` pinned after LoadGame, analyzer Forbid as always,
+sandbox fixtures (no career gates on EVA/flags; ledger oracle inert by
+design - oracle section). Specs carry arg values RAW (`"Valentina Kerman"`,
+`"eva1 exit"`): `run.py encode_value` performs the wire percent-encoding
+and escapes `%` itself (`harness/run.py:117`), so a spec-side pre-encoded
+value ("Valentina%20Kerman") would DOUBLE-ENCODE on the wire and the verb
+would refuse it (F3). REQUIRED-TOKEN LEVEL DEPENDENCY (F8): several
+required log tokens below route through `ParsekFlight.Log`, which is
+`ParsekLog.Verbose("Flight", ...)` (`ParsekFlight.cs:26240`) - specifically
+"Mid-recording EVA detected", "Tree board merge completed", and
+"Auto-record started" are VERBOSE lines, and the `[Pipeline-Smoothing]`
+structural-snapshot lines are Verbose too; they exist in KSP.log ONLY under
+the `verboseLogging=true` pin, which is therefore load-bearing for these
+specs, not a nicety. "Tree branch created: type=EVA", "detected boarding
+from EVA", and "Flag event captured" are `ParsekLog.Info` and do not depend
+on the pin.
 
 ### EVA-1: ground EVA + flag + board (single kerbal, pad)
 
-Covers block B3 / S0.2. Fixture: `fixtures/saves/gloops-airshow` (mk1 pod,
-pad, sandbox) IF its pod is crewed - verifying that is live-prove item P1; if
-not, a sibling `eva1-pad-crewed` fixture is committed the same way (operator,
-one-time).
+Covers block B3 / S0.2. Fixture: `fixtures/saves/gloops-airshow` - already
+committed, and the repo copy confirms it fits: the active vessel is a
+single `mk1pod.v2` crewed with Jebediah Kerman, PRELAUNCH on the LaunchPad
+(`harness/fixtures/saves/gloops-airshow/persistent.sfs`). No new fixture
+needed (F11).
 
 ```toml
 [driver]
@@ -400,10 +512,10 @@ steps = [
   { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting",   args = { name = "verboseLogging", value = "true" }, expect = "OK" },
   { cmd = "StartRecording",                                             expect = "OK" },
-  { cmd = "MissionMark",  args = { label = "eva1%20exit" },             expect = "OK" },
-  { cmd = "EvaExit",      args = { release = "true" },                  expect = "OK", budget = 90 },
-  { cmd = "PlantFlag",                                                  expect = "OK", budget = 120 },
-  { cmd = "EvaBoard",                                                   expect = "OK", budget = 90 },
+  { cmd = "MissionMark",  args = { label = "eva1 exit" },               expect = "OK" },
+  { cmd = "EvaExit",      args = { release = "true" },                  expect = "OK", budget = 120 },
+  { cmd = "PlantFlag",                                                  expect = "OK", budget = 180 },
+  { cmd = "EvaBoard",                                                   expect = "OK", budget = 120 },
   { cmd = "StopRecording",                                              expect = "OK" },
   { cmd = "CommitTree",                                                 expect = "OK" },
   { cmd = "FlushAndQuit",                                               expect = "OK" },
@@ -434,15 +546,28 @@ D14 = ["kerbin", "sandbox", "scene-flight"]
 count = { min = 2, max = 4 }
 
 [expectations.logContracts]
+# "Mid-recording EVA detected" / "Tree board merge completed" /
+# "[Pipeline-Smoothing]" are VERBOSE (ParsekFlight.Log / snapshot lines) -
+# they require the verboseLogging=true pin above. The [Pipeline-Smoothing]
+# token is what makes the D2 structural-event-snapshots claim ASSERTED
+# rather than nominal (exact message pinned at implementation).
 required  = ["Recording started", "Mid-recording EVA detected",
-             "Tree branch created: type=EVA", "Flag event captured",
-             "detected boarding from EVA", "Tree board merge completed",
-             "committree committed=true"]
+             "Tree branch created: type=EVA", "[Pipeline-Smoothing]",
+             "Flag event captured", "detected boarding from EVA",
+             "Tree board merge completed", "committree committed=true"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (S0.6 pattern): 840 >= 300 LoadGame + 120 EvaExit +
+# 180 PlantFlag + 120 EvaBoard + fast verbs (SetSetting/Start/Stop/Commit/
+# MissionMark/FlushAndQuit, seconds each) + 60 margin. LoadGame is the only
+# DEFERRED_SEAM_VERB step; the EVA verbs ride their per-verb dispatch
+# budgets (120/180/120), each under the 540 cap.
+budgetSeconds = 840
 ```
 
-Runtime budget ~600 s (LoadGame 300 + verb tail + margin). Tier: daily once
-live-proven (flight-free), nightly until the operator run pins the windows.
+Tier: daily once live-proven (flight-free), nightly until the operator run
+pins the windows.
 
 ### EVA-2: orbital EVA + re-board (auto-record-on-EVA path)
 
@@ -459,6 +584,15 @@ Deliberate contrast with EVA-1: NO StartRecording; `autoRecordOnEva=true`
 (`ShouldQueueAutoRecordOnEva` -> recorder starts ON the EVA kerbal once
 active) - the `D1 auto-record-eva` cell. The kerbal stays on the ladder (no
 `release`), so no drift and no jetpack need; `EvaBoard` re-boards at ~0 m.
+The deferred auto-record is a RACE against the next command (F7):
+`HandleDeferredAutoRecordEva` starts the recorder a frame or more AFTER the
+exit settles, and a same-frame `BoardPart` could end the flight before (or
+frames after) the recorder arms, yielding a degenerate sub-2-point capture.
+EVA-2 therefore sets `settleSeconds = "10"` on `EvaExit`: the verb holds
+the FIFO head an extra 10 s after its base conjuncts, guaranteeing the
+recorder is live and has sampled before `EvaBoard` fires. The dwell is the
+mission's dwell, not the verb's default (opt-in keeps EvaExit
+Parsek-agnostic).
 
 ```toml
 steps = [
@@ -466,8 +600,8 @@ steps = [
   { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting",   args = { name = "autoRecordOnEva", value = "true" }, expect = "OK" },
   { cmd = "SetSetting",   args = { name = "verboseLogging", value = "true" }, expect = "OK" },
-  { cmd = "EvaExit",                                                     expect = "OK", budget = 90 },
-  { cmd = "EvaBoard",                                                    expect = "OK", budget = 90 },
+  { cmd = "EvaExit",      args = { settleSeconds = "10" },               expect = "OK", budget = 120 },
+  { cmd = "EvaBoard",                                                    expect = "OK", budget = 120 },
   { cmd = "StopRecording",                                               expect = "OK" },
   { cmd = "CommitTree",                                                  expect = "OK" },
   { cmd = "FlushAndQuit",                                                expect = "OK" },
@@ -476,21 +610,33 @@ steps = [
 [dimensionsCovered]
 D1  = ["auto-record-eva"]
 D5  = []            # single-kerbal auto-record tree; eva-branch claimed by EVA-1/3
-D14 = ["kerbin", "sandbox", "scene-flight", "situation"]
+# D14 "situation" deliberately NOT cited: nothing in this spec asserts the
+# orbital situation (no orbit-parameter expectation); kerbin/sandbox/
+# scene-flight are carried by the fixture + LoadGame completion.
+D14 = ["kerbin", "sandbox", "scene-flight"]
 
 [expectations.recordings]
 count = { min = 1, max = 3 }   # EVA recording certain; board chain-back pinned by P3
 
 [expectations.logContracts]
+# "Auto-record started" is VERBOSE (ParsekFlight.Log) - requires the
+# verboseLogging pin; "detected boarding from EVA" is Info.
 required  = ["Auto-record started", "detected boarding from EVA",
              "committree committed=true"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 780 >= 300 LoadGame + 120 EvaExit (incl. the 10 s dwell) + 120 EvaBoard +
+# fast verbs + 60 margin (S0.6 pattern).
+budgetSeconds = 780
 ```
 
-P4 pins the exact auto-record wording in the orbital case (the known line is
-"Auto-record started (EVA from pad)"; the orbital suffix is unverified, so
-the required token stays the stable prefix). Runtime ~600 s; daily once
-proven.
+Same-PR hlib dependency: `spec_expects_live_recording` must learn the
+`autoRecordOnEva=true` pin (F6) or this genuinely-recording run gets its
+REC marker rules suppressed. P4 pins the exact auto-record wording in the
+orbital case (the known line is "Auto-record started (EVA from pad)"; the
+orbital suffix is unverified, so the required token stays the stable
+prefix). Daily once proven.
 
 ### EVA-3: multi-kerbal sequential EVA (3-crew pod, pad)
 
@@ -513,17 +659,17 @@ steps = [
   { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting",   args = { name = "verboseLogging", value = "true" }, expect = "OK" },
   { cmd = "StartRecording",                                              expect = "OK" },
-  { cmd = "EvaExit",      args = { kerbal = "Valentina%20Kerman" },      expect = "OK", budget = 90 },
-  { cmd = "EvaBoard",                                                    expect = "OK", budget = 90 },
-  { cmd = "EvaExit",      args = { kerbal = "Bob%20Kerman" },            expect = "OK", budget = 90 },
-  { cmd = "EvaBoard",                                                    expect = "OK", budget = 90 },
+  { cmd = "EvaExit",      args = { kerbal = "Valentina Kerman" },        expect = "OK", budget = 120 },
+  { cmd = "EvaBoard",                                                    expect = "OK", budget = 120 },
+  { cmd = "EvaExit",      args = { kerbal = "Bob Kerman" },              expect = "OK", budget = 120 },
+  { cmd = "EvaBoard",                                                    expect = "OK", budget = 120 },
   { cmd = "StopRecording",                                               expect = "OK" },
   { cmd = "CommitTree",                                                  expect = "OK" },
   { cmd = "FlushAndQuit",                                                expect = "OK" },
 ]
 
 [dimensionsCovered]
-D2  = ["structural-event-snapshots"]
+D2  = ["structural-event-snapshots"]   # asserted by the [Pipeline-Smoothing] token
 D5  = ["eva-branch"]
 D14 = ["kerbin", "sandbox", "scene-flight"]
 
@@ -531,21 +677,33 @@ D14 = ["kerbin", "sandbox", "scene-flight"]
 count = { min = 3, max = 6 }   # pod + 2 EVA branches certain; chain-backs pinned by P3
 
 [expectations.logContracts]
-required  = ["Tree branch created: type=EVA", "detected boarding from EVA",
-             "Tree board merge completed", "committree committed=true"]
+# Verbose tokens (need the verboseLogging pin): "Tree board merge
+# completed", "[Pipeline-Smoothing]". Info: the rest.
+required  = ["Tree branch created: type=EVA", "[Pipeline-Smoothing]",
+             "detected boarding from EVA", "Tree board merge completed",
+             "committree committed=true"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]", "dropping recorder data"]
+
+[runtime]
+# 960 >= 300 LoadGame + 4 x 120 EVA verbs + fast verbs + 60 margin
+# (S0.6 pattern).
+budgetSeconds = 960
 ```
 
 The `dropping recorder data` forbidden token is lifted from the
 `EvaTwiceFromSameCapsule` assertion (no recorder data dropped across
-repeated branch setup). Runtime ~700 s; nightly at first, daily candidate
-after flake data.
+repeated branch setup). The kerbal args are RAW (F3); the fixture bakes the
+named crew. The second `EvaExit` is exactly the command the F2 quiescence
+conjunct protects: without it, a board-merge still in flight would leave
+`IsRecording` momentarily false and mis-route the exit through auto-record.
+Nightly at first, daily candidate after flake data.
 
 ### Coverage cells and named registry gaps
 
 Cited (all exist in `harness/coverage/registry.toml`): `D1 auto-record-eva`,
-`D2 structural-event-snapshots`, `D5 eva-branch`, `D7 flag-plant`,
-`D14 kerbin / sandbox / scene-flight / situation`.
+`D2 structural-event-snapshots` (asserted via the `[Pipeline-Smoothing]`
+required token), `D5 eva-branch`, `D7 flag-plant`,
+`D14 kerbin / sandbox / scene-flight`.
 
 Named gaps for registry growth (add in the SAME PR as the mission that first
 asserts them, per the growth rule; none is invented preemptively here):
@@ -584,16 +742,22 @@ follow-up:
    "(foreground recorder" discriminator. Follow-up: analyzer
    FlagEvents-vs-span containment + UT-sortedness (#287 contract).
 3. **Structural snapshot at the EVA UT** on the pod recording
-   (`AppendStructuralEventSnapshot`, `ParsekFlight.cs:7859/:7885`). v1:
-   Verbose snapshot lines under the pinned `verboseLogging=true` - what
-   `D2 structural-event-snapshots` is claimed on.
+   (`AppendStructuralEventSnapshot`, `ParsekFlight.cs:7859/:7885`). v1: the
+   `[Pipeline-Smoothing]` Verbose snapshot token is a REQUIRED logContract
+   line in EVA-1/EVA-3 (exact message pinned at implementation), which is
+   what makes the `D2 structural-event-snapshots` claim asserted; it exists
+   only under the `verboseLogging=true` pin (F8).
 4. **Crew conservation.** Everyone re-boarded means pod `EndCrew` trait
    counts equal `StartCrew`, and the EVA recording's `StartCrew` is exactly
    one kerbal. v1: the Verbose "captured N start crew trait(s)" lines
    (`FlightRecorder.cs:6535/:6575`) - weak but real. Follow-up: the
    `D12 crew-manifest` analyzer invariant named above.
 5. **Recording-rules pairing.** Live recording declared, so the REC marker
-   rules stay UNSUPPRESSED (S0.5/S0.6 precedent).
+   rules stay UNSUPPRESSED (S0.5/S0.6 precedent). For EVA-2 this REQUIRES
+   the same-PR hlib change (F6): `spec_expects_live_recording` today keys
+   only on `StartRecording` / `autoRecordOnLaunch=true`, so without the
+   `autoRecordOnEva=true` clause EVA-2's REC rules would be suppressed on a
+   genuinely-recording run and this invariant would be silently false.
 6. **No error floor.** Forbidden `[Parsek][ERROR]` plus (EVA-3) `dropping
    recorder data`: a branch handoff that loses recorder data reds.
 7. **Analyzer Forbid pass.** RED=0 over every produced sidecar - the EVA
@@ -612,8 +776,9 @@ All v1. Scenario -> expected behavior:
    aboard -> `kerbal-not-aboard`; part without airlock -> `no-airlock`.
 2. **EvaExit refused by stock** (hatch obstructed - including a kerbal
    hanging on it from a mis-sequenced simultaneous attempt - fairing, mod
-   veto) -> null return -> `ERROR msg=eva-refused`; stock's reason line is
-   in KSP.log. The sequential mission shapes never hit the obstruction.
+   veto) -> null return -> `REJECTED msg=eva-refused` (no side effect ran,
+   so it rides the REJECTED family, F10); stock's reason line is in
+   KSP.log. The sequential mission shapes never hit the obstruction.
 3. **EvaExit while a Parsek split is pending** -> Defer `split-pending`,
    preventing the `OnCrewOnEva` skip path (`ParsekFlight.cs:7844`) from
    silently swallowing the branch.
@@ -623,29 +788,42 @@ All v1. Scenario -> expected behavior:
    the FSM event (logged `release=noop`); completion proceeds.
 6. **PlantFlag, active vessel not EVA** -> Defer `not-eva` (auto-switch
    settling), then TIMEOUT if mis-sequenced; never wedges.
-7. **PlantFlag gate closed** (no ground contact / zero flags / ragdoll /
-   AC lock) -> `REJECTED msg=cannot-plant-flag`, checked BEFORE the stock
-   call so no flag item leaks (stock decrements first).
-8. **Plant FSM stalls** (heading acquire, ragdoll mid-animation) -> no
-   dialog -> `ERROR msg=flag-timeout`; the flag item is lost (stock behaves
-   identically on an interrupted plant).
-9. **SiteRename answered externally mid-run** -> flag vessel exists, popup
-   gone without the applier's invoke -> treated as answered (logged
-   `dialog-answered-externally`); unreachable unattended.
-10. **EvaBoard target full** -> pre-refused `target-full`; a capacity race
+7. **PlantFlag gate transiently closed** (kerbal mid-fall after the
+   release, stumble, ragdoll recovery) -> the F1 bounded wait: PENDING,
+   gate re-polled every frame, plant fires on the open transition. This is
+   the EVA-1 common case, NOT an error; consistent with risk R-D (the same
+   wait absorbs a bouncing landing).
+8. **PlantFlag gate stably closed** -> `REJECTED msg=not-eva` /
+   `flag-lock-stable` (AC flag lock, read directly) refuse instantly; a
+   zero-flag-items kerbal is indistinguishable headless and exhausts the
+   bounded wait -> `ERROR msg=flag-gate-timeout` carrying the last gate
+   state. No flag item ever leaks (the stock call fires only on an open
+   gate).
+9. **Plant FSM stalls after the plant fired** (heading acquire, ragdoll
+   mid-animation) -> no dialog -> `ERROR msg=flag-timeout`; the flag item
+   is lost (stock behaves identically on an interrupted plant).
+10. **SiteRename answered externally mid-run** -> flag vessel exists, popup
+    gone without the applier's invoke -> treated as answered (logged
+    `dialog-answered-externally`); unreachable unattended.
+11. **EvaBoard target full** -> pre-refused `target-full`; a capacity race
     surfaces as stock's silent refusal -> crew unchanged ->
     `ERROR msg=board-timeout`, never a false OK.
-11. **EvaBoard too far** -> `REJECTED msg=not-near-target` (10 m bound; no
+12. **EvaBoard too far** -> `REJECTED msg=not-near-target` (10 m bound; no
     move verb exists in v1).
-12. **EvaBoard with science data aboard** -> stock may prompt; v1 fixtures
+13. **EvaBoard crew-aboard but merge still in flight** (the F2 window:
+    crew moved, EVA vessel gone, but `OnVesselSwitchComplete` /
+    `HandleTreeBoardMerge` have not run) -> the targetIsActiveVessel +
+    board-merge-quiescence conjuncts hold `StillWaiting`; the next FIFO
+    command can never land inside the merge window.
+14. **EvaBoard with science data aboard** -> stock may prompt; v1 fixtures
     are science-free so unreachable; a data-carrying fixture would surface
     it as `board-timeout` (prompt-answering deferred).
-13. **Kerbal dies** (fall from a bad fixture) -> `ERROR board-timeout`; the
+15. **Kerbal dies** (fall from a bad fixture) -> `ERROR board-timeout`; the
     death is in the save for the verifier chain; the fixture hatch-height
     requirement (P5) exists for this. Driver-INVALID (fixture fault).
-14. **Crash mid-verb** -> no terminal response -> M-A5 watchdog -> KILLED,
+16. **Crash mid-verb** -> no terminal response -> M-A5 watchdog -> KILLED,
     terminal, never re-driven; at-most-once on the WAL CLAIMED gate alone.
-15. **Pre-M-C2 addon receives the verbs** -> `REJECTED msg=unknown-command`
+17. **Pre-M-C2 addon receives the verbs** -> `REJECTED msg=unknown-command`
     (never-reserved names); capability probing as with `SaveGame`.
 
 ## What Doesn't Change
@@ -660,8 +838,10 @@ All v1. Scenario -> expected behavior:
   plant-flag click uses, so a seam-driven EVA is byte-identical to a
   hand-driven one for every Parsek observer.
 - No new Harmony patches, guard bypasses, or GameEvents subscriptions; the
-  only source touch outside `TestCommands/` is the internal read-only
-  pending-split accessor for `DispatchState.StructuralSplitPending`.
+  only source touches outside `TestCommands/` are TWO internal read-only
+  accessors on `ParsekFlight`: the pending-split bit
+  (`DispatchState.StructuralSplitPending`) and the board-merge-quiescence
+  bit (`ChainToVesselPending` / `pendingBoardingTargetPid`, F2).
 - `ParsekFlight`'s EVA / board / flag handlers are unchanged; the M-A2
   pump, journal, budgets, and two-phase machinery are reused unchanged.
 
@@ -684,12 +864,15 @@ shows both layers. Per verb: Info start line with args
 ("evaexit start kerbal=<name> fromPid=<pid> release=<bool>", "plantflag
 start kerbal=<name>", "evaboard start kerbal=<name> targetPid=<pid>
 dist=<m>"), Info progress lines ("evaexit release applied" /
-"release=noop", "plantflag dialog answered site=<name>"), Info complete
-line with the OK payload, Warn refused line with the typed reason, Error
-failed line with the timeout reason and elapsed seconds. Dispatch decisions
-reuse the M-A2 lines, so `split-pending` / `not-eva` /
-`flighteva-not-ready` appear in the standard "dispatch id=<id> -> DEFER
-reason=<...>" shape.
+"release=noop", rate-limited "plantflag gate wait" while the F1 bounded
+wait polls, "plantflag gate open - planting", "plantflag dialog answered
+site=<name>"), Info complete line with the OK payload, Warn refused line
+with the typed reason (`not-eva`, `flag-lock-stable`, `eva-refused`, the
+board refusals), Error failed line with the timeout reason
+(`eva-exit-timeout` / `flag-gate-timeout` / `flag-timeout` /
+`board-timeout`) and elapsed seconds. Dispatch decisions reuse the M-A2
+lines, so `split-pending` / `not-eva` / `flighteva-not-ready` appear in the
+standard "dispatch id=<id> -> DEFER reason=<...>" shape.
 
 ## Test Plan
 
@@ -698,7 +881,7 @@ PENDING-OPERATOR runbook (an agent cannot pilot KSP).
 
 Pure unit tests (each names the regression it catches):
 
-- **Verb-table move.** Implemented for the three names; counts 21/11. Fails
+- **Verb-table move.** Implemented for the three names; counts 18/11. Fails
   if a name is mis-bucketed.
 - **Dispatch rows.** EvaExit outside FLIGHT / split-pending -> Defer;
   PlantFlag / EvaBoard with !ActiveVesselIsEva -> Defer(not-eva); ready ->
@@ -706,13 +889,24 @@ Pure unit tests (each names the regression it catches):
 - **ResolveKerbalArg.** Default-first-crew; exact match; unknown errors.
   Fails if a typo silently EVAs the wrong kerbal.
 - **DecideEvaExitCompletion.** Every conjunct gates (missing / not active /
-  unsettled / release pending -> StillWaiting); budget -> ExitTimeout. Fails
-  if the head advances before the auto-switch.
+  unsettled / release pending / settle dwell remaining -> StillWaiting);
+  budget -> ExitTimeout. Fails if the head advances before the auto-switch
+  or before the F7 dwell has elapsed.
+- **DecidePlantGateWait (F1).** Gate closed + not stably locked ->
+  KeepWaiting (NEVER a terminal reject: the mid-fall regression); gate open
+  -> ProceedToPlant exactly once; stableLockClosed -> RejectStableLock;
+  budget expiry gate-never-open -> GateTimeout. Fails if a transiently
+  closed gate terminally rejects (the EVA-1 near-deterministic failure) or
+  a stably locked plant waits the full budget pointlessly.
 - **DecideFlagPlantCompletion.** dialogAnswered=false never CompleteOk even
   with the flag vessel present (the false-OK-over-unanswered-dialog guard).
-- **IsWithinBoardRange + DecideBoardCompletion.** Inclusive bound; crew
-  unchanged -> never CompleteOk (silent-stock-refusal guard); EVA vessel
-  gone but crew absent -> never OK (a lost kerbal is never reported boarded).
+- **IsWithinBoardRange + DecideBoardCompletion (F2).** Inclusive bound;
+  crew unchanged -> never CompleteOk (silent-stock-refusal guard); EVA
+  vessel gone but crew absent -> never OK (a lost kerbal is never reported
+  boarded); crew aboard but target NOT active vessel -> StillWaiting; crew
+  aboard + active but board-merge NOT quiescent -> StillWaiting. Fails if
+  the head advances inside the board-merge window (the StopRecording /
+  second-EvaExit mis-route regressions).
 - **Journal at-most-once.** Each verb id at CLAIMED -> Interrupted; DONE ->
   skip. Fails if a crash mid-EVA re-fires a spawn.
 - **Response formatter stability + budget rows.** Payload keys
@@ -727,9 +921,11 @@ In-game tests (live KSP; PENDING-OPERATOR for the full sequences):
   pad pod drives the full EVA-1 verb tail; assert OK payloads, branch line,
   flag capture line, board merge line. Reuses the existing runtime-test
   helpers (`WaitForEvaBranchCount`, hatch-obstruction guard).
-- `PlantFlag` with the gate closed returns `cannot-plant-flag` and does NOT
-  decrement flag items; `EvaBoard` against a full pod returns `target-full`
-  without invoking `BoardPart`.
+- `PlantFlag` issued while the kerbal still hangs on the ladder holds
+  PENDING (bounded gate wait), fires the plant after a release lands the
+  kerbal, and never decrements a flag item while the gate is closed;
+  `EvaBoard` against a full pod returns `target-full` without invoking
+  `BoardPart`.
 - With `PARSEK_TEST_COMMANDS` unset the three verbs are unreachable (inert
   default, M-A2 gate test extended).
 
@@ -747,13 +943,17 @@ Risks / unknowns:
   recordings yes/no and pod sub-2-point survival are pinned by the first
   live runs (B2 WATCH-4 precedent: window over guess).
 - **R-D: ladder-release ground contact.** A bouncing/ragdolled landing
-  defers the plant gate; the gate-closed refusal plus budget make this a
-  timeout, not a wedge; low-hatch fixtures minimize it.
+  keeps the plant gate closed for a while; the F1 bounded-wait gate ABSORBS
+  it (KeepWaiting until the kerbal settles), so the failure mode is only a
+  `flag-gate-timeout` on a landing that never stabilizes within 180 s;
+  low-hatch fixtures minimize it. (Consistent with edge case 7 by
+  construction: both describe the same wait.)
 
 Live-prove list (operator, one KSP session, in order):
 
-- P1: verify the `gloops-airshow` pod is CREWED; if not, commit
-  `eva1-pad-crewed` (bare crewed mk1 pod, pad, sandbox).
+- P1: load-and-focus sanity check of `gloops-airshow` only - the repo copy
+  already answers the crewing question (mk1pod.v2, crew = Jebediah Kerman,
+  PRELAUNCH on LaunchPad, F11); no new EVA-1 fixture expected.
 - P2: commit `eva2-lko-crewed` (crewed pod, ~80 km LKO, sandbox) and
   `eva3-pad-3crew` (bare Mk1-3 pod, 3 named crew, pad, sandbox).
 - P3: first live EVA-1/2/3 runs pin the recordings-count windows and
@@ -765,11 +965,13 @@ Live-prove list (operator, one KSP session, in order):
   `afterFlagPlanted` and Parsek's capture line appears (the dialog-answer
   mechanism's one live proof, mirroring the AnswerMergeDialog proof).
 
-Estimated budgets: EVA-1 ~600 s, EVA-2 ~600 s, EVA-3 ~700 s runtime; all
-flight-free, daily-tier cost class once proven. Implementation cost: three
-pure decider files + three executor bodies + dispatch rows + hlib mirror +
-three scenario specs + fixtures; no analyzer work in this batch (the two
-analyzer invariants are named follow-ups).
+Estimated budgets: EVA-1 840 s, EVA-2 780 s, EVA-3 960 s runtime (per the
+in-spec S0.6-pattern arithmetic); all flight-free, daily-tier cost class
+once proven. Implementation cost: three pure decider files + three executor
+bodies + dispatch rows + the hlib companions (verb move, budget dict rows,
+`spec_expects_live_recording` clause) + three scenario specs + one new
+fixture pair; no analyzer work in this batch (the two analyzer invariants
+are named follow-ups).
 
 ## Deferred Items and Open Questions
 
