@@ -1,8 +1,9 @@
 # Design: Live Observability of Running Test Flights
 
-Status: Phase 1 SHIPPED (supervisor-side, new files only); Phase 2 PLANNED
-(mission-side instrumentation, gated on the review-fixes branch landing --
-do NOT touch `mission_runner.py` / `mlib.py` until the base is ready).
+Status: Phase 1 SHIPPED (supervisor-side, branch `live-observability`);
+Phase 2 SHIPPED (mission-side instrumentation, branch `live-observability-p2`
+off the post-review-fixes base) -- see "Phase 2 as implemented" below for the
+exact landed log-line shapes.
 
 Operator-requested. Problem statement: when the operator watches the game and
 reports a symptom ("warp oscillating", "stuck at 1x", "flight results dialog
@@ -228,6 +229,64 @@ sparse events):
 5. Docs: this file (flip Phase 2 to SHIPPED), harness/README.md
    observability section (status-file bullet becomes unconditional),
    CHANGELOG if the wave is user-facing.
+
+## Phase 2 as implemented (2026-07-22, branch live-observability-p2)
+
+Landed exactly per the plan above, with the post-review-fixes machine state
+folded in (`B5State.plan_attempts`, `B5State.body_blank_count`, and the
+`classify_correction_plan` pure decider). Grep surface:
+
+- **MACHINE-STATE line** (2a, `[Mission][VerboseRateLimited][<PHASE>]`,
+  ~5 s cadence): `machine phase=... entryUt=... rounds=... planAttempts=...
+  bodyBlank=... corrBurnStarted=... alignedStreak=... minNodeDv=...
+  warpCmd=... physWarpCmd=... warpToCmd=... lastWarpIssueUt=...
+  plannedNodes=... lastPlanUt=... frozenCount=... burnStaticAge=...`.
+  Absent fields (B1/B2/B4 states) render `-`; `burnStaticAge` is derived
+  (`ut - burn_static_since`, `none` while not static). Emitters:
+  `mlib.MACHINE_STATE_FIELDS` + `mlib.format_machine_state`, called from
+  `_fly_loop_body` at `MACHINE_STATE_INTERVAL_SECONDS = 5.0`.
+- **Telemetry `ut=` token** (2a): the existing telemetry line now ends in
+  `... apErr=<v> ut=<v>`; status.py prefers it for exact game
+  time-in-phase (tts drift remains the fallback for pre-Phase-2 logs).
+- **GATE-EVIDENCE lines** (2b, `[Mission][Info][<PHASE>]`): `gate <key>
+  <old>-><new> | ut=... alt=... nodeDv=... apErr=... thr=... warp=<mode>x<rate>`
+  -- one line per `mlib.MACHINE_DIFF_FIELDS` change per frame (rounds,
+  planAttempts, bodyBlank, corrBurnStarted, alignedStreak, warpCmd,
+  physWarpCmd, warpToCmd, plannedNodes; stamps + min_node_dv + frozen_count
+  deliberately excluded as per-frame-noisy). Pure differ:
+  `mlib.diff_machine_state` (NaN==NaN suppressed). The previously-silent
+  ACCEPTED plan disposition now logs too:
+  `[Mission][Info][Plan] course-correction dv X m/s classified fly (cap Y,
+  floor Z); plan accepted`.
+- **EVENT-WINDOW dumps** (2c, `[Mission][Verbose][<PHASE>]`): header
+  `window dump reason=<phase-transition|gate-flip|vessel-lost|terminal-...|
+  warp-flake|wall-budget-flake> frames=N (oldest first)` then
+  `window[01/N] ut=... alt=... ap=... pe=... body=... nodes=... nodeDv=...
+  thr=... apErr=... warp=...x... sit=...[ LOST]` per frame
+  (`mlib.format_snapshot_compact`, `RING_BUFFER_FRAMES = 20` = ~10 s at the
+  0.5 s poll). One dump per trigger frame, most significant reason wins.
+- **LIVE STATUS FILE** (2d): `results/<runId>_status.json` (path via
+  `mission_runner.status_path_for`), rewritten atomically (tmp +
+  `os.replace`) at most every `STATUS_WRITE_INTERVAL_SECONDS = 2.0` by
+  `mission_runner.StatusFileWriter.maybe_write` (builder skipped
+  off-cadence; EVERY exception swallowed; `writes`/`failures` counters for
+  tests). Payload: `{schema:1, mission, rpcPort, wallWritten, phase,
+  phasesReached, verdict?, machine:{...}, snapshot:{...}, events:[last 10
+  Info/Warn/Error lines via a logger-sink tee]}` with all non-finite floats
+  as null (`mlib.machine_state_dict` / `mlib.snapshot_dict`). Production
+  runs create it automatically in `run_mission` (only when the real
+  filesystem result writer is in use, so writer-injected tests stay
+  hermetic); status.py prefers a fresh one with no changes -- verified by
+  `lib/test_status.py::StatusFilePreferredPathTests` feeding a synthetic
+  status.json through the CLI's preferred path.
+- **Tests**: `missions/lib/test_observability.py` (19 tests: formatters,
+  differ, JSON safety, path derivation, writer cadence/atomicity/swallow,
+  and a fake B1 flight asserting the whole surface end-to-end) +
+  3 status-file tests + 1 ut-token estimator test in `lib/test_status.py`.
+- **Cost, as landed**: machine line 1/5 s; gate lines bounded by actual
+  latch flips; dumps 20 Verbose lines per sparse trigger; status file one
+  ~2 KB write / 2 s outside the log. Within the ~2x mission-log estimate;
+  live confirmation on the next operator flight is the watch item.
 
 ## Non-goals
 

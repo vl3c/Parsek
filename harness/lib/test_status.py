@@ -9,9 +9,12 @@ discovery root: ``python -m unittest discover -s lib -q``.
 ASCII only; stdlib only.
 """
 
+import json
 import math
 import os
 import sys
+import tempfile
+import time
 import unittest
 
 _HARNESS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -204,6 +207,18 @@ class ElapsedGameEstimateTests(unittest.TestCase):
         summary = status.summarize_mission_lines(lines)
         self.assertIsNone(status.estimate_phase_elapsed_game(summary))
 
+    def test_phase2_ut_token_is_exact_and_preferred(self):
+        """Phase-2 telemetry lines end in ut=; the estimator uses entry-ut ->
+        last-ut directly and ignores the (here contradictory) tts drift."""
+        lines = [
+            "[Mission][Info][X] phase A -> X ut=1000.0 alt=1 ap=1 vsurf=1",
+            _telem(tts=500.0) + " ut=1010.0",
+            _telem(tts=499.0) + " ut=1042.0",
+        ]
+        summary = status.summarize_mission_lines(lines)
+        self.assertAlmostEqual(
+            status.estimate_phase_elapsed_game(summary), 42.0)
+
 
 class BudgetMappingTests(unittest.TestCase):
     PARAMS = {"planTimeoutSeconds": 300, "coastTimeoutSeconds": 400000,
@@ -338,6 +353,69 @@ class FormatterTests(unittest.TestCase):
         self.assertEqual(len(rendered), len(status.TELEMETRY_FIELD_LABELS))
         self.assertTrue(any("6207.6 km" in r for r in rendered))
         self.assertTrue(any("NONE x1" in r for r in rendered))
+
+
+class StatusFilePreferredPathTests(unittest.TestCase):
+    """Phase 2 contract check (design-live-observability 2d): a fresh
+    results/<runId>_status.json written by the mission's StatusFileWriter is
+    picked up by the panel with NO status.py changes -- the machine block
+    renders verbatim; a stale one falls back to log parsing."""
+
+    RUN_ID = "2026-07-22_1400_B5-mun-flyby"
+
+    def _payload(self):
+        return {"schema": 1, "mission": "b5_mun_flyby", "rpcPort": 50000,
+                "phase": "PLAN-CORRECTION",
+                "phasesReached": ["PRELAUNCH", "PLAN-CORRECTION"],
+                "machine": {"phase": "PLAN-CORRECTION", "rounds": 1,
+                            "planAttempts": 3, "bodyBlank": 0,
+                            "corrBurnStarted": False, "alignedStreak": 0,
+                            "minNodeDv": None, "warpCmd": 0,
+                            "warpToCmd": None, "plannedNodes": 0,
+                            "burnStaticAge": None},
+                "snapshot": {"ut": 7400.0, "body": "Kerbin"},
+                "events": ["[Mission][Warn][Plan] course-correction dv "
+                           "172.9 m/s exceeds cap 150.0; plan removed"],
+                "wallWritten": time.time()}
+
+    def _write_run(self, tmp, stale=False):
+        log_path = os.path.join(tmp, self.RUN_ID + "_mission.stdout.log")
+        with open(log_path, "w", encoding="ascii") as fh:
+            fh.write("[Mission][Info][Spawn] mission start name=b5_mun_flyby "
+                     "rpc=127.0.0.1:50000 stream=50001 budget=2400.000s "
+                     "result=r.json\n")
+        status_path = os.path.join(tmp, self.RUN_ID + "_status.json")
+        with open(status_path, "w", encoding="ascii") as fh:
+            fh.write(json.dumps(self._payload()))
+        if stale:
+            old = time.time() - 300
+            os.utime(status_path, (old, old))
+        return status_path
+
+    def test_fresh_status_file_renders_machine_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write_run(tmp)
+            panel = status.render_panel(self.RUN_ID, tmp, tmp)
+            self.assertIn("LIVE STATUS FILE", panel)
+            self.assertIn("planAttempts:", panel)
+            self.assertIn("corrBurnStarted:", panel)
+
+    def test_stale_status_file_falls_back_to_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write_run(tmp, stale=True)
+            panel = status.render_panel(self.RUN_ID, tmp, tmp)
+            self.assertNotIn("LIVE STATUS FILE", panel)
+
+    def test_read_status_file_freshness_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write_run(tmp)
+            now = time.time()
+            data = status.read_status_file(tmp, self.RUN_ID, now=now)
+            self.assertIsNotNone(data)
+            self.assertEqual(data["machine"]["planAttempts"], 3)
+            self.assertIsNone(status.read_status_file(
+                tmp, self.RUN_ID,
+                now=now + status.STATUS_FILE_FRESH_SECONDS + 1))
 
 
 if __name__ == "__main__":

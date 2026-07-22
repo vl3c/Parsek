@@ -90,6 +90,7 @@ EVENT_TAGS = ("Plan", "Point", "Throttle", "Warp", "Telemetry", "Verdict",
               "Assert", "Budget")
 
 TELEMETRY_FIELD_LABELS = (
+    ("ut", "game time (UT)", "s"),
     ("ap", "apoapsis", "m"),
     ("pe", "periapsis", "m"),
     ("ecc", "eccentricity", ""),
@@ -110,7 +111,8 @@ TELEMETRY_FIELD_LABELS = (
 )
 
 _NUMERIC_TELEMETRY_KEYS = ("ap", "pe", "ecc", "inc", "alt", "vspd", "nodeDv",
-                           "nodeUt", "tts", "warpTo", "lf", "thr", "apErr")
+                           "nodeUt", "tts", "warpTo", "lf", "thr", "apErr",
+                           "ut")  # trailing ut= token (Phase 2); NaN on old logs
 
 
 def parse_float(text) -> float:
@@ -323,15 +325,26 @@ def build_phase_rows(summary: Dict) -> List[Dict]:
 
 
 def estimate_phase_elapsed_game(summary: Dict) -> Optional[float]:
-    """Estimate GAME seconds spent in the CURRENT phase. The telemetry line
-    carries no ut, so use the time-to-SOI-change drift (tts decreases 1:1
-    with UT while finite): elapsed ~= tts(first sample in phase) - tts(last).
-    None when tts is unusable (non-finite or non-monotonic, e.g. across an
-    SOI transition or a re-plan that moved the encounter)."""
+    """Estimate GAME seconds spent in the CURRENT phase. Phase-2 logs carry a
+    trailing ut= token on the telemetry line: elapsed = ut(last sample) -
+    entry ut (exact). Phase-1 logs lack it, so fall back to the
+    time-to-SOI-change drift (tts decreases 1:1 with UT while finite):
+    elapsed ~= tts(first sample in phase) - tts(last). None when neither is
+    usable (non-finite, or tts non-monotonic across an SOI transition /
+    re-plan that moved the encounter)."""
     transitions = summary["transitions"]
     telemetry = summary["telemetry"]
     entry_index = transitions[-1]["index"] if transitions else -1
     in_phase = [t for i, t in telemetry if i > entry_index]
+    if not in_phase:
+        return None
+    last_ut = next((t.get("ut") for t in reversed(in_phase)
+                    if is_finite(t.get("ut"))), None)
+    entry_ut = transitions[-1]["ut"] if transitions else None
+    if last_ut is not None and entry_ut is not None and is_finite(entry_ut):
+        elapsed = last_ut - entry_ut
+        if elapsed >= 0.0:
+            return elapsed
     if len(in_phase) < 2:
         return None
     first_tts = next((t["tts"] for t in in_phase if is_finite(t["tts"])), None)

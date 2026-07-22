@@ -3013,3 +3013,189 @@ def format_mission_log_line(level: str, phase: str, message: str) -> str:
     Diagnostic Logging). ``level`` / ``phase`` pass through so a caller typo is
     visible, not swallowed."""
     return "[Mission][%s][%s] %s" % (level, phase, message)
+
+
+# ---------------------------------------------------------------------------
+# Live observability helpers (design docs/dev/design-live-observability.md
+# Phase 2). Pure: format/diff DECISION state so the fly loop can log it
+# verbatim and the supervisor-side status CLI can read it without inference.
+# All output is ASCII key=value tokens, decodable by status.py's generic
+# parse_kv_tokens.
+# ---------------------------------------------------------------------------
+
+# (state attribute, log/JSON key) pairs for the machine-state line + status
+# file. getattr-with-default keeps this generic over B1/B2/B4/B5 states:
+# absent fields render as "-" (line) / are omitted (dict). burn_static_since
+# is deliberately NOT here raw; it is rendered as the derived burnStaticAge
+# (the AGE is the diagnostic quantity; the raw UT stamp is meaningless
+# without the current UT).
+MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
+    ("phase", "phase"),
+    ("phase_entry_ut", "entryUt"),
+    ("correction_rounds_done", "rounds"),
+    ("plan_attempts", "planAttempts"),
+    ("body_blank_count", "bodyBlank"),
+    ("corr_burn_started", "corrBurnStarted"),
+    ("aligned_streak", "alignedStreak"),
+    ("min_node_dv", "minNodeDv"),
+    ("warp_cmd", "warpCmd"),
+    ("phys_warp_cmd", "physWarpCmd"),
+    ("warp_to_cmd", "warpToCmd"),
+    ("last_warp_issue_ut", "lastWarpIssueUt"),
+    ("planned_node_count", "plannedNodes"),
+    ("last_plan_ut", "lastPlanUt"),
+    ("frozen_count", "frozenCount"),
+)
+
+# Fields whose CHANGE is a sparse, decision-relevant gate/latch event worth
+# one loud Info line (design 2b). Excluded as per-frame-noisy: phase (the
+# transition line already logs it), phase_entry_ut / last_plan_ut /
+# last_warp_issue_ut (stamps), min_node_dv (tracks every burn frame),
+# frozen_count (the vessel-lost terminal is loud on its own). Included
+# despite being counters: plan_attempts (one line per ~30 s re-plan cadence),
+# aligned_streak (bounded by the debounce depth), body_blank_count (every
+# blank-body frame IS an anomaly and the count is capped by
+# frozen_sample_limit).
+MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
+    ("correction_rounds_done", "rounds"),
+    ("plan_attempts", "planAttempts"),
+    ("body_blank_count", "bodyBlank"),
+    ("corr_burn_started", "corrBurnStarted"),
+    ("aligned_streak", "alignedStreak"),
+    ("warp_cmd", "warpCmd"),
+    ("phys_warp_cmd", "physWarpCmd"),
+    ("warp_to_cmd", "warpToCmd"),
+    ("planned_node_count", "plannedNodes"),
+)
+
+_MACHINE_FIELD_ABSENT = object()
+
+
+def _obs_fmt(value) -> str:
+    """Observability value formatting: None -> 'none', absent -> '-', floats
+    3dp / 'nan', bools as True/False, everything else str."""
+    if value is _MACHINE_FIELD_ABSENT:
+        return "-"
+    if value is None:
+        return "none"
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return "nan"
+        return "%.3f" % value
+    return str(value)
+
+
+def _json_safe(value):
+    """JSON-safe scalar: non-finite floats -> None (strict-parser friendly;
+    json.dumps would otherwise emit bare NaN)."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def machine_state_dict(state, ut: float = float("nan")) -> Dict:
+    """The machine's decision state as a JSON-safe {key: value} dict (the
+    status-file ``machine`` block, design 2d). Fields the state object lacks
+    are omitted; ``burnStaticAge`` is derived from ``burn_static_since`` and
+    the current ``ut`` (None while not static or unknown)."""
+    out: Dict = {}
+    for attr, key in MACHINE_STATE_FIELDS:
+        value = getattr(state, attr, _MACHINE_FIELD_ABSENT)
+        if value is _MACHINE_FIELD_ABSENT:
+            continue
+        out[key] = _json_safe(value)
+    since = getattr(state, "burn_static_since", None)
+    if _is_finite(since) and _is_finite(ut):
+        out["burnStaticAge"] = _json_safe(float(ut) - float(since))
+    elif hasattr(state, "burn_static_since"):
+        out["burnStaticAge"] = None
+    return out
+
+
+def format_machine_state(state, ut: float = float("nan")) -> str:
+    """One rate-limited MACHINE-STATE log message (design 2a): the decision
+    state verbatim, ``machine phase=... rounds=... planAttempts=...``. Works
+    for any B-state via getattr (absent fields render '-'), so the fly loop
+    emits it unconditionally."""
+    parts = ["machine"]
+    for attr, key in MACHINE_STATE_FIELDS:
+        parts.append("%s=%s" % (key, _obs_fmt(getattr(state, attr,
+                                                      _MACHINE_FIELD_ABSENT))))
+    since = getattr(state, "burn_static_since", _MACHINE_FIELD_ABSENT)
+    if since is _MACHINE_FIELD_ABSENT:
+        age = _MACHINE_FIELD_ABSENT
+    elif _is_finite(since) and _is_finite(ut):
+        age = float(ut) - float(since)
+    else:
+        age = None
+    parts.append("burnStaticAge=%s" % _obs_fmt(age))
+    return " ".join(parts)
+
+
+def diff_machine_state(prev, new) -> List[str]:
+    """Sparse gate/latch flips between two machine states (design 2b): one
+    ``key old->new`` string per MACHINE_DIFF_FIELDS change. Pure; the fly
+    loop wraps each entry in a loud Info 'gate ...' line with the snapshot
+    values that decided it. States lacking a field on BOTH sides contribute
+    nothing; a field present on one side only is a change ('-' side)."""
+    changes: List[str] = []
+    for attr, key in MACHINE_DIFF_FIELDS:
+        old = getattr(prev, attr, _MACHINE_FIELD_ABSENT)
+        cur = getattr(new, attr, _MACHINE_FIELD_ABSENT)
+        if old is _MACHINE_FIELD_ABSENT and cur is _MACHINE_FIELD_ABSENT:
+            continue
+        if _values_equal(old, cur):
+            continue
+        changes.append("%s %s->%s" % (key, _obs_fmt(old), _obs_fmt(cur)))
+    return changes
+
+
+def _values_equal(a, b) -> bool:
+    """Equality that treats NaN == NaN (a NaN->NaN 'change' would spam)."""
+    if isinstance(a, float) and isinstance(b, float):
+        if math.isnan(a) and math.isnan(b):
+            return True
+    return a == b
+
+
+def snapshot_dict(snapshot: TelemetrySnapshot) -> Dict:
+    """The latest telemetry snapshot as a JSON-safe dict (the status-file
+    ``snapshot`` block, design 2d). Non-finite floats -> None."""
+    return {
+        "ut": _json_safe(snapshot.ut),
+        "altitude": _json_safe(snapshot.altitude),
+        "verticalSpeed": _json_safe(snapshot.vertical_speed),
+        "apoapsis": _json_safe(snapshot.apoapsis),
+        "periapsis": _json_safe(snapshot.periapsis),
+        "eccentricity": _json_safe(snapshot.eccentricity),
+        "inclination": _json_safe(snapshot.inclination),
+        "situation": snapshot.situation,
+        "body": snapshot.body,
+        "nodeCount": snapshot.node_count,
+        "nodeDv": _json_safe(snapshot.node_dv),
+        "nodeUt": _json_safe(snapshot.node_ut),
+        "timeToSoi": _json_safe(snapshot.time_to_soi),
+        "warpingTo": _json_safe(snapshot.warping_to),
+        "liquidFuel": _json_safe(snapshot.liquid_fuel),
+        "throttle": _json_safe(snapshot.throttle),
+        "warpMode": snapshot.warp_mode,
+        "warpRate": _json_safe(snapshot.warp_rate),
+        "apError": _json_safe(snapshot.ap_error),
+        "vesselLost": snapshot.vessel_lost,
+    }
+
+
+def format_snapshot_compact(snapshot: TelemetrySnapshot) -> str:
+    """One-line-per-frame compact snapshot form for the event-window ring
+    buffer (design 2c): the fields the machines gate on, ~100 chars."""
+    return ("ut=%s alt=%s ap=%s pe=%s body=%s nodes=%d nodeDv=%s thr=%s "
+            "apErr=%s warp=%sx%s sit=%s%s"
+            % (_obs_fmt(snapshot.ut), _obs_fmt(snapshot.altitude),
+               _obs_fmt(snapshot.apoapsis), _obs_fmt(snapshot.periapsis),
+               snapshot.body or "?", snapshot.node_count,
+               _obs_fmt(snapshot.node_dv), _obs_fmt(snapshot.throttle),
+               _obs_fmt(snapshot.ap_error), snapshot.warp_mode,
+               _obs_fmt(snapshot.warp_rate), snapshot.situation or "?",
+               " LOST" if snapshot.vessel_lost else ""))
