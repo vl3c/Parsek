@@ -1,8 +1,9 @@
 schema = 1
 id = "B6-minmus-flyby"
-# nightly: same fixture and machine as B5, different target body. NOT YET
-# LIVE-PROVEN: budgets below are estimates pending the first live flight
-# (fly AFTER B5 passes; every B5 live finding transfers here).
+# nightly: same fixture and machine as B5, different target body.
+# LIVE-PROVEN 2026-07-22: PASS (flakedThenPassed) - Minmus SOI entered, 512 km
+# flyby, free-return into Kerbin SOI, wall 1167 s; the non-blocking rails-warp
+# rework validated live end to end (held 1000x coast, single factor changes).
 tier = "nightly"
 description = "Minmus flyby / free-return: MechJeb ascent to LKO, ManeuverPlanner Hohmann transfer to Minmus, autowarped burn, dv-capped course-correction, cross-SOI coast, Minmus flyby, return into Kerbin SOI."
 instanceProfile = "stock-minimal"
