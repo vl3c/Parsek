@@ -2,10 +2,11 @@ schema = 1
 id = "B5-mun-flyby"
 # nightly: fixture committed (shares b2-lko-craft with B2/B4) and the flyby is
 # the longest flown mission yet (transfer coast + flyby, mostly under rails
-# warp). LIVE-PROVEN 2026-07-22 (fifteenth flight, full finding-1..12 stack):
-# PASS on attempt 1, wall 625 s - ascent, targeted TLI, debounced DIY
-# correction burn, self-healing non-blocking rails warp, 1,138 km flyby,
-# free-return into Kerbin SOI, all verifiers green.
+# warp). LIVE-PROVEN 2026-07-22 across three flights: fifteenth (PASS attempt
+# 1, wall 625 s, full finding-1..12 stack), SIXTEENTH (hands-off
+# certification, wall 824 s - zero operator warp intervention end to end),
+# seventeenth (wall 854 s under the warp-optimization package: altitude-legal
+# factor selection, physics-warp flips, stair-downs).
 tier = "nightly"
 description = "Mun flyby / free-return: MechJeb ascent to LKO, ManeuverPlanner Hohmann transfer, autowarped TLI burn, course-correction, cross-SOI coast, Mun flyby, return into Kerbin SOI; assert orbit + target SOI reached + flyby floor + returned home."
 instanceProfile = "stock-minimal"
@@ -26,14 +27,18 @@ mission = "b5_mun_flyby"
 # [driver.missionParams] header (a key after the sub-table header would be
 # scoped to driver.missionParams.steps and the spec would validate as having
 # zero steps).
-# Budget arithmetic (ESTIMATED, pending the first live flight): missionBudget
-# 2400 (WALL) >= 30 connect + ascent ~250 + circularize ~100 + plan+TLI burn
-# ~300 (autowarp compresses the node wait) + corrections ~2x150 + coast ~200
-# (the ~2-day game-time transfer runs at a HELD 10,000x via non-blocking
-# set_rails_warp; warp changes only when an action is imminent) + flyby ~120
-# (100x floor near periapsis, 1000x+ outer legs) + settle + margin. Phase
+# Budget arithmetic (MEASURED: passing flights ran wall 625 / 824 / 854 s;
+# the 2400 missionBudget is ~3x the observed worst case to absorb correction
+# give-ups + retries): missionBudget 2400 (WALL) >= 30 connect + ascent ~250
+# + circularize ~100 + plan+TLI burn ~300 (autowarp compresses the node wait)
+# + corrections ~2x150 (2x-physics flips) + coast ~100 (native warp_to_ut /
+# altitude-legal rails; warp changes only when an action is imminent) + flyby
+# ~60 (native warp to SOI exit; 100x floor near periapsis) + margin. Phase
 # budgets in missionParams are GAME time.
-# runtime 2700 >= 240 LoadGame + 2400 mission + margin.
+# runtime 2900 (review SF-5) >= 240 LoadGame + ~5 SetSetting + 2400 mission
+# + ~120 CommitTree + ~60 FlushAndQuit + ~75 margin: the post-mission seam
+# steps must survive a FULL-budget mission (a slow PASS was previously
+# reaped mid-commit with only ~60 s left after the mission step).
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
@@ -62,10 +67,13 @@ transferMinApoapsisMeters  = 10000000
 # peaks + the 10 km assertion floor, low enough for a real gravity-assist
 # flyby geometry.
 courseCorrectPeriapsisMeters = 60000
-# A genuine course correction is a small tweak; an over-cap plan is removed by
-# the runner and the coast flies the raw Hohmann intercept (live flight 2).
-# 150 not 100: flight 4's post-TLI quotes were 108-118 m/s and must fly.
-maxCorrectionDvMps         = 150
+# The dv cap blocks the WILD-BURN INSANITY class only (finding 2's 15,930
+# m/s transfer-reshape plans), NOT genuine corrections: the DIY burner +
+# aligned debounce + no-progress give-up now own the wild-burn risk, and
+# round-2 economics after a real round-1 burn legitimately reach ~170 m/s
+# (seventeenth flight: 169-171 m/s quotes were disqualified by the old 150
+# cap and the round 1x-idled to its plan give-up; finding 14).
+maxCorrectionDvMps         = 300
 # Two rounds: post-TLI (trigger 0) + a mid-coast refinement at 6,000 km -- the
 # fourth flight proved executor residual drifts a corrected +60 km periapsis
 # to -29 km (impact) over the long coast without the second round.
@@ -127,7 +135,7 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 allowedAnomalies = []
 
 [runtime]
-budgetSeconds = 2700
+budgetSeconds = 2900
 
 [retry]
 policy = "once"

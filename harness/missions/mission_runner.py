@@ -419,8 +419,13 @@ class KrpcMissionControl(MissionControl):
             sc = self._conn.space_center
             v = sc.active_vessel
             orbit = v.orbit
-            body_frame = orbit.body.reference_frame
-            flight_srf = v.flight(body_frame)
+            # Handle caching (review N-B1): every attribute access on a kRPC
+            # proxy is one RPC round trip -- fetch each intermediate object
+            # (body, resources, control) exactly once per poll.
+            body = orbit.body
+            resources = v.resources
+            control_handle = v.control
+            flight_srf = v.flight(body.reference_frame)
             mj_enabled = False
             mj_complete = False
             if self._ascent is not None:
@@ -432,7 +437,15 @@ class KrpcMissionControl(MissionControl):
                     # "complete" = engaged EARLIER (latched) AND now disabled. Before it
                     # has ever been engaged, disabled is PRELAUNCH, NOT complete (NIT 8).
                     mj_complete = self._mj_ever_enabled and not mj_enabled
-                except Exception:
+                except Exception as exc:
+                    # Log-what-you-gate-on (review N-B2): the ascent-complete
+                    # gate reads these; a silent False on a read error would
+                    # be indistinguishable from a real not-complete.
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Warn", "Telemetry",
+                        "MechJeb ascent enabled/complete read failed (%s: %s); "
+                        "reporting enabled=False complete=False this frame"
+                        % (type(exc).__name__, str(exc)[:120])))
                     mj_enabled = False
                     mj_complete = False
             warp_mode, warp_rate = _read_warp_state(sc)
@@ -444,7 +457,7 @@ class KrpcMissionControl(MissionControl):
                 ap_error = float(v.auto_pilot.error)
             except Exception:
                 ap_error = float("nan")
-            nodes = v.control.nodes
+            nodes = control_handle.nodes
             snapshot = mlib.TelemetrySnapshot(
                 ut=float(sc.ut),
                 altitude=float(flight_srf.surface_altitude),
@@ -476,11 +489,11 @@ class KrpcMissionControl(MissionControl):
                 # toward the vessel-lost read-fail streak (the fly loop
                 # tolerates non-transport raises). The machine-side guards for
                 # an EMPTY body ("" = no reading) and a NaN node_dv fail closed.
-                body=str(orbit.body.name),
+                body=str(body.name),
                 node_count=len(nodes),
                 node_dv=(float(nodes[0].remaining_delta_v) if nodes else float("nan")),
-                liquid_fuel=float(v.resources.amount("LiquidFuel")),
-                throttle=float(v.control.throttle),
+                liquid_fuel=float(resources.amount("LiquidFuel")),
+                throttle=float(control_handle.throttle),
                 # Warp-toward-node + SOI-approach warp bounds (operator
                 # directive 2026-07-22). Node.UT is the burn instant of the
                 # first pending node (NaN with no node: the machine's
@@ -666,14 +679,20 @@ class KrpcMissionControl(MissionControl):
                     for n in nodes:
                         total_dv += abs(float(n.delta_v))
                     cap = float(action.limit) if action.limit else 0.0
-                    if cap > 0.0 and total_dv > cap:
+                    # PURE decider (review SF-3): thresholds live in
+                    # mlib.classify_correction_plan (unit-tested); this block
+                    # only performs the verdict. NaN dv classifies over_cap
+                    # (fail closed: an unquantifiable plan never flies).
+                    verdict = mlib.classify_correction_plan(
+                        total_dv, cap, NEGLIGIBLE_CORRECTION_DV)
+                    if verdict == mlib.PLAN_OVER_CAP:
                         v.control.remove_nodes()
                         _stdout_sink(mlib.format_mission_log_line(
                             "Warn", "Plan",
                             "course-correction dv %.1f m/s exceeds cap %.1f; "
                             "plan removed (correction disqualified, coast will "
                             "fly the raw intercept)" % (total_dv, cap)))
-                    elif total_dv < NEGLIGIBLE_CORRECTION_DV:
+                    elif verdict == mlib.PLAN_NEGLIGIBLE:
                         # A node smaller than the executor's own 1.0 m/s
                         # tolerance never engages (sixth live flight: execute
                         # issued, no warp, no burn); a sub-0.5 m/s residual is
@@ -740,7 +759,7 @@ class KrpcMissionControl(MissionControl):
             # AutoPilot along the first node's burn vector. Node.ReferenceFrame's
             # y-axis IS the burn vector (pinned kRPC source); same heavy-stack
             # deceleration tuning as the B4 retro flip.
-            nodes = v.control.nodes
+            nodes = control_handle.nodes
             if len(nodes) > 0:
                 # Release MechJeb's throttle hold FIRST (eleventh live flight,
                 # via the new thr= readback: after the TLI executor runs,
@@ -1242,6 +1261,13 @@ class MissionSpec:
     # live 2026-07-20). Above the bound (plus the ramp allowance) the warp
     # guard still flakes the mission.
     max_physics_warp: float = 0.0
+    # Settle-tail frames sampled after a real terminal (review SF-4). B1/B2/B4
+    # keep the default: their assertion evaluators run K-consecutive debounce
+    # windows over the FRAMES and need settled post-terminal samples. B5/B6
+    # set 0: every assertion is machine-carried evidence (evaluate discards
+    # frames), so the tail only adds reads that can transiently fail after
+    # RETURN and flip a finished pass into a spurious FLAKE.
+    settle_frames: int = DEFAULT_SETTLE_FRAMES
 
 
 def run_mission(
@@ -1310,6 +1336,7 @@ def run_mission(
                 deadline = wall_start + float(budget)
                 state, frames = fly_loop(control, state, spec.decide, log, deadline,
                                          clock=clock, sleep=sleep,
+                                         settle_frames=spec.settle_frames,
                                          allow_rails_warp=spec.allow_rails_warp,
                                          max_physics_warp=spec.max_physics_warp)
                 phases_reached = list(state.phases_reached)

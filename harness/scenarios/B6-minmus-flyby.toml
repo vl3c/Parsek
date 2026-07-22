@@ -26,7 +26,10 @@ mission = "b6_minmus_flyby"
 # is ~9 days of game time vs the Mun's ~1-2 days -- more rails hops, so the
 # wall budget grows: missionBudget 3000 >= 30 connect + ascent ~250 +
 # circularize ~100 + plan+burn ~300 + correction ~120 + coast hops ~600 +
-# flyby hops ~300 + settle + margin. runtime 3300 >= 240 LoadGame + 3000.
+# flyby hops ~300 + settle + margin.
+# runtime 3500 (review SF-5) >= 240 LoadGame + ~5 SetSetting + 3000 mission
+# + ~120 CommitTree + ~60 FlushAndQuit + ~75 margin: the post-mission seam
+# steps must survive a FULL-budget mission (previously only ~60 s remained).
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
@@ -50,10 +53,12 @@ homeBodyName               = "Kerbin"
 # 40,000 km is unambiguous burn evidence (floor, not a window).
 transferMinApoapsisMeters  = 40000000
 # Course-correct the flyby periapsis to 20 km: above the ~5.7 km Minmus peaks
-# + the 6 km assertion floor. Same 100 m/s dv cap as B5 (an over-cap plan is
-# removed and the coast flies the raw intercept).
+# + the 6 km assertion floor. Same dv cap as B5: it blocks the wild-burn
+# insanity class only, not genuine corrections (the DIY burner + aligned
+# debounce + no-progress give-up own the wild-burn risk; B5's seventeenth
+# flight priced a legitimate round-2 at ~170 m/s; finding 14).
 courseCorrectPeriapsisMeters = 20000
-maxCorrectionDvMps         = 150
+maxCorrectionDvMps         = 300
 # Two rounds like B5: post-TLI + a mid-coast refinement at 20,000 km (Minmus
 # orbits at ~46,400 km).
 correctionTriggerAltsMeters = [0, 20000000]
@@ -97,7 +102,7 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 allowedAnomalies = []
 
 [runtime]
-budgetSeconds = 3300
+budgetSeconds = 3500
 
 [retry]
 policy = "once"

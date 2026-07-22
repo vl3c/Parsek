@@ -1051,10 +1051,10 @@ class B5ShellTests(unittest.TestCase):
         ]
 
     def test_b5_happy_path_writes_mission_ok(self):
-        """B5 flies ascent -> transfer -> flyby -> free-return; the settle tail
-        runs on the RETURN terminal and all four assertions are met ->
-        MISSION-OK. Guards the shell mis-wiring the new target/plan/execute
-        actions or terminating at ORBIT like B2."""
+        """B5 flies ascent -> transfer -> flyby -> free-return with NO settle
+        tail (spec settle_frames=0, review SF-4) and all four assertions are
+        met -> MISSION-OK. Guards the shell mis-wiring the new
+        target/plan/execute actions or terminating at ORBIT like B2."""
         control = FakeMissionControl(self._happy_frames())
         code, result = run(b5_mun_flyby.SPEC, B5_PARAMS, control)
         self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
@@ -1081,8 +1081,10 @@ class B5ShellTests(unittest.TestCase):
         points = [a for a in control.actions if a.kind == mlib.ACTION_AP_POINT_NODE]
         self.assertEqual(len(points), 2)
         self.assertTrue(all(a["met"] for a in result["assertions"]), result["assertions"])
-        # Settle tail RAN (RETURN keeps it): more reads than scripted frames.
-        self.assertGreater(control.reads, len(self._happy_frames()))
+        # NO settle tail (review SF-4: B5's assertions are machine-carried and
+        # evaluate discards frames, so post-RETURN reads are pure flake
+        # surface): reads stop EXACTLY at the terminal frame.
+        self.assertEqual(control.reads, len(self._happy_frames()))
         self.assertTrue(control.closed)
 
     def test_b6_minmus_alias_flies_same_machine(self):
