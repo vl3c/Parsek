@@ -88,6 +88,8 @@ stuck at 1x", "warp oscillating") maps to machine state in ONE step:
 ```
 python status.py                    # newest run, one shot
 python status.py --watch 5         # re-render every 5 s
+python warp_audit.py results/<runId>_mission.stdout.log   # no-1x-coast PR-gate audit
+python warp_audit.py <log> --fail-on-violation            # exit 1 on any 1x coast segment
 python status.py --run 2026-07-22_1210    # a specific run (prefix ok)
 python status.py --raw 40          # last 40 raw mission-stdout lines
 python status.py --head 650        # REPLAY: panel as of the first 650 lines

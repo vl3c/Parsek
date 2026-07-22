@@ -63,7 +63,7 @@ maxCorrectionDvMps         = 300
 # orbits at ~46,400 km).
 correctionTriggerAltsMeters = [0, 20000000]
 planTimeoutSeconds         = 300
-planRetrySeconds           = 30
+planRetrySeconds           = 10
 # The burn itself is B5-sized, but the executor may autowarp up to a full
 # parking orbit to the node first; same 4000 game-second budget as B5.
 transferBurnTimeoutSeconds = 4000
@@ -79,8 +79,9 @@ flybyTimeoutSeconds        = 400000
 coastWarpFactor            = 6
 flybyWarpFactor            = 5
 flybyMaxWarpFactor         = 6
-nodeWarpLeadSeconds        = 120
-soiLeadSeconds             = 60
+nodeArrivalMarginSeconds   = 15
+planWarpFactor             = 2
+soiLeadSeconds             = 30
 flipPhysicsWarpFactor      = 1
 targetPeriapsisFloorMeters = 6000
 

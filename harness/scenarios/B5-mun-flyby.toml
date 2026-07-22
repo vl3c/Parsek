@@ -79,7 +79,7 @@ maxCorrectionDvMps         = 300
 # to -29 km (impact) over the long coast without the second round.
 correctionTriggerAltsMeters = [0, 6000000]
 planTimeoutSeconds         = 300
-planRetrySeconds           = 30
+planRetrySeconds           = 10
 transferBurnTimeoutSeconds = 4000
 coastTimeoutSeconds        = 400000
 flybyTimeoutSeconds        = 300000
@@ -93,15 +93,18 @@ coastWarpFactor            = 6
 # 10,000x on the outer SOI legs.
 flybyWarpFactor            = 5
 flybyMaxWarpFactor         = 6
-# Pending-node coasts issue a NATIVE warp_to_ut (Path A WarpService: a
-# dedicated second kRPC connection sits in SpaceCenter.WarpTo; the game
-# adapts the factor, table-free) toward node UT minus this lead; 1x only
-# inside the lead window.
-nodeWarpLeadSeconds        = 120
+# AIM-THEN-WARP (operator PR gate, no-1x-coast): the correction burn aims
+# first (2x-physics flip + aligned debounce), then natively warps to node
+# UT minus this margin -- rails warp freezes orientation -- and re-verifies
+# on arrival. 1x exists only inside this margin plus the re-verify frames.
+nodeArrivalMarginSeconds   = 15
+# PLAN-* phases ride 10x (legality-clamped) between plan attempts; with
+# planRetrySeconds 10 the 3-attempt bound costs ~30 game-s, ~3 wall-s.
+planWarpFactor             = 2
 # Post-correction coast + flyby outer legs natively warp to
-# now + timeToSoi - this lead, regaining 1x-poll control just before every
-# SOI boundary.
-soiLeadSeconds             = 60
+# now + timeToSoi - this lead; the inside-lead fallback rides the 100x
+# flyby floor, never 1x.
+soiLeadSeconds             = 30
 # Correction-burn attitude flip at 2x physics warp (dropped to 1x before
 # throttle-up); set 0 to revert to the proven 1x flip if the kRPC AP
 # misbehaves under physics warp on the live craft.

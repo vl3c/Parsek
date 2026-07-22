@@ -819,8 +819,20 @@ class B5Params:
                                            # Hohmann intercept (spec key
                                            # maxCorrectionDvMps)
     plan_timeout: float = 300.0            # PLAN-* phase budget (game s)
-    plan_retry_seconds: float = 30.0       # re-issue a failed plan every this many
+    plan_retry_seconds: float = 10.0       # re-issue a failed plan every this many
                                            # game seconds while no node appeared
+                                           # (10, was 30: planning is an RPC and
+                                           # the plan phases now ride rails warp,
+                                           # so the 3-attempt bound costs ~30
+                                           # game-s instead of ~90 s at 1x --
+                                           # operator PR gate, no-1x-coast)
+    plan_warp_factor: int = 2              # PLAN-* rails factor INDEX held
+                                           # between plan attempts (2 = 10x,
+                                           # altitude-legality-clamped):
+                                           # make_nodes needs no 1x, and a 10x
+                                           # hold bounds plan-position drift to
+                                           # ~5 game-s per poll (spec key
+                                           # planWarpFactor; operator PR gate)
     transfer_burn_timeout: float = 4000.0  # TRANSFER-/CORRECTION-BURN budget: the
                                            # NodeExecutor autowarps to the node (up
                                            # to ~1 orbit ahead) then burns
@@ -853,22 +865,32 @@ class B5Params:
                                            # outer legs are safe at 1000x+).
                                            # Altitude-legality still clamps
                                            # (spec key flybyMaxWarpFactor)
-    node_warp_lead: float = 120.0          # warp-toward-node lead window (game
-                                           # s): a coast frame with a pending
-                                           # node issues a NATIVE warp_to_ut
-                                           # toward node_ut minus this lead,
-                                           # and holds 1x inside it (room for
-                                           # the flip + settle before the burn
-                                           # gate; spec key nodeWarpLeadSeconds)
-    soi_lead: float = 60.0                 # native SOI warp lead (game s): the
+    node_arrival_margin: float = 15.0      # AIM-THEN-WARP arrival margin (game
+                                           # s): after the attitude flip locks
+                                           # (aligned debounce) the machine
+                                           # warps natively to node_ut minus
+                                           # this margin -- rails warp FREEZES
+                                           # vessel orientation, so the burn
+                                           # vector holds through the warp and
+                                           # only this short window plus the
+                                           # re-verify frames run at 1x before
+                                           # the throttle (spec key
+                                           # nodeArrivalMarginSeconds; operator
+                                           # PR gate, no-1x-coast; retires
+                                           # nodeWarpLeadSeconds)
+    soi_lead: float = 30.0                 # native SOI warp lead (game s): the
                                            # post-correction coast and the
                                            # flyby outer legs warp_to_ut to
                                            # now + time_to_soi - this lead, so
-                                           # the machine regains 1x-poll
-                                           # control just before the boundary
-                                           # and the body-change frame is
-                                           # never inside a high-rate warp
-                                           # (spec key soiLeadSeconds)
+                                           # the machine regains poll control
+                                           # just before the boundary (the
+                                           # inside-lead fallback rides the
+                                           # flyby-factor floor, ~100x, never
+                                           # 1x) and the body-change frame is
+                                           # never inside a high-rate warp.
+                                           # 30, was 60: halves the low-rate
+                                           # window per crossing (spec key
+                                           # soiLeadSeconds; operator PR gate)
     flip_physics_warp: int = 1             # CORRECTION-BURN pre-burn attitude
                                            # flip physics-warp factor INDEX
                                            # (1 = 2x, MechJeb's own WarpToUT
@@ -950,15 +972,16 @@ def b5_params_from_dict(params: Dict) -> B5Params:
             float(a) for a in params.get("correctionTriggerAltsMeters", (0.0, 6_000_000.0))),
         max_correction_dv=float(params.get("maxCorrectionDvMps", 150.0)),
         plan_timeout=float(params.get("planTimeoutSeconds", 300)),
-        plan_retry_seconds=float(params.get("planRetrySeconds", 30)),
+        plan_retry_seconds=float(params.get("planRetrySeconds", 10)),
+        plan_warp_factor=int(params.get("planWarpFactor", 2)),
         transfer_burn_timeout=float(params.get("transferBurnTimeoutSeconds", 4000)),
         coast_timeout=float(params.get("coastTimeoutSeconds", 400_000)),
         flyby_timeout=float(params.get("flybyTimeoutSeconds", 300_000)),
         coast_warp_factor=int(params.get("coastWarpFactor", 6)),
         flyby_warp_factor=int(params.get("flybyWarpFactor", 5)),
         flyby_max_warp_factor=int(params.get("flybyMaxWarpFactor", 6)),
-        node_warp_lead=float(params.get("nodeWarpLeadSeconds", 120.0)),
-        soi_lead=float(params.get("soiLeadSeconds", 60.0)),
+        node_arrival_margin=float(params.get("nodeArrivalMarginSeconds", 15.0)),
+        soi_lead=float(params.get("soiLeadSeconds", 30.0)),
         flip_physics_warp=int(params.get("flipPhysicsWarpFactor", 1)),
         target_periapsis_floor=float(params.get("targetPeriapsisFloorMeters", 10000)),
         burn_stagnant_seconds=float(params.get("burnStagnantSeconds", 120)),
@@ -1686,6 +1709,12 @@ class B5State:
     # PLAN_MAX_ATTEMPTS with node_count still 0 the next cadence check takes
     # the timeout path early. Reset (to 1) on every PLAN-* entry.
     plan_attempts: int = 0
+    # AIM-THEN-WARP no-start anchor (operator PR gate): the UT the native
+    # warp-to-node ARRIVED in CORRECTION-BURN, re-anchoring the
+    # burnNoStartSeconds give-up (time spent inside the rails warp toward the
+    # node is not alignment time). None = no arrival yet; the give-up counts
+    # from phase entry.
+    corr_nostart_anchor_ut: Optional[float] = None
     phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -1824,31 +1853,43 @@ def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[f
             burn_entry_ap=(snapshot.apoapsis if _is_finite(snapshot.apoapsis) else None),
             burn_entry_pe=(snapshot.periapsis if _is_finite(snapshot.periapsis) else None),
             burn_prev_ap=None, burn_prev_pe=None, burn_static_since=None,
-            corr_burn_started=False, min_node_dv=None, aligned_streak=0)
+            corr_burn_started=False, min_node_dv=None, aligned_streak=0,
+            corr_nostart_anchor_ut=None)
         return entered, [handoff_action]
     if _b5_over_budget(state, snapshot) and on_timeout_phase is not None:
         return _b5_enter(state, on_timeout_phase, snapshot.ut, peak), []
     stayed = _b5_stay_or_flake(state, snapshot, peak)
     if stayed.done:
         return stayed, []
+    # PLAN-phase rails hold (operator PR gate, no-1x-coast): planning is an
+    # RPC -- make_nodes needs no 1x -- so between attempts the machine rides
+    # planWarpFactor (default 10x, altitude-legality-clamped), bounding plan-
+    # position drift to ~5 game-s per poll. The frozen detector is warp-gated
+    # (review N-A4), so these frames advance no staleness count.
+    actions: List[Action] = []
+    desired = min(state.params.plan_warp_factor,
+                  max_legal_rails_factor(snapshot.body, snapshot.altitude))
+    if _rails_emit_needed(desired, stayed.warp_cmd, snapshot):
+        actions.append(Action(ACTION_SET_RAILS_WARP, float(desired)))
+        stayed = replace(stayed, warp_cmd=desired)
     if (_is_finite(snapshot.ut)
             and (snapshot.ut - state.last_plan_ut) >= state.params.plan_retry_seconds):
         # Plan-attempt give-up (live finding 14): PLAN_MAX_ATTEMPTS plans in
         # and still no node -- whether the planner keeps failing server-side
         # or the runner keeps DISQUALIFYING the plans (over-cap removal, which
         # the machine cannot distinguish) -- take the timeout path EARLY
-        # instead of 1x-idling out the full plan budget: PLAN-CORRECTION
+        # instead of idling out the full plan budget: PLAN-CORRECTION
         # falls through to the coast (the caller consumes the round),
         # PLAN-TRANSFER flakes (no transfer = no mission).
         if state.plan_attempts >= PLAN_MAX_ATTEMPTS:
             if on_timeout_phase is not None:
-                return _b5_enter(state, on_timeout_phase, snapshot.ut, peak), []
+                return _b5_enter(stayed, on_timeout_phase, snapshot.ut, peak), actions
             return replace(state, peak_apoapsis=peak, verdict=MISSION_FLAKE,
                            flake_phase=state.phase, done=True), []
         return (replace(stayed, last_plan_ut=snapshot.ut,
                         plan_attempts=state.plan_attempts + 1),
-                [plan_action])
-    return stayed, []
+                actions + [plan_action])
+    return stayed, actions
 
 
 def _rails_emit_needed(desired: int, warp_cmd: int,
@@ -1970,13 +2011,19 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         best-effort geometry refinement -- MechJeb may transiently see no
         encounter to correct; the flyby-floor assertion still guards the
         outcome).
-      - CORRECTION-BURN -> COAST-TO-TARGET: node list empty again (no apoapsis
-        gate: a correction is a small vector tweak).
-      - COAST-TO-TARGET (Path A native warp + rails stair): a pending node
-        issues a NATIVE warp_to_ut to node_ut - nodeWarpLeadSeconds (1x
-        inside the lead window / NaN node UT, fail closed); the
-        correction-trigger approach keeps the LIVE-PROVEN rails distance
-        stair (SOI time bound + altitude-legality clamp); the
+      - CORRECTION-BURN -> COAST-TO-TARGET: AIM-THEN-WARP (operator PR gate):
+        point at the node (2x-physics flip + aligned debounce), natively warp
+        to node_ut - nodeArrivalMarginSeconds with the orientation frozen by
+        rails, re-verify the streak on arrival (drift re-enters the flip;
+        the no-start give-up re-anchors at arrival), throttle, then exit on
+        cut/overshoot/no-progress/node-consumed (no apoapsis gate: a
+        correction is a small vector tweak).
+      - COAST-TO-TARGET (Path A native warp + rails stair; operator PR gate
+        no-1x-coast): a pending node issues a NATIVE warp_to_ut to
+        node_ut - nodeArrivalMarginSeconds (1x only inside the margin / NaN
+        node UT, fail closed); the correction-trigger approach keeps the
+        LIVE-PROVEN rails distance stair floored at factor 2 (SOI time
+        bound + altitude-legality clamp); the
         post-correction coast issues a NATIVE warp_to_ut to
         now + time_to_soi - soiLeadSeconds (re-issued only when the SOI
         estimate shifts > WARP_RETARGET_THRESHOLD_SECONDS; self-healed at
@@ -2135,12 +2182,17 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             entered = replace(entered,
                               correction_rounds_done=st.correction_rounds_done + 1,
                               corr_burn_started=False, min_node_dv=None,
-                              phys_warp_cmd=0)
+                              phys_warp_cmd=0, warp_to_cmd=None,
+                              corr_nostart_anchor_ut=None)
             cleanup = [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_AP_DISENGAGE)]
             if st.phys_warp_cmd != 0:
                 # The flip ran under physics warp and the burn never started
                 # (node vanished / alignment give-up): drop it on the way out.
                 cleanup.append(Action(ACTION_SET_PHYSICS_WARP, 0.0))
+            if st.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
+                # An aim-then-warp native warp is still in flight (node
+                # vanished mid-warp / give-up): cancel it on the way out.
+                cleanup.append(Action(ACTION_CANCEL_WARP))
             if snapshot.node_count > 0:
                 cleanup.append(Action(ACTION_MJ_ABORT_AND_CLEAR_NODES))
             return entered, cleanup
@@ -2176,13 +2228,38 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             return _b5_stay_or_flake(state, snapshot, peak), []
 
         # Pre-burn: node vanished (defensive; the plan handoff requires one) ->
-        # give the round up cleanly.
+        # give the round up cleanly (cancels a mid-flight aim-warp too).
         if snapshot.node_count == 0:
             return _corr_exit(state)
+        # AIM-THEN-WARP warp-hold (operator PR gate, no-1x-coast): the aim
+        # locked and the native warp toward node_ut - nodeArrivalMarginSeconds
+        # is running -- rails warp FREEZES orientation, so the machine just
+        # holds (self-healed, bounded by the burn budget). Give-up clocks do
+        # not count warp time.
+        if state.warp_to_cmd is not None:
+            if not (_is_finite(snapshot.ut) and snapshot.ut >= state.warp_to_cmd):
+                held = _b5_stay_or_flake(state, snapshot, peak)
+                if held.done:
+                    # Budget flake mid-warp: leave nothing warped behind.
+                    return (replace(held, warp_to_cmd=None),
+                            [Action(ACTION_CANCEL_WARP)])
+                return _b5_native_warp(held, snapshot, state.warp_to_cmd)
+            # ARRIVAL: the server stepper zeroed the factor on completion.
+            # Re-verify the attitude from FRESH readings (the streak re-earns
+            # its full debounce -- rails should have held the orientation; a
+            # drifted apErr re-enters the 2x-physics flip below, bounded by
+            # the re-anchored give-up) and restart the no-start clock (warp
+            # time is not alignment time).
+            state = replace(state, warp_to_cmd=None, aligned_streak=0,
+                            corr_nostart_anchor_ut=float(snapshot.ut))
         # Alignment never converging is bounded: give the round up after
-        # burnNoStartSeconds rather than flake the whole mission.
+        # burnNoStartSeconds rather than flake the whole mission. The clock
+        # counts from phase entry, or from the aim-warp ARRIVAL when one ran.
+        nostart_anchor = (state.corr_nostart_anchor_ut
+                          if state.corr_nostart_anchor_ut is not None
+                          else state.phase_entry_ut)
         if (_is_finite(snapshot.ut)
-                and (snapshot.ut - state.phase_entry_ut) >= state.params.burn_nostart_seconds):
+                and (snapshot.ut - nostart_anchor) >= state.params.burn_nostart_seconds):
             return _corr_exit(state)
         settled = (_is_finite(snapshot.ut)
                    and (snapshot.ut - state.phase_entry_ut) >= state.params.correction_settle_seconds)
@@ -2213,6 +2290,19 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             if state.phys_warp_cmd != 0 or snapshot.warp_mode != WARP_NONE:
                 return (replace(stayed, phys_warp_cmd=0),
                         [Action(ACTION_SET_PHYSICS_WARP, 0.0)])
+            # AIM DONE -> WARP TO THE NODE (operator PR gate, no-1x-coast):
+            # the burn vector is inertially fixed and rails warp FREEZES the
+            # vessel orientation, so with the attitude locked the machine
+            # warps natively to node_ut - nodeArrivalMarginSeconds instead of
+            # 1x-coasting the wait. Fires only while the node is still beyond
+            # the margin (post-arrival frames fail this bound, so the warp
+            # can never re-issue); the streak resets so arrival re-earns the
+            # full aligned debounce.
+            if (_is_finite(snapshot.node_ut) and _is_finite(snapshot.ut)
+                    and snapshot.ut < snapshot.node_ut - state.params.node_arrival_margin):
+                aim_target = snapshot.node_ut - state.params.node_arrival_margin
+                return _b5_native_warp(replace(stayed, aligned_streak=0),
+                                       snapshot, aim_target)
             started = replace(stayed, corr_burn_started=True,
                               burn_static_since=(snapshot.ut if _is_finite(snapshot.ut)
                                                  else None))
@@ -2258,19 +2348,28 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 and _is_finite(snapshot.altitude)
                 and snapshot.altitude >= triggers[state.correction_rounds_done]):
             entered = _b5_enter(state, B5_PLAN_CORRECTION, snapshot.ut, peak)
-            entered = replace(entered,
-                              last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0,
-                              warp_cmd=0, warp_to_cmd=None,
-                              body_blank_count=0, plan_attempts=1)
-            # Prelude: stop ALL warp before planning -- cancel an active
-            # native warp (which also zeroes the rails factors runner-side),
-            # else drop a held rails factor.
+            # Prelude: bring warp under PLAN control before planning --
+            # cancel an active native warp (which also zeroes the rails
+            # factors runner-side; the plan phase re-raises to its own
+            # factor next frame), else step a held rails factor straight to
+            # the plan hold (operator PR gate: never 1x -- planning is an
+            # RPC and 10x bounds plan-position drift to ~5 game-s per poll).
+            plan_hold = min(state.params.plan_warp_factor,
+                            max_legal_rails_factor(snapshot.body,
+                                                   snapshot.altitude))
             if state.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
                 prelude = [Action(ACTION_CANCEL_WARP)]
-            elif state.warp_cmd != 0:
-                prelude = [Action(ACTION_SET_RAILS_WARP, 0.0)]
+                entered_warp_cmd = 0
+            elif state.warp_cmd != plan_hold:
+                prelude = [Action(ACTION_SET_RAILS_WARP, float(plan_hold))]
+                entered_warp_cmd = plan_hold
             else:
                 prelude = []
+                entered_warp_cmd = state.warp_cmd
+            entered = replace(entered,
+                              last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0,
+                              warp_cmd=entered_warp_cmd, warp_to_cmd=None,
+                              body_blank_count=0, plan_attempts=1)
             return entered, prelude + [Action(ACTION_MJ_PLAN_COURSE_CORRECT,
                                               state.params.course_correct_periapsis,
                                               limit=state.params.max_correction_dv)]
@@ -2290,21 +2389,25 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         native_target: Optional[float] = None
         desired = 0
         if snapshot.node_count != 0:
-            # (a) Pending node: NATIVE warp to node_ut minus the lead window
-            # (room for the flip + settle before the burn gate). Inside the
-            # lead window -- or on a NaN node_ut, fail closed -- hold 1x so
-            # nothing ever warps past a burn on no evidence.
+            # (a) Pending node: NATIVE warp to node_ut minus the ARRIVAL
+            # MARGIN (operator PR gate: nodeWarpLeadSeconds retired -- the
+            # burn phase aims BEFORE warping, so no flip window is needed
+            # here). 1x is allowed ONLY inside the margin, or on a NaN
+            # node_ut (unknown UT = potentially inside the margin, fail
+            # closed -- nothing ever warps past a burn on no evidence).
             if _is_finite(snapshot.node_ut) and _is_finite(snapshot.ut):
-                tgt = snapshot.node_ut - state.params.node_warp_lead
+                tgt = snapshot.node_ut - state.params.node_arrival_margin
                 if snapshot.ut < tgt:
                     native_target = tgt
         elif rounds_pending and _is_finite(snapshot.altitude):
             # Correction-trigger approach: the LIVE-PROVEN rails distance
-            # stair (1x only in the last moments before the trigger), with
-            # the SOI time bound and the altitude-legality clamp.
+            # stair, FLOORED at factor 2 (operator PR gate: the last metres
+            # before a trigger rode 1x; at 10x the trigger overshoot is
+            # <= ~5 game-s per poll, and a trigger is a refinement point,
+            # not a wall), with the SOI time bound and the legality clamp.
             dist = triggers[state.correction_rounds_done] - snapshot.altitude
-            desired = rails_factor_for_distance(
-                dist, snapshot.vertical_speed, state.params.coast_warp_factor)
+            desired = max(rails_factor_for_distance(
+                dist, snapshot.vertical_speed, state.params.coast_warp_factor), 2)
             if desired > 0 and _is_finite(snapshot.time_to_soi):
                 desired = min(desired, max(
                     rails_factor_for_time(snapshot.time_to_soi,
