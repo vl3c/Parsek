@@ -374,6 +374,7 @@ Before every commit that changes behavior (not just the first one in a PR), chec
 
 - `CHANGELOG.md` — add or update the entry under the current version. On follow-up commits that change the fix approach, edit the existing entry rather than leaving the original wording stale.
 - `docs/dev/todo-and-known-bugs.md` — mark completed items as ~~done~~, add newly discovered items, and update the "Fix:" description on follow-up commits when the approach changes.
+- `docs/dev/autotest-status.md` — for automated-testing changes only: update the status tables when a PR ships a module, live-proves a scenario, adds a test case, or opens/closes a gate. It is the SINGLE status authority for that system (its doc-map section defines which doc owns what — do not duplicate status elsewhere).
 - This file (`.claude/CLAUDE.md`) — update only when file layout, build commands, workflow, or key patterns change.
 
 **Follow-up commit trap:** When a review comment lands on an open PR and changes the fix approach, the CHANGELOG and todo entries written for the first commit become stale. The reviewer reads those docs as authoritative — they must match the code in the current HEAD. Before pushing the follow-up commit, re-read the existing doc entries for the bug/feature and update them to match the new approach.
