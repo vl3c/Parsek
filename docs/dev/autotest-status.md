@@ -93,11 +93,11 @@ The "Parsek surface verified" column is the reason the case exists.
 | S4.1-rewind-merge | operator | Full re-fly cycle: InvokeRewind a crashed slot, merge-dialog fold, corpus survival, read-back guard | Operator observation session (B9 pair) |
 | B10-career-passive-safety | pending-fixture | Fresh career + stock actions only = ZERO economy drift (the BUG-A science/funds corruption class) | Fixture committed (fresh-career); first green live run re-tiers to daily |
 | L1-passive-sandbox | pending-fixture | Sandbox cold load moves nothing (recalc/orchestrator/patcher inert) | Fixture committed (fresh-sandbox); + seed-baseline no-pools gate must accept an empty-manifest sandbox template (see fixtures README) |
-| L1-hire-kerbal-career | pending-fixture | Hire debits funds by exactly the pinned cost, nothing else | Fixture committed (fresh-career, applicant Verhat Kerman); first green live run confirms -24000 + re-tiers to daily |
+| L1-hire-kerbal-career | pending-fixture | Hire debits funds by exactly the pinned cost, nothing else | First live run (2026-07-23) RED = seam double-debit: the hire verb manually mirrored a stock debit that stock already applies (Funding.onCrewHired via OnCrewmemberHired), charging the pool twice. Fixed (seam AddFunds removed); single cost re-pinned -62113 (seed 500000 -> 437887). Re-run confirms hardDivergences=0 + re-tiers to daily |
 | L1-dismiss-kerbal-career | pending-fixture | Dismiss is pool-neutral | Fixture committed (fresh-career, dismiss Bill Kerman); first green live run re-tiers to daily |
 | L1-research-node-career | pending-fixture | Research debits science exactly | Fixture committed (fresh-career, basicRocketry=5 verified); first green live run re-tiers to daily |
 | L1-research-node-science | pending-fixture | Same in science mode (no funds/rep pools) | Fixture committed (fresh-science); RnDPresent widen landed; first green live run re-tiers to daily |
-| L1-upgrade-facility-career | pending-fixture | Facility upgrade debits funds per-level exactly | Fixture committed (fresh-career); first green live run confirms -150000 + re-tiers to daily |
+| L1-upgrade-facility-career | pending-fixture | Facility upgrade debits funds per-level exactly | First live run (2026-07-23) ledger math PASSED (-150000, hardDivergences=0) but logContract RED = FacilityUpgraded never recorded: the facility recorder only polled on scene load (and cold-load seeded an empty baseline), so a seam upgrade-then-quit was never captured. Fixed (subscribe GameStateFacilityRecorder to OnKSCFacilityUpgrading, event-driven). Re-run confirms "Game state: FacilityUpgraded" present + re-tiers to daily |
 
 ### Designed, not yet implemented
 

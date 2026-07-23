@@ -807,6 +807,50 @@ namespace Parsek.Tests
             Assert.Empty(events);
         }
 
+        // ---- Event-driven OnKSCFacilityUpgrading classification (RED 2 fix) ----
+
+        [Fact]
+        public void ClassifyFacilityLevelChange_Increase_ReturnsUpgraded()
+        {
+            Assert.Equal(GameStateEventType.FacilityUpgraded,
+                GameStateFacilityRecorder.ClassifyFacilityLevelChange(0.0f, 0.5f));
+        }
+
+        [Fact]
+        public void ClassifyFacilityLevelChange_Decrease_ReturnsDowngraded()
+        {
+            Assert.Equal(GameStateEventType.FacilityDowngraded,
+                GameStateFacilityRecorder.ClassifyFacilityLevelChange(1.0f, 0.5f));
+        }
+
+        [Fact]
+        public void ClassifyFacilityLevelChange_WithinEpsilon_ReturnsNull()
+        {
+            // Same 0.001 no-op epsilon the poll uses.
+            Assert.Null(GameStateFacilityRecorder.ClassifyFacilityLevelChange(0.5f, 0.5005f));
+            Assert.Null(GameStateFacilityRecorder.ClassifyFacilityLevelChange(0.5f, 0.5f));
+        }
+
+        [Theory]
+        [InlineData(0, 2, 0.0)]   // level 0 of a 3-tier facility (MaxLevel 2)
+        [InlineData(1, 2, 0.5)]   // first upgrade -> normalized 0.5
+        [InlineData(2, 2, 1.0)]   // fully upgraded
+        [InlineData(1, 0, 0.0)]   // unloaded facility (MaxLevel 0) -> 0
+        public void NormalizedLevel_MatchesKspGetNormLevelContract(int levelIndex, int maxLevel, double expected)
+        {
+            Assert.Equal(expected, GameStateFacilityRecorder.NormalizedLevel(levelIndex, maxLevel), 5);
+        }
+
+        [Fact]
+        public void NormalizedLevel_FirstUpgrade_ClassifiesAsUpgraded()
+        {
+            // The seam TrackingStation upgrade: level 0 -> 1 of a MaxLevel-2 facility.
+            float before = GameStateFacilityRecorder.NormalizedLevel(0, 2);
+            float after = GameStateFacilityRecorder.NormalizedLevel(1, 2);
+            Assert.Equal(GameStateEventType.FacilityUpgraded,
+                GameStateFacilityRecorder.ClassifyFacilityLevelChange(before, after));
+        }
+
         #endregion
 
         #region Building Transition Detection

@@ -26,6 +26,7 @@ All notable changes to Parsek are documented here.
 - Supply-route inventory delivery now uses every cargo container on the destination vessel: when the first container is full, items are delivered into the next container with a free slot instead of being reported as undelivered. Pickup already worked this way; delivery now matches it.
 - Supply-route inventory deliveries now deliver the full stacked quantity of a cargo item to a loaded destination instead of a single unit, and a manifest item is split across as many inventory slots as its stack size requires (one slot per unit for non-stackable items) so the delivered inventory is valid stock state on both the loaded and unloaded paths.
 - Supply-route inventory deliveries now respect the containers' packed-volume and mass limits, summed across every cargo container on the destination: an item that would not fit is skipped as not-fitting at planning time on both the loaded and unloaded paths, instead of being written into a container that would refuse it.
+- Facility upgrades are now recorded on the career timeline the moment they happen, instead of only being noticed on the next scene change. An upgrade done and then followed by a quit or reload without changing scene was previously missed entirely; it is now captured immediately for both the stock upgrade UI and the developer test path.
 
 ### Internals & Tests
 
@@ -63,6 +64,7 @@ All notable changes to Parsek are documented here.
 - Added a Mun flyby / free-return autopilot-flown test scenario: ascend to orbit, plan and execute a transfer to the Mun, fly through its sphere of influence, and return into Kerbin's, covering cross-SOI recording under time warp. Test-tooling only; no gameplay change.
 - Added a Minmus flyby test scenario reusing the same flight machinery with Minmus-sized parameters. Test-tooling only; no gameplay change.
 - Added a Duna interplanetary flyby test scenario: eject from a high Kerbin park at the next transfer window, coast through the Sun's sphere of influence with time-triggered course corrections, fly past Duna, and exit into solar orbit. Flown and passing unattended (546 km flyby, free return). Test-tooling only; no gameplay change.
+- The developer-only test-command channel's hire-kerbal action no longer charges the recruit cost twice: it was manually mirroring a funds debit that stock already applies automatically when a kerbal is hired, so the funds pool dropped by double the hire cost. Test-tooling only; no gameplay change.
 
 ## 0.10.3
 
