@@ -1367,18 +1367,37 @@ namespace Parsek.TestCommands
                 HighLogic.CurrentGame = game;
                 game.startScene = GameScenes.SPACECENTER;
                 // Re-add AddToAllGames ScenarioModules (ParsekScenario!) that the
-                // loaded save lacks, EXACTLY as the stock Load-menu resume does
-                // (decompiled MainMenu: UpdateScenarioModules THEN Start, KSP
-                // 1.12.5). The first live L-track run proved the fresh-* career
-                // fixtures -- the first saves with no ParsekScenario node (stripped
-                // for the pre-Parsek/fresh-contact contract) -- otherwise boot to
-                // KSC with NO ParsekScenario: OnLoad never runs, the
-                // GameStateRecorder never subscribes to OnTechnologyResearched, and
-                // the recorded-action log line never fires though the career math
-                // is correct. game.Start() alone does NOT re-add scenarios; only
-                // the focusable/FlightDriver path did (and only for the b1/b2/gloops
-                // fixtures that already carried the node).
+                // loaded save lacks, then PERSIST the augmented game to
+                // persistent.sfs, EXACTLY as the stock Load-menu resume does
+                // (decompiled MainMenu.OnLoadDialogPipelineFinished, KSP 1.12.5:
+                // UpdateScenarioModules -> SaveGame(persistent, OVERWRITE) ->
+                // Start()). The SaveGame is LOAD-BEARING here, not cosmetic: unlike
+                // the focusable FLIGHT route (Game.Start -> FlightDriver.Start ->
+                // Game.Load on the in-memory game), the SPACECENTER route boots via
+                // Game.Start -> HighLogic.LoadScene(SPACECENTER), and the KSC scene's
+                // own bootstrap SpaceCenterMain.Start() RE-READS persistent.sfs from
+                // disk (GamePersistence.LoadGame("persistent", HighLogic.SaveFolder,
+                // ...)) and calls game.Load() -> ScenarioRunner.SetProtoModules on
+                // THAT disk game -- it never touches our in-memory HighLogic.CurrentGame.
+                // So UpdateScenarioModules mutates a game the KSC scene throws away;
+                // only writing it to disk first makes ParsekScenario present when
+                // SetProtoModules instantiates the scenarios, so OnLoad runs and the
+                // GameStateRecorder subscribes to OnTechnologyResearched before the
+                // seam issues its KscAction. The first live L-track run proved the
+                // fresh-* career fixtures (the first saves with no ParsekScenario node,
+                // stripped for the pre-Parsek/fresh-contact contract) booted to KSC
+                // with NO ParsekScenario: OnLoad never ran and the recorded-action log
+                // line never fired though the career math was correct. Writing the RUN
+                // save's persistent.sfs here is fine: it is staged/disposable and the
+                // seed baseline was already captured pre-launch from the TEMPLATE.
                 GamePersistence.UpdateScenarioModules(game);
+                string persistResult = GamePersistence.SaveGame(game, "persistent", save, SaveMode.OVERWRITE);
+                if (string.IsNullOrEmpty(persistResult))
+                    ParsekLog.Warn(Tag,
+                        $"loadgame no-vessel route: SaveGame(persistent, OVERWRITE) returned empty for save={save ?? string.Empty} (autosave disabled?); ParsekScenario may not re-add on the KSC disk re-read");
+                else
+                    ParsekLog.Info(Tag,
+                        $"loadgame no-vessel route: persisted augmented game (with ParsekScenario) to persistent.sfs save={save ?? string.Empty} path={persistResult}");
                 game.Start();
                 loadInFlight = true;
                 loadGameSave = save;

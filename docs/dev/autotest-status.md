@@ -149,6 +149,17 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
    reality only.
 5. INV2 double-cover recorder seam: REAL Parsek defect (first big catch),
    being fixed in its own lane.
+6. No-vessel LoadGame boot contract (ledger lane): the SPACECENTER route in
+   `ParsekTestCommandAddon.LoadGameImpl` now writes `persistent.sfs`
+   (`GamePersistence.SaveGame(game, "persistent", save, OVERWRITE)`) AFTER
+   `UpdateScenarioModules` and BEFORE `Start()`, matching stock
+   `MainMenu.OnLoadDialogPipelineFinished`. Load-bearing because the KSC scene
+   bootstrap `SpaceCenterMain.Start()` re-reads `persistent.sfs` from disk and
+   runs `SetProtoModules` on THAT game, not the in-memory `HighLogic.CurrentGame`;
+   without the write the fresh-* fixtures booted to KSC with no ParsekScenario,
+   so `OnLoad` never ran and the `GameStateRecorder` never subscribed (the 5
+   ACTING L1 cases reded on the missing recorded-action log line though the
+   ledger oracle passed). Fixed 2026-07-23.
 
 ## Operator items outstanding
 
