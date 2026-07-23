@@ -3505,13 +3505,20 @@ class BDockState:
     # TRANSFER sequencing (T1 LiquidFuel deliver, T2 MonoPropellant pickup).
     current_transfer_started: bool = False
     transfers_done: int = 0
-    # STATION-SEPARATE / INT-SEPARATE split evidence (mirrors the UNDOCK
-    # baseline): the vessel count captured at SEPARATE entry, and the
-    # K-consecutive settle streak of frames whose count exceeds it. Both reset on
-    # entry to each SEPARATE phase (the two are sequential, never concurrent, so
-    # one pair of fields serves both legs).
+    # STATION-SEPARATE / INT-SEPARATE evidence (flight-4 two-step contract). The
+    # vessel count captured at SEPARATE entry (mirrors the UNDOCK baseline); the
+    # K-consecutive streak of frames whose count exceeds it (step 1: the spent
+    # core spawned as a NEW vessel); the K-consecutive streak of frames with
+    # available_thrust > 0 (step 2: the orbital engine is lit); the latched
+    # split-confirmed flag; and the per-phase ACTIVATE_STAGE count (HARD-capped at
+    # 2 -- a third would fire the istg=0 heat-shield decoupler). All reset on entry
+    # to each SEPARATE phase (the two legs are sequential, never concurrent, so
+    # one set of fields serves both).
     separate_baseline_vessel_count: int = 0
     separate_settle_streak: int = 0
+    separate_thrust_streak: int = 0
+    separate_split_confirmed: bool = False
+    separate_activations: int = 0
     # UNDOCK split evidence.
     undock_baseline_vessel_count: int = 0
     # Carried evidence for the evaluator.
@@ -3589,25 +3596,61 @@ def _bdock_ascent_entry_actions(target_apoapsis: float) -> List[Action]:
 
 def _bdock_separate_step(state: BDockState, snapshot: TelemetrySnapshot,
                          next_phase: str) -> Tuple[BDockState, List[Action]]:
-    """One SEPARATE-phase frame. Completion evidence: vessel_count exceeds the
-    entry baseline (the spent core spawned as a NEW vessel), debounced
-    BDOCK_SEPARATION_DEBOUNCE consecutive frames -> advance to ``next_phase``.
-    Fail closed: vessel_count defaults to 0 (unread), so an unreadable count never
-    bumps the streak and never completes. Bounded give-up: the SEPARATE budget
-    (separationTimeoutSeconds) flakes with a named reason if no split is ever
-    seen. SANITY (not a hard gate): after separation the orbital stage must still
-    have thrust for the rendezvous (available_thrust > 0), but that is NOT gated
-    here (NaN fails closed and the read can transiently fail); available_thrust
-    rides the phase-transition log line for diagnosability instead."""
-    bumped = snapshot.vessel_count > state.separate_baseline_vessel_count
-    streak = state.separate_settle_streak + 1 if bumped else 0
-    st = replace(state, separate_settle_streak=streak)
-    if streak >= BDOCK_SEPARATION_DEBOUNCE:
+    """One SEPARATE-phase frame: the evidence-chained TWO-step separation contract
+    (flight-4 lesson -- flight 4 dropped the core but reached RENDEZVOUS with
+    avThr=0.000, the orbital engine never ignited, because the LV-T45 sits in a
+    LATER stage than the separation decoupler).
+
+    Step 1 (drop the spent core). The entry ACTION_ACTIVATE_STAGE (emitted by the
+    circularize->SEPARATE transition) drops the core. Step 1 completes when
+    vessel_count exceeds the phase-entry baseline (the core spawned as a NEW
+    vessel), debounced BDOCK_SEPARATION_DEBOUNCE frames.
+
+    Step 2 (ignite the orbital engine). AFTER the split is confirmed: if
+    available_thrust is ALREADY debounced-positive (a craft whose decoupler +
+    engine share a stage -- the engine lit on the entry activation), complete with
+    NO second activation. Otherwise emit EXACTLY ONE more ACTIVATE_STAGE to light
+    the orbital stage, then complete on available_thrust > 0 debounced. HARD CAP:
+    at most 2 activations per SEPARATE phase -- a THIRD would fire the istg=0
+    heat-shield decoupler, so the ignition activation is emitted at most once.
+
+    Fail closed: vessel_count defaults 0 (unread) and available_thrust defaults
+    NaN (unread) -- neither an unread count nor an unread / zero thrust ever
+    certifies a step, and NaN is never treated as ignited. Bounded give-up
+    (separationTimeoutSeconds spans BOTH steps) with a reason that distinguishes a
+    no-split from a split-but-no-ignition stall."""
+    split_bumped = snapshot.vessel_count > state.separate_baseline_vessel_count
+    settle = state.separate_settle_streak + 1 if split_bumped else 0
+    thrust_up = (_is_finite(snapshot.available_thrust)
+                 and snapshot.available_thrust > 0.0)
+    thrust_streak = state.separate_thrust_streak + 1 if thrust_up else 0
+    split_confirmed = (state.separate_split_confirmed
+                       or settle >= BDOCK_SEPARATION_DEBOUNCE)
+    st = replace(state, separate_settle_streak=settle,
+                 separate_thrust_streak=thrust_streak,
+                 separate_split_confirmed=split_confirmed)
+
+    if not split_confirmed:
+        # Step 1: still waiting for the spent core to spawn.
+        if _bdock_over_budget(st, snapshot):
+            return replace(_bdock_flake(st), flake_reason=(
+                "phase %s: no separation observed (vessel_count did not increase)"
+                % st.phase)), []
+        return st, []
+
+    # Step 2: the split is confirmed -> ensure the orbital engine is lit.
+    if thrust_streak >= BDOCK_SEPARATION_DEBOUNCE:
         return _bdock_enter(st, next_phase, snapshot.ut,
-                            separate_settle_streak=0), []
+                            separate_settle_streak=0, separate_thrust_streak=0,
+                            separate_split_confirmed=False,
+                            separate_activations=0), []
+    if st.separate_activations < 2:
+        # Ignition: exactly one more activation (never a third -> heat shield).
+        return (replace(st, separate_activations=st.separate_activations + 1),
+                [Action(ACTION_ACTIVATE_STAGE)])
     if _bdock_over_budget(st, snapshot):
         return replace(_bdock_flake(st), flake_reason=(
-            "phase %s: no separation observed (vessel_count did not increase)"
+            "phase %s: separated but no ignition (available_thrust stayed 0)"
             % st.phase)), []
     return st, []
 
@@ -3659,13 +3702,17 @@ def bdock_decide(state: BDockState,
     if state.phase == BDOCK_STATION_CIRCULARIZE:
         if (_is_finite(snapshot.periapsis)
                 and snapshot.periapsis >= p.station_periapsis - p.peri_error):
-            # Circularized -> drop the spent core (the ONE post-circularize stage
-            # separation) so the Station is its orbital stage only before parking.
-            # Baseline the pre-split vessel count; SEPARATE completes on the
-            # spent core spawning as a NEW vessel (vessel_count increase).
+            # Circularized -> drop the spent core AND ignite the orbital engine
+            # (the two-step SEPARATE contract). This entry ACTIVATE_STAGE (count 1)
+            # drops the core; SEPARATE step 1 confirms on the vessel_count
+            # increase, step 2 lights the orbital stage (at most one more
+            # activation, cap 2). Baseline the pre-split vessel count.
             return (_bdock_enter(state, BDOCK_STATION_SEPARATE, snapshot.ut,
                                  separate_baseline_vessel_count=snapshot.vessel_count,
-                                 separate_settle_streak=0),
+                                 separate_settle_streak=0,
+                                 separate_thrust_streak=0,
+                                 separate_split_confirmed=False,
+                                 separate_activations=1),
                     [Action(ACTION_ACTIVATE_STAGE)])
         return _bdock_stay_or_flake(state, snapshot), []
 
@@ -3713,11 +3760,15 @@ def bdock_decide(state: BDockState,
     if state.phase == BDOCK_INT_CIRCULARIZE:
         if (_is_finite(snapshot.periapsis)
                 and snapshot.periapsis >= p.interceptor_periapsis - p.peri_error):
-            # Same post-circularize separation as the Station leg: drop the spent
-            # Interceptor core so it docks as its orbital stage only.
+            # Same two-step separation as the Station leg: drop the spent
+            # Interceptor core AND ignite its orbital engine so it docks as its
+            # orbital stage only.
             return (_bdock_enter(state, BDOCK_INT_SEPARATE, snapshot.ut,
                                  separate_baseline_vessel_count=snapshot.vessel_count,
-                                 separate_settle_streak=0),
+                                 separate_settle_streak=0,
+                                 separate_thrust_streak=0,
+                                 separate_split_confirmed=False,
+                                 separate_activations=1),
                     [Action(ACTION_ACTIVATE_STAGE)])
         return _bdock_stay_or_flake(state, snapshot), []
 
@@ -4546,6 +4597,9 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("undock_baseline_vessel_count", "undockBaseVessels"),
     ("separate_baseline_vessel_count", "sepBaseVessels"),
     ("separate_settle_streak", "sepSettleStreak"),
+    ("separate_thrust_streak", "sepThrustStreak"),
+    ("separate_split_confirmed", "sepSplitOk"),
+    ("separate_activations", "sepActivations"),
 )
 
 # Fields whose CHANGE is a sparse, decision-relevant gate/latch event worth
@@ -4588,9 +4642,13 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("current_transfer_started", "transferStarted"),
     ("docked_confirmed", "docked"),
     ("undock_confirmed", "undocked"),
-    # Separation settle streak: a sparse gate flip bounded by the debounce depth
-    # (mirrors launch_settle_streak above).
+    # Separation settle / thrust streaks + the split-confirmed latch + the
+    # activation count: sparse gate flips bounded by the debounce depth / the
+    # hard cap of 2 (mirrors launch_settle_streak above).
     ("separate_settle_streak", "sepSettleStreak"),
+    ("separate_thrust_streak", "sepThrustStreak"),
+    ("separate_split_confirmed", "sepSplitOk"),
+    ("separate_activations", "sepActivations"),
 )
 
 _MACHINE_FIELD_ABSENT = object()

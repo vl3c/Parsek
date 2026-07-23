@@ -4016,19 +4016,25 @@ def _bdock_walk_to(phase, params=BDOCK_PARAMS):
     frames = [
         snap(ut=0.0),                                              # PRELAUNCH->STATION-ASCENT
         snap(ut=100.0, apoapsis=108000.0, mj_ascent_complete=True),  # ->STATION-CIRCULARIZE
-        snap(ut=150.0, periapsis=109000.0, vessel_count=1),       # ->STATION-SEPARATE (baseline=1, activate stage)
-        snap(ut=152.0, vessel_count=2, available_thrust=200000.0),   # sep settle 1
-        snap(ut=154.0, vessel_count=2, available_thrust=200000.0),   # sep settle 2
-        snap(ut=156.0, vessel_count=2, available_thrust=200000.0),   # sep settle 3 -> STATION-ORBIT
+        snap(ut=150.0, periapsis=109000.0, vessel_count=1),       # ->STATION-SEPARATE (baseline=1, drop core)
+        snap(ut=151.0, vessel_count=2, available_thrust=0.0),     # split settle 1 (engine unlit)
+        snap(ut=152.0, vessel_count=2, available_thrust=0.0),     # split settle 2
+        snap(ut=153.0, vessel_count=2, available_thrust=0.0),     # split settle 3 -> confirmed, ignite
+        snap(ut=154.0, vessel_count=2, available_thrust=200000.0),   # thrust settle 1
+        snap(ut=155.0, vessel_count=2, available_thrust=200000.0),   # thrust settle 2
+        snap(ut=156.0, vessel_count=2, available_thrust=200000.0),   # thrust settle 3 -> STATION-ORBIT
         snap(ut=160.0),                                           # ->STATION-COMMIT (capture+commit)
         snap(ut=161.0, seam_commit_result="OK"),                 # ->INT-LAUNCH
         snap(ut=170.0, situation="PRE_LAUNCH"),                  # settle 1
         snap(ut=175.0, situation="PRE_LAUNCH"),                  # settle 2 -> INT-ASCENT
         snap(ut=400.0, apoapsis=88000.0, mj_ascent_complete=True),  # ->INT-CIRCULARIZE
-        snap(ut=450.0, periapsis=89000.0, vessel_count=2),       # ->INT-SEPARATE (baseline=2, activate stage)
-        snap(ut=452.0, vessel_count=3, available_thrust=180000.0),   # sep settle 1
-        snap(ut=454.0, vessel_count=3, available_thrust=180000.0),   # sep settle 2
-        snap(ut=456.0, vessel_count=3, available_thrust=180000.0),   # sep settle 3 -> INT-PHASING-ORBIT
+        snap(ut=450.0, periapsis=89000.0, vessel_count=2),       # ->INT-SEPARATE (baseline=2, drop core)
+        snap(ut=451.0, vessel_count=3, available_thrust=0.0),    # split settle 1 (engine unlit)
+        snap(ut=452.0, vessel_count=3, available_thrust=0.0),    # split settle 2
+        snap(ut=453.0, vessel_count=3, available_thrust=0.0),    # split settle 3 -> confirmed, ignite
+        snap(ut=454.0, vessel_count=3, available_thrust=180000.0),   # thrust settle 1
+        snap(ut=455.0, vessel_count=3, available_thrust=180000.0),   # thrust settle 2
+        snap(ut=456.0, vessel_count=3, available_thrust=180000.0),   # thrust settle 3 -> INT-PHASING-ORBIT
         snap(ut=460.0),                                          # ->SET-TARGET
         snap(ut=470.0, target_set=True),                        # ->RENDEZVOUS
         snap(ut=480.0, mj_rendezvous_enabled=True, target_distance=5000.0),  # AP running
@@ -4088,14 +4094,17 @@ class BDockHappyPathTests(unittest.TestCase):
         state, _ = _bdock_walk_to(mlib.BDOCK_STATION_COMMIT)
         # The entry to STATION-COMMIT emits capture + commit.
         state2 = mlib.bdock_initial_state(BDOCK_PARAMS)
-        # Drive through STATION-SEPARATE to STATION-ORBIT, then step into
-        # STATION-COMMIT to read the actions.
+        # Drive through STATION-SEPARATE (drop core + ignite) to STATION-ORBIT,
+        # then step into STATION-COMMIT to read the actions.
         for f in (snap(ut=0.0),
                   snap(ut=100.0, apoapsis=108000.0, mj_ascent_complete=True),
                   snap(ut=150.0, periapsis=109000.0, vessel_count=1),  # ->STATION-SEPARATE
-                  snap(ut=152.0, vessel_count=2),                      # sep settle 1
-                  snap(ut=154.0, vessel_count=2),                      # sep settle 2
-                  snap(ut=156.0, vessel_count=2)):                     # sep settle 3 -> STATION-ORBIT
+                  snap(ut=151.0, vessel_count=2, available_thrust=0.0),  # split settle 1
+                  snap(ut=152.0, vessel_count=2, available_thrust=0.0),  # split settle 2
+                  snap(ut=153.0, vessel_count=2, available_thrust=0.0),  # split settle 3 -> ignite
+                  snap(ut=154.0, vessel_count=2, available_thrust=2e5),  # thrust settle 1
+                  snap(ut=155.0, vessel_count=2, available_thrust=2e5),  # thrust settle 2
+                  snap(ut=156.0, vessel_count=2, available_thrust=2e5)): # thrust settle 3 -> STATION-ORBIT
             state2, actions = mlib.bdock_decide(state2, f)
         self.assertEqual(state2.phase, mlib.BDOCK_STATION_ORBIT)
         state2, actions = mlib.bdock_decide(state2, snap(ut=160.0))
@@ -4112,9 +4121,14 @@ class BDockHappyPathTests(unittest.TestCase):
 
 
 class BDockSeparateTests(unittest.TestCase):
-    """Post-circularize stage separation (flight-3 lesson): STATION-CIRCULARIZE ->
-    STATION-SEPARATE emits ONE ACTIVATE_STAGE, then completes on a vessel_count
-    bump debounced K frames; INT-SEPARATE mirrors it. No bump -> named FLAKE."""
+    """Post-circularize two-step stage separation (flight-3 + flight-4 lessons):
+    STATION-CIRCULARIZE -> STATION-SEPARATE emits ONE entry ACTIVATE_STAGE (drop
+    core), confirms the split on a debounced vessel_count bump, then IGNITES the
+    orbital engine (one more activation UNLESS thrust is already up), and completes
+    on debounced available_thrust > 0. HARD CAP: 2 activations. INT-SEPARATE
+    mirrors it. Give-up distinguishes no-split from split-but-no-ignition."""
+
+    K = mlib.BDOCK_SEPARATION_DEBOUNCE
 
     def _at_station_separate(self, entry_count=1):
         # Drive to STATION-CIRCULARIZE, then complete circularize to enter
@@ -4124,39 +4138,98 @@ class BDockSeparateTests(unittest.TestCase):
             state, snap(ut=150.0, periapsis=109000.0, vessel_count=entry_count))
         return state, actions
 
+    def _confirm_split(self, state, base=1, start_ut=151.0):
+        # Feed K vessel-count-bump frames (thrust still 0) to confirm the split;
+        # the K-th frame emits the ignition activation. Returns (state, actions_on
+        # _the_ignition_frame).
+        actions = []
+        for i in range(self.K):
+            state, actions = mlib.bdock_decide(
+                state, snap(ut=start_ut + i, vessel_count=base + 1,
+                            available_thrust=0.0))
+        return state, actions
+
     def test_circularize_enters_separate_and_activates_stage_once(self):
         state, actions = self._at_station_separate(entry_count=1)
         self.assertEqual(state.phase, mlib.BDOCK_STATION_SEPARATE)
-        # EXACTLY ONE stage activation on entry (never a loop).
+        # EXACTLY ONE stage activation on entry (drop the spent core).
         self.assertEqual(actions, [Action(mlib.ACTION_ACTIVATE_STAGE)])
         self.assertEqual(state.separate_baseline_vessel_count, 1)
-        # A subsequent SEPARATE frame does NOT re-activate the stage.
+        self.assertEqual(state.separate_activations, 1)
+        # A subsequent split-settle frame (before confirm) does NOT re-activate.
         state, actions2 = mlib.bdock_decide(
-            state, snap(ut=152.0, vessel_count=2, available_thrust=200000.0))
+            state, snap(ut=151.0, vessel_count=2, available_thrust=0.0))
         self.assertEqual(state.phase, mlib.BDOCK_STATION_SEPARATE)
-        self.assertNotIn(Action(mlib.ACTION_ACTIVATE_STAGE), actions2)
         self.assertEqual(actions2, [])
+        self.assertEqual(state.separate_activations, 1)
 
-    def test_separate_completes_on_vessel_count_bump_debounced(self):
+    def test_split_then_ignition_then_completes(self):
+        # Realistic Kerbal X: core drops (thrust 0), then the ignition activation
+        # lights the orbital LV-T45 -> thrust up -> complete.
         state, _ = self._at_station_separate(entry_count=1)
-        # Two bumped frames are not yet enough (K = DEFAULT_DEBOUNCE_K = 3).
-        for ut in (152.0, 154.0):
-            state, _ = mlib.bdock_decide(state, snap(ut=ut, vessel_count=2))
+        state, ign_actions = self._confirm_split(state, base=1)
+        # The split-confirming frame emits EXACTLY ONE ignition activation.
+        self.assertTrue(state.separate_split_confirmed)
+        self.assertEqual(ign_actions, [Action(mlib.ACTION_ACTIVATE_STAGE)])
+        self.assertEqual(state.separate_activations, 2)
+        self.assertEqual(state.phase, mlib.BDOCK_STATION_SEPARATE)
+        # Two thrust frames are not enough; the K-th completes -> STATION-ORBIT.
+        for i in range(self.K - 1):
+            state, a = mlib.bdock_decide(
+                state, snap(ut=160.0 + i, vessel_count=2, available_thrust=2e5))
             self.assertEqual(state.phase, mlib.BDOCK_STATION_SEPARATE)
-        # Third consecutive bump completes -> STATION-ORBIT.
-        state, _ = mlib.bdock_decide(state, snap(ut=156.0, vessel_count=2))
+            self.assertEqual(a, [])
+        state, _ = mlib.bdock_decide(
+            state, snap(ut=170.0, vessel_count=2, available_thrust=2e5))
         self.assertEqual(state.phase, mlib.BDOCK_STATION_ORBIT)
-        self.assertEqual(state.separate_settle_streak, 0)
+        self.assertEqual(state.separate_activations, 0)  # reset on completion
 
-    def test_int_separate_completes_to_phasing_orbit(self):
+    def test_thrust_already_up_skips_second_activation(self):
+        # A craft whose decoupler + engine share a stage: thrust is up throughout
+        # the split debounce, so the split confirms with thrust ALREADY debounced
+        # and the phase completes with NO ignition activation (only 1 total).
+        state, _ = self._at_station_separate(entry_count=1)
+        actions_seen = []
+        for i in range(self.K):
+            state, a = mlib.bdock_decide(
+                state, snap(ut=151.0 + i, vessel_count=2, available_thrust=2e5))
+            actions_seen.append(a)
+        self.assertEqual(state.phase, mlib.BDOCK_STATION_ORBIT)
+        # Never a second activation: exactly the one entry activation happened.
+        for a in actions_seen:
+            self.assertEqual(a, [])
+        # separate_activations was 1 (entry) and reset to 0 on completion.
+        self.assertEqual(state.separate_activations, 0)
+
+    def test_activations_hard_capped_at_two(self):
+        # Split confirms but thrust never comes up: the ignition activation fires
+        # once, then NEVER a third (which would drop the heat shield).
+        state, _ = self._at_station_separate(entry_count=1)
+        state, _ = self._confirm_split(state, base=1)
+        self.assertEqual(state.separate_activations, 2)
+        activate = Action(mlib.ACTION_ACTIVATE_STAGE)
+        for i in range(20):
+            state, a = mlib.bdock_decide(
+                state, snap(ut=160.0 + i, vessel_count=2, available_thrust=0.0))
+            if state.done:
+                break
+            self.assertNotIn(activate, a)  # cap 2 -> never a third
+        self.assertEqual(state.separate_activations, 2)
+
+    def test_int_separate_two_step_completes_to_phasing_orbit(self):
         state, _ = _bdock_walk_to(mlib.BDOCK_INT_CIRCULARIZE)
         state, actions = mlib.bdock_decide(
             state, snap(ut=450.0, periapsis=89000.0, vessel_count=2))
         self.assertEqual(state.phase, mlib.BDOCK_INT_SEPARATE)
         self.assertEqual(actions, [Action(mlib.ACTION_ACTIVATE_STAGE)])
         self.assertEqual(state.separate_baseline_vessel_count, 2)
-        for ut in (452.0, 454.0, 456.0):
-            state, _ = mlib.bdock_decide(state, snap(ut=ut, vessel_count=3))
+        # Confirm split (thrust 0) then ignite + thrust up -> INT-PHASING-ORBIT.
+        for i in range(self.K):
+            state, _ = mlib.bdock_decide(
+                state, snap(ut=451.0 + i, vessel_count=3, available_thrust=0.0))
+        for i in range(self.K):
+            state, _ = mlib.bdock_decide(
+                state, snap(ut=460.0 + i, vessel_count=3, available_thrust=1.8e5))
         self.assertEqual(state.phase, mlib.BDOCK_INT_PHASING_ORBIT)
 
     def test_no_separation_within_budget_flakes_with_named_reason(self):
@@ -4167,31 +4240,47 @@ class BDockSeparateTests(unittest.TestCase):
         self.assertTrue(state.done)
         self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
         self.assertEqual(state.flake_phase, mlib.BDOCK_STATION_SEPARATE)
-        # The reason names the phase + the missing split, and surfaces through
-        # resolve_flight_verdict (not the generic "timed out").
         verdict, reason = mlib.resolve_flight_verdict(state, [])
         self.assertEqual(verdict, mlib.MISSION_FLAKE)
         self.assertIn("STATION-SEPARATE", reason)
         self.assertIn("no separation observed", reason)
         self.assertEqual(actions, [])
 
+    def test_split_but_no_ignition_flakes_with_distinct_reason(self):
+        # Split confirmed, ignition activation fired, but thrust stays 0 past the
+        # budget -> a DISTINCT give-up reason (not the no-split one).
+        state, _ = self._at_station_separate(entry_count=1)
+        state, _ = self._confirm_split(state, base=1)
+        self.assertTrue(state.separate_split_confirmed)
+        state, actions = mlib.bdock_decide(
+            state, snap(ut=150.0 + 121.0, vessel_count=2, available_thrust=0.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertEqual(verdict, mlib.MISSION_FLAKE)
+        self.assertIn("separated but no ignition", reason)
+        self.assertNotIn("no separation observed", reason)
+
     def test_vessel_count_stuck_at_baseline_does_not_complete(self):
         state, _ = self._at_station_separate(entry_count=1)
-        # vessel_count never exceeds the baseline (default-0 unread OR a genuine
-        # no-split): stays in SEPARATE, never advances, no streak accrues.
+        # vessel_count never exceeds the baseline: never confirms the split, never
+        # ignites, never advances.
         for ut in (152.0, 154.0, 156.0, 158.0):
-            state, _ = mlib.bdock_decide(state, snap(ut=ut, vessel_count=1))
+            state, _ = mlib.bdock_decide(
+                state, snap(ut=ut, vessel_count=1, available_thrust=0.0))
             self.assertEqual(state.phase, mlib.BDOCK_STATION_SEPARATE)
+            self.assertFalse(state.separate_split_confirmed)
             self.assertEqual(state.separate_settle_streak, 0)
         self.assertFalse(state.done)
 
-    def test_unread_vessel_count_never_completes_fail_closed(self):
-        # Fail-closed: an unread vessel_count (default 0) with baseline 0 is not a
-        # bump, so the SEPARATE phase never certifies a separation.
-        state, _ = self._at_station_separate(entry_count=0)
-        self.assertEqual(state.separate_baseline_vessel_count, 0)
-        for ut in (152.0, 154.0, 156.0):
-            state, _ = mlib.bdock_decide(state, snap(ut=ut))  # vessel_count default 0
+    def test_nan_thrust_never_completes_fail_closed(self):
+        # Fail-closed: after the split, an unread (NaN) available_thrust is never
+        # treated as ignited, so the phase does not complete on it.
+        state, _ = self._at_station_separate(entry_count=1)
+        state, _ = self._confirm_split(state, base=1)
+        for i in range(self.K + 2):
+            state, _ = mlib.bdock_decide(
+                state, snap(ut=160.0 + i, vessel_count=2))  # available_thrust NaN
             self.assertEqual(state.phase, mlib.BDOCK_STATION_SEPARATE)
         self.assertFalse(state.done)
 

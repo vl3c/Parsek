@@ -1351,19 +1351,25 @@ class BDockShellTests(unittest.TestCase):
         return [
             snap(ut=0.0),                                              # PRELAUNCH->STATION-ASCENT
             snap(ut=100.0, apoapsis=108000.0, mj_ascent_complete=True),  # ->STATION-CIRCULARIZE
-            snap(ut=150.0, periapsis=109000.0, vessel_count=1),       # ->STATION-SEPARATE (baseline=1)
-            snap(ut=152.0, vessel_count=2, available_thrust=200000.0),   # sep settle 1
-            snap(ut=154.0, vessel_count=2, available_thrust=200000.0),   # sep settle 2
-            snap(ut=156.0, vessel_count=2, available_thrust=200000.0),   # sep settle 3 -> STATION-ORBIT
+            snap(ut=150.0, periapsis=109000.0, vessel_count=1),       # ->STATION-SEPARATE (baseline=1, drop core)
+            snap(ut=151.0, vessel_count=2, available_thrust=0.0),     # split settle 1 (engine unlit)
+            snap(ut=152.0, vessel_count=2, available_thrust=0.0),     # split settle 2
+            snap(ut=153.0, vessel_count=2, available_thrust=0.0),     # split settle 3 -> ignite
+            snap(ut=154.0, vessel_count=2, available_thrust=200000.0),   # thrust settle 1
+            snap(ut=155.0, vessel_count=2, available_thrust=200000.0),   # thrust settle 2
+            snap(ut=156.0, vessel_count=2, available_thrust=200000.0),   # thrust settle 3 -> STATION-ORBIT
             snap(ut=160.0),                                           # ->STATION-COMMIT
             snap(ut=161.0, seam_commit_result="OK"),                 # ->INT-LAUNCH
             snap(ut=170.0, situation="PRE_LAUNCH"),                  # settle 1
             snap(ut=175.0, situation="PRE_LAUNCH"),                  # settle 2 -> INT-ASCENT
             snap(ut=400.0, apoapsis=88000.0, mj_ascent_complete=True),  # ->INT-CIRCULARIZE
-            snap(ut=450.0, periapsis=89000.0, vessel_count=2),       # ->INT-SEPARATE (baseline=2)
-            snap(ut=452.0, vessel_count=3, available_thrust=180000.0),   # sep settle 1
-            snap(ut=454.0, vessel_count=3, available_thrust=180000.0),   # sep settle 2
-            snap(ut=456.0, vessel_count=3, available_thrust=180000.0),   # sep settle 3 -> INT-PHASING-ORBIT
+            snap(ut=450.0, periapsis=89000.0, vessel_count=2),       # ->INT-SEPARATE (baseline=2, drop core)
+            snap(ut=451.0, vessel_count=3, available_thrust=0.0),    # split settle 1 (engine unlit)
+            snap(ut=452.0, vessel_count=3, available_thrust=0.0),    # split settle 2
+            snap(ut=453.0, vessel_count=3, available_thrust=0.0),    # split settle 3 -> ignite
+            snap(ut=454.0, vessel_count=3, available_thrust=180000.0),   # thrust settle 1
+            snap(ut=455.0, vessel_count=3, available_thrust=180000.0),   # thrust settle 2
+            snap(ut=456.0, vessel_count=3, available_thrust=180000.0),   # thrust settle 3 -> INT-PHASING-ORBIT
             snap(ut=460.0),                                          # ->SET-TARGET
             snap(ut=470.0, target_set=True),                        # ->RENDEZVOUS
             snap(ut=480.0, mj_rendezvous_enabled=True, target_distance=5000.0),

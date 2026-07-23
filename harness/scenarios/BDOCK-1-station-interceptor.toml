@@ -8,24 +8,32 @@
 # MATCH-VELOCITY with BOTH vessels still FULL STACKS (the spent lifter never
 # separated - MechJeb autostage only fires on EMPTY stages and the Kerbal X core
 # keeps residual fuel after circularize), and docking a ~20 t full stack on pod
-# RCS is broken.
+# RCS is broken. Flight 4 then dropped the core but reached RENDEZVOUS with
+# avThr=0.000 - the orbital LV-T45 sits in a LATER stage than the separation
+# decoupler (craft istg: separation Decoupler.2 = 2, LV-T45 = 1 in its own later
+# stage, heat-shield Decoupler.2 = 0 and MUST never fire), so SEPARATE is a
+# TWO-STEP contract: drop the core AND ignite the orbital engine (at most 2 stage
+# activations, verified by thrust; never a third).
 #
 #   PRELAUNCH            Station full stack on the pad.
 #   STATION-ASCENT       Full stack; MechJeb autostage drops the 6 radial
 #                        boosters + nose cones during ascent.
 #   STATION-CIRCULARIZE  Mainsail core stage burns the circularization node.
-#   STATION-SEPARATE     Drop the spent core: ONE stage activation, verified by a
-#                        new-vessel (spent core) spawn - NEVER a second activation
-#                        (the other stack decoupler jettisons the pod heat shield).
-#                        Station is now its ORBITAL STAGE: pod + dockingPort2 +
+#   STATION-SEPARATE     Two steps: (1) ONE stage activation drops the spent core,
+#                        verified by a new-vessel (spent core) spawn; (2) ignite
+#                        the orbital engine - at most ONE more activation, verified
+#                        by available_thrust > 0. HARD CAP 2 activations: a third
+#                        would fire the istg=0 heat-shield decoupler. Station is
+#                        now its ORBITAL STAGE, engine LIT: pod + dockingPort2 +
 #                        8 RCS + 4 monoprop tanks + LV-T45 + tank + probe core.
 #   STATION-ORBIT        Orbital stage parked (~110 km).
 #   STATION-COMMIT       The Station tree is committed mid-mission (route 1).
 #   INT-LAUNCH           launch_vessel the SAME Kerbal X as the Interceptor.
 #   INT-ASCENT           Full stack; autostage drops the boosters.
 #   INT-CIRCULARIZE      Core stage burns the circularization node (~90 km).
-#   INT-SEPARATE         Drop the spent Interceptor core (same ONE-activation
-#                        contract). Interceptor is now its ORBITAL STAGE.
+#   INT-SEPARATE         Same two-step contract: drop the spent Interceptor core
+#                        AND ignite its orbital engine (thrust-verified, cap 2).
+#                        Interceptor is now its ORBITAL STAGE, engine LIT.
 #   INT-PHASING-ORBIT    Orbital stage parked below the Station so it phases up.
 #   SET-TARGET           Target the captured Station handle.
 #   RENDEZVOUS           MechJeb rendezvous AP closes to ~100 m (orbital stages).
@@ -100,9 +108,10 @@ apoErrorMeters              = 10000
 periErrorMeters             = 10000
 ascentTimeoutSeconds        = 1200
 circularizeTimeoutSeconds   = 2400
-# Post-circularize stage separation (flight-3 lesson): drop the spent core before
-# parking. The separation is instantaneous; the budget is a stuck-decoupler
-# backstop (a flake, retryable), not a tuning knob.
+# Post-circularize two-step separation (flight-3 + flight-4 lessons): drop the
+# spent core AND ignite the orbital engine before parking. Budget spans both
+# steps; separation + ignition are near-instantaneous, so this is a stuck-
+# decoupler / failed-ignition backstop (a flake, retryable), not a tuning knob.
 separationTimeoutSeconds    = 120
 craftName                   = "Kerbal X"
 launchSite                  = "LaunchPad"

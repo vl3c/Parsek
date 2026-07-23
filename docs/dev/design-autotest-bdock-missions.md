@@ -263,20 +263,29 @@ FLIGHT filter (`MapFocusObjectOnSelectPatch` Case B), so the auto-behavior on a
 
 ### 3.3 Phase flow (both pieces)
 
-> **AMENDED 2026-07-24 (live flight 3 lesson).** Flight 3 reached MATCH-VELOCITY
-> with BOTH vessels still FULL STACKS: the spent lifter never separated (MechJeb
-> autostage only fires on EMPTY stages, and the Kerbal X core keeps residual fuel
-> after circularize, so nothing autostaged), and docking a ~20 t full stack on
-> pod RCS is broken. Two explicit stage-separation phases were inserted --
-> `STATION-SEPARATE` (between STATION-CIRCULARIZE and STATION-ORBIT) and
-> `INT-SEPARATE` (between INT-CIRCULARIZE and INT-PHASING-ORBIT). GENERAL
-> PRINCIPLE (operator directive, binding on every mission design): **per-phase
-> vehicle-configuration contracts are part of the mission spec** -- the vessel
-> configuration for each stage has to make sense for that part of the mission,
-> just like a real space mission, and every mission must WRITE DOWN the full
-> ordered step list including the configuration transitions (stage separations,
-> dockings, undocks). The full step list with the per-phase configuration
-> contract is the header comment block of `BDOCK-1-station-interceptor.toml`.
+> **AMENDED 2026-07-24 (live flight 3 + 4 lessons).** Flight 3 reached
+> MATCH-VELOCITY with BOTH vessels still FULL STACKS: the spent lifter never
+> separated (MechJeb autostage only fires on EMPTY stages, and the Kerbal X core
+> keeps residual fuel after circularize, so nothing autostaged), and docking a
+> ~20 t full stack on pod RCS is broken. Two explicit stage-separation phases were
+> inserted -- `STATION-SEPARATE` (between STATION-CIRCULARIZE and STATION-ORBIT)
+> and `INT-SEPARATE` (between INT-CIRCULARIZE and INT-PHASING-ORBIT). Flight 4 then
+> proved the separation itself works (vessel_count evidence fired, both cores
+> shed) but flaked in RENDEZVOUS with avThr=0.000 -- the orbital LV-T45 sits in a
+> LATER stage than the separation decoupler (craft istg: separation Decoupler.2 =
+> 2, LV-T45 = 1 in its own later stage, heat-shield Decoupler.2 = 0 and must never
+> fire), so the exactly-one-activation contract dropped the core but left the
+> engine UNLIT. SEPARATE is therefore an evidence-chained TWO-step contract: drop
+> the core (vessel_count evidence) THEN ignite the orbital engine
+> (available_thrust evidence), at most 2 stage activations, HARD-capped so a third
+> never fires the istg=0 heat-shield decoupler. GENERAL PRINCIPLE (operator
+> directive, binding on every mission design): **per-phase vehicle-configuration
+> contracts are part of the mission spec** -- the vessel configuration for each
+> stage has to make sense for that part of the mission, just like a real space
+> mission, and every mission must WRITE DOWN the full ordered step list including
+> the configuration transitions (stage separations, ignitions, dockings,
+> undocks). The full step list with the per-phase configuration contract is the
+> header comment block of `BDOCK-1-station-interceptor.toml`.
 
 ```
                         --- PIECE 1: STATION (pre-placed on the pad) ---
@@ -290,17 +299,23 @@ PRELAUNCH -> STATION-ASCENT -> STATION-CIRCULARIZE -> STATION-SEPARATE -> STATIO
    autostage drops the boosters + nose cones; the Mainsail core burns the
    circularize node. reachedOrbit evidence: apo/peri within window, ecc < max.)
 
-STATION-CIRCULARIZE -> STATION-SEPARATE   (post-circularize stage separation)
-  (ONE ACTION_ACTIVATE_STAGE drops the spent Mainsail core. Done evidence:
+STATION-CIRCULARIZE -> STATION-SEPARATE   (post-circularize two-step separation)
+  (Two evidence-chained steps. STEP 1 (drop the core): the entry
+   ACTION_ACTIVATE_STAGE drops the spent Mainsail core; step-1 done evidence =
    vessel_count INCREASES past the phase-entry baseline (the spent core spawns as
-   a NEW vessel), debounced K consecutive frames. Fail closed on an unread
-   vessel_count (default 0). Bounded give-up: separationTimeoutSeconds -> a named
-   FLAKE ("no separation observed (vessel_count did not increase)"), retryable.
-   EXACTLY ONE activation, verified by the spawn - NEVER a second, because the
-   OTHER stack Decoupler.2 jettisons the pod's HEAT SHIELD. SANITY (logged, not
-   hard-gated): the orbital stage must still have available_thrust > 0 for the
-   rendezvous. Config after: Station = ORBITAL STAGE ONLY (pod + dockingPort2 +
-   8 RCS + 4 monoprop tanks + LV-T45 + tank + probe core).)
+   a NEW vessel), debounced K consecutive frames; fail closed on an unread
+   vessel_count (default 0). STEP 2 (ignite the orbital engine): the LV-T45 sits
+   in a LATER stage than the separation decoupler, so AFTER the split -- if
+   available_thrust is not already debounced-positive -- emit EXACTLY ONE more
+   ACTION_ACTIVATE_STAGE to light it; phase done evidence = available_thrust > 0
+   debounced K frames; NaN fails closed (never treated as ignited). HARD CAP: at
+   most 2 activations per SEPARATE phase -- a THIRD would fire the istg=0
+   heat-shield Decoupler.2. Bounded give-up (separationTimeoutSeconds spans BOTH
+   steps) -> a named FLAKE that distinguishes "no separation observed (vessel_count
+   did not increase)" from "separated but no ignition (available_thrust stayed 0)",
+   retryable. available_thrust also rides the phase-transition log line. Config
+   after: Station = ORBITAL STAGE ONLY, engine LIT (pod + dockingPort2 + 8 RCS +
+   4 monoprop tanks + LV-T45 + tank + probe core).)
 
 STATION-ORBIT -> STATION-COMMIT   (bounded-wait, section 3.2 route 1)
   (ACTION_PARSEK_COMMIT_TREE -> command-seam CommitTree, poll for OK. TB is
@@ -319,9 +334,10 @@ STATION-COMMIT -> INT-LAUNCH
 INT-LAUNCH -> INT-ASCENT -> INT-CIRCULARIZE -> INT-SEPARATE -> INT-PHASING-ORBIT
   (MJ ascent to the ~90 km phasing park, BELOW the Station so it phases faster.
    Config: FULL STACK during ascent; the INT-SEPARATE phase applies the SAME
-   post-circularize one-activation separation as the Station leg - drop the spent
-   Interceptor core so it docks as its ORBITAL STAGE ONLY. Same vessel_count-bump
-   completion evidence + separationTimeoutSeconds give-up.)
+   two-step separation as the Station leg - drop the spent Interceptor core
+   (vessel_count evidence) AND ignite its orbital engine (available_thrust
+   evidence), cap 2 activations, so it docks as its ORBITAL STAGE ONLY with the
+   engine LIT.)
 
 INT-PHASING-ORBIT -> SET-TARGET
   (ACTION_SET_TARGET_VESSEL = the captured Station HANDLE. The rendezvous AP and the
@@ -610,8 +626,9 @@ Each phase carries a GAME-time budget and a wall watchdog; expiry FLAKES the mis
 ### 5.4 Budgets (all ESTIMATED, flagged)
 
 GAME-time phase budgets: ascent 1200 / circularize 600 each leg (the ~110 / ~90 km
-parks); `separationTimeoutSeconds = 120` each SEPARATE leg (the separation is
-instantaneous, so this is a stuck-decoupler backstop, not a tuning knob);
+parks); `separationTimeoutSeconds = 120` each SEPARATE leg (spans both the drop + the
+ignition step; both are near-instantaneous, so this is a stuck-decoupler /
+failed-ignition backstop, not a tuning knob);
 `rendezvousTimeoutSeconds = 30000` (phasing orbits under warp advance game time
 fast); `dockTimeoutSeconds = 600` (the 1x approach); `transferTimeoutSeconds =
 120` each; undock/settle 120. WALL: mission phase ~2400 s (Station ascent ~250 +
