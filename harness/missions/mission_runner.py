@@ -1002,15 +1002,23 @@ class KrpcMissionControl(MissionControl):
         # be absent; the machine's bounded give-ups own a non-advancing outcome.
         elif kind == mlib.ACTION_LAUNCH_VESSEL:
             # kRPC v0.5.4 SpaceCenter.launch_vessel(craft_directory, name,
-            # launch_site, recover=True, ...): resolves <save>/Ships/VAB/<name>.craft,
-            # recovers any vessel already on the pad, then StartWithNewLaunch (a
-            # FLIGHT->FLIGHT reload focused on the new craft). crew defaults to the
-            # KSP manifest (action.value crew-count seeding is a future refinement
-            # for the EVA-3 3-crew pod). Re-resolve the MechJeb handles against the
-            # NEW active vessel and reset the ascent-complete latch + read-fail
-            # streak so the fresh craft is judged from its own engage.
+            # launch_site, recover=True, crew=None, ...): resolves
+            # <save>/Ships/VAB/<name>.craft, recovers any vessel already on the
+            # pad, then StartWithNewLaunch (a FLIGHT->FLIGHT reload focused on the
+            # new craft). crew MUST be passed as an explicit EMPTY LIST by KEYWORD:
+            # the installed 0.5.4 client stub orders recover BEFORE crew (a
+            # positional list lands on recover: "argument 3 must be bool"), and its
+            # crew=None default fails protobuf coercion (None -> List(string)
+            # ValueError) before the RPC is even sent - both caught by the first
+            # FORGE-bdock-station live runs. The server doc contract is "Pass an
+            # empty list to use default crew assignments" (pinned source
+            # SpaceCenter.cs LaunchVessel), so [] = default manifest, controllable
+            # pod. Named crew seeding (EVA-3 3-crew pod) remains the future
+            # refinement. Re-resolve the MechJeb handles against the NEW active
+            # vessel and reset the ascent-complete latch + read-fail streak so the
+            # fresh craft is judged from its own engage.
             sc.launch_vessel("VAB", str(action.text), str(
-                getattr(action, "launch_site", None) or "LaunchPad"))
+                getattr(action, "launch_site", None) or "LaunchPad"), crew=[])
             self._mj_ever_enabled = False
             self._read_fail_streak = 0
             if self._use_mechjeb:
