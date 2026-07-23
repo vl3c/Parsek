@@ -32,7 +32,10 @@ mission = "bdock_dock_transfer"
 # CommitTree for the Interceptor tree TA. Do NOT add a second post-mission CommitTree
 # (the Station tree is already committed; a second seam CommitTree with no active
 # tree returns ERROR and reds the run).
-# Budget arithmetic (ESTIMATED, section 5.4): missionBudget 2400 (WALL) >= 30 connect
+# Budget arithmetic (RE-TIMED from flight 2, 2026-07-24): missionBudget 4800 (WALL).
+# Flight 2 reached MATCH-VELOCITY (ut 10420, ~2.9 game-hours of rendezvous phasing
+# at capped warp) at exactly wall 2400 -- the old estimate covered the rendezvous
+# but not dock/transfer/undock. 4800 = 2x the observed need. Originally >= 30 connect
 # + Station ascent ~250 + circularize + mid-mission commit + Interceptor launch/ascent
 # ~250 + circularize + rendezvous ~200 (under warp) + docking ~120-180 (1x) + two
 # transfers ~10 + undock/settle + margin. runtime 3000 (SF-5) >= 240 LoadGame + ~5
@@ -41,7 +44,7 @@ mission = "bdock_dock_transfer"
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
-  { phase = "mission",  expect = "MISSION-OK", budget = 2400 },
+  { phase = "mission",  expect = "MISSION-OK", budget = 4800 },
   { cmd = "CommitTree",                                          expect = "OK" },
   { cmd = "FlushAndQuit",                                        expect = "OK" },
 ]
@@ -122,7 +125,7 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 allowedAnomalies = []
 
 [runtime]
-budgetSeconds = 3000
+budgetSeconds = 5700
 
 [retry]
 policy = "once"
