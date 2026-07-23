@@ -112,6 +112,22 @@ namespace Parsek.TestCommands
         /// <c>SpaceCenterBuilding</c> instances exist. Gates <c>upgrade-facility</c> only.</summary>
         public bool AtSpaceCenter;
 
+        // ----- M-C2 EVA seam-verb bits (design-autotest-eva-missions.md, Data Model) -----
+
+        /// <summary><c>FlightGlobals.ActiveVessel?.isEVA == true</c>. The readiness bit for
+        /// <c>PlantFlag</c> / <c>EvaBoard</c>: both defer <c>not-eva</c> while the preceding
+        /// EvaExit's auto-switch is still settling.</summary>
+        public bool ActiveVesselIsEva;
+
+        /// <summary><c>ParsekFlight.Instance.StructuralSplitPending</c> (a deferred split /
+        /// branch in progress). <c>EvaExit</c> defers <c>split-pending</c> on it so the
+        /// <c>OnCrewOnEva</c> skip path cannot silently swallow the branch.</summary>
+        public bool StructuralSplitPending;
+
+        /// <summary><c>FlightEVA.fetch != null</c> (the FLIGHT-scene singleton). <c>EvaExit</c>
+        /// defers <c>flighteva-not-ready</c> while it is absent (scene still settling).</summary>
+        public bool FlightEvaPresent;
+
         /// <summary>The replayed journal phase for THIS command id (None if fresh).</summary>
         public JournalPhase JournalPhase;
     }
@@ -142,6 +158,11 @@ namespace Parsek.TestCommands
 
         // ----- M-C1.1 follow-up -----
         void SaveGame(ParsedCommand cmd);
+
+        // ----- M-C2 EVA seam verbs -----
+        void EvaExit(ParsedCommand cmd);
+        void EvaBoard(ParsedCommand cmd);
+        void PlantFlag(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -193,6 +214,13 @@ namespace Parsek.TestCommands
                 // state; AnyScene with an in-executor no-game refusal (the design's
                 // AnyScene-with-a-game precondition: refuse at MAINMENU / no CurrentGame).
                 ["SaveGame"] = VerbSceneRequirement.AnyScene,
+                // M-C2 EVA seam verbs. All three run from FLIGHT (spawn / plant / board on the
+                // active vessel). The finer preconditions (kerbal aboard, proximity, the stable
+                // flag lock) are executor-side refusals; the EVA-specific dispatch guards
+                // (split-pending / flighteva-not-ready / not-eva) are applied in DecideDispatch.
+                ["EvaExit"] = VerbSceneRequirement.RequiresFlight,
+                ["EvaBoard"] = VerbSceneRequirement.RequiresFlight,
+                ["PlantFlag"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>
@@ -291,6 +319,27 @@ namespace Parsek.TestCommands
                         return DispatchResult.Defer("not-at-space-center");
                     break;
                 }
+
+                case "EvaExit":
+                    // A LoadGame scene reload mid-EVA would silently discard the spawn, so
+                    // refuse (fail-fast, like InvokeRewind). Then defer while a Parsek split /
+                    // branch is pending (the OnCrewOnEva skip path would silently swallow the
+                    // branch) or while the FlightEVA singleton has not settled in yet.
+                    if (state.LoadInFlight)
+                        return DispatchResult.Reject("load-in-flight");
+                    if (state.StructuralSplitPending)
+                        return DispatchResult.Defer("split-pending");
+                    if (!state.FlightEvaPresent)
+                        return DispatchResult.Defer("flighteva-not-ready");
+                    break;
+
+                case "PlantFlag":
+                case "EvaBoard":
+                    // Both act on the EVA kerbal, so defer while the preceding EvaExit's
+                    // auto-switch is still settling (the active vessel is not yet the EVA one).
+                    if (!state.ActiveVesselIsEva)
+                        return DispatchResult.Defer("not-eva");
+                    break;
             }
 
             // 5. Ready to execute.
@@ -353,6 +402,18 @@ namespace Parsek.TestCommands
         /// bound well under an infinite hang (M-C1, ~120 s).</summary>
         internal const double TimeJumpSeconds = 120.0;
 
+        /// <summary>EvaExit (M-C2): dispatch defer (split-pending / scene settle) + spawn +
+        /// auto-switch + optional ladder release + optional settleSeconds dwell.</summary>
+        internal const double EvaExitSeconds = 120.0;
+
+        /// <summary>PlantFlag (M-C2): not-eva defer + the F1 bounded-wait plant gate (landing
+        /// settle) + heading acquire + animation + dialog answer.</summary>
+        internal const double PlantFlagSeconds = 180.0;
+
+        /// <summary>EvaBoard (M-C2): not-eva defer + board + vessel teardown + focus switch +
+        /// board-merge quiescence + settle.</summary>
+        internal const double EvaBoardSeconds = 120.0;
+
         /// <summary>
         /// The deferral budget (seconds) for <paramref name="verb"/>. For RunTests the
         /// scenario's declared runtime budget is authoritative when supplied via
@@ -374,6 +435,12 @@ namespace Parsek.TestCommands
                     return AnswerMergeDialogSeconds;
                 case "TimeJump":
                     return TimeJumpSeconds;
+                case "EvaExit":
+                    return EvaExitSeconds;
+                case "PlantFlag":
+                    return PlantFlagSeconds;
+                case "EvaBoard":
+                    return EvaBoardSeconds;
                 // KscAction rides the default 60 s (career-ready / SPACECENTER wait; the
                 // action itself is immediate).
                 default:

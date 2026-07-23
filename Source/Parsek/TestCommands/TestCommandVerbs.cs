@@ -27,13 +27,15 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up): 15 verbs. M-C1 promoted
-        // InvokeRewind, AnswerMergeDialog, TimeJump, and KscAction from Reserved to
-        // Implemented (design-autotest-seam-verbs-c1.md). The M-C1.1 follow-up added
-        // SaveGame (the M-B3 L2/R6 persist-before-reload dependency); it was never in the
-        // reserved envelope, so it is a NEW implemented verb name. The wire tokens for the
-        // promoted verbs are byte-identical before and after; only the response changes
-        // (not-implemented-v1 -> real).
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch): 18 verbs.
+        // M-C1 promoted InvokeRewind, AnswerMergeDialog, TimeJump, and KscAction from
+        // Reserved to Implemented (design-autotest-seam-verbs-c1.md). The M-C1.1 follow-up
+        // added SaveGame (the M-B3 L2/R6 persist-before-reload dependency). M-C2 added the
+        // EVA family EvaExit / EvaBoard / PlantFlag (design-autotest-eva-missions.md); like
+        // SaveGame, none was ever in the reserved envelope, so they are NEW implemented verb
+        // names (additive, not a promotion). The wire tokens for the promoted verbs are
+        // byte-identical before and after; only the response changes (not-implemented-v1 ->
+        // real).
         private static readonly HashSet<string> ImplementedVerbs = new HashSet<string>
         {
             "SetSetting",
@@ -51,6 +53,9 @@ namespace Parsek.TestCommands
             "TimeJump",
             "KscAction",
             "SaveGame",
+            "EvaExit",
+            "EvaBoard",
+            "PlantFlag",
         };
 
         // Reserved (recognized, not implemented in v1): 11 verbs.
