@@ -91,13 +91,13 @@ The "Parsek surface verified" column is the reason the case exists.
 | H6-route-rewind-timeline | daily | Route-rewind lifecycle rows, dormant classify + Tick materialize, kept-route reconciliation | None - its next daily run IS its live-prove |
 | S1.5-rewind-loop | operator | TimeJump-past-EndUT spawn, then rewind-strip-respawn cycle observables | Operator observation session (B9 pair) |
 | S4.1-rewind-merge | operator | Full re-fly cycle: InvokeRewind a crashed slot, merge-dialog fold, corpus survival, read-back guard | Operator observation session (B9 pair) |
-| B10-career-passive-safety | pending-fixture | Fresh career + stock actions only = ZERO economy drift (the BUG-A science/funds corruption class) | Career fixture saves |
-| L1-passive-sandbox | pending-fixture | Sandbox cold load moves nothing (recalc/orchestrator/patcher inert) | Career fixture saves |
-| L1-hire-kerbal-career | pending-fixture | Hire debits funds by exactly the pinned cost, nothing else | Career fixture saves |
-| L1-dismiss-kerbal-career | pending-fixture | Dismiss is pool-neutral | Career fixture saves |
-| L1-research-node-career | pending-fixture | Research debits science exactly | Career fixture saves |
-| L1-research-node-science | pending-fixture | Same in science mode (no funds/rep pools) | Career fixture saves |
-| L1-upgrade-facility-career | pending-fixture | Facility upgrade debits funds per-level exactly | Career fixture saves |
+| B10-career-passive-safety | pending-fixture | Fresh career + stock actions only = ZERO economy drift (the BUG-A science/funds corruption class) | Fixture committed (fresh-career); first green live run re-tiers to daily |
+| L1-passive-sandbox | pending-fixture | Sandbox cold load moves nothing (recalc/orchestrator/patcher inert) | Fixture committed (fresh-sandbox); + seed-baseline no-pools gate must accept an empty-manifest sandbox template (see fixtures README) |
+| L1-hire-kerbal-career | pending-fixture | Hire debits funds by exactly the pinned cost, nothing else | Fixture committed (fresh-career, applicant Verhat Kerman); first green live run confirms -24000 + re-tiers to daily |
+| L1-dismiss-kerbal-career | pending-fixture | Dismiss is pool-neutral | Fixture committed (fresh-career, dismiss Bill Kerman); first green live run re-tiers to daily |
+| L1-research-node-career | pending-fixture | Research debits science exactly | Fixture committed (fresh-career, basicRocketry=5 verified); first green live run re-tiers to daily |
+| L1-research-node-science | pending-fixture | Same in science mode (no funds/rep pools) | Fixture committed (fresh-science); RnDPresent widen landed; first green live run re-tiers to daily |
+| L1-upgrade-facility-career | pending-fixture | Facility upgrade debits funds per-level exactly | Fixture committed (fresh-career); first green live run confirms -150000 + re-tiers to daily |
 
 ### Designed, not yet implemented
 
@@ -152,8 +152,11 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
 
 ## Operator items outstanding
 
-1. Career fixture saves (3) - the top item; activates 7 ledger test cases
-   and re-tiers them pending-fixture -> daily.
+1. Career fixture saves (3) - DONE (file-constructed + committed:
+   fresh-career / fresh-science / fresh-sandbox). Remaining: first green
+   live run of the 7 ledger cases re-tiers them pending-fixture -> daily
+   (and confirms the hire / upgrade author constants). L1-passive-sandbox
+   also needs the seed-baseline no-pools gate resolved (fixtures README).
 2. Stock-award real-line capture session (unblocks the pattern rewrite).
 3. B9 rewind observation session (S1.5 + S4.1).
 

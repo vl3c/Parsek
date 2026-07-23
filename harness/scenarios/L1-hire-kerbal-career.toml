@@ -16,14 +16,14 @@ craft = []
 [driver]
 kind = "seam"
 # hire-kerbal mirrors the stock debit Funding.AddFunds(-hireCost, CrewRecruited) then
-# KerbalRoster.HireApplicant. The applicant name below is the ONE known applicant the
+# KerbalRoster.HireApplicant. "Verhat Kerman" is the ONE known applicant the fresh-career
 # fixture pins (the hire TARGET, not the cost determinant -- the recruit-cost curve keys
-# on the HIRED-CREW COUNT). VERIFY-PENDING-OPERATOR: match the applicant name to whatever
-# the fixture's known applicant is actually named, recorded in the fixture README.
+# on the HIRED-CREW COUNT of 4). Recorded in harness/fixtures/saves/README.md.
+# VERIFY-PENDING-OPERATOR: the -24000 hire cost is confirmed on the first live run.
 steps = [
   { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
-  { cmd = "KscAction",    args = { action = "hire-kerbal", kerbal = "FIXTURE_APPLICANT" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",    args = { action = "hire-kerbal", kerbal = "Verhat Kerman" }, expect = "OK", budget = 60 },
   { cmd = "RecordingState", expect = "OK" },
   { cmd = "FlushAndQuit",   expect = "OK" },
 ]
