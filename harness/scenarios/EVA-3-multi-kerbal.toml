@@ -1,0 +1,71 @@
+schema = 1
+id = "EVA-3-multi-kerbal"
+# PENDING-FIXTURE (design M-C2 EVA-3): the fixtures/saves/eva3-pad-3crew template (a bare Mk1-3
+# pod, 3 named crew, pad, sandbox) is NOT committed yet - operator step P2. Stays pending-fixture
+# until the fixture lands, then re-tiers to "nightly" (design: nightly at first, daily candidate
+# after flake data). IMPLEMENTED PENDING IN-GAME PROOF: P3 pins the count window; the exact
+# "[Pipeline-Smoothing]" message is regex-escaped here per the design's implementation-pin note.
+tier = "pending-fixture"
+description = "Multi-kerbal sequential EVA: two kerbals of a 3-crew pod exit and re-board SEQUENTIALLY within one tree - two EVA branch points, two board merges, multi-crew Start/End manifests."
+instanceProfile = "stock-minimal"
+tags = ["eva", "eva-branch", "multi-crew", "D2", "D5", "B3"]
+
+[fixture]
+# NEW eva3-pad-3crew: a BARE Mk1-3 pod (3 named crew: Valentina, Bob, and one more) on the pad,
+# sandbox. The Kerbal X's pod also holds 3 but sits ~20 m up a full stack (ladder release lethal,
+# pad boarding unreachable); the bare pod gives the same 3-crew pod at ground level.
+saveTemplate = "fixtures/saves/eva3-pad-3crew"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Sequencing is forced by stock ground truth 5 (a kerbal on the hatch blocks the next exit):
+# exit A -> board A -> exit B -> board B never hits the obstruction. No flag (D7 claimed by
+# EVA-1); release stays false, board from the ladder. The kerbal args are RAW (F3); the fixture
+# bakes the named crew. The SECOND EvaExit is exactly the command the F2 quiescence conjunct
+# protects: without it, a board-merge still in flight would leave IsRecording momentarily false
+# and mis-route the exit through auto-record.
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                              expect = "OK" },
+  { cmd = "EvaExit",      args = { kerbal = "Valentina Kerman" },        expect = "OK", budget = 120 },
+  { cmd = "EvaBoard",                                                    expect = "OK", budget = 120 },
+  { cmd = "EvaExit",      args = { kerbal = "Bob Kerman" },              expect = "OK", budget = 120 },
+  { cmd = "EvaBoard",                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                               expect = "OK" },
+  { cmd = "CommitTree",                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                expect = "OK" },
+]
+
+[dimensionsCovered]
+D2  = ["structural-event-snapshots"]   # asserted by the [Pipeline-Smoothing] token
+D5  = ["eva-branch"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations.recordings]
+count = { min = 3, max = 6 }   # pod + 2 EVA branches certain; chain-backs pinned by P3
+
+[expectations.logContracts]
+# Verbose tokens (need the verboseLogging pin): "Tree board merge completed",
+# "[Pipeline-Smoothing]" (regex-escaped). Info: the rest. The "dropping recorder data"
+# forbidden token is lifted from the EvaTwiceFromSameCapsule assertion (no recorder data
+# dropped across repeated branch setup).
+required  = ["Tree branch created: type=EVA", "\\[Pipeline-Smoothing\\]",
+             "detected boarding from EVA", "Tree board merge completed",
+             "committree committed=true"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]", "dropping recorder data"]
+
+allowedAnomalies = []
+
+[runtime]
+# 960 >= 300 LoadGame + 4 x 120 EVA verbs + fast verbs + 60 margin (S0.6 pattern).
+budgetSeconds = 960
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

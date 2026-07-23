@@ -112,6 +112,10 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     "SetSetting", "StartRecording", "StopRecording", "CommitTree", "DiscardTree",
     "RecordingState", "RunTests", "LoadGame", "MissionMark", "FlushAndQuit",
     "InvokeRewind", "AnswerMergeDialog", "TimeJump", "KscAction", "SaveGame",
+    # M-C2 EVA batch (design-autotest-eva-missions.md): EvaExit / EvaBoard / PlantFlag,
+    # additive like SaveGame (never in the RESERVED envelope). 18 total, mirroring the C#
+    # TestCommandVerbs.ImplementedVerbs set exactly.
+    "EvaExit", "EvaBoard", "PlantFlag",
 )
 RESERVED_SEAM_VERBS: Tuple[str, ...] = (
     "StartLoopPlayback", "StopPlayback", "EnterWatchMode", "SealSlot", "StashSlot",
@@ -169,6 +173,15 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     "AnswerMergeDialog": 120.0,
     "TimeJump": 120.0,
     "KscAction": 60.0,
+    # M-C2 EVA verbs (F5): each per-verb DeferralBudget governs BOTH the head-defer AND the
+    # two-phase completion wait (there is ONE C# budget per verb). Without these the harness
+    # step-wait would ride the 60s default + margin and could KILL a genuinely-deferring
+    # PlantFlag (180s) at ~120s, converting a retryable seam TIMEOUT into a terminal KILLED.
+    # None is a DEFERRED_SEAM_VERB (all under the 540s cap); they ride this per-verb dict like
+    # AnswerMergeDialog / KscAction.
+    "EvaExit": 120.0,
+    "PlantFlag": 180.0,
+    "EvaBoard": 120.0,
 }
 
 # The literal the harness substitutes with runSaveName before writing a LoadGame
@@ -1186,10 +1199,14 @@ class LogValidateProfile:
 def spec_expects_live_recording(spec: Dict) -> bool:
     """True when the RUN itself is expected to write recording start/stop log
     lines: the driver carries a StartRecording step, or pins
-    autoRecordOnLaunch=true via SetSetting. Injection-seeded scenarios
-    (recordings present in the SAVE but never recorded live) return False -
+    autoRecordOnLaunch=true / autoRecordOnEva=true via SetSetting. Injection-seeded
+    scenarios (recordings present in the SAVE but never recorded live) return False -
     the first live S1.4 run proved count.max>0 is the WRONG suppression key:
-    it red-flagged REC-001/REC-003 on a run that legitimately never records."""
+    it red-flagged REC-001/REC-003 on a run that legitimately never records.
+    M-C2 (F6): EVA-2 is a genuinely-recording run whose ONLY recording trigger is the
+    autoRecordOnEva=true pin (no StartRecording, no autoRecordOnLaunch). Without this
+    clause its REC-001/REC-003 marker rules would be SUPPRESSED and oracle invariant 5
+    would be silently false on a run that really records."""
     driver = spec.get("driver", {}) or {}
     for step in driver.get("steps", []) or []:
         cmd = (step.get("cmd") or "")
@@ -1198,7 +1215,7 @@ def spec_expects_live_recording(spec: Dict) -> bool:
         if cmd == "SetSetting":
             name = (step.get("args", {}) or {}).get("name", "")
             value = str((step.get("args", {}) or {}).get("value", "")).lower()
-            if name == "autoRecordOnLaunch" and value == "true":
+            if name in ("autoRecordOnLaunch", "autoRecordOnEva") and value == "true":
                 return True
     return False
 

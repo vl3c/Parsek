@@ -644,6 +644,40 @@ class SpecValidationRejectTests(unittest.TestCase):
         self.assertFalse(any("SaveGame" in e for e in v.errors),
                          "SaveGame wrongly flagged: %s" % list(v.errors))
 
+    def test_mc2_eva_verbs_implemented_not_reserved(self):
+        # M-C2: EvaExit / EvaBoard / PlantFlag are NEW implemented verbs (never in the
+        # RESERVED envelope), additive like SaveGame. Verb table is 18 implemented / 11
+        # reserved (mirrors the C# TestCommandVerbs counts).
+        for verb in ("EvaExit", "EvaBoard", "PlantFlag"):
+            with self.subTest(verb=verb):
+                self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 18)
+        self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 11)
+
+    def test_mc2_eva_verb_step_accepted(self):
+        # A spec step using an EVA verb is not flagged RESERVED / unknown.
+        for verb in ("EvaExit", "EvaBoard", "PlantFlag"):
+            with self.subTest(verb=verb):
+                def m(s):
+                    s.get("expectations", {}).pop("ledger", None)
+                    s["driver"]["steps"].insert(1, {"cmd": verb, "expect": "OK", "budget": 120})
+                v = self._reject(m)
+                self.assertFalse(any(verb in e for e in v.errors),
+                                 "%s wrongly flagged: %s" % (verb, list(v.errors)))
+
+    def test_mc2_eva_dispatch_budgets_mirror_c_sharp(self):
+        # F5: the per-verb dispatch deferral budgets mirror the C# DeferralBudget table
+        # (120 / 180 / 120). Without them the harness step-wait would ride the 60s default
+        # and could KILL a genuinely-deferring PlantFlag at ~120s.
+        self.assertEqual(hlib.dispatch_deferral_budget("EvaExit"), 120.0)
+        self.assertEqual(hlib.dispatch_deferral_budget("PlantFlag"), 180.0)
+        self.assertEqual(hlib.dispatch_deferral_budget("EvaBoard"), 120.0)
+        # None is a two-phase DEFERRED_SEAM_VERB (all under the 540s cap).
+        for verb in ("EvaExit", "PlantFlag", "EvaBoard"):
+            self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+            self.assertLess(hlib.dispatch_deferral_budget(verb), hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS)
+
     def test_ledger_with_rewind_or_dialog_rejected(self):
         # Item 1: an [expectations.ledger] block cannot pair with InvokeRewind /
         # AnswerMergeDialog (a rewind/merge rewrites the career pools the seed+manifest
@@ -1677,6 +1711,24 @@ class SpecExpectsLiveRecordingTests(unittest.TestCase):
         self.assertTrue(hlib.spec_expects_live_recording(spec))
         prof = hlib.select_logvalidate_profile(True, False)
         self.assertFalse(prof.suppress_recording_rules)
+
+    def test_mc2_auto_record_on_eva_pin_true_expects_live(self):
+        # F6: EVA-2's ONLY recording trigger is the autoRecordOnEva=true pin (no
+        # StartRecording, no autoRecordOnLaunch). Without learning it, this genuinely-
+        # recording run's REC-001/REC-003 rules would be SUPPRESSED (oracle invariant 5
+        # silently false).
+        spec = self._spec([
+            {"cmd": "SetSetting", "args": {"name": "autoRecordOnEva", "value": "true"}},
+            {"cmd": "EvaExit", "args": {"settleSeconds": "10"}},
+        ])
+        self.assertTrue(hlib.spec_expects_live_recording(spec))
+        prof = hlib.select_logvalidate_profile(hlib.spec_expects_live_recording(spec), False)
+        self.assertFalse(prof.suppress_recording_rules)
+
+    def test_mc2_auto_record_on_eva_pin_false_not_live(self):
+        # An autoRecordOnEva=false pin does NOT imply live recording.
+        spec = self._spec([{"cmd": "SetSetting", "args": {"name": "autoRecordOnEva", "value": "false"}}])
+        self.assertFalse(hlib.spec_expects_live_recording(spec))
 
 
 # ---------------------------------------------------------------------------
