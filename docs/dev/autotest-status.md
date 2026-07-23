@@ -1,8 +1,10 @@
 # Automated Testing System - Status
 
-Last updated: 2026-07-22 (post PR #1339, flake-ledger reset). This file is the
-single at-a-glance answer to "what is done, what is proven, what is gated" for
-the automated testing initiative, so nobody has to re-derive status from code.
+Last updated: 2026-07-23 (B-DOCK dock/transfer/undock lane + fixture-forge
+IMPLEMENTED, branch `autotest-bdock-impl`, pending forge run + first flight).
+This file is the single at-a-glance answer to "what is done, what is proven,
+what is gated" for the automated testing initiative, so nobody has to
+re-derive status from code.
 
 ## Purpose - never forget it
 
@@ -45,9 +47,11 @@ result through a seven-verifier chain (driver validity, in-game test batch,
 offline recording analyzer, log validation, results schema, anomaly sweep,
 expectations). Ten test cases are live-proven green end-to-end, including
 Mun/Minmus/Duna flybys with a certified no-1x-coast warp profile. All
-infrastructure modules are shipped and merged. Coverage stands at 52 of 238
-registry cells - breadth (EVA, orbit, landing, career-ledger lanes) is the
-frontier.
+infrastructure modules are shipped and merged. The FIRST two-vessel lane
+(B-DOCK: dock/transfer/undock, the logistics-route recording entry point) is
+IMPLEMENTED and headless-green, pending a headless fixture-forge run + its
+first flight. Coverage stands at 52 of 238 registry cells - breadth (EVA,
+orbit, landing, docking, career-ledger lanes) is the frontier.
 
 ## Infrastructure modules (all SHIPPED and merged)
 
@@ -64,7 +68,7 @@ frontier.
 | M-C1 seam verbs batch 1 | InvokeRewind, AnswerMergeDialog, TimeJump, KscAction, SaveGame | SHIPPED (#1320/#1325) |
 | M-C2 EVA verbs + missions | EvaExit/EvaBoard/PlantFlag -> crew/EVA/flag recording coverage | DESIGN MERGED (#1339); implementation NOT started |
 
-## Test cases (all 20 committed scenarios)
+## Test cases (all 22 committed scenarios)
 
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
@@ -84,11 +88,13 @@ The "Parsek surface verified" column is the reason the case exists.
 | S1.4-injected-playback | daily | 272-tree corpus injection, load, ghost map presence + polyline render with no anomalies | D6 basic-playback/ghost-map-presence/non-orbital-polyline; D16 sidecar-prec/sidecar-pcrf |
 | H5-invariants-corpus | daily | The full synthetic corpus (306 recordings / 276 trees) loads intact and holds every recording invariant in-game | D14 sandbox/scene-flight; D16 sidecar-prec/schema-gate |
 
-### Committed, not yet live-run (10)
+### Committed, not yet live-run (12)
 
 | Test case | Tier | Parsek surface verified | Blocker |
 |---|---|---|---|
 | H6-route-rewind-timeline | daily | Route-rewind lifecycle rows, dormant classify + Tick materialize, kept-route reconciliation | None - its next daily run IS its live-prove |
+| BDOCK-1-station-interceptor | pending-fixture | FIRST two-vessel flight: cross-tree Dock branch, authoritative onVesselsUndocking split, RouteConnectionWindow recorded-delta contract (the new `Route window delta:` line), same-craft-twice launch identity | Forge run + fixture commit (below), then re-tier to nightly + first flight |
+| FORGE-bdock-station | operator | (Not a Parsek-surface test) FIXTURE-FORGE: launch_vessel the docking Kerbal X onto the pad + SaveGame -> stamps the bdock-station-pad fixture headlessly (replaces the operator fixture flight) | None - runnable now on a provisioned instance; harvest tool normalizes the output |
 | S1.5-rewind-loop | operator | TimeJump-past-EndUT spawn, then rewind-strip-respawn cycle observables | Operator observation session (B9 pair) |
 | S4.1-rewind-merge | operator | Full re-fly cycle: InvokeRewind a crashed slot, merge-dialog fold, corpus survival, read-back guard | Operator observation session (B9 pair) |
 | B10-career-passive-safety | pending-fixture | Fresh career + stock actions only = ZERO economy drift (the BUG-A science/funds corruption class) | Career fixture saves |
@@ -125,8 +131,9 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
 
 ## Verification layers (all active)
 
-- Headless: 281 mission-machine + 397 harness + 203 provisioner unittest
-  cells; 18k+ xUnit on the C# side (analyzer, seam, log contracts).
+- Headless: 330 mission-machine + 397 harness + 203 provisioner unittest
+  cells; 18k+ xUnit on the C# side (analyzer, seam, log contracts, the
+  new route-window delta formatter).
 - Per-run: the 7-verifier chain + collect-logs on every non-PASS.
 - In-game: 158 runtime tests / 42 categories (autorun-able), H5 invariants,
   log-contract tests.
@@ -168,6 +175,13 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
    recording, surface TrackSections off Kerbin, the landing FSM seam.
 4. Ledger campaign resumption once career fixtures exist (L1 -> L2+): the
    initiative's END GOAL.
-5. Candidates (unscheduled): Eve flyby (cheap B7 clone), stock-award pattern
-   rewrite, nightly rotation shakedown, docking/rendezvous lane (dock-undock
-   recording structure), EVA registry growth (D5/D12 cells).
+5. B-DOCK first flight - the docking/rendezvous lane (dock-undock recording
+   structure) is now IMPLEMENTED (`autotest-bdock-impl`); remaining is the
+   headless fixture-forge run (`FORGE-bdock-station` -> harvest -> commit
+   `bdock-station-pad`), re-tier BDOCK-1 pending-fixture -> nightly, and the
+   first flight (P1-P9 live-proves). It unlocks the D10 route-candidate +
+   D5 cross-tree-dock/undock-split recording surface.
+6. Candidates (unscheduled): Eve flyby (cheap B7 clone), stock-award pattern
+   rewrite, nightly rotation shakedown, EVA registry growth (D5/D12 cells),
+   an orbital-rendezvous-dock D10 registry value + a same-craft-twice
+   identity D18 value (the two B-DOCK coverage gaps).
