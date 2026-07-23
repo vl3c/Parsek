@@ -1,0 +1,82 @@
+schema = 1
+id = "EVA-1-pad-flag"
+# NIGHTLY (design M-C2 EVA-1): flight-free, daily-tier cost class once the operator run
+# (P1 load-and-focus sanity, P3 count-window pin, P6 flag-capture proof) promotes it to
+# daily. Nightly until then. IMPLEMENTED PENDING IN-GAME PROOF: the verbs + deciders are
+# unit-covered, but the first live run pins the recordings-count window (R-C) and confirms
+# the required log tokens; the exact "[Pipeline-Smoothing]" structural-snapshot message is
+# regex-escaped here (the design deferred exact-message pinning to implementation).
+tier = "nightly"
+description = "Ground EVA on the pad: exit + ladder release + flag plant + re-board (single kerbal); the foreground EVA branch, structural snapshot, FlagEvent capture, and board merge all record."
+instanceProfile = "stock-minimal"
+tags = ["eva", "flag-plant", "eva-branch", "D2", "D5", "D7", "B3", "S0.2"]
+
+[fixture]
+# gloops-airshow SANDBOX pod (committed; the same fixture S0.5/S0.6 use). The active vessel
+# is a single mk1pod.v2 crewed with Jebediah Kerman, PRELAUNCH on the LaunchPad (P1 confirms
+# the crewing). No new fixture needed (F11).
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Recorder live on the pod -> EvaExit triggers the FOREGROUND EVA branch (structural snapshot
+# at the EVA UT, recorder stop, deferred tree branch, recording follows the kerbal, pod parks
+# in BackgroundMap) -> ladder release drops the kerbal to the pad -> PlantFlag (FlagEvent
+# captured into the foreground recorder, now the kerbal's) -> EvaBoard (board merge chains back
+# to the pod with a Board branch point) -> stop, commit. Arg values are RAW; run.py encode_value
+# does the wire percent-encoding (F3).
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                             expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "eva1 exit" },               expect = "OK" },
+  { cmd = "EvaExit",      args = { release = "true" },                  expect = "OK", budget = 120 },
+  { cmd = "PlantFlag",                                                  expect = "OK", budget = 180 },
+  { cmd = "EvaBoard",                                                   expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                              expect = "OK" },
+  { cmd = "CommitTree",                                                 expect = "OK" },
+  { cmd = "FlushAndQuit",                                               expect = "OK" },
+]
+
+[dimensionsCovered]
+D2  = ["structural-event-snapshots"]    # EVA-UT snapshot on the pod recording (asserted by [Pipeline-Smoothing])
+D5  = ["eva-branch"]
+D7  = ["flag-plant"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations.recordings]
+# Pod + EVA branch recordings are certain (min 2); whether the board merge adds a chain-segment
+# recording and whether the stationary pod survives the sub-2-point drop are pinned by the first
+# live run (P3, R-C: window over guess).
+count = { min = 2, max = 4 }
+
+[expectations.logContracts]
+# "Mid-recording EVA detected" / "Tree board merge completed" / "[Pipeline-Smoothing]" are
+# VERBOSE (ParsekFlight.Log / the FlightRecorder structural-snapshot lines) - they require the
+# verboseLogging=true pin above (F8). The [Pipeline-Smoothing] token (regex-escaped to match the
+# subsystem-tag bracket) is what makes the D2 structural-event-snapshots claim ASSERTED rather
+# than nominal. "Tree branch created: type=EVA", "detected boarding from EVA", and "Flag event
+# captured" are Info and do not depend on the pin.
+required  = ["Recording started", "Mid-recording EVA detected",
+             "Tree branch created: type=EVA", "\\[Pipeline-Smoothing\\]",
+             "Flag event captured", "detected boarding from EVA",
+             "Tree board merge completed", "committree committed=true"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+# Budget arithmetic (S0.6 pattern): 840 >= 300 LoadGame + 120 EvaExit + 180 PlantFlag +
+# 120 EvaBoard + fast verbs (SetSetting/Start/Stop/Commit/MissionMark/FlushAndQuit, seconds
+# each) + 60 margin. LoadGame is the only DEFERRED_SEAM_VERB step; the EVA verbs ride their
+# per-verb dispatch budgets (120/180/120), each under the 540 cap.
+budgetSeconds = 840
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

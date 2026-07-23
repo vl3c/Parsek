@@ -1,8 +1,9 @@
 # Automated Testing System - Status
 
-Last updated: 2026-07-22 (post PR #1339, flake-ledger reset). This file is the
-single at-a-glance answer to "what is done, what is proven, what is gated" for
-the automated testing initiative, so nobody has to re-derive status from code.
+Last updated: 2026-07-23 (M-C2 EVA verbs + EVA-1/2/3 specs implemented, headless-
+green, pending in-game proof). This file is the single at-a-glance answer to
+"what is done, what is proven, what is gated" for the automated testing
+initiative, so nobody has to re-derive status from code.
 
 ## Purpose - never forget it
 
@@ -54,7 +55,7 @@ frontier.
 | Module | What it gives Parsek testing | Status |
 |---|---|---|
 | M-A1 offline analyzer | Recording invariants (INV1-INV9) over any save, RED gate, per-save findings baseline | SHIPPED (#1300/#1302/#1306); AnalyzerVersion 3; core in Parsek.dll so in-game H5 runs the same rules |
-| M-A2 command seam | Drives Parsek actions kRPC cannot (record/commit/discard, rewind, dialogs, KSC actions) | SHIPPED (#1301); 15 implemented verbs, 11 reserved |
+| M-A2 command seam | Drives Parsek actions kRPC cannot (record/commit/discard, rewind, dialogs, KSC actions, EVA) | SHIPPED (#1301); 18 implemented verbs, 11 reserved (M-C1 + M-C2 grew the table) |
 | M-A3 autorun hooks | Unattended in-game test batches (PARSEK_AUTORUN_*) | SHIPPED (#1305) |
 | M-A5 harness core | The orchestrator: admission, staging, seam driving, budget kill, verifier chain, verdicts, coverage/flake ledgers | SHIPPED (#1307, #1316) |
 | M-A6 provisioner | Reproducible pinned KSP instance (kRPC 0.5.4 + MechJeb 2.15.1 + KRPC.MechJeb 0.8.1 + built TestingTools) | SHIPPED (#1303/#1308/#1318) |
@@ -62,9 +63,9 @@ frontier.
 | M-B2 ledger oracle | Seam-declared action manifests -> expected career totals -> save diff (PARSEK-FAIL(ledger)) | SHIPPED (#1314); stock-award-pattern gate below |
 | M-B3 ledger scripts | The L1 scenario six-pack | SHIPPED (#1324); blocked on career fixtures (below) |
 | M-C1 seam verbs batch 1 | InvokeRewind, AnswerMergeDialog, TimeJump, KscAction, SaveGame | SHIPPED (#1320/#1325) |
-| M-C2 EVA verbs + missions | EvaExit/EvaBoard/PlantFlag -> crew/EVA/flag recording coverage | DESIGN MERGED (#1339); implementation NOT started |
+| M-C2 EVA verbs + missions | EvaExit/EvaBoard/PlantFlag -> crew/EVA/flag recording coverage | IMPLEMENTED PENDING IN-GAME PROOF; 18 implemented verbs, 11 reserved; verbs + pure deciders + hlib companions + EVA-1/2/3 specs land; awaits the operator live-prove list (P1-P6) |
 
-## Test cases (all 20 committed scenarios)
+## Test cases (all 23 committed scenarios)
 
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
@@ -99,14 +100,21 @@ The "Parsek surface verified" column is the reason the case exists.
 | L1-research-node-science | pending-fixture | Same in science mode (no funds/rep pools) | Career fixture saves |
 | L1-upgrade-facility-career | pending-fixture | Facility upgrade debits funds per-level exactly | Career fixture saves |
 
-### Designed, not yet implemented
+### EVA (M-C2), committed, pending in-game proof (3)
 
-EVA-1 (pad ground EVA + flag plant + board), EVA-2 (orbital EVA + re-board
-via the deferred auto-record-on-EVA path), EVA-3 (sequential multi-kerbal):
-design merged (#1339, `design-autotest-eva-missions.md`); specs land WITH the
-M-C2 implementation. Parsek surfaces: EVA/Board tree branch points +
-EvaCrewName, FlagEvent fidelity, crew conservation, foreground vs deferred
-EVA recording paths.
+Verbs + pure deciders + hlib companions + specs are committed and green in
+every headless suite; the "Blocker" is the operator live-prove list (P1-P6 in
+`design-autotest-eva-missions.md`), which pins the recordings-count windows
+(R-C), the exact structural-snapshot / orbital-auto-record log wording, and
+the flag-capture proof. Parsek surfaces: EVA/Board tree branch points +
+EvaCrewName, FlagEvent fidelity, crew conservation, foreground vs deferred EVA
+recording paths.
+
+| Test case | Tier | Parsek surface verified | Blocker |
+|---|---|---|---|
+| EVA-1-pad-flag | nightly | Foreground EVA branch (structural snapshot + EvaCrewName), FlagEvent capture into the foreground recorder, board merge back to the pod | In-game proof: P1 fixture sanity, P3 count-window pin, P5 ladder-drop safety, P6 flag-capture proof |
+| EVA-2-orbital-board | pending-fixture | Deferred auto-record-on-EVA path (D1 auto-record-eva) + re-board; the settleSeconds dwell beats the auto-record race (F7) | Fixture `eva2-lko-crewed` (P2), then P3 count / P4 orbital auto-record wording |
+| EVA-3-multi-kerbal | pending-fixture | Two sequential EVA branch points + two board merges in one tree; the F2 quiescence conjunct protects the second exit | Fixture `eva3-pad-3crew` (P2), then P3 count-window pin |
 
 ## Mission-machine trust layer
 
@@ -125,8 +133,8 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
 
 ## Verification layers (all active)
 
-- Headless: 281 mission-machine + 397 harness + 203 provisioner unittest
-  cells; 18k+ xUnit on the C# side (analyzer, seam, log contracts).
+- Headless: 281 mission-machine + 402 harness + 203 provisioner unittest
+  cells; 18.5k+ xUnit on the C# side (analyzer, seam, log contracts).
 - Per-run: the 7-verifier chain + collect-logs on every non-PASS.
 - In-game: 158 runtime tests / 42 categories (autorun-able), H5 invariants,
   log-contract tests.
@@ -154,13 +162,20 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
 
 1. Career fixture saves (3) - the top item; activates 7 ledger test cases
    and re-tiers them pending-fixture -> daily.
-2. Stock-award real-line capture session (unblocks the pattern rewrite).
-3. B9 rewind observation session (S1.5 + S4.1).
+2. EVA fixture saves (2): `eva2-lko-crewed` + `eva3-pad-3crew` (M-C2 P2);
+   re-tiers EVA-2/EVA-3 pending-fixture -> daily/nightly. Plus the EVA
+   live-prove session (P1/P3/P5/P6) that promotes EVA-1 nightly -> daily.
+3. Stock-award real-line capture session (unblocks the pattern rewrite).
+4. B9 rewind observation session (S1.5 + S4.1).
 
 ## Roadmap (agreed order; each item named by its Parsek utility)
 
-1. M-C2 implementation - unlocks the crew/EVA/flag recording surface no
-   flight can reach (verbs + hlib companions + EVA-1/2/3 + in-game proof).
+1. M-C2 in-game proof - the verbs + hlib companions + EVA-1/2/3 specs are
+   IMPLEMENTED (headless-green); the remaining work is the operator live-prove
+   list (P1-P6): the two new fixtures (`eva2-lko-crewed`, `eva3-pad-3crew`),
+   the first EVA-1/2/3 runs to pin count windows + log-token wording, and the
+   ladder-drop / flag-capture confirmations. Unlocks the crew/EVA/flag
+   recording surface no flight can reach.
 2. B8 Mun/Minmus ORBIT missions - capture burn + commit-in-target-orbit
    terminal: recordings that END in a foreign SOI (new commit/BG-handoff
    surface vs the free-return shape).

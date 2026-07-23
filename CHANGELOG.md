@@ -62,6 +62,7 @@ All notable changes to Parsek are documented here.
 - Added a Mun flyby / free-return autopilot-flown test scenario: ascend to orbit, plan and execute a transfer to the Mun, fly through its sphere of influence, and return into Kerbin's, covering cross-SOI recording under time warp. Test-tooling only; no gameplay change.
 - Added a Minmus flyby test scenario reusing the same flight machinery with Minmus-sized parameters. Test-tooling only; no gameplay change.
 - Added a Duna interplanetary flyby test scenario: eject from a high Kerbin park at the next transfer window, coast through the Sun's sphere of influence with time-triggered course corrections, fly past Duna, and exit into solar orbit. Flown and passing unattended (546 km flyby, free return). Test-tooling only; no gameplay change.
+- The developer-only test-command channel gained three EVA verbs - send a kerbal out an airlock, plant a flag, and board a craft - driving the same stock paths a player's hatch/plant/board clicks use, plus three automated scenarios covering ground EVA with a flag plant, an orbital EVA re-board, and a sequential multi-kerbal EVA. This exercises Parsek's crew-EVA branch, flag-event, and board-merge recording. Inert in a normal game; no gameplay change.
 
 ## 0.10.3
 

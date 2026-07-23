@@ -1037,6 +1037,23 @@ namespace Parsek
         public bool HasActiveChain => chainManager?.HasActiveChain ?? false;
         public bool HasActiveTree => activeTree != null;
 
+        // M-C2 EVA seam-verb read-only accessors (design-autotest-eva-missions.md, Data Model
+        // / "What Doesn't Change"): two dispatch/completion bits the ParsekTestCommands seam
+        // samples. No behavior change; both are pure reads over existing private state.
+
+        /// <summary>True while a deferred split / branch is in progress
+        /// (<c>pendingSplitInProgress</c>). The ParsekTestCommands seam's <c>EvaExit</c> defers
+        /// on it so the <c>OnCrewOnEva</c> skip path cannot silently swallow the branch.</summary>
+        internal bool StructuralSplitPending => pendingSplitInProgress;
+
+        /// <summary>True when Parsek's board-merge machinery is quiescent: no
+        /// <c>ChainToVesselPending</c> recorder flag and no <c>pendingBoardingTargetPid</c>. The
+        /// seam's <c>EvaBoard</c> completion holds until this reads true so a next FIFO command
+        /// can never land inside the board-merge window (F2). On a no-tree run neither token is
+        /// ever armed, so the bit reads true and is inert.</summary>
+        internal bool BoardMergeQuiescent =>
+            !(recorder != null && recorder.ChainToVesselPending) && pendingBoardingTargetPid == 0;
+
         // Camera follow (watch mode) — forwarded from WatchModeController
         internal bool IsWatchingGhost => watchMode.IsWatchingGhost;
         internal int WatchedRecordingIndexForDiagnostics => watchMode != null

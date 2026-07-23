@@ -33,6 +33,9 @@ namespace Parsek.Tests
             public void TimeJump(ParsedCommand cmd) => Calls.Add("TimeJump");
             public void KscAction(ParsedCommand cmd) => Calls.Add("KscAction");
             public void SaveGame(ParsedCommand cmd) => Calls.Add("SaveGame");
+            public void EvaExit(ParsedCommand cmd) => Calls.Add("EvaExit");
+            public void EvaBoard(ParsedCommand cmd) => Calls.Add("EvaBoard");
+            public void PlantFlag(ParsedCommand cmd) => Calls.Add("PlantFlag");
         }
 
         [Fact]
@@ -65,6 +68,9 @@ namespace Parsek.Tests
         [InlineData("TimeJump", "RequiresFlight")]
         [InlineData("KscAction", "AnyScene")]
         [InlineData("SaveGame", "AnyScene")]
+        [InlineData("EvaExit", "RequiresFlight")]
+        [InlineData("EvaBoard", "RequiresFlight")]
+        [InlineData("PlantFlag", "RequiresFlight")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -90,6 +96,9 @@ namespace Parsek.Tests
             fake.TimeJump(cmd);
             fake.KscAction(cmd);
             fake.SaveGame(cmd);
+            fake.EvaExit(cmd);
+            fake.EvaBoard(cmd);
+            fake.PlantFlag(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

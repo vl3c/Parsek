@@ -58,6 +58,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void C2EvaVerbs_UseTheirBudgets()
+        {
+            // M-C2 EVA budgets (design budget table): each covers head-defer PLUS completion.
+            Assert.Equal(120.0, DeferralBudget.BudgetSeconds("EvaExit"));
+            Assert.Equal(180.0, DeferralBudget.BudgetSeconds("PlantFlag"));
+            Assert.Equal(120.0, DeferralBudget.BudgetSeconds("EvaBoard"));
+            // All three ride the per-verb dict, each well under the 540s deferred cap.
+            Assert.Equal(DeferralBudget.EvaExitSeconds, DeferralBudget.BudgetSeconds("EvaExit"));
+            Assert.Equal(DeferralBudget.PlantFlagSeconds, DeferralBudget.BudgetSeconds("PlantFlag"));
+            Assert.Equal(DeferralBudget.EvaBoardSeconds, DeferralBudget.BudgetSeconds("EvaBoard"));
+        }
+
+        [Fact]
         public void ShouldTimeout_False_WithinBudget()
         {
             // First deferred at t=100, now t=140, budget 60 -> not yet.
