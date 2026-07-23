@@ -1,0 +1,131 @@
+schema = 1
+id = "BDOCK-1-station-interceptor"
+# pending-fixture: the pre-placed-Station fixture (fixtures/saves/bdock-station-pad)
+# is forgeable-but-not-yet-forged -- it is PRODUCED by the FORGE-bdock-station run
+# (operator/me), not committed yet. `pending-fixture` excludes it from every cadence
+# until the fixture lands, at which point it re-tiers to `nightly` (its real cadence
+# tier: fixture-committed + the longest flown mission, mirroring B5). Do NOT flip to
+# nightly before the forge run commits bdock-station-pad AND the first live flight
+# passes (design section 5.4 retry-once, P1..P9 live-proves).
+tier = "pending-fixture"
+description = "First two-vessel Parsek autotest: pre-placed Station flies B2 ascent to a ~110 km park and commits its tree mid-mission, then the same Kerbal X launches as an Interceptor, rendezvous + docks, transfers LF/MP both ways, and undocks -- exercising the dock/transfer/undock recording pipeline (cross-tree Dock branch, onVesselsUndocking split, RouteConnectionWindow deltas)."
+instanceProfile = "stock-minimal"
+tags = ["BDOCK", "bdock", "mechjeb", "dock", "rendezvous", "route", "pending-flight"]
+
+[fixture]
+# The pre-placed Station pad fixture the FORGE run produces (bdock-station-craft's
+# docking Kerbal X, landed on the pad, PRELAUNCH). It carries Ships/VAB/Kerbal X.craft
+# so the Interceptor's launch_vessel resolves the SAME craft (baked pid 3620499050 --
+# the same-craft-twice identity axis, section 6 invariant 6).
+saveTemplate       = "fixtures/saves/bdock-station-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "bdock_dock_transfer"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+# Commit accounting (design MINOR 11): there are exactly TWO commits -- the
+# MID-MISSION Station commit via ACTION_PARSEK_COMMIT_TREE (route 1, reusing the
+# mission step's own reserved id on the seam channel) and the ONE post-mission
+# CommitTree for the Interceptor tree TA. Do NOT add a second post-mission CommitTree
+# (the Station tree is already committed; a second seam CommitTree with no active
+# tree returns ERROR and reds the run).
+# Budget arithmetic (ESTIMATED, section 5.4): missionBudget 2400 (WALL) >= 30 connect
+# + Station ascent ~250 + circularize + mid-mission commit + Interceptor launch/ascent
+# ~250 + circularize + rendezvous ~200 (under warp) + docking ~120-180 (1x) + two
+# transfers ~10 + undock/settle + margin. runtime 3000 (SF-5) >= 240 LoadGame + ~5
+# SetSetting + 2400 mission + ~120 CommitTree + ~60 FlushAndQuit + margin: the
+# post-mission seam steps must survive a FULL-budget mission.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 2400 },
+  { cmd = "CommitTree",                                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                        expect = "OK" },
+]
+
+# All thresholds / windows / budgets (validated against bdock_dock_transfer.schema.toml),
+# never a golden trajectory. Phase timeouts are GAME seconds; every budget is ESTIMATED
+# (section 5.4) and re-timed against the first live run (P1, P2, P6, P8).
+[driver.missionParams]
+# Station ~110 km, Interceptor ~90 km (BELOW the Station so it phases faster).
+stationApoapsisMeters       = 110000
+stationPeriapsisMeters      = 110000
+interceptorApoapsisMeters   = 90000
+interceptorPeriapsisMeters  = 90000
+apoErrorMeters              = 5000
+periErrorMeters             = 5000
+ascentTimeoutSeconds        = 1200
+circularizeTimeoutSeconds   = 600
+craftName                   = "Kerbal X"
+launchSite                  = "LaunchPad"
+launchTimeoutSeconds        = 300
+launchSettleDebounceFrames  = 3
+# Rendezvous AP closes to 100 m; capped at 5 phasing orbits (P6). Match velocity to
+# 1 m/s; docking approach speed_limit 0.5 m/s (the monoprop-budget knob, P2).
+approachDistanceMeters      = 100
+maxPhasingOrbits            = 5
+matchSpeedMetersPerSec      = 1.0
+dockSpeedMetersPerSec       = 0.5
+# Two small fixed transfers, opposite directions + resources (NIT 16): LiquidFuel
+# transport->station (delivery), MonoPropellant station->transport (pickup). Each is
+# comfortably under min(source, dest-free) so it completes rather than stall-flaking;
+# the MP amount stays well under what the docking approach leaves in the source tank.
+transferAmountLf            = 40
+transferAmountMp            = 15
+# Give-up budgets (GAME time). rendezvous is large (phasing legs advance game time
+# fast under rails warp); dock is the 1x approach; each transfer is server-side + fast.
+stationCommitTimeoutSeconds = 300
+rendezvousTimeoutSeconds    = 30000
+dockTimeoutSeconds          = 600
+transferTimeoutSeconds      = 120
+undockTimeoutSeconds        = 120
+
+# Coverage cells (design section 7): cites ONLY existing registry values. Genuine gaps
+# (an orbital-rendezvous-dock D10 value, a same-craft-twice identity D18 value) are
+# noted in the todo doc, NOT invented here.
+[dimensionsCovered]
+D1  = ["auto-record-launch"]
+D3  = ["orbital-checkpoint"]
+D4  = ["atmospheric", "exo-propulsive"]
+D5  = ["cross-tree-foreign-dock", "undock-split", "bg-recording"]
+D7  = ["dock-undock", "rcs"]
+D8  = ["route"]
+D10 = ["candidate-detection", "ksc-origin", "dock-producer", "delivery", "pickup", "mixed-direction", "resource-cargo"]
+D14 = ["kerbin", "warp-rails", "scene-flight", "sandbox"]
+
+[expectations.recordings]
+# Two trees (Station TB + Interceptor TA), each ascent drops launch clamps / boosters
+# / nose cones as parent-anchored debris children, and TA additionally gains the merged
+# dock child + the two undock split children. Window spans both trees (MINOR 13):
+# min 2 (the two main recordings floor), max 20 (two ascents' debris + merge + undock
+# ceiling, widened to absorb per-run debris-timing variance -- never tightened).
+count = { min = 2, max = 20 }
+
+[expectations.logContracts]
+# Required: the recording lifecycle, the cross-tree Dock branch + the authoritative
+# onVesselsUndocking split + the Undock branch (section 6 invariants 2 / 4), and the
+# NEW route-window per-resource delta Info line (MAJOR 6 -- the headline payoff, so the
+# first pass checks the delta contract, not just dock/undock topology).
+required = [
+  "Recording started",
+  "Recording stopped",
+  "Tree branch created: type=Dock",
+  "OnVesselsUndocking:entry",
+  "Tree branch created: type=Undock",
+  "Route window delta:",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+budgetSeconds = 3000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

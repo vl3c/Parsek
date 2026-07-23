@@ -39,6 +39,10 @@ import b4_reentry             # noqa: E402
 import b5_mun_flyby           # noqa: E402
 import b6_minmus_flyby        # noqa: E402
 import b7_duna_flyby          # noqa: E402
+import forge_station          # noqa: E402
+import bdock_dock_transfer    # noqa: E402
+import shutil                 # noqa: E402
+import tempfile               # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -551,8 +555,23 @@ class CliTests(unittest.TestCase):
     def test_shells_have_no_module_top_krpc_import(self):
         """Regression for the lazy-import discipline: importing the shells on the
         base interpreter must NOT have imported krpc (it is lazy inside open())."""
-        # The shells imported at module load above; krpc must not be present.
+        # The shells imported at module load above (including forge_station and
+        # bdock_dock_transfer); krpc must not be present.
         self.assertNotIn("krpc", sys.modules)
+
+    def test_arg_parser_accepts_optional_seam_args(self):
+        """The seam-bridge CLI args are optional (default None) and do not break
+        the pre-B-DOCK missions that never pass them."""
+        p = mission_runner.build_arg_parser("bdock_dock_transfer")
+        args = p.parse_args([
+            "--params", "{}", "--result", "x.json", "--budget", "600"])
+        self.assertIsNone(args.seam_commands)
+        self.assertIsNone(args.seam_commit_id)
+        args2 = p.parse_args([
+            "--params", "{}", "--result", "x.json", "--budget", "600",
+            "--seam-commands", "c.txt", "--seam-responses", "r.txt",
+            "--seam-commit-id", "0003"])
+        self.assertEqual(args2.seam_commit_id, "0003")
 
 
 # ---------------------------------------------------------------------------
@@ -1256,3 +1275,208 @@ class B5ShellTests(unittest.TestCase):
         self.assertIn("ejected", result["reason"])
         self.assertIn(mlib.B5_TARGET_FLYBY, result["phasesReached"])
         self.assertTrue(control.closed)
+
+
+# ---------------------------------------------------------------------------
+# FORGE + B-DOCK shell integration (fake telemetry) + the mid-mission seam bridge.
+# ---------------------------------------------------------------------------
+
+
+FORGE_PARAMS = {
+    "craftName": "Kerbal X",
+    "launchSite": "LaunchPad",
+    "launchTimeoutSeconds": 120,
+    "settleDebounceFrames": 2,
+}
+
+BDOCK_PARAMS = {
+    "stationApoapsisMeters": 110000,
+    "stationPeriapsisMeters": 110000,
+    "interceptorApoapsisMeters": 90000,
+    "interceptorPeriapsisMeters": 90000,
+    "apoErrorMeters": 5000,
+    "periErrorMeters": 5000,
+    "ascentTimeoutSeconds": 1200,
+    "circularizeTimeoutSeconds": 600,
+    "craftName": "Kerbal X",
+    "launchSite": "LaunchPad",
+    "launchTimeoutSeconds": 300,
+    "launchSettleDebounceFrames": 2,
+    "approachDistanceMeters": 100,
+    "maxPhasingOrbits": 5,
+    "matchSpeedMetersPerSec": 1.0,
+    "dockSpeedMetersPerSec": 0.5,
+    "transferAmountLf": 40,
+    "transferAmountMp": 15,
+    "stationCommitTimeoutSeconds": 300,
+    "rendezvousTimeoutSeconds": 30000,
+    "dockTimeoutSeconds": 600,
+    "transferTimeoutSeconds": 120,
+    "undockTimeoutSeconds": 120,
+}
+
+
+class ForgeShellTests(unittest.TestCase):
+    def test_forge_happy_path_writes_mission_ok(self):
+        """The forge boots, launches the craft, settles PRELAUNCH -> MISSION-OK.
+        Guards the shell mis-wiring launch_vessel or never settling."""
+        frames = [
+            snap(ut=0.0, situation="FLYING"),               # PRELAUNCH -> LAUNCH
+            snap(ut=5.0, situation="PRE_LAUNCH"),           # settle 1
+            snap(ut=10.0, situation="PRE_LAUNCH"),          # settle 2 -> SETTLED
+        ]
+        control = FakeMissionControl(frames)
+        code, result = run(forge_station.SPEC, FORGE_PARAMS, control, budget=600.0)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        self.assertEqual(result["mission"], "forge_station")
+        kinds = [a.kind for a in control.actions]
+        self.assertIn(mlib.ACTION_LAUNCH_VESSEL, kinds)
+        self.assertTrue(control.closed)
+
+
+class _SeamFakeControl(FakeMissionControl):
+    """A fake that records configure_seam wiring so a test can prove run_mission
+    passes the seam config through."""
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.seam_configured = None
+
+    def configure_seam(self, commands_path, responses_path, commit_id):
+        self.seam_configured = (commands_path, responses_path, commit_id)
+
+
+class BDockShellTests(unittest.TestCase):
+    def _bdock_frames(self):
+        return [
+            snap(ut=0.0),                                              # PRELAUNCH->STATION-ASCENT
+            snap(ut=100.0, apoapsis=108000.0, mj_ascent_complete=True),  # ->STATION-CIRCULARIZE
+            snap(ut=150.0, periapsis=109000.0),                       # ->STATION-ORBIT
+            snap(ut=160.0),                                           # ->STATION-COMMIT
+            snap(ut=161.0, seam_commit_result="OK"),                 # ->INT-LAUNCH
+            snap(ut=170.0, situation="PRE_LAUNCH"),                  # settle 1
+            snap(ut=175.0, situation="PRE_LAUNCH"),                  # settle 2 -> INT-ASCENT
+            snap(ut=400.0, apoapsis=88000.0, mj_ascent_complete=True),  # ->INT-CIRCULARIZE
+            snap(ut=450.0, periapsis=89000.0),                       # ->INT-PHASING-ORBIT
+            snap(ut=460.0),                                          # ->SET-TARGET
+            snap(ut=470.0, target_set=True),                        # ->RENDEZVOUS
+            snap(ut=480.0, mj_rendezvous_enabled=True, target_distance=5000.0),
+            snap(ut=490.0, mj_rendezvous_enabled=False, target_distance=80.0),  # ->MATCH-VELOCITY
+            snap(ut=500.0, target_rel_speed=0.5),                   # ->DOCK
+            snap(ut=510.0, mj_docking_enabled=True, docking_state="Docking"),
+            snap(ut=520.0, mj_docking_enabled=False, docking_state="Docked"),   # ->TRANSFER T1
+            snap(ut=525.0, transfer_complete=True, vessel_count=1),  # T1 done -> T2
+            snap(ut=530.0, transfer_complete=True, vessel_count=1),  # T2 done -> UNDOCK
+            snap(ut=540.0, vessel_count=2, docking_state="Ready"),   # split -> TERMINAL
+        ]
+
+    def test_bdock_happy_path_writes_mission_ok(self):
+        """The full two-vessel flow drives to TERMINAL with all assertions met.
+        Guards the shell mis-wiring any of the docking / transfer / undock actions."""
+        control = FakeMissionControl(self._bdock_frames())
+        code, result = run(bdock_dock_transfer.SPEC, BDOCK_PARAMS, control, budget=90000.0)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        self.assertEqual(result["mission"], "bdock_dock_transfer")
+        kinds = [a.kind for a in control.actions]
+        for want in (mlib.ACTION_CAPTURE_STATION, mlib.ACTION_PARSEK_COMMIT_TREE,
+                     mlib.ACTION_LAUNCH_VESSEL, mlib.ACTION_SET_TARGET_VESSEL,
+                     mlib.ACTION_MJ_ENABLE_RENDEZVOUS, mlib.ACTION_SET_TARGET_DOCKING_PORT,
+                     mlib.ACTION_MJ_ENABLE_DOCKING, mlib.ACTION_START_RESOURCE_TRANSFER,
+                     mlib.ACTION_UNDOCK):
+            self.assertIn(want, kinds)
+        # Exactly two transfers, opposite directions.
+        transfers = [a for a in control.actions
+                     if a.kind == mlib.ACTION_START_RESOURCE_TRANSFER]
+        self.assertEqual(len(transfers), 2)
+        self.assertEqual(transfers[0].text, "LiquidFuel")
+        self.assertEqual(transfers[0].limit, mlib.TRANSFER_DIR_DELIVER)
+        self.assertEqual(transfers[1].text, "MonoPropellant")
+        self.assertEqual(transfers[1].limit, mlib.TRANSFER_DIR_PICKUP)
+        names = {a["name"]: a["met"] for a in result["assertions"]}
+        self.assertTrue(all(names.values()), names)
+        self.assertTrue(control.closed)
+
+    def test_run_mission_passes_seam_config_to_configure_seam(self):
+        """run_mission wires the seam bridge into the control when seam_config is
+        supplied (the route-1 plumbing)."""
+        control = _SeamFakeControl(self._bdock_frames())
+        writer = ResultSink()
+        clock = FakeClock()
+        log = mission_runner.MissionLogger(sink=lambda _l: None, clock=clock)
+        mission_runner.run_mission(
+            bdock_dock_transfer.SPEC, BDOCK_PARAMS, "127.0.0.1", 50000, 50001,
+            "unused/result.json", 90000.0, control=control, log=log, clock=clock,
+            sleep=lambda _s: None, writer=writer,
+            seam_config={"commands_path": "cmds.txt", "responses_path": "resps.txt",
+                         "commit_id": "0003"})
+        self.assertEqual(control.seam_configured, ("cmds.txt", "resps.txt", "0003"))
+
+
+class SeamCommitBridgeTests(unittest.TestCase):
+    """The KrpcMissionControl mid-mission command-seam bridge (route 1): file
+    channel write + bounded response poll, WITHOUT any kRPC connection (these
+    methods only touch the channel files + time)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-seam-")
+        self.cmds = os.path.join(self.tmp, "parsek-test-commands.txt")
+        self.resps = os.path.join(self.tmp, "parsek-test-responses.txt")
+        self.saved_poll = mission_runner.SEAM_COMMIT_POLL_SECONDS
+
+    def tearDown(self):
+        mission_runner.SEAM_COMMIT_POLL_SECONDS = self.saved_poll
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _ctrl(self):
+        c = mission_runner.KrpcMissionControl(use_mechjeb=True, read_docking=True)
+        c.configure_seam(self.cmds, self.resps, "0003")
+        return c
+
+    def _seed_response(self, line):
+        with open(self.resps, "w", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+
+    def test_ok_response_writes_command_and_reads_ok(self):
+        self._seed_response("id=0003 cmd=CommitTree verdict=OK seq=1 ut=1240.0")
+        c = self._ctrl()
+        c._perform_seam_commit()
+        self.assertEqual(c._seam_commit_result, "OK")
+        with open(self.cmds, "r", encoding="utf-8") as fh:
+            cmd_text = fh.read()
+        self.assertIn("id=0003 cmd=CommitTree", cmd_text)
+
+    def test_error_response_reads_error(self):
+        self._seed_response("id=0003 cmd=CommitTree verdict=ERROR seq=1 msg=no-active-tree")
+        c = self._ctrl()
+        c._perform_seam_commit()
+        self.assertEqual(c._seam_commit_result, "ERROR")
+
+    def test_first_terminal_wins_on_rewrite_dupe(self):
+        # A crash-recovery rewrite re-emits a byte-equivalent line; first-wins.
+        with open(self.resps, "w", encoding="utf-8") as fh:
+            fh.write("id=0003 cmd=CommitTree verdict=OK seq=1\n")
+            fh.write("id=0003 cmd=CommitTree verdict=OK seq=2\n")
+        c = self._ctrl()
+        c._perform_seam_commit()
+        self.assertEqual(c._seam_commit_result, "OK")
+
+    def test_no_response_times_out(self):
+        mission_runner.SEAM_COMMIT_POLL_SECONDS = 0.0  # deadline is now -> immediate TIMEOUT
+        c = self._ctrl()
+        c._perform_seam_commit()
+        self.assertEqual(c._seam_commit_result, "TIMEOUT")
+
+    def test_no_seam_configured_errors(self):
+        c = mission_runner.KrpcMissionControl(use_mechjeb=True, read_docking=True)
+        c._perform_seam_commit()  # never configured
+        self.assertEqual(c._seam_commit_result, "ERROR")
+
+    def test_read_seam_response_ignores_other_ids(self):
+        self._seed_response("id=0002 cmd=SetSetting verdict=OK seq=1")
+        c = self._ctrl()
+        self.assertIsNone(c._read_seam_response("0003"))
+
+
+if __name__ == "__main__":
+    unittest.main()
