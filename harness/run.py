@@ -897,6 +897,18 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
             "--stream-port", str(DEFAULT_STREAM_PORT),
             "--result", result_path,
             "--budget", str(int(mission_budget))]
+    # Mid-mission command-seam bridge (route 1, section 3.2 of the B-DOCK design):
+    # hand the mission the two channel file paths (at the instance root =
+    # mission_ctx.cwd) + a RESERVED command-id. The reserved id is the mission
+    # step's OWN step_id -- the mission step consumes an index but writes NOTHING
+    # to the channel, so its id is free and collision-safe against the surrounding
+    # driver.steps ids (which use their own indices), and monotonic (the
+    # mid-mission commit fires chronologically between the pre- and post-mission
+    # seam steps). Missions that never emit ACTION_PARSEK_COMMIT_TREE (B1/B2/B4/
+    # B5/B7/forge) ignore these entirely.
+    args += ["--seam-commands", os.path.join(mission_ctx.cwd, "parsek-test-commands.txt"),
+             "--seam-responses", os.path.join(mission_ctx.cwd, "parsek-test-responses.txt"),
+             "--seam-commit-id", step_id]
     logger.info("Mission", "mission spawn name=%s venv-python=%s rpc=%s:%d budget=%ds result=%s"
                 % (mission_ctx.mission_name, mission_ctx.venv_python, DEFAULT_RPC_HOST,
                    DEFAULT_RPC_PORT, int(mission_budget), result_path))

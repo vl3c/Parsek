@@ -149,6 +149,70 @@ B5_PHASES: Tuple[str, ...] = (B5_PRELAUNCH, B5_MJ_ASCENT, B5_CIRCULARIZE, B5_ORB
                               B5_CORRECTION_BURN, B5_COAST_TO_TARGET, B5_TARGET_FLYBY,
                               B5_RETURN)
 
+# FORGE phase names (mission forge_station: the FIXTURE-FORGE runner). A minimal
+# two-phase shell that boots an EXISTING valid save (so LoadGame passes), launches
+# the docking-variant craft onto the pad via launch_vessel, waits for the spawned
+# vessel to settle PRELAUNCH, then exits MISSION-OK -- the post-mission SaveGame +
+# FlushAndQuit seam steps persist the pad state, and the harvest tool normalizes
+# it into the committed pre-placed-Station fixture. NOT a flight mission (no ascent,
+# no orbit): it exists only to STAMP a pad fixture headlessly, replacing the
+# operator fixture flight (2026-07-22 operator-principle override). It is generic
+# over the craft (and an optional crew count), so the same forge later produces the
+# EVA-3 pad fixture (same Kerbal X craft, 3-crew pod) with a different missionParams.
+FORGE_PRELAUNCH = "PRELAUNCH"
+FORGE_LAUNCH = "LAUNCH"
+FORGE_SETTLED = "SETTLED"
+FORGE_PHASES: Tuple[str, ...] = (FORGE_PRELAUNCH, FORGE_LAUNCH, FORGE_SETTLED)
+
+# B-DOCK phase names (mission bdock_dock_transfer: design section 3.3). The FIRST
+# two-vessel Parsek autotest: a pre-placed Station flies the B2 ascent to a ~110 km
+# park and is COMMITTED as its own tree (mid-mission command-seam CommitTree,
+# route 1), then the SAME craft launches again as an Interceptor into a ~90 km
+# phasing orbit, MechJeb rendezvous closes, MechJeb docking hard-docks, two kRPC
+# ResourceTransfers move fuel both ways, and an undock splits the pair. Survival is
+# the contract (any vessel-lost / frozen terminal is an ASSERT-FAIL loss); a
+# rendezvous / docking / transfer stall is a bounded give-up FLAKE (section 5.3),
+# never a PARSEK-FAIL.
+BDOCK_PRELAUNCH = "PRELAUNCH"
+BDOCK_STATION_ASCENT = "STATION-ASCENT"
+BDOCK_STATION_CIRCULARIZE = "STATION-CIRCULARIZE"
+BDOCK_STATION_ORBIT = "STATION-ORBIT"
+BDOCK_STATION_COMMIT = "STATION-COMMIT"
+BDOCK_INT_LAUNCH = "INT-LAUNCH"
+BDOCK_INT_ASCENT = "INT-ASCENT"
+BDOCK_INT_CIRCULARIZE = "INT-CIRCULARIZE"
+BDOCK_INT_PHASING_ORBIT = "INT-PHASING-ORBIT"
+BDOCK_SET_TARGET = "SET-TARGET"
+BDOCK_RENDEZVOUS = "RENDEZVOUS"
+BDOCK_MATCH_VELOCITY = "MATCH-VELOCITY"
+BDOCK_DOCK = "DOCK"
+BDOCK_TRANSFER = "TRANSFER"
+BDOCK_UNDOCK = "UNDOCK"
+BDOCK_TERMINAL = "TERMINAL"
+BDOCK_PHASES: Tuple[str, ...] = (
+    BDOCK_PRELAUNCH, BDOCK_STATION_ASCENT, BDOCK_STATION_CIRCULARIZE,
+    BDOCK_STATION_ORBIT, BDOCK_STATION_COMMIT, BDOCK_INT_LAUNCH, BDOCK_INT_ASCENT,
+    BDOCK_INT_CIRCULARIZE, BDOCK_INT_PHASING_ORBIT, BDOCK_SET_TARGET,
+    BDOCK_RENDEZVOUS, BDOCK_MATCH_VELOCITY, BDOCK_DOCK, BDOCK_TRANSFER,
+    BDOCK_UNDOCK, BDOCK_TERMINAL)
+
+# Docking-port state tokens (kRPC v0.5.4 DockingPortState.name; the runner
+# normalizes to these exact spellings). "Docked" is the DOCK-done evidence; a
+# post-undock state that is anything OTHER than "Docked" is the undock evidence
+# (with the vessel-count increase; MINOR 10 -- "Ready" alone is only soft
+# evidence because the port lingers "Undocking" while the halves are inside
+# ReengageDistance).
+DOCKING_STATE_DOCKED = "Docked"
+DOCKING_STATE_DOCKING = "Docking"
+DOCKING_STATE_READY = "Ready"
+
+# Resource-transfer direction codes carried in Action.limit (section 5.1: the
+# Action dataclass is kind/value/text/limit, so the transfer direction rides
+# limit as a float code). 0 = deliver transport -> station (the LiquidFuel leg);
+# 1 = pickup station -> transport (the MonoPropellant leg).
+TRANSFER_DIR_DELIVER = 0.0   # transport tank -> station tank
+TRANSFER_DIR_PICKUP = 1.0    # station tank -> transport tank
+
 # Connect-retry decision tokens (design "Connection lifecycle" step 2).
 CONNECT_RETRY = "RETRY"
 CONNECT_TIMEOUT = "TIMEOUT"
@@ -232,6 +296,67 @@ ACTION_WARP_TO_UT = "warp_to_ut"                           # value = target UT (
 # discards the continuation next FixedUpdate) and zeroes both warp factors
 # from the primary connection. Idempotent when no warp is active.
 ACTION_CANCEL_WARP = "cancel_warp"                         # value = None
+
+# ---------------------------------------------------------------------------
+# FORGE + B-DOCK actions (design section 5.1). The runner owns kRPC OBJECT
+# HANDLES for target / transfer / undock selection (P9: kRPC v0.5.4 Vessel
+# exposes no pid/guid, both vessels are literally named "Kerbal X", and ghost
+# ProtoVessels can inject same-named map entries -- so name/pid selection is
+# FORBIDDEN in the driver; the machine emits an intent action and the runner
+# resolves it against the handle it captured while the object was reachable).
+# ---------------------------------------------------------------------------
+# Launch a fresh vessel from the save's Ships/VAB onto the pad (kRPC
+# SpaceCenter.launch_vessel("VAB", <name>, "LaunchPad")). text = the craft name
+# ("Kerbal X"); value (optional) = crew count, None launches KSP's default
+# manifest. Used by BOTH the FORGE (piece-1 stamp) and B-DOCK's Interceptor
+# (piece 2). Exercises D1 auto-record-launch on the StartWithNewLaunch path.
+ACTION_LAUNCH_VESSEL = "launch_vessel"                     # text = craft name
+# Capture the CURRENT active vessel + its top docking port as "the Station"
+# handle (STATION-COMMIT, while the Station is the active vessel -- P9 / Q4).
+# The runner stores the two handles for the later SET_TARGET_VESSEL /
+# SET_TARGET_DOCKING_PORT / UNDOCK actions; name/pid is never used.
+ACTION_CAPTURE_STATION = "capture_station"                 # value = None
+# Mid-mission Parsek command-seam CommitTree (route 1, section 3.2): the runner
+# writes a CommitTree command with the reserved command-id into the seam's
+# request channel, then polls the response channel under a BOUNDED wait. The
+# outcome is fed back into telemetry (TelemetrySnapshot.seam_commit_result:
+# "OK" advances the machine, "ERROR"/"TIMEOUT" flakes it -- driver-INVALID,
+# retryable, never PARSEK-FAIL). When the runner has no seam config (any
+# non-B-DOCK mission never emits this), the action is a logged no-op.
+ACTION_PARSEK_COMMIT_TREE = "parsek_commit_tree"           # value = None
+# Set the game target to the captured Station handle (kRPC sc.target_vessel =
+# <station handle>). Drives BOTH KSP's own target and MechJeb's rendezvous /
+# docking target controller (section 4.1).
+ACTION_SET_TARGET_VESSEL = "set_target_vessel"             # value = None
+# Set the target to the captured Station Clamp-O-Tron handle (kRPC
+# sc.target_docking_port = <station port handle>).
+ACTION_SET_TARGET_DOCKING_PORT = "set_target_docking_port" # value = None
+# Enable MechJeb's rendezvous autopilot (value = desired approach distance m;
+# limit = max phasing orbits). Done evidence is the Enabled LATCH flipping
+# False (the AP self-disables when finished, NIT-15) AND target_distance
+# <= the desired distance.
+ACTION_MJ_ENABLE_RENDEZVOUS = "mj_enable_rendezvous"       # value = distance m
+# Kill relative velocity to the target (MechJeb maneuver_planner
+# operation_kill_rel_vel, OR rely on the rendezvous AP's own terminal match).
+ACTION_MJ_KILL_REL_VEL = "mj_kill_rel_vel"                 # value = None
+# Enable MechJeb's docking autopilot (value = approach speed_limit m/s -- the
+# monoprop-budget knob, P2). Done evidence is docking_state == "Docked" AND the
+# Enabled latch flipping False.
+ACTION_MJ_ENABLE_DOCKING = "mj_enable_docking"             # value = speed m/s
+# Disable the docking autopilot (give-up cleanup: stall / monoprop-out / bounce).
+ACTION_MJ_DISABLE_DOCKING = "mj_disable_docking"           # value = None
+# Start a kRPC ResourceTransfer between the captured transport / station tanks
+# (text = resource name, value = amount, limit = direction code
+# TRANSFER_DIR_DELIVER / TRANSFER_DIR_PICKUP). The runner resolves the from/to
+# part handles by resource + the pre-dock part-set split (Q4) and polls the
+# ResourceTransfer.complete flag; the outcome rides
+# TelemetrySnapshot.transfer_complete / transfer_amount.
+ACTION_START_RESOURCE_TRANSFER = "start_resource_transfer" # text = resource
+# Undock the captured Station Clamp-O-Tron (kRPC port.undock()). KSP fires
+# onVesselsUndocking -> Parsek authors the Undock split branch + completes the
+# RouteConnectionWindow. Done evidence: vessel_count INCREASED by one AND
+# docking_state != "Docked" (MINOR 10).
+ACTION_UNDOCK = "undock"                                   # value = None
 
 # TARGET-FLYBY impact-warp guard: below this altitude with a SUB-SURFACE
 # periapsis the machine stops issuing warp hops and polls at 1x, so a crash
@@ -616,6 +741,46 @@ class TelemetrySnapshot:
     # rule (an unknown warp state is treated as idle, and the bounded
     # self-healing re-issue owns a genuinely lost warp).
     warping_to: float = float("nan")
+    # --- B-DOCK docking / rendezvous / transfer telemetry (design section 5.2).
+    # Every field defaults to a FAIL-CLOSED sentinel so a runner that forgets to
+    # populate one fails the gate rather than faking a satisfied condition (the
+    # same SF-2 discipline as ap_error / body). The B2/B5/B7 machines never read
+    # any of these, so the pre-B-DOCK suites are unaffected.
+    # MechJeb target_controller.distance (m to target); NaN fails the
+    # RENDEZVOUS-done gate closed.
+    target_distance: float = float("nan")
+    # norm(MechJeb target_controller.relative_velocity) (m/s); NaN fails the
+    # MATCH-VELOCITY gate closed.
+    target_rel_speed: float = float("nan")
+    # The active/target docking port state.name (kRPC DockingPortState); ""
+    # matches no gate (fail closed). "Docked" is the DOCK-done evidence.
+    docking_state: str = ""
+    # MechJeb target_controller.normal_target_exists: a vessel/port target is set.
+    target_set: bool = False
+    # Carried Enabled-latch evidence (NIT-15): the rendezvous / docking AP
+    # self-disables when finished, so DONE = the latch flips False. The runner
+    # reports the CURRENT enabled state; the machine tracks the latch.
+    mj_rendezvous_enabled: bool = False
+    mj_docking_enabled: bool = False
+    # len(sc.vessels): the UNDOCK split gate reads its INCREASE (a split raises
+    # the count), load-bearing with docking_state != "Docked" (MINOR 10). 0 =
+    # unread (fail closed: no increase can be measured against a 0 baseline that
+    # never advanced).
+    vessel_count: int = 0
+    # The active ResourceTransfer poll (the runner owns the handle): complete
+    # flag + amount transferred so far. transfer_amount NaN = unread (fail
+    # closed for the transfer-stall no-progress detector).
+    transfer_complete: bool = False
+    transfer_amount: float = float("nan")
+    # Vessel-total MonoPropellant (the P2 monoprop-budget channel): the docking
+    # give-up flakes monoprop-out when this hits ~0 while not yet Docked. NaN =
+    # unread (fail closed: the RCS-out give-up never fires on a missing reading).
+    monopropellant: float = float("nan")
+    # Mid-mission command-seam CommitTree outcome (route 1, section 3.2), fed
+    # back from ACTION_PARSEK_COMMIT_TREE's bounded poll: "" = not issued / still
+    # waiting (fail closed -- STATION-COMMIT stays until a terminal token or its
+    # phase budget), "OK" advances the machine, "ERROR"/"TIMEOUT" flakes it.
+    seam_commit_result: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -3039,6 +3204,591 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
 
 
 # ---------------------------------------------------------------------------
+# FORGE phase state machine (mission forge_station: the FIXTURE-FORGE runner).
+# Pure. A minimal two-transition shell: boot an EXISTING valid save (LoadGame
+# passes on its active vessel), launch the docking-variant craft onto the pad,
+# wait for the spawned vessel to settle PRELAUNCH, done MISSION-OK. NO ascent /
+# orbit -- it exists only to STAMP a pad fixture headlessly (2026-07-22
+# operator-principle override). Generic over the craft + crew so the same forge
+# later produces the EVA-3 pad fixture.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ForgeParams:
+    """FIXTURE-FORGE tuning (spec [driver.missionParams] for forge_station). All
+    are budgets / debounce depths, never a golden trajectory."""
+    craft_name: str
+    launch_site: str = "LaunchPad"
+    crew: Optional[int] = None                 # None = KSP default manifest
+    settle_situations: Tuple[str, ...] = ("PRE_LAUNCH",)
+    launch_timeout: float = 300.0              # game-s to see the new craft settle
+    settle_debounce: int = 3                   # K consecutive settled frames
+
+
+def forge_params_from_dict(params: Dict) -> ForgeParams:
+    params = params or {}
+    crew = params.get("crew", None)
+    return ForgeParams(
+        craft_name=str(params.get("craftName", "Kerbal X")),
+        launch_site=str(params.get("launchSite", "LaunchPad")),
+        crew=(int(crew) if crew is not None else None),
+        settle_situations=tuple(params.get("settleSituations", ("PRE_LAUNCH",))),
+        launch_timeout=float(params.get("launchTimeoutSeconds", 300)),
+        settle_debounce=int(params.get("settleDebounceFrames", 3)),
+    )
+
+
+@dataclass(frozen=True)
+class ForgeState:
+    params: ForgeParams
+    phase: str = FORGE_PRELAUNCH
+    phase_entry_ut: float = 0.0
+    phases_reached: Tuple[str, ...] = (FORGE_PRELAUNCH,)
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    done: bool = False
+    loss_reason: Optional[str] = None
+    settle_streak: int = 0
+
+
+def forge_initial_state(params: ForgeParams) -> ForgeState:
+    return ForgeState(params=params)
+
+
+def _forge_enter(state: ForgeState, new_phase: str, ut: float) -> ForgeState:
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(
+        state, phase=new_phase, phase_entry_ut=entry,
+        phases_reached=state.phases_reached + (new_phase,),
+        done=(new_phase == FORGE_SETTLED))
+
+
+def _forge_over_budget(state: ForgeState, snapshot: TelemetrySnapshot) -> bool:
+    if state.phase != FORGE_LAUNCH:
+        return False
+    if not _is_finite(snapshot.ut):
+        return False
+    return (snapshot.ut - state.phase_entry_ut) > state.params.launch_timeout
+
+
+def forge_decide(state: ForgeState,
+                 snapshot: TelemetrySnapshot) -> Tuple[ForgeState, List[Action]]:
+    """Advance the FORGE machine one frame; return (new_state, actions).
+
+    - PRELAUNCH -> LAUNCH: emit ACTION_LAUNCH_VESSEL (the craft onto the pad).
+    - LAUNCH -> SETTLED (done MISSION-OK): the new active vessel reads a
+      settle situation (PRE_LAUNCH on the pad) for settleDebounce consecutive
+      frames. Bounded by launchTimeoutSeconds -> MISSION-FLAKE.
+
+    vessel_lost during LAUNCH is a scene-reload TRANSIENT (launch_vessel is a
+    FLIGHT->FLIGHT reload; the runner's read-fail streak can briefly emit
+    vessel_lost before the new craft materializes), so it does NOT terminate --
+    the settle debounce + the launch budget own the outcome. A vessel_lost in
+    any OTHER phase (there is only PRELAUNCH before the launch) is a real loss.
+    """
+    if state.done:
+        return state, []
+
+    if state.phase == FORGE_PRELAUNCH:
+        if snapshot.vessel_lost:
+            return replace(
+                state, done=True, verdict=MISSION_ASSERT_FAIL,
+                loss_reason="vessel-lost before launch (boot save unreadable)"), []
+        launch = Action(ACTION_LAUNCH_VESSEL, value=(float(state.params.crew)
+                                                     if state.params.crew is not None
+                                                     else None),
+                        text=state.params.craft_name)
+        return _forge_enter(state, FORGE_LAUNCH, snapshot.ut), [launch]
+
+    if state.phase == FORGE_LAUNCH:
+        # vessel_lost is a reload transient here -- keep waiting (bounded).
+        settled = (not snapshot.vessel_lost
+                   and snapshot.situation in state.params.settle_situations)
+        streak = state.settle_streak + 1 if settled else 0
+        if streak >= state.params.settle_debounce:
+            return _forge_enter(replace(state, settle_streak=streak),
+                                FORGE_SETTLED, snapshot.ut), []
+        stayed = replace(state, settle_streak=streak)
+        if _forge_over_budget(stayed, snapshot):
+            return replace(stayed, verdict=MISSION_FLAKE,
+                           flake_phase=stayed.phase, done=True), []
+        return stayed, []
+
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase, done=True), []
+
+
+def evaluate_forge_assertions(frames, params: ForgeParams,
+                              phases_reached=(),
+                              k: int = DEFAULT_DEBOUNCE_K) -> List[AssertionOutcome]:
+    """Two FORGE driver-validity assertions (phase evidence; the forge produces
+    STATE, not a trajectory):
+
+    - ``launched``:        FORGE_LAUNCH appears in phases_reached (launch_vessel
+      fired).
+    - ``settledOnPad``:    FORGE_SETTLED appears in phases_reached (the new craft
+      settled in a settle situation on the pad) AND the final situation is one
+      of settleSituations (the settled state the SaveGame will persist).
+    """
+    del k
+    frames = list(frames or [])
+    phases = tuple(phases_reached or ())
+
+    launched = AssertionOutcome("launched", FORGE_LAUNCH in phases,
+                                (phases[-1] if phases else None),
+                                {"required": FORGE_LAUNCH})
+
+    reached = FORGE_SETTLED in phases
+    final_situation = frames[-1].situation if frames else None
+    settled_met = reached and (final_situation in params.settle_situations)
+    settled = AssertionOutcome("settledOnPad", settled_met, final_situation,
+                               {"required": FORGE_SETTLED,
+                                "accepted": list(params.settle_situations)})
+    return [launched, settled]
+
+
+# ---------------------------------------------------------------------------
+# B-DOCK phase state machine (mission bdock_dock_transfer: design sections 3.3 /
+# 5). Pure. A NEW machine (NOT a B5 extension): its transitions key on target
+# distance, relative speed, docking-port state, transfer completion, and the
+# two-vessel launch sequence -- a mostly-disjoint branch set from B5's SOI /
+# apsides / time-to-SOI logic (design section 5). The ascent legs emit the same
+# B2 ascent ACTIONs; only the phase machine is new. Survival is the contract:
+# any vessel-lost / frozen terminal (except the INT-LAUNCH reload transient) is
+# an ASSERT-FAIL loss; a rendezvous / docking / transfer stall is a bounded
+# give-up FLAKE (section 5.3), never a PARSEK-FAIL.
+# ---------------------------------------------------------------------------
+
+# Phases where a FROZEN-telemetry (destroyed-vessel) stall is a real risk and
+# the shared 1x frozen detector applies. INT-LAUNCH is excluded (the reload
+# transient); PRELAUNCH / STATION-COMMIT / SET-TARGET / TRANSFER / UNDOCK /
+# TERMINAL are not continuous-flight phases. The detector self-gates on
+# warp_mode == NONE, so the RENDEZVOUS phasing legs (on rails) never false-trip.
+_BDOCK_FROZEN_PHASES: Tuple[str, ...] = (
+    BDOCK_STATION_ASCENT, BDOCK_STATION_CIRCULARIZE, BDOCK_INT_ASCENT,
+    BDOCK_INT_CIRCULARIZE, BDOCK_RENDEZVOUS, BDOCK_MATCH_VELOCITY, BDOCK_DOCK)
+
+# Monoprop-out epsilon (P2): a docking-AP stall that thrashes RCS drains the
+# monoprop; at/below this the DOCK give-up flakes monoprop-out (vs approach-stall
+# from the monoprop reading). Fail closed on NaN (never fires on a missing read).
+BDOCK_MONOPROP_OUT_EPS = 0.5
+
+
+@dataclass(frozen=True)
+class BDockParams:
+    """B-DOCK tuning (spec [driver.missionParams] for bdock_dock_transfer). All
+    tolerances / windows / budgets, never a golden trajectory. Every budget is
+    ESTIMATED (design section 5.4) and re-timed against the first live run."""
+    # Station park (~110 km) + Interceptor phasing park (~90 km, BELOW the
+    # Station so it phases faster). Shared apo/peri error + ascent/circularize
+    # budgets for both legs (the ascent half is the B2-proven shape).
+    station_apoapsis: float = 110000.0
+    station_periapsis: float = 110000.0
+    interceptor_apoapsis: float = 90000.0
+    interceptor_periapsis: float = 90000.0
+    apo_error: float = 5000.0
+    peri_error: float = 5000.0
+    ascent_timeout: float = 1200.0
+    circularize_timeout: float = 600.0
+    # Interceptor launch (piece 2): the craft + the launch settle.
+    craft_name: str = "Kerbal X"
+    launch_site: str = "LaunchPad"
+    launch_settle_situations: Tuple[str, ...] = ("PRE_LAUNCH",)
+    launch_timeout: float = 300.0
+    launch_settle_debounce: int = 3
+    # Rendezvous / dock / transfer thresholds.
+    approach_distance: float = 100.0           # rendezvous desired_distance (m)
+    max_phasing_orbits: float = 5.0
+    match_speed: float = 1.0                   # MATCH-VELOCITY rel-speed floor (m/s)
+    dock_speed: float = 0.5                    # docking AP speed_limit (m/s)
+    transfer_amount_lf: float = 40.0           # LiquidFuel deliver (transport->station)
+    transfer_amount_mp: float = 15.0           # MonoPropellant pickup (station->transport)
+    # Give-up budgets (GAME time; section 5.4). Phasing legs advance game time
+    # fast under rails warp, so rendezvous_timeout is large.
+    station_commit_timeout: float = 300.0      # bounded wait for the seam commit result
+    rendezvous_timeout: float = 30000.0
+    dock_timeout: float = 600.0                # the 1x approach
+    transfer_timeout: float = 120.0            # each transfer; TRANSFER phase = 2x this
+    undock_timeout: float = 120.0
+    # RENDEZVOUS no-progress detector: consecutive finite frames whose
+    # target_distance never beat the running minimum -> flake (a stuck AP).
+    rendezvous_noprogress_frames: int = 40
+    frozen_sample_limit: int = 10
+
+
+def bdock_params_from_dict(params: Dict) -> BDockParams:
+    params = params or {}
+    return BDockParams(
+        station_apoapsis=float(params.get("stationApoapsisMeters", 110000)),
+        station_periapsis=float(params.get("stationPeriapsisMeters", 110000)),
+        interceptor_apoapsis=float(params.get("interceptorApoapsisMeters", 90000)),
+        interceptor_periapsis=float(params.get("interceptorPeriapsisMeters", 90000)),
+        apo_error=float(params.get("apoErrorMeters", 5000)),
+        peri_error=float(params.get("periErrorMeters", 5000)),
+        ascent_timeout=float(params.get("ascentTimeoutSeconds", 1200)),
+        circularize_timeout=float(params.get("circularizeTimeoutSeconds", 600)),
+        craft_name=str(params.get("craftName", "Kerbal X")),
+        launch_site=str(params.get("launchSite", "LaunchPad")),
+        launch_settle_situations=tuple(params.get("launchSettleSituations", ("PRE_LAUNCH",))),
+        launch_timeout=float(params.get("launchTimeoutSeconds", 300)),
+        launch_settle_debounce=int(params.get("launchSettleDebounceFrames", 3)),
+        approach_distance=float(params.get("approachDistanceMeters", 100)),
+        max_phasing_orbits=float(params.get("maxPhasingOrbits", 5)),
+        match_speed=float(params.get("matchSpeedMetersPerSec", 1.0)),
+        dock_speed=float(params.get("dockSpeedMetersPerSec", 0.5)),
+        transfer_amount_lf=float(params.get("transferAmountLf", 40)),
+        transfer_amount_mp=float(params.get("transferAmountMp", 15)),
+        station_commit_timeout=float(params.get("stationCommitTimeoutSeconds", 300)),
+        rendezvous_timeout=float(params.get("rendezvousTimeoutSeconds", 30000)),
+        dock_timeout=float(params.get("dockTimeoutSeconds", 600)),
+        transfer_timeout=float(params.get("transferTimeoutSeconds", 120)),
+        undock_timeout=float(params.get("undockTimeoutSeconds", 120)),
+        rendezvous_noprogress_frames=int(params.get("rendezvousNoProgressFrames", 40)),
+        frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
+    )
+
+
+@dataclass(frozen=True)
+class BDockState:
+    """B-DOCK machine state (design section 3.3). ``verdict`` / ``flake_phase`` /
+    ``done`` mirror B2/B5: done at TERMINAL (verdict None -> assertions judge) or
+    on a flake / loss. Carried evidence rides for the evaluator + the give-ups."""
+    params: BDockParams
+    phase: str = BDOCK_PRELAUNCH
+    phase_entry_ut: float = 0.0
+    phases_reached: Tuple[str, ...] = (BDOCK_PRELAUNCH,)
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    done: bool = False
+    loss_reason: Optional[str] = None
+    # Shared frozen-telemetry detection (mirrors B2/B5).
+    frozen_sig: Optional[FrozenSignature] = None
+    frozen_count: int = 0
+    # Rendezvous / docking Enabled-latch tracking (NIT-15).
+    rendezvous_ever_enabled: bool = False
+    docking_ever_enabled: bool = False
+    # Interceptor launch settle.
+    launch_settle_streak: int = 0
+    # RENDEZVOUS no-progress detector.
+    rendezvous_min_distance: float = float("inf")
+    rendezvous_noprogress_count: int = 0
+    # TRANSFER sequencing (T1 LiquidFuel deliver, T2 MonoPropellant pickup).
+    current_transfer_started: bool = False
+    transfers_done: int = 0
+    # UNDOCK split evidence.
+    undock_baseline_vessel_count: int = 0
+    # Carried evidence for the evaluator.
+    docked_confirmed: bool = False
+    undock_confirmed: bool = False
+
+
+def bdock_initial_state(params: BDockParams) -> BDockState:
+    return BDockState(params=params)
+
+
+def _bdock_enter(state: BDockState, new_phase: str, ut: float,
+                 **fields) -> BDockState:
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(
+        state, phase=new_phase, phase_entry_ut=entry,
+        phases_reached=state.phases_reached + (new_phase,),
+        done=(new_phase == BDOCK_TERMINAL), **fields)
+
+
+def _bdock_phase_budget(params: BDockParams, phase: str) -> Optional[float]:
+    if phase in (BDOCK_STATION_ASCENT, BDOCK_INT_ASCENT):
+        return params.ascent_timeout
+    if phase in (BDOCK_STATION_CIRCULARIZE, BDOCK_INT_CIRCULARIZE):
+        return params.circularize_timeout
+    if phase == BDOCK_STATION_COMMIT:
+        return params.station_commit_timeout
+    if phase == BDOCK_INT_LAUNCH:
+        return params.launch_timeout
+    if phase == BDOCK_RENDEZVOUS:
+        return params.rendezvous_timeout
+    if phase == BDOCK_DOCK:
+        return params.dock_timeout
+    if phase == BDOCK_TRANSFER:
+        return 2.0 * params.transfer_timeout
+    if phase == BDOCK_UNDOCK:
+        return params.undock_timeout
+    # SET-TARGET / MATCH-VELOCITY: no dedicated budget (fast transitions); the
+    # wall deadline in the fly loop is the ultimate backstop.
+    return None
+
+
+def _bdock_over_budget(state: BDockState, snapshot: TelemetrySnapshot) -> bool:
+    budget = _bdock_phase_budget(state.params, state.phase)
+    if budget is None or not _is_finite(snapshot.ut):
+        return False
+    return (snapshot.ut - state.phase_entry_ut) > budget
+
+
+def _bdock_flake(state: BDockState, reason_phase: Optional[str] = None) -> BDockState:
+    return replace(state, verdict=MISSION_FLAKE,
+                   flake_phase=reason_phase or state.phase, done=True)
+
+
+def _bdock_stay_or_flake(state: BDockState,
+                         snapshot: TelemetrySnapshot) -> BDockState:
+    if _bdock_over_budget(state, snapshot):
+        return _bdock_flake(state)
+    return state
+
+
+def _bdock_ascent_entry_actions(target_apoapsis: float) -> List[Action]:
+    """The B2-proven staged-ascent actions (both legs). MechJeb's ascent AP
+    engaged via kRPC does NOT ignite the first stage itself, so the mission
+    activates the initial stage exactly like a GUI user pressing space."""
+    return [
+        Action(ACTION_MJ_SET_TARGET_APOAPSIS, target_apoapsis),
+        Action(ACTION_MJ_ENABLE_AUTOSTAGE),
+        Action(ACTION_MJ_ENGAGE_ASCENT),
+        Action(ACTION_ACTIVATE_STAGE),
+    ]
+
+
+def bdock_decide(state: BDockState,
+                 snapshot: TelemetrySnapshot) -> Tuple[BDockState, List[Action]]:
+    """Advance the B-DOCK machine one frame; return (new_state, actions).
+    Transitions per design section 3.3. See the phase-name docstrings above."""
+    if state.done:
+        return state, []
+
+    # Phase-independent vessel-loss terminal (mirrors B2/B5), EXCEPT during the
+    # Interceptor launch reload where a vessel_lost is a transient (the new
+    # craft has not materialized yet); INT-LAUNCH owns that with its settle
+    # debounce + launch budget.
+    if snapshot.vessel_lost and state.phase != BDOCK_INT_LAUNCH:
+        return replace(
+            state, done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason="vessel-lost (unreadable after repeated telemetry failures)"), []
+
+    # Frozen-telemetry (vessel-destroyed) detection, flight phases only.
+    if state.phase in _BDOCK_FROZEN_PHASES:
+        limit = state.params.frozen_sample_limit
+        new_sig, new_count, tripped = _advance_frozen_count(
+            state.frozen_sig, state.frozen_count, snapshot, limit)
+        if tripped:
+            return replace(
+                state, frozen_sig=new_sig, frozen_count=new_count, done=True,
+                verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("vessel-lost (telemetry frozen %d consecutive samples "
+                             "while airborne; vessel presumed destroyed)" % limit)), []
+        state = replace(state, frozen_sig=new_sig, frozen_count=new_count)
+
+    p = state.params
+
+    # ---- PIECE 1: STATION (pre-placed on the pad) --------------------------
+    if state.phase == BDOCK_PRELAUNCH:
+        return (_bdock_enter(state, BDOCK_STATION_ASCENT, snapshot.ut),
+                _bdock_ascent_entry_actions(p.station_apoapsis))
+
+    if state.phase == BDOCK_STATION_ASCENT:
+        apo_reached = (_is_finite(snapshot.apoapsis)
+                       and snapshot.apoapsis >= p.station_apoapsis - p.apo_error)
+        if snapshot.mj_ascent_complete and apo_reached:
+            return (_bdock_enter(state, BDOCK_STATION_CIRCULARIZE, snapshot.ut),
+                    [Action(ACTION_MJ_EXECUTE_CIRCULARIZATION)])
+        return _bdock_stay_or_flake(state, snapshot), []
+
+    if state.phase == BDOCK_STATION_CIRCULARIZE:
+        if (_is_finite(snapshot.periapsis)
+                and snapshot.periapsis >= p.station_periapsis - p.peri_error):
+            return _bdock_enter(state, BDOCK_STATION_ORBIT, snapshot.ut), []
+        return _bdock_stay_or_flake(state, snapshot), []
+
+    if state.phase == BDOCK_STATION_ORBIT:
+        # Capture the Station handle (while it is the active vessel, P9/Q4) and
+        # commit its tree via the command seam (route 1). Both fire on entry to
+        # STATION-COMMIT; the bounded-wait for the seam result follows.
+        return (_bdock_enter(state, BDOCK_STATION_COMMIT, snapshot.ut),
+                [Action(ACTION_CAPTURE_STATION),
+                 Action(ACTION_PARSEK_COMMIT_TREE)])
+
+    if state.phase == BDOCK_STATION_COMMIT:
+        result = snapshot.seam_commit_result
+        if result == "OK":
+            # Launch the Interceptor (same craft, from the now-clear pad).
+            return (_bdock_enter(state, BDOCK_INT_LAUNCH, snapshot.ut),
+                    [Action(ACTION_LAUNCH_VESSEL, text=p.craft_name)])
+        if result in ("ERROR", "TIMEOUT"):
+            return _bdock_flake(replace(state, loss_reason=None)), []
+        return _bdock_stay_or_flake(state, snapshot), []
+
+    # ---- PIECE 2: INTERCEPTOR (launch_vessel) ------------------------------
+    if state.phase == BDOCK_INT_LAUNCH:
+        settled = (not snapshot.vessel_lost
+                   and snapshot.situation in p.launch_settle_situations)
+        streak = state.launch_settle_streak + 1 if settled else 0
+        if streak >= p.launch_settle_debounce:
+            return (_bdock_enter(replace(state, launch_settle_streak=streak),
+                                 BDOCK_INT_ASCENT, snapshot.ut),
+                    _bdock_ascent_entry_actions(p.interceptor_apoapsis))
+        return _bdock_stay_or_flake(replace(state, launch_settle_streak=streak),
+                                    snapshot), []
+
+    if state.phase == BDOCK_INT_ASCENT:
+        apo_reached = (_is_finite(snapshot.apoapsis)
+                       and snapshot.apoapsis >= p.interceptor_apoapsis - p.apo_error)
+        if snapshot.mj_ascent_complete and apo_reached:
+            return (_bdock_enter(state, BDOCK_INT_CIRCULARIZE, snapshot.ut),
+                    [Action(ACTION_MJ_EXECUTE_CIRCULARIZATION)])
+        return _bdock_stay_or_flake(state, snapshot), []
+
+    if state.phase == BDOCK_INT_CIRCULARIZE:
+        if (_is_finite(snapshot.periapsis)
+                and snapshot.periapsis >= p.interceptor_periapsis - p.peri_error):
+            return _bdock_enter(state, BDOCK_INT_PHASING_ORBIT, snapshot.ut), []
+        return _bdock_stay_or_flake(state, snapshot), []
+
+    if state.phase == BDOCK_INT_PHASING_ORBIT:
+        return (_bdock_enter(state, BDOCK_SET_TARGET, snapshot.ut),
+                [Action(ACTION_SET_TARGET_VESSEL)])
+
+    if state.phase == BDOCK_SET_TARGET:
+        if snapshot.target_set:
+            return (_bdock_enter(state, BDOCK_RENDEZVOUS, snapshot.ut,
+                                 rendezvous_min_distance=float("inf"),
+                                 rendezvous_noprogress_count=0),
+                    [Action(ACTION_MJ_ENABLE_RENDEZVOUS,
+                            value=p.approach_distance, limit=p.max_phasing_orbits)])
+        return _bdock_stay_or_flake(state, snapshot), []
+
+    if state.phase == BDOCK_RENDEZVOUS:
+        # Latch: the AP self-disables when finished (NIT-15).
+        st = state
+        if snapshot.mj_rendezvous_enabled:
+            st = replace(st, rendezvous_ever_enabled=True)
+        latched_off = st.rendezvous_ever_enabled and not snapshot.mj_rendezvous_enabled
+        close = (_is_finite(snapshot.target_distance)
+                 and snapshot.target_distance <= p.approach_distance)
+        if latched_off and close:
+            return (_bdock_enter(st, BDOCK_MATCH_VELOCITY, snapshot.ut),
+                    [Action(ACTION_MJ_KILL_REL_VEL)])
+        # No-progress detector: track the running minimum distance.
+        if _is_finite(snapshot.target_distance):
+            if snapshot.target_distance < st.rendezvous_min_distance:
+                st = replace(st, rendezvous_min_distance=snapshot.target_distance,
+                             rendezvous_noprogress_count=0)
+            else:
+                st = replace(st,
+                             rendezvous_noprogress_count=st.rendezvous_noprogress_count + 1)
+                if st.rendezvous_noprogress_count >= p.rendezvous_noprogress_frames:
+                    return _bdock_flake(st), []
+        return _bdock_stay_or_flake(st, snapshot), []
+
+    if state.phase == BDOCK_MATCH_VELOCITY:
+        if (_is_finite(snapshot.target_rel_speed)
+                and snapshot.target_rel_speed <= p.match_speed):
+            return (_bdock_enter(state, BDOCK_DOCK, snapshot.ut),
+                    [Action(ACTION_SET_TARGET_DOCKING_PORT),
+                     Action(ACTION_MJ_ENABLE_DOCKING, value=p.dock_speed)])
+        return _bdock_stay_or_flake(state, snapshot), []
+
+    if state.phase == BDOCK_DOCK:
+        st = state
+        if snapshot.mj_docking_enabled:
+            st = replace(st, docking_ever_enabled=True)
+        latched_off = st.docking_ever_enabled and not snapshot.mj_docking_enabled
+        docked = snapshot.docking_state == DOCKING_STATE_DOCKED
+        if docked and latched_off:
+            # onPartCouple -> Parsek authors the cross-tree Dock branch + opens
+            # the RouteConnectionWindow. Disable the docking AP and start T1.
+            return (_bdock_enter(replace(st, docked_confirmed=True,
+                                         current_transfer_started=True),
+                                 BDOCK_TRANSFER, snapshot.ut),
+                    [Action(ACTION_MJ_DISABLE_DOCKING),
+                     Action(ACTION_START_RESOURCE_TRANSFER,
+                            value=p.transfer_amount_lf, text="LiquidFuel",
+                            limit=TRANSFER_DIR_DELIVER)])
+        # Monoprop-out give-up (P2): a docking-AP stall thrashing RCS drains it.
+        if (not docked and _is_finite(snapshot.monopropellant)
+                and snapshot.monopropellant <= BDOCK_MONOPROP_OUT_EPS):
+            return (replace(_bdock_flake(st, BDOCK_DOCK)),
+                    [Action(ACTION_MJ_DISABLE_DOCKING)])
+        if _bdock_over_budget(st, snapshot):
+            return _bdock_flake(st), [Action(ACTION_MJ_DISABLE_DOCKING)]
+        return st, []
+
+    if state.phase == BDOCK_TRANSFER:
+        # Sequence: T1 (LiquidFuel deliver) then T2 (MonoPropellant pickup).
+        if state.current_transfer_started and snapshot.transfer_complete:
+            done_n = state.transfers_done + 1
+            st = replace(state, transfers_done=done_n, current_transfer_started=False)
+            if done_n >= 2:
+                # Both transfers done -> undock (baseline the pre-split count).
+                base = snapshot.vessel_count
+                return (_bdock_enter(replace(st, undock_baseline_vessel_count=base),
+                                     BDOCK_UNDOCK, snapshot.ut),
+                        [Action(ACTION_UNDOCK)])
+            # Start T2 (MonoPropellant pickup, station -> transport).
+            return (replace(st, current_transfer_started=True),
+                    [Action(ACTION_START_RESOURCE_TRANSFER,
+                            value=p.transfer_amount_mp, text="MonoPropellant",
+                            limit=TRANSFER_DIR_PICKUP)])
+        return _bdock_stay_or_flake(state, snapshot), []
+
+    if state.phase == BDOCK_UNDOCK:
+        # onVesselsUndocking -> Parsek authors the Undock split + completes the
+        # RouteConnectionWindow. Done evidence: vessel_count INCREASED by one
+        # AND docking_state != Docked (MINOR 10: Ready alone is soft evidence).
+        split = (snapshot.vessel_count > state.undock_baseline_vessel_count
+                 and snapshot.docking_state != DOCKING_STATE_DOCKED)
+        if split:
+            return (_bdock_enter(replace(state, undock_confirmed=True),
+                                 BDOCK_TERMINAL, snapshot.ut),
+                    [Action(ACTION_CANCEL_WARP)])
+        return _bdock_stay_or_flake(state, snapshot), []
+
+    return _bdock_flake(state), []
+
+
+def evaluate_bdock_assertions(frames, params: BDockParams,
+                              phases_reached=(), state=None,
+                              k: int = DEFAULT_DEBOUNCE_K) -> List[AssertionOutcome]:
+    """Five B-DOCK driver-validity assertions -- terminal-focused phase + carried
+    evidence, NEVER a golden trajectory (the rendezvous / dock geometry is
+    MechJeb's business; the RECORDING-correctness oracle is the offline
+    analyzer's, design section 6). ``state`` carries the docked / undock evidence.
+
+    - ``reachedStationOrbit``:      STATION-ORBIT in phases_reached.
+    - ``reachedInterceptorOrbit``:  INT-PHASING-ORBIT in phases_reached.
+    - ``docked``:                   DOCK reached AND docked_confirmed evidence.
+    - ``transfersComplete``:        both commanded transfers completed (evidence
+      transfers_done >= 2).
+    - ``undocked``:                 the authoritative undock split fired
+      (UNDOCK/TERMINAL reached AND undock_confirmed evidence).
+    """
+    del frames, k
+    phases = tuple(phases_reached or ())
+    docked_ev = bool(getattr(state, "docked_confirmed", False))
+    transfers = int(getattr(state, "transfers_done", 0))
+    undock_ev = bool(getattr(state, "undock_confirmed", False))
+
+    station = AssertionOutcome("reachedStationOrbit",
+                               BDOCK_STATION_ORBIT in phases,
+                               (BDOCK_STATION_ORBIT if BDOCK_STATION_ORBIT in phases
+                                else (phases[-1] if phases else None)),
+                               {"required": BDOCK_STATION_ORBIT})
+    interceptor = AssertionOutcome("reachedInterceptorOrbit",
+                                   BDOCK_INT_PHASING_ORBIT in phases,
+                                   (BDOCK_INT_PHASING_ORBIT if BDOCK_INT_PHASING_ORBIT in phases
+                                    else (phases[-1] if phases else None)),
+                                   {"required": BDOCK_INT_PHASING_ORBIT})
+    docked = AssertionOutcome("docked",
+                              (BDOCK_DOCK in phases) and docked_ev, docked_ev,
+                              {"required": BDOCK_DOCK})
+    transfers_met = transfers >= 2
+    transfer = AssertionOutcome("transfersComplete", transfers_met, transfers,
+                                {"required": 2})
+    undocked = AssertionOutcome("undocked",
+                                (BDOCK_TERMINAL in phases) and undock_ev, undock_ev,
+                                {"required": BDOCK_TERMINAL})
+    return [station, interceptor, docked, transfer, undocked]
+
+
+# ---------------------------------------------------------------------------
 # Telemetry-assertion evaluators (design "Telemetry assertions" + guardrails).
 # Pure over a list of TelemetrySnapshot frames.
 # ---------------------------------------------------------------------------
@@ -3670,6 +4420,19 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("arrival_bad_streak", "arrivalBadStreak"),
     ("extra_rounds_done", "extraRounds"),
     ("no_encounter_streak", "noEncounterStreak"),
+    # FORGE + B-DOCK carried state (getattr-generic: absent on B1..B7 states, so
+    # their machine-state dict/line is unchanged; present only for those runs).
+    ("settle_streak", "settleStreak"),
+    ("launch_settle_streak", "launchSettleStreak"),
+    ("rendezvous_ever_enabled", "rvEnabled"),
+    ("docking_ever_enabled", "dockEnabled"),
+    ("rendezvous_min_distance", "rvMinDist"),
+    ("rendezvous_noprogress_count", "rvNoProgress"),
+    ("transfers_done", "transfersDone"),
+    ("current_transfer_started", "transferStarted"),
+    ("docked_confirmed", "docked"),
+    ("undock_confirmed", "undocked"),
+    ("undock_baseline_vessel_count", "undockBaseVessels"),
 )
 
 # Fields whose CHANGE is a sparse, decision-relevant gate/latch event worth
@@ -3703,6 +4466,15 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("arrival_bad_streak", "arrivalBadStreak"),
     ("extra_rounds_done", "extraRounds"),
     ("no_encounter_streak", "noEncounterStreak"),
+    # FORGE + B-DOCK sparse latch/gate flips (getattr-generic; absent elsewhere).
+    ("launch_settle_streak", "launchSettleStreak"),
+    ("rendezvous_ever_enabled", "rvEnabled"),
+    ("docking_ever_enabled", "dockEnabled"),
+    ("rendezvous_noprogress_count", "rvNoProgress"),
+    ("transfers_done", "transfersDone"),
+    ("current_transfer_started", "transferStarted"),
+    ("docked_confirmed", "docked"),
+    ("undock_confirmed", "undocked"),
 )
 
 _MACHINE_FIELD_ABSENT = object()

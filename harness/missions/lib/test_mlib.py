@@ -3861,5 +3861,526 @@ class B7InterplanetaryTests(unittest.TestCase):
         self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
 
 
+# ===========================================================================
+# FORGE (fixture-forge) machine + assertions.
+# ===========================================================================
+
+
+FORGE_PARAMS = mlib.ForgeParams(
+    craft_name="Kerbal X",
+    launch_site="LaunchPad",
+    launch_timeout=120.0,
+    settle_debounce=3,
+)
+
+
+def drive_forge(state, frames):
+    per_frame = []
+    for f in frames:
+        state, actions = mlib.forge_decide(state, f)
+        per_frame.append(actions)
+    return state, per_frame
+
+
+class ForgeMachineTests(unittest.TestCase):
+    """Guards the FIXTURE-FORGE machine: launch the craft, settle PRELAUNCH, done
+    MISSION-OK. A premature done or a vessel_lost false-terminal during the reload
+    would forge no fixture or red a good stamp."""
+
+    def test_prelaunch_emits_launch_vessel(self):
+        state = mlib.forge_initial_state(FORGE_PARAMS)
+        new, actions = mlib.forge_decide(state, snap(ut=0.0))
+        self.assertEqual(new.phase, mlib.FORGE_LAUNCH)
+        self.assertEqual(actions, [Action(mlib.ACTION_LAUNCH_VESSEL, value=None,
+                                           text="Kerbal X")])
+
+    def test_full_happy_path_settles_prelaunch(self):
+        state = mlib.forge_initial_state(FORGE_PARAMS)
+        frames = [
+            snap(ut=0.0),                                   # PRELAUNCH->LAUNCH
+            snap(ut=5.0, situation="PRE_LAUNCH"),           # settle 1
+            snap(ut=10.0, situation="PRE_LAUNCH"),          # settle 2
+            snap(ut=15.0, situation="PRE_LAUNCH"),          # settle 3 -> SETTLED (done)
+        ]
+        state, _ = drive_forge(state, frames)
+        self.assertTrue(state.done)
+        self.assertEqual(state.phase, mlib.FORGE_SETTLED)
+        self.assertIsNone(state.verdict)
+        self.assertEqual(state.phases_reached,
+                         (mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH, mlib.FORGE_SETTLED))
+
+    def test_settle_debounce_resets_on_non_settled_frame(self):
+        # A transient non-settle frame mid-reload resets the streak (no premature done).
+        state = mlib.forge_initial_state(FORGE_PARAMS)
+        state, _ = mlib.forge_decide(state, snap(ut=0.0))
+        state, _ = mlib.forge_decide(state, snap(ut=5.0, situation="PRE_LAUNCH"))
+        state, _ = mlib.forge_decide(state, snap(ut=6.0, situation="FLYING"))  # reset
+        self.assertEqual(state.settle_streak, 0)
+        self.assertEqual(state.phase, mlib.FORGE_LAUNCH)
+
+    def test_vessel_lost_during_launch_is_transient_not_terminal(self):
+        # launch_vessel is a scene reload; a vessel_lost snapshot mid-reload must NOT
+        # terminate -- the settle debounce + launch budget own the outcome.
+        state = mlib.forge_initial_state(FORGE_PARAMS)
+        state, _ = mlib.forge_decide(state, snap(ut=0.0))
+        state, _ = mlib.forge_decide(state, snap(ut=2.0, vessel_lost=True))
+        self.assertFalse(state.done)
+        self.assertEqual(state.phase, mlib.FORGE_LAUNCH)
+        self.assertEqual(state.settle_streak, 0)
+
+    def test_vessel_lost_before_launch_is_terminal(self):
+        state = mlib.forge_initial_state(FORGE_PARAMS)
+        state, _ = mlib.forge_decide(state, snap(ut=0.0, vessel_lost=True))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("vessel-lost", state.loss_reason)
+
+    def test_launch_timeout_flakes(self):
+        state = mlib.forge_initial_state(FORGE_PARAMS)
+        state, _ = mlib.forge_decide(state, snap(ut=0.0))
+        # No settle situation ever; past launch_timeout -> FLAKE naming LAUNCH.
+        state, _ = mlib.forge_decide(state, snap(ut=200.0, situation="FLYING"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.FORGE_LAUNCH)
+
+
+class ForgeAssertionTests(unittest.TestCase):
+    def test_both_assertions_met(self):
+        frames = [snap(situation="PRE_LAUNCH")]
+        outs = mlib.evaluate_forge_assertions(
+            frames, FORGE_PARAMS,
+            phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH, mlib.FORGE_SETTLED))
+        self.assertEqual([o.name for o in outs], ["launched", "settledOnPad"])
+        self.assertTrue(all(o.met for o in outs))
+
+    def test_settled_unmet_without_settled_phase(self):
+        # Launched but never settled (no FORGE_SETTLED) -> settledOnPad unmet.
+        outs = mlib.evaluate_forge_assertions(
+            [snap(situation="FLYING")], FORGE_PARAMS,
+            phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH))
+        self.assertTrue(outs[0].met)      # launched
+        self.assertFalse(outs[1].met)     # settledOnPad
+
+    def test_settled_unmet_with_wrong_final_situation(self):
+        # Reached SETTLED but the final frame situation is not a settle situation
+        # (fail-closed: the persisted state would not be a clean PRELAUNCH pad).
+        outs = mlib.evaluate_forge_assertions(
+            [snap(situation="FLYING")], FORGE_PARAMS,
+            phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH, mlib.FORGE_SETTLED))
+        self.assertFalse(outs[1].met)
+
+
+# ===========================================================================
+# B-DOCK machine + assertions.
+# ===========================================================================
+
+
+BDOCK_PARAMS = mlib.BDockParams(
+    station_apoapsis=110000.0,
+    station_periapsis=110000.0,
+    interceptor_apoapsis=90000.0,
+    interceptor_periapsis=90000.0,
+    apo_error=5000.0,
+    peri_error=5000.0,
+    ascent_timeout=1200.0,
+    circularize_timeout=600.0,
+    craft_name="Kerbal X",
+    launch_settle_debounce=2,
+    launch_timeout=300.0,
+    approach_distance=100.0,
+    max_phasing_orbits=5.0,
+    match_speed=1.0,
+    dock_speed=0.5,
+    transfer_amount_lf=40.0,
+    transfer_amount_mp=15.0,
+    station_commit_timeout=300.0,
+    rendezvous_timeout=30000.0,
+    dock_timeout=600.0,
+    transfer_timeout=120.0,
+    undock_timeout=120.0,
+    rendezvous_noprogress_frames=5,
+)
+
+
+def _bdock(**overrides):
+    return mlib.bdock_initial_state(mlib.replace(BDOCK_PARAMS, **overrides)
+                                    if overrides else BDOCK_PARAMS)
+
+
+def _bdock_walk_to(phase, params=BDOCK_PARAMS):
+    """Drive a fresh B-DOCK machine to the given phase over a scripted happy path,
+    returning (state, per_frame_actions_up_to_entry). Only phases up to and INTO
+    ``phase`` are walked; used so a per-phase test starts from a realistic state."""
+    state = mlib.bdock_initial_state(params)
+    frames = [
+        snap(ut=0.0),                                              # PRELAUNCH->STATION-ASCENT
+        snap(ut=100.0, apoapsis=108000.0, mj_ascent_complete=True),  # ->STATION-CIRCULARIZE
+        snap(ut=150.0, periapsis=109000.0),                       # ->STATION-ORBIT
+        snap(ut=160.0),                                           # ->STATION-COMMIT (capture+commit)
+        snap(ut=161.0, seam_commit_result="OK"),                 # ->INT-LAUNCH
+        snap(ut=170.0, situation="PRE_LAUNCH"),                  # settle 1
+        snap(ut=175.0, situation="PRE_LAUNCH"),                  # settle 2 -> INT-ASCENT
+        snap(ut=400.0, apoapsis=88000.0, mj_ascent_complete=True),  # ->INT-CIRCULARIZE
+        snap(ut=450.0, periapsis=89000.0),                       # ->INT-PHASING-ORBIT
+        snap(ut=460.0),                                          # ->SET-TARGET
+        snap(ut=470.0, target_set=True),                        # ->RENDEZVOUS
+        snap(ut=480.0, mj_rendezvous_enabled=True, target_distance=5000.0),  # AP running
+        snap(ut=490.0, mj_rendezvous_enabled=False, target_distance=80.0),   # ->MATCH-VELOCITY
+        snap(ut=500.0, target_rel_speed=0.5),                   # ->DOCK
+        snap(ut=510.0, mj_docking_enabled=True, docking_state="Docking"),    # AP running
+        snap(ut=520.0, mj_docking_enabled=False, docking_state="Docked"),    # ->TRANSFER (T1)
+        snap(ut=525.0, transfer_complete=True, vessel_count=1),  # T1 done -> T2
+        snap(ut=530.0, transfer_complete=True, vessel_count=1),  # T2 done -> UNDOCK
+        snap(ut=540.0, vessel_count=2, docking_state="Ready"),   # split -> TERMINAL
+    ]
+    reached = state
+    per = []
+    for f in frames:
+        reached, actions = mlib.bdock_decide(reached, f)
+        per.append((reached.phase, actions))
+        if reached.phase == phase or reached.done:
+            break
+    return reached, per
+
+
+class BDockHappyPathTests(unittest.TestCase):
+    """The full two-vessel walk: Station ascent+commit, Interceptor launch+ascent,
+    rendezvous, dock, two transfers, undock, terminal."""
+
+    def test_full_happy_path_reaches_terminal(self):
+        state, per = _bdock_walk_to(mlib.BDOCK_TERMINAL)
+        self.assertTrue(state.done)
+        self.assertEqual(state.phase, mlib.BDOCK_TERMINAL)
+        self.assertIsNone(state.verdict)
+        self.assertTrue(state.docked_confirmed)
+        self.assertEqual(state.transfers_done, 2)
+        self.assertTrue(state.undock_confirmed)
+        # Every phase visited in order.
+        for want in (mlib.BDOCK_STATION_ORBIT, mlib.BDOCK_STATION_COMMIT,
+                     mlib.BDOCK_INT_LAUNCH, mlib.BDOCK_INT_PHASING_ORBIT,
+                     mlib.BDOCK_RENDEZVOUS, mlib.BDOCK_DOCK, mlib.BDOCK_TRANSFER,
+                     mlib.BDOCK_UNDOCK, mlib.BDOCK_TERMINAL):
+            self.assertIn(want, state.phases_reached)
+
+    def test_prelaunch_emits_station_ascent_at_station_apoapsis(self):
+        state = _bdock()
+        new, actions = mlib.bdock_decide(state, snap(ut=0.0))
+        self.assertEqual(new.phase, mlib.BDOCK_STATION_ASCENT)
+        self.assertEqual(actions[0], Action(mlib.ACTION_MJ_SET_TARGET_APOAPSIS, 110000.0))
+        self.assertIn(Action(mlib.ACTION_ACTIVATE_STAGE), actions)
+
+    def test_station_orbit_captures_and_commits(self):
+        state, _ = _bdock_walk_to(mlib.BDOCK_STATION_COMMIT)
+        # The entry to STATION-COMMIT emits capture + commit.
+        state2 = mlib.bdock_initial_state(BDOCK_PARAMS)
+        # Drive to STATION-ORBIT then step into STATION-COMMIT to read the actions.
+        for f in (snap(ut=0.0),
+                  snap(ut=100.0, apoapsis=108000.0, mj_ascent_complete=True),
+                  snap(ut=150.0, periapsis=109000.0)):
+            state2, actions = mlib.bdock_decide(state2, f)
+        self.assertEqual(state2.phase, mlib.BDOCK_STATION_ORBIT)
+        state2, actions = mlib.bdock_decide(state2, snap(ut=160.0))
+        self.assertEqual(state2.phase, mlib.BDOCK_STATION_COMMIT)
+        self.assertEqual(actions, [Action(mlib.ACTION_CAPTURE_STATION),
+                                   Action(mlib.ACTION_PARSEK_COMMIT_TREE)])
+
+    def test_int_launch_emits_launch_vessel(self):
+        # From STATION-COMMIT, an OK seam result launches the Interceptor.
+        state, _ = _bdock_walk_to(mlib.BDOCK_STATION_COMMIT)
+        state, actions = mlib.bdock_decide(state, snap(ut=161.0, seam_commit_result="OK"))
+        self.assertEqual(state.phase, mlib.BDOCK_INT_LAUNCH)
+        self.assertEqual(actions, [Action(mlib.ACTION_LAUNCH_VESSEL, text="Kerbal X")])
+
+
+class BDockSeamCommitTests(unittest.TestCase):
+    """The mid-mission command-seam commit (route 1): OK advances, ERROR/TIMEOUT
+    flakes, "" waits (bounded)."""
+
+    def _at_commit(self):
+        state, _ = _bdock_walk_to(mlib.BDOCK_STATION_COMMIT)
+        return state
+
+    def test_ok_advances_to_int_launch(self):
+        state = self._at_commit()
+        state, _ = mlib.bdock_decide(state, snap(ut=162.0, seam_commit_result="OK"))
+        self.assertEqual(state.phase, mlib.BDOCK_INT_LAUNCH)
+
+    def test_error_flakes(self):
+        state = self._at_commit()
+        state, _ = mlib.bdock_decide(state, snap(ut=162.0, seam_commit_result="ERROR"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.BDOCK_STATION_COMMIT)
+
+    def test_timeout_flakes(self):
+        state = self._at_commit()
+        state, _ = mlib.bdock_decide(state, snap(ut=162.0, seam_commit_result="TIMEOUT"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+
+    def test_empty_result_waits_then_budget_flakes(self):
+        state = self._at_commit()
+        # "" keeps waiting...
+        state, _ = mlib.bdock_decide(state, snap(ut=200.0, seam_commit_result=""))
+        self.assertEqual(state.phase, mlib.BDOCK_STATION_COMMIT)
+        # ...until the station_commit_timeout (300 s) elapses -> FLAKE.
+        state, _ = mlib.bdock_decide(state, snap(ut=500.0, seam_commit_result=""))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+
+
+class BDockRendezvousTests(unittest.TestCase):
+    def _at_rendezvous(self):
+        state, _ = _bdock_walk_to(mlib.BDOCK_RENDEZVOUS)
+        return state
+
+    def test_latch_and_distance_advance_to_match_velocity(self):
+        state = self._at_rendezvous()
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=480.0, mj_rendezvous_enabled=True, target_distance=5000.0))
+        self.assertTrue(state.rendezvous_ever_enabled)
+        # Latch flips off + within approach distance -> MATCH-VELOCITY.
+        state, actions = mlib.bdock_decide(state, snap(
+            ut=490.0, mj_rendezvous_enabled=False, target_distance=80.0))
+        self.assertEqual(state.phase, mlib.BDOCK_MATCH_VELOCITY)
+        self.assertEqual(actions, [Action(mlib.ACTION_MJ_KILL_REL_VEL)])
+
+    def test_latch_off_but_far_does_not_advance(self):
+        # NIT-15: the AP disabling while still FAR is not a rendezvous completion.
+        state = self._at_rendezvous()
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=480.0, mj_rendezvous_enabled=True, target_distance=5000.0))
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=490.0, mj_rendezvous_enabled=False, target_distance=800.0))
+        self.assertEqual(state.phase, mlib.BDOCK_RENDEZVOUS)
+
+    def test_nan_distance_fails_closed(self):
+        state = self._at_rendezvous()
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=480.0, mj_rendezvous_enabled=True, target_distance=5000.0))
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=490.0, mj_rendezvous_enabled=False, target_distance=float("nan")))
+        self.assertEqual(state.phase, mlib.BDOCK_RENDEZVOUS)
+
+    def test_no_progress_gives_up(self):
+        # Distance never beats the running minimum for rendezvous_noprogress_frames
+        # (5) consecutive frames -> FLAKE.
+        state = self._at_rendezvous()
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=475.0, mj_rendezvous_enabled=True, target_distance=3000.0))  # min=3000
+        for i in range(5):
+            state, _ = mlib.bdock_decide(state, snap(
+                ut=476.0 + i, mj_rendezvous_enabled=True, target_distance=3000.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.BDOCK_RENDEZVOUS)
+
+    def test_rendezvous_budget_flakes(self):
+        state = self._at_rendezvous()
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=470.0 + 40000.0, mj_rendezvous_enabled=True, target_distance=5000.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+
+
+class BDockDockTests(unittest.TestCase):
+    def _at_dock(self):
+        state, _ = _bdock_walk_to(mlib.BDOCK_DOCK)
+        return state
+
+    def test_docked_and_latch_advances_to_transfer_with_t1(self):
+        state = self._at_dock()
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=510.0, mj_docking_enabled=True, docking_state="Docking"))
+        self.assertTrue(state.docking_ever_enabled)
+        state, actions = mlib.bdock_decide(state, snap(
+            ut=520.0, mj_docking_enabled=False, docking_state="Docked"))
+        self.assertEqual(state.phase, mlib.BDOCK_TRANSFER)
+        self.assertTrue(state.docked_confirmed)
+        self.assertTrue(state.current_transfer_started)
+        self.assertIn(Action(mlib.ACTION_START_RESOURCE_TRANSFER, value=40.0,
+                             text="LiquidFuel", limit=mlib.TRANSFER_DIR_DELIVER),
+                      actions)
+
+    def test_docked_without_latch_does_not_advance(self):
+        state = self._at_dock()
+        # Docked but the AP never engaged (latch not flipped) -> stay (design gate).
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=510.0, mj_docking_enabled=False, docking_state="Docked"))
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+
+    def test_monoprop_out_gives_up(self):
+        state = self._at_dock()
+        state, actions = mlib.bdock_decide(state, snap(
+            ut=515.0, mj_docking_enabled=True, docking_state="Docking",
+            monopropellant=0.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(Action(mlib.ACTION_MJ_DISABLE_DOCKING), actions)
+
+    def test_dock_budget_flakes_and_disables_ap(self):
+        state = self._at_dock()
+        state, actions = mlib.bdock_decide(state, snap(
+            ut=500.0 + 700.0, mj_docking_enabled=True, docking_state="Docking",
+            monopropellant=100.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(Action(mlib.ACTION_MJ_DISABLE_DOCKING), actions)
+
+
+class BDockTransferUndockTests(unittest.TestCase):
+    def _at_transfer(self):
+        state, _ = _bdock_walk_to(mlib.BDOCK_TRANSFER)
+        return state
+
+    def test_t1_completion_starts_t2(self):
+        state = self._at_transfer()
+        self.assertEqual(state.transfers_done, 0)
+        state, actions = mlib.bdock_decide(state, snap(
+            ut=525.0, transfer_complete=True, vessel_count=1))
+        self.assertEqual(state.transfers_done, 1)
+        self.assertEqual(state.phase, mlib.BDOCK_TRANSFER)
+        self.assertEqual(actions, [Action(mlib.ACTION_START_RESOURCE_TRANSFER,
+                                          value=15.0, text="MonoPropellant",
+                                          limit=mlib.TRANSFER_DIR_PICKUP)])
+
+    def test_t2_completion_undocks(self):
+        state = self._at_transfer()
+        state, _ = mlib.bdock_decide(state, snap(ut=525.0, transfer_complete=True,
+                                                 vessel_count=1))
+        state, actions = mlib.bdock_decide(state, snap(
+            ut=530.0, transfer_complete=True, vessel_count=1))
+        self.assertEqual(state.transfers_done, 2)
+        self.assertEqual(state.phase, mlib.BDOCK_UNDOCK)
+        self.assertEqual(state.undock_baseline_vessel_count, 1)
+        self.assertEqual(actions, [Action(mlib.ACTION_UNDOCK)])
+
+    def test_transfer_budget_flakes(self):
+        state = self._at_transfer()
+        # transfer never completes; TRANSFER budget = 2 * transfer_timeout = 240 s.
+        state, _ = mlib.bdock_decide(state, snap(ut=520.0 + 250.0, transfer_complete=False))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+
+    def test_undock_split_requires_vessel_count_increase_and_not_docked(self):
+        state = self._at_transfer()
+        state, _ = mlib.bdock_decide(state, snap(ut=525.0, transfer_complete=True,
+                                                 vessel_count=1))
+        state, _ = mlib.bdock_decide(state, snap(ut=530.0, transfer_complete=True,
+                                                 vessel_count=1))
+        self.assertEqual(state.phase, mlib.BDOCK_UNDOCK)
+        # MINOR 10: vessel_count increase AND state != Docked. Count same + still
+        # Docked -> no split.
+        state, _ = mlib.bdock_decide(state, snap(ut=531.0, vessel_count=1,
+                                                 docking_state="Docked"))
+        self.assertEqual(state.phase, mlib.BDOCK_UNDOCK)
+        # Count increased + not Docked -> TERMINAL.
+        state, actions = mlib.bdock_decide(state, snap(ut=532.0, vessel_count=2,
+                                                       docking_state="Ready"))
+        self.assertEqual(state.phase, mlib.BDOCK_TERMINAL)
+        self.assertTrue(state.undock_confirmed)
+        self.assertEqual(actions, [Action(mlib.ACTION_CANCEL_WARP)])
+
+    def test_undock_ready_alone_is_soft_evidence(self):
+        # Ready with NO count increase is soft evidence only (the port lingers
+        # Undocking inside ReengageDistance) -> no split.
+        state = self._at_transfer()
+        state, _ = mlib.bdock_decide(state, snap(ut=525.0, transfer_complete=True,
+                                                 vessel_count=1))
+        state, _ = mlib.bdock_decide(state, snap(ut=530.0, transfer_complete=True,
+                                                 vessel_count=1))
+        state, _ = mlib.bdock_decide(state, snap(ut=531.0, vessel_count=1,
+                                                 docking_state="Ready"))
+        self.assertEqual(state.phase, mlib.BDOCK_UNDOCK)
+
+
+class BDockLossTests(unittest.TestCase):
+    def test_vessel_lost_terminal_outside_int_launch(self):
+        state, _ = _bdock_walk_to(mlib.BDOCK_STATION_ASCENT)
+        state, _ = mlib.bdock_decide(state, snap(ut=50.0, vessel_lost=True))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("vessel-lost", state.loss_reason)
+
+    def test_vessel_lost_during_int_launch_is_transient(self):
+        # Reach INT-LAUNCH, then a vessel_lost mid-reload must NOT terminate.
+        state, _ = _bdock_walk_to(mlib.BDOCK_STATION_COMMIT)
+        state, _ = mlib.bdock_decide(state, snap(ut=161.0, seam_commit_result="OK"))
+        self.assertEqual(state.phase, mlib.BDOCK_INT_LAUNCH)
+        state, _ = mlib.bdock_decide(state, snap(ut=165.0, vessel_lost=True))
+        self.assertFalse(state.done)
+        self.assertEqual(state.phase, mlib.BDOCK_INT_LAUNCH)
+
+    def test_frozen_telemetry_terminal_in_flight_phase(self):
+        state, _ = _bdock_walk_to(mlib.BDOCK_STATION_ASCENT)
+        # Feed frozen_sample_limit (10) bit-identical airborne frames at 1x.
+        for i in range(12):
+            state, _ = mlib.bdock_decide(state, snap(
+                ut=200.0 + i, altitude=5000.0, apoapsis=50000.0, periapsis=1000.0,
+                vertical_speed=100.0))
+            if state.done:
+                break
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+
+
+class BDockAssertionTests(unittest.TestCase):
+    def test_all_met_on_full_terminal(self):
+        state, _ = _bdock_walk_to(mlib.BDOCK_TERMINAL)
+        outs = mlib.evaluate_bdock_assertions(
+            [], BDOCK_PARAMS,
+            phases_reached=state.phases_reached, state=state)
+        self.assertEqual([o.name for o in outs],
+                         ["reachedStationOrbit", "reachedInterceptorOrbit",
+                          "docked", "transfersComplete", "undocked"])
+        self.assertTrue(mlib.all_assertions_met(outs))
+
+    def test_docked_unmet_without_evidence(self):
+        # Phase reached but docked_confirmed False (fail-closed) -> unmet.
+        class _S:
+            docked_confirmed = False
+            transfers_done = 0
+            undock_confirmed = False
+        outs = mlib.evaluate_bdock_assertions(
+            [], BDOCK_PARAMS,
+            phases_reached=(mlib.BDOCK_DOCK,), state=_S())
+        docked = next(o for o in outs if o.name == "docked")
+        self.assertFalse(docked.met)
+
+    def test_transfers_unmet_with_one(self):
+        class _S:
+            docked_confirmed = True
+            transfers_done = 1
+            undock_confirmed = False
+        outs = mlib.evaluate_bdock_assertions(
+            [], BDOCK_PARAMS,
+            phases_reached=(mlib.BDOCK_DOCK, mlib.BDOCK_TRANSFER), state=_S())
+        transfers = next(o for o in outs if o.name == "transfersComplete")
+        self.assertFalse(transfers.met)
+        self.assertEqual(transfers.value, 1)
+
+
+class BDockParamTests(unittest.TestCase):
+    def test_params_from_dict_reads_all_keys(self):
+        p = mlib.bdock_params_from_dict({
+            "stationApoapsisMeters": 111000, "interceptorApoapsisMeters": 91000,
+            "approachDistanceMeters": 120, "transferAmountLf": 42,
+            "transferAmountMp": 16, "maxPhasingOrbits": 6,
+        })
+        self.assertEqual(p.station_apoapsis, 111000.0)
+        self.assertEqual(p.interceptor_apoapsis, 91000.0)
+        self.assertEqual(p.approach_distance, 120.0)
+        self.assertEqual(p.transfer_amount_lf, 42.0)
+        self.assertEqual(p.transfer_amount_mp, 16.0)
+        self.assertEqual(p.max_phasing_orbits, 6.0)
+
+    def test_forge_params_from_dict_defaults_crew_none(self):
+        p = mlib.forge_params_from_dict({"craftName": "Kerbal X"})
+        self.assertEqual(p.craft_name, "Kerbal X")
+        self.assertIsNone(p.crew)
+        self.assertEqual(p.launch_site, "LaunchPad")
+
+
 if __name__ == "__main__":
     unittest.main()

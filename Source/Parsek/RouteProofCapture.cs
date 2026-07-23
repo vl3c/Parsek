@@ -720,7 +720,47 @@ namespace Parsek
                 $"transportInv={window.UndockTransportInventory?.Count ?? 0} " +
                 $"endpointInv={window.UndockEndpointInventory?.Count ?? 0}");
 
+            // Route-window per-resource delta observability (MAJOR 6 / the B-DOCK
+            // headline payoff): the recorded net cargo per side (Undock* - Dock*).
+            // Info (not Verbose): this is the single observable surface the offline
+            // oracle checks the commanded LF/MP transfers against, so it must survive
+            // the default log level. Endpoint side is conservation-mirrored.
+            ParsekLog.Info("Flight",
+                $"Route window delta: window={window.WindowId ?? "<none>"} " +
+                $"targetPid={window.TransferTargetVesselPid} " +
+                $"transportDelta=[{FormatRouteResourceDelta(window.DockTransportResources, window.UndockTransportResources)}] " +
+                $"endpointDelta=[{FormatRouteResourceDelta(window.DockEndpointResources, window.UndockEndpointResources)}]");
+
             return true;
+        }
+
+        /// <summary>
+        /// Formats the per-resource net delta (undock - dock) for one route-window side
+        /// as a stable ASCII token string, e.g. "LiquidFuel=+40.0 MonoPropellant=-15.0".
+        /// Positive = the side GAINED the resource across the docked window; negative =
+        /// it lost it. Sorted by resource name (ordinal) for byte-stable output;
+        /// "(none)" when there is no delta. Pure / static / testable (the MAJOR-6
+        /// route-window delta observability surface asserted by the B-DOCK logContract).
+        /// </summary>
+        internal static string FormatRouteResourceDelta(
+            Dictionary<string, ResourceAmount> dockManifest,
+            Dictionary<string, ResourceAmount> undockManifest)
+        {
+            Dictionary<string, double> delta =
+                ResourceManifest.ComputeResourceDelta(dockManifest, undockManifest);
+            if (delta == null || delta.Count == 0)
+                return "(none)";
+
+            var keys = new List<string>(delta.Keys);
+            keys.Sort(StringComparer.Ordinal);
+            var parts = new List<string>(keys.Count);
+            foreach (string key in keys)
+            {
+                double d = delta[key];
+                parts.Add(string.Format(CultureInfo.InvariantCulture, "{0}={1}{2:F1}",
+                    key, d >= 0 ? "+" : string.Empty, d));
+            }
+            return string.Join(" ", parts.ToArray());
         }
 
         /// <summary>

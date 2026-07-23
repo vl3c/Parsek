@@ -25,6 +25,60 @@ namespace Parsek.Tests
             Assert.Equal(100.0, scoped["LiquidFuel"].maxAmount);
         }
 
+        // ---- FormatRouteResourceDelta (MAJOR-6 route-window delta surface) -------
+
+        private static Dictionary<string, ResourceAmount> Manifest(
+            params (string name, double amount)[] entries)
+        {
+            var m = new Dictionary<string, ResourceAmount>();
+            foreach (var e in entries)
+                m[e.name] = new ResourceAmount { amount = e.amount, maxAmount = e.amount };
+            return m;
+        }
+
+        [Fact]
+        public void FormatRouteResourceDelta_SignsAndSortsPerResource()
+        {
+            // Transport DELIVERED 40 LiquidFuel (lost it) and PICKED UP 15 MonoProp
+            // (gained it): dock->undock delta = undock - dock.
+            var dock = Manifest(("LiquidFuel", 200.0), ("MonoPropellant", 30.0));
+            var undock = Manifest(("LiquidFuel", 160.0), ("MonoPropellant", 45.0));
+
+            string s = RouteProofCapture.FormatRouteResourceDelta(dock, undock);
+
+            // Ordinal sort: LiquidFuel before MonoPropellant; explicit signs; F1.
+            Assert.Equal("LiquidFuel=-40.0 MonoPropellant=+15.0", s);
+        }
+
+        [Fact]
+        public void FormatRouteResourceDelta_ZeroDeltaIsSignedPlus()
+        {
+            var dock = Manifest(("LiquidFuel", 100.0));
+            var undock = Manifest(("LiquidFuel", 100.0));
+
+            Assert.Equal("LiquidFuel=+0.0",
+                RouteProofCapture.FormatRouteResourceDelta(dock, undock));
+        }
+
+        [Fact]
+        public void FormatRouteResourceDelta_NullManifestsAreNone()
+        {
+            Assert.Equal("(none)", RouteProofCapture.FormatRouteResourceDelta(null, null));
+        }
+
+        [Fact]
+        public void FormatRouteResourceDelta_ResourceOnlyOnOneSideCountsAsFullDelta()
+        {
+            // MonoPropellant appears only post-undock (a pickup into an empty tank):
+            // delta = 15 - 0 = +15.0. LiquidFuel drained to 0 only pre-dock side.
+            var dock = Manifest(("LiquidFuel", 40.0));
+            var undock = Manifest(("MonoPropellant", 15.0));
+
+            string s = RouteProofCapture.FormatRouteResourceDelta(dock, undock);
+
+            Assert.Equal("LiquidFuel=-40.0 MonoPropellant=+15.0", s);
+        }
+
         [Fact]
         public void ExtractInventoryPayloadItems_PreservesExactStoredPartSnapshot()
         {
