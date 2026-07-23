@@ -537,6 +537,7 @@ class KrpcMissionControl(MissionControl):
                 node_count=len(nodes),
                 node_dv=(float(nodes[0].remaining_delta_v) if nodes else float("nan")),
                 liquid_fuel=float(resources.amount("LiquidFuel")),
+                electric_charge=float(resources.amount("ElectricCharge")),
                 throttle=float(control_handle.throttle),
                 # Flameout-staging evidence (twenty-second flight): total
                 # thrust the ACTIVE engines can produce right now; 0.0 while
@@ -709,6 +710,23 @@ class KrpcMissionControl(MissionControl):
             except Exception as exc:
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Plan", "operation_transfer.make_nodes failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER:
+            # KRPC.MechJeb 0.8.1 maneuver_planner.operation_interplanetary_transfer
+            # (pinned source ManeuverPlanner.cs:79 OperationInterplanetaryTransfer
+            # KRPCProperty -> MuMech.OperationInterplanetaryTransfer; the only
+            # surface is WaitForPhaseAngle, Maneuver/OperationInterplanetaryTransfer.cs).
+            # WaitForPhaseAngle=True plans the ejection node at the next transfer
+            # window (up to ~1 synodic ahead). Same throw/log/swallow contract as
+            # operation_transfer: a no-window plan throws server-side, node_count
+            # stays 0, and the machine's bounded re-plan owns the retry.
+            try:
+                op = self._mechjeb.maneuver_planner.operation_interplanetary_transfer
+                op.wait_for_phase_angle = True
+                op.make_nodes()
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Plan",
+                    "operation_interplanetary_transfer.make_nodes failed: %s" % (exc,)))
         elif kind == mlib.ACTION_MJ_PLAN_COURSE_CORRECT:
             # KRPC.MechJeb 0.8.1: course-correct the existing target encounter to
             # the machine-chosen flyby periapsis (metres). Same throw/log/swallow
@@ -1345,13 +1363,14 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             "telemetry", state.phase,
             "telemetry ap=%s pe=%s ecc=%s inc=%s alt=%s vspd=%s body=%s nodes=%d "
             "nodeDv=%s nodeUt=%s tts=%s nextBody=%s nextPe=%s warpTo=%s lf=%s "
-            "thr=%s avThr=%s situation=%s warp=%sx%s apErr=%s ut=%s"
+            "ec=%s thr=%s avThr=%s situation=%s warp=%sx%s apErr=%s ut=%s"
             % (_fmt(snapshot.apoapsis), _fmt(snapshot.periapsis), _fmt(snapshot.eccentricity),
                _fmt(snapshot.inclination), _fmt(snapshot.altitude),
                _fmt(snapshot.vertical_speed), snapshot.body or "?", snapshot.node_count,
                _fmt(snapshot.node_dv), _fmt(snapshot.node_ut), _fmt(snapshot.time_to_soi),
                snapshot.next_body or "?", _fmt(snapshot.next_pe),
-               _fmt(snapshot.warping_to), _fmt(snapshot.liquid_fuel), _fmt(snapshot.throttle),
+               _fmt(snapshot.warping_to), _fmt(snapshot.liquid_fuel),
+               _fmt(snapshot.electric_charge), _fmt(snapshot.throttle),
                _fmt(snapshot.available_thrust), snapshot.situation, snapshot.warp_mode,
                _fmt(snapshot.warp_rate), _fmt(snapshot.ap_error), _fmt(snapshot.ut)))
         # MACHINE-STATE line (design-live-observability 2a): the decision

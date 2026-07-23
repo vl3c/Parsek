@@ -38,6 +38,7 @@ import b2_lko_ascent          # noqa: E402
 import b4_reentry             # noqa: E402
 import b5_mun_flyby           # noqa: E402
 import b6_minmus_flyby        # noqa: E402
+import b7_duna_flyby          # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +124,43 @@ B5_PARAMS = {
     "coastWarpFactor": 6,
     "flybyWarpFactor": 5,
     "targetPeriapsisFloorMeters": 10000,
+}
+
+# B7 spec-shaped params (mirrors harness/scenarios/B7-duna-flyby.toml): the
+# shared B5 machine with the five interplanetary keys ON. The shell round-trip
+# proves b5_params_from_dict parses viaBodyNames / returnBodyName /
+# interplanetaryTransfer / ejectionEccFloor / correctionTriggerTimeToSoiSeconds.
+B7_PARAMS = {
+    "targetApoapsisMeters": 700000,
+    "targetPeriapsisMeters": 700000,
+    "apoErrorMeters": 15000,
+    "periErrorMeters": 15000,
+    "ascentTimeoutSeconds": 1200,
+    "circularizeTimeoutSeconds": 600,
+    "targetBodyName": "Duna",
+    "homeBodyName": "Kerbin",
+    "transferMinApoapsisMeters": 0,
+    "ejectionEccFloor": 1.05,
+    "interplanetaryTransfer": True,
+    "viaBodyNames": ["Sun"],
+    "returnBodyName": "Sun",
+    "courseCorrectPeriapsisMeters": 50000,
+    "maxCorrectionDvMps": 200,
+    "correctionTriggerAltsMeters": [],
+    "correctionTriggerTimeToSoiSeconds": [20000000, 500000],
+    "planTimeoutSeconds": 300,
+    "planRetrySeconds": 10,
+    "transferBurnTimeoutSeconds": 25000000,
+    "coastTimeoutSeconds": 12000000,
+    "flybyTimeoutSeconds": 500000,
+    "coastWarpFactor": 7,
+    "flybyWarpFactor": 5,
+    "flybyMaxWarpFactor": 6,
+    "nodeArrivalMarginSeconds": 15,
+    "planWarpFactor": 2,
+    "soiLeadSeconds": 30,
+    "flipPhysicsWarpFactor": 1,
+    "targetPeriapsisFloorMeters": 15000,
 }
 
 B4_PARAMS = {
@@ -1112,6 +1150,98 @@ class B5ShellTests(unittest.TestCase):
         self.assertEqual(code, 0)
         targets = [a for a in control.actions if a.kind == mlib.ACTION_SET_TARGET_BODY]
         self.assertEqual(targets, [mlib.Action(mlib.ACTION_SET_TARGET_BODY, text="Minmus")])
+
+    def test_b7_duna_alias_flies_interplanetary_machine(self):
+        """b7_duna_flyby is a thin alias over the shared B5 machine with the
+        five interplanetary params ON: the shell must emit the
+        INTERPLANETARY plan (never the moon Hohmann), exit the ejection burn
+        on the hyperbolic ecc gate, coast Kerbin -> Sun with time-to-SOI
+        correction rounds, fly the Duna flyby, and terminate RETURN on the
+        Sun exit with the returnedToHome assertion reporting Sun. Also the
+        B7_PARAMS round-trip proof for the five new spec keys."""
+        frames = [
+            snap(ut=0.0, situation="PRE_LAUNCH", body="Kerbin"),
+            snap(ut=300.0, apoapsis=690_000.0, periapsis=10_000.0,
+                 situation="FLYING", mj_ascent_complete=True,
+                 body="Kerbin"),                                 # -> CIRCULARIZE
+            snap(ut=400.0, apoapsis=700_000.0, periapsis=690_000.0,
+                 altitude=699_000.0, situation="ORBITING",
+                 body="Kerbin"),                                 # -> ORBIT
+            snap(ut=401.0, apoapsis=700_000.0, periapsis=690_000.0,
+                 altitude=699_100.0, situation="ORBITING",
+                 body="Kerbin"),                                 # ORBIT -> PLAN (interplanetary)
+            snap(ut=405.0, apoapsis=700_000.0, periapsis=690_000.0,
+                 altitude=699_200.0, situation="ORBITING", body="Kerbin",
+                 node_count=1),                                  # node -> TRANSFER-BURN
+            snap(ut=10_000_600.0, apoapsis=-40_000_000.0,
+                 periapsis=695_000.0, eccentricity=1.4, altitude=800_000.0,
+                 situation="ESCAPING", body="Kerbin",
+                 node_count=0),                                  # hyperbolic -> COAST
+            snap(ut=10_060_000.0, situation="ORBITING", body="Sun",
+                 altitude=13_000_000_000.0,
+                 time_to_soi=7_000_000.0),                       # helio: round 0 (20M) fires
+            snap(ut=10_060_010.0, situation="ORBITING", body="Sun",
+                 altitude=13_000_000_100.0, node_count=1),       # node -> CORRECTION-BURN
+            snap(ut=10_060_020.0, situation="ORBITING", body="Sun",
+                 altitude=13_000_000_200.0, node_count=1,
+                 node_dv=80.0, ap_error=1.5),                    # streak 1 -> flip phys warp
+            snap(ut=10_060_040.0, situation="ORBITING", body="Sun",
+                 altitude=13_000_000_300.0, node_count=1,
+                 node_dv=80.0, ap_error=1.2,
+                 warp_mode="PHYSICS", warp_rate=2.0),            # streak 2 -> drop phys warp
+            snap(ut=10_060_042.0, situation="ORBITING", body="Sun",
+                 altitude=13_000_000_400.0, node_count=1,
+                 node_dv=80.0, ap_error=1.1),                    # warp NONE -> throttle
+            snap(ut=10_060_070.0, situation="ORBITING", body="Sun",
+                 altitude=13_000_000_500.0, node_count=1,
+                 node_dv=1.5, ap_error=1.0),                     # dv <= cut -> cut triple, COAST
+            snap(ut=16_500_000.0, situation="ORBITING", body="Sun",
+                 altitude=13_000_001_000.0,
+                 time_to_soi=499_995.0),                         # trigger 500k -> round 1
+            snap(ut=16_500_010.0, situation="ORBITING", body="Sun",
+                 altitude=13_000_002_000.0, node_count=1),       # node -> CORRECTION-BURN
+            snap(ut=16_500_020.0, situation="ORBITING", body="Sun",
+                 altitude=13_000_003_000.0, node_count=1,
+                 node_dv=10.0, ap_error=1.4),                    # streak 1 -> flip phys warp
+            snap(ut=16_500_040.0, situation="ORBITING", body="Sun",
+                 altitude=13_000_004_000.0, node_count=1,
+                 node_dv=10.0, ap_error=1.2,
+                 warp_mode="PHYSICS", warp_rate=2.0),            # streak 2 -> drop phys warp
+            snap(ut=16_500_042.0, situation="ORBITING", body="Sun",
+                 altitude=13_000_005_000.0, node_count=1,
+                 node_dv=10.0, ap_error=1.1),                    # warp NONE -> throttle
+            snap(ut=16_500_060.0, situation="ORBITING", body="Sun",
+                 altitude=13_000_006_000.0, node_count=0),       # node consumed -> cut pair, COAST
+            snap(ut=17_000_000.0, situation="ESCAPING", body="Duna",
+                 altitude=40_000_000.0),                         # Duna SOI -> TARGET-FLYBY
+            snap(ut=17_050_000.0, situation="ESCAPING", body="Duna",
+                 altitude=60_000.0, periapsis=55_000.0,
+                 warp_mode="RAILS", warp_rate=10_000.0),         # periapsis area (min-alt evidence)
+            snap(ut=17_200_000.0, situation="ORBITING", body="Sun",
+                 altitude=13_000_010_000.0),                     # Sun exit -> RETURN terminal
+        ]
+        control = FakeMissionControl(frames)
+        code, result = run(b7_duna_flyby.SPEC, B7_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        kinds = [a.kind for a in control.actions]
+        self.assertIn(mlib.ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER, kinds)
+        self.assertNotIn(mlib.ACTION_MJ_PLAN_TRANSFER, kinds)
+        targets = [a for a in control.actions if a.kind == mlib.ACTION_SET_TARGET_BODY]
+        self.assertEqual(targets, [mlib.Action(mlib.ACTION_SET_TARGET_BODY, text="Duna")])
+        # Both time-triggered rounds flew the DIY burner.
+        points = [a for a in control.actions if a.kind == mlib.ACTION_AP_POINT_NODE]
+        self.assertEqual(len(points), 2)
+        # The returned assertion keeps its NAME but reports the Sun exit.
+        by_name = {a["name"]: a for a in result["assertions"]}
+        self.assertEqual(by_name["returnedToHome"]["value"], "Sun")
+        self.assertEqual(by_name["returnedToHome"]["returnBody"], "Sun")
+        self.assertTrue(all(a["met"] for a in result["assertions"]),
+                        result["assertions"])
+        self.assertIn(mlib.B5_TARGET_FLYBY, result["phasesReached"])
+        # NO settle tail (same SF-4 contract as B5/B6).
+        self.assertEqual(control.reads, len(frames))
+        self.assertTrue(control.closed)
 
     def test_b5_flyby_ejection_is_assert_fail(self):
         """A flyby that slings the craft out of the home system (body=Sun inside

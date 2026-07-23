@@ -555,6 +555,28 @@ class WarpGuardTests(unittest.TestCase):
         self.assertTrue(mlib.is_unexpected_warp(
             mlib.WARP_PHYSICS, 1.5, False, max_physics_warp=float("nan")))
 
+    def test_rails_decay_physics_label_not_unexpected_when_rails_allowed(self):
+        # B7 review MAJOR-1 (the finding-19b insight applied to this guard):
+        # commanding a physics flip mid-rails-ramp flips TimeWarp.Mode to LOW
+        # immediately while CurrentRate still decays from 100,000x -- kRPC
+        # truthfully reports PHYSICS at 4.4-5.3x (flight 7 logged SIX
+        # near-flake strikes). Stock physics warp cannot exceed 4x, so a
+        # rails-allowed mission treats the over-ceiling PHYSICS label as the
+        # rails-decay artifact it is.
+        for rate in (4.36, 4.76, 5.32, 48_000.0):
+            self.assertFalse(mlib.is_unexpected_warp(
+                mlib.WARP_PHYSICS, rate, True, max_physics_warp=4.0))
+            self.assertFalse(mlib.is_unexpected_warp(
+                mlib.WARP_PHYSICS, rate, True))  # even with no physics grant
+        # A rails-FORBIDDEN mission (B1) still flakes the artifact: rails
+        # decay implies rails ran, which its contract forbids outright.
+        self.assertTrue(mlib.is_unexpected_warp(
+            mlib.WARP_PHYSICS, 5.32, False, max_physics_warp=4.0))
+        # In-ceiling PHYSICS rates are still judged by the physics bound
+        # alone (a genuine 4x flip under a 2.0 grant remains a violation).
+        self.assertTrue(mlib.is_unexpected_warp(
+            mlib.WARP_PHYSICS, 3.9, True, max_physics_warp=2.0))
+
     def test_rails_warp_gated_by_allow_rails(self):
         # B1 (allow_rails=False) forbids RAILS warp; B2 (True) permits it.
         self.assertTrue(mlib.is_unexpected_warp(mlib.WARP_RAILS, 50.0, False))
@@ -3038,6 +3060,53 @@ class B5FlameoutStagingTests(unittest.TestCase):
             100.0 + B5_PARAMS.burn_stagnant_seconds))
         self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
 
+    def test_transfer_burn_flameout_with_collapsed_throttle_stages(self):
+        # Finding 17 (B7 third flight): the MechJeb executor COLLAPSES the
+        # throttle to zero when the engine dies mid-burn (ejection flamed
+        # out at 476.9 of 797.6 m/s remaining, thr readback 0.000), so the
+        # commanded-throttle evidence is blind under it. A burn that
+        # demonstrably ran (orbit changed since entry) with the node still
+        # pending + zero available thrust stages anyway.
+        state = _b5_state(mlib.B5_TRANSFER_BURN, planned_node_count=1,
+                          burn_entry_ap=778_000.0, burn_entry_pe=560_000.0)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, body="Kerbin", node_count=1, node_dv=476.9,
+            apoapsis=2_541_000.0, periapsis=562_000.0,
+            throttle=0.0, available_thrust=0.0))
+        self.assertEqual(actions, [])
+        state, actions = mlib.b5_decide(state, snap(
+            ut=11.0, body="Kerbin", node_count=1, node_dv=476.9,
+            apoapsis=2_541_000.0, periapsis=562_000.0,
+            throttle=0.0, available_thrust=0.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_ACTIVATE_STAGE)])
+        self.assertEqual(state.flameout_stages_done, 1)
+
+    def test_transfer_burn_preburn_zero_thrust_never_stages(self):
+        # Pre-burn (orbit UNCHANGED since entry): zero available thrust with
+        # a collapsed throttle must not pop -- no burn evidence exists.
+        state = _b5_state(mlib.B5_TRANSFER_BURN, planned_node_count=1,
+                          burn_entry_ap=778_000.0, burn_entry_pe=560_000.0)
+        for ut in (10.0, 11.0, 12.0, 13.0):
+            state, actions = mlib.b5_decide(state, snap(
+                ut=ut, body="Kerbin", node_count=1, node_dv=797.6,
+                apoapsis=778_000.0, periapsis=560_000.0,
+                throttle=0.0, available_thrust=0.0))
+            self.assertEqual(actions, [])
+        self.assertEqual(state.flameout_stages_done, 0)
+
+    def test_transfer_burn_consumed_node_never_stages_mid_burn_path(self):
+        # Node consumed (count fell below the handoff): the mid-burn
+        # evidence is gone; a zero-thrust frame must not pop.
+        state = _b5_state(mlib.B5_TRANSFER_BURN, planned_node_count=1,
+                          burn_entry_ap=778_000.0, burn_entry_pe=560_000.0)
+        for ut in (10.0, 11.0, 12.0):
+            state, actions = mlib.b5_decide(state, snap(
+                ut=ut, body="Kerbin", node_count=0,
+                apoapsis=2_541_000.0, periapsis=562_000.0,
+                throttle=0.0, available_thrust=0.0))
+            self.assertNotIn(Action(mlib.ACTION_ACTIVATE_STAGE), actions)
+        self.assertEqual(state.flameout_stages_done, 0)
+
     def test_transfer_burn_flameout_stages_under_executor_throttle(self):
         # The MechJeb executor holds the throttle but never stages: a dry
         # stage mid-TLI pops here too.
@@ -3245,6 +3314,551 @@ class B5ImpactTerminalTests(unittest.TestCase):
                 10.0 + i, altitude=800_000.0))
             self.assertFalse(state.done)
         self.assertEqual(state.impact_certain_streak, 0)
+
+
+# B7 interplanetary fixture (design docs/dev/design-autotest-b7-duna.md 5.8):
+# the shared B5 machine with the five B7 params ON, the 700 km park, the Duna
+# target, and the spec-shaped budgets (the ejection-window autowarp spans up
+# to ~1 synodic ~= 20M game s; the heliocentric coast ~7M game s).
+B7_PARAMS = mlib.B5Params(**{
+    **B5_PARAMS.__dict__,
+    "target_apoapsis": 700_000.0,
+    "target_periapsis": 700_000.0,
+    "apo_error": 15_000.0,
+    "peri_error": 15_000.0,
+    "target_body": "Duna",
+    "transfer_min_apoapsis": 0.0,
+    "course_correct_periapsis": 50_000.0,
+    "max_correction_dv": 200.0,
+    "correction_trigger_alts": (),
+    "correction_trigger_time_to_soi": (20_000_000.0, 500_000.0),
+    "via_bodies": ("Sun",),
+    "return_body": "Sun",
+    "interplanetary_transfer": True,
+    "ejection_ecc_floor": 1.05,
+    "transfer_burn_timeout": 25_000_000.0,
+    "coast_timeout": 12_000_000.0,
+    "flyby_timeout": 500_000.0,
+    "coast_warp_factor": 7,
+    "target_periapsis_floor": 15_000.0,
+})
+
+
+def _b7_state(phase, **overrides):
+    """A B5State carrying the B7 params, pinned in ``phase`` with
+    phase_entry_ut=0 (mirror of ``_b5_state``)."""
+    base = mlib.b5_initial_state(B7_PARAMS)
+    fields = {**base.__dict__, "phase": phase, "phase_entry_ut": 0.0}
+    fields.update(overrides)
+    return base.__class__(**fields)
+
+
+class B7InterplanetaryTests(unittest.TestCase):
+    """Guards the B7 interplanetary extensions of the shared B5 machine
+    (design section 5.8, adapted to the native-warp architecture): the
+    param-selected interplanetary plan action, the hyperbolic ejection
+    burn-done gate, via-body coast legality + warp, the time-to-SOI
+    correction triggers with the native-first trigger approach, the
+    return-body flyby terminal, the exit-body assertion report, a full B7
+    happy-path walk, and the defaults-preserve-B5 contract."""
+
+    def test_rails_frames_do_not_consume_the_nostart_budget(self):
+        # Finding 19 (fifth flight): a round granted from a 100,000x coast
+        # enters CORRECTION-BURN mid-ramp-down and the GAME-time no-start
+        # budget evaporated in two polls -- both rounds consumed with the
+        # plan unburned and apErr frozen. Rails frames must re-anchor the
+        # clock; it counts only from the first non-rails frame.
+        state = _b7_state(mlib.B5_CORRECTION_BURN, planned_node_count=1)
+        # Two rails ramp-down polls spanning 40,000 game-s: NO give-up.
+        state, _ = mlib.b5_decide(state, snap(
+            ut=10_000.0, body="Sun", node_count=1, node_dv=108.7,
+            warp_mode="RAILS", warp_rate=100_000.0))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=50_000.0, body="Sun", node_count=1, node_dv=108.7,
+            warp_mode="RAILS", warp_rate=48_000.0))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        self.assertEqual(state.corr_nostart_anchor_ut, 50_000.0)
+        # 19b: the decay TAIL reads mode PHYSICS at >4x (KSP flips
+        # TimeWarp.Mode to LOW immediately while CurrentRate still decays
+        # from 100,000) -- high-RATE frames re-anchor regardless of label.
+        state, _ = mlib.b5_decide(state, snap(
+            ut=55_000.0, body="Sun", node_count=1, node_dv=108.7,
+            warp_mode="PHYSICS", warp_rate=5.32))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        self.assertEqual(state.corr_nostart_anchor_ut, 55_000.0)
+        # Ramp done: genuine flip frames (<= 4x) COUNT. Inside the budget
+        # stays; past it gives the round up (bounded).
+        state, _ = mlib.b5_decide(state, snap(
+            ut=55_100.0, body="Sun", node_count=1, node_dv=108.7,
+            warp_mode="PHYSICS", warp_rate=2.0))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=55_000.0 + B7_PARAMS.burn_nostart_seconds + 1.0,
+            body="Sun", node_count=1, node_dv=108.7,
+            warp_mode="PHYSICS", warp_rate=2.0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.correction_rounds_done, 1)
+
+    def test_native_warp_retarget_is_asymmetric(self):
+        # B7 review MINOR-4: a LATER fresh target within 2% of the remaining
+        # span holds (proportional SOI-estimate jitter must not churn the
+        # warp socket), while an EARLIER shift beyond the 120 s floor still
+        # retargets promptly (a stale later target would carry the warp past
+        # the boundary at speed).
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, body="Kerbin", altitude=8_000_000.0,
+            time_to_soi=200_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO_UT, 199_980.0)])
+        # LATER by 460 s on a ~194k span (2% = ~3,880): HOLD.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=6_000.0, body="Kerbin", altitude=9_000_000.0,
+            time_to_soi=194_470.0, warping_to=199_980.0,
+            warp_mode="RAILS", warp_rate=10_000.0))
+        self.assertEqual(actions, [])
+        # LATER beyond 2%: re-issue.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=6_010.0, body="Kerbin", altitude=9_000_000.0,
+            time_to_soi=198_470.0, warping_to=199_980.0,
+            warp_mode="RAILS", warp_rate=10_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO_UT, 204_450.0)])
+
+    def test_no_encounter_coast_fires_the_round_early(self):
+        # Finding 18 (fourth flight): the phase-angle ejection produced NO
+        # Duna encounter -- tts NaN across the whole heliocentric coast --
+        # so the time triggers never fired and the coast flaked past Duna's
+        # orbit. A debounced encounter-less time-mode coast over a via body
+        # now fires the pending round early so the course-correct plan can
+        # CREATE the encounter.
+        state = _b7_state(mlib.B5_COAST_TO_TARGET)
+        for i in range(mlib.NO_ENCOUNTER_DEBOUNCE_FRAMES - 1):
+            state, _ = mlib.b5_decide(state, snap(
+                ut=10.0 + i, body="Sun", altitude=13_500_000_000.0))
+            self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.no_encounter_streak,
+                         mlib.NO_ENCOUNTER_DEBOUNCE_FRAMES - 1)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=20.0, body="Sun", altitude=13_500_000_000.0))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
+        self.assertEqual(state.no_encounter_streak, 0)
+        self.assertIn(Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT,
+                             B7_PARAMS.course_correct_periapsis,
+                             limit=B7_PARAMS.max_correction_dv), actions)
+
+    def test_no_encounter_gate_fail_closed_terms(self):
+        cases = (
+            dict(time_to_soi=25_000_000.0),  # encounter EXISTS (above the round-0
+                                             # threshold): the time trigger owns
+                                             # the eventual fire, not this gate
+            dict(body="Kerbin"),             # home SOI escape: not a via body
+            dict(node_count=1,
+                 node_ut=100_000.0),         # a node is pending
+        )
+        for kw in cases:
+            state = _b7_state(mlib.B5_COAST_TO_TARGET)
+            fired = False
+            for i in range(mlib.NO_ENCOUNTER_DEBOUNCE_FRAMES + 2):
+                s = dict(ut=10.0 + i, body="Sun", altitude=13_500_000_000.0)
+                s.update(kw)
+                state, _ = mlib.b5_decide(state, snap(**s))
+                fired = fired or state.phase == mlib.B5_PLAN_CORRECTION
+            self.assertFalse(fired, "gate fired for %r" % (kw,))
+            self.assertEqual(state.no_encounter_streak, 0)
+        # Rounds exhausted: never fires (bounded).
+        state = _b7_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        for i in range(mlib.NO_ENCOUNTER_DEBOUNCE_FRAMES + 2):
+            state, _ = mlib.b5_decide(state, snap(
+                ut=10.0 + i, body="Sun", altitude=13_500_000_000.0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+
+    def test_no_encounter_gate_is_time_mode_only(self):
+        # B5/B6 (altitude mode): a NaN-tts home coast must never fire it.
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=1)
+        for i in range(mlib.NO_ENCOUNTER_DEBOUNCE_FRAMES + 2):
+            state, _ = mlib.b5_decide(state, snap(
+                ut=10.0 + i, body="Kerbin", altitude=2_000_000.0))
+        self.assertEqual(state.no_encounter_streak, 0)
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+
+    def test_orbit_emits_interplanetary_plan(self):
+        # B7: ORBIT plans via OperationInterplanetaryTransfer...
+        state = _b7_state(mlib.B5_ORBIT)
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_PLAN_TRANSFER)
+        self.assertEqual(actions, [
+            Action(mlib.ACTION_SET_TARGET_BODY, text="Duna"),
+            Action(mlib.ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER)])
+        # ...and the bounded cadence RE-plans with the same interplanetary
+        # action (plus the PLAN rails hold on the first cadence frame).
+        state, actions = mlib.b5_decide(state, snap(ut=45.0, body="Kerbin",
+                                                    altitude=700_000.0))
+        self.assertEqual(actions, [
+            Action(mlib.ACTION_SET_RAILS_WARP, 2.0),
+            Action(mlib.ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER)])
+        # B5 params still emit the moon Hohmann plan, never the interplanetary.
+        b5s = _b5_state(mlib.B5_ORBIT)
+        _, b5a = mlib.b5_decide(b5s, snap(ut=10.0, body="Kerbin"))
+        self.assertIn(Action(mlib.ACTION_MJ_PLAN_TRANSFER), b5a)
+        self.assertNotIn(Action(mlib.ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER), b5a)
+
+    def test_hyperbolic_burn_done_gate(self):
+        # ecc >= floor in home SOI (node consumed): exit to COAST -- the
+        # escape drove the home-frame apoapsis negative, which the old
+        # apoapsis floor could never certify.
+        state = _b7_state(mlib.B5_TRANSFER_BURN, planned_node_count=1)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=10.0, body="Kerbin", node_count=0, eccentricity=1.2,
+            apoapsis=-40_000_000.0, periapsis=695_000.0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        # Sub-hyperbolic ecc: stay (the ejection has not escaped yet).
+        state = _b7_state(mlib.B5_TRANSFER_BURN, planned_node_count=1)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=10.0, body="Kerbin", node_count=0, eccentricity=0.9,
+            apoapsis=80_000.0))
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+        # Already left home SOI (body is a via body): exit regardless of the
+        # heliocentric-frame ecc (< 1, which would falsely fail the ecc leg).
+        state = _b7_state(mlib.B5_TRANSFER_BURN, planned_node_count=1)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=10.0, body="Sun", node_count=0, eccentricity=0.2))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        # NaN ecc in home SOI fails CLOSED: never an exit on no evidence.
+        state = _b7_state(mlib.B5_TRANSFER_BURN, planned_node_count=1)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=10.0, body="Kerbin", node_count=0,
+            eccentricity=float("nan")))
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+        # B5 params (ecc floor 0): the apoapsis floor still owns the exit --
+        # a hyperbolic ecc reading alone must NOT exit under the floor...
+        state = _b5_state(mlib.B5_TRANSFER_BURN, planned_node_count=1)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=10.0, body="Kerbin", node_count=0, eccentricity=1.5,
+            apoapsis=90_000.0))
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
+        # ...and the floor alone still does.
+        state, _ = mlib.b5_decide(state, snap(
+            ut=20.0, body="Kerbin", node_count=0, eccentricity=0.0,
+            apoapsis=11_000_000.0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+
+    def test_via_body_is_not_ejection(self):
+        # body="Sun" (a via body) stays in the coast: a legal intermediate SOI.
+        state = _b7_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Sun",
+                                              altitude=13_000_000_000.0))
+        self.assertFalse(state.done)
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        # A truly foreign body still ASSERT-FAILs.
+        state = _b7_state(mlib.B5_COAST_TO_TARGET)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Eve"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("left home SOI", state.loss_reason)
+        self.assertIn("Eve", state.loss_reason)
+
+    def test_coast_warps_over_via_body(self):
+        # Heliocentric coast (rounds spent, no encounter): the held factor-7
+        # coast flows -- the Sun legality row (factor 7 >= 65,400 km) must
+        # NOT clamp a distant heliocentric craft down.
+        state = _b7_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, body="Sun", altitude=13_000_000_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 7.0)])
+        # Close to the Sun the same row DOES clamp (30,000 km legalizes
+        # exactly factor 5) -- the table is live, not a fail-open bypass.
+        state = _b7_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, body="Sun", altitude=30_000_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 5.0)])
+        # body="" still HOLDS with no warp change (blank dwell counted).
+        state = _b7_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, body=""))
+        self.assertEqual(actions, [])
+        self.assertEqual(state.body_blank_count, 1)
+
+    def test_time_to_soi_correction_trigger(self):
+        # Round 0 (threshold 20M) fires on the first heliocentric frame with
+        # an encounter (tof ~7M is already below it).
+        state = _b7_state(mlib.B5_COAST_TO_TARGET)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, body="Sun", altitude=13_000_000_000.0,
+            time_to_soi=6_000_000.0))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
+        self.assertEqual(actions[-1], Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT,
+                                             50_000.0, limit=200.0))
+        # The home-SOI escape: a small time_to_soi there is the KERBIN SOI
+        # edge, never a correction trigger -- the coast natively warps to the
+        # exit instead (soi_lead short of the boundary).
+        state = _b7_state(mlib.B5_COAST_TO_TARGET)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, body="Kerbin", altitude=1_000_000.0,
+            time_to_soi=50_000.0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO_UT, 49_980.0)])
+        # Round 1 (threshold 500k) does NOT fire while tts is above it...
+        state = _b7_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=1)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=10.0, body="Sun", altitude=13_000_000_000.0,
+            time_to_soi=6_000_000.0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        # ...and fires once tts falls at/below it.
+        state = _b7_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=1)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=10.0, body="Sun", altitude=13_000_000_000.0,
+            time_to_soi=400_000.0))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
+        # NaN tts (no encounter) NEVER triggers -- fail closed; the doomed
+        # OperationCourseCorrection (which needs an encounter) is never asked.
+        state = _b7_state(mlib.B5_COAST_TO_TARGET)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=10.0, body="Sun", altitude=13_000_000_000.0,
+            time_to_soi=float("nan")))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.correction_rounds_done, 0)
+
+    def test_time_mode_trigger_approach_native_then_stair(self):
+        # FAR from the trigger: ONE native warp straight to the trigger UT
+        # (time_to_soi falls 1:1 with UT, so trigger UT = now + tts -
+        # threshold). The target IS the trigger instant -- arrival is
+        # followed by a poll that fires the round, never a warp PAST it.
+        state = _b7_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=1)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=1_000.0, body="Sun", altitude=13_000_000_000.0,
+            time_to_soi=2_000_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_WARP_TO_UT, 1_501_000.0)])
+        self.assertEqual(state.warp_to_cmd, 1_501_000.0)
+        self.assertEqual(state.warp_cmd, 0)
+        # Arrival poll: tts is now at the threshold -> the round fires (the
+        # trigger prelude cancels the completed/expected native warp).
+        state, actions = mlib.b5_decide(state, snap(
+            ut=1_501_000.0, body="Sun", altitude=13_000_000_000.0,
+            time_to_soi=499_999.0))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
+        self.assertEqual(actions[0], Action(mlib.ACTION_CANCEL_WARP))
+        # NEAR the trigger (inside soi_lead): the rails time stair floored at
+        # factor 2 (the altitude mode's no-1x floor -- a trigger is a
+        # refinement point, not a wall).
+        fresh = _b7_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=1)
+        fresh, actions = mlib.b5_decide(fresh, snap(
+            ut=10.0, body="Sun", altitude=13_000_000_000.0,
+            time_to_soi=500_020.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 2.0)])
+        self.assertIsNone(fresh.warp_to_cmd)
+        # NaN tts fails closed: no native warp to a bogus target -- the held
+        # coast factor flows instead (the no-encounter fallback).
+        fresh = _b7_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=1)
+        fresh, actions = mlib.b5_decide(fresh, snap(
+            ut=10.0, body="Sun", altitude=13_000_000_000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 7.0)])
+        self.assertIsNone(fresh.warp_to_cmd)
+
+    def test_flyby_returns_to_exit_body(self):
+        # body == return_body (Sun) after the flyby: the RETURN terminal.
+        state = _b7_state(mlib.B5_TARGET_FLYBY, warp_cmd=5)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, body="Sun", altitude=13_000_000_000.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.phase, mlib.B5_RETURN)
+        self.assertIsNone(state.verdict)
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+        # body == Kerbin (home, but NOT the exit) is off-course for B7.
+        state = _b7_state(mlib.B5_TARGET_FLYBY)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("ejected", state.loss_reason)
+        # B5 params: the free-return into Kerbin SOI still RETURNs.
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Kerbin",
+                                              altitude=3_000_000.0))
+        self.assertEqual(state.phase, mlib.B5_RETURN)
+
+    def test_returned_assertion_reports_exit_body(self):
+        phases = (mlib.B5_ORBIT, mlib.B5_TARGET_FLYBY, mlib.B5_RETURN)
+        outs = mlib.evaluate_b5_assertions(
+            [], B7_PARAMS, phases_reached=phases, min_target_altitude=60_000.0)
+        by_name = {o.name: o for o in outs}
+        # Name kept (schema stability); value + detail carry the EXIT body.
+        self.assertEqual(by_name["returnedToHome"].value, "Sun")
+        self.assertEqual(by_name["returnedToHome"].detail["returnBody"], "Sun")
+        self.assertTrue(by_name["returnedToHome"].met)
+        b5 = {o.name: o for o in mlib.evaluate_b5_assertions(
+            [], B5_PARAMS, phases_reached=phases, min_target_altitude=60_000.0)}
+        self.assertEqual(b5["returnedToHome"].value, "Kerbin")
+        self.assertEqual(b5["returnedToHome"].detail["returnBody"], "Kerbin")
+
+    def test_full_happy_path_walk_b7(self):
+        state = mlib.b5_initial_state(B7_PARAMS)
+        frames = [
+            snap(ut=0.0, body="Kerbin"),                                 # 0 PRELAUNCH->MJ-ASCENT
+            snap(ut=300.0, apoapsis=690_000.0, mj_ascent_complete=True,
+                 body="Kerbin"),                                         # 1 ->CIRCULARIZE
+            snap(ut=400.0, apoapsis=700_000.0, periapsis=690_000.0,
+                 body="Kerbin"),                                         # 2 ->ORBIT
+            snap(ut=401.0, apoapsis=700_000.0, periapsis=690_000.0,
+                 body="Kerbin"),                                         # 3 ORBIT->PLAN (target+interplanetary plan)
+            snap(ut=405.0, apoapsis=700_000.0, periapsis=690_000.0,
+                 body="Kerbin", node_count=1),                           # 4 node -> TRANSFER-BURN (execute)
+            snap(ut=10_000_000.0, apoapsis=705_000.0, periapsis=690_000.0,
+                 body="Kerbin", node_count=1),                           # 5 window autowarp (executor owns it)
+            snap(ut=10_000_600.0, apoapsis=-40_000_000.0,
+                 periapsis=695_000.0, eccentricity=1.4,
+                 altitude=800_000.0, body="Kerbin", node_count=0),       # 6 hyperbolic -> COAST
+            snap(ut=10_000_700.0, eccentricity=1.4, altitude=1_200_000.0,
+                 body="Kerbin", time_to_soi=50_000.0),                   # 7 escape leg: native warp to Kerbin SOI exit
+            snap(ut=10_060_000.0, body="Sun",
+                 altitude=13_000_000_000.0, time_to_soi=7_000_000.0),    # 8 helio + encounter: round 0 (20M) fires
+            snap(ut=10_060_010.0, body="Sun",
+                 altitude=13_000_000_100.0, node_count=1),               # 9 node -> CORRECTION-BURN (AP point)
+            snap(ut=10_060_020.0, body="Sun", altitude=13_000_000_200.0,
+                 node_count=1, node_dv=80.0, ap_error=1.5),              # 10 settling (streak 1) -> flip phys warp
+            snap(ut=10_060_040.0, body="Sun", altitude=13_000_000_300.0,
+                 node_count=1, node_dv=80.0, ap_error=1.2,
+                 warp_mode="PHYSICS", warp_rate=2.0),                    # 11 settled + streak 2 -> drop phys warp
+            snap(ut=10_060_042.0, body="Sun", altitude=13_000_000_400.0,
+                 node_count=1, node_dv=80.0, ap_error=1.1),              # 12 warp NONE -> throttle
+            snap(ut=10_060_060.0, body="Sun", altitude=13_000_000_500.0,
+                 node_count=1, node_dv=40.0, ap_error=1.0),              # 13 burning
+            snap(ut=10_060_070.0, body="Sun", altitude=13_000_000_600.0,
+                 node_count=1, node_dv=1.5, ap_error=1.0),               # 14 dv <= cut -> cut triple, COAST
+            snap(ut=10_100_000.0, body="Sun", altitude=13_000_001_000.0,
+                 time_to_soi=6_900_000.0, next_body="Duna",
+                 next_pe=100_000.0),                                     # 15 round-1 approach: native to the trigger
+            snap(ut=16_500_000.0, body="Sun", altitude=13_000_002_000.0,
+                 time_to_soi=499_995.0, next_body="Duna",
+                 next_pe=100_000.0),                                     # 16 trigger 500k -> round 1
+            snap(ut=16_500_010.0, body="Sun", altitude=13_000_003_000.0,
+                 node_count=1),                                          # 17 node -> CORRECTION-BURN (AP point)
+            snap(ut=16_500_020.0, body="Sun", altitude=13_000_004_000.0,
+                 node_count=1, node_dv=10.0, ap_error=1.4),              # 18 settling (streak 1) -> flip phys warp
+            snap(ut=16_500_040.0, body="Sun", altitude=13_000_005_000.0,
+                 node_count=1, node_dv=10.0, ap_error=1.2,
+                 warp_mode="PHYSICS", warp_rate=2.0),                    # 19 settled + streak 2 -> drop phys warp
+            snap(ut=16_500_042.0, body="Sun", altitude=13_000_006_000.0,
+                 node_count=1, node_dv=10.0, ap_error=1.1),              # 20 warp NONE -> throttle
+            snap(ut=16_500_060.0, body="Sun",
+                 altitude=13_000_007_000.0, node_count=0),               # 21 node consumed -> cut pair, COAST
+            snap(ut=16_600_000.0, body="Sun", altitude=13_000_008_000.0,
+                 time_to_soi=380_000.0, next_body="Duna",
+                 next_pe=40_000.0),                                      # 22 rounds spent; HEALTHY predicted arrival
+                                                                         #    (finding-16 gate stays quiet) -> native to Duna SOI
+            snap(ut=17_000_000.0, body="Duna", altitude=40_000_000.0),   # 23 Duna SOI -> TARGET-FLYBY
+            snap(ut=17_010_000.0, body="Duna", altitude=20_000_000.0,
+                 periapsis=60_000.0),                                    # 24 outer leg: rails stair (no exit estimate)
+            snap(ut=17_050_000.0, body="Duna", altitude=60_000.0,
+                 periapsis=55_000.0, warp_mode="RAILS",
+                 warp_rate=10_000.0),                                    # 25 periapsis area: floor + Duna legality clamp
+            snap(ut=17_200_000.0, body="Sun",
+                 altitude=13_000_010_000.0),                             # 26 exit SOI (Sun) -> RETURN terminal
+        ]
+        state, per_frame = drive_b5(state, frames)
+        self.assertTrue(state.done)
+        self.assertEqual(state.phase, mlib.B5_RETURN)
+        self.assertIsNone(state.verdict)
+        self.assertIsNone(state.loss_reason)
+        self.assertEqual(state.min_target_altitude, 60_000.0)
+        self.assertEqual(state.correction_rounds_done, 2)
+        # Finding-16 coexistence: the healthy predicted arrival (frame 22,
+        # next_pe 40 km >= the 15 km floor) never armed the extra-round gate.
+        self.assertEqual(state.extra_rounds_done, 0)
+        self.assertEqual(state.arrival_bad_streak, 0)
+        self.assertEqual(state.phases_reached,
+                         (mlib.B5_PRELAUNCH, mlib.B5_MJ_ASCENT, mlib.B5_CIRCULARIZE,
+                          mlib.B5_ORBIT, mlib.B5_PLAN_TRANSFER, mlib.B5_TRANSFER_BURN,
+                          mlib.B5_COAST_TO_TARGET,
+                          mlib.B5_PLAN_CORRECTION, mlib.B5_CORRECTION_BURN,
+                          mlib.B5_COAST_TO_TARGET,
+                          mlib.B5_PLAN_CORRECTION, mlib.B5_CORRECTION_BURN,
+                          mlib.B5_COAST_TO_TARGET, mlib.B5_TARGET_FLYBY,
+                          mlib.B5_RETURN))
+        self.assertEqual(per_frame[3], [
+            Action(mlib.ACTION_SET_TARGET_BODY, text="Duna"),
+            Action(mlib.ACTION_MJ_PLAN_INTERPLANETARY_TRANSFER)])
+        self.assertEqual(per_frame[4], [Action(mlib.ACTION_MJ_EXECUTE_NODES)])
+        self.assertEqual(per_frame[5], [])   # executor owns the window autowarp
+        self.assertEqual(per_frame[6], [])   # hyperbolic exit transition frame
+        # Kerbin escape leg: native warp to the home SOI exit minus soi_lead.
+        self.assertEqual(per_frame[7],
+                         [Action(mlib.ACTION_WARP_TO_UT, 10_050_670.0)])
+        # Round 0 entry cancels the (expected-)active native warp in the
+        # prelude, then plans the 50 km correction under the 200 m/s cap.
+        self.assertEqual(per_frame[8], [
+            Action(mlib.ACTION_CANCEL_WARP),
+            Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 50_000.0, limit=200.0)])
+        self.assertEqual(per_frame[9], [Action(mlib.ACTION_AP_POINT_NODE)])
+        self.assertEqual(per_frame[10], [Action(mlib.ACTION_SET_PHYSICS_WARP, 1.0)])
+        self.assertEqual(per_frame[11], [Action(mlib.ACTION_SET_PHYSICS_WARP, 0.0)])
+        self.assertEqual(per_frame[12], [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
+        self.assertEqual(per_frame[13], [])
+        self.assertEqual(per_frame[14], [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+                                         Action(mlib.ACTION_AP_DISENGAGE),
+                                         Action(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)])
+        # Round-1 approach: native warp straight to the trigger UT
+        # (tts 6.9M - threshold 500k = 6.4M ahead).
+        self.assertEqual(per_frame[15],
+                         [Action(mlib.ACTION_WARP_TO_UT, 16_500_000.0)])
+        self.assertEqual(per_frame[16], [
+            Action(mlib.ACTION_CANCEL_WARP),
+            Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT, 50_000.0, limit=200.0)])
+        self.assertEqual(per_frame[17], [Action(mlib.ACTION_AP_POINT_NODE)])
+        self.assertEqual(per_frame[20], [Action(mlib.ACTION_SET_THROTTLE, 0.25)])
+        self.assertEqual(per_frame[21], [Action(mlib.ACTION_CUT_THROTTLE, 0.0),
+                                         Action(mlib.ACTION_AP_DISENGAGE)])
+        # Post-rounds coast: native warp to the Duna SOI boundary minus lead.
+        self.assertEqual(per_frame[22],
+                         [Action(mlib.ACTION_WARP_TO_UT, 16_979_970.0)])
+        self.assertEqual(per_frame[23], [])  # SOI-entry transition frame
+        self.assertEqual(per_frame[24], [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+        # Periapsis area: the flyby floor wants 100x but the Duna table only
+        # legalizes 50x at 60 km -- command the ACHIEVABLE factor 3.
+        self.assertEqual(per_frame[25], [Action(mlib.ACTION_SET_RAILS_WARP, 3.0)])
+        self.assertEqual(per_frame[26], [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+        # All four assertions met; the flight resolves MISSION-OK.
+        outs = mlib.evaluate_b5_assertions(
+            [], B7_PARAMS, phases_reached=state.phases_reached,
+            min_target_altitude=state.min_target_altitude)
+        self.assertTrue(mlib.all_assertions_met(outs))
+        verdict, reason = mlib.resolve_flight_verdict(state, outs)
+        self.assertEqual(verdict, mlib.MISSION_OK)
+
+    def test_b5_paths_unchanged_with_b7_defaults(self):
+        # The five new params default OFF...
+        p = mlib.b5_params_from_dict({})
+        self.assertEqual(p.via_bodies, ())
+        self.assertEqual(p.return_body, "")
+        self.assertFalse(p.interplanetary_transfer)
+        self.assertEqual(p.ejection_ecc_floor, 0.0)
+        self.assertEqual(p.correction_trigger_time_to_soi, ())
+        # ...and every helper collapses to the pre-B7 B5 value.
+        self.assertEqual(mlib._b5_coast_bodies(B5_PARAMS), ("", "Kerbin"))
+        self.assertEqual(mlib._b5_warp_bodies(B5_PARAMS), ("Kerbin",))
+        self.assertEqual(mlib._b5_return_body(B5_PARAMS), "Kerbin")
+        self.assertEqual(mlib._b5_transfer_plan_action(B5_PARAMS),
+                         Action(mlib.ACTION_MJ_PLAN_TRANSFER))
+        self.assertEqual(mlib._b5_correction_triggers(B5_PARAMS),
+                         B5_PARAMS.correction_trigger_alts)
+        # Representative B5 transitions re-run byte-identical:
+        # (a) a foreign body (Sun) in the coast is still the ejected terminal;
+        state = _b5_state(mlib.B5_COAST_TO_TARGET)
+        state, actions = mlib.b5_decide(state, snap(ut=10.0, body="Sun"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertEqual(actions, [])
+        # (b) the altitude trigger still enters PLAN-CORRECTION with the same
+        # prelude + plan action;
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=1)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=20.0, altitude=6_200_000.0, body="Kerbin"))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CORRECTION)
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 2.0),
+                                   Action(mlib.ACTION_MJ_PLAN_COURSE_CORRECT,
+                                          60000.0, limit=150.0)])
+        # (c) TRANSFER-BURN still holds under the apoapsis floor.
+        state = _b5_state(mlib.B5_TRANSFER_BURN)
+        state, _ = mlib.b5_decide(state, snap(ut=10.0, apoapsis=90_000.0,
+                                              body="Kerbin", node_count=0))
+        self.assertEqual(state.phase, mlib.B5_TRANSFER_BURN)
 
 
 if __name__ == "__main__":

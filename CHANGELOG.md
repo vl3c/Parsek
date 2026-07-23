@@ -61,6 +61,7 @@ All notable changes to Parsek are documented here.
 - Added a new autopilot-flown automated test scenario, proven live: ascend to orbit, deorbit, reenter, and splash down intact, with the full flight (dropped boosters and the deorbited stage included) recorded and verified green. Test-tooling only; no gameplay change.
 - Added a Mun flyby / free-return autopilot-flown test scenario: ascend to orbit, plan and execute a transfer to the Mun, fly through its sphere of influence, and return into Kerbin's, covering cross-SOI recording under time warp. Test-tooling only; no gameplay change.
 - Added a Minmus flyby test scenario reusing the same flight machinery with Minmus-sized parameters. Test-tooling only; no gameplay change.
+- Added a Duna interplanetary flyby test scenario: eject from a high Kerbin park at the next transfer window, coast through the Sun's sphere of influence with time-triggered course corrections, fly past Duna, and exit into solar orbit. Flown and passing unattended (546 km flyby, free return). Test-tooling only; no gameplay change.
 
 ## 0.10.3
 
