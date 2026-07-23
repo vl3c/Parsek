@@ -1,0 +1,151 @@
+# Declared param schema for mission bdock_dock_transfer (B-DOCK design sections
+# 3 / 5). run.py parses this with tomllib and injects it as validate_spec's
+# `mission_schemas` argument; hlib's pure _validate_mission_params drives
+# required-key presence + per-value type/range. Only DECLARED params are checked
+# (extras ignored). Every value is a tolerance / window / budget, never a golden
+# trajectory; every budget is ESTIMATED (design section 5.4) and re-timed against
+# the first live run.
+
+# --- Station park (~110 km) + Interceptor phasing park (~90 km, BELOW the
+# Station so it phases faster). ---
+[params.stationApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.stationPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.interceptorApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.interceptorPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.apoErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.periErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.ascentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.circularizeTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# --- Interceptor launch (piece 2). ---
+[params.craftName]
+required = true
+type = "string"
+
+[params.launchSite]
+required = false
+type = "string"
+
+[params.launchTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.launchSettleDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 100
+
+# --- Rendezvous / dock / transfer thresholds. ---
+# Rendezvous AP terminal approach distance (m).
+[params.approachDistanceMeters]
+required = true
+type = "number"
+min = 0.0
+
+# Cap on rendezvous phasing orbits (bounds the worst-case wait, P6).
+[params.maxPhasingOrbits]
+required = true
+type = "number"
+min = 1.0
+
+# MATCH-VELOCITY relative-speed floor (m/s).
+[params.matchSpeedMetersPerSec]
+required = true
+type = "number"
+min = 0.0
+
+# Docking AP approach speed_limit (m/s) -- the monoprop-budget knob, P2.
+[params.dockSpeedMetersPerSec]
+required = true
+type = "number"
+min = 0.0
+
+# Small fixed transfer amounts (NIT 16: comfortably under min(source,
+# dest-free) so the transfer completes rather than stall-flaking).
+[params.transferAmountLf]
+required = true
+type = "number"
+min = 0.0
+
+[params.transferAmountMp]
+required = true
+type = "number"
+min = 0.0
+
+# --- Give-up budgets (GAME time; section 5.4). ---
+# Bounded wait for the mid-mission command-seam commit result.
+[params.stationCommitTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# Phasing legs advance game time fast under rails warp, so this is large.
+[params.rendezvousTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.dockTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# Each transfer; the TRANSFER phase budget is 2x this.
+[params.transferTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.undockTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# Optional: RENDEZVOUS no-progress bound (consecutive finite frames whose
+# target_distance never beat the running minimum -> flake). Defaults 40.
+[params.rendezvousNoProgressFrames]
+required = false
+type = "int"
+min = 2
+max = 100000
+
+# Optional: consecutive AIRBORNE frozen-telemetry samples before the mission
+# declares the vessel lost. mlib.BDockParams defaults it to 10.
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000

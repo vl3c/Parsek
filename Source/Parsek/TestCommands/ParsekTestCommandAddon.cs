@@ -753,6 +753,25 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // M-C2 EVA verbs: each owns a bounded, observable completion in the sibling
+            // ParsekTestCommandAddon.Eva.cs partial and never falls through to the generic
+            // awaiting-completion TIMEOUT below.
+            if (completionVerb == "EvaExit")
+            {
+                TryCompleteEvaExit(now);
+                return;
+            }
+            if (completionVerb == "PlantFlag")
+            {
+                TryCompletePlantFlag(now);
+                return;
+            }
+            if (completionVerb == "EvaBoard")
+            {
+                TryCompleteEvaBoard(now);
+                return;
+            }
+
             bool done = false;
             string verdict = null;
             List<KeyValuePair<string, string>> payload = null;
@@ -978,6 +997,10 @@ namespace Parsek.TestCommands
                 CareerPresent = IsCareerReady(head),
                 RnDPresent = IsResearchReady(),
                 AtSpaceCenter = HighLogic.LoadedScene == GameScenes.SPACECENTER,
+                // M-C2 EVA seam-verb bits.
+                ActiveVesselIsEva = FlightGlobals.ActiveVessel != null && FlightGlobals.ActiveVessel.isEVA,
+                StructuralSplitPending = flight != null && flight.StructuralSplitPending,
+                FlightEvaPresent = IsFlightEvaPresent(),
                 JournalPhase = phase,
             };
         }
@@ -1039,6 +1062,12 @@ namespace Parsek.TestCommands
         // (it reuses the same GamePersistence.SaveGame call shape minus the quit).
         void ITestCommandExecutor.SaveGame(ParsedCommand cmd) => SaveGameImpl(cmd);
 
+        // M-C2 EVA seam verbs. All three bodies + their two-phase completions live in the
+        // sibling ParsekTestCommandAddon.Eva.cs partial (design's Lane A thin Unity applier).
+        void ITestCommandExecutor.EvaExit(ParsedCommand cmd) => EvaExitImpl(cmd);
+        void ITestCommandExecutor.EvaBoard(ParsedCommand cmd) => EvaBoardImpl(cmd);
+        void ITestCommandExecutor.PlantFlag(ParsedCommand cmd) => PlantFlagImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             ITestCommandExecutor exec = this;
@@ -1059,6 +1088,9 @@ namespace Parsek.TestCommands
                 case "TimeJump": exec.TimeJump(cmd); break;
                 case "KscAction": exec.KscAction(cmd); break;
                 case "SaveGame": exec.SaveGame(cmd); break;
+                case "EvaExit": exec.EvaExit(cmd); break;
+                case "EvaBoard": exec.EvaBoard(cmd); break;
+                case "PlantFlag": exec.PlantFlag(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

@@ -1,0 +1,41 @@
+# Declared param schema for mission forge_station (the FIXTURE-FORGE runner;
+# B-DOCK design section 2 + the 2026-07-22 operator-principle override).
+#
+# run.py parses this file with tomllib and injects it as validate_spec's
+# `mission_schemas` argument; hlib's pure _validate_mission_params drives
+# required-key presence + per-value type/range from the `params` table. Only
+# DECLARED params are checked (extras are ignored), and every value is a budget /
+# debounce depth, never a golden trajectory.
+
+# The craft to launch onto the pad (resolves <save>/Ships/VAB/<craftName>.craft).
+[params.craftName]
+required = true
+type = "string"
+
+# The launch site (kRPC launch_vessel launch_site). Optional; defaults LaunchPad.
+[params.launchSite]
+required = false
+type = "string"
+
+# Game-seconds to see the newly launched craft settle in a settle situation
+# before the FORGE flakes (mlib.ForgeParams defaults 300).
+[params.launchTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# Optional: consecutive settled (PRELAUNCH-on-pad) frames before the forge
+# declares the craft settled (mlib.ForgeParams defaults 3).
+[params.settleDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 100
+
+# Optional: crew count to seed the pod (None = KSP default manifest). Reserved
+# for the EVA-3 3-crew pad fixture the same forge later produces.
+[params.crew]
+required = false
+type = "int"
+min = 0
+max = 16

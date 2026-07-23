@@ -1,0 +1,78 @@
+schema = 1
+id = "EVA-2-orbital-board"
+# PENDING-FIXTURE (design M-C2 EVA-2): the fixtures/saves/eva2-lko-crewed template (a crewed
+# pod in stable ~80 km LKO, sandbox) is NOT committed yet - it is operator step P2. A
+# --cadence run would INVALID(staging) this terminally and self-quarantine a scenario that
+# never ran, so it stays pending-fixture until the fixture lands, then re-tiers to "daily"
+# (design: daily once proven). IMPLEMENTED PENDING IN-GAME PROOF: P3 pins the count window,
+# P4 pins the orbital auto-record log wording (the required token keeps the STABLE prefix).
+tier = "pending-fixture"
+description = "Orbital EVA + re-board with autoRecordOnEva=true: the deferred EVA auto-record path starts the recorder on the EVA kerbal, then the kerbal re-boards from the ladder."
+instanceProfile = "stock-minimal"
+tags = ["eva", "auto-record-eva", "orbital", "D1", "B3", "A4"]
+
+[fixture]
+# NEW eva2-lko-crewed: a crewed pod in stable ~80 km LKO, sandbox (operator commits once; a
+# manual ascent-and-quicksave or a set-orbit edit both work - the fixture is a START state,
+# not a recording). The stock "EVA in Kerbin Orbit" scenario save was rejected: scenario-mode
+# saves carry game restrictions the harness has never run under.
+saveTemplate = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Deliberate contrast with EVA-1: NO StartRecording; autoRecordOnEva=true (whitelisted, M-A2)
+# so the exit exercises the DEFERRED EVA AUTO-RECORD path (ShouldQueueAutoRecordOnEva -> recorder
+# starts ON the EVA kerbal once active) - the D1 auto-record-eva cell. The kerbal stays on the
+# ladder (no release), so no drift and no jetpack need; EvaBoard re-boards at ~0 m. The deferred
+# auto-record RACES the next command (F7): HandleDeferredAutoRecordEva starts the recorder a
+# frame or more AFTER the exit settles, and a same-frame BoardPart could end the flight before
+# the recorder arms. settleSeconds=10 on EvaExit holds the FIFO head an extra 10 s after its base
+# conjuncts, guaranteeing the recorder is live and has sampled before EvaBoard fires (the dwell
+# is the mission's, opt-in - it keeps EvaExit Parsek-agnostic).
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnEva", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "EvaExit",      args = { settleSeconds = "10" },               expect = "OK", budget = 120 },
+  { cmd = "EvaBoard",                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                               expect = "OK" },
+  { cmd = "CommitTree",                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                expect = "OK" },
+]
+
+[dimensionsCovered]
+D1  = ["auto-record-eva"]
+# D5 single-kerbal auto-record tree; eva-branch claimed by EVA-1/3, not re-claimed here.
+D5  = []
+# D14 "situation" deliberately NOT cited: nothing in this spec asserts the orbital situation
+# (no orbit-parameter expectation); kerbin/sandbox/scene-flight are carried by the fixture +
+# LoadGame completion.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations.recordings]
+count = { min = 1, max = 3 }   # EVA recording certain; board chain-back pinned by P3
+
+[expectations.logContracts]
+# "Auto-record started" is VERBOSE (ParsekFlight.Log) - requires the verboseLogging pin;
+# "detected boarding from EVA" is Info. P4 pins the exact orbital auto-record wording; the
+# known line is "Auto-record started (EVA from pad)" but the orbital suffix is unverified, so
+# the required token stays the STABLE prefix "Auto-record started".
+required  = ["Auto-record started", "detected boarding from EVA",
+             "committree committed=true"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+# 780 >= 300 LoadGame + 120 EvaExit (incl. the 10 s dwell) + 120 EvaBoard + fast verbs +
+# 60 margin (S0.6 pattern).
+budgetSeconds = 780
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

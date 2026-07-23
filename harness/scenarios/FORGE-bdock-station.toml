@@ -1,0 +1,77 @@
+schema = 1
+id = "FORGE-bdock-station"
+# operator tier: this is a FIXTURE-FORGE run, not a coverage flight. It NEVER runs
+# on a cadence (hlib.CADENCE_TIERS maps no cadence to `operator`), only under an
+# explicit `--id FORGE-bdock-station` / `--tier operator`. It boots the committed
+# bootable base (bdock-forge-base = a gloops-airshow flight state + the docking
+# Kerbal X.craft in Ships/VAB), launches the craft onto the pad via launch_vessel,
+# waits for it to settle PRELAUNCH, and SaveGame + FlushAndQuit persist the pad
+# state. The `harness/tools/harvest_bdock_station.py` tool then prunes Parsek state
+# and normalizes the produced save into the committed bdock-station-pad fixture
+# that BDOCK-1 consumes. This REPLACES the operator fixture flight (2026-07-22
+# operator-principle override): the automation forges its own state headlessly.
+# The forge is generic over craftName, so the SAME spec (with a 3-crew pod craft)
+# later forges the EVA-3 pad fixture.
+tier = "operator"
+description = "FIXTURE-FORGE: boot a valid save, launch the docking Kerbal X onto the pad via launch_vessel, settle PRELAUNCH, SaveGame -- headlessly stamps the pre-placed-Station pad fixture (harvest tool normalizes it)."
+instanceProfile = "stock-minimal"
+tags = ["FORGE", "fixture", "bdock", "pending-flight"]
+
+[fixture]
+# The committed bootable base: gloops-airshow's FLIGHT state (an active vessel, so
+# LoadGame's IsLoadedGameFocusable gate passes -- BLOCKER 1) + the docking Kerbal X
+# in Ships/VAB (so launch_vessel resolves <save>/Ships/VAB/Kerbal X.craft).
+saveTemplate       = "fixtures/saves/bdock-forge-base"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "forge_station"
+
+# LoadGame boots into flight on the base's active vessel; the mission launches the
+# docking Kerbal X onto the pad and settles it PRELAUNCH; SaveGame persists the pad
+# state as `persistent` (the harvest reads persistent.sfs); FlushAndQuit force-saves
+# + quits. No SetSetting: the pad craft never stages, so no recording starts, and
+# the harvest prunes any Parsek/ dir regardless.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { phase = "mission",  expect = "MISSION-OK", budget = 120 },
+  { cmd = "SaveGame",   args = { name = "persistent" },                      expect = "OK" },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[driver.missionParams]
+craftName            = "Kerbal X"
+launchSite           = "LaunchPad"
+# Game-seconds to see the new craft settle PRELAUNCH before flaking. Generous:
+# launch_vessel is a scene reload.
+launchTimeoutSeconds = 120
+settleDebounceFrames = 3
+
+# The forge is a fixture stamp, not a coverage flight: it commits no recording. Only
+# the honest environment cells are cited (kerbin, the flight scene, sandbox mode).
+[dimensionsCovered]
+D14 = ["kerbin", "scene-flight", "sandbox"]
+
+[expectations.recordings]
+# The pad craft never stages, so no recording starts / commits. min 0 max 1
+# (max 1 absorbs a nascent auto-record if the base's setting happens to be on;
+# the harvest prunes Parsek state regardless).
+count = { min = 0, max = 1 }
+
+[expectations.logContracts]
+required  = []
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+# 240 LoadGame + 120 mission + SaveGame + FlushAndQuit + margin.
+budgetSeconds = 500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

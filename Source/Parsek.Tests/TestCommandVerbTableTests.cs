@@ -28,6 +28,9 @@ namespace Parsek.Tests
         [InlineData("TimeJump")]
         [InlineData("KscAction")]
         [InlineData("SaveGame")]
+        [InlineData("EvaExit")]
+        [InlineData("EvaBoard")]
+        [InlineData("PlantFlag")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -64,7 +67,7 @@ namespace Parsek.Tests
         [Fact]
         public void Table_HasExpectedCounts()
         {
-            Assert.Equal(15, TestCommandVerbs.ImplementedVerbNames.Count);
+            Assert.Equal(18, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(11, TestCommandVerbs.ReservedVerbNames.Count);
         }
     }

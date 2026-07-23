@@ -90,6 +90,15 @@ CONNECT_BACKOFF_SECONDS = 3.0
 # terminal).
 READ_FAIL_STREAK_LIMIT = 3
 
+# Mid-mission command-seam CommitTree bounded poll (route 1, section 3.2). The
+# CommitTree verb executes on the Unity main thread in one frame, so the response
+# appears fast; the bound only exists so a wedged addon can never hang the fly
+# loop -- expiry yields TIMEOUT (the machine flakes it, driver-INVALID). WALL
+# seconds (the game-time station-commit phase budget is the machine's separate
+# backstop).
+SEAM_COMMIT_POLL_SECONDS = 120.0
+SEAM_COMMIT_POLL_INTERVAL = 0.5
+
 # Per-frame telemetry poll cadence. The fly loop reads a snapshot, decides, and
 # executes actions this often; the design's telemetry log line is rate-limited to
 # ~1 Hz over this cadence.
@@ -382,6 +391,14 @@ class MissionControl:
     def close(self) -> None:
         raise NotImplementedError
 
+    def configure_seam(self, commands_path: str, responses_path: str,
+                       commit_id: str) -> None:
+        """Wire the mid-mission command-seam bridge (route 1, section 3.2). The
+        default is a no-op; only ``KrpcMissionControl`` (and a bdock fake)
+        implement it. run_mission calls it AFTER make_control when the mission
+        was spawned with seam args, so a non-B-DOCK control cleanly ignores it."""
+        return None
+
 
 class KrpcMissionControl(MissionControl):
     """Real telemetry/control seam: wraps the kRPC client. ``import krpc`` is
@@ -398,12 +415,32 @@ class KrpcMissionControl(MissionControl):
     carried-evidence flags at their benign defaults.
     """
 
-    def __init__(self, use_mechjeb: bool = False, client_name: str = "parsek-mission") -> None:
+    def __init__(self, use_mechjeb: bool = False, client_name: str = "parsek-mission",
+                 read_docking: bool = False) -> None:
         self._use_mechjeb = use_mechjeb
         self._client_name = client_name
+        # OPT-IN B-DOCK docking/rendezvous/transfer telemetry (design section 5.2).
+        # OFF for B1/B2/B4/B5/B7 so their read_snapshot stays byte-identical (they
+        # never touch the MechJeb target controller / docking-port surface). The
+        # bdock shell constructs this True.
+        self._read_docking = bool(read_docking)
         self._conn = None
         self._mechjeb = None
         self._ascent = None
+        # --- B-DOCK handle caching (P9 / Q4). Never name/pid; captured kRPC
+        # object handles resolved while the object was reachable.
+        self._station_vessel = None          # captured at STATION-COMMIT
+        self._station_port = None            # its top docking port
+        self._station_tanks: Dict[str, object] = {}   # resource -> station-side tank part
+        self._active_transfer = None         # the in-flight ResourceTransfer handle
+        # --- Mid-mission command-seam bridge (route 1, section 3.2). Set via
+        # configure_seam(); the reserved command-id + the channel file paths the
+        # ACTION_PARSEK_COMMIT_TREE case writes/polls. None = no seam configured
+        # (any non-B-DOCK mission never emits the action).
+        self._seam_commands_path: Optional[str] = None
+        self._seam_responses_path: Optional[str] = None
+        self._seam_commit_id: Optional[str] = None
+        self._seam_commit_result: str = ""   # rides TelemetrySnapshot.seam_commit_result
         # Latches True the first time the AscentAutopilot reads as enabled, so
         # "complete" is never inferred BEFORE the autopilot has ever been engaged
         # (NIT 8: pre-engage, enabled==False must NOT read as ascent-complete=True).
@@ -502,6 +539,35 @@ class KrpcMissionControl(MissionControl):
             except Exception:
                 next_body = ""
                 next_pe = float("nan")
+            # --- B-DOCK docking / rendezvous / transfer telemetry (opt-in, section
+            # 5.2). All default fail-closed; only read when self._read_docking, so
+            # the B1/B2/B4/B5/B7 snapshot is byte-identical. Each read is in its
+            # own try/except: a docking-surface read must degrade to the fail-
+            # closed sentinel, NEVER count toward the vessel-lost read-fail streak.
+            target_distance = float("nan")
+            target_rel_speed = float("nan")
+            docking_state = ""
+            target_set = False
+            mj_rv_enabled = False
+            mj_dock_enabled = False
+            vessel_count = 0
+            transfer_complete = False
+            transfer_amount = float("nan")
+            monopropellant = float("nan")
+            if self._read_docking:
+                target_distance, target_rel_speed, target_set = \
+                    self._read_target_controller()
+                mj_rv_enabled, mj_dock_enabled = self._read_docking_ap_enabled()
+                docking_state = self._read_docking_state()
+                try:
+                    vessel_count = len(sc.vessels)
+                except Exception:
+                    vessel_count = 0
+                transfer_complete, transfer_amount = self._read_active_transfer()
+                try:
+                    monopropellant = float(resources.amount("MonoPropellant"))
+                except Exception:
+                    monopropellant = float("nan")
             snapshot = mlib.TelemetrySnapshot(
                 ut=float(sc.ut),
                 altitude=float(flight_srf.surface_altitude),
@@ -560,6 +626,19 @@ class KrpcMissionControl(MissionControl):
                 # gate + self-healing re-issue read this).
                 warping_to=(self._warp.target_ut if self._warp is not None
                             else float("nan")),
+                # B-DOCK docking / rendezvous / transfer + the mid-mission seam
+                # commit result (all fail-closed defaults when not read_docking).
+                target_distance=target_distance,
+                target_rel_speed=target_rel_speed,
+                docking_state=docking_state,
+                target_set=target_set,
+                mj_rendezvous_enabled=mj_rv_enabled,
+                mj_docking_enabled=mj_dock_enabled,
+                vessel_count=vessel_count,
+                transfer_complete=transfer_complete,
+                transfer_amount=transfer_amount,
+                monopropellant=monopropellant,
+                seam_commit_result=self._seam_commit_result,
             )
             self._read_fail_streak = 0
             self._warp_watchdog(sc, snapshot.ut)
@@ -917,8 +996,339 @@ class KrpcMissionControl(MissionControl):
             # starts). Letting MechJeb run its own abort path keeps its
             # attitude/thrust user bookkeeping consistent.
             v.control.remove_nodes()
+        # --- B-DOCK actions (design section 5.1). Handle-based selection (P9):
+        # never name/pid; the runner resolves each intent against a captured kRPC
+        # object handle. All best-effort + try/excepted where a live surface may
+        # be absent; the machine's bounded give-ups own a non-advancing outcome.
+        elif kind == mlib.ACTION_LAUNCH_VESSEL:
+            # kRPC v0.5.4 SpaceCenter.launch_vessel(craft_directory, name,
+            # launch_site, recover=True, ...): resolves <save>/Ships/VAB/<name>.craft,
+            # recovers any vessel already on the pad, then StartWithNewLaunch (a
+            # FLIGHT->FLIGHT reload focused on the new craft). crew defaults to the
+            # KSP manifest (action.value crew-count seeding is a future refinement
+            # for the EVA-3 3-crew pod). Re-resolve the MechJeb handles against the
+            # NEW active vessel and reset the ascent-complete latch + read-fail
+            # streak so the fresh craft is judged from its own engage.
+            sc.launch_vessel("VAB", str(action.text), str(
+                getattr(action, "launch_site", None) or "LaunchPad"))
+            self._mj_ever_enabled = False
+            self._read_fail_streak = 0
+            if self._use_mechjeb:
+                try:
+                    self._mechjeb = self._conn.mech_jeb
+                    self._ascent = self._mechjeb.ascent_autopilot
+                except Exception as exc:
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Warn", "Launch",
+                        "MechJeb re-resolve after launch failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_CAPTURE_STATION:
+            # Capture the Station handle (P9/Q4) while it IS the active vessel:
+            # the vessel, its top docking port, and its per-resource station-side
+            # tanks. kRPC Part proxies survive the later dock (parts are re-parented,
+            # not destroyed), so the captured handles stay valid post-merge.
+            self._station_vessel = v
+            try:
+                ports = v.parts.docking_ports
+                self._station_port = ports[0] if ports else None
+            except Exception:
+                self._station_port = None
+            self._station_tanks = {}
+            for res in ("LiquidFuel", "MonoPropellant"):
+                part = self._find_tank_with_resource(v, res)
+                if part is not None:
+                    self._station_tanks[res] = part
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Capture",
+                "captured station handle port=%s tanks=%s"
+                % (self._station_port is not None, sorted(self._station_tanks.keys()))))
+        elif kind == mlib.ACTION_PARSEK_COMMIT_TREE:
+            self._perform_seam_commit()
+        elif kind == mlib.ACTION_SET_TARGET_VESSEL:
+            if self._station_vessel is not None:
+                sc.target_vessel = self._station_vessel
+            else:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Target", "set_target_vessel: no captured station handle"))
+        elif kind == mlib.ACTION_SET_TARGET_DOCKING_PORT:
+            if self._station_port is not None:
+                sc.target_docking_port = self._station_port
+            else:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Target", "set_target_docking_port: no captured port handle"))
+        elif kind == mlib.ACTION_MJ_ENABLE_RENDEZVOUS:
+            rv = self._mechjeb.rendezvous_autopilot
+            if action.value is not None:
+                rv.desired_distance = float(action.value)
+            if action.limit is not None:
+                rv.max_phasing_orbits = float(action.limit)
+            rv.enabled = True
+        elif kind == mlib.ACTION_MJ_KILL_REL_VEL:
+            # Belt+braces to the rendezvous AP's own terminal match: plan +
+            # execute a kill-relative-velocity node. Throw/log/swallow (a
+            # no-target plan throws server-side; the machine's match-velocity gate
+            # owns the outcome).
+            try:
+                op = self._mechjeb.maneuver_planner.operation_kill_rel_vel
+                op.make_nodes()
+                if len(control.nodes) > 0:
+                    ne = self._mechjeb.node_executor
+                    ne.autowarp = True
+                    ne.execute_all_nodes()
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Match", "operation_kill_rel_vel failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_MJ_ENABLE_DOCKING:
+            dk = self._mechjeb.docking_autopilot
+            if action.value is not None:
+                dk.speed_limit = float(action.value)
+            dk.enabled = True
+        elif kind == mlib.ACTION_MJ_DISABLE_DOCKING:
+            try:
+                self._mechjeb.docking_autopilot.enabled = False
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Dock", "disable docking AP failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_START_RESOURCE_TRANSFER:
+            self._start_resource_transfer(sc, v, action)
+        elif kind == mlib.ACTION_UNDOCK:
+            if self._station_port is not None:
+                try:
+                    self._station_port.undock()
+                except Exception as exc:
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Warn", "Undock", "port.undock() failed: %s" % (exc,)))
+            else:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Undock", "undock: no captured port handle"))
         else:
             raise ValueError("unknown action kind: %r" % (kind,))
+
+    # ---- B-DOCK helpers (handle capture, seam bridge, docking telemetry) ----
+
+    def configure_seam(self, commands_path: str, responses_path: str,
+                       commit_id: str) -> None:
+        """Wire the mid-mission command-seam bridge (route 1, section 3.2): the
+        reserved command-id + the two channel file paths the
+        ACTION_PARSEK_COMMIT_TREE case writes / polls."""
+        self._seam_commands_path = str(commands_path) if commands_path else None
+        self._seam_responses_path = str(responses_path) if responses_path else None
+        self._seam_commit_id = str(commit_id) if commit_id else None
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "Seam",
+            "seam bridge configured commit-id=%s commands=%s responses=%s"
+            % (self._seam_commit_id, self._seam_commands_path, self._seam_responses_path)))
+
+    def _perform_seam_commit(self) -> None:
+        """Route-1 mid-mission CommitTree: write a CommitTree command with the
+        reserved id into the request channel, then bounded-poll the response
+        channel for that id. The result rides TelemetrySnapshot.seam_commit_result
+        ("OK" advances, "ERROR"/"TIMEOUT" flakes the machine). Never raises: a
+        missing seam config / an IO fault / a poll expiry all resolve to a
+        fail-closed result token the machine flakes on, never a MISSION-ERROR."""
+        self._seam_commit_result = ""
+        if not (self._seam_commands_path and self._seam_responses_path
+                and self._seam_commit_id):
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Seam", "commit requested but no seam configured -> ERROR"))
+            self._seam_commit_result = "ERROR"
+            return
+        cid = self._seam_commit_id
+        try:
+            with open(self._seam_commands_path, "a", encoding="utf-8") as fh:
+                fh.write("id=%s cmd=CommitTree\n" % cid)
+        except OSError as exc:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Seam", "commit command write failed: %s -> ERROR" % (exc,)))
+            self._seam_commit_result = "ERROR"
+            return
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "Seam", "commit command written id=%s cmd=CommitTree; polling" % cid))
+        deadline = time.monotonic() + SEAM_COMMIT_POLL_SECONDS
+        while time.monotonic() < deadline:
+            verdict = self._read_seam_response(cid)
+            if verdict is not None:
+                self._seam_commit_result = "OK" if verdict == "OK" else "ERROR"
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Info", "Seam", "commit response id=%s verdict=%s -> %s"
+                    % (cid, verdict, self._seam_commit_result)))
+                return
+            time.sleep(SEAM_COMMIT_POLL_INTERVAL)
+        self._seam_commit_result = "TIMEOUT"
+        _stdout_sink(mlib.format_mission_log_line(
+            "Warn", "Seam", "commit poll expired (%ds) id=%s -> TIMEOUT"
+            % (int(SEAM_COMMIT_POLL_SECONDS), cid)))
+
+    def _read_seam_response(self, commit_id: str) -> Optional[str]:
+        """Return the verdict of the FIRST terminal response line for commit_id in
+        the response channel (id/cmd/verdict key=value tokens), or None if none
+        yet. First-wins mirrors the seam's crash-recovery rewrite contract."""
+        try:
+            with open(self._seam_responses_path, "r", encoding="utf-8",
+                      errors="replace") as fh:
+                lines = fh.readlines()
+        except OSError:
+            return None
+        for line in lines:
+            fields: Dict[str, str] = {}
+            for tok in line.split():
+                if "=" in tok:
+                    k, _, val = tok.partition("=")
+                    if k and k not in fields:
+                        fields[k] = val
+            if fields.get("id") == commit_id and "verdict" in fields:
+                return fields["verdict"]
+        return None
+
+    def _find_tank_with_resource(self, vessel, resource: str):
+        """A part on ``vessel`` carrying > 0 of ``resource`` (best-effort; the
+        first match). Returns a kRPC Part handle or None. Per-part reads are
+        try/excepted so one odd part never aborts the scan."""
+        try:
+            parts = vessel.parts.all
+        except Exception:
+            return None
+        for part in parts:
+            try:
+                if part.resources.amount(resource) > 0.0:
+                    return part
+            except Exception:
+                continue
+        return None
+
+    def _start_resource_transfer(self, sc, v, action: "mlib.Action") -> None:
+        """Start a kRPC ResourceTransfer between the transport + station tanks
+        (Q4 handle-based selection). The station-side tank is the handle captured
+        at STATION-COMMIT; the transport-side tank is a merged-vessel part with the
+        resource that is NOT that station tank. Direction rides action.limit
+        (DELIVER = transport->station, PICKUP = station->transport). Best-effort:
+        a failure logs a warn and leaves _active_transfer None, and the machine's
+        transfer-stall give-up owns the non-advancing outcome."""
+        resource = str(action.text)
+        amount = float(action.value) if action.value is not None else 0.0
+        direction = float(action.limit) if action.limit is not None else mlib.TRANSFER_DIR_DELIVER
+        station_tank = self._station_tanks.get(resource)
+        if station_tank is None:
+            station_tank = self._find_tank_with_resource(self._station_vessel, resource)
+        transport_tank = self._find_transport_tank(v, resource, station_tank)
+        if station_tank is None or transport_tank is None:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Transfer",
+                "transfer %s amt=%.1f: could not resolve tanks (station=%s transport=%s)"
+                % (resource, amount, station_tank is not None, transport_tank is not None)))
+            self._active_transfer = None
+            return
+        if direction == mlib.TRANSFER_DIR_DELIVER:
+            from_part, to_part = transport_tank, station_tank
+            label = "transport->station"
+        else:
+            from_part, to_part = station_tank, transport_tank
+            label = "station->transport"
+        try:
+            self._active_transfer = sc.resource_transfer.start(
+                from_part, to_part, resource, amount)
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Transfer",
+                "started %s amt=%.1f %s" % (resource, amount, label)))
+        except Exception as exc:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Transfer", "ResourceTransfer.start failed: %s" % (exc,)))
+            self._active_transfer = None
+
+    def _find_transport_tank(self, vessel, resource: str, station_tank):
+        """A merged-vessel part with ``resource`` that is NOT the captured station
+        tank (the transport side of the pre-dock part-set split, Q4)."""
+        try:
+            parts = vessel.parts.all
+        except Exception:
+            return None
+        for part in parts:
+            try:
+                if part.resources.amount(resource) <= 0.0:
+                    continue
+                if station_tank is not None and part == station_tank:
+                    continue
+                return part
+            except Exception:
+                continue
+        return None
+
+    def _read_target_controller(self) -> Tuple[float, float, bool]:
+        """(target_distance, target_rel_speed, target_set) from MechJeb's target
+        controller. Fail-closed on any read fault (NaN / NaN / False)."""
+        try:
+            tc = self._mechjeb.target_controller
+        except Exception:
+            return float("nan"), float("nan"), False
+        target_set = False
+        try:
+            target_set = bool(tc.normal_target_exists)
+        except Exception:
+            target_set = False
+        distance = float("nan")
+        try:
+            distance = float(tc.distance)
+        except Exception:
+            distance = float("nan")
+        rel_speed = float("nan")
+        try:
+            rv = tc.relative_velocity
+            rel_speed = math.sqrt(sum(float(c) * float(c) for c in rv))
+        except Exception:
+            rel_speed = float("nan")
+        return distance, rel_speed, target_set
+
+    def _read_docking_ap_enabled(self) -> Tuple[bool, bool]:
+        """(rendezvous_enabled, docking_enabled) MechJeb AP Enabled latches.
+        Fail-closed False on a read fault (the machine's latch never falsely
+        flips)."""
+        rv = False
+        dk = False
+        try:
+            rv = bool(self._mechjeb.rendezvous_autopilot.enabled)
+        except Exception:
+            rv = False
+        try:
+            dk = bool(self._mechjeb.docking_autopilot.enabled)
+        except Exception:
+            dk = False
+        return rv, dk
+
+    def _read_docking_state(self) -> str:
+        """The captured/target docking port state.name (kRPC DockingPortState),
+        or "" (fail-closed: matches no gate). Prefers the captured station port
+        (stable across the merge); falls back to the target docking port."""
+        port = self._station_port
+        for candidate in (port,):
+            if candidate is None:
+                continue
+            try:
+                st = candidate.state
+                name = getattr(st, "name", None)
+                if name:
+                    # kRPC exposes lower_snake ("docked"); normalize to the
+                    # DockingPortState PascalCase the machine gates on.
+                    return "".join(seg.capitalize() for seg in str(name).split("_"))
+            except Exception:
+                continue
+        return ""
+
+    def _read_active_transfer(self) -> Tuple[bool, float]:
+        """(complete, amount) of the in-flight ResourceTransfer, or (False, NaN)
+        when there is none / the read faults (fail-closed for the transfer gate)."""
+        rt = self._active_transfer
+        if rt is None:
+            return False, float("nan")
+        complete = False
+        amount = float("nan")
+        try:
+            complete = bool(rt.complete)
+        except Exception:
+            complete = False
+        try:
+            amount = float(rt.amount)
+        except Exception:
+            amount = float("nan")
+        return complete, amount
 
     def _ensure_warp_service(self) -> "WarpService":
         if self._warp is None:
@@ -1510,6 +1920,7 @@ def run_mission(
     sleep: Callable[[float], None] = time.sleep,
     writer: Optional[Callable[[str, str], None]] = None,
     status_writer: Optional[StatusFileWriter] = None,
+    seam_config: Optional[Dict] = None,
 ) -> int:
     """Fly ``spec`` end-to-end and write the mission-result JSON. Returns the
     process exit code (0 only on MISSION-OK; nonzero on every non-OK verdict so
@@ -1528,6 +1939,18 @@ def run_mission(
         log = MissionLogger(sink=_stdout_sink, clock=clock)
     if control is None:
         control = spec.make_control()
+    # Mid-mission command-seam bridge (route 1, section 3.2): wire the reserved
+    # command-id + channel paths into the control when the mission was spawned
+    # with seam args. A control lacking configure_seam (or a mission that never
+    # emits ACTION_PARSEK_COMMIT_TREE) is unaffected -- the base no-op ignores it.
+    if seam_config and hasattr(control, "configure_seam"):
+        try:
+            control.configure_seam(
+                seam_config.get("commands_path"),
+                seam_config.get("responses_path"),
+                seam_config.get("commit_id"))
+        except Exception as exc:  # noqa: BLE001 -- never a hang; the machine flakes
+            log.warn("Seam", "configure_seam failed: %s (mid-mission commit will ERROR)" % (exc,))
     if status_writer is None and writer is None:
         # Production run (real filesystem result writer): stand up the live
         # status file next to the result (design-live-observability 2d).
@@ -1710,6 +2133,16 @@ def build_arg_parser(mission_name: str) -> argparse.ArgumentParser:
                    help="path to write the mission-result JSON")
     p.add_argument("--budget", type=float, required=True,
                    help="mission wall-clock budget in seconds (the mission-step budget)")
+    # Mid-mission command-seam bridge (route 1, section 3.2). Optional: only
+    # B-DOCK emits ACTION_PARSEK_COMMIT_TREE, and run.py passes these only for an
+    # autopilot mission with a channel. A mission that never emits the action
+    # ignores them entirely.
+    p.add_argument("--seam-commands", default=None,
+                   help="path to the seam command channel (parsek-test-commands.txt)")
+    p.add_argument("--seam-responses", default=None,
+                   help="path to the seam response channel (parsek-test-responses.txt)")
+    p.add_argument("--seam-commit-id", default=None,
+                   help="reserved monotonic command-id for the mid-mission CommitTree")
     return p
 
 
@@ -1736,5 +2169,11 @@ def main_from_spec(spec: MissionSpec, argv: Optional[List[str]] = None) -> int:
             error=traceback.format_exc())
         _write_result_file(args.result, mlib.serialize_mission_result(result))
         return 1
+    seam_config = None
+    if args.seam_commit_id and args.seam_commands and args.seam_responses:
+        seam_config = {"commands_path": args.seam_commands,
+                       "responses_path": args.seam_responses,
+                       "commit_id": args.seam_commit_id}
+        log.info("Spawn", "seam bridge armed commit-id=%s" % args.seam_commit_id)
     return run_mission(spec, params, args.rpc_host, args.rpc_port, args.stream_port,
-                       args.result, args.budget, log=log)
+                       args.result, args.budget, log=log, seam_config=seam_config)
