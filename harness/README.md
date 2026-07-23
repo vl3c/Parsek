@@ -1,5 +1,9 @@
 # harness/ - Parsek automated-testing module
 
+For WHAT IS DONE / PROVEN / GATED across the whole initiative (modules,
+test cases, roadmap), see `docs/dev/autotest-status.md` - the single status
+authority. This README owns module MECHANICS only.
+
 This directory is a self-contained module. It is designed so it could later be
 split into its own repository and consumed by Parsek as a git submodule at this
 same path. Keep it that way.

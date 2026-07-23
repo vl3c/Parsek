@@ -1,0 +1,173 @@
+# Automated Testing System - Status
+
+Last updated: 2026-07-22 (post PR #1339, flake-ledger reset). This file is the
+single at-a-glance answer to "what is done, what is proven, what is gated" for
+the automated testing initiative, so nobody has to re-derive status from code.
+
+## Purpose - never forget it
+
+This system exists for exactly one reason: MAKING PARSEK BETTER. Every
+mission, verb, and scenario is an instrument for verifying Parsek's behavior
+- that recordings are correct, complete, and schema-clean; that the ledger
+reproduces career state exactly; that rewind/re-fly, playback, ghosts, and
+routes survive real flight histories. Flying rockets is never the point: a
+mission earns its place only by the Parsek recording/ledger/rewind surface it
+exercises. The end goal is the L-track Ledger Accuracy Campaign (grand oracle
+career runs with repeated rewinds, oracle-diffed at every session boundary).
+When prioritizing work, ask "what Parsek defect class does this catch?" -
+that question has already paid: the initiative's first real catches include
+the INV2 double-cover recorder seam defect and the S0.5 orphan-sidecar leak.
+
+## Doc map (no duplicate documentation)
+
+Each fact about this system lives in exactly one place:
+
+| Doc | Owns |
+|---|---|
+| THIS FILE | Status: what is shipped, proven, gated; roadmap order |
+| `automated-testing-plan.md` | Strategy + rationale (why the system is shaped this way; L-track definition) |
+| `automated-testing-scenario-catalog.md` | The INTENDED universe: dimension registry D1-D18 vocabulary, scenario blocks, tiers, regression rotation |
+| `design-autotest-*.md` (12 docs) | Per-module design authority (how each module works; binding contracts) |
+| `harness/README.md` | Harness module mechanics: ownership boundary, how to run, submodule readiness |
+| `todo-and-known-bugs.md` | Finding forensics: the full evidence trail behind every live finding |
+| `harness/coverage/registry.toml` | The machine-readable coverage denominator (authoritative cell list) |
+
+If a status statement appears anywhere else, it is a pointer to this file or
+it is wrong. MAINTENANCE RULE: any PR that changes a module's status,
+live-proves a scenario, adds a test case, or opens/closes a gate updates this
+file in the same PR (same discipline as CHANGELOG).
+
+## One-paragraph summary
+
+The system flies KSP missions unattended (kRPC + MechJeb autopilot, or the
+Parsek file-drop command seam), records them with Parsek, and verifies the
+result through a seven-verifier chain (driver validity, in-game test batch,
+offline recording analyzer, log validation, results schema, anomaly sweep,
+expectations). Ten test cases are live-proven green end-to-end, including
+Mun/Minmus/Duna flybys with a certified no-1x-coast warp profile. All
+infrastructure modules are shipped and merged. Coverage stands at 52 of 238
+registry cells - breadth (EVA, orbit, landing, career-ledger lanes) is the
+frontier.
+
+## Infrastructure modules (all SHIPPED and merged)
+
+| Module | What it gives Parsek testing | Status |
+|---|---|---|
+| M-A1 offline analyzer | Recording invariants (INV1-INV9) over any save, RED gate, per-save findings baseline | SHIPPED (#1300/#1302/#1306); AnalyzerVersion 3; core in Parsek.dll so in-game H5 runs the same rules |
+| M-A2 command seam | Drives Parsek actions kRPC cannot (record/commit/discard, rewind, dialogs, KSC actions) | SHIPPED (#1301); 15 implemented verbs, 11 reserved |
+| M-A3 autorun hooks | Unattended in-game test batches (PARSEK_AUTORUN_*) | SHIPPED (#1305) |
+| M-A5 harness core | The orchestrator: admission, staging, seam driving, budget kill, verifier chain, verdicts, coverage/flake ledgers | SHIPPED (#1307, #1316) |
+| M-A6 provisioner | Reproducible pinned KSP instance (kRPC 0.5.4 + MechJeb 2.15.1 + KRPC.MechJeb 0.8.1 + built TestingTools) | SHIPPED (#1303/#1308/#1318) |
+| M-B1 mission library | Pure mission state machines + kRPC runner (flights become deterministic, diagnosable instruments) | SHIPPED (#1313); hardened by the flyby campaign |
+| M-B2 ledger oracle | Seam-declared action manifests -> expected career totals -> save diff (PARSEK-FAIL(ledger)) | SHIPPED (#1314); stock-award-pattern gate below |
+| M-B3 ledger scripts | The L1 scenario six-pack | SHIPPED (#1324); blocked on career fixtures (below) |
+| M-C1 seam verbs batch 1 | InvokeRewind, AnswerMergeDialog, TimeJump, KscAction, SaveGame | SHIPPED (#1320/#1325) |
+| M-C2 EVA verbs + missions | EvaExit/EvaBoard/PlantFlag -> crew/EVA/flag recording coverage | DESIGN MERGED (#1339); implementation NOT started |
+
+## Test cases (all 20 committed scenarios)
+
+LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
+The "Parsek surface verified" column is the reason the case exists.
+
+### Live-proven (10)
+
+| Test case | Tier | Parsek surface verified | Coverage cells |
+|---|---|---|---|
+| B1-pad-hop | nightly | Auto-record-on-launch, atmospheric TrackSections, chute-deployed ground-arrival recording (DOWN contract) | D1 auto-record-launch; D4 atmospheric; D14 kerbin |
+| B2-lko-ascent | nightly | Ascent-to-orbit recording, orbital checkpoints, 6-booster parent-anchored debris children model | D1; D3 orbital-checkpoint; D4 atmospheric/exo-propulsive; D14 kerbin |
+| B4-reentry-splashdown | nightly | Full-cycle recording (ascent/deorbit/reentry/splashdown intact), exo-ballistic sections, rails-warp recording | D1; D3; D4 +exo-ballistic; D14 kerbin/warp-rails |
+| B5-mun-flyby | nightly | Cross-SOI cohesive coast recording (Kerbin->Mun->Kerbin), on-rails checkpoints across warp, warp-reseed seams | D1; D3; D4 +cohesive-cross-body-coast; D14 kerbin/mun/warp-rails. NO-1X CERTIFIED at HEAD config (flight 26: wall 465 s, warp audit exit 0) |
+| B6-minmus-flyby | nightly | Same cells on the minmus axis | As B5 with D14 minmus. GATE: 20 km course-correct target predates finding 16d; guarded (arrival gate + impact terminal fail clean); re-target ~150 km only if it reds |
+| B7-duna-flyby | nightly | Multi-SOI interplanetary recording (Kerbin->Sun->Duna->Sun), 100,000x warp recording, SOI-count | As B5 with D14 duna/soi-count/warp-high. GATE: HEAD's 300 km target has not itself flown (the pass flew 50 km); first nightly covers it |
+| S0.5-live-record-discard | daily | Live record start/stop marker pairing + DiscardTree returns the store to zero (caught the orphan-sidecar leak) | D1 discard-rollback; D5 single-node; D14 |
+| S0.6-live-record-commit | daily | Commit on top of the injected corpus without corpus loss (the save-hollowing guard class) | D5; D14; D16 sidecar-prec |
+| S1.4-injected-playback | daily | 272-tree corpus injection, load, ghost map presence + polyline render with no anomalies | D6 basic-playback/ghost-map-presence/non-orbital-polyline; D16 sidecar-prec/sidecar-pcrf |
+| H5-invariants-corpus | daily | The full synthetic corpus (306 recordings / 276 trees) loads intact and holds every recording invariant in-game | D14 sandbox/scene-flight; D16 sidecar-prec/schema-gate |
+
+### Committed, not yet live-run (10)
+
+| Test case | Tier | Parsek surface verified | Blocker |
+|---|---|---|---|
+| H6-route-rewind-timeline | daily | Route-rewind lifecycle rows, dormant classify + Tick materialize, kept-route reconciliation | None - its next daily run IS its live-prove |
+| S1.5-rewind-loop | operator | TimeJump-past-EndUT spawn, then rewind-strip-respawn cycle observables | Operator observation session (B9 pair) |
+| S4.1-rewind-merge | operator | Full re-fly cycle: InvokeRewind a crashed slot, merge-dialog fold, corpus survival, read-back guard | Operator observation session (B9 pair) |
+| B10-career-passive-safety | pending-fixture | Fresh career + stock actions only = ZERO economy drift (the BUG-A science/funds corruption class) | Career fixture saves |
+| L1-passive-sandbox | pending-fixture | Sandbox cold load moves nothing (recalc/orchestrator/patcher inert) | Career fixture saves |
+| L1-hire-kerbal-career | pending-fixture | Hire debits funds by exactly the pinned cost, nothing else | Career fixture saves |
+| L1-dismiss-kerbal-career | pending-fixture | Dismiss is pool-neutral | Career fixture saves |
+| L1-research-node-career | pending-fixture | Research debits science exactly | Career fixture saves |
+| L1-research-node-science | pending-fixture | Same in science mode (no funds/rep pools) | Career fixture saves |
+| L1-upgrade-facility-career | pending-fixture | Facility upgrade debits funds per-level exactly | Career fixture saves |
+
+### Designed, not yet implemented
+
+EVA-1 (pad ground EVA + flag plant + board), EVA-2 (orbital EVA + re-board
+via the deferred auto-record-on-EVA path), EVA-3 (sequential multi-kerbal):
+design merged (#1339, `design-autotest-eva-missions.md`); specs land WITH the
+M-C2 implementation. Parsek surfaces: EVA/Board tree branch points +
+EvaCrewName, FlagEvent fidelity, crew conservation, foreground vs deferred
+EVA recording paths.
+
+## Mission-machine trust layer
+
+The shared flyby machine (mlib) was hardened by 19+ live findings so that a
+mission FAILURE is attributable to Parsek or the contract - never to
+autopilot noise. Capabilities (all live-proven): native warp-to-UT with
+zombie-safe cancel + asymmetric retargeting; certified no-1x coast
+(`harness/warp_audit.py --fail-on-violation`, contiguous + cumulative);
+flameout staging under both the DIY burner and the throttle-collapsing
+MechJeb executor; bounded correction give-ups with warp-time-excluded
+clocks; closed-loop arrival quality (patched-conic next_pe telemetry,
+no-encounter creation, impact-certain early terminal); planner-bias margin
+targets (finding 16d); 20+ telemetry channels + machine-state/gate-evidence
+lines + live status CLI (`harness/status.py`). Full forensics per finding:
+`todo-and-known-bugs.md`.
+
+## Verification layers (all active)
+
+- Headless: 281 mission-machine + 397 harness + 203 provisioner unittest
+  cells; 18k+ xUnit on the C# side (analyzer, seam, log contracts).
+- Per-run: the 7-verifier chain + collect-logs on every non-PASS.
+- In-game: 158 runtime tests / 42 categories (autorun-able), H5 invariants,
+  log-contract tests.
+- Findings baseline: 5 historical saves baselined; fresh harness saves run
+  baseline-Forbid (structural fresh-save guard).
+- Coverage ledger: 52 / 238 registry cells covered (the growth metric).
+
+## Known gates and latent items (forensics in todo-and-known-bugs.md)
+
+1. B6 20 km / B7 300 km course-correct targets - see the test-case table.
+2. Runner-only kRPC behaviors are LIVE-VERIFIED ONLY (no headless guard can
+   exercise MechJeb server state): intercept-only planner flags, executor
+   abort-before-native-AP, deceleration_time override, Smart A.S.S. off.
+   Their symptom signatures are the first triage suspects on recurrence.
+3. STOCK_AWARD_PATTERNS are dead against real KSP logs: the ledger-oracle
+   capture cross-check is a structural no-op until the pattern rewrite
+   (needs the operator stock-award capture session).
+4. Flake ledgers (generated, gitignored) reset 2026-07-22 post-campaigns;
+   quarantine (sticky, >0.20) is reporting-only and now reflects post-merge
+   reality only.
+5. INV2 double-cover recorder seam: REAL Parsek defect (first big catch),
+   being fixed in its own lane.
+
+## Operator items outstanding
+
+1. Career fixture saves (3) - the top item; activates 7 ledger test cases
+   and re-tiers them pending-fixture -> daily.
+2. Stock-award real-line capture session (unblocks the pattern rewrite).
+3. B9 rewind observation session (S1.5 + S4.1).
+
+## Roadmap (agreed order; each item named by its Parsek utility)
+
+1. M-C2 implementation - unlocks the crew/EVA/flag recording surface no
+   flight can reach (verbs + hlib companions + EVA-1/2/3 + in-game proof).
+2. B8 Mun/Minmus ORBIT missions - capture burn + commit-in-target-orbit
+   terminal: recordings that END in a foreign SOI (new commit/BG-handoff
+   surface vs the free-return shape).
+3. Mun/Minmus LANDING missions - upper stage landed: landed-on-other-body
+   recording, surface TrackSections off Kerbin, the landing FSM seam.
+4. Ledger campaign resumption once career fixtures exist (L1 -> L2+): the
+   initiative's END GOAL.
+5. Candidates (unscheduled): Eve flyby (cheap B7 clone), stock-award pattern
+   rewrite, nightly rotation shakedown, docking/rendezvous lane (dock-undock
+   recording structure), EVA registry growth (D5/D12 cells).
