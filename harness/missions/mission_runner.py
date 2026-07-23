@@ -1750,9 +1750,14 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         # phase the machine had ALREADY entered this frame.
         _FLY_LOOP_LAST_STATE["state"] = state
         if state.phase != prev_phase:
-            log.info(state.phase, "phase %s -> %s ut=%s alt=%s ap=%s vsurf=%s"
+            # avThr rides every transition line: the B-DOCK SEPARATE->ORBIT /
+            # SEPARATE->PHASING handoff must show the orbital stage still has
+            # thrust for the rendezvous (available_thrust > 0), and it is a cheap
+            # diagnosability channel for every other transition too.
+            log.info(state.phase, "phase %s -> %s ut=%s alt=%s ap=%s vsurf=%s avThr=%s"
                      % (prev_phase, state.phase, _fmt(snapshot.ut), _fmt(snapshot.altitude),
-                        _fmt(snapshot.apoapsis), _fmt(snapshot.vertical_speed)))
+                        _fmt(snapshot.apoapsis), _fmt(snapshot.vertical_speed),
+                        _fmt(snapshot.available_thrust)))
         # GATE-EVIDENCE lines (design-live-observability 2b): every sparse
         # machine latch/gate flip logs the exact values that decided it, on
         # the frame it happened -- a single-frame transient (e.g. the

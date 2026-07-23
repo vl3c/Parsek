@@ -48,6 +48,14 @@ required = true
 type = "number"
 min = 0.0
 
+# Post-circularize stage-separation give-up (GAME seconds): the SEPARATE phase
+# flakes if no NEW vessel (the spent core) appears within this window after the
+# single stage activation. mlib.BDockParams defaults it to 120.
+[params.separationTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+
 # --- Interceptor launch (piece 2). ---
 [params.craftName]
 required = true

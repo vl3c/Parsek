@@ -4016,13 +4016,19 @@ def _bdock_walk_to(phase, params=BDOCK_PARAMS):
     frames = [
         snap(ut=0.0),                                              # PRELAUNCH->STATION-ASCENT
         snap(ut=100.0, apoapsis=108000.0, mj_ascent_complete=True),  # ->STATION-CIRCULARIZE
-        snap(ut=150.0, periapsis=109000.0),                       # ->STATION-ORBIT
+        snap(ut=150.0, periapsis=109000.0, vessel_count=1),       # ->STATION-SEPARATE (baseline=1, activate stage)
+        snap(ut=152.0, vessel_count=2, available_thrust=200000.0),   # sep settle 1
+        snap(ut=154.0, vessel_count=2, available_thrust=200000.0),   # sep settle 2
+        snap(ut=156.0, vessel_count=2, available_thrust=200000.0),   # sep settle 3 -> STATION-ORBIT
         snap(ut=160.0),                                           # ->STATION-COMMIT (capture+commit)
         snap(ut=161.0, seam_commit_result="OK"),                 # ->INT-LAUNCH
         snap(ut=170.0, situation="PRE_LAUNCH"),                  # settle 1
         snap(ut=175.0, situation="PRE_LAUNCH"),                  # settle 2 -> INT-ASCENT
         snap(ut=400.0, apoapsis=88000.0, mj_ascent_complete=True),  # ->INT-CIRCULARIZE
-        snap(ut=450.0, periapsis=89000.0),                       # ->INT-PHASING-ORBIT
+        snap(ut=450.0, periapsis=89000.0, vessel_count=2),       # ->INT-SEPARATE (baseline=2, activate stage)
+        snap(ut=452.0, vessel_count=3, available_thrust=180000.0),   # sep settle 1
+        snap(ut=454.0, vessel_count=3, available_thrust=180000.0),   # sep settle 2
+        snap(ut=456.0, vessel_count=3, available_thrust=180000.0),   # sep settle 3 -> INT-PHASING-ORBIT
         snap(ut=460.0),                                          # ->SET-TARGET
         snap(ut=470.0, target_set=True),                        # ->RENDEZVOUS
         snap(ut=480.0, mj_rendezvous_enabled=True, target_distance=5000.0),  # AP running
@@ -4030,9 +4036,9 @@ def _bdock_walk_to(phase, params=BDOCK_PARAMS):
         snap(ut=500.0, target_rel_speed=0.5),                   # ->DOCK
         snap(ut=510.0, mj_docking_enabled=True, docking_state="Docking"),    # AP running
         snap(ut=520.0, mj_docking_enabled=False, docking_state="Docked"),    # ->TRANSFER (T1)
-        snap(ut=525.0, transfer_complete=True, vessel_count=1),  # T1 done -> T2
-        snap(ut=530.0, transfer_complete=True, vessel_count=1),  # T2 done -> UNDOCK
-        snap(ut=540.0, vessel_count=2, docking_state="Ready"),   # split -> TERMINAL
+        snap(ut=525.0, transfer_complete=True, vessel_count=3),  # T1 done -> T2
+        snap(ut=530.0, transfer_complete=True, vessel_count=3),  # T2 done -> UNDOCK (baseline=3)
+        snap(ut=540.0, vessel_count=4, docking_state="Ready"),   # split -> TERMINAL
     ]
     reached = state
     per = []
@@ -4056,12 +4062,20 @@ class BDockHappyPathTests(unittest.TestCase):
         self.assertTrue(state.docked_confirmed)
         self.assertEqual(state.transfers_done, 2)
         self.assertTrue(state.undock_confirmed)
-        # Every phase visited in order.
-        for want in (mlib.BDOCK_STATION_ORBIT, mlib.BDOCK_STATION_COMMIT,
-                     mlib.BDOCK_INT_LAUNCH, mlib.BDOCK_INT_PHASING_ORBIT,
+        # Every phase visited in order, INCLUDING the two stage-separation phases.
+        for want in (mlib.BDOCK_STATION_CIRCULARIZE, mlib.BDOCK_STATION_SEPARATE,
+                     mlib.BDOCK_STATION_ORBIT, mlib.BDOCK_STATION_COMMIT,
+                     mlib.BDOCK_INT_LAUNCH, mlib.BDOCK_INT_CIRCULARIZE,
+                     mlib.BDOCK_INT_SEPARATE, mlib.BDOCK_INT_PHASING_ORBIT,
                      mlib.BDOCK_RENDEZVOUS, mlib.BDOCK_DOCK, mlib.BDOCK_TRANSFER,
                      mlib.BDOCK_UNDOCK, mlib.BDOCK_TERMINAL):
             self.assertIn(want, state.phases_reached)
+        # SEPARATE precedes its park in phases_reached order.
+        pr = list(state.phases_reached)
+        self.assertLess(pr.index(mlib.BDOCK_STATION_SEPARATE),
+                        pr.index(mlib.BDOCK_STATION_ORBIT))
+        self.assertLess(pr.index(mlib.BDOCK_INT_SEPARATE),
+                        pr.index(mlib.BDOCK_INT_PHASING_ORBIT))
 
     def test_prelaunch_emits_station_ascent_at_station_apoapsis(self):
         state = _bdock()
@@ -4074,10 +4088,14 @@ class BDockHappyPathTests(unittest.TestCase):
         state, _ = _bdock_walk_to(mlib.BDOCK_STATION_COMMIT)
         # The entry to STATION-COMMIT emits capture + commit.
         state2 = mlib.bdock_initial_state(BDOCK_PARAMS)
-        # Drive to STATION-ORBIT then step into STATION-COMMIT to read the actions.
+        # Drive through STATION-SEPARATE to STATION-ORBIT, then step into
+        # STATION-COMMIT to read the actions.
         for f in (snap(ut=0.0),
                   snap(ut=100.0, apoapsis=108000.0, mj_ascent_complete=True),
-                  snap(ut=150.0, periapsis=109000.0)):
+                  snap(ut=150.0, periapsis=109000.0, vessel_count=1),  # ->STATION-SEPARATE
+                  snap(ut=152.0, vessel_count=2),                      # sep settle 1
+                  snap(ut=154.0, vessel_count=2),                      # sep settle 2
+                  snap(ut=156.0, vessel_count=2)):                     # sep settle 3 -> STATION-ORBIT
             state2, actions = mlib.bdock_decide(state2, f)
         self.assertEqual(state2.phase, mlib.BDOCK_STATION_ORBIT)
         state2, actions = mlib.bdock_decide(state2, snap(ut=160.0))
@@ -4091,6 +4109,91 @@ class BDockHappyPathTests(unittest.TestCase):
         state, actions = mlib.bdock_decide(state, snap(ut=161.0, seam_commit_result="OK"))
         self.assertEqual(state.phase, mlib.BDOCK_INT_LAUNCH)
         self.assertEqual(actions, [Action(mlib.ACTION_LAUNCH_VESSEL, text="Kerbal X")])
+
+
+class BDockSeparateTests(unittest.TestCase):
+    """Post-circularize stage separation (flight-3 lesson): STATION-CIRCULARIZE ->
+    STATION-SEPARATE emits ONE ACTIVATE_STAGE, then completes on a vessel_count
+    bump debounced K frames; INT-SEPARATE mirrors it. No bump -> named FLAKE."""
+
+    def _at_station_separate(self, entry_count=1):
+        # Drive to STATION-CIRCULARIZE, then complete circularize to enter
+        # STATION-SEPARATE (baseline captured from the entry frame's count).
+        state, _ = _bdock_walk_to(mlib.BDOCK_STATION_CIRCULARIZE)
+        state, actions = mlib.bdock_decide(
+            state, snap(ut=150.0, periapsis=109000.0, vessel_count=entry_count))
+        return state, actions
+
+    def test_circularize_enters_separate_and_activates_stage_once(self):
+        state, actions = self._at_station_separate(entry_count=1)
+        self.assertEqual(state.phase, mlib.BDOCK_STATION_SEPARATE)
+        # EXACTLY ONE stage activation on entry (never a loop).
+        self.assertEqual(actions, [Action(mlib.ACTION_ACTIVATE_STAGE)])
+        self.assertEqual(state.separate_baseline_vessel_count, 1)
+        # A subsequent SEPARATE frame does NOT re-activate the stage.
+        state, actions2 = mlib.bdock_decide(
+            state, snap(ut=152.0, vessel_count=2, available_thrust=200000.0))
+        self.assertEqual(state.phase, mlib.BDOCK_STATION_SEPARATE)
+        self.assertNotIn(Action(mlib.ACTION_ACTIVATE_STAGE), actions2)
+        self.assertEqual(actions2, [])
+
+    def test_separate_completes_on_vessel_count_bump_debounced(self):
+        state, _ = self._at_station_separate(entry_count=1)
+        # Two bumped frames are not yet enough (K = DEFAULT_DEBOUNCE_K = 3).
+        for ut in (152.0, 154.0):
+            state, _ = mlib.bdock_decide(state, snap(ut=ut, vessel_count=2))
+            self.assertEqual(state.phase, mlib.BDOCK_STATION_SEPARATE)
+        # Third consecutive bump completes -> STATION-ORBIT.
+        state, _ = mlib.bdock_decide(state, snap(ut=156.0, vessel_count=2))
+        self.assertEqual(state.phase, mlib.BDOCK_STATION_ORBIT)
+        self.assertEqual(state.separate_settle_streak, 0)
+
+    def test_int_separate_completes_to_phasing_orbit(self):
+        state, _ = _bdock_walk_to(mlib.BDOCK_INT_CIRCULARIZE)
+        state, actions = mlib.bdock_decide(
+            state, snap(ut=450.0, periapsis=89000.0, vessel_count=2))
+        self.assertEqual(state.phase, mlib.BDOCK_INT_SEPARATE)
+        self.assertEqual(actions, [Action(mlib.ACTION_ACTIVATE_STAGE)])
+        self.assertEqual(state.separate_baseline_vessel_count, 2)
+        for ut in (452.0, 454.0, 456.0):
+            state, _ = mlib.bdock_decide(state, snap(ut=ut, vessel_count=3))
+        self.assertEqual(state.phase, mlib.BDOCK_INT_PHASING_ORBIT)
+
+    def test_no_separation_within_budget_flakes_with_named_reason(self):
+        state, _ = self._at_station_separate(entry_count=1)
+        # No bump ever; the SEPARATE budget (separation_timeout=120) elapses.
+        state, actions = mlib.bdock_decide(
+            state, snap(ut=150.0 + 121.0, vessel_count=1))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.BDOCK_STATION_SEPARATE)
+        # The reason names the phase + the missing split, and surfaces through
+        # resolve_flight_verdict (not the generic "timed out").
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertEqual(verdict, mlib.MISSION_FLAKE)
+        self.assertIn("STATION-SEPARATE", reason)
+        self.assertIn("no separation observed", reason)
+        self.assertEqual(actions, [])
+
+    def test_vessel_count_stuck_at_baseline_does_not_complete(self):
+        state, _ = self._at_station_separate(entry_count=1)
+        # vessel_count never exceeds the baseline (default-0 unread OR a genuine
+        # no-split): stays in SEPARATE, never advances, no streak accrues.
+        for ut in (152.0, 154.0, 156.0, 158.0):
+            state, _ = mlib.bdock_decide(state, snap(ut=ut, vessel_count=1))
+            self.assertEqual(state.phase, mlib.BDOCK_STATION_SEPARATE)
+            self.assertEqual(state.separate_settle_streak, 0)
+        self.assertFalse(state.done)
+
+    def test_unread_vessel_count_never_completes_fail_closed(self):
+        # Fail-closed: an unread vessel_count (default 0) with baseline 0 is not a
+        # bump, so the SEPARATE phase never certifies a separation.
+        state, _ = self._at_station_separate(entry_count=0)
+        self.assertEqual(state.separate_baseline_vessel_count, 0)
+        for ut in (152.0, 154.0, 156.0):
+            state, _ = mlib.bdock_decide(state, snap(ut=ut))  # vessel_count default 0
+            self.assertEqual(state.phase, mlib.BDOCK_STATION_SEPARATE)
+        self.assertFalse(state.done)
 
 
 class BDockSeamCommitTests(unittest.TestCase):
@@ -4332,7 +4435,8 @@ class BDockAssertionTests(unittest.TestCase):
             [], BDOCK_PARAMS,
             phases_reached=state.phases_reached, state=state)
         self.assertEqual([o.name for o in outs],
-                         ["reachedStationOrbit", "reachedInterceptorOrbit",
+                         ["reachedStationOrbit", "stationSeparated",
+                          "reachedInterceptorOrbit", "interceptorSeparated",
                           "docked", "transfersComplete", "undocked"])
         self.assertTrue(mlib.all_assertions_met(outs))
 

@@ -263,16 +263,44 @@ FLIGHT filter (`MapFocusObjectOnSelectPatch` Case B), so the auto-behavior on a
 
 ### 3.3 Phase flow (both pieces)
 
+> **AMENDED 2026-07-24 (live flight 3 lesson).** Flight 3 reached MATCH-VELOCITY
+> with BOTH vessels still FULL STACKS: the spent lifter never separated (MechJeb
+> autostage only fires on EMPTY stages, and the Kerbal X core keeps residual fuel
+> after circularize, so nothing autostaged), and docking a ~20 t full stack on
+> pod RCS is broken. Two explicit stage-separation phases were inserted --
+> `STATION-SEPARATE` (between STATION-CIRCULARIZE and STATION-ORBIT) and
+> `INT-SEPARATE` (between INT-CIRCULARIZE and INT-PHASING-ORBIT). GENERAL
+> PRINCIPLE (operator directive, binding on every mission design): **per-phase
+> vehicle-configuration contracts are part of the mission spec** -- the vessel
+> configuration for each stage has to make sense for that part of the mission,
+> just like a real space mission, and every mission must WRITE DOWN the full
+> ordered step list including the configuration transitions (stage separations,
+> dockings, undocks). The full step list with the per-phase configuration
+> contract is the header comment block of `BDOCK-1-station-interceptor.toml`.
+
 ```
                         --- PIECE 1: STATION (pre-placed on the pad) ---
 PRELAUNCH
   (LoadGame drops into flight on the pre-placed Station, B2 shape. Active vessel
-   present from frame 1.)
+   present from frame 1. Config: Station FULL STACK on the pad.)
 
-PRELAUNCH -> STATION-ASCENT -> STATION-CIRCULARIZE -> STATION-ORBIT
+PRELAUNCH -> STATION-ASCENT -> STATION-CIRCULARIZE -> STATION-SEPARATE -> STATION-ORBIT
   (the B2-proven MJ ascent to the ~110 km park. autoRecordOnLaunch starts the
-   Station recording on first staging. reachedOrbit evidence: apo/peri within
-   window, ecc < max.)
+   Station recording on first staging. Config: FULL STACK during ascent - MechJeb
+   autostage drops the boosters + nose cones; the Mainsail core burns the
+   circularize node. reachedOrbit evidence: apo/peri within window, ecc < max.)
+
+STATION-CIRCULARIZE -> STATION-SEPARATE   (post-circularize stage separation)
+  (ONE ACTION_ACTIVATE_STAGE drops the spent Mainsail core. Done evidence:
+   vessel_count INCREASES past the phase-entry baseline (the spent core spawns as
+   a NEW vessel), debounced K consecutive frames. Fail closed on an unread
+   vessel_count (default 0). Bounded give-up: separationTimeoutSeconds -> a named
+   FLAKE ("no separation observed (vessel_count did not increase)"), retryable.
+   EXACTLY ONE activation, verified by the spawn - NEVER a second, because the
+   OTHER stack Decoupler.2 jettisons the pod's HEAT SHIELD. SANITY (logged, not
+   hard-gated): the orbital stage must still have available_thrust > 0 for the
+   rendezvous. Config after: Station = ORBITAL STAGE ONLY (pod + dockingPort2 +
+   8 RCS + 4 monoprop tanks + LV-T45 + tank + probe core).)
 
 STATION-ORBIT -> STATION-COMMIT   (bounded-wait, section 3.2 route 1)
   (ACTION_PARSEK_COMMIT_TREE -> command-seam CommitTree, poll for OK. TB is
@@ -288,8 +316,12 @@ STATION-COMMIT -> INT-LAUNCH
    certainly regenerates the Interceptor's live pid on collision - the two trees
    then carry DIFFERENT pids (section 6 invariant 6). Read both live pids here - P5.)
 
-INT-LAUNCH -> INT-ASCENT -> INT-CIRCULARIZE -> INT-PHASING-ORBIT
-  (MJ ascent to the ~90 km phasing park, BELOW the Station so it phases faster.)
+INT-LAUNCH -> INT-ASCENT -> INT-CIRCULARIZE -> INT-SEPARATE -> INT-PHASING-ORBIT
+  (MJ ascent to the ~90 km phasing park, BELOW the Station so it phases faster.
+   Config: FULL STACK during ascent; the INT-SEPARATE phase applies the SAME
+   post-circularize one-activation separation as the Station leg - drop the spent
+   Interceptor core so it docks as its ORBITAL STAGE ONLY. Same vessel_count-bump
+   completion evidence + separationTimeoutSeconds give-up.)
 
 INT-PHASING-ORBIT -> SET-TARGET
   (ACTION_SET_TARGET_VESSEL = the captured Station HANDLE. The rendezvous AP and the
@@ -578,8 +610,10 @@ Each phase carries a GAME-time budget and a wall watchdog; expiry FLAKES the mis
 ### 5.4 Budgets (all ESTIMATED, flagged)
 
 GAME-time phase budgets: ascent 1200 / circularize 600 each leg (the ~110 / ~90 km
-parks); `rendezvousTimeoutSeconds = 30000` (phasing orbits under warp advance game
-time fast); `dockTimeoutSeconds = 600` (the 1x approach); `transferTimeoutSeconds =
+parks); `separationTimeoutSeconds = 120` each SEPARATE leg (the separation is
+instantaneous, so this is a stuck-decoupler backstop, not a tuning knob);
+`rendezvousTimeoutSeconds = 30000` (phasing orbits under warp advance game time
+fast); `dockTimeoutSeconds = 600` (the 1x approach); `transferTimeoutSeconds =
 120` each; undock/settle 120. WALL: mission phase ~2400 s (Station ascent ~250 +
 circularize + Interceptor launch/ascent ~250 + circularize + rendezvous ~200 under
 warp + docking ~120-180 at 1x + two transfers ~10 + undock/settle + margin); runtime

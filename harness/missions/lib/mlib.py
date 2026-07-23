@@ -176,11 +176,21 @@ FORGE_PHASES: Tuple[str, ...] = (FORGE_PRELAUNCH, FORGE_LAUNCH, FORGE_SETTLED)
 BDOCK_PRELAUNCH = "PRELAUNCH"
 BDOCK_STATION_ASCENT = "STATION-ASCENT"
 BDOCK_STATION_CIRCULARIZE = "STATION-CIRCULARIZE"
+# Post-circularize stage separation (flight-3 lesson, 2026-07-24): the spent
+# core never autostages off (MechJeb autostage only fires on EMPTY stages and the
+# Kerbal X core keeps residual fuel), so docking a ~20 t full stack on pod RCS is
+# broken. Each vehicle must be its ORBITAL STAGE ONLY before rendezvous -- exactly
+# one stage activation after circularize, verified by a NEW-vessel (spent core)
+# spawn, never a second activation (the OTHER stack decoupler jettisons the pod's
+# heat shield). See design section 3.3 (amended) + the mission-profile step list
+# in BDOCK-1-station-interceptor.toml.
+BDOCK_STATION_SEPARATE = "STATION-SEPARATE"
 BDOCK_STATION_ORBIT = "STATION-ORBIT"
 BDOCK_STATION_COMMIT = "STATION-COMMIT"
 BDOCK_INT_LAUNCH = "INT-LAUNCH"
 BDOCK_INT_ASCENT = "INT-ASCENT"
 BDOCK_INT_CIRCULARIZE = "INT-CIRCULARIZE"
+BDOCK_INT_SEPARATE = "INT-SEPARATE"
 BDOCK_INT_PHASING_ORBIT = "INT-PHASING-ORBIT"
 BDOCK_SET_TARGET = "SET-TARGET"
 BDOCK_RENDEZVOUS = "RENDEZVOUS"
@@ -191,8 +201,9 @@ BDOCK_UNDOCK = "UNDOCK"
 BDOCK_TERMINAL = "TERMINAL"
 BDOCK_PHASES: Tuple[str, ...] = (
     BDOCK_PRELAUNCH, BDOCK_STATION_ASCENT, BDOCK_STATION_CIRCULARIZE,
-    BDOCK_STATION_ORBIT, BDOCK_STATION_COMMIT, BDOCK_INT_LAUNCH, BDOCK_INT_ASCENT,
-    BDOCK_INT_CIRCULARIZE, BDOCK_INT_PHASING_ORBIT, BDOCK_SET_TARGET,
+    BDOCK_STATION_SEPARATE, BDOCK_STATION_ORBIT, BDOCK_STATION_COMMIT,
+    BDOCK_INT_LAUNCH, BDOCK_INT_ASCENT, BDOCK_INT_CIRCULARIZE,
+    BDOCK_INT_SEPARATE, BDOCK_INT_PHASING_ORBIT, BDOCK_SET_TARGET,
     BDOCK_RENDEZVOUS, BDOCK_MATCH_VELOCITY, BDOCK_DOCK, BDOCK_TRANSFER,
     BDOCK_UNDOCK, BDOCK_TERMINAL)
 
@@ -3373,6 +3384,14 @@ _BDOCK_FROZEN_PHASES: Tuple[str, ...] = (
 # from the monoprop reading). Fail closed on NaN (never fires on a missing read).
 BDOCK_MONOPROP_OUT_EPS = 0.5
 
+# STATION-SEPARATE / INT-SEPARATE completion debounce: consecutive frames whose
+# vessel_count exceeds the phase-entry baseline (the spent core spawned as a NEW
+# vessel) before the SEPARATE phase completes. Reuses the machine's K-consecutive
+# settle idiom (DEFAULT_DEBOUNCE_K) so a one-frame count blip never certifies a
+# separation. vessel_count defaults to 0 (unread -> fail closed), so an unreadable
+# count never advances the streak.
+BDOCK_SEPARATION_DEBOUNCE = DEFAULT_DEBOUNCE_K
+
 
 @dataclass(frozen=True)
 class BDockParams:
@@ -3390,6 +3409,12 @@ class BDockParams:
     peri_error: float = 5000.0
     ascent_timeout: float = 1200.0
     circularize_timeout: float = 600.0
+    # Post-circularize stage-separation give-up (GAME seconds): the SEPARATE phase
+    # flakes if no NEW vessel (the spent core) ever appears within this window
+    # after the single ACTION_ACTIVATE_STAGE. Estimated; re-timed against the
+    # first live run (the separation itself is instantaneous, so the budget is a
+    # generous stuck-decoupler backstop).
+    separation_timeout: float = 120.0
     # Interceptor launch (piece 2): the craft + the launch settle.
     craft_name: str = "Kerbal X"
     launch_site: str = "LaunchPad"
@@ -3427,6 +3452,7 @@ def bdock_params_from_dict(params: Dict) -> BDockParams:
         peri_error=float(params.get("periErrorMeters", 5000)),
         ascent_timeout=float(params.get("ascentTimeoutSeconds", 1200)),
         circularize_timeout=float(params.get("circularizeTimeoutSeconds", 600)),
+        separation_timeout=float(params.get("separationTimeoutSeconds", 120)),
         craft_name=str(params.get("craftName", "Kerbal X")),
         launch_site=str(params.get("launchSite", "LaunchPad")),
         launch_settle_situations=tuple(params.get("launchSettleSituations", ("PRE_LAUNCH",))),
@@ -3461,6 +3487,10 @@ class BDockState:
     flake_phase: Optional[str] = None
     done: bool = False
     loss_reason: Optional[str] = None
+    # Custom FLAKE reason (surfaced by resolve_flight_verdict in place of the
+    # generic "phase X timed out"); set by the SEPARATE give-up so the operator
+    # sees "no separation observed" rather than a bare timeout. None -> generic.
+    flake_reason: Optional[str] = None
     # Shared frozen-telemetry detection (mirrors B2/B5).
     frozen_sig: Optional[FrozenSignature] = None
     frozen_count: int = 0
@@ -3475,6 +3505,13 @@ class BDockState:
     # TRANSFER sequencing (T1 LiquidFuel deliver, T2 MonoPropellant pickup).
     current_transfer_started: bool = False
     transfers_done: int = 0
+    # STATION-SEPARATE / INT-SEPARATE split evidence (mirrors the UNDOCK
+    # baseline): the vessel count captured at SEPARATE entry, and the
+    # K-consecutive settle streak of frames whose count exceeds it. Both reset on
+    # entry to each SEPARATE phase (the two are sequential, never concurrent, so
+    # one pair of fields serves both legs).
+    separate_baseline_vessel_count: int = 0
+    separate_settle_streak: int = 0
     # UNDOCK split evidence.
     undock_baseline_vessel_count: int = 0
     # Carried evidence for the evaluator.
@@ -3500,6 +3537,8 @@ def _bdock_phase_budget(params: BDockParams, phase: str) -> Optional[float]:
         return params.ascent_timeout
     if phase in (BDOCK_STATION_CIRCULARIZE, BDOCK_INT_CIRCULARIZE):
         return params.circularize_timeout
+    if phase in (BDOCK_STATION_SEPARATE, BDOCK_INT_SEPARATE):
+        return params.separation_timeout
     if phase == BDOCK_STATION_COMMIT:
         return params.station_commit_timeout
     if phase == BDOCK_INT_LAUNCH:
@@ -3546,6 +3585,31 @@ def _bdock_ascent_entry_actions(target_apoapsis: float) -> List[Action]:
         Action(ACTION_MJ_ENGAGE_ASCENT),
         Action(ACTION_ACTIVATE_STAGE),
     ]
+
+
+def _bdock_separate_step(state: BDockState, snapshot: TelemetrySnapshot,
+                         next_phase: str) -> Tuple[BDockState, List[Action]]:
+    """One SEPARATE-phase frame. Completion evidence: vessel_count exceeds the
+    entry baseline (the spent core spawned as a NEW vessel), debounced
+    BDOCK_SEPARATION_DEBOUNCE consecutive frames -> advance to ``next_phase``.
+    Fail closed: vessel_count defaults to 0 (unread), so an unreadable count never
+    bumps the streak and never completes. Bounded give-up: the SEPARATE budget
+    (separationTimeoutSeconds) flakes with a named reason if no split is ever
+    seen. SANITY (not a hard gate): after separation the orbital stage must still
+    have thrust for the rendezvous (available_thrust > 0), but that is NOT gated
+    here (NaN fails closed and the read can transiently fail); available_thrust
+    rides the phase-transition log line for diagnosability instead."""
+    bumped = snapshot.vessel_count > state.separate_baseline_vessel_count
+    streak = state.separate_settle_streak + 1 if bumped else 0
+    st = replace(state, separate_settle_streak=streak)
+    if streak >= BDOCK_SEPARATION_DEBOUNCE:
+        return _bdock_enter(st, next_phase, snapshot.ut,
+                            separate_settle_streak=0), []
+    if _bdock_over_budget(st, snapshot):
+        return replace(_bdock_flake(st), flake_reason=(
+            "phase %s: no separation observed (vessel_count did not increase)"
+            % st.phase)), []
+    return st, []
 
 
 def bdock_decide(state: BDockState,
@@ -3595,8 +3659,18 @@ def bdock_decide(state: BDockState,
     if state.phase == BDOCK_STATION_CIRCULARIZE:
         if (_is_finite(snapshot.periapsis)
                 and snapshot.periapsis >= p.station_periapsis - p.peri_error):
-            return _bdock_enter(state, BDOCK_STATION_ORBIT, snapshot.ut), []
+            # Circularized -> drop the spent core (the ONE post-circularize stage
+            # separation) so the Station is its orbital stage only before parking.
+            # Baseline the pre-split vessel count; SEPARATE completes on the
+            # spent core spawning as a NEW vessel (vessel_count increase).
+            return (_bdock_enter(state, BDOCK_STATION_SEPARATE, snapshot.ut,
+                                 separate_baseline_vessel_count=snapshot.vessel_count,
+                                 separate_settle_streak=0),
+                    [Action(ACTION_ACTIVATE_STAGE)])
         return _bdock_stay_or_flake(state, snapshot), []
+
+    if state.phase == BDOCK_STATION_SEPARATE:
+        return _bdock_separate_step(state, snapshot, BDOCK_STATION_ORBIT)
 
     if state.phase == BDOCK_STATION_ORBIT:
         # Capture the Station handle (while it is the active vessel, P9/Q4) and
@@ -3639,8 +3713,16 @@ def bdock_decide(state: BDockState,
     if state.phase == BDOCK_INT_CIRCULARIZE:
         if (_is_finite(snapshot.periapsis)
                 and snapshot.periapsis >= p.interceptor_periapsis - p.peri_error):
-            return _bdock_enter(state, BDOCK_INT_PHASING_ORBIT, snapshot.ut), []
+            # Same post-circularize separation as the Station leg: drop the spent
+            # Interceptor core so it docks as its orbital stage only.
+            return (_bdock_enter(state, BDOCK_INT_SEPARATE, snapshot.ut,
+                                 separate_baseline_vessel_count=snapshot.vessel_count,
+                                 separate_settle_streak=0),
+                    [Action(ACTION_ACTIVATE_STAGE)])
         return _bdock_stay_or_flake(state, snapshot), []
+
+    if state.phase == BDOCK_INT_SEPARATE:
+        return _bdock_separate_step(state, snapshot, BDOCK_INT_PHASING_ORBIT)
 
     if state.phase == BDOCK_INT_PHASING_ORBIT:
         return (_bdock_enter(state, BDOCK_SET_TARGET, snapshot.ut),
@@ -3753,12 +3835,24 @@ def evaluate_bdock_assertions(frames, params: BDockParams,
     analyzer's, design section 6). ``state`` carries the docked / undock evidence.
 
     - ``reachedStationOrbit``:      STATION-ORBIT in phases_reached.
+    - ``stationSeparated``:         STATION-SEPARATE completed (the spent core
+      dropped) -- the phase was entered AND the machine advanced past it to
+      STATION-ORBIT (the flight-3 stage-separation contract).
     - ``reachedInterceptorOrbit``:  INT-PHASING-ORBIT in phases_reached.
+    - ``interceptorSeparated``:     INT-SEPARATE completed (entered AND advanced
+      to INT-PHASING-ORBIT).
     - ``docked``:                   DOCK reached AND docked_confirmed evidence.
     - ``transfersComplete``:        both commanded transfers completed (evidence
       transfers_done >= 2).
     - ``undocked``:                 the authoritative undock split fired
       (UNDOCK/TERMINAL reached AND undock_confirmed evidence).
+
+    A SEPARATE phase is only entered after its circularize completes and only
+    LEFT on a confirmed vessel_count increase, so reaching the phase AFTER it
+    (STATION-ORBIT / INT-PHASING-ORBIT) is proof the separation was observed;
+    requiring the SEPARATE phase itself in ``phases`` too keeps the row honest if
+    the flow is ever reordered (a run that entered SEPARATE but flaked before the
+    split reads met=False with value=the SEPARATE phase, naming the stall).
     """
     del frames, k
     phases = tuple(phases_reached or ())
@@ -3771,11 +3865,23 @@ def evaluate_bdock_assertions(frames, params: BDockParams,
                                (BDOCK_STATION_ORBIT if BDOCK_STATION_ORBIT in phases
                                 else (phases[-1] if phases else None)),
                                {"required": BDOCK_STATION_ORBIT})
+    station_sep = AssertionOutcome(
+        "stationSeparated",
+        (BDOCK_STATION_SEPARATE in phases) and (BDOCK_STATION_ORBIT in phases),
+        (BDOCK_STATION_SEPARATE if BDOCK_STATION_SEPARATE in phases
+         else (phases[-1] if phases else None)),
+        {"required": BDOCK_STATION_SEPARATE})
     interceptor = AssertionOutcome("reachedInterceptorOrbit",
                                    BDOCK_INT_PHASING_ORBIT in phases,
                                    (BDOCK_INT_PHASING_ORBIT if BDOCK_INT_PHASING_ORBIT in phases
                                     else (phases[-1] if phases else None)),
                                    {"required": BDOCK_INT_PHASING_ORBIT})
+    interceptor_sep = AssertionOutcome(
+        "interceptorSeparated",
+        (BDOCK_INT_SEPARATE in phases) and (BDOCK_INT_PHASING_ORBIT in phases),
+        (BDOCK_INT_SEPARATE if BDOCK_INT_SEPARATE in phases
+         else (phases[-1] if phases else None)),
+        {"required": BDOCK_INT_SEPARATE})
     docked = AssertionOutcome("docked",
                               (BDOCK_DOCK in phases) and docked_ev, docked_ev,
                               {"required": BDOCK_DOCK})
@@ -3785,7 +3891,8 @@ def evaluate_bdock_assertions(frames, params: BDockParams,
     undocked = AssertionOutcome("undocked",
                                 (BDOCK_TERMINAL in phases) and undock_ev, undock_ev,
                                 {"required": BDOCK_TERMINAL})
-    return [station, interceptor, docked, transfer, undocked]
+    return [station, station_sep, interceptor, interceptor_sep, docked,
+            transfer, undocked]
 
 
 # ---------------------------------------------------------------------------
@@ -4072,7 +4179,11 @@ def resolve_flight_verdict(machine_state, outcomes) -> Tuple[str, str]:
     verdict + reason (design "Mission B1/B2": all met -> OK; any unmet ->
     ASSERT-FAIL; a phase timeout -> FLAKE). Returns (verdict, reason)."""
     if getattr(machine_state, "verdict", None) == MISSION_FLAKE:
-        return MISSION_FLAKE, "phase %s timed out" % (machine_state.flake_phase,)
+        # A machine may attach a specific FLAKE reason (e.g. the B-DOCK SEPARATE
+        # give-up naming the missing split); otherwise the generic timeout line.
+        flake_reason = getattr(machine_state, "flake_reason", None)
+        return MISSION_FLAKE, flake_reason or (
+            "phase %s timed out" % (machine_state.flake_phase,))
     # A vessel-lost / destroyed terminal is a deterministic mission failure (not a
     # flake): return its reason verbatim BEFORE evaluating assertions, since a
     # destroyed craft's residual telemetry could otherwise spuriously satisfy them.
@@ -4433,6 +4544,8 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("docked_confirmed", "docked"),
     ("undock_confirmed", "undocked"),
     ("undock_baseline_vessel_count", "undockBaseVessels"),
+    ("separate_baseline_vessel_count", "sepBaseVessels"),
+    ("separate_settle_streak", "sepSettleStreak"),
 )
 
 # Fields whose CHANGE is a sparse, decision-relevant gate/latch event worth
@@ -4475,6 +4588,9 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("current_transfer_started", "transferStarted"),
     ("docked_confirmed", "docked"),
     ("undock_confirmed", "undocked"),
+    # Separation settle streak: a sparse gate flip bounded by the debounce depth
+    # (mirrors launch_settle_streak above).
+    ("separate_settle_streak", "sepSettleStreak"),
 )
 
 _MACHINE_FIELD_ABSENT = object()
