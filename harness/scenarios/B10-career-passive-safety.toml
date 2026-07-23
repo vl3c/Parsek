@@ -3,7 +3,7 @@ id = "B10-career-passive-safety"
 # pending-fixture (NOT daily): the fixtures/saves/fresh-career template is not committed
 # yet, so a --cadence daily run would INVALID(staging) this terminally and self-quarantine
 # a scenario that never ran. Re-tier to "daily" once the fixture lands.
-tier = "pending-fixture"
+tier = "daily"
 # The v1 seam driver does a cold LoadGame into an in-scene RecordingInvariants batch;
 # it has NO warp or scene-change verb (design ~541 defers R1's warp/scene-change
 # economy-drift trigger to the TimeJump/scene verbs), so the description names what the

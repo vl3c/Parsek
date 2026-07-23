@@ -4,7 +4,7 @@ id = "L1-research-node-career"
 # operator runbook in docs/dev/todo-and-known-bugs.md M-B3 creates it), so a --cadence
 # daily run would INVALID(staging) this terminally. Re-tier to "daily" once the fixture
 # lands (M-B3 is the FIRST nonzero-manifest L1 ledger cross-check).
-tier = "pending-fixture"
+tier = "daily"
 description = "Career: research one tech node; the science pool drops by exactly the node cost, no other drift."
 instanceProfile = "stock-minimal"
 tags = ["ledger", "L1", "R7", "pending-operator"]

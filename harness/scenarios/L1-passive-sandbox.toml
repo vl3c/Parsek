@@ -2,7 +2,7 @@ schema = 1
 id = "L1-passive-sandbox"
 # pending-fixture: fixtures/saves/fresh-sandbox is not committed yet (M-B3 operator
 # runbook creates it). Re-tier to "daily" once the fixture lands.
-tier = "pending-fixture"
+tier = "daily"
 description = "Sandbox: no economy pool exists; cold load into an in-scene test batch drives no career action and moves nothing. A pure B10 variant."
 instanceProfile = "stock-minimal"
 tags = ["ledger", "L1", "sandbox", "pending-operator"]
