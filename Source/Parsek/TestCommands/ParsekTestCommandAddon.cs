@@ -90,6 +90,9 @@ namespace Parsek.TestCommands
         private long responseSeq;
         // Set true while a LoadGame is in flight (P5.7); read now by the LoadGame guard.
         private bool loadInFlight = false;
+        // No-vessel LoadGame route (ledger lane): completion expects a settled
+        // SPACECENTER instead of FLIGHT. Reset with the other two-phase state.
+        private bool loadExpectSpaceCenter = false;
 
         // Two-phase verbs (RunTests P5.6 / LoadGame P5.7). The executor INITIATES the
         // long-running side effect and returns PendingVerdict; the pump journals CLAIMED
@@ -820,12 +823,13 @@ namespace Parsek.TestCommands
             TestCommandScene scene = MapScene(HighLogic.LoadedScene);
             bool gameLoaded = HighLogic.CurrentGame != null;
             LoadCompletionDecision decision =
-                TestCommandLoadGame.DecideLoadCompletion(elapsed, scene, gameLoaded, budget);
+                TestCommandLoadGame.DecideLoadCompletion(elapsed, scene, gameLoaded, budget, loadExpectSpaceCenter);
 
             if (decision == LoadCompletionDecision.StillWaiting)
                 return;
 
             loadInFlight = false;
+            loadExpectSpaceCenter = false;
             string id = completionId; long seq = completionSeq; string verb = completionVerb;
             ClearTwoPhase();
 
@@ -1363,7 +1367,7 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            bool focusable = TestCommandLoadGame.IsLoadedGameFocusable(
+            LoadRoute route = TestCommandLoadGame.DecideLoadRoute(
                 game != null,
                 game != null && game.compatible,
                 game != null && game.flightState != null,
@@ -1372,10 +1376,65 @@ namespace Parsek.TestCommands
                 game != null && game.flightState != null && game.flightState.protoVessels != null
                     ? game.flightState.protoVessels.Count : 0);
 
-            if (!focusable)
+            if (route == LoadRoute.Failed)
             {
                 ParsekLog.Error(Tag, $"loadgame failed save={save ?? string.Empty}: game null/incompatible");
                 SetExecResult("ERROR", null, "load-failed");
+                return;
+            }
+
+            if (route == LoadRoute.NoVesselSpaceCenter)
+            {
+                // NO-VESSEL route (the ledger-lane extension, first live L-track
+                // run 2026-07-23): a valid game with no focusable vessel (the
+                // vessel-less clean-slate career fixtures; also activeVessel=-1
+                // with only parked vessels) resumes to SPACECENTER exactly like
+                // the stock Load menu: adopt the game, point startScene at the
+                // KSC, and let Game.Start() route the boot. Completion waits for
+                // a settled SPACECENTER (TryCompleteLoadGame, expectSpaceCenter).
+                int pvCount = game.flightState != null && game.flightState.protoVessels != null
+                    ? game.flightState.protoVessels.Count : 0;
+                ParsekLog.Info(Tag,
+                    $"loadgame no-vessel route: resuming to SPACECENTER save={save ?? string.Empty} protoVessels={pvCount} activeVesselIdx={game.flightState?.activeVesselIdx ?? -1}");
+                HighLogic.CurrentGame = game;
+                game.startScene = GameScenes.SPACECENTER;
+                // Re-add AddToAllGames ScenarioModules (ParsekScenario!) that the
+                // loaded save lacks, then PERSIST the augmented game to
+                // persistent.sfs, EXACTLY as the stock Load-menu resume does
+                // (decompiled MainMenu.OnLoadDialogPipelineFinished, KSP 1.12.5:
+                // UpdateScenarioModules -> SaveGame(persistent, OVERWRITE) ->
+                // Start()). The SaveGame is LOAD-BEARING here, not cosmetic: unlike
+                // the focusable FLIGHT route (Game.Start -> FlightDriver.Start ->
+                // Game.Load on the in-memory game), the SPACECENTER route boots via
+                // Game.Start -> HighLogic.LoadScene(SPACECENTER), and the KSC scene's
+                // own bootstrap SpaceCenterMain.Start() RE-READS persistent.sfs from
+                // disk (GamePersistence.LoadGame("persistent", HighLogic.SaveFolder,
+                // ...)) and calls game.Load() -> ScenarioRunner.SetProtoModules on
+                // THAT disk game -- it never touches our in-memory HighLogic.CurrentGame.
+                // So UpdateScenarioModules mutates a game the KSC scene throws away;
+                // only writing it to disk first makes ParsekScenario present when
+                // SetProtoModules instantiates the scenarios, so OnLoad runs and the
+                // GameStateRecorder subscribes to OnTechnologyResearched before the
+                // seam issues its KscAction. The first live L-track run proved the
+                // fresh-* career fixtures (the first saves with no ParsekScenario node,
+                // stripped for the pre-Parsek/fresh-contact contract) booted to KSC
+                // with NO ParsekScenario: OnLoad never ran and the recorded-action log
+                // line never fired though the career math was correct. Writing the RUN
+                // save's persistent.sfs here is fine: it is staged/disposable and the
+                // seed baseline was already captured pre-launch from the TEMPLATE.
+                GamePersistence.UpdateScenarioModules(game);
+                string persistResult = GamePersistence.SaveGame(game, "persistent", save, SaveMode.OVERWRITE);
+                if (string.IsNullOrEmpty(persistResult))
+                    ParsekLog.Warn(Tag,
+                        $"loadgame no-vessel route: SaveGame(persistent, OVERWRITE) returned empty for save={save ?? string.Empty} (autosave disabled?); ParsekScenario may not re-add on the KSC disk re-read");
+                else
+                    ParsekLog.Info(Tag,
+                        $"loadgame no-vessel route: persisted augmented game (with ParsekScenario) to persistent.sfs save={save ?? string.Empty} path={persistResult}");
+                game.Start();
+                loadInFlight = true;
+                loadGameSave = save;
+                loadExpectSpaceCenter = true;
+                SetExecResult(PendingVerdict, null, null);
                 return;
             }
 
@@ -1408,6 +1467,7 @@ namespace Parsek.TestCommands
             FlightCameraReloadPin.Arm($"TestCommandLoadGame:{save}/{name}");
             FlightDriver.StartAndFocusVessel(game, idx);
             loadInFlight = true;
+            loadExpectSpaceCenter = false;
             loadGameSave = save;
             SetExecResult(PendingVerdict, null, null);
         }

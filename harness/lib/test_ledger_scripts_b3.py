@@ -99,7 +99,7 @@ class SpecManifestComputesIntendedTotalsTests(unittest.TestCase):
         spec = _load_spec("L1-hire-kerbal-career.toml")
         entries = self._parse_ok(spec)
         exp = oracle.compute_expected(CAREER_SEED, entries)
-        self.assertAlmostEqual(exp.funds, 476000.0)  # 500000 + (-24000) fixture-pinned
+        self.assertAlmostEqual(exp.funds, 437887.0)  # 500000 + (-62113) fixture-pinned
         self.assertAlmostEqual(exp.science, 100.0)
         self.assertAlmostEqual(exp.reputation, 0.0)
 
@@ -173,9 +173,9 @@ class NonzeroManifestOracleTests(unittest.TestCase):
 
     def test_hire_fixture_pinned_constant_drift_reds(self):
         entry = oracle.parse_manifest_entries(
-            [{"ut": 0.0, "kind": "kerbal-hire", "funds": -24000.0}]).entries
+            [{"ut": 0.0, "kind": "kerbal-hire", "funds": -62113.0}]).entries
         exp = oracle.compute_expected(CAREER_SEED, entry)
-        self.assertAlmostEqual(exp.funds, 476000.0)
+        self.assertAlmostEqual(exp.funds, 437887.0)
         # A save at a DIFFERENT hire cost (roster drift changed the recruit-cost curve
         # input, staling the pinned constant) reds hard.
         drift = oracle.diff_expected_vs_parsed(exp, _career(funds=470000.0, science=100.0, reputation=0.0))

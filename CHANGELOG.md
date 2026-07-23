@@ -26,6 +26,7 @@ All notable changes to Parsek are documented here.
 - Supply-route inventory delivery now uses every cargo container on the destination vessel: when the first container is full, items are delivered into the next container with a free slot instead of being reported as undelivered. Pickup already worked this way; delivery now matches it.
 - Supply-route inventory deliveries now deliver the full stacked quantity of a cargo item to a loaded destination instead of a single unit, and a manifest item is split across as many inventory slots as its stack size requires (one slot per unit for non-stackable items) so the delivered inventory is valid stock state on both the loaded and unloaded paths.
 - Supply-route inventory deliveries now respect the containers' packed-volume and mass limits, summed across every cargo container on the destination: an item that would not fit is skipped as not-fitting at planning time on both the loaded and unloaded paths, instead of being written into a container that would refuse it.
+- Facility upgrades are now recorded on the career timeline the moment they happen, instead of only being noticed on the next scene change. An upgrade done and then followed by a quit or reload without changing scene was previously missed entirely; it is now captured immediately for both the stock upgrade UI and the developer test path.
 
 ### Internals & Tests
 
@@ -36,6 +37,7 @@ All notable changes to Parsek are documented here.
 - Added three developer-only automated-test scenarios covering the live recording start/stop, commit, and discard cycle plus an in-game recording-integrity sweep over the synthetic corpus. Test-tooling only; no gameplay change.
 - Added a developer-only automated-test fixture that injects a rewindable recording tree (a crashed booster with a rewind point) plus the first two rewind-and-merge test scenarios that drive it. Test-tooling only; no gameplay change.
 - Added the first developer-only automated-test scenarios that drive a single career action (research a node, upgrade a facility, hire or dismiss a kerbal) and check the career totals moved by exactly the expected amount, across Career, Science, and Sandbox modes. Test-tooling only; no gameplay change.
+- Added the three career/science/sandbox save fixtures those career-action scenarios load, with pinned starting funds, science, and reputation and a fixed roster. Test-tooling only; no gameplay change.
 - The developer-only test-command discard step now also removes the discarded recording's leftover data files from disk, which the first full automated run caught being stranded permanently. Test-tooling only; no gameplay change.
 - The automated-test provisioner now writes a complete kRPC server configuration instead of a partial one; the partial file silently disabled all remote-control command processing, which blocked the first autopilot-flown test flight. Test-tooling only; no gameplay change.
 - Added the two stock-craft fixture saves (Jumping Flea pad hop, Kerbal X orbiter) the autopilot-flown test scenarios launch from, and the automated-test game instance now runs fully muted. Test-tooling only; no gameplay change.
@@ -65,6 +67,7 @@ All notable changes to Parsek are documented here.
 - Added a Minmus flyby test scenario reusing the same flight machinery with Minmus-sized parameters. Test-tooling only; no gameplay change.
 - Added a Duna interplanetary flyby test scenario: eject from a high Kerbin park at the next transfer window, coast through the Sun's sphere of influence with time-triggered course corrections, fly past Duna, and exit into solar orbit. Flown and passing unattended (546 km flyby, free return). Test-tooling only; no gameplay change.
 - The developer-only test-command channel gained three EVA verbs - send a kerbal out an airlock, plant a flag, and board a craft - driving the same stock paths a player's hatch/plant/board clicks use, plus three automated scenarios covering ground EVA with a flag plant, an orbital EVA re-board, and a sequential multi-kerbal EVA. This exercises Parsek's crew-EVA branch, flag-event, and board-merge recording. Inert in a normal game; no gameplay change.
+- The developer-only test-command channel's hire-kerbal action no longer charges the recruit cost twice: it was manually mirroring a funds debit that stock already applies automatically when a kerbal is hired, so the funds pool dropped by double the hire cost. Test-tooling only; no gameplay change.
 
 ## 0.10.3
 

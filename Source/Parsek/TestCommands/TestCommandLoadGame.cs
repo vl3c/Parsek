@@ -36,6 +36,28 @@ namespace Parsek.TestCommands
         LoadFailedMenu,
     }
 
+    /// <summary>
+    /// Where a loaded game boots (the ledger-lane no-vessel extension). A
+    /// FOCUSABLE game flies (<c>FlightDriver.StartAndFocusVessel</c>); a VALID
+    /// game with no focusable vessel (a vessel-less clean-slate career, or
+    /// <c>activeVessel = -1</c> with only parked vessels) resumes to SPACECENTER
+    /// exactly like the stock Load menu; anything else is <c>load-failed</c>.
+    /// The first live L-track run (2026-07-23) proved every career fixture is
+    /// NECESSARILY vessel-less, so the old focusable-or-fail contract blocked
+    /// the entire ledger lane.
+    /// </summary>
+    internal enum LoadRoute
+    {
+        /// <summary>Focusable active vessel: boot to FLIGHT (the original contract).</summary>
+        Focusable,
+
+        /// <summary>Valid game, no focusable vessel: resume to SPACECENTER.</summary>
+        NoVesselSpaceCenter,
+
+        /// <summary>Null / incompatible / no flight state: terminal ERROR load-failed.</summary>
+        Failed,
+    }
+
     internal static class TestCommandLoadGame
     {
         /// <summary>
@@ -55,6 +77,25 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>
+        /// Route the loaded game: FLIGHT when focusable, SPACECENTER when the game
+        /// is valid (present + compatible + flight state) but carries no focusable
+        /// vessel, load-failed otherwise. The proto-vessel LIST being null is
+        /// tolerated on the no-vessel route (KSP normalizes it at scene start);
+        /// game/compatibility/flight-state absence is never tolerated.
+        /// </summary>
+        internal static LoadRoute DecideLoadRoute(
+            bool gamePresent, bool compatible, bool flightStatePresent, bool protoVesselsPresent,
+            int activeVesselIdx, int protoVesselCount)
+        {
+            if (IsLoadedGameFocusable(gamePresent, compatible, flightStatePresent,
+                                      protoVesselsPresent, activeVesselIdx, protoVesselCount))
+                return LoadRoute.Focusable;
+            if (gamePresent && compatible && flightStatePresent)
+                return LoadRoute.NoVesselSpaceCenter;
+            return LoadRoute.Failed;
+        }
+
+        /// <summary>
         /// Decide the two-phase LoadGame completion (F2). The addon polls this only at
         /// SETTLED scenes (the pump gates off during LOADING / scene transition / settle),
         /// and the scene-transition flag is raised synchronously when the load is initiated,
@@ -68,11 +109,18 @@ namespace Parsek.TestCommands
         /// never settles anywhere. Any other settled scene keeps waiting until one of those
         /// three fires. Kept pure so every cell is xUnit-covered without a live KSP scene.
         /// </summary>
+        /// <summary>
+        /// ``expectSpaceCenter`` (the no-vessel route): the success scene is a
+        /// settled SPACECENTER instead of FLIGHT; a settle-back to MAINMENU and
+        /// the budget expiry keep their meanings on both routes.
+        /// </summary>
         internal static LoadCompletionDecision DecideLoadCompletion(
             double elapsedSeconds, TestCommandScene currentScene, bool currentGameNonNull,
-            double budgetSeconds)
+            double budgetSeconds, bool expectSpaceCenter = false)
         {
-            if (currentScene == TestCommandScene.Flight && currentGameNonNull)
+            TestCommandScene successScene = expectSpaceCenter
+                ? TestCommandScene.SpaceCenter : TestCommandScene.Flight;
+            if (currentScene == successScene && currentGameNonNull)
                 return LoadCompletionDecision.CompleteOk;
             if (currentScene == TestCommandScene.MainMenu)
                 return LoadCompletionDecision.LoadFailedMenu;

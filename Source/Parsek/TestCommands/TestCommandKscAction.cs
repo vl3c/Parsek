@@ -505,37 +505,34 @@ namespace Parsek.TestCommands
             // cost > funds precondition (headless-testable, above); the AUTHORITATIVE
             // affordability check is stock's CurrencyModifierQuery here, so any active
             // strategy modifier on CrewRecruited is honored exactly as the Astronaut Complex
-            // UI's charge would be. A stock decline is insufficient-funds, refused BEFORE any
-            // debit runs.
+            // UI's CanAfford gate would be. A stock decline is insufficient-funds, refused
+            // BEFORE the hire runs (and thus before stock's own debit).
             if (!CurrencyModifierQuery
                     .RunQuery(TransactionReasons.CrewRecruited, (float)(-cost), 0f, 0f)
                     .CanAfford())
                 return Refuse(action, kerbal, "insufficient-funds");
 
-            // Mirror the stock debit (the Astronaut Complex UI charges; HireApplicant does
-            // not). The CrewRecruited reason key is load-bearing for the ledger classifier.
-            if (Funding.Instance != null)
-                Funding.Instance.AddFunds(-cost, TransactionReasons.CrewRecruited);
+            // Do NOT debit funds here. Stock charges the recruit cost automatically: the
+            // Funding scenario module subscribes to GameEvents.OnCrewmemberHired
+            // (Funding.onCrewHired -> AddFunds(-GetRecruitHireCost(count), CrewRecruited)),
+            // which KerbalRoster.HireApplicant fires. The Astronaut Complex UI itself never
+            // calls AddFunds; it only runs the CanAfford gate above and then HireApplicant.
+            // A prior "mirror the stock debit" AddFunds(-cost) here double-charged the pool
+            // (seed 500000 -> two -62113 debits -> 375774 instead of 437887), so the ledger
+            // oracle flagged a hard divergence. Just drive the hire and let stock charge once.
             try { roster.HireApplicant(applicant); }
             catch (System.Exception ex)
             {
                 ParsekLog.Warn(Tag, "kscaction hire-kerbal HireApplicant threw: " + ex.GetType().Name + ": " + ex.Message);
             }
 
-            // Confirm: KerbalHirePatch can block a committed hire (applicant stays an
-            // applicant). If blocked, refund the debit we mirrored so we leave no residue.
-            // The net-zero double funds observation on this blocked path (one -cost debit
-            // then one +cost refund, both under CrewRecruited) is inherent to matching the
-            // stock debit-then-hire order: the block is only observable AFTER HireApplicant,
-            // so the debit must already have fired. The two legs cancel to zero, so the
-            // ledger sees no net hire spend for a blocked hire.
+            // Confirm: KerbalHirePatch is a Prefix on HireApplicant; on a committed-action
+            // block it returns false, so stock HireApplicant never runs, OnCrewmemberHired
+            // never fires, and Funding never charges. The applicant stays an applicant and
+            // funds are untouched -- no refund needed (there was no debit to undo).
             bool hiredNow = applicant.type == ProtoCrewMember.KerbalType.Crew;
             if (!hiredNow)
-            {
-                if (Funding.Instance != null)
-                    Funding.Instance.AddFunds(cost, TransactionReasons.CrewRecruited);
                 return Refuse(action, kerbal, "blocked-committed");
-            }
 
             double fundsAfter = Funding.Instance != null ? Funding.Instance.Funds : 0.0;
             string observed = fundsAfter.ToString("R", CultureInfo.InvariantCulture);

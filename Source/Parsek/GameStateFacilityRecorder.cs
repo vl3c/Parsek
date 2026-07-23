@@ -48,6 +48,98 @@ namespace Parsek
                 $"({lastFacilityLevels.Count} facilities, {lastBuildingIntact.Count} buildings)");
         }
 
+        /// <summary>
+        /// Event-driven facility-upgrade capture. The poll (<see cref="PollFacilityState"/>)
+        /// only runs on scene load, so an upgrade applied WITHIN a scene (a stock UI upgrade,
+        /// or the seam's SpaceCenterBuilding.UpgradeFacility) that is not followed by a scene
+        /// change -- e.g. a seam run that upgrades then immediately quits -- would never be
+        /// recorded. Worse, the poll baseline can seed empty on a cold no-vessel load
+        /// (ScenarioUpgradeableFacilities.protoUpgradeables facilityRefs not populated yet),
+        /// leaving no cached "before" level to diff against even if a later poll did run.
+        ///
+        /// KSP fires GameEvents.OnKSCFacilityUpgrading SYNCHRONOUSLY inside
+        /// UpgradeableFacility.SetLevel (before the level actually changes) for BOTH the UI
+        /// and the seam, so subscribing here records a seam upgrade identically to a UI one
+        /// and needs no seeded baseline (the event carries before + after directly). We use
+        /// Upgrading (synchronous) rather than OnKSCFacilityUpgraded, which fires from a
+        /// spawn-gated coroutine that may never complete headlessly / before a quit.
+        ///
+        /// Replay guard: FacilityStatePatcher.SetLevel re-fires this same event during the
+        /// recalc apply boundary (wrapped in SuppressionGuard.ResourcesAndReplay), so bail on
+        /// IsReplayingActions / SuppressResourceEvents to never re-record a Parsek-driven
+        /// level patch as a fresh player upgrade.
+        /// </summary>
+        internal void OnFacilityUpgrading(Upgradeables.UpgradeableFacility fac, int newLevelIndex)
+        {
+            if (GameStateRecorder.IsReplayingActions || GameStateRecorder.SuppressResourceEvents)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-facility-upgrading",
+                    "Suppressed OnKSCFacilityUpgrading during replay/resource suppression", 5.0);
+                return;
+            }
+            if (fac == null || string.IsNullOrEmpty(fac.id))
+                return;
+
+            // Upgrading fires before setLevel(lvl), so GetNormLevel() still reads the OLD
+            // level. The new normalized level is derived from the target index + MaxLevel,
+            // matching KSP's GetNormLevel contract (level / MaxLevel).
+            float before = fac.GetNormLevel();
+            float after = NormalizedLevel(newLevelIndex, fac.MaxLevel);
+
+            GameStateEventType? kind = ClassifyFacilityLevelChange(before, after);
+            if (kind == null)
+            {
+                // No-op SetLevel: keep the poll cache coherent so a later poll sees no delta.
+                lastFacilityLevels[fac.id] = after;
+                return;
+            }
+
+            double ut = Planetarium.GetUniversalTime();
+            var evt = new GameStateEvent
+            {
+                ut = ut,
+                eventType = kind.Value,
+                key = fac.id,
+                valueBefore = before,
+                valueAfter = after
+            };
+            owner.EmitFacilityEvent(ref evt, kind.Value.ToString());
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: {kind.Value} '{fac.id}' {before:F2} → {after:F2} (event-driven)");
+
+            // Mirror the poll's ledger-forward: only upgrades forward (downgrades are
+            // informational), gated on ShouldForwardFacilityLedgerEvent.
+            if (kind.Value == GameStateEventType.FacilityUpgraded
+                && owner.ShouldForwardFacilityLedgerEvent(evt.recordingId))
+                LedgerOrchestrator.OnKscSpending(evt);
+
+            // Update the poll cache so a subsequent scene-change poll does not re-emit.
+            lastFacilityLevels[fac.id] = after;
+        }
+
+        /// <summary>
+        /// Pure decision for a facility level change: given the pre-change and post-change
+        /// normalized levels, return the event type, or null when the delta is below the
+        /// same 0.001 epsilon the poll uses (a no-op / rounding SetLevel).
+        /// </summary>
+        internal static GameStateEventType? ClassifyFacilityLevelChange(float beforeNorm, float afterNorm)
+        {
+            if (Math.Abs(afterNorm - beforeNorm) <= 0.001f)
+                return null;
+            return afterNorm > beforeNorm
+                ? GameStateEventType.FacilityUpgraded
+                : GameStateEventType.FacilityDowngraded;
+        }
+
+        /// <summary>
+        /// Normalized facility level (KSP's GetNormLevel contract: zero-based level index
+        /// divided by MaxLevel). Returns 0 for a non-positive MaxLevel (unloaded facility).
+        /// </summary>
+        internal static float NormalizedLevel(int levelIndex, int maxLevel)
+        {
+            return maxLevel > 0 ? (float)levelIndex / maxLevel : 0f;
+        }
+
         internal void PollFacilityState()
         {
             double ut = Planetarium.GetUniversalTime();

@@ -3,7 +3,7 @@ id = "L1-hire-kerbal-career"
 # pending-fixture: fixtures/saves/fresh-career is not committed yet (M-B3 operator
 # runbook creates it, pinning the roster + the resulting hire cost). Re-tier to "daily"
 # once the fixture lands.
-tier = "pending-fixture"
+tier = "daily"
 description = "Career: hire one applicant; the funds pool drops by exactly the fixture-pinned hire cost, no other drift."
 instanceProfile = "stock-minimal"
 tags = ["ledger", "L1", "pending-operator"]
@@ -15,15 +15,19 @@ craft = []
 
 [driver]
 kind = "seam"
-# hire-kerbal mirrors the stock debit Funding.AddFunds(-hireCost, CrewRecruited) then
-# KerbalRoster.HireApplicant. The applicant name below is the ONE known applicant the
-# fixture pins (the hire TARGET, not the cost determinant -- the recruit-cost curve keys
-# on the HIRED-CREW COUNT). VERIFY-PENDING-OPERATOR: match the applicant name to whatever
-# the fixture's known applicant is actually named, recorded in the fixture README.
+# hire-kerbal drives KerbalRoster.HireApplicant; stock charges the recruit cost ONCE and
+# automatically -- the Funding scenario module subscribes to GameEvents.OnCrewmemberHired
+# (Funding.onCrewHired -> AddFunds(-GetRecruitHireCost(count), CrewRecruited)), which
+# HireApplicant fires. The seam does NOT mirror a debit (an earlier "mirror the stock debit"
+# AddFunds double-charged the pool). "Verhat Kerman" is the ONE known applicant the
+# fresh-career fixture pins (the hire TARGET, not the cost determinant -- the recruit-cost
+# curve keys on the HIRED-CREW COUNT of 4). Recorded in harness/fixtures/saves/README.md.
+# LIVE-CONFIRMED (first L-track batch, 2026-07-23): the single debit is 62113 (the
+# recorder-observed cost= for Verhat/Engineer at hired-count 4), seed 500000 -> 437887.
 steps = [
   { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
-  { cmd = "KscAction",    args = { action = "hire-kerbal", kerbal = "FIXTURE_APPLICANT" }, expect = "OK", budget = 60 },
+  { cmd = "KscAction",    args = { action = "hire-kerbal", kerbal = "Verhat Kerman" }, expect = "OK", budget = 60 },
   { cmd = "RecordingState", expect = "OK" },
   { cmd = "FlushAndQuit",   expect = "OK" },
 ]
@@ -55,18 +59,18 @@ rec3CarveOut = false
   # AUTHOR CONSTANT (STATE-DEPENDENT-BUT-FIXTURE-PINNED, OQ2): the hire cost rises with the
   # HIRED-CREW COUNT via the GameVariables recruit-cost curve. The fixture PINS the roster
   # to EXACTLY the 4 stock hired kerbals (zero Parsek reservations / stand-ins), so the cost
-  # is DETERMINISTIC at hired-count 4 and declared as an author constant. funds stays
-  # fill-eligible for LATER (switch to null-to-fill once the hire-funds capture pattern is
-  # operator-verified). VERIFY-PENDING-OPERATOR: the operator records the pinned hired-crew
-  # count + the resulting known cost (read off observedAfter=) in the fixture README; if the
-  # hired roster drifts the curve input changes and this constant goes stale.
-  funds      = -24000.0
+  # is DETERMINISTIC at hired-count 4. LIVE-CONFIRMED (2026-07-23) at -62113: seed 500000
+  # minus one recruit debit lands the save at 437887 (GetRecruitHireCost(4) = 62113, the
+  # single stock CrewRecruited charge). If the pinned hired roster ever drifts, the curve
+  # input changes and this constant goes stale -- re-derive from observedAfter=funds= on the
+  # next live run.
+  funds      = -62113.0
   provenance = "seam-declared"
 
 [runtime]
 # Happy path: LoadGame ~300 + KscAction ~60 + light verbs, under 600. Pending-fixture ->
 # never scheduled unattended.
-# Budget check (seed funds 500000 affords the pinned hire cost): 500000 + (-24000) >= 0.
+# Budget check (seed funds 500000 affords the pinned hire cost): 500000 + (-62113) >= 0.
 budgetSeconds = 600
 
 [retry]

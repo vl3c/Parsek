@@ -2,7 +2,7 @@ schema = 1
 id = "L1-dismiss-kerbal-career"
 # pending-fixture: fixtures/saves/fresh-career is not committed yet (M-B3 operator
 # runbook creates it). Re-tier to "daily" once the fixture lands.
-tier = "pending-fixture"
+tier = "daily"
 description = "Career: dismiss one roster kerbal; NO career pool moves (pool-neutral non-economic action)."
 instanceProfile = "stock-minimal"
 tags = ["ledger", "L1", "R7", "pending-operator"]

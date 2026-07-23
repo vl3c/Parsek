@@ -3,7 +3,7 @@ id = "L1-research-node-science"
 # pending-fixture: fixtures/saves/fresh-science is not committed yet (M-B3 operator
 # runbook creates it). Re-tier to "daily" once BOTH the fixture lands AND the M-C1
 # research-node readiness-widening dependency below merges.
-tier = "pending-fixture"
+tier = "daily"
 description = "Science mode: research one tech node; the science pool drops by exactly the node cost. No funds/rep pool exists to assert."
 instanceProfile = "stock-minimal"
 tags = ["ledger", "L1", "science-mode", "pending-operator"]

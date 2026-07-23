@@ -336,6 +336,12 @@ namespace Parsek
             // Progress milestones
             GameEvents.OnProgressComplete.Add(OnProgressComplete);
 
+            // Facility upgrades (event-driven). The scene-load PollFacilityState below only
+            // catches upgrades across a scene change; subscribing to OnKSCFacilityUpgrading
+            // captures an in-scene upgrade (UI or seam) immediately, without a seeded
+            // baseline. See GameStateFacilityRecorder.OnFacilityUpgrading.
+            GameEvents.OnKSCFacilityUpgrading.Add(OnFacilityUpgrading);
+
             // Initialize resource tracking from current state
             SeedResourceState();
 
@@ -381,6 +387,9 @@ namespace Parsek
 
             // Progress milestones
             GameEvents.OnProgressComplete.Remove(OnProgressComplete);
+
+            // Facility upgrades (event-driven)
+            GameEvents.OnKSCFacilityUpgrading.Remove(OnFacilityUpgrading);
 
             ParsekLog.Info("GameStateRecorder", "GameStateRecorder unsubscribed");
         }
@@ -747,6 +756,15 @@ namespace Parsek
         internal void PollFacilityState()
         {
             facilityRecorder.PollFacilityState();
+        }
+
+        /// <summary>
+        /// GameEvents.OnKSCFacilityUpgrading handler: records an in-scene facility upgrade
+        /// (UI or seam) immediately, without waiting for the next scene-load poll.
+        /// </summary>
+        private void OnFacilityUpgrading(Upgradeables.UpgradeableFacility fac, int newLevelIndex)
+        {
+            facilityRecorder.OnFacilityUpgrading(fac, newLevelIndex);
         }
 
         #endregion

@@ -474,11 +474,18 @@ class LedgerSeedBaselineSmokeTests(unittest.TestCase):
         self.assertIn("parsed=false", result["verifiers"]["ledgerOracle"]["reason"])
         self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
 
-    def test_sandbox_template_is_terminal_fixture_invalid_zero_boot(self):
-        # Branch 3 (invalid-fixture): a template that parses but carries NO career pools
-        # while [expectations.ledger] is declared is a fixture-authoring defect ->
-        # terminal INVALID(fixture-authoring), booting ZERO KSPs (edge 15).
-        result, rt = self._run_ledger(seed_mode="sandbox")
+    def test_sandbox_template_with_declared_entries_is_terminal_fixture_invalid_zero_boot(self):
+        # Branch 3 (invalid-fixture): a template that parses but carries NO career
+        # pools while the declared manifest expects a DELTA is a fixture-authoring
+        # defect (an expected delta needs a pool to land in) -> terminal
+        # INVALID(fixture-authoring), booting ZERO KSPs (edge 15).
+        spec = _make_ledger_spec(self.template, 30, 600, manifest=[{
+            "action": "research-node", "facet": "science", "amount": -5.0,
+            "amountKind": "delta", "utWindow": "any",
+        }])
+        rt = FakeRuntime("pass", seed_mode="sandbox")
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
         self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
         self.assertEqual("fixture-authoring", result["subkind"])
         self.assertEqual(1, rt.seed_analyzer_count)
@@ -486,6 +493,20 @@ class LedgerSeedBaselineSmokeTests(unittest.TestCase):
         v = hlib.Verdict(result["verdict"], result["subkind"], False, "")
         self.assertFalse(hlib.should_retry(v, attempt=1, retry_policy="once"),
                          "fixture-authoring is TERMINAL, never retried")
+
+    def test_sandbox_template_with_empty_manifest_boots_and_passes(self):
+        # SANDBOX carve-out (career-fixtures review resolution (a), 2026-07-23):
+        # a pool-less template with an EMPTY declared manifest is the
+        # L1-passive-sandbox contract -- the seed is accepted as all-None,
+        # compute_expected yields all-None, the diff facet-skips, and the run
+        # BOOTS and PASSes with the ledger oracle ACTIVE (proving the
+        # facet-skip path + the trusted empty-manifest cross-check over a
+        # pool-less save, which dropping [expectations.ledger] would discard).
+        result, rt = self._run_ledger(seed_mode="sandbox")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertEqual(1, rt.seed_analyzer_count)
+        self.assertEqual(1, rt.launch_count, "the carve-out must BOOT the run")
+        self.assertEqual("PASS", result["verifiers"]["ledgerOracle"]["status"])
 
     def test_unparsable_template_is_terminal_tooling_invalid_zero_boot(self):
         # Branch 4 (invalid-tooling): the seed analyzer could not parse the template

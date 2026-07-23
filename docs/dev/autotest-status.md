@@ -64,7 +64,7 @@ orbit, landing, docking, career-ledger lanes) is the frontier.
 | M-A6 provisioner | Reproducible pinned KSP instance (kRPC 0.5.4 + MechJeb 2.15.1 + KRPC.MechJeb 0.8.1 + built TestingTools) | SHIPPED (#1303/#1308/#1318) |
 | M-B1 mission library | Pure mission state machines + kRPC runner (flights become deterministic, diagnosable instruments) | SHIPPED (#1313); hardened by the flyby campaign |
 | M-B2 ledger oracle | Seam-declared action manifests -> expected career totals -> save diff (PARSEK-FAIL(ledger)) | SHIPPED (#1314); stock-award-pattern gate below |
-| M-B3 ledger scripts | The L1 scenario six-pack | SHIPPED (#1324); blocked on career fixtures (below) |
+| M-B3 ledger scripts | The L1 scenario six-pack | SHIPPED (#1324); LIVE-PROVEN 2026-07-23 (career fixtures file-constructed headlessly; 7/7 ledger scenarios green, now daily tier) |
 | M-C1 seam verbs batch 1 | InvokeRewind, AnswerMergeDialog, TimeJump, KscAction, SaveGame | SHIPPED (#1320/#1325) |
 | M-C2 EVA verbs + missions | EvaExit/EvaBoard/PlantFlag -> crew/EVA/flag recording coverage | IMPLEMENTED PENDING IN-GAME PROOF; 18 implemented verbs, 11 reserved; verbs + pure deciders + hlib companions + EVA-1/2/3 specs land; awaits the operator live-prove list (P1-P6) |
 
@@ -97,13 +97,13 @@ The "Parsek surface verified" column is the reason the case exists.
 | FORGE-bdock-station | operator | (Not a Parsek-surface test) FIXTURE-FORGE: launch_vessel the docking Kerbal X onto the pad + SaveGame -> stamps the bdock-station-pad fixture headlessly (replaces the operator fixture flight) | None - runnable now on a provisioned instance; harvest tool normalizes the output |
 | S1.5-rewind-loop | operator | TimeJump-past-EndUT spawn, then rewind-strip-respawn cycle observables | Operator observation session (B9 pair) |
 | S4.1-rewind-merge | operator | Full re-fly cycle: InvokeRewind a crashed slot, merge-dialog fold, corpus survival, read-back guard | Operator observation session (B9 pair) |
-| B10-career-passive-safety | pending-fixture | Fresh career + stock actions only = ZERO economy drift (the BUG-A science/funds corruption class) | Career fixture saves |
-| L1-passive-sandbox | pending-fixture | Sandbox cold load moves nothing (recalc/orchestrator/patcher inert) | Career fixture saves |
-| L1-hire-kerbal-career | pending-fixture | Hire debits funds by exactly the pinned cost, nothing else | Career fixture saves |
-| L1-dismiss-kerbal-career | pending-fixture | Dismiss is pool-neutral | Career fixture saves |
-| L1-research-node-career | pending-fixture | Research debits science exactly | Career fixture saves |
-| L1-research-node-science | pending-fixture | Same in science mode (no funds/rep pools) | Career fixture saves |
-| L1-upgrade-facility-career | pending-fixture | Facility upgrade debits funds per-level exactly | Career fixture saves |
+| B10-career-passive-safety | daily | Fresh career + stock actions only = ZERO economy drift (the BUG-A science/funds corruption class) | Fixture committed (fresh-career); first green live run re-tiers to daily |
+| L1-passive-sandbox | daily | Sandbox cold load moves nothing (recalc/orchestrator/patcher inert) | Fixture committed (fresh-sandbox); + seed-baseline no-pools gate must accept an empty-manifest sandbox template (see fixtures README) |
+| L1-hire-kerbal-career | daily | Hire debits funds by exactly the pinned cost, nothing else | First live run (2026-07-23) RED = seam double-debit: the hire verb manually mirrored a stock debit that stock already applies (Funding.onCrewHired via OnCrewmemberHired), charging the pool twice. Fixed (seam AddFunds removed); single cost re-pinned -62113 (seed 500000 -> 437887). Re-run confirms hardDivergences=0 + re-tiers to daily |
+| L1-dismiss-kerbal-career | daily | Dismiss is pool-neutral | Fixture committed (fresh-career, dismiss Bill Kerman); first green live run re-tiers to daily |
+| L1-research-node-career | daily | Research debits science exactly | Fixture committed (fresh-career, basicRocketry=5 verified); first green live run re-tiers to daily |
+| L1-research-node-science | daily | Same in science mode (no funds/rep pools) | Fixture committed (fresh-science); RnDPresent widen landed; first green live run re-tiers to daily |
+| L1-upgrade-facility-career | daily | Facility upgrade debits funds per-level exactly | First live run (2026-07-23) ledger math PASSED (-150000, hardDivergences=0) but logContract RED = FacilityUpgraded never recorded: the facility recorder only polled on scene load (and cold-load seeded an empty baseline), so a seam upgrade-then-quit was never captured. Fixed (subscribe GameStateFacilityRecorder to OnKSCFacilityUpgrading, event-driven). Re-run confirms "Game state: FacilityUpgraded" present + re-tiers to daily |
 
 ### EVA (M-C2), committed, pending in-game proof (3)
 
@@ -163,14 +163,28 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
    reality only.
 5. INV2 double-cover recorder seam: REAL Parsek defect (first big catch),
    being fixed in its own lane.
+6. No-vessel LoadGame boot contract (ledger lane): the SPACECENTER route in
+   `ParsekTestCommandAddon.LoadGameImpl` now writes `persistent.sfs`
+   (`GamePersistence.SaveGame(game, "persistent", save, OVERWRITE)`) AFTER
+   `UpdateScenarioModules` and BEFORE `Start()`, matching stock
+   `MainMenu.OnLoadDialogPipelineFinished`. Load-bearing because the KSC scene
+   bootstrap `SpaceCenterMain.Start()` re-reads `persistent.sfs` from disk and
+   runs `SetProtoModules` on THAT game, not the in-memory `HighLogic.CurrentGame`;
+   without the write the fresh-* fixtures booted to KSC with no ParsekScenario,
+   so `OnLoad` never ran and the `GameStateRecorder` never subscribed (the 5
+   ACTING L1 cases reded on the missing recorded-action log line though the
+   ledger oracle passed). Fixed 2026-07-23.
 
 ## Operator items outstanding
 
-1. Career fixture saves (3) - the top item; activates 7 ledger test cases
-   and re-tiers them pending-fixture -> daily.
+1. Career fixture saves (3) - DONE + LIVE-PROVEN (no operator session): file-
+   constructed (fresh-career / fresh-science / fresh-sandbox), 7/7 ledger
+   scenarios green, re-tiered pending-fixture -> daily, hire/upgrade author
+   constants confirmed, the seed-baseline no-pools gate resolved.
 2. EVA fixture saves (2): `eva2-lko-crewed` + `eva3-pad-3crew` (M-C2 P2);
    re-tiers EVA-2/EVA-3 pending-fixture -> daily/nightly. Plus the EVA
    live-prove session (P1/P3/P5/P6) that promotes EVA-1 nightly -> daily.
+   (Both fixtures are now forge-able headlessly via the B-DOCK forge.)
 3. Stock-award real-line capture session (unblocks the pattern rewrite).
 4. B9 rewind observation session (S1.5 + S4.1).
 
