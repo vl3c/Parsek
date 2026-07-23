@@ -1366,6 +1366,19 @@ namespace Parsek.TestCommands
                     $"loadgame no-vessel route: resuming to SPACECENTER save={save ?? string.Empty} protoVessels={pvCount} activeVesselIdx={game.flightState?.activeVesselIdx ?? -1}");
                 HighLogic.CurrentGame = game;
                 game.startScene = GameScenes.SPACECENTER;
+                // Re-add AddToAllGames ScenarioModules (ParsekScenario!) that the
+                // loaded save lacks, EXACTLY as the stock Load-menu resume does
+                // (decompiled MainMenu: UpdateScenarioModules THEN Start, KSP
+                // 1.12.5). The first live L-track run proved the fresh-* career
+                // fixtures -- the first saves with no ParsekScenario node (stripped
+                // for the pre-Parsek/fresh-contact contract) -- otherwise boot to
+                // KSC with NO ParsekScenario: OnLoad never runs, the
+                // GameStateRecorder never subscribes to OnTechnologyResearched, and
+                // the recorded-action log line never fires though the career math
+                // is correct. game.Start() alone does NOT re-add scenarios; only
+                // the focusable/FlightDriver path did (and only for the b1/b2/gloops
+                // fixtures that already carried the node).
+                GamePersistence.UpdateScenarioModules(game);
                 game.Start();
                 loadInFlight = true;
                 loadGameSave = save;
