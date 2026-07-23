@@ -56,6 +56,83 @@ namespace Parsek.Tests
             Assert.False(TestCommandLoadGame.IsLoadedGameFocusable(true, true, true, true, 5, 2));
         }
 
+        // ----- LoadRoute (the ledger-lane no-vessel extension): a vessel-less
+        // clean-slate career must resume to SPACECENTER, never load-fail. The
+        // first live L-track run (2026-07-23) proved every career fixture is
+        // NECESSARILY vessel-less; the old focusable-or-fail contract blocked
+        // the whole ledger lane deterministically. -----
+
+        [Fact]
+        public void Route_FocusableGame_Flight()
+        {
+            Assert.Equal(LoadRoute.Focusable, TestCommandLoadGame.DecideLoadRoute(
+                true, true, true, true, activeVesselIdx: 0, protoVesselCount: 3));
+        }
+
+        [Fact]
+        public void Route_VesselLessCleanSlate_SpaceCenter()
+        {
+            // The fresh-career/science/sandbox fixtures: zero vessels, idx -1.
+            Assert.Equal(LoadRoute.NoVesselSpaceCenter, TestCommandLoadGame.DecideLoadRoute(
+                true, true, true, true, activeVesselIdx: -1, protoVesselCount: 0));
+        }
+
+        [Fact]
+        public void Route_ParkedVesselsNoActive_SpaceCenter()
+        {
+            // activeVessel = -1 with parked vessels: a valid KSC-resume save.
+            Assert.Equal(LoadRoute.NoVesselSpaceCenter, TestCommandLoadGame.DecideLoadRoute(
+                true, true, true, true, activeVesselIdx: -1, protoVesselCount: 2));
+        }
+
+        [Fact]
+        public void Route_NullProtoVesselList_SpaceCenterNotFailed()
+        {
+            // A null proto-vessel LIST is tolerated on the no-vessel route (KSP
+            // normalizes it at scene start); game validity still gates.
+            Assert.Equal(LoadRoute.NoVesselSpaceCenter, TestCommandLoadGame.DecideLoadRoute(
+                true, true, true, false, activeVesselIdx: -1, protoVesselCount: 0));
+        }
+
+        [Fact]
+        public void Route_InvalidGame_Failed()
+        {
+            Assert.Equal(LoadRoute.Failed, TestCommandLoadGame.DecideLoadRoute(
+                false, false, false, false, 0, 0));
+            Assert.Equal(LoadRoute.Failed, TestCommandLoadGame.DecideLoadRoute(
+                true, false, true, true, 0, 1));   // incompatible
+            Assert.Equal(LoadRoute.Failed, TestCommandLoadGame.DecideLoadRoute(
+                true, true, false, false, -1, 0)); // no flight state
+        }
+
+        [Fact]
+        public void Completion_SpaceCenterRoute_CompletesOnSettledKsc()
+        {
+            Assert.Equal(LoadCompletionDecision.CompleteOk,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    5.0, TestCommandScene.SpaceCenter, currentGameNonNull: true,
+                    budgetSeconds: 600.0, expectSpaceCenter: true));
+            // A FLIGHT settle does NOT complete the KSC route (and vice versa:
+            // the default route still requires FLIGHT).
+            Assert.Equal(LoadCompletionDecision.StillWaiting,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    5.0, TestCommandScene.Flight, true, 600.0, expectSpaceCenter: true));
+            Assert.Equal(LoadCompletionDecision.StillWaiting,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    5.0, TestCommandScene.SpaceCenter, true, 600.0));
+        }
+
+        [Fact]
+        public void Completion_SpaceCenterRoute_MenuBounceAndTimeoutKeepMeanings()
+        {
+            Assert.Equal(LoadCompletionDecision.LoadFailedMenu,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    5.0, TestCommandScene.MainMenu, false, 600.0, expectSpaceCenter: true));
+            Assert.Equal(LoadCompletionDecision.LoadTimeout,
+                TestCommandLoadGame.DecideLoadCompletion(
+                    600.0, TestCommandScene.Loading, false, 600.0, expectSpaceCenter: true));
+        }
+
         [Fact]
         public void CompletePayload_CarriesSceneAndSave()
         {

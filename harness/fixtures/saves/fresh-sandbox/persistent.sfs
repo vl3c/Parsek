@@ -1,7 +1,7 @@
 GAME
 {
 	version = 1.12.5
-	Title = fresh-sandbox (CAREER)
+	Title = fresh-sandbox (SANDBOX)
 	Description = Parsek autotest fixture (synthetic, file-constructed).
 	linkURL = 
 	linkCaption = 
@@ -96,7 +96,7 @@ GAME
 		}
 		CAREER
 		{
-			TechTreeUrl = GameData\HideEmptyTechTreeNodes\Resources\HETTN.TechTree
+			TechTreeUrl = GameData/ModuleManager.TechTree
 			StartingFunds = 10000
 			StartingScience = 0
 			StartingReputation = 0
@@ -106,29 +106,6 @@ GAME
 			FundsLossMultiplier = 1
 			RepLossMultiplier = 1
 			RepLossDeclined = 3
-		}
-		HETTNCustomParams_Zoom
-		{
-			zoomMaxParam = 100
-			zoomMinParam = 60
-			zoomSpeedParam = 5
-			zoomMax = 1
-			zoomMin = 0.6
-			zoomSpeed = 0.05
-		}
-		HETTNCustomParams_Nodes
-		{
-			researchRequirements = Default
-			forceHideUnresearchable = False
-			forceHideEmpty = True
-			forceHideManual = False
-			propagateScience = Default
-			shiftVertically = False
-			shiftHorizontally = False
-		}
-		HETTNCustomParams_Misc
-		{
-			debugging = False
 		}
 		CommNetParams
 		{

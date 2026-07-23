@@ -677,6 +677,21 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
         return False, run_save_name, "staging"
     if os.path.isdir(target_save):
         shutil.rmtree(target_save, ignore_errors=True)
+    # (1b) reap prior PreParsekBackup siblings (career-fixtures review F2):
+    # a fixture with NO Parsek footprint (the fresh-* ledger saves) triggers
+    # Parsek's pre-Parsek backup on every run's cold OnLoad, and the backup
+    # lands as a saves-root SIBLING "<name> (pre-Parsek <ts>)" outside the
+    # run-save leaf -- unbounded Load-menu clutter without this reap. Never
+    # pre-seed the backup marker instead: that would create the very Parsek
+    # footprint the fresh-contact scenarios exclude.
+    if os.path.isdir(saves_dir):
+        backup_prefix = run_save_name + " (pre-Parsek"
+        for entry in os.listdir(saves_dir):
+            if entry.startswith(backup_prefix):
+                backup_dir = os.path.join(saves_dir, entry)
+                if os.path.isdir(backup_dir) and _is_strictly_inside(backup_dir, saves_dir):
+                    shutil.rmtree(backup_dir, ignore_errors=True)
+                    logger.verbose("Stage", "reaped prior pre-Parsek backup: %s" % entry)
     os.makedirs(saves_dir, exist_ok=True)
     shutil.copytree(template_abs, target_save)
 
@@ -1185,6 +1200,18 @@ def _capture_seed_baseline(spec: Dict, instance_dir: str, run_save_name: str,
         return SeedCapture(None, "invalid-tooling", block)
     has_any = bool(block.get("hasFunds") or block.get("hasScience") or block.get("hasRep"))
     if not has_any:
+        # SANDBOX carve-out (career-fixtures review, resolution (a)): a
+        # template with NO career pools is a VALID seed IFF the declared
+        # manifest is EMPTY -- L1-passive-sandbox's whole point is proving
+        # the facet-skip path + the trusted empty-manifest cross-check over
+        # a pool-less save (compute_expected yields all-None, the diff
+        # facet-skips; test_passive_sandbox_empty_manifest_expected_equals_
+        # absent_seed proves the math). Any scenario with a NONZERO manifest
+        # still INVALIDs here: an expected delta needs a pool to land in.
+        declared = ledger_block.get("manifest") or []
+        if not declared:
+            logger.info("Seed", "ledger-seed: pool-less template accepted (empty declared manifest; sandbox facet-skip contract)")
+            return SeedCapture(oracle.parse_seed_baseline(block), "ok", block)
         logger.warn("Seed", "ledger-seed: template parsed but no career pools + [expectations.ledger] declared -> INVALID(fixture-authoring)")
         return SeedCapture(None, "invalid-fixture", block)
     try:
