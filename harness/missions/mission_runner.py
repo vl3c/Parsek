@@ -1092,6 +1092,18 @@ class KrpcMissionControl(MissionControl):
                 rv.desired_distance = float(action.value)
             if action.limit is not None:
                 rv.max_phasing_orbits = float(action.limit)
+            # Force node-executor autowarp ON at rendezvous enable (flight 12):
+            # the rendezvous AP consults the shared executor's autowarp for its
+            # between-burn / phasing-wait warping, and we only ever set it
+            # inside OTHER actions - so whether a rendezvous warped was luck.
+            # Flight 12 ran its entire phasing wait at 1x (game ut == wall
+            # second-for-second, warpMode NONE) and ate the whole mission
+            # budget; flight 11 with identical machine code happened to warp.
+            try:
+                self._mechjeb.node_executor.autowarp = True
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Rendezvous", "autowarp set failed: %s" % (exc,)))
             rv.enabled = True
         elif kind == mlib.ACTION_MJ_KILL_REL_VEL:
             # Belt+braces to the rendezvous AP's own terminal match: plan +
