@@ -246,8 +246,12 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
    B1 shipped four months of green nightlies on a chute that never opened.
    AUDIT DEBT: `evaluate_b4_assertions`'s `chuteDeployed` is still a commanded
    latch, and the B4 fixture (`b2-lko-craft`) carries the same
-   `automateSafeDeploy = 0` with the same altitude-triggered deploy at 3000 m,
-   so B4 is expected to hit this on its first flight. Any new assertion over a
+   `automateSafeDeploy = 0` with the same altitude-triggered deploy at 3000 m.
+   That does NOT mean B4 is broken: B4 is live-proven with a real SPLASHDOWN, so
+   something did slow that craft, and the reentry profile differs from a pad hop.
+   It means B4's chute claim rests on the same unfalsifiable evidence B1's did,
+   and needs its own diagnosis from a B4 recording (check for `Parachute*` part
+   events) before anyone concludes either way. Any new assertion over a
    part-module state must read the module, not the command.
 
 ## Operator items outstanding

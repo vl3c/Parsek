@@ -30,7 +30,9 @@ type = "window"
 # fixture persists automateSafeDeploy = 0 (SAFE only), and a craft at terminal velocity
 # in dense air never reads SAFE and never slows on its own. Bounded well under a
 # free-fall second (Kerbin adds ~10 m/s per ~1 s poll) so it can only ever be satisfied
-# near the apex.
+# near the apex. The min/max below bound what the SCHEMA will accept, not what is
+# sensible: the live value is 30, and anything approaching the 100 ceiling would be
+# ~10 free-fall seconds past the apex and defeat the point.
 [params.chuteArmMaxRateMps]
 required = true
 type = "number"

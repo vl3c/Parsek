@@ -213,7 +213,7 @@ mission = "b1_pad_hop"            # -> harness/missions/b1_pad_hop.py  (filename
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
-  { phase = "mission",  expect = "MISSION-OK", budget = 600 },   # <- flight happens here
+  { phase = "mission",  expect = "MISSION-OK", budget = 780 },   # <- flight happens here
   { cmd = "CommitTree",                                          expect = "OK" },
   { cmd = "FlushAndQuit",                                        expect = "OK" },
 ]
@@ -225,11 +225,11 @@ steps = [
 throttle              = 1.0
 apoapsisWindowMeters  = { min = 6000, max = 30000 }   # a WINDOW, not a golden apoapsis
 chuteArmMaxRateMps    = 30                            # arm at the apoapsis crossing
-chuteFullDeployAltMeters = 1000                       # stock deployAltitude, pinned
+chuteFullDeployAltMeters = 2500                       # stock deployAltitude, pinned
 landedSituations      = ["LANDED", "SPLASHED"]        # either accepted
 ascentTimeoutSeconds  = 90
 coastTimeoutSeconds   = 180
-descentTimeoutSeconds = 600
+descentTimeoutSeconds = 360
 
 # A flown scenario PRODUCES a recording, so recordings are expected. count.min>=1
 # keeps the REC-001/REC-003 log rules MANDATORY (M-A5 verifier 4): a dropped
@@ -243,7 +243,7 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 allowedAnomalies = []
 
 [runtime]
-budgetSeconds = 900               # outer wall-clock ceiling (M-A5 watchdog)
+budgetSeconds = 1200               # outer wall-clock ceiling (M-A5 watchdog)
 [retry]
 policy = "once"                   # mission FLAKE / connect-timeout retry-once (below)
 [expectedFail]

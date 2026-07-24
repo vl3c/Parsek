@@ -91,7 +91,7 @@ class ResultSink:
 B1_PARAMS = {
     "throttle": 1.0,
     "apoapsisWindowMeters": {"min": 6000, "max": 30000},
-    "chuteArmMaxRateMps": 30, "chuteFullDeployAltMeters": 1000,
+    "chuteArmMaxRateMps": 30, "chuteFullDeployAltMeters": 2500,
     "landedSituations": ["LANDED", "SPLASHED"],
     "ascentTimeoutSeconds": 90,
     "coastTimeoutSeconds": 180,
@@ -942,9 +942,15 @@ _B1_DESCENT_WITH_CHUTE_FRAMES = [
          craft_chute_state=mlib.CHUTE_STATE_SEMI_DEPLOYED),
     # Below downMaxAltMeters (500): the DOWN eligibility gate's "reached the
     # ground" leg (SF-1) needs the last finite altitude near the surface.
-    snap(ut=7.5, altitude=60.0, vertical_speed=-9.0, apoapsis=14000,
+    # TWO consecutive Deployed reads: the latch is B1_CANOPY_DEBOUNCE_K debounced, so a
+    # single frame must not earn it (stock flips the state at the START of the ~8 s
+    # canopy animation).
+    snap(ut=7.0, altitude=900.0, vertical_speed=-12.0, apoapsis=14000,
          situation="FLYING",
          craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),                        # canopy open
+    snap(ut=7.5, altitude=60.0, vertical_speed=-9.0, apoapsis=14000,
+         situation="FLYING",
+         craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
 ]
 
 
@@ -1051,6 +1057,15 @@ class DownTerminalShellTests(unittest.TestCase):
         names = {a["name"]: a["met"] for a in result["assertions"]}
         self.assertTrue(names["landedSituation"])
         self.assertFalse(names["craftCanopyObserved"])
+
+    def test_b1_control_opts_into_the_chute_read(self):
+        """read_chute=True is the single line that makes the observed-canopy chain
+        real: without it every frame carries the "" unread sentinel and
+        craftCanopyObserved can never be met. Flipping it to False used to leave the
+        whole suite green (reviewers found this gap), so it is asserted directly."""
+        control = b1_pad_hop.make_control()
+        self.assertTrue(control._read_chute)
+        self.assertFalse(control._use_mechjeb)   # B1 is raw kRPC, no MechJeb
 
     def test_b1_arm_carries_the_raised_full_deploy_altitude(self):
         """The arm must ride SET_CHUTE_DEPLOY_ALTITUDE on the same frame, carrying the

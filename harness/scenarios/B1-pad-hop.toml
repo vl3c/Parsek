@@ -102,8 +102,11 @@ steps = [
 # The fix is the one EVA-4 flight 2 LIVE-PROVED on this exact fixture and craft: arm
 # at the APOAPSIS CROSSING, where the airspeed is near zero, DeploySafe is trivially
 # SAFE, and Kerbin is already ~0.2 atm (well over the module's 0.04 atm gate). The
-# canopy opens at ~11.9 km and the craft never reaches the terminal velocity that
-# made an altitude trigger unopenable.
+# chute SEMI-deploys at ~11.9 km (the full canopy comes later, at
+# chuteFullDeployAltMeters) and the craft never reaches the terminal velocity that made
+# an altitude trigger unopenable. Note the semi-deployed craft is NOT slow: EVA-4
+# flight 2 measured it sinking at up to -236 m/s. Semi-deploy is what makes the FULL
+# canopy reachable, not what brakes the craft.
 # ===================================================================================
 [driver.missionParams]
 throttle              = 1.0

@@ -86,12 +86,18 @@ MISSION_VERDICTS: Tuple[str, ...] = (
     MISSION_FLAKE, MISSION_ERROR,
 )
 
-# B1 phase names (design "Mission B1: pad-hop"). DOWN is the chute-deployed-impact
-# SUCCESS terminal (operator decision 2026-07-20, option A): the hop flew, the chute
-# deployed, and the craft reached the ground -- a breakup at touchdown is a
-# successful B1 end (the stock Jumping Flea ALWAYS breaks apart at ~9 m/s touchdown
-# vs the booster's 7 m/s tolerance; the craft-survives-intact contract is owned by
-# the separate B4 mission).
+# B1 phase names (design "Mission B1: pad-hop"). DOWN is the canopy-borne-impact
+# SUCCESS terminal (operator decision 2026-07-20 option A, re-gated 2026-07-25): the
+# hop flew, the canopy was OBSERVED open, and the craft reached the ground -- a
+# breakup at touchdown is a successful B1 end, because the craft-survives-intact
+# contract is owned by the separate B4 mission.
+#
+# This block used to justify that with "the stock Jumping Flea ALWAYS breaks apart at
+# ~9 m/s touchdown vs the booster's 7 m/s tolerance". RETRACTED 2026-07-25: that rate
+# was never measured. The chute never opened on any run that produced it, so every
+# observed breakup was a ~300 m/s terminal-velocity impact. Whether this craft
+# survives a real canopy touchdown is still unmeasured; both LANDED and DOWN are
+# accepted ends.
 B1_PRELAUNCH = "PRELAUNCH"
 B1_ASCENT = "ASCENT"
 B1_COAST = "COAST"
@@ -100,6 +106,12 @@ B1_LANDED = "LANDED"
 B1_DOWN = "DOWN"
 B1_PHASES: Tuple[str, ...] = (B1_PRELAUNCH, B1_ASCENT, B1_COAST, B1_DESCENT,
                               B1_LANDED, B1_DOWN)
+
+# Consecutive DESCENT frames that must read ParachuteState Deployed before the OBSERVED
+# canopy latch (B1State.craft_chute_full_seen) is earned. Sibling of
+# EVA4_WINDOW_DEBOUNCE_K and for the same reason: stock flips the state to DEPLOYED at
+# the START of the ~8 s canopy animation, and this latch decides a success terminal.
+B1_CANOPY_DEBOUNCE_K = 2
 
 # EVA-4 phase names (mission eva4_atmo_chute; scenario EVA-4-atmo-chute). The B1 hop
 # shape up to DESCENT, but the terminal is EVA-WINDOW, NOT a landing: the mission's whole
@@ -1614,10 +1626,13 @@ class B1State:
     # arm point without re-deriving it from the frames.
     chute_armed_altitude: Optional[float] = None
     chute_armed_rate: Optional[float] = None
-    # OBSERVED latch: the craft's parachute has READ Deployed at least once
-    # (TelemetrySnapshot.craft_chute_state, the live kRPC ParachuteState). This -- never
-    # ``chute_deployed`` -- is what the DOWN terminal and the canopy assertion gate on.
+    # OBSERVED latch: the craft's parachute has READ Deployed on B1_CANOPY_DEBOUNCE_K
+    # consecutive DESCENT frames (TelemetrySnapshot.craft_chute_state, the live kRPC
+    # ParachuteState). This -- never ``chute_deployed`` -- is what the DOWN terminal and
+    # the canopy assertion gate on.
     craft_chute_full_seen: bool = False
+    # Consecutive Deployed reads so far; reset by any non-Deployed frame (fail-closed).
+    canopy_seen_streak: int = 0
     # The last non-empty observed chute state, carried so a failure names what the
     # canopy was actually doing ("Armed" = commanded but never opened).
     last_chute_state: str = ""
@@ -1747,13 +1762,40 @@ def b1_decide(state: B1State, snapshot: TelemetrySnapshot) -> Tuple[B1State, Lis
         state = replace(state, last_finite_altitude=snapshot.altitude)
 
     # OBSERVED canopy latches, from live frames only (a vessel_lost snapshot carries
-    # benign defaults and must not fabricate a canopy). ``craft_chute_full_seen`` is
-    # sticky: once the canopy has read Deployed the craft flew a chuted descent, even
-    # if the chute is cut or the part is destroyed on the last frame.
+    # benign defaults and must not fabricate a canopy).
+    #
+    # ``last_chute_state`` is DIAGNOSTIC ONLY (it names what the canopy was doing in a
+    # failure reason), so it tracks every live frame in every phase.
+    #
+    # ``craft_chute_full_seen`` is the GATE, so it is far narrower: DESCENT-phase frames
+    # only, and only after B1_CANOPY_DEBOUNCE_K consecutive Deployed reads. Both legs
+    # matter and both were missing in the first draft of this fix (Opus review panel,
+    # 2026-07-25, F1):
+    #   - PHASE SCOPE: the latch used to run before the phase dispatch, so ONE Deployed
+    #     read on any frame - a stale pad read, a multi-chute craft with a pre-deployed
+    #     spare, a read taken during an active-vessel handoff - permanently certified
+    #     the canopy. Reproduced: a spurious PRE_LAUNCH Deployed followed by an
+    #     Armed-the-whole-way 300 m/s impact resolved MISSION-OK with the reason "all
+    #     telemetry assertions met" while last_chute_state was still "Armed". That is
+    #     this bug class over again, moved one frame earlier. The chute cannot legally
+    #     be open before DESCENT anyway: it is STOWED until the apoapsis-crossing arm.
+    #   - DEBOUNCE: stock flips ParachuteState to DEPLOYED at the START of the ~8 s
+    #     canopy animation (the same trap EVA4_WINDOW_DEBOUNCE_K exists for), so a lone
+    #     glitched frame must not certify a terminal. Cheap here: full deploy triggers
+    #     at chuteFullDeployAltMeters with many polls of sky left, so a real canopy
+    #     always reads Deployed on consecutive frames.
+    # Sticky once earned: a canopy that opened and was then Cut, or destroyed on the
+    # last frame, still flew a chuted descent.
     if not snapshot.vessel_lost and snapshot.craft_chute_state:
         state = replace(state, last_chute_state=snapshot.craft_chute_state)
+    if (not snapshot.vessel_lost and state.phase == B1_DESCENT
+            and not state.craft_chute_full_seen):
         if snapshot.craft_chute_state == CHUTE_STATE_DEPLOYED:
-            state = replace(state, craft_chute_full_seen=True)
+            streak = state.canopy_seen_streak + 1
+            state = replace(state, canopy_seen_streak=streak,
+                            craft_chute_full_seen=(streak >= B1_CANOPY_DEBOUNCE_K))
+        else:
+            state = replace(state, canopy_seen_streak=0)
 
     # Runner-signaled vessel loss (unreadable active vessel after repeated telemetry
     # failures): a phase-INDEPENDENT terminal (design vessel-destroyed terminal).
@@ -1835,6 +1877,33 @@ def b1_decide(state: B1State, snapshot: TelemetrySnapshot) -> Tuple[B1State, Lis
             return replace(landed, chute_deployed=chute_deployed,
                            chute_armed_altitude=armed_alt,
                            chute_armed_rate=armed_rate), actions
+
+        # ARM-WINDOW-MISSED: a NAMED, FAST ASSERT-FAIL (Opus review panel 2026-07-25,
+        # F2). The arm gate is one-shot and monotonically unreachable once missed - the
+        # fall rate only grows - so a single skipped poll across apoapsis (an RPC
+        # latency spike, a KSP hitch) permanently disarms the mission. Without this
+        # branch the craft simply kept falling to the descent budget and reported
+        # MISSION-FLAKE "phase DESCENT timed out", which hlib maps to the retryable
+        # autopilot-flake bucket: a DETERMINISTIC failure filed as flake, polluting the
+        # flake ledger and naming nothing about the chute. It also falsified this
+        # spec's own claim that a canopy failure is "caught first and fast ... instead
+        # of burning the budget" - true on the LANDED / vessel-lost paths, false here.
+        # Sibling of EVA-4's eva-window-missed terminal.
+        #
+        # The floor is chuteFullDeployAltMeters: below it an unarmed chute can no
+        # longer produce the full canopy the mission asserts, so the outcome is already
+        # decided and waiting only wastes budget.
+        if (not chute_deployed and _is_finite(snapshot.altitude)
+                and snapshot.altitude < state.params.chute_full_deploy_alt):
+            return replace(
+                state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
+                loss_reason=(
+                    "chute-arm-window-missed: fell to %.0fm (below the %.0fm full-deploy "
+                    "altitude) at %.1fm/s without ever entering the %.0fm/s arming "
+                    "window; the apoapsis-crossing arm frame was never sampled"
+                    % (snapshot.altitude, state.params.chute_full_deploy_alt,
+                       snapshot.vertical_speed, state.params.chute_arm_max_rate))), actions
+
         stayed = _b1_stay_or_flake(state, snapshot, peak)
         return replace(stayed, chute_deployed=chute_deployed,
                        chute_armed_altitude=armed_alt,
@@ -5516,7 +5585,9 @@ def _peak_finite(frames, getter) -> Optional[float]:
 def evaluate_b1_assertions(frames, params: B1Params,
                            k: int = DEFAULT_DEBOUNCE_K,
                            down_terminal: bool = False,
-                           craft_canopy_observed: bool = False) -> List[AssertionOutcome]:
+                           craft_canopy_observed: bool = False,
+                           arm_altitude: Optional[float] = None,
+                           arm_rate: Optional[float] = None) -> List[AssertionOutcome]:
     """Evaluate the three B1 driver-validity assertions over the flight frames.
 
     - ``apoapsisWindow``: the PEAK apoapsis must sit within apoapsisWindowMeters
@@ -5572,9 +5643,21 @@ def evaluate_b1_assertions(frames, params: B1Params,
                                {"accepted": list(params.landed_situations),
                                 "downTerminal": False})
 
-    canopy = AssertionOutcome("craftCanopyObserved", bool(craft_canopy_observed),
-                              bool(craft_canopy_observed),
-                              {"required": CHUTE_STATE_DEPLOYED})
+    # value = the altitude the arm was COMMANDED at, and the detail carries the rate
+    # and the two knobs, so the result JSON holds BOTH halves of the
+    # commanded-vs-observed distinction: where we acted, and whether KSP complied.
+    # (Mirrors evaluate_eva4_assertions. Before the 2026-07-25 review these two fields
+    # were written into B1State on every arm and read by nothing, while their comment
+    # claimed they were "carried into the result".)
+    canopy = AssertionOutcome(
+        "craftCanopyObserved", bool(craft_canopy_observed),
+        arm_altitude if arm_altitude is not None else bool(craft_canopy_observed),
+        {"required": CHUTE_STATE_DEPLOYED,
+         "debounceK": B1_CANOPY_DEBOUNCE_K,
+         "armCommanded": arm_altitude is not None,
+         "armCommandedRate": arm_rate,
+         "armMaxRate": params.chute_arm_max_rate,
+         "fullDeployAltitude": params.chute_full_deploy_alt})
     return [apo, sit, canopy]
 
 
@@ -6232,6 +6315,11 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("arrival_bad_streak", "arrivalBadStreak"),
     ("extra_rounds_done", "extraRounds"),
     ("no_encounter_streak", "noEncounterStreak"),
+    # B1 canopy: the observed latch is the one gate this whole scenario turns on, and
+    # the commanded latch beside it is what a reader must NOT confuse it with, so both
+    # get a loud gate line naming which is which.
+    ("craft_chute_full_seen", "canopySeen"),
+    ("chute_deployed", "armCommanded"),
     # FORGE + B-DOCK sparse latch/gate flips (getattr-generic; absent elsewhere).
     ("launch_settle_streak", "launchSettleStreak"),
     ("rendezvous_ever_enabled", "rvEnabled"),
