@@ -7,7 +7,7 @@ id = "EVA-2-orbital-board"
 # INVALID(staging) this terminally and self-quarantine a scenario that never ran.
 # IMPLEMENTED PENDING IN-GAME PROOF: P3 pins the count window, P4 pins the orbital
 # auto-record log wording (the required token keeps the STABLE prefix).
-tier = "pending-fixture"
+tier = "daily"
 description = "Orbital EVA + re-board with autoRecordOnEva=true: the deferred EVA auto-record path starts the recorder on the EVA kerbal, then the kerbal re-boards from the ladder."
 instanceProfile = "stock-minimal"
 tags = ["eva", "auto-record-eva", "orbital", "D1", "B3", "A4"]
