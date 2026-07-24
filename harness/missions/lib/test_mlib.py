@@ -3891,8 +3891,9 @@ class ForgeMachineTests(unittest.TestCase):
         state = mlib.forge_initial_state(FORGE_PARAMS)
         new, actions = mlib.forge_decide(state, snap(ut=0.0))
         self.assertEqual(new.phase, mlib.FORGE_LAUNCH)
-        self.assertEqual(actions, [Action(mlib.ACTION_LAUNCH_VESSEL, value=None,
-                                           text="Kerbal X")])
+        self.assertEqual(actions, [Action(mlib.ACTION_LAUNCH_VESSEL,
+                                           text="Kerbal X",
+                                           launch_site="LaunchPad", crew=None)])
 
     def test_full_happy_path_settles_prelaunch(self):
         state = mlib.forge_initial_state(FORGE_PARAMS)
@@ -4119,6 +4120,20 @@ class BDockHappyPathTests(unittest.TestCase):
         state, actions = mlib.bdock_decide(state, snap(ut=161.0, seam_commit_result="OK"))
         self.assertEqual(state.phase, mlib.BDOCK_INT_LAUNCH)
         self.assertEqual(actions, [Action(mlib.ACTION_LAUNCH_VESSEL, text="Kerbal X")])
+
+    def test_station_commit_error_flakes_with_named_reason(self):
+        # Review follow-up 5: a seam ERROR/TIMEOUT flake names the seam outcome
+        # (not the generic phase-timeout wording).
+        for result in ("ERROR", "TIMEOUT"):
+            state, _ = _bdock_walk_to(mlib.BDOCK_STATION_COMMIT)
+            state, _ = mlib.bdock_decide(
+                state, snap(ut=161.0, seam_commit_result=result))
+            self.assertTrue(state.done)
+            self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+            self.assertIsNotNone(state.flake_reason)
+            self.assertIn("tree-commit seam returned %s" % result,
+                          state.flake_reason)
+            self.assertIn(mlib.BDOCK_STATION_COMMIT, state.flake_reason)
 
 
 class BDockSeparateTests(unittest.TestCase):
@@ -4375,6 +4390,55 @@ class BDockRendezvousTests(unittest.TestCase):
         self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
         self.assertEqual(state.flake_phase, mlib.BDOCK_RENDEZVOUS)
 
+    def test_no_progress_paused_while_node_pending(self):
+        # Review follow-up 1 (flight-11): the no-progress detector is PAUSED
+        # (counter reset each poll) while a maneuver node is pending -- the
+        # rendezvous AP legitimately waits minutes for a burn window with the
+        # distance flat. A flat distance WITH node_count > 0 must NEVER flake, even
+        # across far more than rendezvous_noprogress_frames (5) polls; the phase
+        # budget bounds slow-but-alive, not this watchdog.
+        state = self._at_rendezvous()
+        # altitude varies each poll (a live orbiting vessel) so the shared
+        # frozen-telemetry detector never trips; only target_distance is flat.
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=475.0, altitude=100000.0, mj_rendezvous_enabled=True,
+            target_distance=3000.0, node_count=1))  # min=3000, node pending
+        for i in range(5 * 4):  # 20 polls >> rendezvous_noprogress_frames=5
+            state, _ = mlib.bdock_decide(state, snap(
+                ut=476.0 + i, altitude=100000.0 + i, mj_rendezvous_enabled=True,
+                target_distance=3000.0, node_count=1))
+            self.assertFalse(state.done, "flaked at poll %d with a node pending" % i)
+        self.assertEqual(state.phase, mlib.BDOCK_RENDEZVOUS)
+        self.assertEqual(state.rendezvous_noprogress_count, 0)
+
+    def test_no_progress_flakes_after_node_consumed(self):
+        # Review follow-up 1: once the node is CONSUMED (node_count back to 0), the
+        # no-progress watchdog resumes -- a flat distance then flakes at exactly
+        # rendezvous_noprogress_frames (5) consecutive non-improving polls.
+        state = self._at_rendezvous()
+        # altitude varies each poll (a live vessel) so only the no-progress
+        # watchdog can flake, never the frozen-telemetry detector.
+        # Node pending, distance flat: counter stays 0 (paused).
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=475.0, altitude=100000.0, mj_rendezvous_enabled=True,
+            target_distance=3000.0, node_count=1))
+        self.assertEqual(state.rendezvous_noprogress_count, 0)
+        # Node consumed; establish the running minimum on the first no-node poll.
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=476.0, altitude=100001.0, mj_rendezvous_enabled=True,
+            target_distance=3000.0,
+            node_count=0))  # min=3000, count=0 (first flat, not yet non-improving)
+        self.assertFalse(state.done)
+        # Five consecutive non-improving no-node polls -> FLAKE at the threshold.
+        for i in range(5):
+            self.assertFalse(state.done)
+            state, _ = mlib.bdock_decide(state, snap(
+                ut=477.0 + i, altitude=100002.0 + i, mj_rendezvous_enabled=True,
+                target_distance=3000.0, node_count=0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.BDOCK_RENDEZVOUS)
+
     def test_rendezvous_budget_flakes(self):
         state = self._at_rendezvous()
         state, _ = mlib.bdock_decide(state, snap(
@@ -4492,12 +4556,42 @@ class BDockDockTests(unittest.TestCase):
                              text="LiquidFuel", limit=mlib.TRANSFER_DIR_DELIVER),
                       actions)
 
-    def test_docked_without_latch_does_not_advance(self):
+    def test_docked_without_latch_still_advances(self):
+        # Review follow-up 4: the docked short-circuit completes on `docked` ALONE
+        # (not docked AND latched_off). A docked pair whose AP never latched off
+        # (docking_ever_enabled still False) must NOT be misrouted into the E1a
+        # "enable never took" flake -- the pair IS mated, so complete to TRANSFER.
         state = self._at_dock()
-        # Docked but the AP never engaged (latch not flipped) -> stay (design gate).
-        state, _ = mlib.bdock_decide(state, snap(
+        self.assertFalse(state.docking_ever_enabled)
+        state, actions = mlib.bdock_decide(state, snap(
             ut=510.0, mj_docking_enabled=False, docking_state="Docked"))
-        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+        self.assertEqual(state.phase, mlib.BDOCK_TRANSFER)
+        self.assertTrue(state.docked_confirmed)
+        self.assertIn(Action(mlib.ACTION_MJ_DISABLE_DOCKING), actions)
+
+    def test_docked_on_pending_enable_poll_does_not_reenable_ap(self):
+        # Review follow-up 4 (the race the fix targets): a hard dock can land on
+        # the SAME poll a retarget armed dock_enable_pending. The docked
+        # short-circuit sits AHEAD of the pending-enable branch, so the pending
+        # enable is DISCARDED (no ACTION_MJ_ENABLE_DOCKING re-issued onto a mated
+        # pair -- an unguarded runner enable could throw and flake a won mission)
+        # and the phase completes to TRANSFER.
+        state = self._at_dock()
+        # Arm dock_enable_pending exactly as a DOCK retarget would (flight-11
+        # dropped-target recovery re-arms it), then read Docked on the same poll.
+        state = mlib.replace(state, dock_enable_pending=True)
+        state, actions = mlib.bdock_decide(state, snap(
+            ut=512.0, mj_docking_enabled=True, docking_state="Docked"))
+        self.assertEqual(state.phase, mlib.BDOCK_TRANSFER)
+        self.assertFalse(state.dock_enable_pending)
+        self.assertTrue(state.docked_confirmed)
+        # No re-enable onto the docked pair; the AP is DISABLED and T1 starts.
+        kinds = [a.kind for a in actions]
+        self.assertNotIn(mlib.ACTION_MJ_ENABLE_DOCKING, kinds)
+        self.assertIn(mlib.ACTION_MJ_DISABLE_DOCKING, kinds)
+        self.assertIn(Action(mlib.ACTION_START_RESOURCE_TRANSFER, value=40.0,
+                             text="LiquidFuel", limit=mlib.TRANSFER_DIR_DELIVER),
+                      actions)
 
     def test_monoprop_out_gives_up(self):
         state = self._at_dock()
@@ -4893,8 +4987,33 @@ class BDockParamTests(unittest.TestCase):
     def test_forge_params_from_dict_defaults_crew_none(self):
         p = mlib.forge_params_from_dict({"craftName": "Kerbal X"})
         self.assertEqual(p.craft_name, "Kerbal X")
-        self.assertIsNone(p.crew)
+        self.assertIsNone(p.crew_names)
         self.assertEqual(p.launch_site, "LaunchPad")
+
+    def test_forge_params_from_dict_parses_named_crew(self):
+        # The EVA-3 3-crew pad fixture passes crewNames (a list of kerbal names);
+        # forge_params_from_dict must carry it as a tuple onto the launch Action.
+        p = mlib.forge_params_from_dict({
+            "craftName": "Kerbal X",
+            "crewNames": ["Valentina Kerman", "Bob Kerman", "Bill Kerman"],
+        })
+        self.assertEqual(p.crew_names,
+                         ("Valentina Kerman", "Bob Kerman", "Bill Kerman"))
+
+    def test_forge_decide_threads_launch_site_and_named_crew(self):
+        # The launch Action must carry launch_site + crew (by NAME) so the runner
+        # threads both into sc.launch_vessel; an empty/None crewNames stays None
+        # (runner sends crew=[] = default manifest).
+        params = mlib.ForgeParams(
+            craft_name="Kerbal X", launch_site="LaunchPad",
+            crew_names=("Valentina Kerman", "Bob Kerman", "Bill Kerman"),
+            launch_timeout=120.0, settle_debounce=3)
+        state = mlib.forge_initial_state(params)
+        _, actions = mlib.forge_decide(state, snap(ut=0.0))
+        self.assertEqual(actions, [Action(
+            mlib.ACTION_LAUNCH_VESSEL, text="Kerbal X",
+            launch_site="LaunchPad",
+            crew=("Valentina Kerman", "Bob Kerman", "Bill Kerman"))])
 
 
 class BDockPortResolutionTests(unittest.TestCase):

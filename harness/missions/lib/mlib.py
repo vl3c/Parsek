@@ -157,7 +157,7 @@ B5_PHASES: Tuple[str, ...] = (B5_PRELAUNCH, B5_MJ_ASCENT, B5_CIRCULARIZE, B5_ORB
 # it into the committed pre-placed-Station fixture. NOT a flight mission (no ascent,
 # no orbit): it exists only to STAMP a pad fixture headlessly, replacing the
 # operator fixture flight (2026-07-22 operator-principle override). It is generic
-# over the craft (and an optional crew count), so the same forge later produces the
+# over the craft (and optional named crew), so the same forge later produces the
 # EVA-3 pad fixture (same Kerbal X craft, 3-crew pod) with a different missionParams.
 FORGE_PRELAUNCH = "PRELAUNCH"
 FORGE_LAUNCH = "LAUNCH"
@@ -342,10 +342,13 @@ ACTION_CANCEL_WARP = "cancel_warp"                         # value = None
 # resolves it against the handle it captured while the object was reachable).
 # ---------------------------------------------------------------------------
 # Launch a fresh vessel from the save's Ships/VAB onto the pad (kRPC
-# SpaceCenter.launch_vessel("VAB", <name>, "LaunchPad")). text = the craft name
-# ("Kerbal X"); value (optional) = crew count, None launches KSP's default
-# manifest. Used by BOTH the FORGE (piece-1 stamp) and B-DOCK's Interceptor
-# (piece 2). Exercises D1 auto-record-launch on the StartWithNewLaunch path.
+# SpaceCenter.launch_vessel("VAB", <name>, <launch_site>, crew=<names>)). text =
+# the craft name ("Kerbal X"); launch_site = the pad/runway name (None -> the
+# runner defaults "LaunchPad"); crew = an explicit tuple of KERBAL NAMES (None /
+# empty -> crew=[] = KSP's default manifest). Crew is by NAME, never a count:
+# kRPC 0.5.4 has no roster-enumeration API. Used by BOTH the FORGE (piece-1
+# stamp) and B-DOCK's Interceptor (piece 2). Exercises D1 auto-record-launch on
+# the StartWithNewLaunch path.
 ACTION_LAUNCH_VESSEL = "launch_vessel"                     # text = craft name
 # Capture the CURRENT active vessel + its top docking port as "the Station"
 # handle (STATION-COMMIT, while the Station is the active vessel -- P9 / Q4).
@@ -928,11 +931,19 @@ class Action:
     ``text`` carries a string argument (the SET_TARGET_BODY body name) -- a
     separate field so ``value`` stays float-only for every numeric consumer.
     ``limit`` carries a secondary numeric bound (the PLAN_COURSE_CORRECT dv cap
-    the runner disqualifies an oversized correction plan against)."""
+    the runner disqualifies an oversized correction plan against).
+    ``launch_site`` and ``crew`` are the two ACTION_LAUNCH_VESSEL payloads: the
+    kRPC ``launch_site`` name (None -> the runner defaults ``"LaunchPad"``) and an
+    explicit tuple of KERBAL NAMES to seed the pod (None / empty -> the runner
+    passes ``crew=[]`` = KSP's default crew assignments). kRPC 0.5.4 exposes no
+    roster-enumeration API (only ``get_kerbal(name)`` + ``launch_vessel(crew:
+    List[str])``), so the crew contract is by NAME, never by count."""
     kind: str
     value: Optional[float] = None
     text: Optional[str] = None
     limit: Optional[float] = None
+    launch_site: Optional[str] = None
+    crew: Optional[Tuple[str, ...]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -3285,7 +3296,12 @@ class ForgeParams:
     are budgets / debounce depths, never a golden trajectory."""
     craft_name: str
     launch_site: str = "LaunchPad"
-    crew: Optional[int] = None                 # None = KSP default manifest
+    # Explicit KERBAL NAMES seeded into the pod. None / empty -> KSP's default
+    # crew assignments (crew=[]). By NAME, never a count: kRPC 0.5.4 exposes no
+    # roster-enumeration API to resolve a count to names, only get_kerbal(name)
+    # + launch_vessel(crew: List[str]). The EVA-3 3-crew pad fixture passes the
+    # three names its EvaExit steps later reference.
+    crew_names: Optional[Tuple[str, ...]] = None
     settle_situations: Tuple[str, ...] = ("PRE_LAUNCH",)
     launch_timeout: float = 300.0              # game-s to see the new craft settle
     settle_debounce: int = 3                   # K consecutive settled frames
@@ -3293,11 +3309,12 @@ class ForgeParams:
 
 def forge_params_from_dict(params: Dict) -> ForgeParams:
     params = params or {}
-    crew = params.get("crew", None)
+    crew_names = params.get("crewNames", None)
     return ForgeParams(
         craft_name=str(params.get("craftName", "Kerbal X")),
         launch_site=str(params.get("launchSite", "LaunchPad")),
-        crew=(int(crew) if crew is not None else None),
+        crew_names=(tuple(str(n) for n in crew_names)
+                    if crew_names else None),
         settle_situations=tuple(params.get("settleSituations", ("PRE_LAUNCH",))),
         launch_timeout=float(params.get("launchTimeoutSeconds", 300)),
         settle_debounce=int(params.get("settleDebounceFrames", 3)),
@@ -3360,10 +3377,10 @@ def forge_decide(state: ForgeState,
             return replace(
                 state, done=True, verdict=MISSION_ASSERT_FAIL,
                 loss_reason="vessel-lost before launch (boot save unreadable)"), []
-        launch = Action(ACTION_LAUNCH_VESSEL, value=(float(state.params.crew)
-                                                     if state.params.crew is not None
-                                                     else None),
-                        text=state.params.craft_name)
+        launch = Action(ACTION_LAUNCH_VESSEL,
+                        text=state.params.craft_name,
+                        launch_site=state.params.launch_site,
+                        crew=state.params.crew_names)
         return _forge_enter(state, FORGE_LAUNCH, snapshot.ut), [launch]
 
     if state.phase == FORGE_LAUNCH:
@@ -3915,7 +3932,13 @@ def bdock_decide(state: BDockState,
             return (_bdock_enter(state, BDOCK_INT_LAUNCH, snapshot.ut),
                     [Action(ACTION_LAUNCH_VESSEL, text=p.craft_name)])
         if result in ("ERROR", "TIMEOUT"):
-            return _bdock_flake(replace(state, loss_reason=None)), []
+            # Review follow-up 5: name the seam outcome so the operator sees WHY
+            # STATION-COMMIT flaked (the tree-commit command seam returned ERROR
+            # or TIMEOUT) instead of the generic phase-timeout wording.
+            return replace(_bdock_flake(replace(state, loss_reason=None)),
+                           flake_reason=(
+                               "phase %s: tree-commit seam returned %s"
+                               % (BDOCK_STATION_COMMIT, result))), []
         return _bdock_stay_or_flake(state, snapshot), []
 
     # ---- PIECE 2: INTERCEPTOR (launch_vessel) ------------------------------
@@ -4042,10 +4065,37 @@ def bdock_decide(state: BDockState,
 
     if state.phase == BDOCK_DOCK:
         st = state
+        docked = snapshot.docking_state == DOCKING_STATE_DOCKED
+        # Docked short-circuit (review follow-up 4). A hard dock can land on the
+        # SAME poll that a retarget armed dock_enable_pending. Re-enabling the
+        # docking AP on an already-mated pair is at best a no-op and at worst an
+        # unguarded runner ENABLE that throws and flakes a WON mission. So the
+        # docked test sits AHEAD of the dock_enable_pending branch: once the pair
+        # reads docked, discard any pending enable and complete straight to
+        # TRANSFER (disable the AP + start T1), exactly as the old latched-off
+        # completion did. Completing on `docked` ALONE (not docked AND latched_off)
+        # also covers the race where the deferred enable never fired, so
+        # docking_ever_enabled is still False and a latched-off gate would
+        # otherwise misroute a docked pair into the E1a "enable never took" flake.
+        # onPartCouple -> Parsek authors the cross-tree Dock branch + opens the
+        # RouteConnectionWindow.
+        if docked:
+            return (_bdock_enter(replace(st, docked_confirmed=True,
+                                         current_transfer_started=True,
+                                         transfer_best_amount=float("-inf"),
+                                         transfer_noprogress_streak=0,
+                                         dock_enable_pending=False),
+                                 BDOCK_TRANSFER, snapshot.ut),
+                    [Action(ACTION_MJ_DISABLE_DOCKING),
+                     Action(ACTION_START_RESOURCE_TRANSFER,
+                            value=p.transfer_amount_lf, text="LiquidFuel",
+                            limit=TRANSFER_DIR_DELIVER)])
+
         # Deferred docking-AP enable (flight 9): the port target was set on the
         # previous batch; by this poll MechJeb's core.target has synced to it, so
         # the AP's first Drive tick sees a real docking node. Reset the enable-wait
-        # watchdog -- we have just (re-)issued the enable.
+        # watchdog -- we have just (re-)issued the enable. (Not reached when
+        # docked: the short-circuit above already completed the phase.)
         if st.dock_enable_pending:
             return (replace(st, dock_enable_pending=False,
                             dock_enable_wait_streak=0),
@@ -4057,22 +4107,6 @@ def bdock_decide(state: BDockState,
             # AP-death watchdog streaks (it is alive this frame).
             st = replace(st, docking_ever_enabled=True, dock_enable_wait_streak=0,
                          dock_died_streak=0)
-        docked = snapshot.docking_state == DOCKING_STATE_DOCKED
-        latched_off = st.docking_ever_enabled and not ap_on
-
-        # Completion: onPartCouple -> Parsek authors the cross-tree Dock branch +
-        # opens the RouteConnectionWindow. Disable the docking AP and start T1
-        # (reset the TRANSFER liveness tracker for the new transfer).
-        if docked and latched_off:
-            return (_bdock_enter(replace(st, docked_confirmed=True,
-                                         current_transfer_started=True,
-                                         transfer_best_amount=float("-inf"),
-                                         transfer_noprogress_streak=0),
-                                 BDOCK_TRANSFER, snapshot.ut),
-                    [Action(ACTION_MJ_DISABLE_DOCKING),
-                     Action(ACTION_START_RESOURCE_TRANSFER,
-                            value=p.transfer_amount_lf, text="LiquidFuel",
-                            limit=TRANSFER_DIR_DELIVER)])
 
         if ap_on:
             # ---- AP running: dropped-target recovery + progress watchdog + give-ups.
@@ -4099,8 +4133,11 @@ def bdock_decide(state: BDockState,
             st, prog_flake = _bdock_dock_progress(st, snapshot, p)
             if prog_flake is not None:
                 return prog_flake, [Action(ACTION_MJ_DISABLE_DOCKING)]
-            # Monoprop-out give-up (P2): a docking-AP stall thrashing RCS drains it.
-            if (not docked and _is_finite(snapshot.monopropellant)
+            # Monoprop-out give-up (P2): a docking-AP stall thrashing RCS drains
+            # it. (docked was already completed by the short-circuit above, so a
+            # not-docked test here is redundant -- this branch only runs on a
+            # non-docked, AP-still-running poll.)
+            if (_is_finite(snapshot.monopropellant)
                     and snapshot.monopropellant <= BDOCK_MONOPROP_OUT_EPS):
                 return (replace(_bdock_flake(st, BDOCK_DOCK), flake_reason=(
                             "phase %s: docking aborted, monopropellant exhausted"

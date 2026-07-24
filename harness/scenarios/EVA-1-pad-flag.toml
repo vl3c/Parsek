@@ -6,6 +6,44 @@ id = "EVA-1-pad-flag"
 # unit-covered, but the first live run pins the recordings-count window (R-C) and confirms
 # the required log tokens; the exact "[Pipeline-Smoothing]" structural-snapshot message is
 # regex-escaped here (the design deferred exact-message pinning to implementation).
+#
+# BATCH-AUTORUN EVALUATION (EVA lane task, decision: DO NOT WIRE). The EVA lane
+# asked whether to attach PARSEK_AUTORUN_TESTS (or a RunTests step) with the
+# EVA-relevant in-game categories (AutoRecord / EvaSpawnPosition / CrewReservation
+# / CrewReservationLive) so those live tests run on every EVA nightly. Verdict:
+# NOT wired here (batchComplete stays SKIPPED), for the following evidence-based
+# reasons:
+#   1. The valuable AutoRecord EVA tests (WaitForActiveEvaBranchRecording,
+#      EvaKerbalGhostHasVesselSnapshot, CountEvaBranches, ...) are ALL declared
+#      AllowBatchExecution=false in RuntimeTests.cs -- they run ONLY in Isolated /
+#      row-play mode, which the harness RunTests seam never invokes. A
+#      `RunTests category=AutoRecord` batch would execute ZERO of them. They also
+#      require a MID-FLIGHT crewed vessel and Skip on PRELAUNCH/LANDED/SPLASHED;
+#      this fixture is a PRELAUNCH pod, so even isolated they would Skip.
+#   2. The batch-safe categories (EvaSpawnPosition, CrewReservationLive) read over
+#      RecordingStore.CommittedRecordings and Skip when there are no committed
+#      spawned-endpoint recordings -- a fresh PRELAUNCH EVA fixture has none, so
+#      they would Skip, not exercise. They gain nothing from the EVA fixture.
+#   3. This is a seam-DRIVEN scenario that PRODUCES and commits a specific EVA
+#      recording the verifier chain checks (recordings count 2-4, analyzer
+#      fresh-gate, logContracts). A batch runs the test-runner campaign-isolation
+#      contract (FLIGHT-with-vessel = in-memory+disk revert of persistent.sfs from
+#      a .bak captured at batch start; RestoreBatchFlightBaselineAfterExecution).
+#      Inserting a batch anywhere in the EVA step sequence would couple this
+#      scenario's recording-production verification to that revert timing (baseline
+#      captured before the commit wipes the recording on revert; after the commit
+#      makes the count/analyzer expectations depend on the in-memory+disk snapshot
+#      fidelity) -- fragile, and any isolation-contract change would silently break
+#      EVA verification. Live-EVA batch tests also collide with the seam-driven
+#      EvaExit sequence (stock ground truth 5: a kerbal on the hatch blocks the
+#      next exit).
+# If a nightly home for the batch-safe EVA-adjacent categories is wanted, the
+# clean path is a DEDICATED batch-only scenario over the injected corpus (the
+# S1.4 / H6 pattern: LoadGame an injected save -> RunTests the category ->
+# BATCH_COMPLETE), where committed spawned-endpoint recordings actually exercise
+# EvaSpawnPosition / CrewReservationLive instead of Skipping. That is future work,
+# tracked in docs/dev/todo-and-known-bugs.md, not this scenario. The same verdict
+# applies to EVA-2 and EVA-3 (batchComplete SKIPPED).
 tier = "nightly"
 description = "Ground EVA on the pad: exit + ladder release + flag plant + re-board (single kerbal); the foreground EVA branch, structural snapshot, FlagEvent capture, and board merge all record."
 instanceProfile = "stock-minimal"

@@ -13,8 +13,9 @@ NORMALIZES the title, and writes it to
 It is the headless replacement for the operator fixture flight (2026-07-22
 operator-principle override): the automation forges its own state.
 
-GENERIC: the same tool harvests the EVA-3 pad fixture (the same forge with a
-3-crew pod craft) by passing `--target-name eva3-station-pad`.
+GENERIC: the same tool harvests the EVA-3 pad fixture (the same forge with three
+named crew) by passing `--target-name eva3-pad-3crew` (the name EVA-3-multi-kerbal's
+saveTemplate references).
 
 Usage:
     # After a forge run, the produced save is at
@@ -195,7 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--target-name", default="bdock-station-pad",
                    help="the committed fixture directory name under "
                         "harness/fixtures/saves (default: bdock-station-pad; use "
-                        "eva3-station-pad for the EVA-3 3-crew pad fixture)")
+                        "eva3-pad-3crew for the EVA-3 3-crew pad fixture)")
     p.add_argument("--title", default=None,
                    help="the fixture title (default: the target-name)")
     p.add_argument("--force", action="store_true",

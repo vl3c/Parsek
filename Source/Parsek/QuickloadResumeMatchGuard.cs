@@ -52,6 +52,17 @@ namespace Parsek
         /// Full candidate evaluation: fresh-rollout rejection first (recording-independent,
         /// conclusive), then the launch-guid gate. Returns None when the candidate may be
         /// matched by the existing pid/name logic.
+        ///
+        /// BY DESIGN this composed verdict is NOT on the live path: the
+        /// RestoreActiveTreeFromPending loop calls the two predicates directly
+        /// (IsFreshRolloutCandidate to reject the scene-entry fresh rollout for every
+        /// recording, then LaunchGuidConclusivelyDiffers per candidate recording) because it
+        /// interleaves the guid gate with the EVA-parent walk: a parent whose guid agrees
+        /// must still match even when the child recording's guid conclusively differs, so the
+        /// loop cannot collapse both predicates into one per-candidate call. EvaluateCandidate
+        /// keeps the two rejection reasons composed in a single decision for unit-test
+        /// coverage and any future caller that wants the whole verdict at once; it is
+        /// deliberately not wired into the loop rather than dead code awaiting a caller.
         /// </summary>
         internal static QuickloadResumeRejection EvaluateCandidate(
             string recordedVesselGuid,

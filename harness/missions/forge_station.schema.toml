@@ -32,10 +32,12 @@ type = "int"
 min = 1
 max = 100
 
-# Optional: crew count to seed the pod (None = KSP default manifest). Reserved
-# for the EVA-3 3-crew pad fixture the same forge later produces.
-[params.crew]
+# Optional: explicit KERBAL NAMES to seed the pod, e.g.
+# crewNames = ["Valentina Kerman", "Bob Kerman", "Bill Kerman"]. Omitted / empty
+# = KSP's default crew assignments (crew=[]). By NAME, never a count: kRPC 0.5.4
+# exposes no roster-enumeration API to resolve a count to names, only
+# get_kerbal(name) + launch_vessel(crew: List[str]). Used by the EVA-3 3-crew
+# pad fixture (FORGE-eva3-pad.toml) the same forge produces.
+[params.crewNames]
 required = false
-type = "int"
-min = 0
-max = 16
+type = "list"

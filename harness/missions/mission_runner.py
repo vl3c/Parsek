@@ -1036,12 +1036,21 @@ class KrpcMissionControl(MissionControl):
             # FORGE-bdock-station live runs. The server doc contract is "Pass an
             # empty list to use default crew assignments" (pinned source
             # SpaceCenter.cs LaunchVessel), so [] = default manifest, controllable
-            # pod. Named crew seeding (EVA-3 3-crew pod) remains the future
-            # refinement. Re-resolve the MechJeb handles against the NEW active
+            # pod. Named crew seeding (the EVA-3 3-crew pod) is threaded here via
+            # action.crew, a tuple of KERBAL NAMES: crew=[names] launches the pod
+            # with exactly those kerbals aboard, crew=[] keeps the default
+            # manifest. By NAME, never a count -- kRPC 0.5.4 exposes no
+            # roster-enumeration API (only get_kerbal(name) + launch_vessel(crew:
+            # List[str])), so a count could not be resolved to names server-side.
+            # launch_site is likewise threaded from action.launch_site (None ->
+            # "LaunchPad"). Re-resolve the MechJeb handles against the NEW active
             # vessel and reset the ascent-complete latch + read-fail streak so the
             # fresh craft is judged from its own engage.
-            sc.launch_vessel("VAB", str(action.text), str(
-                getattr(action, "launch_site", None) or "LaunchPad"), crew=[])
+            launch_site = getattr(action, "launch_site", None) or "LaunchPad"
+            crew_names = getattr(action, "crew", None)
+            crew_arg = [str(n) for n in crew_names] if crew_names else []
+            sc.launch_vessel("VAB", str(action.text), str(launch_site),
+                             crew=crew_arg)
             self._mj_ever_enabled = False
             self._read_fail_streak = 0
             if self._use_mechjeb:
