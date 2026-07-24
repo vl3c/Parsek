@@ -1341,7 +1341,17 @@ class KrpcMissionControl(MissionControl):
             from_part, to_part = station_tank, transport_tank
             label = "station->transport"
         try:
-            self._active_transfer = sc.resource_transfer.start(
+            # kRPC 0.5.4: ResourceTransfer.start is a CLASSMETHOD on the
+            # generated service class (RPC ResourceTransfer_static_Start), NOT
+            # an attribute of the SpaceCenter instance (flight 14:
+            # "'SpaceCenter' object has no attribute 'resource_transfer'").
+            # The class gets its _client stamped at connect, so the module
+            # import path is callable after connection; prefer an
+            # instance-attached class if this client version exposes one.
+            rt_cls = getattr(sc, "ResourceTransfer", None)
+            if rt_cls is None:
+                from krpc.services.spacecenter import ResourceTransfer as rt_cls
+            self._active_transfer = rt_cls.start(
                 from_part, to_part, resource, amount)
             _stdout_sink(mlib.format_mission_log_line(
                 "Info", "Transfer",
