@@ -1125,6 +1125,24 @@ class KrpcMissionControl(MissionControl):
             except Exception as exc:
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Dock", "disable docking AP failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_MJ_ABORT_NODE_EXEC:
+            # Flight-8 prox-ops rule: no pending maneuver execution may survive
+            # into terminal approach. MATCH-VELOCITY can complete in ~0.5 s (rel-
+            # speed already under the floor) with the kill-rel-vel node still
+            # PENDING in the executor with autowarp=True; that node then rails-
+            # warps to ~92 m, packing clears the docking-port target, and the
+            # docking AP NREs forever. Abort the executor + clear the nodes BEFORE
+            # DOCK enables the docking AP. Best-effort (Warn-and-continue).
+            try:
+                self._mechjeb.node_executor.abort()
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Dock", "node_executor.abort() failed: %s" % (exc,)))
+            try:
+                control.remove_nodes()
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Dock", "remove_nodes at DOCK entry failed: %s" % (exc,)))
         elif kind == mlib.ACTION_START_RESOURCE_TRANSFER:
             self._start_resource_transfer(sc, v, action)
         elif kind == mlib.ACTION_UNDOCK:

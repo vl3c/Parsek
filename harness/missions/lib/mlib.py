@@ -359,6 +359,12 @@ ACTION_MJ_KILL_REL_VEL = "mj_kill_rel_vel"                 # value = None
 ACTION_MJ_ENABLE_DOCKING = "mj_enable_docking"             # value = speed m/s
 # Disable the docking autopilot (give-up cleanup: stall / monoprop-out / bounce).
 ACTION_MJ_DISABLE_DOCKING = "mj_disable_docking"           # value = None
+# Abort any pending MechJeb node execution + clear the maneuver nodes (runner:
+# node_executor.abort() + control.remove_nodes()). Emitted FIRST at DOCK entry so
+# no pending kill-rel-vel node / autowarp executor survives into terminal approach
+# (flight-8 prox-ops rule: a pending node rails-warped at ~92 m, packing cleared
+# the docking-port target, and the docking AP NRE'd forever). Best-effort.
+ACTION_MJ_ABORT_NODE_EXEC = "mj_abort_node_exec"           # value = None
 # Start a kRPC ResourceTransfer between the captured transport / station tanks
 # (text = resource name, value = amount, limit = direction code
 # TRANSFER_DIR_DELIVER / TRANSFER_DIR_PICKUP). The runner resolves the from/to
@@ -3513,6 +3519,12 @@ class BDockState:
     # completes the phase (fail-closed); a dropped target is re-acquired ONCE.
     match_nan_streak: int = 0
     match_retarget_done: bool = False
+    # DOCK dropped-target recovery (flight-8): consecutive non-finite
+    # target_distance frames (the docking-port target went null when a pending
+    # kill-rel-vel node rails-warped + packed the ship) and the one-shot
+    # re-target latch. NaN never completes DOCK (fail-closed).
+    dock_nan_streak: int = 0
+    dock_retarget_done: bool = False
     # TRANSFER sequencing (T1 LiquidFuel deliver, T2 MonoPropellant pickup).
     current_transfer_started: bool = False
     transfers_done: int = 0
@@ -3835,8 +3847,14 @@ def bdock_decide(state: BDockState,
             # or below the rel-speed floor.
             st = replace(st, match_nan_streak=0)
             if rel <= p.match_speed:
+                # Abort any pending maneuver execution FIRST (flight-8 prox-ops
+                # rule): the kill-rel-vel node can still be pending in the executor
+                # with autowarp when MATCH-VELOCITY completes in ~0.5 s, and it
+                # rails-warps at ~approach distance, packing the docking-port
+                # target null. Then target the port + enable the docking AP.
                 return (_bdock_enter(st, BDOCK_DOCK, snapshot.ut),
-                        [Action(ACTION_SET_TARGET_DOCKING_PORT),
+                        [Action(ACTION_MJ_ABORT_NODE_EXEC),
+                         Action(ACTION_SET_TARGET_DOCKING_PORT),
                          Action(ACTION_MJ_ENABLE_DOCKING, value=p.dock_speed)])
         else:
             # Non-finite rel-speed (fail-closed: NaN NEVER completes the phase).
@@ -3871,6 +3889,21 @@ def bdock_decide(state: BDockState,
                      Action(ACTION_START_RESOURCE_TRANSFER,
                             value=p.transfer_amount_lf, text="LiquidFuel",
                             limit=TRANSFER_DIR_DELIVER)])
+        # Dropped-target recovery (flight-8, mirrors matchRetarget): if the
+        # docking-port target went null (target_distance non-finite) for K
+        # debounced frames while the docking AP is engaged, re-acquire the port +
+        # re-enable the AP EXACTLY ONCE (both idempotent) so it recovers instead
+        # of NRE-ing blind to the budget. NaN never completes anything -- the
+        # docked gate above reads docking_state, so fail-closed is preserved.
+        if st.docking_ever_enabled and not _is_finite(snapshot.target_distance):
+            streak = st.dock_nan_streak + 1
+            st = replace(st, dock_nan_streak=streak)
+            if streak >= DEFAULT_DEBOUNCE_K and not st.dock_retarget_done:
+                return (replace(st, dock_retarget_done=True, dock_nan_streak=0),
+                        [Action(ACTION_SET_TARGET_DOCKING_PORT),
+                         Action(ACTION_MJ_ENABLE_DOCKING, value=p.dock_speed)])
+        elif _is_finite(snapshot.target_distance):
+            st = replace(st, dock_nan_streak=0)
         # Monoprop-out give-up (P2): a docking-AP stall thrashing RCS drains it.
         if (not docked and _is_finite(snapshot.monopropellant)
                 and snapshot.monopropellant <= BDOCK_MONOPROP_OUT_EPS):
@@ -4628,6 +4661,8 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("rendezvous_noprogress_count", "rvNoProgress"),
     ("match_nan_streak", "matchNanStreak"),
     ("match_retarget_done", "matchRetarget"),
+    ("dock_nan_streak", "dockNanStreak"),
+    ("dock_retarget_done", "dockRetarget"),
     ("transfers_done", "transfersDone"),
     ("current_transfer_started", "transferStarted"),
     ("docked_confirmed", "docked"),
@@ -4676,9 +4711,10 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("rendezvous_ever_enabled", "rvEnabled"),
     ("docking_ever_enabled", "dockEnabled"),
     ("rendezvous_noprogress_count", "rvNoProgress"),
-    # MATCH-VELOCITY one-shot dropped-target re-acquire latch (sparse flip; the
-    # per-frame nan streak stays out of the diff to avoid noise).
+    # MATCH-VELOCITY / DOCK one-shot dropped-target re-acquire latches (sparse
+    # flips; the per-frame nan streaks stay out of the diff to avoid noise).
     ("match_retarget_done", "matchRetarget"),
+    ("dock_retarget_done", "dockRetarget"),
     ("transfers_done", "transfersDone"),
     ("current_transfer_started", "transferStarted"),
     ("docked_confirmed", "docked"),

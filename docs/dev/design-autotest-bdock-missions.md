@@ -369,11 +369,28 @@ RENDEZVOUS -> MATCH-VELOCITY
    (idempotent, latched); NaN never completes the phase (fail-closed).)
 
 MATCH-VELOCITY -> DOCK
-  (ACTION_SET_TARGET_DOCKING_PORT = the captured Station Clamp-O-Tron HANDLE, then
-   ACTION_MJ_ENABLE_DOCKING with speed_limit = dockSpeedMetersPerSec. Done evidence:
-   the docking-port state == Docked AND the docking AP's Enabled latch flips FALSE.
-   On dock, KSP fires onPartCouple -> Parsek authors the cross-tree Dock branch in
-   TA + opens the RouteConnectionWindow.)
+  (ACTION_MJ_ABORT_NODE_EXEC FIRST, then ACTION_SET_TARGET_DOCKING_PORT = the
+   captured Station Clamp-O-Tron HANDLE, then ACTION_MJ_ENABLE_DOCKING with
+   speed_limit = dockSpeedMetersPerSec. Done evidence: the docking-port state ==
+   Docked AND the docking AP's Enabled latch flips FALSE. On dock, KSP fires
+   onPartCouple -> Parsek authors the cross-tree Dock branch in TA + opens the
+   RouteConnectionWindow. AMENDED 2026-07-24 (flight-8 lesson, the prox-ops
+   variant of the operator's mission-profile rule -- NEVER leave maneuver
+   execution armed during terminal approach): flight 8 entered DOCK with a PERFECT
+   setup (tgtD 92 m, tgtV 0.017 m/s) and then flaked at the dock budget WITHOUT
+   docking. Because MATCH-VELOCITY now completes in ~0.5 s (rel-speed already under
+   the floor), the kill-rel-vel NODE (planned XFromNow+15 s) was still PENDING in
+   MechJeb's node executor with autowarp=True when DOCK enabled the docking AP; the
+   executor rails-warped to the node at ~92 m from the Station, PACKING CLEARS
+   DOCKING-PORT TARGETS in stock KSP, the target went null, and MechJebModuleDocking
+   Autopilot NRE'd in Drive + UpdateDistance every tick for ~28 minutes (window
+   dump: tgtD=nan, nodes=0). Fix: ACTION_MJ_ABORT_NODE_EXEC (node_executor.abort()
+   + control.remove_nodes()) is the FIRST DOCK-entry action, so no pending node /
+   executor / autowarp survives into terminal approach. Robustness: a DOCK-phase
+   dropped-target recovery (mirrors matchRetarget) -- while docking_ever_enabled,
+   a non-finite target_distance for K debounced frames re-emits
+   ACTION_SET_TARGET_DOCKING_PORT + ACTION_MJ_ENABLE_DOCKING EXACTLY ONCE
+   (dock_retarget_done latch); NaN never completes DOCK, fail-closed.)
 
 DOCK -> TRANSFER
   (two commanded transfers, opposite directions and different resources:

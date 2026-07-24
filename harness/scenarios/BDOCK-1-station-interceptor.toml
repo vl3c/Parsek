@@ -40,8 +40,11 @@
 #   MATCH-VELOCITY       Kill relative velocity: burn XFromNow ~15 s lead (NOT the
 #                        default closest approach, which lands ~an orbit ahead),
 #                        bounded 600 s; re-acquires a dropped target once.
-#   DOCK                 MechJeb docking AP hard-docks - BOTH vessels ORBITAL
-#                        STAGE ONLY (never dock a full stack).
+#   DOCK                 Abort any pending maneuver execution FIRST (prox-ops
+#                        rule: a pending kill-rel-vel node rails-warps + packs the
+#                        port target null -> docking AP NREs), then MechJeb docking
+#                        AP hard-docks - BOTH vessels ORBITAL STAGE ONLY (never
+#                        dock a full stack). Re-acquires a dropped port once.
 #   TRANSFER             Two ResourceTransfers (LF deliver, MP pickup).
 #   UNDOCK               onVesselsUndocking split; RouteConnectionWindow closes.
 #   TERMINAL             Two separate committed trees in orbit.

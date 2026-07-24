@@ -4497,6 +4497,56 @@ class BDockDockTests(unittest.TestCase):
         self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
         self.assertIn(Action(mlib.ACTION_MJ_DISABLE_DOCKING), actions)
 
+    def test_dock_entry_aborts_node_exec_first(self):
+        # Flight-8 prox-ops rule: MATCH-VELOCITY completion enters DOCK with the
+        # node-exec abort as the FIRST action, BEFORE targeting + enabling the AP.
+        state, _ = _bdock_walk_to(mlib.BDOCK_MATCH_VELOCITY)
+        state, actions = mlib.bdock_decide(state, snap(ut=495.0, target_rel_speed=0.5))
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+        self.assertEqual(actions, [
+            Action(mlib.ACTION_MJ_ABORT_NODE_EXEC),
+            Action(mlib.ACTION_SET_TARGET_DOCKING_PORT),
+            Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5)])
+
+    def test_dropped_target_reacquired_exactly_once(self):
+        state = self._at_dock()
+        # Engage the docking AP (sets docking_ever_enabled), target still readable.
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=505.0, mj_docking_enabled=True, docking_state="Docking",
+            target_distance=50.0))
+        self.assertTrue(state.docking_ever_enabled)
+        # Target goes null: K consecutive NaN-distance frames -> ONE re-target.
+        actions_seen = []
+        for i in range(mlib.DEFAULT_DEBOUNCE_K):
+            state, a = mlib.bdock_decide(state, snap(
+                ut=510.0 + i, mj_docking_enabled=True, docking_state="Docking",
+                target_distance=float("nan"), monopropellant=100.0))
+            actions_seen.append(a)
+        self.assertTrue(state.dock_retarget_done)
+        self.assertEqual(actions_seen[-1], [
+            Action(mlib.ACTION_SET_TARGET_DOCKING_PORT),
+            Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5)])
+        self.assertEqual(state.dock_nan_streak, 0)  # reset after re-target
+        # Further NaN frames NEVER re-target again (one-shot latch).
+        for i in range(mlib.DEFAULT_DEBOUNCE_K + 1):
+            state, a = mlib.bdock_decide(state, snap(
+                ut=520.0 + i, mj_docking_enabled=True, docking_state="Docking",
+                target_distance=float("nan"), monopropellant=100.0))
+            self.assertNotIn(Action(mlib.ACTION_SET_TARGET_DOCKING_PORT), a)
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+
+    def test_nan_distance_never_docks_fail_closed(self):
+        state = self._at_dock()
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=505.0, mj_docking_enabled=True, docking_state="Docking",
+            target_distance=float("nan")))
+        # NaN distance + not Docked -> never completes (docked gate reads state).
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=506.0, mj_docking_enabled=False, docking_state="Ready",
+            target_distance=float("nan"), monopropellant=100.0))
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+        self.assertFalse(state.done)
+
 
 class BDockTransferUndockTests(unittest.TestCase):
     def _at_transfer(self):
