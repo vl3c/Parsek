@@ -1075,8 +1075,37 @@ class KrpcMissionControl(MissionControl):
             # execute a kill-relative-velocity node. Throw/log/swallow (a
             # no-target plan throws server-side; the machine's match-velocity gate
             # owns the outcome).
+            #
+            # Flight 5 sat ~4300 s in MATCH-VELOCITY: operation_kill_rel_vel is a
+            # TimedOperation whose DEFAULT time selector is closest approach, which
+            # -- after the rendezvous AP has already delivered us to ~approach
+            # distance -- can land the node nearly a full orbit ahead. (a) clear
+            # any stale node first (a re-issue must not stack nodes), then (b) point
+            # the op at XFromNow + ~15 s lead so the burn is imminent.
+            try:
+                control.remove_nodes()
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Match",
+                    "remove_nodes before kill-rel-vel failed: %s" % (exc,)))
             try:
                 op = self._mechjeb.maneuver_planner.operation_kill_rel_vel
+                # The KRPC.MechJeb service generates snake_case python attributes
+                # from the C# KRPCProperty names: TimedOperation.TimeSelector ->
+                # op.time_selector; TimeSelector.TimeReference / .LeadTime ->
+                # .time_reference / .lead_time; the MechJeb-service enum value
+                # XFromNow -> mech_jeb.TimeReference.x_from_now. Defensive: fall
+                # back to the default selector on any AttributeError (an API-shape
+                # drift must not stop the node from planning).
+                try:
+                    ts = op.time_selector
+                    ts.time_reference = self._mechjeb.TimeReference.x_from_now
+                    ts.lead_time = 15.0
+                except Exception as exc:
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Warn", "Match",
+                        "kill-rel-vel time-selector default kept (retarget failed: %s)"
+                        % (exc,)))
                 op.make_nodes()
                 if len(control.nodes) > 0:
                     ne = self._mechjeb.node_executor
@@ -1778,6 +1807,16 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             log.info(state.phase, "action %s value=%s%s"
                      % (action.kind, _fmt(action.value),
                         (" text=%s" % action.text) if getattr(action, "text", None) else ""))
+        # MATCH-VELOCITY diagnostic (flight-5: the phase had NO per-frame line, so
+        # a stuck rel-speed silently ate the whole wall). Rate-limited per-phase
+        # key carrying the fields the gate reads, so a stall is greppable + rides
+        # the status file (targetDistance / targetRelSpeed added to snapshot_dict).
+        if state.phase == mlib.BDOCK_MATCH_VELOCITY:
+            log.verbose_rate_limited(
+                "match", state.phase,
+                "match-velocity tgtDist=%s tgtRelV=%s nodes=%d nodeDv=%s ut=%s"
+                % (_fmt(snapshot.target_distance), _fmt(snapshot.target_rel_speed),
+                   snapshot.node_count, _fmt(snapshot.node_dv), _fmt(snapshot.ut)))
         # alt/vspeed/body/nodes ride the line too: B4 attempt-1 (2026-07-21)
         # stalled in REENTRY with a line that omitted altitude, leaving
         # frozen-physics vs normal-coast undiagnosable from the log. Log what

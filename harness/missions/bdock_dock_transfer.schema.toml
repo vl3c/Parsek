@@ -95,6 +95,13 @@ required = true
 type = "number"
 min = 0.0
 
+# MATCH-VELOCITY give-up (GAME seconds; flight-5): the kill-rel-vel node can land
+# far ahead, so the phase carries its own bounded give-up. mlib defaults it to 600.
+[params.matchTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+
 # Docking AP approach speed_limit (m/s) -- the monoprop-budget knob, P2.
 [params.dockSpeedMetersPerSec]
 required = true

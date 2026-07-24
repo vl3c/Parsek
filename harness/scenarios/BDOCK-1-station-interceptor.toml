@@ -37,7 +37,9 @@
 #   INT-PHASING-ORBIT    Orbital stage parked below the Station so it phases up.
 #   SET-TARGET           Target the captured Station handle.
 #   RENDEZVOUS           MechJeb rendezvous AP closes to ~100 m (orbital stages).
-#   MATCH-VELOCITY       Kill relative velocity.
+#   MATCH-VELOCITY       Kill relative velocity: burn XFromNow ~15 s lead (NOT the
+#                        default closest approach, which lands ~an orbit ahead),
+#                        bounded 600 s; re-acquires a dropped target once.
 #   DOCK                 MechJeb docking AP hard-docks - BOTH vessels ORBITAL
 #                        STAGE ONLY (never dock a full stack).
 #   TRANSFER             Two ResourceTransfers (LF deliver, MP pickup).
@@ -122,6 +124,10 @@ launchSettleDebounceFrames  = 3
 approachDistanceMeters      = 100
 maxPhasingOrbits            = 5
 matchSpeedMetersPerSec      = 1.0
+# MATCH-VELOCITY give-up (GAME seconds; flight-5 lesson): the kill-rel-vel burn is
+# retargeted XFromNow ~15 s lead, but if rel-speed never reaches the floor this
+# bounds the phase instead of silently eating the wall.
+matchTimeoutSeconds         = 600
 dockSpeedMetersPerSec       = 0.5
 # Two small fixed transfers, opposite directions + resources (NIT 16): LiquidFuel
 # transport->station (delivery), MonoPropellant station->transport (pickup). Each is

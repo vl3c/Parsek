@@ -352,7 +352,21 @@ SET-TARGET -> RENDEZVOUS
 
 RENDEZVOUS -> MATCH-VELOCITY
   (the rendezvous AP's own terminal match, or ACTION_MJ_KILL_REL_VEL. Done evidence:
-   target_rel_speed <= matchSpeedMetersPerSec.)
+   target_rel_speed <= matchSpeedMetersPerSec. AMENDED 2026-07-24 (flight-5 lesson):
+   flight 5 sat ~4300 s here until the wall killed the mission. operation_kill_rel_vel
+   is a TimedOperation whose DEFAULT time selector is CLOSEST APPROACH -- after the
+   rendezvous AP has already delivered us to ~approach distance, that node lands
+   nearly a full orbit ahead, so no burn happens for an orbit. The runner now clears
+   any stale node then retargets the op to TimeReference.XFromNow + ~15 s LeadTime
+   (KRPC.MechJeb TimedOperation.TimeSelector, discovered from the pinned source;
+   defensive fall-back to the default selector on any AttributeError). The phase now
+   carries a bounded give-up (matchTimeoutSeconds, default 600 GAME s) -> a named
+   FLAKE "match-velocity did not reach rel-speed floor (target_rel_speed=<last>)",
+   and a per-frame rate-limited diagnostic line (target_distance / target_rel_speed /
+   node_count / node_dv, also in the status file's snapshot block). Robustness: a
+   non-finite target_rel_speed for K debounced frames (the target dropped when the
+   rendezvous AP disabled itself) re-emits ACTION_SET_TARGET exactly ONCE
+   (idempotent, latched); NaN never completes the phase (fail-closed).)
 
 MATCH-VELOCITY -> DOCK
   (ACTION_SET_TARGET_DOCKING_PORT = the captured Station Clamp-O-Tron HANDLE, then
@@ -630,8 +644,9 @@ parks); `separationTimeoutSeconds = 120` each SEPARATE leg (spans both the drop 
 ignition step; both are near-instantaneous, so this is a stuck-decoupler /
 failed-ignition backstop, not a tuning knob);
 `rendezvousTimeoutSeconds = 30000` (phasing orbits under warp advance game time
-fast); `dockTimeoutSeconds = 600` (the 1x approach); `transferTimeoutSeconds =
-120` each; undock/settle 120. WALL: mission phase ~2400 s (Station ascent ~250 +
+fast); `matchTimeoutSeconds = 600` (flight-5: MATCH-VELOCITY is NOT a fast
+transition, the kill-rel-vel node can land far ahead); `dockTimeoutSeconds = 600`
+(the 1x approach); `transferTimeoutSeconds = 120` each; undock/settle 120. WALL: mission phase ~2400 s (Station ascent ~250 +
 circularize + Interceptor launch/ascent ~250 + circularize + rendezvous ~200 under
 warp + docking ~120-180 at 1x + two transfers ~10 + undock/settle + margin); runtime
 ~3000 s (240 LoadGame + 2400 mission + the two commits + FlushAndQuit + margin,

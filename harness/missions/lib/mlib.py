@@ -349,6 +349,9 @@ ACTION_SET_TARGET_DOCKING_PORT = "set_target_docking_port" # value = None
 ACTION_MJ_ENABLE_RENDEZVOUS = "mj_enable_rendezvous"       # value = distance m
 # Kill relative velocity to the target (MechJeb maneuver_planner
 # operation_kill_rel_vel, OR rely on the rendezvous AP's own terminal match).
+# The runner clears any stale node then retargets the op to XFromNow + ~15 s lead
+# (flight-5: the default closest-approach selector landed the node ~an orbit
+# ahead, stalling MATCH-VELOCITY until the wall).
 ACTION_MJ_KILL_REL_VEL = "mj_kill_rel_vel"                 # value = None
 # Enable MechJeb's docking autopilot (value = approach speed_limit m/s -- the
 # monoprop-budget knob, P2). Done evidence is docking_state == "Docked" AND the
@@ -3425,6 +3428,7 @@ class BDockParams:
     approach_distance: float = 100.0           # rendezvous desired_distance (m)
     max_phasing_orbits: float = 5.0
     match_speed: float = 1.0                   # MATCH-VELOCITY rel-speed floor (m/s)
+    match_timeout: float = 600.0               # MATCH-VELOCITY give-up (GAME s; flight-5)
     dock_speed: float = 0.5                    # docking AP speed_limit (m/s)
     transfer_amount_lf: float = 40.0           # LiquidFuel deliver (transport->station)
     transfer_amount_mp: float = 15.0           # MonoPropellant pickup (station->transport)
@@ -3461,6 +3465,7 @@ def bdock_params_from_dict(params: Dict) -> BDockParams:
         approach_distance=float(params.get("approachDistanceMeters", 100)),
         max_phasing_orbits=float(params.get("maxPhasingOrbits", 5)),
         match_speed=float(params.get("matchSpeedMetersPerSec", 1.0)),
+        match_timeout=float(params.get("matchTimeoutSeconds", 600)),
         dock_speed=float(params.get("dockSpeedMetersPerSec", 0.5)),
         transfer_amount_lf=float(params.get("transferAmountLf", 40)),
         transfer_amount_mp=float(params.get("transferAmountMp", 15)),
@@ -3502,6 +3507,12 @@ class BDockState:
     # RENDEZVOUS no-progress detector.
     rendezvous_min_distance: float = float("inf")
     rendezvous_noprogress_count: int = 0
+    # MATCH-VELOCITY dropped-target recovery (flight-5): consecutive non-finite
+    # target_rel_speed frames (the target likely dropped when the rendezvous AP
+    # disabled itself), and the one-shot re-target latch. NaN rel-speed never
+    # completes the phase (fail-closed); a dropped target is re-acquired ONCE.
+    match_nan_streak: int = 0
+    match_retarget_done: bool = False
     # TRANSFER sequencing (T1 LiquidFuel deliver, T2 MonoPropellant pickup).
     current_transfer_started: bool = False
     transfers_done: int = 0
@@ -3558,8 +3569,13 @@ def _bdock_phase_budget(params: BDockParams, phase: str) -> Optional[float]:
         return 2.0 * params.transfer_timeout
     if phase == BDOCK_UNDOCK:
         return params.undock_timeout
-    # SET-TARGET / MATCH-VELOCITY: no dedicated budget (fast transitions); the
-    # wall deadline in the fly loop is the ultimate backstop.
+    if phase == BDOCK_MATCH_VELOCITY:
+        # Flight-5 lesson: MATCH-VELOCITY is NOT a fast transition -- the
+        # kill-rel-vel node can land far ahead, so an unmet gate silently ate the
+        # whole 4800 s wall. It now carries its own bounded give-up.
+        return params.match_timeout
+    # SET-TARGET: no dedicated budget (a fast transition); the wall deadline in
+    # the fly loop is the ultimate backstop.
     return None
 
 
@@ -3812,12 +3828,32 @@ def bdock_decide(state: BDockState,
         return _bdock_stay_or_flake(st, snapshot), []
 
     if state.phase == BDOCK_MATCH_VELOCITY:
-        if (_is_finite(snapshot.target_rel_speed)
-                and snapshot.target_rel_speed <= p.match_speed):
-            return (_bdock_enter(state, BDOCK_DOCK, snapshot.ut),
-                    [Action(ACTION_SET_TARGET_DOCKING_PORT),
-                     Action(ACTION_MJ_ENABLE_DOCKING, value=p.dock_speed)])
-        return _bdock_stay_or_flake(state, snapshot), []
+        rel = snapshot.target_rel_speed
+        st = state
+        if _is_finite(rel):
+            # A finite reading resets the dropped-target streak; complete when at
+            # or below the rel-speed floor.
+            st = replace(st, match_nan_streak=0)
+            if rel <= p.match_speed:
+                return (_bdock_enter(st, BDOCK_DOCK, snapshot.ut),
+                        [Action(ACTION_SET_TARGET_DOCKING_PORT),
+                         Action(ACTION_MJ_ENABLE_DOCKING, value=p.dock_speed)])
+        else:
+            # Non-finite rel-speed (fail-closed: NaN NEVER completes the phase).
+            # The target likely dropped when the rendezvous AP disabled itself;
+            # re-acquire it EXACTLY ONCE, debounced K frames so a single transient
+            # read miss never re-targets. SET_TARGET is idempotent.
+            streak = st.match_nan_streak + 1
+            st = replace(st, match_nan_streak=streak)
+            if streak >= DEFAULT_DEBOUNCE_K and not st.match_retarget_done:
+                return (replace(st, match_retarget_done=True, match_nan_streak=0),
+                        [Action(ACTION_SET_TARGET_VESSEL)])
+        if _bdock_over_budget(st, snapshot):
+            last = ("%.3f" % rel) if _is_finite(rel) else "nan"
+            return replace(_bdock_flake(st), flake_reason=(
+                "phase %s: match-velocity did not reach rel-speed floor "
+                "(target_rel_speed=%s)" % (st.phase, last))), []
+        return st, []
 
     if state.phase == BDOCK_DOCK:
         st = state
@@ -4590,6 +4626,8 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("docking_ever_enabled", "dockEnabled"),
     ("rendezvous_min_distance", "rvMinDist"),
     ("rendezvous_noprogress_count", "rvNoProgress"),
+    ("match_nan_streak", "matchNanStreak"),
+    ("match_retarget_done", "matchRetarget"),
     ("transfers_done", "transfersDone"),
     ("current_transfer_started", "transferStarted"),
     ("docked_confirmed", "docked"),
@@ -4638,6 +4676,9 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("rendezvous_ever_enabled", "rvEnabled"),
     ("docking_ever_enabled", "dockEnabled"),
     ("rendezvous_noprogress_count", "rvNoProgress"),
+    # MATCH-VELOCITY one-shot dropped-target re-acquire latch (sparse flip; the
+    # per-frame nan streak stays out of the diff to avoid noise).
+    ("match_retarget_done", "matchRetarget"),
     ("transfers_done", "transfersDone"),
     ("current_transfer_started", "transferStarted"),
     ("docked_confirmed", "docked"),
@@ -4767,6 +4808,10 @@ def snapshot_dict(snapshot: TelemetrySnapshot) -> Dict:
         "warpRate": _json_safe(snapshot.warp_rate),
         "apError": _json_safe(snapshot.ap_error),
         "vesselLost": snapshot.vessel_lost,
+        # B-DOCK rendezvous / match diagnosability (flight-5: a MATCH-VELOCITY
+        # stall was invisible in the status file without these). NaN -> None.
+        "targetDistance": _json_safe(snapshot.target_distance),
+        "targetRelSpeed": _json_safe(snapshot.target_rel_speed),
     }
 
 
@@ -4774,11 +4819,12 @@ def format_snapshot_compact(snapshot: TelemetrySnapshot) -> str:
     """One-line-per-frame compact snapshot form for the event-window ring
     buffer (design 2c): the fields the machines gate on, ~100 chars."""
     return ("ut=%s alt=%s ap=%s pe=%s body=%s nodes=%d nodeDv=%s thr=%s "
-            "apErr=%s warp=%sx%s sit=%s%s"
+            "apErr=%s tgtD=%s tgtV=%s warp=%sx%s sit=%s%s"
             % (_obs_fmt(snapshot.ut), _obs_fmt(snapshot.altitude),
                _obs_fmt(snapshot.apoapsis), _obs_fmt(snapshot.periapsis),
                snapshot.body or "?", snapshot.node_count,
                _obs_fmt(snapshot.node_dv), _obs_fmt(snapshot.throttle),
-               _obs_fmt(snapshot.ap_error), snapshot.warp_mode,
+               _obs_fmt(snapshot.ap_error), _obs_fmt(snapshot.target_distance),
+               _obs_fmt(snapshot.target_rel_speed), snapshot.warp_mode,
                _obs_fmt(snapshot.warp_rate), snapshot.situation or "?",
                " LOST" if snapshot.vessel_lost else ""))

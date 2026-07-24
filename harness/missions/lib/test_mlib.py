@@ -4376,6 +4376,83 @@ class BDockRendezvousTests(unittest.TestCase):
         self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
 
 
+class BDockMatchVelocityTests(unittest.TestCase):
+    """MATCH-VELOCITY (flight-5): a bounded give-up (matchTimeoutSeconds), NaN
+    rel-speed fail-closed, and a one-shot dropped-target re-acquire."""
+
+    def _at_match(self):
+        # Reach MATCH-VELOCITY (entered at ut 490 in the walk).
+        state, _ = _bdock_walk_to(mlib.BDOCK_MATCH_VELOCITY)
+        self.assertEqual(state.phase, mlib.BDOCK_MATCH_VELOCITY)
+        return state
+
+    def test_finite_rel_speed_below_floor_advances_to_dock(self):
+        state = self._at_match()
+        state, actions = mlib.bdock_decide(state, snap(ut=495.0, target_rel_speed=0.5))
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+        self.assertIn(Action(mlib.ACTION_SET_TARGET_DOCKING_PORT), actions)
+        self.assertIn(Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5), actions)
+
+    def test_rel_speed_above_floor_stays(self):
+        state = self._at_match()
+        state, actions = mlib.bdock_decide(state, snap(ut=495.0, target_rel_speed=8.0))
+        self.assertEqual(state.phase, mlib.BDOCK_MATCH_VELOCITY)
+        self.assertEqual(actions, [])
+
+    def test_budget_flakes_with_named_reason(self):
+        state = self._at_match()
+        # Rel-speed stuck above the floor past matchTimeoutSeconds (600) -> FLAKE.
+        state, actions = mlib.bdock_decide(
+            state, snap(ut=490.0 + 601.0, target_rel_speed=8.5))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.BDOCK_MATCH_VELOCITY)
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertEqual(verdict, mlib.MISSION_FLAKE)
+        self.assertIn("MATCH-VELOCITY", reason)
+        self.assertIn("did not reach rel-speed floor", reason)
+        self.assertIn("8.5", reason)  # the last value rides the reason
+        self.assertEqual(actions, [])
+
+    def test_nan_rel_speed_never_completes_fail_closed(self):
+        state = self._at_match()
+        # NaN rel-speed for a couple frames must not complete (below-floor NaN
+        # would falsely satisfy <= match_speed without the finite guard).
+        for i in range(2):
+            state, _ = mlib.bdock_decide(
+                state, snap(ut=491.0 + i, target_rel_speed=float("nan")))
+            self.assertEqual(state.phase, mlib.BDOCK_MATCH_VELOCITY)
+        self.assertFalse(state.done)
+
+    def test_dropped_target_reacquired_exactly_once(self):
+        state = self._at_match()
+        # K consecutive NaN frames -> one SET_TARGET re-acquire, latch set.
+        actions_seen = []
+        for i in range(mlib.DEFAULT_DEBOUNCE_K):
+            state, a = mlib.bdock_decide(
+                state, snap(ut=491.0 + i, target_rel_speed=float("nan")))
+            actions_seen.append(a)
+        self.assertTrue(state.match_retarget_done)
+        self.assertEqual(actions_seen[-1], [Action(mlib.ACTION_SET_TARGET_VESSEL)])
+        self.assertEqual(state.match_nan_streak, 0)  # reset after re-target
+        # Further NaN frames NEVER re-target again (one-shot latch).
+        for i in range(mlib.DEFAULT_DEBOUNCE_K + 1):
+            state, a = mlib.bdock_decide(
+                state, snap(ut=500.0 + i, target_rel_speed=float("nan")))
+            self.assertNotIn(Action(mlib.ACTION_SET_TARGET_VESSEL), a)
+        self.assertEqual(state.phase, mlib.BDOCK_MATCH_VELOCITY)
+
+    def test_reacquire_then_finite_completes(self):
+        state = self._at_match()
+        for i in range(mlib.DEFAULT_DEBOUNCE_K):
+            state, _ = mlib.bdock_decide(
+                state, snap(ut=491.0 + i, target_rel_speed=float("nan")))
+        self.assertTrue(state.match_retarget_done)
+        # Target re-acquired -> a finite below-floor reading completes to DOCK.
+        state, actions = mlib.bdock_decide(state, snap(ut=510.0, target_rel_speed=0.4))
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+
+
 class BDockDockTests(unittest.TestCase):
     def _at_dock(self):
         state, _ = _bdock_walk_to(mlib.BDOCK_DOCK)
