@@ -5460,6 +5460,61 @@ class BDockDockTests(unittest.TestCase):
                              text="LiquidFuel", limit=mlib.TRANSFER_DIR_DELIVER),
                       actions)
 
+    def _at_dock_entry_docked(self):
+        """DOCK entered by a craft that ALREADY read Docked (an already-mated
+        internal pair): walk to MATCH-VELOCITY, then take the transition poll with
+        docking_state="Docked" so dock_entry_docked latches True."""
+        state, _ = _bdock_walk_to(mlib.BDOCK_MATCH_VELOCITY)
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=500.0, target_rel_speed=0.5, docking_state="Docked",
+            target_distance=90.0))
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+        self.assertTrue(state.dock_entry_docked)
+        return state
+
+    def test_docked_at_phase_entry_with_far_target_does_not_complete(self):
+        # MINOR-5: _read_docking_state returns Docked when ANY port on the ACTIVE
+        # vessel reads docked, so a craft carrying an already-mated internal pair
+        # reads Docked from the first DOCK poll. Completing on `docked` alone would
+        # finish BDOCK_DOCK instantly without ever meeting the Station. Entry-docked
+        # + a far target port is NOT corroboration: the phase must keep flying.
+        state = self._at_dock_entry_docked()
+        state, actions = mlib.bdock_decide(state, snap(
+            ut=502.0, mj_docking_enabled=False, docking_state="Docked",
+            target_distance=90.0))
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+        self.assertFalse(state.docked_confirmed)
+        # It falls through to the normal flow: the deferred enable is issued, so the
+        # AP has to actually close on the target.
+        self.assertIn(Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5), actions)
+
+    def test_docked_at_phase_entry_with_target_at_zero_completes(self):
+        # The other side of the same gate: a hard dock that landed on the very poll
+        # that entered DOCK reads entry-docked, but the TARGET port is right there -
+        # that IS a dock to the target, so the short-circuit completes.
+        state = self._at_dock_entry_docked()
+        state, actions = mlib.bdock_decide(state, snap(
+            ut=502.0, mj_docking_enabled=False, docking_state="Docked",
+            target_distance=0.4))
+        self.assertEqual(state.phase, mlib.BDOCK_TRANSFER)
+        self.assertTrue(state.docked_confirmed)
+        self.assertIn(Action(mlib.ACTION_MJ_DISABLE_DOCKING), actions)
+
+    def test_entry_docked_does_not_complete_merely_because_the_ap_ran(self):
+        # docking_ever_enabled is deliberately NOT a corroboration disjunct:
+        # enabling the AP latches it after one poll whether or not the AP achieved
+        # anything, so an entry-docked craft would false-complete two polls later.
+        state = self._at_dock_entry_docked()
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=502.0, mj_docking_enabled=False, docking_state="Docked",
+            target_distance=90.0))
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=504.0, mj_docking_enabled=True, docking_state="Docked",
+            target_distance=90.0, monopropellant=100.0))
+        self.assertTrue(state.docking_ever_enabled)
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+        self.assertFalse(state.docked_confirmed)
+
     def test_monoprop_out_gives_up(self):
         state = self._at_dock()
         state, actions = mlib.bdock_decide(state, snap(

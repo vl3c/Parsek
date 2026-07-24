@@ -535,8 +535,11 @@ ACTION_MJ_ENABLE_RENDEZVOUS = "mj_enable_rendezvous"       # value = distance m
 # ahead, stalling MATCH-VELOCITY until the wall).
 ACTION_MJ_KILL_REL_VEL = "mj_kill_rel_vel"                 # value = None
 # Enable MechJeb's docking autopilot (value = approach speed_limit m/s -- the
-# monoprop-budget knob, P2). Done evidence is docking_state == "Docked" AND the
-# Enabled latch flipping False.
+# monoprop-budget knob, P2). Done evidence is docking_state == "Docked"
+# CORROBORATED as a dock to the TARGET: either the read APPEARED during the phase
+# (it was not already docked at entry) or the target port is within
+# BDOCK_DOCKED_TARGET_DIST_EPS. `Docked` alone is not enough - _read_docking_state
+# answers "any port on the active vessel reads docked" (MINOR-5).
 ACTION_MJ_ENABLE_DOCKING = "mj_enable_docking"             # value = speed m/s
 # Disable the docking autopilot (give-up cleanup: stall / monoprop-out / bounce).
 ACTION_MJ_DISABLE_DOCKING = "mj_disable_docking"           # value = None
@@ -3979,6 +3982,15 @@ BDOCK_DOCK_MAX_RETARGETS = 3
 BDOCK_DOCK_DIST_EPS = 1.0        # metres
 BDOCK_DOCK_MONO_EPS = 0.01       # monoprop units (RCS actually firing)
 BDOCK_DOCK_ANGVEL_EPS = 0.001    # rad/s (tumble actually being reduced)
+# Distance to the TARGET docking port below which a `Docked` read is corroborated
+# as "docked to the TARGET" rather than "some pair on this craft reads docked"
+# (MINOR-5). _read_docking_state returns Docked when ANY port on the active vessel
+# reads docked, so a craft carrying an already-mated internal pair would otherwise
+# satisfy the DOCK short-circuit on its first poll without ever meeting the
+# Station. 10 m is orders of magnitude below any approach distance (DOCK is entered
+# from the match-velocity hold, tens to hundreds of metres out) and comfortably
+# above the port-to-port reading of a genuinely mated pair.
+BDOCK_DOCKED_TARGET_DIST_EPS = 10.0   # metres
 # TRANSFER liveness: consecutive polls transfer_amount may be flat/unread before
 # the machine flakes the stall fast (well inside the transfer budget).
 BDOCK_TRANSFER_STALL_FRAMES = 20
@@ -4113,6 +4125,14 @@ class BDockState:
     # cap BDOCK_DOCK_MAX_RETARGETS). NaN never completes DOCK (fail-closed).
     dock_nan_streak: int = 0
     dock_retarget_count: int = 0
+    # Was the craft ALREADY reading Docked on the poll that entered BDOCK_DOCK
+    # (MINOR-5)? _read_docking_state answers "any port on the active vessel reads
+    # docked", so a craft with an already-mated internal pair reads Docked from the
+    # first poll and would complete the phase without ever docking to the Station.
+    # A docked read that APPEARS during the phase is a transition and is therefore
+    # self-corroborating; a docked read that was true at entry needs other evidence
+    # (the AP having run, or the target port being ~0 m away).
+    dock_entry_docked: bool = False
     # DOCK AP-death liveness (flight-11). E1a "enable never took": polls since the
     # deferred enable was emitted with mj_docking_enabled still False, and the
     # one-shot re-emit latch. E1b "died mid-approach": consecutive polls the AP is
@@ -4571,7 +4591,9 @@ def bdock_decide(state: BDockState,
                 # poll.
                 return (_bdock_enter(replace(st, dock_enable_pending=True),
                                      BDOCK_DOCK, snapshot.ut,
-                                     dock_last_progress_ut=snapshot.ut),
+                                     dock_last_progress_ut=snapshot.ut,
+                                     dock_entry_docked=(
+                                         snapshot.docking_state == DOCKING_STATE_DOCKED)),
                         [Action(ACTION_MJ_ABORT_NODE_EXEC),
                          Action(ACTION_SET_SAS), Action(ACTION_SET_RCS, value=1.0),
                          Action(ACTION_SET_TARGET_DOCKING_PORT)])
@@ -4608,7 +4630,36 @@ def bdock_decide(state: BDockState,
         # otherwise misroute a docked pair into the E1a "enable never took" flake.
         # onPartCouple -> Parsek authors the cross-tree Dock branch + opens the
         # RouteConnectionWindow.
-        if docked:
+        #
+        # CORROBORATION (MINOR-5). `docked` alone is NOT sufficient evidence that we
+        # docked to the TARGET: _read_docking_state answers "ANY port on the active
+        # vessel reads docked", so a craft carrying an already-mated internal pair
+        # reads Docked on its first DOCK poll and would complete BDOCK_DOCK instantly
+        # without ever meeting the Station. (Not reachable with the single-port
+        # Kerbal X these missions fly - the dropped `docking_ever_enabled` conjunct
+        # was guarding it incidentally - but the phase must not depend on the craft.)
+        # Either of these corroborates, so every live-proven completion path is
+        # unchanged:
+        #   - the craft was NOT docked at phase entry, so this read is a TRANSITION
+        #     observed during the approach. This covers the flight-9 race the
+        #     short-circuit was written for (the pair mates before the deferred
+        #     enable fires, so docking_ever_enabled is still False) and every
+        #     ordinary completion;
+        #   - the TARGET port is within BDOCK_DOCKED_TARGET_DIST_EPS, which is what
+        #     rescues a hard dock that landed on the very poll that entered the
+        #     phase (docked at entry, but demonstrably docked to the TARGET).
+        # Note `docking_ever_enabled` is deliberately NOT a disjunct here: enabling
+        # the AP latches it after one poll whether or not the AP achieved anything,
+        # so an entry-docked craft would false-complete two polls later - exactly
+        # the hole being closed. Uncorroborated falls through to the normal flow:
+        # the AP is enabled and has to actually close on the target, and the
+        # progress watchdog / budget flake it with a named reason. A false PASS is
+        # the one outcome that must not be possible.
+        docked_corroborated = (
+            not st.dock_entry_docked
+            or (_is_finite(snapshot.target_distance)
+                and snapshot.target_distance <= BDOCK_DOCKED_TARGET_DIST_EPS))
+        if docked and docked_corroborated:
             return (_bdock_enter(replace(st, docked_confirmed=True,
                                          current_transfer_started=True,
                                          transfer_best_amount=float("-inf"),
@@ -4623,8 +4674,11 @@ def bdock_decide(state: BDockState,
         # Deferred docking-AP enable (flight 9): the port target was set on the
         # previous batch; by this poll MechJeb's core.target has synced to it, so
         # the AP's first Drive tick sees a real docking node. Reset the enable-wait
-        # watchdog -- we have just (re-)issued the enable. (Not reached when
-        # docked: the short-circuit above already completed the phase.)
+        # watchdog -- we have just (re-)issued the enable. (Not reached on a
+        # CORROBORATED docked read: the short-circuit above already completed the
+        # phase. An UNCORROBORATED one - already docked at entry, target still far
+        # away - deliberately DOES reach here, so the AP has to actually close on
+        # the target instead of the phase completing on a stale internal mate.)
         if st.dock_enable_pending:
             return (replace(st, dock_enable_pending=False,
                             dock_enable_wait_streak=0),
@@ -4663,9 +4717,9 @@ def bdock_decide(state: BDockState,
             if prog_flake is not None:
                 return prog_flake, [Action(ACTION_MJ_DISABLE_DOCKING)]
             # Monoprop-out give-up (P2): a docking-AP stall thrashing RCS drains
-            # it. (docked was already completed by the short-circuit above, so a
-            # not-docked test here is redundant -- this branch only runs on a
-            # non-docked, AP-still-running poll.)
+            # it. (A CORROBORATED docked read already completed above, so this
+            # branch runs on a non-docked - or uncorroborated-docked - AP-running
+            # poll; either way, running the tanks dry is a real give-up.)
             if (_is_finite(snapshot.monopropellant)
                     and snapshot.monopropellant <= BDOCK_MONOPROP_OUT_EPS):
                 return (replace(_bdock_flake(st, BDOCK_DOCK), flake_reason=(
@@ -6016,6 +6070,10 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("match_retarget_done", "matchRetarget"),
     ("dock_nan_streak", "dockNanStreak"),
     ("dock_retarget_count", "dockRetargetCount"),
+    # Was the craft already reading Docked at DOCK entry (MINOR-5)? True means the
+    # docked short-circuit needs the target-distance corroboration, so a phase that
+    # looks stuck while reading Docked self-explains in the telemetry line.
+    ("dock_entry_docked", "dockEntryDocked"),
     ("dock_enable_pending", "dockEnablePending"),
     ("dock_enable_wait_streak", "dockEnableWait"),
     ("dock_enable_reissued", "dockEnableReissued"),

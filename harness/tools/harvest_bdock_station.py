@@ -95,9 +95,44 @@ def normalize_title(sfs_text: str, title: str) -> str:
     return sfs_text
 
 
+def flightstate_span(sfs_text: str) -> str:
+    """The FLIGHTSTATE node's text, or the whole input when there is no FLIGHTSTATE.
+
+    `activeVessel` is an INDEX into the VESSEL nodes of FLIGHTSTATE, so every scan
+    that index resolves against must see exactly those nodes and in that order. A
+    VESSEL node living anywhere else in the save (a SCENARIO node that embeds one -
+    stock DiscoverableObjects and several mods do this, and Parsek's own scenario
+    node sits immediately BEFORE FLIGHTSTATE) would otherwise be counted and would
+    SHIFT every index by one, so `records[active]` would name the wrong vessel and
+    the situation gate would pass or fail on the wrong craft.
+
+    Anchoring is start + brace-walk: from the FLIGHTSTATE header to its matching
+    close brace, falling back to end-of-text if the braces do not balance (a
+    truncated save) and to the whole input if there is no FLIGHTSTATE header at all
+    (so a bare VESSEL fragment still parses, which the unit tests rely on). Pure
+    text: no ConfigNode parser, no KSP."""
+    m = re.search(r"(?m)^\s*FLIGHTSTATE\s*$", sfs_text)
+    if m is None:
+        return sfs_text
+    open_idx = sfs_text.find("{", m.end())
+    if open_idx < 0:
+        return sfs_text[m.end():]
+    depth = 0
+    for i in range(open_idx, len(sfs_text)):
+        ch = sfs_text[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return sfs_text[open_idx:i + 1]
+    return sfs_text[open_idx:]
+
+
 def count_vessels(sfs_text: str) -> int:
-    # VESSEL nodes are tab/space-indented inside FLIGHTSTATE.
-    return len(re.findall(r"(?m)^\s*VESSEL\s*$", sfs_text))
+    # VESSEL nodes are tab/space-indented inside FLIGHTSTATE -- and ONLY those count
+    # (see flightstate_span: a VESSEL node elsewhere would shift the activeVessel index).
+    return len(re.findall(r"(?m)^\s*VESSEL\s*$", flightstate_span(sfs_text)))
 
 
 def read_active_vessel(sfs_text: str):
@@ -109,10 +144,12 @@ def read_vessel_records(sfs_text: str):
     """(name, situation) for every VESSEL node, in FLIGHTSTATE order (the order
     `activeVessel` indexes into).
 
-    Each VESSEL node opens with its own `name = ` / `sit = ` lines BEFORE any
-    child PART nodes, so the FIRST match of each inside the node's span is the
-    vessel's own. Missing keys read "" (never guessed). Pure text parsing: no
-    ConfigNode parser, no KSP."""
+    Scans the FLIGHTSTATE span only (`flightstate_span`), so a VESSEL node embedded
+    in some other node cannot shift the index. Each VESSEL node opens with its own
+    `name = ` / `sit = ` lines BEFORE any child PART nodes, so the FIRST match of
+    each inside the node's span is the vessel's own. Missing keys read "" (never
+    guessed). Pure text parsing: no ConfigNode parser, no KSP."""
+    sfs_text = flightstate_span(sfs_text)
     starts = [m.start() for m in re.finditer(r"(?m)^\s*VESSEL\s*$", sfs_text)]
     records = []
     for i, start in enumerate(starts):

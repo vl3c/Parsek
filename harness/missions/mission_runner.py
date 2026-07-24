@@ -1095,8 +1095,12 @@ class KrpcMissionControl(MissionControl):
             # "LaunchPad"). Re-resolve the MechJeb handles against the NEW active
             # vessel and reset the ascent-complete latch + read-fail streak so the
             # fresh craft is judged from its own engage.
-            launch_site = getattr(action, "launch_site", None) or "LaunchPad"
-            crew_names = getattr(action, "crew", None)
+            # Both are DECLARED fields on mlib.Action (default None), so read them
+            # directly: a getattr-with-default here would silently swallow a rename
+            # or a hand-built action object missing the field, and quietly launch
+            # from the pad with the default crew instead of failing loudly.
+            launch_site = action.launch_site or "LaunchPad"
+            crew_names = action.crew
             crew_arg = [str(n) for n in crew_names] if crew_names else []
             sc.launch_vessel("VAB", str(action.text), str(launch_site),
                              crew=crew_arg)
