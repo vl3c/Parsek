@@ -211,7 +211,10 @@ count = { min = 2, max = 20 }
 required = [
   "Recording started",
   "Recording stopped",
-  "Tree branch created: type=Dock",
+  # Docking MERGES trees (flight 17 evidence: 'Tree merge created: type=Dock,
+  # bp=.., parents=[interceptor rec], child=..'); only SPLITS log 'Tree branch
+  # created' (Undock/JointBreak/EVA). The original token assumed split wording.
+  "Tree merge created: type=Dock",
   "OnVesselsUndocking:entry",
   "Tree branch created: type=Undock",
   "Route window delta:",
