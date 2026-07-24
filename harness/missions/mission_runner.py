@@ -554,6 +554,10 @@ class KrpcMissionControl(MissionControl):
             transfer_complete = False
             transfer_amount = float("nan")
             monopropellant = float("nan")
+            angular_velocity = float("nan")
+            sas_enabled = False
+            rcs_enabled = False
+            docking_ap_status = ""
             if self._read_docking:
                 target_distance, target_rel_speed, target_set = \
                     self._read_target_controller()
@@ -568,6 +572,20 @@ class KrpcMissionControl(MissionControl):
                     monopropellant = float(resources.amount("MonoPropellant"))
                 except Exception:
                     monopropellant = float("nan")
+                # Prox-ops observability (flight-10): the tumble signal + control
+                # + AP-status reads, each fail-closed in its own try/except so a
+                # fault degrades to the sentinel and never trips the vessel-lost
+                # read-fail streak.
+                angular_velocity = self._read_angular_velocity(v)
+                try:
+                    sas_enabled = bool(control_handle.sas)
+                except Exception:
+                    sas_enabled = False
+                try:
+                    rcs_enabled = bool(control_handle.rcs)
+                except Exception:
+                    rcs_enabled = False
+                docking_ap_status = self._read_docking_ap_status()
             snapshot = mlib.TelemetrySnapshot(
                 ut=float(sc.ut),
                 altitude=float(flight_srf.surface_altitude),
@@ -639,6 +657,11 @@ class KrpcMissionControl(MissionControl):
                 transfer_amount=transfer_amount,
                 monopropellant=monopropellant,
                 seam_commit_result=self._seam_commit_result,
+                # Prox-ops observability (flight-10): tumble / control / AP-status.
+                angular_velocity=angular_velocity,
+                sas_enabled=sas_enabled,
+                rcs_enabled=rcs_enabled,
+                docking_ap_status=docking_ap_status,
             )
             self._read_fail_streak = 0
             self._warp_watchdog(sc, snapshot.ut)
@@ -1143,6 +1166,29 @@ class KrpcMissionControl(MissionControl):
             except Exception as exc:
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Dock", "remove_nodes at DOCK entry failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_SET_SAS:
+            # Flight-10 tumble fix: hold attitude after a stage separation / before
+            # the docking AP takes over. control.sas is the primary; sas_mode is a
+            # separate best-effort (a craft with no stability-assist availability
+            # must still get SAS on).
+            try:
+                control.sas = True
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Attitude", "set sas=True failed: %s" % (exc,)))
+            try:
+                control.sas_mode = sc.SASMode.stability_assist
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Attitude",
+                    "set sas_mode=stability_assist failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_SET_RCS:
+            on = bool(action.value) if action.value is not None else True
+            try:
+                control.rcs = on
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Attitude", "set rcs=%s failed: %s" % (on, exc)))
         elif kind == mlib.ACTION_START_RESOURCE_TRANSFER:
             self._start_resource_transfer(sc, v, action)
         elif kind == mlib.ACTION_UNDOCK:
@@ -1398,6 +1444,28 @@ class KrpcMissionControl(MissionControl):
             except Exception:
                 continue
         return ""
+
+    def _read_angular_velocity(self, v) -> float:
+        """|angular velocity| (rad/s) in the vessel's ORBITAL reference frame --
+        the tumble signal (flight-10). The orbital frame excludes body rotation,
+        so a stabilized ship reads ~0 and a tumble reads high. Fail-closed NaN on
+        any read fault (the DOCK progress watchdog never counts an unread angvel as
+        tumble-killed progress)."""
+        try:
+            av = v.angular_velocity(v.orbital_reference_frame)
+            return math.sqrt(sum(float(c) * float(c) for c in av))
+        except Exception:
+            return float("nan")
+
+    def _read_docking_ap_status(self) -> str:
+        """MechJeb docking_autopilot.status (KRPC.MechJeb DockingAutopilot.Status),
+        truncated to 60 chars; "" (fail-closed) on any read fault. Diagnosability
+        only -- what the AP thinks it is doing (the flight-10 blind spot)."""
+        try:
+            status = self._mechjeb.docking_autopilot.status
+            return str(status)[:60] if status else ""
+        except Exception:
+            return ""
 
     def _read_active_transfer(self) -> Tuple[bool, float]:
         """(complete, amount) of the in-flight ResourceTransfer, or (False, NaN)
@@ -1867,6 +1935,20 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                 "match-velocity tgtDist=%s tgtRelV=%s nodes=%d nodeDv=%s ut=%s"
                 % (_fmt(snapshot.target_distance), _fmt(snapshot.target_rel_speed),
                    snapshot.node_count, _fmt(snapshot.node_dv), _fmt(snapshot.ut)))
+        # DOCK diagnostic (flight-10: the operator watched a tumble for ~28 min
+        # with DOCK logging NOTHING between entry and the give-up dump). Rate-
+        # limited per-phase key carrying the prox-ops signature (tumble / control /
+        # AP status) so a stall is greppable + rides the status file.
+        if state.phase == mlib.BDOCK_DOCK:
+            log.verbose_rate_limited(
+                "dock", state.phase,
+                "dock dist=%s relSpd=%s dockState=%s angVel=%s sas=%s rcs=%s "
+                "apStatus=%s apEnabled=%s ut=%s"
+                % (_fmt(snapshot.target_distance), _fmt(snapshot.target_rel_speed),
+                   snapshot.docking_state or "?", _fmt(snapshot.angular_velocity),
+                   snapshot.sas_enabled, snapshot.rcs_enabled,
+                   snapshot.docking_ap_status or "?", snapshot.mj_docking_enabled,
+                   _fmt(snapshot.ut)))
         # alt/vspeed/body/nodes ride the line too: B4 attempt-1 (2026-07-21)
         # stalled in REENTRY with a line that omitted altitude, leaving
         # frozen-physics vs normal-coast undiagnosable from the log. Log what

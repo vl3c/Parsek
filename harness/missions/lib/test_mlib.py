@@ -4198,6 +4198,12 @@ class BDockSeparateTests(unittest.TestCase):
         self.assertEqual(state.phase, mlib.BDOCK_STATION_ORBIT)
         # Never a second activation: exactly the one entry activation happened.
         for a in actions_seen:
+            self.assertNotIn(Action(mlib.ACTION_ACTIVATE_STAGE), a)
+        # The completing frame emits the attitude hold (SAS + RCS) into the next
+        # phase (flight-10 tumble fix); every earlier frame emits nothing.
+        self.assertEqual(actions_seen[-1], [
+            Action(mlib.ACTION_SET_SAS), Action(mlib.ACTION_SET_RCS, value=1.0)])
+        for a in actions_seen[:-1]:
             self.assertEqual(a, [])
         # separate_activations was 1 (entry) and reset to 0 on completion.
         self.assertEqual(state.separate_activations, 0)
@@ -4513,14 +4519,17 @@ class BDockDockTests(unittest.TestCase):
 
     def test_dock_entry_aborts_node_exec_first(self):
         # Flight-8 prox-ops rule: MATCH-VELOCITY completion enters DOCK with the
-        # node-exec abort as the FIRST action. Flight-9 stagger: the entry batch
-        # is abort + set-target ONLY (the enable is deferred to the next poll).
+        # node-exec abort as the FIRST action. Flight-9 stagger: no same-batch
+        # enable. Flight-10: attitude hold (SAS + RCS) before the AP takes over.
         state, _ = _bdock_walk_to(mlib.BDOCK_MATCH_VELOCITY)
         state, actions = mlib.bdock_decide(state, snap(ut=495.0, target_rel_speed=0.5))
         self.assertEqual(state.phase, mlib.BDOCK_DOCK)
         self.assertEqual(actions, [
             Action(mlib.ACTION_MJ_ABORT_NODE_EXEC),
+            Action(mlib.ACTION_SET_SAS),
+            Action(mlib.ACTION_SET_RCS, value=1.0),
             Action(mlib.ACTION_SET_TARGET_DOCKING_PORT)])
+        self.assertNotIn(Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5), actions)
 
     def test_dock_entry_then_next_step_enables(self):
         # Flight-9 stagger contract: DOCK entry sets the port target + arms the
@@ -4533,6 +4542,8 @@ class BDockDockTests(unittest.TestCase):
         self.assertEqual(state.phase, mlib.BDOCK_DOCK)
         self.assertEqual(entry, [
             Action(mlib.ACTION_MJ_ABORT_NODE_EXEC),
+            Action(mlib.ACTION_SET_SAS),
+            Action(mlib.ACTION_SET_RCS, value=1.0),
             Action(mlib.ACTION_SET_TARGET_DOCKING_PORT)])
         self.assertTrue(state.dock_enable_pending)
         # Next poll: the enable is the SOLE action; no re-target, no double enable.
@@ -4541,14 +4552,14 @@ class BDockDockTests(unittest.TestCase):
         self.assertFalse(state.dock_enable_pending)
         self.assertEqual(state.phase, mlib.BDOCK_DOCK)
 
-    def test_dropped_target_reacquired_exactly_once(self):
+    def test_dropped_target_first_reacquire_staggers_enable(self):
         state = self._at_dock()
         # Engage the docking AP (sets docking_ever_enabled), target still readable.
         state, _ = mlib.bdock_decide(state, snap(
             ut=505.0, mj_docking_enabled=True, docking_state="Docking",
             target_distance=50.0))
         self.assertTrue(state.docking_ever_enabled)
-        # Target goes null: K consecutive NaN-distance frames -> ONE re-target that
+        # Target goes null: K consecutive NaN-distance frames -> a re-target that
         # SETS the port only (flight-9 stagger) + arms the deferred enable.
         actions_seen = []
         for i in range(mlib.DEFAULT_DEBOUNCE_K):
@@ -4556,7 +4567,7 @@ class BDockDockTests(unittest.TestCase):
                 ut=510.0 + i, mj_docking_enabled=True, docking_state="Docking",
                 target_distance=float("nan"), monopropellant=100.0))
             actions_seen.append(a)
-        self.assertTrue(state.dock_retarget_done)
+        self.assertEqual(state.dock_retarget_count, 1)
         self.assertEqual(actions_seen[-1], [Action(mlib.ACTION_SET_TARGET_DOCKING_PORT)])
         self.assertTrue(state.dock_enable_pending)
         self.assertEqual(state.dock_nan_streak, 0)  # reset after re-target
@@ -4566,13 +4577,32 @@ class BDockDockTests(unittest.TestCase):
             target_distance=float("nan"), monopropellant=100.0))
         self.assertEqual(enable, [Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5)])
         self.assertFalse(state.dock_enable_pending)
-        # Further NaN frames NEVER re-target again (one-shot latch).
-        for i in range(mlib.DEFAULT_DEBOUNCE_K + 1):
+
+    def test_dropped_target_rearm_bounded_at_max(self):
+        # Flight-11: the retarget is RE-ARMABLE, bounded at BDOCK_DOCK_MAX_RETARGETS
+        # (one-shot was too stingy if KSP clears the port repeatedly).
+        state = self._at_dock()
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=505.0, mj_docking_enabled=True, docking_state="Docking",
+            target_distance=50.0))
+        retargets = 0
+        ut = 510.0
+        for _ in range((mlib.BDOCK_DOCK_MAX_RETARGETS + 2) * (mlib.DEFAULT_DEBOUNCE_K + 1)):
             state, a = mlib.bdock_decide(state, snap(
-                ut=520.0 + i, mj_docking_enabled=True, docking_state="Docking",
+                ut=ut, altitude=ut, mj_docking_enabled=True, docking_state="Docking",
                 target_distance=float("nan"), monopropellant=100.0))
-            self.assertNotIn(Action(mlib.ACTION_SET_TARGET_DOCKING_PORT), a)
-        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+            ut += 1.0
+            if Action(mlib.ACTION_SET_TARGET_DOCKING_PORT) in a:
+                retargets += 1
+                # Consume the staggered deferred enable.
+                state, _ = mlib.bdock_decide(state, snap(
+                    ut=ut, altitude=ut, mj_docking_enabled=True, docking_state="Docking",
+                    target_distance=float("nan"), monopropellant=100.0))
+                ut += 1.0
+            if state.done:
+                break
+        self.assertEqual(retargets, mlib.BDOCK_DOCK_MAX_RETARGETS)
+        self.assertEqual(state.dock_retarget_count, mlib.BDOCK_DOCK_MAX_RETARGETS)
 
     def test_nan_distance_never_docks_fail_closed(self):
         state = self._at_dock()
@@ -4585,6 +4615,113 @@ class BDockDockTests(unittest.TestCase):
             target_distance=float("nan"), monopropellant=100.0))
         self.assertEqual(state.phase, mlib.BDOCK_DOCK)
         self.assertFalse(state.done)
+
+    # ---- Liveness watchdogs (flight-11 centerpiece): a dead AP never rides the
+    # budget; it fails in seconds-to-minutes with a named reason. ----
+
+    def test_enable_never_took_reissues_once_then_flakes(self):
+        # E1a: the deferred enable was emitted (consumed by _at_dock) but
+        # mj_docking_enabled never becomes True. After K polls re-emit ONCE; after
+        # another K still not enabled -> fast FLAKE, distinctly named.
+        state = self._at_dock()
+        ut = 505.0
+        reissued = False
+        # altitude=ut keeps the frozen-telemetry signature advancing (a live craft
+        # jitters its orbit every frame; a constant sig would trip vessel-lost).
+        for _ in range(mlib.BDOCK_DOCK_LIVENESS_K):
+            state, a = mlib.bdock_decide(state, snap(
+                ut=ut, altitude=ut, mj_docking_enabled=False))
+            ut += 1.0
+            if Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5) in a:
+                reissued = True
+        self.assertTrue(reissued)
+        self.assertTrue(state.dock_enable_reissued)
+        self.assertFalse(state.done)
+        for _ in range(mlib.BDOCK_DOCK_LIVENESS_K):
+            state, a = mlib.bdock_decide(state, snap(
+                ut=ut, altitude=ut, mj_docking_enabled=False))
+            ut += 1.0
+            if state.done:
+                break
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        _, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertIn("enable did not take", reason)
+        self.assertIn(Action(mlib.ACTION_MJ_DISABLE_DOCKING), a)
+
+    def test_died_mid_approach_reenables_once_then_flakes(self):
+        # E1b: the AP ran (docking_ever_enabled) then went disabled without
+        # docking. After K polls re-enable ONCE (re-target first); if it dies
+        # again -> fast FLAKE, distinctly named ("benched/NRE?").
+        state = self._at_dock()
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=505.0, mj_docking_enabled=True, docking_state="Docking",
+            target_distance=50.0))
+        self.assertTrue(state.docking_ever_enabled)
+        ut = 506.0
+        reenabled = False
+        for _ in range(mlib.BDOCK_DOCK_LIVENESS_K):
+            state, a = mlib.bdock_decide(state, snap(
+                ut=ut, altitude=ut, mj_docking_enabled=False, docking_state="Docking",
+                target_distance=50.0, monopropellant=100.0))
+            ut += 1.0
+            if Action(mlib.ACTION_SET_TARGET_DOCKING_PORT) in a:
+                reenabled = True
+        self.assertTrue(reenabled)
+        self.assertTrue(state.dock_reenabled_after_death)
+        # Consume the staggered deferred enable.
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=ut, altitude=ut, mj_docking_enabled=False, docking_state="Docking",
+            target_distance=50.0, monopropellant=100.0))
+        ut += 1.0
+        for _ in range(mlib.BDOCK_DOCK_LIVENESS_K):
+            state, a = mlib.bdock_decide(state, snap(
+                ut=ut, altitude=ut, mj_docking_enabled=False, docking_state="Docking",
+                target_distance=50.0, monopropellant=100.0))
+            ut += 1.0
+            if state.done:
+                break
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        _, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertIn("benched/NRE", reason)
+
+    def test_progress_watchdog_flakes_when_all_flat(self):
+        # E2: the AP is ENABLED but distance/monoprop/angvel are all flat for
+        # dock_no_progress_seconds -> a dead/inert AP -> fast FLAKE, named.
+        state = self._at_dock()
+        p = state.params
+        # First frame establishes the minima (improves from inf) + starts the clock.
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=505.0, mj_docking_enabled=True, docking_state="Docking",
+            target_distance=80.0, monopropellant=50.0, angular_velocity=0.5))
+        self.assertFalse(state.done)
+        # Everything flat past the window -> flake (well inside the dock budget).
+        state, a = mlib.bdock_decide(state, snap(
+            ut=505.0 + p.dock_no_progress_seconds + 2.0, mj_docking_enabled=True,
+            docking_state="Docking", target_distance=80.0, monopropellant=50.0,
+            angular_velocity=0.5))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        _, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertIn("no observable progress", reason)
+        self.assertIn(Action(mlib.ACTION_MJ_DISABLE_DOCKING), a)
+
+    def test_progress_watchdog_resets_on_closing_distance(self):
+        # A closing distance is progress: the watchdog never fires while the AP is
+        # actually approaching, even well past dock_no_progress_seconds.
+        state = self._at_dock()
+        p = state.params
+        dist = 400.0
+        ut = 505.0
+        for _ in range(int(p.dock_no_progress_seconds) + 40):
+            state, _ = mlib.bdock_decide(state, snap(
+                ut=ut, altitude=ut, mj_docking_enabled=True, docking_state="Docking",
+                target_distance=dist, monopropellant=50.0, angular_velocity=0.5))
+            self.assertFalse(state.done, "closing distance must not flake")
+            dist -= 2.0  # closing
+            ut += 1.0
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
 
 
 class BDockTransferUndockTests(unittest.TestCase):
@@ -4620,6 +4757,25 @@ class BDockTransferUndockTests(unittest.TestCase):
         state, _ = mlib.bdock_decide(state, snap(ut=520.0 + 250.0, transfer_complete=False))
         self.assertTrue(state.done)
         self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+
+    def test_transfer_stall_flakes_fast_with_named_reason(self):
+        # Flight-11 liveness: transfer_amount flat for BDOCK_TRANSFER_STALL_FRAMES
+        # (dry source / full dest) flakes FAST -- well inside the 240 s budget --
+        # with a distinctly named reason.
+        state = self._at_transfer()
+        ut = 521.0
+        for _ in range(mlib.BDOCK_TRANSFER_STALL_FRAMES + 2):
+            state, _ = mlib.bdock_decide(state, snap(
+                ut=ut, transfer_complete=False, transfer_amount=0.0))
+            ut += 1.0
+            if state.done:
+                break
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        # Fast: flaked far below the 240 s transfer budget.
+        self.assertLess(ut - 520.0, 100.0)
+        _, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertIn("transfer stalled", reason)
 
     def test_undock_split_requires_vessel_count_increase_and_not_docked(self):
         state = self._at_transfer()

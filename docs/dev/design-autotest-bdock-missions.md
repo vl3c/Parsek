@@ -286,6 +286,31 @@ FLIGHT filter (`MapFocusObjectOnSelectPatch` Case B), so the auto-behavior on a
 > the configuration transitions (stage separations, ignitions, dockings,
 > undocks). The full step list with the per-phase configuration contract is the
 > header comment block of `BDOCK-1-station-interceptor.toml`.
+>
+> **AMENDED AGAIN 2026-07-24 (live flight 10/11 lessons -- attitude, observability,
+> LIVENESS).** Flight 10: the operator watched the upper stage TUMBLE in orbit for
+> ~28 minutes doing nothing useful. Two root causes and a principle:
+> 1. **Attitude.** Separation torque with no SAS tumbles the orbital stage. After
+>    EACH separation and at DOCK entry the machine now holds attitude
+>    (`ACTION_SET_SAS` = SAS stability-assist, `ACTION_SET_RCS` on) so the stage
+>    never tumbles and the docking AP is handed a stabilized, RCS-ready ship.
+> 2. **Observability.** DOCK logged NOTHING between entry and the give-up dump, and
+>    telemetry could not even see a tumble. New docking-gated snapshot fields --
+>    `angular_velocity` (tumble signal), `sas_enabled` / `rcs_enabled`,
+>    `docking_ap_status` (what MechJeb thinks it is doing) -- ride the status file,
+>    the compact ring-buffer line, and a per-frame rate-limited DOCK diagnostic
+>    line. All fail-closed (NaN / False / "") and only read when `read_docking`, so
+>    the B1-B7 snapshot is byte-identical.
+> 3. **LIVENESS PRINCIPLE (centerpiece, binding on every mission design):**
+>    *budgets bound SLOW; liveness watchdogs bound BROKEN. A phase may never idle to
+>    its budget while its actor (a MechJeb AP, the node executor, a transfer) is
+>    provably dead or inert.* Flights 9/10 saw MechJeb bench the docking AP within
+>    seconds while the machine sat the full 1800 s dock budget, and the harness then
+>    retried the identical 75-minute mission into the same wall -- hours of zombie
+>    wall-clock. Every actor-dependent B-DOCK phase now carries BOTH a budget AND a
+>    fast is-the-actor-acting check with a distinctly named flake reason (see the
+>    DOCK / TRANSFER amendments below). SEPARATE / ORBIT / COMMIT are already
+>    evidence-driven and short-budgeted.
 
 ```
                         --- PIECE 1: STATION (pre-placed on the pad) ---
@@ -313,9 +338,11 @@ STATION-CIRCULARIZE -> STATION-SEPARATE   (post-circularize two-step separation)
    heat-shield Decoupler.2. Bounded give-up (separationTimeoutSeconds spans BOTH
    steps) -> a named FLAKE that distinguishes "no separation observed (vessel_count
    did not increase)" from "separated but no ignition (available_thrust stayed 0)",
-   retryable. available_thrust also rides the phase-transition log line. Config
-   after: Station = ORBITAL STAGE ONLY, engine LIT (pod + dockingPort2 + 8 RCS +
-   4 monoprop tanks + LV-T45 + tank + probe core).)
+   retryable. available_thrust also rides the phase-transition log line. On
+   completion the machine emits the ATTITUDE HOLD (ACTION_SET_SAS +
+   ACTION_SET_RCS on, flight-10) so the dropped mass does not tumble the stage.
+   Config after: Station = ORBITAL STAGE ONLY, engine LIT, attitude HELD (pod +
+   dockingPort2 + 8 RCS + 4 monoprop tanks + LV-T45 + tank + probe core).)
 
 STATION-ORBIT -> STATION-COMMIT   (bounded-wait, section 3.2 route 1)
   (ACTION_PARSEK_COMMIT_TREE -> command-seam CommitTree, poll for OK. TB is
@@ -369,7 +396,8 @@ RENDEZVOUS -> MATCH-VELOCITY
    (idempotent, latched); NaN never completes the phase (fail-closed).)
 
 MATCH-VELOCITY -> DOCK
-  (ACTION_MJ_ABORT_NODE_EXEC FIRST, then ACTION_SET_TARGET_DOCKING_PORT = the
+  (ACTION_MJ_ABORT_NODE_EXEC FIRST, then the ATTITUDE HOLD (ACTION_SET_SAS +
+   ACTION_SET_RCS on, flight-10), then ACTION_SET_TARGET_DOCKING_PORT = the
    captured Station Clamp-O-Tron HANDLE; the docking AP enable
    (ACTION_MJ_ENABLE_DOCKING with speed_limit = dockSpeedMetersPerSec) is emitted
    on the NEXT DOCK poll, NOT the same batch (see the flight-9 amendment). Done
@@ -404,8 +432,23 @@ MATCH-VELOCITY -> DOCK
    Unity frames for core.target to sync) and clears the flag.
    Robustness: a DOCK-phase dropped-target recovery (mirrors matchRetarget) --
    while docking_ever_enabled, a non-finite target_distance for K debounced frames
-   re-emits ACTION_SET_TARGET_DOCKING_PORT and re-arms the same staggered enable
-   EXACTLY ONCE (dock_retarget_done latch); NaN never completes DOCK, fail-closed.)
+   re-emits ACTION_SET_TARGET_DOCKING_PORT and re-arms the same staggered enable,
+   BOUNDED to BDOCK_DOCK_MAX_RETARGETS = 3 (flight-11: one-shot was too stingy if
+   KSP clears the port repeatedly); NaN never completes DOCK, fail-closed.
+   AMENDED AGAIN 2026-07-24 (flight-10/11 LIVENESS -- a dead AP must never ride the
+   budget): flight 10 entered DOCK with a perfect setup, the AP died, and the ship
+   drifted tumbling for the full budget. Three watchdogs, each a fast named flake:
+   (E1a) "enable never took" -- after the deferred enable, if mj_docking_enabled is
+   not observed True within BDOCK_DOCK_LIVENESS_K (~10) polls, re-emit the enable
+   ONCE; still not enabled within another K -> FLAKE "docking AP enable did not
+   take". (E1b) "died mid-approach" -- docking_ever_enabled AND now disabled AND not
+   docked for K polls -> re-target + re-enable ONCE; if it dies again -> FLAKE
+   "docking AP disabled without docking (benched/NRE?)". (E2) progress watchdog --
+   while the AP is enabled, ANY of target_distance closing / monopropellant burning
+   / angular_velocity falling is progress; NONE for dockNoProgressSeconds (default
+   120 GAME s) -> FLAKE "docking AP enabled but no observable progress
+   (dist/monoprop/angvel all flat)". The dock budget stays as the slow-but-alive
+   backstop.)
 
 DOCK -> TRANSFER
   (two commanded transfers, opposite directions and different resources:
@@ -415,7 +458,10 @@ DOCK -> TRANSFER
      T2: ACTION_START_RESOURCE_TRANSFER MonoPropellant, station tank -> transport
          tank, amount = transferAmountMp.
    Done evidence: both transfers report complete with transferred amount within
-   tolerance of commanded.)
+   tolerance of commanded. LIVENESS (flight-11): a running transfer must move
+   resource -- transfer_amount climbs. Flat/unread for BDOCK_TRANSFER_STALL_FRAMES
+   (~20 polls) -> FLAKE "transfer stalled (transfer_amount not increasing)" fast,
+   not an idle to the 2x transferTimeoutSeconds budget.)
 
 TRANSFER -> UNDOCK
   (ACTION_UNDOCK the Clamp-O-Tron. KSP fires onPartUndock then, authoritatively,
@@ -677,8 +723,9 @@ ignition step; both are near-instantaneous, so this is a stuck-decoupler /
 failed-ignition backstop, not a tuning knob);
 `rendezvousTimeoutSeconds = 30000` (phasing orbits under warp advance game time
 fast); `matchTimeoutSeconds = 600` (flight-5: MATCH-VELOCITY is NOT a fast
-transition, the kill-rel-vel node can land far ahead); `dockTimeoutSeconds = 600`
-(the 1x approach); `transferTimeoutSeconds = 120` each; undock/settle 120. WALL: mission phase ~2400 s (Station ascent ~250 +
+transition, the kill-rel-vel node can land far ahead); `dockTimeoutSeconds = 1800`
+(the 1x approach, slow-but-alive backstop) with `dockNoProgressSeconds = 120` as
+the flight-11 liveness watchdog (a dead/inert AP flakes fast); `transferTimeoutSeconds = 120` each; undock/settle 120. WALL: mission phase ~2400 s (Station ascent ~250 +
 circularize + Interceptor launch/ascent ~250 + circularize + rendezvous ~200 under
 warp + docking ~120-180 at 1x + two transfers ~10 + undock/settle + margin); runtime
 ~3000 s (240 LoadGame + 2400 mission + the two commits + FlushAndQuit + margin,

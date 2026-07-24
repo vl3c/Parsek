@@ -15,6 +15,22 @@
 # TWO-STEP contract: drop the core AND ignite the orbital engine (at most 2 stage
 # activations, verified by thrust; never a third).
 #
+# ATTITUDE CONTRACT (flight-10): separation torque with no SAS = a tumble (the
+# operator watched the upper stage tumbling for ~28 min). After EACH separation
+# and at DOCK entry the machine holds attitude (SAS stability-assist + RCS on) so
+# the orbital stage never tumbles and the docking AP is handed a stabilized ship.
+#
+# LIVENESS PRINCIPLE (flight-10/11 operator directive): "budgets bound SLOW;
+# liveness watchdogs bound BROKEN. A phase may never idle to its budget while its
+# actor (a MechJeb AP, the node executor, a transfer) is provably dead or inert."
+# Every actor-dependent phase carries BOTH a budget AND a fast is-the-actor-acting
+# check with a distinctly named flake reason. DOCK: AP-enable-never-took re-emit +
+# fast flake, AP-died-mid-approach re-enable + fast flake, and a progress watchdog
+# (distance closing / monoprop burning / tumble killed; none for
+# dockNoProgressSeconds -> fast flake). TRANSFER: transfer_amount flat -> fast
+# flake. Every phase logs per-frame prox-ops telemetry (tumble / SAS / RCS / AP
+# status) so live behavior is explainable without post-hoc archaeology.
+#
 #   PRELAUNCH            Station full stack on the pad.
 #   STATION-ASCENT       Full stack; MechJeb autostage drops the 6 radial
 #                        boosters + nose cones during ascent.
@@ -23,8 +39,10 @@
 #                        verified by a new-vessel (spent core) spawn; (2) ignite
 #                        the orbital engine - at most ONE more activation, verified
 #                        by available_thrust > 0. HARD CAP 2 activations: a third
-#                        would fire the istg=0 heat-shield decoupler. Station is
-#                        now its ORBITAL STAGE, engine LIT: pod + dockingPort2 +
+#                        would fire the istg=0 heat-shield decoupler. Then HOLD
+#                        ATTITUDE (SAS stability-assist + RCS on) so the dropped
+#                        mass does not tumble the stage. Station is now its ORBITAL
+#                        STAGE, engine LIT, attitude HELD: pod + dockingPort2 +
 #                        8 RCS + 4 monoprop tanks + LV-T45 + tank + probe core.
 #   STATION-ORBIT        Orbital stage parked (~110 km).
 #   STATION-COMMIT       The Station tree is committed mid-mission (route 1).
@@ -32,8 +50,9 @@
 #   INT-ASCENT           Full stack; autostage drops the boosters.
 #   INT-CIRCULARIZE      Core stage burns the circularization node (~90 km).
 #   INT-SEPARATE         Same two-step contract: drop the spent Interceptor core
-#                        AND ignite its orbital engine (thrust-verified, cap 2).
-#                        Interceptor is now its ORBITAL STAGE, engine LIT.
+#                        AND ignite its orbital engine (thrust-verified, cap 2),
+#                        then HOLD ATTITUDE (SAS + RCS). Interceptor is now its
+#                        ORBITAL STAGE, engine LIT, attitude HELD.
 #   INT-PHASING-ORBIT    Orbital stage parked below the Station so it phases up.
 #   SET-TARGET           Target the captured Station handle.
 #   RENDEZVOUS           MechJeb rendezvous AP closes to ~100 m (orbital stages).
@@ -42,13 +61,17 @@
 #                        bounded 600 s; re-acquires a dropped target once.
 #   DOCK                 Abort any pending maneuver execution FIRST (prox-ops
 #                        rule: a pending kill-rel-vel node rails-warps + packs the
-#                        port target null -> docking AP NREs), set the port target,
-#                        then enable the docking AP ONE poll LATER (flight-9:
-#                        MechJeb's core.target syncs on its next Update, so a
-#                        same-batch enable makes the AP's first Drive tick see the
-#                        OLD vessel target and NRE). MechJeb docking AP hard-docks -
-#                        BOTH vessels ORBITAL STAGE ONLY (never dock a full stack).
-#                        Re-acquires a dropped port once (same staggered enable).
+#                        port target null -> docking AP NREs), HOLD ATTITUDE (SAS +
+#                        RCS), set the port target, then enable the docking AP ONE
+#                        poll LATER (flight-9: MechJeb's core.target syncs on its
+#                        next Update, so a same-batch enable makes the AP's first
+#                        Drive tick see the OLD vessel target and NRE). LIVENESS
+#                        (flight-11): if the enable never takes -> re-emit once then
+#                        fast flake; if the AP dies mid-approach -> re-enable once
+#                        then fast flake; if the AP is enabled but shows no progress
+#                        (dist/monoprop/angvel flat) for dockNoProgressSeconds ->
+#                        fast flake. Re-acquires a dropped port up to 3x. MechJeb
+#                        docking AP hard-docks - BOTH vessels ORBITAL STAGE ONLY.
 #   TRANSFER             Two ResourceTransfers (LF deliver, MP pickup).
 #   UNDOCK               onVesselsUndocking split; RouteConnectionWindow closes.
 #   TERMINAL             Two separate committed trees in orbit.
@@ -147,6 +170,11 @@ transferAmountMp            = 15
 stationCommitTimeoutSeconds = 300
 rendezvousTimeoutSeconds    = 30000
 dockTimeoutSeconds          = 1800
+# DOCK liveness watchdog (flight-11): a dead/inert docking AP flakes fast at this
+# many GAME seconds of no progress (dist/monoprop/angvel all flat) rather than
+# idling the full dockTimeoutSeconds -- the operator's actual complaint was hours
+# of zombie wall-clock, not slowness.
+dockNoProgressSeconds       = 120
 transferTimeoutSeconds      = 120
 undockTimeoutSeconds        = 120
 
