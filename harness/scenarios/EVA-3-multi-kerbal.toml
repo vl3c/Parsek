@@ -1,11 +1,13 @@
 schema = 1
 id = "EVA-3-multi-kerbal"
-# PENDING-FIXTURE (design M-C2 EVA-3): the fixtures/saves/eva3-pad-3crew template (a bare Mk1-3
-# pod, 3 named crew, pad, sandbox) is NOT committed yet - operator step P2. Stays pending-fixture
-# until the fixture lands, then re-tiers to "nightly" (design: nightly at first, daily candidate
-# after flake data). IMPLEMENTED PENDING IN-GAME PROOF: P3 pins the count window; the exact
-# "[Pipeline-Smoothing]" message is regex-escaped here per the design's implementation-pin note.
-tier = "pending-fixture"
+# FIXTURE LANDED (design M-C2 EVA-3, operator step P2 done 2026-07-24): fixtures/saves/eva3-pad-3crew
+# is committed (Kerbal X, 3 named crew, pad, sandbox), so this re-tiers pending-fixture -> "nightly"
+# (design: nightly at first, daily candidate after flake data). First flight 2026-07-24 found the
+# fast-board merge gap (Parsek dropped the Board branch point when a motionless kerbal re-boards
+# inside the promotion window - fixed in ParsekFlight.TryPromoteEvaRecordingForBoardMerge). P3 pins
+# the count window on the first GREEN run; the exact "[Pipeline-Smoothing]" message is regex-escaped
+# here per the design's implementation-pin note.
+tier = "nightly"
 description = "Multi-kerbal sequential EVA: two kerbals of a 3-crew pod exit and re-board SEQUENTIALLY within one tree - two EVA branch points, two board merges, multi-crew Start/End manifests."
 instanceProfile = "stock-minimal"
 tags = ["eva", "eva-branch", "multi-crew", "D2", "D5", "B3"]
@@ -46,7 +48,11 @@ D5  = ["eva-branch"]
 D14 = ["kerbin", "sandbox", "scene-flight"]
 
 [expectations.recordings]
-count = { min = 3, max = 6 }   # pod + 2 EVA branches certain; chain-backs pinned by P3
+# Derivation (.prec files in the run save): root pod 1, + 2 per EVA split (ship continuation
+# child + kerbal bgChild) = 5, + 1 merged child per board merge = 7 expected. The first flight
+# produced 5 because BOTH board merges were dropped (the fast-board gap); the window is widened
+# to bracket the fixed topology and stays provisional until the first GREEN run pins it (P3).
+count = { min = 5, max = 9 }
 
 [expectations.logContracts]
 # Verbose tokens (need the verboseLogging pin): "Tree board merge completed",
