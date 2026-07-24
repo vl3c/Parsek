@@ -88,6 +88,77 @@ namespace Parsek.TestCommands
             return EvaExitCompletionDecision.StillWaiting;
         }
 
+        /// <summary>
+        /// The ladder-release action for one <c>ApplyLadderRelease</c> poll (EVA-1 flight-2
+        /// release-false-positive defect, 2026-07-24). Decompiled <c>KerbalEVA</c> /
+        /// <c>KerbalFSM</c> (KSP 1.12.5) ground truth: <c>On_ladderLetGo</c> (goto
+        /// <c>st_idle_fl</c>) is registered on ONLY four states -
+        /// <c>st_ladder_idle</c> / <c>st_ladder_climb</c> / <c>st_ladder_descend</c> /
+        /// <c>st_ladder_end_reached</c> (KerbalEVA.cs:8737). A fresh EVA that auto-grabs the
+        /// hatch ladder STARTS in <c>st_ladder_acquire</c> (KerbalEVA.cs:3062), a transitional
+        /// state that does NOT register <c>On_ladderLetGo</c> and only advances to
+        /// <c>st_ladder_idle</c> after a 1.0s <c>KFSMTimedEvent</c> (On_ladderGrabComplete,
+        /// KerbalEVA.cs:8504-8506). <c>correctLadderPosition()</c> sets <c>onLadder=true</c>
+        /// during that acquire window (KerbalEVA.cs:14762), so <c>OnALadder</c> is already
+        /// true. <c>KerbalFSM.RunEvent</c> for an event NOT registered on the current state
+        /// logs "Event ... not assigned to state ..." and RETURNS a silent no-op
+        /// (KerbalFSM.cs:298-311); a registered event transitions SYNCHRONOUSLY in-call. The
+        /// old applier fired <c>On_ladderLetGo</c> the instant <c>OnALadder</c> was true
+        /// (~0.2s, still in <c>st_ladder_acquire</c>), hit the silent-return path, yet marked
+        /// <c>released=true</c> - the kerbal hung on the hatch ladder in <c>st_ladder_idle</c>
+        /// forever (no ground contact -> the 180s PlantFlag timeout). The fix fires ONLY from a
+        /// receptive state and treats <c>released=true</c> as VERIFIED-left-the-ladder.
+        /// </summary>
+        internal enum LadderReleaseAction
+        {
+            /// <summary>The kerbal is not on a ladder: either it never was (the noop path) or a
+            /// prior fire already took. The release phase concludes; <c>released</c> is VERIFIED
+            /// only when a fire actually preceded this (fireCount &gt; 0).</summary>
+            NotOnLadder,
+
+            /// <summary>On a ladder but the current FSM state does NOT register
+            /// <c>On_ladderLetGo</c> (the <c>st_ladder_acquire</c> / lean / pushoff transitional
+            /// window): WAIT - firing now would be a silent no-op. Do NOT touch releaseApplied.</summary>
+            WaitForReceptiveState,
+
+            /// <summary>On a ladder in a receptive let-go state: fire <c>On_ladderLetGo</c> this
+            /// poll (RunEvent transitions synchronously to <c>st_idle_fl</c>), then re-verify
+            /// next poll via <see cref="NotOnLadder"/>.</summary>
+            Fire,
+
+            /// <summary>Fired <c>maxFires</c> times and STILL on a ladder (a mod re-grab or a
+            /// stuck FSM): give up bounded so the EvaExit budget is not burned - conclude the
+            /// phase with <c>released=false</c> (NOT verified) and a warn (liveness).</summary>
+            ExhaustedStillOnLadder,
+        }
+
+        /// <summary>The bounded re-fire cap for the ladder let-go (liveness: a stuck / re-grabbing
+        /// FSM must not spin the release forever).</summary>
+        internal const int LadderReleaseMaxFires = 3;
+
+        /// <summary>
+        /// Decide one <c>ApplyLadderRelease</c> poll (EVA-1 flight-2 fix). The applier passes
+        /// the LIVE <c>KerbalEVA.OnALadder</c> and whether <c>fsm.CurrentState</c> is one of the
+        /// four states that register <c>On_ladderLetGo</c>
+        /// (<paramref name="inReceptiveLetGoState"/>), plus how many times it has already fired
+        /// (<paramref name="fireCount"/>). Off the ladder -> <see cref="LadderReleaseAction.NotOnLadder"/>
+        /// (verified-left or never-on). Still on it: exhausted first (bounded), else fire when
+        /// receptive, else wait out the transitional acquire window. The wait branch is the
+        /// whole fix - it stops the premature fire during <c>st_ladder_acquire</c> that the old
+        /// applier logged as a false <c>released=true</c>.
+        /// </summary>
+        internal static LadderReleaseAction DecideLadderRelease(
+            bool onLadder, bool inReceptiveLetGoState, int fireCount, int maxFires)
+        {
+            if (!onLadder)
+                return LadderReleaseAction.NotOnLadder;
+            if (fireCount >= maxFires)
+                return LadderReleaseAction.ExhaustedStillOnLadder;
+            if (inReceptiveLetGoState)
+                return LadderReleaseAction.Fire;
+            return LadderReleaseAction.WaitForReceptiveState;
+        }
+
         /// <summary>Terminal completion payload once the EVA vessel is live + active.</summary>
         internal static List<KeyValuePair<string, string>> BuildCompletePayload(
             string kerbal, uint evaPid, bool released)

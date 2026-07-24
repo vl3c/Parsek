@@ -164,6 +164,93 @@ namespace Parsek.Tests
                     Budget + 10.0, true, true, true, false, false, true, Budget));
         }
 
+        // ----- DecideLadderRelease (EVA-1 flight-2 release false-positive fix) -----
+
+        private const int MaxFires = 3;
+
+        [Fact]
+        public void Ladder_NotOnLadder_ConcludesNoop()
+        {
+            // Off the ladder with no prior fire: the noop path (kerbal exited not on a ladder).
+            Assert.Equal(TestCommandEvaExit.LadderReleaseAction.NotOnLadder,
+                TestCommandEvaExit.DecideLadderRelease(
+                    onLadder: false, inReceptiveLetGoState: false, fireCount: 0, MaxFires));
+        }
+
+        [Fact]
+        public void Ladder_OffLadderAfterFire_ConcludesVerified()
+        {
+            // Off the ladder AFTER a fire: verified-left (RunEvent's synchronous transition took).
+            Assert.Equal(TestCommandEvaExit.LadderReleaseAction.NotOnLadder,
+                TestCommandEvaExit.DecideLadderRelease(
+                    onLadder: false, inReceptiveLetGoState: true, fireCount: 1, MaxFires));
+        }
+
+        [Fact]
+        public void Ladder_OnLadder_TransitionalState_Waits()
+        {
+            // THE REGRESSION: on a ladder but in st_ladder_acquire (not a receptive let-go state)
+            // ~0.2s after exit. The old applier fired here -> silent no-op -> false released=true.
+            // The fix WAITS for the timed transition into a receptive state; it never fires here.
+            Assert.Equal(TestCommandEvaExit.LadderReleaseAction.WaitForReceptiveState,
+                TestCommandEvaExit.DecideLadderRelease(
+                    onLadder: true, inReceptiveLetGoState: false, fireCount: 0, MaxFires));
+        }
+
+        [Fact]
+        public void Ladder_OnLadder_ReceptiveState_Fires()
+        {
+            // On a ladder in st_ladder_idle / climb / descend / end_reached: On_ladderLetGo is
+            // registered, so RunEvent will actually transition -> fire.
+            Assert.Equal(TestCommandEvaExit.LadderReleaseAction.Fire,
+                TestCommandEvaExit.DecideLadderRelease(
+                    onLadder: true, inReceptiveLetGoState: true, fireCount: 0, MaxFires));
+        }
+
+        [Fact]
+        public void Ladder_ReceptiveState_FiresUpToCapMinusOne()
+        {
+            // fireCount below the cap still fires (bounded re-fire while receptive).
+            Assert.Equal(TestCommandEvaExit.LadderReleaseAction.Fire,
+                TestCommandEvaExit.DecideLadderRelease(
+                    onLadder: true, inReceptiveLetGoState: true, fireCount: MaxFires - 1, MaxFires));
+        }
+
+        [Fact]
+        public void Ladder_StillOnLadderAtCap_Exhausts()
+        {
+            // Fired the cap and still on a ladder (mod re-grab / stuck FSM): bounded give-up so
+            // the EvaExit budget is not burned. Exhaustion wins even from a receptive state.
+            Assert.Equal(TestCommandEvaExit.LadderReleaseAction.ExhaustedStillOnLadder,
+                TestCommandEvaExit.DecideLadderRelease(
+                    onLadder: true, inReceptiveLetGoState: true, fireCount: MaxFires, MaxFires));
+        }
+
+        [Fact]
+        public void Ladder_ExhaustionBeatsTransitionalWait()
+        {
+            // At the cap, even a non-receptive state exhausts rather than waiting forever.
+            Assert.Equal(TestCommandEvaExit.LadderReleaseAction.ExhaustedStillOnLadder,
+                TestCommandEvaExit.DecideLadderRelease(
+                    onLadder: true, inReceptiveLetGoState: false, fireCount: MaxFires, MaxFires));
+        }
+
+        [Fact]
+        public void Ladder_OffLadderBeatsExhaustion()
+        {
+            // Off the ladder always concludes NotOnLadder, even at/over the cap (a late departure
+            // still counts as verified-left, never a spurious exhaustion).
+            Assert.Equal(TestCommandEvaExit.LadderReleaseAction.NotOnLadder,
+                TestCommandEvaExit.DecideLadderRelease(
+                    onLadder: false, inReceptiveLetGoState: false, fireCount: MaxFires, MaxFires));
+        }
+
+        [Fact]
+        public void Ladder_MaxFiresCap_IsThree()
+        {
+            Assert.Equal(3, TestCommandEvaExit.LadderReleaseMaxFires);
+        }
+
         // ----- BuildCompletePayload -----
 
         [Fact]

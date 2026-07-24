@@ -55,6 +55,12 @@ namespace Parsek.TestCommands
         private Vessel evaExitVessel;
         private bool evaExitReleaseRequested;
         private bool evaExitReleaseApplied;
+        // VERIFIED-left-the-ladder (fsm actually departed the ladder family after a fire), as
+        // distinct from evaExitReleaseApplied (the release PHASE concluded, gating completion).
+        // The completion payload's released= reports THIS, never a bare called-the-event bit.
+        private bool evaExitReleaseVerified;
+        // Bounded re-fire counter for On_ladderLetGo (liveness cap = LadderReleaseMaxFires).
+        private int evaExitReleaseFireCount;
         private double evaExitSettleSeconds;
         private double evaExitSettleStartedAt;
 
@@ -167,6 +173,8 @@ namespace Parsek.TestCommands
             evaExitVessel = evaCtl.vessel;
             evaExitReleaseRequested = releaseRequested;
             evaExitReleaseApplied = false;
+            evaExitReleaseVerified = false;
+            evaExitReleaseFireCount = 0;
             evaExitSettleSeconds = settleSeconds;
             evaExitSettleStartedAt = -1.0;
             SetExecResult(PendingVerdict, null, null);
@@ -211,7 +219,10 @@ namespace Parsek.TestCommands
             string id = completionId; long seq = completionSeq; string verb = completionVerb;
             string kerbal = evaExitKerbalName;
             uint evaPid = exists ? evaExitVessel.persistentId : 0u;
-            bool released = evaExitReleaseApplied;
+            // released= means VERIFIED-left-the-ladder (evaExitReleaseVerified), NOT merely
+            // that the release phase concluded (evaExitReleaseApplied): a bounded-exhausted
+            // release that never left the ladder reports released=false.
+            bool released = evaExitReleaseVerified;
             ClearTwoPhase();
 
             if (decision == EvaExitCompletionDecision.CompleteOk)
@@ -229,8 +240,18 @@ namespace Parsek.TestCommands
             }
         }
 
-        // Run the public fsm ladder let-go once the EVA vessel is active. A kerbal already off
-        // the ladder marks releaseApplied without the event (logged release=noop).
+        // Evidence-verified ladder let-go (EVA-1 flight-2 release false-positive fix). The old
+        // applier fired On_ladderLetGo the instant OnALadder was true (~0.2s after exit) and
+        // marked released=true - but at 0.2s a hatch-grab EVA is still in st_ladder_acquire, a
+        // transitional state that does NOT register On_ladderLetGo (decompiled KerbalEVA.cs:8737
+        // registers it ONLY on st_ladder_idle / st_ladder_climb / st_ladder_descend /
+        // st_ladder_end_reached). KerbalFSM.RunEvent for an unregistered event logs
+        // "not assigned to state" and RETURNS (KerbalFSM.cs:298-311) - a SILENT no-op - so the
+        // kerbal never let go, hung on the hatch ladder in st_ladder_idle, and PlantFlag timed
+        // out at 180s for want of ground contact. RunEvent for a REGISTERED event transitions
+        // synchronously in-call, so we fire only from a receptive state and re-verify next poll
+        // that the fsm actually LEFT the ladder family. Two-step SEPARATE (BDOCK lesson): the
+        // event being CALLED is not evidence it HAPPENED; released=true means verified-left.
         private void ApplyLadderRelease()
         {
             KerbalEVA evaCtl = evaExitVessel != null ? evaExitVessel.FindPartModuleImplementing<KerbalEVA>() : null;
@@ -240,25 +261,92 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            if (evaCtl.OnALadder)
+            bool onLadder = evaCtl.OnALadder;
+            bool inReceptive = IsLadderLetGoReceptiveState(evaCtl, out string stateName);
+            TestCommandEvaExit.LadderReleaseAction action = TestCommandEvaExit.DecideLadderRelease(
+                onLadder, inReceptive, evaExitReleaseFireCount, TestCommandEvaExit.LadderReleaseMaxFires);
+
+            switch (action)
             {
-                try
-                {
-                    evaCtl.fsm.RunEvent(evaCtl.On_ladderLetGo);
+                case TestCommandEvaExit.LadderReleaseAction.NotOnLadder:
+                    // Off the ladder: verified-left when a fire preceded this, else the kerbal
+                    // exited not-on-a-ladder (the noop path). Either way the phase concludes.
+                    evaExitReleaseVerified = evaExitReleaseFireCount > 0;
                     evaExitReleaseApplied = true;
-                    ParsekLog.Info(Tag, $"evaexit release applied kerbal={evaExitKerbalName ?? string.Empty}");
-                }
-                catch (System.Exception ex)
-                {
-                    ParsekLog.Warn(Tag, $"evaexit release threw: {ex.GetType().Name}: {ex.Message}");
-                }
+                    if (evaExitReleaseFireCount > 0)
+                        ParsekLog.Info(Tag, $"evaexit release verified kerbal={evaExitKerbalName ?? string.Empty} fires={evaExitReleaseFireCount.ToString(CultureInfo.InvariantCulture)} fsm={stateName} (left ladder)");
+                    else
+                        ParsekLog.Info(Tag, $"evaexit release=noop kerbal={evaExitKerbalName ?? string.Empty} fsm={stateName} (not on ladder)");
+                    return;
+
+                case TestCommandEvaExit.LadderReleaseAction.WaitForReceptiveState:
+                    // On a ladder but in a transitional (st_ladder_acquire / lean / pushoff)
+                    // state that does not register On_ladderLetGo: firing now silently no-ops.
+                    // Wait for the timed transition into a receptive state.
+                    ParsekLog.VerboseRateLimited("TestCommands", "evaexit-release-wait",
+                        $"evaexit release wait kerbal={evaExitKerbalName ?? string.Empty} onLadder fsm={stateName} (awaiting receptive let-go state)");
+                    return;
+
+                case TestCommandEvaExit.LadderReleaseAction.Fire:
+                    try
+                    {
+                        evaExitReleaseFireCount++;
+                        evaCtl.fsm.RunEvent(evaCtl.On_ladderLetGo);
+                        // RunEvent transitions synchronously; re-read the live state so the log
+                        // names the outcome instead of assuming it.
+                        bool stillOn = evaCtl.OnALadder;
+                        string postState = FsmStateName(evaCtl);
+                        ParsekLog.Info(Tag, $"evaexit release fired kerbal={evaExitKerbalName ?? string.Empty} fires={evaExitReleaseFireCount.ToString(CultureInfo.InvariantCulture)} fsm={stateName}->{postState} stillOnLadder={Bool(stillOn)}");
+                        // Verification (verified / exhausted) is settled by the next poll's
+                        // NotOnLadder / ExhaustedStillOnLadder branch - do NOT set applied here.
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Warn(Tag, $"evaexit release threw: {ex.GetType().Name}: {ex.Message}");
+                    }
+                    return;
+
+                case TestCommandEvaExit.LadderReleaseAction.ExhaustedStillOnLadder:
+                    // Bounded give-up: fired the cap and the kerbal is still on a ladder. Conclude
+                    // the phase (do not burn the EvaExit budget) but report released=false.
+                    evaExitReleaseVerified = false;
+                    evaExitReleaseApplied = true;
+                    ParsekLog.Warn(Tag, $"evaexit release exhausted kerbal={evaExitKerbalName ?? string.Empty} fires={evaExitReleaseFireCount.ToString(CultureInfo.InvariantCulture)} fsm={stateName} (still on ladder; released=false)");
+                    return;
             }
-            else
-            {
-                // Not on the ladder (already dropped): treat as applied without the FSM event.
-                evaExitReleaseApplied = true;
-                ParsekLog.Info(Tag, $"evaexit release=noop kerbal={evaExitKerbalName ?? string.Empty} (not on ladder)");
-            }
+        }
+
+        // True when the EVA's current FSM state is one of the four that REGISTER On_ladderLetGo
+        // (decompiled KerbalEVA.cs:8737): st_ladder_idle / st_ladder_climb / st_ladder_descend /
+        // st_ladder_end_reached. RunEvent from any other state (st_ladder_acquire / lean /
+        // pushoff, or any non-ladder state) is a silent no-op. Also emits the sanitized state
+        // name for diagnostics. Null-safe: an unstarted / null fsm reads not-receptive.
+        private static bool IsLadderLetGoReceptiveState(KerbalEVA evaCtl, out string stateName)
+        {
+            stateName = "?";
+            KerbalFSM fsm = evaCtl != null ? evaCtl.fsm : null;
+            if (fsm == null || fsm.CurrentState == null) return false;
+            KFSMState cur = fsm.CurrentState;
+            string raw = cur.name;
+            stateName = string.IsNullOrEmpty(raw)
+                ? "?"
+                : raw.Replace(' ', '_').Replace("(", string.Empty).Replace(")", string.Empty);
+            return ReferenceEquals(cur, evaCtl.st_ladder_idle)
+                || ReferenceEquals(cur, evaCtl.st_ladder_climb)
+                || ReferenceEquals(cur, evaCtl.st_ladder_descend)
+                || ReferenceEquals(cur, evaCtl.st_ladder_end_reached);
+        }
+
+        // Sanitized current-FSM-state name for diagnostics (spaces / parens dropped so the token
+        // stays greppable). Null-safe.
+        private static string FsmStateName(KerbalEVA evaCtl)
+        {
+            KerbalFSM fsm = evaCtl != null ? evaCtl.fsm : null;
+            if (fsm == null || fsm.CurrentState == null) return "?";
+            string raw = fsm.CurrentState.name;
+            return string.IsNullOrEmpty(raw)
+                ? "?"
+                : raw.Replace(' ', '_').Replace("(", string.Empty).Replace(")", string.Empty);
         }
 
         // =====================================================================================
