@@ -123,6 +123,136 @@ namespace Parsek.Tests
                     Budget + 10.0, flagSiteVesselExists: true, dialogAnswered: true, sceneSettled: true, Budget));
         }
 
+        // ----- IsPlantGateOpen (live-gate defect, EVA-1 pad-flag 2026-07-24) -----
+
+        [Fact]
+        public void LiveGate_CanPlantAndPlantableState_Open()
+        {
+            // The pad-flag fix: the gate opens on the LIVE CanPlantFlag() while the kerbal is
+            // in a plantable fsm state - NOT on the stale Events["PlantFlag"].active cache.
+            Assert.True(TestCommandPlantFlag.IsPlantGateOpen(canPlantFlag: true, inPlantableFsmState: true));
+        }
+
+        [Fact]
+        public void LiveGate_CanPlantButWrongState_Closed()
+        {
+            // CanPlantFlag() can be true (ground contact + flag items) while the kerbal is
+            // mid-walk / mid-fall where On_flagPlantStart is not registered; firing PlantFlag()
+            // there would decrement flagItems without planting, so the gate stays closed.
+            Assert.False(TestCommandPlantFlag.IsPlantGateOpen(canPlantFlag: true, inPlantableFsmState: false));
+        }
+
+        [Fact]
+        public void LiveGate_PlantableStateButCannotPlant_Closed()
+        {
+            Assert.False(TestCommandPlantFlag.IsPlantGateOpen(canPlantFlag: false, inPlantableFsmState: true));
+        }
+
+        [Fact]
+        public void LiveGate_NeitherConjunct_Closed()
+        {
+            Assert.False(TestCommandPlantFlag.IsPlantGateOpen(canPlantFlag: false, inPlantableFsmState: false));
+        }
+
+        // ----- DescribePlantGateBlock (self-explaining timeout diagnostic) -----
+
+        [Fact]
+        public void GateDiag_AllMet_Open()
+        {
+            Assert.Equal("open", TestCommandPlantFlag.DescribePlantGateBlock(
+                inPlantableFsmState: true, vesselActive: true, groundContact: true,
+                flagItemsPositive: true, notRagdoll: true, flagUnlocked: true,
+                notConstruction: true, fsmStateName: "Idle_Grounded"));
+        }
+
+        [Fact]
+        public void GateDiag_NoGroundContact_NamesIt()
+        {
+            // The EVA-1 pad-flag signature: standing on the pad, ground contact still
+            // registering -> the timeout must SAY so, not just gateOpen=false.
+            Assert.Equal("no-ground-contact", TestCommandPlantFlag.DescribePlantGateBlock(
+                inPlantableFsmState: true, vesselActive: true, groundContact: false,
+                flagItemsPositive: true, notRagdoll: true, flagUnlocked: true,
+                notConstruction: true, fsmStateName: "Idle_Grounded"));
+        }
+
+        [Fact]
+        public void GateDiag_WrongState_NamesFsmState()
+        {
+            var diag = TestCommandPlantFlag.DescribePlantGateBlock(
+                inPlantableFsmState: false, vesselActive: true, groundContact: true,
+                flagItemsPositive: true, notRagdoll: true, flagUnlocked: true,
+                notConstruction: true, fsmStateName: "Landing");
+            Assert.Equal("fsm=Landing", diag);
+        }
+
+        [Fact]
+        public void GateDiag_MultipleClosed_CommaJoined()
+        {
+            var diag = TestCommandPlantFlag.DescribePlantGateBlock(
+                inPlantableFsmState: false, vesselActive: true, groundContact: false,
+                flagItemsPositive: false, notRagdoll: false, flagUnlocked: true,
+                notConstruction: true, fsmStateName: "Ragdoll");
+            Assert.Equal("fsm=Ragdoll,no-ground-contact,no-flag-items,ragdoll", diag);
+        }
+
+        [Fact]
+        public void GateDiag_EmptyStateName_Placeholder()
+        {
+            var diag = TestCommandPlantFlag.DescribePlantGateBlock(
+                inPlantableFsmState: false, vesselActive: true, groundContact: true,
+                flagItemsPositive: true, notRagdoll: true, flagUnlocked: true,
+                notConstruction: true, fsmStateName: null);
+            Assert.Equal("fsm=?", diag);
+        }
+
+        [Fact]
+        public void GateDiag_AcLocked_NamesIt()
+        {
+            Assert.Equal("ac-flag-locked", TestCommandPlantFlag.DescribePlantGateBlock(
+                inPlantableFsmState: true, vesselActive: true, groundContact: true,
+                flagItemsPositive: true, notRagdoll: true, flagUnlocked: false,
+                notConstruction: true, fsmStateName: "Idle_Grounded"));
+        }
+
+        // ----- DecideSiteRenameDialogAction (afterFlagPlanted-fire seam, EVA-1 flight 3 2026-07-24) -----
+
+        [Fact]
+        public void DialogAction_PopupPresent_InvokeDismiss()
+        {
+            // The popup is live: invoke its button so afterFlagPlanted fires through the real
+            // confirm path.
+            Assert.Equal(SiteRenameDialogAction.InvokeDismiss,
+                TestCommandPlantFlag.DecideSiteRenameDialogAction(popupPresent: true, flagVesselExists: true));
+        }
+
+        [Fact]
+        public void DialogAction_FlagVesselExistsButNoPopup_KeepWaiting_NeverInferAnswer()
+        {
+            // The root-cause guard: FlagSite.CreateFlag makes the flag vessel at flagPlant_OnEnter,
+            // BEFORE the animation completes and RenameSite spawns the popup. Flag-vessel presence
+            // must NOT be read as "dialog answered" - keep waiting for the real popup so
+            // afterFlagPlanted actually fires (the old edge-case-10 "answered-externally" false-OK
+            // completed the plant before the dialog ever spawned).
+            Assert.Equal(SiteRenameDialogAction.KeepWaiting,
+                TestCommandPlantFlag.DecideSiteRenameDialogAction(popupPresent: false, flagVesselExists: true));
+        }
+
+        [Fact]
+        public void DialogAction_NoPopupNoFlagVessel_KeepWaiting()
+        {
+            Assert.Equal(SiteRenameDialogAction.KeepWaiting,
+                TestCommandPlantFlag.DecideSiteRenameDialogAction(popupPresent: false, flagVesselExists: false));
+        }
+
+        [Fact]
+        public void DialogAction_PopupPresentNoFlagVesselYet_InvokeDismiss()
+        {
+            // Popup presence alone drives the invoke; flag-vessel bookkeeping is non-decisive.
+            Assert.Equal(SiteRenameDialogAction.InvokeDismiss,
+                TestCommandPlantFlag.DecideSiteRenameDialogAction(popupPresent: true, flagVesselExists: false));
+        }
+
         // ----- BuildCompletePayload -----
 
         [Fact]

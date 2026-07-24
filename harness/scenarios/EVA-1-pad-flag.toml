@@ -1,11 +1,51 @@
 schema = 1
 id = "EVA-1-pad-flag"
-# NIGHTLY (design M-C2 EVA-1): flight-free, daily-tier cost class once the operator run
-# (P1 load-and-focus sanity, P3 count-window pin, P6 flag-capture proof) promotes it to
-# daily. Nightly until then. IMPLEMENTED PENDING IN-GAME PROOF: the verbs + deciders are
-# unit-covered, but the first live run pins the recordings-count window (R-C) and confirms
-# the required log tokens; the exact "[Pipeline-Smoothing]" structural-snapshot message is
-# regex-escaped here (the design deferred exact-message pinning to implementation).
+# NIGHTLY (design M-C2 EVA-1): flight-free, daily-tier cost class. LIVE-PROVEN 2026-07-24 -
+# flight 4 was a FULL PASS after three seam/fsm defects found + fixed across flights 1-3
+# (stale plant-gate cache, silent no-op ladder release, SiteRename dialog false-OK that
+# skipped afterFlagPlanted). P1 (load-and-focus sanity), P3 (count-window pin, now 4..4
+# below) and P6 (flag-capture proof: "Flag planted: ... date stamped" + "Flag event
+# captured") are all done; the tier stays nightly until the operator promotes it. The exact
+# "[Pipeline-Smoothing]" structural-snapshot message is regex-escaped here (the design
+# deferred exact-message pinning to implementation).
+#
+# BATCH-AUTORUN EVALUATION (EVA lane task, decision: DO NOT WIRE). The EVA lane
+# asked whether to attach PARSEK_AUTORUN_TESTS (or a RunTests step) with the
+# EVA-relevant in-game categories (AutoRecord / EvaSpawnPosition / CrewReservation
+# / CrewReservationLive) so those live tests run on every EVA nightly. Verdict:
+# NOT wired here (batchComplete stays SKIPPED), for the following evidence-based
+# reasons:
+#   1. The valuable AutoRecord EVA tests (WaitForActiveEvaBranchRecording,
+#      EvaKerbalGhostHasVesselSnapshot, CountEvaBranches, ...) are ALL declared
+#      AllowBatchExecution=false in RuntimeTests.cs -- they run ONLY in Isolated /
+#      row-play mode, which the harness RunTests seam never invokes. A
+#      `RunTests category=AutoRecord` batch would execute ZERO of them. They also
+#      require a MID-FLIGHT crewed vessel and Skip on PRELAUNCH/LANDED/SPLASHED;
+#      this fixture is a PRELAUNCH pod, so even isolated they would Skip.
+#   2. The batch-safe categories (EvaSpawnPosition, CrewReservationLive) read over
+#      RecordingStore.CommittedRecordings and Skip when there are no committed
+#      spawned-endpoint recordings -- a fresh PRELAUNCH EVA fixture has none, so
+#      they would Skip, not exercise. They gain nothing from the EVA fixture.
+#   3. This is a seam-DRIVEN scenario that PRODUCES and commits a specific EVA
+#      recording the verifier chain checks (recordings count 2-4, analyzer
+#      fresh-gate, logContracts). A batch runs the test-runner campaign-isolation
+#      contract (FLIGHT-with-vessel = in-memory+disk revert of persistent.sfs from
+#      a .bak captured at batch start; RestoreBatchFlightBaselineAfterExecution).
+#      Inserting a batch anywhere in the EVA step sequence would couple this
+#      scenario's recording-production verification to that revert timing (baseline
+#      captured before the commit wipes the recording on revert; after the commit
+#      makes the count/analyzer expectations depend on the in-memory+disk snapshot
+#      fidelity) -- fragile, and any isolation-contract change would silently break
+#      EVA verification. Live-EVA batch tests also collide with the seam-driven
+#      EvaExit sequence (stock ground truth 5: a kerbal on the hatch blocks the
+#      next exit).
+# If a nightly home for the batch-safe EVA-adjacent categories is wanted, the
+# clean path is a DEDICATED batch-only scenario over the injected corpus (the
+# S1.4 / H6 pattern: LoadGame an injected save -> RunTests the category ->
+# BATCH_COMPLETE), where committed spawned-endpoint recordings actually exercise
+# EvaSpawnPosition / CrewReservationLive instead of Skipping. That is future work,
+# tracked in docs/dev/todo-and-known-bugs.md, not this scenario. The same verdict
+# applies to EVA-2 and EVA-3 (batchComplete SKIPPED).
 tier = "nightly"
 description = "Ground EVA on the pad: exit + ladder release + flag plant + re-board (single kerbal); the foreground EVA branch, structural snapshot, FlagEvent capture, and board merge all record."
 instanceProfile = "stock-minimal"
@@ -48,10 +88,16 @@ D7  = ["flag-plant"]
 D14 = ["kerbin", "sandbox", "scene-flight"]
 
 [expectations.recordings]
-# Pod + EVA branch recordings are certain (min 2); whether the board merge adds a chain-segment
-# recording and whether the stationary pod survives the sub-2-point drop are pinned by the first
-# live run (P3, R-C: window over guess).
-count = { min = 2, max = 4 }
+# PINNED to the live-proven topology (P3 done). MEASURED on the 2026-07-24 flight-4 full PASS:
+# 4 .prec files in the run save. Derivation, which the measurement matches exactly: root pod 1,
+# + 2 for the EVA split (pod continuation child + kerbal bgChild) = 3, + 1 merged child for the
+# board merge = 4. Both open questions the old 2..4 window hedged are now answered: the board
+# merge DOES add a recording, and the stationary pod does NOT get dropped.
+# EXACT (4..4), not a window: the step list is fixed and nothing else in the fixture records, so
+# there is no legitimate source of variance - and a dropped board merge (3) must red here,
+# because the logContracts are PRESENCE checks (hlib applies them with re.search, never an
+# occurrence count), which makes this count the only numeric guard on the merge.
+count = { min = 4, max = 4 }
 
 [expectations.logContracts]
 # "Mid-recording EVA detected" / "Tree board merge completed" / "[Pipeline-Smoothing]" are

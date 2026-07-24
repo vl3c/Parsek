@@ -16,10 +16,12 @@ id = "B1-pad-hop"
 # LIVE-PROVED on this exact fixture and craft) and gates BOTH the DOWN terminal and
 # the new craftCanopyObserved assertion on the OBSERVED kRPC ParachuteState. Every
 # decision is unit-covered, but three things can only be pinned by the first live run
-# on this build and are called out inline: (P1) the real descent duration under
-# canopy (the budgets below out-wait a slow one rather than predict it), (P2) whether
-# the stack survives touchdown (LANDED) or still breaks up under canopy (DOWN) --
-# both are accepted ends, (P3) the recordings count on the chuted profile.
+# on this build and are called out inline: (P1) the final full-canopy leg to the
+# ground, the one segment EVA-4 never times because it always hands off in mid-air
+# (every other part of the descent is now measured, so the budget is derived rather
+# than guessed), (P2) whether the stack survives touchdown (LANDED) or still breaks up
+# under canopy (DOWN) -- both are accepted ends, (P3) the recordings count on the
+# chuted profile.
 # ===================================================================================
 tier = "nightly"
 description = "Pad hop: pre-placed craft, throttle+stage, coast, arm the chute at apoapsis, land under an observed canopy; assert apoapsis window + landed + canopy observed."
@@ -58,17 +60,19 @@ mission = "b1_pad_hop"
 # `steps` MUST stay in the [driver] table, so it is declared ABOVE the
 # [driver.missionParams] header (a key after the sub-table header would be scoped
 # to driver.missionParams.steps and the spec would validate as having zero steps).
-# Budget arithmetic (design invariant): missionBudget 1020 >= 30 connect +
-# (90+180+600) phases + margin; runtime 1440 >= 240 LoadGame + 1020 mission + margin.
-# RAISED 2026-07-25: the craft now descends UNDER CANOPY from apoapsis instead of
-# free-falling at ~300 m/s, so the descent phase is several times longer.
+# Budget arithmetic (design invariant): missionBudget 780 >= 30 connect +
+# (90+180+360) phases + margin; runtime 1200 >= 240 LoadGame + 780 mission + margin.
+# RAISED 2026-07-25 with the descent budget: the craft now flies its descent under
+# canopy. The raise is modest because EVA-4 flight 2 measured the semi-deployed rate
+# at up to -236 m/s - a chuted descent on this craft is not much longer than the
+# unchuted one. See descentTimeoutSeconds for the full derivation.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
   # verboseLogging: the "Part event: ..." lines the chute logContracts below require
   # are emitted at Verbose (FlightRecorder.cs:1687).
   { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
-  { phase = "mission",  expect = "MISSION-OK", budget = 1020 },
+  { phase = "mission",  expect = "MISSION-OK", budget = 780 },
   { cmd = "CommitTree",                                          expect = "OK" },
   { cmd = "FlushAndQuit",                                        expect = "OK" },
 ]
@@ -108,24 +112,47 @@ apoapsisWindowMeters  = { min = 6000, max = 30000 }
 # were -7.4, -16.9, -26.1, -35.5 m/s (EVA-4 flight 1), so this arms within ~3 frames
 # of the apex and is unreachable later in the fall.
 chuteArmMaxRateMps    = 30
-# 1000 m: the stock parachuteSingle default, pinned here rather than inherited from
-# the fixture's PAW so the full-canopy leg is a declared mission input. Deliberately
-# NOT the 2500 m EVA-4 uses: that scenario needs a full canopy above its EVA band,
-# B1 only needs to land, and the lower trigger keeps ~1500 m of slow full-canopy
-# descent out of the budget.
-chuteFullDeployAltMeters = 1000
+# 2500 m: pinned here rather than inherited from the fixture's PAW so the full-canopy
+# leg is a declared mission input, and set to EVA-4's LIVE-PROVEN value on this exact
+# craft rather than the fixture default of 1000.
+#
+# 1000 was this spec's first choice, on the reasoning that B1 has no EVA band to clear
+# and a lower trigger keeps slow full-canopy descent out of the budget. EVA-4 flight 2
+# MEASURED the numbers that make it a bad trade: the SEMI-deployed Jumping Flea does
+# not crawl, it sinks at up to -236 m/s (peak at ~5.7 km, still -223 m/s at 2500 m),
+# and the full canopy needs ~5.6 s to brake it to -23 m/s - about 680 m of altitude,
+# on top of the ~8 s Mk16 full-deploy animation (parachuteMk1.cfg deploymentSpeed =
+# 0.12). Triggering at 1000 m would spend two thirds of the remaining sky just
+# decelerating and put touchdown inside the settle, which is exactly the regime where
+# "did the craft survive?" stops being a question about Parsek. The saving was also
+# illusory: at ~220 m/s the extra 1500 m of semi-deployed fall is ~7 s.
+chuteFullDeployAltMeters = 2500
 landedSituations      = ["LANDED", "SPLASHED"]
 # ASCENT/COAST keep their live-proven values (measured 9.7 s and 40.8 s).
 ascentTimeoutSeconds  = 90
 coastTimeoutSeconds   = 180
-# DESCENT: 240 was sized for the UNCHUTED fall (measured ~56 s, apoapsis to ground).
-# P1 - the craft now flies nearly the whole descent under canopy and the semi-deployed
-# rate for this craft is NOT measured yet, so this budget OUT-WAITS a slow one rather
-# than predicting it: 600 s covers ~10.9 km of semi-deployed descent even at a
-# pessimistic ~30 m/s, plus the full-canopy leg from 1000 m at ~9 m/s and the ~8 s
-# full-deploy animation (parachuteMk1.cfg deploymentSpeed = 0.12). Trim from evidence
-# once the first run measures the real rates.
-descentTimeoutSeconds = 600
+# DESCENT: 360, DERIVED FROM EVA-4 FLIGHT-2 MEASUREMENTS on this same craft, not
+# guessed. This spec first carried 600 on the assumption that a chuted descent would be
+# several times longer than the ~56 s unchuted fall, sized to out-wait a pessimistic
+# ~30 m/s semi-deployed crawl. That assumption was wrong by ~8x: the semi-deployed
+# Jumping Flea sinks at up to -236 m/s, so the chute costs the descent far less time
+# than expected.
+#
+# Measured build-up: EVA-4 timed apoapsis crossing -> 1,606 m (its handoff, already
+# past its 2500 m full-deploy trigger and braked to -23.2 m/s) at 61.6 s. B1 continues
+# to touchdown, which adds the slow full-canopy leg - ~1600 m at 23 m/s decaying toward
+# a single-Mk16 terminal of ~7-9 m/s, so roughly 110-130 s. Total expected DESCENT is
+# therefore ~180 s, and 360 is ~2x that.
+#
+# P1 - the one leg NOTHING has measured is that final full-canopy descent to the
+# ground: EVA-4 always hands off in mid-air and never times its craft to touchdown. The
+# 2x margin is sized for that unknown, not for the parts that are now measured. Trim
+# from evidence once the first B1 run times it.
+#
+# Like EVA-4's, this budget is a BACKSTOP, not the real guard: a canopy that fails to
+# open is caught first and fast by the craftCanopyObserved assertion plus the DOWN-
+# ineligible ASSERT-FAIL, which name the inert chute instead of burning the budget.
+descentTimeoutSeconds = 360
 
 [dimensionsCovered]
 D1  = ["auto-record-launch"]
@@ -170,9 +197,9 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 allowedAnomalies = []
 
 [runtime]
-# WALL clock. RAISED 2026-07-25 with the descent budget: 240 LoadGame + 1020 mission
+# WALL clock. RAISED 2026-07-25 with the descent budget: 240 LoadGame + 780 mission
 # + the fast SetSetting / CommitTree / FlushAndQuit verbs (seconds each) + 180 margin.
-budgetSeconds = 1440
+budgetSeconds = 1200
 
 [retry]
 policy = "once"

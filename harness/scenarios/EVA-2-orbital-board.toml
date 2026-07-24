@@ -1,21 +1,55 @@
 schema = 1
 id = "EVA-2-orbital-board"
-# PENDING-FIXTURE (design M-C2 EVA-2): the fixtures/saves/eva2-lko-crewed template (a crewed
-# pod in stable ~80 km LKO, sandbox) is NOT committed yet - it is operator step P2. A
-# --cadence run would INVALID(staging) this terminally and self-quarantine a scenario that
-# never ran, so it stays pending-fixture until the fixture lands, then re-tiers to "daily"
-# (design: daily once proven). IMPLEMENTED PENDING IN-GAME PROOF: P3 pins the count window,
-# P4 pins the orbital auto-record log wording (the required token keeps the STABLE prefix).
-tier = "pending-fixture"
+# LIVE-PROVEN (design M-C2 EVA-2). The fixtures/saves/eva2-lko-crewed template IS committed
+# (d4380ef5), forged headlessly by the GREEN FORGE-eva2-lko run and normalized by
+# `harvest_bdock_station.py --target-name eva2-lko-crewed --expect-situation ORBITING`, so the
+# pending-fixture tier is retired and this runs at "daily" (design: daily once proven).
+# FIRST FLIGHT 2026-07-24 = FULL PASS on attempt 1, all seven verifiers green, 64 s wall.
+# Both in-game pins are now settled against that run:
+#   P3 count window PINNED to the measured topology (see [expectations.recordings]);
+#   P4 orbital auto-record wording PINNED - the line reads EXACTLY
+#      "Auto-record started (EVA from pad)" in orbit too (KSP.log 21:14:22.576); the message
+#      carries no orbit-specific suffix, so the stable-prefix token below matches a VERIFIED
+#      line rather than a guess.
+tier = "daily"
 description = "Orbital EVA + re-board with autoRecordOnEva=true: the deferred EVA auto-record path starts the recorder on the EVA kerbal, then the kerbal re-boards from the ladder."
 instanceProfile = "stock-minimal"
 tags = ["eva", "auto-record-eva", "orbital", "D1", "B3", "A4"]
 
 [fixture]
-# NEW eva2-lko-crewed: a crewed pod in stable ~80 km LKO, sandbox (operator commits once; a
-# manual ascent-and-quicksave or a set-orbit edit both work - the fixture is a START state,
-# not a recording). The stock "EVA in Kerbin Orbit" scenario save was rejected: scenario-mode
-# saves carry game restrictions the harness has never run under.
+# NEW eva2-lko-crewed, FORGED headlessly by FORGE-eva2-lko (no manual ascent-and-quicksave
+# and no set-orbit edit: the automation forges its own state, 2026-07-22 operator-principle
+# override). What that forge guarantees, and what these steps rely on:
+#   - the Kerbal X ORBITAL STAGE ONLY (spent lifter separated, orbital engine lit), so the
+#     ship is light, controllable and starts from a clean vehicle configuration;
+#   - TWO named crew aboard: Valentina Kerman and Bob Kerman. EvaExit below carries no
+#     `kerbal` arg, so the seam resolves crew[0]; the SECOND kerbal stays aboard so the pod
+#     is never uncrewed while the first is outside;
+#   - a stable ~100 km circular Kerbin orbit (periapsis >= 75 km, well clear of the 70 km
+#     atmosphere), throttle cut, maneuver nodes cleared, SAS + RCS holding attitude - so the
+#     scenario starts on rails-safe, non-tumbling ground truth, not mid-flight;
+#   - no recordings, no trees, no ledger state (autoRecordOnLaunch pinned false during the
+#     forge, Parsek dirs pruned by the harvest), so the recording count below starts from
+#     nothing. NOT literally "zero Parsek state": the save keeps a SCENARIO{name=ParsekScenario}
+#     node carrying gameStateEventCount=18 plus one MILESTONE_STATE row from the forge ascent.
+#     Both are inert for this scenario - gameStateEventCount is write-only bookkeeping and
+#     MilestoneStore.RestoreMutableState only applies rows whose id matches a milestone the
+#     save defines (this fixture defines none) - and the POPULATED node is deliberate: it is
+#     what tells PreParsekBackup this save already has a Parsek footprint, so no pre-Parsek
+#     backup copy is made at load.
+# WHAT ELSE IS IN THE SAVE (disclosure - the fixture is NOT a lone orbital stage). 7 VESSEL
+# nodes; activeVessel=1 is the crewed 28-part Kerbal X. Also present:
+#   - "Kerbal X Probe", the 21-part SPENT CORE dropped by the SEPARATE phase, co-orbiting
+#     ~16.4 m away. That is INSIDE physics range, so EVA-2 starts with TWO LOADED vessels
+#     16 m apart. It cannot mis-target today: EvaBoard with no `target` arg prefers
+#     lastEvaExitFromPid (the pod this same process just exited from, F9) and only falls back
+#     to nearest-loaded-non-EVA. A FUTURE variant that boards WITHOUT a preceding in-process
+#     EvaExit (fresh process, or a board after a scene reload) would hit that fallback with
+#     two candidates 16 m apart and MUST pass an explicit targetPid.
+#   - 4 landed "Kerbal X Debris" booster remnants ~514 km downrange (far outside load range)
+#     and the stock untracked asteroid Ast. VPA-167. Neither loads.
+# The stock "EVA in Kerbin Orbit" scenario save was rejected: scenario-mode saves carry game
+# restrictions the harness has never run under.
 saveTemplate = "fixtures/saves/eva2-lko-crewed"
 injectedRecordings = "none"
 craft = []
@@ -53,13 +87,28 @@ D5  = []
 D14 = ["kerbin", "sandbox", "scene-flight"]
 
 [expectations.recordings]
-count = { min = 1, max = 3 }   # EVA recording certain; board chain-back pinned by P3
+# PINNED to the live-proven topology (P3 done). MEASURED on the 2026-07-24 full-PASS flight:
+# 2 .prec files in the run save, corroborated by the commit log
+# ("CommitTreeFlight: marked 2/2 recordings as fully applied", children
+# `ed920a4d|Valentina Kerman` + `43845f27|Kerbal X`). Derivation, which the measurement
+# matches exactly: the deferred EVA auto-record makes the KERBAL the root recording (1), and
+# the board merge chains back to the pod with one merged child (+1) = 2. There is no
+# StartRecording here, so unlike EVA-1/EVA-3 there is no pre-EVA pod root and no EVA split.
+# NO legitimate source of variance: the step list is fixed, the kerbal never releases from the
+# ladder, and nothing else in the save is recorded - so this is an EXACT window, and a
+# regression of the board merge (which would drop the merged child to 1) reds here. That
+# matters because logContracts below are PRESENCE checks only (hlib.evaluate_expectations uses
+# re.search), so the count window is the ONLY numeric guard on the merge.
+count = { min = 2, max = 2 }
 
 [expectations.logContracts]
 # "Auto-record started" is VERBOSE (ParsekFlight.Log) - requires the verboseLogging pin;
-# "detected boarding from EVA" is Info. P4 pins the exact orbital auto-record wording; the
-# known line is "Auto-record started (EVA from pad)" but the orbital suffix is unverified, so
-# the required token stays the STABLE prefix "Auto-record started".
+# "detected boarding from EVA" is Info. P4 IS PINNED: the 2026-07-24 flight logged
+# "Auto-record started (EVA from pad)" verbatim in ORBIT (the message has no orbit-specific
+# suffix), so the stable prefix below is a verified match, kept as the prefix so a future
+# wording tweak to the parenthetical does not red the scenario.
+# These are PRESENCE checks (re.search), never occurrence counts, so they cannot tell one
+# board merge from two - the recordings-count window above is the numeric guard.
 required  = ["Auto-record started", "detected boarding from EVA",
              "committree committed=true"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]

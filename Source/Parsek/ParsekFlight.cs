@@ -84,6 +84,36 @@ namespace Parsek
             SourceVesselActive
         }
 
+        /// <summary>
+        /// Board-time rebind of an EVA branch recording that is still only tracked in
+        /// <see cref="RecordingTree.BackgroundMap"/>. The board merge
+        /// (<see cref="HandleTreeBoardMerge"/>) needs the EVA recording to be the tree's
+        /// ACTIVE recording behind a live recorder; the post-switch first-modification
+        /// watcher normally promotes it, but a kerbal that hops out and re-boards without
+        /// moving never trips a trigger, so the promotion must also happen at the board.
+        /// </summary>
+        internal enum EvaBoardPromotionDecision
+        {
+            /// <summary>Live recorder already owns the boarding EVA kerbal - nothing to do.</summary>
+            NotNeeded,
+            Promote,
+            SkipNoTree,
+            SkipRestoring,
+            SkipNotEva,
+            SkipGhostVessel,
+            SkipRecorderBusy,
+            SkipEvaNotActiveVessel,
+            SkipNoTrackedRecording,
+
+            /// <summary>The tree still names some OTHER recording as its active one even though
+            /// no live recorder owns it (e.g. a merge child whose StartRecording failed - see
+            /// <c>CreateMergeBranch</c> step 10, which nulls the recorder but leaves
+            /// <c>ActiveRecordingId</c> set). Promoting here would overwrite that id, and
+            /// <see cref="PromoteRecordingFromBackground"/> never parks the previous value back
+            /// into BackgroundMap, so the earlier recording would be silently orphaned.</summary>
+            SkipTreeActiveRecordingBusy
+        }
+
         internal enum PostSwitchAutoRecordStartDecision
         {
             None,
@@ -4864,6 +4894,77 @@ namespace Parsek
             return EvaBackgroundParentFocusDecision.Invalid;
         }
 
+        /// <summary>
+        /// Decides whether an EVA branch recording that is still parked in the tree's
+        /// BackgroundMap must be promoted to the live recorder at the moment its kerbal
+        /// boards a vessel, so the board merge can run.
+        /// </summary>
+        /// <remarks>
+        /// Ordering matters. The live wrapper runs inside <c>GameEvents.onCrewBoardVessel</c>,
+        /// which KSP fires BEFORE <c>FlightGlobals.SetActiveVessel</c>, so the EVA kerbal is
+        /// still the active vessel; <see cref="FlightRecorder.StartRecording"/> binds to
+        /// <c>FlightGlobals.ActiveVessel</c>, which is why
+        /// <paramref name="activeVesselPid"/> must still equal the EVA kerbal.
+        /// </remarks>
+        internal static EvaBoardPromotionDecision DecideEvaBoardPromotion(
+            bool hasActiveTree,
+            bool restoringActiveTree,
+            bool sourceIsEva,
+            bool sourceIsGhostVessel,
+            uint sourceVesselPid,
+            bool hasLiveRecorder,
+            uint liveRecorderVesselPid,
+            uint activeVesselPid,
+            bool sourceTrackedInBackground,
+            string trackedRecordingId,
+            string treeActiveRecordingId)
+        {
+            if (!hasActiveTree)
+                return EvaBoardPromotionDecision.SkipNoTree;
+
+            if (restoringActiveTree)
+                return EvaBoardPromotionDecision.SkipRestoring;
+
+            if (sourceVesselPid == 0 || !sourceIsEva)
+                return EvaBoardPromotionDecision.SkipNotEva;
+
+            if (sourceIsGhostVessel)
+                return EvaBoardPromotionDecision.SkipGhostVessel;
+
+            // Green path: the first-modification watcher already promoted this EVA
+            // recording (or it never left the live recorder). Leave it alone.
+            if (hasLiveRecorder && liveRecorderVesselPid == sourceVesselPid)
+                return EvaBoardPromotionDecision.NotNeeded;
+
+            // A live recorder on some OTHER vessel owns the tree's active recording;
+            // stealing it here would corrupt that recording's continuity.
+            if (hasLiveRecorder)
+                return EvaBoardPromotionDecision.SkipRecorderBusy;
+
+            if (activeVesselPid != sourceVesselPid)
+                return EvaBoardPromotionDecision.SkipEvaNotActiveVessel;
+
+            if (!sourceTrackedInBackground)
+                return EvaBoardPromotionDecision.SkipNoTrackedRecording;
+
+            // The tree still names another recording as active while no live recorder owns it.
+            // On the normal EVA-board path this is null: both OnVesselSwitchComplete
+            // backgrounding branches park the old recording into BackgroundMap and clear
+            // ActiveRecordingId before the kerbal ever boards. A non-null, different id here
+            // means an earlier start failed midway (CreateMergeBranch step 10 nulls the recorder
+            // but keeps its ActiveRecordingId), and PromoteRecordingFromBackground would
+            // overwrite that id without parking it back into BackgroundMap - orphaning it.
+            // Fail closed: skip the promotion (the board merge is then skipped and logged)
+            // rather than trade one dropped merge for a lost recording.
+            if (!string.IsNullOrEmpty(treeActiveRecordingId)
+                && !string.Equals(treeActiveRecordingId, trackedRecordingId, StringComparison.Ordinal))
+            {
+                return EvaBoardPromotionDecision.SkipTreeActiveRecordingBusy;
+            }
+
+            return EvaBoardPromotionDecision.Promote;
+        }
+
         internal static string BuildInvalidActiveTreeHeadRateLimitKey(
             string source,
             RecordingTree tree,
@@ -7746,6 +7847,76 @@ namespace Parsek
 
             Log($"onCrewBoardVessel: target vessel pid={pendingBoardingTargetPid}" +
                 (activeTree != null ? $", inTree={pendingBoardingTargetInTree}" : ""));
+
+            TryPromoteEvaRecordingForBoardMerge(data.from?.vessel);
+        }
+
+        /// <summary>
+        /// Rebinds the live recorder to a boarding kerbal's EVA branch recording when that
+        /// recording is still only background-tracked, so the board merge can run.
+        /// </summary>
+        /// <remarks>
+        /// An EVA branch parks the kerbal's recording in <c>BackgroundMap</c> and leaves the
+        /// promotion to the post-switch first-modification watcher. A kerbal that exits and
+        /// re-boards without moving (hatch/ladder hop, no release) never trips a trigger, so
+        /// the watcher is still armed when the board arrives: the boarding detection in
+        /// <see cref="OnVesselSwitchComplete"/> requires <c>recorder.IsRecording</c> and
+        /// <see cref="HandleTreeBoardMerge"/> requires the EVA recording to be
+        /// <c>activeTree.ActiveRecordingId</c>, so without this rebind the Board branch
+        /// point is silently dropped and the EVA recording terminates as Destroyed instead
+        /// of Boarded. onCrewBoardVessel fires before KSP's focus switch, so the EVA kerbal
+        /// is still the active vessel here and the normal promotion path applies.
+        /// </remarks>
+        private void TryPromoteEvaRecordingForBoardMerge(Vessel evaVessel)
+        {
+            uint evaPid = evaVessel != null ? evaVessel.persistentId : 0u;
+            uint activePid = FlightGlobals.ActiveVessel != null
+                ? FlightGlobals.ActiveVessel.persistentId
+                : 0u;
+            string trackedRecordingId = null;
+            bool trackedInBackground = activeTree != null && evaPid != 0
+                && activeTree.BackgroundMap.TryGetValue(evaPid, out trackedRecordingId);
+
+            var decision = DecideEvaBoardPromotion(
+                hasActiveTree: activeTree != null,
+                restoringActiveTree: restoringActiveTree,
+                sourceIsEva: evaVessel != null && evaVessel.isEVA,
+                sourceIsGhostVessel: evaPid != 0 && GhostMapPresence.IsGhostMapVessel(evaPid),
+                sourceVesselPid: evaPid,
+                hasLiveRecorder: recorder != null,
+                liveRecorderVesselPid: recorder != null ? recorder.RecordingVesselId : 0u,
+                activeVesselPid: activePid,
+                sourceTrackedInBackground: trackedInBackground,
+                trackedRecordingId: trackedRecordingId,
+                treeActiveRecordingId: activeTree != null ? activeTree.ActiveRecordingId : null);
+
+            if (decision != EvaBoardPromotionDecision.Promote)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"EVA board promotion skipped: decision={decision} evaPid={evaPid} " +
+                    $"activePid={activePid} targetPid={pendingBoardingTargetPid} " +
+                    $"tracked={trackedInBackground} " +
+                    $"treeActiveRec={activeTree?.ActiveRecordingId ?? "-"} " +
+                    $"trackedRec={trackedRecordingId ?? "-"}");
+                return;
+            }
+
+            ParsekLog.Info("Flight",
+                $"EVA board promotion: rebinding background EVA recording " +
+                $"'{trackedRecordingId}' to the live recorder before the board merge " +
+                $"(evaPid={evaPid}, targetPid={pendingBoardingTargetPid})");
+
+            backgroundRecorder?.OnVesselRemovedFromBackground(evaPid);
+            PromoteRecordingFromBackground(trackedRecordingId, evaVessel);
+
+            if (recorder != null && recorder.IsRecording)
+                DisarmPostSwitchAutoRecord("eva board promotion");
+            else
+            {
+                ParsekLog.Warn("Flight",
+                    $"EVA board promotion failed to start a recorder for evaPid={evaPid} - " +
+                    $"board merge will be skipped");
+            }
         }
 
         private bool TryStartEvaBranchFromBackgroundParent(GameEvents.FromToAction<Part, Part> data)

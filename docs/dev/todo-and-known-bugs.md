@@ -201,7 +201,27 @@ Built per the design (implementation-PR decisions taken as recommended):
 
 **Flight-16 finding + fix (2026-07-24): the FIRST mission-machinery-caught Parsek recording defect - quickload-resume adopted the fresh rollout.** ~~Flight 16 ran MISSION-OK end to end (launch, separate, mid-mission CommitTree, launch_vessel, rendezvous, hard dock, LF 40 + mono 15 transfers, undock, TERMINAL) but the verifier chain went PARSEK-FAIL: analyzer RED, INV4-PARTEVENT-PID x13 on recording d5355cc63dde43a9b07c59595c8b106d (the Station launch, tree 46c56a23). All 13 flagged part events (Mainsail EngineIgnited ut=390.4, solar DeployableExtended ut=571.0, core Decoupled + engine ShroudJettisoned ut=691.8, 9x RCSActivated ut=696.2) are the INTERCEPTOR's early-life sequence carrying its craft-baked pids, recorded into the STATION's recording whose ghost snapshot holds the Station's live (regenerated) pids - zero pid overlap, so every event is playback-unresolvable. Causal chain (KSP.log 13:33:32-13:33:37): (1) the same-session `launch_vessel` FLIGHT->FLIGHT reload arrived with a STALE `vesselSwitchPending` flag (11914 frames old), so ParsekScenario classified it as a QUICKLOAD and stashed the just-committed Station tree as pending-Limbo; (2) `RestoreActiveTreeFromPending`'s wait loop missed on pid (recorded 3620499050 vs live 4183326108) but its SECONDARY NAME fallback matched ("Kerbal X" == "Kerbal X" - the Interceptor launches from the SAME .craft file), (3) the PID remap rebound d5355cc6 onto the fresh rollout (`FreshRollout: captured scene-entry vessel pid=4183326108 NEW_FROM_FILE` had fired seconds earlier, but only the COMMITTED-tree restore consulted it) and `TryBackupSnapshot` overwrote the vessel snapshot with the Interceptor, so the Station recording absorbed the Interceptor's entire mission (explicitEndUT 8952.7) and the save has ONE main tree where the mission flew TWO. The same fingerprint red-ed flights 8 and 11 triage-only.~~ FIXED (branch `autotest-bdock-flight`): new pure `QuickloadResumeMatchGuard` (`Source/Parsek/QuickloadResumeMatchGuard.cs`, xUnit-covered) gates every acceptance in the `RestoreActiveTreeFromPending` match loop: (a) the scene-entry FRESH-ROLLOUT vessel (`RecordingStore.SceneEntryFreshRolloutVesselPid`) is refused outright with an Info log and the tree is left in Limbo - a NEW_FROM_FILE launch is never the stashed recording's vessel; (b) a conclusive `Recording.RecordedVesselGuid` vs live `Vessel.id` mismatch (via `VesselLaunchIdentity.GuidsConclusivelyDiffer`; the craft-baked-persistentId contract) skips the pid/name match for that recording while the EVA-parent walk still matches a parent whose guid agrees; unknown guids stay inconclusive so legacy recordings keep the old fallback. Genuine quickloads are unaffected (same guid survives the save round-trip; fresh-rollout pid is only captured on fresh-launch startups). CONFIRMED flights 17-18 on the guard build: two separate trees, analyzer red=0 both flights; flight 18 was the full seven-verifier PASS.
 
-**PR #1345 review follow-ups (Fable review 2026-07-24, verdict SHIP; pre-merge items applied, these remain):** (1) unit test for the flight-11 rendezvous no-progress pause (node_count > 0 resets the counter; flat-distance-with-node never flakes, node-consumed-then-flat flakes) - the fix commit 34cc99390 was machine-only; (2) dead config plumbing: mlib.Action has no launch_site field so the launchSite param in BDOCK/FORGE specs is silently ignored (always LaunchPad), and the FORGE machine's crew count value is dropped by the runner (crew=[] always) - thread through Action or delete the params before any spec relies on them (EVA-3 pad fixture will); (3) QuickloadResumeMatchGuard.EvaluateCandidate is production-dead (the live loop calls the two predicates directly) - wire the loop through it or document the composition; (4) DOCK pending-enable vs docked-gate race: a dock landing on the same poll as a retarget-armed pending enable re-enables the AP on a docked pair for one poll (unguarded runner enable could throw and flake a won mission; very low probability) - add a docked short-circuit ahead of the pending branch; (5) STATION-COMMIT seam ERROR/TIMEOUT flakes carry no distinct flake_reason (generic phase-timeout wording).
+**PR #1345 review follow-ups (Fable review 2026-07-24, verdict SHIP; pre-merge items applied):** ALL FIVE addressed on the EVA-lane branch `autotest-eva-flight`. (1) ~~unit test for the flight-11 rendezvous no-progress pause~~ DONE: `test_no_progress_paused_while_node_pending` (flat distance with a pending node never flakes across 20 polls >> the 5-frame window) + `test_no_progress_flakes_after_node_consumed` (node consumed then flat flakes at the threshold) in `test_mlib.py` (both vary altitude so only the no-progress watchdog, never the frozen-telemetry detector, can flake). (2) ~~dead config plumbing (launch_site + crew)~~ DONE: `mlib.Action` gained `launch_site` + `crew` fields; the FORGE machine threads `ForgeParams.launch_site` + `crew_names` onto the launch Action, and the runner's `ACTION_LAUNCH_VESSEL` handler threads both into `sc.launch_vessel(..., crew=names)`. CREW CONTRACT decided BY NAME, not count: kRPC 0.5.4 exposes no roster-enumeration API (only `get_kerbal(name)` + `launch_vessel(crew: List[str])`), so a count could not be resolved to names server-side. `ForgeParams.crew` (int) -> `crew_names` (tuple); the forge schema's `[params.crew]` -> `[params.crewNames]` (list). (3) ~~QuickloadResumeMatchGuard.EvaluateCandidate production-dead~~ DONE (documented): the composed verdict is deliberately not on the live path -- `RestoreActiveTreeFromPending` calls the two predicates directly because it interleaves the guid gate with the EVA-parent walk; a doc-comment on `EvaluateCandidate` now states it is kept for unit-test coverage / whole-verdict callers, not dead code. (4) ~~DOCK pending-enable vs docked-gate race~~ DONE: a `docked` short-circuit now sits AHEAD of the `dock_enable_pending` branch in `bdock_decide` -- a docked pair completes straight to TRANSFER (disable + T1) and never re-enables the AP; completing on `docked` alone (not `docked AND latched_off`) also fixes a latent bug where a docked-but-never-latched pair E1a-flaked a won mission. Tests: `test_docked_without_latch_still_advances`, `test_docked_on_pending_enable_poll_does_not_reenable_ap`. (5) ~~STATION-COMMIT flake_reason~~ DONE: a seam ERROR/TIMEOUT flake now carries `flake_reason="phase STATION-COMMIT: tree-commit seam returned <ERROR|TIMEOUT>"` (test `test_station_commit_error_flakes_with_named_reason`).
+
+**EVA lane prep (branch `autotest-eva-flight`), items:**
+- ~~**EVA-2 orbital fixture forge landed, live run pending (the LAST EVA fixture gap).**~~ DONE 2026-07-24: the forge RAN (MISSION-OK / PASS, 268 s wall, full PRELAUNCH -> LAUNCH -> ASCENT -> CIRCULARIZE -> SEPARATE -> PARK -> ORBIT profile), the harvest ran with `--expect-situation ORBITING`, the `eva2-lko-crewed` fixture is COMMITTED, and EVA-2-orbital-board flew it to a FULL PASS on its first flight (so it is re-tiered to daily with its count window pinned at 2). Original description: `harness/scenarios/FORGE-eva2-lko.toml` (operator tier) + the new mission `harness/missions/forge_lko.py` (pure machine `mlib.forge_lko_decide`) forge the crewed-LKO fixture EVA-2-orbital-board is waiting on. It is the FIRST orbital forge: the two existing forges drive `forge_station`, whose machine ends on the pad by design. NO new ascent was invented - it boots the SAME `bdock-forge-base`, reuses the FORGE crew-by-name `launch_vessel` entry, then flies the LIVE-PROVEN B-DOCK Interceptor-leg shape with the SAME mlib action builders (`_bdock_ascent_entry_actions`, `_bdock_attitude_hold_actions`) and the SAME two-step separation evidence counter (extracted from `_bdock_separate_step` into the shared pure `mlib.separation_evidence`, behaviour-identical, both machines now call it). What is genuinely new: (a) the PARK phase - throttle cut, nodes cleared, SAS + RCS held, and a HELD stable orbit (accepted situation, both apsides in tolerance, periapsis >= 75 km clear of the atmosphere, tumble <= 0.05 rad/s, debounced K frames for a 60 s dwell) before the SaveGame, so the fixture is a clean START state and not a moment mid-flight; (b) the crew gate - an opt-in `crew_count` telemetry channel (`read_crew=True`, -1 unread sentinel, one extra RPC per poll, every other mission's snapshot byte-identical) that must read >= `minCrew` ON THE PAD before the ascent starts, so a silent `launch_vessel` crew-seeding failure flakes in 300 s instead of stamping an UNCREWED fixture that reds EVA-2 with a confusing `no-crew` ten minutes later; (c) the circularization is handed to `ACTION_MJ_EXECUTE_NODES` rather than the bare circularization action, because that action sets node-executor autowarp EXPLICITLY (B-DOCK flight-12 lesson: the executor's autowarp is shared global state, so an unset one warped on one flight and coasted a whole leg at 1x on the next). `autoRecordOnLaunch` is pinned false in the spec: unlike the pad forges this one STAGES and FLIES, so an auto-record would leave Parsek metadata inside the persisted `.sfs` (the harvest prunes the `Parsek/` sidecar dir but copies the `.sfs` verbatim). HARVEST GENERALIZATION: `harvest_bdock_station.py` never assumed PRELAUNCH (its sanity check is activeVessel + vessel count), but it also could not TELL an orbital stamp from a broken one, so it gained `read_vessel_records` + an OPTIONAL `--expect-situation` gate (fails closed on an unresolvable index or unreadable situation) and now always logs the active vessel's name + situation; omitted, the two pad forges' behaviour is unchanged. The fixture bytes were forged by `python run.py --id FORGE-eva2-lko` + `python harness/tools/harvest_bdock_station.py --instance <instance> --run-save bdock-forge-base --target-name eva2-lko-crewed --expect-situation ORBITING`, and EVA-2 was re-tiered pending-fixture -> daily. FIXTURE DISCLOSURE (recorded in the EVA-2 spec's `[fixture]` block): the stamp is not a lone orbital stage - the SEPARATE phase's 21-part spent core co-orbits ~16.4 m away, inside physics range, so EVA-2 starts with two loaded vessels; harmless today because `ResolveBoardTarget` prefers `lastEvaExitFromPid`, but a future variant that boards without a preceding in-process EvaExit must pass an explicit targetPid. 4 landed booster remnants ~514 km downrange and the stock asteroid never load. The fixture also keeps an inert populated `SCENARIO{name=ParsekScenario}` node (`gameStateEventCount=18` + one MILESTONE_STATE row), so "zero Parsek state" is stated as "no recordings, no trees, no ledger state"; the populated node is what suppresses PreParsekBackup at load.
+- ~~**EVA-3 pad fixture forge spec landed, live run pending.**~~ DONE 2026-07-24: the forge ran, the `eva3-pad-3crew` fixture is COMMITTED (the FULL 94-part Kerbal X stack, PRELAUNCH, 3 named crew), and EVA-3 flew it GREEN. The pad-EVA reachability caveat below did NOT materialize and no bare-pod craft is needed: both EVA-3 exits use `release=false`, so the kerbal never drops to the pad and boards straight off the hatch ladder at ~0 m (stack height only matters for a variant that RELEASES, which EVA-1 does from a ground-level single-part pod). The EVA-3 spec's `[fixture]` block was rewritten to describe the actual fixture. Original description: `harness/scenarios/FORGE-eva3-pad.toml` (operator tier) clones FORGE-bdock-station over the same `bdock-forge-base`, launching the Kerbal X with three named crew (`crewNames = ["Valentina Kerman", "Bob Kerman", "Bill Kerman"]`); `harvest_bdock_station.py --target-name eva3-pad-3crew` normalizes it into `fixtures/saves/eva3-pad-3crew` (the name EVA-3-multi-kerbal references). The fixture BYTES are still unforged (needs an operator forge run + harvest). CAVEAT for the live EVA-3 flight: the merged EVA-3 spec's own fixture comment prefers a BARE Mk1-3 pod at GROUND level and warns the Kerbal X pod "sits ~20 m up a full stack (ladder release lethal, pad boarding unreachable)". This forge uses the Kerbal X per the EVA-lane directive (only craft in the base). If the first live EVA-3 run confirms the pad-EVA reachability problem, add a bare-pod .craft to `bdock-forge-base` and point `craftName` at it (the forge machine + crew plumbing are already generic over the craft).
+- **EVA scenario batch autorun: evaluated, DECISION = do not wire.** The EVA-1/2/3 seam scenarios keep `batchComplete` SKIPPED. The valuable AutoRecord EVA in-game tests are all `AllowBatchExecution=false` (Isolated/row-play only; a RunTests batch runs zero of them) and require a mid-flight crewed vessel (Skip on the PRELAUNCH EVA fixtures); the batch-safe EVA-adjacent categories (EvaSpawnPosition, CrewReservationLive) Skip when there are no committed spawned-endpoint recordings, which a fresh EVA fixture lacks; and a batch's FLIGHT-with-vessel in-memory+disk isolation revert would couple the seam scenario's recording-production verification to the batch teardown timing (fragile). Full rationale in the `FORGE`/EVA-1 spec comment. FUTURE (not this task): if a nightly home for EvaSpawnPosition / CrewReservationLive is wanted, add a DEDICATED batch-only scenario over the injected corpus (S1.4/H6 pattern) so committed spawned-endpoint recordings actually exercise those tests instead of Skipping.
+
+**EVA-1 first-flight finding + fix (2026-07-24): the PlantFlag gate read a stale button-active cache, not the live plant availability.** ~~First live EVA-1-pad-flag run (both attempts identical): the entire seam chain worked - LoadGame, StartRecording, EvaExit (Jeb out of the mk1-capsule on the pad, ladder release APPLIED `released=true`), EvaBoard merge-back, StopRecording, CommitTree - and the analyzer read the produced save CLEAN. The single red: PlantFlag returned ERROR after the full 180 s bounded gate wait (`plantflag failed reason=flag-gate-timeout lastGateOpen=false elapsed=180.0s`), with the kerbal standing on the launchpad in a sandbox save.~~ ROOT CAUSE (decompiled `KerbalEVA`, KSP 1.12.5): the gate `ReadPlantGate` read `Events["PlantFlag"].active`, which is NOT the live availability - it is an EDGE-TRIGGERED CACHE assigned `= CanPlantFlag()` only at `idle_OnEnter` / `idle_b_OnEnter` (entering `st_idle_gr` / `st_idle_b_gr`), an `OnVesselSituationChange` fired WHILE already in `st_idle_gr`, a construction-mode toggle, `OnVesselGoOffRails`, or `AddFlag`. A kerbal that lands and stands still on the pad after an `EvaExit release=true` enters `st_idle_gr` exactly ONCE (the log shows an attitude change of 31.75 deg at that moment - a settle/stumble), so the cache was computed while ground contact / ragdoll-settle was still transient and latched stale-false; then NOTHING re-fired (situation already `Landed`, no state re-enter, no rails toggle), so `.active` never flipped true even though `CanPlantFlag()` did a frame later. A player never hits this because moving the kerbal at all re-enters `st_idle_gr` and refreshes the cache; the seam never moves. The decompiled `CanPlantFlag()` truth is `vessel.state==ACTIVE && part.GroundContact && flagItems>0 && !isRagdoll && UnlockedEVAFlags(AC-level) && !InConstructionMode`, all recomputed live on each call; the log corroborates the kerbal was `Landed`/`SurfaceStationary` (so `part.GroundContact` was set - `vessel.Landed=true` is set in the same layer-15-collision block). FIXED (gate side, per M-C2): `ReadPlantGate` now reflects a direct `CanPlantFlag()` call each poll AND confirms the kerbal is in a plantable fsm state (`st_idle_gr` / `st_idle_b_gr` - the only two states where `PlantFlag()`'s `On_flagPlantStart` MANUAL_TRIGGER is registered; firing `PlantFlag()` in any other state decrements `flagItems` without planting). No verb-behavior or fixture change (the kerbal genuinely can plant; we just needed to detect it). Pure decisions `TestCommandPlantFlag.IsPlantGateOpen` + `DescribePlantGateBlock` are xUnit-covered; the gate-wait / timeout logs now carry `blocked=<unmet precondition(s)>` (e.g. `no-ground-contact`, `fsm=<state>`) so a future timeout self-explains. CONFIRMED on flight 4 (2026-07-24, full PASS): the gate opens and P6 flag-capture (`afterFlagPlanted` -> Parsek FlagEvent capture line) fires end to end.
+
+**EVA-1 flight-2 finding + fix (2026-07-24): EvaExit reported a false `released=true` while the kerbal never left the hatch ladder - the real cause of the PlantFlag no-ground-contact timeout.** With the live-`CanPlantFlag()` gate + `blocked=` diagnostics from flight-1, the re-fly NAMED the blocker: `plantflag gate wait ... gateOpen=false blocked=fsm=Ladder_Idle,no-ground-contact` for the ENTIRE 180 s of both attempts. The kerbal was hanging on the hatch ladder the whole time - yet EvaExit had logged `evaexit release applied ... released=true` ~0.2 s after exit. ROOT CAUSE (decompiled `KerbalEVA` / `KerbalFSM`, KSP 1.12.5, same edge-triggered-FSM family as the PlantFlag cache): `On_ladderLetGo` (goto `st_idle_fl`) is registered on ONLY four states - `st_ladder_idle` / `st_ladder_climb` / `st_ladder_descend` / `st_ladder_end_reached` (`KerbalEVA.cs:8737`). A fresh EVA that auto-grabs the hatch ladder STARTS in `st_ladder_acquire` (`KerbalEVA.cs:3062`), a transitional state that does NOT register `On_ladderLetGo` and only advances to `st_ladder_idle` after a 1.0 s `KFSMTimedEvent` (`On_ladderGrabComplete`, `KerbalEVA.cs:8504-8506`). `correctLadderPosition()` sets `onLadder=true` during that acquire window (`KerbalEVA.cs:14762`), so `OnALadder` is already true at 0.2 s. `KerbalFSM.RunEvent` for an event NOT registered on the current state logs `"Event ... not assigned to state ..."` and RETURNS a SILENT no-op (`KerbalFSM.cs:298-311`); a registered event transitions SYNCHRONOUSLY in-call. The old `ApplyLadderRelease` fired `On_ladderLetGo` the instant `OnALadder` was true (still in `st_ladder_acquire`), hit the silent-return path, but set `evaExitReleaseApplied=true` and logged `released=true`. The kerbal never let go, the timed event advanced it to `st_ladder_idle`, and it hung on the ladder forever -> no ground contact -> the PlantFlag gate correctly refused for 180 s. Same lesson as BDOCK's two-step SEPARATE: an action being CALLED is not evidence the effect HAPPENED; completion must be verified by observable state. FIXED (release side): `ApplyLadderRelease` now polls the fsm and fires `On_ladderLetGo` ONLY from a receptive state (`IsLadderLetGoReceptiveState` - the four registered ladder states), then VERIFIES next poll that the fsm actually LEFT the ladder family (RunEvent is synchronous), bounded re-fire cap 3 (`LadderReleaseMaxFires`) if still on a ladder; `released=true` in the completion payload now means VERIFIED-left-the-ladder (`evaExitReleaseVerified`), never merely called-the-event. The not-on-a-ladder exit keeps the `release=noop` path. Pure decision `TestCommandEvaExit.DecideLadderRelease` is xUnit-covered; the release logs carry the observed fsm state names (`fsm=<state>->​<state>`, `release wait ... awaiting receptive let-go state`). The PlantFlag gate wait already tolerates the ~2-3 m post-release fall + any ragdoll-recover window (it polls `CanPlantFlag()` every frame and only rejects on the stably-closed AC lock or budget - no early abort), so no gate change was needed. CONFIRMED on flight 4 (2026-07-24, full PASS): the release lands the kerbal on the pad and the plant gate then opens end to end.
+
+**EVA-1 flight-3 finding + fix (2026-07-24): the PlantFlag seam completed BEFORE the SiteRename dialog spawned, so `afterFlagPlanted` never fired and the recording-layer FlagEvent was never captured - the last EVA-1 red.** With the two prior FSM fixes landed, flight-3 drove the plant PHYSICALLY: driver PASS, analyzer clean, the flag planted (`[Progress Node Complete]: FlagPlant`, milestone `Kerbin/FlagPlant` credited via the ProgressTracking path, verdict OK). The single remaining mismatch: the logContract "Flag event captured" token was absent. Proof it never ran: `verboseLogging` was on, yet the UNCONDITIONAL top line of `ParsekFlight.OnAfterFlagPlanted` (`Flag planted: '...' date stamped`, a `ParsekLog.Verbose`) is absent from the whole log - so `GameEvents.afterFlagPlanted` never invoked Parsek's handler. ROOT CAUSE (decompiled `FlagSite` / `KerbalEVA`, KSP 1.12.5): the seam's Phase-B "edge case 10" fallback (`else if (flagVesselExists)` -> `plantflag dialog-answered-externally`) declared the dialog answered as soon as the FlagSite vessel existed but no "SiteRename" popup was found. But `FlagSite.CreateFlag` (which spawns the Flag vessel) runs in `KerbalEVA.flagPlant_OnEnter` - at `st_flagPlant` ENTRY, ~110 ms after `PlantFlag()` - while the SiteRename popup is spawned MUCH later, in `flagPlant_OnLeave` -> `FlagSite.OnPlacementComplete` -> `RenameSite`, gated behind the `On_flagPlantComplete` KFSMTimedEvent whose duration is the FULL plant-animation length (multiple seconds). `GameEvents.afterFlagPlanted.Fire(this)` runs ONLY inside that dialog's `afterDialog` button callback, which runs ONLY when a dialog BUTTON is clicked (`AcceptSiteRename` or `DismissSiteRename`); `SiteRenameDialog.OnDismiss = DismissSiteRename` and a bare `PopupDialog.Dismiss()` do NOT invoke `afterDialog`. So the flag vessel EXISTING is not evidence the dialog was answered - it appears before the animation even completes. The fallback false-OK'd the plant ~110 ms in; the subsequent `flushandquit` tore the flight down ~1 s later, before the animation finished, so the popup never spawned and `afterFlagPlanted` never fired (no `SiteRename`, no `Flag planted`, no `Flag event captured` anywhere in the log). The old comment calling that branch "unreachable unattended" was exactly inverted: it is the DOMINANT path. FIXED (seam side, per M-C2 - the verb answers through the SAME confirm path a player's click uses): the "answered-externally" inference is deleted. The seam now keeps polling (new `TestCommandPlantFlag.DecideSiteRenameDialogAction`: popup-present -> InvokeDismiss, popup-absent -> KeepWaiting REGARDLESS of flag-vessel presence) until the real SiteRename popup spawns, then invokes the dismiss button's own `OnOptionSelected` callback -> `DismissSiteRename()` then `afterDialog()` -> `afterFlagPlanted.Fire` synchronously this frame -> `ParsekFlight.OnAfterFlagPlanted` records the FlagEvent into `recorder.FlagEvents`. `dialogAnswered` is set ONLY by the actual button invoke; if the popup genuinely never spawns (e.g. `OnPlacementFail`), the command honestly times out (`flag-timeout` ERROR) at the 180 s budget (which already accounts for "animation + dialog answer") instead of false-OK'ing. Same lesson as flight-2 / BDOCK: an action being CALLED is not evidence the effect HAPPENED. A liveness wait line (`plantflag waiting for SiteRename dialog elapsed=...`) self-explains a timeout. New pure decision `DecideSiteRenameDialogAction` is xUnit-covered (4 cases, including the flag-vessel-exists-but-no-popup KeepWaiting guard). CONFIRMED on flight 4 (2026-07-24, full PASS): `Flag planted: ... date stamped` + `Flag event captured (foreground recorder ...)` both appear end to end, and the run's recordings count is pinned at 4 in the spec.
+
+**EVA-3 first-flight finding + fix (2026-07-24): a fast EVA-and-re-board dropped the Board branch point entirely - Parsek's board merge required the EVA recording to have been promoted by the first-modification watcher.** First live EVA-3-multi-kerbal run on the freshly forged `eva3-pad-3crew` fixture: driverValidity PASS (every seam verb OK), analyzer red=0, logValidate PASS, anomalySweep PASS; the only red was two missing logContract tokens - `detected boarding from EVA` and `Tree board merge completed` - for BOTH board cycles. ROOT CAUSE (proved from the collected `[RecState]` walk, `logs/2026-07-24_2022_EVA-3-multi-kerbal/KSP.log`): an EVA branch does NOT leave the kerbal on the live recorder. `CreateSplitBranch` keeps the live recorder on the SHIP's continuation child and parks the kerbal's `bgChild` recording in `RecordingTree.BackgroundMap` (EVA-3 `[#13]`: `rec=d955e1fa|Kerbal X|pid=3620499050`, bgChild `9cc3a493` = pid 3726578224). KSP then switches focus to the kerbal, `OnVesselSwitchComplete` backgrounds the ship recorder (`[#19]`: `rec=-`), and the EVA recording is promoted to a live recorder ONLY by the post-switch first-modification watcher (`OnPostSwitchAutoRecordPhysicsFrame` -> `PromoteTrackedRecording`), which waits for an attitude / position / manifest delta. In the GREEN EVA-1 run the kerbal was released from the ladder, so an `AttitudeChange` trigger (angle=27.68 vs threshold 3.00) fired ~735 ms after the switch and promoted the recording (`[#20]/[#21]`) a full second before the board. In EVA-3 the exits use `release=false`: the kerbal hangs motionless on the hatch ladder and boards ~0.18 s after the switch, so the watcher was still armed (`trigger=None`) and `recorder` was null at the board (`[#20]`/`[#22]`: `rec=- rec.live=F/F`). Both downstream gates then failed CLOSED: `OnVesselSwitchComplete`'s boarding detection requires `recorder != null && recorder.IsRecording && recorder.RecordingStartedAsEva`, and `HandleTreeBoardMerge` requires the EVA recording to be `activeTree.ActiveRecordingId` behind a stopped recorder carrying `CaptureAtStop`. Neither ran; `pendingBoardingTargetPid` aged out through the 10-frame window (`Boarding confirmation expired`) and the seam's F2 quiescence conjunct was VACUOUSLY true (it holds the head while a merge is IN FLIGHT; a merge that never starts is quiescent), so EvaBoard completed OK. The saved tree proves the data loss: two `type = 1` (EVA) BRANCH_POINTs and ZERO Board branch points, and the kerbal recordings terminated `background_destroy` / Destroyed instead of Boarded. This is a genuine recording-fidelity defect, not a seam race: a player can hop out and straight back in, and the same "no modification" EVA drops the merge. The known-limitation note in `RuntimeTests.cs` (the EVA-branch canary skips on pad/landed/splashed parents because "no live-EVA-recorder window ever exists") describes the same gap from the other side. FIXED (Parsek side): `ParsekFlight.OnCrewBoardVessel` now calls `TryPromoteEvaRecordingForBoardMerge`, which rebinds a background-only EVA branch recording to the live recorder at the board so the EXISTING merge path runs unchanged (it is the same `backgroundRecorder.OnVesselRemovedFromBackground` + `PromoteRecordingFromBackground` pair the watcher would have run, just triggered by the board instead of by motion). `onCrewBoardVessel` fires BEFORE KSP's `SetActiveVessel` (log: our handler at 33.350, `[FLIGHT GLOBALS]: Switching To Vessel` at 33.351), so the kerbal is still the active vessel and `FlightRecorder.StartRecording`'s `FlightGlobals.ActiveVessel` bind is correct. The new pure decision `ParsekFlight.DecideEvaBoardPromotion` is xUnit-covered (11 cells) and fails closed on every ambiguity: `NotNeeded` when a live recorder already owns the kerbal (the EVA-1 green path is byte-identical), `SkipRecorderBusy` when a live recorder owns another vessel, plus no-tree / restoring / not-EVA / ghost-vessel / kerbal-no-longer-active / not-tracked skips, each logged. NOT fixed on the seam side deliberately: adding a wait-for-merge to EvaBoard would reclassify a dropped merge as a driver INVALID instead of the PARSEK-FAIL it is (mission-vs-Parsek orthogonality), so the logContract expectations stay the gate. Second-order effect that also disappears: with no live ship recorder at the second exit, EVA-3's second branch had to come from the `CreateSplitBranchFromBackgroundParent` fallback (`path=background-parent`); after the fix the board merge restarts the pod recorder, so the second exit takes the normal `CreateSplitBranch` path. (The "2 branches for 3 kerbals" reading of the first-flight log was a misread: the spec EVAs TWO kerbals, Valentina and Bob - Bill stays aboard - so 2 branches for 2 exits was always correct.) CONFIRMED on flight 2 (2026-07-24, full PASS): 2 `Tree branch created: type=EVA` + 2 `detected boarding from EVA` + 2 `Tree board merge completed`, 7 recordings. The spec's count window is now PINNED at 7..7 - the old 5..9 floor was exactly the buggy count, so a full regression of this fix satisfied it and a half regression (one merge dropped -> 6) satisfied it too, and `hlib.evaluate_expectations` applies logContracts with `re.search` (presence only, never an occurrence count), which leaves the count window as the sole numeric guard on "two merges".
+
+**EVA lane clean-context review follow-ups (2026-07-24, verdict SHIP on the shipping C#, FIX-FIRST on docs):** the six MUST-FIX doc items are applied in place (EVA-2 spec header re-written to the committed-fixture / LIVE-PROVEN reality, `autotest-status.md` corrected in all three stale places + EVA-2's live pass recorded, EVA-3's `[fixture]` block rewritten to the actual 94-part Kerbal X stack, every stale "Re-flight pending" sentence replaced with its outcome, and both fixtures' contents disclosed honestly). Four latent holes were closed with them:
+- **Count windows PINNED EXACTLY (was the substantive item).** EVA-1 4..4, EVA-2 2..2, EVA-3 7..7, each measured as `.prec` files in that scenario's green run save and matching its derivation. The old EVA-3 window `{min=5,max=9}` had a floor of exactly the buggy count, so a FULL regression of the board-merge fix passed it and a HALF regression (one merge dropped -> 6) passed it too; EVA-1's `{2,4}` had the same shape. `hlib.evaluate_expectations` applies `logContracts` with `re.search` - PRESENCE ONLY, no occurrence counting - so the count window is the ONLY numeric guard on "the merges happened", and it must stay pinned. Recorded in each spec's comment.
+- **`DecideEvaBoardPromotion` gained `SkipTreeActiveRecordingBusy`.** `PromoteRecordingFromBackground` overwrites `activeTree.ActiveRecordingId` unconditionally and never parks the previous value back into `BackgroundMap`, so a recording the tree still names while no live recorder owns it (`CreateMergeBranch` step 10 nulls the recorder on a failed `StartRecording` but leaves its `ActiveRecordingId` set) would be silently orphaned by the board-time rebind. The decider now skips when the tree's active id is non-null and different from the recording being promoted; on the live path it is null (both `OnVesselSwitchComplete` backgrounding branches clear it), so the proven behaviour is unchanged. 4 new xUnit cells; the skip log now carries `treeActiveRec=` / `trackedRec=`.
+- **EvaExit ladder release: attempts and fires are now separate counters.** `evaExitReleaseFireCount++` used to run BEFORE `fsm.RunEvent`, which throws when the fsm was never started - on that throw the count was already > 0, so a later ORGANIC ladder departure would report `released=true` ("verified-left") though our fire never took: the exact false positive the verified-left contract was built to kill. `evaExitReleaseAttemptCount` (incremented before the call) now drives the bounded cap, `evaExitReleaseFireCount` (incremented only after `RunEvent` returns) remains the evidence for `released=true`. `DecideLadderRelease`'s parameter is renamed `attemptCount`; a new cell proves three throwing attempts still exhaust bounded.
+- **B-DOCK `DOCK` docked short-circuit now needs corroboration.** `_read_docking_state` returns `Docked` when ANY port on the active vessel reads docked, so a craft with an already-mated internal pair would complete `BDOCK_DOCK` on its first poll without docking to the Station (not reachable with the single-port Kerbal X, but the dropped `docking_ever_enabled` conjunct had been guarding it incidentally). The short-circuit stays, gated on either the docked read APPEARING during the phase (new `dock_entry_docked` state field, latched at phase entry) or the target port being within `BDOCK_DOCKED_TARGET_DIST_EPS` (10 m). `docking_ever_enabled` is deliberately NOT a disjunct: enabling the AP latches it after one poll regardless of effect, so an entry-docked craft would just false-complete two polls later. 3 new mlib cells.
+- **Three nits:** the harvest tool's VESSEL scan is anchored to the `FLIGHTSTATE` span (new `flightstate_span`, brace-walked with fallbacks) because `activeVessel` indexes into THOSE nodes - a `SCENARIO`-embedded VESSEL ahead of FLIGHTSTATE would shift the index and make the situation gate judge the wrong craft (4 new cells); `mission_runner`'s `ACTION_LAUNCH_VESSEL` handler reads `action.launch_site` / `action.crew` directly now that both are declared `mlib.Action` fields (a `getattr` default would silently launch with the default crew after a rename); and the write-only `plantFlagLastGateOpen` field is deleted (the timeout line already logs the live local).
 
 ## Live observability of running test flights [BUILT, branches `live-observability` (Phase 1) + `live-observability-p2` (Phase 2); design `docs/dev/design-live-observability.md`]
 
@@ -265,7 +285,7 @@ Doc: a new "M-C1.1 follow-ups" section in `design-autotest-seam-verbs-c1.md` doc
 Implements `docs/dev/design-autotest-eva-missions.md` (merged #1339) exactly: three NEW implemented verbs (never reserved, additive like SaveGame) moving the verb table 15 -> 18 implemented / 11 reserved; three additive `DispatchState` bits (`ActiveVesselIsEva`, `StructuralSplitPending`, `FlightEvaPresent`) sampled by `BuildDispatchState`; per-verb precondition/deferral rows (EvaExit defers `split-pending`/`flighteva-not-ready` and refuses `load-in-flight`; PlantFlag/EvaBoard defer `not-eva`); per-verb `DeferralBudget` constants 120/180/120. All three are two-phase PENDING verbs with bounded, observable completions routed through pure xUnit-covered deciders (`TestCommandEvaExit`/`TestCommandPlantFlag`/`TestCommandEvaBoard`), mirroring the M-C1 Lane-A-applier / Lane-B-decider split. The only source touches outside `TestCommands/` are two internal read-only accessors on `ParsekFlight` (`StructuralSplitPending` over `pendingSplitInProgress`, `BoardMergeQuiescent` over `!ChainToVesselPending && pendingBoardingTargetPid==0`); no new Harmony patches, no GameEvents subscriptions, no schema change. The verbs call the SAME public stock entry points a player's hatch-click / plant-flag click / board uses (`FlightEVA.fetch.spawnEVA` via reflection - not compile-visible, same as the in-game EVA tests; the public `KerbalEVA.fsm.RunEvent(On_ladderLetGo)`, `PlantFlag()`, `BoardPart(part)`; the "SiteRename" popup answered via its own dismiss-button callback, the `AnswerMergeDialog` pattern), so a seam-driven EVA is byte-identical to a hand-driven one for every Parsek observer.
 
 - **EvaExit** (two-phase, irreversible): `ResolveKerbalArg` (default-first-crew / exact-ordinal-match / `no-crew` / `kerbal-not-aboard`), part+airlock resolution (`no-airlock`), `spawnEVA(tryAllHatches:true)` with null -> `REJECTED eva-refused` (no side effect), remembers `lastEvaExitFromPid` (in-memory, non-durable) for EvaBoard's default target; optional `release=true` runs the ladder let-go once active (not gated on ground contact - the plant gate owns that); optional `settleSeconds` dwell (F7) held AFTER the base conjuncts so Parsek's deferred EVA auto-record arms before the next FIFO command. Completion: exists AND active AND settled AND (release satisfied) AND settle-dwell elapsed; budget -> `eva-exit-timeout`.
-- **PlantFlag** (two-phase, F1 bounded-wait gate, dialog-answering): instant refusals for stably-closed causes only (`not-eva`, `flag-lock-stable`); then PENDING and polls the stock gate (`Events["PlantFlag"].active`) via `DecidePlantGateWait` (a transiently-closed gate mid-fall is `KeepWaiting`, NEVER a terminal reject - the EVA-1 near-deterministic failure), fires `PlantFlag()` exactly once on the open transition, answers the "SiteRename" popup via its dismiss button's own callback (so `afterFlagPlanted` fires and Parsek captures the FlagEvent), CompleteOk on flag-vessel + dialogAnswered + settled; `flag-gate-timeout` / `flag-timeout`.
+- **PlantFlag** (two-phase, F1 bounded-wait gate, dialog-answering): instant refusals for stably-closed causes only (`not-eva`, `flag-lock-stable`); then PENDING and polls the LIVE plant gate via `DecidePlantGateWait` (a transiently-closed gate mid-fall is `KeepWaiting`, NEVER a terminal reject - the EVA-1 near-deterministic failure). The gate is `ReadPlantGate` = a direct `CanPlantFlag()` call each poll AND a plantable-fsm-state check (`st_idle_gr` / `st_idle_b_gr`), NOT `Events["PlantFlag"].active` (that edge-triggered cache latched stale-false on the pad and timed out the first live EVA-1 - see the EVA-1 first-flight finding above). Fires `PlantFlag()` exactly once on the open transition, answers the "SiteRename" popup via its dismiss button's own callback (so `afterFlagPlanted` fires and Parsek captures the FlagEvent), CompleteOk on flag-vessel + dialogAnswered + settled; `flag-gate-timeout` (now carries `blocked=<unmet precondition>`) / `flag-timeout`.
 - **EvaBoard** (two-phase, F2 quiescence, irreversible): resolves the target (explicit `targetPid` / `lastEvaExitFromPid` if loaded / nearest loaded non-EVA), refuses `unknown-target` / `no-boardable-part` / `target-full` / `not-near-target` (10 m `IsWithinBoardRange` honesty bound over stock's missing distance check), calls void `BoardPart`, then the FIVE-conjunct completion (EVA vessel gone AND kerbal in target crew AND target is active vessel AND Parsek board-merge quiescent AND settled) - the quiescence conjunct holds the FIFO head out of the board-merge window so a next command can never corrupt the merge; crew-unchanged-past-budget -> `board-timeout`, never a false OK.
 
 hlib companions (F5/F6): the three names into `IMPLEMENTED_SEAM_VERBS` (18 total); `DISPATCH_DEFERRAL_BUDGET_SECONDS` entries EvaExit 120 / PlantFlag 180 / EvaBoard 120 (none a `DEFERRED_SEAM_VERB`, all under the 540 cap); `spec_expects_live_recording` learns the `autoRecordOnEva=true` pin so EVA-2's genuinely-recording run keeps REC-001/REC-003 UNSUPPRESSED. Three seam-driven specs: `EVA-1-pad-flag` (nightly, existing gloops-airshow fixture), `EVA-2-orbital-board` + `EVA-3-multi-kerbal` (`pending-fixture` - the two NEW fixtures `eva2-lko-crewed` / `eva3-pad-3crew` are operator step P2). All three validate through the real `CommittedSpecValidationTests` path.
@@ -273,6 +293,364 @@ hlib companions (F5/F6): the three names into `IMPLEMENTED_SEAM_VERBS` (18 total
 Tests: TestCommand xUnit +~69 cells (verb-table 18/11, C2 dispatch matrix incl. the safe-point/batch/interrupted gates, the three pure deciders' every-conjunct + regression cells - mid-fall KeepWaiting, false-OK-over-unanswered-dialog guard, the five board conjuncts incl. the quiescence window, settleSeconds dwell, the 10 m inclusive bound); full C# suite 18538 green. hlib cells: verb-table move + step acceptance + the F5 budgets + the F6 autoRecordOnEva live-recording clause; harness suites lib 402 / provision 203 / missions/lib 281 green.
 
 **PENDING-OPERATOR (design live-prove list, one KSP session):** P1 load-and-focus sanity of `gloops-airshow`; P2 commit `eva2-lko-crewed` + `eva3-pad-3crew` then re-tier EVA-2/EVA-3 pending-fixture -> daily/nightly; P3 first EVA-1/2/3 runs pin the recordings-count windows (currently provisional per R-C) and the exact structural-snapshot message (the `[Pipeline-Smoothing]` token is regex-escaped in-spec pending confirmation); P4 pin the orbital auto-record log wording (EVA-2's required token keeps the stable `Auto-record started` prefix); P5 confirm ladder release lands with ground contact + zero kerbal damage; P6 confirm the SiteRename dismiss-callback fires `afterFlagPlanted` and Parsek's capture line appears. Also promotes EVA-1 nightly -> daily once the windows are pinned.
+
+## EVA-4 - atmospheric mid-flight EVA + kerbal personal chute: `EvaChuteDeploy` + mission `eva4_atmo_chute` [LIVE-PROVEN 2026-07-24, branch `autotest-eva4-chute`]
+
+Adds the one EVA surface the M-C2 trio does not reach. EVA-1/EVA-3 exit on the pad and
+EVA-2 exits in orbit; EVA-4 exits MID-FLIGHT IN ATMOSPHERE, so it is the only case where
+the kerbal is a FALLING VESSEL with a real trajectory of its own. Four Parsek surfaces
+ride on that: (1) an EVA tree branch created mid-flight in atmosphere; (2) ATMOSPHERIC
+TrackSections on the KERBAL's own recording; (3) the EVA chute captured as a two-phase
+part event ON the kerbal (`ParachuteSemiDeployed` -> `ParachuteDeployed`, the D7
+`chute-two-phase` cell, previously claimed by NO scenario); (4) the DOWN terminal applied
+to a KERBAL recording, with the kerbal ALIVE.
+
+FEASIBILITY was established from decompiled KSP 1.12.5 + the committed fixture bytes
+BEFORE anything was built, because all three legs were genuinely in doubt:
+
+- **Can a kerbal EVA from a moving craft in atmosphere at all? YES, with no stock
+  envelope gate whatsoever.** `FlightEVA.spawnEVA(pcm, fromPart, fromAirlock,
+  tryAllHatches)` (decompiled, FlightEVA.cs:334-546) refuses on exactly four things: the
+  kerbal not being in `fromPart.protoModuleCrew`, a null airlock transform, an obstructed
+  hatch / hatch inside a fairing (`HatchIsObstructedMore` + `hatchInsideFairing`), and a
+  mod veto through `GameEvents.onAttemptEva` + `overrideEVA`. There is NO dynamic-pressure,
+  g-force, speed, or altitude check anywhere on the path, and grepping the whole decompiled
+  assembly finds NO stock subscriber to `onAttemptEva`. `onGoForEVA` even has an explicit
+  in-flight branch (`if (!fromPart.vessel.LandedOrSplashed) StartCoroutine(kerbalEVA
+  .StartNonCollidePeriod(...))`). So the SAFE ENVELOPE is ours to choose, not KSP's to
+  enforce - which is why the scenario defines one explicitly rather than relying on a gate
+  that does not exist.
+- **Does the kerbal have a chute, and how is it deployed? YES, and by one public method.**
+  The chute is `ModuleEvaChute : ModuleParachute` declared on the kerbalEVA PART itself
+  (`Squad/Parts/Prebuilt/kerbalEVA.cfg`: deployAltitude 1000, minAirPressureToOpen 0.04,
+  autoCutSpeed 0.5, chuteMaxTemp 650, fullyDeployedDrag 500). The `Squad/Parts/Cargo/
+  Parachute` "evaChute" part is pure CARGO (`ModuleCargoPart`, packedVolume 10) - it only
+  has to sit in the kerbal's `ModuleInventoryPart` for the module to switch on
+  (`KerbalEVA.UpdatePackModels` -> `evaChute.SetEVAChuteActive(hasChute &&
+  CanCrewMemberUseParachute())`, KerbalEVA.cs:1650-1662; the inventory scan matches
+  `storedPart.partName.Equals("evaChute")` at :1477). Stock kerbals get it for free:
+  `kerbalEVA.cfg`'s `ModuleInventoryPart` declares `DEFAULTPARTS { name = evaChute; name =
+  evaJetpack }`, and the COMMITTED `b1-pad-craft` fixture's roster Jebediah already carries
+  `INVENTORY { inventory = evaChute,evaJetpack }` with a `STOREDPART evaChute` in slot 0 -
+  verified by reading the committed `persistent.sfs`, not assumed. The skill gate is
+  vacuous in practice: `CanCrewMemberUseParachute` compares `experienceLevel >=
+  vessel.VesselValues.EVAChuteSkill.value` and `PartValues` initialises EVAChuteSkill to 0.
+  DEPLOY PATH: both stock player paths call the SAME public method. The keybind path is
+  `On_semi_deploy_parachute.OnCheckCondition` (KerbalEVA.cs:9552-9590), which checks
+  module-enabled + STOWED + the `EVA_ChuteDeploy` key + `VesselUnderControl` + NOT
+  `JetpackDeployed`, then calls `evaChute.Deploy()`; the PAW path is the `[KSPEvent]
+  Deploy()` on ModuleParachute. So `Deploy()` IS the player's click (M-C2 contract), and
+  no kRPC reach is needed or wanted.
+- **Survivability: YES, and the chute is genuinely load-bearing.** kerbalEVA's
+  `crashTolerance` is 50 m/s and `maxTemp` 800 K. Under the module's `fullyDeployedDrag =
+  500` (engaged below its own 1000 m `deployAltitude`) a kerbal sinks at roughly 5-6 m/s -
+  an order of magnitude inside tolerance. Without it a kerbal falls near or past that 50
+  m/s tolerance, so the sequence is a real save, not a formality. The seam verb does NOT
+  take survival on trust: its DOWN completion requires the EVA vessel to still exist with
+  the kerbal aboard and a non-Dead/Missing roster status, so a landed-but-dead kerbal is a
+  terminal ERROR, never an OK.
+
+**New seam verb `EvaChuteDeploy`** (`TestCommandEvaChuteDeploy.cs` pure decisions +
+`ParsekTestCommandAddon.EvaChute.cs` applier), built in the M-C2 shape - pure decision core,
+bounded gates, named timeouts, verbose logging:
+- Arm refusals mirror the stock keybind path's OWN guards in its order, so the seam refuses
+  for exactly the reasons a player's key press would be ignored: `not-eva`,
+  `no-eva-chute-module`, `eva-chute-unavailable` (module switched off = no evaChute in the
+  inventory: the fixture-contract failure), `eva-chute-not-stowed`, `eva-jetpack-deployed`.
+- `Deploy()` only ARMS (STOWED -> ACTIVE, synchronously) and returns SILENTLY when the part
+  is shielded from airstream, so the arm is VERIFIED by re-reading the state (`ArmTook`);
+  a still-STOWED read is `eva-chute-arm-refused` (REJECTED, no side effect). Called is not
+  evidence - the standing EVA-lane rule.
+- Stage A CANOPY is a BOUNDED WAIT on the observed deployment state, not a post-call
+  assertion: the module's own FixedUpdate gate needs static pressure over 0.04 atm (or
+  altitude under 1000 m) AND speed over 1 m/s AND `DeploySafe` reading SAFE, and
+  `DeploySafe` returns UNSAFE for the first 1.0 s after the part unpacks
+  (ModuleParachute.cs:2108-2160), so the canopy is NEVER open on the arming frame. The
+  observation is LATCHED, because stock `UpdateCut` auto-cuts below `autoCutSpeed` 0.5 m/s -
+  a kerbal standing on the ground reads CUT, and a re-read at completion would fail the very
+  landing the verb exists to prove.
+- Stage B DOWN is opt-in (`awaitDown=true`), the same shape as EvaExit's optional
+  `release` / `settleSeconds` stages: hold until LANDED/SPLASHED with the kerbal alive.
+  Named terminals: `eva-chute-canopy-timeout` (armed but never opened) vs
+  `eva-chute-down-timeout` (opened but never landed) vs `eva-chute-kerbal-lost`.
+- Budget 420 s (`DeferralBudget.EvaChuteDeploySeconds`), under the harness 540 s cap; it is
+  the FIRST EVA verb added to `DEFERRED_SEAM_VERBS` because its awaitDown stage genuinely
+  holds the FIFO head for minutes.
+
+**`release=true` on the preceding EvaExit is LOAD-BEARING, not cosmetic** (same
+edge-triggered-FSM family as the EVA-1 flight-2 defect): `ModuleEvaChute` reaching
+SEMIDEPLOYED calls `kerbalEVA.OnParachuteSemiDeployed()` -> `fsm.RunEvent(
+On_semi_deploy_parachute)`, and that event is registered on ONLY `st_ragdoll` and
+`st_idle_fl` (KerbalEVA.cs:9600). `KerbalFSM.RunEvent` for an unregistered event is a
+SILENT no-op (KerbalFSM.cs:298-311). `On_ladderLetGo.GoToStateOnEvent = st_idle_fl`
+(KerbalEVA.cs:8678), so the VERIFIED ladder release is exactly what puts the kerbal in a
+receptive state; a kerbal still on the pod's hatch ladder would arm its chute and never
+enter the chute state. (`RunEvent` does NOT evaluate `OnCheckCondition`, so the keybind
+path's `GetKey()` / `VesselUnderControl` conditions do not apply to the module-driven
+transition - verified in the decompiled `KerbalFSM`.)
+
+**New mission `eva4_atmo_chute`** (`mlib.Eva4Params` / `Eva4State` / `eva4_decide` /
+`eva4_window_open` / `evaluate_eva4_assertions`). It reuses the B1 hop shape
+(PRELAUNCH -> ASCENT -> COAST -> DESCENT) but its terminal is EVA-WINDOW: the craft is
+still AIRBORNE and CREWED when the mission ends. That split is forced, not stylistic -
+kRPC exposes no EVA API and hlib allows exactly ONE mission-kind step per spec, so the
+mission can only fly the craft into the envelope and hand off to the seam. Deliberately a
+SIBLING machine rather than a parameterisation of B1: B1's terminal is the craft on the
+ground and must stay exactly that (it is live-proven and other scenarios depend on its
+shape), so folding an airborne terminal into it would make a proven contract a special
+case of an unproven one.
+- The window is SELF-REGULATING rather than a golden altitude: it needs the craft's own
+  chute commanded AND altitude inside `[evaWindowMinAltMeters, evaWindowMaxAltMeters]`
+  AND `|vertical speed| <= evaMaxDescentRateMps` AND an airborne situation. The craft
+  crosses the ceiling still near terminal velocity, so the gate stays shut and opens a few
+  hundred metres lower once the canopy bites - the handoff altitude is decided by the
+  physics.
+- Sinking past the floor without the window opening is a NAMED ASSERT-FAIL
+  (`eva-window-missed`, carrying the altitude / vspeed / situation / craft-chute state),
+  never a silent burn-down of the descent budget. Unlike B1 there is NO chute-deployed-impact
+  DOWN success terminal: the craft reaching the ground at all means the EVA never happened.
+- `settle_frames=0` + `skip_settle_tail`: the terminal hands a STILL-DESCENDING craft to a
+  time-critical seam step, so every settle sample would spend altitude the kerbal needs.
+
+**Why the EVA is specified LOW (window `[700, 2100]` m, `|vs| <= 25` m/s) rather than at
+apoapsis.** An apoapsis exit (B1's window is 6-30 km) would give the kerbal 6-30 km of
+descent; at ~5-6 m/s under full canopy that is 20+ minutes, far outside any per-step
+budget the harness allows (the 540 s deferred-step cap). A low exit is also the SAFEST
+available envelope: the craft is already decelerating under its own canopy, so dynamic
+pressure at the hatch is trivial (25 m/s in sea-level air is well under a kPa) and far
+inside the kerbalEVA part's 50 m/s crash tolerance and 800 K maxTemp. Flight 2 confirmed
+both halves: the handoff landed at 1,606 m / -23.2 m/s and the kerbal's own descent
+(~1.6 km at a steady -4.5 m/s) took ~215 s of its 420 s step budget.
+(The band shipped as 800-2400 m / 60 m/s BEFORE flight 1; the re-tune moved it, see the
+FLIGHT-1 block below.)
+
+**No new fixture, no fixture edit.** `b1-pad-craft` is reused as-is; its roster Jebediah
+already carries the stock default `evaChute,evaJetpack` inventory.
+
+**The parent craft is a deliberate second surface.** After the EVA the pod descends under
+its own canopy as a background vessel and touches down BEFORE the kerbal. Per the B1
+fixture note the Jumping Flea ALWAYS breaks apart at touchdown (~9 m/s vs the booster's 7
+m/s tolerance); that is EXPECTED here. Nothing in the spec asserts the pod survives - B4
+owns the craft-survives-intact contract; EVA-4's survival contract is the KERBAL's. The
+recordings count shipped as a provisional 2-10 window sized to absorb the breakup
+children; flight 2 MEASURED 3 (pod root + kerbal EVA split + the pod's post-EVA
+continuation - the breakup produced no extra recording on this profile) and the spec is
+now PINNED at exactly 3. It is a re-pin contract, not a widen-on-drift one: the count is
+the only numeric guard that the EVA split and the kerbal's own recording exist, and a
+window wide enough for breakup variance is also wide enough for a dropped EVA branch.
+
+Tests (counts are the CURRENT totals at branch HEAD, i.e. including the post-live
+hardenings at the end of this section): `TestCommandEvaChuteDeployTests` holds 27 `[Fact]`
++ a 9-case `[Theory]` - the arm-refusal ladder, the synchronous arm verification,
+canopy-open classification, the DOWN situation set, all five completion outcomes incl.
+`KerbalLost` short-circuiting a satisfied completion, the two-aliveness-bit split (the
+debounced bit drives only `KerbalLost`, the raw per-poll read is a required `CompleteOk`
+conjunct), the kerbal-loss debounce - which delays a loss verdict past a transient
+unreadable sample but can never mask a real one - and payload latching; plus the
+verb-table / precondition-table / executor-interface / deferral-budget coverage tests
+extended to 19 implemented verbs. The EVA-4 mlib block
+(`Eva4WindowGateTests` / `Eva4ParachuteStateNormalizationTests` / `Eva4MachineTests` /
+`Eva4ParamTests` / `Eva4AssertionTests`) holds 38 cells, including every fail-closed leg
+of the window gate and the K-consecutive debounce guards; hlib gains an EvaChuteDeploy
+deferred-and-capped cell. All headless suites green (xUnit, `harness/lib`,
+`harness/provision`, `harness/missions/lib`), and `run.py --id EVA-4-atmo-chute --dry-run`
+validates.
+
+**FLIGHT-1 FINDING + FIX (2026-07-24): arming the craft's chute at 2500 m is INERT, not
+late - stock refuses to open a parachute at ~300 m/s, so the EVA window could never
+open.** The first live EVA-4 run ASSERT-FAILed exactly as the design intended - fast,
+self-explaining, no budget burn (107 s wall): `eva-window-missed: altitude 702m fell
+below the window floor 800m (vspeed -295.2m/s, situation FLYING, craftChute armed)`,
+phasesReached PRELAUNCH/ASCENT/COAST/DESCENT, `apoapsisWindow` met at 19,879 m. The
+named-failure design and the per-frame diagnostics did their whole job; the mission
+params were wrong.
+
+MEASURED (mission stdout per-frame telemetry, `harness/results/2026-07-24_1907_*`):
+peak altitude 11,965 m at ut 60.6 (orbital apoapsis 19,879 m); ASCENT 9.7 s; COAST
+40.8 s; the unchuted descent settles at TERMINAL **-301 m/s** by ~2,700 m and holds it;
+the chute was armed at **2,382 m / -301 m/s** and 5.1 s later, at 855 m, the rate had
+moved **4.7 m/s**. The canopy had not opened at all.
+
+ROOT CAUSE, proved two independent ways rather than inferred. (1) The Parsek recording:
+the pod's `.prec` carries ZERO `ParachuteSemiDeployed` / `ParachuteDeployed` part events -
+only a `Decoupled` at ut 119.70 (the breakup). (2) Decompiled `ModuleParachute.cs`
+(1255-1290): the ACTIVE -> SEMIDEPLOYED transition needs
+`automateSafeDeploy >= (int)deploymentSafeState`, and the b1-pad-craft fixture PERSISTS
+`automateSafeDeploy = 0` (= open only while SAFE), which `DeploySafe` never reads at
+~300 m/s in dense air. An armed chute therefore just WAITS - and a craft already at
+terminal velocity never slows on its own, so it waits forever. The arm was inert.
+
+THREE FIXES, each addressing a distinct part of the failure:
+- **ARM WHILE SLOW, not at an altitude.** `eva4_decide` now arms on the first DESCENT
+  frame whose `|vertical speed|` is within `craftChuteArmMaxRateMps` (30) - i.e. at the
+  apoapsis crossing, where `DeploySafe` is trivially SAFE and Kerbin is already ~0.2 atm
+  (far over the module's 0.04 atm semi-deploy gate). The COAST -> DESCENT transition now
+  FALLS THROUGH into the descent body on the SAME frame instead of returning: the arm
+  gate is rate-based and the rate only worsens (~10 m/s per ~1 s poll on Kerbin; measured
+  entry sequence -7.4, -16.9, -26.1, -35.5 m/s), so a one-poll delay needlessly eats the
+  bound and a few polls would push the craft permanently outside it - the same failure in
+  slow motion.
+- **RAISE the full-deploy altitude.** The machine sets the craft chutes' stock
+  `deployAltitude` (kRPC `Parachute.DeployAltitude`, a PAW tweakable, so player-normal)
+  to `craftChuteFullDeployAltMeters` (2500) in the same frame it arms. The fixture
+  persists 1000 m and the Mk16's full-deploy animation is SLOW
+  (`parachuteMk1.cfg deploymentSpeed = 0.12`, ~8 s), so leaving it at 1000 m would force
+  the EVA band under 1000 m with an unmeasured settle distance eating into it. Raising it
+  also lengthens the KERBAL's atmospheric descent - the recording surface this scenario
+  exists to exercise.
+- **GATE ON OBSERVED STATE, NOT ON THE COMMAND.** The window's first conjunct now reads
+  the craft's parachute state from kRPC (`ParachuteState`, decompiled
+  `KRPC.SpaceCenter.Services.Parts`) and requires `Deployed`. The old conjunct was the
+  machine's own "we emitted the deploy action" latch, which was TRUE for the entire failed
+  flight - the exact "an action being CALLED is not evidence it HAPPENED" lesson the EVA
+  lane already learned twice (BDOCK SEPARATE, EVA-1 ladder release), reached here through
+  a mission-machine latch instead of a seam verb. New opt-in telemetry channel
+  `TelemetrySnapshot.craft_chute_state` (`KrpcMissionControl(read_chute=True)`, `""`
+  unread sentinel = fail-closed, most-deployed-chute-wins across the craft; every other
+  mission's snapshot stays byte-identical), and the `eva-window-missed` reason now carries
+  the OBSERVED state, so a repeat reads `craftChute=Armed` and names itself.
+
+RE-DERIVED PARAMS: window `[800, 2400] m / |vs| <= 60` -> `[700, 2100] m / |vs| <= 25`
+(ceiling 400 m below the full-deploy trigger so the observed-Deployed conjunct can only
+become true inside/above the band; floor gives 1400 m of settle room for the ~8 s
+animation and still ~700 m of sky for the kerbal, whose own chute fully deploys under
+1000 m at ~5-6 m/s so its descent time is bounded by that leg rather than by the exit
+altitude; 25 m/s passes the B1-measured ~9 m/s full-canopy touchdown rate with ~2.8x
+margin while a merely semi-deployed craft can never satisfy it). BUDGETS re-checked
+against the measured fall times: ASCENT 90 and COAST 180 keep B1's values (measured 9.7 s
+and 40.8 s); `descentTimeoutSeconds` was raised 240 -> 480, the mission step 600 -> 900
+and the runtime 1560 -> 1920, because the craft now flies nearly the whole descent UNDER
+CANOPY and its semi-deployed rate was the one number flight 1 could not supply - the
+budget was sized to OUT-WAIT a slow one rather than to predict it. (Flight 2 measured that
+rate and `descentTimeoutSeconds` went back to 240; see the FLIGHT-2 block below. The
+mission-step and runtime budgets stay at 900 / 1920 deliberately - they are wall-clock
+envelopes that also absorb KSP boot, scene load and seam latency.) A new
+`craftCanopyObserved` assertion row
+reports the observed bit alongside the commanded altitude/rate, so the result JSON carries
+both halves of the distinction. Tests: the re-tune added the flight-1 regression guards
+to the EVA-4 mlib block (`test_shut_when_chute_only_armed`,
+`test_window_missed_below_floor_names_the_observed_chute_state`,
+`test_coast_to_descent_arms_on_the_transition_frame`,
+`test_arm_waits_until_inside_the_rate_bound`) and a kRPC-enum normalization cell.
+
+**SAME-EVIDENCE FINDING, SPUN OFF (not EVA-4's to fix): B1-pad-hop's chute never opens
+either.** The live-proven B1 log (`logs/2026-07-20_1829_B1-pad-hop`) shows the identical
+shape - its `parachuteSingle` has ZERO `Parachute*` part events, only a `Decoupled` at
+ut 119.70, and its recording ends at 65 m. B1 arms at the same 2500 m with the same
+`automateSafeDeploy = 0` fixture, so it too impacts at terminal velocity. B1 is GREEN
+anyway because `_b1_down_eligible` awards its "chute-deployed impact" DOWN terminal on the
+COMMANDED latch (`state.chute_deployed`) plus vessel-lost plus last-altitude, never on an
+observed canopy. So B1's documented Parsek surface ("chute-deployed ground-arrival
+recording") does not match what it flies. Left alone here because B1 is live-proven and
+other work depends on its shape; tracked as its own task.
+
+**FLIGHT-1 TAIL BEHAVIOUR - what actually happened after the ASSERT-FAIL, and why it
+matters.** An earlier version of this section said "flight 1 never reached the EVA". That
+is FALSE, and it mattered: it is what let the failed attempt's collected artifacts be read
+as clean. `run.py` deliberately "drives the REMAINING seam steps regardless of the mission
+outcome" (`run.py:1009-1019`), so once the mission ASSERT-FAILed on `eva-window-missed`
+the whole seam tail still ran against a pod falling at terminal velocity. Flight 1's own
+collected log (`logs/2026-07-24_2210_EVA-4-atmo-chute/KSP.log`, git-state commit
+`28a04db4f` = the pre-re-tune build) records it step by step: `evaexit complete
+kerbal=Jebediah Kerman released=true`, then `evachutedeploy start alt=356.4 vspeed=-277.3
+situation=FLYING`, `evachutedeploy armed`, `canopy verified state=SemiDeployed alt=221.4
+vspeed=-258.2`, and 19 s later `evachutedeploy complete canopy=true chuteState=Cut
+down=true situation=LANDED alive=true`. Then `stoprecording stopped=true`, `committree
+committed=true`, `flushandquit`. Three consequences:
+
+- **A window-missed run performs the very terminal-velocity hatch EVA the design says
+  cannot happen.** The whole point of the mission's bounded envelope is that the seam's
+  irreversible `EvaExit` fires into a verified-safe state; on a window-missed run it fires
+  into whatever state the pod is in when the mission gives up. Jebediah happened to
+  survive (the stock kerbalEVA chute semi-deployed at 221 m and its 50 m/s crash tolerance
+  did the rest), but that was luck, not contract.
+- **Worst case the tail burns ~120 + 420 s of named deferral budget per failed attempt.**
+  If the kerbal dies, `EvaExit` runs out its 120 s budget to `eva-exit-timeout` and
+  `EvaChuteDeploy` then defers its full 420 s on `not-eva` - so a fast, self-explaining
+  107 s mission failure can still cost ~9 more minutes of wall clock before the run ends.
+- **The failed attempt's collected save and log carry a spurious EVA branch + landing.**
+  That is what contaminated the record here: a run whose mission never reached the handoff
+  still produced an EVA tree branch, a kerbal recording, a chuted landing and a committed
+  tree, all of which read like success in the artifacts.
+
+There is NO false PASS. The mission's ASSERT-FAIL classifies the whole scenario INVALID
+(`hlib.classify_mission_step`) BEFORE the tail runs - flight 1's own result JSON is
+`verdict=INVALID subkind=mission` - and the save is re-staged per attempt (`stage_fixture`
+does an `rmtree` + `copytree` of the template, `run.py:1995`), so no junk state survives
+into the next run. The problem is cost and artifact honesty, not verdict correctness.
+FIXING IT IS NOT EVA-4's JOB: "drive the remaining steps regardless" is a cross-cutting
+harness contract shared by every autopilot scenario, so the fix (skip / short-circuit the
+post-mission seam tail when the mission verdict is a hard ASSERT-FAIL) is filed
+separately. Until then, treat the artifacts of any window-missed EVA-4 attempt as
+containing a real but unintended EVA.
+
+**FLIGHT 2 (2026-07-24): FULL PASS on attempt 1.** All seven verifiers PASS/SKIPPED
+(`batchComplete` SKIPPED as designed, everything else PASS), and the re-tune
+worked end to end. The machine walked PRELAUNCH -> ASCENT -> COAST -> DESCENT ->
+EVA-WINDOW with all four telemetry assertions met (`apoapsisWindow` 19,747 m,
+`evaWindowReached` 1,606 m, `evaWindowDescentRate` -23.2 m/s, `craftCanopyObserved` armed
+at 11,965 m and OBSERVED Deployed), then the seam chain ran: `EvaExit`, `EvaChuteDeploy`
+armed with the canopy VERIFIED, a steady -4.5 m/s chuted descent, `ParachuteCut` at
+touchdown, `down=true situation=LANDED alive=true`, `StopRecording`, `CommitTree`.
+Analyzer red=0, logValidate PASS, anomalySweep PASS, expectations PASS. Parsek recorded
+the mid-flight EVA branch and Atmospheric TrackSections on the kerbal's own recording -
+the four surfaces this scenario exists for. Operator list resolved:
+- **P1 recordings count: PINNED 3** (was the provisional 2-10). Measured 3 `.prec` in
+  `saves/b1-pad-craft/Parsek/Recordings`: pod root + kerbal EVA split + the pod's post-EVA
+  continuation. Exact rather than a window, because `logContracts` are presence-only
+  (`hlib.evaluate_expectations` uses `re.search`) so the count is the only numeric guard
+  that the EVA split and the kerbal recording exist. Re-pin (never widen) on a legitimate
+  future difference; B1's breakup-child count is documented as varying.
+- **P2 `'kerbalEVA` part-name prefix: CONFIRMED** in both Part-event tokens.
+- **P3 semi-deployed descent rate: MEASURED, and `descentTimeoutSeconds` TRIMMED
+  480 -> 240.** The semi-deployed craft does not crawl: it sinks at up to **-236 m/s**
+  (peak magnitude at ~5.7 km), the rate decaying with air density to -223 m/s at the
+  2500 m full-deploy trigger, after which the full canopy brakes it to -23 m/s in ~5.6 s.
+  The whole DESCENT phase (ut 60.9 -> 122.5) took **61.6 s**, so 240 s is ~3.9x the
+  measured phase and restores the pre-re-tune value. The budget is a BACKSTOP anyway -
+  every realistic canopy failure is caught first, and by name, by `eva-window-missed` at
+  the 700 m floor (flight 1 proved that: 107 s wall, no budget burn) - so the shorter
+  bound only makes the pathological "airborne but never satisfying the window" stall
+  report sooner. The mission-step (900) and runtime (1920) budgets are deliberately NOT
+  trimmed with it: they are wall-clock envelopes that also cover KSP boot, scene load and
+  seam latency, and the measured flight-2 numbers (mission wall 112.5 s, scenario wall
+  402 s) already sit far inside them.
+- **P4 kerbal canopy + survival: CONFIRMED** (`canopy=true`, `down=true situation=LANDED
+  alive=true`).
+Also resolved by flight 1 and unchanged: the hop profile (peak 11,965 m, unchuted terminal
+-301 m/s) and the ascent / coast durations (9.7 s / 40.8 s).
+
+**POST-LIVE HARDENINGS (review follow-up, same branch).** Two in-family fixes that the
+live run could not have surfaced because neither failure mode fired:
+- **The EVA-window gate is now K=2 debounced** (`mlib.EVA4_WINDOW_DEBOUNCE_K`, the house
+  `DEFAULT_DEBOUNCE_K` idiom). It previously opened on ONE poll, and two of its five
+  conjuncts are single-sample kRPC reads: stock flips `ParachuteState` to `DEPLOYED` at
+  the START of the full-deploy ANIMATION (decompiled `ModuleParachute.cs:1372-1380`), so
+  through the ~8 s the Mk16 canopy takes to bite, only the `|vertical speed|` conjunct -
+  read from the SAME frame - separates "observed full canopy" from "still fast". A single
+  glitched frame would therefore have certified a terminal-velocity EVA green, and the
+  `evaWindowDescentRate` assertion cannot catch it because it re-reports that same frame.
+  Two independent frames must now agree; the streak resets to 0 on any disagreeing frame,
+  the `eva-window-missed` floor check is unchanged (a craft sinking mid-streak still reds
+  by name), and the cost is ~10-20 m of the 1400 m band at the measured handoff rate. The
+  run is also surfaced as `evaWindowStreak` in the machine-state gate diff.
+- **`EvaChuteDeploy` completion now requires the RAW per-poll aliveness read for
+  `CompleteOk`**, keeping the 3-poll debounced bit for `KerbalLost` only. With `awaitDown
+  =false` the canopy latch plus a settled scene satisfy every other conjunct, so a kerbal
+  dying INSIDE the debounce window would have completed OK on the very poll the loss
+  began - "KerbalLost beats everything" only held AFTER the debounce expired. Not
+  reachable in the shipped spec (EVA-4 pins `awaitDown=true`), fixed properly anyway.
+Tests: +4 mlib cells (the K-consecutive requirement, the streak reset, the mid-streak
+window-missed guard, and the happy path re-shaped to need two agreeing frames) and +3
+xUnit cells (no-OK on the first gone-read for both `awaitDown` shapes, loss wins once the
+debounce expires, honest timeouts mid-debounce).
+
+**SUITE-WIDE LOG-FORMAT NOTE (from the flight-1 re-tune, recorded here because it is easy
+to miss):** the mission telemetry stdout line gained a `chute=` field for EVERY mission
+(`mission_runner.py`), not just EVA-4. The `TelemetrySnapshot` itself is unchanged for
+every other mission (`read_chute` defaults off, and the unread sentinel is `""` which
+renders as `-`), so no other mission's DECISIONS moved - but any tooling that parses that
+line positionally sees a new column.
 
 ## Scenario coverage expansion - Tier 0/1 seam cells over the gloops fixture [BUILT, branch `autotest-tier01-scenarios`]
 

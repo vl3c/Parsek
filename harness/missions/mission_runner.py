@@ -416,7 +416,8 @@ class KrpcMissionControl(MissionControl):
     """
 
     def __init__(self, use_mechjeb: bool = False, client_name: str = "parsek-mission",
-                 read_docking: bool = False, read_chute: bool = False) -> None:
+                 read_docking: bool = False, read_crew: bool = False,
+                 read_chute: bool = False) -> None:
         self._use_mechjeb = use_mechjeb
         self._client_name = client_name
         # OPT-IN B-DOCK docking/rendezvous/transfer telemetry (design section 5.2).
@@ -424,6 +425,11 @@ class KrpcMissionControl(MissionControl):
         # never touch the MechJeb target controller / docking-port surface). The
         # bdock shell constructs this True.
         self._read_docking = bool(read_docking)
+        # OPT-IN crew-count telemetry (FORGE-LKO). OFF everywhere else so their
+        # read_snapshot stays byte-identical (crew_count keeps its -1 unread
+        # sentinel, which fails every crew gate closed). ONE extra RPC per poll,
+        # taken only by the forge that must certify its fixture is CREWED.
+        self._read_crew = bool(read_crew)
         # OPT-IN parachute-state telemetry (EVA-4). OFF everywhere else so every other
         # mission's read_snapshot stays byte-identical (craft_chute_state keeps its ""
         # unread sentinel, which fails every chute gate closed). ONE extra RPC per poll,
@@ -592,6 +598,15 @@ class KrpcMissionControl(MissionControl):
                 except Exception:
                     rcs_enabled = False
                 docking_ap_status = self._read_docking_ap_status()
+            # Crew count (opt-in, FORGE-LKO). Own try/except with the -1 unread
+            # sentinel: a crew read fault must degrade to fail-closed, NEVER
+            # count toward the vessel-lost read-fail streak.
+            crew_count = -1
+            if self._read_crew:
+                try:
+                    crew_count = int(v.crew_count)
+                except Exception:
+                    crew_count = -1
             # Parachute state (opt-in, EVA-4). Own try/except with the "" unread
             # sentinel: a chute read fault must degrade to fail-closed (the EVA window
             # cannot open on a blind frame), NEVER count toward the vessel-lost
@@ -676,6 +691,9 @@ class KrpcMissionControl(MissionControl):
                 sas_enabled=sas_enabled,
                 rcs_enabled=rcs_enabled,
                 docking_ap_status=docking_ap_status,
+                # Crew aboard (-1 = not read / read failed; fails every crew gate
+                # closed).
+                crew_count=crew_count,
             )
             self._read_fail_streak = 0
             self._warp_watchdog(sc, snapshot.ut)
@@ -1067,12 +1085,25 @@ class KrpcMissionControl(MissionControl):
             # FORGE-bdock-station live runs. The server doc contract is "Pass an
             # empty list to use default crew assignments" (pinned source
             # SpaceCenter.cs LaunchVessel), so [] = default manifest, controllable
-            # pod. Named crew seeding (EVA-3 3-crew pod) remains the future
-            # refinement. Re-resolve the MechJeb handles against the NEW active
+            # pod. Named crew seeding (the EVA-3 3-crew pod) is threaded here via
+            # action.crew, a tuple of KERBAL NAMES: crew=[names] launches the pod
+            # with exactly those kerbals aboard, crew=[] keeps the default
+            # manifest. By NAME, never a count -- kRPC 0.5.4 exposes no
+            # roster-enumeration API (only get_kerbal(name) + launch_vessel(crew:
+            # List[str])), so a count could not be resolved to names server-side.
+            # launch_site is likewise threaded from action.launch_site (None ->
+            # "LaunchPad"). Re-resolve the MechJeb handles against the NEW active
             # vessel and reset the ascent-complete latch + read-fail streak so the
             # fresh craft is judged from its own engage.
-            sc.launch_vessel("VAB", str(action.text), str(
-                getattr(action, "launch_site", None) or "LaunchPad"), crew=[])
+            # Both are DECLARED fields on mlib.Action (default None), so read them
+            # directly: a getattr-with-default here would silently swallow a rename
+            # or a hand-built action object missing the field, and quietly launch
+            # from the pad with the default crew instead of failing loudly.
+            launch_site = action.launch_site or "LaunchPad"
+            crew_names = action.crew
+            crew_arg = [str(n) for n in crew_names] if crew_names else []
+            sc.launch_vessel("VAB", str(action.text), str(launch_site),
+                             crew=crew_arg)
             self._mj_ever_enabled = False
             self._read_fail_streak = 0
             if self._use_mechjeb:
@@ -2316,11 +2347,15 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         sleep(poll_interval)
 
     # Settle-tail (real terminal only): gather K-ish settled samples for debounce.
-    # A DOWN-terminal state (mlib.B1State.skip_settle_tail, operator decision
-    # 2026-07-20 option A) skips the tail: the vessel is GONE, so the tail would
-    # only gather vessel_lost / garbage frames. LANDED / ORBIT / SPLASHDOWN keep it.
+    # A machine sets skip_settle_tail when its terminal makes the tail worthless or
+    # harmful, for two DIFFERENT reasons: B1's DOWN terminal (operator decision
+    # 2026-07-20 option A) because the vessel is GONE and the tail would only gather
+    # vessel_lost / garbage frames, and EVA-4's EVA-WINDOW terminal because the craft is
+    # ALIVE, AIRBORNE and still sinking - every settle sample would spend altitude the
+    # kerbal needs for its own canopy before the seam's time-critical EvaExit runs.
+    # LANDED / ORBIT / SPLASHDOWN keep the tail.
     if state.verdict is None and getattr(state, "skip_settle_tail", False):
-        log.info(state.phase, "settle tail skipped: terminal marks vessel gone "
+        log.info(state.phase, "settle tail skipped: terminal opts out "
                               "(skip_settle_tail set)")
     elif state.verdict is None:
         for _ in range(max(0, settle_frames)):

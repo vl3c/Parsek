@@ -1,19 +1,30 @@
 schema = 1
 id = "EVA-3-multi-kerbal"
-# PENDING-FIXTURE (design M-C2 EVA-3): the fixtures/saves/eva3-pad-3crew template (a bare Mk1-3
-# pod, 3 named crew, pad, sandbox) is NOT committed yet - operator step P2. Stays pending-fixture
-# until the fixture lands, then re-tiers to "nightly" (design: nightly at first, daily candidate
-# after flake data). IMPLEMENTED PENDING IN-GAME PROOF: P3 pins the count window; the exact
+# FIXTURE LANDED (design M-C2 EVA-3, operator step P2 done 2026-07-24): fixtures/saves/eva3-pad-3crew
+# is committed (Kerbal X, 3 named crew, pad, sandbox), so this re-tiers pending-fixture -> "nightly"
+# (design: nightly at first, daily candidate after flake data). First flight 2026-07-24 found the
+# fast-board merge gap (Parsek dropped the Board branch point when a motionless kerbal re-boards
+# inside the promotion window - fixed in ParsekFlight.TryPromoteEvaRecordingForBoardMerge). Flight 2
+# (2026-07-24, with the fix) was a FULL PASS: 2 promotions, 2 board merges, 7 recordings - so the
+# scenario is LIVE-PROVEN and P3 is done (the count window below is pinned to 7). The exact
 # "[Pipeline-Smoothing]" message is regex-escaped here per the design's implementation-pin note.
-tier = "pending-fixture"
+tier = "nightly"
 description = "Multi-kerbal sequential EVA: two kerbals of a 3-crew pod exit and re-board SEQUENTIALLY within one tree - two EVA branch points, two board merges, multi-crew Start/End manifests."
 instanceProfile = "stock-minimal"
 tags = ["eva", "eva-branch", "multi-crew", "D2", "D5", "B3"]
 
 [fixture]
-# NEW eva3-pad-3crew: a BARE Mk1-3 pod (3 named crew: Valentina, Bob, and one more) on the pad,
-# sandbox. The Kerbal X's pod also holds 3 but sits ~20 m up a full stack (ladder release lethal,
-# pad boarding unreachable); the bare pod gives the same 3-crew pod at ground level.
+# eva3-pad-3crew (COMMITTED, forged headlessly by FORGE-eva3-pad 2026-07-24): the FULL 94-part
+# Kerbal X stack, PRELAUNCH on the LaunchPad, sandbox, with THREE named crew (Valentina, Bob,
+# Bill) in the Mk1-3 pod on top. The save holds exactly one other VESSEL node, the stock
+# untracked asteroid Ast. VPA-167, which never loads.
+# EARLIER PLAN, SUPERSEDED: this block used to describe a BARE Mk1-3 pod at ground level,
+# because the Kerbal X pod sits ~20 m up the stack and that was expected to make ladder release
+# lethal and pad boarding unreachable. It did not materialize - EVA-3 flew the Kerbal X stack
+# GREEN. The reason is in the step list: both exits use release=false, so the kerbal never drops
+# to the pad and boards straight off the hatch ladder at ~0 m. Height only matters for a variant
+# that RELEASES (EVA-1 does, from a single-part pod at ground level). No bare-pod craft is
+# needed unless such a variant is added.
 saveTemplate = "fixtures/saves/eva3-pad-3crew"
 injectedRecordings = "none"
 craft = []
@@ -46,7 +57,19 @@ D5  = ["eva-branch"]
 D14 = ["kerbin", "sandbox", "scene-flight"]
 
 [expectations.recordings]
-count = { min = 3, max = 6 }   # pod + 2 EVA branches certain; chain-backs pinned by P3
+# PINNED to the live-proven topology (P3 done). MEASURED on the 2026-07-24 flight-2 full PASS:
+# 7 .prec files in the run save. Derivation, which the measurement matches exactly: root pod 1,
+# + 2 per EVA split (ship continuation child + kerbal bgChild) x 2 exits = 5, + 1 merged child
+# per board merge x 2 = 7.
+# WHY THIS MUST STAY EXACT (7..7), not a window. The old floor of 5 was EXACTLY the count the
+# dropped-board-merge bug produced (flight 1: both merges dropped), so a FULL regression of this
+# branch's headline fix satisfied it, and a HALF regression (one merge dropped -> 6) satisfied it
+# too. The logContracts below cannot catch either: hlib.evaluate_expectations applies them with
+# re.search, i.e. PRESENCE ONLY, never an occurrence count, so one surviving merge keeps every
+# token green. This count window IS the numeric guard on "two branch points, two merges" and
+# must stay pinned. There is no legitimate source of variance: the step list is fixed, both
+# exits use release=false so the kerbals never move, and no other vessel in the fixture records.
+count = { min = 7, max = 7 }
 
 [expectations.logContracts]
 # Verbose tokens (need the verboseLogging pin): "Tree board merge completed",

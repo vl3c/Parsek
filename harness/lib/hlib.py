@@ -113,9 +113,10 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     "RecordingState", "RunTests", "LoadGame", "MissionMark", "FlushAndQuit",
     "InvokeRewind", "AnswerMergeDialog", "TimeJump", "KscAction", "SaveGame",
     # M-C2 EVA batch (design-autotest-eva-missions.md): EvaExit / EvaBoard / PlantFlag,
-    # additive like SaveGame (never in the RESERVED envelope). 18 total, mirroring the C#
+    # additive like SaveGame (never in the RESERVED envelope). EVA-4 added EvaChuteDeploy
+    # (the kerbal personal parachute), additive in the same way. 19 total, mirroring the C#
     # TestCommandVerbs.ImplementedVerbs set exactly.
-    "EvaExit", "EvaBoard", "PlantFlag",
+    "EvaExit", "EvaBoard", "PlantFlag", "EvaChuteDeploy",
 )
 RESERVED_SEAM_VERBS: Tuple[str, ...] = (
     "StartLoopPlayback", "StopPlayback", "EnterWatchMode", "SealSlot", "StashSlot",
@@ -150,7 +151,11 @@ STEP_WAIT_MARGIN_SECONDS = 60
 # the 540s cap + step-wait margin must govern. AnswerMergeDialog and KscAction are
 # bounded-wait but complete quickly, so they ride the ordinary per-verb deferral budget
 # and are NOT deferred here (design-autotest-seam-verbs-c1.md, hlib companion changes).
-DEFERRED_SEAM_VERBS: Tuple[str, ...] = ("RunTests", "LoadGame", "InvokeRewind", "TimeJump")
+# EVA-4 added EvaChuteDeploy: its awaitDown stage holds the FIFO head through the kerbal's
+# WHOLE chuted descent (minutes of real time at 1x), so it is genuinely long-running and the
+# 540 s cap + step-wait margin must govern its per-step budget like the other four.
+DEFERRED_SEAM_VERBS: Tuple[str, ...] = ("RunTests", "LoadGame", "InvokeRewind", "TimeJump",
+                                        "EvaChuteDeploy")
 
 # Per-verb seam-side DISPATCH deferral budgets (seconds), mirroring the C#
 # DeferralBudget.BudgetSeconds table (TestCommands/TestCommandDispatcher.cs). A verb
@@ -182,6 +187,11 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     "EvaExit": 120.0,
     "PlantFlag": 180.0,
     "EvaBoard": 120.0,
+    # EVA-4. Unlike the three above this one IS a DEFERRED_SEAM_VERB: its awaitDown
+    # stage holds the head through the kerbal's whole chuted descent (~5-6 m/s under
+    # the full stock EVA canopy). 420 s covers a ~2 km opening altitude with margin and
+    # stays under the 540 s cap.
+    "EvaChuteDeploy": 420.0,
 }
 
 # The literal the harness substitutes with runSaveName before writing a LoadGame

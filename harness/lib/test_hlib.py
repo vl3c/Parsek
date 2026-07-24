@@ -646,18 +646,43 @@ class SpecValidationRejectTests(unittest.TestCase):
 
     def test_mc2_eva_verbs_implemented_not_reserved(self):
         # M-C2: EvaExit / EvaBoard / PlantFlag are NEW implemented verbs (never in the
-        # RESERVED envelope), additive like SaveGame. Verb table is 18 implemented / 11
-        # reserved (mirrors the C# TestCommandVerbs counts).
-        for verb in ("EvaExit", "EvaBoard", "PlantFlag"):
+        # RESERVED envelope), additive like SaveGame; EVA-4 added EvaChuteDeploy the same
+        # way. Verb table is 19 implemented / 11 reserved (mirrors the C#
+        # TestCommandVerbs counts).
+        for verb in ("EvaExit", "EvaBoard", "PlantFlag", "EvaChuteDeploy"):
             with self.subTest(verb=verb):
                 self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
                 self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 18)
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 19)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 11)
+
+    def test_eva4_chute_verb_is_deferred_and_capped(self):
+        # EVA-4: EvaChuteDeploy holds the FIFO head through the kerbal's whole chuted
+        # descent, so it MUST be in the deferred family (the 540 s per-step cap governs
+        # it) - a spec step above the cap is rejected, one at the cap is accepted.
+        self.assertIn("EvaChuteDeploy", hlib.DEFERRED_SEAM_VERBS)
+
+        def over(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "EvaChuteDeploy", "expect": "OK",
+                    "budget": hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS + 1})
+        v = self._reject(over)
+        self.assertTrue(any("EvaChuteDeploy" in e and "540" in e for e in v.errors),
+                        "over-cap EvaChuteDeploy budget not rejected: %s" % list(v.errors))
+
+        def at_cap(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "EvaChuteDeploy", "expect": "OK",
+                    "budget": hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS})
+        v = self._reject(at_cap)
+        self.assertFalse(any("EvaChuteDeploy" in e for e in v.errors),
+                         "at-cap EvaChuteDeploy budget wrongly flagged: %s" % list(v.errors))
 
     def test_mc2_eva_verb_step_accepted(self):
         # A spec step using an EVA verb is not flagged RESERVED / unknown.
-        for verb in ("EvaExit", "EvaBoard", "PlantFlag"):
+        for verb in ("EvaExit", "EvaBoard", "PlantFlag", "EvaChuteDeploy"):
             with self.subTest(verb=verb):
                 def m(s):
                     s.get("expectations", {}).pop("ledger", None)

@@ -163,6 +163,9 @@ namespace Parsek.TestCommands
         void EvaExit(ParsedCommand cmd);
         void EvaBoard(ParsedCommand cmd);
         void PlantFlag(ParsedCommand cmd);
+
+        // ----- EVA-4 (atmospheric chute) -----
+        void EvaChuteDeploy(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -221,6 +224,10 @@ namespace Parsek.TestCommands
                 ["EvaExit"] = VerbSceneRequirement.RequiresFlight,
                 ["EvaBoard"] = VerbSceneRequirement.RequiresFlight,
                 ["PlantFlag"] = VerbSceneRequirement.RequiresFlight,
+                // EVA-4. Same family: acts on the EVA kerbal's own ModuleEvaChute from
+                // FLIGHT, and shares PlantFlag / EvaBoard's not-eva dispatch defer so the
+                // preceding EvaExit's auto-switch is allowed to settle first.
+                ["EvaChuteDeploy"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>
@@ -335,7 +342,8 @@ namespace Parsek.TestCommands
 
                 case "PlantFlag":
                 case "EvaBoard":
-                    // Both act on the EVA kerbal, so defer while the preceding EvaExit's
+                case "EvaChuteDeploy":
+                    // All three act on the EVA kerbal, so defer while the preceding EvaExit's
                     // auto-switch is still settling (the active vessel is not yet the EVA one).
                     if (!state.ActiveVesselIsEva)
                         return DispatchResult.Defer("not-eva");
@@ -414,6 +422,15 @@ namespace Parsek.TestCommands
         /// board-merge quiescence + settle.</summary>
         internal const double EvaBoardSeconds = 120.0;
 
+        /// <summary>EvaChuteDeploy (EVA-4): not-eva defer + the arm + the module's own
+        /// canopy-open gate (never before 1.0 s post-unpack) + the OPTIONAL awaitDown
+        /// descent to touchdown. The descent dominates: a kerbal under a full stock EVA
+        /// canopy sinks at roughly 5-6 m/s, so a ~2 km opening altitude is ~350 s of real
+        /// time at 1x. 420 s covers that with margin and still sits under the harness's
+        /// 540 s deferred-step cap (hlib MAX_DEFERRED_STEP_BUDGET_SECONDS), which is why
+        /// the scenario's EVA window is specified LOW rather than at apoapsis.</summary>
+        internal const double EvaChuteDeploySeconds = 420.0;
+
         /// <summary>
         /// The deferral budget (seconds) for <paramref name="verb"/>. For RunTests the
         /// scenario's declared runtime budget is authoritative when supplied via
@@ -441,6 +458,8 @@ namespace Parsek.TestCommands
                     return PlantFlagSeconds;
                 case "EvaBoard":
                     return EvaBoardSeconds;
+                case "EvaChuteDeploy":
+                    return EvaChuteDeploySeconds;
                 // KscAction rides the default 60 s (career-ready / SPACECENTER wait; the
                 // action itself is immediate).
                 default:

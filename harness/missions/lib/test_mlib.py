@@ -261,6 +261,525 @@ class B1MachineTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# EVA-4 phase state machine (mission eva4_atmo_chute).
+# ---------------------------------------------------------------------------
+
+
+EVA4_PARAMS = mlib.Eva4Params(
+    throttle=1.0,
+    craft_chute_arm_max_rate=30.0,
+    craft_chute_full_deploy_alt=2500.0,
+    eva_window_max_alt=2100.0,
+    eva_window_min_alt=700.0,
+    eva_max_descent_rate=25.0,
+    ascent_timeout=90.0,
+    coast_timeout=180.0,
+    descent_timeout=240.0,
+    apoapsis_window=(6000.0, 30000.0),
+)
+
+# The observed full-canopy state the window gates on (kRPC ParachuteState, normalized).
+_CHUTE_FULL = mlib.CHUTE_STATE_DEPLOYED
+_CHUTE_ARMED = mlib.CHUTE_STATE_ARMED
+
+
+def drive_eva4(state, frames):
+    """Feed a list of snapshots through eva4_decide, returning
+    (final_state, [actions_per_frame])."""
+    per_frame = []
+    for f in frames:
+        state, actions = mlib.eva4_decide(state, f)
+        per_frame.append(actions)
+    return state, per_frame
+
+
+def _eva4_descent_state(params=EVA4_PARAMS, **overrides):
+    """An Eva4State pinned in DESCENT with the craft chute already COMMANDED (armed)."""
+    base = mlib.eva4_initial_state(params)
+    fields = {**base.__dict__, "phase": mlib.EVA4_DESCENT, "phase_entry_ut": 0.0,
+              "chute_armed": True}
+    fields.update(overrides)
+    return base.__class__(**fields)
+
+
+class Eva4WindowGateTests(unittest.TestCase):
+    """Guards ``eva4_window_open`` -- the single decision the whole mission exists to
+    make. The seam's IRREVERSIBLE EvaExit fires on its say-so, so every conjunct must
+    fail CLOSED: a window that opens one frame too early puts a kerbal out of the hatch
+    at terminal velocity, and one that opens too low leaves it no sky for its canopy.
+
+    The first conjunct is the FLIGHT-1 REGRESSION GUARD: it reads the craft's OBSERVED
+    parachute state, never the machine's own "we commanded it" latch. Flight 1 armed the
+    chute at 2382 m / -301 m/s, the canopy never opened (stock refuses ACTIVE ->
+    SEMIDEPLOYED while automateSafeDeploy = 0 and DeploySafe reads unsafe at that speed),
+    and the commanded latch was true the whole time."""
+
+    def test_open_when_every_conjunct_holds(self):
+        self.assertTrue(mlib.eva4_window_open(
+            EVA4_PARAMS,
+            snap(altitude=1800.0, vertical_speed=-9.0, situation="FLYING",
+                 craft_chute_state=_CHUTE_FULL)))
+
+    def test_shut_when_chute_only_armed(self):
+        # THE flight-1 regression cell: commanded but never opened must NEVER open the
+        # window, no matter how good every other conjunct looks.
+        self.assertFalse(mlib.eva4_window_open(
+            EVA4_PARAMS,
+            snap(altitude=1800.0, vertical_speed=-9.0, situation="FLYING",
+                 craft_chute_state=_CHUTE_ARMED)))
+
+    def test_shut_when_chute_only_semi_deployed(self):
+        # A streamer is not a full canopy: the craft is still fast.
+        self.assertFalse(mlib.eva4_window_open(
+            EVA4_PARAMS,
+            snap(altitude=1800.0, vertical_speed=-9.0, situation="FLYING",
+                 craft_chute_state=mlib.CHUTE_STATE_SEMI_DEPLOYED)))
+
+    def test_shut_on_unread_chute_state(self):
+        # "" is the unread sentinel (a runner that did not opt into read_chute, or a
+        # faulted read): fail CLOSED, never EVA on a blind frame.
+        self.assertFalse(mlib.eva4_window_open(
+            EVA4_PARAMS,
+            snap(altitude=1800.0, vertical_speed=-9.0, situation="FLYING")))
+
+    def test_shut_above_ceiling(self):
+        self.assertFalse(mlib.eva4_window_open(
+            EVA4_PARAMS,
+            snap(altitude=2100.1, vertical_speed=-9.0, situation="FLYING",
+                 craft_chute_state=_CHUTE_FULL)))
+
+    def test_shut_below_floor(self):
+        self.assertFalse(mlib.eva4_window_open(
+            EVA4_PARAMS,
+            snap(altitude=699.9, vertical_speed=-9.0, situation="FLYING",
+                 craft_chute_state=_CHUTE_FULL)))
+
+    def test_shut_while_falling_too_fast(self):
+        # Cross-check that the observed canopy is actually doing work.
+        self.assertFalse(mlib.eva4_window_open(
+            EVA4_PARAMS,
+            snap(altitude=1800.0, vertical_speed=-95.0, situation="FLYING",
+                 craft_chute_state=_CHUTE_FULL)))
+
+    def test_open_at_inclusive_bounds(self):
+        # The bounds are inclusive on all three axes.
+        self.assertTrue(mlib.eva4_window_open(
+            EVA4_PARAMS,
+            snap(altitude=2100.0, vertical_speed=-25.0, situation="FLYING",
+                 craft_chute_state=_CHUTE_FULL)))
+        self.assertTrue(mlib.eva4_window_open(
+            EVA4_PARAMS,
+            snap(altitude=700.0, vertical_speed=-25.0, situation="FLYING",
+                 craft_chute_state=_CHUTE_FULL)))
+
+    def test_shut_when_already_landed(self):
+        # A landed craft is the EVA-1 ground case, not this scenario's surface.
+        self.assertFalse(mlib.eva4_window_open(
+            EVA4_PARAMS,
+            snap(altitude=1000.0, vertical_speed=0.0, situation="LANDED",
+                 craft_chute_state=_CHUTE_FULL)))
+
+    def test_shut_on_unreadable_telemetry(self):
+        # NaN altitude / vertical speed fail CLOSED.
+        nan = float("nan")
+        self.assertFalse(mlib.eva4_window_open(
+            EVA4_PARAMS,
+            snap(altitude=nan, vertical_speed=-9.0, situation="FLYING",
+                 craft_chute_state=_CHUTE_FULL)))
+        self.assertFalse(mlib.eva4_window_open(
+            EVA4_PARAMS,
+            snap(altitude=1800.0, vertical_speed=nan, situation="FLYING",
+                 craft_chute_state=_CHUTE_FULL)))
+
+    def test_shut_on_blank_situation(self):
+        self.assertFalse(mlib.eva4_window_open(
+            EVA4_PARAMS,
+            snap(altitude=1800.0, vertical_speed=-9.0,
+                 craft_chute_state=_CHUTE_FULL)))
+
+
+class Eva4ParachuteStateNormalizationTests(unittest.TestCase):
+    """The window compares against PascalCase constants, so the kRPC lower_snake
+    enum names must normalize onto them exactly -- a mismatch would silently shut the
+    window forever."""
+
+    def test_krpc_names_normalize_onto_the_gate_constants(self):
+        self.assertEqual(mlib.normalize_parachute_state("stowed"),
+                         mlib.CHUTE_STATE_STOWED)
+        self.assertEqual(mlib.normalize_parachute_state("armed"),
+                         mlib.CHUTE_STATE_ARMED)
+        self.assertEqual(mlib.normalize_parachute_state("semi_deployed"),
+                         mlib.CHUTE_STATE_SEMI_DEPLOYED)
+        self.assertEqual(mlib.normalize_parachute_state("deployed"),
+                         mlib.CHUTE_STATE_DEPLOYED)
+        self.assertEqual(mlib.normalize_parachute_state("cut"),
+                         mlib.CHUTE_STATE_CUT)
+
+    def test_empty_and_none_fail_closed(self):
+        self.assertEqual(mlib.normalize_parachute_state(""), "")
+        self.assertEqual(mlib.normalize_parachute_state(None), "")
+
+
+class Eva4MachineTests(unittest.TestCase):
+    """Guards the EVA-4 machine: the B1 hop shape up to DESCENT, but terminating
+    AIRBORNE at EVA-WINDOW so the seam can EVA. A mis-wired terminal here either hands
+    the seam a landed craft (wrong scenario entirely) or burns the descent budget."""
+
+    def test_prelaunch_emits_throttle_and_stage_then_ascent(self):
+        state = mlib.eva4_initial_state(EVA4_PARAMS)
+        new, actions = mlib.eva4_decide(state, snap(ut=0.0))
+        self.assertEqual(new.phase, mlib.EVA4_ASCENT)
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_THROTTLE, 1.0),
+                                   Action(mlib.ACTION_ACTIVATE_STAGE)])
+
+    def test_full_happy_path_ends_airborne_under_observed_canopy(self):
+        # The whole PRELAUNCH -> EVA-WINDOW walk, shaped by the flight-1 measurements:
+        # the craft is armed at the APOAPSIS CROSSING (~11.9 km, -7.4 m/s - the measured
+        # first DESCENT frame), the canopy is observed open on the way down, and the
+        # window opens once the craft has been inside the band under a FULL canopy for
+        # EVA4_WINDOW_DEBOUNCE_K consecutive frames (one open frame is NOT enough).
+        state = mlib.eva4_initial_state(EVA4_PARAMS)
+        frames = [
+            snap(ut=0.0),                                            # PRELAUNCH->ASCENT
+            snap(ut=2.0, stage_solid_fuel=10.0, apoapsis=5000.0),    # ASCENT
+            snap(ut=19.9, stage_solid_fuel=0.0, apoapsis=19879.0),   # ASCENT->COAST
+            snap(ut=40.0, vertical_speed=200.0, apoapsis=19879.0),   # COAST (rising)
+            snap(ut=60.6, vertical_speed=2.2, apoapsis=19879.0,
+                 altitude=11965.0),                                  # COAST (apoapsis)
+            snap(ut=61.6, vertical_speed=-7.4, altitude=11961.0,
+                 situation="FLYING", craft_chute_state=mlib.CHUTE_STATE_STOWED),
+            # ^ COAST->DESCENT transition frame: the machine falls through into the
+            #   DESCENT body on this SAME frame and ARMS here (|vs| 7.4 <= 30), at the
+            #   apoapsis crossing, exactly where DeploySafe is trivially SAFE.
+            snap(ut=70.0, vertical_speed=-60.0, altitude=11500.0,
+                 situation="FLYING",
+                 craft_chute_state=mlib.CHUTE_STATE_SEMI_DEPLOYED),  # streamer, too fast
+            snap(ut=200.0, vertical_speed=-40.0, altitude=2400.0,
+                 situation="FLYING",
+                 craft_chute_state=mlib.CHUTE_STATE_SEMI_DEPLOYED),  # above ceiling
+            snap(ut=229.5, vertical_speed=-9.5, altitude=1910.0,
+                 situation="FLYING", craft_chute_state=_CHUTE_FULL),  # streak 1 of K
+            snap(ut=230.0, vertical_speed=-9.0, altitude=1900.0,
+                 situation="FLYING", craft_chute_state=_CHUTE_FULL),  # streak K: OPENS
+        ]
+        state, per_frame = drive_eva4(state, frames)
+        self.assertTrue(state.done)
+        self.assertEqual(state.phase, mlib.EVA4_EVA_WINDOW)
+        self.assertIsNone(state.verdict)
+        self.assertIsNone(state.loss_reason)
+        self.assertEqual(state.peak_apoapsis, 19879.0)
+        self.assertEqual(state.eva_window_altitude, 1900.0)
+        self.assertEqual(state.eva_window_vertical_speed, -9.0)
+        self.assertTrue(state.craft_chute_full_seen)
+        # The terminal hands a still-descending craft to the seam: skip the settle tail.
+        self.assertTrue(state.skip_settle_tail)
+        # The arm fires ONCE, at DESCENT entry, and carries its evidence.
+        arm_frames = [i for i, acts in enumerate(per_frame)
+                      if Action(mlib.ACTION_DEPLOY_CHUTE) in acts]
+        self.assertEqual(arm_frames, [5])
+        self.assertEqual(state.phases_reached.count(mlib.EVA4_DESCENT), 1)
+        self.assertEqual(
+            per_frame[5],
+            [Action(mlib.ACTION_SET_CHUTE_DEPLOY_ALTITUDE, 2500.0),
+             Action(mlib.ACTION_DEPLOY_CHUTE)])
+        self.assertEqual(state.chute_armed_altitude, 11961.0)
+        self.assertEqual(state.chute_armed_rate, -7.4)
+        self.assertEqual(state.phases_reached,
+                         (mlib.EVA4_PRELAUNCH, mlib.EVA4_ASCENT, mlib.EVA4_COAST,
+                          mlib.EVA4_DESCENT, mlib.EVA4_EVA_WINDOW))
+
+    def test_coast_to_descent_arms_on_the_transition_frame(self):
+        # Regression guard on the one-poll delay: the COAST -> DESCENT transition frame
+        # must RUN the descent body, so the arm lands at the apoapsis crossing (-7.4 m/s
+        # measured) rather than a poll later (-16.9 m/s) and, worse, drifting outside the
+        # bound entirely on a coarse poll.
+        state = mlib.eva4_initial_state(EVA4_PARAMS)
+        state = state.__class__(**{**state.__dict__, "phase": mlib.EVA4_COAST,
+                                   "phase_entry_ut": 0.0})
+        state, actions = mlib.eva4_decide(
+            state, snap(ut=61.6, altitude=11961.0, vertical_speed=-7.4,
+                        situation="FLYING"))
+        self.assertEqual(state.phase, mlib.EVA4_DESCENT)
+        self.assertTrue(state.chute_armed)
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_SET_CHUTE_DEPLOY_ALTITUDE,
+                          mlib.ACTION_DEPLOY_CHUTE])
+        self.assertEqual(state.chute_armed_rate, -7.4)
+
+    def test_arm_waits_until_inside_the_rate_bound(self):
+        # Regression on the flight-1 root cause from the other side: if the machine ever
+        # finds itself in DESCENT already fast, it must NOT arm (an arm at 300 m/s is
+        # inert), and it must keep waiting rather than pretending it armed.
+        state = mlib.eva4_initial_state(EVA4_PARAMS)
+        state = state.__class__(**{**state.__dict__, "phase": mlib.EVA4_DESCENT,
+                                   "phase_entry_ut": 0.0})
+        state, actions = mlib.eva4_decide(
+            state, snap(ut=1.0, altitude=5000.0, vertical_speed=-301.0,
+                        situation="FLYING"))
+        self.assertEqual(actions, [])
+        self.assertFalse(state.chute_armed)
+
+    def test_arm_sets_deploy_altitude_before_arming(self):
+        # Order matters for the module's first ACTIVE FixedUpdate: the raised altitude
+        # must be in place on the same frame the chute is armed.
+        state = mlib.eva4_initial_state(EVA4_PARAMS)
+        state = state.__class__(**{**state.__dict__, "phase": mlib.EVA4_DESCENT,
+                                   "phase_entry_ut": 0.0})
+        _, actions = mlib.eva4_decide(
+            state, snap(ut=1.0, altitude=11961.0, vertical_speed=-7.4,
+                        situation="FLYING"))
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_SET_CHUTE_DEPLOY_ALTITUDE,
+                          mlib.ACTION_DEPLOY_CHUTE])
+        self.assertEqual(actions[0].value, 2500.0)
+
+    def test_arm_fires_exactly_once(self):
+        state = _eva4_descent_state()
+        _, actions = mlib.eva4_decide(
+            state, snap(ut=5.0, altitude=8000.0, vertical_speed=-5.0,
+                        situation="FLYING"))
+        self.assertEqual(actions, [])
+
+    def test_window_missed_below_floor_names_the_observed_chute_state(self):
+        # THE flight-1 failure mode, now self-naming: the chute was commanded but only
+        # ever read Armed, so the reason must say craftChute=Armed (not "armed" from the
+        # machine's own latch).
+        state = _eva4_descent_state()
+        state, _ = mlib.eva4_decide(
+            state, snap(ut=10.0, altitude=600.0, vertical_speed=-295.0,
+                        situation="FLYING", craft_chute_state=_CHUTE_ARMED))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("eva-window-missed", state.loss_reason)
+        self.assertIn("craftChute=Armed", state.loss_reason)
+        self.assertIn("armCommanded=yes", state.loss_reason)
+        self.assertIn("700", state.loss_reason)
+        self.assertNotEqual(state.phase, mlib.EVA4_EVA_WINDOW)
+
+    def test_window_missed_names_an_unread_chute(self):
+        state = _eva4_descent_state()
+        state, _ = mlib.eva4_decide(
+            state, snap(ut=10.0, altitude=600.0, vertical_speed=-20.0,
+                        situation="FLYING"))
+        self.assertIn("craftChute=UNREAD", state.loss_reason)
+
+    def test_window_wins_over_floor_on_the_same_frame(self):
+        # A frame that is inside the window is never also "below the floor": the
+        # window check runs FIRST so an exactly-at-floor frame succeeds. With the
+        # debounce that takes K such frames; the first one must NOT trip the floor
+        # either (700 is inside, not below), so the run survives to the second.
+        state = _eva4_descent_state()
+        for _ in range(mlib.EVA4_WINDOW_DEBOUNCE_K):
+            state, _ = mlib.eva4_decide(
+                state, snap(ut=10.0, altitude=700.0, vertical_speed=-8.0,
+                            situation="FLYING", craft_chute_state=_CHUTE_FULL))
+        self.assertEqual(state.phase, mlib.EVA4_EVA_WINDOW)
+        self.assertIsNone(state.verdict)
+
+    def test_window_needs_k_consecutive_open_frames(self):
+        # A SINGLE open frame must never hand a kerbal out of a hatch: stock flips
+        # ParachuteState to DEPLOYED at the START of the ~8 s canopy animation, so one
+        # glitched / stale kRPC frame could otherwise certify a terminal-velocity EVA.
+        state = _eva4_descent_state()
+        good = dict(altitude=1800.0, vertical_speed=-9.0, situation="FLYING",
+                    craft_chute_state=_CHUTE_FULL)
+        state, _ = mlib.eva4_decide(state, snap(ut=10.0, **good))
+        self.assertEqual(state.phase, mlib.EVA4_DESCENT)
+        self.assertEqual(state.window_open_streak, 1)
+        state, _ = mlib.eva4_decide(state, snap(ut=11.0, **good))
+        self.assertEqual(state.phase, mlib.EVA4_EVA_WINDOW)
+        self.assertEqual(state.eva_window_altitude, 1800.0)
+
+    def test_window_streak_resets_on_a_disagreeing_frame(self):
+        # Fail-closed: the run of agreement must be UNBROKEN. One frame that reads the
+        # chute merely Armed (or is otherwise outside the envelope) sends the streak back
+        # to 0, so the handoff needs K fresh agreeing frames again.
+        state = _eva4_descent_state()
+        good = dict(altitude=1800.0, vertical_speed=-9.0, situation="FLYING",
+                    craft_chute_state=_CHUTE_FULL)
+        state, _ = mlib.eva4_decide(state, snap(ut=10.0, **good))
+        self.assertEqual(state.window_open_streak, 1)
+        state, _ = mlib.eva4_decide(
+            state, snap(ut=11.0, altitude=1800.0, vertical_speed=-9.0,
+                        situation="FLYING", craft_chute_state=_CHUTE_ARMED))
+        self.assertEqual(state.window_open_streak, 0)
+        self.assertEqual(state.phase, mlib.EVA4_DESCENT)
+        state, _ = mlib.eva4_decide(state, snap(ut=12.0, **good))
+        self.assertEqual(state.phase, mlib.EVA4_DESCENT)
+        state, _ = mlib.eva4_decide(state, snap(ut=13.0, **good))
+        self.assertEqual(state.phase, mlib.EVA4_EVA_WINDOW)
+
+    def test_window_missed_still_reds_when_the_craft_sinks_mid_streak(self):
+        # The debounce must not convert a real miss into a late handoff: a craft that
+        # drops below the floor while the streak is still short reds by NAME (the floor
+        # check is unchanged and runs on the same frame the streak resets).
+        state = _eva4_descent_state()
+        state, _ = mlib.eva4_decide(
+            state, snap(ut=10.0, altitude=705.0, vertical_speed=-9.0,
+                        situation="FLYING", craft_chute_state=_CHUTE_FULL))
+        self.assertEqual(state.window_open_streak, 1)
+        self.assertEqual(state.phase, mlib.EVA4_DESCENT)
+        state, _ = mlib.eva4_decide(
+            state, snap(ut=11.0, altitude=690.0, vertical_speed=-9.0,
+                        situation="FLYING", craft_chute_state=_CHUTE_FULL))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("eva-window-missed", state.loss_reason)
+
+    def test_vessel_lost_is_assert_fail_not_a_down_success(self):
+        # Unlike B1 there is NO chute-deployed-impact success terminal: the craft
+        # reaching the ground at all means the EVA never happened.
+        state = _eva4_descent_state()
+        state, _ = mlib.eva4_decide(state, snap(ut=10.0, vessel_lost=True))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("vessel-lost", state.loss_reason)
+
+    def test_descent_budget_overrun_flakes_naming_phase(self):
+        state = _eva4_descent_state()
+        state, _ = mlib.eva4_decide(
+            state, snap(ut=900.0, altitude=1500.0, vertical_speed=-95.0,
+                        situation="FLYING"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.EVA4_DESCENT)
+
+    def test_frozen_telemetry_trips_assert_fail(self):
+        params = EVA4_PARAMS.__class__(**{**EVA4_PARAMS.__dict__,
+                                          "frozen_sample_limit": 3})
+        state = _eva4_descent_state(params)
+        for f in _frozen_frames(4, altitude=1500.0, vertical_speed=-95.0):
+            state, _ = mlib.eva4_decide(state, f)
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("frozen", state.loss_reason)
+
+    def test_done_state_is_idempotent(self):
+        state = mlib.eva4_initial_state(EVA4_PARAMS)
+        term = state.__class__(**{**state.__dict__, "phase": mlib.EVA4_EVA_WINDOW,
+                                  "done": True})
+        new, actions = mlib.eva4_decide(term, snap(ut=999.0))
+        self.assertIs(new, term)
+        self.assertEqual(actions, [])
+
+    def test_nan_ut_does_not_trip_budget(self):
+        state = mlib.eva4_initial_state(EVA4_PARAMS)
+        state, _ = mlib.eva4_decide(state, snap(ut=0.0))
+        state, _ = mlib.eva4_decide(state, snap(ut=float("nan"),
+                                                stage_solid_fuel=50.0))
+        self.assertEqual(state.phase, mlib.EVA4_ASCENT)
+        self.assertIsNone(state.verdict)
+
+
+class Eva4ParamTests(unittest.TestCase):
+    """Guards eva4_params_from_dict: the spec's missionParams are the ONLY source of
+    the arming rule and the EVA envelope, so a dropped / mistyped key must not silently
+    widen them."""
+
+    def test_reads_every_declared_key(self):
+        p = mlib.eva4_params_from_dict({
+            "throttle": 1.0,
+            "apoapsisWindowMeters": {"min": 6000, "max": 30000},
+            "craftChuteArmMaxRateMps": 30,
+            "craftChuteFullDeployAltMeters": 2500,
+            "evaWindowMaxAltMeters": 2100,
+            "evaWindowMinAltMeters": 700,
+            "evaMaxDescentRateMps": 25,
+            "ascentTimeoutSeconds": 90,
+            "coastTimeoutSeconds": 180,
+            "descentTimeoutSeconds": 480,
+            "frozenTelemetrySamples": 7,
+            "airborneSituations": ["FLYING"],
+        })
+        self.assertEqual(p.apoapsis_window, (6000.0, 30000.0))
+        self.assertEqual(p.craft_chute_arm_max_rate, 30.0)
+        self.assertEqual(p.craft_chute_full_deploy_alt, 2500.0)
+        self.assertEqual(p.eva_window_max_alt, 2100.0)
+        self.assertEqual(p.eva_window_min_alt, 700.0)
+        self.assertEqual(p.eva_max_descent_rate, 25.0)
+        self.assertEqual(p.descent_timeout, 480.0)
+        self.assertEqual(p.frozen_sample_limit, 7)
+        self.assertEqual(p.airborne_situations, ("FLYING",))
+
+    def test_defaults_are_conservative(self):
+        p = mlib.eva4_params_from_dict({})
+        self.assertEqual(p.frozen_sample_limit, 10)
+        self.assertEqual(p.airborne_situations, ("FLYING", "SUB_ORBITAL"))
+
+
+class Eva4AssertionTests(unittest.TestCase):
+    """Guards the EVA-4 assertion evaluator: it re-states the handoff contract in the
+    RESULT JSON, so a future window re-tune cannot move the exit envelope invisibly."""
+
+    def _terminal_state(self, alt=1900.0, vs=-9.0, full_seen=True):
+        base = mlib.eva4_initial_state(EVA4_PARAMS)
+        return base.__class__(**{**base.__dict__, "phase": mlib.EVA4_EVA_WINDOW,
+                                 "done": True, "eva_window_altitude": alt,
+                                 "eva_window_vertical_speed": vs,
+                                 "chute_armed": True,
+                                 "chute_armed_altitude": 11961.0,
+                                 "chute_armed_rate": -7.4,
+                                 "craft_chute_full_seen": full_seen})
+
+    def test_all_four_met_on_a_good_handoff(self):
+        frames = [snap(apoapsis=19879.0), snap(apoapsis=8000.0)]
+        outs = mlib.evaluate_eva4_assertions(frames, EVA4_PARAMS,
+                                             self._terminal_state())
+        by_name = {o.name: o for o in outs}
+        self.assertEqual(set(by_name), {"apoapsisWindow", "evaWindowReached",
+                                        "evaWindowDescentRate", "craftCanopyObserved"})
+        self.assertTrue(all(o.met for o in outs))
+        self.assertEqual(by_name["evaWindowReached"].value, 1900.0)
+        self.assertEqual(by_name["evaWindowDescentRate"].value, -9.0)
+        # The canopy row carries the COMMANDED altitude/rate alongside the OBSERVED bit,
+        # so the result JSON shows both halves of the flight-1 distinction.
+        self.assertEqual(by_name["craftCanopyObserved"].value, 11961.0)
+        self.assertEqual(by_name["craftCanopyObserved"].detail["armCommandedRate"], -7.4)
+
+    def test_commanded_but_never_observed_canopy_is_unmet(self):
+        # The flight-1 shape: armed, believed, never opened.
+        outs = mlib.evaluate_eva4_assertions([snap(apoapsis=19879.0)], EVA4_PARAMS,
+                                             self._terminal_state(full_seen=False))
+        by_name = {o.name: o for o in outs}
+        self.assertFalse(by_name["craftCanopyObserved"].met)
+        self.assertTrue(by_name["craftCanopyObserved"].detail["armCommanded"])
+
+    def test_window_not_reached_is_unmet(self):
+        base = mlib.eva4_initial_state(EVA4_PARAMS)
+        stuck = base.__class__(**{**base.__dict__, "phase": mlib.EVA4_DESCENT})
+        outs = mlib.evaluate_eva4_assertions([snap(apoapsis=19879.0)], EVA4_PARAMS,
+                                             stuck)
+        by_name = {o.name: o for o in outs}
+        self.assertFalse(by_name["evaWindowReached"].met)
+        self.assertFalse(by_name["evaWindowDescentRate"].met)
+        self.assertEqual(by_name["evaWindowReached"].detail["terminalPhase"],
+                         mlib.EVA4_DESCENT)
+
+    def test_out_of_window_apoapsis_is_unmet(self):
+        outs = mlib.evaluate_eva4_assertions([snap(apoapsis=45000.0)], EVA4_PARAMS,
+                                             self._terminal_state())
+        by_name = {o.name: o for o in outs}
+        self.assertFalse(by_name["apoapsisWindow"].met)
+        self.assertEqual(by_name["apoapsisWindow"].value, 45000.0)
+
+    def test_too_fast_handoff_fails_the_rate_assertion(self):
+        outs = mlib.evaluate_eva4_assertions([snap(apoapsis=19879.0)], EVA4_PARAMS,
+                                             self._terminal_state(vs=-95.0))
+        by_name = {o.name: o for o in outs}
+        self.assertFalse(by_name["evaWindowDescentRate"].met)
+
+    def test_rows_serialize_json_safe(self):
+        outs = mlib.evaluate_eva4_assertions([], EVA4_PARAMS, None)
+        for o in outs:
+            row = o.to_dict()
+            self.assertIn("name", row)
+            self.assertIn("met", row)
+            # NaN evidence is scrubbed to JSON null.
+            self.assertTrue(row["value"] is None
+                            or isinstance(row["value"], (float, int, str)))
+
+
+# ---------------------------------------------------------------------------
 # B2 phase state machine.
 # ---------------------------------------------------------------------------
 
@@ -4029,8 +4548,9 @@ class ForgeMachineTests(unittest.TestCase):
         state = mlib.forge_initial_state(FORGE_PARAMS)
         new, actions = mlib.forge_decide(state, snap(ut=0.0))
         self.assertEqual(new.phase, mlib.FORGE_LAUNCH)
-        self.assertEqual(actions, [Action(mlib.ACTION_LAUNCH_VESSEL, value=None,
-                                           text="Kerbal X")])
+        self.assertEqual(actions, [Action(mlib.ACTION_LAUNCH_VESSEL,
+                                           text="Kerbal X",
+                                           launch_site="LaunchPad", crew=None)])
 
     def test_full_happy_path_settles_prelaunch(self):
         state = mlib.forge_initial_state(FORGE_PARAMS)
@@ -4107,6 +4627,354 @@ class ForgeAssertionTests(unittest.TestCase):
             [snap(situation="FLYING")], FORGE_PARAMS,
             phases_reached=(mlib.FORGE_PRELAUNCH, mlib.FORGE_LAUNCH, mlib.FORGE_SETTLED))
         self.assertFalse(outs[1].met)
+
+
+# ===========================================================================
+# FORGE-LKO (orbital fixture-forge) machine + assertions.
+# ===========================================================================
+
+
+FLKO_PARAMS = mlib.ForgeLkoParams(
+    craft_name="Kerbal X",
+    launch_site="LaunchPad",
+    crew_names=("Valentina Kerman", "Bob Kerman"),
+    min_crew=2,
+    launch_timeout=300.0,
+    launch_settle_debounce=2,
+    target_apoapsis=100000.0,
+    target_periapsis=100000.0,
+    apo_error=10000.0,
+    peri_error=10000.0,
+    ascent_timeout=900.0,
+    circularize_timeout=2400.0,
+    separation_timeout=120.0,
+    park_dwell=60.0,
+    park_timeout=600.0,
+    park_debounce=2,
+    max_angular_velocity=0.05,
+    min_safe_periapsis=75000.0,
+)
+
+
+def _flko_params(**overrides):
+    return FLKO_PARAMS.__class__(**{**FLKO_PARAMS.__dict__, **overrides})
+
+
+def drive_flko(state, frames):
+    per_frame = []
+    for f in frames:
+        state, actions = mlib.forge_lko_decide(state, f)
+        per_frame.append(actions)
+    return state, per_frame
+
+
+def _flko_parked(ut, **kw):
+    """A snapshot that satisfies every PARK stability conjunct."""
+    fields = dict(ut=ut, situation="ORBITING", apoapsis=100000.0,
+                  periapsis=99000.0, angular_velocity=0.001, crew_count=2)
+    fields.update(kw)
+    return snap(**fields)
+
+
+def _flko_to_park(params=None):
+    """Drive the machine from PRELAUNCH to the head of PARK and return the state."""
+    state = mlib.forge_lko_initial_state(params or FLKO_PARAMS)
+    frames = [
+        snap(ut=0.0, situation="FLYING"),                                  # -> LAUNCH
+        snap(ut=5.0, situation="PRE_LAUNCH", crew_count=2),                # settle 1
+        snap(ut=10.0, situation="PRE_LAUNCH", crew_count=2),               # settle 2 -> ASCENT
+        snap(ut=300.0, apoapsis=99000.0, mj_ascent_complete=True),         # -> CIRCULARIZE
+        snap(ut=400.0, periapsis=99000.0, vessel_count=1),                 # -> SEPARATE (baseline 1)
+        snap(ut=401.0, vessel_count=2, available_thrust=0.0),              # split 1
+        snap(ut=402.0, vessel_count=2, available_thrust=0.0),              # split 2
+        snap(ut=403.0, vessel_count=2, available_thrust=0.0),              # split 3 -> ignite
+        snap(ut=404.0, vessel_count=2, available_thrust=200000.0),         # thrust 1
+        snap(ut=405.0, vessel_count=2, available_thrust=200000.0),         # thrust 2
+        snap(ut=406.0, vessel_count=2, available_thrust=200000.0),         # thrust 3 -> PARK
+    ]
+    state, per_frame = drive_flko(state, frames)
+    return state, per_frame
+
+
+class SeparationEvidenceTests(unittest.TestCase):
+    """Guards the SHARED two-step separation counter (B-DOCK + FORGE-LKO). A
+    regression here certifies a separation that never happened (a full stack
+    docking / an uncontrollable fixture) or an ignition that never lit."""
+
+    def test_split_needs_debounce_then_latches(self):
+        settle, thrust, confirmed, ignited = mlib.separation_evidence(
+            2, float("nan"), 1, 0, 0, False, debounce=3)
+        self.assertEqual((settle, confirmed, ignited), (1, False, False))
+        settle, thrust, confirmed, ignited = mlib.separation_evidence(
+            2, float("nan"), 1, 2, 0, False, debounce=3)
+        self.assertTrue(confirmed)
+        # Latched: a later frame whose count dips back never un-confirms.
+        _, _, confirmed2, _ = mlib.separation_evidence(
+            1, float("nan"), 1, 0, 0, True, debounce=3)
+        self.assertTrue(confirmed2)
+
+    def test_unread_count_never_bumps_the_baseline(self):
+        # vessel_count defaults 0 (unread): it can never exceed a real baseline.
+        settle, _, confirmed, _ = mlib.separation_evidence(
+            0, 1.0, 1, 5, 0, False, debounce=3)
+        self.assertEqual(settle, 0)
+        self.assertFalse(confirmed)
+
+    def test_nan_thrust_is_never_ignited(self):
+        _, thrust, _, ignited = mlib.separation_evidence(
+            2, float("nan"), 1, 0, 5, True, debounce=3)
+        self.assertEqual(thrust, 0)
+        self.assertFalse(ignited)
+
+    def test_thrust_debounce_ignites(self):
+        _, thrust, _, ignited = mlib.separation_evidence(
+            2, 200000.0, 1, 3, 2, True, debounce=3)
+        self.assertEqual(thrust, 3)
+        self.assertTrue(ignited)
+
+
+class ForgeLkoMachineTests(unittest.TestCase):
+    """Guards the ORBITAL fixture forge: a bad stamp is worse than a flake -- every
+    consumer of the fixture inherits it."""
+
+    def test_prelaunch_emits_launch_vessel_with_named_crew(self):
+        state = mlib.forge_lko_initial_state(FLKO_PARAMS)
+        new, actions = mlib.forge_lko_decide(state, snap(ut=0.0))
+        self.assertEqual(new.phase, mlib.FLKO_LAUNCH)
+        self.assertEqual(actions, [Action(mlib.ACTION_LAUNCH_VESSEL,
+                                          text="Kerbal X", launch_site="LaunchPad",
+                                          crew=("Valentina Kerman", "Bob Kerman"))])
+
+    def test_launch_settle_requires_the_crew_gate(self):
+        # On the pad with NO crew read (the -1 unread sentinel) the settle streak
+        # never advances: an uncrewed stamp must never reach the ascent.
+        state = mlib.forge_lko_initial_state(FLKO_PARAMS)
+        state, _ = mlib.forge_lko_decide(state, snap(ut=0.0))
+        for ut in (5.0, 10.0, 15.0):
+            state, _ = mlib.forge_lko_decide(
+                state, snap(ut=ut, situation="PRE_LAUNCH"))
+        self.assertEqual(state.phase, mlib.FLKO_LAUNCH)
+        self.assertEqual(state.launch_settle_streak, 0)
+
+    def test_launch_crew_short_flake_names_the_crew(self):
+        state = mlib.forge_lko_initial_state(FLKO_PARAMS)
+        state, _ = mlib.forge_lko_decide(state, snap(ut=0.0))
+        state, _ = mlib.forge_lko_decide(
+            state, snap(ut=5.0, situation="PRE_LAUNCH", crew_count=0))
+        state, _ = mlib.forge_lko_decide(
+            state, snap(ut=1000.0, situation="PRE_LAUNCH", crew_count=0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.FLKO_LAUNCH)
+        self.assertIn("crew", state.flake_reason)
+        self.assertIn("UNCREWED", state.flake_reason)
+
+    def test_min_crew_zero_disables_the_gate(self):
+        params = _flko_params(min_crew=0)
+        state = mlib.forge_lko_initial_state(params)
+        state, _ = mlib.forge_lko_decide(state, snap(ut=0.0))
+        state, _ = mlib.forge_lko_decide(state, snap(ut=5.0, situation="PRE_LAUNCH"))
+        state, actions = mlib.forge_lko_decide(
+            state, snap(ut=10.0, situation="PRE_LAUNCH"))
+        self.assertEqual(state.phase, mlib.FLKO_ASCENT)
+        self.assertIn(mlib.ACTION_MJ_ENGAGE_ASCENT, [a.kind for a in actions])
+
+    def test_ascent_completion_executes_nodes_with_autowarp_action(self):
+        # ACTION_MJ_EXECUTE_NODES (not the bare circularization action) is what
+        # sets node_executor autowarp explicitly (B-DOCK flight-12 lesson).
+        state, per_frame = _flko_to_park()
+        kinds = [a.kind for frame in per_frame for a in frame]
+        self.assertIn(mlib.ACTION_MJ_EXECUTE_NODES, kinds)
+
+    def test_happy_path_reaches_park_with_the_park_contract_actions(self):
+        state, per_frame = _flko_to_park()
+        self.assertEqual(state.phase, mlib.FLKO_PARK)
+        self.assertTrue(state.split_ever_confirmed)
+        self.assertTrue(state.ignition_ever_confirmed)
+        park_actions = [a.kind for a in per_frame[-1]]
+        # Throttle cut + nodes cleared + attitude held: the SAVED configuration.
+        self.assertEqual(park_actions, [mlib.ACTION_CUT_THROTTLE,
+                                        mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES,
+                                        mlib.ACTION_SET_SAS,
+                                        mlib.ACTION_SET_RCS])
+
+    def test_park_requires_debounce_and_dwell(self):
+        state, _ = _flko_to_park()
+        entry = state.phase_entry_ut
+        # Stable immediately, but the dwell has not elapsed -> still PARK.
+        state, _ = mlib.forge_lko_decide(state, _flko_parked(entry + 1.0))
+        state, _ = mlib.forge_lko_decide(state, _flko_parked(entry + 2.0))
+        self.assertEqual(state.phase, mlib.FLKO_PARK)
+        self.assertFalse(state.done)
+        # Past the 60 s dwell with the streak held -> ORBIT (done, MISSION-OK).
+        state, _ = mlib.forge_lko_decide(state, _flko_parked(entry + 61.0))
+        self.assertEqual(state.phase, mlib.FLKO_ORBIT)
+        self.assertTrue(state.done)
+        self.assertIsNone(state.verdict)
+
+    def test_park_rejects_a_tumbling_or_low_or_unread_orbit(self):
+        for kw in ({"angular_velocity": 0.5},          # tumbling
+                   {"angular_velocity": float("nan")},  # unread -> fail closed
+                   {"periapsis": 60000.0},              # inside the atmosphere
+                   {"apoapsis": 400000.0},              # outside the tolerance
+                   {"situation": "FLYING"}):            # not a park situation
+            state, _ = _flko_to_park()
+            entry = state.phase_entry_ut
+            state, _ = mlib.forge_lko_decide(state, _flko_parked(entry + 1.0, **kw))
+            state, _ = mlib.forge_lko_decide(state, _flko_parked(entry + 61.0, **kw))
+            self.assertEqual(state.park_stable_streak, 0, kw)
+            self.assertEqual(state.phase, mlib.FLKO_PARK, kw)
+
+    def test_park_timeout_flakes_with_a_named_reason(self):
+        state, _ = _flko_to_park()
+        entry = state.phase_entry_ut
+        state, _ = mlib.forge_lko_decide(
+            state, _flko_parked(entry + 1000.0, situation="FLYING"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.FLKO_PARK)
+        self.assertIn("never reached a stable park", state.flake_reason)
+
+    def test_separation_without_split_flakes_named(self):
+        state = mlib.forge_lko_initial_state(FLKO_PARAMS)
+        frames = [
+            snap(ut=0.0, situation="FLYING"),
+            snap(ut=5.0, situation="PRE_LAUNCH", crew_count=2),
+            snap(ut=10.0, situation="PRE_LAUNCH", crew_count=2),
+            snap(ut=300.0, apoapsis=99000.0, mj_ascent_complete=True),
+            snap(ut=400.0, periapsis=99000.0, vessel_count=1),   # -> SEPARATE
+            snap(ut=600.0, vessel_count=1),                      # no split, past budget
+        ]
+        state, _ = drive_flko(state, frames)
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("no separation observed", state.flake_reason)
+
+    def test_separation_caps_activations_at_two(self):
+        # HARD CAP: at most TWO stage activations from the circularize->SEPARATE
+        # transition onward (drop the spent core, then ignite the orbital stage).
+        # A THIRD would fire the istg=0 heat-shield decoupler. A split that never
+        # ignites must flake, NOT keep staging the craft apart.
+        state = mlib.forge_lko_initial_state(FLKO_PARAMS)
+        frames = [
+            snap(ut=0.0, situation="FLYING"),
+            snap(ut=5.0, situation="PRE_LAUNCH", crew_count=2),
+            snap(ut=10.0, situation="PRE_LAUNCH", crew_count=2),
+            snap(ut=300.0, apoapsis=99000.0, mj_ascent_complete=True),
+            snap(ut=400.0, periapsis=99000.0, vessel_count=1),   # SEPARATE entry
+        ] + [snap(ut=401.0 + i, vessel_count=2, available_thrust=0.0)
+             for i in range(20)
+             ] + [snap(ut=600.0, vessel_count=2, available_thrust=0.0)]
+        state, per_frame = drive_flko(state, frames)
+        # Frame 3 (the ascent entry) carries the LAUNCH ignition activation, which
+        # is not part of the separation cap; frames 4.. are the separation.
+        launch_stages = [a for frame in per_frame[:4] for a in frame
+                         if a.kind == mlib.ACTION_ACTIVATE_STAGE]
+        sep_stages = [a for frame in per_frame[4:] for a in frame
+                      if a.kind == mlib.ACTION_ACTIVATE_STAGE]
+        self.assertEqual(len(launch_stages), 1)
+        self.assertEqual(len(sep_stages), 2)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("no ignition", state.flake_reason)
+
+    def test_vessel_lost_during_launch_is_transient_not_terminal(self):
+        state = mlib.forge_lko_initial_state(FLKO_PARAMS)
+        state, _ = mlib.forge_lko_decide(state, snap(ut=0.0))
+        state, _ = mlib.forge_lko_decide(state, snap(ut=2.0, vessel_lost=True))
+        self.assertFalse(state.done)
+        self.assertEqual(state.phase, mlib.FLKO_LAUNCH)
+
+    def test_vessel_lost_in_flight_is_terminal(self):
+        state, _ = _flko_to_park()
+        state, _ = mlib.forge_lko_decide(state, snap(ut=500.0, vessel_lost=True))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("vessel-lost", state.loss_reason)
+
+    def test_params_from_dict_parses_the_spec_block(self):
+        p = mlib.forge_lko_params_from_dict({
+            "craftName": "Kerbal X",
+            "launchSite": "LaunchPad",
+            "crewNames": ["Valentina Kerman", "Bob Kerman"],
+            "minCrew": 2,
+            "targetApoapsisMeters": 100000,
+            "targetPeriapsisMeters": 100000,
+            "apoErrorMeters": 10000,
+            "periErrorMeters": 10000,
+            "ascentTimeoutSeconds": 900,
+            "circularizeTimeoutSeconds": 2400,
+            "separationTimeoutSeconds": 120,
+            "parkSituations": ["ORBITING"],
+            "parkDwellSeconds": 60,
+            "parkTimeoutSeconds": 600,
+            "minSafePeriapsisMeters": 75000,
+        })
+        self.assertEqual(p.crew_names, ("Valentina Kerman", "Bob Kerman"))
+        self.assertEqual(p.min_crew, 2)
+        self.assertEqual(p.park_situations, ("ORBITING",))
+        self.assertEqual(p.circularize_timeout, 2400.0)
+        # Omitted crewNames -> None (KSP default manifest), never an empty tuple.
+        self.assertIsNone(mlib.forge_lko_params_from_dict({}).crew_names)
+
+    def test_b2_projection_carries_the_orbit_tolerances(self):
+        b2 = mlib.forge_lko_b2_params(FLKO_PARAMS)
+        self.assertEqual(b2.target_apoapsis, 100000.0)
+        self.assertEqual(b2.peri_error, 10000.0)
+        self.assertEqual(b2.eccentricity_max, FLKO_PARAMS.eccentricity_max)
+
+
+class ForgeLkoAssertionTests(unittest.TestCase):
+    def _good_state(self):
+        state, _ = _flko_to_park()
+        entry = state.phase_entry_ut
+        state, _ = mlib.forge_lko_decide(state, _flko_parked(entry + 1.0))
+        state, _ = mlib.forge_lko_decide(state, _flko_parked(entry + 2.0))
+        state, _ = mlib.forge_lko_decide(state, _flko_parked(entry + 61.0))
+        return state
+
+    def _good_frames(self):
+        return [snap(situation="ORBITING", apoapsis=100000.0, periapsis=99500.0,
+                     eccentricity=0.001, inclination=0.1, crew_count=2)
+                for _ in range(5)]
+
+    def test_all_rows_met_on_a_clean_forge(self):
+        state = self._good_state()
+        outs = mlib.evaluate_forge_lko_assertions(
+            self._good_frames(), FLKO_PARAMS,
+            phases_reached=state.phases_reached, state=state)
+        names = [o.name for o in outs]
+        self.assertEqual(names[:4], ["launched", "crewAboard", "separated",
+                                     "parkedStable"])
+        # The B2 orbit rows ride verbatim after the forge-specific ones.
+        self.assertEqual(names[4:], ["apoapsisError", "periapsisError",
+                                     "eccentricity", "inclinationError"])
+        self.assertTrue(all(o.met for o in outs), [(o.name, o.value) for o in outs])
+
+    def test_uncrewed_stamp_is_unmet(self):
+        state = self._good_state()
+        frames = [snap(situation="ORBITING", apoapsis=100000.0, periapsis=99500.0,
+                       eccentricity=0.001, inclination=0.1)  # crew_count -1 unread
+                  for _ in range(5)]
+        outs = {o.name: o for o in mlib.evaluate_forge_lko_assertions(
+            frames, FLKO_PARAMS, phases_reached=state.phases_reached, state=state)}
+        self.assertFalse(outs["crewAboard"].met)
+        self.assertIsNone(outs["crewAboard"].value)
+
+    def test_separated_unmet_without_the_ignition_evidence(self):
+        state = self._good_state()
+        state = state.__class__(**{**state.__dict__,
+                                   "ignition_ever_confirmed": False})
+        outs = {o.name: o for o in mlib.evaluate_forge_lko_assertions(
+            self._good_frames(), FLKO_PARAMS,
+            phases_reached=state.phases_reached, state=state)}
+        self.assertFalse(outs["separated"].met)
+
+    def test_parked_unmet_when_the_final_situation_is_not_a_park(self):
+        state = self._good_state()
+        frames = self._good_frames() + [snap(situation="FLYING", crew_count=2)]
+        outs = {o.name: o for o in mlib.evaluate_forge_lko_assertions(
+            frames, FLKO_PARAMS, phases_reached=state.phases_reached, state=state)}
+        self.assertFalse(outs["parkedStable"].met)
 
 
 # ===========================================================================
@@ -4257,6 +5125,20 @@ class BDockHappyPathTests(unittest.TestCase):
         state, actions = mlib.bdock_decide(state, snap(ut=161.0, seam_commit_result="OK"))
         self.assertEqual(state.phase, mlib.BDOCK_INT_LAUNCH)
         self.assertEqual(actions, [Action(mlib.ACTION_LAUNCH_VESSEL, text="Kerbal X")])
+
+    def test_station_commit_error_flakes_with_named_reason(self):
+        # Review follow-up 5: a seam ERROR/TIMEOUT flake names the seam outcome
+        # (not the generic phase-timeout wording).
+        for result in ("ERROR", "TIMEOUT"):
+            state, _ = _bdock_walk_to(mlib.BDOCK_STATION_COMMIT)
+            state, _ = mlib.bdock_decide(
+                state, snap(ut=161.0, seam_commit_result=result))
+            self.assertTrue(state.done)
+            self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+            self.assertIsNotNone(state.flake_reason)
+            self.assertIn("tree-commit seam returned %s" % result,
+                          state.flake_reason)
+            self.assertIn(mlib.BDOCK_STATION_COMMIT, state.flake_reason)
 
 
 class BDockSeparateTests(unittest.TestCase):
@@ -4513,6 +5395,55 @@ class BDockRendezvousTests(unittest.TestCase):
         self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
         self.assertEqual(state.flake_phase, mlib.BDOCK_RENDEZVOUS)
 
+    def test_no_progress_paused_while_node_pending(self):
+        # Review follow-up 1 (flight-11): the no-progress detector is PAUSED
+        # (counter reset each poll) while a maneuver node is pending -- the
+        # rendezvous AP legitimately waits minutes for a burn window with the
+        # distance flat. A flat distance WITH node_count > 0 must NEVER flake, even
+        # across far more than rendezvous_noprogress_frames (5) polls; the phase
+        # budget bounds slow-but-alive, not this watchdog.
+        state = self._at_rendezvous()
+        # altitude varies each poll (a live orbiting vessel) so the shared
+        # frozen-telemetry detector never trips; only target_distance is flat.
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=475.0, altitude=100000.0, mj_rendezvous_enabled=True,
+            target_distance=3000.0, node_count=1))  # min=3000, node pending
+        for i in range(5 * 4):  # 20 polls >> rendezvous_noprogress_frames=5
+            state, _ = mlib.bdock_decide(state, snap(
+                ut=476.0 + i, altitude=100000.0 + i, mj_rendezvous_enabled=True,
+                target_distance=3000.0, node_count=1))
+            self.assertFalse(state.done, "flaked at poll %d with a node pending" % i)
+        self.assertEqual(state.phase, mlib.BDOCK_RENDEZVOUS)
+        self.assertEqual(state.rendezvous_noprogress_count, 0)
+
+    def test_no_progress_flakes_after_node_consumed(self):
+        # Review follow-up 1: once the node is CONSUMED (node_count back to 0), the
+        # no-progress watchdog resumes -- a flat distance then flakes at exactly
+        # rendezvous_noprogress_frames (5) consecutive non-improving polls.
+        state = self._at_rendezvous()
+        # altitude varies each poll (a live vessel) so only the no-progress
+        # watchdog can flake, never the frozen-telemetry detector.
+        # Node pending, distance flat: counter stays 0 (paused).
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=475.0, altitude=100000.0, mj_rendezvous_enabled=True,
+            target_distance=3000.0, node_count=1))
+        self.assertEqual(state.rendezvous_noprogress_count, 0)
+        # Node consumed; establish the running minimum on the first no-node poll.
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=476.0, altitude=100001.0, mj_rendezvous_enabled=True,
+            target_distance=3000.0,
+            node_count=0))  # min=3000, count=0 (first flat, not yet non-improving)
+        self.assertFalse(state.done)
+        # Five consecutive non-improving no-node polls -> FLAKE at the threshold.
+        for i in range(5):
+            self.assertFalse(state.done)
+            state, _ = mlib.bdock_decide(state, snap(
+                ut=477.0 + i, altitude=100002.0 + i, mj_rendezvous_enabled=True,
+                target_distance=3000.0, node_count=0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.BDOCK_RENDEZVOUS)
+
     def test_rendezvous_budget_flakes(self):
         state = self._at_rendezvous()
         state, _ = mlib.bdock_decide(state, snap(
@@ -4630,12 +5561,97 @@ class BDockDockTests(unittest.TestCase):
                              text="LiquidFuel", limit=mlib.TRANSFER_DIR_DELIVER),
                       actions)
 
-    def test_docked_without_latch_does_not_advance(self):
+    def test_docked_without_latch_still_advances(self):
+        # Review follow-up 4: the docked short-circuit completes on `docked` ALONE
+        # (not docked AND latched_off). A docked pair whose AP never latched off
+        # (docking_ever_enabled still False) must NOT be misrouted into the E1a
+        # "enable never took" flake -- the pair IS mated, so complete to TRANSFER.
         state = self._at_dock()
-        # Docked but the AP never engaged (latch not flipped) -> stay (design gate).
-        state, _ = mlib.bdock_decide(state, snap(
+        self.assertFalse(state.docking_ever_enabled)
+        state, actions = mlib.bdock_decide(state, snap(
             ut=510.0, mj_docking_enabled=False, docking_state="Docked"))
+        self.assertEqual(state.phase, mlib.BDOCK_TRANSFER)
+        self.assertTrue(state.docked_confirmed)
+        self.assertIn(Action(mlib.ACTION_MJ_DISABLE_DOCKING), actions)
+
+    def test_docked_on_pending_enable_poll_does_not_reenable_ap(self):
+        # Review follow-up 4 (the race the fix targets): a hard dock can land on
+        # the SAME poll a retarget armed dock_enable_pending. The docked
+        # short-circuit sits AHEAD of the pending-enable branch, so the pending
+        # enable is DISCARDED (no ACTION_MJ_ENABLE_DOCKING re-issued onto a mated
+        # pair -- an unguarded runner enable could throw and flake a won mission)
+        # and the phase completes to TRANSFER.
+        state = self._at_dock()
+        # Arm dock_enable_pending exactly as a DOCK retarget would (flight-11
+        # dropped-target recovery re-arms it), then read Docked on the same poll.
+        state = mlib.replace(state, dock_enable_pending=True)
+        state, actions = mlib.bdock_decide(state, snap(
+            ut=512.0, mj_docking_enabled=True, docking_state="Docked"))
+        self.assertEqual(state.phase, mlib.BDOCK_TRANSFER)
+        self.assertFalse(state.dock_enable_pending)
+        self.assertTrue(state.docked_confirmed)
+        # No re-enable onto the docked pair; the AP is DISABLED and T1 starts.
+        kinds = [a.kind for a in actions]
+        self.assertNotIn(mlib.ACTION_MJ_ENABLE_DOCKING, kinds)
+        self.assertIn(mlib.ACTION_MJ_DISABLE_DOCKING, kinds)
+        self.assertIn(Action(mlib.ACTION_START_RESOURCE_TRANSFER, value=40.0,
+                             text="LiquidFuel", limit=mlib.TRANSFER_DIR_DELIVER),
+                      actions)
+
+    def _at_dock_entry_docked(self):
+        """DOCK entered by a craft that ALREADY read Docked (an already-mated
+        internal pair): walk to MATCH-VELOCITY, then take the transition poll with
+        docking_state="Docked" so dock_entry_docked latches True."""
+        state, _ = _bdock_walk_to(mlib.BDOCK_MATCH_VELOCITY)
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=500.0, target_rel_speed=0.5, docking_state="Docked",
+            target_distance=90.0))
         self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+        self.assertTrue(state.dock_entry_docked)
+        return state
+
+    def test_docked_at_phase_entry_with_far_target_does_not_complete(self):
+        # MINOR-5: _read_docking_state returns Docked when ANY port on the ACTIVE
+        # vessel reads docked, so a craft carrying an already-mated internal pair
+        # reads Docked from the first DOCK poll. Completing on `docked` alone would
+        # finish BDOCK_DOCK instantly without ever meeting the Station. Entry-docked
+        # + a far target port is NOT corroboration: the phase must keep flying.
+        state = self._at_dock_entry_docked()
+        state, actions = mlib.bdock_decide(state, snap(
+            ut=502.0, mj_docking_enabled=False, docking_state="Docked",
+            target_distance=90.0))
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+        self.assertFalse(state.docked_confirmed)
+        # It falls through to the normal flow: the deferred enable is issued, so the
+        # AP has to actually close on the target.
+        self.assertIn(Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5), actions)
+
+    def test_docked_at_phase_entry_with_target_at_zero_completes(self):
+        # The other side of the same gate: a hard dock that landed on the very poll
+        # that entered DOCK reads entry-docked, but the TARGET port is right there -
+        # that IS a dock to the target, so the short-circuit completes.
+        state = self._at_dock_entry_docked()
+        state, actions = mlib.bdock_decide(state, snap(
+            ut=502.0, mj_docking_enabled=False, docking_state="Docked",
+            target_distance=0.4))
+        self.assertEqual(state.phase, mlib.BDOCK_TRANSFER)
+        self.assertTrue(state.docked_confirmed)
+        self.assertIn(Action(mlib.ACTION_MJ_DISABLE_DOCKING), actions)
+
+    def test_entry_docked_does_not_complete_merely_because_the_ap_ran(self):
+        # docking_ever_enabled is deliberately NOT a corroboration disjunct:
+        # enabling the AP latches it after one poll whether or not the AP achieved
+        # anything, so an entry-docked craft would false-complete two polls later.
+        state = self._at_dock_entry_docked()
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=502.0, mj_docking_enabled=False, docking_state="Docked",
+            target_distance=90.0))
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=504.0, mj_docking_enabled=True, docking_state="Docked",
+            target_distance=90.0, monopropellant=100.0))
+        self.assertTrue(state.docking_ever_enabled)
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+        self.assertFalse(state.docked_confirmed)
 
     def test_monoprop_out_gives_up(self):
         state = self._at_dock()
@@ -5031,8 +6047,33 @@ class BDockParamTests(unittest.TestCase):
     def test_forge_params_from_dict_defaults_crew_none(self):
         p = mlib.forge_params_from_dict({"craftName": "Kerbal X"})
         self.assertEqual(p.craft_name, "Kerbal X")
-        self.assertIsNone(p.crew)
+        self.assertIsNone(p.crew_names)
         self.assertEqual(p.launch_site, "LaunchPad")
+
+    def test_forge_params_from_dict_parses_named_crew(self):
+        # The EVA-3 3-crew pad fixture passes crewNames (a list of kerbal names);
+        # forge_params_from_dict must carry it as a tuple onto the launch Action.
+        p = mlib.forge_params_from_dict({
+            "craftName": "Kerbal X",
+            "crewNames": ["Valentina Kerman", "Bob Kerman", "Bill Kerman"],
+        })
+        self.assertEqual(p.crew_names,
+                         ("Valentina Kerman", "Bob Kerman", "Bill Kerman"))
+
+    def test_forge_decide_threads_launch_site_and_named_crew(self):
+        # The launch Action must carry launch_site + crew (by NAME) so the runner
+        # threads both into sc.launch_vessel; an empty/None crewNames stays None
+        # (runner sends crew=[] = default manifest).
+        params = mlib.ForgeParams(
+            craft_name="Kerbal X", launch_site="LaunchPad",
+            crew_names=("Valentina Kerman", "Bob Kerman", "Bill Kerman"),
+            launch_timeout=120.0, settle_debounce=3)
+        state = mlib.forge_initial_state(params)
+        _, actions = mlib.forge_decide(state, snap(ut=0.0))
+        self.assertEqual(actions, [Action(
+            mlib.ACTION_LAUNCH_VESSEL, text="Kerbal X",
+            launch_site="LaunchPad",
+            crew=("Valentina Kerman", "Bob Kerman", "Bill Kerman"))])
 
 
 class BDockPortResolutionTests(unittest.TestCase):
