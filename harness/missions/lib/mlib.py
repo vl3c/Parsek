@@ -251,10 +251,35 @@ B5_CORRECTION_BURN = "CORRECTION-BURN"
 B5_COAST_TO_TARGET = "COAST-TO-TARGET"
 B5_TARGET_FLYBY = "TARGET-FLYBY"
 B5_RETURN = "RETURN"
+# --- ORBIT-mission tail (missions b11_mun_orbit / b12_minmus_orbit; the roadmap's
+# "Mun/Minmus ORBIT missions"). All four phases are reachable ONLY when
+# ``captureEnabled`` is set, so with the flyby defaults the machine is
+# byte-identical to the LIVE-PROVEN B5/B6/B7 shape. The lane exists for one
+# Parsek surface no flyby reaches: a recording that ENDS parked in a FOREIGN
+# SOI and is COMMITTED there (the commit / BG-handoff / terminal-classification
+# path for a tree whose terminal state is "in orbit around another body").
+#   PLAN-CAPTURE     plan the periapsis circularization inside the target SOI
+#   CAPTURE-BURN     the NodeExecutor (autowarp EXPLICIT) flies it
+#   PARK             hold a stable, non-tumbling bound orbit for a dwell
+#   ORBIT-COMMIT     mid-mission command-seam CommitTree (the B-DOCK route-1 bridge)
+#   ORBIT-COMMITTED  the success terminal (done; the assertions judge the state)
+B5_PLAN_CAPTURE = "PLAN-CAPTURE"
+B5_CAPTURE_BURN = "CAPTURE-BURN"
+B5_PARK = "PARK"
+B5_ORBIT_COMMIT = "ORBIT-COMMIT"
+B5_ORBIT_COMMITTED = "ORBIT-COMMITTED"
 B5_PHASES: Tuple[str, ...] = (B5_PRELAUNCH, B5_MJ_ASCENT, B5_CIRCULARIZE, B5_ORBIT,
                               B5_PLAN_TRANSFER, B5_TRANSFER_BURN, B5_PLAN_CORRECTION,
                               B5_CORRECTION_BURN, B5_COAST_TO_TARGET, B5_TARGET_FLYBY,
-                              B5_RETURN)
+                              B5_RETURN, B5_PLAN_CAPTURE, B5_CAPTURE_BURN, B5_PARK,
+                              B5_ORBIT_COMMIT, B5_ORBIT_COMMITTED)
+
+# Phases in which the machine is INSIDE the target SOI, so the min-altitude
+# (closest-approach) evidence must keep tracking. For a flyby this is only
+# TARGET-FLYBY; for a capture mission the whole in-SOI stay counts, which makes
+# the ``flybyPeriapsisFloor`` assertion certify the PARK orbit's periapsis too.
+_B5_IN_TARGET_SOI_PHASES: Tuple[str, ...] = (
+    B5_TARGET_FLYBY, B5_PLAN_CAPTURE, B5_CAPTURE_BURN, B5_PARK, B5_ORBIT_COMMIT)
 
 # FORGE phase names (mission forge_station: the FIXTURE-FORGE runner). A minimal
 # two-phase shell that boots an EXISTING valid save (so LoadGame passes), launches
@@ -567,6 +592,25 @@ ACTION_START_RESOURCE_TRANSFER = "start_resource_transfer" # text = resource
 # RouteConnectionWindow. Done evidence: vessel_count INCREASED by one AND
 # docking_state != "Docked" (MINOR 10).
 ACTION_UNDOCK = "undock"                                   # value = None
+# ORBIT-mission capture burn (B11/B12): plan the periapsis circularization INSIDE
+# the target SOI. The runner drives KRPC.MechJeb's
+# maneuver_planner.operation_circularize with TimeSelector.TimeReference =
+# Periapsis (pinned source mods/KRPC.MechJeb/Maneuver/OperationCircularize.cs +
+# TimeSelector.cs: "To match apoapsis to periapsis, set the time to
+# TimeReference.Periapsis"), so MechJeb picks the burn UT and the NodeExecutor's
+# own autowarp carries the coast down to it. No target-altitude knob: the capture
+# circularizes at WHATEVER arrival periapsis the correction rounds produced, and
+# the PARK window (not a golden number) judges the result. Same throw/log/swallow
+# contract as every other plan action -- a failed plan leaves node_count at 0 and
+# the machine's bounded re-plan cadence owns the retry.
+ACTION_MJ_PLAN_CAPTURE = "mj_plan_capture"                 # value = None
+
+# ORBIT-mission capture arming debounce (B11/B12): consecutive frames inside the
+# target SOI with a finite ABOVE-SURFACE periapsis before PLAN-CAPTURE is
+# entered. The SOI-entry frame's conic reads settle over a poll or two, and a
+# transient sub-surface periapsis must never arm a capture the impact-certain
+# terminal should own instead.
+CAPTURE_ARM_DEBOUNCE_FRAMES = 3
 
 # TARGET-FLYBY impact-warp guard: below this altitude with a SUB-SURFACE
 # periapsis the machine stops issuing warp hops and polls at 1x, so a crash
@@ -1532,6 +1576,68 @@ class B5Params:
     frozen_sample_limit: int = 10          # airborne frozen-telemetry samples ->
                                            # vessel-lost terminal (spec key
                                            # frozenTelemetrySamples)
+    # --- ORBIT-mission tail (B11/B12). Every default is the FLYBY-preserving
+    # value: with capture_enabled False none of the four capture phases is
+    # reachable and the machine is byte-identical to the proven B5/B6/B7 shape.
+    capture_enabled: bool = False          # True: inside the target SOI, plan +
+                                           # fly a periapsis circularization,
+                                           # hold a stable park, and COMMIT the
+                                           # tree there (the terminal is
+                                           # ORBIT-COMMITTED, not RETURN). The
+                                           # return-body exit then becomes an
+                                           # ASSERT-FAIL (leaving the target SOI
+                                           # IS the failure). Spec key
+                                           # captureEnabled.
+    capture_plan_timeout: float = 300.0    # PLAN-CAPTURE budget (game s). Expiry
+                                           # FLAKES: no capture node = no orbit
+                                           # mission (spec key
+                                           # capturePlanTimeoutSeconds).
+    capture_burn_timeout: float = 40000.0  # CAPTURE-BURN budget (game s): the
+                                           # NodeExecutor autowarps from the SOI
+                                           # boundary DOWN to periapsis, which on
+                                           # a Mun/Minmus arrival is hours of game
+                                           # time (spec key
+                                           # captureBurnTimeoutSeconds).
+    park_min_periapsis: float = 0.0        # PARK gate: the captured orbit's
+                                           # periapsis floor (m above the target
+                                           # body). Fails CLOSED on a NaN read
+                                           # (spec key parkMinPeriapsisMeters).
+    park_max_apoapsis: float = 0.0         # PARK gate: the captured orbit's
+                                           # apoapsis CEILING (m). A bound orbit
+                                           # reads a POSITIVE apoapsis; a
+                                           # hyperbolic (uncaptured) one reads
+                                           # negative, so 0 < ap <= this is the
+                                           # "we are actually captured" evidence
+                                           # (spec key parkMaxApoapsisMeters).
+    park_max_eccentricity: float = 0.5     # PARK gate: the captured orbit's
+                                           # eccentricity ceiling -- the real
+                                           # "circularized, not a grazing
+                                           # ellipse" signal (spec key
+                                           # parkMaxEccentricity).
+    park_max_angular_velocity: float = 0.05
+                                           # PARK gate: tumble ceiling (rad/s).
+                                           # With SAS stability-assist + RCS held
+                                           # a settled stage reads ~0; NaN
+                                           # (unread) fails closed (spec key
+                                           # parkMaxAngularVelocityRadPerSec).
+    park_situations: Tuple[str, ...] = ("ORBITING",)
+                                           # PARK gate: accepted kRPC situations
+                                           # (spec key parkSituations).
+    park_dwell: float = 300.0              # GAME seconds the stable park must be
+                                           # HELD before the commit: the recording
+                                           # must carry real parked-in-foreign-SOI
+                                           # coverage, not one settling frame
+                                           # (spec key parkDwellSeconds).
+    park_debounce: int = 3                 # consecutive in-gate PARK frames
+                                           # (spec key parkDebounceFrames).
+    park_timeout: float = 7200.0           # PARK budget (game s); expiry flakes
+                                           # with a NAMED reason distinguishing
+                                           # "never stabilized" from "stabilized
+                                           # but never HELD" (spec key
+                                           # parkTimeoutSeconds).
+    commit_timeout: float = 300.0          # ORBIT-COMMIT budget (game s) for the
+                                           # command-seam CommitTree round trip
+                                           # (spec key commitTimeoutSeconds).
 
 
 def b5_params_from_dict(params: Dict) -> B5Params:
@@ -1577,6 +1683,19 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         correction_trigger_time_to_soi=tuple(
             float(t) for t in params.get("correctionTriggerTimeToSoiSeconds", ())),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
+        capture_enabled=bool(params.get("captureEnabled", False)),
+        capture_plan_timeout=float(params.get("capturePlanTimeoutSeconds", 300.0)),
+        capture_burn_timeout=float(params.get("captureBurnTimeoutSeconds", 40000.0)),
+        park_min_periapsis=float(params.get("parkMinPeriapsisMeters", 0.0)),
+        park_max_apoapsis=float(params.get("parkMaxApoapsisMeters", 0.0)),
+        park_max_eccentricity=float(params.get("parkMaxEccentricity", 0.5)),
+        park_max_angular_velocity=float(
+            params.get("parkMaxAngularVelocityRadPerSec", 0.05)),
+        park_situations=tuple(params.get("parkSituations", ("ORBITING",))),
+        park_dwell=float(params.get("parkDwellSeconds", 300.0)),
+        park_debounce=int(params.get("parkDebounceFrames", 3)),
+        park_timeout=float(params.get("parkTimeoutSeconds", 7200.0)),
+        commit_timeout=float(params.get("commitTimeoutSeconds", 300.0)),
     )
 
 
@@ -2598,9 +2717,31 @@ class B5State:
     # No-encounter early trigger (finding 18): consecutive time-mode via-
     # body coast frames with NO target encounter on the trajectory.
     no_encounter_streak: int = 0
+    # --- ORBIT-mission tail (B11/B12); all inert with capture_enabled False.
+    # Consecutive in-target-SOI frames with a finite ABOVE-SURFACE periapsis
+    # (the PLAN-CAPTURE arming debounce).
+    capture_arm_streak: int = 0
+    # Consecutive in-gate PARK frames, and the latch that the park was EVER
+    # in-gate (so the give-up can distinguish "never stabilized" from
+    # "stabilized but never HELD through the dwell" -- the forge_lko pattern).
+    park_stable_streak: int = 0
+    park_ever_stable: bool = False
+    # The captured orbit read at PARK ENTRY: the capturedInTargetOrbit
+    # assertion's carried evidence (the frames cannot carry it -- evaluate
+    # discards them for this machine).
+    capture_apoapsis: Optional[float] = None
+    capture_periapsis: Optional[float] = None
+    capture_eccentricity: Optional[float] = None
+    # The mid-mission command-seam CommitTree verdict actually OBSERVED
+    # ("OK" / "ERROR" / "TIMEOUT"); "" while never issued or still polling.
+    commit_result: str = ""
     phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
+    # A SPECIFIC flake reason (resolve_flight_verdict prefers it over the generic
+    # "phase X timed out"): every ORBIT-tail give-up names its own failure so an
+    # operator reads WHY without post-hoc archaeology.
+    flake_reason: Optional[str] = None
     done: bool = False
     frozen_sig: Optional[FrozenSignature] = None
     frozen_count: int = 0
@@ -2627,6 +2768,14 @@ def _b5_phase_budget(params: B5Params, phase: str) -> Optional[float]:
         return params.coast_timeout
     if phase == B5_TARGET_FLYBY:
         return params.flyby_timeout
+    if phase == B5_PLAN_CAPTURE:
+        return params.capture_plan_timeout
+    if phase == B5_CAPTURE_BURN:
+        return params.capture_burn_timeout
+    if phase == B5_PARK:
+        return params.park_timeout
+    if phase == B5_ORBIT_COMMIT:
+        return params.commit_timeout
     return None
 
 
@@ -2642,8 +2791,10 @@ def _b5_over_budget(state: B5State, snapshot: TelemetrySnapshot) -> bool:
 def _b5_enter(state: B5State, new_phase: str, ut: float,
               peak: Optional[float]) -> B5State:
     """Transition into ``new_phase``, stamping the phase-entry UT and appending
-    to ``phases_reached``. RETURN is the only phase whose ENTRY terminates the
-    machine (done, verdict None -- the assertions decide)."""
+    to ``phases_reached``. RETURN (the flyby free-return) and ORBIT-COMMITTED
+    (the capture mission's committed-in-foreign-SOI terminal) are the only
+    phases whose ENTRY terminates the machine (done, verdict None -- the
+    assertions decide)."""
     entry = ut if _is_finite(ut) else state.phase_entry_ut
     return replace(
         state,
@@ -2651,7 +2802,7 @@ def _b5_enter(state: B5State, new_phase: str, ut: float,
         phase_entry_ut=entry,
         peak_apoapsis=peak,
         phases_reached=state.phases_reached + (new_phase,),
-        done=(new_phase == B5_RETURN),
+        done=(new_phase in (B5_RETURN, B5_ORBIT_COMMITTED)),
     )
 
 
@@ -3063,6 +3214,125 @@ def _b5_cancel_native_warp(state: B5State,
             [Action(ACTION_CANCEL_WARP)])
 
 
+# ---------------------------------------------------------------------------
+# ORBIT-mission (capture / park / commit-in-foreign-SOI) helpers, missions
+# b11_mun_orbit + b12_minmus_orbit. All pure; every one of them is inert when
+# ``capture_enabled`` is False, so the flyby machine is unchanged.
+# ---------------------------------------------------------------------------
+
+
+def _b5_named_flake(state: B5State, reason: str,
+                    peak: Optional[float] = None) -> B5State:
+    """A bounded give-up that NAMES its own failure (resolve_flight_verdict
+    prefers ``flake_reason`` over the generic "phase X timed out"). The
+    liveness principle: budgets bound SLOW, watchdogs bound BROKEN, and a
+    watchdog that fires must say which actor was provably dead."""
+    return replace(state,
+                   peak_apoapsis=(peak if peak is not None else state.peak_apoapsis),
+                   verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason=reason, done=True)
+
+
+def _b5_capture_arm_ready(state: B5State, snapshot: TelemetrySnapshot) -> bool:
+    """One TARGET-FLYBY frame's capture-arming verdict: capture is enabled, the
+    SOI body IS the target, and the arrival periapsis reads FINITE and ABOVE the
+    surface. A sub-surface periapsis is an impact trajectory (the
+    impact-certain terminal owns it), and a NaN read fails CLOSED -- never arm a
+    capture on evidence we do not have."""
+    return (state.params.capture_enabled
+            and snapshot.body == state.params.target_body
+            and _is_finite(snapshot.periapsis) and snapshot.periapsis > 0.0)
+
+
+def _b5_enter_plan_capture(state: B5State, snapshot: TelemetrySnapshot,
+                           peak: Optional[float]) -> Tuple[B5State, List[Action]]:
+    """PLAN-CAPTURE entry. Same warp prelude as the correction entry: bring warp
+    under PLAN control before planning -- cancel an active native warp (which
+    also zeroes the rails factors runner-side), else step a held rails factor
+    straight to the plan hold (never 1x: planning is an RPC, and the 10x hold
+    bounds plan-position drift to ~5 game-s per poll)."""
+    entered = _b5_enter(state, B5_PLAN_CAPTURE, snapshot.ut, peak)
+    plan_hold = min(state.params.plan_warp_factor,
+                    max_legal_rails_factor(snapshot.body, snapshot.altitude))
+    if state.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
+        prelude: List[Action] = [Action(ACTION_CANCEL_WARP)]
+        entered_warp_cmd = 0
+    elif state.warp_cmd != plan_hold:
+        prelude = [Action(ACTION_SET_RAILS_WARP, float(plan_hold))]
+        entered_warp_cmd = plan_hold
+    else:
+        prelude = []
+        entered_warp_cmd = state.warp_cmd
+    entered = replace(entered,
+                      last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0,
+                      warp_cmd=entered_warp_cmd, warp_to_cmd=None,
+                      body_blank_count=0, plan_attempts=1, capture_arm_streak=0)
+    return entered, prelude + [Action(ACTION_MJ_PLAN_CAPTURE)]
+
+
+def _b5_capture_achieved(params: B5Params, snapshot: TelemetrySnapshot) -> bool:
+    """CAPTURE-BURN done evidence: the craft is BOUND to the target body. A
+    hyperbolic approach reads a NEGATIVE apoapsis in the target's frame, so a
+    POSITIVE apoapsis at/below the ceiling, a periapsis at/above the floor and
+    an eccentricity at/below the ceiling together mean the capture burn
+    actually closed the orbit. Every conjunct fails CLOSED on a non-finite
+    read (the burn budget then owns the outcome)."""
+    if not (_is_finite(snapshot.apoapsis) and _is_finite(snapshot.periapsis)
+            and _is_finite(snapshot.eccentricity)):
+        return False
+    if not (0.0 < snapshot.apoapsis <= params.park_max_apoapsis):
+        return False
+    if snapshot.periapsis < params.park_min_periapsis:
+        return False
+    return snapshot.eccentricity <= params.park_max_eccentricity
+
+
+def _b5_park_stable(params: B5Params, snapshot: TelemetrySnapshot) -> bool:
+    """One PARK frame's stability verdict (the LIVE-PROVEN forge_lko park gate,
+    re-pointed at the FOREIGN body): still in the target SOI, an accepted
+    orbital situation, a bound orbit inside the capture window, and the tumble
+    under the ceiling. Every conjunct fails closed on a non-finite read."""
+    if snapshot.body != params.target_body:
+        return False
+    if snapshot.situation not in params.park_situations:
+        return False
+    if not _b5_capture_achieved(params, snapshot):
+        return False
+    return (_is_finite(snapshot.angular_velocity)
+            and snapshot.angular_velocity <= params.park_max_angular_velocity)
+
+
+def _b5_park_entry_actions() -> List[Action]:
+    """The vehicle configuration the PARKED, COMMITTED recording must capture:
+    throttle CUT (nothing is burning when the tree closes), every maneuver node
+    CLEARED (no pending burn rides into the committed terminal), attitude HELD
+    (SAS stability-assist + RCS on so the stage does not tumble through the
+    dwell), and rails warp DROPPED to 1x (the park dwell is the recorded
+    coverage the whole lane exists for -- warping through it would leave the
+    committed recording a handful of on-rails checkpoints)."""
+    return ([Action(ACTION_SET_RAILS_WARP, 0.0),
+             Action(ACTION_CUT_THROTTLE, 0.0),
+             Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)]
+            + _bdock_attitude_hold_actions())
+
+
+def _b5_left_target_soi(state: B5State,
+                        snapshot: TelemetrySnapshot) -> Optional[B5State]:
+    """Shared in-SOI guard for the capture tail: once the machine is planning /
+    burning / parking / committing inside the target SOI, a REAL foreign body
+    reading means the craft left without capturing -- the deterministic mission
+    failure this lane exists to catch. "" (no reading this frame) is NOT a
+    departure (the blank-body dwell and the vessel-lost detectors own it).
+    Returns the terminal state, or None when the guard does not fire."""
+    if snapshot.body == "" or snapshot.body == state.params.target_body:
+        return None
+    return replace(
+        state, done=True, verdict=MISSION_ASSERT_FAIL,
+        loss_reason=("left the target SOI during %s without a committed park: "
+                     "body=%r (expected %r)"
+                     % (state.phase, snapshot.body, state.params.target_body)))
+
+
 def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, List[Action]]:
     """Advance the B5 Mun-flyby machine one frame; return (new_state, actions).
 
@@ -3122,6 +3392,40 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         (terminal: done, verdict None; cancels any native warp; the settle
         tail runs in the exit SOI). body neither target nor exit ->
         ASSERT-FAIL (slung off-course).
+
+    ORBIT-MISSION TAIL (captureEnabled, missions b11_mun_orbit /
+    b12_minmus_orbit). With the flag OFF none of these branches is reachable
+    and the machine is byte-identical to the flyby shape above.
+      - TARGET-FLYBY -> PLAN-CAPTURE: CAPTURE_ARM_DEBOUNCE_FRAMES consecutive
+        in-target-SOI frames with a finite ABOVE-SURFACE periapsis. The
+        SOI-EXIT native warp is suppressed in capture mode (warping toward the
+        exit is warping toward the failure); the rails stair still floors at
+        flybyWarpFactor, so no 1x. body == the return body here is now an
+        ASSERT-FAIL ("flew past instead of circularizing").
+      - PLAN-CAPTURE -> CAPTURE-BURN: the shared plan phase with MechJeb's
+        circularize-at-PERIAPSIS operation. No fall-through (a capture node IS
+        the mission); PLAN_MAX_ATTEMPTS or the plan budget flake with a NAMED
+        reason.
+      - CAPTURE-BURN -> PARK: the executor (autowarp EXPLICIT) consumed the
+        node AND the orbit is BOUND inside the capture window (0 < ap <=
+        parkMaxApoapsisMeters, pe >= parkMinPeriapsisMeters, ecc <=
+        parkMaxEccentricity -- a hyperbolic approach reads a NEGATIVE apoapsis,
+        so this is real capture evidence). Named fast-fails: capture under-burn
+        (executor wedged, orbit still unbound) and capture-executor-no-start
+        (orbit unchanged, static at 1x past burnNoStartSeconds).
+      - PARK -> ORBIT-COMMIT: throttle cut, nodes cleared, SAS + RCS held and
+        rails dropped to 1x on entry (the park dwell IS the recorded coverage),
+        then parkDebounceFrames consecutive in-gate frames HELD across
+        parkDwellSeconds of game time. Named give-ups distinguish "never
+        stabilized" from "stabilized but never held".
+      - ORBIT-COMMIT -> ORBIT-COMMITTED: the mid-mission command-seam
+        CommitTree (the B-DOCK route-1 reserved-id bridge) answers OK -> the
+        TERMINAL (done, verdict None): the tree is committed while the vessel
+        is parked in the foreign SOI. ERROR / TIMEOUT / budget expiry flake
+        with a named reason.
+      - Every capture-tail phase carries the in-SOI guard: a REAL foreign body
+        reading is an ASSERT-FAIL (left the target SOI without a committed
+        park); "" holds (the blank-body / vessel-lost detectors own it).
     Vessel-lost / frozen telemetry in ANY phase -> ASSERT-FAIL loss_reason
     (survival is the contract). A timed phase out-running its budget yields
     MISSION-FLAKE naming the stuck phase (except the PLAN-CORRECTION
@@ -3149,8 +3453,12 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                              "while airborne; vessel presumed destroyed)" % limit)), []
         state = replace(state, frozen_sig=new_sig, frozen_count=new_count)
 
-    # Flyby-floor evidence: min finite altitude while inside the target SOI.
-    if (state.phase == B5_TARGET_FLYBY and snapshot.body == state.params.target_body
+    # Flyby-floor evidence: min finite altitude while inside the target SOI. For
+    # a flyby that is TARGET-FLYBY only; for a capture mission it spans the whole
+    # in-SOI stay (_B5_IN_TARGET_SOI_PHASES), so the same assertion also certifies
+    # that the PARKED orbit's periapsis cleared the terrain.
+    if (state.phase in _B5_IN_TARGET_SOI_PHASES
+            and snapshot.body == state.params.target_body
             and _is_finite(snapshot.altitude)):
         prev = state.min_target_altitude
         if prev is None or snapshot.altitude < prev:
@@ -3660,7 +3968,34 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
 
     if state.phase == B5_TARGET_FLYBY:
         return_body = _b5_return_body(state.params)
-        if snapshot.body == return_body:
+        if state.params.capture_enabled and snapshot.body == return_body:
+            # CAPTURE MODE: leaving the target SOI IS the failure -- the whole
+            # point of the lane is a recording that ENDS parked in the foreign
+            # SOI. A deterministic outcome (the approach was never captured),
+            # so ASSERT-FAIL, never a retryable flake.
+            return replace(
+                state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("left the target SOI %r without capturing "
+                             "(body=%r); the arrival flew past instead of "
+                             "circularizing"
+                             % (state.params.target_body, snapshot.body))), []
+        if state.params.capture_enabled and snapshot.body == state.params.target_body:
+            # CAPTURE ARMING: a debounced run of in-SOI frames with a finite
+            # ABOVE-SURFACE periapsis hands off to PLAN-CAPTURE. Planning at SOI
+            # entry (rather than chasing periapsis with our own warp stair) is
+            # deliberate: MechJeb's circularize-at-periapsis picks the burn UT
+            # and the NodeExecutor's own autowarp flies the coast down to it --
+            # the same proven plan -> node -> executor pipeline the TLI uses, so
+            # there is no way to warp past the burn.
+            if _b5_capture_arm_ready(state, snapshot):
+                streak = state.capture_arm_streak + 1
+                if streak >= CAPTURE_ARM_DEBOUNCE_FRAMES:
+                    return _b5_enter_plan_capture(
+                        replace(state, capture_arm_streak=0), snapshot, peak)
+                state = replace(state, capture_arm_streak=streak)
+            elif state.capture_arm_streak:
+                state = replace(state, capture_arm_streak=0)
+        if not state.params.capture_enabled and snapshot.body == return_body:
             # The exit: back in the return body's SOI after the flyby (home
             # for the B5/B6 free-return, Sun for B7 -- a Duna flyby exits
             # heliocentric). Terminal (done, verdict None); the settle tail
@@ -3730,10 +4065,15 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         native_target = None
         if impact_bound:
             desired = 0
-        elif (_is_finite(snapshot.time_to_soi) and _is_finite(snapshot.ut)
+        elif (not state.params.capture_enabled
+                and _is_finite(snapshot.time_to_soi) and _is_finite(snapshot.ut)
                 and snapshot.time_to_soi > state.params.soi_lead):
             # (c) Outer flyby legs: NATIVE warp to the SOI EXIT minus
-            # soi_lead. The game's own altitude limits shape the passage
+            # soi_lead. NEVER in capture mode: warping toward the SOI EXIT is
+            # warping toward the failure terminal, and the arming debounce is
+            # only ~3 polls away from handing the leg to PLAN-CAPTURE anyway.
+            # Capture mode rides the rails stair below (flybyWarpFactor floor,
+            # so still never 1x). The game's own altitude limits shape the passage
             # (e.g. Mun periapsis at 60 km runs at most 100x -- the proven
             # min-altitude evidence cadence -- while the outer legs run
             # 1000x+), table-free.
@@ -3775,6 +4115,167 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             actions.append(Action(ACTION_SET_RAILS_WARP, float(desired)))
             stayed = replace(stayed, warp_cmd=desired)
         return stayed, actions
+
+    # ---- ORBIT-mission tail (B11/B12): capture -> park -> commit ------------
+    # Reachable only with captureEnabled; every phase carries the in-SOI guard
+    # (leaving the target SOI here is the deterministic failure) plus a NAMED
+    # fast-fail for its own dead actor.
+
+    if state.phase == B5_PLAN_CAPTURE:
+        left = _b5_left_target_soi(state, snapshot)
+        if left is not None:
+            return replace(left, peak_apoapsis=peak), []
+        new_state, actions = _b5_plan_phase(
+            state, snapshot, peak,
+            plan_action=Action(ACTION_MJ_PLAN_CAPTURE),
+            burn_phase=B5_CAPTURE_BURN,
+            # No fall-through: unlike a best-effort course correction, a capture
+            # node IS the mission. PLAN_MAX_ATTEMPTS with no node (the planner
+            # keeps throwing server-side) takes the flake path EARLY instead of
+            # idling out the whole plan budget -- the liveness rule.
+            on_timeout_phase=None,
+            # The MechJeb NodeExecutor, with autowarp set EXPLICITLY runner-side
+            # (B-DOCK flight-12: the executor's autowarp is shared global state,
+            # so an unset one warps or coasts at 1x by luck). The DIY burner is
+            # deliberately NOT used: a capture node sits hours ahead at periapsis,
+            # exactly the far-node regime the executor is proven in.
+            handoff_action=Action(ACTION_MJ_EXECUTE_NODES))
+        if new_state.done and new_state.verdict == MISSION_FLAKE:
+            return _b5_named_flake(
+                new_state,
+                "phase %s: no capture node (planAttempts=%d, budget %.0f "
+                "game-s): MechJeb circularize-at-periapsis produced nothing "
+                "inside %s SOI"
+                % (B5_PLAN_CAPTURE, new_state.plan_attempts,
+                   state.params.capture_plan_timeout,
+                   state.params.target_body)), actions
+        return new_state, actions
+
+    if state.phase == B5_CAPTURE_BURN:
+        left = _b5_left_target_soi(state, snapshot)
+        if left is not None:
+            return replace(left, peak_apoapsis=peak), []
+        state, stuck, nostart, burned = _b5_track_burn_stagnation(state, snapshot)
+        consumed = snapshot.node_count < max(state.planned_node_count, 1)
+        achieved = _b5_capture_achieved(state.params, snapshot)
+        if (consumed or stuck) and achieved:
+            # CAPTURED. Clear any stray node, then park the stage: rails down to
+            # 1x, throttle cut, nodes cleared, attitude held.
+            entered = _b5_enter(state, B5_PARK, snapshot.ut, peak)
+            entered = replace(entered, warp_cmd=0, warp_to_cmd=None,
+                              park_stable_streak=0,
+                              capture_apoapsis=float(snapshot.apoapsis),
+                              capture_periapsis=float(snapshot.periapsis),
+                              capture_eccentricity=float(snapshot.eccentricity))
+            return entered, _b5_park_entry_actions()
+        if stuck:
+            # A burn demonstrably ran, the executor wedged holding the node, and
+            # the orbit is STILL not bound inside the window: the capture
+            # under-burned. An autopilot failure -> bounded, NAMED flake.
+            return _b5_named_flake(
+                state,
+                "phase %s: capture under-burn (executor wedged with the node "
+                "still pending; ap=%.0f pe=%.0f ecc=%.3f is not a bound orbit "
+                "inside [pe>=%.0f, ap<=%.0f, ecc<=%.2f])"
+                % (B5_CAPTURE_BURN, snapshot.apoapsis, snapshot.periapsis,
+                   snapshot.eccentricity, state.params.park_min_periapsis,
+                   state.params.park_max_apoapsis,
+                   state.params.park_max_eccentricity), peak), []
+        if nostart:
+            # LIVENESS: the orbit never changed and the craft has sat static at
+            # 1x past the no-start bound -- the executor never began. Fast-fail
+            # with its own name instead of idling to the (hours-long) burn
+            # budget while the actor is provably dead.
+            return _b5_named_flake(
+                state,
+                "phase %s: capture-executor-no-start (the NodeExecutor never "
+                "began; orbit unchanged and static at 1x for %.0f s)"
+                % (B5_CAPTURE_BURN, state.params.burn_nostart_seconds), peak), []
+        stayed = _b5_stay_or_flake(state, snapshot, peak)
+        if stayed.done:
+            return _b5_named_flake(
+                stayed,
+                "phase %s: the capture burn did not complete inside its %.0f "
+                "game-second budget" % (B5_CAPTURE_BURN,
+                                        state.params.capture_burn_timeout)), []
+        # Flameout staging AFTER the exit/flake checks (same delta-review A1/A3
+        # ordering as the other burns): a dry stage under a commanded burn pops
+        # ONE stage, bounded by the per-mission cap. mid_burn covers MechJeb's
+        # throttle collapse on engine death (finding 17).
+        mid_burn = burned and snapshot.node_count >= max(state.planned_node_count, 1)
+        return _b5_flameout_stage(stayed, snapshot, mid_burn=mid_burn)
+
+    if state.phase == B5_PARK:
+        left = _b5_left_target_soi(state, snapshot)
+        if left is not None:
+            return replace(left, peak_apoapsis=peak), []
+        stable = _b5_park_stable(state.params, snapshot)
+        streak = state.park_stable_streak + 1 if stable else 0
+        st = replace(state, peak_apoapsis=peak, park_stable_streak=streak,
+                     park_ever_stable=(state.park_ever_stable
+                                       or streak >= state.params.park_debounce))
+        dwelled = (_is_finite(snapshot.ut)
+                   and (snapshot.ut - st.phase_entry_ut) >= state.params.park_dwell)
+        if streak >= state.params.park_debounce and dwelled:
+            # HELD stable through the dwell -> commit the tree HERE, parked in
+            # the foreign SOI (the Parsek surface the whole lane exists for).
+            return (_b5_enter(st, B5_ORBIT_COMMIT, snapshot.ut, peak),
+                    [Action(ACTION_PARSEK_COMMIT_TREE)])
+        # PARK is the RECORDED in-foreign-SOI coverage this lane exists for, so
+        # it deliberately runs at 1x: self-heal any warp the node executor (or a
+        # leftover native warp) left running, on-change only -- a settled 1x park
+        # emits nothing. This is NOT a coast phase, so the no-1x-coast invariant
+        # (COAST-TO-TARGET / TARGET-FLYBY) does not apply.
+        warp_actions: List[Action] = []
+        if st.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
+            st = replace(st, warp_to_cmd=None, warp_cmd=0)
+            warp_actions.append(Action(ACTION_CANCEL_WARP))
+        elif st.warp_cmd != 0 or snapshot.warp_mode == WARP_RAILS:
+            st = replace(st, warp_cmd=0)
+            warp_actions.append(Action(ACTION_SET_RAILS_WARP, 0.0))
+        if _b5_over_budget(st, snapshot):
+            if st.park_ever_stable:
+                return _b5_named_flake(
+                    st,
+                    "phase %s: the captured orbit stabilized but never HELD "
+                    "stable through the %.0f s park dwell"
+                    % (B5_PARK, state.params.park_dwell)), []
+            return _b5_named_flake(
+                st,
+                "phase %s: never reached a stable park (body=%s situation=%s "
+                "ap=%.0f pe=%.0f ecc=%.3f angVel=%.4f)"
+                % (B5_PARK, snapshot.body or "?", snapshot.situation or "?",
+                   snapshot.apoapsis, snapshot.periapsis, snapshot.eccentricity,
+                   snapshot.angular_velocity)), []
+        return st, warp_actions
+
+    if state.phase == B5_ORBIT_COMMIT:
+        left = _b5_left_target_soi(state, snapshot)
+        if left is not None:
+            return replace(left, peak_apoapsis=peak), []
+        result = snapshot.seam_commit_result
+        if result == "OK":
+            # TERMINAL: the tree is committed while the vessel is parked in the
+            # foreign SOI. done, verdict None -- the assertions judge the state.
+            return _b5_enter(replace(state, commit_result="OK"),
+                             B5_ORBIT_COMMITTED, snapshot.ut, peak), []
+        if result in ("ERROR", "TIMEOUT"):
+            # LIVENESS: the seam answered a terminal token, so the actor is
+            # provably done and wrong. Name the outcome instead of the generic
+            # phase-timeout wording.
+            return _b5_named_flake(
+                replace(state, commit_result=result),
+                "phase %s: tree-commit seam returned %s (the parked-in-%s-SOI "
+                "commit did not happen)"
+                % (B5_ORBIT_COMMIT, result, state.params.target_body), peak), []
+        stayed = _b5_stay_or_flake(state, snapshot, peak)
+        if stayed.done:
+            return _b5_named_flake(
+                stayed,
+                "phase %s: the tree-commit seam never answered inside its "
+                "%.0f game-second budget"
+                % (B5_ORBIT_COMMIT, state.params.commit_timeout)), []
+        return stayed, []
 
     return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase, done=True,
                    peak_apoapsis=peak), []
@@ -5633,7 +6134,8 @@ def evaluate_b4_assertions(frames, params: B4Params,
 def evaluate_b5_assertions(frames, params: B5Params,
                            phases_reached=(),
                            min_target_altitude: Optional[float] = None,
-                           k: int = DEFAULT_DEBOUNCE_K) -> List[AssertionOutcome]:
+                           k: int = DEFAULT_DEBOUNCE_K,
+                           state=None) -> List[AssertionOutcome]:
     """Evaluate the four B5 driver-validity assertions: terminal-focused phase +
     flyby evidence, NEVER a golden trajectory (the transfer geometry is
     MechJeb's business; ours is that the flyby actually happened and came back).
@@ -5656,6 +6158,27 @@ def evaluate_b5_assertions(frames, params: B5Params,
       and the returnBody detail name the actual exit body, the assertion NAME
       is kept for result-schema stability).
 
+    ORBIT MODE (``params.capture_enabled``, missions b11_mun_orbit /
+    b12_minmus_orbit): ``returnedToHome`` is REPLACED (the mission must NOT
+    return -- leaving the target SOI is the failure) by three carried-evidence
+    rows. ``flybyPeriapsisFloor`` is retained and now certifies the whole
+    in-SOI stay, PARK orbit included.
+
+    - ``capturedInTargetOrbit``: PARK was entered AND the orbit read at PARK
+      entry is BOUND inside the capture window (0 < ap <= parkMaxApoapsisMeters,
+      pe >= parkMinPeriapsisMeters, ecc <= parkMaxEccentricity). A hyperbolic
+      (uncaptured) approach reads a NEGATIVE apoapsis, so this cannot be
+      satisfied by flying past.
+    - ``parkedStable``:         ORBIT-COMMIT was entered (the stable park HELD
+      through the whole dwell) AND the park was ever in-gate.
+    - ``treeCommitted``:        ORBIT-COMMITTED was entered AND the seam
+      answered OK -- the tree was committed while the vessel was parked in the
+      FOREIGN SOI, the Parsek surface the lane exists for.
+
+    ``state`` is the terminated machine state; the capture rows are carried
+    evidence the frames cannot hold (this evaluator discards them). Absent /
+    None it degrades to the flyby rows.
+
     ``k`` is retained for signature symmetry but unused: every B5 assertion is
     phase / min evidence, not a noisy per-frame window."""
     del frames  # phase + machine evidence carry everything; kept for seam symmetry
@@ -5677,6 +6200,45 @@ def evaluate_b5_assertions(frames, params: B5Params,
                              (min_target_altitude if min_target_altitude is not None
                               else float("nan")),
                              {"floor": floor})
+
+    if params.capture_enabled:
+        cap_ap = getattr(state, "capture_apoapsis", None)
+        cap_pe = getattr(state, "capture_periapsis", None)
+        cap_ecc = getattr(state, "capture_eccentricity", None)
+        cap_met = (B5_PARK in phases
+                   and cap_ap is not None and cap_pe is not None
+                   and cap_ecc is not None
+                   and 0.0 < cap_ap <= params.park_max_apoapsis
+                   and cap_pe >= params.park_min_periapsis
+                   and cap_ecc <= params.park_max_eccentricity)
+        # Carried readings ride the row as None (never NaN) when absent:
+        # AssertionOutcome.to_dict scrubs a non-finite VALUE but NOT the detail
+        # dict, and serialize_mission_result renders with allow_nan=False.
+        captured = AssertionOutcome(
+            "capturedInTargetOrbit", cap_met, cap_ecc,
+            {"required": B5_PARK, "body": params.target_body,
+             "apoapsis": cap_ap, "periapsis": cap_pe,
+             "maxApoapsis": params.park_max_apoapsis,
+             "minPeriapsis": params.park_min_periapsis,
+             "maxEccentricity": params.park_max_eccentricity})
+
+        parked_met = (B5_ORBIT_COMMIT in phases
+                      and bool(getattr(state, "park_ever_stable", False)))
+        parked = AssertionOutcome(
+            "parkedStable", parked_met,
+            (B5_ORBIT_COMMIT if B5_ORBIT_COMMIT in phases
+             else (phases[-1] if phases else None)),
+            {"required": B5_ORBIT_COMMIT, "dwellSeconds": params.park_dwell,
+             "debounceFrames": params.park_debounce,
+             "everStable": bool(getattr(state, "park_ever_stable", False))})
+
+        commit_result = str(getattr(state, "commit_result", "") or "")
+        commit_met = (B5_ORBIT_COMMITTED in phases) and commit_result == "OK"
+        committed = AssertionOutcome(
+            "treeCommitted", commit_met, (commit_result or None),
+            {"required": B5_ORBIT_COMMITTED, "body": params.target_body})
+
+        return [orbit, soi, flyby, captured, parked, committed]
 
     return_body = _b5_return_body(params)
     ret_met = B5_RETURN in phases
@@ -6091,6 +6653,16 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("separate_thrust_streak", "sepThrustStreak"),
     ("separate_split_confirmed", "sepSplitOk"),
     ("separate_activations", "sepActivations"),
+    # ORBIT-mission tail (B11/B12; getattr-generic, so absent elsewhere).
+    # park_stable_streak is shared with the FORGE-LKO state, which gains the
+    # same (purely additive) observability field.
+    ("capture_arm_streak", "captureArmStreak"),
+    ("park_stable_streak", "parkStableStreak"),
+    ("park_ever_stable", "parkEverStable"),
+    ("capture_apoapsis", "captureAp"),
+    ("capture_periapsis", "capturePe"),
+    ("capture_eccentricity", "captureEcc"),
+    ("commit_result", "commitResult"),
 )
 
 # Fields whose CHANGE is a sparse, decision-relevant gate/latch event worth
@@ -6154,6 +6726,14 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     # "a frame disagreed about the handoff envelope" event an operator needs to see.
     # getattr-generic: absent on every other machine, so no other mission's log moves.
     ("window_open_streak", "evaWindowStreak"),
+    # ORBIT-mission tail (B11/B12): the capture-arming and park-hold debounce
+    # runs (both bounded by their debounce depths), the ever-stable latch and
+    # the observed seam commit verdict -- exactly the sparse decision events an
+    # operator needs when a capture or a parked-in-foreign-SOI commit misses.
+    ("capture_arm_streak", "captureArmStreak"),
+    ("park_stable_streak", "parkStableStreak"),
+    ("park_ever_stable", "parkEverStable"),
+    ("commit_result", "commitResult"),
 )
 
 _MACHINE_FIELD_ABSENT = object()

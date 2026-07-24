@@ -1,6 +1,27 @@
 # Automated Testing System - Status
 
-Last updated: 2026-07-24 (EVA-4-atmo-chute LIVE-PROVEN on flight 2 - FULL PASS
+Last updated: 2026-07-25 (Mun/Minmus ORBIT lane lands, NEVER FLOWN: roadmap
+item 2 - "capture burn + commit-in-target-orbit terminal" - is implemented as
+B11-mun-orbit + B12-minmus-orbit. The roadmap's informal "B8" label collided
+with the catalog's existing B8/B9/B10 rows, so the lane took B11/B12 and both
+docs now carry the mapping. The lane buys ONE Parsek surface no flyby reaches:
+a recording that ENDS parked in a foreign SOI and is COMMITTED there. Built by
+turning on a new `captureEnabled` param in the LIVE-PROVEN B5 flyby machine -
+ascent, transfer, TLI, corrections and the whole warp policy are byte-identical
+to the 26 B5 flights, and with the flag off none of the new code is reachable -
+plus a four-phase tail: PLAN-CAPTURE (MechJeb circularize-at-periapsis) ->
+CAPTURE-BURN (NodeExecutor with autowarp set EXPLICITLY; the done evidence is a
+BOUND orbit, since a hyperbolic approach reads a NEGATIVE apoapsis) -> PARK (the
+forge_lko held-dwell gate re-pointed at a foreign body: throttle cut, nodes
+cleared, SAS+RCS held, rails dropped to 1x for 180 game-s of recorded coverage)
+-> ORBIT-COMMIT (the B-DOCK route-1 mid-mission seam CommitTree) ->
+ORBIT-COMMITTED. Leaving the target SOI anywhere in the tail is an ASSERT-FAIL,
+so B5's free-return cannot green an orbit mission. Every actor-dependent phase
+carries a GAME budget AND a distinctly named fast-fail
+(capture-executor-no-start, capture under-burn, never-stabilized vs
+never-HELD-stable, tree-commit-seam-returned-X). New D1 registry cell
+`commit-in-foreign-soi`. 46 new headless tests; all four suites green. Awaits
+its first live flights. Prior: EVA-4-atmo-chute LIVE-PROVEN on flight 2 - FULL PASS
 attempt 1, all seven verifiers: the craft's canopy OBSERVED Deployed, handoff
 at 1,606 m / -23.2 m/s, the kerbal out mid-air, its own chute verified, a
 steady -4.5 m/s chuted descent and "down=true situation=LANDED alive=true",
@@ -95,8 +116,12 @@ Mun/Minmus/Duna flybys with a certified no-1x-coast warp profile. All
 infrastructure modules are shipped and merged. The FIRST two-vessel lane
 (B-DOCK: dock/transfer/undock, the logistics-route recording entry point) is
 IMPLEMENTED and headless-green, pending a headless fixture-forge run + its
-first flight. Coverage stands at 52 of 238 registry cells - breadth (EVA,
-orbit, landing, docking, career-ledger lanes) is the frontier.
+first flight. The Mun/Minmus ORBIT lane (B11/B12: capture burn, park, and a
+commit while parked in a FOREIGN SOI) is IMPLEMENTED and headless-green,
+pending its first flight. Coverage stands at 52 of 239 registry cells - the
+denominator grew by one when the ORBIT lane added the D1
+`commit-in-foreign-soi` cell it claims. Breadth (EVA, orbit, landing, docking,
+career-ledger lanes) is the frontier.
 
 ## Infrastructure modules (all SHIPPED and merged)
 
@@ -114,7 +139,7 @@ orbit, landing, docking, career-ledger lanes) is the frontier.
 | M-C2 EVA verbs + missions | EvaExit/EvaBoard/PlantFlag -> crew/EVA/flag recording coverage | LIVE-PROVEN 2026-07-24; 18 implemented verbs, 11 reserved; verbs + pure deciders + hlib companions + EVA-1/2/3 specs land, both fixtures forged headlessly, all three scenarios flown green, live-prove list P1-P6 closed |
 | EVA-4 atmospheric chute | EvaChuteDeploy (the kerbal personal parachute) + mission `eva4_atmo_chute` -> mid-flight atmospheric EVA branch, kerbal-owned atmospheric TrackSections, two-phase chute part events ON the kerbal, kerbal DOWN-alive terminal | LIVE-PROVEN 2026-07-24 (flight 2 full PASS); 19 implemented verbs, 11 reserved; all four first-flight pins closed (count 3, kerbalEVA token, semi-deployed rate measured -> descent budget trimmed 480 -> 240, kerbal lands alive), plus the K=2 window debounce + raw-alive CompleteOk conjunct hardenings |
 
-## Test cases (all 28 committed scenarios)
+## Test cases (all 30 committed scenarios)
 
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
@@ -135,10 +160,12 @@ The "Parsek surface verified" column is the reason the case exists.
 | S1.4-injected-playback | daily | 272-tree corpus injection, load, ghost map presence + polyline render with no anomalies | D6 basic-playback/ghost-map-presence/non-orbital-polyline; D16 sidecar-prec/sidecar-pcrf |
 | H5-invariants-corpus | daily | The full synthetic corpus (306 recordings / 276 trees) loads intact and holds every recording invariant in-game | D14 sandbox/scene-flight; D16 sidecar-prec/schema-gate |
 
-### Committed, not yet live-run (13)
+### Committed, not yet live-run (15)
 
 | Test case | Tier | Parsek surface verified | Blocker |
 |---|---|---|---|
+| B11-mun-orbit | nightly | COMMIT-IN-FOREIGN-SOI (the new D1 cell): a recording that ENDS parked in another body's SOI and is COMMITTED there - the commit path, the terminal classification, and the background-recording handoff for a tree whose terminal state is "in orbit around the Mun". Every other lunar/interplanetary case (B5/B6/B7) flies THROUGH an SOI and comes back or continues, so none of them reaches this surface. Machine: the LIVE-PROVEN `mlib.b5_decide` with the new `captureEnabled` param - ascent, transfer, TLI, corrections, warp policy all byte-identical to the 26 B5 flights; NEW is the four-phase tail PLAN-CAPTURE (MechJeb circularize-at-periapsis) -> CAPTURE-BURN (NodeExecutor, autowarp EXPLICIT; done evidence is a BOUND orbit, since a hyperbolic approach reads a NEGATIVE apoapsis) -> PARK (throttle cut, nodes cleared, SAS+RCS held, rails dropped to 1x, 180 game-s held dwell) -> ORBIT-COMMIT (the B-DOCK route-1 mid-mission seam CommitTree) -> ORBIT-COMMITTED. Leaving the target SOI anywhere in that tail is an ASSERT-FAIL, so B5's free-return cannot green this mission | FIRST LIVE FLIGHT. Fixture `b2-lko-craft` is already committed (shared with B2/B4/B5/B6 - no forge run needed). First-flight PINS: (1) `recordings.count {1,10}` is PROVISIONAL (topology-derived; pin exactly from the measured save), (2) the wall budgets 3000/3500 are B5's measured 465-854 s plus a ~500 s tail estimate, (3) `captureBurnTimeoutSeconds` 60000 and `parkDwellSeconds` 180 are estimates, (4) NO post-mission CommitTree is declared (the seam returns ERROR `no-active-tree` with no live tree) - if the flight shows Parsek opening a fresh tree after the mid-mission commit, add one THEN, (5) no foreground SOI-change log token could be sourced with certainty from the emitting call sites, so none is asserted; flight 1's KSP.log decides whether one exists |
+| B12-minmus-orbit | nightly | Same cells on the minmus axis (a thin alias over the same capture-enabled machine, exactly as B6 is to B5) | FIRST LIVE FLIGHT, after B11. Same PROVISIONAL pins; the Minmus-specific one is `captureBurnTimeoutSeconds` 200000 (its SOI edge is ~2,187 km up but arrival speeds are ~5x lower than the Mun's, so the executor's SOI-entry -> periapsis autowarp coast is ~10-20 game hours, not 1-3) |
 | BDOCK-1-station-interceptor | nightly | FIRST two-vessel flight (18-phase machine): cross-tree Dock branch, authoritative onVesselsUndocking split, RouteConnectionWindow recorded-delta contract (the new `Route window delta:` line), same-craft-twice launch identity. Flight-1/2 wall budgets re-timed; flight-3 lesson (STATION-SEPARATE / INT-SEPARATE) + flight-4 lesson (two-step SEPARATE: drop the spent lifter AND ignite the orbital engine, thrust-verified, cap 2) both live-confirmed through RENDEZVOUS on flight 5; flight-5 lesson (MATCH-VELOCITY kill-rel-vel retargeted XFromNow ~15 s lead + bounded 600 s give-up + per-frame diagnostics + one-shot dropped-target re-acquire); flight-8 lesson (prox-ops rule: abort the pending kill-rel-vel node executor at DOCK entry before the docking AP owns the ship, else it rails-warps + packs the port target null + NREs); flight-9 lesson (core.target one-Update sync trap: stagger the docking-AP enable one poll after the port target); flight-10/11 lesson (prox-ops observability [angular_velocity/sas/rcs/docking_ap_status + per-frame DOCK diag line] + attitude hold [SAS+RCS after each separation and at DOCK entry] + LIVENESS watchdogs [budgets bound SLOW, watchdogs bound BROKEN: DOCK enable-never-took / died-mid-approach / no-progress fast flakes, TRANSFER stall fast flake, bounded dropped-target re-arm x3]). flight-13 ROOT CAUSE (behind every dock failure since flight 7): pre-`launch_vessel`-reload PART handles are stale - the reload destroys every Part, so the captured docking-port handle resolves to a destroyed part and assigning it silently CLEARS the target; VESSEL handles survive (P9 answered). Fix: resolve port + docking-state + transfer tanks LIVE at call time. Flight 13's liveness layer fast-flaked in 10 s with the named E1a reason (wall 2133 s) and pinned this. Flight 16 (2026-07-24): MISSION-OK END TO END (launch, separate, mid-mission commit seam, launch_vessel, rendezvous, hard dock, LF 40 + mono 15 transfers, undock, TERMINAL) - and the verifier chain caught the FIRST mission-machinery-found Parsek recording defect: analyzer RED, INV4-PARTEVENT-PID x13 on the Station recording d5355cc6. Root cause: the launch_vessel FLIGHT->FLIGHT reload is classified as a quickload (stale vesselSwitchPending), and RestoreActiveTreeFromPending's NAME fallback adopted the fresh-rollout Interceptor (same .craft, same "Kerbal X" name, different Vessel.id) and PID-remapped the Station recording onto it, so the whole Interceptor flight recorded into the Station recording with foreign craft-baked part pids. FIXED Parsek-side: QuickloadResumeMatchGuard (fresh-rollout pid + launch-guid gates in the restore match loop); forensics in todo-and-known-bugs.md flight-16 entry | LIVE-PROVEN 2026-07-24: flight 17 on the guard build = MISSION-OK + analyzer red=0 (the QuickloadResumeMatchGuard fix verified on a clean two-tree save; the one residual red was the spec's own dock token - docking MERGES trees, Parsek logs 'Tree merge created: type=Dock', only splits log 'Tree branch created'); flight 18 = FULL PASS, all seven verifiers green, fifth consecutive hard dock. Re-tiered nightly. 18-flight campaign, zero manual sessions |
 | FORGE-bdock-station | operator | (Not a Parsek-surface test) FIXTURE-FORGE: launch_vessel the docking Kerbal X onto the pad + SaveGame -> stamps the bdock-station-pad fixture headlessly (replaces the operator fixture flight) | None - runnable now on a provisioned instance; harvest tool normalizes the output |
 | FORGE-eva3-pad | operator | (Not a Parsek-surface test) FIXTURE-FORGE (EVA-3 sibling): launch_vessel the Kerbal X onto the pad with THREE named crew + SaveGame -> stamps the eva3-pad-3crew fixture headlessly. Uses the review-follow-up-2 crew (by NAME) + launch_site plumbing | DONE 2026-07-24: forge run + `harvest_bdock_station.py --target-name eva3-pad-3crew` produced the committed eva3-pad-3crew fixture, and EVA-3 flew it to a full PASS (the Kerbal X pad-EVA reachability caveat did NOT materialize) |
@@ -249,9 +276,16 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
    pinned exactly, log-token wording confirmed, ladder-drop + flag-capture
    proven. The crew/EVA/flag recording surface no flight can reach is now
    covered.
-2. B8 Mun/Minmus ORBIT missions - capture burn + commit-in-target-orbit
-   terminal: recordings that END in a foreign SOI (new commit/BG-handoff
-   surface vs the free-return shape).
+2. Mun/Minmus ORBIT missions - capture burn + commit-in-target-orbit terminal:
+   recordings that END in a foreign SOI (new commit/BG-handoff surface vs the
+   free-return shape). IMPLEMENTED 2026-07-25 as **B11-mun-orbit** +
+   **B12-minmus-orbit**, NEVER FLOWN (see the committed-not-yet-live-run table).
+   ID NOTE: this item was informally called "B8", but B8/B9/B10 are already
+   taken in `automated-testing-scenario-catalog.md` section 2 (loop-B7-as-
+   mission / crash-rewind-refly / career passive safety) and B3 is the EVA
+   branch, so the lane is B11 + B12. Remaining: the first live flight of each
+   (fly B11 first - the shorter coast prices the capture tail faster and every
+   finding transfers to B12).
 3. Mun/Minmus LANDING missions - upper stage landed: landed-on-other-body
    recording, surface TrackSections off Kerbin, the landing FSM seam.
 4. Ledger campaign resumption once career fixtures exist (L1 -> L2+): the

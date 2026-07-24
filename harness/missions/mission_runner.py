@@ -936,6 +936,43 @@ class KrpcMissionControl(MissionControl):
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Plan",
                     "operation_course_correction.make_nodes failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_MJ_PLAN_CAPTURE:
+            # ORBIT missions (B11/B12): plan the CAPTURE burn inside the target
+            # SOI -- MechJeb's circularize operation aimed at the next PERIAPSIS.
+            # Surface verified against the pinned KRPC.MechJeb source
+            # (mods/KRPC.MechJeb/ManeuverPlanner.cs OperationCircularize
+            # KRPCProperty -> Maneuver/OperationCircularize.cs, a TimedOperation
+            # whose TimeSelector exposes TimeReference; the class doc says
+            # verbatim "To match apoapsis to periapsis, set the time to
+            # TimeReference.Periapsis"). The service generates snake_case python
+            # attributes, so: op.time_selector.time_reference =
+            # mech_jeb.TimeReference.periapsis.
+            #
+            # NO target altitude: the capture circularizes at WHATEVER arrival
+            # periapsis the course-correction rounds produced, and the machine's
+            # PARK window judges the result -- a tolerance, never a golden orbit.
+            # Defensive on the time-selector set (an API-shape drift must not
+            # stop the node from planning); same throw/log/swallow contract as
+            # every other plan action, so a failed plan leaves node_count at 0
+            # and the machine's bounded re-plan cadence owns the retry.
+            try:
+                op = self._mechjeb.maneuver_planner.operation_circularize
+                try:
+                    op.time_selector.time_reference = self._mechjeb.TimeReference.periapsis
+                except Exception as exc:
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Warn", "Capture",
+                        "circularize time-selector default kept (periapsis "
+                        "retarget failed: %s)" % (exc,)))
+                op.make_nodes()
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Info", "Capture",
+                    "capture plan issued (circularize at periapsis); nodes=%d"
+                    % (len(control.nodes),)))
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Capture",
+                    "operation_circularize.make_nodes failed: %s" % (exc,)))
         elif kind == mlib.ACTION_MJ_EXECUTE_NODES:
             # Hand the planned node(s) to MechJeb's NodeExecutor with autowarp:
             # it rails-warps to each node and burns it (the warp guard permits

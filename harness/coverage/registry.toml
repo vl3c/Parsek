@@ -16,11 +16,17 @@
 schema = 1
 
 [D1]  # recording lifecycle
+# "commit-in-foreign-soi" (added with the B11/B12 Mun+Minmus ORBIT lane, per the
+# growth rule): committing a tree whose recording CLOSES while the vessel is
+# parked in ANOTHER body's SOI. Distinct from every other commit cell - the
+# existing ones all commit a recording whose terminal state is at/near Kerbin -
+# and it is the cell the ORBIT lane exists to claim (commit path + terminal
+# classification + the background-recording handoff that follows).
 values = ["auto-record-launch", "auto-record-eva", "auto-record-first-mod-switch",
           "manual-gloops", "stop-on-switch", "commit-revert-merge", "commit-scene-exit",
-          "commit-abort", "discard-rollback", "auto-merge", "sub-2-point-drop",
-          "switch-segment", "switch-segment-noop-discard", "scene-exit-finalization",
-          "ballistic-extrapolation", "finalization-cache"]
+          "commit-abort", "commit-in-foreign-soi", "discard-rollback", "auto-merge",
+          "sub-2-point-drop", "switch-segment", "switch-segment-noop-discard",
+          "scene-exit-finalization", "ballistic-extrapolation", "finalization-cache"]
 
 [D2]  # sampling
 values = ["density-presets", "proximity-cadence-bg", "structural-event-snapshots",

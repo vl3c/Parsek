@@ -1,0 +1,191 @@
+# =============================================================================
+# MISSION PROFILE - full ordered step list with the per-phase VEHICLE
+# CONFIGURATION contract. IDENTICAL to B11-mun-orbit.toml's profile (the same
+# mlib.b5_decide machine with captureEnabled, the same craft, the same phase
+# order); only the target body and the numbers below differ. Read the B11 spec
+# header for the full per-phase vehicle-configuration contract - it is not
+# duplicated here so the two cannot drift.
+#
+#   PRELAUNCH -> MJ-ASCENT -> CIRCULARIZE -> ORBIT -> PLAN-TRANSFER ->
+#   TRANSFER-BURN -> COAST-TO-TARGET (2 correction rounds) -> TARGET-FLYBY
+#   (capture arming; SOI-exit warp SUPPRESSED) -> PLAN-CAPTURE -> CAPTURE-BURN
+#   -> PARK (throttle cut, nodes cleared, SAS + RCS held, rails 1x, held dwell)
+#   -> ORBIT-COMMIT (mid-mission seam CommitTree) -> ORBIT-COMMITTED
+#
+# VEHICLE CONFIGURATION, same as B11: the stock Kerbal X flies as one stack with
+# no deliberate separation phase; the flameout-staging watchdog (B5 finding 15)
+# is the only staging, and it fires only on OBSERVED zero available thrust under
+# a commanded burn, capped at MAX_FLAMEOUT_STAGES. Leaving the Minmus SOI from
+# TARGET-FLYBY onward is an ASSERT-FAIL, never a RETURN terminal.
+# =============================================================================
+schema = 1
+id = "B12-minmus-orbit"
+# NEVER FLOWN. Committed pending its first live flight; every PROVISIONAL number
+# is pinned exactly from the measured flight afterwards. Fly B11 FIRST - it is
+# the shorter coast, so it prices the capture tail in ~20 wall-minutes instead
+# of ~30, and every B11 finding transfers here unchanged (the B5 -> B6
+# relationship, repeated).
+#
+# ID NOTE: see B11-mun-orbit.toml. The roadmap's informal "B8" label for this
+# lane collides with the catalog's existing B8/B9/B10 rows, so the ORBIT lane is
+# B11 (Mun) + B12 (Minmus).
+tier = "nightly"
+description = "Minmus ORBIT / commit-in-target-orbit: the B11 machine and craft with targetBodyName=Minmus -- MechJeb ascent, Hohmann transfer, autowarped burn, dv-capped corrections, ~9-day cross-SOI coast, CAPTURE burn inside the Minmus SOI, a held stable park, and a mid-mission command-seam CommitTree that closes the tree WHILE PARKED IN THE FOREIGN SOI."
+instanceProfile = "stock-minimal"
+tags = ["B12", "orbit", "mechjeb", "minmus", "cross-soi", "capture", "commit-in-foreign-soi", "pending-flight"]
+
+[fixture]
+# Same committed Kerbal X fixture as B2/B4/B5/B6/B11.
+#
+# DELTA-V FEASIBILITY: ~1500-1600 m/s after the 80 km circularization. Minmus
+# transfer ~930 m/s + up to ~340 m/s of corrections + the capture. Minmus
+# capture is CHEAP (mu 1.766e9, R 60 km): from a v_inf ~100 m/s arrival it is
+# ~80 m/s at a 30 km periapsis and ~70 m/s at B6's observed 512 km arrival.
+# Worst case ~1,350 m/s - the same margin B11 has, and B6 already flew the
+# transfer half of it. PROVISIONAL: flight 1 measures the real margin.
+saveTemplate       = "fixtures/saves/b2-lko-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+# Thin alias over the body-parameterized B5 machine with captureEnabled (see
+# b12_minmus_orbit.py); the flight differs from B11 only in these params.
+mission = "b12_minmus_orbit"
+
+# `steps` MUST stay in the [driver] table (above the [driver.missionParams]
+# header).
+#
+# COMMIT ACCOUNTING: exactly ONE commit, the MID-MISSION seam CommitTree the
+# machine fires from ORBIT-COMMIT. NO post-mission CommitTree - the seam's
+# CommitTreeImpl returns ERROR `no-active-tree` when no tree is live, which is
+# the expected post-commit state. Same FIRST-FLIGHT-TO-CONFIRM as B11: only add
+# one if the flight shows Parsek opening a fresh tree after the commit.
+#
+# BUDGET ARITHMETIC. Base = the MEASURED B6 flight on this same machine and
+# fixture (wall 1167 s; the ~46,400 km Minmus transfer is ~9 days of game time,
+# so it costs more rails hops than the Mun's ~1-2 days). The ORBIT tail adds
+# roughly the B11 amounts, EXCEPT the capture coast: Minmus's SOI edge is
+# ~2,187 km up but its arrival speeds are ~5x lower than the Mun's, so the
+# SOI-entry -> periapsis coast is ~10-20 GAME hours instead of 1-3 - more warp,
+# but the executor's autowarp covers it in comparable wall time (~200 s).
+#   capture arming + PLAN-CAPTURE  ~30 wall
+#   CAPTURE-BURN                   ~200 wall
+#   PARK                           ~200 wall (180 game-s at 1x)
+#   ORBIT-COMMIT                   <1 wall typical, 120 worst (seam poll bound)
+# => B6 1167 + ~550 = ~1,720 expected worst. missionBudget 3600 (WALL) is ~2.1x
+# that and above B6's own 3000. runtime 4100 >= 240 LoadGame + ~5 SetSetting +
+# 3600 mission + ~60 FlushAndQuit + ~195 margin (SF-5). PROVISIONAL until
+# flight 1; phase budgets in missionParams are GAME time.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 3600 },
+  { cmd = "FlushAndQuit",                                        expect = "OK" },
+]
+
+# Ascent half = B2's proven tolerances verbatim; transfer half = B6's proven
+# shape (validated against b12_minmus_orbit.schema.toml).
+[driver.missionParams]
+targetApoapsisMeters       = 80000
+targetPeriapsisMeters      = 80000
+apoErrorMeters             = 5000
+periErrorMeters            = 5000
+ascentTimeoutSeconds       = 420
+circularizeTimeoutSeconds  = 300
+targetBodyName             = "Minmus"
+homeBodyName               = "Kerbin"
+# Minmus orbits at ~46,400 km; a transfer burn that raised apoapsis past
+# 40,000 km is unambiguous burn evidence (floor, not a window).
+transferMinApoapsisMeters  = 40000000
+# B6's LIVE-PROVEN value, deliberately unchanged. B6's status row flags 20 km as
+# predating finding 16d and names ~150 km as the re-target IF it reds - but B6
+# has not red, and its measured arrival was 512 km, which is a fine capture
+# altitude (well clear of the ~5.7 km peaks and cheap to circularize at). Reuse
+# the proven number; re-target only on measured evidence, never speculatively.
+courseCorrectPeriapsisMeters = 20000
+maxCorrectionDvMps         = 300
+# Two rounds: post-TLI + a mid-coast refinement at 20,000 km.
+correctionTriggerAltsMeters = [0, 20000000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+transferBurnTimeoutSeconds = 4000
+coastTimeoutSeconds        = 2000000
+flybyTimeoutSeconds        = 400000
+coastWarpFactor            = 6
+flybyWarpFactor            = 5
+flybyMaxWarpFactor         = 6
+nodeArrivalMarginSeconds   = 15
+planWarpFactor             = 2
+soiLeadSeconds             = 30
+flipPhysicsWarpFactor      = 1
+# Min-altitude floor across the WHOLE in-SOI stay (arrival AND park). B6's 6 km
+# value: Minmus has ~5.7 km peaks.
+targetPeriapsisFloorMeters = 6000
+
+# --- ORBIT TAIL -------------------------------------------------------------
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+# CAPTURE-BURN budget (GAME seconds), MUCH larger than B11's: Minmus's SOI edge
+# is ~2,187 km up and its arrival / orbital speeds are ~5x lower than the Mun's,
+# so the executor's SOI-entry -> periapsis autowarp coast is ~10-20 GAME hours
+# (36,000-72,000 s), not 1-3. 200,000 is ~3x the worst case - a SLOW bound; the
+# no-start and under-burn watchdogs bound BROKEN. PROVISIONAL pending flight 1.
+captureBurnTimeoutSeconds  = 200000
+# THE CAPTURE WINDOW (also the PARK gate). Wide, same rationale as B11, sized
+# for Minmus: the observed B6 arrival was 512 km, the peaks are ~5.7 km, and the
+# SOI edge is ~2,187 km up - so 10 km to 1,500 km altitude is a legitimate
+# captured Minmus orbit, with the ceiling keeping the park clear of the SOI edge.
+# The apoapsis ceiling is the load-bearing conjunct (a hyperbolic approach reads
+# a NEGATIVE apoapsis).
+parkMinPeriapsisMeters     = 10000
+parkMaxApoapsisMeters      = 1500000
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+# Same 180 game-s held dwell as B11 (the recorded in-foreign-SOI coverage).
+parkDwellSeconds           = 180
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+
+# Coverage: B11's cell set on the minmus axis. D1 commit-in-foreign-soi is the
+# NEW registry value this lane adds (harness/coverage/registry.toml, same
+# change).
+[dimensionsCovered]
+D1  = ["auto-record-launch", "commit-in-foreign-soi"]
+D3  = ["orbital-checkpoint"]
+D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
+D5  = ["bg-recording"]
+D14 = ["kerbin", "minmus", "warp-rails"]
+
+[expectations.recordings]
+# PROVISIONAL, derived from the topology exactly as B11's is (B5/B6 ascent
+# topology {1, 9}, max widened by 1 for a possible post-commit recording).
+# PIN EXACTLY from the measured save after the first green flight.
+count = { min = 1, max = 10 }
+
+[expectations.logContracts]
+# Same four tokens as B11, each sourced from its ACTUAL emitting ParsekLog call
+# site (lifecycle pair; ParsekFlight.cs:13136 "CommitTreeFlight: starting tree
+# commit at UT="; ParsekTestCommandAddon.cs:1520 "committree committed=true").
+# Same FIRST-FLIGHT-TO-CONFIRM: no foreground SOI-change token could be sourced
+# with certainty, so none is asserted.
+required = [
+  "Recording started",
+  "Recording stopped",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "committree committed=true",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+budgetSeconds = 4100
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

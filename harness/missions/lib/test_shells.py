@@ -39,6 +39,8 @@ import b4_reentry             # noqa: E402
 import b5_mun_flyby           # noqa: E402
 import b6_minmus_flyby        # noqa: E402
 import b7_duna_flyby          # noqa: E402
+import b11_mun_orbit          # noqa: E402
+import b12_minmus_orbit       # noqa: E402
 import forge_station          # noqa: E402
 import forge_lko              # noqa: E402
 import bdock_dock_transfer    # noqa: E402
@@ -1592,6 +1594,233 @@ class SeamCommitBridgeTests(unittest.TestCase):
         c = self._ctrl()
         self.assertIsNone(c._read_seam_response("0003"))
 
+
+# ---------------------------------------------------------------------------
+# ORBIT missions (B11 Mun / B12 Minmus): the SAME B5 shell wiring with
+# captureEnabled, driven end to end over the fake seam -- ascent, transfer,
+# cross-SOI coast, CAPTURE burn, park dwell, mid-mission seam CommitTree, and
+# the commit-in-foreign-SOI terminal.
+# ---------------------------------------------------------------------------
+
+B11_PARAMS = dict(
+    B5_PARAMS,
+    courseCorrectPeriapsisMeters=250000,
+    captureEnabled=True,
+    capturePlanTimeoutSeconds=300,
+    captureBurnTimeoutSeconds=60000,
+    parkMinPeriapsisMeters=15000,
+    parkMaxApoapsisMeters=2000000,
+    parkMaxEccentricity=0.25,
+    parkMaxAngularVelocityRadPerSec=0.05,
+    parkSituations=["ORBITING"],
+    parkDwellSeconds=180,
+    parkDebounceFrames=3,
+    parkTimeoutSeconds=600,
+    commitTimeoutSeconds=300,
+)
+
+
+class B11OrbitShellTests(unittest.TestCase):
+    """B11/B12 shell wiring: the B5 transfer half plus the ORBIT tail
+    (PLAN-CAPTURE -> CAPTURE-BURN -> PARK -> ORBIT-COMMIT -> ORBIT-COMMITTED),
+    with the new capture-plan and commit-seam actions flowing end to end."""
+
+    def _transfer_frames(self, body="Mun", transfer_ap=11_500_000.0):
+        """The B5 ascent + transfer + two correction rounds, verbatim in shape;
+        the ORBIT tail replaces B5's flyby/return frames."""
+        return [
+            snap(ut=0.0, apoapsis=1000, periapsis=0, situation="PRE_LAUNCH",
+                 body="Kerbin"),
+            snap(ut=100.0, apoapsis=78000, periapsis=1000, situation="FLYING",
+                 mj_ascent_complete=True, body="Kerbin"),        # -> CIRCULARIZE
+            snap(ut=140.0, apoapsis=80000, periapsis=79000, altitude=79000.0,
+                 situation="ORBITING", body="Kerbin"),           # -> ORBIT
+            snap(ut=141.0, apoapsis=80001, periapsis=79000, altitude=79001.0,
+                 situation="ORBITING", body="Kerbin"),           # ORBIT -> PLAN (target+plan)
+            snap(ut=150.0, apoapsis=80001, periapsis=79000, altitude=79002.0,
+                 situation="ORBITING", body="Kerbin",
+                 node_count=1),                                  # node -> TRANSFER-BURN
+            snap(ut=2200.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=90000.0, situation="ORBITING", body="Kerbin",
+                 node_count=0),                                  # burn done -> COAST
+            snap(ut=2210.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=93000.0, situation="ORBITING",
+                 body="Kerbin"),                                 # trigger 0 -> PLAN-CORRECTION
+            snap(ut=2230.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=95000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1),                                  # node -> CORRECTION-BURN
+            snap(ut=2245.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=97000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=100.0, ap_error=1.0),     # streak 1 -> physics warp
+            snap(ut=2300.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=99000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=100.0, ap_error=1.0,
+                 warp_mode="PHYSICS", warp_rate=2.0),            # streak 2 -> drop warp
+            snap(ut=2302.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=99500.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=100.0, ap_error=1.0),     # warp NONE -> throttle
+            snap(ut=2400.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=200_000.0, situation="ORBITING", body="Kerbin"),  # -> COAST
+            snap(ut=8000.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=6_500_000.0, situation="ORBITING",
+                 body="Kerbin"),                                 # trigger 2 -> PLAN-CORRECTION
+            snap(ut=8010.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=6_510_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1),                                  # node -> CORRECTION-BURN
+            snap(ut=8025.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=6_520_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=4.0, ap_error=0.8),       # streak 1
+            snap(ut=8030.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=6_525_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=4.0, ap_error=0.7,
+                 warp_mode="PHYSICS", warp_rate=2.0),            # streak 2 -> drop warp
+            snap(ut=8035.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=6_530_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=1, node_dv=4.0, ap_error=0.7),       # warp NONE -> throttle
+            snap(ut=8100.0, apoapsis=transfer_ap, periapsis=79000,
+                 altitude=6_600_000.0, situation="ORBITING", body="Kerbin",
+                 node_count=0),                                  # consumed -> COAST
+            snap(ut=40_000.0, apoapsis=-4_000_000.0, periapsis=1_000_000.0,
+                 eccentricity=1.4, altitude=2_100_000.0,
+                 situation="ESCAPING", body=body),               # SOI -> TARGET-FLYBY
+        ]
+
+    def _capture_frames(self, body="Mun"):
+        """The ORBIT tail: arm the capture, plan it, burn it, park it, commit
+        it. Altitudes drift frame to frame so the 1x frozen-telemetry detector
+        (which compares bit-identical orbit fields) never trips on the park."""
+        arming = [
+            snap(ut=40_000.0 + 10.0 * i, apoapsis=-4_000_000.0,
+                 periapsis=1_000_000.0, eccentricity=1.4,
+                 altitude=2_000_000.0 - 1000.0 * i, situation="ESCAPING",
+                 body=body)
+            for i in range(1, mlib.CAPTURE_ARM_DEBOUNCE_FRAMES + 1)
+        ]
+        tail = [
+            # PLAN-CAPTURE: the node appears -> hand off to the node executor.
+            snap(ut=40_100.0, apoapsis=-4_000_000.0, periapsis=1_000_000.0,
+                 eccentricity=1.4, altitude=1_900_000.0, situation="ESCAPING",
+                 body=body, node_count=1),
+            # CAPTURE-BURN: node consumed AND the orbit is now BOUND.
+            snap(ut=48_000.0, apoapsis=1_010_000.0, periapsis=990_000.0,
+                 eccentricity=0.01, altitude=1_000_000.0, situation="ORBITING",
+                 body=body, node_count=0, angular_velocity=0.002),
+        ]
+        park_entry_ut = 48_000.0
+        park = [
+            snap(ut=park_entry_ut + 10.0 * i, apoapsis=1_010_000.0 + i,
+                 periapsis=990_000.0 - i, eccentricity=0.01,
+                 altitude=1_000_000.0 - 100.0 * i, situation="ORBITING",
+                 body=body, angular_velocity=0.002)
+            for i in range(1, 4)                                  # debounce 3
+        ]
+        park.append(
+            # Dwell elapsed AND still in-gate -> ORBIT-COMMIT (seam fires).
+            snap(ut=park_entry_ut + 200.0, apoapsis=1_010_010.0,
+                 periapsis=989_990.0, eccentricity=0.01, altitude=999_500.0,
+                 situation="ORBITING", body=body, angular_velocity=0.002))
+        park.append(
+            # The seam answered OK -> ORBIT-COMMITTED terminal.
+            snap(ut=park_entry_ut + 210.0, apoapsis=1_010_020.0,
+                 periapsis=989_980.0, eccentricity=0.01, altitude=999_400.0,
+                 situation="ORBITING", body=body, angular_velocity=0.002,
+                 seam_commit_result="OK"))
+        return arming + tail + park
+
+    def test_b11_happy_path_commits_the_tree_parked_in_the_mun_soi(self):
+        """B11 flies ascent -> transfer -> Mun SOI -> CAPTURE -> PARK ->
+        mid-mission seam CommitTree -> ORBIT-COMMITTED, with all SIX assertions
+        met. Guards the shell mis-wiring the capture plan / commit-seam actions,
+        or terminating on the free-return like B5."""
+        frames = self._transfer_frames() + self._capture_frames()
+        control = FakeMissionControl(frames)
+        code, result = run(b11_mun_orbit.SPEC, B11_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        self.assertEqual(result["mission"], "b11_mun_orbit")
+        self.assertEqual(result["phasesReached"][-1], mlib.B5_ORBIT_COMMITTED)
+        kinds = [a.kind for a in control.actions]
+        for kind in (mlib.ACTION_MJ_ENGAGE_ASCENT, mlib.ACTION_SET_TARGET_BODY,
+                     mlib.ACTION_MJ_PLAN_TRANSFER, mlib.ACTION_MJ_EXECUTE_NODES,
+                     mlib.ACTION_MJ_PLAN_CAPTURE, mlib.ACTION_CUT_THROTTLE,
+                     mlib.ACTION_SET_SAS, mlib.ACTION_SET_RCS,
+                     mlib.ACTION_PARSEK_COMMIT_TREE):
+            self.assertIn(kind, kinds, kind)
+        # EXACTLY ONE mid-mission commit (a second seam CommitTree with no
+        # active tree returns ERROR and reds the run).
+        commits = [a for a in control.actions
+                   if a.kind == mlib.ACTION_PARSEK_COMMIT_TREE]
+        self.assertEqual(len(commits), 1)
+        # TWO executor handoffs: the TLI and the CAPTURE (both far-node,
+        # autowarp regimes); the corrections fly the DIY burner.
+        executes = [a for a in control.actions
+                    if a.kind == mlib.ACTION_MJ_EXECUTE_NODES]
+        self.assertEqual(len(executes), 2)
+        by_name = {a["name"]: a["met"] for a in result["assertions"]}
+        self.assertEqual(set(by_name),
+                         {"reachedOrbit", "reachedTargetSoi",
+                          "flybyPeriapsisFloor", "capturedInTargetOrbit",
+                          "parkedStable", "treeCommitted"})
+        self.assertTrue(all(by_name.values()), result["assertions"])
+        # NO settle tail (the SF-4 contract): reads stop at the terminal frame.
+        self.assertEqual(control.reads, len(frames))
+        self.assertTrue(control.closed)
+
+    def test_b12_minmus_alias_flies_the_same_machine(self):
+        """b12_minmus_orbit is a thin alias over the same capture-enabled B5
+        machine: the same frame script with body=Minmus and Minmus-sized params
+        flies to MISSION-OK. Guards the alias shell drifting from B11."""
+        params = dict(B11_PARAMS, targetBodyName="Minmus",
+                      transferMinApoapsisMeters=40_000_000,
+                      courseCorrectPeriapsisMeters=20000,
+                      targetPeriapsisFloorMeters=6000,
+                      captureBurnTimeoutSeconds=200000,
+                      parkMinPeriapsisMeters=10000,
+                      parkMaxApoapsisMeters=1500000)
+        frames = (self._transfer_frames(body="Minmus", transfer_ap=46_000_000.0)
+                  + self._capture_frames(body="Minmus"))
+        control = FakeMissionControl(frames)
+        code, result = run(b12_minmus_orbit.SPEC, params, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        self.assertEqual(result["mission"], "b12_minmus_orbit")
+        self.assertEqual(result["phasesReached"][-1], mlib.B5_ORBIT_COMMITTED)
+        targets = [a for a in control.actions
+                   if a.kind == mlib.ACTION_SET_TARGET_BODY]
+        self.assertEqual(targets,
+                         [mlib.Action(mlib.ACTION_SET_TARGET_BODY, text="Minmus")])
+
+    def test_flying_past_without_capturing_is_assert_fail(self):
+        """The free-return B5 asserts is the outcome an ORBIT mission must NOT
+        have: reading Kerbin again inside the flyby leg is an ASSERT-FAIL with
+        a named loss reason, never a RETURN pass."""
+        frames = self._transfer_frames() + [
+            snap(ut=45_000.0, apoapsis=12_000_000.0, periapsis=35_000.0,
+                 altitude=4_000_000.0, situation="ORBITING", body="Kerbin"),
+        ]
+        control = FakeMissionControl(frames)
+        code, result = run(b11_mun_orbit.SPEC, B11_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_ASSERT_FAIL, result)
+        self.assertNotEqual(code, 0)
+        self.assertIn("without capturing", result["reason"])
+        self.assertNotIn(mlib.B5_RETURN, result["phasesReached"])
+        self.assertIn(mlib.B5_TARGET_FLYBY, result["phasesReached"])
+
+    def test_commit_seam_error_flakes_naming_the_seam(self):
+        """A seam CommitTree that answers ERROR is driver-INVALID (a retryable
+        FLAKE naming the seam), never a silent pass and never PARSEK-FAIL."""
+        frames = self._transfer_frames() + self._capture_frames()[:-1] + [
+            snap(ut=48_400.0, apoapsis=1_010_020.0, periapsis=989_980.0,
+                 eccentricity=0.01, altitude=999_400.0, situation="ORBITING",
+                 body="Mun", angular_velocity=0.002,
+                 seam_commit_result="ERROR"),
+        ]
+        control = FakeMissionControl(frames)
+        code, result = run(b11_mun_orbit.SPEC, B11_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_FLAKE, result)
+        self.assertNotEqual(code, 0)
+        self.assertIn("tree-commit seam returned ERROR", result["reason"])
+        self.assertNotIn(mlib.B5_ORBIT_COMMITTED, result["phasesReached"])
 
 if __name__ == "__main__":
     unittest.main()

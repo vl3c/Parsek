@@ -1,0 +1,299 @@
+# =============================================================================
+# MISSION PROFILE - full ordered step list with the per-phase VEHICLE
+# CONFIGURATION contract (the standing spec rule: every phase names the vehicle
+# configuration that must hold for that leg, JUST LIKE A REAL SPACE MISSION).
+# The machine (mlib.b5_decide with captureEnabled) enforces this order.
+#
+# WHY THIS MISSION EXISTS (the Parsek surface, not the rocketry): B5 (Mun),
+# B6 (Minmus) and B7 (Duna) all fly THROUGH a foreign SOI and come back or
+# continue. NONE of them ends its recording parked in another body's SOI. This
+# mission does: the recording CLOSES and the tree is COMMITTED while the vessel
+# is in a stable Mun orbit. That end-state is a new commit path, a new terminal
+# classification, and a new background-recording handoff for Parsek.
+#
+# VEHICLE CONFIGURATION: the stock Kerbal X flies the WHOLE mission as one
+# stack, exactly as B5/B6 do - there is NO deliberate separation phase, because
+# there is no rendezvous / docking here and the flameout-staging watchdog (B5
+# live finding 15) already pops a dry stage mid-burn when the core runs out and
+# the X200-16 upper tank is behind its decoupler. That watchdog fired TWICE on
+# the B5 certification flight, so mid-mission staging is an OBSERVED, evidence
+# -verified event (available_thrust reads 0 under a commanded burn for
+# FLAMEOUT_DEBOUNCE_FRAMES -> exactly one stage activation, capped at
+# MAX_FLAMEOUT_STAGES), never an assumed side effect. Any phase below that says
+# "full stack" means "whatever stages the flameout watchdog has not yet had to
+# pop"; the mission asserts THRUST and ORBIT outcomes, never a stage count.
+#
+# LIVENESS PRINCIPLE (standing rule): budgets bound SLOW, liveness watchdogs
+# bound BROKEN. A phase may never idle to its budget while its actor (a MechJeb
+# AP, the node executor, the command seam) is provably dead. Every capture-tail
+# phase below carries BOTH a GAME-time budget AND a distinctly named fast-fail.
+#
+#   PRELAUNCH          Kerbal X full stack on the pad, MechJeb autostage armed.
+#   MJ-ASCENT          Full stack; MechJeb autostage drops the 6 radial boosters
+#                      + nose cones during the climb to an 80 km apoapsis.
+#   CIRCULARIZE        Core stage burns the circularization node to an 80 km
+#                      circular parking orbit. Throttle then idle.
+#   ORBIT              One-frame waypoint: set target body = Mun, ask the
+#                      ManeuverPlanner for the intercept-only Hohmann transfer.
+#   PLAN-TRANSFER      Coasting parking orbit, rails held at planWarpFactor (10x)
+#                      between bounded plan attempts. No burn configured.
+#   TRANSFER-BURN      Core/orbiter stage burns the TLI under MechJeb's
+#                      NodeExecutor with autowarp. Exit needs the apoapsis floor
+#                      (10,000 km) = evidence a real burn happened.
+#   COAST-TO-TARGET    Unpowered coast, throttle cut, native warp_to_ut to the
+#                      SOI boundary minus soiLeadSeconds. Two correction rounds
+#                      are triggered from here (altitudes 0 and 6,000 km) plus up
+#                      to MAX_ARRIVAL_EXTRA_ROUNDS arrival-quality rounds.
+#   PLAN-CORRECTION    Coasting, rails at planWarpFactor, no burn configured.
+#   CORRECTION-BURN    DIY burner: native AP pointed at the node (2x physics-warp
+#                      flip), aim-then-warp to node UT minus the arrival margin,
+#                      physics warp DROPPED to 0, then one low-throttle burn.
+#   TARGET-FLYBY       IN MUN SOI, unpowered, attitude free, rails on the flyby
+#                      stair (100x floor). The SOI-EXIT native warp is SUPPRESSED
+#                      here (captureEnabled): warping toward the exit is warping
+#                      toward the failure. Arms the capture after
+#                      CAPTURE_ARM_DEBOUNCE_FRAMES in-SOI frames with a finite
+#                      ABOVE-SURFACE periapsis.
+#   PLAN-CAPTURE       Coasting inward, rails at planWarpFactor; MechJeb plans
+#                      circularize-at-PERIAPSIS. NAMED fast-fail: no capture node
+#                      after PLAN_MAX_ATTEMPTS or the plan budget.
+#   CAPTURE-BURN       THE CAPTURE. NodeExecutor (autowarp set EXPLICITLY
+#                      runner-side - the B-DOCK flight-12 lesson, the executor's
+#                      autowarp is shared global state) rails-warps down to
+#                      periapsis and burns. Done evidence is a BOUND orbit
+#                      (0 < apoapsis <= ceiling; a hyperbolic approach reads a
+#                      NEGATIVE apoapsis, so this cannot be faked by flying
+#                      past). NAMED fast-fails: capture under-burn (executor
+#                      wedged, orbit still unbound) and capture-executor-no-start
+#                      (orbit unchanged, static at 1x past burnNoStartSeconds).
+#   PARK               PARKED CONFIGURATION, and the RECORDED coverage the whole
+#                      lane exists for: throttle CUT, every maneuver node
+#                      CLEARED, attitude HELD (SAS stability-assist + RCS on),
+#                      rails DROPPED to 1x and self-healed there. Requires
+#                      parkDebounceFrames consecutive in-gate frames HELD across
+#                      parkDwellSeconds of game time. NAMED give-ups separate
+#                      "never stabilized" from "stabilized but never HELD".
+#   ORBIT-COMMIT       Unchanged parked configuration; the mid-mission command
+#                      -seam CommitTree fires (the B-DOCK route-1 reserved-id
+#                      bridge). NAMED fast-fail on the seam's own ERROR/TIMEOUT.
+#   ORBIT-COMMITTED    TERMINAL: the tree is committed while the vessel is parked
+#                      in the Mun SOI. No settle tail (SF-4).
+#
+# THE FAILURE THAT IS NOT A SUCCESS: from TARGET-FLYBY onward, reading Kerbin
+# (or any other real body) as the SOI is an ASSERT-FAIL, not a RETURN terminal.
+# B5's free-return is exactly the outcome this mission must not have.
+# =============================================================================
+schema = 1
+id = "B11-mun-orbit"
+# NEVER FLOWN. Committed pending its first live flight; every number below marked
+# PROVISIONAL is pinned exactly from the measured flight afterwards.
+#
+# ID NOTE: the roadmap called this lane "B8", but B8 is already taken in
+# docs/dev/automated-testing-scenario-catalog.md section 2 ("Loop B7 tree as
+# mission, phase-locked"), as are B9 (crash/rewind/re-fly) and B10 (career
+# passive safety, a committed spec). B3 is the EVA branch. The ORBIT lane is
+# therefore B11 (Mun) + B12 (Minmus); the catalog carries the mapping so nobody
+# trips on the informal "B8" label again.
+tier = "nightly"
+description = "Mun ORBIT / commit-in-target-orbit: MechJeb ascent to LKO, ManeuverPlanner Hohmann transfer, autowarped TLI, dv-capped course corrections, cross-SOI coast, CAPTURE burn (circularize at periapsis) inside the Mun SOI, a held stable park, and a mid-mission command-seam CommitTree that closes the tree WHILE PARKED IN THE FOREIGN SOI."
+instanceProfile = "stock-minimal"
+tags = ["B11", "orbit", "mechjeb", "mun", "cross-soi", "capture", "commit-in-foreign-soi", "pending-flight"]
+
+[fixture]
+# The SAME committed Kerbal X fixture B2/B4/B5/B6 fly (no new fixture, no forge
+# run): the ascent and transfer halves are byte-for-byte the B5 mission path.
+#
+# DELTA-V FEASIBILITY (from the todo doc's Kerbal X survey + the measured B5 TLI
+# flights): the stage holds ~1500-1600 m/s after the 80 km circularization.
+# Mun TLI ~860 m/s + up to ~340 m/s of corrections (B5 priced a legitimate
+# round at ~170 m/s) + the capture. Capture cost at the Mun (mu 6.514e10,
+# R 200 km) from a v_inf ~200 m/s arrival is ~220 m/s at a 100 km periapsis and
+# ~150 m/s at a 1,000 km periapsis -- capturing HIGH is CHEAPER, and B5's
+# certified flights arrived at 956-1,142 km. Worst case ~1,360 m/s, inside the
+# budget, with the B5 flameout-staging watchdog reaching the X200-16 upper tank
+# if the core dies mid-burn. PROVISIONAL: flight 1 measures the real margin.
+saveTemplate       = "fixtures/saves/b2-lko-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b11_mun_orbit"
+
+# `steps` MUST stay in the [driver] table, so it is declared ABOVE the
+# [driver.missionParams] header (a key after the sub-table header would be
+# scoped to driver.missionParams.steps and the spec would validate as having
+# zero steps).
+#
+# COMMIT ACCOUNTING - read this before adding a CommitTree step. There is
+# EXACTLY ONE commit: the MID-MISSION one the machine fires from ORBIT-COMMIT
+# via ACTION_PARSEK_COMMIT_TREE (route 1, reusing the mission step's own
+# reserved id on the seam channel). There is deliberately NO post-mission
+# CommitTree: the seam's CommitTreeImpl returns ERROR with `no-active-tree`
+# (ParsekTestCommandAddon.cs) when no tree is live, and after the mid-mission
+# commit that is the expected state. FIRST-FLIGHT-TO-CONFIRM: if the flight
+# shows Parsek opening a FRESH tree for the still-orbiting vessel after the
+# commit, add a post-mission CommitTree step then - do not add one on
+# speculation, because a wrong guess reds the run either way.
+#
+# BUDGET ARITHMETIC. Base = the MEASURED B5 flights on this same machine and
+# fixture (wall 465 s on the no-1x certification flight, 625 / 824 / 854 s on
+# the three earlier passes). The ORBIT tail adds, per phase:
+#   capture arming + PLAN-CAPTURE   ~30 wall (plan is an RPC; 3 bounded attempts
+#                                    at 10 game-s cadence on a 10x hold)
+#   CAPTURE-BURN                    ~150 wall (the executor rails-warps the
+#                                    SOI-entry -> periapsis coast, ~1-3 game
+#                                    hours, then burns ~150-220 m/s)
+#   PARK                            ~200 wall (parkDwellSeconds of GAME time at
+#                                    1x - this dwell IS the recorded coverage,
+#                                    so it is deliberately NOT warped)
+#   ORBIT-COMMIT                    <1 wall typical, 120 wall worst case (the
+#                                    runner's SEAM_COMMIT_POLL_SECONDS bound)
+# => B5 worst 854 + ~500 = ~1,360 expected worst. missionBudget 3000 (WALL) is
+# ~2.2x that and above B5's own 2400. runtime 3500 >= 240 LoadGame + ~5
+# SetSetting + 3000 mission + ~60 FlushAndQuit + ~195 margin: the post-mission
+# seam steps must survive a FULL-budget mission (SF-5). PROVISIONAL until
+# flight 1; phase budgets in missionParams are GAME time.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 3000 },
+  { cmd = "FlushAndQuit",                                        expect = "OK" },
+]
+
+# Ascent + transfer halves = B5's LIVE-PROVEN tolerances VERBATIM (validated
+# against b11_mun_orbit.schema.toml). Every value is a tolerance / threshold /
+# budget, never a golden trajectory.
+[driver.missionParams]
+targetApoapsisMeters       = 80000
+targetPeriapsisMeters      = 80000
+apoErrorMeters             = 5000
+periErrorMeters            = 5000
+ascentTimeoutSeconds       = 420
+circularizeTimeoutSeconds  = 300
+targetBodyName             = "Mun"
+homeBodyName               = "Kerbin"
+transferMinApoapsisMeters  = 10000000
+# B5's HEAD value, unchanged and deliberately NOT re-tuned: MechJeb's
+# OperationCourseCorrection systematically under-delivers toward low periapsis
+# targets (finding 16d), and B5's certified flights turned this 250 km request
+# into 956-1,142 km actual arrivals. For a CAPTURE mission that bias is in the
+# SAFE direction (a high arrival periapsis is both terrain-clear and a CHEAPER
+# capture), and the park window below is sized to accept the whole observed
+# band rather than chase a golden number.
+courseCorrectPeriapsisMeters = 250000
+maxCorrectionDvMps         = 300
+correctionTriggerAltsMeters = [0, 6000000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+transferBurnTimeoutSeconds = 4000
+coastTimeoutSeconds        = 400000
+flybyTimeoutSeconds        = 300000
+coastWarpFactor            = 6
+flybyWarpFactor            = 5
+flybyMaxWarpFactor         = 6
+nodeArrivalMarginSeconds   = 15
+planWarpFactor             = 2
+soiLeadSeconds             = 30
+flipPhysicsWarpFactor      = 1
+# Min-altitude floor across the WHOLE in-SOI stay (arrival AND park), not just a
+# flyby pass. B5's 10 km value: the Mun has ~7 km peaks.
+targetPeriapsisFloorMeters = 10000
+
+# --- ORBIT TAIL -------------------------------------------------------------
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+# CAPTURE-BURN budget (GAME seconds). The executor autowarps the SOI-entry ->
+# periapsis coast: the Mun SOI edge sits ~2,230 km above the surface and the
+# arrival crosses it at ~0.5-0.8 km/s, so that coast is ~1-3 game hours
+# (3,600-11,000 s). 60,000 is ~5x the worst case - a SLOW bound; the no-start
+# and under-burn watchdogs bound BROKEN. PROVISIONAL pending flight 1.
+captureBurnTimeoutSeconds  = 60000
+# THE CAPTURE WINDOW (also the PARK gate). Deliberately WIDE, because the
+# arrival periapsis is MechJeb's business and the observed B5 band is
+# 956-1,142 km: anything from 15 km to 2,000 km altitude is a legitimate
+# captured Mun orbit. The apoapsis CEILING is the load-bearing conjunct - a
+# hyperbolic (uncaptured) approach reads a NEGATIVE apoapsis in the Mun frame,
+# so "0 < ap <= 2,000 km" is the actually-captured evidence; the ceiling also
+# keeps the park comfortably inside the ~2,230 km SOI edge instead of grazing it.
+parkMinPeriapsisMeters     = 15000
+parkMaxApoapsisMeters      = 2000000
+# A circularize-at-periapsis burn should land well under this; 0.25 leaves room
+# for the executor's own 0.1 tolerance and a partial burn that is still a
+# perfectly stable parked orbit.
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+# GAME seconds the stable park is HELD before the commit. This dwell IS the
+# recorded parked-in-foreign-SOI coverage (the machine holds 1x through it), so
+# it is also the flight's main added wall cost: 180 game-s ~= 180 wall-s.
+# PROVISIONAL: raise only if flight 1 shows the committed recording carrying too
+# little in-Mun-SOI coverage to be a useful playback / ghost fixture.
+parkDwellSeconds           = 180
+parkDebounceFrames         = 3
+# PARK budget (GAME seconds) = the dwell + 420 s of stabilization slack. At 1x
+# that is a 10-minute wall worst case, so the NAMED park give-up always fires
+# before the 3000 s mission wall budget could reap the run generically.
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+
+# Coverage. The transfer half is B5's cell set; the NEW cell is D1
+# commit-in-foreign-soi (added to harness/coverage/registry.toml in this same
+# change per the registry growth rule) - the commit path for a tree whose
+# recording closes while the vessel is in orbit around another body. D5
+# bg-recording is claimed because the committed vessel keeps existing in the Mun
+# SOI after the commit, which is exactly the background-recording handoff the
+# roadmap item names.
+[dimensionsCovered]
+D1  = ["auto-record-launch", "commit-in-foreign-soi"]
+D3  = ["orbital-checkpoint"]
+D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
+D5  = ["bg-recording"]
+D14 = ["kerbin", "mun", "warp-rails"]
+
+[expectations.recordings]
+# PROVISIONAL, derived from the TOPOLOGY, not measured (logContracts are
+# presence-only via re.search, so this window is the only numeric guard):
+# B5's identical ascent topology (main recording + up to 6 dropped Kerbal X
+# boosters as parent-anchored debris children + 1 LES-tower margin + 1 for a
+# flameout-staged dry core) gives {1, 9}; max is widened by 1 to absorb a fresh
+# post-commit recording for the still-orbiting vessel IF Parsek opens one. min
+# stays 1: the main recording must exist even if debris admission varies.
+# PIN EXACTLY from the measured save after the first green flight.
+count = { min = 1, max = 10 }
+
+[expectations.logContracts]
+# Every token below is sourced from the ACTUAL emitting ParsekLog call site:
+#   "Recording started" / "Recording stopped" - the lifecycle pair every flown
+#       scenario already asserts (live-proven across B1/B2/B4/B5/B6/B7).
+#   "CommitTreeFlight: starting tree commit at UT=" - ParsekFlight.cs:13136,
+#       ParsekLog.Info("Flight", ...). Proves the commit path actually ran.
+#   "committree committed=true" - ParsekTestCommandAddon.cs:1520,
+#       ParsekLog.Info(Tag="TestCommands", ...) on the seam verb's success
+#       branch. Proves the MID-MISSION seam commit (not a post-mission one)
+#       reached its OK result.
+# FIRST-FLIGHT-TO-CONFIRM (deliberately NOT asserted yet, because no token
+# could be sourced with certainty): a foreground SOI-change / body-change line
+# for the ACTIVE vessel. The only SOI-change Info lines found in the source are
+# BackgroundRecorder.cs:2542 (background vessels only) and
+# ParsekFlight.cs:12229 (the SUPPRESSED-in-tree-mode branch), neither of which
+# is the foreground Kerbin->Mun crossing. Flight 1's KSP.log decides whether a
+# usable token exists.
+required = [
+  "Recording started",
+  "Recording stopped",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "committree committed=true",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+budgetSeconds = 3500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
