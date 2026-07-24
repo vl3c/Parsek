@@ -67,7 +67,9 @@ namespace Parsek.Tests
         [Fact]
         public void Table_HasExpectedCounts()
         {
-            Assert.Equal(18, TestCommandVerbs.ImplementedVerbNames.Count);
+            // 19 = v1 (10) + M-C1 batch 1 (4) + M-C1.1 SaveGame (1) + M-C2 EVA (3)
+            // + EVA-4 EvaChuteDeploy (1). Mirrored by hlib.IMPLEMENTED_SEAM_VERBS.
+            Assert.Equal(19, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(11, TestCommandVerbs.ReservedVerbNames.Count);
         }
     }

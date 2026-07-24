@@ -1,0 +1,323 @@
+schema = 1
+id = "EVA-4-atmo-chute"
+# NIGHTLY (flown mission: too long for daily, same class as B1 / EVA-1 / EVA-3). The
+# fixture is the ALREADY-COMMITTED b1-pad-craft, so this is NOT pending-fixture.
+#
+# LIVE-PROVEN 2026-07-24 (flight 2, full PASS on attempt 1; all seven verifiers
+# PASS/SKIPPED - batchComplete SKIPPED as designed, everything else PASS).
+# The four values the first live runs had to pin are now pinned from measurement, not
+# guessed: (P1) the recordings count = exactly 3; (P2) the `'kerbalEVA` part-name token
+# confirmed in both Part-event lines; (P3) the craft's semi-deployed descent rate MEASURED
+# at about -236 m/s peak, which sized descentTimeoutSeconds down to 240; (P4) the kerbal's
+# canopy opened and it landed ALIVE. Every required log token below is quoted from the
+# emitting ParsekLog call site, with the file:line in the comment.
+#
+# FLIGHT-1 (2026-07-24) ASSERT-FAILed as designed and re-tuned the mission params; the
+# full forensics live in the RE-TUNED block over [driver.missionParams] below and in
+# todo-and-known-bugs.md.
+#
+# =====================================================================================
+# WHAT THIS SCENARIO IS FOR (the Parsek surface nothing else in the suite covers)
+# =====================================================================================
+# Every existing EVA scenario exits on the ground (EVA-1 / EVA-3, pad) or in orbit
+# (EVA-2). This one is the ATMOSPHERIC MID-FLIGHT case, and it exercises four things
+# together that no other scenario reaches:
+#   1. a kerbal EVA branch created MID-FLIGHT IN ATMOSPHERE (not landed, not on rails);
+#   2. ATMOSPHERIC TrackSections on the KERBAL's OWN recording - the kerbal is a FALLING
+#      vessel with a real trajectory, not a stationary one standing next to a pod;
+#   3. the EVA chute recorded as a two-phase part event ON THE KERBAL
+#      (ParachuteSemiDeployed -> ParachuteDeployed; the D7 chute-two-phase cell, which
+#      no scenario claimed before this one);
+#   4. a kerbal DOWN terminal - the landed/splashed contract applied to a KERBAL
+#      recording rather than a craft, with the kerbal ALIVE.
+#
+# =====================================================================================
+# ORDERED STEP LIST + PER-PHASE VEHICLE-CONFIGURATION CONTRACT (standing spec rule)
+# =====================================================================================
+# Phase          | Driver  | Vehicle configuration at the START of the phase
+# ---------------+---------+--------------------------------------------------------
+# PRELAUNCH      | mission | Stock "Jumping Flea" full stack on the LaunchPad, sit=
+#                |         | PRELAUNCH: mk1pod.v2 (Jebediah Kerman aboard) + parachute-
+#                |         | Single (STOWED, deployAltitude 1000, automateSafeDeploy 0)
+#                |         | + solidBooster.sm.v2 (unlit) + 3x basicFin. Throttle 0.
+#                |         | Jebediah's ROSTER entry carries the stock default kerbal
+#                |         | inventory "evaChute,evaJetpack" (fixture persistent.sfs
+#                |         | ROSTER/KERBAL/INVENTORY) - that evaChute cargo part is what
+#                |         | switches ModuleEvaChute on once he is outside.
+# ASCENT         | mission | Same single stack, SRB LIT at full throttle. No separation
+#                |         | event anywhere in this mission: the Jumping Flea has no
+#                |         | decoupler, so the configuration is constant through
+#                |         | touchdown.
+# COAST          | mission | Same stack, SRB burnt out (solid fuel 0), throttle CUT,
+#                |         | ballistic over apoapsis.
+# DESCENT        | mission | Same stack, falling. On the FIRST frame past apoapsis
+#                |         | (|vertical speed| within craftChuteArmMaxRateMps) the CRAFT's
+#                |         | parachuteSingle has its deployAltitude RAISED to
+#                |         | craftChuteFullDeployAltMeters and is armed STOWED->ACTIVE.
+#                |         | Arming HERE, while slow, is the flight-1 fix: at ~300 m/s
+#                |         | stock refuses to open it at all (see the mission-params
+#                |         | block). It semi-deploys within a frame or two at ~11.9 km
+#                |         | (Kerbin is ~0.2 atm there, far over its 0.04 atm gate) and
+#                |         | fully deploys under the raised altitude.
+# EVA-WINDOW     | mission | Same stack, still AIRBORNE and CREWED, under an OBSERVED
+# (terminal)     |         | FULL canopy (kRPC ParachuteState reads Deployed - never the
+#                |         | machine's own "we commanded it" latch, which was true for
+#                |         | the whole failed flight 1) inside the altitude band with
+#                |         | |vertical speed| under the bound. Mission ends and hands off.
+# EVA-EXIT       | seam    | Jebediah leaves mk1pod.v2 through the side airlock. The
+#                |         | vessel configuration SPLITS: a new single-part kerbalEVA
+#                |         | vessel (Jebediah) + the parent pod stack, which keeps
+#                |         | descending under its own canopy as a background vessel.
+#                |         | release=true is REQUIRED, not cosmetic - see below.
+# CHUTE-ARM      | seam    | kerbalEVA part only: ModuleEvaChute STOWED->ACTIVE.
+# CANOPY         | seam    | ModuleEvaChute ACTIVE->SEMIDEPLOYED (its own pressure /
+#                |         | altitude / shock-temperature gate) ->DEPLOYED under 1000 m.
+# TOUCHDOWN      | seam    | kerbalEVA situation LANDED or SPLASHED with the kerbal
+#                |         | ALIVE (vessel present, crew aboard, roster not Dead).
+# COMMIT         | seam    | Recorder stopped; the tree (pod root + Jebediah's EVA
+#                |         | branch + whatever the pod's own arrival produced) committed.
+#
+# WHY release=true IS LOAD-BEARING (decompiled KSP 1.12.5, not a preference):
+#   ModuleEvaChute reaching SEMIDEPLOYED calls kerbalEVA.OnParachuteSemiDeployed() ->
+#   fsm.RunEvent(On_semi_deploy_parachute). That FSM event is registered on ONLY
+#   st_ragdoll and st_idle_fl (KerbalEVA.cs:9600), and KerbalFSM.RunEvent for an
+#   unregistered event is a SILENT no-op (KerbalFSM.cs:298-311) - the exact trap that
+#   produced EVA-1's false-positive ladder release. On_ladderLetGo.GoToStateOnEvent =
+#   st_idle_fl (KerbalEVA.cs:8678), so the VERIFIED ladder release is what puts the
+#   kerbal in a receptive state. A kerbal still hanging on the pod's hatch ladder would
+#   arm its chute and never enter the chute state.
+#
+# WHAT THE PARENT CRAFT DOES (a second, deliberate surface):
+#   After the EVA the pod is a background vessel under its own deployed canopy, and it
+#   touches down BEFORE the kerbal does (it is heavier and started lower relative to its
+#   own full-deploy altitude). Per the B1 fixture note the Jumping Flea ALWAYS breaks
+#   apart at touchdown (~9 m/s vs the booster's 7 m/s tolerance). That is EXPECTED here,
+#   not a failure: the recordings-count window below absorbs the breakup children, and
+#   nothing in this spec asserts the pod survives. B4 owns the craft-survives-intact
+#   contract; this scenario's survival contract is the KERBAL's, enforced by the seam
+#   verb's own alive conjunct (a landed-but-dead kerbal is an ERROR, never an OK).
+#
+# BATCH-AUTORUN: NOT wired (batchComplete SKIPPED), for the reasons enumerated at
+# length in EVA-1-pad-flag.toml - they apply unchanged here.
+tier = "nightly"
+description = "Atmospheric mid-flight EVA: hop, chute the craft, EVA the kerbal into the descent, deploy its personal parachute, and land it alive; the kerbal's own atmospheric recording, two-phase chute part events, and DOWN terminal."
+instanceProfile = "stock-minimal"
+tags = ["eva", "eva-branch", "atmospheric", "chute", "flown", "D4", "D5", "D7", "B1"]
+
+[fixture]
+# REUSED, no new fixture: the committed b1-pad-craft template (operator 2026-07-19), the
+# same pre-placed stock "Jumping Flea" B1 flies. Two properties of it are load-bearing
+# here and were verified by reading the committed persistent.sfs, not assumed:
+#   - the pod's crew is Jebediah Kerman (PART mk1pod.v2, crew = Jebediah Kerman);
+#   - his ROSTER entry carries INVENTORY { inventory = evaChute,evaJetpack } with a
+#     STOREDPART evaChute in slot 0 - the stock kerbalEVA DEFAULTPARTS default
+#     (Squad/Parts/Prebuilt/kerbalEVA.cfg ModuleInventoryPart DEFAULTPARTS). Without
+#     that cargo part KerbalEVA.UpdatePackModels would leave ModuleEvaChute DISABLED and
+#     the seam verb would REJECT eva-chute-unavailable rather than false-pass.
+# So no fixture edit and no forge run are needed for EVA-4.
+saveTemplate       = "fixtures/saves/b1-pad-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "eva4_atmo_chute"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header (a key
+# after the sub-table header would be scoped to driver.missionParams.steps and the spec
+# would validate as having zero steps).
+#
+# ONE mission step is a hard harness rule ("kind 'autopilot' requires exactly one
+# mission-kind step"), and kRPC has no EVA API - which is exactly why the flight is split
+# the way it is: the mission flies the craft into the envelope, the seam does the EVA.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # autoRecordOnLaunch: the recorder is live on the POD from launch, so the mid-flight
+  # EVA is a MID-RECORDING EVA (the deferred tree-branch path) rather than the EVA-2
+  # auto-record-on-EVA path. autoRecordOnEva is pinned OFF so the branch cannot come
+  # from that path instead and blur which surface this scenario proved.
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "true" },  expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  # verboseLogging: the Part-event lines and "Mid-recording EVA detected" are VERBOSE.
+  { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { phase = "mission",                                                    expect = "MISSION-OK", budget = 900 },
+  # release=true: MANDATORY, see the FSM ground truth above. The seam reports
+  # released=VERIFIED-left-the-ladder, never a bare called-the-event bit.
+  { cmd = "EvaExit",        args = { release = "true" },                  expect = "OK", budget = 120 },
+  # awaitDown=true: arm the kerbal's chute, hold until the canopy is VERIFIED open, then
+  # hold through the descent until LANDED/SPLASHED with the kerbal alive.
+  { cmd = "EvaChuteDeploy", args = { awaitDown = "true" },                expect = "OK", budget = 420 },
+  { cmd = "StopRecording",                                                expect = "OK" },
+  { cmd = "CommitTree",                                                   expect = "OK" },
+  { cmd = "FlushAndQuit",                                                 expect = "OK" },
+]
+
+# Mission parameters are TOLERANCES / WINDOWS, never golden trajectories; validated
+# against eva4_atmo_chute.schema.toml.
+[driver.missionParams]
+# ================= RE-TUNED FROM FLIGHT-1 MEASUREMENTS (2026-07-24) =================
+# Flight 1 ASSERT-FAILed exactly as designed - fast, self-explaining, no budget burn:
+#   "eva-window-missed: altitude 702m fell below the window floor 800m (vspeed
+#    -295.2m/s, situation FLYING, craftChute armed)".
+# Measured per-frame profile from the mission telemetry:
+#   peak altitude 11,965 m at ut 60.6 (orbital apoapsis 19,879 m);
+#   unchuted descent settles at TERMINAL -301 m/s by ~2,700 m and holds it;
+#   chute armed at 2,382 m / -301 m/s; 5.1 s later at 855 m the rate had moved 4.7 m/s.
+# The Parsek recording confirms the canopy never opened at all: the pod's .prec carries
+# ZERO Parachute* part events. ROOT CAUSE: the fixture's parachuteSingle persists
+# automateSafeDeploy = 0 (open only while SAFE) and stock DeploySafe never reads SAFE at
+# ~300 m/s in dense air, so an armed chute simply waits - and a craft at terminal
+# velocity never slows on its own. Arming low was INERT, not late.
+throttle              = 1.0
+# Hop sanity, unchanged: B1's live-proven window, and flight 1 measured 19,879 m inside it.
+apoapsisWindowMeters  = { min = 6000, max = 30000 }
+# --- Craft chute: ARM WHILE SLOW, and give the full canopy room (flight-1 fixes) ---
+# 30 m/s: the machine arms at the APOAPSIS CROSSING instead of at an altitude. Measured
+# DESCENT-entry rates were -7.4, -16.9, -26.1, -35.5 m/s, so this arms within ~3 frames,
+# where DeploySafe is trivially SAFE and Kerbin is already ~0.2 atm (the module's
+# semi-deploy pressure gate is 0.04 atm), so the canopy opens at ~11.9 km and the craft
+# never reaches the -301 m/s terminal that made flight 1 unopenable.
+craftChuteArmMaxRateMps       = 30
+# 2500 m: raise the stock deployAltitude (a PAW tweakable) from the fixture's 1000 m so
+# the FULL canopy exists well above the EVA band. The Mk16 full-deploy animation is ~8 s
+# (parachuteMk1.cfg deploymentSpeed = 0.12); at 1000 m the settle would eat into the band
+# itself. This also lengthens the KERBAL's atmospheric descent, which is the recording
+# surface this scenario exists to exercise.
+craftChuteFullDeployAltMeters = 2500
+# --- EVA window: [700, 2100] m with |vs| <= 25 m/s ---
+# Ceiling 2100 m: 400 m below the full-deploy trigger, so "chute reads Deployed" can only
+# become true inside or above the band. Floor 700 m: 1400 m of settle room for the ~8 s
+# animation, and still ~700 m of sky for the kerbal (whose own chute FULLY deploys under
+# 1000 m at ~5-6 m/s, so its descent time is bounded by that leg, not by the exit
+# altitude). 25 m/s: the B1-measured Jumping Flea full-canopy touchdown rate is ~9 m/s,
+# so this passes with ~2.8x margin while a merely semi-deployed craft can never satisfy
+# it - the window stays meaningful instead of rubber-stamping a slow-ish frame.
+evaWindowMaxAltMeters = 2100
+evaWindowMinAltMeters = 700
+evaMaxDescentRateMps  = 25
+# --- Phase budgets, re-checked against the measured fall times ---
+# ASCENT: measured 9.7 s (ut 10.1 -> 19.9). COAST: measured 40.8 s (19.9 -> 60.6). Both
+# keep B1's live-proven values with a large margin.
+ascentTimeoutSeconds  = 90
+coastTimeoutSeconds   = 180
+# DESCENT: 240, TRIMMED FROM FLIGHT-2 EVIDENCE (P3 closed). The re-tune had provisionally
+# raised this to 480 because the craft's SEMI-DEPLOYED descent rate was the one number
+# flight 1 could not supply, so the budget was sized to out-wait a pessimistic ~30 m/s
+# crawl. Flight 2 MEASURED it: the semi-deployed craft does not crawl at all, it sinks at
+# up to -236 m/s (peak magnitude at ~5.7 km; the rate then decays with air density to
+# -223 m/s at the 2500 m full-deploy trigger, and the full canopy brakes it to -23 m/s in
+# ~5.6 s). The whole DESCENT phase - apoapsis crossing (ut 60.9) to the EVA window
+# (ut 122.5) - took 61.6 s. 240 s is therefore ~3.9x the measured phase, and it is the
+# pre-retune value the B1 hop was sized against.
+# Why this budget is a BACKSTOP and not the real guard: every realistic failure of this
+# phase is caught FIRST by the named eva-window-missed ASSERT-FAIL, because a craft whose
+# canopy misbehaves sinks past the 700 m floor in seconds (flight 1 did exactly that in
+# 107 s wall total). The budget only fires in the pathological "airborne, not descending,
+# window never satisfied" case - where a shorter bound reports the stall SOONER, which is
+# the point of a bounded wait.
+descentTimeoutSeconds = 240
+
+[dimensionsCovered]
+D1  = ["auto-record-launch"]
+D4  = ["atmospheric"]         # asserted: "TrackSection started: env=Atmospheric"
+D5  = ["eva-branch"]          # asserted: "Tree branch created: type=EVA"
+D7  = ["chute-two-phase"]     # asserted: both kerbalEVA Part-event lines below
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations.recordings]
+# P1 - PINNED FROM THE FLIGHT-2 PASS (2026-07-24), replacing the pre-flight provisional
+# {min 2, max 10} window. MEASURED: exactly 3 .prec in saves/b1-pad-craft/Parsek/
+# Recordings - pod root 1 + kerbal EVA split 1 + the pod's post-EVA continuation 1. The
+# parent DOES break up on its own touchdown after the EVA (the B1 fixture note: the
+# Jumping Flea always does, ~9 m/s vs the booster's 7 m/s tolerance), but on this profile
+# that produced no extra recording.
+count = { min = 3, max = 3 }
+# EXACT, not a window, deliberately: the step list is fixed and logContracts are
+# presence-only (hlib.evaluate_expectations uses re.search), so this count is the SOLE
+# numeric guard that the EVA split and the kerbal's own recording exist at all - a window
+# wide enough to absorb breakup variance is also wide enough to absorb a missing EVA
+# branch.
+# RE-PIN CONTRACT (the B1 breakup-child variance is documented and real: B1 saw up to 4
+# breakup-child pids and states the per-run child count varies). If a later run
+# legitimately differs, RE-PIN to the new measured value and record WHICH recordings the
+# run produced - do NOT widen the window blindly, because widening it is exactly what
+# would let a dropped EVA branch pass.
+
+[expectations.logContracts]
+# Every token below is quoted from the emitting ParsekLog call, with the source site.
+# LEVELS: the Part-event lines and "Mid-recording EVA detected" are VERBOSE and depend on
+# the verboseLogging pin above; the rest are Info.
+#
+#  "Recording started"                    FlightRecorder.cs:6140  (Info)   - auto-record armed on the pod
+#  "Mid-recording EVA detected"           ParsekFlight.cs:8051    (Verbose)- the MID-FLIGHT branch path
+#  "Tree branch created: type=EVA"        ParsekFlight.cs:5682    (Info)   - the EVA branch exists
+#  "TrackSection started: env=Atmospheric" FlightRecorder.cs:5126 (Info)   - the D4 atmospheric claim
+#  "evaexit complete"                     ParsekTestCommandAddon.Eva.cs    (Info) - carries released=
+#  "evachutedeploy armed"                 ParsekTestCommandAddon.EvaChute.cs (Info) - STOWED->ACTIVE VERIFIED
+#  "evachutedeploy canopy verified"       ParsekTestCommandAddon.EvaChute.cs (Info) - canopy observed OPEN
+#  "evachutedeploy complete"              ParsekTestCommandAddon.EvaChute.cs (Info) - carries down=/situation=
+#  "Part event: ParachuteSemiDeployed 'kerbalEVA"  FlightRecorder.cs:1687 (Verbose)
+#  "Part event: ParachuteDeployed 'kerbalEVA"      FlightRecorder.cs:1687 (Verbose)
+#  "Recording stopped"                    FlightRecorder.cs:7665  (Info)
+#  "committree committed=true"            ParsekTestCommandAddon.cs:1520 (Info)
+#
+# P2 - the two Part-event tokens deliberately match the part-name PREFIX 'kerbalEVA with
+# NO closing quote. KSP picks the EVA part by suit/gender (kerbalEVA / kerbalEVAfemale /
+# kerbalEVAVintage / kerbalEVASlimSuit / ...), all of which share that prefix, so the
+# prefix is robust across suit variants while still excluding the CRAFT's own
+# 'parachuteSingle' events. The apostrophe is what makes it a part-name match. The tokens
+# also deliberately do NOT bind the [Recorder] subsystem tag: BackgroundRecorder emits the
+# same "Part event: ..." wording (with a "(bg vessel N)" suffix), so the token matches
+# whether the kerbal's recording is the promoted foreground one or still background-tracked
+# - either way PARSEK captured the chute event, which is what this scenario claims.
+#
+# "down=true situation=" is the KERBAL DOWN terminal. Both halves are on the verb's
+# completion line, and that line is only ever emitted for an OK completion - which the
+# verb gates on its alive conjunct - so this token IS the "landed AND alive" proof.
+#
+# NOT required, deliberately: "released=true" from the EvaExit completion. A kerbal that
+# exits mid-air WITHOUT grabbing the hatch ladder takes the seam's honest release=noop
+# path and reports released=false, which is a legitimate (and equally chute-ready) outcome
+# because the not-on-a-ladder exit is ALREADY in st_idle_fl. Requiring the token would red
+# a good run on a stock detail this scenario does not control. "evachutedeploy canopy
+# verified" is the real proof that the FSM cooperated: it can only appear if the module
+# actually reached SEMIDEPLOYED/DEPLOYED.
+required  = ["Recording started",
+             "Mid-recording EVA detected",
+             "Tree branch created: type=EVA",
+             "TrackSection started: env=Atmospheric",
+             "evaexit complete",
+             "evachutedeploy armed",
+             "evachutedeploy canopy verified",
+             "evachutedeploy complete",
+             "down=true situation=",
+             "Part event: ParachuteSemiDeployed 'kerbalEVA",
+             "Part event: ParachuteDeployed 'kerbalEVA",
+             "Recording stopped",
+             "committree committed=true"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+# Budget arithmetic (S0.6 / B1 pattern), WALL clock.
+#   300 LoadGame + 900 mission + 120 EvaExit + 420 EvaChuteDeploy = 1740,
+#   plus the fast verbs (SetSetting x3 / StopRecording / CommitTree / FlushAndQuit,
+#   seconds each) + 180 margin = 1920.
+# The 900 mission budget covers 30 connect + 90 ascent + 180 coast + 240 descent = 540
+# of phase budget, plus margin. These OUTER budgets are deliberately NOT re-trimmed with
+# descentTimeoutSeconds: they are wall-clock envelopes that also absorb KSP boot, scene
+# load, and seam-step latency, and the measured flight-2 numbers already sit far inside
+# them (mission wall 112.5 s against 900; whole-scenario wall 402 s against 1920). A
+# tighter outer bound would buy nothing but flake risk; the INNER phase budget is where a
+# stall is supposed to be named. EvaChuteDeploy is the only deferred step; at 420 it is
+# under the harness's 540 s per-step cap for a deferred verb, and flight 2 measured it at
+# ~215 s (the kerbal's whole chuted descent from ~1.6 km at a steady -4.5 m/s), so 420
+# keeps roughly 2x on the one step whose length the exit altitude actually drives.
+budgetSeconds = 1920
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

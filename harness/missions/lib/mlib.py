@@ -101,6 +101,113 @@ B1_DOWN = "DOWN"
 B1_PHASES: Tuple[str, ...] = (B1_PRELAUNCH, B1_ASCENT, B1_COAST, B1_DESCENT,
                               B1_LANDED, B1_DOWN)
 
+# EVA-4 phase names (mission eva4_atmo_chute; scenario EVA-4-atmo-chute). The B1 hop
+# shape up to DESCENT, but the terminal is EVA-WINDOW, NOT a landing: the mission's whole
+# job is to FLY the pad craft into a verified-safe mid-air EVA envelope and then HAND OFF
+# to the seam (EvaExit -> EvaChuteDeploy), because kRPC has no EVA API and a scenario may
+# declare exactly ONE mission-kind step. So the craft is deliberately still airborne,
+# crewed, and under its own canopy when the mission ends.
+#
+# ================= FLIGHT-1 EVIDENCE (2026-07-24), and what it changed =================
+# The first live run ASSERT-FAILed exactly as designed, fast and self-explaining:
+#   "eva-window-missed: altitude 702m fell below the window floor 800m (vspeed
+#    -295.2m/s, situation FLYING, craftChute armed)".
+# Measured profile (mission stdout telemetry, per-frame):
+#   peak altitude 11,965 m at ut 60.6 (orbital apoapsis 19,879 m);
+#   unchuted descent reaches TERMINAL -301 m/s by ~2,700 m and holds it;
+#   the craft's chute was armed at 2,382 m / -301 m/s and 5.1 s later, at 855 m, the
+#   rate had changed by 4.7 m/s - the canopy had NOT opened at all.
+# The Parsek recording confirms it independently: the pod's .prec carries ZERO
+# ParachuteSemiDeployed / ParachuteDeployed part events - only a Decoupled at ut 119.70
+# (the breakup). ROOT CAUSE (decompiled ModuleParachute.cs:1255-1290 + the fixture's own
+# persisted node): the ACTIVE -> SEMIDEPLOYED gate requires
+# `automateSafeDeploy >= (int)deploymentSafeState`, and the fixture's parachuteSingle
+# persists `automateSafeDeploy = 0` = deploy ONLY while SAFE. At ~300 m/s in dense air
+# `DeploySafe` reads RISKY/UNSAFE, so an armed chute simply WAITS - and a craft at
+# terminal velocity never slows on its own, so it waits forever. Arming low is not
+# "late", it is INERT.
+#   (Same evidence in the live-proven B1 log 2026-07-20: its parachuteSingle also has no
+#    Parachute* part event and its recording ends at 65 m. B1 is green because its DOWN
+#    terminal only needs the chute-COMMAND latch. Flagged separately; not EVA-4's to fix.)
+#
+# THREE consequences, all now encoded:
+#   (a) ARM WHILE SLOW, not at an altitude. The machine arms on the first DESCENT frame
+#       whose |vertical speed| is within craftChuteArmMaxRateMps - i.e. at the apoapsis
+#       crossing, where DeploySafe is trivially SAFE and the 0.04 atm pressure gate is
+#       already satisfied (Kerbin is ~0.2 atm at 12 km). Measured DESCENT-entry rates
+#       were -7.4, -16.9, -26.1, -35.5 m/s, so a 30 m/s bound arms within ~3 frames.
+#   (b) RAISE THE FULL-DEPLOY ALTITUDE. Stock full deploy triggers under the module's
+#       own deployAltitude (1000 m in the fixture) and its animation is SLOW
+#       (parachuteMk1.cfg deploymentSpeed = 0.12, so ~8 s). Leaving it at 1000 m would
+#       force the EVA band under 1000 m with an unknown settle distance eating into it.
+#       The machine sets deployAltitude (a stock PAW tweakable) to
+#       craftChuteFullDeployAltMeters at the same moment it arms, so the craft reaches
+#       its FULL-canopy terminal well above the band.
+#   (c) GATE ON OBSERVED STATE, NOT ON THE COMMAND. The window now requires the craft's
+#       chute to READ Deployed (kRPC ParachuteState), never merely "we called deploy".
+#
+# EVA-WINDOW opens on FIVE conjuncts (all read from the same frame):
+#   1. the craft's chute READS Deployed - full canopy, observed, not commanded;
+#   2. the situation is airborne (a landed craft is the EVA-1 ground case);
+#   3. altitude <= evaWindowMaxAltMeters   (below the full-deploy altitude, so conjunct 1
+#      can only become true inside/above the band, never above it by accident);
+#   4. altitude >= evaWindowMinAltMeters   (sky left for the KERBAL's own canopy);
+#   5. |vertical speed| <= evaMaxDescentRateMps  (the safety bound the kerbal leaves the
+#      hatch into, and a cross-check that the observed canopy is actually doing work).
+# Conjuncts 1 and 5 keep the window self-regulating: the handoff altitude is decided by
+# where the physics actually settles the craft, not by a golden number.
+#
+# The five conjuncts are evaluated on ONE frame, but the TRANSITION is debounced over
+# EVA4_WINDOW_DEBOUNCE_K consecutive open frames - see that constant.
+#
+# ================= FLIGHT-2 EVIDENCE (2026-07-24): the re-tune worked =================
+# FULL PASS on attempt 1, all four assertions met, so the numbers below are MEASURED, not
+# projected. Profile: peak / orbital apoapsis 19,747 m; the chute armed at 11,965 m and
+# -0.43 m/s (the apoapsis crossing, exactly where the arm-while-slow rule aims it) and
+# READ SemiDeployed one poll later.
+#   THE SEMI-DEPLOYED RATE, the one number flight 1 could not supply: the semi-deployed
+#   craft does NOT crawl. It accelerates to a peak sink of -236 m/s at ~5.7 km, then the
+#   rate DECAYS with air density (-223 m/s by the 2500 m full-deploy trigger). The full
+#   canopy then brakes it from -223 to -23 m/s in ~5.6 s.
+#   The whole DESCENT phase (ut 60.9 -> 122.5) took 61.6 s, which is what let
+#   descentTimeoutSeconds be trimmed from the provisional 480 back to 240 (~3.9x margin).
+# Handoff frame: 1,606 m at -23.2 m/s, inside [700, 2100] / 25. The kerbal then descended
+# under its own canopy at a steady -4.5 m/s and landed ALIVE.
+#
+# WINDOW-MISSED is the bounded, NAMED failure: the craft sank past evaWindowMinAltMeters
+# without all five conjuncts ever holding. It is an ASSERT-FAIL (a deterministic mission
+# failure), never a silent wait-out of the descent budget, and its reason string carries
+# the OBSERVED chute state - so a repeat of the flight-1 failure mode reads
+# "craftChute=Armed" and names itself.
+EVA4_PRELAUNCH = "PRELAUNCH"
+EVA4_ASCENT = "ASCENT"
+EVA4_COAST = "COAST"
+EVA4_DESCENT = "DESCENT"
+EVA4_EVA_WINDOW = "EVA-WINDOW"
+EVA4_PHASES: Tuple[str, ...] = (EVA4_PRELAUNCH, EVA4_ASCENT, EVA4_COAST, EVA4_DESCENT,
+                                EVA4_EVA_WINDOW)
+
+# Consecutive open frames the EVA window must hold before the machine terminates into it
+# (the house K-consecutive debounce idiom, DEFAULT_DEBOUNCE_K). Deliberately K=2 rather
+# than the library default 3:
+#   WHY DEBOUNCE AT ALL. The handoff is IRREVERSIBLE - the seam's next command pushes a
+#   kerbal out of a hatch - and two of the five conjuncts are one-sample reads that can
+#   flicker. Stock flips ParachuteState to DEPLOYED at the START of the full-deploy
+#   ANIMATION (decompiled ModuleParachute.cs:1372-1380), so for the ~8 s the Mk16 canopy
+#   takes to bite, "Deployed" is true while the craft is still fast; the only thing
+#   separating that from a real full canopy is the |vertical speed| conjunct, read from
+#   the SAME kRPC frame. A single glitched frame (a dropped / stale kRPC read) would
+#   therefore certify a terminal-velocity EVA as green, and evaWindowDescentRate cannot
+#   catch it because it re-reports that same frame. Two INDEPENDENT frames must agree.
+#   WHY K=2 AND NOT 3. The cost is altitude: the measured flight-2 handoff frame was
+#   -23.2 m/s on a ~0.5 s poll, so one extra frame spends ~10-20 m of the 1400 m band -
+#   negligible - but the band is not free, and the failure this guards is a transient
+#   read, which a second agreeing frame already excludes.
+# The streak resets to 0 on ANY non-open frame (fail-closed: the run of agreement must be
+# unbroken), and the floor / WINDOW-MISSED check is UNCHANGED, so a craft that sinks past
+# the floor mid-streak still reds by name instead of handing off late.
+EVA4_WINDOW_DEBOUNCE_K = 2
+
 # B2 phase names (design "Mission B2: LKO-ascent").
 B2_PRELAUNCH = "PRELAUNCH"
 B2_MJ_ASCENT = "MJ-ASCENT"
@@ -261,6 +368,28 @@ def normalize_docking_state(name) -> str:
         return ""
     return "".join(seg.capitalize() for seg in str(name).split("_"))
 
+
+# The stock parachute states the EVA-4 machine gates on, spelled as the PascalCase
+# normalization of kRPC's ParachuteState enum (decompiled
+# KRPC.SpaceCenter.Services.Parts.ParachuteState: Stowed / Armed / SemiDeployed /
+# Deployed / Cut). "Armed" is kRPC's name for stock's ACTIVE - commanded but NOT open,
+# which is exactly the state EVA-4's first live flight got stuck in.
+CHUTE_STATE_STOWED = "Stowed"
+CHUTE_STATE_ARMED = "Armed"
+CHUTE_STATE_SEMI_DEPLOYED = "SemiDeployed"
+CHUTE_STATE_DEPLOYED = "Deployed"
+CHUTE_STATE_CUT = "Cut"
+
+
+def normalize_parachute_state(name) -> str:
+    """Normalize a kRPC ParachuteState.name (lower_snake, e.g. 'semi_deployed') to the
+    PascalCase spelling the machine gates on ('SemiDeployed'), or "" for an
+    empty/None read (fail-closed: matches no gate, so an unreadable chute can never
+    satisfy the EVA window)."""
+    if not name:
+        return ""
+    return "".join(seg.capitalize() for seg in str(name).split("_"))
+
 # Resource-transfer direction codes carried in Action.limit (section 5.1: the
 # Action dataclass is kind/value/text/limit, so the transfer direction rides
 # limit as a float code). 0 = deliver transport -> station (the LiquidFuel leg);
@@ -278,6 +407,11 @@ ACTION_SET_THROTTLE = "set_throttle"          # value = throttle fraction
 ACTION_CUT_THROTTLE = "cut_throttle"          # value = 0.0
 ACTION_ACTIVATE_STAGE = "activate_stage"      # value = None
 ACTION_DEPLOY_CHUTE = "deploy_chute"          # value = None
+# Set the stock full-deploy altitude (metres) on every parachute of the active vessel
+# (kRPC Parachute.DeployAltitude, a stock tweakable a player edits in the PAW). EVA-4
+# raises it so the craft reaches its FULL-canopy terminal rate well above the ground,
+# which is what gives the mid-air EVA window room to open and the kerbal sky to use.
+ACTION_SET_CHUTE_DEPLOY_ALTITUDE = "set_chute_deploy_altitude"   # value = metres
 ACTION_MJ_SET_TARGET_APOAPSIS = "mj_set_target_apoapsis"   # value = metres
 ACTION_MJ_ENABLE_AUTOSTAGE = "mj_enable_autostage"         # value = None
 ACTION_MJ_ENGAGE_ASCENT = "mj_engage_ascent"               # value = None
@@ -878,6 +1012,13 @@ class TelemetrySnapshot:
     # the control was built with read_crew=True (the FORGE-LKO crewed-fixture
     # forge), so every pre-existing mission's snapshot is byte-identical.
     crew_count: int = -1
+    # The active vessel's aggregate stock-parachute state, normalized to PascalCase
+    # (mlib.normalize_parachute_state over kRPC ParachuteState.name). "" = UNREAD, the
+    # fail-closed sentinel: it matches no gate, so a runner that does not opt into the
+    # chute read (every mission but EVA-4) can never satisfy a chute conjunct with a
+    # fabricated value. THE lesson of the EVA-4 first flight: "the machine COMMANDED
+    # the chute" is not evidence the canopy opened - only this read is.
+    craft_chute_state: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -1078,6 +1219,57 @@ def b1_params_from_dict(params: Dict) -> B1Params:
         apoapsis_window=(float(window.get("min", 0.0)), float(window.get("max", 0.0))),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
         down_max_alt=float(params.get("downMaxAltMeters", 500)),
+    )
+
+
+@dataclass(frozen=True)
+class Eva4Params:
+    """EVA-4 atmospheric-chute tuning (spec [driver.missionParams] for
+    eva4_atmo_chute). Every value is a WINDOW / threshold / budget, never a golden
+    trajectory: the mission's terminal is "the craft is inside a verified-safe
+    mid-air EVA envelope", and the envelope is expressed as bounds the physics has
+    to satisfy, not as an altitude the flight is steered to."""
+    throttle: float
+    # ARM WHILE SLOW (flight-1 fix a): arm the craft's chute on the first DESCENT frame
+    # whose |vertical speed| is within this bound, i.e. at the apoapsis crossing where
+    # DeploySafe is trivially SAFE. NOT an altitude - arming at an altitude is what
+    # produced the flight-1 inert-armed-chute failure.
+    craft_chute_arm_max_rate: float
+    # The stock deployAltitude (m) the machine SETS on the craft's chutes when it arms
+    # them (flight-1 fix b), so the full canopy exists well above the EVA band.
+    craft_chute_full_deploy_alt: float
+    eva_window_max_alt: float              # window ceiling: sky left for the kerbal
+    eva_window_min_alt: float              # window floor: below this = WINDOW-MISSED
+    eva_max_descent_rate: float            # |vertical speed| bound at the hatch
+    ascent_timeout: float
+    coast_timeout: float
+    descent_timeout: float
+    apoapsis_window: Tuple[float, float]   # (min, max), inclusive - hop sanity only
+    frozen_sample_limit: int = 10
+    # The situations that keep the EVA window legitimate. A craft that has already
+    # LANDED is the EVA-1 ground case, not this scenario's mid-flight surface, so the
+    # window requires an airborne situation.
+    airborne_situations: Tuple[str, ...] = ("FLYING", "SUB_ORBITAL")
+
+
+def eva4_params_from_dict(params: Dict) -> Eva4Params:
+    """Build ``Eva4Params`` from a spec ``missionParams`` dict. Tolerant of int/float;
+    the apoapsis window is the ``{min, max}`` sub-table like B1's."""
+    params = params or {}
+    window = params.get("apoapsisWindowMeters", {}) or {}
+    return Eva4Params(
+        throttle=float(params.get("throttle", 1.0)),
+        craft_chute_arm_max_rate=float(params.get("craftChuteArmMaxRateMps", 30)),
+        craft_chute_full_deploy_alt=float(params.get("craftChuteFullDeployAltMeters", 2500)),
+        eva_window_max_alt=float(params.get("evaWindowMaxAltMeters", 2100)),
+        eva_window_min_alt=float(params.get("evaWindowMinAltMeters", 700)),
+        eva_max_descent_rate=float(params.get("evaMaxDescentRateMps", 25)),
+        ascent_timeout=float(params.get("ascentTimeoutSeconds", 90)),
+        coast_timeout=float(params.get("coastTimeoutSeconds", 180)),
+        descent_timeout=float(params.get("descentTimeoutSeconds", 240)),
+        apoapsis_window=(float(window.get("min", 0.0)), float(window.get("max", 0.0))),
+        frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
+        airborne_situations=tuple(params.get("airborneSituations", ("FLYING", "SUB_ORBITAL"))),
     )
 
 
@@ -1634,6 +1826,286 @@ def _b1_enter_down(state: B1State, ut: float, peak: Optional[float]) -> B1State:
 def _b1_stay_or_flake(state: B1State, snapshot: TelemetrySnapshot, peak: Optional[float]) -> B1State:
     """Stay in the current phase, or flip to MISSION-FLAKE if it out-ran budget."""
     if _b1_over_budget(state, snapshot):
+        return replace(state, peak_apoapsis=peak, verdict=MISSION_FLAKE,
+                       flake_phase=state.phase, done=True)
+    return replace(state, peak_apoapsis=peak)
+
+
+# ---------------------------------------------------------------------------
+# EVA-4 phase state machine (mission eva4_atmo_chute). Pure.
+#
+# Deliberately a SIBLING of the B1 machine rather than a parameterisation of it: B1's
+# terminal is the craft on the ground (LANDED / DOWN) and it must stay exactly that (it
+# is live-proven and other scenarios depend on its shape). EVA-4 needs the OPPOSITE
+# terminal - the craft still ALIVE and AIRBORNE at handoff - so forcing both into one
+# machine would make B1's proven contract a special case of an unproven one.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Eva4State:
+    """EVA-4 machine state. ``verdict`` is None while running; MISSION-FLAKE on a
+    per-phase budget overrun (``flake_phase`` names the stuck phase); MISSION-ASSERT-FAIL
+    with a ``loss_reason`` on a vessel loss or a missed EVA window. ``done`` is True at
+    EVA-WINDOW (the success terminal) or on any of those."""
+    params: Eva4Params
+    phase: str = EVA4_PRELAUNCH
+    phase_entry_ut: float = 0.0
+    peak_apoapsis: Optional[float] = None
+    # COMMANDED latch (the arm action was emitted). Deliberately NOT a window conjunct
+    # any more: flight-1 proved a commanded chute can sit inert in ARMED forever.
+    chute_armed: bool = False
+    # The altitude / rate the arm was emitted at, carried as evidence into the result.
+    chute_armed_altitude: Optional[float] = None
+    chute_armed_rate: Optional[float] = None
+    # OBSERVED latch: the craft's chute has READ Deployed at least once.
+    craft_chute_full_seen: bool = False
+    # Consecutive frames every EVA-window conjunct has held. The transition fires at
+    # EVA4_WINDOW_DEBOUNCE_K; any non-open frame resets it to 0 (fail-closed).
+    window_open_streak: int = 0
+    phases_reached: Tuple[str, ...] = (EVA4_PRELAUNCH,)
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    done: bool = False
+    frozen_sig: Optional[FrozenSignature] = None
+    frozen_count: int = 0
+    loss_reason: Optional[str] = None
+    last_finite_altitude: Optional[float] = None
+    # The frame the window opened, carried as EVIDENCE into the mission result so the
+    # operator can read WHERE the handoff happened without re-deriving it from frames.
+    eva_window_altitude: Optional[float] = None
+    eva_window_vertical_speed: Optional[float] = None
+    # The mission's terminal hands a LIVE, AIRBORNE, CREWED craft to the seam, and the
+    # seam's next command (EvaExit) is time-critical: the craft keeps sinking during the
+    # handoff. So the settle tail is skipped - the runner already honours this flag.
+    skip_settle_tail: bool = False
+
+
+def eva4_initial_state(params: Eva4Params) -> Eva4State:
+    """Fresh EVA-4 machine at PRELAUNCH."""
+    return Eva4State(params=params)
+
+
+def _eva4_phase_budget(params: Eva4Params, phase: str) -> Optional[float]:
+    """The bounded budget for a timed EVA-4 phase, or None for the untimed PRELAUNCH /
+    terminal EVA-WINDOW phases (design "Every wait bounded")."""
+    if phase == EVA4_ASCENT:
+        return params.ascent_timeout
+    if phase == EVA4_COAST:
+        return params.coast_timeout
+    if phase == EVA4_DESCENT:
+        return params.descent_timeout
+    return None
+
+
+def _eva4_over_budget(state: Eva4State, snapshot: TelemetrySnapshot) -> bool:
+    budget = _eva4_phase_budget(state.params, state.phase)
+    if budget is None:
+        return False
+    if not _is_finite(snapshot.ut):
+        return False
+    return (snapshot.ut - state.phase_entry_ut) > budget
+
+
+def eva4_window_open(params: Eva4Params, snapshot: TelemetrySnapshot) -> bool:
+    """True iff THIS frame satisfies every EVA-window conjunct (see the EVA4_* phase
+    comment). Pure and separately testable because it is the single decision the whole
+    mission exists to make - the seam's IRREVERSIBLE EvaExit fires on its say-so.
+
+    PER-FRAME ONLY. The machine does NOT act on one True: ``eva4_decide`` requires
+    EVA4_WINDOW_DEBOUNCE_K consecutive True frames before it terminates into EVA-WINDOW,
+    because stock flips ParachuteState to DEPLOYED at the START of the ~8 s canopy
+    animation and a single glitched kRPC frame would otherwise certify a terminal-velocity
+    EVA as green.
+
+    The first conjunct is the FLIGHT-1 LESSON: it reads the craft's OBSERVED parachute
+    state, never the machine's own "we commanded it" latch. Flight 1 armed the chute and
+    the canopy never opened (stock refuses ACTIVE -> SEMIDEPLOYED while
+    `automateSafeDeploy = 0` and DeploySafe reads unsafe at ~300 m/s), yet the commanded
+    latch was true the whole time - so the old conjunct was satisfied by a chute that did
+    not exist.
+
+    Fail-closed on every unreadable field: a blank chute state (the "" unread sentinel), a
+    non-finite altitude or vertical speed, or a situation outside ``airborne_situations``
+    all keep the window SHUT."""
+    if snapshot.craft_chute_state != CHUTE_STATE_DEPLOYED:
+        return False
+    if snapshot.situation not in params.airborne_situations:
+        return False
+    if not _is_finite(snapshot.altitude) or not _is_finite(snapshot.vertical_speed):
+        return False
+    if snapshot.altitude > params.eva_window_max_alt:
+        return False
+    if snapshot.altitude < params.eva_window_min_alt:
+        return False
+    return abs(snapshot.vertical_speed) <= params.eva_max_descent_rate
+
+
+def eva4_decide(state: Eva4State, snapshot: TelemetrySnapshot) -> Tuple[Eva4State, List[Action]]:
+    """Advance the EVA-4 machine one frame; return (new_state, actions).
+
+    Transitions:
+      - PRELAUNCH -> ASCENT: set throttle + activate the next stage (ignite the SRB).
+      - ASCENT -> COAST: active-stage solid fuel exhausted; cut throttle.
+      - COAST -> DESCENT: past apoapsis (vertical speed negative).
+      - DESCENT: on the first frame whose |vertical speed| is within
+        craftChuteArmMaxRateMps (the apoapsis crossing), RAISE the craft chutes'
+        full-deploy altitude and ARM them. Arming while SLOW is the flight-1 fix -
+        arming at an ALTITUDE, once the craft is already at terminal velocity, produces
+        a chute that sits inert in ARMED forever (stock refuses ACTIVE -> SEMIDEPLOYED
+        while automateSafeDeploy = 0 and DeploySafe reads unsafe). Then
+        DESCENT -> EVA-WINDOW once ``eva4_window_open`` has held for
+        EVA4_WINDOW_DEBOUNCE_K CONSECUTIVE frames (any non-open frame resets the run).
+        That is the SUCCESS terminal: the craft is airborne, crewed, and under an
+        OBSERVED full canopy, and the seam takes over.
+      - DESCENT -> WINDOW-MISSED (ASSERT-FAIL): the craft sank below
+        evaWindowMinAltMeters with the window never having opened. Bounded and NAMED,
+        and the reason carries the OBSERVED chute state, so a repeat of the flight-1
+        inert-armed-chute failure reds as "craftChute=Armed" and names itself instead of
+        burning the descent budget and flaking.
+    A vessel loss (runner-signalled or frozen telemetry) in ANY phase is an ASSERT-FAIL:
+    unlike B1 there is no chute-deployed-impact success terminal here, because the craft
+    reaching the ground at all means the EVA never happened.
+    """
+    if state.done:
+        return state, []
+
+    peak = _update_peak(state.peak_apoapsis, snapshot.apoapsis)
+
+    if not snapshot.vessel_lost and _is_finite(snapshot.altitude):
+        state = replace(state, last_finite_altitude=snapshot.altitude)
+
+    if snapshot.vessel_lost:
+        return replace(
+            state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason=_eva4_loss_reason_with_altitude(
+                state, "vessel-lost (unreadable after repeated telemetry failures) "
+                       "before the EVA window opened")), []
+
+    if state.phase in (EVA4_ASCENT, EVA4_COAST, EVA4_DESCENT):
+        limit = state.params.frozen_sample_limit
+        new_sig, new_count, tripped = _advance_frozen_count(
+            state.frozen_sig, state.frozen_count, snapshot, limit)
+        if tripped:
+            return replace(
+                state, peak_apoapsis=peak, frozen_sig=new_sig, frozen_count=new_count,
+                done=True, verdict=MISSION_ASSERT_FAIL,
+                loss_reason=_eva4_loss_reason_with_altitude(
+                    state, "vessel-lost (telemetry frozen %d consecutive samples while "
+                           "airborne; vessel presumed destroyed)" % limit)), []
+        state = replace(state, frozen_sig=new_sig, frozen_count=new_count)
+
+    if state.phase == EVA4_PRELAUNCH:
+        actions = [Action(ACTION_SET_THROTTLE, state.params.throttle),
+                   Action(ACTION_ACTIVATE_STAGE)]
+        return _eva4_enter(state, EVA4_ASCENT, snapshot.ut, peak), actions
+
+    if state.phase == EVA4_ASCENT:
+        if _is_finite(snapshot.stage_solid_fuel) and snapshot.stage_solid_fuel <= FUEL_EXHAUSTED_EPS:
+            return (_eva4_enter(state, EVA4_COAST, snapshot.ut, peak),
+                    [Action(ACTION_CUT_THROTTLE, 0.0)])
+        return _eva4_stay_or_flake(state, snapshot, peak), []
+
+    if state.phase == EVA4_COAST:
+        if _is_finite(snapshot.vertical_speed) and snapshot.vertical_speed < 0.0:
+            # Enter DESCENT and FALL THROUGH into its body on the SAME frame (no early
+            # return). The arm decision below is RATE-gated and the rate only ever
+            # worsens - Kerbin adds ~10 m/s of fall per ~1 s poll (measured flight-1
+            # DESCENT entry: -7.4, -16.9, -26.1, -35.5 m/s) - so deferring the arm by one
+            # poll needlessly eats the arming bound, and a few polls of delay would push
+            # the craft permanently outside it: the flight-1 failure mode in slow motion.
+            state = _eva4_enter(state, EVA4_DESCENT, snapshot.ut, peak)
+        else:
+            return _eva4_stay_or_flake(state, snapshot, peak), []
+
+    if state.phase == EVA4_DESCENT:
+        actions: List[Action] = []
+        armed = state.chute_armed
+        armed_alt = state.chute_armed_altitude
+        armed_rate = state.chute_armed_rate
+        # ARM WHILE SLOW (flight-1 fix): raise the full-deploy altitude, then arm, on the
+        # first frame inside the rate bound. Both actions ride the SAME frame so the
+        # module's very first ACTIVE FixedUpdate already sees the raised altitude.
+        if (not armed and _is_finite(snapshot.vertical_speed)
+                and abs(snapshot.vertical_speed) <= state.params.craft_chute_arm_max_rate):
+            actions.append(Action(ACTION_SET_CHUTE_DEPLOY_ALTITUDE,
+                                  state.params.craft_chute_full_deploy_alt))
+            actions.append(Action(ACTION_DEPLOY_CHUTE))
+            armed = True
+            armed_alt = snapshot.altitude if _is_finite(snapshot.altitude) else None
+            armed_rate = snapshot.vertical_speed
+
+        full_seen = (state.craft_chute_full_seen
+                     or snapshot.craft_chute_state == CHUTE_STATE_DEPLOYED)
+
+        # K-CONSECUTIVE DEBOUNCE on the window (EVA4_WINDOW_DEBOUNCE_K): the handoff is
+        # irreversible and two of the five conjuncts are single-sample kRPC reads, so a
+        # lone glitched frame must never certify it. Any non-open frame resets the run.
+        streak = state.window_open_streak + 1 if eva4_window_open(state.params, snapshot) else 0
+
+        if streak >= EVA4_WINDOW_DEBOUNCE_K:
+            opened = _eva4_enter(state, EVA4_EVA_WINDOW, snapshot.ut, peak)
+            return replace(opened, chute_armed=armed, chute_armed_altitude=armed_alt,
+                           chute_armed_rate=armed_rate, craft_chute_full_seen=full_seen,
+                           window_open_streak=streak,
+                           eva_window_altitude=snapshot.altitude,
+                           eva_window_vertical_speed=snapshot.vertical_speed,
+                           skip_settle_tail=True), actions
+
+        # Sank past the floor without the window ever opening: bounded, named failure.
+        # The reason carries the OBSERVED chute state (flight-1 lesson: "we commanded it"
+        # is not evidence), so an inert-armed chute names itself.
+        if (_is_finite(snapshot.altitude)
+                and snapshot.altitude < state.params.eva_window_min_alt):
+            return replace(
+                state, peak_apoapsis=peak, chute_armed=armed,
+                chute_armed_altitude=armed_alt, chute_armed_rate=armed_rate,
+                craft_chute_full_seen=full_seen, window_open_streak=streak, done=True,
+                verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("eva-window-missed: altitude %.0fm fell below the window "
+                             "floor %.0fm (vspeed %.1fm/s, situation %s, craftChute=%s, "
+                             "armCommanded=%s) without every window conjunct holding"
+                             % (snapshot.altitude, state.params.eva_window_min_alt,
+                                snapshot.vertical_speed, snapshot.situation or "?",
+                                snapshot.craft_chute_state or "UNREAD",
+                                "yes" if armed else "no"))), actions
+
+        stayed = _eva4_stay_or_flake(state, snapshot, peak)
+        return replace(stayed, chute_armed=armed, chute_armed_altitude=armed_alt,
+                       chute_armed_rate=armed_rate, window_open_streak=streak,
+                       craft_chute_full_seen=full_seen), actions
+
+    # Unknown phase: defensively terminate as an error-shaped flake so the shell never spins.
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase, done=True,
+                   peak_apoapsis=peak), []
+
+
+def _eva4_enter(state: Eva4State, new_phase: str, ut: float,
+                peak: Optional[float]) -> Eva4State:
+    """Transition into ``new_phase``, stamping the phase-entry UT for the budget clock
+    and appending to ``phases_reached``. EVA-WINDOW is the terminal and sets ``done``."""
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(
+        state,
+        phase=new_phase,
+        phase_entry_ut=entry,
+        peak_apoapsis=peak,
+        phases_reached=state.phases_reached + (new_phase,),
+        done=(new_phase == EVA4_EVA_WINDOW),
+    )
+
+
+def _eva4_loss_reason_with_altitude(state: Eva4State, base: str) -> str:
+    """Append the last known altitude to a loss reason so a loss names WHERE it happened."""
+    if state.last_finite_altitude is None or not _is_finite(state.last_finite_altitude):
+        return base
+    return "%s; last altitude %.0fm" % (base, state.last_finite_altitude)
+
+
+def _eva4_stay_or_flake(state: Eva4State, snapshot: TelemetrySnapshot,
+                        peak: Optional[float]) -> Eva4State:
+    """Stay in the current phase, or flip to MISSION-FLAKE if it out-ran budget."""
+    if _eva4_over_budget(state, snapshot):
         return replace(state, peak_apoapsis=peak, verdict=MISSION_FLAKE,
                        flake_phase=state.phase, done=True)
     return replace(state, peak_apoapsis=peak)
@@ -4998,6 +5470,72 @@ def evaluate_b1_assertions(frames, params: B1Params,
     return [apo, sit]
 
 
+def evaluate_eva4_assertions(frames, params: Eva4Params,
+                             state=None) -> List[AssertionOutcome]:
+    """Evaluate the four EVA-4 driver-validity assertions. All four are about the
+    HANDOFF STATE, not about a trajectory: this mission's product is a craft parked in a
+    verified-safe mid-air EVA envelope for the seam to act on.
+
+    - ``apoapsisWindow``: the PEAK apoapsis sits inside apoapsisWindowMeters. Hop sanity
+      only (same semantics as B1's): it proves the SRB flew a suborbital hop rather than
+      fizzling on the pad or over-shooting into a regime the window was never sized for.
+    - ``evaWindowReached``: the machine terminated in EVA-WINDOW. This is the mission's
+      actual contract; ``value`` reports the handoff altitude (evidence).
+    - ``evaWindowDescentRate``: the |vertical speed| AT the handoff frame is within
+      evaMaxDescentRateMps. Redundant with the machine gate by construction, and that is
+      the point - it re-states the safety bound in the RESULT JSON so a future window
+      re-tune cannot quietly move the exit envelope without the assertion row moving too.
+    - ``craftCanopyObserved``: the craft's parachute was OBSERVED at full canopy
+      (kRPC ParachuteState Deployed) at least once. Added after flight 1, where the
+      chute was commanded, the machine believed it, and the canopy never opened - this
+      row is the one that would have said so on its own. ``value`` reports the altitude
+      / rate the arm was COMMANDED at, so the result JSON carries both halves of the
+      commanded-vs-observed distinction.
+
+    Every assertion reads machine-carried evidence rather than the frame tail, because
+    the EVA-WINDOW terminal skips the settle tail (the craft is still descending and the
+    seam is waiting).
+    """
+    frames = list(frames or [])
+    lo, hi = params.apoapsis_window
+    peak = _peak_finite(frames, lambda f: f.apoapsis)
+    apo_met = peak is not None and lo <= peak <= hi
+    apo = AssertionOutcome("apoapsisWindow", apo_met,
+                           peak if peak is not None else float("nan"),
+                           {"window": [lo, hi]})
+
+    reached = getattr(state, "phase", None) == EVA4_EVA_WINDOW
+    window_alt = getattr(state, "eva_window_altitude", None)
+    window_vs = getattr(state, "eva_window_vertical_speed", None)
+
+    win = AssertionOutcome(
+        "evaWindowReached", reached,
+        window_alt if window_alt is not None else float("nan"),
+        {"altitudeWindow": [params.eva_window_min_alt, params.eva_window_max_alt],
+         "terminalPhase": getattr(state, "phase", None)})
+
+    rate_met = (reached and window_vs is not None and _is_finite(window_vs)
+                and abs(window_vs) <= params.eva_max_descent_rate)
+    rate = AssertionOutcome(
+        "evaWindowDescentRate", rate_met,
+        window_vs if window_vs is not None else float("nan"),
+        {"maxAbsDescentRate": params.eva_max_descent_rate})
+
+    full_seen = bool(getattr(state, "craft_chute_full_seen", False))
+    armed_alt = getattr(state, "chute_armed_altitude", None)
+    armed_rate = getattr(state, "chute_armed_rate", None)
+    canopy = AssertionOutcome(
+        "craftCanopyObserved", full_seen,
+        armed_alt if armed_alt is not None else float("nan"),
+        {"armCommanded": bool(getattr(state, "chute_armed", False)),
+         "armCommandedRate": (armed_rate if armed_rate is not None
+                              and _is_finite(armed_rate) else None),
+         "armMaxRate": params.craft_chute_arm_max_rate,
+         "fullDeployAltitude": params.craft_chute_full_deploy_alt})
+
+    return [apo, win, rate, canopy]
+
+
 def evaluate_b2_assertions(frames, params: B2Params,
                            k: int = DEFAULT_DEBOUNCE_K) -> List[AssertionOutcome]:
     """Evaluate the four B2 driver-validity assertions over the orbit frames, all
@@ -5611,6 +6149,11 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("separate_thrust_streak", "sepThrustStreak"),
     ("separate_split_confirmed", "sepSplitOk"),
     ("separate_activations", "sepActivations"),
+    # EVA-4: the debounced EVA-window agreement run (EVA4_WINDOW_DEBOUNCE_K). Bounded by
+    # K, so at most a couple of flips per flight, and its 1 -> 0 reset is exactly the
+    # "a frame disagreed about the handoff envelope" event an operator needs to see.
+    # getattr-generic: absent on every other machine, so no other mission's log moves.
+    ("window_open_streak", "evaWindowStreak"),
 )
 
 _MACHINE_FIELD_ABSENT = object()

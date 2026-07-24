@@ -352,6 +352,19 @@ journal, verdicts) is designed once and the later commands slot in without a for
 > - it was never in the reserved list above, so it is additive rather than a promotion. See
 > the M-C1.1 follow-ups section of `design-autotest-seam-verbs-c1.md`.
 
+> Update (M-C2): three EVA verbs - `EvaExit`, `EvaBoard`, `PlantFlag` - were added as NEW
+> implemented verbs (additive, never reserved). See `design-autotest-eva-missions.md`.
+
+> Update (EVA-4): a fourth EVA-family verb, `EvaChuteDeploy` (arm a kerbal's personal
+> parachute through the same public `ModuleEvaChute.Deploy()` both stock player paths call,
+> bounded-wait for the canopy to be VERIFIED open, and optionally hold through the descent
+> until the kerbal is LANDED/SPLASHED and ALIVE), was added the same additive way, bringing
+> the implemented table to 19. It is the FIRST EVA verb in the `DEFERRED_SEAM_VERBS` family:
+> its `awaitDown` stage holds the FIFO head for the kerbal's whole chuted descent, so the
+> 540 s per-step cap governs it. Its dispatch precondition is FLIGHT plus the same `not-eva`
+> defer `PlantFlag` / `EvaBoard` use. Forensics + decompile evidence in
+> `todo-and-known-bugs.md` ("EVA-4 - atmospheric mid-flight EVA + kerbal personal chute").
+
 ## Behavior
 
 ### Addon lifecycle
