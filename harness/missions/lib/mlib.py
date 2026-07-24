@@ -157,12 +157,31 @@ B5_PHASES: Tuple[str, ...] = (B5_PRELAUNCH, B5_MJ_ASCENT, B5_CIRCULARIZE, B5_ORB
 # it into the committed pre-placed-Station fixture. NOT a flight mission (no ascent,
 # no orbit): it exists only to STAMP a pad fixture headlessly, replacing the
 # operator fixture flight (2026-07-22 operator-principle override). It is generic
-# over the craft (and an optional crew count), so the same forge later produces the
+# over the craft (and optional named crew), so the same forge later produces the
 # EVA-3 pad fixture (same Kerbal X craft, 3-crew pod) with a different missionParams.
 FORGE_PRELAUNCH = "PRELAUNCH"
 FORGE_LAUNCH = "LAUNCH"
 FORGE_SETTLED = "SETTLED"
 FORGE_PHASES: Tuple[str, ...] = (FORGE_PRELAUNCH, FORGE_LAUNCH, FORGE_SETTLED)
+
+# FORGE-LKO phase names (mission forge_lko: the ORBITAL fixture forge that stamps
+# the EVA-2 crewed-LKO fixture). The pad forge above ends on the pad; this one
+# flies the LIVE-PROVEN B-DOCK Interceptor-leg shape -- launch_vessel WITH NAMED
+# CREW from a clear pad, the B2 MechJeb ascent, circularize, the two-step
+# separation contract (drop the spent core AND ignite the orbital stage), then a
+# stabilized park dwell -- so the SaveGame that follows persists a crewed ORBITAL
+# STAGE on a stable, non-tumbling, on-rails-safe orbit. NO rendezvous / dock: the
+# forge produces a START state, never a trajectory.
+FLKO_PRELAUNCH = "PRELAUNCH"
+FLKO_LAUNCH = "LAUNCH"
+FLKO_ASCENT = "ASCENT"
+FLKO_CIRCULARIZE = "CIRCULARIZE"
+FLKO_SEPARATE = "SEPARATE"
+FLKO_PARK = "PARK"
+FLKO_ORBIT = "ORBIT"
+FLKO_PHASES: Tuple[str, ...] = (
+    FLKO_PRELAUNCH, FLKO_LAUNCH, FLKO_ASCENT, FLKO_CIRCULARIZE, FLKO_SEPARATE,
+    FLKO_PARK, FLKO_ORBIT)
 
 # B-DOCK phase names (mission bdock_dock_transfer: design section 3.3). The FIRST
 # two-vessel Parsek autotest: a pre-placed Station flies the B2 ascent to a ~110 km
@@ -342,10 +361,13 @@ ACTION_CANCEL_WARP = "cancel_warp"                         # value = None
 # resolves it against the handle it captured while the object was reachable).
 # ---------------------------------------------------------------------------
 # Launch a fresh vessel from the save's Ships/VAB onto the pad (kRPC
-# SpaceCenter.launch_vessel("VAB", <name>, "LaunchPad")). text = the craft name
-# ("Kerbal X"); value (optional) = crew count, None launches KSP's default
-# manifest. Used by BOTH the FORGE (piece-1 stamp) and B-DOCK's Interceptor
-# (piece 2). Exercises D1 auto-record-launch on the StartWithNewLaunch path.
+# SpaceCenter.launch_vessel("VAB", <name>, <launch_site>, crew=<names>)). text =
+# the craft name ("Kerbal X"); launch_site = the pad/runway name (None -> the
+# runner defaults "LaunchPad"); crew = an explicit tuple of KERBAL NAMES (None /
+# empty -> crew=[] = KSP's default manifest). Crew is by NAME, never a count:
+# kRPC 0.5.4 has no roster-enumeration API. Used by BOTH the FORGE (piece-1
+# stamp) and B-DOCK's Interceptor (piece 2). Exercises D1 auto-record-launch on
+# the StartWithNewLaunch path.
 ACTION_LAUNCH_VESSEL = "launch_vessel"                     # text = craft name
 # Capture the CURRENT active vessel + its top docking port as "the Station"
 # handle (STATION-COMMIT, while the Station is the active vessel -- P9 / Q4).
@@ -379,8 +401,11 @@ ACTION_MJ_ENABLE_RENDEZVOUS = "mj_enable_rendezvous"       # value = distance m
 # ahead, stalling MATCH-VELOCITY until the wall).
 ACTION_MJ_KILL_REL_VEL = "mj_kill_rel_vel"                 # value = None
 # Enable MechJeb's docking autopilot (value = approach speed_limit m/s -- the
-# monoprop-budget knob, P2). Done evidence is docking_state == "Docked" AND the
-# Enabled latch flipping False.
+# monoprop-budget knob, P2). Done evidence is docking_state == "Docked"
+# CORROBORATED as a dock to the TARGET: either the read APPEARED during the phase
+# (it was not already docked at entry) or the target port is within
+# BDOCK_DOCKED_TARGET_DIST_EPS. `Docked` alone is not enough - _read_docking_state
+# answers "any port on the active vessel reads docked" (MINOR-5).
 ACTION_MJ_ENABLE_DOCKING = "mj_enable_docking"             # value = speed m/s
 # Disable the docking autopilot (give-up cleanup: stall / monoprop-out / bounce).
 ACTION_MJ_DISABLE_DOCKING = "mj_disable_docking"           # value = None
@@ -846,6 +871,13 @@ class TelemetrySnapshot:
     # truncated ~60 chars; "" = unread. What the AP thinks it is doing -- the
     # missing signal the operator called out. Diagnosability only.
     docking_ap_status: str = ""
+    # kRPC Vessel.CrewCount: kerbals aboard the ACTIVE vessel. -1 = UNREAD (the
+    # fail-closed sentinel, same discipline as ap_error / vessel_count): a runner
+    # that does not opt into the crew read, or whose read faults, can never
+    # satisfy a "crew aboard" gate with a fabricated 0-or-more. Read only when
+    # the control was built with read_crew=True (the FORGE-LKO crewed-fixture
+    # forge), so every pre-existing mission's snapshot is byte-identical.
+    crew_count: int = -1
 
 
 # ---------------------------------------------------------------------------
@@ -928,11 +960,19 @@ class Action:
     ``text`` carries a string argument (the SET_TARGET_BODY body name) -- a
     separate field so ``value`` stays float-only for every numeric consumer.
     ``limit`` carries a secondary numeric bound (the PLAN_COURSE_CORRECT dv cap
-    the runner disqualifies an oversized correction plan against)."""
+    the runner disqualifies an oversized correction plan against).
+    ``launch_site`` and ``crew`` are the two ACTION_LAUNCH_VESSEL payloads: the
+    kRPC ``launch_site`` name (None -> the runner defaults ``"LaunchPad"``) and an
+    explicit tuple of KERBAL NAMES to seed the pod (None / empty -> the runner
+    passes ``crew=[]`` = KSP's default crew assignments). kRPC 0.5.4 exposes no
+    roster-enumeration API (only ``get_kerbal(name)`` + ``launch_vessel(crew:
+    List[str])``), so the crew contract is by NAME, never by count."""
     kind: str
     value: Optional[float] = None
     text: Optional[str] = None
     limit: Optional[float] = None
+    launch_site: Optional[str] = None
+    crew: Optional[Tuple[str, ...]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -3285,7 +3325,12 @@ class ForgeParams:
     are budgets / debounce depths, never a golden trajectory."""
     craft_name: str
     launch_site: str = "LaunchPad"
-    crew: Optional[int] = None                 # None = KSP default manifest
+    # Explicit KERBAL NAMES seeded into the pod. None / empty -> KSP's default
+    # crew assignments (crew=[]). By NAME, never a count: kRPC 0.5.4 exposes no
+    # roster-enumeration API to resolve a count to names, only get_kerbal(name)
+    # + launch_vessel(crew: List[str]). The EVA-3 3-crew pad fixture passes the
+    # three names its EvaExit steps later reference.
+    crew_names: Optional[Tuple[str, ...]] = None
     settle_situations: Tuple[str, ...] = ("PRE_LAUNCH",)
     launch_timeout: float = 300.0              # game-s to see the new craft settle
     settle_debounce: int = 3                   # K consecutive settled frames
@@ -3293,11 +3338,12 @@ class ForgeParams:
 
 def forge_params_from_dict(params: Dict) -> ForgeParams:
     params = params or {}
-    crew = params.get("crew", None)
+    crew_names = params.get("crewNames", None)
     return ForgeParams(
         craft_name=str(params.get("craftName", "Kerbal X")),
         launch_site=str(params.get("launchSite", "LaunchPad")),
-        crew=(int(crew) if crew is not None else None),
+        crew_names=(tuple(str(n) for n in crew_names)
+                    if crew_names else None),
         settle_situations=tuple(params.get("settleSituations", ("PRE_LAUNCH",))),
         launch_timeout=float(params.get("launchTimeoutSeconds", 300)),
         settle_debounce=int(params.get("settleDebounceFrames", 3)),
@@ -3360,10 +3406,10 @@ def forge_decide(state: ForgeState,
             return replace(
                 state, done=True, verdict=MISSION_ASSERT_FAIL,
                 loss_reason="vessel-lost before launch (boot save unreadable)"), []
-        launch = Action(ACTION_LAUNCH_VESSEL, value=(float(state.params.crew)
-                                                     if state.params.crew is not None
-                                                     else None),
-                        text=state.params.craft_name)
+        launch = Action(ACTION_LAUNCH_VESSEL,
+                        text=state.params.craft_name,
+                        launch_site=state.params.launch_site,
+                        crew=state.params.crew_names)
         return _forge_enter(state, FORGE_LAUNCH, snapshot.ut), [launch]
 
     if state.phase == FORGE_LAUNCH:
@@ -3464,6 +3510,15 @@ BDOCK_DOCK_MAX_RETARGETS = 3
 BDOCK_DOCK_DIST_EPS = 1.0        # metres
 BDOCK_DOCK_MONO_EPS = 0.01       # monoprop units (RCS actually firing)
 BDOCK_DOCK_ANGVEL_EPS = 0.001    # rad/s (tumble actually being reduced)
+# Distance to the TARGET docking port below which a `Docked` read is corroborated
+# as "docked to the TARGET" rather than "some pair on this craft reads docked"
+# (MINOR-5). _read_docking_state returns Docked when ANY port on the active vessel
+# reads docked, so a craft carrying an already-mated internal pair would otherwise
+# satisfy the DOCK short-circuit on its first poll without ever meeting the
+# Station. 10 m is orders of magnitude below any approach distance (DOCK is entered
+# from the match-velocity hold, tens to hundreds of metres out) and comfortably
+# above the port-to-port reading of a genuinely mated pair.
+BDOCK_DOCKED_TARGET_DIST_EPS = 10.0   # metres
 # TRANSFER liveness: consecutive polls transfer_amount may be flat/unread before
 # the machine flakes the stall fast (well inside the transfer budget).
 BDOCK_TRANSFER_STALL_FRAMES = 20
@@ -3598,6 +3653,14 @@ class BDockState:
     # cap BDOCK_DOCK_MAX_RETARGETS). NaN never completes DOCK (fail-closed).
     dock_nan_streak: int = 0
     dock_retarget_count: int = 0
+    # Was the craft ALREADY reading Docked on the poll that entered BDOCK_DOCK
+    # (MINOR-5)? _read_docking_state answers "any port on the active vessel reads
+    # docked", so a craft with an already-mated internal pair reads Docked from the
+    # first poll and would complete the phase without ever docking to the Station.
+    # A docked read that APPEARS during the phase is a transition and is therefore
+    # self-corroborating; a docked read that was true at entry needs other evidence
+    # (the AP having run, or the target port being ~0 m away).
+    dock_entry_docked: bool = False
     # DOCK AP-death liveness (flight-11). E1a "enable never took": polls since the
     # deferred enable was emitted with mj_docking_enabled still False, and the
     # one-shot re-emit latch. E1b "died mid-approach": consecutive polls the AP is
@@ -3772,6 +3835,38 @@ def _bdock_dock_progress(state: BDockState, snapshot: TelemetrySnapshot,
     return st, None
 
 
+def separation_evidence(vessel_count: int, available_thrust: float,
+                        baseline_vessel_count: int, settle_streak: int,
+                        thrust_streak: int, split_confirmed: bool,
+                        debounce: int = BDOCK_SEPARATION_DEBOUNCE
+                        ) -> Tuple[int, int, bool, bool]:
+    """The pure evidence half of the TWO-STEP separation contract (flight-3 /
+    flight-4 lessons), shared by every machine that must leave a craft as its
+    ORBITAL STAGE ONLY: B-DOCK's STATION-SEPARATE / INT-SEPARATE and the
+    FORGE-LKO orbital fixture forge.
+
+    Returns ``(settle_streak, thrust_streak, split_confirmed, ignited)`` for this
+    frame:
+
+    - step 1 (drop the spent core): ``vessel_count`` above the phase-entry
+      ``baseline_vessel_count`` (the core spawned as a NEW vessel), debounced
+      ``debounce`` consecutive frames -> ``split_confirmed`` LATCHES True.
+    - step 2 (ignite the orbital engine): ``available_thrust > 0`` debounced
+      ``debounce`` consecutive frames -> ``ignited`` True for this frame.
+
+    Fail closed on both: ``vessel_count`` defaults 0 (unread) so an unreadable
+    count never bumps past a baseline, and a NaN ``available_thrust`` is never
+    treated as ignited. The CALLER owns the phase/budget/flake wrapping and the
+    at-most-two stage activations (a third would fire the istg=0 heat-shield
+    decoupler) -- this helper only counts evidence."""
+    split_bumped = vessel_count > baseline_vessel_count
+    settle = settle_streak + 1 if split_bumped else 0
+    thrust_up = _is_finite(available_thrust) and available_thrust > 0.0
+    thrust = thrust_streak + 1 if thrust_up else 0
+    confirmed = bool(split_confirmed or settle >= debounce)
+    return settle, thrust, confirmed, bool(thrust >= debounce)
+
+
 def _bdock_separate_step(state: BDockState, snapshot: TelemetrySnapshot,
                          next_phase: str) -> Tuple[BDockState, List[Action]]:
     """One SEPARATE-phase frame: the evidence-chained TWO-step separation contract
@@ -3796,14 +3891,13 @@ def _bdock_separate_step(state: BDockState, snapshot: TelemetrySnapshot,
     NaN (unread) -- neither an unread count nor an unread / zero thrust ever
     certifies a step, and NaN is never treated as ignited. Bounded give-up
     (separationTimeoutSeconds spans BOTH steps) with a reason that distinguishes a
-    no-split from a split-but-no-ignition stall."""
-    split_bumped = snapshot.vessel_count > state.separate_baseline_vessel_count
-    settle = state.separate_settle_streak + 1 if split_bumped else 0
-    thrust_up = (_is_finite(snapshot.available_thrust)
-                 and snapshot.available_thrust > 0.0)
-    thrust_streak = state.separate_thrust_streak + 1 if thrust_up else 0
-    split_confirmed = (state.separate_split_confirmed
-                       or settle >= BDOCK_SEPARATION_DEBOUNCE)
+    no-split from a split-but-no-ignition stall. The evidence half is the shared
+    pure ``separation_evidence`` (FORGE-LKO reuses the SAME counter); this
+    function owns only the phase / budget / activation-cap wrapping."""
+    settle, thrust_streak, split_confirmed, ignited = separation_evidence(
+        snapshot.vessel_count, snapshot.available_thrust,
+        state.separate_baseline_vessel_count, state.separate_settle_streak,
+        state.separate_thrust_streak, state.separate_split_confirmed)
     st = replace(state, separate_settle_streak=settle,
                  separate_thrust_streak=thrust_streak,
                  separate_split_confirmed=split_confirmed)
@@ -3817,7 +3911,7 @@ def _bdock_separate_step(state: BDockState, snapshot: TelemetrySnapshot,
         return st, []
 
     # Step 2: the split is confirmed -> ensure the orbital engine is lit.
-    if thrust_streak >= BDOCK_SEPARATION_DEBOUNCE:
+    if ignited:
         # Separation dropped the spent core -> hold attitude (SAS + RCS) into the
         # next phase so the orbital stage does not tumble (flight-10).
         return (_bdock_enter(st, next_phase, snapshot.ut,
@@ -3915,7 +4009,13 @@ def bdock_decide(state: BDockState,
             return (_bdock_enter(state, BDOCK_INT_LAUNCH, snapshot.ut),
                     [Action(ACTION_LAUNCH_VESSEL, text=p.craft_name)])
         if result in ("ERROR", "TIMEOUT"):
-            return _bdock_flake(replace(state, loss_reason=None)), []
+            # Review follow-up 5: name the seam outcome so the operator sees WHY
+            # STATION-COMMIT flaked (the tree-commit command seam returned ERROR
+            # or TIMEOUT) instead of the generic phase-timeout wording.
+            return replace(_bdock_flake(replace(state, loss_reason=None)),
+                           flake_reason=(
+                               "phase %s: tree-commit seam returned %s"
+                               % (BDOCK_STATION_COMMIT, result))), []
         return _bdock_stay_or_flake(state, snapshot), []
 
     # ---- PIECE 2: INTERCEPTOR (launch_vessel) ------------------------------
@@ -4019,7 +4119,9 @@ def bdock_decide(state: BDockState,
                 # poll.
                 return (_bdock_enter(replace(st, dock_enable_pending=True),
                                      BDOCK_DOCK, snapshot.ut,
-                                     dock_last_progress_ut=snapshot.ut),
+                                     dock_last_progress_ut=snapshot.ut,
+                                     dock_entry_docked=(
+                                         snapshot.docking_state == DOCKING_STATE_DOCKED)),
                         [Action(ACTION_MJ_ABORT_NODE_EXEC),
                          Action(ACTION_SET_SAS), Action(ACTION_SET_RCS, value=1.0),
                          Action(ACTION_SET_TARGET_DOCKING_PORT)])
@@ -4042,10 +4144,69 @@ def bdock_decide(state: BDockState,
 
     if state.phase == BDOCK_DOCK:
         st = state
+        docked = snapshot.docking_state == DOCKING_STATE_DOCKED
+        # Docked short-circuit (review follow-up 4). A hard dock can land on the
+        # SAME poll that a retarget armed dock_enable_pending. Re-enabling the
+        # docking AP on an already-mated pair is at best a no-op and at worst an
+        # unguarded runner ENABLE that throws and flakes a WON mission. So the
+        # docked test sits AHEAD of the dock_enable_pending branch: once the pair
+        # reads docked, discard any pending enable and complete straight to
+        # TRANSFER (disable the AP + start T1), exactly as the old latched-off
+        # completion did. Completing on `docked` ALONE (not docked AND latched_off)
+        # also covers the race where the deferred enable never fired, so
+        # docking_ever_enabled is still False and a latched-off gate would
+        # otherwise misroute a docked pair into the E1a "enable never took" flake.
+        # onPartCouple -> Parsek authors the cross-tree Dock branch + opens the
+        # RouteConnectionWindow.
+        #
+        # CORROBORATION (MINOR-5). `docked` alone is NOT sufficient evidence that we
+        # docked to the TARGET: _read_docking_state answers "ANY port on the active
+        # vessel reads docked", so a craft carrying an already-mated internal pair
+        # reads Docked on its first DOCK poll and would complete BDOCK_DOCK instantly
+        # without ever meeting the Station. (Not reachable with the single-port
+        # Kerbal X these missions fly - the dropped `docking_ever_enabled` conjunct
+        # was guarding it incidentally - but the phase must not depend on the craft.)
+        # Either of these corroborates, so every live-proven completion path is
+        # unchanged:
+        #   - the craft was NOT docked at phase entry, so this read is a TRANSITION
+        #     observed during the approach. This covers the flight-9 race the
+        #     short-circuit was written for (the pair mates before the deferred
+        #     enable fires, so docking_ever_enabled is still False) and every
+        #     ordinary completion;
+        #   - the TARGET port is within BDOCK_DOCKED_TARGET_DIST_EPS, which is what
+        #     rescues a hard dock that landed on the very poll that entered the
+        #     phase (docked at entry, but demonstrably docked to the TARGET).
+        # Note `docking_ever_enabled` is deliberately NOT a disjunct here: enabling
+        # the AP latches it after one poll whether or not the AP achieved anything,
+        # so an entry-docked craft would false-complete two polls later - exactly
+        # the hole being closed. Uncorroborated falls through to the normal flow:
+        # the AP is enabled and has to actually close on the target, and the
+        # progress watchdog / budget flake it with a named reason. A false PASS is
+        # the one outcome that must not be possible.
+        docked_corroborated = (
+            not st.dock_entry_docked
+            or (_is_finite(snapshot.target_distance)
+                and snapshot.target_distance <= BDOCK_DOCKED_TARGET_DIST_EPS))
+        if docked and docked_corroborated:
+            return (_bdock_enter(replace(st, docked_confirmed=True,
+                                         current_transfer_started=True,
+                                         transfer_best_amount=float("-inf"),
+                                         transfer_noprogress_streak=0,
+                                         dock_enable_pending=False),
+                                 BDOCK_TRANSFER, snapshot.ut),
+                    [Action(ACTION_MJ_DISABLE_DOCKING),
+                     Action(ACTION_START_RESOURCE_TRANSFER,
+                            value=p.transfer_amount_lf, text="LiquidFuel",
+                            limit=TRANSFER_DIR_DELIVER)])
+
         # Deferred docking-AP enable (flight 9): the port target was set on the
         # previous batch; by this poll MechJeb's core.target has synced to it, so
         # the AP's first Drive tick sees a real docking node. Reset the enable-wait
-        # watchdog -- we have just (re-)issued the enable.
+        # watchdog -- we have just (re-)issued the enable. (Not reached on a
+        # CORROBORATED docked read: the short-circuit above already completed the
+        # phase. An UNCORROBORATED one - already docked at entry, target still far
+        # away - deliberately DOES reach here, so the AP has to actually close on
+        # the target instead of the phase completing on a stale internal mate.)
         if st.dock_enable_pending:
             return (replace(st, dock_enable_pending=False,
                             dock_enable_wait_streak=0),
@@ -4057,22 +4218,6 @@ def bdock_decide(state: BDockState,
             # AP-death watchdog streaks (it is alive this frame).
             st = replace(st, docking_ever_enabled=True, dock_enable_wait_streak=0,
                          dock_died_streak=0)
-        docked = snapshot.docking_state == DOCKING_STATE_DOCKED
-        latched_off = st.docking_ever_enabled and not ap_on
-
-        # Completion: onPartCouple -> Parsek authors the cross-tree Dock branch +
-        # opens the RouteConnectionWindow. Disable the docking AP and start T1
-        # (reset the TRANSFER liveness tracker for the new transfer).
-        if docked and latched_off:
-            return (_bdock_enter(replace(st, docked_confirmed=True,
-                                         current_transfer_started=True,
-                                         transfer_best_amount=float("-inf"),
-                                         transfer_noprogress_streak=0),
-                                 BDOCK_TRANSFER, snapshot.ut),
-                    [Action(ACTION_MJ_DISABLE_DOCKING),
-                     Action(ACTION_START_RESOURCE_TRANSFER,
-                            value=p.transfer_amount_lf, text="LiquidFuel",
-                            limit=TRANSFER_DIR_DELIVER)])
 
         if ap_on:
             # ---- AP running: dropped-target recovery + progress watchdog + give-ups.
@@ -4099,8 +4244,11 @@ def bdock_decide(state: BDockState,
             st, prog_flake = _bdock_dock_progress(st, snapshot, p)
             if prog_flake is not None:
                 return prog_flake, [Action(ACTION_MJ_DISABLE_DOCKING)]
-            # Monoprop-out give-up (P2): a docking-AP stall thrashing RCS drains it.
-            if (not docked and _is_finite(snapshot.monopropellant)
+            # Monoprop-out give-up (P2): a docking-AP stall thrashing RCS drains
+            # it. (A CORROBORATED docked read already completed above, so this
+            # branch runs on a non-docked - or uncorroborated-docked - AP-running
+            # poll; either way, running the tanks dry is a real give-up.)
+            if (_is_finite(snapshot.monopropellant)
                     and snapshot.monopropellant <= BDOCK_MONOPROP_OUT_EPS):
                 return (replace(_bdock_flake(st, BDOCK_DOCK), flake_reason=(
                             "phase %s: docking aborted, monopropellant exhausted"
@@ -4276,6 +4424,464 @@ def evaluate_bdock_assertions(frames, params: BDockParams,
                                 {"required": BDOCK_TERMINAL})
     return [station, station_sep, interceptor, interceptor_sep, docked,
             transfer, undocked]
+
+
+# ---------------------------------------------------------------------------
+# FORGE-LKO phase state machine (mission forge_lko: the ORBITAL fixture forge).
+# Pure. The B-DOCK Interceptor-leg shape, truncated at the park:
+#
+#   PRELAUNCH   -> launch_vessel the craft WITH NAMED CREW onto a clear pad
+#   LAUNCH      -> settle PRE_LAUNCH with the crew verified aboard
+#   ASCENT      -> the B2 MechJeb ascent actions (autostage drops the boosters)
+#   CIRCULARIZE -> execute the circularization node with autowarp EXPLICIT
+#   SEPARATE    -> two-step: drop the spent core AND ignite the orbital engine
+#   PARK        -> cut throttle, clear nodes, hold attitude, dwell stable
+#   ORBIT       -> done MISSION-OK; the scenario's SaveGame stamps the fixture
+#
+# It reuses the SAME ascent / attitude-hold action builders and the SAME pure
+# separation-evidence counter as B-DOCK; only the phase wrapper is new. There is
+# no rendezvous / dock / transfer half and no mid-mission commit: a forge
+# produces a START STATE, never a trajectory.
+# ---------------------------------------------------------------------------
+
+# Phases where a FROZEN-telemetry (destroyed-vessel) stall is a real risk and the
+# shared 1x frozen detector applies. LAUNCH is excluded (the launch_vessel reload
+# transient); PRELAUNCH / SEPARATE / PARK / ORBIT are not continuous-flight
+# phases (SEPARATE and PARK own their own bounded evidence gates, and the
+# detector self-gates on warp_mode == NONE anyway).
+_FLKO_FROZEN_PHASES: Tuple[str, ...] = (FLKO_ASCENT, FLKO_CIRCULARIZE)
+
+
+@dataclass(frozen=True)
+class ForgeLkoParams:
+    """FORGE-LKO tuning (spec [driver.missionParams] for forge_lko). All budgets /
+    tolerances / debounce depths, never a golden trajectory."""
+    # --- launch (the FORGE crew-by-name plumbing, verbatim) ---
+    craft_name: str = "Kerbal X"
+    launch_site: str = "LaunchPad"
+    # Explicit KERBAL NAMES seeded into the pod. None / empty -> KSP's default
+    # crew assignments (crew=[]). By NAME, never a count: kRPC 0.5.4 exposes no
+    # roster-enumeration API, only get_kerbal(name) + launch_vessel(crew: List[str]).
+    crew_names: Optional[Tuple[str, ...]] = None
+    # Minimum kerbals that must read aboard before the ascent is allowed to start
+    # (and the crewAboard assertion's floor). 0 DISABLES the gate; any positive
+    # value fails CLOSED on the -1 unread sentinel, so a forge whose crew seeding
+    # silently failed flakes ON THE PAD instead of stamping an UNCREWED fixture
+    # that reds its consumer ten minutes later with a confusing "no-crew".
+    min_crew: int = 0
+    launch_settle_situations: Tuple[str, ...] = ("PRE_LAUNCH",)
+    launch_timeout: float = 300.0
+    launch_settle_debounce: int = 3
+    # --- orbit (the B2 ascent tolerances, verbatim) ---
+    target_apoapsis: float = 100000.0
+    target_periapsis: float = 100000.0
+    apo_error: float = 10000.0
+    peri_error: float = 10000.0
+    eccentricity_max: float = 0.02
+    inclination_error: float = 5.0
+    launch_site_latitude: float = 0.0
+    ascent_timeout: float = 900.0
+    circularize_timeout: float = 2400.0
+    # --- separation (the B-DOCK two-step contract, verbatim) ---
+    separation_timeout: float = 120.0
+    # --- park (new: the fixture is a SAVED STATE, so it must be settled) ---
+    park_situations: Tuple[str, ...] = ("ORBITING",)
+    # GAME seconds the stabilized orbit must be HELD before the forge declares
+    # the park done: the save must not catch a still-settling ship.
+    park_dwell: float = 60.0
+    park_timeout: float = 600.0
+    park_debounce: int = 3
+    # Tumble ceiling (rad/s) the park must hold: with SAS stability-assist + RCS
+    # on, a stabilized stage reads ~0. NaN (unread) fails closed -- never counted
+    # as stable (SF-2 discipline).
+    max_angular_velocity: float = 0.05
+    # Periapsis floor (m) the park must clear regardless of the target tolerance:
+    # Kerbin's atmosphere ends at 70 km, so a park below this is NOT the
+    # "on-rails-safe stable orbit" the fixture contract promises.
+    min_safe_periapsis: float = 75000.0
+    frozen_sample_limit: int = 10
+
+
+def forge_lko_params_from_dict(params: Dict) -> ForgeLkoParams:
+    params = params or {}
+    crew_names = params.get("crewNames", None)
+    return ForgeLkoParams(
+        craft_name=str(params.get("craftName", "Kerbal X")),
+        launch_site=str(params.get("launchSite", "LaunchPad")),
+        crew_names=(tuple(str(n) for n in crew_names) if crew_names else None),
+        min_crew=int(params.get("minCrew", 0)),
+        launch_settle_situations=tuple(
+            params.get("launchSettleSituations", ("PRE_LAUNCH",))),
+        launch_timeout=float(params.get("launchTimeoutSeconds", 300)),
+        launch_settle_debounce=int(params.get("launchSettleDebounceFrames", 3)),
+        target_apoapsis=float(params.get("targetApoapsisMeters", 100000)),
+        target_periapsis=float(params.get("targetPeriapsisMeters", 100000)),
+        apo_error=float(params.get("apoErrorMeters", 10000)),
+        peri_error=float(params.get("periErrorMeters", 10000)),
+        eccentricity_max=float(params.get("eccentricityMax", 0.02)),
+        inclination_error=float(params.get("inclinationErrorDeg", 5.0)),
+        launch_site_latitude=float(params.get("launchSiteLatitude", 0.0)),
+        ascent_timeout=float(params.get("ascentTimeoutSeconds", 900)),
+        circularize_timeout=float(params.get("circularizeTimeoutSeconds", 2400)),
+        separation_timeout=float(params.get("separationTimeoutSeconds", 120)),
+        park_situations=tuple(params.get("parkSituations", ("ORBITING",))),
+        park_dwell=float(params.get("parkDwellSeconds", 60)),
+        park_timeout=float(params.get("parkTimeoutSeconds", 600)),
+        park_debounce=int(params.get("parkDebounceFrames", 3)),
+        max_angular_velocity=float(params.get("maxAngularVelocityRadPerSec", 0.05)),
+        min_safe_periapsis=float(params.get("minSafePeriapsisMeters", 75000)),
+        frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
+    )
+
+
+def forge_lko_b2_params(params: ForgeLkoParams) -> B2Params:
+    """Project the FORGE-LKO orbit tolerances onto ``B2Params`` so the orbital
+    quality assertions are the LIVE-PROVEN ``evaluate_b2_assertions`` verbatim
+    (apoapsis / periapsis / eccentricity / inclination within tolerance), not a
+    second hand-rolled copy that could drift from it."""
+    return B2Params(
+        target_apoapsis=params.target_apoapsis,
+        target_periapsis=params.target_periapsis,
+        apo_error=params.apo_error,
+        peri_error=params.peri_error,
+        eccentricity_max=params.eccentricity_max,
+        inclination_error=params.inclination_error,
+        ascent_timeout=params.ascent_timeout,
+        circularize_timeout=params.circularize_timeout,
+        launch_site_latitude=params.launch_site_latitude,
+        frozen_sample_limit=params.frozen_sample_limit,
+    )
+
+
+@dataclass(frozen=True)
+class ForgeLkoState:
+    params: ForgeLkoParams
+    phase: str = FLKO_PRELAUNCH
+    phase_entry_ut: float = 0.0
+    phases_reached: Tuple[str, ...] = (FLKO_PRELAUNCH,)
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    done: bool = False
+    loss_reason: Optional[str] = None
+    # Shared frozen-telemetry detection (mirrors B2/B5/B-DOCK).
+    frozen_sig: Optional[FrozenSignature] = None
+    frozen_count: int = 0
+    # LAUNCH settle + the crew gate's diagnosis latch (a settle-situation frame
+    # was seen but the crew count was short -> the flake NAMES the crew).
+    launch_settle_streak: int = 0
+    launch_crew_short_seen: bool = False
+    # SEPARATE evidence (the shared two-step contract).
+    separate_baseline_vessel_count: int = 0
+    separate_settle_streak: int = 0
+    separate_thrust_streak: int = 0
+    separate_split_confirmed: bool = False
+    separate_activations: int = 0
+    # PARK stability debounce.
+    park_stable_streak: int = 0
+    # Carried evidence for the evaluator (LATCHED, so the per-phase resets above
+    # never erase what the run actually proved).
+    split_ever_confirmed: bool = False
+    ignition_ever_confirmed: bool = False
+    park_ever_stable: bool = False
+
+
+def forge_lko_initial_state(params: ForgeLkoParams) -> ForgeLkoState:
+    return ForgeLkoState(params=params)
+
+
+def _flko_enter(state: ForgeLkoState, new_phase: str, ut: float,
+                **fields) -> ForgeLkoState:
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(
+        state, phase=new_phase, phase_entry_ut=entry,
+        phases_reached=state.phases_reached + (new_phase,),
+        done=(new_phase == FLKO_ORBIT), **fields)
+
+
+def _flko_phase_budget(params: ForgeLkoParams, phase: str) -> Optional[float]:
+    if phase == FLKO_LAUNCH:
+        return params.launch_timeout
+    if phase == FLKO_ASCENT:
+        return params.ascent_timeout
+    if phase == FLKO_CIRCULARIZE:
+        return params.circularize_timeout
+    if phase == FLKO_SEPARATE:
+        return params.separation_timeout
+    if phase == FLKO_PARK:
+        return params.park_timeout
+    return None
+
+
+def _flko_over_budget(state: ForgeLkoState, snapshot: TelemetrySnapshot) -> bool:
+    budget = _flko_phase_budget(state.params, state.phase)
+    if budget is None or not _is_finite(snapshot.ut):
+        return False
+    return (snapshot.ut - state.phase_entry_ut) > budget
+
+
+def _flko_flake(state: ForgeLkoState,
+                reason: Optional[str] = None) -> ForgeLkoState:
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason=reason, done=True)
+
+
+def _flko_stay_or_flake(state: ForgeLkoState,
+                        snapshot: TelemetrySnapshot) -> ForgeLkoState:
+    if _flko_over_budget(state, snapshot):
+        return _flko_flake(state)
+    return state
+
+
+def _flko_crew_ok(params: ForgeLkoParams, snapshot: TelemetrySnapshot) -> bool:
+    """The crew gate: no floor -> always satisfied; otherwise the read must be a
+    real count at/above the floor. The -1 unread sentinel fails CLOSED."""
+    if params.min_crew <= 0:
+        return True
+    return snapshot.crew_count >= params.min_crew
+
+
+def _flko_park_stable(params: ForgeLkoParams, snapshot: TelemetrySnapshot) -> bool:
+    """One PARK frame's stability verdict: an accepted orbital situation, BOTH
+    apsides inside their tolerance, a periapsis clear of the atmosphere, and the
+    tumble below the ceiling. Every conjunct fails closed on a non-finite read."""
+    if snapshot.situation not in params.park_situations:
+        return False
+    if not (_is_finite(snapshot.apoapsis) and _is_finite(snapshot.periapsis)):
+        return False
+    if abs(snapshot.apoapsis - params.target_apoapsis) > params.apo_error:
+        return False
+    if abs(snapshot.periapsis - params.target_periapsis) > params.peri_error:
+        return False
+    if snapshot.periapsis < params.min_safe_periapsis:
+        return False
+    return (_is_finite(snapshot.angular_velocity)
+            and snapshot.angular_velocity <= params.max_angular_velocity)
+
+
+def _flko_park_entry_actions() -> List[Action]:
+    """The vehicle-configuration contract the SAVE must capture: throttle CUT (the
+    fixture never starts mid-burn), every maneuver node CLEARED (no pending burn
+    rides into the fixture), and attitude HELD (SAS stability-assist + RCS on) so
+    the orbital stage does not tumble after the separation dropped mass."""
+    return ([Action(ACTION_CUT_THROTTLE, 0.0),
+             Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)]
+            + _bdock_attitude_hold_actions())
+
+
+def forge_lko_decide(state: ForgeLkoState, snapshot: TelemetrySnapshot
+                     ) -> Tuple[ForgeLkoState, List[Action]]:
+    """Advance the FORGE-LKO machine one frame; return (new_state, actions).
+
+    Terminals: MISSION-OK at FLKO_ORBIT (the assertions then judge the stamped
+    state); ASSERT-FAIL on a vessel loss (outside the launch reload) or a frozen-
+    telemetry stall; a bounded FLAKE with a NAMED reason on every phase give-up
+    (a forge that flakes costs one operator re-run -- a forge that stamps a BAD
+    fixture costs every consumer of that fixture)."""
+    if state.done:
+        return state, []
+
+    # Phase-independent vessel-loss terminal, EXCEPT during the launch_vessel
+    # FLIGHT->FLIGHT reload where a vessel_lost read is a transient (the new
+    # craft has not materialized yet); LAUNCH owns that with its settle debounce
+    # + launch budget.
+    if snapshot.vessel_lost and state.phase != FLKO_LAUNCH:
+        return replace(
+            state, done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason="vessel-lost (unreadable after repeated telemetry failures)"), []
+
+    if state.phase in _FLKO_FROZEN_PHASES:
+        limit = state.params.frozen_sample_limit
+        new_sig, new_count, tripped = _advance_frozen_count(
+            state.frozen_sig, state.frozen_count, snapshot, limit)
+        if tripped:
+            return replace(
+                state, frozen_sig=new_sig, frozen_count=new_count, done=True,
+                verdict=MISSION_ASSERT_FAIL,
+                loss_reason=("vessel-lost (telemetry frozen %d consecutive samples "
+                             "while airborne; vessel presumed destroyed)" % limit)), []
+        state = replace(state, frozen_sig=new_sig, frozen_count=new_count)
+
+    p = state.params
+
+    if state.phase == FLKO_PRELAUNCH:
+        return (_flko_enter(state, FLKO_LAUNCH, snapshot.ut),
+                [Action(ACTION_LAUNCH_VESSEL, text=p.craft_name,
+                        launch_site=p.launch_site, crew=p.crew_names)])
+
+    if state.phase == FLKO_LAUNCH:
+        on_pad = (not snapshot.vessel_lost
+                  and snapshot.situation in p.launch_settle_situations)
+        crew_ok = _flko_crew_ok(p, snapshot)
+        streak = state.launch_settle_streak + 1 if (on_pad and crew_ok) else 0
+        st = replace(state, launch_settle_streak=streak,
+                     launch_crew_short_seen=(state.launch_crew_short_seen
+                                             or (on_pad and not crew_ok)))
+        if streak >= p.launch_settle_debounce:
+            return (_flko_enter(st, FLKO_ASCENT, snapshot.ut),
+                    _bdock_ascent_entry_actions(p.target_apoapsis))
+        if _flko_over_budget(st, snapshot):
+            # Blame the CREW only when the craft was seen settled-but-short AND is
+            # STILL short at the give-up: a craft that reached the pad and then
+            # stopped reading PRE_LAUNCH is a settle failure, not a crew failure.
+            if st.launch_crew_short_seen and not crew_ok:
+                return _flko_flake(st, (
+                    "phase %s: craft settled on the pad but crew_count=%d is below "
+                    "minCrew=%d (launch_vessel crew seeding failed; the fixture "
+                    "would be UNCREWED)" % (FLKO_LAUNCH, snapshot.crew_count,
+                                            p.min_crew))), []
+            return _flko_flake(st, (
+                "phase %s: the launched craft never settled in %s"
+                % (FLKO_LAUNCH, list(p.launch_settle_situations)))), []
+        return st, []
+
+    if state.phase == FLKO_ASCENT:
+        apo_reached = (_is_finite(snapshot.apoapsis)
+                       and snapshot.apoapsis >= p.target_apoapsis - p.apo_error)
+        if snapshot.mj_ascent_complete and apo_reached:
+            # ACTION_MJ_EXECUTE_NODES (not the bare circularization action): it is
+            # the SAME guarded execute_all_nodes, but it sets node_executor
+            # autowarp EXPLICITLY. B-DOCK flight 12 proved the executor's autowarp
+            # is shared global state -- an identical machine warped on one flight
+            # and coasted the whole leg at 1x on the next. A forge must not depend
+            # on that luck.
+            return (_flko_enter(state, FLKO_CIRCULARIZE, snapshot.ut),
+                    [Action(ACTION_MJ_EXECUTE_NODES)])
+        return _flko_stay_or_flake(state, snapshot), []
+
+    if state.phase == FLKO_CIRCULARIZE:
+        if (_is_finite(snapshot.periapsis)
+                and snapshot.periapsis >= p.target_periapsis - p.peri_error):
+            # Circularized -> the two-step SEPARATE contract. This entry
+            # ACTIVATE_STAGE (activation count 1) drops the spent core; step 1
+            # confirms on the vessel_count increase, step 2 lights the orbital
+            # stage with at most ONE more activation (cap 2 -- a third would fire
+            # the istg=0 heat-shield decoupler).
+            return (_flko_enter(state, FLKO_SEPARATE, snapshot.ut,
+                                separate_baseline_vessel_count=snapshot.vessel_count,
+                                separate_settle_streak=0,
+                                separate_thrust_streak=0,
+                                separate_split_confirmed=False,
+                                separate_activations=1),
+                    [Action(ACTION_ACTIVATE_STAGE)])
+        return _flko_stay_or_flake(state, snapshot), []
+
+    if state.phase == FLKO_SEPARATE:
+        settle, thrust, split_confirmed, ignited = separation_evidence(
+            snapshot.vessel_count, snapshot.available_thrust,
+            state.separate_baseline_vessel_count, state.separate_settle_streak,
+            state.separate_thrust_streak, state.separate_split_confirmed)
+        st = replace(state, separate_settle_streak=settle,
+                     separate_thrust_streak=thrust,
+                     separate_split_confirmed=split_confirmed,
+                     split_ever_confirmed=(state.split_ever_confirmed
+                                           or split_confirmed),
+                     ignition_ever_confirmed=(state.ignition_ever_confirmed
+                                              or (split_confirmed and ignited)))
+        if not split_confirmed:
+            if _flko_over_budget(st, snapshot):
+                return _flko_flake(st, (
+                    "phase %s: no separation observed (vessel_count did not "
+                    "increase)" % FLKO_SEPARATE)), []
+            return st, []
+        if ignited:
+            # ORBITAL STAGE, engine LIT -> park it: cut throttle, clear nodes,
+            # hold attitude.
+            return (_flko_enter(st, FLKO_PARK, snapshot.ut,
+                                separate_settle_streak=0,
+                                separate_thrust_streak=0,
+                                separate_split_confirmed=False,
+                                separate_activations=0,
+                                park_stable_streak=0),
+                    _flko_park_entry_actions())
+        if st.separate_activations < 2:
+            return (replace(st, separate_activations=st.separate_activations + 1),
+                    [Action(ACTION_ACTIVATE_STAGE)])
+        if _flko_over_budget(st, snapshot):
+            return _flko_flake(st, (
+                "phase %s: separated but no ignition (available_thrust stayed 0)"
+                % FLKO_SEPARATE)), []
+        return st, []
+
+    if state.phase == FLKO_PARK:
+        stable = _flko_park_stable(p, snapshot)
+        streak = state.park_stable_streak + 1 if stable else 0
+        st = replace(state, park_stable_streak=streak,
+                     park_ever_stable=(state.park_ever_stable
+                                       or streak >= p.park_debounce))
+        dwelled = (_is_finite(snapshot.ut)
+                   and (snapshot.ut - st.phase_entry_ut) >= p.park_dwell)
+        if streak >= p.park_debounce and dwelled:
+            return _flko_enter(st, FLKO_ORBIT, snapshot.ut), []
+        if _flko_over_budget(st, snapshot):
+            if st.park_ever_stable:
+                return _flko_flake(st, (
+                    "phase %s: the orbit stabilized but never HELD stable through "
+                    "the %.0f s park dwell" % (FLKO_PARK, p.park_dwell))), []
+            return _flko_flake(st, (
+                "phase %s: never reached a stable park (situation=%s apo=%.0f "
+                "pe=%.0f angVel=%.4f)"
+                % (FLKO_PARK, snapshot.situation or "?", snapshot.apoapsis,
+                   snapshot.periapsis, snapshot.angular_velocity))), []
+        return st, []
+
+    return _flko_flake(state, "phase %s: unreachable state" % state.phase), []
+
+
+def evaluate_forge_lko_assertions(frames, params: ForgeLkoParams,
+                                  phases_reached=(), state=None,
+                                  k: int = DEFAULT_DEBOUNCE_K
+                                  ) -> List[AssertionOutcome]:
+    """FORGE-LKO driver-validity assertions: FOUR forge-specific rows plus the
+    four LIVE-PROVEN B2 orbit rows verbatim (apoapsisError / periapsisError /
+    eccentricity / inclinationError). The forge produces a STATE, so every
+    forge-specific row is phase/carried evidence about that state, never a golden
+    trajectory.
+
+    - ``launched``:     FLKO_LAUNCH in phases_reached (launch_vessel fired).
+    - ``crewAboard``:   the last finite crew_count is at/above minCrew. Auto-met
+      when minCrew is 0 (the gate is off); otherwise the -1 unread sentinel is
+      UNMET, so an uncrewed stamp can never read green.
+    - ``separated``:    SEPARATE entered AND both steps confirmed (the spent core
+      dropped AND the orbital engine lit) AND the machine advanced to PARK.
+    - ``parkedStable``: FLKO_ORBIT reached AND the final situation is an accepted
+      park situation (the state the SaveGame persists).
+    """
+    frames = list(frames or [])
+    phases = tuple(phases_reached or ())
+
+    launched = AssertionOutcome("launched", FLKO_LAUNCH in phases,
+                                (phases[-1] if phases else None),
+                                {"required": FLKO_LAUNCH})
+
+    crew_last = None
+    for f in frames:
+        if int(getattr(f, "crew_count", -1)) >= 0:
+            crew_last = int(f.crew_count)
+    crew_met = (params.min_crew <= 0
+                or (crew_last is not None and crew_last >= params.min_crew))
+    crew = AssertionOutcome("crewAboard", crew_met, crew_last,
+                            {"minCrew": params.min_crew})
+
+    split_ev = bool(getattr(state, "split_ever_confirmed", False))
+    ignition_ev = bool(getattr(state, "ignition_ever_confirmed", False))
+    sep_met = ((FLKO_SEPARATE in phases) and (FLKO_PARK in phases)
+               and split_ev and ignition_ev)
+    separated = AssertionOutcome(
+        "separated", sep_met,
+        (FLKO_SEPARATE if FLKO_SEPARATE in phases
+         else (phases[-1] if phases else None)),
+        {"required": FLKO_SEPARATE, "splitConfirmed": split_ev,
+         "ignitionConfirmed": ignition_ev})
+
+    final_situation = frames[-1].situation if frames else None
+    parked_met = (FLKO_ORBIT in phases) and (final_situation in params.park_situations)
+    parked = AssertionOutcome("parkedStable", parked_met, final_situation,
+                              {"required": FLKO_ORBIT,
+                               "accepted": list(params.park_situations)})
+
+    return ([launched, crew, separated, parked]
+            + evaluate_b2_assertions(frames, forge_lko_b2_params(params), k=k))
 
 
 # ---------------------------------------------------------------------------
@@ -4926,6 +5532,10 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("match_retarget_done", "matchRetarget"),
     ("dock_nan_streak", "dockNanStreak"),
     ("dock_retarget_count", "dockRetargetCount"),
+    # Was the craft already reading Docked at DOCK entry (MINOR-5)? True means the
+    # docked short-circuit needs the target-distance corroboration, so a phase that
+    # looks stuck while reading Docked self-explains in the telemetry line.
+    ("dock_entry_docked", "dockEntryDocked"),
     ("dock_enable_pending", "dockEnablePending"),
     ("dock_enable_wait_streak", "dockEnableWait"),
     ("dock_enable_reissued", "dockEnableReissued"),
@@ -5129,13 +5739,21 @@ def snapshot_dict(snapshot: TelemetrySnapshot) -> Dict:
         "sasEnabled": snapshot.sas_enabled,
         "rcsEnabled": snapshot.rcs_enabled,
         "dockingApStatus": snapshot.docking_ap_status,
+        # FORGE-LKO crew gate (-1 = not read / read failed). Kept as the raw int
+        # (not None-scrubbed): the sentinel IS the diagnosis when a crew gate
+        # never opens.
+        "crewCount": snapshot.crew_count,
     }
 
 
 def format_snapshot_compact(snapshot: TelemetrySnapshot) -> str:
     """One-line-per-frame compact snapshot form for the event-window ring
-    buffer (design 2c): the fields the machines gate on, ~100 chars."""
-    return ("ut=%s alt=%s ap=%s pe=%s body=%s nodes=%d nodeDv=%s thr=%s "
+    buffer (design 2c): the fields the machines gate on, ~100 chars.
+
+    ``crew=N`` is appended ONLY when the crew count was actually read (the
+    opt-in FORGE-LKO channel), so every other mission's line is unchanged."""
+    crew = "" if snapshot.crew_count < 0 else (" crew=%d" % snapshot.crew_count)
+    line = ("ut=%s alt=%s ap=%s pe=%s body=%s nodes=%d nodeDv=%s thr=%s "
             "apErr=%s tgtD=%s tgtV=%s angV=%s sas=%d rcs=%d apSt=%s warp=%sx%s "
             "sit=%s%s"
             % (_obs_fmt(snapshot.ut), _obs_fmt(snapshot.altitude),
@@ -5149,3 +5767,4 @@ def format_snapshot_compact(snapshot: TelemetrySnapshot) -> str:
                snapshot.docking_ap_status or "?", snapshot.warp_mode,
                _obs_fmt(snapshot.warp_rate), snapshot.situation or "?",
                " LOST" if snapshot.vessel_lost else ""))
+    return line + crew

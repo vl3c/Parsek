@@ -11,9 +11,11 @@ prunes Parsek state and normalizes the produced save into the committed
 pre-placed-Station fixture (``harness/fixtures/saves/bdock-station-pad``).
 
 This is NOT a flight mission (no ascent / orbit): it exists only to STAMP a pad
-fixture headlessly. It is GENERIC over the craft (``craftName``) and an optional
-crew count, so the SAME forge later produces the EVA-3 pad fixture (same Kerbal X
-craft, a 3-crew pod) with a different ``missionParams``.
+fixture headlessly. It is GENERIC over the craft (``craftName``) and optional
+named crew (``crewNames`` -- explicit kerbal names, never a count, since kRPC
+0.5.4 has no roster-enumeration API), so the SAME forge later produces the EVA-3
+pad fixture (the same Kerbal X craft, a 3-crew pod) with a different
+``missionParams``.
 
 A THIN shell: every decision is the pure ``mlib.forge_decide`` machine +
 ``mlib.evaluate_forge_assertions``; the connect / launch / settle / result write

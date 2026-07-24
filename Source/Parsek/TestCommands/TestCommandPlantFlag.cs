@@ -45,6 +45,20 @@ namespace Parsek.TestCommands
         FlagTimeout,
     }
 
+    /// <summary>Phase-B SiteRename dialog action, decided per poll after <c>PlantFlag()</c>
+    /// fired.</summary>
+    internal enum SiteRenameDialogAction
+    {
+        /// <summary>The popup is not live yet (the plant animation is still running): keep
+        /// polling. The dialog is answered ONLY through the real button callback once the
+        /// popup actually spawns.</summary>
+        KeepWaiting,
+
+        /// <summary>The live "SiteRename" popup was found: invoke its dismiss button's own
+        /// callback so <c>GameEvents.afterFlagPlanted.Fire</c> runs synchronously.</summary>
+        InvokeDismiss,
+    }
+
     /// <summary>
     /// Pure decision helpers for the two-phase, bounded-wait-gated, dialog-answering
     /// <c>PlantFlag</c> seam verb (M-C2, design-autotest-eva-missions.md). The Unity
@@ -63,7 +77,9 @@ namespace Parsek.TestCommands
         /// the terminal timeout; a transiently-closed gate KEEPS WAITING (never a terminal
         /// reject - the mid-fall regression). <paramref name="stableLockClosed"/> is the AC
         /// flag unlock read directly (the one cause that cannot flip mid-mission);
-        /// <paramref name="gateOpen"/> samples <c>Events["PlantFlag"].active</c> every poll.
+        /// <paramref name="gateOpen"/> is the LIVE gate from <see cref="IsPlantGateOpen"/>
+        /// (a per-poll <c>CanPlantFlag()</c> read plus the plantable-fsm-state check), NOT the
+        /// stale edge-triggered <c>Events["PlantFlag"].active</c> cache that stranded EVA-1.
         /// </summary>
         internal static PlantGateDecision DecidePlantGateWait(
             double elapsed, bool gateOpen, bool stableLockClosed, double budget)
@@ -75,6 +91,53 @@ namespace Parsek.TestCommands
             if (elapsed >= budget)
                 return PlantGateDecision.GateTimeout;
             return PlantGateDecision.KeepWaiting;
+        }
+
+        /// <summary>
+        /// The LIVE plant-gate-open decision (EVA-1 pad-flag defect, 2026-07-24). The stock
+        /// button flag <c>Events["PlantFlag"].active</c> is NOT the availability truth: it is
+        /// an edge-triggered CACHE (decompiled <c>KerbalEVA</c>, KSP 1.12.5) assigned
+        /// <c>= CanPlantFlag()</c> only at <c>idle_OnEnter</c> / <c>idle_b_OnEnter</c>
+        /// (entering <c>st_idle_gr</c> / <c>st_idle_b_gr</c>), a vessel-situation change WHILE
+        /// already in <c>st_idle_gr</c>, a construction-mode toggle, go-off-rails, or
+        /// <c>AddFlag</c>. A kerbal that lands and stands still on the pad after an
+        /// <c>EvaExit release=true</c> enters <c>st_idle_gr</c> exactly ONCE - and if the
+        /// cache is computed while ground contact / ragdoll-settle is still transient it
+        /// latches stale-false, then NOTHING re-fires, so the button never opens even though
+        /// <c>CanPlantFlag()</c> flips true a frame later. That is the 180s EVA-1 timeout. The
+        /// seam therefore reads the live <paramref name="canPlantFlag"/> (a direct
+        /// <c>CanPlantFlag()</c> call, recomputed every poll) AND confirms the kerbal is in a
+        /// state where <c>PlantFlag()</c>'s <c>On_flagPlantStart</c> (a MANUAL_TRIGGER event
+        /// registered ONLY on <c>st_idle_gr</c> / <c>st_idle_b_gr</c>) will actually fire
+        /// (<paramref name="inPlantableFsmState"/>); otherwise <c>PlantFlag()</c> would
+        /// decrement <c>flagItems</c> without planting.
+        /// </summary>
+        internal static bool IsPlantGateOpen(bool canPlantFlag, bool inPlantableFsmState)
+            => canPlantFlag && inPlantableFsmState;
+
+        /// <summary>
+        /// Build a compact, self-explaining unmet-precondition token for the gate-wait /
+        /// timeout diagnostic (liveness rule: a timeout must name WHICH stock precondition is
+        /// closed, not just <c>gateOpen=false</c>). The booleans mirror the decompiled
+        /// <c>CanPlantFlag()</c> conjuncts plus the plantable-fsm-state gate. Returns
+        /// <c>"open"</c> when every precondition is met; otherwise a comma-joined list of the
+        /// closed ones (e.g. <c>"fsm=Idle_Grounded,no-ground-contact"</c>). Never returns an
+        /// empty string.
+        /// </summary>
+        internal static string DescribePlantGateBlock(
+            bool inPlantableFsmState, bool vesselActive, bool groundContact,
+            bool flagItemsPositive, bool notRagdoll, bool flagUnlocked, bool notConstruction,
+            string fsmStateName)
+        {
+            var unmet = new List<string>();
+            if (!inPlantableFsmState) unmet.Add("fsm=" + (string.IsNullOrEmpty(fsmStateName) ? "?" : fsmStateName));
+            if (!vesselActive) unmet.Add("vessel-not-active");
+            if (!groundContact) unmet.Add("no-ground-contact");
+            if (!flagItemsPositive) unmet.Add("no-flag-items");
+            if (!notRagdoll) unmet.Add("ragdoll");
+            if (!flagUnlocked) unmet.Add("ac-flag-locked");
+            if (!notConstruction) unmet.Add("construction-mode");
+            return unmet.Count == 0 ? "open" : string.Join(",", unmet);
         }
 
         /// <summary>
@@ -94,6 +157,23 @@ namespace Parsek.TestCommands
                 return FlagPlantCompletionDecision.FlagTimeout;
             return FlagPlantCompletionDecision.StillWaiting;
         }
+
+        /// <summary>
+        /// Decide the Phase-B SiteRename dialog action. Decompile-proven (FlagSite.cs, KSP
+        /// 1.12.5): the FlagSite vessel is created at <c>KerbalEVA.flagPlant_OnEnter</c> via
+        /// <c>FlagSite.CreateFlag</c> - BEFORE the plant animation completes and long before
+        /// <c>FlagSite.OnPlacementComplete -> RenameSite</c> spawns the "SiteRename" popup, and
+        /// <c>GameEvents.afterFlagPlanted.Fire</c> runs ONLY inside that dialog's afterDialog
+        /// button callback. So the presence of the FlagSite vessel is NOT evidence the dialog
+        /// was answered: we must WAIT for the popup to actually spawn, then invoke its button.
+        /// Never infer "answered" from popup-absence + flag-vessel-presence (that false-OK'd the
+        /// plant before the dialog spawned and afterFlagPlanted never fired - EVA-1 flight 3,
+        /// 2026-07-24). <paramref name="flagVesselExists"/> is deliberately non-decisive; it is
+        /// accepted only to make the "flag vessel exists yet we still wait" contract explicit.
+        /// </summary>
+        internal static SiteRenameDialogAction DecideSiteRenameDialogAction(
+            bool popupPresent, bool flagVesselExists)
+            => popupPresent ? SiteRenameDialogAction.InvokeDismiss : SiteRenameDialogAction.KeepWaiting;
 
         /// <summary>Terminal completion payload once the flag vessel exists + the dialog answered.</summary>
         internal static List<KeyValuePair<string, string>> BuildCompletePayload(

@@ -40,11 +40,35 @@ namespace Parsek.TestCommands
         private static readonly FieldInfo PartAirlockField =
             typeof(Part).GetField("airlock", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
+        // KerbalEVA.CanPlantFlag() is protected virtual - not compile-visible. It is the LIVE
+        // plant-availability truth (vessel ACTIVE + part.GroundContact + flagItems>0 + not
+        // ragdoll + AC flag unlock + not construction), recomputed on every call. The seam
+        // reads it directly each poll instead of the stale edge-triggered
+        // Events["PlantFlag"].active cache. Null-safe: a failed bind reads the gate closed.
+        private static readonly MethodInfo KerbalEvaCanPlantFlagMethod =
+            typeof(KerbalEVA).GetMethod("CanPlantFlag",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public,
+                null, System.Type.EmptyTypes, null);
+
         // ----- EvaExit two-phase state (re-armed wholesale at each EvaExitImpl) -----
         private string evaExitKerbalName;
         private Vessel evaExitVessel;
         private bool evaExitReleaseRequested;
         private bool evaExitReleaseApplied;
+        // VERIFIED-left-the-ladder (fsm actually departed the ladder family after a fire), as
+        // distinct from evaExitReleaseApplied (the release PHASE concluded, gating completion).
+        // The completion payload's released= reports THIS, never a bare called-the-event bit.
+        private bool evaExitReleaseVerified;
+        // Two SEPARATE counters, deliberately not one (the 932897781 false-positive family).
+        // attempts = how many times we have TRIED to fire On_ladderLetGo; it drives the bounded
+        // liveness cap (LadderReleaseMaxFires) and is incremented BEFORE the RunEvent call so a
+        // throwing RunEvent can never spin forever.
+        private int evaExitReleaseAttemptCount;
+        // fires = how many times RunEvent actually RETURNED; it is the evidence half. Only a
+        // real fire may later license released=true ("verified-left"), so a RunEvent that threw
+        // (fsm not started, etc.) must NOT let a later organic ladder departure be reported as
+        // ours. Incremented only AFTER RunEvent returns.
+        private int evaExitReleaseFireCount;
         private double evaExitSettleSeconds;
         private double evaExitSettleStartedAt;
 
@@ -56,7 +80,6 @@ namespace Parsek.TestCommands
         private KerbalEVA plantFlagController;
         private bool plantFlagFired;
         private bool plantFlagDialogAnswered;
-        private bool plantFlagLastGateOpen;
         private HashSet<uint> plantFlagPreExistingFlagPids;
         private Vessel plantFlagVessel;
 
@@ -157,6 +180,9 @@ namespace Parsek.TestCommands
             evaExitVessel = evaCtl.vessel;
             evaExitReleaseRequested = releaseRequested;
             evaExitReleaseApplied = false;
+            evaExitReleaseVerified = false;
+            evaExitReleaseFireCount = 0;
+            evaExitReleaseAttemptCount = 0;
             evaExitSettleSeconds = settleSeconds;
             evaExitSettleStartedAt = -1.0;
             SetExecResult(PendingVerdict, null, null);
@@ -201,7 +227,10 @@ namespace Parsek.TestCommands
             string id = completionId; long seq = completionSeq; string verb = completionVerb;
             string kerbal = evaExitKerbalName;
             uint evaPid = exists ? evaExitVessel.persistentId : 0u;
-            bool released = evaExitReleaseApplied;
+            // released= means VERIFIED-left-the-ladder (evaExitReleaseVerified), NOT merely
+            // that the release phase concluded (evaExitReleaseApplied): a bounded-exhausted
+            // release that never left the ladder reports released=false.
+            bool released = evaExitReleaseVerified;
             ClearTwoPhase();
 
             if (decision == EvaExitCompletionDecision.CompleteOk)
@@ -219,8 +248,18 @@ namespace Parsek.TestCommands
             }
         }
 
-        // Run the public fsm ladder let-go once the EVA vessel is active. A kerbal already off
-        // the ladder marks releaseApplied without the event (logged release=noop).
+        // Evidence-verified ladder let-go (EVA-1 flight-2 release false-positive fix). The old
+        // applier fired On_ladderLetGo the instant OnALadder was true (~0.2s after exit) and
+        // marked released=true - but at 0.2s a hatch-grab EVA is still in st_ladder_acquire, a
+        // transitional state that does NOT register On_ladderLetGo (decompiled KerbalEVA.cs:8737
+        // registers it ONLY on st_ladder_idle / st_ladder_climb / st_ladder_descend /
+        // st_ladder_end_reached). KerbalFSM.RunEvent for an unregistered event logs
+        // "not assigned to state" and RETURNS (KerbalFSM.cs:298-311) - a SILENT no-op - so the
+        // kerbal never let go, hung on the hatch ladder in st_ladder_idle, and PlantFlag timed
+        // out at 180s for want of ground contact. RunEvent for a REGISTERED event transitions
+        // synchronously in-call, so we fire only from a receptive state and re-verify next poll
+        // that the fsm actually LEFT the ladder family. Two-step SEPARATE (BDOCK lesson): the
+        // event being CALLED is not evidence it HAPPENED; released=true means verified-left.
         private void ApplyLadderRelease()
         {
             KerbalEVA evaCtl = evaExitVessel != null ? evaExitVessel.FindPartModuleImplementing<KerbalEVA>() : null;
@@ -230,25 +269,103 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            if (evaCtl.OnALadder)
+            bool onLadder = evaCtl.OnALadder;
+            bool inReceptive = IsLadderLetGoReceptiveState(evaCtl, out string stateName);
+            // The CAP is driven by ATTEMPTS, never by fires: a RunEvent that throws still costs
+            // an attempt, so a permanently-throwing fsm gives up bounded instead of spinning.
+            TestCommandEvaExit.LadderReleaseAction action = TestCommandEvaExit.DecideLadderRelease(
+                onLadder, inReceptive, evaExitReleaseAttemptCount, TestCommandEvaExit.LadderReleaseMaxFires);
+
+            switch (action)
             {
-                try
-                {
-                    evaCtl.fsm.RunEvent(evaCtl.On_ladderLetGo);
+                case TestCommandEvaExit.LadderReleaseAction.NotOnLadder:
+                    // Off the ladder: verified-left when a fire preceded this, else the kerbal
+                    // exited not-on-a-ladder (the noop path). Either way the phase concludes.
+                    evaExitReleaseVerified = evaExitReleaseFireCount > 0;
                     evaExitReleaseApplied = true;
-                    ParsekLog.Info(Tag, $"evaexit release applied kerbal={evaExitKerbalName ?? string.Empty}");
-                }
-                catch (System.Exception ex)
-                {
-                    ParsekLog.Warn(Tag, $"evaexit release threw: {ex.GetType().Name}: {ex.Message}");
-                }
+                    if (evaExitReleaseFireCount > 0)
+                        ParsekLog.Info(Tag, $"evaexit release verified kerbal={evaExitKerbalName ?? string.Empty} fires={evaExitReleaseFireCount.ToString(CultureInfo.InvariantCulture)} fsm={stateName} (left ladder)");
+                    else
+                        ParsekLog.Info(Tag, $"evaexit release=noop kerbal={evaExitKerbalName ?? string.Empty} fsm={stateName} (not on ladder)");
+                    return;
+
+                case TestCommandEvaExit.LadderReleaseAction.WaitForReceptiveState:
+                    // On a ladder but in a transitional (st_ladder_acquire / lean / pushoff)
+                    // state that does not register On_ladderLetGo: firing now silently no-ops.
+                    // Wait for the timed transition into a receptive state.
+                    ParsekLog.VerboseRateLimited("TestCommands", "evaexit-release-wait",
+                        $"evaexit release wait kerbal={evaExitKerbalName ?? string.Empty} onLadder fsm={stateName} (awaiting receptive let-go state)");
+                    return;
+
+                case TestCommandEvaExit.LadderReleaseAction.Fire:
+                    // Count the ATTEMPT before the call (bounds the cap even if RunEvent throws)
+                    // and the FIRE only after RunEvent returns (KerbalFSM.RunEvent throws when
+                    // the fsm was never started). If the two were one counter, a throw would
+                    // leave the count > 0, and the next poll's NotOnLadder branch would report
+                    // released=true for a departure we never caused - the exact false positive
+                    // the verified-left contract exists to kill.
+                    evaExitReleaseAttemptCount++;
+                    try
+                    {
+                        evaCtl.fsm.RunEvent(evaCtl.On_ladderLetGo);
+                        evaExitReleaseFireCount++;
+                        // RunEvent transitions synchronously; re-read the live state so the log
+                        // names the outcome instead of assuming it.
+                        bool stillOn = evaCtl.OnALadder;
+                        string postState = FsmStateName(evaCtl);
+                        ParsekLog.Info(Tag, $"evaexit release fired kerbal={evaExitKerbalName ?? string.Empty} fires={evaExitReleaseFireCount.ToString(CultureInfo.InvariantCulture)} attempts={evaExitReleaseAttemptCount.ToString(CultureInfo.InvariantCulture)} fsm={stateName}->{postState} stillOnLadder={Bool(stillOn)}");
+                        // Verification (verified / exhausted) is settled by the next poll's
+                        // NotOnLadder / ExhaustedStillOnLadder branch - do NOT set applied here.
+                    }
+                    catch (System.Exception ex)
+                    {
+                        ParsekLog.Warn(Tag, $"evaexit release threw: {ex.GetType().Name}: {ex.Message} " +
+                            $"(attempts={evaExitReleaseAttemptCount.ToString(CultureInfo.InvariantCulture)} " +
+                            $"fires={evaExitReleaseFireCount.ToString(CultureInfo.InvariantCulture)}; the fire is NOT counted)");
+                    }
+                    return;
+
+                case TestCommandEvaExit.LadderReleaseAction.ExhaustedStillOnLadder:
+                    // Bounded give-up: spent the attempt cap and the kerbal is still on a ladder.
+                    // Conclude the phase (do not burn the EvaExit budget) but report released=false.
+                    evaExitReleaseVerified = false;
+                    evaExitReleaseApplied = true;
+                    ParsekLog.Warn(Tag, $"evaexit release exhausted kerbal={evaExitKerbalName ?? string.Empty} attempts={evaExitReleaseAttemptCount.ToString(CultureInfo.InvariantCulture)} fires={evaExitReleaseFireCount.ToString(CultureInfo.InvariantCulture)} fsm={stateName} (still on ladder; released=false)");
+                    return;
             }
-            else
-            {
-                // Not on the ladder (already dropped): treat as applied without the FSM event.
-                evaExitReleaseApplied = true;
-                ParsekLog.Info(Tag, $"evaexit release=noop kerbal={evaExitKerbalName ?? string.Empty} (not on ladder)");
-            }
+        }
+
+        // True when the EVA's current FSM state is one of the four that REGISTER On_ladderLetGo
+        // (decompiled KerbalEVA.cs:8737): st_ladder_idle / st_ladder_climb / st_ladder_descend /
+        // st_ladder_end_reached. RunEvent from any other state (st_ladder_acquire / lean /
+        // pushoff, or any non-ladder state) is a silent no-op. Also emits the sanitized state
+        // name for diagnostics. Null-safe: an unstarted / null fsm reads not-receptive.
+        private static bool IsLadderLetGoReceptiveState(KerbalEVA evaCtl, out string stateName)
+        {
+            stateName = "?";
+            KerbalFSM fsm = evaCtl != null ? evaCtl.fsm : null;
+            if (fsm == null || fsm.CurrentState == null) return false;
+            KFSMState cur = fsm.CurrentState;
+            string raw = cur.name;
+            stateName = string.IsNullOrEmpty(raw)
+                ? "?"
+                : raw.Replace(' ', '_').Replace("(", string.Empty).Replace(")", string.Empty);
+            return ReferenceEquals(cur, evaCtl.st_ladder_idle)
+                || ReferenceEquals(cur, evaCtl.st_ladder_climb)
+                || ReferenceEquals(cur, evaCtl.st_ladder_descend)
+                || ReferenceEquals(cur, evaCtl.st_ladder_end_reached);
+        }
+
+        // Sanitized current-FSM-state name for diagnostics (spaces / parens dropped so the token
+        // stays greppable). Null-safe.
+        private static string FsmStateName(KerbalEVA evaCtl)
+        {
+            KerbalFSM fsm = evaCtl != null ? evaCtl.fsm : null;
+            if (fsm == null || fsm.CurrentState == null) return "?";
+            string raw = fsm.CurrentState.name;
+            return string.IsNullOrEmpty(raw)
+                ? "?"
+                : raw.Replace(' ', '_').Replace("(", string.Empty).Replace(")", string.Empty);
         }
 
         // =====================================================================================
@@ -280,7 +397,6 @@ namespace Parsek.TestCommands
             plantFlagController = evaCtl;
             plantFlagFired = false;
             plantFlagDialogAnswered = false;
-            plantFlagLastGateOpen = false;
             plantFlagVessel = null;
             plantFlagPreExistingFlagPids = new HashSet<uint>();
             foreach (Vessel v in FlightGlobals.Vessels)
@@ -299,15 +415,14 @@ namespace Parsek.TestCommands
             // fire PlantFlag() exactly once on the transition.
             if (!plantFlagFired)
             {
-                bool gateOpen = ReadPlantGate(plantFlagController);
-                plantFlagLastGateOpen = gateOpen;
+                bool gateOpen = ReadPlantGate(plantFlagController, out string gateDiag);
                 bool stableLockClosed = ReadFlagLockStable();
                 PlantGateDecision g = TestCommandPlantFlag.DecidePlantGateWait(elapsed, gateOpen, stableLockClosed, budget);
                 switch (g)
                 {
                     case PlantGateDecision.KeepWaiting:
                         ParsekLog.VerboseRateLimited("TestCommands", "plantflag-gate-wait",
-                            $"plantflag gate wait elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s gateOpen={Bool(gateOpen)}");
+                            $"plantflag gate wait elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s gateOpen={Bool(gateOpen)} blocked={gateDiag}");
                         return;
                     case PlantGateDecision.RejectStableLock:
                     {
@@ -322,7 +437,7 @@ namespace Parsek.TestCommands
                         string tid = completionId; long tseq = completionSeq; string tverb = completionVerb;
                         ClearTwoPhase();
                         TestCommandDiagnostics.Timeout(tid, tverb, elapsed, "flag-gate-timeout");
-                        ParsekLog.Error(Tag, $"plantflag failed reason=flag-gate-timeout lastGateOpen={Bool(gateOpen)} elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
+                        ParsekLog.Error(Tag, $"plantflag failed reason=flag-gate-timeout lastGateOpen={Bool(gateOpen)} blocked={gateDiag} elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
                         EmitExecutedTerminal(tid, tseq, tverb, "ERROR", null, "flag-gate-timeout", dequeueHead: true);
                         return;
                     }
@@ -344,11 +459,23 @@ namespace Parsek.TestCommands
                 }
             }
 
-            // Phase B: dialog answer + completion. The FSM spawns the FlagSite vessel and opens
-            // the "SiteRename" popup; answer it via the dismiss button's own callback (the
-            // afterFlagPlanted fires synchronously in that callback -> Parsek captures the
-            // FlagEvent). dialogAnswered is set ONLY when we actually invoke the button (never
-            // inferred from popup absence), except the documented external-answer edge case.
+            // Phase B: dialog answer + completion. Decompile-proven flag-plant path (KSP 1.12.5,
+            // FlagSite.cs / KerbalEVA.cs): KerbalEVA.PlantFlag() -> fsm On_flagPlantStart ->
+            // st_flagPlant. flagPlant_OnEnter creates the FlagSite vessel IMMEDIATELY via
+            // FlagSite.CreateFlag (which fires GameEvents.onFlagPlant only, NOT afterFlagPlanted).
+            // The "SiteRename" popup is spawned MUCH later, in flagPlant_OnLeave ->
+            // FlagSite.OnPlacementComplete -> RenameSite, gated behind the On_flagPlantComplete
+            // KFSMTimedEvent whose duration is the full plant-animation length (multiple seconds).
+            // GameEvents.afterFlagPlanted.Fire runs ONLY inside that dialog's afterDialog callback,
+            // which runs ONLY when a dialog BUTTON is clicked (AcceptSiteRename or DismissSiteRename);
+            // OnDismiss / a bare PopupDialog.Dismiss() do NOT fire it. So we must WAIT for the popup
+            // to actually spawn, then invoke the dismiss button's own callback -> afterFlagPlanted
+            // fires synchronously this frame -> ParsekFlight.OnAfterFlagPlanted records the
+            // FlagEvent. The FlagSite vessel EXISTING is NOT evidence the dialog was answered (it
+            // appears before the animation even completes), so we never infer an external answer
+            // from popup-absence + flag-presence (that false-OK'd the plant before the dialog
+            // spawned; the subsequent flushandquit tore the scene down and afterFlagPlanted never
+            // fired - EVA-1 flight 3, 2026-07-24).
             Vessel flagVessel = FindNewFlagVessel();
             if (flagVessel != null) plantFlagVessel = flagVessel;
             bool flagVesselExists = plantFlagVessel != null;
@@ -356,7 +483,9 @@ namespace Parsek.TestCommands
             if (!plantFlagDialogAnswered)
             {
                 PopupDialog popup = FindSiteRenamePopup();
-                if (popup != null)
+                SiteRenameDialogAction action =
+                    TestCommandPlantFlag.DecideSiteRenameDialogAction(popup != null, flagVesselExists);
+                if (action == SiteRenameDialogAction.InvokeDismiss)
                 {
                     if (TryInvokeSiteRenameDismiss(popup))
                     {
@@ -364,12 +493,13 @@ namespace Parsek.TestCommands
                         ParsekLog.Info(Tag, $"plantflag dialog answered site={(plantFlagVessel != null ? plantFlagVessel.vesselName : string.Empty)}");
                     }
                 }
-                else if (flagVesselExists)
+                else
                 {
-                    // Edge case 10: flag vessel exists, popup gone without our invoke -> treated
-                    // as answered externally (unreachable unattended).
-                    plantFlagDialogAnswered = true;
-                    ParsekLog.Info(Tag, "plantflag dialog-answered-externally");
+                    // Popup not live yet: the plant animation is still running (the FlagSite vessel
+                    // may already exist). Keep waiting for RenameSite to spawn the popup so we can
+                    // answer it through the real confirm path; a timeout must self-explain.
+                    ParsekLog.VerboseRateLimited("TestCommands", "plantflag-dialog-wait",
+                        $"plantflag waiting for SiteRename dialog elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s flagVessel={Bool(flagVesselExists)}");
                 }
             }
 
@@ -402,18 +532,68 @@ namespace Parsek.TestCommands
             }
         }
 
-        // Read the stock plant gate (Events["PlantFlag"].active), which the FSM keeps equal to
-        // CanPlantFlag() (active vessel + part ground contact + flagItems>0 + not ragdoll + AC
-        // flag unlock + not in construction mode). Null-safe.
-        private static bool ReadPlantGate(KerbalEVA evaCtl)
+        // Read the LIVE plant gate. This is deliberately NOT Events["PlantFlag"].active: that
+        // flag is an edge-triggered CACHE (decompiled KerbalEVA, KSP 1.12.5) assigned
+        // = CanPlantFlag() only at idle_OnEnter / idle_b_OnEnter (entering st_idle_gr /
+        // st_idle_b_gr), a vessel-situation change WHILE already in st_idle_gr, a
+        // construction-mode toggle, go-off-rails, or AddFlag. A kerbal that lands and stands
+        // still on the pad after an EvaExit release=true enters st_idle_gr exactly ONCE, and
+        // if the cache is computed while ground contact / ragdoll-settle is still transient it
+        // latches stale-false, then NOTHING re-fires - the button never opens even though
+        // CanPlantFlag() flips true a frame later (the 180s EVA-1 pad-flag timeout). We read
+        // the live CanPlantFlag() every poll and confirm the kerbal is in a state where
+        // PlantFlag()'s On_flagPlantStart (MANUAL_TRIGGER, registered on st_idle_gr /
+        // st_idle_b_gr only) will actually fire; otherwise PlantFlag() would decrement
+        // flagItems without planting. `diag` names the closed precondition(s) for the
+        // gate-wait / timeout log (liveness: a timeout must self-explain). Null-safe.
+        private static bool ReadPlantGate(KerbalEVA evaCtl, out string diag)
         {
+            diag = "no-eva";
             if (evaCtl == null) return false;
             try
             {
-                BaseEvent plantEvent = evaCtl.Events?["PlantFlag"];
-                return plantEvent != null && plantEvent.active;
+                // Plantable-fsm-state gate: PlantFlag()'s On_flagPlantStart only fires from
+                // st_idle_gr / st_idle_b_gr (the two states whose OnEnter also refreshes the
+                // stock cache). Sanitize the state name (drop spaces / parens) so the
+                // diagnostic token stays greppable.
+                bool inPlantableState = false;
+                string stateName = "?";
+                KerbalFSM fsm = evaCtl.fsm;
+                if (fsm != null && fsm.CurrentState != null)
+                {
+                    string raw = fsm.CurrentState.name;
+                    stateName = string.IsNullOrEmpty(raw)
+                        ? "?"
+                        : raw.Replace(' ', '_').Replace("(", string.Empty).Replace(")", string.Empty);
+                    inPlantableState = ReferenceEquals(fsm.CurrentState, evaCtl.st_idle_gr)
+                        || ReferenceEquals(fsm.CurrentState, evaCtl.st_idle_b_gr);
+                }
+
+                // Authoritative gate value: KSP's own CanPlantFlag() (no re-implementation, no
+                // drift). If the reflection bind failed, the gate reads closed.
+                bool canPlant = KerbalEvaCanPlantFlagMethod != null
+                    && KerbalEvaCanPlantFlagMethod.Invoke(evaCtl, null) is bool cp && cp;
+
+                // Component reads for the DIAGNOSTIC ONLY (the decision above uses the stock
+                // method); each mirrors one CanPlantFlag() conjunct.
+                bool vesselActive = evaCtl.vessel != null && evaCtl.vessel.state == Vessel.State.ACTIVE;
+                bool groundContact = evaCtl.part != null && evaCtl.part.GroundContact;
+                bool flagItemsPositive = evaCtl.flagItems > 0;
+                bool notRagdoll = !evaCtl.isRagdoll;
+                bool notConstruction = !evaCtl.InConstructionMode;
+                bool flagUnlocked = !ReadFlagLockStable();
+
+                bool open = TestCommandPlantFlag.IsPlantGateOpen(canPlant, inPlantableState);
+                diag = TestCommandPlantFlag.DescribePlantGateBlock(
+                    inPlantableState, vesselActive, groundContact, flagItemsPositive,
+                    notRagdoll, flagUnlocked, notConstruction, stateName);
+                return open;
             }
-            catch { return false; }
+            catch (System.Exception ex)
+            {
+                diag = "gate-read-threw:" + ex.GetType().Name;
+                return false;
+            }
         }
 
         // The AC flag unlock (GameVariables.UnlockedEVAFlags at the AC level) is the ONE
