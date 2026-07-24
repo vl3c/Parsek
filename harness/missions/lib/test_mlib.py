@@ -25,7 +25,8 @@ def snap(**kw):
 
 B1_PARAMS = mlib.B1Params(
     throttle=1.0,
-    chute_deploy_alt=2500.0,
+    chute_arm_max_rate=30.0,
+    chute_full_deploy_alt=1000.0,
     ascent_timeout=90.0,
     coast_timeout=180.0,
     descent_timeout=240.0,
@@ -100,8 +101,8 @@ def _frozen_frames(n, start_ut=1.0, **field_overrides):
 
 class B1MachineTests(unittest.TestCase):
     """Guards the B1 pad-hop machine (design "Mission B1"): the machine must
-    throttle+stage at start, cut throttle only when fuel is spent, deploy the
-    chute only on descent below the threshold, and detect landing -- a mis-wired
+    throttle+stage at start, cut throttle only when fuel is spent, arm the chute at
+    the apoapsis crossing WHILE STILL SLOW, and detect landing -- a mis-wired
     transition (early throttle cut, chute during ascent, missed landing) would
     hang a real mission to its budget and flake."""
 
@@ -130,41 +131,105 @@ class B1MachineTests(unittest.TestCase):
         self.assertEqual(actions, [Action(mlib.ACTION_CUT_THROTTLE, 0.0)])
 
     def test_full_happy_path_transitions_and_chute(self):
-        # Regression: the whole PRELAUNCH->...->LANDED walk with the chute deployed
-        # exactly once, below the deploy altitude, on the way down.
+        # Regression: the whole PRELAUNCH->...->LANDED walk with the chute armed
+        # exactly once, at the apoapsis crossing, on the SAME frame COAST ends.
         state = mlib.b1_initial_state(B1_PARAMS)
         frames = [
-            snap(ut=0.0),                                         # PRELAUNCH->ASCENT
-            snap(ut=2.0, stage_solid_fuel=10.0, apoapsis=5000.0),  # ASCENT
-            snap(ut=6.0, stage_solid_fuel=0.0, apoapsis=14000.0),  # ASCENT->COAST
-            snap(ut=10.0, vertical_speed=20.0, apoapsis=14200.0),  # COAST (rising)
-            snap(ut=20.0, vertical_speed=-5.0, apoapsis=14210.0),  # COAST->DESCENT
-            snap(ut=30.0, altitude=5000.0, vertical_speed=-40.0),  # DESCENT (above chute alt)
-            snap(ut=40.0, altitude=2000.0, vertical_speed=-30.0),  # DESCENT->chute
-            snap(ut=55.0, altitude=0.0, situation="LANDED"),       # DESCENT->LANDED
+            snap(ut=0.0),                                          # PRELAUNCH->ASCENT
+            snap(ut=2.0, stage_solid_fuel=10.0, apoapsis=5000.0),   # ASCENT
+            snap(ut=6.0, stage_solid_fuel=0.0, apoapsis=14000.0),   # ASCENT->COAST
+            snap(ut=10.0, vertical_speed=20.0, apoapsis=14200.0),   # COAST (rising)
+            # COAST->DESCENT and, on the SAME frame, the arm (|vs| 5 <= 30).
+            snap(ut=20.0, altitude=11900.0, vertical_speed=-5.0, apoapsis=14210.0),
+            snap(ut=30.0, altitude=5000.0, vertical_speed=-40.0,
+                 craft_chute_state=mlib.CHUTE_STATE_SEMI_DEPLOYED),
+            snap(ut=40.0, altitude=900.0, vertical_speed=-9.0,
+                 craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+            snap(ut=55.0, altitude=0.0, situation="LANDED",
+                 craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),   # DESCENT->LANDED
         ]
         state, per_frame = drive_b1(state, frames)
         self.assertTrue(state.done)
         self.assertEqual(state.phase, mlib.B1_LANDED)
         self.assertIsNone(state.verdict)
         self.assertEqual(state.peak_apoapsis, 14210.0)
-        # chute deployed exactly once, at the frame below the 2500 m threshold
-        self.assertEqual(per_frame[6], [Action(mlib.ACTION_DEPLOY_CHUTE)])
+        # Armed exactly once, on the apoapsis-crossing frame, and the full-deploy
+        # altitude rides the SAME frame so the module's first ACTIVE FixedUpdate
+        # already sees it.
+        self.assertEqual(per_frame[4],
+                         [Action(mlib.ACTION_SET_CHUTE_DEPLOY_ALTITUDE, 1000.0),
+                          Action(mlib.ACTION_DEPLOY_CHUTE)])
         chute_frames = [i for i, acts in enumerate(per_frame)
                         if Action(mlib.ACTION_DEPLOY_CHUTE) in acts]
-        self.assertEqual(chute_frames, [6])
+        self.assertEqual(chute_frames, [4])
+        # Arm evidence, and the OBSERVED canopy latch (never the commanded one).
+        self.assertEqual(state.chute_armed_altitude, 11900.0)
+        self.assertEqual(state.chute_armed_rate, -5.0)
+        self.assertTrue(state.craft_chute_full_seen)
         self.assertEqual(state.phases_reached,
                          (mlib.B1_PRELAUNCH, mlib.B1_ASCENT, mlib.B1_COAST,
                           mlib.B1_DESCENT, mlib.B1_LANDED))
 
-    def test_chute_not_deployed_above_threshold(self):
-        # Regression: the chute must never deploy while still high (a high deploy
-        # rips the chute / distorts the recorded descent).
+    def test_chute_not_armed_once_falling_faster_than_bound(self):
+        # Regression + THE root-cause guard (2026-07-25): the arm is RATE-gated, not
+        # altitude-gated. A craft already falling faster than chuteArmMaxRateMps has
+        # missed its window -- arming there is what produced a chute that sat inert in
+        # ARMED all the way to a 300 m/s impact, because stock refuses
+        # ACTIVE -> SEMIDEPLOYED while automateSafeDeploy = 0 and DeploySafe reads
+        # unsafe. Altitude must NOT resurrect the arm: this frame is low AND fast.
         state = mlib.b1_initial_state(B1_PARAMS)
         state = state.__class__(**{**state.__dict__, "phase": mlib.B1_DESCENT,
                                    "phase_entry_ut": 0.0})
-        _, actions = mlib.b1_decide(state, snap(ut=1.0, altitude=9000.0, vertical_speed=-40.0))
+        new, actions = mlib.b1_decide(
+            state, snap(ut=1.0, altitude=900.0, vertical_speed=-301.0))
         self.assertEqual(actions, [])
+        self.assertFalse(new.chute_deployed)
+
+    def test_arm_rides_the_same_frame_as_the_coast_to_descent_transition(self):
+        # Regression: COAST->DESCENT must FALL THROUGH into the DESCENT body, not
+        # return. The rate only ever worsens (~10 m/s per poll on Kerbin), so
+        # deferring the arm by one poll eats the arming bound for no reason.
+        state = mlib.b1_initial_state(B1_PARAMS)
+        state = state.__class__(**{**state.__dict__, "phase": mlib.B1_COAST,
+                                   "phase_entry_ut": 0.0})
+        new, actions = mlib.b1_decide(
+            state, snap(ut=10.0, altitude=11900.0, vertical_speed=-0.4))
+        self.assertEqual(new.phase, mlib.B1_DESCENT)
+        self.assertEqual(actions,
+                         [Action(mlib.ACTION_SET_CHUTE_DEPLOY_ALTITUDE, 1000.0),
+                          Action(mlib.ACTION_DEPLOY_CHUTE)])
+
+    def test_observed_canopy_latch_is_sticky_and_ignores_lost_frames(self):
+        # Regression: craft_chute_full_seen must latch on the FIRST Deployed read and
+        # survive a later Cut (a chute cut at touchdown must not erase a descent that
+        # really happened); a vessel_lost frame must never fabricate one.
+        state = mlib.b1_initial_state(B1_PARAMS)
+        state = state.__class__(**{**state.__dict__, "phase": mlib.B1_DESCENT,
+                                   "phase_entry_ut": 0.0, "chute_deployed": True})
+        state, _ = mlib.b1_decide(
+            state, snap(ut=1.0, altitude=900.0, vertical_speed=-9.0,
+                        craft_chute_state=mlib.CHUTE_STATE_DEPLOYED))
+        self.assertTrue(state.craft_chute_full_seen)
+        state, _ = mlib.b1_decide(
+            state, snap(ut=2.0, altitude=100.0, vertical_speed=-9.0,
+                        craft_chute_state=mlib.CHUTE_STATE_CUT))
+        self.assertTrue(state.craft_chute_full_seen)
+        self.assertEqual(state.last_chute_state, mlib.CHUTE_STATE_CUT)
+
+    def test_armed_but_never_open_chute_never_sets_the_observed_latch(self):
+        # THE regression this whole change exists for: a chute that reads Armed for
+        # the entire descent (stock refusing to open it) must leave the OBSERVED latch
+        # False, so nothing downstream can mistake "we commanded it" for a canopy.
+        state = mlib.b1_initial_state(B1_PARAMS)
+        state = state.__class__(**{**state.__dict__, "phase": mlib.B1_DESCENT,
+                                   "phase_entry_ut": 0.0, "chute_deployed": True})
+        for i, alt in enumerate((2382.0, 1800.0, 1200.0, 855.0)):
+            state, _ = mlib.b1_decide(
+                state, snap(ut=float(i + 1), altitude=alt, vertical_speed=-301.0,
+                            craft_chute_state=mlib.CHUTE_STATE_ARMED))
+        self.assertFalse(state.craft_chute_full_seen)
+        self.assertTrue(state.chute_deployed)   # commanded, and worthless as evidence
+        self.assertEqual(state.last_chute_state, mlib.CHUTE_STATE_ARMED)
 
     def test_ascent_budget_overrun_flakes_naming_phase(self):
         # Regression: a stuck ASCENT must FLAKE (naming the phase), never hang.
@@ -1254,7 +1319,7 @@ class MissionResultTests(unittest.TestCase):
         p = mlib.b1_params_from_dict({
             "throttle": 1.0,
             "apoapsisWindowMeters": {"min": 6000, "max": 30000},
-            "chuteDeployAltMeters": 2500,
+            "chuteArmMaxRateMps": 30, "chuteFullDeployAltMeters": 1000,
             "landedSituations": ["LANDED", "SPLASHED"],
             "ascentTimeoutSeconds": 90,
             "coastTimeoutSeconds": 180,
@@ -1457,7 +1522,8 @@ class LossReasonVerdictTests(unittest.TestCase):
         # BEFORE assertion evaluation (a destroyed craft's residual telemetry, which
         # could spuriously satisfy the window, must never certify the flight OK).
         all_met = mlib.evaluate_b1_assertions(
-            [snap(apoapsis=14000.0, situation="LANDED") for _ in range(4)], B1_PARAMS)
+            [snap(apoapsis=14000.0, situation="LANDED") for _ in range(4)], B1_PARAMS,
+            craft_canopy_observed=True)
         self.assertTrue(mlib.all_assertions_met(all_met))
         verdict, out_reason = mlib.resolve_flight_verdict(lost, all_met)
         self.assertEqual(verdict, mlib.MISSION_ASSERT_FAIL)
@@ -1470,7 +1536,7 @@ class FrozenSampleLimitParamTests(unittest.TestCase):
 
     _B1 = {
         "throttle": 1.0, "apoapsisWindowMeters": {"min": 6000, "max": 30000},
-        "chuteDeployAltMeters": 2500, "landedSituations": ["LANDED", "SPLASHED"],
+        "chuteArmMaxRateMps": 30, "chuteFullDeployAltMeters": 1000, "landedSituations": ["LANDED", "SPLASHED"],
         "ascentTimeoutSeconds": 90, "coastTimeoutSeconds": 180, "descentTimeoutSeconds": 240,
     }
     _B2 = {
@@ -1494,20 +1560,22 @@ class FrozenSampleLimitParamTests(unittest.TestCase):
 
 # ---------------------------------------------------------------------------
 # B1 DOWN success terminal (operator decision 2026-07-20, option A): a
-# chute-deployed impact at touchdown is a SUCCESSFUL end; B4 owns survival.
+# canopy-borne impact at touchdown is a SUCCESSFUL end; B4 owns survival.
+# Re-gated 2026-07-25 onto the OBSERVED canopy latch.
 # ---------------------------------------------------------------------------
 
 
 class B1DownTerminalTests(unittest.TestCase):
-    """Guards the DOWN terminal: vessel-lost / frozen in DESCENT with the chute
-    deployed ends DOWN (done, NO loss_reason, verdict None so assertions decide,
-    settle tail skipped); without the chute -- and in every other phase -- the
-    loss stays the ASSERT-FAIL loss_reason terminal. A regression here either
-    fails every live B1 run (the Jumping Flea always breaks apart at touchdown)
-    or silently passes a mid-air destruction."""
+    """Guards the DOWN terminal: vessel-lost / frozen in DESCENT with the canopy
+    OBSERVED open ends DOWN (done, NO loss_reason, verdict None so assertions decide,
+    settle tail skipped); without an observed canopy -- and in every other phase --
+    the loss stays the ASSERT-FAIL loss_reason terminal. A regression here either
+    fails a live B1 run that legitimately broke up at a canopy touchdown, or
+    silently passes a terminal-velocity impact as a chuted landing."""
 
-    def test_vessel_lost_in_descent_with_chute_is_down(self):
-        state = _b1_descent_state(B1_PARAMS, chute_deployed=True)
+    def test_vessel_lost_in_descent_with_observed_canopy_is_down(self):
+        state = _b1_descent_state(B1_PARAMS, chute_deployed=True,
+                                  craft_chute_full_seen=True)
         # Establish the "reached the ground" leg: last finite altitude below
         # downMaxAltMeters (default 500) before the loss frame.
         state, _ = mlib.b1_decide(state, snap(ut=9.0, altitude=120.0))
@@ -1525,8 +1593,8 @@ class B1DownTerminalTests(unittest.TestCase):
         self.assertEqual(acts2, [])
 
     def test_vessel_lost_in_descent_without_chute_stays_assert_fail(self):
-        # No chute deployed: the craft was destroyed mid-air, not a DOWN success.
-        state = _b1_descent_state(B1_PARAMS)  # chute_deployed defaults False
+        # No chute at all: the craft was destroyed mid-air, not a DOWN success.
+        state = _b1_descent_state(B1_PARAMS)  # both latches default False
         new, _ = mlib.b1_decide(state, snap(ut=10.0, vessel_lost=True))
         self.assertTrue(new.done)
         self.assertEqual(new.verdict, mlib.MISSION_ASSERT_FAIL)
@@ -1534,16 +1602,48 @@ class B1DownTerminalTests(unittest.TestCase):
         self.assertNotEqual(new.phase, mlib.B1_DOWN)
         self.assertFalse(new.skip_settle_tail)
 
-    def test_frozen_limit_in_descent_with_chute_is_down(self):
+    def test_commanded_but_never_open_chute_is_not_down(self):
+        # THE regression (2026-07-25). This is the exact shape of every B1 run flown
+        # before the fix: the machine ARMED the chute (chute_deployed=True), stock
+        # never opened it (automateSafeDeploy = 0 + DeploySafe unsafe at terminal
+        # velocity), the craft hit the ground at ~300 m/s and broke up. The old gate
+        # read the COMMANDED latch and awarded that impact the "chute-deployed
+        # impact" success terminal. It must now ASSERT-FAIL, and the reason must NAME
+        # the inert chute so the failure explains itself.
+        state = _b1_descent_state(B1_PARAMS, chute_deployed=True)
+        state, _ = mlib.b1_decide(
+            state, snap(ut=9.0, altitude=120.0, vertical_speed=-301.0,
+                        craft_chute_state=mlib.CHUTE_STATE_ARMED))
+        new, _ = mlib.b1_decide(state, snap(ut=10.0, vessel_lost=True))
+        self.assertTrue(new.done)
+        self.assertNotEqual(new.phase, mlib.B1_DOWN)
+        self.assertEqual(new.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("craftChute=Armed", new.loss_reason)
+        self.assertIn("canopyObserved=no", new.loss_reason)
+        self.assertIn("armCommanded=yes", new.loss_reason)
+
+    def test_unread_chute_state_fails_down_closed(self):
+        # Fail-closed: a runner that never opted into the chute read (or whose every
+        # read faulted) leaves craft_chute_state "" forever. That must NOT be
+        # treated as a canopy -- the DOWN gate stays shut and the reason says UNREAD.
+        state = _b1_descent_state(B1_PARAMS, chute_deployed=True)
+        state, _ = mlib.b1_decide(state, snap(ut=9.0, altitude=120.0))
+        new, _ = mlib.b1_decide(state, snap(ut=10.0, vessel_lost=True))
+        self.assertNotEqual(new.phase, mlib.B1_DOWN)
+        self.assertEqual(new.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("craftChute=UNREAD", new.loss_reason)
+
+    def test_frozen_limit_in_descent_with_observed_canopy_is_down(self):
         # The frozen-telemetry variant of the same signal: N frozen samples with
-        # the chute deployed end DOWN, not ASSERT-FAIL. The freeze altitude sits
-        # BELOW downMaxAltMeters (a freeze at altitude is the chute-ripped case
+        # the canopy OBSERVED open end DOWN, not ASSERT-FAIL. The freeze altitude
+        # sits BELOW downMaxAltMeters (a freeze at altitude is the chute-ripped case
         # and stays ASSERT-FAIL - see the at-altitude sibling test).
         limit = 4
         params = _b1_params_with_limit(limit)
         low = dict(_FROZEN_FIELDS, altitude=150.0)
         seed = mlib.frozen_signature(snap(ut=0.0, **low))
-        state = _b1_descent_state(params, chute_deployed=True, frozen_sig=seed)
+        state = _b1_descent_state(params, chute_deployed=True,
+                                  craft_chute_full_seen=True, frozen_sig=seed)
         state, _ = drive_b1(state, _frozen_frames(limit, altitude=150.0))
         self.assertTrue(state.done)
         self.assertEqual(state.phase, mlib.B1_DOWN)
@@ -1551,11 +1651,12 @@ class B1DownTerminalTests(unittest.TestCase):
         self.assertIsNone(state.loss_reason)
         self.assertTrue(state.skip_settle_tail)
 
-    def test_post_chute_loss_at_altitude_stays_assert_fail(self):
-        # Fable review of PR #1335, SF-1 (the masking scenario): chute deployed
-        # at 2500m, craft destroyed at ~1800m (chute ripped / mid-air breakup).
+    def test_post_canopy_loss_at_altitude_stays_assert_fail(self):
+        # Fable review of PR #1335, SF-1 (the masking scenario): canopy observed
+        # open, craft destroyed at ~1800m (chute ripped / mid-air breakup).
         # "Reached the ground" is NOT satisfied, so DOWN must NOT be awarded.
-        state = _b1_descent_state(B1_PARAMS, chute_deployed=True)
+        state = _b1_descent_state(B1_PARAMS, chute_deployed=True,
+                                  craft_chute_full_seen=True)
         state, _ = mlib.b1_decide(state, snap(ut=9.0, altitude=1800.0))
         new, _ = mlib.b1_decide(state, snap(ut=10.0, vessel_lost=True))
         self.assertTrue(new.done)
@@ -1563,27 +1664,28 @@ class B1DownTerminalTests(unittest.TestCase):
         self.assertEqual(new.verdict, mlib.MISSION_ASSERT_FAIL)
         self.assertIn("last altitude 1800m", new.loss_reason)
 
-    def test_frozen_limit_in_descent_without_chute_stays_assert_fail(self):
-        # The telemetry freezes ABOVE the chute-deploy altitude (5000 m > 2500 m),
-        # so the chute never deploys during the freeze run: a chute-less frozen
-        # DESCENT is a mid-air destruction, not a DOWN success.
+    def test_frozen_limit_in_descent_without_canopy_stays_assert_fail(self):
+        # A frozen DESCENT with no observed canopy is a mid-air destruction, not a
+        # DOWN success. The freeze sits at 5000 m so the craft is nowhere near the
+        # ground either.
         limit = 4
         params = _b1_params_with_limit(limit)
         seed = mlib.frozen_signature(snap(ut=0.0, **dict(_FROZEN_FIELDS, altitude=5000.0)))
         state = _b1_descent_state(params, frozen_sig=seed)
         state, _ = drive_b1(state, _frozen_frames(limit, altitude=5000.0))
         self.assertTrue(state.done)
-        self.assertFalse(state.chute_deployed)
+        self.assertFalse(state.craft_chute_full_seen)
         self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
         self.assertIn("frozen", state.loss_reason)
         self.assertNotEqual(state.phase, mlib.B1_DOWN)
 
-    def test_earlier_phase_loss_still_fails_even_with_chute_flag(self):
-        # DOWN is DESCENT-scoped: a loss in COAST fails even if the chute flag
-        # were somehow set (a premature deploy does not make an ascent loss OK).
+    def test_earlier_phase_loss_still_fails_even_with_canopy_flag(self):
+        # DOWN is DESCENT-scoped: a loss in COAST fails even if the canopy latch
+        # were somehow set (an open chute does not make an ascent loss OK).
         base = mlib.b1_initial_state(B1_PARAMS)
         state = base.__class__(**{**base.__dict__, "phase": mlib.B1_COAST,
-                                  "phase_entry_ut": 0.0, "chute_deployed": True})
+                                  "phase_entry_ut": 0.0, "chute_deployed": True,
+                                  "craft_chute_full_seen": True})
         new, _ = mlib.b1_decide(state, snap(ut=5.0, vessel_lost=True))
         self.assertTrue(new.done)
         self.assertEqual(new.verdict, mlib.MISSION_ASSERT_FAIL)
@@ -1593,11 +1695,13 @@ class B1DownTerminalTests(unittest.TestCase):
     def test_down_state_with_met_assertions_resolves_mission_ok(self):
         # End-to-end verdict: DOWN (no loss_reason, verdict None) + met
         # assertions -> MISSION-OK.
-        state = _b1_descent_state(B1_PARAMS, chute_deployed=True)
+        state = _b1_descent_state(B1_PARAMS, chute_deployed=True,
+                                  craft_chute_full_seen=True)
         state, _ = mlib.b1_decide(state, snap(ut=9.0, altitude=80.0))
         state, _ = mlib.b1_decide(state, snap(ut=10.0, vessel_lost=True))
         outs = mlib.evaluate_b1_assertions(
-            [snap(apoapsis=14000.0) for _ in range(4)], B1_PARAMS, down_terminal=True)
+            [snap(apoapsis=14000.0) for _ in range(4)], B1_PARAMS, down_terminal=True,
+            craft_canopy_observed=True)
         verdict, reason = mlib.resolve_flight_verdict(state, outs)
         self.assertEqual(verdict, mlib.MISSION_OK, reason)
 
@@ -1611,12 +1715,46 @@ class B1DownTerminalTests(unittest.TestCase):
         sit = outs[1]
         self.assertEqual(sit.name, "landedSituation")
         self.assertTrue(sit.met)
-        self.assertEqual(sit.value, "DOWN(chute-deployed impact)")
+        self.assertEqual(sit.value, "DOWN(canopy-borne impact)")
         self.assertTrue(sit.detail["downTerminal"])
         # Without the flag the same frames stay UNMET (the plain path unchanged).
         outs = mlib.evaluate_b1_assertions(frames, B1_PARAMS)
         self.assertFalse(outs[1].met)
         self.assertFalse(outs[1].detail["downTerminal"])
+
+    def test_canopy_assertion_is_independent_of_the_terminal(self):
+        # craftCanopyObserved is a THIRD assertion, deliberately not folded into
+        # landedSituation: a craft that genuinely LANDED (not DOWN) with a chute that
+        # never opened is still a failed B1, because a terminal-velocity impact is not
+        # the surface this scenario claims. Both ends have to satisfy it.
+        frames = [snap(apoapsis=14000.0, situation="LANDED")]
+        outs = mlib.evaluate_b1_assertions(frames, B1_PARAMS,
+                                           craft_canopy_observed=False)
+        self.assertEqual([o.name for o in outs],
+                         ["apoapsisWindow", "landedSituation", "craftCanopyObserved"])
+        self.assertTrue(outs[1].met)        # it really did land
+        self.assertFalse(outs[2].met)       # but never under a canopy
+        canopy = outs[2]
+        self.assertEqual(canopy.detail["required"], mlib.CHUTE_STATE_DEPLOYED)
+        # And a met canopy flips it (and only it).
+        outs = mlib.evaluate_b1_assertions(frames, B1_PARAMS,
+                                           craft_canopy_observed=True)
+        self.assertTrue(outs[2].met)
+
+    def test_landed_with_unopened_chute_resolves_assert_fail(self):
+        # End-to-end: the LANDED counterpart of the DOWN regression above. A flight
+        # that reached a landed situation with no observed canopy must NOT be
+        # MISSION-OK -- before 2026-07-25 nothing in the machine could tell the two
+        # apart.
+        base = mlib.b1_initial_state(B1_PARAMS)
+        state = base.__class__(**{**base.__dict__, "phase": mlib.B1_LANDED,
+                                  "done": True, "chute_deployed": True})
+        outs = mlib.evaluate_b1_assertions(
+            [snap(apoapsis=14000.0, situation="LANDED") for _ in range(4)],
+            B1_PARAMS, craft_canopy_observed=False)
+        verdict, reason = mlib.resolve_flight_verdict(state, outs)
+        self.assertEqual(verdict, mlib.MISSION_ASSERT_FAIL, reason)
+        self.assertIn("craftCanopyObserved", reason)
 
 
 # ---------------------------------------------------------------------------

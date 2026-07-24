@@ -45,17 +45,25 @@ def decide(state, snapshot):
 
 
 def evaluate(frames, params: dict, state=None) -> List[mlib.AssertionOutcome]:
-    # A DOWN terminal (operator decision 2026-07-20, option A: chute-deployed
-    # impact at touchdown is a SUCCESSFUL end) satisfies the landedSituation
-    # assertion; the machine state carries which end it was.
+    # A DOWN terminal (operator decision 2026-07-20, option A: a canopy-borne impact
+    # at touchdown is a SUCCESSFUL end) satisfies the landedSituation assertion; the
+    # machine state carries which end it was. ``craft_chute_full_seen`` is the OBSERVED
+    # canopy latch (never the commanded one) that the craftCanopyObserved assertion and
+    # the DOWN terminal both gate on.
     down = getattr(state, "phase", None) == mlib.B1_DOWN
+    canopy = bool(getattr(state, "craft_chute_full_seen", False))
     return mlib.evaluate_b1_assertions(frames, mlib.b1_params_from_dict(params),
-                                       down_terminal=down)
+                                       down_terminal=down,
+                                       craft_canopy_observed=canopy)
 
 
 def make_control() -> mission_runner.MissionControl:
-    # Raw kRPC (no MechJeb) for B1.
-    return mission_runner.KrpcMissionControl(use_mechjeb=False, client_name=MISSION_NAME)
+    # Raw kRPC (no MechJeb) for B1. read_chute=True is LOAD-BEARING, not diagnostic:
+    # B1's whole claimed Parsek surface is a chute-borne ground arrival, and both the
+    # craftCanopyObserved assertion and the DOWN terminal gate on the OBSERVED
+    # ParachuteState rather than on the machine's own "we commanded it" latch.
+    return mission_runner.KrpcMissionControl(use_mechjeb=False, client_name=MISSION_NAME,
+                                             read_chute=True)
 
 
 SPEC = mission_runner.MissionSpec(

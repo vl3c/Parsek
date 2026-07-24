@@ -47,7 +47,7 @@ def _b1_state():
     params = mlib.b1_params_from_dict({
         "throttle": 1.0,
         "apoapsisWindowMeters": {"min": 6000, "max": 30000},
-        "chuteDeployAltMeters": 2500,
+        "chuteArmMaxRateMps": 30, "chuteFullDeployAltMeters": 1000,
         "landedSituations": ["LANDED"],
         "ascentTimeoutSeconds": 90, "coastTimeoutSeconds": 180,
         "descentTimeoutSeconds": 240,
@@ -242,9 +242,15 @@ def _b1_happy_frames():
         s(ut=2.0, stage_solid_fuel=0.0, apoapsis=14000, situation="FLYING"),
         s(ut=3.0, vertical_speed=5.0, apoapsis=14000, situation="FLYING"),
         s(ut=4.0, vertical_speed=-5.0, apoapsis=14000, situation="FLYING"),
-        s(ut=5.0, altitude=5000, apoapsis=14000, situation="FLYING"),
-        s(ut=6.0, altitude=2000, apoapsis=14000, situation="FLYING"),
-        s(ut=7.0, altitude=100, apoapsis=14000, situation="LANDED"),
+        # The chute arms at the apoapsis crossing above (|vs| 5 <= 30) and the canopy
+        # READS open on the way down: craftCanopyObserved is an assertion now, so a
+        # happy-path fake flight has to model a canopy that actually opened.
+        s(ut=5.0, altitude=5000, apoapsis=14000, situation="FLYING",
+          craft_chute_state=mlib.CHUTE_STATE_SEMI_DEPLOYED),
+        s(ut=6.0, altitude=2000, apoapsis=14000, situation="FLYING",
+          craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+        s(ut=7.0, altitude=100, apoapsis=14000, situation="LANDED",
+          craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
     ]
 
 
@@ -291,7 +297,7 @@ class FakeFlightInstrumentationTests(unittest.TestCase):
             b1_pad_hop.SPEC,
             {"throttle": 1.0,
              "apoapsisWindowMeters": {"min": 6000, "max": 30000},
-             "chuteDeployAltMeters": 2500,
+             "chuteArmMaxRateMps": 30, "chuteFullDeployAltMeters": 1000,
              "landedSituations": ["LANDED"],
              "ascentTimeoutSeconds": 90, "coastTimeoutSeconds": 180,
              "descentTimeoutSeconds": 240},
@@ -343,7 +349,7 @@ class FakeFlightInstrumentationTests(unittest.TestCase):
             b1_pad_hop.SPEC,
             {"throttle": 1.0,
              "apoapsisWindowMeters": {"min": 6000, "max": 30000},
-             "chuteDeployAltMeters": 2500,
+             "chuteArmMaxRateMps": 30, "chuteFullDeployAltMeters": 1000,
              "landedSituations": ["LANDED"],
              "ascentTimeoutSeconds": 90, "coastTimeoutSeconds": 180,
              "descentTimeoutSeconds": 240},
