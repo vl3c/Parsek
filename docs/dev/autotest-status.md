@@ -45,8 +45,11 @@ The system flies KSP missions unattended (kRPC + MechJeb autopilot, or the
 Parsek file-drop command seam), records them with Parsek, and verifies the
 result through a seven-verifier chain (driver validity, in-game test batch,
 offline recording analyzer, log validation, results schema, anomaly sweep,
-expectations). Ten test cases are live-proven green end-to-end, including
-Mun/Minmus/Duna flybys with a certified no-1x-coast warp profile. All
+expectations). Nine test cases are live-proven green end-to-end, including
+Mun/Minmus/Duna flybys with a certified no-1x-coast warp profile. (B1-pad-hop
+was de-listed from live-proven on 2026-07-25: its PASSes proved the flight but
+its chute never opened, and its terminal could not tell the difference. See its
+row below and gate 7.) All
 infrastructure modules are shipped and merged. The FIRST two-vessel lane
 (B-DOCK: dock/transfer/undock, the logistics-route recording entry point) is
 IMPLEMENTED and headless-green, pending a headless fixture-forge run + its
@@ -73,11 +76,10 @@ orbit, landing, docking, career-ledger lanes) is the frontier.
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
 
-### Live-proven (10)
+### Live-proven (9)
 
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|
-| B1-pad-hop | nightly | Auto-record-on-launch, atmospheric TrackSections, chute-deployed ground-arrival recording (DOWN contract) | D1 auto-record-launch; D4 atmospheric; D14 kerbin |
 | B2-lko-ascent | nightly | Ascent-to-orbit recording, orbital checkpoints, 6-booster parent-anchored debris children model | D1; D3 orbital-checkpoint; D4 atmospheric/exo-propulsive; D14 kerbin |
 | B4-reentry-splashdown | nightly | Full-cycle recording (ascent/deorbit/reentry/splashdown intact), exo-ballistic sections, rails-warp recording | D1; D3; D4 +exo-ballistic; D14 kerbin/warp-rails |
 | B5-mun-flyby | nightly | Cross-SOI cohesive coast recording (Kerbin->Mun->Kerbin), on-rails checkpoints across warp, warp-reseed seams | D1; D3; D4 +cohesive-cross-body-coast; D14 kerbin/mun/warp-rails. NO-1X CERTIFIED at HEAD config (flight 26: wall 465 s, warp audit exit 0) |
@@ -88,10 +90,11 @@ The "Parsek surface verified" column is the reason the case exists.
 | S1.4-injected-playback | daily | 272-tree corpus injection, load, ghost map presence + polyline render with no anomalies | D6 basic-playback/ghost-map-presence/non-orbital-polyline; D16 sidecar-prec/sidecar-pcrf |
 | H5-invariants-corpus | daily | The full synthetic corpus (306 recordings / 276 trees) loads intact and holds every recording invariant in-game | D14 sandbox/scene-flight; D16 sidecar-prec/schema-gate |
 
-### Committed, not yet live-run (12)
+### Committed, not yet live-run (13)
 
 | Test case | Tier | Parsek surface verified | Blocker |
 |---|---|---|---|
+| B1-pad-hop | nightly | Auto-record-on-launch, atmospheric TrackSections, and a genuinely CHUTE-BORNE ground-arrival recording: the two-phase ParachuteSemiDeployed -> ParachuteDeployed part events on the craft's own parachuteSingle (D7 chute-two-phase, claimed 2026-07-25) | DE-LISTED from live-proven 2026-07-25. The 2026-07-19/20 PASSes proved the FLIGHT, not the CHUTE: their recordings carry ZERO Parachute* part events, and the DOWN terminal - which gated only on the machine's own COMMANDED chute latch - awarded a ~300 m/s terminal-velocity impact the "chute-deployed impact" success end. Root cause (decompiled ModuleParachute + two flights of evidence, forensics in todo-and-known-bugs.md): the fixture's parachuteSingle persists `automateSafeDeploy = 0` (open only while SAFE) and stock DeploySafe never reads SAFE at terminal velocity in dense air, so an ALTITUDE-triggered arm sat inert in ARMED forever. FIXED: arm at the apoapsis crossing while still slow (the technique EVA-4 flight 2 live-proved on this exact fixture and craft), and gate BOTH the DOWN terminal and the new `craftCanopyObserved` assertion on the OBSERVED kRPC ParachuteState. Its next nightly run IS its re-prove; three things it pins are P1 real descent duration under canopy (budgets raised to out-wait a slow one: descent 240 -> 600 s, mission 600 -> 1020 s, wall 900 -> 1440 s), P2 whether the stack survives touchdown (LANDED) or breaks up under canopy (DOWN) - both accepted, P3 the recordings count on the chuted profile |
 | H6-route-rewind-timeline | daily | Route-rewind lifecycle rows, dormant classify + Tick materialize, kept-route reconciliation | None - its next daily run IS its live-prove |
 | BDOCK-1-station-interceptor | nightly | FIRST two-vessel flight (18-phase machine): cross-tree Dock branch, authoritative onVesselsUndocking split, RouteConnectionWindow recorded-delta contract (the new `Route window delta:` line), same-craft-twice launch identity. Flight-1/2 wall budgets re-timed; flight-3 lesson (STATION-SEPARATE / INT-SEPARATE) + flight-4 lesson (two-step SEPARATE: drop the spent lifter AND ignite the orbital engine, thrust-verified, cap 2) both live-confirmed through RENDEZVOUS on flight 5; flight-5 lesson (MATCH-VELOCITY kill-rel-vel retargeted XFromNow ~15 s lead + bounded 600 s give-up + per-frame diagnostics + one-shot dropped-target re-acquire); flight-8 lesson (prox-ops rule: abort the pending kill-rel-vel node executor at DOCK entry before the docking AP owns the ship, else it rails-warps + packs the port target null + NREs); flight-9 lesson (core.target one-Update sync trap: stagger the docking-AP enable one poll after the port target); flight-10/11 lesson (prox-ops observability [angular_velocity/sas/rcs/docking_ap_status + per-frame DOCK diag line] + attitude hold [SAS+RCS after each separation and at DOCK entry] + LIVENESS watchdogs [budgets bound SLOW, watchdogs bound BROKEN: DOCK enable-never-took / died-mid-approach / no-progress fast flakes, TRANSFER stall fast flake, bounded dropped-target re-arm x3]). flight-13 ROOT CAUSE (behind every dock failure since flight 7): pre-`launch_vessel`-reload PART handles are stale - the reload destroys every Part, so the captured docking-port handle resolves to a destroyed part and assigning it silently CLEARS the target; VESSEL handles survive (P9 answered). Fix: resolve port + docking-state + transfer tanks LIVE at call time. Flight 13's liveness layer fast-flaked in 10 s with the named E1a reason (wall 2133 s) and pinned this. Flight 16 (2026-07-24): MISSION-OK END TO END (launch, separate, mid-mission commit seam, launch_vessel, rendezvous, hard dock, LF 40 + mono 15 transfers, undock, TERMINAL) - and the verifier chain caught the FIRST mission-machinery-found Parsek recording defect: analyzer RED, INV4-PARTEVENT-PID x13 on the Station recording d5355cc6. Root cause: the launch_vessel FLIGHT->FLIGHT reload is classified as a quickload (stale vesselSwitchPending), and RestoreActiveTreeFromPending's NAME fallback adopted the fresh-rollout Interceptor (same .craft, same "Kerbal X" name, different Vessel.id) and PID-remapped the Station recording onto it, so the whole Interceptor flight recorded into the Station recording with foreign craft-baked part pids. FIXED Parsek-side: QuickloadResumeMatchGuard (fresh-rollout pid + launch-guid gates in the restore match loop); forensics in todo-and-known-bugs.md flight-16 entry | LIVE-PROVEN 2026-07-24: flight 17 on the guard build = MISSION-OK + analyzer red=0 (the QuickloadResumeMatchGuard fix verified on a clean two-tree save; the one residual red was the spec's own dock token - docking MERGES trees, Parsek logs 'Tree merge created: type=Dock', only splits log 'Tree branch created'); flight 18 = FULL PASS, all seven verifiers green, fifth consecutive hard dock. Re-tiered nightly. 18-flight campaign, zero manual sessions |
 | FORGE-bdock-station | operator | (Not a Parsek-surface test) FIXTURE-FORGE: launch_vessel the docking Kerbal X onto the pad + SaveGame -> stamps the bdock-station-pad fixture headlessly (replaces the operator fixture flight) | None - runnable now on a provisioned instance; harvest tool normalizes the output |
@@ -174,6 +177,16 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
    so `OnLoad` never ran and the `GameStateRecorder` never subscribed (the 5
    ACTING L1 cases reded on the missing recorded-action log line though the
    ledger oracle passed). Fixed 2026-07-23.
+7. COMMANDED-vs-OBSERVED assertion class (found 2026-07-25 via B1, fixed for
+   B1 and EVA-4). An assertion or terminal that reads the machine's own "we
+   issued the command" latch proves only that the machine acted, never that
+   KSP complied - and it fails OPEN, which is the worst direction for a test.
+   B1 shipped four months of green nightlies on a chute that never opened.
+   AUDIT DEBT: `evaluate_b4_assertions`'s `chuteDeployed` is still a commanded
+   latch, and the B4 fixture (`b2-lko-craft`) carries the same
+   `automateSafeDeploy = 0` with the same altitude-triggered deploy at 3000 m,
+   so B4 is expected to hit this on its first flight. Any new assertion over a
+   part-module state must read the module, not the command.
 
 ## Operator items outstanding
 
@@ -187,6 +200,9 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
    (Both fixtures are now forge-able headlessly via the B-DOCK forge.)
 3. Stock-award real-line capture session (unblocks the pattern rewrite).
 4. B9 rewind observation session (S1.5 + S4.1).
+5. B1 chute re-prove: NO operator session needed - it is a normal unattended
+   nightly run. Listed here only because it is the gate that returns B1 to
+   live-proven, and because its result pins P1/P2/P3 in the B1 spec.
 
 ## Roadmap (agreed order; each item named by its Parsek utility)
 

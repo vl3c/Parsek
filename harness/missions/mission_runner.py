@@ -416,7 +416,7 @@ class KrpcMissionControl(MissionControl):
     """
 
     def __init__(self, use_mechjeb: bool = False, client_name: str = "parsek-mission",
-                 read_docking: bool = False) -> None:
+                 read_docking: bool = False, read_chute: bool = False) -> None:
         self._use_mechjeb = use_mechjeb
         self._client_name = client_name
         # OPT-IN B-DOCK docking/rendezvous/transfer telemetry (design section 5.2).
@@ -424,6 +424,12 @@ class KrpcMissionControl(MissionControl):
         # never touch the MechJeb target controller / docking-port surface). The
         # bdock shell constructs this True.
         self._read_docking = bool(read_docking)
+        # OPT-IN parachute-state telemetry (EVA-4). OFF everywhere else so every other
+        # mission's read_snapshot stays byte-identical (craft_chute_state keeps its ""
+        # unread sentinel, which fails every chute gate closed). ONE extra RPC per poll,
+        # taken only by the mission whose whole terminal depends on OBSERVING the canopy
+        # rather than trusting that it commanded one (EVA-4 flight-1 lesson).
+        self._read_chute = bool(read_chute)
         self._conn = None
         self._mechjeb = None
         self._ascent = None
@@ -586,6 +592,13 @@ class KrpcMissionControl(MissionControl):
                 except Exception:
                     rcs_enabled = False
                 docking_ap_status = self._read_docking_ap_status()
+            # Parachute state (opt-in, EVA-4). Own try/except with the "" unread
+            # sentinel: a chute read fault must degrade to fail-closed (the EVA window
+            # cannot open on a blind frame), NEVER count toward the vessel-lost
+            # read-fail streak.
+            craft_chute_state = ""
+            if self._read_chute:
+                craft_chute_state = self._read_craft_chute_state(v)
             snapshot = mlib.TelemetrySnapshot(
                 ut=float(sc.ut),
                 altitude=float(flight_srf.surface_altitude),
@@ -656,6 +669,7 @@ class KrpcMissionControl(MissionControl):
                 transfer_complete=transfer_complete,
                 transfer_amount=transfer_amount,
                 monopropellant=monopropellant,
+                craft_chute_state=craft_chute_state,
                 seam_commit_result=self._seam_commit_result,
                 # Prox-ops observability (flight-10): tumble / control / AP-status.
                 angular_velocity=angular_velocity,
@@ -718,6 +732,23 @@ class KrpcMissionControl(MissionControl):
                     p.deploy()
                 except Exception:
                     pass
+        elif kind == mlib.ACTION_SET_CHUTE_DEPLOY_ALTITUDE:
+            # Raise the stock full-deploy altitude on every parachute (kRPC
+            # Parachute.DeployAltitude, the stock PAW tweakable). EVA-4 does this in the
+            # same frame it arms, so the module's first ACTIVE FixedUpdate already sees
+            # the raised value. Per-part try/except: a non-stock chute (RealChute) throws
+            # on the setter and must not abort the remaining parts or the frame.
+            target_alt = float(action.value)
+            set_count = 0
+            for p in v.parts.parachutes:
+                try:
+                    p.deploy_altitude = target_alt
+                    set_count += 1
+                except Exception:
+                    continue
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Chute",
+                "set deploy_altitude=%.0fm on %d parachute(s)" % (target_alt, set_count)))
         elif kind == mlib.ACTION_MJ_SET_TARGET_APOAPSIS:
             self._ascent.desired_orbit_altitude = float(action.value)
         elif kind == mlib.ACTION_MJ_ENABLE_AUTOSTAGE:
@@ -1700,6 +1731,37 @@ class KrpcMissionControl(MissionControl):
                 return ""
         return ""
 
+    def _read_craft_chute_state(self, v) -> str:
+        """The active vessel's aggregate stock-parachute state (kRPC
+        ParachuteState.name, decompiled KRPC.SpaceCenter.Services.Parts: stowed / armed /
+        semi_deployed / deployed / cut) normalized to the machine's PascalCase, or ""
+        (fail-closed: matches no gate, so the EVA window can never open on a blind frame).
+
+        The MOST-DEPLOYED port wins across a multi-chute craft: Deployed beats
+        SemiDeployed beats everything else. EVA-4's window gates on Deployed, and a craft
+        is "under full canopy" as soon as any of its chutes is - a min/first-wins read
+        would hide that behind an unrelated stowed spare.
+
+        Resolved LIVE from the active vessel every poll (never a captured handle: the same
+        stale-handle trap that blinded the B-DOCK docking gates post-reload)."""
+        try:
+            chutes = list(v.parts.parachutes)
+        except Exception:
+            return ""
+        states = []
+        for p in chutes:
+            try:
+                states.append(mlib.normalize_parachute_state(getattr(p.state, "name", "")))
+            except Exception:
+                continue
+        states = [s for s in states if s]
+        if not states:
+            return ""
+        for want in (mlib.CHUTE_STATE_DEPLOYED, mlib.CHUTE_STATE_SEMI_DEPLOYED):
+            if want in states:
+                return want
+        return states[0]
+
     def _read_angular_velocity(self, v) -> float:
         """|angular velocity| (rad/s) in the vessel's ORBITAL reference frame --
         the tumble signal (flight-10). The orbital frame excludes body rotation,
@@ -2212,7 +2274,7 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             "telemetry", state.phase,
             "telemetry ap=%s pe=%s ecc=%s inc=%s alt=%s vspd=%s body=%s nodes=%d "
             "nodeDv=%s nodeUt=%s tts=%s nextBody=%s nextPe=%s warpTo=%s lf=%s "
-            "ec=%s thr=%s avThr=%s situation=%s warp=%sx%s apErr=%s ut=%s"
+            "ec=%s thr=%s avThr=%s situation=%s chute=%s warp=%sx%s apErr=%s ut=%s"
             % (_fmt(snapshot.apoapsis), _fmt(snapshot.periapsis), _fmt(snapshot.eccentricity),
                _fmt(snapshot.inclination), _fmt(snapshot.altitude),
                _fmt(snapshot.vertical_speed), snapshot.body or "?", snapshot.node_count,
@@ -2220,7 +2282,8 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                snapshot.next_body or "?", _fmt(snapshot.next_pe),
                _fmt(snapshot.warping_to), _fmt(snapshot.liquid_fuel),
                _fmt(snapshot.electric_charge), _fmt(snapshot.throttle),
-               _fmt(snapshot.available_thrust), snapshot.situation, snapshot.warp_mode,
+               _fmt(snapshot.available_thrust), snapshot.situation,
+               snapshot.craft_chute_state or "-", snapshot.warp_mode,
                _fmt(snapshot.warp_rate), _fmt(snapshot.ap_error), _fmt(snapshot.ut)))
         # MACHINE-STATE line (design-live-observability 2a): the decision
         # state verbatim on a ~5 s cadence, so an operator report maps to

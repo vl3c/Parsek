@@ -224,11 +224,12 @@ steps = [
 [driver.missionParams]
 throttle              = 1.0
 apoapsisWindowMeters  = { min = 6000, max = 30000 }   # a WINDOW, not a golden apoapsis
-chuteDeployAltMeters  = 2500
+chuteArmMaxRateMps    = 30                            # arm at the apoapsis crossing
+chuteFullDeployAltMeters = 1000                       # stock deployAltitude, pinned
 landedSituations      = ["LANDED", "SPLASHED"]        # either accepted
 ascentTimeoutSeconds  = 90
 coastTimeoutSeconds   = 180
-descentTimeoutSeconds = 240
+descentTimeoutSeconds = 600
 
 # A flown scenario PRODUCES a recording, so recordings are expected. count.min>=1
 # keeps the REC-001/REC-003 log rules MANDATORY (M-A5 verifier 4): a dropped
@@ -614,15 +615,30 @@ Phases (each transition a pure decision over a snapshot):
   `ascentTimeoutSeconds`.
 - **COAST -> DESCENT**: coast to apoapsis at 1x (a 6-30 km hop never leaves
   Kerbin's 70 km atmosphere, and stock KSP FORBIDS rails warp inside the atmosphere,
-  so B1 never rails-warps -- the whole hop is powered / atmospheric at 1x), then on
-  the way down deploy the chute when `altitude <= chuteDeployAltMeters`. Bounded by
+  so B1 never rails-warps -- the whole hop is powered / atmospheric at 1x). The
+  transition FALLS THROUGH into the DESCENT body on the same frame. Bounded by
   `coastTimeoutSeconds`.
+- **DESCENT**: on the first frame whose `|vertical speed|` is within
+  `chuteArmMaxRateMps` -- i.e. the apoapsis crossing -- write
+  `chuteFullDeployAltMeters` onto the parachutes and ARM them, both actions on the
+  SAME frame. ARM WHILE SLOW, never at an altitude (2026-07-25): stock's
+  ACTIVE -> SEMIDEPLOYED needs `automateSafeDeploy >= (int)deploymentSafeState`, the
+  fixture persists `automateSafeDeploy = 0`, and a craft already at terminal velocity
+  in dense air never reads SAFE and never slows on its own -- an altitude-triggered
+  arm sat inert in ARMED all the way into the ground for four months of green runs.
 - **DESCENT -> LANDED**: when `vessel.situation` in `landedSituations`
   (LANDED or SPLASHED). Bounded by `descentTimeoutSeconds`.
+- **DESCENT -> DOWN**: a vessel-lost / frozen-telemetry terminal in DESCENT with the
+  canopy OBSERVED open and the craft last seen at/below `downMaxAltMeters` is a
+  SUCCESS end (a breakup at a canopy-borne touchdown). The conjunct is the OBSERVED
+  `craft_chute_state` latch, never the machine's commanded one.
 
 Telemetry assertions (driver validity):
 - `apoapsisWindow`: peak apoapsis within `apoapsisWindowMeters` (a WINDOW, not a
   golden apoapsis).
+- `craftCanopyObserved`: the craft's parachute READ `Deployed` on at least one live
+  frame. Applies to BOTH terminals -- a LANDED craft whose chute never opened fails
+  too. Requires `KrpcMissionControl(read_chute=True)`.
 - `landedSituation`: final situation in `landedSituations`.
 All met -> `MISSION-OK`. Any unmet -> `MISSION-ASSERT-FAIL`. A phase timeout ->
 `MISSION-FLAKE`.

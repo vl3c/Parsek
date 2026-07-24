@@ -23,7 +23,24 @@ max = 1.0
 required = true
 type = "window"
 
-[params.chuteDeployAltMeters]
+# ARM-WHILE-SLOW bound (2026-07-25). The machine arms the chute on the first DESCENT
+# frame whose |vertical speed| is within this, i.e. at the APOAPSIS CROSSING -- NOT at
+# an altitude. The old chuteDeployAltMeters altitude trigger was inert on this fixture:
+# stock's ACTIVE -> SEMIDEPLOYED needs automateSafeDeploy >= deploymentSafeState, the
+# fixture persists automateSafeDeploy = 0 (SAFE only), and a craft at terminal velocity
+# in dense air never reads SAFE and never slows on its own. Bounded well under a
+# free-fall second (Kerbin adds ~10 m/s per ~1 s poll) so it can only ever be satisfied
+# near the apex.
+[params.chuteArmMaxRateMps]
+required = true
+type = "number"
+min = 1.0
+max = 100.0
+
+# The stock deployAltitude the machine writes onto every parachute in the same frame it
+# arms. Declared here rather than inherited from the fixture's persisted PAW value so
+# the full-canopy leg is a mission input, not a silent fixture property.
+[params.chuteFullDeployAltMeters]
 required = true
 type = "number"
 min = 0.0

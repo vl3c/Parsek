@@ -242,6 +242,28 @@ def normalize_docking_state(name) -> str:
         return ""
     return "".join(seg.capitalize() for seg in str(name).split("_"))
 
+
+# The stock parachute states the EVA-4 machine gates on, spelled as the PascalCase
+# normalization of kRPC's ParachuteState enum (decompiled
+# KRPC.SpaceCenter.Services.Parts.ParachuteState: Stowed / Armed / SemiDeployed /
+# Deployed / Cut). "Armed" is kRPC's name for stock's ACTIVE - commanded but NOT open,
+# which is exactly the state EVA-4's first live flight got stuck in.
+CHUTE_STATE_STOWED = "Stowed"
+CHUTE_STATE_ARMED = "Armed"
+CHUTE_STATE_SEMI_DEPLOYED = "SemiDeployed"
+CHUTE_STATE_DEPLOYED = "Deployed"
+CHUTE_STATE_CUT = "Cut"
+
+
+def normalize_parachute_state(name) -> str:
+    """Normalize a kRPC ParachuteState.name (lower_snake, e.g. 'semi_deployed') to the
+    PascalCase spelling the machine gates on ('SemiDeployed'), or "" for an
+    empty/None read (fail-closed: matches no gate, so an unreadable chute can never
+    satisfy the EVA window)."""
+    if not name:
+        return ""
+    return "".join(seg.capitalize() for seg in str(name).split("_"))
+
 # Resource-transfer direction codes carried in Action.limit (section 5.1: the
 # Action dataclass is kind/value/text/limit, so the transfer direction rides
 # limit as a float code). 0 = deliver transport -> station (the LiquidFuel leg);
@@ -259,6 +281,11 @@ ACTION_SET_THROTTLE = "set_throttle"          # value = throttle fraction
 ACTION_CUT_THROTTLE = "cut_throttle"          # value = 0.0
 ACTION_ACTIVATE_STAGE = "activate_stage"      # value = None
 ACTION_DEPLOY_CHUTE = "deploy_chute"          # value = None
+# Set the stock full-deploy altitude (metres) on every parachute of the active vessel
+# (kRPC Parachute.DeployAltitude, a stock tweakable a player edits in the PAW). EVA-4
+# raises it so the craft reaches its FULL-canopy terminal rate well above the ground,
+# which is what gives the mid-air EVA window room to open and the kerbal sky to use.
+ACTION_SET_CHUTE_DEPLOY_ALTITUDE = "set_chute_deploy_altitude"   # value = metres
 ACTION_MJ_SET_TARGET_APOAPSIS = "mj_set_target_apoapsis"   # value = metres
 ACTION_MJ_ENABLE_AUTOSTAGE = "mj_enable_autostage"         # value = None
 ACTION_MJ_ENGAGE_ASCENT = "mj_engage_ascent"               # value = None
@@ -846,6 +873,13 @@ class TelemetrySnapshot:
     # truncated ~60 chars; "" = unread. What the AP thinks it is doing -- the
     # missing signal the operator called out. Diagnosability only.
     docking_ap_status: str = ""
+    # The active vessel's aggregate stock-parachute state, normalized to PascalCase
+    # (mlib.normalize_parachute_state over kRPC ParachuteState.name). "" = UNREAD, the
+    # fail-closed sentinel: it matches no gate, so a runner that does not opt into the
+    # chute read (every mission but EVA-4) can never satisfy a chute conjunct with a
+    # fabricated value. THE lesson of the EVA-4 first flight: "the machine COMMANDED
+    # the chute" is not evidence the canopy opened - only this read is.
+    craft_chute_state: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -945,7 +979,16 @@ class B1Params:
     """B1 pad-hop tuning (design [driver.missionParams] for b1_pad_hop). All are
     WINDOWS / thresholds / budgets, never golden trajectories."""
     throttle: float
-    chute_deploy_alt: float
+    # ARM THE CHUTE WHILE SLOW, at the apoapsis crossing, not at an altitude. The
+    # machine arms on the first DESCENT frame whose |vertical speed| is within this
+    # bound (spec key chuteArmMaxRateMps). See the b1_decide docstring for why an
+    # ALTITUDE trigger was inert on this craft.
+    chute_arm_max_rate: float
+    # The stock deployAltitude (metres) the machine writes onto every parachute in the
+    # same frame it arms (spec key chuteFullDeployAltMeters). Pinned by the spec rather
+    # than inherited from whatever the fixture's PAW happens to persist, so the
+    # full-canopy leg is a declared mission input and not a silent fixture property.
+    chute_full_deploy_alt: float
     ascent_timeout: float
     coast_timeout: float
     descent_timeout: float
@@ -1030,7 +1073,8 @@ def b1_params_from_dict(params: Dict) -> B1Params:
     window = params.get("apoapsisWindowMeters", {}) or {}
     return B1Params(
         throttle=float(params.get("throttle", 1.0)),
-        chute_deploy_alt=float(params.get("chuteDeployAltMeters", 2500)),
+        chute_arm_max_rate=float(params.get("chuteArmMaxRateMps", 30)),
+        chute_full_deploy_alt=float(params.get("chuteFullDeployAltMeters", 1000)),
         ascent_timeout=float(params.get("ascentTimeoutSeconds", 90)),
         coast_timeout=float(params.get("coastTimeoutSeconds", 180)),
         descent_timeout=float(params.get("descentTimeoutSeconds", 240)),
@@ -1364,7 +1408,21 @@ class B1State:
     phase: str = B1_PRELAUNCH
     phase_entry_ut: float = 0.0
     peak_apoapsis: Optional[float] = None
+    # COMMANDED latch: the arm action was emitted. Kept as EVIDENCE (it names where the
+    # machine acted) but it is NOT the success signal any more -- flight evidence proved
+    # a commanded chute can sit inert in ARMED all the way to the ground.
     chute_deployed: bool = False
+    # Where the arm was emitted, carried into the result so an operator can read the
+    # arm point without re-deriving it from the frames.
+    chute_armed_altitude: Optional[float] = None
+    chute_armed_rate: Optional[float] = None
+    # OBSERVED latch: the craft's parachute has READ Deployed at least once
+    # (TelemetrySnapshot.craft_chute_state, the live kRPC ParachuteState). This -- never
+    # ``chute_deployed`` -- is what the DOWN terminal and the canopy assertion gate on.
+    craft_chute_full_seen: bool = False
+    # The last non-empty observed chute state, carried so a failure names what the
+    # canopy was actually doing ("Armed" = commanded but never opened).
+    last_chute_state: str = ""
     phases_reached: Tuple[str, ...] = (B1_PRELAUNCH,)
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -1434,21 +1492,46 @@ def b1_decide(state: B1State, snapshot: TelemetrySnapshot) -> Tuple[B1State, Lis
         next stage (release clamps / ignite the SRB) -- the first real flight mod.
       - ASCENT -> COAST: when the active-stage solid fuel is exhausted, cut
         throttle. Bounded by ascentTimeoutSeconds.
-      - COAST -> DESCENT: when past apoapsis (vertical speed goes negative).
+      - COAST -> DESCENT: when past apoapsis (vertical speed goes negative). The
+        frame FALLS THROUGH into the DESCENT body rather than returning, because the
+        arm decision below is RATE-gated and the rate only ever worsens.
         Bounded by coastTimeoutSeconds.
-      - DESCENT: deploy the chute once altitude <= chuteDeployAltMeters, then
-        DESCENT -> LANDED when the situation is a landed/splashed one. Bounded by
-        descentTimeoutSeconds.
-      - DESCENT -> DOWN (operator decision 2026-07-20, option A): when either
-        vessel-lost signal fires (a runner vessel_lost snapshot, or the frozen
-        counter reaching its limit) AND the chute is already deployed, the hop
-        FLEW, the CHUTE DEPLOYED, and the craft REACHED THE GROUND -- a
-        chute-deployed breakup at touchdown is a SUCCESSFUL end (the Jumping Flea
-        always breaks apart at ~9 m/s vs the booster's 7 m/s tolerance; B4 owns
-        the craft-survives-intact contract). DOWN is a real terminal: done, NO
-        loss_reason, verdict stays None so the assertions decide. Without the
-        chute deployed -- and in every other phase -- the loss stays the
-        ASSERT-FAIL loss_reason terminal.
+      - DESCENT: on the FIRST frame whose |vertical speed| is within
+        chuteArmMaxRateMps (i.e. the apoapsis crossing), write
+        chuteFullDeployAltMeters onto the craft's parachutes and ARM them; both
+        actions ride the SAME frame so the module's first ACTIVE FixedUpdate already
+        sees the raised altitude. Then DESCENT -> LANDED when the situation is a
+        landed/splashed one. Bounded by descentTimeoutSeconds.
+
+        ARM WHILE SLOW, NOT AT AN ALTITUDE (2026-07-25 fix, decompiled
+        ModuleParachute + two flights of evidence). Stock's ACTIVE -> SEMIDEPLOYED
+        transition requires ``automateSafeDeploy >= (int)deploymentSafeState``, and
+        DeploySafe reads SAFE only while ``shockTemp <= chuteMaxTemp * safeMult``.
+        The b1-pad-craft fixture persists ``automateSafeDeploy = 0`` (open only while
+        SAFE), and a craft already at terminal velocity in dense air never reads SAFE
+        and never slows on its own -- so an altitude-triggered arm produced a chute
+        that sat INERT in ARMED all the way into the ground. The measured proof: this
+        craft's unchuted descent settles at -301 m/s, and 5.1 s after a 2,382 m arm
+        the rate had moved 4.7 m/s; its recording carried ZERO Parachute* part events.
+        At the apoapsis crossing the airspeed is near zero, DeploySafe is trivially
+        SAFE, and Kerbin is already far above the module's 0.04 atm pressure gate, so
+        the canopy opens within a frame or two. Proven live on this exact fixture and
+        craft by EVA-4 flight 2.
+      - DESCENT -> DOWN (operator decision 2026-07-20 option A, re-gated 2026-07-25):
+        when either vessel-lost signal fires (a runner vessel_lost snapshot, or the
+        frozen counter reaching its limit) AND the craft's canopy has been OBSERVED
+        open AND the craft was last seen at/below downMaxAltMeters, the hop FLEW, the
+        CANOPY OPENED, and the craft REACHED THE GROUND -- a breakup at a
+        chute-borne touchdown is a SUCCESSFUL end (B4 owns the
+        craft-survives-intact contract). DOWN is a real terminal: done, NO
+        loss_reason, verdict stays None so the assertions decide. The conjunct is the
+        OBSERVED ``craft_chute_full_seen`` latch, never the commanded
+        ``chute_deployed`` one: gating on "we commanded it" is exactly how a
+        300 m/s terminal-velocity impact was awarded a chute-deployed-impact
+        terminal for four months. Without the observed canopy -- and in every other
+        phase -- the loss stays the ASSERT-FAIL loss_reason terminal, and the reason
+        NAMES the observed chute state so an inert chute reds as "craftChute=Armed"
+        instead of passing.
     Any timed phase that out-runs its budget yields MISSION-FLAKE naming the stuck
     phase (``state.verdict`` / ``state.flake_phase``), so a wedged autopilot never
     hangs. Once ``done`` the machine is idempotent (returns the state unchanged,
@@ -1465,11 +1548,20 @@ def b1_decide(state: B1State, snapshot: TelemetrySnapshot) -> Tuple[B1State, Lis
     if not snapshot.vessel_lost and _is_finite(snapshot.altitude):
         state = replace(state, last_finite_altitude=snapshot.altitude)
 
+    # OBSERVED canopy latches, from live frames only (a vessel_lost snapshot carries
+    # benign defaults and must not fabricate a canopy). ``craft_chute_full_seen`` is
+    # sticky: once the canopy has read Deployed the craft flew a chuted descent, even
+    # if the chute is cut or the part is destroyed on the last frame.
+    if not snapshot.vessel_lost and snapshot.craft_chute_state:
+        state = replace(state, last_chute_state=snapshot.craft_chute_state)
+        if snapshot.craft_chute_state == CHUTE_STATE_DEPLOYED:
+            state = replace(state, craft_chute_full_seen=True)
+
     # Runner-signaled vessel loss (unreadable active vessel after repeated telemetry
     # failures): a phase-INDEPENDENT terminal (design vessel-destroyed terminal).
-    # In DESCENT with the chute deployed AND the craft last seen at/below
-    # downMaxAltMeters this is the DOWN success terminal (option A: flew + chute
-    # + reached the ground); a post-chute loss AT ALTITUDE (chute ripped,
+    # In DESCENT with the canopy OBSERVED open AND the craft last seen at/below
+    # downMaxAltMeters this is the DOWN success terminal (option A: flew + canopy
+    # + reached the ground); a post-canopy loss AT ALTITUDE (chute ripped,
     # mid-air breakup) stays a deterministic mission failure (Fable review of
     # PR #1335, SF-1).
     if snapshot.vessel_lost:
@@ -1514,21 +1606,41 @@ def b1_decide(state: B1State, snapshot: TelemetrySnapshot) -> Tuple[B1State, Lis
 
     if state.phase == B1_COAST:
         if _is_finite(snapshot.vertical_speed) and snapshot.vertical_speed < 0.0:
-            return _b1_enter(state, B1_DESCENT, snapshot.ut, peak), []
-        return _b1_stay_or_flake(state, snapshot, peak), []
+            # Enter DESCENT and FALL THROUGH into its body on the SAME frame (no early
+            # return). The arm decision below is RATE-gated and the rate only ever
+            # worsens - Kerbin adds ~10 m/s of fall per ~1 s poll - so deferring the arm
+            # by one poll needlessly eats the arming bound, and a few polls of delay
+            # would push the craft permanently outside it: the inert-chute failure mode
+            # in slow motion.
+            state = _b1_enter(state, B1_DESCENT, snapshot.ut, peak)
+        else:
+            return _b1_stay_or_flake(state, snapshot, peak), []
 
     if state.phase == B1_DESCENT:
         actions: List[Action] = []
         chute_deployed = state.chute_deployed
-        if (not chute_deployed and _is_finite(snapshot.altitude)
-                and snapshot.altitude <= state.params.chute_deploy_alt):
+        armed_alt = state.chute_armed_altitude
+        armed_rate = state.chute_armed_rate
+        # ARM WHILE SLOW: raise the full-deploy altitude, then arm, on the first frame
+        # inside the rate bound. Both actions ride the SAME frame so the module's very
+        # first ACTIVE FixedUpdate already sees the raised altitude.
+        if (not chute_deployed and _is_finite(snapshot.vertical_speed)
+                and abs(snapshot.vertical_speed) <= state.params.chute_arm_max_rate):
+            actions.append(Action(ACTION_SET_CHUTE_DEPLOY_ALTITUDE,
+                                  state.params.chute_full_deploy_alt))
             actions.append(Action(ACTION_DEPLOY_CHUTE))
             chute_deployed = True
+            armed_alt = snapshot.altitude if _is_finite(snapshot.altitude) else None
+            armed_rate = snapshot.vertical_speed
         if snapshot.situation in state.params.landed_situations:
             landed = _b1_enter(state, B1_LANDED, snapshot.ut, peak)
-            return replace(landed, chute_deployed=chute_deployed), actions
+            return replace(landed, chute_deployed=chute_deployed,
+                           chute_armed_altitude=armed_alt,
+                           chute_armed_rate=armed_rate), actions
         stayed = _b1_stay_or_flake(state, snapshot, peak)
-        return replace(stayed, chute_deployed=chute_deployed), actions
+        return replace(stayed, chute_deployed=chute_deployed,
+                       chute_armed_altitude=armed_alt,
+                       chute_armed_rate=armed_rate), actions
 
     # Unknown phase: defensively terminate as an error-shaped flake so the shell
     # never spins. (Unreachable given the enum above.)
@@ -1552,29 +1664,44 @@ def _b1_enter(state: B1State, new_phase: str, ut: float, peak: Optional[float]) 
 
 def _b1_down_eligible(state: B1State) -> bool:
     """True iff a vessel loss right now qualifies as the DOWN success terminal:
-    DESCENT phase, chute deployed, AND the craft was last seen at/below
-    downMaxAltMeters (option A: flew + chute deployed + REACHED THE GROUND).
-    A post-chute loss at altitude fails all the way to ASSERT-FAIL (Fable
-    review of PR #1335, SF-1: without the altitude leg, a chute-ripped mid-air
-    breakup at 1800m was awarded DOWN)."""
+    DESCENT phase, the canopy OBSERVED open, AND the craft was last seen at/below
+    downMaxAltMeters (option A: flew + canopy opened + REACHED THE GROUND).
+
+    Two conjuncts each closed a real hole:
+      - the ALTITUDE leg (Fable review of PR #1335, SF-1): without it a chute-ripped
+        mid-air breakup at 1800 m was awarded DOWN.
+      - the OBSERVED-canopy leg (2026-07-25): the conjunct used to be the machine's own
+        COMMANDED ``chute_deployed`` latch, which is set the moment the arm action is
+        emitted and stays true whether or not the canopy ever opens. The fixture's
+        ``automateSafeDeploy = 0`` made that routine rather than exotic -- every B1 run
+        armed a chute that never left ARMED and impacted at terminal velocity, and
+        every one of them was awarded the "chute-deployed impact" success terminal.
+        Only the live ``craft_chute_state`` read can distinguish the two."""
     return (state.phase == B1_DESCENT
-            and state.chute_deployed
+            and state.craft_chute_full_seen
             and state.last_finite_altitude is not None
             and _is_finite(state.last_finite_altitude)
             and state.last_finite_altitude <= state.params.down_max_alt)
 
 
 def _b1_loss_reason_with_altitude(state: B1State, base: str) -> str:
-    """Append the last known altitude to a loss reason so a DOWN-ineligible
-    post-chute loss names WHERE the craft was lost."""
-    if state.last_finite_altitude is None or not _is_finite(state.last_finite_altitude):
-        return base
-    return "%s; last altitude %.0fm" % (base, state.last_finite_altitude)
+    """Append the last known altitude and the OBSERVED chute state to a loss reason so
+    a DOWN-ineligible loss names WHERE the craft was lost and WHAT the canopy was
+    doing. ``craftChute=Armed`` is the inert-chute signature: commanded but never
+    open. ``UNREAD`` means the runner never opted into the chute read (or every read
+    faulted), which fails the DOWN gate closed by design."""
+    parts = []
+    if state.last_finite_altitude is not None and _is_finite(state.last_finite_altitude):
+        parts.append("last altitude %.0fm" % state.last_finite_altitude)
+    parts.append("craftChute=%s" % (state.last_chute_state or "UNREAD"))
+    parts.append("canopyObserved=%s" % ("yes" if state.craft_chute_full_seen else "no"))
+    parts.append("armCommanded=%s" % ("yes" if state.chute_deployed else "no"))
+    return "%s; %s" % (base, ", ".join(parts))
 
 
 def _b1_enter_down(state: B1State, ut: float, peak: Optional[float]) -> B1State:
     """DOWN success terminal (operator decision 2026-07-20, option A): the craft
-    reached the ground under a deployed chute and broke apart / became unreadable
+    reached the ground under an OBSERVED canopy and broke apart / became unreadable
     at touchdown. done=True, appended to phases_reached, NO loss_reason, verdict
     stays None so the assertions decide OK vs ASSERT-FAIL. skip_settle_tail marks
     the vessel as gone so the shell's settle tail (which would only gather
@@ -4344,8 +4471,9 @@ def _peak_finite(frames, getter) -> Optional[float]:
 
 def evaluate_b1_assertions(frames, params: B1Params,
                            k: int = DEFAULT_DEBOUNCE_K,
-                           down_terminal: bool = False) -> List[AssertionOutcome]:
-    """Evaluate the two B1 driver-validity assertions over the flight frames.
+                           down_terminal: bool = False,
+                           craft_canopy_observed: bool = False) -> List[AssertionOutcome]:
+    """Evaluate the three B1 driver-validity assertions over the flight frames.
 
     - ``apoapsisWindow``: the PEAK apoapsis must sit within apoapsisWindowMeters
       (a WINDOW, not a golden apoapsis). The gate is the NaN-filtered running MAX
@@ -4357,13 +4485,23 @@ def evaluate_b1_assertions(frames, params: B1Params,
       UNMET (peak None). The reported value is that peak (evidence).
     - ``landedSituation``: the FINAL situation must be one of landedSituations,
       OR the machine ended in the DOWN terminal (``down_terminal=True``, operator
-      decision 2026-07-20 option A: a chute-deployed impact IS the craft reaching
+      decision 2026-07-20 option A: a canopy-borne impact IS the craft reaching
       the ground; the destroyed craft's final frames carry no landed situation to
       read). The DOWN end is named in the outcome's value
-      ("DOWN(chute-deployed impact)" vs the raw situation string) and flagged in
+      ("DOWN(canopy-borne impact)" vs the raw situation string) and flagged in
       the detail (``downTerminal``) so the result JSON says which end it was.
       (A situation is a discrete kRPC enum, not a noisy float, so it is read from
       the last frame directly rather than debounced.)
+    - ``craftCanopyObserved``: the craft's parachute READ Deployed on at least one
+      live frame (``craft_canopy_observed``, the machine's sticky OBSERVED latch over
+      TelemetrySnapshot.craft_chute_state). This is the assertion that makes B1's
+      claimed Parsek surface -- a chute-borne ground arrival, with the two-phase
+      ParachuteSemiDeployed / ParachuteDeployed part events in the recording -- an
+      OBSERVED fact rather than an assumed one. It is deliberately independent of the
+      terminal: LANDED and DOWN both have to satisfy it, so neither end can be
+      reached by a craft whose canopy never opened. The evidence is machine-carried
+      rather than re-derived from frames because the latch is sticky (a chute cut or
+      destroyed on the final frame must not erase a descent that really happened).
 
     NOTE: the ``k`` parameter is retained for signature symmetry with
     ``evaluate_b2_assertions`` but is unused here -- a peak is a single settled
@@ -4380,7 +4518,7 @@ def evaluate_b1_assertions(frames, params: B1Params,
                            {"window": [lo, hi]})
 
     if down_terminal:
-        sit = AssertionOutcome("landedSituation", True, "DOWN(chute-deployed impact)",
+        sit = AssertionOutcome("landedSituation", True, "DOWN(canopy-borne impact)",
                                {"accepted": list(params.landed_situations),
                                 "downTerminal": True})
     else:
@@ -4389,7 +4527,11 @@ def evaluate_b1_assertions(frames, params: B1Params,
         sit = AssertionOutcome("landedSituation", sit_met, final_situation,
                                {"accepted": list(params.landed_situations),
                                 "downTerminal": False})
-    return [apo, sit]
+
+    canopy = AssertionOutcome("craftCanopyObserved", bool(craft_canopy_observed),
+                              bool(craft_canopy_observed),
+                              {"required": CHUTE_STATE_DEPLOYED})
+    return [apo, sit, canopy]
 
 
 def evaluate_b2_assertions(frames, params: B2Params,
