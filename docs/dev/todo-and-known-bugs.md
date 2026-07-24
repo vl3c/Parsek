@@ -588,10 +588,11 @@ as inert on a seam-kind driver.
 - **Scope:** only the UNMET path changed. A MISSION-OK run drives the full tail exactly as
   before (B1/B2/B4/B5/B7, BDOCK-1, the FORGE specs), and seam-only drivers (S0.5/S0.6/
   S1.4/S1.5/S4.1, H5/H6, B10, the L1 six-pack, EVA-1/2/3) have no mission step at all.
-- Tests: 27 hlib cells (role-table totality + no stale rows, the cleanup set, fail-safe
-  unknown, the plan over the REAL committed EVA-4 / B1 / FORGE step lists, id stability,
-  the opt-out, the spec surface) + 4 fake-KSP smoke cells asserting on the COMMAND CHANNEL
-  FILE that `EvaExit` / `CommitTree` were never written on an unmet run while
+- Tests (27 new cells): 23 pure hlib cells (role-table totality + no stale rows, the
+  cleanup set, fail-safe unknown, the plan over the REAL committed EVA-4 / B1 / FORGE step
+  lists, id stability, the opt-out, the spec surface) + 4 fake-KSP smoke cells asserting on
+  the COMMAND CHANNEL FILE that `EvaExit` / `CommitTree` were never written on an unmet run
+  while
   `StopRecording` / `FlushAndQuit` were, that a MISSION-OK run still drives everything, and
   that the opt-out restores the legacy tail.
 
