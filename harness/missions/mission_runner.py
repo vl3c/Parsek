@@ -1312,6 +1312,23 @@ class KrpcMissionControl(MissionControl):
             rel_speed = math.sqrt(sum(float(c) * float(c) for c in rv))
         except Exception:
             rel_speed = float("nan")
+        if not math.isfinite(rel_speed):
+            # Pinned-stack fallback (flight 6): KRPC.MechJeb 0.8.1's
+            # RelativeVelocity casts MechJeb's value to (Vector3) server-side
+            # (TargetController.cs:109) and the unbox throws against MechJeb
+            # 2.15.1's Vector3d property, so the MechJeb read NaNs on EVERY
+            # call while Distance (a real float) works. Compute it from kRPC
+            # core instead: the active vessel's velocity in the TARGET's
+            # orbital reference frame IS the relative velocity (the stock
+            # docking-tutorial approach, no MechJeb surface involved).
+            try:
+                sc = self._conn.space_center
+                tv = sc.target_vessel
+                if tv is not None:
+                    vel = sc.active_vessel.velocity(tv.orbital_reference_frame)
+                    rel_speed = math.sqrt(sum(float(c) * float(c) for c in vel))
+            except Exception:
+                rel_speed = float("nan")
         return distance, rel_speed, target_set
 
     def _read_docking_ap_enabled(self) -> Tuple[bool, bool]:
