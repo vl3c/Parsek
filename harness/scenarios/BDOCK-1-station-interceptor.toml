@@ -113,7 +113,7 @@ mission = "bdock_dock_transfer"
 # CommitTree for the Interceptor tree TA. Do NOT add a second post-mission CommitTree
 # (the Station tree is already committed; a second seam CommitTree with no active
 # tree returns ERROR and reds the run).
-# Budget arithmetic (RE-TIMED from flight 2, 2026-07-24): missionBudget 4800 (WALL).
+# Budget arithmetic (RE-TIMED from flights 2 and 12, 2026-07-24): missionBudget 6000 (WALL), run budgetSeconds 6900.
 # Flight 2 reached MATCH-VELOCITY (ut 10420, ~2.9 game-hours of rendezvous phasing
 # at capped warp) at exactly wall 2400 -- the old estimate covered the rendezvous
 # but not dock/transfer/undock. 4800 = 2x the observed need. Originally >= 30 connect

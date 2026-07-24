@@ -13366,8 +13366,21 @@ namespace Parsek
                         if (!tree.Recordings.TryGetValue(probe.ParentRecordingId, out probe))
                             break;
                         if (probe != null &&
-                            !QuickloadResumeMatchGuard.LaunchGuidConclusivelyDiffers(
-                                probe.RecordedVesselGuid, liveGuid) && (
+                            QuickloadResumeMatchGuard.LaunchGuidConclusivelyDiffers(
+                                probe.RecordedVesselGuid, liveGuid))
+                        {
+                            // Guard skip must be logged (review of PR #1345): a
+                            // guid-rejected parent otherwise declines silently and
+                            // the coroutine ends in the generic not-active Warn
+                            // with no trace this gate fired.
+                            ParsekLog.Info("Flight",
+                                $"RestoreActiveTreeFromPending: parent-walk guid gate " +
+                                $"rejected rec={probe.RecordingId?.Substring(0, 8)} " +
+                                $"(recordedGuid differs conclusively from live vessel)");
+                            walkDepth++;
+                            continue;
+                        }
+                        if (probe != null && (
                             (probe.VesselPersistentId != 0 && v.persistentId == probe.VesselPersistentId) ||
                             v.vesselName == probe.VesselName))
                         {
