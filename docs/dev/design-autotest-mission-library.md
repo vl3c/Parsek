@@ -213,7 +213,7 @@ mission = "b1_pad_hop"            # -> harness/missions/b1_pad_hop.py  (filename
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
-  { phase = "mission",  expect = "MISSION-OK", budget = 780 },   # <- flight happens here
+  { phase = "mission",  expect = "MISSION-OK", budget = 900 },   # <- flight happens here
   { cmd = "CommitTree",                                          expect = "OK" },
   { cmd = "FlushAndQuit",                                        expect = "OK" },
 ]
@@ -243,7 +243,7 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 allowedAnomalies = []
 
 [runtime]
-budgetSeconds = 1200               # outer wall-clock ceiling (M-A5 watchdog)
+budgetSeconds = 1320               # outer wall-clock ceiling (M-A5 watchdog)
 [retry]
 policy = "once"                   # mission FLAKE / connect-timeout retry-once (below)
 [expectedFail]
