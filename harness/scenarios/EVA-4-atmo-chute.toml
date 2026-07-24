@@ -91,7 +91,8 @@ id = "EVA-4-atmo-chute"
 #   After the EVA the pod is a background vessel under its own deployed canopy, and it
 #   touches down BEFORE the kerbal does (it is heavier and started lower relative to its
 #   own full-deploy altitude). Per the B1 fixture note the Jumping Flea ALWAYS breaks
-#   apart at touchdown (~9 m/s vs the booster's 7 m/s tolerance). That is EXPECTED here,
+#   apart at touchdown (a COMPUTED ~8-9 m/s vs the booster's 7 m/s tolerance; see the
+#   provenance note at the 25 m/s knob below). That is EXPECTED here,
 #   not a failure: the recordings-count window below absorbs the breakup children, and
 #   nothing in this spec asserts the pod survives. B4 owns the craft-survives-intact
 #   contract; this scenario's survival contract is the KERBAL's, enforced by the seam
@@ -189,9 +190,14 @@ craftChuteFullDeployAltMeters = 2500
 # become true inside or above the band. Floor 700 m: 1400 m of settle room for the ~8 s
 # animation, and still ~700 m of sky for the kerbal (whose own chute FULLY deploys under
 # 1000 m at ~5-6 m/s, so its descent time is bounded by that leg, not by the exit
-# altitude). 25 m/s: the B1-measured Jumping Flea full-canopy touchdown rate is ~9 m/s,
-# so this passes with ~2.8x margin while a merely semi-deployed craft can never satisfy
-# it - the window stays meaningful instead of rubber-stamping a slow-ish frame.
+# altitude). 25 m/s: the Jumping Flea's full-canopy touchdown rate is ~8-9 m/s, so this
+# passes with ~2.8x margin while a merely semi-deployed craft can never satisfy it - the
+# window stays meaningful instead of rubber-stamping a slow-ish frame.
+# PROVENANCE CORRECTED 2026-07-25: this used to read "the B1-measured ... ~9 m/s". B1
+# never measured it - B1's own chute never opened until 2026-07-25, so every B1 touchdown
+# on record was a ~300 m/s impact. The figure is COMPUTED (stock drag model over the
+# full-canopy leg) and happens to be about right, which is why this knob is unchanged;
+# but it was never the measurement it was cited as.
 evaWindowMaxAltMeters = 2100
 evaWindowMinAltMeters = 700
 evaMaxDescentRateMps  = 25
@@ -229,7 +235,7 @@ D14 = ["kerbin", "sandbox", "scene-flight"]
 # {min 2, max 10} window. MEASURED: exactly 3 .prec in saves/b1-pad-craft/Parsek/
 # Recordings - pod root 1 + kerbal EVA split 1 + the pod's post-EVA continuation 1. The
 # parent DOES break up on its own touchdown after the EVA (the B1 fixture note: the
-# Jumping Flea always does, ~9 m/s vs the booster's 7 m/s tolerance), but on this profile
+# Jumping Flea is computed to, ~8-9 m/s vs the booster's 7 m/s tolerance), but on this profile
 # that produced no extra recording.
 count = { min = 3, max = 3 }
 # EXACT, not a window, deliberately: the step list is fixed and logContracts are

@@ -42,10 +42,21 @@ max = 100.0
 # The stock deployAltitude the machine writes onto every parachute in the same frame it
 # arms. Declared here rather than inherited from the fixture's persisted PAW value so
 # the full-canopy leg is a mission input, not a silent fixture property.
+#
+# BOUNDS ARE LOAD-BEARING (Opus review panel 2026-07-25, finding 3). These were
+# inherited verbatim from the deleted chuteDeployAltMeters block (`min = 0.0`, no max),
+# but the SEMANTICS changed underneath them: this value is no longer a trigger the
+# machine compares against, it is WRITTEN ONTO stock's own `deployAltitude`. A spec
+# value of 0 would make ModuleParachute.ShouldDeploy() (`altitude < deployAltitude`)
+# permanently false, so the chute would hold SEMIDEPLOYED all the way to the ground and
+# impact at ~220 m/s -- a variant of the very bug this mission was fixed for, and the
+# old bounds would have accepted it silently. The floor is now well clear of that, and
+# the ceiling matches stock's own PAW control range (UI_FloatRange [50, 5000]).
 [params.chuteFullDeployAltMeters]
 required = true
 type = "number"
-min = 0.0
+min = 500.0
+max = 5000.0
 
 [params.landedSituations]
 required = true
