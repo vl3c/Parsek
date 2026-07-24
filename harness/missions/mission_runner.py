@@ -1205,15 +1205,41 @@ class KrpcMissionControl(MissionControl):
         elif kind == mlib.ACTION_START_RESOURCE_TRANSFER:
             self._start_resource_transfer(sc, v, action)
         elif kind == mlib.ACTION_UNDOCK:
-            if self._station_port is not None:
+            # Resolve the DOCKED port LIVE from the merged active vessel
+            # (flight 15: the captured pre-reload handle answered "The docking
+            # port is not docked" - the stale-part-handle family, same as the
+            # flight-13 targeting fix). Post-dock the active vessel carries
+            # BOTH mated ports; undock whichever reports docked, captured
+            # handle as last resort.
+            undocked = False
+            try:
+                for port in v.parts.docking_ports:
+                    try:
+                        st_name = getattr(port.state, "name", "") or ""
+                        if str(st_name).lower() == "docked":
+                            port.undock()
+                            undocked = True
+                            _stdout_sink(mlib.format_mission_log_line(
+                                "Info", "Undock", "undocked live-resolved port"))
+                            break
+                    except Exception as exc:
+                        _stdout_sink(mlib.format_mission_log_line(
+                            "Warn", "Undock",
+                            "live port undock candidate failed: %s" % (exc,)))
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Undock", "live port enumeration failed: %s" % (exc,)))
+            if not undocked and self._station_port is not None:
                 try:
                     self._station_port.undock()
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Info", "Undock", "undocked via captured handle"))
                 except Exception as exc:
                     _stdout_sink(mlib.format_mission_log_line(
                         "Warn", "Undock", "port.undock() failed: %s" % (exc,)))
-            else:
+            elif not undocked and self._station_port is None:
                 _stdout_sink(mlib.format_mission_log_line(
-                    "Warn", "Undock", "undock: no captured port handle"))
+                    "Warn", "Undock", "undock: no docked port resolved"))
         else:
             raise ValueError("unknown action kind: %r" % (kind,))
 
