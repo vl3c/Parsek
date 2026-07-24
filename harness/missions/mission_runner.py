@@ -1312,23 +1312,38 @@ class KrpcMissionControl(MissionControl):
             rel_speed = math.sqrt(sum(float(c) * float(c) for c in rv))
         except Exception:
             rel_speed = float("nan")
-        if not math.isfinite(rel_speed):
-            # Pinned-stack fallback (flight 6): KRPC.MechJeb 0.8.1's
+        if not (math.isfinite(rel_speed) and math.isfinite(distance)):
+            # Pinned-stack fallback (flights 6+7): KRPC.MechJeb 0.8.1's
             # RelativeVelocity casts MechJeb's value to (Vector3) server-side
             # (TargetController.cs:109) and the unbox throws against MechJeb
-            # 2.15.1's Vector3d property, so the MechJeb read NaNs on EVERY
-            # call while Distance (a real float) works. Compute it from kRPC
-            # core instead: the active vessel's velocity in the TARGET's
-            # orbital reference frame IS the relative velocity (the stock
-            # docking-tutorial approach, no MechJeb surface involved).
+            # 2.15.1's Vector3d property, so that read NaNs on EVERY call;
+            # and once the target is a docking PORT (the DOCK phase's
+            # set_target_docking_port), tc.distance goes dark too (flight 7:
+            # DOCK flew blind, both None). Compute both from kRPC core
+            # instead: resolve the target vessel directly OR via the target
+            # port's parent vessel, then rel-speed = |active velocity in the
+            # target's orbital frame| and distance = |active position in the
+            # target's frame| (the stock docking-tutorial approach, no
+            # MechJeb surface involved).
             try:
                 sc = self._conn.space_center
                 tv = sc.target_vessel
+                if tv is None:
+                    tp = sc.target_docking_port
+                    tv = tp.part.vessel if tp is not None else None
                 if tv is not None:
-                    vel = sc.active_vessel.velocity(tv.orbital_reference_frame)
-                    rel_speed = math.sqrt(sum(float(c) * float(c) for c in vel))
+                    av = sc.active_vessel
+                    if not math.isfinite(rel_speed):
+                        vel = av.velocity(tv.orbital_reference_frame)
+                        rel_speed = math.sqrt(
+                            sum(float(c) * float(c) for c in vel))
+                    if not math.isfinite(distance):
+                        pos = av.position(tv.reference_frame)
+                        distance = math.sqrt(
+                            sum(float(c) * float(c) for c in pos))
+                    target_set = True
             except Exception:
-                rel_speed = float("nan")
+                pass
         return distance, rel_speed, target_set
 
     def _read_docking_ap_enabled(self) -> Tuple[bool, bool]:

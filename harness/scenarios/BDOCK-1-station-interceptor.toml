@@ -92,7 +92,7 @@ mission = "bdock_dock_transfer"
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
-  { phase = "mission",  expect = "MISSION-OK", budget = 4800 },
+  { phase = "mission",  expect = "MISSION-OK", budget = 6000 },
   { cmd = "CommitTree",                                          expect = "OK" },
   { cmd = "FlushAndQuit",                                        expect = "OK" },
 ]
@@ -139,7 +139,7 @@ transferAmountMp            = 15
 # fast under rails warp); dock is the 1x approach; each transfer is server-side + fast.
 stationCommitTimeoutSeconds = 300
 rendezvousTimeoutSeconds    = 30000
-dockTimeoutSeconds          = 600
+dockTimeoutSeconds          = 1800
 transferTimeoutSeconds      = 120
 undockTimeoutSeconds        = 120
 
@@ -182,7 +182,7 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 allowedAnomalies = []
 
 [runtime]
-budgetSeconds = 5700
+budgetSeconds = 6900
 
 [retry]
 policy = "once"
