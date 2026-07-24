@@ -13293,17 +13293,57 @@ namespace Parsek
             // Tertiary (edge case 3): if the active recording was an EVA kerbal who got
             // boarded between quicksave and quickload, match against the parent recording's
             // vessel by walking ParentRecordingId up the EVA chain.
+            //
+            // BDOCK-1 flight-16 guard (INV4-PARTEVENT-PID red): every acceptance is
+            // gated through QuickloadResumeMatchGuard. A same-session launch_vessel
+            // FLIGHT->FLIGHT reload can be misclassified as a quickload (stale
+            // vesselSwitchPending flag); the new scene's active vessel is then a FRESH
+            // ROLLOUT of (typically) the same craft file, and the name fallback happily
+            // matches it — remapping the stashed tree's recording onto a different
+            // physical launch and corrupting it with foreign-pid part events. A fresh
+            // rollout is rejected outright (recording-independent, break immediately);
+            // a conclusive RecordedVesselGuid-vs-Vessel.id mismatch skips the pid/name
+            // match for that recording while still allowing the EVA-parent walk to
+            // match a parent whose guid agrees.
             Recording matchedRec = activeRec;
             string matchedRecId = activeRecId;
             float deadline = UnityEngine.Time.time + 3f;
             Vessel matched = null;
+            bool loggedGuidReject = false;
             while (UnityEngine.Time.time < deadline)
             {
                 var v = FlightGlobals.ActiveVessel;
                 if (v != null)
                 {
+                    string liveGuid = v.id != Guid.Empty ? v.id.ToString("N") : null;
+
+                    if (QuickloadResumeMatchGuard.IsFreshRolloutCandidate(
+                            v.persistentId, RecordingStore.SceneEntryFreshRolloutVesselPid))
+                    {
+                        ParsekLog.Info("Flight",
+                            $"RestoreActiveTreeFromPending: refusing to adopt fresh-rollout vessel " +
+                            $"'{v.vesselName}' pid={v.persistentId} liveGuid={liveGuid ?? "<none>"} " +
+                            $"for recording '{activeRecId}' (recordedPid={targetPid}, " +
+                            $"recordedGuid={activeRec.RecordedVesselGuid ?? "<none>"}) — a fresh " +
+                            "launch is a different physical launch; leaving tree in Limbo");
+                        break;
+                    }
+
+                    bool activeRecGuidRejected = QuickloadResumeMatchGuard.LaunchGuidConclusivelyDiffers(
+                        activeRec.RecordedVesselGuid, liveGuid);
+                    if (activeRecGuidRejected && !loggedGuidReject)
+                    {
+                        loggedGuidReject = true;
+                        ParsekLog.Info("Flight",
+                            $"RestoreActiveTreeFromPending: active vessel '{v.vesselName}' " +
+                            $"pid={v.persistentId} liveGuid={liveGuid ?? "<none>"} conclusively " +
+                            $"differs from recording '{activeRecId}' recordedGuid=" +
+                            $"{activeRec.RecordedVesselGuid ?? "<none>"} — skipping pid/name match " +
+                            "(EVA-parent fallback still evaluated)");
+                    }
+
                     // Primary: PID match (locale-proof, available immediately)
-                    if (targetPid != 0 && v.persistentId == targetPid)
+                    if (!activeRecGuidRejected && targetPid != 0 && v.persistentId == targetPid)
                     {
                         matched = v;
                         ParsekLog.Verbose("Flight",
@@ -13311,7 +13351,7 @@ namespace Parsek
                         break;
                     }
                     // Secondary: name match (fallback for old recordings without PID)
-                    if (v.vesselName == targetName)
+                    if (!activeRecGuidRejected && v.vesselName == targetName)
                     {
                         matched = v;
                         ParsekLog.Verbose("Flight",
@@ -13325,7 +13365,9 @@ namespace Parsek
                     {
                         if (!tree.Recordings.TryGetValue(probe.ParentRecordingId, out probe))
                             break;
-                        if (probe != null && (
+                        if (probe != null &&
+                            !QuickloadResumeMatchGuard.LaunchGuidConclusivelyDiffers(
+                                probe.RecordedVesselGuid, liveGuid) && (
                             (probe.VesselPersistentId != 0 && v.persistentId == probe.VesselPersistentId) ||
                             v.vesselName == probe.VesselName))
                         {

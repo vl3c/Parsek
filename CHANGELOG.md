@@ -17,6 +17,7 @@ All notable changes to Parsek are documented here.
 
 ### Fixes
 
+- Launching a second copy of the same craft in one session no longer corrupts the first craft's recording: the reload's recording-resume now refuses to adopt a freshly rolled-out vessel (or any vessel from a different launch), so the new flight gets its own recording instead of writing its events into the previous vessel's.
 - The plain go-back rewind (Rewind to Launch / warp back) now reconciles supply routes the same way a Re-Fly rewind does: routes created after the rewind target go dormant instead of continuing to run before their own creation point, and surviving routes correctly re-deliver re-played cycles instead of silently skipping them.
 - After a rewind, surviving supply routes now restore their timeline-correct paused or active state, their completed and skipped cycle counters, and drop any armed Send Once or pause-after-cycle one-shot; a Send Once route recovering from a crash mid-delivery also pauses correctly now instead of staying active and sending a second cycle.
 - Science gathered after a rewind point is no longer paid out when that timeline is undone by a Re-Fly: experiment results captured between the rewind point and the rewind itself are now discarded with the rest of the abandoned future, instead of being silently credited at the merge for an experiment that never happened on the surviving timeline.
