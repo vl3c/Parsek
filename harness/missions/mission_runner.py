@@ -2343,11 +2343,15 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         sleep(poll_interval)
 
     # Settle-tail (real terminal only): gather K-ish settled samples for debounce.
-    # A DOWN-terminal state (mlib.B1State.skip_settle_tail, operator decision
-    # 2026-07-20 option A) skips the tail: the vessel is GONE, so the tail would
-    # only gather vessel_lost / garbage frames. LANDED / ORBIT / SPLASHDOWN keep it.
+    # A machine sets skip_settle_tail when its terminal makes the tail worthless or
+    # harmful, for two DIFFERENT reasons: B1's DOWN terminal (operator decision
+    # 2026-07-20 option A) because the vessel is GONE and the tail would only gather
+    # vessel_lost / garbage frames, and EVA-4's EVA-WINDOW terminal because the craft is
+    # ALIVE, AIRBORNE and still sinking - every settle sample would spend altitude the
+    # kerbal needs for its own canopy before the seam's time-critical EvaExit runs.
+    # LANDED / ORBIT / SPLASHDOWN keep the tail.
     if state.verdict is None and getattr(state, "skip_settle_tail", False):
-        log.info(state.phase, "settle tail skipped: terminal marks vessel gone "
+        log.info(state.phase, "settle tail skipped: terminal opts out "
                               "(skip_settle_tail set)")
     elif state.verdict is None:
         for _ in range(max(0, settle_frames)):

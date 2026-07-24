@@ -8,7 +8,9 @@ namespace Parsek.Tests
     /// Every cell here is a decision the live applier delegates: the arm refusal ladder
     /// (mirroring the stock keybind path's own guards), the synchronous arm verification,
     /// the canopy-open classification, the DOWN situation set, and the two-stage bounded
-    /// completion. No KSP types are touched.
+    /// completion (including the two-aliveness-bit split: the DEBOUNCED bit drives only
+    /// KerbalLost, the RAW per-poll read is a required CompleteOk conjunct). No KSP types
+    /// are touched.
     /// </summary>
     public class TestCommandEvaChuteDeployTests
     {
@@ -136,7 +138,8 @@ namespace Parsek.Tests
         {
             Assert.Equal(EvaChuteCompletionDecision.CompleteOk,
                 TestCommandEvaChuteDeploy.DecideChuteCompletion(
-                    elapsed: 200.0, kerbalAlive: true, canopyVerified: true,
+                    elapsed: 200.0, kerbalTreatedAlive: true, kerbalAliveThisPoll: true,
+                    canopyVerified: true,
                     awaitDown: true, down: true, sceneSettled: true, budget: 420.0));
         }
 
@@ -146,7 +149,8 @@ namespace Parsek.Tests
             // awaitDown=false: the verb's contract ends at a verified canopy.
             Assert.Equal(EvaChuteCompletionDecision.CompleteOk,
                 TestCommandEvaChuteDeploy.DecideChuteCompletion(
-                    elapsed: 5.0, kerbalAlive: true, canopyVerified: true,
+                    elapsed: 5.0, kerbalTreatedAlive: true, kerbalAliveThisPoll: true,
+                    canopyVerified: true,
                     awaitDown: false, down: false, sceneSettled: true, budget: 420.0));
         }
 
@@ -157,7 +161,8 @@ namespace Parsek.Tests
             // and even with the kerbal somehow already down.
             Assert.Equal(EvaChuteCompletionDecision.StillWaiting,
                 TestCommandEvaChuteDeploy.DecideChuteCompletion(
-                    elapsed: 3.0, kerbalAlive: true, canopyVerified: false,
+                    elapsed: 3.0, kerbalTreatedAlive: true, kerbalAliveThisPoll: true,
+                    canopyVerified: false,
                     awaitDown: true, down: true, sceneSettled: true, budget: 420.0));
         }
 
@@ -166,7 +171,8 @@ namespace Parsek.Tests
         {
             Assert.Equal(EvaChuteCompletionDecision.StillWaiting,
                 TestCommandEvaChuteDeploy.DecideChuteCompletion(
-                    elapsed: 100.0, kerbalAlive: true, canopyVerified: true,
+                    elapsed: 100.0, kerbalTreatedAlive: true, kerbalAliveThisPoll: true,
+                    canopyVerified: true,
                     awaitDown: true, down: false, sceneSettled: true, budget: 420.0));
         }
 
@@ -175,7 +181,8 @@ namespace Parsek.Tests
         {
             Assert.Equal(EvaChuteCompletionDecision.StillWaiting,
                 TestCommandEvaChuteDeploy.DecideChuteCompletion(
-                    elapsed: 100.0, kerbalAlive: true, canopyVerified: true,
+                    elapsed: 100.0, kerbalTreatedAlive: true, kerbalAliveThisPoll: true,
+                    canopyVerified: true,
                     awaitDown: true, down: true, sceneSettled: false, budget: 420.0));
         }
 
@@ -186,7 +193,8 @@ namespace Parsek.Tests
             // must be an honest ERROR, never a false OK.
             Assert.Equal(EvaChuteCompletionDecision.CanopyTimeout,
                 TestCommandEvaChuteDeploy.DecideChuteCompletion(
-                    elapsed: 420.0, kerbalAlive: true, canopyVerified: false,
+                    elapsed: 420.0, kerbalTreatedAlive: true, kerbalAliveThisPoll: true,
+                    canopyVerified: false,
                     awaitDown: true, down: false, sceneSettled: true, budget: 420.0));
             Assert.Equal(TestCommandEvaChuteDeploy.ErrorCanopyTimeout,
                 TestCommandEvaChuteDeploy.ErrorTokenFor(EvaChuteCompletionDecision.CanopyTimeout));
@@ -197,7 +205,8 @@ namespace Parsek.Tests
         {
             Assert.Equal(EvaChuteCompletionDecision.DownTimeout,
                 TestCommandEvaChuteDeploy.DecideChuteCompletion(
-                    elapsed: 500.0, kerbalAlive: true, canopyVerified: true,
+                    elapsed: 500.0, kerbalTreatedAlive: true, kerbalAliveThisPoll: true,
+                    canopyVerified: true,
                     awaitDown: true, down: false, sceneSettled: true, budget: 420.0));
             Assert.Equal(TestCommandEvaChuteDeploy.ErrorDownTimeout,
                 TestCommandEvaChuteDeploy.ErrorTokenFor(EvaChuteCompletionDecision.DownTimeout));
@@ -240,10 +249,65 @@ namespace Parsek.Tests
             // the positive completion even when every other conjunct is satisfied.
             Assert.Equal(EvaChuteCompletionDecision.KerbalLost,
                 TestCommandEvaChuteDeploy.DecideChuteCompletion(
-                    elapsed: 200.0, kerbalAlive: false, canopyVerified: true,
+                    elapsed: 200.0, kerbalTreatedAlive: false, kerbalAliveThisPoll: false,
+                    canopyVerified: true,
                     awaitDown: true, down: true, sceneSettled: true, budget: 420.0));
             Assert.Equal(TestCommandEvaChuteDeploy.ErrorKerbalLost,
                 TestCommandEvaChuteDeploy.ErrorTokenFor(EvaChuteCompletionDecision.KerbalLost));
+        }
+
+        [Fact]
+        public void Completion_NeverOk_OnThePollTheKerbalFirstReadsGone()
+        {
+            // THE loss-debounce hole: with awaitDown=false the canopy latch + a settled
+            // scene satisfy every other conjunct, so a kerbal that dies INSIDE the 3-poll
+            // debounce window (treated-alive still true, raw read already false) would
+            // have completed OK on the very poll the loss began. The RAW bit is a required
+            // CompleteOk conjunct, so that poll can only keep waiting.
+            Assert.Equal(EvaChuteCompletionDecision.StillWaiting,
+                TestCommandEvaChuteDeploy.DecideChuteCompletion(
+                    elapsed: 5.0, kerbalTreatedAlive: true, kerbalAliveThisPoll: false,
+                    canopyVerified: true,
+                    awaitDown: false, down: false, sceneSettled: true, budget: 420.0));
+            // Same with the awaitDown=true shape EVA-4 actually ships.
+            Assert.Equal(EvaChuteCompletionDecision.StillWaiting,
+                TestCommandEvaChuteDeploy.DecideChuteCompletion(
+                    elapsed: 200.0, kerbalTreatedAlive: true, kerbalAliveThisPoll: false,
+                    canopyVerified: true,
+                    awaitDown: true, down: true, sceneSettled: true, budget: 420.0));
+        }
+
+        [Fact]
+        public void Completion_LossWinsOnceTheDebounceExpires()
+        {
+            // The debounce DELAYS the verdict, it never masks it: once the run of gone
+            // reads reaches the threshold the treated-alive bit flips false and the loss
+            // short-circuits, even though every other conjunct is still satisfied.
+            Assert.False(TestCommandEvaChuteDeploy.KerbalTreatedAlive(
+                aliveThisPoll: false, consecutiveGonePolls: 3, debouncePolls: 3));
+            Assert.Equal(EvaChuteCompletionDecision.KerbalLost,
+                TestCommandEvaChuteDeploy.DecideChuteCompletion(
+                    elapsed: 200.0, kerbalTreatedAlive: false, kerbalAliveThisPoll: false,
+                    canopyVerified: true,
+                    awaitDown: true, down: true, sceneSettled: true, budget: 420.0));
+        }
+
+        [Fact]
+        public void Completion_TimesOutHonestly_WhenBudgetEndsMidLossDebounce()
+        {
+            // Budget gone while the raw read says gone but the debounce has not expired:
+            // the two honest budget terminals still apply (never a false OK), and the
+            // canopy latch picks which one names the stalled stage.
+            Assert.Equal(EvaChuteCompletionDecision.DownTimeout,
+                TestCommandEvaChuteDeploy.DecideChuteCompletion(
+                    elapsed: 420.0, kerbalTreatedAlive: true, kerbalAliveThisPoll: false,
+                    canopyVerified: true,
+                    awaitDown: true, down: true, sceneSettled: true, budget: 420.0));
+            Assert.Equal(EvaChuteCompletionDecision.CanopyTimeout,
+                TestCommandEvaChuteDeploy.DecideChuteCompletion(
+                    elapsed: 420.0, kerbalTreatedAlive: true, kerbalAliveThisPoll: false,
+                    canopyVerified: false,
+                    awaitDown: true, down: false, sceneSettled: true, budget: 420.0));
         }
 
         [Fact]
@@ -259,7 +323,8 @@ namespace Parsek.Tests
         public void CompletePayload_CarriesLatchedCanopyAndArrivalEvidence()
         {
             var payload = TestCommandEvaChuteDeploy.BuildCompletePayload(
-                "Jebediah Kerman", 12345u, canopyVerified: true,
+                "Jebediah Kerman", 12345u,
+                    canopyVerified: true,
                 chuteState: EvaChuteState.Cut, down: true, situation: "LANDED");
 
             Assert.Contains(payload, kv => kv.Key == "kerbal" && kv.Value == "Jebediah Kerman");
@@ -276,7 +341,8 @@ namespace Parsek.Tests
         public void CompletePayload_NullKerbalBecomesEmptyString()
         {
             var payload = TestCommandEvaChuteDeploy.BuildCompletePayload(
-                null, 0u, canopyVerified: false, chuteState: EvaChuteState.Unknown,
+                null, 0u,
+                    canopyVerified: false, chuteState: EvaChuteState.Unknown,
                 down: false, situation: null);
             Assert.Contains(payload, kv => kv.Key == "kerbal" && kv.Value == "");
             Assert.Contains(payload, kv => kv.Key == "situation" && kv.Value == "");

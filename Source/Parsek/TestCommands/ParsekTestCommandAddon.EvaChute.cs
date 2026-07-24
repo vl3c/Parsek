@@ -160,10 +160,15 @@ namespace Parsek.TestCommands
                 $"state={state} canopy={Bool(evaChuteCanopyVerified)} " +
                 $"alt={FormatMetres(v != null ? v.altitude : double.NaN)} " +
                 $"vspeed={FormatMetres(v != null ? v.verticalSpeed : double.NaN)} " +
-                $"situation={situation} alive={Bool(alive)} settled={Bool(settled)}");
+                $"situation={situation} alive={Bool(aliveThisPoll)} aliveDebounced={Bool(alive)} " +
+                $"settled={Bool(settled)}");
 
+            // Both aliveness bits go in: the DEBOUNCED one gates KerbalLost (a transient
+            // unreadable sample must not red a good descent), the RAW one is a required
+            // CompleteOk conjunct (a death INSIDE the debounce window must not green out).
             EvaChuteCompletionDecision decision = TestCommandEvaChuteDeploy.DecideChuteCompletion(
-                elapsed, alive, evaChuteCanopyVerified, evaChuteAwaitDown, down, settled, budget);
+                elapsed, alive, aliveThisPoll, evaChuteCanopyVerified, evaChuteAwaitDown,
+                down, settled, budget);
             if (decision == EvaChuteCompletionDecision.StillWaiting)
                 return;
 
@@ -193,7 +198,8 @@ namespace Parsek.TestCommands
                 TestCommandDiagnostics.Timeout(id, verb, elapsed, msg);
             ParsekLog.Error(Tag,
                 $"evachutedeploy {msg} kerbal={kerbal ?? string.Empty} canopy={Bool(canopy)} chuteState={state} " +
-                $"situation={situation} alive={Bool(alive)} elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
+                $"situation={situation} alive={Bool(aliveThisPoll)} aliveDebounced={Bool(alive)} " +
+                $"elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
             EmitExecutedTerminal(id, seq, verb, "ERROR", null, msg, dequeueHead: true);
         }
 

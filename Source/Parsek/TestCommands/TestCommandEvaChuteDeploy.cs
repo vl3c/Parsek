@@ -192,6 +192,14 @@ namespace Parsek.TestCommands
         /// the reasons a player's key press would be ignored, most-specific-cause first:
         /// not an EVA kerbal, no module, module switched off (no chute in inventory), not
         /// STOWED, jetpack deployed.
+        ///
+        /// The one keybind guard with NO analogue here is <c>VesselUnderControl</c>: that
+        /// is the KEYBIND's own gate (it decides whether a key press reaches the kerbal at
+        /// all - an uncontrollable vessel must not respond to input), and this verb does
+        /// not go through input. It drives the MODULE directly, the same way the PAW
+        /// <c>[KSPEvent] Deploy()</c> does, and the PAW path has no such check either.
+        /// Mirroring it would invent a refusal neither stock path applies to a direct
+        /// module call, and would red an EVA kerbal that is perfectly able to chute.
         /// </summary>
         internal static string DecideArmRefusal(
             bool activeVesselIsEva, bool hasChuteModule, bool chuteModuleEnabled,
@@ -224,19 +232,32 @@ namespace Parsek.TestCommands
         /// module auto-CUTS below 0.5 m/s (ModuleParachute.UpdateCut), so a kerbal standing
         /// on the ground reads CUT and a re-read would fail a landing that actually worked.
         ///
-        /// <paramref name="kerbalAlive"/> is the survivability conjunct: the EVA vessel
-        /// still exists, still carries the kerbal, and the roster entry is not Dead. False
-        /// yields <see cref="EvaChuteCompletionDecision.KerbalLost"/> immediately - "landed"
-        /// with a dead kerbal is a FAILURE, never the DOWN success this verb reports.
+        /// The survivability conjunct is split across TWO aliveness bits, deliberately:
+        /// <list type="bullet">
+        /// <item><paramref name="kerbalTreatedAlive"/> is the DEBOUNCED bit
+        /// (<see cref="KerbalTreatedAlive"/>): false only after
+        /// <see cref="KerbalLossDebouncePolls"/> consecutive gone-reads, so a transient
+        /// unreadable sample cannot red a good descent. It drives ONLY
+        /// <see cref="EvaChuteCompletionDecision.KerbalLost"/>.</item>
+        /// <item><paramref name="kerbalAliveThisPoll"/> is the RAW live read, and it is a
+        /// required conjunct of CompleteOk. Without it "KerbalLost beats everything" would
+        /// only hold AFTER the debounce expires: a kerbal dying INSIDE the debounce window
+        /// (canopy already latched, scene settled, and with awaitDown=false no landing to
+        /// wait for) would satisfy every other conjunct on the very poll the loss began and
+        /// complete OK. Requiring the raw bit makes the poll that first reads the kerbal
+        /// gone unable to certify success, whatever the debounce says.</item>
+        /// </list>
+        /// A dead kerbal is a FAILURE, never the DOWN success this verb reports; a poll
+        /// that is unsure yields StillWaiting (or, past budget, an honest timeout), never OK.
         /// </summary>
         internal static EvaChuteCompletionDecision DecideChuteCompletion(
-            double elapsed, bool kerbalAlive, bool canopyVerified, bool awaitDown,
-            bool down, bool sceneSettled, double budget)
+            double elapsed, bool kerbalTreatedAlive, bool kerbalAliveThisPoll,
+            bool canopyVerified, bool awaitDown, bool down, bool sceneSettled, double budget)
         {
-            if (!kerbalAlive)
+            if (!kerbalTreatedAlive)
                 return EvaChuteCompletionDecision.KerbalLost;
             bool downSatisfied = !awaitDown || down;
-            if (canopyVerified && downSatisfied && sceneSettled)
+            if (kerbalAliveThisPoll && canopyVerified && downSatisfied && sceneSettled)
                 return EvaChuteCompletionDecision.CompleteOk;
             if (elapsed >= budget)
                 return canopyVerified

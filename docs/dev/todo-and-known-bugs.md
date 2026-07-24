@@ -261,7 +261,7 @@ Tests: TestCommand xUnit +~69 cells (verb-table 18/11, C2 dispatch matrix incl. 
 
 **PENDING-OPERATOR (design live-prove list, one KSP session):** P1 load-and-focus sanity of `gloops-airshow`; P2 commit `eva2-lko-crewed` + `eva3-pad-3crew` then re-tier EVA-2/EVA-3 pending-fixture -> daily/nightly; P3 first EVA-1/2/3 runs pin the recordings-count windows (currently provisional per R-C) and the exact structural-snapshot message (the `[Pipeline-Smoothing]` token is regex-escaped in-spec pending confirmation); P4 pin the orbital auto-record log wording (EVA-2's required token keeps the stable `Auto-record started` prefix); P5 confirm ladder release lands with ground contact + zero kerbal damage; P6 confirm the SiteRename dismiss-callback fires `afterFlagPlanted` and Parsek's capture line appears. Also promotes EVA-1 nightly -> daily once the windows are pinned.
 
-## EVA-4 - atmospheric mid-flight EVA + kerbal personal chute: `EvaChuteDeploy` + mission `eva4_atmo_chute` [BUILT, branch `autotest-eva4-chute`, NEVER FLOWN]
+## EVA-4 - atmospheric mid-flight EVA + kerbal personal chute: `EvaChuteDeploy` + mission `eva4_atmo_chute` [LIVE-PROVEN 2026-07-24, branch `autotest-eva4-chute`]
 
 Adds the one EVA surface the M-C2 trio does not reach. EVA-1/EVA-3 exit on the pad and
 EVA-2 exits in orbit; EVA-4 exits MID-FLIGHT IN ATMOSPHERE, so it is the only case where
@@ -379,13 +379,17 @@ case of an unproven one.
 - `settle_frames=0` + `skip_settle_tail`: the terminal hands a STILL-DESCENDING craft to a
   time-critical seam step, so every settle sample would spend altitude the kerbal needs.
 
-**Why the EVA is specified LOW (window 800-2400 m) rather than at apoapsis.** An apoapsis
-exit (B1's window is 6-30 km) would give the kerbal 6-30 km of descent; at ~5-6 m/s under
-full canopy that is 20+ minutes, far outside any per-step budget the harness allows (the
-540 s deferred-step cap). A low exit is also the SAFEST available envelope: the craft is
-already decelerating under its own canopy, so dynamic pressure at the hatch is trivial
-(60 m/s in sea-level air is ~2 kPa) and well inside the kerbalEVA part's 50 m/s crash
-tolerance and 800 K maxTemp.
+**Why the EVA is specified LOW (window `[700, 2100]` m, `|vs| <= 25` m/s) rather than at
+apoapsis.** An apoapsis exit (B1's window is 6-30 km) would give the kerbal 6-30 km of
+descent; at ~5-6 m/s under full canopy that is 20+ minutes, far outside any per-step
+budget the harness allows (the 540 s deferred-step cap). A low exit is also the SAFEST
+available envelope: the craft is already decelerating under its own canopy, so dynamic
+pressure at the hatch is trivial (25 m/s in sea-level air is well under a kPa) and far
+inside the kerbalEVA part's 50 m/s crash tolerance and 800 K maxTemp. Flight 2 confirmed
+both halves: the handoff landed at 1,606 m / -23.2 m/s and the kerbal's own descent
+(~1.6 km at a steady -4.5 m/s) took ~215 s of its 420 s step budget.
+(The band shipped as 800-2400 m / 60 m/s BEFORE flight 1; the re-tune moved it, see the
+FLIGHT-1 block below.)
 
 **No new fixture, no fixture edit.** `b1-pad-craft` is reused as-is; its roster Jebediah
 already carries the stock default `evaChute,evaJetpack` inventory.
@@ -393,19 +397,28 @@ already carries the stock default `evaChute,evaJetpack` inventory.
 **The parent craft is a deliberate second surface.** After the EVA the pod descends under
 its own canopy as a background vessel and touches down BEFORE the kerbal. Per the B1
 fixture note the Jumping Flea ALWAYS breaks apart at touchdown (~9 m/s vs the booster's 7
-m/s tolerance); that is EXPECTED here and absorbed by the recordings-count window (2-10).
-Nothing in the spec asserts the pod survives - B4 owns the craft-survives-intact contract;
-EVA-4's survival contract is the KERBAL's.
+m/s tolerance); that is EXPECTED here. Nothing in the spec asserts the pod survives - B4
+owns the craft-survives-intact contract; EVA-4's survival contract is the KERBAL's. The
+recordings count shipped as a provisional 2-10 window sized to absorb the breakup
+children; flight 2 MEASURED 3 (pod root + kerbal EVA split + the pod's post-EVA
+continuation - the breakup produced no extra recording on this profile) and the spec is
+now PINNED at exactly 3. It is a re-pin contract, not a widen-on-drift one: the count is
+the only numeric guard that the EVA split and the kerbal's own recording exist, and a
+window wide enough for breakup variance is also wide enough for a dropped EVA branch.
 
-Tests: 31 new xUnit cells (`TestCommandEvaChuteDeployTests`: the arm-refusal ladder, the
-synchronous arm verification, canopy-open classification, the DOWN situation set, all five
-completion outcomes incl. `KerbalLost` short-circuiting a satisfied completion, the
-kerbal-loss debounce - which delays a loss verdict past a transient unreadable sample but
-can never mask a real one - and payload latching) + the verb-table / precondition-table /
-executor-interface / deferral-budget
-coverage tests extended to 19 implemented verbs; 24 new mlib cells
-(`Eva4WindowGateTests` / `Eva4MachineTests` / `Eva4ParamTests` / `Eva4AssertionTests`)
-including every fail-closed leg of the window gate; hlib gains an EvaChuteDeploy
+Tests (counts are the CURRENT totals at branch HEAD, i.e. including the post-live
+hardenings at the end of this section): `TestCommandEvaChuteDeployTests` holds 27 `[Fact]`
++ a 9-case `[Theory]` - the arm-refusal ladder, the synchronous arm verification,
+canopy-open classification, the DOWN situation set, all five completion outcomes incl.
+`KerbalLost` short-circuiting a satisfied completion, the two-aliveness-bit split (the
+debounced bit drives only `KerbalLost`, the raw per-poll read is a required `CompleteOk`
+conjunct), the kerbal-loss debounce - which delays a loss verdict past a transient
+unreadable sample but can never mask a real one - and payload latching; plus the
+verb-table / precondition-table / executor-interface / deferral-budget coverage tests
+extended to 19 implemented verbs. The EVA-4 mlib block
+(`Eva4WindowGateTests` / `Eva4ParachuteStateNormalizationTests` / `Eva4MachineTests` /
+`Eva4ParamTests` / `Eva4AssertionTests`) holds 38 cells, including every fail-closed leg
+of the window gate and the K-consecutive debounce guards; hlib gains an EvaChuteDeploy
 deferred-and-capped cell. All headless suites green (xUnit, `harness/lib`,
 `harness/provision`, `harness/missions/lib`), and `run.py --id EVA-4-atmo-chute --dry-run`
 validates.
@@ -472,13 +485,17 @@ animation and still ~700 m of sky for the kerbal, whose own chute fully deploys 
 altitude; 25 m/s passes the B1-measured ~9 m/s full-canopy touchdown rate with ~2.8x
 margin while a merely semi-deployed craft can never satisfy it). BUDGETS re-checked
 against the measured fall times: ASCENT 90 and COAST 180 keep B1's values (measured 9.7 s
-and 40.8 s); `descentTimeoutSeconds` 240 -> 480, the mission step 600 -> 900 and the
-runtime 1560 -> 1920, because the craft now flies nearly the whole descent UNDER CANOPY
-and its semi-deployed rate is the one number still unmeasured - the budget is sized to
-OUT-WAIT a slow one rather than to predict it. A new `craftCanopyObserved` assertion row
+and 40.8 s); `descentTimeoutSeconds` was raised 240 -> 480, the mission step 600 -> 900
+and the runtime 1560 -> 1920, because the craft now flies nearly the whole descent UNDER
+CANOPY and its semi-deployed rate was the one number flight 1 could not supply - the
+budget was sized to OUT-WAIT a slow one rather than to predict it. (Flight 2 measured that
+rate and `descentTimeoutSeconds` went back to 240; see the FLIGHT-2 block below. The
+mission-step and runtime budgets stay at 900 / 1920 deliberately - they are wall-clock
+envelopes that also absorb KSP boot, scene load and seam latency.) A new
+`craftCanopyObserved` assertion row
 reports the observed bit alongside the commanded altitude/rate, so the result JSON carries
-both halves of the distinction. Tests: the EVA-4 mlib block grew to 27 cells including the
-flight-1 regression guards (`test_shut_when_chute_only_armed`,
+both halves of the distinction. Tests: the re-tune added the flight-1 regression guards
+to the EVA-4 mlib block (`test_shut_when_chute_only_armed`,
 `test_window_missed_below_floor_names_the_observed_chute_state`,
 `test_coast_to_descent_arms_on_the_transition_frame`,
 `test_arm_waits_until_inside_the_rate_bound`) and a kRPC-enum normalization cell.
@@ -494,19 +511,113 @@ observed canopy. So B1's documented Parsek surface ("chute-deployed ground-arriv
 recording") does not match what it flies. Left alone here because B1 is live-proven and
 other work depends on its shape; tracked as its own task.
 
-**PENDING-OPERATOR (re-fly after the flight-1 re-tune):** P1 pin the recordings-count
-window (still the provisional 2-10 per R-C, sized to absorb the parent's touchdown
-breakup children) - flight 1 never reached the EVA, so nothing past the mission handoff
-is pinned yet. P2 confirm the `'kerbalEVA` part-name prefix in the two Part-event tokens
-(KSP picks the EVA part by suit/gender - kerbalEVA / kerbalEVAfemale / kerbalEVAVintage /
-kerbalEVASlimSuit - so the token deliberately matches the shared prefix rather than a
-guessed full name). P3 MEASURE the craft's SEMI-DEPLOYED descent rate, the one number the
-re-tune could not derive from flight 1; it drives how much of the 480 s descent budget is
-actually used and where inside [700, 2100] m the window opens, so trim
-`descentTimeoutSeconds` from that evidence. P4 confirm the kerbal's canopy opens and it
-lands ALIVE (the verb reds honestly if not). RESOLVED by flight 1, no longer pending: the
-hop profile (peak 11,965 m, apoapsis 19,879 m, unchuted terminal -301 m/s) and the ascent
-/ coast phase durations (9.7 s / 40.8 s).
+**FLIGHT-1 TAIL BEHAVIOUR - what actually happened after the ASSERT-FAIL, and why it
+matters.** An earlier version of this section said "flight 1 never reached the EVA". That
+is FALSE, and it mattered: it is what let the failed attempt's collected artifacts be read
+as clean. `run.py` deliberately "drives the REMAINING seam steps regardless of the mission
+outcome" (`run.py:1009-1019`), so once the mission ASSERT-FAILed on `eva-window-missed`
+the whole seam tail still ran against a pod falling at terminal velocity. Flight 1's own
+collected log (`logs/2026-07-24_2210_EVA-4-atmo-chute/KSP.log`, git-state commit
+`28a04db4f` = the pre-re-tune build) records it step by step: `evaexit complete
+kerbal=Jebediah Kerman released=true`, then `evachutedeploy start alt=356.4 vspeed=-277.3
+situation=FLYING`, `evachutedeploy armed`, `canopy verified state=SemiDeployed alt=221.4
+vspeed=-258.2`, and 19 s later `evachutedeploy complete canopy=true chuteState=Cut
+down=true situation=LANDED alive=true`. Then `stoprecording stopped=true`, `committree
+committed=true`, `flushandquit`. Three consequences:
+
+- **A window-missed run performs the very terminal-velocity hatch EVA the design says
+  cannot happen.** The whole point of the mission's bounded envelope is that the seam's
+  irreversible `EvaExit` fires into a verified-safe state; on a window-missed run it fires
+  into whatever state the pod is in when the mission gives up. Jebediah happened to
+  survive (the stock kerbalEVA chute semi-deployed at 221 m and its 50 m/s crash tolerance
+  did the rest), but that was luck, not contract.
+- **Worst case the tail burns ~120 + 420 s of named deferral budget per failed attempt.**
+  If the kerbal dies, `EvaExit` runs out its 120 s budget to `eva-exit-timeout` and
+  `EvaChuteDeploy` then defers its full 420 s on `not-eva` - so a fast, self-explaining
+  107 s mission failure can still cost ~9 more minutes of wall clock before the run ends.
+- **The failed attempt's collected save and log carry a spurious EVA branch + landing.**
+  That is what contaminated the record here: a run whose mission never reached the handoff
+  still produced an EVA tree branch, a kerbal recording, a chuted landing and a committed
+  tree, all of which read like success in the artifacts.
+
+There is NO false PASS. The mission's ASSERT-FAIL classifies the whole scenario INVALID
+(`hlib.classify_mission_step`) BEFORE the tail runs - flight 1's own result JSON is
+`verdict=INVALID subkind=mission` - and the save is re-staged per attempt (`stage_fixture`
+does an `rmtree` + `copytree` of the template, `run.py:1995`), so no junk state survives
+into the next run. The problem is cost and artifact honesty, not verdict correctness.
+FIXING IT IS NOT EVA-4's JOB: "drive the remaining steps regardless" is a cross-cutting
+harness contract shared by every autopilot scenario, so the fix (skip / short-circuit the
+post-mission seam tail when the mission verdict is a hard ASSERT-FAIL) is filed
+separately. Until then, treat the artifacts of any window-missed EVA-4 attempt as
+containing a real but unintended EVA.
+
+**FLIGHT 2 (2026-07-24): FULL PASS on attempt 1.** All seven verifiers PASS/SKIPPED
+(`batchComplete` SKIPPED as designed, everything else PASS), and the re-tune
+worked end to end. The machine walked PRELAUNCH -> ASCENT -> COAST -> DESCENT ->
+EVA-WINDOW with all four telemetry assertions met (`apoapsisWindow` 19,747 m,
+`evaWindowReached` 1,606 m, `evaWindowDescentRate` -23.2 m/s, `craftCanopyObserved` armed
+at 11,965 m and OBSERVED Deployed), then the seam chain ran: `EvaExit`, `EvaChuteDeploy`
+armed with the canopy VERIFIED, a steady -4.5 m/s chuted descent, `ParachuteCut` at
+touchdown, `down=true situation=LANDED alive=true`, `StopRecording`, `CommitTree`.
+Analyzer red=0, logValidate PASS, anomalySweep PASS, expectations PASS. Parsek recorded
+the mid-flight EVA branch and Atmospheric TrackSections on the kerbal's own recording -
+the four surfaces this scenario exists for. Operator list resolved:
+- **P1 recordings count: PINNED 3** (was the provisional 2-10). Measured 3 `.prec` in
+  `saves/b1-pad-craft/Parsek/Recordings`: pod root + kerbal EVA split + the pod's post-EVA
+  continuation. Exact rather than a window, because `logContracts` are presence-only
+  (`hlib.evaluate_expectations` uses `re.search`) so the count is the only numeric guard
+  that the EVA split and the kerbal recording exist. Re-pin (never widen) on a legitimate
+  future difference; B1's breakup-child count is documented as varying.
+- **P2 `'kerbalEVA` part-name prefix: CONFIRMED** in both Part-event tokens.
+- **P3 semi-deployed descent rate: MEASURED, and `descentTimeoutSeconds` TRIMMED
+  480 -> 240.** The semi-deployed craft does not crawl: it sinks at up to **-236 m/s**
+  (peak magnitude at ~5.7 km), the rate decaying with air density to -223 m/s at the
+  2500 m full-deploy trigger, after which the full canopy brakes it to -23 m/s in ~5.6 s.
+  The whole DESCENT phase (ut 60.9 -> 122.5) took **61.6 s**, so 240 s is ~3.9x the
+  measured phase and restores the pre-re-tune value. The budget is a BACKSTOP anyway -
+  every realistic canopy failure is caught first, and by name, by `eva-window-missed` at
+  the 700 m floor (flight 1 proved that: 107 s wall, no budget burn) - so the shorter
+  bound only makes the pathological "airborne but never satisfying the window" stall
+  report sooner. The mission-step (900) and runtime (1920) budgets are deliberately NOT
+  trimmed with it: they are wall-clock envelopes that also cover KSP boot, scene load and
+  seam latency, and the measured flight-2 numbers (mission wall 112.5 s, scenario wall
+  402 s) already sit far inside them.
+- **P4 kerbal canopy + survival: CONFIRMED** (`canopy=true`, `down=true situation=LANDED
+  alive=true`).
+Also resolved by flight 1 and unchanged: the hop profile (peak 11,965 m, unchuted terminal
+-301 m/s) and the ascent / coast durations (9.7 s / 40.8 s).
+
+**POST-LIVE HARDENINGS (review follow-up, same branch).** Two in-family fixes that the
+live run could not have surfaced because neither failure mode fired:
+- **The EVA-window gate is now K=2 debounced** (`mlib.EVA4_WINDOW_DEBOUNCE_K`, the house
+  `DEFAULT_DEBOUNCE_K` idiom). It previously opened on ONE poll, and two of its five
+  conjuncts are single-sample kRPC reads: stock flips `ParachuteState` to `DEPLOYED` at
+  the START of the full-deploy ANIMATION (decompiled `ModuleParachute.cs:1372-1380`), so
+  through the ~8 s the Mk16 canopy takes to bite, only the `|vertical speed|` conjunct -
+  read from the SAME frame - separates "observed full canopy" from "still fast". A single
+  glitched frame would therefore have certified a terminal-velocity EVA green, and the
+  `evaWindowDescentRate` assertion cannot catch it because it re-reports that same frame.
+  Two independent frames must now agree; the streak resets to 0 on any disagreeing frame,
+  the `eva-window-missed` floor check is unchanged (a craft sinking mid-streak still reds
+  by name), and the cost is ~10-20 m of the 1400 m band at the measured handoff rate. The
+  run is also surfaced as `evaWindowStreak` in the machine-state gate diff.
+- **`EvaChuteDeploy` completion now requires the RAW per-poll aliveness read for
+  `CompleteOk`**, keeping the 3-poll debounced bit for `KerbalLost` only. With `awaitDown
+  =false` the canopy latch plus a settled scene satisfy every other conjunct, so a kerbal
+  dying INSIDE the debounce window would have completed OK on the very poll the loss
+  began - "KerbalLost beats everything" only held AFTER the debounce expired. Not
+  reachable in the shipped spec (EVA-4 pins `awaitDown=true`), fixed properly anyway.
+Tests: +4 mlib cells (the K-consecutive requirement, the streak reset, the mid-streak
+window-missed guard, and the happy path re-shaped to need two agreeing frames) and +3
+xUnit cells (no-OK on the first gone-read for both `awaitDown` shapes, loss wins once the
+debounce expires, honest timeouts mid-debounce).
+
+**SUITE-WIDE LOG-FORMAT NOTE (from the flight-1 re-tune, recorded here because it is easy
+to miss):** the mission telemetry stdout line gained a `chute=` field for EVERY mission
+(`mission_runner.py`), not just EVA-4. The `TelemetrySnapshot` itself is unchanged for
+every other mission (`read_chute` defaults off, and the unread sentinel is `""` which
+renders as `-`), so no other mission's DECISIONS moved - but any tooling that parses that
+line positionally sees a new column.
 
 ## Scenario coverage expansion - Tier 0/1 seam cells over the gloops fixture [BUILT, branch `autotest-tier01-scenarios`]
 

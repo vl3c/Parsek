@@ -3,13 +3,18 @@ id = "EVA-4-atmo-chute"
 # NIGHTLY (flown mission: too long for daily, same class as B1 / EVA-1 / EVA-3). The
 # fixture is the ALREADY-COMMITTED b1-pad-craft, so this is NOT pending-fixture.
 #
-# IMPLEMENTED PENDING IN-GAME PROOF. The seam verb, the mission machine, and every
-# decision are unit-covered, but three things can only be pinned by the FIRST LIVE RUN
-# and are called out inline below: (P1) the recordings-count window, (P2) the exact
-# kerbal EVA part-name token in the Part-event lines, (P3) whether the EVA window opens
-# where the physics is expected to put it. Nothing here is guessed silently: every
-# required log token below is quoted from the emitting ParsekLog call site, with the
-# file:line in the comment.
+# LIVE-PROVEN 2026-07-24 (flight 2, full PASS on attempt 1; all seven verifiers
+# PASS/SKIPPED - batchComplete SKIPPED as designed, everything else PASS).
+# The four values the first live runs had to pin are now pinned from measurement, not
+# guessed: (P1) the recordings count = exactly 3; (P2) the `'kerbalEVA` part-name token
+# confirmed in both Part-event lines; (P3) the craft's semi-deployed descent rate MEASURED
+# at about -236 m/s peak, which sized descentTimeoutSeconds down to 240; (P4) the kerbal's
+# canopy opened and it landed ALIVE. Every required log token below is quoted from the
+# emitting ParsekLog call site, with the file:line in the comment.
+#
+# FLIGHT-1 (2026-07-24) ASSERT-FAILed as designed and re-tuned the mission params; the
+# full forensics live in the RE-TUNED block over [driver.missionParams] below and in
+# todo-and-known-bugs.md.
 #
 # =====================================================================================
 # WHAT THIS SCENARIO IS FOR (the Parsek surface nothing else in the suite covers)
@@ -195,13 +200,22 @@ evaMaxDescentRateMps  = 25
 # keep B1's live-proven values with a large margin.
 ascentTimeoutSeconds  = 90
 coastTimeoutSeconds   = 180
-# DESCENT: 240 was sized for the UNCHUTED fall (measured 56 s, apoapsis -> 855 m). After
-# the fix the craft flies nearly the whole descent UNDER CANOPY, and the semi-deployed
-# rate for this craft is NOT measured yet, so this budget out-waits a slow one rather
-# than predicting it: 480 s covers ~9.4 km of semi-deployed descent even at a pessimistic
-# ~30 m/s, plus the full-canopy leg from 2500 m to the band at ~9 m/s. If the first
-# re-fly measures the real semi rate this can be trimmed from evidence.
-descentTimeoutSeconds = 480
+# DESCENT: 240, TRIMMED FROM FLIGHT-2 EVIDENCE (P3 closed). The re-tune had provisionally
+# raised this to 480 because the craft's SEMI-DEPLOYED descent rate was the one number
+# flight 1 could not supply, so the budget was sized to out-wait a pessimistic ~30 m/s
+# crawl. Flight 2 MEASURED it: the semi-deployed craft does not crawl at all, it sinks at
+# up to -236 m/s (peak magnitude at ~5.7 km; the rate then decays with air density to
+# -223 m/s at the 2500 m full-deploy trigger, and the full canopy brakes it to -23 m/s in
+# ~5.6 s). The whole DESCENT phase - apoapsis crossing (ut 60.9) to the EVA window
+# (ut 122.5) - took 61.6 s. 240 s is therefore ~3.9x the measured phase, and it is the
+# pre-retune value the B1 hop was sized against.
+# Why this budget is a BACKSTOP and not the real guard: every realistic failure of this
+# phase is caught FIRST by the named eva-window-missed ASSERT-FAIL, because a craft whose
+# canopy misbehaves sinks past the 700 m floor in seconds (flight 1 did exactly that in
+# 107 s wall total). The budget only fires in the pathological "airborne, not descending,
+# window never satisfied" case - where a shorter bound reports the stall SOONER, which is
+# the point of a bounded wait.
+descentTimeoutSeconds = 240
 
 [dimensionsCovered]
 D1  = ["auto-record-launch"]
@@ -211,20 +225,23 @@ D7  = ["chute-two-phase"]     # asserted: both kerbalEVA Part-event lines below
 D14 = ["kerbin", "sandbox", "scene-flight"]
 
 [expectations.recordings]
-# P1 - FIRST-FLIGHT-TO-CONFIRM window (R-C: window over guess). Certain: the pod's own
-# tree recording + Jebediah's EVA branch recording (min 2). The max absorbs the parent
-# craft's touchdown BREAKUP children (B1 saw up to 4 breakup-child pids and states the
-# per-run child count varies) plus any background/chain-segment recording the EVA split
-# produces. The window is deliberately wide rather than tight: redding on breakup-timing
-# variance would be a false negative, and the analyzer over the produced recordings is
-# the real Parsek correctness gate.
-count = { min = 3, max = 3 }  # PINNED from the flight-2 PASS (measured 3 .prec in
-# saves/b1-pad-craft/Parsek/Recordings): pod root 1 + kerbal EVA split 1 + the pod's
-# post-EVA continuation 1. The parent breaks up on its own touchdown AFTER the EVA, but
-# that produced no extra recording on this profile. Exact, not a window: the step list is
-# fixed and logContracts are presence-only (hlib.evaluate_expectations uses re.search), so
-# this count is the sole numeric guard that the EVA split and the kerbal recording exist.
-# Re-pin (do not widen blindly) if a later run legitimately differs.
+# P1 - PINNED FROM THE FLIGHT-2 PASS (2026-07-24), replacing the pre-flight provisional
+# {min 2, max 10} window. MEASURED: exactly 3 .prec in saves/b1-pad-craft/Parsek/
+# Recordings - pod root 1 + kerbal EVA split 1 + the pod's post-EVA continuation 1. The
+# parent DOES break up on its own touchdown after the EVA (the B1 fixture note: the
+# Jumping Flea always does, ~9 m/s vs the booster's 7 m/s tolerance), but on this profile
+# that produced no extra recording.
+count = { min = 3, max = 3 }
+# EXACT, not a window, deliberately: the step list is fixed and logContracts are
+# presence-only (hlib.evaluate_expectations uses re.search), so this count is the SOLE
+# numeric guard that the EVA split and the kerbal's own recording exist at all - a window
+# wide enough to absorb breakup variance is also wide enough to absorb a missing EVA
+# branch.
+# RE-PIN CONTRACT (the B1 breakup-child variance is documented and real: B1 saw up to 4
+# breakup-child pids and states the per-run child count varies). If a later run
+# legitimately differs, RE-PIN to the new measured value and record WHICH recordings the
+# run produced - do NOT widen the window blindly, because widening it is exactly what
+# would let a dropped EVA branch pass.
 
 [expectations.logContracts]
 # Every token below is quoted from the emitting ParsekLog call, with the source site.
@@ -283,15 +300,20 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 allowedAnomalies = []
 
 [runtime]
-# Budget arithmetic (S0.6 / B1 pattern), WALL clock. RAISED after flight 1: the craft
-# now descends UNDER CANOPY from apoapsis, which is slower than the measured 56 s
-# unchuted fall, so the mission budget had to grow with descentTimeoutSeconds.
+# Budget arithmetic (S0.6 / B1 pattern), WALL clock.
 #   300 LoadGame + 900 mission + 120 EvaExit + 420 EvaChuteDeploy = 1740,
 #   plus the fast verbs (SetSetting x3 / StopRecording / CommitTree / FlushAndQuit,
 #   seconds each) + 180 margin = 1920.
-# The 900 mission budget covers 30 connect + 90 ascent + 180 coast + 480 descent +
-# margin. EvaChuteDeploy is the only NEW deferred step; at 420 it is under the harness's
-# 540 s per-step cap for a deferred verb.
+# The 900 mission budget covers 30 connect + 90 ascent + 180 coast + 240 descent = 540
+# of phase budget, plus margin. These OUTER budgets are deliberately NOT re-trimmed with
+# descentTimeoutSeconds: they are wall-clock envelopes that also absorb KSP boot, scene
+# load, and seam-step latency, and the measured flight-2 numbers already sit far inside
+# them (mission wall 112.5 s against 900; whole-scenario wall 402 s against 1920). A
+# tighter outer bound would buy nothing but flake risk; the INNER phase budget is where a
+# stall is supposed to be named. EvaChuteDeploy is the only deferred step; at 420 it is
+# under the harness's 540 s per-step cap for a deferred verb, and flight 2 measured it at
+# ~215 s (the kerbal's whole chuted descent from ~1.6 km at a steady -4.5 m/s), so 420
+# keeps roughly 2x on the one step whose length the exit altitude actually drives.
 budgetSeconds = 1920
 
 [retry]

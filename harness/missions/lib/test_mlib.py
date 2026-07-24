@@ -209,7 +209,7 @@ EVA4_PARAMS = mlib.Eva4Params(
     eva_max_descent_rate=25.0,
     ascent_timeout=90.0,
     coast_timeout=180.0,
-    descent_timeout=480.0,
+    descent_timeout=240.0,
     apoapsis_window=(6000.0, 30000.0),
 )
 
@@ -371,7 +371,8 @@ class Eva4MachineTests(unittest.TestCase):
         # The whole PRELAUNCH -> EVA-WINDOW walk, shaped by the flight-1 measurements:
         # the craft is armed at the APOAPSIS CROSSING (~11.9 km, -7.4 m/s - the measured
         # first DESCENT frame), the canopy is observed open on the way down, and the
-        # window opens once the craft is inside the band under a FULL canopy.
+        # window opens once the craft has been inside the band under a FULL canopy for
+        # EVA4_WINDOW_DEBOUNCE_K consecutive frames (one open frame is NOT enough).
         state = mlib.eva4_initial_state(EVA4_PARAMS)
         frames = [
             snap(ut=0.0),                                            # PRELAUNCH->ASCENT
@@ -391,8 +392,10 @@ class Eva4MachineTests(unittest.TestCase):
             snap(ut=200.0, vertical_speed=-40.0, altitude=2400.0,
                  situation="FLYING",
                  craft_chute_state=mlib.CHUTE_STATE_SEMI_DEPLOYED),  # above ceiling
+            snap(ut=229.5, vertical_speed=-9.5, altitude=1910.0,
+                 situation="FLYING", craft_chute_state=_CHUTE_FULL),  # streak 1 of K
             snap(ut=230.0, vertical_speed=-9.0, altitude=1900.0,
-                 situation="FLYING", craft_chute_state=_CHUTE_FULL),  # WINDOW OPENS
+                 situation="FLYING", craft_chute_state=_CHUTE_FULL),  # streak K: OPENS
         ]
         state, per_frame = drive_eva4(state, frames)
         self.assertTrue(state.done)
@@ -497,13 +500,66 @@ class Eva4MachineTests(unittest.TestCase):
 
     def test_window_wins_over_floor_on_the_same_frame(self):
         # A frame that is inside the window is never also "below the floor": the
-        # window check runs FIRST so an exactly-at-floor frame succeeds.
+        # window check runs FIRST so an exactly-at-floor frame succeeds. With the
+        # debounce that takes K such frames; the first one must NOT trip the floor
+        # either (700 is inside, not below), so the run survives to the second.
         state = _eva4_descent_state()
-        state, _ = mlib.eva4_decide(
-            state, snap(ut=10.0, altitude=700.0, vertical_speed=-8.0,
-                        situation="FLYING", craft_chute_state=_CHUTE_FULL))
+        for _ in range(mlib.EVA4_WINDOW_DEBOUNCE_K):
+            state, _ = mlib.eva4_decide(
+                state, snap(ut=10.0, altitude=700.0, vertical_speed=-8.0,
+                            situation="FLYING", craft_chute_state=_CHUTE_FULL))
         self.assertEqual(state.phase, mlib.EVA4_EVA_WINDOW)
         self.assertIsNone(state.verdict)
+
+    def test_window_needs_k_consecutive_open_frames(self):
+        # A SINGLE open frame must never hand a kerbal out of a hatch: stock flips
+        # ParachuteState to DEPLOYED at the START of the ~8 s canopy animation, so one
+        # glitched / stale kRPC frame could otherwise certify a terminal-velocity EVA.
+        state = _eva4_descent_state()
+        good = dict(altitude=1800.0, vertical_speed=-9.0, situation="FLYING",
+                    craft_chute_state=_CHUTE_FULL)
+        state, _ = mlib.eva4_decide(state, snap(ut=10.0, **good))
+        self.assertEqual(state.phase, mlib.EVA4_DESCENT)
+        self.assertEqual(state.window_open_streak, 1)
+        state, _ = mlib.eva4_decide(state, snap(ut=11.0, **good))
+        self.assertEqual(state.phase, mlib.EVA4_EVA_WINDOW)
+        self.assertEqual(state.eva_window_altitude, 1800.0)
+
+    def test_window_streak_resets_on_a_disagreeing_frame(self):
+        # Fail-closed: the run of agreement must be UNBROKEN. One frame that reads the
+        # chute merely Armed (or is otherwise outside the envelope) sends the streak back
+        # to 0, so the handoff needs K fresh agreeing frames again.
+        state = _eva4_descent_state()
+        good = dict(altitude=1800.0, vertical_speed=-9.0, situation="FLYING",
+                    craft_chute_state=_CHUTE_FULL)
+        state, _ = mlib.eva4_decide(state, snap(ut=10.0, **good))
+        self.assertEqual(state.window_open_streak, 1)
+        state, _ = mlib.eva4_decide(
+            state, snap(ut=11.0, altitude=1800.0, vertical_speed=-9.0,
+                        situation="FLYING", craft_chute_state=_CHUTE_ARMED))
+        self.assertEqual(state.window_open_streak, 0)
+        self.assertEqual(state.phase, mlib.EVA4_DESCENT)
+        state, _ = mlib.eva4_decide(state, snap(ut=12.0, **good))
+        self.assertEqual(state.phase, mlib.EVA4_DESCENT)
+        state, _ = mlib.eva4_decide(state, snap(ut=13.0, **good))
+        self.assertEqual(state.phase, mlib.EVA4_EVA_WINDOW)
+
+    def test_window_missed_still_reds_when_the_craft_sinks_mid_streak(self):
+        # The debounce must not convert a real miss into a late handoff: a craft that
+        # drops below the floor while the streak is still short reds by NAME (the floor
+        # check is unchanged and runs on the same frame the streak resets).
+        state = _eva4_descent_state()
+        state, _ = mlib.eva4_decide(
+            state, snap(ut=10.0, altitude=705.0, vertical_speed=-9.0,
+                        situation="FLYING", craft_chute_state=_CHUTE_FULL))
+        self.assertEqual(state.window_open_streak, 1)
+        self.assertEqual(state.phase, mlib.EVA4_DESCENT)
+        state, _ = mlib.eva4_decide(
+            state, snap(ut=11.0, altitude=690.0, vertical_speed=-9.0,
+                        situation="FLYING", craft_chute_state=_CHUTE_FULL))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("eva-window-missed", state.loss_reason)
 
     def test_vessel_lost_is_assert_fail_not_a_down_success(self):
         # Unlike B1 there is NO chute-deployed-impact success terminal: the craft
