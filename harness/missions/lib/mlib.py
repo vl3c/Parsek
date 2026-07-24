@@ -3955,8 +3955,15 @@ def bdock_decide(state: BDockState,
         if latched_off and close:
             return (_bdock_enter(st, BDOCK_MATCH_VELOCITY, snapshot.ut),
                     [Action(ACTION_MJ_KILL_REL_VEL)])
-        # No-progress detector: track the running minimum distance.
-        if _is_finite(snapshot.target_distance):
+        # No-progress detector: track the running minimum distance. PAUSED
+        # (counter reset) while a maneuver node is pending (flight 11): the
+        # rendezvous AP legitimately waits minutes for a burn window with the
+        # distance flat -- it killed a HEALTHY rendezvous 3.4 m/s from done.
+        # Liveness means the actor is DEAD, not "position not improving while
+        # a burn is scheduled"; the phase budget bounds slow-but-alive.
+        if snapshot.node_count > 0:
+            st = replace(st, rendezvous_noprogress_count=0)
+        elif _is_finite(snapshot.target_distance):
             if snapshot.target_distance < st.rendezvous_min_distance:
                 st = replace(st, rendezvous_min_distance=snapshot.target_distance,
                              rendezvous_noprogress_count=0)
