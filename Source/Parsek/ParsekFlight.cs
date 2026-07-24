@@ -103,7 +103,15 @@ namespace Parsek
             SkipGhostVessel,
             SkipRecorderBusy,
             SkipEvaNotActiveVessel,
-            SkipNoTrackedRecording
+            SkipNoTrackedRecording,
+
+            /// <summary>The tree still names some OTHER recording as its active one even though
+            /// no live recorder owns it (e.g. a merge child whose StartRecording failed - see
+            /// <c>CreateMergeBranch</c> step 10, which nulls the recorder but leaves
+            /// <c>ActiveRecordingId</c> set). Promoting here would overwrite that id, and
+            /// <see cref="PromoteRecordingFromBackground"/> never parks the previous value back
+            /// into BackgroundMap, so the earlier recording would be silently orphaned.</summary>
+            SkipTreeActiveRecordingBusy
         }
 
         internal enum PostSwitchAutoRecordStartDecision
@@ -4907,7 +4915,9 @@ namespace Parsek
             bool hasLiveRecorder,
             uint liveRecorderVesselPid,
             uint activeVesselPid,
-            bool sourceTrackedInBackground)
+            bool sourceTrackedInBackground,
+            string trackedRecordingId,
+            string treeActiveRecordingId)
         {
             if (!hasActiveTree)
                 return EvaBoardPromotionDecision.SkipNoTree;
@@ -4936,6 +4946,21 @@ namespace Parsek
 
             if (!sourceTrackedInBackground)
                 return EvaBoardPromotionDecision.SkipNoTrackedRecording;
+
+            // The tree still names another recording as active while no live recorder owns it.
+            // On the normal EVA-board path this is null: both OnVesselSwitchComplete
+            // backgrounding branches park the old recording into BackgroundMap and clear
+            // ActiveRecordingId before the kerbal ever boards. A non-null, different id here
+            // means an earlier start failed midway (CreateMergeBranch step 10 nulls the recorder
+            // but keeps its ActiveRecordingId), and PromoteRecordingFromBackground would
+            // overwrite that id without parking it back into BackgroundMap - orphaning it.
+            // Fail closed: skip the promotion (the board merge is then skipped and logged)
+            // rather than trade one dropped merge for a lost recording.
+            if (!string.IsNullOrEmpty(treeActiveRecordingId)
+                && !string.Equals(treeActiveRecordingId, trackedRecordingId, StringComparison.Ordinal))
+            {
+                return EvaBoardPromotionDecision.SkipTreeActiveRecordingBusy;
+            }
 
             return EvaBoardPromotionDecision.Promote;
         }
@@ -7861,14 +7886,18 @@ namespace Parsek
                 hasLiveRecorder: recorder != null,
                 liveRecorderVesselPid: recorder != null ? recorder.RecordingVesselId : 0u,
                 activeVesselPid: activePid,
-                sourceTrackedInBackground: trackedInBackground);
+                sourceTrackedInBackground: trackedInBackground,
+                trackedRecordingId: trackedRecordingId,
+                treeActiveRecordingId: activeTree != null ? activeTree.ActiveRecordingId : null);
 
             if (decision != EvaBoardPromotionDecision.Promote)
             {
                 ParsekLog.Verbose("Flight",
                     $"EVA board promotion skipped: decision={decision} evaPid={evaPid} " +
                     $"activePid={activePid} targetPid={pendingBoardingTargetPid} " +
-                    $"tracked={trackedInBackground}");
+                    $"tracked={trackedInBackground} " +
+                    $"treeActiveRec={activeTree?.ActiveRecordingId ?? "-"} " +
+                    $"trackedRec={trackedRecordingId ?? "-"}");
                 return;
             }
 

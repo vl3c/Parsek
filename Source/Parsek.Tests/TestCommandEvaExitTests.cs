@@ -174,7 +174,7 @@ namespace Parsek.Tests
             // Off the ladder with no prior fire: the noop path (kerbal exited not on a ladder).
             Assert.Equal(TestCommandEvaExit.LadderReleaseAction.NotOnLadder,
                 TestCommandEvaExit.DecideLadderRelease(
-                    onLadder: false, inReceptiveLetGoState: false, fireCount: 0, MaxFires));
+                    onLadder: false, inReceptiveLetGoState: false, attemptCount: 0, MaxFires));
         }
 
         [Fact]
@@ -183,7 +183,7 @@ namespace Parsek.Tests
             // Off the ladder AFTER a fire: verified-left (RunEvent's synchronous transition took).
             Assert.Equal(TestCommandEvaExit.LadderReleaseAction.NotOnLadder,
                 TestCommandEvaExit.DecideLadderRelease(
-                    onLadder: false, inReceptiveLetGoState: true, fireCount: 1, MaxFires));
+                    onLadder: false, inReceptiveLetGoState: true, attemptCount: 1, MaxFires));
         }
 
         [Fact]
@@ -194,7 +194,7 @@ namespace Parsek.Tests
             // The fix WAITS for the timed transition into a receptive state; it never fires here.
             Assert.Equal(TestCommandEvaExit.LadderReleaseAction.WaitForReceptiveState,
                 TestCommandEvaExit.DecideLadderRelease(
-                    onLadder: true, inReceptiveLetGoState: false, fireCount: 0, MaxFires));
+                    onLadder: true, inReceptiveLetGoState: false, attemptCount: 0, MaxFires));
         }
 
         [Fact]
@@ -204,16 +204,16 @@ namespace Parsek.Tests
             // registered, so RunEvent will actually transition -> fire.
             Assert.Equal(TestCommandEvaExit.LadderReleaseAction.Fire,
                 TestCommandEvaExit.DecideLadderRelease(
-                    onLadder: true, inReceptiveLetGoState: true, fireCount: 0, MaxFires));
+                    onLadder: true, inReceptiveLetGoState: true, attemptCount: 0, MaxFires));
         }
 
         [Fact]
         public void Ladder_ReceptiveState_FiresUpToCapMinusOne()
         {
-            // fireCount below the cap still fires (bounded re-fire while receptive).
+            // attemptCount below the cap still fires (bounded re-fire while receptive).
             Assert.Equal(TestCommandEvaExit.LadderReleaseAction.Fire,
                 TestCommandEvaExit.DecideLadderRelease(
-                    onLadder: true, inReceptiveLetGoState: true, fireCount: MaxFires - 1, MaxFires));
+                    onLadder: true, inReceptiveLetGoState: true, attemptCount: MaxFires - 1, MaxFires));
         }
 
         [Fact]
@@ -223,7 +223,7 @@ namespace Parsek.Tests
             // the EvaExit budget is not burned. Exhaustion wins even from a receptive state.
             Assert.Equal(TestCommandEvaExit.LadderReleaseAction.ExhaustedStillOnLadder,
                 TestCommandEvaExit.DecideLadderRelease(
-                    onLadder: true, inReceptiveLetGoState: true, fireCount: MaxFires, MaxFires));
+                    onLadder: true, inReceptiveLetGoState: true, attemptCount: MaxFires, MaxFires));
         }
 
         [Fact]
@@ -232,7 +232,7 @@ namespace Parsek.Tests
             // At the cap, even a non-receptive state exhausts rather than waiting forever.
             Assert.Equal(TestCommandEvaExit.LadderReleaseAction.ExhaustedStillOnLadder,
                 TestCommandEvaExit.DecideLadderRelease(
-                    onLadder: true, inReceptiveLetGoState: false, fireCount: MaxFires, MaxFires));
+                    onLadder: true, inReceptiveLetGoState: false, attemptCount: MaxFires, MaxFires));
         }
 
         [Fact]
@@ -242,13 +242,42 @@ namespace Parsek.Tests
             // still counts as verified-left, never a spurious exhaustion).
             Assert.Equal(TestCommandEvaExit.LadderReleaseAction.NotOnLadder,
                 TestCommandEvaExit.DecideLadderRelease(
-                    onLadder: false, inReceptiveLetGoState: false, fireCount: MaxFires, MaxFires));
+                    onLadder: false, inReceptiveLetGoState: false, attemptCount: MaxFires, MaxFires));
         }
 
         [Fact]
         public void Ladder_MaxFiresCap_IsThree()
         {
             Assert.Equal(3, TestCommandEvaExit.LadderReleaseMaxFires);
+        }
+
+        [Fact]
+        public void Ladder_EveryRunEventThrowing_ExhaustsBoundedWithZeroFires()
+        {
+            // Simulates the applier's counter bookkeeping under a RunEvent that ALWAYS throws
+            // (KerbalFSM.RunEvent does when the fsm was never started): attempts increment
+            // BEFORE the call, fires only AFTER it returns - so fires stays 0 forever.
+            // Two properties must hold together, and they are why the two counters are separate:
+            //   liveness - the cap is fed by attempts, so the poll loop terminates bounded
+            //              instead of burning the whole EvaExit budget;
+            //   honesty  - fires stays 0, so a later organic ladder departure reports
+            //              released=false, never a "verified-left" we did not cause.
+            int attempts = 0, fires = 0, polls = 0;
+            TestCommandEvaExit.LadderReleaseAction action;
+            while (true)
+            {
+                polls++;
+                Assert.True(polls <= MaxFires + 2, "release polling did not terminate bounded");
+                action = TestCommandEvaExit.DecideLadderRelease(
+                    onLadder: true, inReceptiveLetGoState: true, attemptCount: attempts, MaxFires);
+                if (action != TestCommandEvaExit.LadderReleaseAction.Fire) break;
+                attempts++;            // counted before the (throwing) RunEvent call
+                                       // fires++ never runs: RunEvent threw
+            }
+
+            Assert.Equal(TestCommandEvaExit.LadderReleaseAction.ExhaustedStillOnLadder, action);
+            Assert.Equal(MaxFires, attempts);
+            Assert.Equal(0, fires);
         }
 
         // ----- BuildCompletePayload -----

@@ -126,33 +126,40 @@ namespace Parsek.TestCommands
             /// next poll via <see cref="NotOnLadder"/>.</summary>
             Fire,
 
-            /// <summary>Fired <c>maxFires</c> times and STILL on a ladder (a mod re-grab or a
-            /// stuck FSM): give up bounded so the EvaExit budget is not burned - conclude the
-            /// phase with <c>released=false</c> (NOT verified) and a warn (liveness).</summary>
+            /// <summary>Attempted the let-go <c>maxFires</c> times and STILL on a ladder (a mod
+            /// re-grab or a stuck FSM): give up bounded so the EvaExit budget is not burned -
+            /// conclude the phase with <c>released=false</c> (NOT verified) and a warn (liveness).</summary>
             ExhaustedStillOnLadder,
         }
 
         /// <summary>The bounded re-fire cap for the ladder let-go (liveness: a stuck / re-grabbing
-        /// FSM must not spin the release forever).</summary>
+        /// FSM must not spin the release forever). Counted in ATTEMPTS, so a <c>RunEvent</c> that
+        /// throws still costs one and the give-up stays bounded.</summary>
         internal const int LadderReleaseMaxFires = 3;
 
         /// <summary>
         /// Decide one <c>ApplyLadderRelease</c> poll (EVA-1 flight-2 fix). The applier passes
         /// the LIVE <c>KerbalEVA.OnALadder</c> and whether <c>fsm.CurrentState</c> is one of the
         /// four states that register <c>On_ladderLetGo</c>
-        /// (<paramref name="inReceptiveLetGoState"/>), plus how many times it has already fired
-        /// (<paramref name="fireCount"/>). Off the ladder -> <see cref="LadderReleaseAction.NotOnLadder"/>
-        /// (verified-left or never-on). Still on it: exhausted first (bounded), else fire when
-        /// receptive, else wait out the transitional acquire window. The wait branch is the
-        /// whole fix - it stops the premature fire during <c>st_ladder_acquire</c> that the old
-        /// applier logged as a false <c>released=true</c>.
+        /// (<paramref name="inReceptiveLetGoState"/>), plus how many times it has already
+        /// ATTEMPTED the fire (<paramref name="attemptCount"/>). Off the ladder ->
+        /// <see cref="LadderReleaseAction.NotOnLadder"/> (verified-left or never-on). Still on
+        /// it: exhausted first (bounded), else fire when receptive, else wait out the
+        /// transitional acquire window. The wait branch is the whole fix - it stops the
+        /// premature fire during <c>st_ladder_acquire</c> that the old applier logged as a false
+        /// <c>released=true</c>.
+        /// ATTEMPTS, not fires: the caller increments attempts BEFORE calling
+        /// <c>fsm.RunEvent</c> (which throws when the fsm was never started) and its separate
+        /// fire counter only AFTER RunEvent returns. The cap must bound the loop even when every
+        /// call throws, while only a real fire may license <c>released=true</c>; one shared
+        /// counter would let a throw be reported as our verified release.
         /// </summary>
         internal static LadderReleaseAction DecideLadderRelease(
-            bool onLadder, bool inReceptiveLetGoState, int fireCount, int maxFires)
+            bool onLadder, bool inReceptiveLetGoState, int attemptCount, int maxFires)
         {
             if (!onLadder)
                 return LadderReleaseAction.NotOnLadder;
-            if (fireCount >= maxFires)
+            if (attemptCount >= maxFires)
                 return LadderReleaseAction.ExhaustedStillOnLadder;
             if (inReceptiveLetGoState)
                 return LadderReleaseAction.Fire;

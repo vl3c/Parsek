@@ -42,8 +42,16 @@
 #
 # WHAT THE FIXTURE PROMISES ITS CONSUMER (EVA-2-orbital-board): a CREWED, non-
 # tumbling, throttle-cut, node-free ORBITAL STAGE on a stable ~100 km circular
-# Kerbin orbit, with zero Parsek state. EVA-2 exits ONE kerbal to the ladder and
-# re-boards; the second kerbal stays aboard so the ship is never uncrewed.
+# Kerbin orbit, with NO RECORDINGS, NO TREES and NO LEDGER STATE. EVA-2 exits ONE
+# kerbal to the ladder and re-boards; the second kerbal stays aboard so the ship
+# is never uncrewed. What the stamped save DOES keep is the spent core the
+# SEPARATE phase dropped, co-orbiting ~16 m away (two loaded vessels at scenario
+# start) plus 4 landed booster remnants ~514 km downrange - disclosed in EVA-2's
+# own [fixture] block.
+#
+# RAN 2026-07-24: MISSION-OK / PASS, 268 s wall, full profile PRELAUNCH ->
+# LAUNCH -> ASCENT -> CIRCULARIZE -> SEPARATE -> PARK -> ORBIT; harvested with
+# --expect-situation ORBITING; the fixture is COMMITTED and EVA-2 flew it green.
 # =============================================================================
 schema = 1
 id = "FORGE-eva2-lko"
@@ -88,7 +96,13 @@ mission = "forge_lko"
 # auto-record would start a real recording and leave Parsek metadata inside the
 # persisted persistent.sfs. The harvest prunes the Parsek/ sidecar dir, but the
 # .sfs is copied verbatim -- so the recording is prevented, not cleaned up after.
-# The fixture must carry ZERO Parsek state.
+# The fixture must carry NO RECORDINGS, NO TREES and NO LEDGER STATE. It is NOT
+# literally "zero Parsek state": the stamped .sfs keeps a
+# SCENARIO{name=ParsekScenario} node with gameStateEventCount=18 and one
+# MILESTONE_STATE row from the ascent. Both are inert (the count is write-only
+# bookkeeping; MilestoneStore.RestoreMutableState only applies rows whose id
+# matches a milestone the save defines, and this one defines none), and the
+# populated node is what keeps PreParsekBackup from copying the fixture at load.
 #
 # Budget arithmetic: missionBudget 1800 (WALL) >= 30 connect + launch reload ~60 +
 # ascent ~250-400 game (at 1x-4x physics warp) + circularize (a coast to apoapsis,

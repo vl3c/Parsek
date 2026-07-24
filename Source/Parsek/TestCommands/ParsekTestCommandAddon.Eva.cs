@@ -59,7 +59,15 @@ namespace Parsek.TestCommands
         // distinct from evaExitReleaseApplied (the release PHASE concluded, gating completion).
         // The completion payload's released= reports THIS, never a bare called-the-event bit.
         private bool evaExitReleaseVerified;
-        // Bounded re-fire counter for On_ladderLetGo (liveness cap = LadderReleaseMaxFires).
+        // Two SEPARATE counters, deliberately not one (the 932897781 false-positive family).
+        // attempts = how many times we have TRIED to fire On_ladderLetGo; it drives the bounded
+        // liveness cap (LadderReleaseMaxFires) and is incremented BEFORE the RunEvent call so a
+        // throwing RunEvent can never spin forever.
+        private int evaExitReleaseAttemptCount;
+        // fires = how many times RunEvent actually RETURNED; it is the evidence half. Only a
+        // real fire may later license released=true ("verified-left"), so a RunEvent that threw
+        // (fsm not started, etc.) must NOT let a later organic ladder departure be reported as
+        // ours. Incremented only AFTER RunEvent returns.
         private int evaExitReleaseFireCount;
         private double evaExitSettleSeconds;
         private double evaExitSettleStartedAt;
@@ -72,7 +80,6 @@ namespace Parsek.TestCommands
         private KerbalEVA plantFlagController;
         private bool plantFlagFired;
         private bool plantFlagDialogAnswered;
-        private bool plantFlagLastGateOpen;
         private HashSet<uint> plantFlagPreExistingFlagPids;
         private Vessel plantFlagVessel;
 
@@ -175,6 +182,7 @@ namespace Parsek.TestCommands
             evaExitReleaseApplied = false;
             evaExitReleaseVerified = false;
             evaExitReleaseFireCount = 0;
+            evaExitReleaseAttemptCount = 0;
             evaExitSettleSeconds = settleSeconds;
             evaExitSettleStartedAt = -1.0;
             SetExecResult(PendingVerdict, null, null);
@@ -263,8 +271,10 @@ namespace Parsek.TestCommands
 
             bool onLadder = evaCtl.OnALadder;
             bool inReceptive = IsLadderLetGoReceptiveState(evaCtl, out string stateName);
+            // The CAP is driven by ATTEMPTS, never by fires: a RunEvent that throws still costs
+            // an attempt, so a permanently-throwing fsm gives up bounded instead of spinning.
             TestCommandEvaExit.LadderReleaseAction action = TestCommandEvaExit.DecideLadderRelease(
-                onLadder, inReceptive, evaExitReleaseFireCount, TestCommandEvaExit.LadderReleaseMaxFires);
+                onLadder, inReceptive, evaExitReleaseAttemptCount, TestCommandEvaExit.LadderReleaseMaxFires);
 
             switch (action)
             {
@@ -288,30 +298,39 @@ namespace Parsek.TestCommands
                     return;
 
                 case TestCommandEvaExit.LadderReleaseAction.Fire:
+                    // Count the ATTEMPT before the call (bounds the cap even if RunEvent throws)
+                    // and the FIRE only after RunEvent returns (KerbalFSM.RunEvent throws when
+                    // the fsm was never started). If the two were one counter, a throw would
+                    // leave the count > 0, and the next poll's NotOnLadder branch would report
+                    // released=true for a departure we never caused - the exact false positive
+                    // the verified-left contract exists to kill.
+                    evaExitReleaseAttemptCount++;
                     try
                     {
-                        evaExitReleaseFireCount++;
                         evaCtl.fsm.RunEvent(evaCtl.On_ladderLetGo);
+                        evaExitReleaseFireCount++;
                         // RunEvent transitions synchronously; re-read the live state so the log
                         // names the outcome instead of assuming it.
                         bool stillOn = evaCtl.OnALadder;
                         string postState = FsmStateName(evaCtl);
-                        ParsekLog.Info(Tag, $"evaexit release fired kerbal={evaExitKerbalName ?? string.Empty} fires={evaExitReleaseFireCount.ToString(CultureInfo.InvariantCulture)} fsm={stateName}->{postState} stillOnLadder={Bool(stillOn)}");
+                        ParsekLog.Info(Tag, $"evaexit release fired kerbal={evaExitKerbalName ?? string.Empty} fires={evaExitReleaseFireCount.ToString(CultureInfo.InvariantCulture)} attempts={evaExitReleaseAttemptCount.ToString(CultureInfo.InvariantCulture)} fsm={stateName}->{postState} stillOnLadder={Bool(stillOn)}");
                         // Verification (verified / exhausted) is settled by the next poll's
                         // NotOnLadder / ExhaustedStillOnLadder branch - do NOT set applied here.
                     }
                     catch (System.Exception ex)
                     {
-                        ParsekLog.Warn(Tag, $"evaexit release threw: {ex.GetType().Name}: {ex.Message}");
+                        ParsekLog.Warn(Tag, $"evaexit release threw: {ex.GetType().Name}: {ex.Message} " +
+                            $"(attempts={evaExitReleaseAttemptCount.ToString(CultureInfo.InvariantCulture)} " +
+                            $"fires={evaExitReleaseFireCount.ToString(CultureInfo.InvariantCulture)}; the fire is NOT counted)");
                     }
                     return;
 
                 case TestCommandEvaExit.LadderReleaseAction.ExhaustedStillOnLadder:
-                    // Bounded give-up: fired the cap and the kerbal is still on a ladder. Conclude
-                    // the phase (do not burn the EvaExit budget) but report released=false.
+                    // Bounded give-up: spent the attempt cap and the kerbal is still on a ladder.
+                    // Conclude the phase (do not burn the EvaExit budget) but report released=false.
                     evaExitReleaseVerified = false;
                     evaExitReleaseApplied = true;
-                    ParsekLog.Warn(Tag, $"evaexit release exhausted kerbal={evaExitKerbalName ?? string.Empty} fires={evaExitReleaseFireCount.ToString(CultureInfo.InvariantCulture)} fsm={stateName} (still on ladder; released=false)");
+                    ParsekLog.Warn(Tag, $"evaexit release exhausted kerbal={evaExitKerbalName ?? string.Empty} attempts={evaExitReleaseAttemptCount.ToString(CultureInfo.InvariantCulture)} fires={evaExitReleaseFireCount.ToString(CultureInfo.InvariantCulture)} fsm={stateName} (still on ladder; released=false)");
                     return;
             }
         }
@@ -378,7 +397,6 @@ namespace Parsek.TestCommands
             plantFlagController = evaCtl;
             plantFlagFired = false;
             plantFlagDialogAnswered = false;
-            plantFlagLastGateOpen = false;
             plantFlagVessel = null;
             plantFlagPreExistingFlagPids = new HashSet<uint>();
             foreach (Vessel v in FlightGlobals.Vessels)
@@ -398,7 +416,6 @@ namespace Parsek.TestCommands
             if (!plantFlagFired)
             {
                 bool gateOpen = ReadPlantGate(plantFlagController, out string gateDiag);
-                plantFlagLastGateOpen = gateOpen;
                 bool stableLockClosed = ReadFlagLockStable();
                 PlantGateDecision g = TestCommandPlantFlag.DecidePlantGateWait(elapsed, gateOpen, stableLockClosed, budget);
                 switch (g)

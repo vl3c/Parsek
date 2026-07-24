@@ -85,6 +85,35 @@ class VesselRecordTests(unittest.TestCase):
         records = harvest.read_vessel_records("VESSEL\n\tpid = x\n")
         self.assertEqual(records, [("", "")])
 
+    def test_vessel_node_outside_flightstate_does_not_shift_the_index(self):
+        # The hazard: activeVessel is an INDEX into FLIGHTSTATE's VESSEL nodes, so a
+        # VESSEL node living in a SCENARIO node AHEAD of FLIGHTSTATE would shift every
+        # index by one and make records[active] name the wrong craft (here it would
+        # resolve activeVessel=1 to "Spent Core" instead of "Kerbal X").
+        polluted = SFS.replace(
+            "\t\tname = ParsekScenario\n",
+            "\t\tname = ParsekScenario\n"
+            "\t\tVESSEL\n\t\t{\n\t\t\tname = Scenario Ghost\n\t\t\tsit = ORBITING\n\t\t}\n")
+        records = harvest.read_vessel_records(polluted)
+        self.assertEqual(records, [("Spent Core", "ORBITING"),
+                                   ("Kerbal X", "ORBITING")])
+        self.assertEqual(harvest.count_vessels(polluted), 2)
+        active = harvest.read_active_vessel(polluted)
+        self.assertEqual(records[active][0], "Kerbal X")
+
+    def test_nodes_after_flightstate_are_not_scanned(self):
+        trailing = SFS + "\tSCENARIO\n\t{\n\t\tVESSEL\n\t\t{\n\t\t\tname = Trailing\n\t\t}\n\t}\n"
+        self.assertEqual(harvest.count_vessels(trailing), 2)
+        self.assertNotIn("Trailing", [n for n, _ in harvest.read_vessel_records(trailing)])
+
+    def test_flightstate_span_falls_back_when_absent_or_unbalanced(self):
+        # No FLIGHTSTATE header at all -> whole input (a bare VESSEL fragment parses).
+        self.assertEqual(harvest.flightstate_span("VESSEL\n"), "VESSEL\n")
+        # Truncated save (braces never balance) -> everything from the open brace on,
+        # so a half-written save still reports what it has instead of reading empty.
+        truncated = "GAME\n{\n\tFLIGHTSTATE\n\t{\n\t\tVESSEL\n\t\t{\n\t\t\tname = Half\n"
+        self.assertEqual(harvest.count_vessels(truncated), 1)
+
 
 class ExpectedSituationParseTests(unittest.TestCase):
     def test_none_and_empty_disable_the_gate(self):

@@ -16,6 +16,7 @@ namespace Parsek.Tests
     {
         private const uint EvaPid = 3726578224u;
         private const uint PodPid = 3620499050u;
+        private const string EvaRecId = "eva-recording";
 
         private static ParsekFlight.EvaBoardPromotionDecision Decide(
             bool hasActiveTree = true,
@@ -26,7 +27,12 @@ namespace Parsek.Tests
             bool hasLiveRecorder = false,
             uint liveRecorderVesselPid = 0u,
             uint activeVesselPid = EvaPid,
-            bool sourceTrackedInBackground = true)
+            bool sourceTrackedInBackground = true,
+            string trackedRecordingId = EvaRecId,
+            // The live default: BOTH OnVesselSwitchComplete backgrounding branches clear
+            // ActiveRecordingId when they park the pre-EVA recording, so at the board the
+            // tree names no active recording.
+            string treeActiveRecordingId = null)
         {
             return ParsekFlight.DecideEvaBoardPromotion(
                 hasActiveTree,
@@ -37,7 +43,9 @@ namespace Parsek.Tests
                 hasLiveRecorder,
                 liveRecorderVesselPid,
                 activeVesselPid,
-                sourceTrackedInBackground);
+                sourceTrackedInBackground,
+                trackedRecordingId,
+                treeActiveRecordingId);
         }
 
         [Fact]
@@ -135,6 +143,47 @@ namespace Parsek.Tests
             Assert.Equal(
                 ParsekFlight.EvaBoardPromotionDecision.SkipGhostVessel,
                 Decide(sourceIsGhostVessel: true, hasLiveRecorder: true, liveRecorderVesselPid: EvaPid));
+        }
+
+        [Fact]
+        public void TreeActiveRecordingIsAnotherRecording_SkipsTreeActiveRecordingBusy()
+        {
+            // A merge child whose StartRecording failed (CreateMergeBranch step 10 nulls the
+            // recorder but leaves ActiveRecordingId set) leaves the tree naming a recording
+            // that no live recorder owns. PromoteRecordingFromBackground would overwrite that
+            // id without parking it back into BackgroundMap, orphaning it - so skip.
+            Assert.Equal(
+                ParsekFlight.EvaBoardPromotionDecision.SkipTreeActiveRecordingBusy,
+                Decide(treeActiveRecordingId: "orphaned-merge-child"));
+        }
+
+        [Fact]
+        public void TreeActiveRecordingIsTheEvaRecording_StillPromotes()
+        {
+            // Already pointing at the recording we are about to promote: nothing to orphan.
+            Assert.Equal(
+                ParsekFlight.EvaBoardPromotionDecision.Promote,
+                Decide(treeActiveRecordingId: EvaRecId));
+        }
+
+        [Fact]
+        public void EmptyTreeActiveRecordingId_TreatedAsNoneAndPromotes()
+        {
+            // Empty string is "no active recording", not "some other recording".
+            Assert.Equal(
+                ParsekFlight.EvaBoardPromotionDecision.Promote,
+                Decide(treeActiveRecordingId: ""));
+        }
+
+        [Fact]
+        public void RecorderBusyCheckPrecedesTreeActiveRecordingCheck()
+        {
+            // A live recorder on another vessel is the stronger signal and keeps its own
+            // decision, so the diagnostics still name the real reason.
+            Assert.Equal(
+                ParsekFlight.EvaBoardPromotionDecision.SkipRecorderBusy,
+                Decide(hasLiveRecorder: true, liveRecorderVesselPid: PodPid,
+                       treeActiveRecordingId: "orphaned-merge-child"));
         }
     }
 }
