@@ -1,21 +1,33 @@
 #!/usr/bin/env python3
-"""Harvest the FORGE-produced pad save into the committed B-DOCK Station fixture.
+"""Harvest a FORGE-produced save into a committed fixture.
 
-The FIXTURE-FORGE run (`FORGE-bdock-station.toml` driving `forge_station.py`)
-leaves a KSP save with the docking Kerbal X pre-placed on the LaunchPad
-(PRELAUNCH), persisted as `persistent.sfs`. This tool copies that produced save,
-PRUNES Parsek state (so the fixture carries zero prior recordings / backups),
-NORMALIZES the title, and writes it to
-`harness/fixtures/saves/bdock-station-pad/` -- the committed B2-shape fixture that
-`BDOCK-1-station-interceptor.toml` consumes (a pre-placed Station + the
-`Ships/VAB/Kerbal X.craft` the Interceptor's launch_vessel re-launches).
+A FIXTURE-FORGE run leaves a KSP save holding the state some scenario needs as
+its START state, persisted as `persistent.sfs`. This tool copies that produced
+save, PRUNES Parsek state (so the fixture carries zero prior recordings /
+backups), NORMALIZES the title, and writes it under
+`harness/fixtures/saves/<target-name>/`.
 
 It is the headless replacement for the operator fixture flight (2026-07-22
 operator-principle override): the automation forges its own state.
 
-GENERIC: the same tool harvests the EVA-3 pad fixture (the same forge with three
-named crew) by passing `--target-name eva3-pad-3crew` (the name EVA-3-multi-kerbal's
-saveTemplate references).
+GENERIC over the three forges shipped so far -- the produced save's SITUATION is
+not assumed anywhere in this tool:
+
+  FORGE-bdock-station (forge_station)  --target-name bdock-station-pad
+      the docking Kerbal X pre-placed on the LaunchPad (PRELAUNCH).
+  FORGE-eva3-pad      (forge_station)  --target-name eva3-pad-3crew
+      the same pad state with three named crew aboard.
+  FORGE-eva2-lko      (forge_lko)      --target-name eva2-lko-crewed
+      a CREWED orbital stage parked in a ~100 km circular Kerbin orbit
+      (ORBITING, not PRELAUNCH).
+
+The only pad-shaped thing left is the OPTIONAL sanity gate: pass
+`--expect-situation ORBITING` (or any comma-separated set) to require that the
+save's ACTIVE vessel is in one of those situations before the fixture is written.
+Omitted, the gate is off and the behaviour is exactly what the two pad forges
+have always had (activeVessel present + at least one VESSEL node). The active
+vessel's name + situation are ALWAYS logged, so an operator sees what was stamped
+even without the gate.
 
 Usage:
     # After a forge run, the produced save is at
@@ -24,6 +36,10 @@ Usage:
     # or point at the instance root + the run-save name:
     python harness/tools/harvest_bdock_station.py --instance <ksp-instance> \
         --run-save bdock-forge-base
+    # the orbital forge, with the situation gate armed:
+    python harness/tools/harvest_bdock_station.py --instance <ksp-instance> \
+        --run-save bdock-forge-base --target-name eva2-lko-crewed \
+        --expect-situation ORBITING
 
 Stdlib only; ASCII only; no em dashes.
 """
@@ -89,7 +105,55 @@ def read_active_vessel(sfs_text: str):
     return int(m.group(1)) if m else None
 
 
-def harvest(save_dir: str, target_name: str, title: str, force: bool) -> int:
+def read_vessel_records(sfs_text: str):
+    """(name, situation) for every VESSEL node, in FLIGHTSTATE order (the order
+    `activeVessel` indexes into).
+
+    Each VESSEL node opens with its own `name = ` / `sit = ` lines BEFORE any
+    child PART nodes, so the FIRST match of each inside the node's span is the
+    vessel's own. Missing keys read "" (never guessed). Pure text parsing: no
+    ConfigNode parser, no KSP."""
+    starts = [m.start() for m in re.finditer(r"(?m)^\s*VESSEL\s*$", sfs_text)]
+    records = []
+    for i, start in enumerate(starts):
+        end = starts[i + 1] if i + 1 < len(starts) else len(sfs_text)
+        span = sfs_text[start:end]
+        name = re.search(r"(?m)^\s*name\s*=\s*(.*)$", span)
+        sit = re.search(r"(?m)^\s*sit\s*=\s*(.*)$", span)
+        records.append((name.group(1).strip() if name else "",
+                        sit.group(1).strip() if sit else ""))
+    return records
+
+
+def parse_expected_situations(value):
+    """Normalize a `--expect-situation` argument (comma-separated, any case) to a
+    tuple of UPPER tokens. None / "" -> () = the gate is OFF."""
+    if not value:
+        return ()
+    return tuple(tok.strip().upper() for tok in str(value).split(",") if tok.strip())
+
+
+def check_active_situation(records, active_index, expected):
+    """The OPTIONAL situation gate. Returns (ok, message).
+
+    ok is True when the gate is off (`expected` empty). Otherwise the active
+    index must resolve to a VESSEL record whose situation is in `expected`. Fails
+    CLOSED: an out-of-range index or an unreadable situation is NOT a pass, so an
+    orbital forge that lost its stage can never stamp a fixture silently."""
+    if not expected:
+        return True, "situation gate off"
+    if active_index is None or active_index < 0 or active_index >= len(records):
+        return False, ("activeVessel index %s does not resolve to one of the %d "
+                       "VESSEL nodes" % (active_index, len(records)))
+    name, sit = records[active_index]
+    if sit.upper() not in expected:
+        return False, ("active vessel %r is %s, expected one of %s"
+                       % (name, sit or "<unreadable>", ",".join(expected)))
+    return True, "active vessel %r is %s" % (name, sit)
+
+
+def harvest(save_dir: str, target_name: str, title: str, force: bool,
+            expected_situations=()) -> int:
     if not os.path.isdir(save_dir):
         raise SystemExit("harvest: produced save dir not found: %s" % save_dir)
     src_sfs = os.path.join(save_dir, "persistent.sfs")
@@ -100,16 +164,36 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool) -> int:
     with open(src_sfs, "r", encoding="utf-8", errors="replace") as fh:
         sfs_text = fh.read()
 
-    # Sanity: the produced save must boot into flight on the pre-placed Station.
+    # Sanity 1 (all forges): the produced save must boot into flight on SOME
+    # vessel -- LoadGame's IsLoadedGameFocusable gate rejects a save with no
+    # active vessel. No situation is assumed here (pad AND orbital forges pass).
     active = read_active_vessel(sfs_text)
     vessels = count_vessels(sfs_text)
-    log("produced save: activeVessel=%s vessels=%d" % (active, vessels))
+    records = read_vessel_records(sfs_text)
+    active_name, active_sit = ("", "")
+    if active is not None and 0 <= active < len(records):
+        active_name, active_sit = records[active]
+    log("produced save: activeVessel=%s vessels=%d active=%r situation=%s"
+        % (active, vessels, active_name, active_sit or "<unreadable>"))
     if active is None or active < 0 or vessels < 1:
         msg = ("produced save is not focusable (activeVessel=%s vessels=%d): the "
-               "forge run did not leave a Station on the pad" % (active, vessels))
+               "forge run did not leave a usable vessel" % (active, vessels))
         if not force:
             raise SystemExit("harvest: " + msg + " (pass --force to write anyway)")
         log("warning: " + msg + " (writing anyway, --force)")
+
+    # Sanity 2 (OPTIONAL, off unless --expect-situation is passed): the active
+    # vessel must be in one of the expected situations. This is what makes an
+    # ORBITAL harvest honest -- a forge that flaked mid-ascent, or a save whose
+    # focus landed on the spent core, would otherwise stamp a broken fixture.
+    ok, detail = check_active_situation(records, active, expected_situations)
+    if not ok:
+        msg = "situation gate failed: %s" % detail
+        if not force:
+            raise SystemExit("harvest: " + msg + " (pass --force to write anyway)")
+        log("warning: " + msg + " (writing anyway, --force)")
+    elif expected_situations:
+        log("situation gate passed: %s" % detail)
 
     target = os.path.join(_FIXTURES_SAVES, target_name)
     if os.path.isdir(target):
@@ -151,8 +235,9 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool) -> int:
     craft_files = sorted(os.listdir(craft)) if os.path.isdir(craft) else []
     log("fixture Ships/VAB: %s" % (craft_files or "<none>"))
     if not craft_files:
-        log("warning: the fixture has no Ships/VAB craft; the Interceptor's "
-            "launch_vessel will fail to resolve <save>/Ships/VAB/<name>.craft")
+        log("warning: the fixture has no Ships/VAB craft; any consumer that calls "
+            "launch_vessel on it will fail to resolve <save>/Ships/VAB/<name>.craft "
+            "(harmless for a fixture whose scenario never launches anything)")
 
     log("harvested -> %s" % target)
     return 0
@@ -181,9 +266,9 @@ def _prune_state(root: str):
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="harvest_bdock_station",
-        description="Harvest a FORGE-produced pad save into the committed B-DOCK "
-                    "Station fixture (prune Parsek state, normalize, write to "
-                    "harness/fixtures/saves/<target-name>).")
+        description="Harvest a FORGE-produced save (pad OR orbital) into a "
+                    "committed fixture: prune Parsek state, normalize the title, "
+                    "write to harness/fixtures/saves/<target-name>.")
     p.add_argument("--save-dir", default=None,
                    help="path to the FORGE-produced save directory "
                         "(<ksp-instance>/saves/bdock-forge-base)")
@@ -196,12 +281,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--target-name", default="bdock-station-pad",
                    help="the committed fixture directory name under "
                         "harness/fixtures/saves (default: bdock-station-pad; use "
-                        "eva3-pad-3crew for the EVA-3 3-crew pad fixture)")
+                        "eva3-pad-3crew for the EVA-3 3-crew pad fixture, "
+                        "eva2-lko-crewed for the EVA-2 crewed-LKO fixture)")
+    p.add_argument("--expect-situation", default=None,
+                   help="comma-separated situations the produced save's ACTIVE "
+                        "vessel must be in (e.g. ORBITING for an orbital forge, "
+                        "PRELAUNCH for a pad forge). Omitted = gate off")
     p.add_argument("--title", default=None,
                    help="the fixture title (default: the target-name)")
     p.add_argument("--force", action="store_true",
                    help="write the fixture even if the produced save is not "
-                        "focusable (diagnostics only)")
+                        "focusable or fails the situation gate (diagnostics only)")
     return p
 
 
@@ -209,7 +299,8 @@ def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     save_dir = resolve_save_dir(args)
     title = args.title or args.target_name
-    return harvest(save_dir, args.target_name, title, args.force)
+    return harvest(save_dir, args.target_name, title, args.force,
+                   parse_expected_situations(args.expect_situation))
 
 
 if __name__ == "__main__":

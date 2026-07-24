@@ -3973,6 +3973,354 @@ class ForgeAssertionTests(unittest.TestCase):
 
 
 # ===========================================================================
+# FORGE-LKO (orbital fixture-forge) machine + assertions.
+# ===========================================================================
+
+
+FLKO_PARAMS = mlib.ForgeLkoParams(
+    craft_name="Kerbal X",
+    launch_site="LaunchPad",
+    crew_names=("Valentina Kerman", "Bob Kerman"),
+    min_crew=2,
+    launch_timeout=300.0,
+    launch_settle_debounce=2,
+    target_apoapsis=100000.0,
+    target_periapsis=100000.0,
+    apo_error=10000.0,
+    peri_error=10000.0,
+    ascent_timeout=900.0,
+    circularize_timeout=2400.0,
+    separation_timeout=120.0,
+    park_dwell=60.0,
+    park_timeout=600.0,
+    park_debounce=2,
+    max_angular_velocity=0.05,
+    min_safe_periapsis=75000.0,
+)
+
+
+def _flko_params(**overrides):
+    return FLKO_PARAMS.__class__(**{**FLKO_PARAMS.__dict__, **overrides})
+
+
+def drive_flko(state, frames):
+    per_frame = []
+    for f in frames:
+        state, actions = mlib.forge_lko_decide(state, f)
+        per_frame.append(actions)
+    return state, per_frame
+
+
+def _flko_parked(ut, **kw):
+    """A snapshot that satisfies every PARK stability conjunct."""
+    fields = dict(ut=ut, situation="ORBITING", apoapsis=100000.0,
+                  periapsis=99000.0, angular_velocity=0.001, crew_count=2)
+    fields.update(kw)
+    return snap(**fields)
+
+
+def _flko_to_park(params=None):
+    """Drive the machine from PRELAUNCH to the head of PARK and return the state."""
+    state = mlib.forge_lko_initial_state(params or FLKO_PARAMS)
+    frames = [
+        snap(ut=0.0, situation="FLYING"),                                  # -> LAUNCH
+        snap(ut=5.0, situation="PRE_LAUNCH", crew_count=2),                # settle 1
+        snap(ut=10.0, situation="PRE_LAUNCH", crew_count=2),               # settle 2 -> ASCENT
+        snap(ut=300.0, apoapsis=99000.0, mj_ascent_complete=True),         # -> CIRCULARIZE
+        snap(ut=400.0, periapsis=99000.0, vessel_count=1),                 # -> SEPARATE (baseline 1)
+        snap(ut=401.0, vessel_count=2, available_thrust=0.0),              # split 1
+        snap(ut=402.0, vessel_count=2, available_thrust=0.0),              # split 2
+        snap(ut=403.0, vessel_count=2, available_thrust=0.0),              # split 3 -> ignite
+        snap(ut=404.0, vessel_count=2, available_thrust=200000.0),         # thrust 1
+        snap(ut=405.0, vessel_count=2, available_thrust=200000.0),         # thrust 2
+        snap(ut=406.0, vessel_count=2, available_thrust=200000.0),         # thrust 3 -> PARK
+    ]
+    state, per_frame = drive_flko(state, frames)
+    return state, per_frame
+
+
+class SeparationEvidenceTests(unittest.TestCase):
+    """Guards the SHARED two-step separation counter (B-DOCK + FORGE-LKO). A
+    regression here certifies a separation that never happened (a full stack
+    docking / an uncontrollable fixture) or an ignition that never lit."""
+
+    def test_split_needs_debounce_then_latches(self):
+        settle, thrust, confirmed, ignited = mlib.separation_evidence(
+            2, float("nan"), 1, 0, 0, False, debounce=3)
+        self.assertEqual((settle, confirmed, ignited), (1, False, False))
+        settle, thrust, confirmed, ignited = mlib.separation_evidence(
+            2, float("nan"), 1, 2, 0, False, debounce=3)
+        self.assertTrue(confirmed)
+        # Latched: a later frame whose count dips back never un-confirms.
+        _, _, confirmed2, _ = mlib.separation_evidence(
+            1, float("nan"), 1, 0, 0, True, debounce=3)
+        self.assertTrue(confirmed2)
+
+    def test_unread_count_never_bumps_the_baseline(self):
+        # vessel_count defaults 0 (unread): it can never exceed a real baseline.
+        settle, _, confirmed, _ = mlib.separation_evidence(
+            0, 1.0, 1, 5, 0, False, debounce=3)
+        self.assertEqual(settle, 0)
+        self.assertFalse(confirmed)
+
+    def test_nan_thrust_is_never_ignited(self):
+        _, thrust, _, ignited = mlib.separation_evidence(
+            2, float("nan"), 1, 0, 5, True, debounce=3)
+        self.assertEqual(thrust, 0)
+        self.assertFalse(ignited)
+
+    def test_thrust_debounce_ignites(self):
+        _, thrust, _, ignited = mlib.separation_evidence(
+            2, 200000.0, 1, 3, 2, True, debounce=3)
+        self.assertEqual(thrust, 3)
+        self.assertTrue(ignited)
+
+
+class ForgeLkoMachineTests(unittest.TestCase):
+    """Guards the ORBITAL fixture forge: a bad stamp is worse than a flake -- every
+    consumer of the fixture inherits it."""
+
+    def test_prelaunch_emits_launch_vessel_with_named_crew(self):
+        state = mlib.forge_lko_initial_state(FLKO_PARAMS)
+        new, actions = mlib.forge_lko_decide(state, snap(ut=0.0))
+        self.assertEqual(new.phase, mlib.FLKO_LAUNCH)
+        self.assertEqual(actions, [Action(mlib.ACTION_LAUNCH_VESSEL,
+                                          text="Kerbal X", launch_site="LaunchPad",
+                                          crew=("Valentina Kerman", "Bob Kerman"))])
+
+    def test_launch_settle_requires_the_crew_gate(self):
+        # On the pad with NO crew read (the -1 unread sentinel) the settle streak
+        # never advances: an uncrewed stamp must never reach the ascent.
+        state = mlib.forge_lko_initial_state(FLKO_PARAMS)
+        state, _ = mlib.forge_lko_decide(state, snap(ut=0.0))
+        for ut in (5.0, 10.0, 15.0):
+            state, _ = mlib.forge_lko_decide(
+                state, snap(ut=ut, situation="PRE_LAUNCH"))
+        self.assertEqual(state.phase, mlib.FLKO_LAUNCH)
+        self.assertEqual(state.launch_settle_streak, 0)
+
+    def test_launch_crew_short_flake_names_the_crew(self):
+        state = mlib.forge_lko_initial_state(FLKO_PARAMS)
+        state, _ = mlib.forge_lko_decide(state, snap(ut=0.0))
+        state, _ = mlib.forge_lko_decide(
+            state, snap(ut=5.0, situation="PRE_LAUNCH", crew_count=0))
+        state, _ = mlib.forge_lko_decide(
+            state, snap(ut=1000.0, situation="PRE_LAUNCH", crew_count=0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.FLKO_LAUNCH)
+        self.assertIn("crew", state.flake_reason)
+        self.assertIn("UNCREWED", state.flake_reason)
+
+    def test_min_crew_zero_disables_the_gate(self):
+        params = _flko_params(min_crew=0)
+        state = mlib.forge_lko_initial_state(params)
+        state, _ = mlib.forge_lko_decide(state, snap(ut=0.0))
+        state, _ = mlib.forge_lko_decide(state, snap(ut=5.0, situation="PRE_LAUNCH"))
+        state, actions = mlib.forge_lko_decide(
+            state, snap(ut=10.0, situation="PRE_LAUNCH"))
+        self.assertEqual(state.phase, mlib.FLKO_ASCENT)
+        self.assertIn(mlib.ACTION_MJ_ENGAGE_ASCENT, [a.kind for a in actions])
+
+    def test_ascent_completion_executes_nodes_with_autowarp_action(self):
+        # ACTION_MJ_EXECUTE_NODES (not the bare circularization action) is what
+        # sets node_executor autowarp explicitly (B-DOCK flight-12 lesson).
+        state, per_frame = _flko_to_park()
+        kinds = [a.kind for frame in per_frame for a in frame]
+        self.assertIn(mlib.ACTION_MJ_EXECUTE_NODES, kinds)
+
+    def test_happy_path_reaches_park_with_the_park_contract_actions(self):
+        state, per_frame = _flko_to_park()
+        self.assertEqual(state.phase, mlib.FLKO_PARK)
+        self.assertTrue(state.split_ever_confirmed)
+        self.assertTrue(state.ignition_ever_confirmed)
+        park_actions = [a.kind for a in per_frame[-1]]
+        # Throttle cut + nodes cleared + attitude held: the SAVED configuration.
+        self.assertEqual(park_actions, [mlib.ACTION_CUT_THROTTLE,
+                                        mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES,
+                                        mlib.ACTION_SET_SAS,
+                                        mlib.ACTION_SET_RCS])
+
+    def test_park_requires_debounce_and_dwell(self):
+        state, _ = _flko_to_park()
+        entry = state.phase_entry_ut
+        # Stable immediately, but the dwell has not elapsed -> still PARK.
+        state, _ = mlib.forge_lko_decide(state, _flko_parked(entry + 1.0))
+        state, _ = mlib.forge_lko_decide(state, _flko_parked(entry + 2.0))
+        self.assertEqual(state.phase, mlib.FLKO_PARK)
+        self.assertFalse(state.done)
+        # Past the 60 s dwell with the streak held -> ORBIT (done, MISSION-OK).
+        state, _ = mlib.forge_lko_decide(state, _flko_parked(entry + 61.0))
+        self.assertEqual(state.phase, mlib.FLKO_ORBIT)
+        self.assertTrue(state.done)
+        self.assertIsNone(state.verdict)
+
+    def test_park_rejects_a_tumbling_or_low_or_unread_orbit(self):
+        for kw in ({"angular_velocity": 0.5},          # tumbling
+                   {"angular_velocity": float("nan")},  # unread -> fail closed
+                   {"periapsis": 60000.0},              # inside the atmosphere
+                   {"apoapsis": 400000.0},              # outside the tolerance
+                   {"situation": "FLYING"}):            # not a park situation
+            state, _ = _flko_to_park()
+            entry = state.phase_entry_ut
+            state, _ = mlib.forge_lko_decide(state, _flko_parked(entry + 1.0, **kw))
+            state, _ = mlib.forge_lko_decide(state, _flko_parked(entry + 61.0, **kw))
+            self.assertEqual(state.park_stable_streak, 0, kw)
+            self.assertEqual(state.phase, mlib.FLKO_PARK, kw)
+
+    def test_park_timeout_flakes_with_a_named_reason(self):
+        state, _ = _flko_to_park()
+        entry = state.phase_entry_ut
+        state, _ = mlib.forge_lko_decide(
+            state, _flko_parked(entry + 1000.0, situation="FLYING"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.FLKO_PARK)
+        self.assertIn("never reached a stable park", state.flake_reason)
+
+    def test_separation_without_split_flakes_named(self):
+        state = mlib.forge_lko_initial_state(FLKO_PARAMS)
+        frames = [
+            snap(ut=0.0, situation="FLYING"),
+            snap(ut=5.0, situation="PRE_LAUNCH", crew_count=2),
+            snap(ut=10.0, situation="PRE_LAUNCH", crew_count=2),
+            snap(ut=300.0, apoapsis=99000.0, mj_ascent_complete=True),
+            snap(ut=400.0, periapsis=99000.0, vessel_count=1),   # -> SEPARATE
+            snap(ut=600.0, vessel_count=1),                      # no split, past budget
+        ]
+        state, _ = drive_flko(state, frames)
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("no separation observed", state.flake_reason)
+
+    def test_separation_caps_activations_at_two(self):
+        # HARD CAP: at most TWO stage activations from the circularize->SEPARATE
+        # transition onward (drop the spent core, then ignite the orbital stage).
+        # A THIRD would fire the istg=0 heat-shield decoupler. A split that never
+        # ignites must flake, NOT keep staging the craft apart.
+        state = mlib.forge_lko_initial_state(FLKO_PARAMS)
+        frames = [
+            snap(ut=0.0, situation="FLYING"),
+            snap(ut=5.0, situation="PRE_LAUNCH", crew_count=2),
+            snap(ut=10.0, situation="PRE_LAUNCH", crew_count=2),
+            snap(ut=300.0, apoapsis=99000.0, mj_ascent_complete=True),
+            snap(ut=400.0, periapsis=99000.0, vessel_count=1),   # SEPARATE entry
+        ] + [snap(ut=401.0 + i, vessel_count=2, available_thrust=0.0)
+             for i in range(20)
+             ] + [snap(ut=600.0, vessel_count=2, available_thrust=0.0)]
+        state, per_frame = drive_flko(state, frames)
+        # Frame 3 (the ascent entry) carries the LAUNCH ignition activation, which
+        # is not part of the separation cap; frames 4.. are the separation.
+        launch_stages = [a for frame in per_frame[:4] for a in frame
+                         if a.kind == mlib.ACTION_ACTIVATE_STAGE]
+        sep_stages = [a for frame in per_frame[4:] for a in frame
+                      if a.kind == mlib.ACTION_ACTIVATE_STAGE]
+        self.assertEqual(len(launch_stages), 1)
+        self.assertEqual(len(sep_stages), 2)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("no ignition", state.flake_reason)
+
+    def test_vessel_lost_during_launch_is_transient_not_terminal(self):
+        state = mlib.forge_lko_initial_state(FLKO_PARAMS)
+        state, _ = mlib.forge_lko_decide(state, snap(ut=0.0))
+        state, _ = mlib.forge_lko_decide(state, snap(ut=2.0, vessel_lost=True))
+        self.assertFalse(state.done)
+        self.assertEqual(state.phase, mlib.FLKO_LAUNCH)
+
+    def test_vessel_lost_in_flight_is_terminal(self):
+        state, _ = _flko_to_park()
+        state, _ = mlib.forge_lko_decide(state, snap(ut=500.0, vessel_lost=True))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("vessel-lost", state.loss_reason)
+
+    def test_params_from_dict_parses_the_spec_block(self):
+        p = mlib.forge_lko_params_from_dict({
+            "craftName": "Kerbal X",
+            "launchSite": "LaunchPad",
+            "crewNames": ["Valentina Kerman", "Bob Kerman"],
+            "minCrew": 2,
+            "targetApoapsisMeters": 100000,
+            "targetPeriapsisMeters": 100000,
+            "apoErrorMeters": 10000,
+            "periErrorMeters": 10000,
+            "ascentTimeoutSeconds": 900,
+            "circularizeTimeoutSeconds": 2400,
+            "separationTimeoutSeconds": 120,
+            "parkSituations": ["ORBITING"],
+            "parkDwellSeconds": 60,
+            "parkTimeoutSeconds": 600,
+            "minSafePeriapsisMeters": 75000,
+        })
+        self.assertEqual(p.crew_names, ("Valentina Kerman", "Bob Kerman"))
+        self.assertEqual(p.min_crew, 2)
+        self.assertEqual(p.park_situations, ("ORBITING",))
+        self.assertEqual(p.circularize_timeout, 2400.0)
+        # Omitted crewNames -> None (KSP default manifest), never an empty tuple.
+        self.assertIsNone(mlib.forge_lko_params_from_dict({}).crew_names)
+
+    def test_b2_projection_carries_the_orbit_tolerances(self):
+        b2 = mlib.forge_lko_b2_params(FLKO_PARAMS)
+        self.assertEqual(b2.target_apoapsis, 100000.0)
+        self.assertEqual(b2.peri_error, 10000.0)
+        self.assertEqual(b2.eccentricity_max, FLKO_PARAMS.eccentricity_max)
+
+
+class ForgeLkoAssertionTests(unittest.TestCase):
+    def _good_state(self):
+        state, _ = _flko_to_park()
+        entry = state.phase_entry_ut
+        state, _ = mlib.forge_lko_decide(state, _flko_parked(entry + 1.0))
+        state, _ = mlib.forge_lko_decide(state, _flko_parked(entry + 2.0))
+        state, _ = mlib.forge_lko_decide(state, _flko_parked(entry + 61.0))
+        return state
+
+    def _good_frames(self):
+        return [snap(situation="ORBITING", apoapsis=100000.0, periapsis=99500.0,
+                     eccentricity=0.001, inclination=0.1, crew_count=2)
+                for _ in range(5)]
+
+    def test_all_rows_met_on_a_clean_forge(self):
+        state = self._good_state()
+        outs = mlib.evaluate_forge_lko_assertions(
+            self._good_frames(), FLKO_PARAMS,
+            phases_reached=state.phases_reached, state=state)
+        names = [o.name for o in outs]
+        self.assertEqual(names[:4], ["launched", "crewAboard", "separated",
+                                     "parkedStable"])
+        # The B2 orbit rows ride verbatim after the forge-specific ones.
+        self.assertEqual(names[4:], ["apoapsisError", "periapsisError",
+                                     "eccentricity", "inclinationError"])
+        self.assertTrue(all(o.met for o in outs), [(o.name, o.value) for o in outs])
+
+    def test_uncrewed_stamp_is_unmet(self):
+        state = self._good_state()
+        frames = [snap(situation="ORBITING", apoapsis=100000.0, periapsis=99500.0,
+                       eccentricity=0.001, inclination=0.1)  # crew_count -1 unread
+                  for _ in range(5)]
+        outs = {o.name: o for o in mlib.evaluate_forge_lko_assertions(
+            frames, FLKO_PARAMS, phases_reached=state.phases_reached, state=state)}
+        self.assertFalse(outs["crewAboard"].met)
+        self.assertIsNone(outs["crewAboard"].value)
+
+    def test_separated_unmet_without_the_ignition_evidence(self):
+        state = self._good_state()
+        state = state.__class__(**{**state.__dict__,
+                                   "ignition_ever_confirmed": False})
+        outs = {o.name: o for o in mlib.evaluate_forge_lko_assertions(
+            self._good_frames(), FLKO_PARAMS,
+            phases_reached=state.phases_reached, state=state)}
+        self.assertFalse(outs["separated"].met)
+
+    def test_parked_unmet_when_the_final_situation_is_not_a_park(self):
+        state = self._good_state()
+        frames = self._good_frames() + [snap(situation="FLYING", crew_count=2)]
+        outs = {o.name: o for o in mlib.evaluate_forge_lko_assertions(
+            frames, FLKO_PARAMS, phases_reached=state.phases_reached, state=state)}
+        self.assertFalse(outs["parkedStable"].met)
+
+
+# ===========================================================================
 # B-DOCK machine + assertions.
 # ===========================================================================
 

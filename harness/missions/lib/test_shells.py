@@ -40,6 +40,7 @@ import b5_mun_flyby           # noqa: E402
 import b6_minmus_flyby        # noqa: E402
 import b7_duna_flyby          # noqa: E402
 import forge_station          # noqa: E402
+import forge_lko              # noqa: E402
 import bdock_dock_transfer    # noqa: E402
 import shutil                 # noqa: E402
 import tempfile               # noqa: E402
@@ -575,8 +576,8 @@ class CliTests(unittest.TestCase):
     def test_shells_have_no_module_top_krpc_import(self):
         """Regression for the lazy-import discipline: importing the shells on the
         base interpreter must NOT have imported krpc (it is lazy inside open())."""
-        # The shells imported at module load above (including forge_station and
-        # bdock_dock_transfer); krpc must not be present.
+        # The shells imported at module load above (including forge_station,
+        # forge_lko and bdock_dock_transfer); krpc must not be present.
         self.assertNotIn("krpc", sys.modules)
 
     def test_arg_parser_accepts_optional_seam_args(self):
@@ -1352,6 +1353,87 @@ class ForgeShellTests(unittest.TestCase):
         self.assertEqual(result["mission"], "forge_station")
         kinds = [a.kind for a in control.actions]
         self.assertIn(mlib.ACTION_LAUNCH_VESSEL, kinds)
+        self.assertTrue(control.closed)
+
+
+FORGE_LKO_PARAMS = {
+    "craftName": "Kerbal X",
+    "launchSite": "LaunchPad",
+    "crewNames": ["Valentina Kerman", "Bob Kerman"],
+    "minCrew": 2,
+    "launchTimeoutSeconds": 300,
+    "launchSettleDebounceFrames": 2,
+    "targetApoapsisMeters": 100000,
+    "targetPeriapsisMeters": 100000,
+    "apoErrorMeters": 10000,
+    "periErrorMeters": 10000,
+    "eccentricityMax": 0.02,
+    "inclinationErrorDeg": 5.0,
+    "ascentTimeoutSeconds": 900,
+    "circularizeTimeoutSeconds": 2400,
+    "separationTimeoutSeconds": 120,
+    "parkSituations": ["ORBITING"],
+    "parkDwellSeconds": 60,
+    "parkTimeoutSeconds": 600,
+    "parkDebounceFrames": 2,
+    "maxAngularVelocityRadPerSec": 0.05,
+    "minSafePeriapsisMeters": 75000,
+}
+
+
+class ForgeLkoShellTests(unittest.TestCase):
+    def _parked(self, ut):
+        return snap(ut=ut, situation="ORBITING", apoapsis=100000.0,
+                    periapsis=99500.0, eccentricity=0.001, inclination=0.1,
+                    angular_velocity=0.001, crew_count=2, vessel_count=2,
+                    available_thrust=200000.0)
+
+    def test_forge_lko_happy_path_writes_mission_ok(self):
+        """The orbital forge launches with crew, ascends, circularizes, separates
+        (two-step) and parks stable -> MISSION-OK with every assertion met.
+        Guards the shell mis-wiring the machine to the (fake) kRPC surface: no
+        launch, no autowarp-explicit node execution, no attitude hold at the park,
+        or a save taken mid-flight."""
+        frames = [
+            snap(ut=0.0, situation="FLYING"),                            # -> LAUNCH
+            snap(ut=5.0, situation="PRE_LAUNCH", crew_count=2),          # settle 1
+            snap(ut=10.0, situation="PRE_LAUNCH", crew_count=2),         # settle 2 -> ASCENT
+            snap(ut=300.0, apoapsis=99000.0, mj_ascent_complete=True,
+                 crew_count=2),                                          # -> CIRCULARIZE
+            snap(ut=400.0, periapsis=99000.0, vessel_count=1,
+                 crew_count=2),                                          # -> SEPARATE
+            snap(ut=401.0, vessel_count=2, available_thrust=0.0, crew_count=2),
+            snap(ut=402.0, vessel_count=2, available_thrust=0.0, crew_count=2),
+            snap(ut=403.0, vessel_count=2, available_thrust=0.0, crew_count=2),
+            snap(ut=404.0, vessel_count=2, available_thrust=200000.0, crew_count=2),
+            snap(ut=405.0, vessel_count=2, available_thrust=200000.0, crew_count=2),
+            snap(ut=406.0, vessel_count=2, available_thrust=200000.0, crew_count=2),
+            self._parked(410.0), self._parked(420.0), self._parked(480.0),
+            self._parked(490.0), self._parked(500.0), self._parked(510.0),
+        ]
+        control = FakeMissionControl(frames)
+        code, result = run(forge_lko.SPEC, FORGE_LKO_PARAMS, control, budget=1800.0)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        self.assertEqual(result["mission"], "forge_lko")
+        kinds = [a.kind for a in control.actions]
+        self.assertIn(mlib.ACTION_LAUNCH_VESSEL, kinds)
+        self.assertIn(mlib.ACTION_MJ_ENGAGE_ASCENT, kinds)
+        # The autowarp-explicit node execution, NOT the bare circularization
+        # action (B-DOCK flight-12 lesson).
+        self.assertIn(mlib.ACTION_MJ_EXECUTE_NODES, kinds)
+        self.assertNotIn(mlib.ACTION_MJ_EXECUTE_CIRCULARIZATION, kinds)
+        # The park's saved-configuration contract.
+        self.assertIn(mlib.ACTION_CUT_THROTTLE, kinds)
+        self.assertIn(mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES, kinds)
+        self.assertIn(mlib.ACTION_SET_SAS, kinds)
+        self.assertIn(mlib.ACTION_SET_RCS, kinds)
+        # The launch action carries the named crew (the crewed-fixture contract).
+        launch = [a for a in control.actions
+                  if a.kind == mlib.ACTION_LAUNCH_VESSEL][0]
+        self.assertEqual(launch.crew, ("Valentina Kerman", "Bob Kerman"))
+        self.assertTrue(all(a["met"] for a in result["assertions"]),
+                        result["assertions"])
         self.assertTrue(control.closed)
 
 

@@ -1,0 +1,192 @@
+# =============================================================================
+# MISSION PROFILE - full ordered step list (the written vehicle-configuration
+# contract; standing operator directive since BDOCK live flight 3). Every phase
+# names the vehicle configuration that must hold for that leg, JUST LIKE A REAL
+# SPACE MISSION. The machine (mlib.forge_lko_decide) enforces this order.
+#
+#   PRELAUNCH    Nothing of ours on the pad yet: the boot save's own active
+#                vessel (the bdock-forge-base airshow flight) is what LoadGame
+#                focused. The forge does not fly it; it launches over it.
+#   LAUNCH       launch_vessel puts the FULL STACK Kerbal X on the LaunchPad with
+#                the NAMED CREW aboard (Valentina + Bob). The phase completes only
+#                when the craft reads PRE_LAUNCH for K frames AND crew_count >= 2:
+#                an uncrewed stamp is the one failure this fixture must never
+#                make, so the crew gate is checked ON THE PAD, before 10 minutes
+#                of flight, and its flake names the crew.
+#   ASCENT       Full stack; MechJeb AscentAutopilot with autostage drops the 6
+#                radial boosters + nose cones on the way up. Same action set as
+#                B2 / the B-DOCK ascent legs (mlib._bdock_ascent_entry_actions).
+#   CIRCULARIZE  Mainsail core stage burns the circularization node, handed to
+#                MechJeb's node executor with autowarp EXPLICITLY on (B-DOCK
+#                flight-12 lesson: the executor's autowarp is shared global state,
+#                so an unset one warps on one flight and coasts a whole leg at 1x
+#                on the next -- a forge must not depend on that luck).
+#   SEPARATE     The TWO-STEP contract (B-DOCK flight-3 + flight-4 lessons):
+#                (1) ONE stage activation drops the spent core, verified by a
+#                new-vessel (spent core) spawn; (2) ignite the orbital engine -
+#                at most ONE more activation, verified by available_thrust > 0.
+#                HARD CAP 2 activations: a third would fire the istg=0 heat-shield
+#                decoupler. Vehicle is now its ORBITAL STAGE ONLY: pod (CREWED) +
+#                dockingPort2 + 8 RCS + 4 monoprop tanks + LV-T45 + tank + probe
+#                core.
+#   PARK         Throttle CUT, every maneuver node CLEARED, attitude HELD (SAS
+#                stability-assist + RCS on) so the dropped mass does not tumble
+#                the stage. The phase completes only when the orbit reads an
+#                accepted park situation with BOTH apsides in tolerance, the
+#                periapsis clear of the atmosphere (>= 75 km), and the tumble
+#                under the ceiling -- HELD for the full park dwell. This is what
+#                makes the SAVE a clean START state and not a moment mid-flight.
+#   ORBIT        MISSION-OK. The seam then runs SaveGame + FlushAndQuit; the
+#                harvest tool normalizes the produced save into the committed
+#                eva2-lko-crewed fixture.
+#
+# WHAT THE FIXTURE PROMISES ITS CONSUMER (EVA-2-orbital-board): a CREWED, non-
+# tumbling, throttle-cut, node-free ORBITAL STAGE on a stable ~100 km circular
+# Kerbin orbit, with zero Parsek state. EVA-2 exits ONE kerbal to the ladder and
+# re-boards; the second kerbal stays aboard so the ship is never uncrewed.
+# =============================================================================
+schema = 1
+id = "FORGE-eva2-lko"
+# operator tier: this is a FIXTURE-FORGE run, not a coverage flight. It NEVER runs
+# on a cadence (hlib.CADENCE_TIERS maps no cadence to `operator`), only under an
+# explicit `--id FORGE-eva2-lko` / `--tier operator`. It is the THIRD forge and the
+# first ORBITAL one: FORGE-bdock-station and FORGE-eva3-pad both stop on the pad
+# (their machine, forge_station, has no ascent by design), and EVA-2 needs a crewed
+# vessel already in orbit. It boots the SAME committed bdock-forge-base the two pad
+# forges boot, launches the SAME docking Kerbal X with named crew, and then flies
+# the LIVE-PROVEN B-DOCK Interceptor-leg shape (launch -> ascent -> circularize ->
+# two-step separate -> park). NO new ascent was invented: the ascent actions, the
+# circularization, the separation-evidence counter and the attitude hold are the
+# same mlib surfaces B-DOCK has flown 18 times.
+tier = "operator"
+description = "FIXTURE-FORGE (ORBITAL): boot a valid save, launch_vessel the Kerbal X with TWO named crew, fly the proven MechJeb ascent + circularize + two-step separation to a ~100 km circular park, hold it stable, SaveGame -- headlessly stamps the eva2-lko-crewed fixture (harvest tool with --target-name eva2-lko-crewed --expect-situation ORBITING normalizes it)."
+instanceProfile = "stock-minimal"
+tags = ["FORGE", "fixture", "eva", "eva2", "orbital", "mechjeb", "pending-flight"]
+
+[fixture]
+# The SAME committed bootable base both pad forges use: gloops-airshow's FLIGHT
+# state (an active vessel, so LoadGame's IsLoadedGameFocusable gate passes) + the
+# docking Kerbal X in Ships/VAB (so launch_vessel resolves
+# <save>/Ships/VAB/Kerbal X.craft). Deliberately NOT the derived eva3-pad-3crew
+# fixture: a forge must not chain off another forge's output, and this base is the
+# one whose craft has the live-proven separation stage indices (separation
+# Decoupler.2 = istg 2, LV-T45 = istg 1, heat-shield Decoupler.2 = istg 0).
+saveTemplate       = "fixtures/saves/bdock-forge-base"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "forge_lko"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header
+# (a key after the sub-table header would be scoped to driver.missionParams.steps
+# and the spec would validate as having zero steps).
+#
+# autoRecordOnLaunch is pinned FALSE (the one difference from the pad forges' step
+# list, and the reason it matters here): this forge STAGES and FLIES, so an
+# auto-record would start a real recording and leave Parsek metadata inside the
+# persisted persistent.sfs. The harvest prunes the Parsek/ sidecar dir, but the
+# .sfs is copied verbatim -- so the recording is prevented, not cleaned up after.
+# The fixture must carry ZERO Parsek state.
+#
+# Budget arithmetic: missionBudget 1800 (WALL) >= 30 connect + launch reload ~60 +
+# ascent ~250-400 game (at 1x-4x physics warp) + circularize (a coast to apoapsis,
+# rails-warped) + separation ~5 + park dwell 60 + settle tail + margin. The B-DOCK
+# station leg (the identical launch -> ascent -> circularize -> separate -> park
+# shape) took roughly 10-12 min WALL with autowarp across its live flights, so
+# 1800 is ~2.5x the observed need. runtime 2400 >= 240 LoadGame + 3 SetSetting +
+# 1800 mission + SaveGame + FlushAndQuit + margin: the post-mission seam steps must
+# survive a FULL-budget mission.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva", value = "false" },    expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 1800 },
+  { cmd = "SaveGame",   args = { name = "persistent" },                     expect = "OK" },
+  { cmd = "FlushAndQuit",                                                   expect = "OK" },
+]
+
+# All tolerances / windows / budgets (validated against forge_lko.schema.toml),
+# never a golden trajectory. Phase timeouts are GAME seconds.
+[driver.missionParams]
+craftName                   = "Kerbal X"
+launchSite                  = "LaunchPad"
+# TWO named crew, by NAME (kRPC 0.5.4 has no roster-enumeration API, so a count
+# could not be resolved server-side). EVA-2 EVAs exactly ONE kerbal and its
+# EvaExit carries no `kerbal` arg, so the seam resolves crew[0]; the SECOND kerbal
+# exists so the pod is never uncrewed while the first is outside. Same two names
+# EVA-3 uses, so one roster convention spans the EVA lane.
+crewNames                   = ["Valentina Kerman", "Bob Kerman"]
+# The crew gate's floor. Fails CLOSED on the -1 unread sentinel: a silent crew-
+# seeding failure flakes ON THE PAD instead of stamping an uncrewed fixture.
+minCrew                     = 2
+launchTimeoutSeconds        = 300
+launchSettleDebounceFrames  = 3
+# ~100 km circular: comfortably above Kerbin's 70 km atmosphere (so the save is
+# an on-rails-safe stable orbit with no decay concern and a large margin if the
+# circularization lands low), and inside the 90-110 km band the B-DOCK parks have
+# flown repeatedly. The +/-10 km tolerance is B-DOCK's re-timed apo/peri error.
+targetApoapsisMeters        = 100000
+targetPeriapsisMeters       = 100000
+apoErrorMeters              = 10000
+periErrorMeters             = 10000
+eccentricityMax             = 0.02
+# Loose on purpose: a due-east KSC launch targets ~0 deg and the fixture does not
+# care about inclination at all, so this row only catches a wildly wrong ascent.
+inclinationErrorDeg         = 5.0
+launchSiteLatitude          = 0.0
+# 900 game s ~= 2.5x the 250-400 game s a Kerbal X ascent has actually taken.
+ascentTimeoutSeconds        = 900
+# 2400 game s = the B-DOCK live-proven value: the circularization node can sit up
+# to a full coast to apoapsis away, and a 100 km LKO period is ~1960 s, so this
+# covers a whole-orbit coast allowance plus margin.
+circularizeTimeoutSeconds   = 2400
+# Spans BOTH separation steps. Separation + ignition are near-instantaneous, so
+# this is a stuck-decoupler / failed-ignition backstop (a retryable flake), not a
+# tuning knob. B-DOCK live-proven value.
+separationTimeoutSeconds    = 120
+# The park: hold a stable orbit for 60 game s before the save is allowed to be
+# taken (attitude has settled, no burn is in flight), bounded at 600 game s.
+parkSituations              = ["ORBITING"]
+parkDwellSeconds            = 60
+parkTimeoutSeconds          = 600
+parkDebounceFrames          = 3
+# With SAS stability-assist + RCS on, a stabilized stage reads ~0 rad/s; 0.05
+# rad/s is ~2.9 deg/s, well below anything a viewer would call a tumble and far
+# below the ~28-minute tumble B-DOCK flight 10 suffered without the attitude hold.
+maxAngularVelocityRadPerSec = 0.05
+# Kerbin's atmosphere ends at 70 km: a park below 75 km is not the on-rails-safe
+# stable orbit this fixture promises, whatever the apsis tolerance would allow.
+minSafePeriapsisMeters      = 75000
+
+# The forge is a fixture stamp, not a coverage flight: it commits no recording, so
+# only the honest environment cells are cited (kerbin, the flight scene, sandbox).
+# NO warp / orbital-checkpoint cells: nothing here asserts a Parsek surface.
+[dimensionsCovered]
+D14 = ["kerbin", "scene-flight", "sandbox"]
+
+[expectations.recordings]
+# autoRecordOnLaunch is pinned false and nothing calls StartRecording, so the
+# expected count is 0. max 1 absorbs a nascent auto-record without redding an
+# otherwise perfect forge run (the harvest prunes Parsek state regardless, and a
+# real leak would show up as the fixture's own Parsek dir in the harvest log).
+count = { min = 0, max = 1 }
+
+[expectations.logContracts]
+required  = []
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+# 2400 >= 240 LoadGame + 3 SetSetting + 1800 mission + SaveGame + FlushAndQuit +
+# margin.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

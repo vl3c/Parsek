@@ -1,21 +1,33 @@
 schema = 1
 id = "EVA-2-orbital-board"
-# PENDING-FIXTURE (design M-C2 EVA-2): the fixtures/saves/eva2-lko-crewed template (a crewed
-# pod in stable ~80 km LKO, sandbox) is NOT committed yet - it is operator step P2. A
-# --cadence run would INVALID(staging) this terminally and self-quarantine a scenario that
-# never ran, so it stays pending-fixture until the fixture lands, then re-tiers to "daily"
-# (design: daily once proven). IMPLEMENTED PENDING IN-GAME PROOF: P3 pins the count window,
-# P4 pins the orbital auto-record log wording (the required token keeps the STABLE prefix).
+# PENDING-FIXTURE (design M-C2 EVA-2): the fixtures/saves/eva2-lko-crewed template is NOT
+# committed yet - its FORGE now exists (FORGE-eva2-lko, operator tier) but the forge RUN +
+# harvest are still pending, so this stays pending-fixture until the fixture lands, then
+# re-tiers to "daily" (design: daily once proven). A --cadence run before then would
+# INVALID(staging) this terminally and self-quarantine a scenario that never ran.
+# IMPLEMENTED PENDING IN-GAME PROOF: P3 pins the count window, P4 pins the orbital
+# auto-record log wording (the required token keeps the STABLE prefix).
 tier = "pending-fixture"
 description = "Orbital EVA + re-board with autoRecordOnEva=true: the deferred EVA auto-record path starts the recorder on the EVA kerbal, then the kerbal re-boards from the ladder."
 instanceProfile = "stock-minimal"
 tags = ["eva", "auto-record-eva", "orbital", "D1", "B3", "A4"]
 
 [fixture]
-# NEW eva2-lko-crewed: a crewed pod in stable ~80 km LKO, sandbox (operator commits once; a
-# manual ascent-and-quicksave or a set-orbit edit both work - the fixture is a START state,
-# not a recording). The stock "EVA in Kerbin Orbit" scenario save was rejected: scenario-mode
-# saves carry game restrictions the harness has never run under.
+# NEW eva2-lko-crewed, FORGED headlessly by FORGE-eva2-lko (no manual ascent-and-quicksave
+# and no set-orbit edit: the automation forges its own state, 2026-07-22 operator-principle
+# override). What that forge guarantees, and what these steps rely on:
+#   - the Kerbal X ORBITAL STAGE ONLY (spent lifter separated, orbital engine lit), so the
+#     ship is light, controllable and starts from a clean vehicle configuration;
+#   - TWO named crew aboard: Valentina Kerman and Bob Kerman. EvaExit below carries no
+#     `kerbal` arg, so the seam resolves crew[0]; the SECOND kerbal stays aboard so the pod
+#     is never uncrewed while the first is outside;
+#   - a stable ~100 km circular Kerbin orbit (periapsis >= 75 km, well clear of the 70 km
+#     atmosphere), throttle cut, maneuver nodes cleared, SAS + RCS holding attitude - so the
+#     scenario starts on rails-safe, non-tumbling ground truth, not mid-flight;
+#   - zero Parsek state (autoRecordOnLaunch pinned false during the forge, Parsek dirs pruned
+#     by the harvest), so the recording count below starts from nothing.
+# The stock "EVA in Kerbin Orbit" scenario save was rejected: scenario-mode saves carry game
+# restrictions the harness has never run under.
 saveTemplate = "fixtures/saves/eva2-lko-crewed"
 injectedRecordings = "none"
 craft = []

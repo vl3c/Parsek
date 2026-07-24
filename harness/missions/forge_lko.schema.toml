@@ -1,0 +1,161 @@
+# Declared param schema for mission forge_lko (the ORBITAL FIXTURE-FORGE runner;
+# the EVA-2 sibling of forge_station).
+#
+# run.py parses this file with tomllib and injects it as validate_spec's
+# `mission_schemas` argument; hlib's pure _validate_mission_params drives
+# required-key presence + per-value type/range from the `params` table. Only
+# DECLARED params are checked (extras are ignored), and every value is a budget /
+# tolerance / debounce depth, never a golden trajectory.
+
+# --- launch -----------------------------------------------------------------
+
+# The craft to launch onto the pad (resolves <save>/Ships/VAB/<craftName>.craft).
+[params.craftName]
+required = true
+type = "string"
+
+# The launch site (kRPC launch_vessel launch_site). Optional; defaults LaunchPad.
+[params.launchSite]
+required = false
+type = "string"
+
+# Explicit KERBAL NAMES to seed the pod, e.g.
+# crewNames = ["Valentina Kerman", "Bob Kerman"]. Omitted / empty = KSP's default
+# crew assignments (crew=[]). By NAME, never a count: kRPC 0.5.4 exposes no
+# roster-enumeration API to resolve a count to names, only get_kerbal(name) +
+# launch_vessel(crew: List[str]).
+[params.crewNames]
+required = false
+type = "list"
+
+# Minimum kerbals that must READ aboard before the ascent starts (and the
+# crewAboard assertion's floor). 0 disables the gate. Any positive value fails
+# CLOSED on the -1 unread sentinel: a forge whose crew seeding silently failed
+# flakes ON THE PAD instead of stamping an UNCREWED fixture.
+[params.minCrew]
+required = false
+type = "int"
+min = 0
+max = 16
+
+# Game-seconds to see the newly launched craft settle PRELAUNCH (with the crew
+# gate satisfied) before the forge flakes.
+[params.launchTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# Consecutive settled frames before the launch is declared settled.
+[params.launchSettleDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 100
+
+# --- orbit (the B2 ascent tolerances) ---------------------------------------
+
+[params.targetApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.targetPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.apoErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.periErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.eccentricityMax]
+required = false
+type = "float"
+min = 0.0
+max = 1.0
+
+[params.inclinationErrorDeg]
+required = false
+type = "number"
+min = 0.0
+
+# The launch-site latitude the inclination assertion targets (a due-east KSC
+# launch targets ~0 deg).
+[params.launchSiteLatitude]
+required = false
+type = "float"
+min = -90.0
+max = 90.0
+
+[params.ascentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.circularizeTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# --- separation (the two-step contract) -------------------------------------
+
+# Give-up (GAME seconds) spanning BOTH separation steps: drop the spent core AND
+# ignite the orbital engine. A stuck-decoupler / failed-ignition backstop.
+[params.separationTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# --- park (the SAVED state must be settled) ---------------------------------
+
+# Situations accepted as a parked orbit (default ("ORBITING",)).
+[params.parkSituations]
+required = false
+type = "list"
+
+# GAME seconds the stabilized orbit must be HELD before the forge declares the
+# park done: the save must never catch a still-settling ship.
+[params.parkDwellSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.parkTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.parkDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 100
+
+# Tumble ceiling (rad/s) the park must hold with SAS + RCS on. NaN (unread) fails
+# closed and is never counted as stable.
+[params.maxAngularVelocityRadPerSec]
+required = false
+type = "number"
+min = 0.0
+
+# Periapsis floor (m) the park must clear regardless of the target tolerance:
+# Kerbin's atmosphere ends at 70 km, so a park below this is not the
+# "on-rails-safe stable orbit" the fixture contract promises.
+[params.minSafePeriapsisMeters]
+required = false
+type = "number"
+min = 0.0
+
+# Consecutive AIRBORNE frozen-telemetry samples (bit-identical orbit fields while
+# UT advances) before the mission declares the vessel lost and terminates.
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000
