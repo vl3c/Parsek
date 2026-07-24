@@ -20,7 +20,11 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   mission subprocess with the venv python; venv admission runs at pre-launch
   ADMIT), plus the M-B2 ledger-oracle verifier (pre-launch seed baseline,
   per-run action manifest, expected-vs-save diff -> PARSEK-FAIL(ledger) on
-  hard drift).
+  hard drift). On an autopilot scenario whose mission step comes back UNMET,
+  run.py drives the CLEANUP tail steps only (`hlib.SEAM_VERB_TAIL_ROLE`;
+  design-autotest-harness-core.md "The unmet-mission tail"), so a scenario
+  whose tail contains irreversible in-world verbs cannot fire them over a
+  flight that never reached its envelope.
 - Declarative inputs: `scenarios/*.toml` (incl. `[expectations.ledger]`),
   `coverage/registry.toml`, `provision/pins.toml`, `provision/profiles/*.toml`,
   `missions/<name>.schema.toml` + `missions/requirements.txt`.

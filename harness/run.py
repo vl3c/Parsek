@@ -770,6 +770,11 @@ class DriveResult:
         # M-B1: the one mission-kind step's outcome row (design "Mission result"
         # driver.steps row), or None for a seam-only driver.
         self.mission_step: Optional[Dict] = None
+        # The tail steps NOT driven because the mission step came back UNMET (design
+        # "The unmet-mission tail"). Each row: id / cmd / role / reason. Empty on every
+        # other path, including a MISSION-OK run and a seam-only driver, so a normal
+        # result record is byte-identical to what it was before this seam existed.
+        self.skipped_tail_steps: List[Dict] = []
 
 
 def _read_mission_verdict(result_path: str) -> Optional[str]:
@@ -1003,12 +1008,15 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
     responses_path = os.path.join(instance_dir, "parsek-test-responses.txt")
     run_start = runtime.now()
     any_response_seen = False
+    skip_tail = hlib.spec_skips_tail_on_unmet_mission(spec)
+    tail_plan: Optional[hlib.UnmetTailPlan] = None
 
     for i, step in enumerate(steps):
-        step_id = "%04d" % (i + 1)
+        step_id = hlib.step_id_for_index(i)
         # M-B1 handoff (design "The handoff"): a phase=mission step is NOT written to
         # the channel; run.py spawns the mission subprocess and bounded-waits it, then
-        # drives the REMAINING seam steps regardless of the mission outcome.
+        # drives the remaining seam steps. On a MET mission the whole tail runs; on an
+        # UNMET one only the CLEANUP tail runs (design "The unmet-mission tail").
         if step.get("phase") == "mission":
             load_ok = _preceding_loadgame_ok(steps, i, responses_path)
             killed = _drive_mission_step(result, step, step_id, i, proc, runtime,
@@ -1016,6 +1024,23 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                                          preceding_load_ok=load_ok)
             if killed:
                 return result
+            if result.mission_step is not None and not result.mission_step.get("met"):
+                tail_plan = hlib.plan_unmet_mission_tail(steps, i, skip_tail=skip_tail)
+                log = logger.info if not tail_plan.skipped_indices else logger.warn
+                log("Drive", "mission UNMET verdict=%s subkind=%s: %s"
+                    % (result.mission_step.get("missionVerdict") or "<no-result>",
+                       result.mission_step.get("subkind") or "-", tail_plan.summary))
+            continue
+        if tail_plan is not None and i in tail_plan.skipped_indices:
+            role = hlib.seam_verb_tail_role(step.get("cmd", ""))
+            row = {"id": step_id, "cmd": step.get("cmd", ""), "role": role,
+                   "reason": "mission-unmet"}
+            result.skipped_tail_steps.append(row)
+            # Bounded (a driver has well under 20 steps), so log per skipped step: the
+            # KSP.log / harness log is the only place the omission is auditable.
+            logger.info("Drive", "drive step=%d id=%s cmd=%s SKIPPED role=%s reason=mission-unmet "
+                                 "(no channel line written)"
+                        % (i, step_id, row["cmd"], role))
             continue
         verb = step.get("cmd", "")
         args = dict(step.get("args", {}) or {})
@@ -1525,6 +1550,23 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     logger.info("Verify", "verify driverValidity status=%s allMet=%s subkind=%s%s"
                 % (detail["driverValidity"]["status"], ev.all_expected_met, stage_subkind or "-",
                    (" missionVerdict=%s" % mission["missionVerdict"]) if mission else ""))
+
+    # The unmet-mission tail skip, recorded next to the verifier rows it EXPLAINS: on
+    # this path the analyzer is triage-only and logValidate / testResults /
+    # anomalySweep / expectations / ledgerOracle are all SKIPPED on `not driver_valid`,
+    # so the produced save is deliberately incomplete (no committed tree) and no
+    # verifier reads it as ground truth. Without this row a reader of the result JSON
+    # would have to reconstruct WHY the save has no committed recording.
+    if drive.skipped_tail_steps:
+        detail["unmetMissionTail"] = {
+            "status": "SKIPPED", "reason": "mission-unmet",
+            "skippedSteps": [dict(r) for r in drive.skipped_tail_steps],
+        }
+        logger.info("Verify", "verify unmetMissionTail skipped=%d [%s]; the produced save is "
+                               "deliberately incomplete and every save-reading verifier is "
+                               "triage-only/SKIPPED on driver-invalid"
+                    % (len(drive.skipped_tail_steps),
+                       ", ".join("%s:%s" % (r["id"], r["cmd"]) for r in drive.skipped_tail_steps)))
 
     # 2. BATCH_COMPLETE presence (parsed even on short-circuit; cheap triage).
     # M-A5.1 (N3): a multi-category selector ("all" / "A,B") emits per-category lines
@@ -2117,6 +2159,12 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
             steps_rec.sort(key=lambda s: s["id"])
     driver_rec = {"steps": steps_rec,
                   "allExpectedMet": all(s["met"] for s in steps_rec) if steps_rec else False}
+    # The unmet-mission tail steps that were deliberately NOT driven. Recorded OUTSIDE
+    # driver.steps on purpose: a step the harness chose not to send is not an unmet
+    # step, so it must not drag allExpectedMet down or read as a seam verdict miss.
+    # Emitted only when non-empty, so every other run's record is unchanged.
+    if drive is not None and drive.skipped_tail_steps:
+        driver_rec["skippedTailSteps"] = list(drive.skipped_tail_steps)
 
     verifiers_detail = facts["detail"] if facts else {}
     ef = spec.get("expectedFail", {}) or {}

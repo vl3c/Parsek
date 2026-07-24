@@ -32,6 +32,7 @@ All notable changes to Parsek are documented here.
 
 ### Internals & Tests
 
+- When an automated test flight fails to reach the state it was flying toward, the harness now stops after the flight instead of carrying on with the rest of the scripted steps, running only the teardown that closes the recording and quits the game cleanly. Previously it went ahead with steps like sending a kerbal out the hatch, which on one failed run happened while the craft was still falling at terminal velocity. Test-tooling only; no gameplay change.
 - Career recalculation is slightly cheaper: the walk now skips a redundant re-sort of the action list when nothing changed it. Recalculated career values are unchanged.
 - Added a developer-only way to run in-game test batches unattended, driven entirely by launch-time environment variables, plus a new set of recording-integrity checks that run in-game. It is completely inert in a normal game and never changes anything Parsek saves.
 - The developer-only test-command channel's game-load step now detects a failed load (a save that returns to the menu, or one that never finishes loading) and reports it as an error instead of waiting indefinitely. Inert in a normal game; no gameplay change.
