@@ -3525,6 +3525,14 @@ class BDockState:
     # re-target latch. NaN never completes DOCK (fail-closed).
     dock_nan_streak: int = 0
     dock_retarget_done: bool = False
+    # Staggered docking-AP enable (flight 9): MechJeb's core.target syncs from
+    # the KSP-level target on its NEXT Update, so enabling the docking AP in
+    # the SAME action batch as set_target_docking_port makes the AP's first
+    # Drive tick see the OLD vessel target, cast it to a docking node, NRE,
+    # and get benched by MechJeb (2 NRE lines then silence, ship sat to the
+    # budget). Entry/retarget SET the port target and arm this flag; the
+    # enable is emitted on the NEXT poll (~0.5 s, plenty of Unity frames).
+    dock_enable_pending: bool = False
     # TRANSFER sequencing (T1 LiquidFuel deliver, T2 MonoPropellant pickup).
     current_transfer_started: bool = False
     transfers_done: int = 0
@@ -3851,11 +3859,16 @@ def bdock_decide(state: BDockState,
                 # rule): the kill-rel-vel node can still be pending in the executor
                 # with autowarp when MATCH-VELOCITY completes in ~0.5 s, and it
                 # rails-warps at ~approach distance, packing the docking-port
-                # target null. Then target the port + enable the docking AP.
-                return (_bdock_enter(st, BDOCK_DOCK, snapshot.ut),
+                # target null. Then target the port -- but do NOT enable the
+                # docking AP in the same batch (flight 9): MechJeb's core.target
+                # syncs on its next Update, so a same-batch enable makes the AP's
+                # first Drive tick see the OLD vessel target, NRE, and get benched
+                # by MechJeb. dock_enable_pending defers the enable to the next
+                # poll.
+                return (_bdock_enter(replace(st, dock_enable_pending=True),
+                                     BDOCK_DOCK, snapshot.ut),
                         [Action(ACTION_MJ_ABORT_NODE_EXEC),
-                         Action(ACTION_SET_TARGET_DOCKING_PORT),
-                         Action(ACTION_MJ_ENABLE_DOCKING, value=p.dock_speed)])
+                         Action(ACTION_SET_TARGET_DOCKING_PORT)])
         else:
             # Non-finite rel-speed (fail-closed: NaN NEVER completes the phase).
             # The target likely dropped when the rendezvous AP disabled itself;
@@ -3875,6 +3888,12 @@ def bdock_decide(state: BDockState,
 
     if state.phase == BDOCK_DOCK:
         st = state
+        # Deferred docking-AP enable (flight 9): the port target was set on the
+        # entry batch; by this poll MechJeb's core.target has synced to it, so
+        # the AP's first Drive tick sees a real docking node.
+        if st.dock_enable_pending:
+            return (replace(st, dock_enable_pending=False),
+                    [Action(ACTION_MJ_ENABLE_DOCKING, value=p.dock_speed)])
         if snapshot.mj_docking_enabled:
             st = replace(st, docking_ever_enabled=True)
         latched_off = st.docking_ever_enabled and not snapshot.mj_docking_enabled
@@ -3899,9 +3918,11 @@ def bdock_decide(state: BDockState,
             streak = st.dock_nan_streak + 1
             st = replace(st, dock_nan_streak=streak)
             if streak >= DEFAULT_DEBOUNCE_K and not st.dock_retarget_done:
-                return (replace(st, dock_retarget_done=True, dock_nan_streak=0),
-                        [Action(ACTION_SET_TARGET_DOCKING_PORT),
-                         Action(ACTION_MJ_ENABLE_DOCKING, value=p.dock_speed)])
+                # Same stagger as entry (flight 9): set the port target now,
+                # enable the AP on the next poll via dock_enable_pending.
+                return (replace(st, dock_retarget_done=True, dock_nan_streak=0,
+                                dock_enable_pending=True),
+                        [Action(ACTION_SET_TARGET_DOCKING_PORT)])
         elif _is_finite(snapshot.target_distance):
             st = replace(st, dock_nan_streak=0)
         # Monoprop-out give-up (P2): a docking-AP stall thrashing RCS drains it.
@@ -4663,6 +4684,7 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("match_retarget_done", "matchRetarget"),
     ("dock_nan_streak", "dockNanStreak"),
     ("dock_retarget_done", "dockRetarget"),
+    ("dock_enable_pending", "dockEnablePending"),
     ("transfers_done", "transfersDone"),
     ("current_transfer_started", "transferStarted"),
     ("docked_confirmed", "docked"),
@@ -4715,6 +4737,7 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     # flips; the per-frame nan streaks stay out of the diff to avoid noise).
     ("match_retarget_done", "matchRetarget"),
     ("dock_retarget_done", "dockRetarget"),
+    ("dock_enable_pending", "dockEnablePending"),
     ("transfers_done", "transfersDone"),
     ("current_transfer_started", "transferStarted"),
     ("docked_confirmed", "docked"),

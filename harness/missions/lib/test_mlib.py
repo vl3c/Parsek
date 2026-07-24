@@ -4039,8 +4039,9 @@ def _bdock_walk_to(phase, params=BDOCK_PARAMS):
         snap(ut=470.0, target_set=True),                        # ->RENDEZVOUS
         snap(ut=480.0, mj_rendezvous_enabled=True, target_distance=5000.0),  # AP running
         snap(ut=490.0, mj_rendezvous_enabled=False, target_distance=80.0),   # ->MATCH-VELOCITY
-        snap(ut=500.0, target_rel_speed=0.5),                   # ->DOCK
-        snap(ut=510.0, mj_docking_enabled=True, docking_state="Docking"),    # AP running
+        snap(ut=500.0, target_rel_speed=0.5),                   # ->DOCK (entry: abort+set-target, enable pending)
+        snap(ut=505.0, target_distance=90.0),                   # deferred enable -> MJ_ENABLE_DOCKING
+        snap(ut=510.0, mj_docking_enabled=True, docking_state="Docking", target_distance=50.0),  # AP running
         snap(ut=520.0, mj_docking_enabled=False, docking_state="Docked"),    # ->TRANSFER (T1)
         snap(ut=525.0, transfer_complete=True, vessel_count=3),  # T1 done -> T2
         snap(ut=530.0, transfer_complete=True, vessel_count=3),  # T2 done -> UNDOCK (baseline=3)
@@ -4390,8 +4391,11 @@ class BDockMatchVelocityTests(unittest.TestCase):
         state = self._at_match()
         state, actions = mlib.bdock_decide(state, snap(ut=495.0, target_rel_speed=0.5))
         self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+        # Flight-9 stagger: entry abort + set-target only; the enable is deferred.
+        self.assertIn(Action(mlib.ACTION_MJ_ABORT_NODE_EXEC), actions)
         self.assertIn(Action(mlib.ACTION_SET_TARGET_DOCKING_PORT), actions)
-        self.assertIn(Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5), actions)
+        self.assertNotIn(Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5), actions)
+        self.assertTrue(state.dock_enable_pending)
 
     def test_rel_speed_above_floor_stays(self):
         state = self._at_match()
@@ -4456,6 +4460,16 @@ class BDockMatchVelocityTests(unittest.TestCase):
 class BDockDockTests(unittest.TestCase):
     def _at_dock(self):
         state, _ = _bdock_walk_to(mlib.BDOCK_DOCK)
+        # Consume the flight-9 deferred-enable poll: DOCK entry armed
+        # dock_enable_pending (port target set on the entry batch); the next DOCK
+        # poll emits MJ_ENABLE_DOCKING once core.target has synced. Tests below
+        # start from the docking-ready state (pending cleared).
+        self.assertTrue(state.dock_enable_pending)
+        state, enable_actions = mlib.bdock_decide(
+            state, snap(ut=502.0, target_distance=90.0))
+        self.assertEqual(enable_actions,
+                         [Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5)])
+        self.assertFalse(state.dock_enable_pending)
         return state
 
     def test_docked_and_latch_advances_to_transfer_with_t1(self):
@@ -4499,14 +4513,33 @@ class BDockDockTests(unittest.TestCase):
 
     def test_dock_entry_aborts_node_exec_first(self):
         # Flight-8 prox-ops rule: MATCH-VELOCITY completion enters DOCK with the
-        # node-exec abort as the FIRST action, BEFORE targeting + enabling the AP.
+        # node-exec abort as the FIRST action. Flight-9 stagger: the entry batch
+        # is abort + set-target ONLY (the enable is deferred to the next poll).
         state, _ = _bdock_walk_to(mlib.BDOCK_MATCH_VELOCITY)
         state, actions = mlib.bdock_decide(state, snap(ut=495.0, target_rel_speed=0.5))
         self.assertEqual(state.phase, mlib.BDOCK_DOCK)
         self.assertEqual(actions, [
             Action(mlib.ACTION_MJ_ABORT_NODE_EXEC),
-            Action(mlib.ACTION_SET_TARGET_DOCKING_PORT),
-            Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5)])
+            Action(mlib.ACTION_SET_TARGET_DOCKING_PORT)])
+
+    def test_dock_entry_then_next_step_enables(self):
+        # Flight-9 stagger contract: DOCK entry sets the port target + arms the
+        # deferred enable (MechJeb's core.target syncs on its NEXT Update, so a
+        # same-batch enable makes the AP's first Drive tick see the OLD vessel
+        # target and NRE). The enable arrives as the SOLE action on the FOLLOWING
+        # step, pending cleared.
+        state, _ = _bdock_walk_to(mlib.BDOCK_MATCH_VELOCITY)
+        state, entry = mlib.bdock_decide(state, snap(ut=495.0, target_rel_speed=0.5))
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+        self.assertEqual(entry, [
+            Action(mlib.ACTION_MJ_ABORT_NODE_EXEC),
+            Action(mlib.ACTION_SET_TARGET_DOCKING_PORT)])
+        self.assertTrue(state.dock_enable_pending)
+        # Next poll: the enable is the SOLE action; no re-target, no double enable.
+        state, nxt = mlib.bdock_decide(state, snap(ut=496.0, target_distance=90.0))
+        self.assertEqual(nxt, [Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5)])
+        self.assertFalse(state.dock_enable_pending)
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
 
     def test_dropped_target_reacquired_exactly_once(self):
         state = self._at_dock()
@@ -4515,7 +4548,8 @@ class BDockDockTests(unittest.TestCase):
             ut=505.0, mj_docking_enabled=True, docking_state="Docking",
             target_distance=50.0))
         self.assertTrue(state.docking_ever_enabled)
-        # Target goes null: K consecutive NaN-distance frames -> ONE re-target.
+        # Target goes null: K consecutive NaN-distance frames -> ONE re-target that
+        # SETS the port only (flight-9 stagger) + arms the deferred enable.
         actions_seen = []
         for i in range(mlib.DEFAULT_DEBOUNCE_K):
             state, a = mlib.bdock_decide(state, snap(
@@ -4523,10 +4557,15 @@ class BDockDockTests(unittest.TestCase):
                 target_distance=float("nan"), monopropellant=100.0))
             actions_seen.append(a)
         self.assertTrue(state.dock_retarget_done)
-        self.assertEqual(actions_seen[-1], [
-            Action(mlib.ACTION_SET_TARGET_DOCKING_PORT),
-            Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5)])
+        self.assertEqual(actions_seen[-1], [Action(mlib.ACTION_SET_TARGET_DOCKING_PORT)])
+        self.assertTrue(state.dock_enable_pending)
         self.assertEqual(state.dock_nan_streak, 0)  # reset after re-target
+        # The deferred enable lands on the next poll as the SOLE action.
+        state, enable = mlib.bdock_decide(state, snap(
+            ut=515.0, mj_docking_enabled=True, docking_state="Docking",
+            target_distance=float("nan"), monopropellant=100.0))
+        self.assertEqual(enable, [Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5)])
+        self.assertFalse(state.dock_enable_pending)
         # Further NaN frames NEVER re-target again (one-shot latch).
         for i in range(mlib.DEFAULT_DEBOUNCE_K + 1):
             state, a = mlib.bdock_decide(state, snap(

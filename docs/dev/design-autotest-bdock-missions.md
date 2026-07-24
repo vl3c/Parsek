@@ -370,27 +370,42 @@ RENDEZVOUS -> MATCH-VELOCITY
 
 MATCH-VELOCITY -> DOCK
   (ACTION_MJ_ABORT_NODE_EXEC FIRST, then ACTION_SET_TARGET_DOCKING_PORT = the
-   captured Station Clamp-O-Tron HANDLE, then ACTION_MJ_ENABLE_DOCKING with
-   speed_limit = dockSpeedMetersPerSec. Done evidence: the docking-port state ==
-   Docked AND the docking AP's Enabled latch flips FALSE. On dock, KSP fires
-   onPartCouple -> Parsek authors the cross-tree Dock branch in TA + opens the
-   RouteConnectionWindow. AMENDED 2026-07-24 (flight-8 lesson, the prox-ops
-   variant of the operator's mission-profile rule -- NEVER leave maneuver
-   execution armed during terminal approach): flight 8 entered DOCK with a PERFECT
-   setup (tgtD 92 m, tgtV 0.017 m/s) and then flaked at the dock budget WITHOUT
-   docking. Because MATCH-VELOCITY now completes in ~0.5 s (rel-speed already under
-   the floor), the kill-rel-vel NODE (planned XFromNow+15 s) was still PENDING in
-   MechJeb's node executor with autowarp=True when DOCK enabled the docking AP; the
-   executor rails-warped to the node at ~92 m from the Station, PACKING CLEARS
-   DOCKING-PORT TARGETS in stock KSP, the target went null, and MechJebModuleDocking
-   Autopilot NRE'd in Drive + UpdateDistance every tick for ~28 minutes (window
-   dump: tgtD=nan, nodes=0). Fix: ACTION_MJ_ABORT_NODE_EXEC (node_executor.abort()
-   + control.remove_nodes()) is the FIRST DOCK-entry action, so no pending node /
-   executor / autowarp survives into terminal approach. Robustness: a DOCK-phase
-   dropped-target recovery (mirrors matchRetarget) -- while docking_ever_enabled,
-   a non-finite target_distance for K debounced frames re-emits
-   ACTION_SET_TARGET_DOCKING_PORT + ACTION_MJ_ENABLE_DOCKING EXACTLY ONCE
-   (dock_retarget_done latch); NaN never completes DOCK, fail-closed.)
+   captured Station Clamp-O-Tron HANDLE; the docking AP enable
+   (ACTION_MJ_ENABLE_DOCKING with speed_limit = dockSpeedMetersPerSec) is emitted
+   on the NEXT DOCK poll, NOT the same batch (see the flight-9 amendment). Done
+   evidence: the docking-port state == Docked AND the docking AP's Enabled latch
+   flips FALSE. On dock, KSP fires onPartCouple -> Parsek authors the cross-tree
+   Dock branch in TA + opens the RouteConnectionWindow.
+   AMENDED 2026-07-24 (flight-8 lesson, the prox-ops variant of the operator's
+   mission-profile rule -- NEVER leave maneuver execution armed during terminal
+   approach): flight 8 entered DOCK with a PERFECT setup (tgtD 92 m, tgtV 0.017
+   m/s) and then flaked at the dock budget WITHOUT docking. Because MATCH-VELOCITY
+   now completes in ~0.5 s (rel-speed already under the floor), the kill-rel-vel
+   NODE (planned XFromNow+15 s) was still PENDING in MechJeb's node executor with
+   autowarp=True when DOCK enabled the docking AP; the executor rails-warped to the
+   node at ~92 m from the Station, PACKING CLEARS DOCKING-PORT TARGETS in stock
+   KSP, the target went null, and MechJebModuleDockingAutopilot NRE'd in Drive +
+   UpdateDistance every tick for ~28 minutes (window dump: tgtD=nan, nodes=0).
+   Fix: ACTION_MJ_ABORT_NODE_EXEC (node_executor.abort() + control.remove_nodes())
+   is the FIRST DOCK-entry action, so no pending node / executor / autowarp
+   survives into terminal approach.
+   AMENDED AGAIN 2026-07-24 (flight-9 lesson, the core.target one-Update sync
+   trap): with the abort in place flight 9 STILL died -- MechJebModuleDocking
+   Autopilot NRE'd in Drive + UpdateDistance WITHIN ONE FRAME of DOCK entry (ut
+   8687.6 vs entry 8688.2), exactly 2 NRE lines then silence (MechJeb benched the
+   module). Cause: ACTION_SET_TARGET_DOCKING_PORT and ACTION_MJ_ENABLE_DOCKING were
+   in the SAME action batch, but MechJeb's core.target only syncs from the
+   KSP-level target on its NEXT Update, so the AP's first Drive tick saw the OLD
+   VESSEL target (set in SET-TARGET), cast it to a docking node, and NRE'd. (Flight
+   8's tgtD=92 was the vessel-target fallback reading, which masked that the port
+   target had never taken.) Fix: the enable is STAGGERED -- the DOCK-entry batch is
+   ABORT + SET-TARGET only and arms the dock_enable_pending flag; the DOCK phase's
+   first step emits ACTION_MJ_ENABLE_DOCKING alone on the next poll (~0.5 s, ample
+   Unity frames for core.target to sync) and clears the flag.
+   Robustness: a DOCK-phase dropped-target recovery (mirrors matchRetarget) --
+   while docking_ever_enabled, a non-finite target_distance for K debounced frames
+   re-emits ACTION_SET_TARGET_DOCKING_PORT and re-arms the same staggered enable
+   EXACTLY ONCE (dock_retarget_done latch); NaN never completes DOCK, fail-closed.)
 
 DOCK -> TRANSFER
   (two commanded transfers, opposite directions and different resources:

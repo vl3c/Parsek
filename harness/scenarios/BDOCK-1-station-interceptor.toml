@@ -42,9 +42,13 @@
 #                        bounded 600 s; re-acquires a dropped target once.
 #   DOCK                 Abort any pending maneuver execution FIRST (prox-ops
 #                        rule: a pending kill-rel-vel node rails-warps + packs the
-#                        port target null -> docking AP NREs), then MechJeb docking
-#                        AP hard-docks - BOTH vessels ORBITAL STAGE ONLY (never
-#                        dock a full stack). Re-acquires a dropped port once.
+#                        port target null -> docking AP NREs), set the port target,
+#                        then enable the docking AP ONE poll LATER (flight-9:
+#                        MechJeb's core.target syncs on its next Update, so a
+#                        same-batch enable makes the AP's first Drive tick see the
+#                        OLD vessel target and NRE). MechJeb docking AP hard-docks -
+#                        BOTH vessels ORBITAL STAGE ONLY (never dock a full stack).
+#                        Re-acquires a dropped port once (same staggered enable).
 #   TRANSFER             Two ResourceTransfers (LF deliver, MP pickup).
 #   UNDOCK               onVesselsUndocking split; RouteConnectionWindow closes.
 #   TERMINAL             Two separate committed trees in orbit.

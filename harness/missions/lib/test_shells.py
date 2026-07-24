@@ -193,9 +193,22 @@ class FakeMissionControl(mission_runner.MissionControl):
     ``close`` ran. Optional connect refusal and a mid-flight raise cover the
     failure paths."""
     def __init__(self, snapshots, refuse_connect=False, raise_on_read_index=None,
-                 raise_exc=None, client_version="0.5.4", server_version="0.5.4"):
+                 raise_exc=None, client_version="0.5.4", server_version="0.5.4",
+                 max_last_repeats=256):
         self._snaps = list(snapshots)
         self._i = 0
+        # Bounded last-frame repeat: once the scripted frames are exhausted the
+        # fake repeats the settled terminal frame for the shell's settle-tail, but
+        # only up to ``max_last_repeats`` times. An UNBOUNDED repeat turns an
+        # under-fed script (one that never drives the machine to a terminal) into a
+        # multi-million-iteration spin -- the FakeClock advances only 0.001 s per
+        # read, so a large mission budget would not wall for a very long time. When
+        # the bound is exceeded read_snapshot raises EOFError ("end of the frame
+        # stream"), which is a transport-drop name the fly loop re-raises, so an
+        # under-fed script fails FAST and loudly instead of hanging. The bound is
+        # far above any real settle tail (DEFAULT_SETTLE_FRAMES = 4).
+        self._last_repeats = 0
+        self._max_last_repeats = int(max_last_repeats)
         self._refuse = refuse_connect
         self._raise_at = raise_on_read_index
         # The exception raised at raise_on_read_index; defaults to a plain
@@ -223,6 +236,13 @@ class FakeMissionControl(mission_runner.MissionControl):
             snap = self._snaps[self._i]
             self._i += 1
             return snap
+        self._last_repeats += 1
+        if self._last_repeats > self._max_last_repeats:
+            raise EOFError(
+                "FakeMissionControl frame list exhausted: repeated the terminal "
+                "frame %d times without the machine reaching a done state; the "
+                "scripted frame list is under-fed for the current machine contract"
+                % (self._max_last_repeats,))
         return self._snaps[-1]
 
     def perform(self, action):
@@ -1374,8 +1394,9 @@ class BDockShellTests(unittest.TestCase):
             snap(ut=470.0, target_set=True),                        # ->RENDEZVOUS
             snap(ut=480.0, mj_rendezvous_enabled=True, target_distance=5000.0),
             snap(ut=490.0, mj_rendezvous_enabled=False, target_distance=80.0),  # ->MATCH-VELOCITY
-            snap(ut=500.0, target_rel_speed=0.5),                   # ->DOCK
-            snap(ut=510.0, mj_docking_enabled=True, docking_state="Docking"),
+            snap(ut=500.0, target_rel_speed=0.5),                   # ->DOCK (entry: abort+set-target, enable pending)
+            snap(ut=505.0, target_distance=90.0),                   # deferred enable -> MJ_ENABLE_DOCKING
+            snap(ut=510.0, mj_docking_enabled=True, docking_state="Docking", target_distance=50.0),
             snap(ut=520.0, mj_docking_enabled=False, docking_state="Docked"),   # ->TRANSFER T1
             snap(ut=525.0, transfer_complete=True, vessel_count=3),  # T1 done -> T2
             snap(ut=530.0, transfer_complete=True, vessel_count=3),  # T2 done -> UNDOCK
