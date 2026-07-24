@@ -261,6 +261,165 @@ Tests: TestCommand xUnit +~69 cells (verb-table 18/11, C2 dispatch matrix incl. 
 
 **PENDING-OPERATOR (design live-prove list, one KSP session):** P1 load-and-focus sanity of `gloops-airshow`; P2 commit `eva2-lko-crewed` + `eva3-pad-3crew` then re-tier EVA-2/EVA-3 pending-fixture -> daily/nightly; P3 first EVA-1/2/3 runs pin the recordings-count windows (currently provisional per R-C) and the exact structural-snapshot message (the `[Pipeline-Smoothing]` token is regex-escaped in-spec pending confirmation); P4 pin the orbital auto-record log wording (EVA-2's required token keeps the stable `Auto-record started` prefix); P5 confirm ladder release lands with ground contact + zero kerbal damage; P6 confirm the SiteRename dismiss-callback fires `afterFlagPlanted` and Parsek's capture line appears. Also promotes EVA-1 nightly -> daily once the windows are pinned.
 
+## EVA-4 - atmospheric mid-flight EVA + kerbal personal chute: `EvaChuteDeploy` + mission `eva4_atmo_chute` [BUILT, branch `autotest-eva4-chute`, NEVER FLOWN]
+
+Adds the one EVA surface the M-C2 trio does not reach. EVA-1/EVA-3 exit on the pad and
+EVA-2 exits in orbit; EVA-4 exits MID-FLIGHT IN ATMOSPHERE, so it is the only case where
+the kerbal is a FALLING VESSEL with a real trajectory of its own. Four Parsek surfaces
+ride on that: (1) an EVA tree branch created mid-flight in atmosphere; (2) ATMOSPHERIC
+TrackSections on the KERBAL's own recording; (3) the EVA chute captured as a two-phase
+part event ON the kerbal (`ParachuteSemiDeployed` -> `ParachuteDeployed`, the D7
+`chute-two-phase` cell, previously claimed by NO scenario); (4) the DOWN terminal applied
+to a KERBAL recording, with the kerbal ALIVE.
+
+FEASIBILITY was established from decompiled KSP 1.12.5 + the committed fixture bytes
+BEFORE anything was built, because all three legs were genuinely in doubt:
+
+- **Can a kerbal EVA from a moving craft in atmosphere at all? YES, with no stock
+  envelope gate whatsoever.** `FlightEVA.spawnEVA(pcm, fromPart, fromAirlock,
+  tryAllHatches)` (decompiled, FlightEVA.cs:334-546) refuses on exactly four things: the
+  kerbal not being in `fromPart.protoModuleCrew`, a null airlock transform, an obstructed
+  hatch / hatch inside a fairing (`HatchIsObstructedMore` + `hatchInsideFairing`), and a
+  mod veto through `GameEvents.onAttemptEva` + `overrideEVA`. There is NO dynamic-pressure,
+  g-force, speed, or altitude check anywhere on the path, and grepping the whole decompiled
+  assembly finds NO stock subscriber to `onAttemptEva`. `onGoForEVA` even has an explicit
+  in-flight branch (`if (!fromPart.vessel.LandedOrSplashed) StartCoroutine(kerbalEVA
+  .StartNonCollidePeriod(...))`). So the SAFE ENVELOPE is ours to choose, not KSP's to
+  enforce - which is why the scenario defines one explicitly rather than relying on a gate
+  that does not exist.
+- **Does the kerbal have a chute, and how is it deployed? YES, and by one public method.**
+  The chute is `ModuleEvaChute : ModuleParachute` declared on the kerbalEVA PART itself
+  (`Squad/Parts/Prebuilt/kerbalEVA.cfg`: deployAltitude 1000, minAirPressureToOpen 0.04,
+  autoCutSpeed 0.5, chuteMaxTemp 650, fullyDeployedDrag 500). The `Squad/Parts/Cargo/
+  Parachute` "evaChute" part is pure CARGO (`ModuleCargoPart`, packedVolume 10) - it only
+  has to sit in the kerbal's `ModuleInventoryPart` for the module to switch on
+  (`KerbalEVA.UpdatePackModels` -> `evaChute.SetEVAChuteActive(hasChute &&
+  CanCrewMemberUseParachute())`, KerbalEVA.cs:1650-1662; the inventory scan matches
+  `storedPart.partName.Equals("evaChute")` at :1477). Stock kerbals get it for free:
+  `kerbalEVA.cfg`'s `ModuleInventoryPart` declares `DEFAULTPARTS { name = evaChute; name =
+  evaJetpack }`, and the COMMITTED `b1-pad-craft` fixture's roster Jebediah already carries
+  `INVENTORY { inventory = evaChute,evaJetpack }` with a `STOREDPART evaChute` in slot 0 -
+  verified by reading the committed `persistent.sfs`, not assumed. The skill gate is
+  vacuous in practice: `CanCrewMemberUseParachute` compares `experienceLevel >=
+  vessel.VesselValues.EVAChuteSkill.value` and `PartValues` initialises EVAChuteSkill to 0.
+  DEPLOY PATH: both stock player paths call the SAME public method. The keybind path is
+  `On_semi_deploy_parachute.OnCheckCondition` (KerbalEVA.cs:9552-9590), which checks
+  module-enabled + STOWED + the `EVA_ChuteDeploy` key + `VesselUnderControl` + NOT
+  `JetpackDeployed`, then calls `evaChute.Deploy()`; the PAW path is the `[KSPEvent]
+  Deploy()` on ModuleParachute. So `Deploy()` IS the player's click (M-C2 contract), and
+  no kRPC reach is needed or wanted.
+- **Survivability: YES, and the chute is genuinely load-bearing.** kerbalEVA's
+  `crashTolerance` is 50 m/s and `maxTemp` 800 K. Under the module's `fullyDeployedDrag =
+  500` (engaged below its own 1000 m `deployAltitude`) a kerbal sinks at roughly 5-6 m/s -
+  an order of magnitude inside tolerance. Without it a kerbal falls near or past that 50
+  m/s tolerance, so the sequence is a real save, not a formality. The seam verb does NOT
+  take survival on trust: its DOWN completion requires the EVA vessel to still exist with
+  the kerbal aboard and a non-Dead/Missing roster status, so a landed-but-dead kerbal is a
+  terminal ERROR, never an OK.
+
+**New seam verb `EvaChuteDeploy`** (`TestCommandEvaChuteDeploy.cs` pure decisions +
+`ParsekTestCommandAddon.EvaChute.cs` applier), built in the M-C2 shape - pure decision core,
+bounded gates, named timeouts, verbose logging:
+- Arm refusals mirror the stock keybind path's OWN guards in its order, so the seam refuses
+  for exactly the reasons a player's key press would be ignored: `not-eva`,
+  `no-eva-chute-module`, `eva-chute-unavailable` (module switched off = no evaChute in the
+  inventory: the fixture-contract failure), `eva-chute-not-stowed`, `eva-jetpack-deployed`.
+- `Deploy()` only ARMS (STOWED -> ACTIVE, synchronously) and returns SILENTLY when the part
+  is shielded from airstream, so the arm is VERIFIED by re-reading the state (`ArmTook`);
+  a still-STOWED read is `eva-chute-arm-refused` (REJECTED, no side effect). Called is not
+  evidence - the standing EVA-lane rule.
+- Stage A CANOPY is a BOUNDED WAIT on the observed deployment state, not a post-call
+  assertion: the module's own FixedUpdate gate needs static pressure over 0.04 atm (or
+  altitude under 1000 m) AND speed over 1 m/s AND `DeploySafe` reading SAFE, and
+  `DeploySafe` returns UNSAFE for the first 1.0 s after the part unpacks
+  (ModuleParachute.cs:2108-2160), so the canopy is NEVER open on the arming frame. The
+  observation is LATCHED, because stock `UpdateCut` auto-cuts below `autoCutSpeed` 0.5 m/s -
+  a kerbal standing on the ground reads CUT, and a re-read at completion would fail the very
+  landing the verb exists to prove.
+- Stage B DOWN is opt-in (`awaitDown=true`), the same shape as EvaExit's optional
+  `release` / `settleSeconds` stages: hold until LANDED/SPLASHED with the kerbal alive.
+  Named terminals: `eva-chute-canopy-timeout` (armed but never opened) vs
+  `eva-chute-down-timeout` (opened but never landed) vs `eva-chute-kerbal-lost`.
+- Budget 420 s (`DeferralBudget.EvaChuteDeploySeconds`), under the harness 540 s cap; it is
+  the FIRST EVA verb added to `DEFERRED_SEAM_VERBS` because its awaitDown stage genuinely
+  holds the FIFO head for minutes.
+
+**`release=true` on the preceding EvaExit is LOAD-BEARING, not cosmetic** (same
+edge-triggered-FSM family as the EVA-1 flight-2 defect): `ModuleEvaChute` reaching
+SEMIDEPLOYED calls `kerbalEVA.OnParachuteSemiDeployed()` -> `fsm.RunEvent(
+On_semi_deploy_parachute)`, and that event is registered on ONLY `st_ragdoll` and
+`st_idle_fl` (KerbalEVA.cs:9600). `KerbalFSM.RunEvent` for an unregistered event is a
+SILENT no-op (KerbalFSM.cs:298-311). `On_ladderLetGo.GoToStateOnEvent = st_idle_fl`
+(KerbalEVA.cs:8678), so the VERIFIED ladder release is exactly what puts the kerbal in a
+receptive state; a kerbal still on the pod's hatch ladder would arm its chute and never
+enter the chute state. (`RunEvent` does NOT evaluate `OnCheckCondition`, so the keybind
+path's `GetKey()` / `VesselUnderControl` conditions do not apply to the module-driven
+transition - verified in the decompiled `KerbalFSM`.)
+
+**New mission `eva4_atmo_chute`** (`mlib.Eva4Params` / `Eva4State` / `eva4_decide` /
+`eva4_window_open` / `evaluate_eva4_assertions`). It reuses the B1 hop shape
+(PRELAUNCH -> ASCENT -> COAST -> DESCENT) but its terminal is EVA-WINDOW: the craft is
+still AIRBORNE and CREWED when the mission ends. That split is forced, not stylistic -
+kRPC exposes no EVA API and hlib allows exactly ONE mission-kind step per spec, so the
+mission can only fly the craft into the envelope and hand off to the seam. Deliberately a
+SIBLING machine rather than a parameterisation of B1: B1's terminal is the craft on the
+ground and must stay exactly that (it is live-proven and other scenarios depend on its
+shape), so folding an airborne terminal into it would make a proven contract a special
+case of an unproven one.
+- The window is SELF-REGULATING rather than a golden altitude: it needs the craft's own
+  chute commanded AND altitude inside `[evaWindowMinAltMeters, evaWindowMaxAltMeters]`
+  AND `|vertical speed| <= evaMaxDescentRateMps` AND an airborne situation. The craft
+  crosses the ceiling still near terminal velocity, so the gate stays shut and opens a few
+  hundred metres lower once the canopy bites - the handoff altitude is decided by the
+  physics.
+- Sinking past the floor without the window opening is a NAMED ASSERT-FAIL
+  (`eva-window-missed`, carrying the altitude / vspeed / situation / craft-chute state),
+  never a silent burn-down of the descent budget. Unlike B1 there is NO chute-deployed-impact
+  DOWN success terminal: the craft reaching the ground at all means the EVA never happened.
+- `settle_frames=0` + `skip_settle_tail`: the terminal hands a STILL-DESCENDING craft to a
+  time-critical seam step, so every settle sample would spend altitude the kerbal needs.
+
+**Why the EVA is specified LOW (window 800-2400 m) rather than at apoapsis.** An apoapsis
+exit (B1's window is 6-30 km) would give the kerbal 6-30 km of descent; at ~5-6 m/s under
+full canopy that is 20+ minutes, far outside any per-step budget the harness allows (the
+540 s deferred-step cap). A low exit is also the SAFEST available envelope: the craft is
+already decelerating under its own canopy, so dynamic pressure at the hatch is trivial
+(60 m/s in sea-level air is ~2 kPa) and well inside the kerbalEVA part's 50 m/s crash
+tolerance and 800 K maxTemp.
+
+**No new fixture, no fixture edit.** `b1-pad-craft` is reused as-is; its roster Jebediah
+already carries the stock default `evaChute,evaJetpack` inventory.
+
+**The parent craft is a deliberate second surface.** After the EVA the pod descends under
+its own canopy as a background vessel and touches down BEFORE the kerbal. Per the B1
+fixture note the Jumping Flea ALWAYS breaks apart at touchdown (~9 m/s vs the booster's 7
+m/s tolerance); that is EXPECTED here and absorbed by the recordings-count window (2-10).
+Nothing in the spec asserts the pod survives - B4 owns the craft-survives-intact contract;
+EVA-4's survival contract is the KERBAL's.
+
+Tests: 31 new xUnit cells (`TestCommandEvaChuteDeployTests`: the arm-refusal ladder, the
+synchronous arm verification, canopy-open classification, the DOWN situation set, all five
+completion outcomes incl. `KerbalLost` short-circuiting a satisfied completion, the
+kerbal-loss debounce - which delays a loss verdict past a transient unreadable sample but
+can never mask a real one - and payload latching) + the verb-table / precondition-table /
+executor-interface / deferral-budget
+coverage tests extended to 19 implemented verbs; 24 new mlib cells
+(`Eva4WindowGateTests` / `Eva4MachineTests` / `Eva4ParamTests` / `Eva4AssertionTests`)
+including every fail-closed leg of the window gate; hlib gains an EvaChuteDeploy
+deferred-and-capped cell. All headless suites green (xUnit, `harness/lib`,
+`harness/provision`, `harness/missions/lib`), and `run.py --id EVA-4-atmo-chute --dry-run`
+validates.
+
+**PENDING-OPERATOR (first live flight, one KSP session):** P1 pin the recordings-count
+window (currently the provisional 2-10 per R-C, sized to absorb the parent's touchdown
+breakup children). P2 confirm the `'kerbalEVA` part-name prefix in the two Part-event
+tokens (KSP picks the EVA part by suit/gender - kerbalEVA / kerbalEVAfemale /
+kerbalEVAVintage / kerbalEVASlimSuit - so the token deliberately matches the shared prefix
+rather than a guessed full name). P3 confirm where the self-regulating EVA window actually
+opens and re-tune `evaWindowMaxAltMeters` / `evaMaxDescentRateMps` if the Jumping Flea's
+chuted descent rate differs from the estimate. P4 confirm the kerbal's canopy opens and it
+lands ALIVE (the verb reds honestly if not).
+
 ## Scenario coverage expansion - Tier 0/1 seam cells over the gloops fixture [BUILT, branch `autotest-tier01-scenarios`]
 
 Three new `harness/scenarios/*.toml` specs, all seam-driven (no autopilot, no new fixtures) over the existing `fixtures/saves/gloops-airshow` SANDBOX pod, so they run on `stock-minimal` today with only the implemented seam verbs. Each validates through the real `CommittedSpecValidationTests` path and `--dry-run`s clean:

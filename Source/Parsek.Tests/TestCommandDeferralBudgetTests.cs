@@ -71,6 +71,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Eva4ChuteVerb_UsesItsBudget()
+        {
+            // EVA-4: EvaChuteDeploy's awaitDown stage covers the kerbal's WHOLE chuted
+            // descent (~5-6 m/s under the full stock EVA canopy), so it is much longer than
+            // the other EVA verbs - but still under the harness's 540 s deferred-step cap.
+            Assert.Equal(420.0, DeferralBudget.BudgetSeconds("EvaChuteDeploy"));
+            Assert.Equal(DeferralBudget.EvaChuteDeploySeconds,
+                DeferralBudget.BudgetSeconds("EvaChuteDeploy"));
+            Assert.True(DeferralBudget.EvaChuteDeploySeconds <= 540.0,
+                "EvaChuteDeploy budget must stay under the harness deferred-step cap");
+        }
+
+        [Fact]
         public void ShouldTimeout_False_WithinBudget()
         {
             // First deferred at t=100, now t=140, budget 60 -> not yet.

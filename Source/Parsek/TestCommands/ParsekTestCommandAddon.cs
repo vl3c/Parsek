@@ -771,6 +771,12 @@ namespace Parsek.TestCommands
                 TryCompleteEvaBoard(now);
                 return;
             }
+            // EVA-4: same contract, in the ParsekTestCommandAddon.EvaChute.cs partial.
+            if (completionVerb == "EvaChuteDeploy")
+            {
+                TryCompleteEvaChuteDeploy(now);
+                return;
+            }
 
             bool done = false;
             string verdict = null;
@@ -1067,6 +1073,7 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.EvaExit(ParsedCommand cmd) => EvaExitImpl(cmd);
         void ITestCommandExecutor.EvaBoard(ParsedCommand cmd) => EvaBoardImpl(cmd);
         void ITestCommandExecutor.PlantFlag(ParsedCommand cmd) => PlantFlagImpl(cmd);
+        void ITestCommandExecutor.EvaChuteDeploy(ParsedCommand cmd) => EvaChuteDeployImpl(cmd);
 
         private void InvokeExecutor(ParsedCommand cmd)
         {
@@ -1091,6 +1098,7 @@ namespace Parsek.TestCommands
                 case "EvaExit": exec.EvaExit(cmd); break;
                 case "EvaBoard": exec.EvaBoard(cmd); break;
                 case "PlantFlag": exec.PlantFlag(cmd); break;
+                case "EvaChuteDeploy": exec.EvaChuteDeploy(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

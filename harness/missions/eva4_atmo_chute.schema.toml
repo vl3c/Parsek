@@ -1,0 +1,93 @@
+# Declared param schema for mission eva4_atmo_chute (scenario EVA-4-atmo-chute).
+#
+# hlib.validate_spec does NOT read this file itself: run.py parses every
+# harness/missions/<mission>.schema.toml with tomllib into a registry
+# { mission-name -> schema-dict } and INJECTS it as validate_spec's `mission_schemas`
+# argument; hlib's pure _validate_mission_params then drives required-key presence and
+# per-value type/range checks from the `params` table below. Shape consumed by hlib:
+#   {"params": {"<name>": {"required": bool, "type": "<t>", "min": <num?>, "max": <num?>}}}
+# where <t> in {float, int, number, window, list, string, bool}.
+#
+# Every value here is a WINDOW / tolerance / budget, never a golden trajectory. The three
+# eva* keys are the EVA envelope; see the EVA4_* comment block in mlib.py for why the
+# envelope is expressed as bounds the physics must satisfy rather than an altitude the
+# flight is steered to.
+
+[params.throttle]
+required = true
+type = "float"
+min = 0.0
+max = 1.0
+
+# Hop sanity only (same semantics as B1's): proves the SRB actually flew a suborbital
+# hop rather than fizzling on the pad or over-shooting the regime the window was sized for.
+[params.apoapsisWindowMeters]
+required = true
+type = "window"
+
+# Altitude at which the CRAFT's own parachute is armed on the way down. B1 uses 2500 m
+# and is live-proven at it; the EVA window opens BELOW this, once the canopy bites.
+[params.chuteDeployAltMeters]
+required = true
+type = "number"
+min = 0.0
+
+# EVA-window ceiling: the highest altitude the mission will hand off at. Bounded above by
+# how long the seam's EvaChuteDeploy awaitDown stage may run (a kerbal under the full
+# stock EVA canopy sinks at ~5-6 m/s, and the verb's budget is 420 s), so this must stay
+# well under ~2 km of remaining sky.
+[params.evaWindowMaxAltMeters]
+required = true
+type = "number"
+min = 200.0
+max = 5000.0
+
+# EVA-window floor: sink below this without the window ever opening and the mission
+# ASSERT-FAILs with eva-window-missed. Also the minimum sky the KERBAL needs: its chute
+# fully deploys under the module's 1000 m deployAltitude, so the floor must leave room
+# for exit + ladder release + arm + canopy.
+[params.evaWindowMinAltMeters]
+required = true
+type = "number"
+min = 100.0
+max = 5000.0
+
+# |vertical speed| bound at the handoff frame: the conjunct that proves the craft's
+# canopy has actually taken hold, and the bound on how fast the kerbal is moving when it
+# leaves the hatch. This is what makes the window self-regulating.
+[params.evaMaxDescentRateMps]
+required = true
+type = "number"
+min = 1.0
+max = 120.0
+
+[params.ascentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.coastTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.descentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# Optional: consecutive AIRBORNE frozen-telemetry samples (bit-identical orbit fields
+# while UT advances) before the mission declares the vessel lost. mlib.Eva4Params
+# defaults it to 10 when absent.
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000
+
+# Optional: the situations that keep the EVA window legitimate. Defaults to
+# ["FLYING", "SUB_ORBITAL"]. A craft that has already LANDED is the EVA-1 ground case,
+# not this scenario's mid-flight surface.
+[params.airborneSituations]
+required = false
+type = "list"

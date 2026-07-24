@@ -196,6 +196,307 @@ class B1MachineTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# EVA-4 phase state machine (mission eva4_atmo_chute).
+# ---------------------------------------------------------------------------
+
+
+EVA4_PARAMS = mlib.Eva4Params(
+    throttle=1.0,
+    chute_deploy_alt=2500.0,
+    eva_window_max_alt=2400.0,
+    eva_window_min_alt=800.0,
+    eva_max_descent_rate=60.0,
+    ascent_timeout=90.0,
+    coast_timeout=180.0,
+    descent_timeout=240.0,
+    apoapsis_window=(6000.0, 30000.0),
+)
+
+
+def drive_eva4(state, frames):
+    """Feed a list of snapshots through eva4_decide, returning
+    (final_state, [actions_per_frame])."""
+    per_frame = []
+    for f in frames:
+        state, actions = mlib.eva4_decide(state, f)
+        per_frame.append(actions)
+    return state, per_frame
+
+
+def _eva4_descent_state(params=EVA4_PARAMS, **overrides):
+    """An Eva4State pinned in DESCENT with the craft chute already armed."""
+    base = mlib.eva4_initial_state(params)
+    fields = {**base.__dict__, "phase": mlib.EVA4_DESCENT, "phase_entry_ut": 0.0,
+              "chute_deployed": True}
+    fields.update(overrides)
+    return base.__class__(**fields)
+
+
+class Eva4WindowGateTests(unittest.TestCase):
+    """Guards ``eva4_window_open`` -- the single decision the whole mission exists to
+    make. The seam's IRREVERSIBLE EvaExit fires on its say-so, so every conjunct must
+    fail CLOSED: a window that opens one frame too early puts a kerbal out of the hatch
+    at terminal velocity, and one that opens too low leaves it no sky for its canopy."""
+
+    def test_open_when_every_conjunct_holds(self):
+        self.assertTrue(mlib.eva4_window_open(
+            EVA4_PARAMS, True,
+            snap(altitude=1800.0, vertical_speed=-9.0, situation="FLYING")))
+
+    def test_shut_without_craft_chute(self):
+        # The exit platform must be a DECELERATING chuted descent, never a
+        # terminal-velocity fall that happens to read slow for one frame.
+        self.assertFalse(mlib.eva4_window_open(
+            EVA4_PARAMS, False,
+            snap(altitude=1800.0, vertical_speed=-9.0, situation="FLYING")))
+
+    def test_shut_above_ceiling(self):
+        self.assertFalse(mlib.eva4_window_open(
+            EVA4_PARAMS, True,
+            snap(altitude=2400.1, vertical_speed=-9.0, situation="FLYING")))
+
+    def test_shut_below_floor(self):
+        self.assertFalse(mlib.eva4_window_open(
+            EVA4_PARAMS, True,
+            snap(altitude=799.9, vertical_speed=-9.0, situation="FLYING")))
+
+    def test_shut_while_falling_too_fast(self):
+        # THE self-regulating conjunct: at the ceiling the craft is still at terminal
+        # velocity and the gate must stay shut until the canopy bites.
+        self.assertFalse(mlib.eva4_window_open(
+            EVA4_PARAMS, True,
+            snap(altitude=2300.0, vertical_speed=-95.0, situation="FLYING")))
+
+    def test_open_at_inclusive_bounds(self):
+        # The bounds are inclusive on all three axes.
+        self.assertTrue(mlib.eva4_window_open(
+            EVA4_PARAMS, True,
+            snap(altitude=2400.0, vertical_speed=-60.0, situation="FLYING")))
+        self.assertTrue(mlib.eva4_window_open(
+            EVA4_PARAMS, True,
+            snap(altitude=800.0, vertical_speed=-60.0, situation="FLYING")))
+
+    def test_shut_when_already_landed(self):
+        # A landed craft is the EVA-1 ground case, not this scenario's surface.
+        self.assertFalse(mlib.eva4_window_open(
+            EVA4_PARAMS, True,
+            snap(altitude=1000.0, vertical_speed=0.0, situation="LANDED")))
+
+    def test_shut_on_unreadable_telemetry(self):
+        # NaN altitude / vertical speed fail CLOSED (never EVA on a blind frame).
+        nan = float("nan")
+        self.assertFalse(mlib.eva4_window_open(
+            EVA4_PARAMS, True,
+            snap(altitude=nan, vertical_speed=-9.0, situation="FLYING")))
+        self.assertFalse(mlib.eva4_window_open(
+            EVA4_PARAMS, True,
+            snap(altitude=1800.0, vertical_speed=nan, situation="FLYING")))
+
+    def test_shut_on_blank_situation(self):
+        self.assertFalse(mlib.eva4_window_open(
+            EVA4_PARAMS, True, snap(altitude=1800.0, vertical_speed=-9.0)))
+
+
+class Eva4MachineTests(unittest.TestCase):
+    """Guards the EVA-4 machine: the B1 hop shape up to DESCENT, but terminating
+    AIRBORNE at EVA-WINDOW so the seam can EVA. A mis-wired terminal here either hands
+    the seam a landed craft (wrong scenario entirely) or burns the descent budget."""
+
+    def test_prelaunch_emits_throttle_and_stage_then_ascent(self):
+        state = mlib.eva4_initial_state(EVA4_PARAMS)
+        new, actions = mlib.eva4_decide(state, snap(ut=0.0))
+        self.assertEqual(new.phase, mlib.EVA4_ASCENT)
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_THROTTLE, 1.0),
+                                   Action(mlib.ACTION_ACTIVATE_STAGE)])
+
+    def test_full_happy_path_ends_airborne_in_window(self):
+        # The whole PRELAUNCH -> EVA-WINDOW walk. The craft chute is armed exactly
+        # once at 2500 m, the window stays SHUT while the craft is still falling fast
+        # at 2300 m, and opens at 1900 m once the canopy has slowed it.
+        state = mlib.eva4_initial_state(EVA4_PARAMS)
+        frames = [
+            snap(ut=0.0),                                            # PRELAUNCH->ASCENT
+            snap(ut=2.0, stage_solid_fuel=10.0, apoapsis=5000.0),    # ASCENT
+            snap(ut=6.0, stage_solid_fuel=0.0, apoapsis=12000.0),    # ASCENT->COAST
+            snap(ut=10.0, vertical_speed=20.0, apoapsis=12200.0),    # COAST (rising)
+            snap(ut=25.0, vertical_speed=-5.0, apoapsis=12210.0),    # COAST->DESCENT
+            snap(ut=40.0, altitude=5000.0, vertical_speed=-90.0,
+                 situation="FLYING"),                                # DESCENT, high
+            snap(ut=55.0, altitude=2400.0, vertical_speed=-95.0,
+                 situation="FLYING"),                                # arm craft chute
+            snap(ut=57.0, altitude=2300.0, vertical_speed=-80.0,
+                 situation="FLYING"),                                # still too fast
+            snap(ut=62.0, altitude=1900.0, vertical_speed=-9.0,
+                 situation="FLYING"),                                # WINDOW OPENS
+        ]
+        state, per_frame = drive_eva4(state, frames)
+        self.assertTrue(state.done)
+        self.assertEqual(state.phase, mlib.EVA4_EVA_WINDOW)
+        self.assertIsNone(state.verdict)
+        self.assertIsNone(state.loss_reason)
+        self.assertEqual(state.peak_apoapsis, 12210.0)
+        self.assertEqual(state.eva_window_altitude, 1900.0)
+        self.assertEqual(state.eva_window_vertical_speed, -9.0)
+        # The terminal hands a still-descending craft to the seam: skip the settle tail.
+        self.assertTrue(state.skip_settle_tail)
+        chute_frames = [i for i, acts in enumerate(per_frame)
+                        if Action(mlib.ACTION_DEPLOY_CHUTE) in acts]
+        self.assertEqual(chute_frames, [6])
+        self.assertEqual(state.phases_reached,
+                         (mlib.EVA4_PRELAUNCH, mlib.EVA4_ASCENT, mlib.EVA4_COAST,
+                          mlib.EVA4_DESCENT, mlib.EVA4_EVA_WINDOW))
+
+    def test_window_missed_below_floor_is_named_assert_fail(self):
+        # Sinking past the floor with the window never open must ASSERT-FAIL by NAME,
+        # not silently wait out the 240 s descent budget.
+        state = _eva4_descent_state()
+        state, _ = mlib.eva4_decide(
+            state, snap(ut=10.0, altitude=700.0, vertical_speed=-95.0, situation="FLYING"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("eva-window-missed", state.loss_reason)
+        self.assertIn("800", state.loss_reason)
+        self.assertNotEqual(state.phase, mlib.EVA4_EVA_WINDOW)
+
+    def test_window_wins_over_floor_on_the_same_frame(self):
+        # A frame that is inside the window is never also "below the floor": the
+        # window check runs FIRST so an exactly-at-floor frame succeeds.
+        state = _eva4_descent_state()
+        state, _ = mlib.eva4_decide(
+            state, snap(ut=10.0, altitude=800.0, vertical_speed=-8.0, situation="FLYING"))
+        self.assertEqual(state.phase, mlib.EVA4_EVA_WINDOW)
+        self.assertIsNone(state.verdict)
+
+    def test_vessel_lost_is_assert_fail_not_a_down_success(self):
+        # Unlike B1 there is NO chute-deployed-impact success terminal: the craft
+        # reaching the ground at all means the EVA never happened.
+        state = _eva4_descent_state()
+        state, _ = mlib.eva4_decide(state, snap(ut=10.0, vessel_lost=True))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("vessel-lost", state.loss_reason)
+
+    def test_descent_budget_overrun_flakes_naming_phase(self):
+        state = _eva4_descent_state()
+        state, _ = mlib.eva4_decide(
+            state, snap(ut=500.0, altitude=1500.0, vertical_speed=-95.0, situation="FLYING"))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.EVA4_DESCENT)
+
+    def test_frozen_telemetry_trips_assert_fail(self):
+        params = EVA4_PARAMS.__class__(**{**EVA4_PARAMS.__dict__, "frozen_sample_limit": 3})
+        state = _eva4_descent_state(params)
+        for f in _frozen_frames(4, altitude=1500.0, vertical_speed=-95.0):
+            state, _ = mlib.eva4_decide(state, f)
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("frozen", state.loss_reason)
+
+    def test_done_state_is_idempotent(self):
+        state = mlib.eva4_initial_state(EVA4_PARAMS)
+        term = state.__class__(**{**state.__dict__, "phase": mlib.EVA4_EVA_WINDOW,
+                                  "done": True})
+        new, actions = mlib.eva4_decide(term, snap(ut=999.0))
+        self.assertIs(new, term)
+        self.assertEqual(actions, [])
+
+    def test_nan_ut_does_not_trip_budget(self):
+        state = mlib.eva4_initial_state(EVA4_PARAMS)
+        state, _ = mlib.eva4_decide(state, snap(ut=0.0))
+        state, _ = mlib.eva4_decide(state, snap(ut=float("nan"), stage_solid_fuel=50.0))
+        self.assertEqual(state.phase, mlib.EVA4_ASCENT)
+        self.assertIsNone(state.verdict)
+
+
+class Eva4ParamTests(unittest.TestCase):
+    """Guards eva4_params_from_dict: the spec's missionParams are the ONLY source of
+    the EVA envelope, so a dropped / mistyped key must not silently widen it."""
+
+    def test_reads_every_declared_key(self):
+        p = mlib.eva4_params_from_dict({
+            "throttle": 1.0,
+            "apoapsisWindowMeters": {"min": 6000, "max": 30000},
+            "chuteDeployAltMeters": 2500,
+            "evaWindowMaxAltMeters": 2400,
+            "evaWindowMinAltMeters": 800,
+            "evaMaxDescentRateMps": 60,
+            "ascentTimeoutSeconds": 90,
+            "coastTimeoutSeconds": 180,
+            "descentTimeoutSeconds": 240,
+            "frozenTelemetrySamples": 7,
+            "airborneSituations": ["FLYING"],
+        })
+        self.assertEqual(p.apoapsis_window, (6000.0, 30000.0))
+        self.assertEqual(p.chute_deploy_alt, 2500.0)
+        self.assertEqual(p.eva_window_max_alt, 2400.0)
+        self.assertEqual(p.eva_window_min_alt, 800.0)
+        self.assertEqual(p.eva_max_descent_rate, 60.0)
+        self.assertEqual(p.descent_timeout, 240.0)
+        self.assertEqual(p.frozen_sample_limit, 7)
+        self.assertEqual(p.airborne_situations, ("FLYING",))
+
+    def test_defaults_are_conservative(self):
+        p = mlib.eva4_params_from_dict({})
+        self.assertEqual(p.frozen_sample_limit, 10)
+        self.assertEqual(p.airborne_situations, ("FLYING", "SUB_ORBITAL"))
+
+
+class Eva4AssertionTests(unittest.TestCase):
+    """Guards the EVA-4 assertion evaluator: it re-states the handoff contract in the
+    RESULT JSON, so a future window re-tune cannot move the exit envelope invisibly."""
+
+    def _terminal_state(self, alt=1900.0, vs=-9.0):
+        base = mlib.eva4_initial_state(EVA4_PARAMS)
+        return base.__class__(**{**base.__dict__, "phase": mlib.EVA4_EVA_WINDOW,
+                                 "done": True, "eva_window_altitude": alt,
+                                 "eva_window_vertical_speed": vs})
+
+    def test_all_three_met_on_a_good_handoff(self):
+        frames = [snap(apoapsis=12000.0), snap(apoapsis=8000.0)]
+        outs = mlib.evaluate_eva4_assertions(frames, EVA4_PARAMS, self._terminal_state())
+        by_name = {o.name: o for o in outs}
+        self.assertEqual(set(by_name), {"apoapsisWindow", "evaWindowReached",
+                                        "evaWindowDescentRate"})
+        self.assertTrue(all(o.met for o in outs))
+        self.assertEqual(by_name["evaWindowReached"].value, 1900.0)
+        self.assertEqual(by_name["evaWindowDescentRate"].value, -9.0)
+
+    def test_window_not_reached_is_unmet(self):
+        base = mlib.eva4_initial_state(EVA4_PARAMS)
+        stuck = base.__class__(**{**base.__dict__, "phase": mlib.EVA4_DESCENT})
+        outs = mlib.evaluate_eva4_assertions([snap(apoapsis=12000.0)], EVA4_PARAMS, stuck)
+        by_name = {o.name: o for o in outs}
+        self.assertFalse(by_name["evaWindowReached"].met)
+        self.assertFalse(by_name["evaWindowDescentRate"].met)
+        self.assertEqual(by_name["evaWindowReached"].detail["terminalPhase"],
+                         mlib.EVA4_DESCENT)
+
+    def test_out_of_window_apoapsis_is_unmet(self):
+        outs = mlib.evaluate_eva4_assertions([snap(apoapsis=45000.0)], EVA4_PARAMS,
+                                             self._terminal_state())
+        by_name = {o.name: o for o in outs}
+        self.assertFalse(by_name["apoapsisWindow"].met)
+        self.assertEqual(by_name["apoapsisWindow"].value, 45000.0)
+
+    def test_too_fast_handoff_fails_the_rate_assertion(self):
+        outs = mlib.evaluate_eva4_assertions([snap(apoapsis=12000.0)], EVA4_PARAMS,
+                                             self._terminal_state(vs=-95.0))
+        by_name = {o.name: o for o in outs}
+        self.assertFalse(by_name["evaWindowDescentRate"].met)
+
+    def test_rows_serialize_json_safe(self):
+        outs = mlib.evaluate_eva4_assertions([], EVA4_PARAMS, None)
+        for o in outs:
+            row = o.to_dict()
+            self.assertIn("name", row)
+            self.assertIn("met", row)
+            # NaN evidence is scrubbed to JSON null.
+            self.assertTrue(row["value"] is None
+                            or isinstance(row["value"], (float, int, str)))
+
+
+# ---------------------------------------------------------------------------
 # B2 phase state machine.
 # ---------------------------------------------------------------------------
 
