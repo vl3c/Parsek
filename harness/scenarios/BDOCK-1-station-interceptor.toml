@@ -82,14 +82,13 @@
 # =============================================================================
 schema = 1
 id = "BDOCK-1-station-interceptor"
-# pending-fixture: the pre-placed-Station fixture (fixtures/saves/bdock-station-pad)
-# is forgeable-but-not-yet-forged -- it is PRODUCED by the FORGE-bdock-station run
-# (operator/me), not committed yet. `pending-fixture` excludes it from every cadence
-# until the fixture lands, at which point it re-tiers to `nightly` (its real cadence
-# tier: fixture-committed + the longest flown mission, mirroring B5). Do NOT flip to
-# nightly before the forge run commits bdock-station-pad AND the first live flight
-# passes (design section 5.4 retry-once, P1..P9 live-proves).
-tier = "pending-fixture"
+# nightly since 2026-07-24: both re-tier conditions met - the FORGE-produced
+# bdock-station-pad fixture is committed, and flight 18 was a FULL PASS (all
+# seven verifiers green; fifth consecutive hard dock). The 18-flight campaign's
+# lessons live in the MISSION PROFILE header above; the one Parsek defect it
+# caught (INV4 quickload-adoption of the fresh rollout) is fixed by
+# QuickloadResumeMatchGuard and verified analyzer-green on flights 17/18.
+tier = "nightly"
 description = "First two-vessel Parsek autotest: pre-placed Station flies B2 ascent to a ~110 km park and commits its tree mid-mission, then the same Kerbal X launches as an Interceptor, rendezvous + docks, transfers LF/MP both ways, and undocks -- exercising the dock/transfer/undock recording pipeline (cross-tree Dock branch, onVesselsUndocking split, RouteConnectionWindow deltas)."
 instanceProfile = "stock-minimal"
 tags = ["BDOCK", "bdock", "mechjeb", "dock", "rendezvous", "route", "pending-flight"]
