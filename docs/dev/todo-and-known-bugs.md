@@ -410,15 +410,103 @@ deferred-and-capped cell. All headless suites green (xUnit, `harness/lib`,
 `harness/provision`, `harness/missions/lib`), and `run.py --id EVA-4-atmo-chute --dry-run`
 validates.
 
-**PENDING-OPERATOR (first live flight, one KSP session):** P1 pin the recordings-count
-window (currently the provisional 2-10 per R-C, sized to absorb the parent's touchdown
-breakup children). P2 confirm the `'kerbalEVA` part-name prefix in the two Part-event
-tokens (KSP picks the EVA part by suit/gender - kerbalEVA / kerbalEVAfemale /
-kerbalEVAVintage / kerbalEVASlimSuit - so the token deliberately matches the shared prefix
-rather than a guessed full name). P3 confirm where the self-regulating EVA window actually
-opens and re-tune `evaWindowMaxAltMeters` / `evaMaxDescentRateMps` if the Jumping Flea's
-chuted descent rate differs from the estimate. P4 confirm the kerbal's canopy opens and it
-lands ALIVE (the verb reds honestly if not).
+**FLIGHT-1 FINDING + FIX (2026-07-24): arming the craft's chute at 2500 m is INERT, not
+late - stock refuses to open a parachute at ~300 m/s, so the EVA window could never
+open.** The first live EVA-4 run ASSERT-FAILed exactly as the design intended - fast,
+self-explaining, no budget burn (107 s wall): `eva-window-missed: altitude 702m fell
+below the window floor 800m (vspeed -295.2m/s, situation FLYING, craftChute armed)`,
+phasesReached PRELAUNCH/ASCENT/COAST/DESCENT, `apoapsisWindow` met at 19,879 m. The
+named-failure design and the per-frame diagnostics did their whole job; the mission
+params were wrong.
+
+MEASURED (mission stdout per-frame telemetry, `harness/results/2026-07-24_1907_*`):
+peak altitude 11,965 m at ut 60.6 (orbital apoapsis 19,879 m); ASCENT 9.7 s; COAST
+40.8 s; the unchuted descent settles at TERMINAL **-301 m/s** by ~2,700 m and holds it;
+the chute was armed at **2,382 m / -301 m/s** and 5.1 s later, at 855 m, the rate had
+moved **4.7 m/s**. The canopy had not opened at all.
+
+ROOT CAUSE, proved two independent ways rather than inferred. (1) The Parsek recording:
+the pod's `.prec` carries ZERO `ParachuteSemiDeployed` / `ParachuteDeployed` part events -
+only a `Decoupled` at ut 119.70 (the breakup). (2) Decompiled `ModuleParachute.cs`
+(1255-1290): the ACTIVE -> SEMIDEPLOYED transition needs
+`automateSafeDeploy >= (int)deploymentSafeState`, and the b1-pad-craft fixture PERSISTS
+`automateSafeDeploy = 0` (= open only while SAFE), which `DeploySafe` never reads at
+~300 m/s in dense air. An armed chute therefore just WAITS - and a craft already at
+terminal velocity never slows on its own, so it waits forever. The arm was inert.
+
+THREE FIXES, each addressing a distinct part of the failure:
+- **ARM WHILE SLOW, not at an altitude.** `eva4_decide` now arms on the first DESCENT
+  frame whose `|vertical speed|` is within `craftChuteArmMaxRateMps` (30) - i.e. at the
+  apoapsis crossing, where `DeploySafe` is trivially SAFE and Kerbin is already ~0.2 atm
+  (far over the module's 0.04 atm semi-deploy gate). The COAST -> DESCENT transition now
+  FALLS THROUGH into the descent body on the SAME frame instead of returning: the arm
+  gate is rate-based and the rate only worsens (~10 m/s per ~1 s poll on Kerbin; measured
+  entry sequence -7.4, -16.9, -26.1, -35.5 m/s), so a one-poll delay needlessly eats the
+  bound and a few polls would push the craft permanently outside it - the same failure in
+  slow motion.
+- **RAISE the full-deploy altitude.** The machine sets the craft chutes' stock
+  `deployAltitude` (kRPC `Parachute.DeployAltitude`, a PAW tweakable, so player-normal)
+  to `craftChuteFullDeployAltMeters` (2500) in the same frame it arms. The fixture
+  persists 1000 m and the Mk16's full-deploy animation is SLOW
+  (`parachuteMk1.cfg deploymentSpeed = 0.12`, ~8 s), so leaving it at 1000 m would force
+  the EVA band under 1000 m with an unmeasured settle distance eating into it. Raising it
+  also lengthens the KERBAL's atmospheric descent - the recording surface this scenario
+  exists to exercise.
+- **GATE ON OBSERVED STATE, NOT ON THE COMMAND.** The window's first conjunct now reads
+  the craft's parachute state from kRPC (`ParachuteState`, decompiled
+  `KRPC.SpaceCenter.Services.Parts`) and requires `Deployed`. The old conjunct was the
+  machine's own "we emitted the deploy action" latch, which was TRUE for the entire failed
+  flight - the exact "an action being CALLED is not evidence it HAPPENED" lesson the EVA
+  lane already learned twice (BDOCK SEPARATE, EVA-1 ladder release), reached here through
+  a mission-machine latch instead of a seam verb. New opt-in telemetry channel
+  `TelemetrySnapshot.craft_chute_state` (`KrpcMissionControl(read_chute=True)`, `""`
+  unread sentinel = fail-closed, most-deployed-chute-wins across the craft; every other
+  mission's snapshot stays byte-identical), and the `eva-window-missed` reason now carries
+  the OBSERVED state, so a repeat reads `craftChute=Armed` and names itself.
+
+RE-DERIVED PARAMS: window `[800, 2400] m / |vs| <= 60` -> `[700, 2100] m / |vs| <= 25`
+(ceiling 400 m below the full-deploy trigger so the observed-Deployed conjunct can only
+become true inside/above the band; floor gives 1400 m of settle room for the ~8 s
+animation and still ~700 m of sky for the kerbal, whose own chute fully deploys under
+1000 m at ~5-6 m/s so its descent time is bounded by that leg rather than by the exit
+altitude; 25 m/s passes the B1-measured ~9 m/s full-canopy touchdown rate with ~2.8x
+margin while a merely semi-deployed craft can never satisfy it). BUDGETS re-checked
+against the measured fall times: ASCENT 90 and COAST 180 keep B1's values (measured 9.7 s
+and 40.8 s); `descentTimeoutSeconds` 240 -> 480, the mission step 600 -> 900 and the
+runtime 1560 -> 1920, because the craft now flies nearly the whole descent UNDER CANOPY
+and its semi-deployed rate is the one number still unmeasured - the budget is sized to
+OUT-WAIT a slow one rather than to predict it. A new `craftCanopyObserved` assertion row
+reports the observed bit alongside the commanded altitude/rate, so the result JSON carries
+both halves of the distinction. Tests: the EVA-4 mlib block grew to 27 cells including the
+flight-1 regression guards (`test_shut_when_chute_only_armed`,
+`test_window_missed_below_floor_names_the_observed_chute_state`,
+`test_coast_to_descent_arms_on_the_transition_frame`,
+`test_arm_waits_until_inside_the_rate_bound`) and a kRPC-enum normalization cell.
+
+**SAME-EVIDENCE FINDING, SPUN OFF (not EVA-4's to fix): B1-pad-hop's chute never opens
+either.** The live-proven B1 log (`logs/2026-07-20_1829_B1-pad-hop`) shows the identical
+shape - its `parachuteSingle` has ZERO `Parachute*` part events, only a `Decoupled` at
+ut 119.70, and its recording ends at 65 m. B1 arms at the same 2500 m with the same
+`automateSafeDeploy = 0` fixture, so it too impacts at terminal velocity. B1 is GREEN
+anyway because `_b1_down_eligible` awards its "chute-deployed impact" DOWN terminal on the
+COMMANDED latch (`state.chute_deployed`) plus vessel-lost plus last-altitude, never on an
+observed canopy. So B1's documented Parsek surface ("chute-deployed ground-arrival
+recording") does not match what it flies. Left alone here because B1 is live-proven and
+other work depends on its shape; tracked as its own task.
+
+**PENDING-OPERATOR (re-fly after the flight-1 re-tune):** P1 pin the recordings-count
+window (still the provisional 2-10 per R-C, sized to absorb the parent's touchdown
+breakup children) - flight 1 never reached the EVA, so nothing past the mission handoff
+is pinned yet. P2 confirm the `'kerbalEVA` part-name prefix in the two Part-event tokens
+(KSP picks the EVA part by suit/gender - kerbalEVA / kerbalEVAfemale / kerbalEVAVintage /
+kerbalEVASlimSuit - so the token deliberately matches the shared prefix rather than a
+guessed full name). P3 MEASURE the craft's SEMI-DEPLOYED descent rate, the one number the
+re-tune could not derive from flight 1; it drives how much of the 480 s descent budget is
+actually used and where inside [700, 2100] m the window opens, so trim
+`descentTimeoutSeconds` from that evidence. P4 confirm the kerbal's canopy opens and it
+lands ALIVE (the verb reds honestly if not). RESOLVED by flight 1, no longer pending: the
+hop profile (peak 11,965 m, apoapsis 19,879 m, unchuted terminal -301 m/s) and the ascent
+/ coast phase durations (9.7 s / 40.8 s).
 
 ## Scenario coverage expansion - Tier 0/1 seam cells over the gloops fixture [BUILT, branch `autotest-tier01-scenarios`]
 

@@ -45,13 +45,20 @@ id = "EVA-4-atmo-chute"
 #                |         | touchdown.
 # COAST          | mission | Same stack, SRB burnt out (solid fuel 0), throttle CUT,
 #                |         | ballistic over apoapsis.
-# DESCENT        | mission | Same stack, falling. At chuteDeployAltMeters the CRAFT's
-#                |         | parachuteSingle is armed STOWED->ACTIVE; it semi-deploys
-#                |         | immediately (sea-level pressure is far over its 0.04 atm
-#                |         | gate) and fully deploys under its own 1000 m deployAltitude.
-# EVA-WINDOW     | mission | Same stack, still AIRBORNE and CREWED, decelerating under
-# (terminal)     |         | its canopy inside the altitude band with |vertical speed|
-#                |         | under the bound. Mission ends here and hands off.
+# DESCENT        | mission | Same stack, falling. On the FIRST frame past apoapsis
+#                |         | (|vertical speed| within craftChuteArmMaxRateMps) the CRAFT's
+#                |         | parachuteSingle has its deployAltitude RAISED to
+#                |         | craftChuteFullDeployAltMeters and is armed STOWED->ACTIVE.
+#                |         | Arming HERE, while slow, is the flight-1 fix: at ~300 m/s
+#                |         | stock refuses to open it at all (see the mission-params
+#                |         | block). It semi-deploys within a frame or two at ~11.9 km
+#                |         | (Kerbin is ~0.2 atm there, far over its 0.04 atm gate) and
+#                |         | fully deploys under the raised altitude.
+# EVA-WINDOW     | mission | Same stack, still AIRBORNE and CREWED, under an OBSERVED
+# (terminal)     |         | FULL canopy (kRPC ParachuteState reads Deployed - never the
+#                |         | machine's own "we commanded it" latch, which was true for
+#                |         | the whole failed flight 1) inside the altitude band with
+#                |         | |vertical speed| under the bound. Mission ends and hands off.
 # EVA-EXIT       | seam    | Jebediah leaves mk1pod.v2 through the side airlock. The
 #                |         | vessel configuration SPLITS: a new single-part kerbalEVA
 #                |         | vessel (Jebediah) + the parent pod stack, which keeps
@@ -128,7 +135,7 @@ steps = [
   { cmd = "SetSetting",     args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
   # verboseLogging: the Part-event lines and "Mid-recording EVA detected" are VERBOSE.
   { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
-  { phase = "mission",                                                    expect = "MISSION-OK", budget = 600 },
+  { phase = "mission",                                                    expect = "MISSION-OK", budget = 900 },
   # release=true: MANDATORY, see the FSM ground truth above. The seam reports
   # released=VERIFIED-left-the-ladder, never a bare called-the-event bit.
   { cmd = "EvaExit",        args = { release = "true" },                  expect = "OK", budget = 120 },
@@ -143,34 +150,58 @@ steps = [
 # Mission parameters are TOLERANCES / WINDOWS, never golden trajectories; validated
 # against eva4_atmo_chute.schema.toml.
 [driver.missionParams]
+# ================= RE-TUNED FROM FLIGHT-1 MEASUREMENTS (2026-07-24) =================
+# Flight 1 ASSERT-FAILed exactly as designed - fast, self-explaining, no budget burn:
+#   "eva-window-missed: altitude 702m fell below the window floor 800m (vspeed
+#    -295.2m/s, situation FLYING, craftChute armed)".
+# Measured per-frame profile from the mission telemetry:
+#   peak altitude 11,965 m at ut 60.6 (orbital apoapsis 19,879 m);
+#   unchuted descent settles at TERMINAL -301 m/s by ~2,700 m and holds it;
+#   chute armed at 2,382 m / -301 m/s; 5.1 s later at 855 m the rate had moved 4.7 m/s.
+# The Parsek recording confirms the canopy never opened at all: the pod's .prec carries
+# ZERO Parachute* part events. ROOT CAUSE: the fixture's parachuteSingle persists
+# automateSafeDeploy = 0 (open only while SAFE) and stock DeploySafe never reads SAFE at
+# ~300 m/s in dense air, so an armed chute simply waits - and a craft at terminal
+# velocity never slows on its own. Arming low was INERT, not late.
 throttle              = 1.0
-# Hop sanity, copied from B1's live-proven window (same craft, same full-throttle SRB).
+# Hop sanity, unchanged: B1's live-proven window, and flight 1 measured 19,879 m inside it.
 apoapsisWindowMeters  = { min = 6000, max = 30000 }
-# The CRAFT's chute arm altitude: B1's live-proven 2500 m.
-chuteDeployAltMeters  = 2500
-# --- The EVA envelope (P3: first flight confirms where the window actually opens) ---
-# Ceiling 2400 m: BELOW the craft's chute arm altitude, so the window can only open
-# after the craft's canopy exists. It is also the sky budget for the KERBAL: at ~5-6 m/s
-# under its full canopy, ~2 km is ~350 s, inside the EvaChuteDeploy 420 s budget. This
-# is why the EVA is specified LOW rather than at apoapsis - an apoapsis exit at 6-30 km
-# would put the kerbal's descent far outside any per-step budget the harness allows.
-evaWindowMaxAltMeters = 2400
-# Floor 800 m: the kerbal needs exit + verified ladder release + arm + canopy before it
-# runs out of air. Sinking past this without the window opening is a NAMED ASSERT-FAIL
-# (eva-window-missed), not a silent burn-down of the descent budget.
-evaWindowMinAltMeters = 800
-# 60 m/s: the conjunct that makes the window SELF-REGULATING. The craft crosses 2400 m
-# still near terminal velocity, so the gate stays shut and opens a few hundred metres
-# lower once the canopy bites - the handoff altitude is decided by the physics, not by a
-# golden number. It also bounds the airspeed the kerbal leaves the hatch into (60 m/s in
-# sea-level air is ~2 kPa dynamic pressure; the kerbalEVA part's crashTolerance is 50 m/s
-# and its maxTemp 800 K, so this is far inside both).
-evaMaxDescentRateMps  = 60
-# Phase budgets: B1's live-proven values. DESCENT is measured from apoapsis to the
-# window, a SHORTER span than B1's descent-to-touchdown, so 240 s is comfortable.
+# --- Craft chute: ARM WHILE SLOW, and give the full canopy room (flight-1 fixes) ---
+# 30 m/s: the machine arms at the APOAPSIS CROSSING instead of at an altitude. Measured
+# DESCENT-entry rates were -7.4, -16.9, -26.1, -35.5 m/s, so this arms within ~3 frames,
+# where DeploySafe is trivially SAFE and Kerbin is already ~0.2 atm (the module's
+# semi-deploy pressure gate is 0.04 atm), so the canopy opens at ~11.9 km and the craft
+# never reaches the -301 m/s terminal that made flight 1 unopenable.
+craftChuteArmMaxRateMps       = 30
+# 2500 m: raise the stock deployAltitude (a PAW tweakable) from the fixture's 1000 m so
+# the FULL canopy exists well above the EVA band. The Mk16 full-deploy animation is ~8 s
+# (parachuteMk1.cfg deploymentSpeed = 0.12); at 1000 m the settle would eat into the band
+# itself. This also lengthens the KERBAL's atmospheric descent, which is the recording
+# surface this scenario exists to exercise.
+craftChuteFullDeployAltMeters = 2500
+# --- EVA window: [700, 2100] m with |vs| <= 25 m/s ---
+# Ceiling 2100 m: 400 m below the full-deploy trigger, so "chute reads Deployed" can only
+# become true inside or above the band. Floor 700 m: 1400 m of settle room for the ~8 s
+# animation, and still ~700 m of sky for the kerbal (whose own chute FULLY deploys under
+# 1000 m at ~5-6 m/s, so its descent time is bounded by that leg, not by the exit
+# altitude). 25 m/s: the B1-measured Jumping Flea full-canopy touchdown rate is ~9 m/s,
+# so this passes with ~2.8x margin while a merely semi-deployed craft can never satisfy
+# it - the window stays meaningful instead of rubber-stamping a slow-ish frame.
+evaWindowMaxAltMeters = 2100
+evaWindowMinAltMeters = 700
+evaMaxDescentRateMps  = 25
+# --- Phase budgets, re-checked against the measured fall times ---
+# ASCENT: measured 9.7 s (ut 10.1 -> 19.9). COAST: measured 40.8 s (19.9 -> 60.6). Both
+# keep B1's live-proven values with a large margin.
 ascentTimeoutSeconds  = 90
 coastTimeoutSeconds   = 180
-descentTimeoutSeconds = 240
+# DESCENT: 240 was sized for the UNCHUTED fall (measured 56 s, apoapsis -> 855 m). After
+# the fix the craft flies nearly the whole descent UNDER CANOPY, and the semi-deployed
+# rate for this craft is NOT measured yet, so this budget out-waits a slow one rather
+# than predicting it: 480 s covers ~9.4 km of semi-deployed descent even at a pessimistic
+# ~30 m/s, plus the full-canopy leg from 2500 m to the band at ~9 m/s. If the first
+# re-fly measures the real semi rate this can be trimmed from evidence.
+descentTimeoutSeconds = 480
 
 [dimensionsCovered]
 D1  = ["auto-record-launch"]
@@ -246,12 +277,16 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 allowedAnomalies = []
 
 [runtime]
-# Budget arithmetic (S0.6 / B1 pattern), WALL clock: 300 LoadGame + 600 mission +
-# 120 EvaExit + 420 EvaChuteDeploy = 1440, plus the fast verbs (SetSetting x3 /
-# StopRecording / CommitTree / FlushAndQuit, seconds each) + 120 margin = 1560.
-# EvaChuteDeploy is the only NEW deferred step; at 420 it is under the harness's
+# Budget arithmetic (S0.6 / B1 pattern), WALL clock. RAISED after flight 1: the craft
+# now descends UNDER CANOPY from apoapsis, which is slower than the measured 56 s
+# unchuted fall, so the mission budget had to grow with descentTimeoutSeconds.
+#   300 LoadGame + 900 mission + 120 EvaExit + 420 EvaChuteDeploy = 1740,
+#   plus the fast verbs (SetSetting x3 / StopRecording / CommitTree / FlushAndQuit,
+#   seconds each) + 180 margin = 1920.
+# The 900 mission budget covers 30 connect + 90 ascent + 180 coast + 480 descent +
+# margin. EvaChuteDeploy is the only NEW deferred step; at 420 it is under the harness's
 # 540 s per-step cap for a deferred verb.
-budgetSeconds = 1560
+budgetSeconds = 1920
 
 [retry]
 policy = "once"

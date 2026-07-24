@@ -14,9 +14,16 @@ live, crewed craft decelerating under its own canopy inside a bounded altitude b
 the seam's irreversible EvaExit fires into a known-safe envelope instead of a guess.
 
 The window is self-regulating rather than a golden altitude: it requires the craft's own
-chute to have been commanded AND |vertical speed| under a bound, so it opens where the
-canopy actually bites. Missing it (sinking past the floor) is a bounded, NAMED
-ASSERT-FAIL, never a silent burn-down of the descent budget.
+chute to READ Deployed AND |vertical speed| under a bound, so it opens where the canopy
+actually bites. Missing it (sinking past the floor) is a bounded, NAMED ASSERT-FAIL,
+never a silent burn-down of the descent budget.
+
+FLIGHT-1 (2026-07-24) reshaped two things; the full evidence is in the EVA4_* comment
+block in mlib.py. (1) The craft's chute is ARMED WHILE SLOW at the apoapsis crossing,
+not at an altitude on the way down: at ~300 m/s stock refuses to open it at all
+(automateSafeDeploy = 0 + DeploySafe unsafe), so a low arm is inert, not late. (2) The
+window gates on the chute's OBSERVED kRPC state, never on the machine's own "we
+commanded it" latch - which was true for the whole failed flight.
 
 This is a THIN shell: every decision is the pure ``mlib.eva4_decide`` phase machine and
 ``mlib.evaluate_eva4_assertions``; the flight, connect, logging, and result write are
@@ -64,7 +71,12 @@ def evaluate(frames, params: dict, state=None) -> List[mlib.AssertionOutcome]:
 
 def make_control() -> mission_runner.MissionControl:
     # Raw kRPC (no MechJeb), exactly like B1: the Flea hop needs no ascent autopilot.
-    return mission_runner.KrpcMissionControl(use_mechjeb=False, client_name=MISSION_NAME)
+    # read_chute=True is the FLIGHT-1 FIX: this mission's terminal depends on the craft's
+    # canopy being OBSERVED open (kRPC ParachuteState), not on having commanded it. On
+    # flight 1 the command succeeded, the canopy never opened, and the machine had no way
+    # to tell. Every other mission leaves the read off and keeps its snapshot unchanged.
+    return mission_runner.KrpcMissionControl(use_mechjeb=False, client_name=MISSION_NAME,
+                                             read_chute=True)
 
 
 SPEC = mission_runner.MissionSpec(

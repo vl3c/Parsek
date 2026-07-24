@@ -8,10 +8,9 @@
 #   {"params": {"<name>": {"required": bool, "type": "<t>", "min": <num?>, "max": <num?>}}}
 # where <t> in {float, int, number, window, list, string, bool}.
 #
-# Every value here is a WINDOW / tolerance / budget, never a golden trajectory. The three
-# eva* keys are the EVA envelope; see the EVA4_* comment block in mlib.py for why the
-# envelope is expressed as bounds the physics must satisfy rather than an altitude the
-# flight is steered to.
+# Every value here is a WINDOW / tolerance / budget, never a golden trajectory. The
+# craftChute* and eva* keys are the arming rule and the EVA envelope; the EVA4_* comment
+# block in mlib.py carries the flight-1 measurements they were derived from.
 
 [params.throttle]
 required = true
@@ -20,22 +19,49 @@ min = 0.0
 max = 1.0
 
 # Hop sanity only (same semantics as B1's): proves the SRB actually flew a suborbital
-# hop rather than fizzling on the pad or over-shooting the regime the window was sized for.
+# hop rather than fizzling on the pad or over-shooting the regime the window was sized
+# for. MEASURED flight 1: orbital apoapsis 19,879 m, peak altitude 11,965 m.
 [params.apoapsisWindowMeters]
 required = true
 type = "window"
 
-# Altitude at which the CRAFT's own parachute is armed on the way down. B1 uses 2500 m
-# and is live-proven at it; the EVA window opens BELOW this, once the canopy bites.
-[params.chuteDeployAltMeters]
+# ARM-WHILE-SLOW bound (m/s). The machine arms the CRAFT's parachutes on the first
+# DESCENT frame whose |vertical speed| is within this bound - i.e. at the apoapsis
+# crossing - and NOT at an altitude on the way down.
+#
+# FLIGHT-1 EVIDENCE (2026-07-24): arming at 2500 m produced an INERT chute. Measured, the
+# craft was at -301 m/s there, and 5.1 s later at 855 m the rate had moved only 4.7 m/s;
+# the Parsek recording carries ZERO Parachute* part events. Stock's ACTIVE ->
+# SEMIDEPLOYED gate needs `automateSafeDeploy >= (int)deploymentSafeState`, and the
+# fixture's parachuteSingle persists `automateSafeDeploy = 0` (deploy only while SAFE),
+# which DeploySafe never reads at ~300 m/s in dense air. A craft at terminal velocity
+# never slows on its own, so the armed chute waits forever - the arm was INERT, not late.
+# Measured DESCENT-entry rates were -7.4, -16.9, -26.1, -35.5 m/s, so 30 arms within
+# ~3 frames of apoapsis, where DeploySafe is trivially SAFE and Kerbin is already ~0.2
+# atm (far over the module's 0.04 atm semi-deploy pressure gate).
+[params.craftChuteArmMaxRateMps]
 required = true
 type = "number"
-min = 0.0
+min = 1.0
+max = 120.0
 
-# EVA-window ceiling: the highest altitude the mission will hand off at. Bounded above by
-# how long the seam's EvaChuteDeploy awaitDown stage may run (a kerbal under the full
-# stock EVA canopy sinks at ~5-6 m/s, and the verb's budget is 420 s), so this must stay
-# well under ~2 km of remaining sky.
+# The stock full-deploy altitude (m) the machine SETS on the craft's parachutes at the
+# same moment it arms them (kRPC Parachute.DeployAltitude - a stock PAW tweakable, so
+# this is player-normal). The fixture persists 1000 m; the Mk16's full-deploy animation
+# is SLOW (parachuteMk1.cfg deploymentSpeed = 0.12, so ~8 s), so leaving it at 1000 m
+# would force the EVA band under 1000 m with an unmeasured settle distance eating into
+# it. Raising it puts the craft at its FULL-canopy terminal rate well above the band,
+# and gives the KERBAL a longer atmospheric descent - the surface this scenario exists
+# to exercise.
+[params.craftChuteFullDeployAltMeters]
+required = true
+type = "number"
+min = 500.0
+max = 10000.0
+
+# EVA-window ceiling: the highest altitude the mission will hand off at. Must sit BELOW
+# craftChuteFullDeployAltMeters so the "chute reads Deployed" conjunct can only become
+# true inside or above the band, never above it by accident.
 [params.evaWindowMaxAltMeters]
 required = true
 type = "number"
@@ -43,18 +69,22 @@ min = 200.0
 max = 5000.0
 
 # EVA-window floor: sink below this without the window ever opening and the mission
-# ASSERT-FAILs with eva-window-missed. Also the minimum sky the KERBAL needs: its chute
-# fully deploys under the module's 1000 m deployAltitude, so the floor must leave room
-# for exit + ladder release + arm + canopy.
+# ASSERT-FAILs with eva-window-missed (the reason names the OBSERVED chute state, so a
+# repeat of the flight-1 inert-armed-chute failure reads "craftChute=Armed"). The gap
+# between floor and ceiling is the settle room the craft's ~8 s full-deploy animation
+# gets; the floor is also the minimum sky the KERBAL needs (its own chute fully deploys
+# under 1000 m at ~5-6 m/s and is only semi-deployed above that).
 [params.evaWindowMinAltMeters]
 required = true
 type = "number"
 min = 100.0
 max = 5000.0
 
-# |vertical speed| bound at the handoff frame: the conjunct that proves the craft's
-# canopy has actually taken hold, and the bound on how fast the kerbal is moving when it
-# leaves the hatch. This is what makes the window self-regulating.
+# |vertical speed| bound at the handoff frame: the safety bound the kerbal leaves the
+# hatch into, and a cross-check that the OBSERVED canopy is actually doing work. Sized
+# against the B1-measured ~9 m/s Jumping Flea touchdown rate under full canopy - low
+# enough that a merely semi-deployed craft can never satisfy it, so the window stays
+# meaningful rather than rubber-stamping any slow-ish frame.
 [params.evaMaxDescentRateMps]
 required = true
 type = "number"
@@ -71,6 +101,10 @@ required = true
 type = "number"
 min = 0.0
 
+# DESCENT spans apoapsis -> the EVA window, and after the flight-1 fix the craft flies
+# almost all of it UNDER CANOPY, which is slower than the measured 56 s unchuted fall
+# from 11,965 m to 855 m. The semi-deployed rate for this craft is not measured yet, so
+# this budget is sized to OUT-WAIT a slow one rather than to predict it.
 [params.descentTimeoutSeconds]
 required = true
 type = "number"
