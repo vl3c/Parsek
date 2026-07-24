@@ -661,15 +661,40 @@ B2/B5 ascent ACTIONs; only the phase machine is new.
 | `ACTION_START_RESOURCE_TRANSFER` (text = resource, value = amount, from/to part HANDLEs) | `ResourceTransfer.start(from_part, to_part, resource, amount)`; the runner polls `.complete`. |
 | `ACTION_UNDOCK` (a captured port HANDLE) | `port.undock()`. |
 
-**Handle capture (P9).** kRPC v0.5.4 exposes no pid/guid on `Vessel`, both vessels
-are literally named "Kerbal X", and Parsek's ghost `ProtoVessel`s can inject
+**Handle capture (P9) - ANSWERED 2026-07-24 (flight 13): VESSEL handles survive the
+reload, PART handles do NOT.** kRPC v0.5.4 exposes no pid/guid on `Vessel`, both
+vessels are literally named "Kerbal X", and Parsek's ghost `ProtoVessel`s can inject
 same-named map entries - so target / transfer / undock selection MUST use kRPC object
-HANDLES captured while the object is reachable (the Station vessel + its top docking
-port captured during STATION-COMMIT while the Station is active; the transport /
-station tank handles captured post-dock from the merged vessel's parts by resource +
-by the pre-dock part-set split). Name/pid selection is forbidden in the driver;
-pid/guid identity is the OFFLINE oracle's job (section 6), reading the persisted
-recordings.
+HANDLES, never name/pid. The captured-handle LIFETIME was the unknown, and flight 13's
+telemetry pinned it as the root cause behind EVERY dock failure since flight 7:
+
+- A captured **Vessel** handle SURVIVES the `launch_vessel` FLIGHT reload (kRPC keys
+  it by the vessel id, stable while the Station goes on-rails). `ACTION_SET_TARGET_
+  VESSEL` on the captured `_station_vessel` worked all along -- which MASKED the
+  problem, because `target_distance` stayed finite through RENDEZVOUS / MATCH via the
+  vessel target.
+- A captured **Part** handle does NOT survive the reload. `FlightDriver.StartWith
+  NewLaunch` destroys/recreates every `Part` object, so a captured Part proxy (the
+  Station's docking port; the station-side tanks) resolves server-side to a DESTROYED
+  part. `ACTION_SET_TARGET_DOCKING_PORT` assigning the stale port handle hit KSP's
+  `SetVesselTarget` on a destroyed `ITargetable`, which SILENTLY CLEARS the target
+  (`target_distance` went None the instant the port was set, in every flight); MechJeb
+  then refused to engage its docking AP with no port target (the flight-8/9 benched-NRE
+  and the flight-13 "enable never took" were the same null-target family). The stale
+  station-tank handles would have hit the same wall in TRANSFER.
+
+FIX (flight 13): the driver captures the Station VESSEL handle at STATION-COMMIT (used
+for `SET_TARGET_VESSEL`, survives), but the port + tanks are captured only as
+LAST-RESORT fallbacks. `SET_TARGET_DOCKING_PORT` re-resolves the port LIVE from
+`sc.target_vessel.parts.docking_ports` (first 'ready' port; pure `pick_ready_port_
+index`), never clobbering a working vessel target with a dead handle when there is no
+target. `_read_docking_state` re-resolves LIVE from the ACTIVE vessel's ports (post-
+merge it carries both mated ports; any 'docked'/'docking' is authoritative) -- the
+stale handle read "" in every post-reload flight, blinding the DOCK-done gate too. The
+TRANSFER re-resolves both tanks LIVE by partitioning the merged part tree at the mated
+docked-port pair (transport = the active-control side). Name/pid selection stays
+forbidden in the driver; pid/guid identity is the OFFLINE oracle's job (section 6),
+reading the persisted recordings.
 
 ### 5.2 New TelemetrySnapshot fields (runner-populated, fail-closed defaults)
 
@@ -889,11 +914,14 @@ D10 and is now cited; the remaining gap is only the D10-level orbital-dock value
 - **P8 - Session length under the wall budget.** The ~2400 s estimate is arithmetic;
   a slow rendezvous or a docking retry can blow it. Retry-once; re-time against the
   first run.
-- **P9 - Handle-based target / transfer / undock selection.** kRPC v0.5.4 Vessel
-  exposes no pid/guid, both vessels are named "Kerbal X", and ghost ProtoVessels can
-  inject same-named entries - so selection MUST use captured kRPC handles (Station
-  vessel + port captured while active; tanks captured post-dock by resource + pre-dock
-  part-set). Confirm the handles survive the merge / reload.
+- **P9 - Handle-based target / transfer / undock selection. ANSWERED (flight 13):
+  VESSEL handles survive the launch_vessel reload, PART handles do NOT** (kRPC keys a
+  Vessel by its stable id, but the reload destroys/recreates every Part object, so a
+  captured port/tank proxy resolves to a destroyed part and SetVesselTarget on it
+  silently clears the target - the root cause behind every dock failure since flight
+  7). Fix: capture the Station VESSEL handle (survives, used for SET_TARGET_VESSEL);
+  re-resolve the port, docking-state, and transfer tanks LIVE at call time. See the
+  "Handle capture (P9)" answer in section 5.1. Name/pid selection stays forbidden.
 
 ---
 

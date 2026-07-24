@@ -4897,5 +4897,32 @@ class BDockParamTests(unittest.TestCase):
         self.assertEqual(p.launch_site, "LaunchPad")
 
 
+class BDockPortResolutionTests(unittest.TestCase):
+    """Pure helpers behind the flight-13 LIVE port/state resolution (the runner
+    reads the live kRPC states and applies these)."""
+
+    def test_pick_ready_port_prefers_first_ready(self):
+        self.assertEqual(mlib.pick_ready_port_index(["docked", "ready", "ready"]), 1)
+
+    def test_pick_ready_port_case_insensitive(self):
+        self.assertEqual(mlib.pick_ready_port_index(["Docked", "READY"]), 1)
+
+    def test_pick_ready_port_falls_back_to_first_when_none_ready(self):
+        self.assertEqual(mlib.pick_ready_port_index(["docked", "docking"]), 0)
+
+    def test_pick_ready_port_none_when_empty(self):
+        self.assertIsNone(mlib.pick_ready_port_index([]))
+        self.assertIsNone(mlib.pick_ready_port_index(None))
+
+    def test_normalize_docking_state_pascalcases(self):
+        self.assertEqual(mlib.normalize_docking_state("docked"), "Docked")
+        self.assertEqual(mlib.normalize_docking_state("pre_attached"), "PreAttached")
+        self.assertEqual(mlib.normalize_docking_state("ready"), mlib.DOCKING_STATE_READY)
+
+    def test_normalize_docking_state_empty_is_failclosed(self):
+        self.assertEqual(mlib.normalize_docking_state(""), "")
+        self.assertEqual(mlib.normalize_docking_state(None), "")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -217,6 +217,31 @@ DOCKING_STATE_DOCKED = "Docked"
 DOCKING_STATE_DOCKING = "Docking"
 DOCKING_STATE_READY = "Ready"
 
+
+def pick_ready_port_index(state_names) -> "Optional[int]":
+    """Pick the docking port to TARGET from a sequence of live DockingPort state
+    names (kRPC lower_snake spellings: 'ready' / 'docked' / 'docking' / ...): the
+    FIRST free 'ready' port, else the first port, else None (no ports). Pure -- the
+    runner reads the live states off the target vessel and applies this (flight-13:
+    the pre-reload captured port handle is a destroyed Part server-side; SetVessel
+    Target on it silently clears the target, so the port must be resolved LIVE)."""
+    names = list(state_names or [])
+    if not names:
+        return None
+    for i, nm in enumerate(names):
+        if str(nm).strip().lower() == "ready":
+            return i
+    return 0
+
+
+def normalize_docking_state(name) -> str:
+    """Normalize a kRPC DockingPortState.name (lower_snake, e.g. 'docked',
+    'pre_attached') to the PascalCase spelling the machine gates on ('Docked'),
+    or "" for an empty/None read (fail-closed: matches no gate)."""
+    if not name:
+        return ""
+    return "".join(seg.capitalize() for seg in str(name).split("_"))
+
 # Resource-transfer direction codes carried in Action.limit (section 5.1: the
 # Action dataclass is kind/value/text/limit, so the transfer direction rides
 # limit as a float code). 0 = deliver transport -> station (the LiquidFuel leg);

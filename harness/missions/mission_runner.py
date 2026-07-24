@@ -562,7 +562,7 @@ class KrpcMissionControl(MissionControl):
                 target_distance, target_rel_speed, target_set = \
                     self._read_target_controller()
                 mj_rv_enabled, mj_dock_enabled = self._read_docking_ap_enabled()
-                docking_state = self._read_docking_state()
+                docking_state = self._read_docking_state(v)
                 try:
                     vessel_count = len(sc.vessels)
                 except Exception:
@@ -1053,10 +1053,15 @@ class KrpcMissionControl(MissionControl):
                         "Warn", "Launch",
                         "MechJeb re-resolve after launch failed: %s" % (exc,)))
         elif kind == mlib.ACTION_CAPTURE_STATION:
-            # Capture the Station handle (P9/Q4) while it IS the active vessel:
-            # the vessel, its top docking port, and its per-resource station-side
-            # tanks. kRPC Part proxies survive the later dock (parts are re-parented,
-            # not destroyed), so the captured handles stay valid post-merge.
+            # Capture the Station handle (P9/Q4) while it IS the active vessel: the
+            # vessel, its top docking port, and its per-resource station-side tanks.
+            # ANSWER to P9 (flight-13): the VESSEL handle survives the later
+            # launch_vessel FLIGHT reload (kRPC keys it by the vessel id, stable
+            # on-rails), but the PART handles (port + tanks) do NOT -- the reload
+            # destroys/recreates every Part object, so a captured Part proxy resolves
+            # to a destroyed part server-side. The port + tanks are therefore
+            # captured only as LAST-RESORT fallbacks; SET_TARGET_DOCKING_PORT,
+            # _read_docking_state, and the transfer all RE-RESOLVE the parts LIVE.
             self._station_vessel = v
             try:
                 ports = v.parts.docking_ports
@@ -1081,11 +1086,7 @@ class KrpcMissionControl(MissionControl):
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Target", "set_target_vessel: no captured station handle"))
         elif kind == mlib.ACTION_SET_TARGET_DOCKING_PORT:
-            if self._station_port is not None:
-                sc.target_docking_port = self._station_port
-            else:
-                _stdout_sink(mlib.format_mission_log_line(
-                    "Warn", "Target", "set_target_docking_port: no captured port handle"))
+            self._set_target_docking_port_live(sc)
         elif kind == mlib.ACTION_MJ_ENABLE_RENDEZVOUS:
             rv = self._mechjeb.rendezvous_autopilot
             if action.value is not None:
@@ -1319,10 +1320,13 @@ class KrpcMissionControl(MissionControl):
         resource = str(action.text)
         amount = float(action.value) if action.value is not None else 0.0
         direction = float(action.limit) if action.limit is not None else mlib.TRANSFER_DIR_DELIVER
-        station_tank = self._station_tanks.get(resource)
-        if station_tank is None:
-            station_tank = self._find_tank_with_resource(self._station_vessel, resource)
-        transport_tank = self._find_transport_tank(v, resource, station_tank)
+        # Re-resolve BOTH tanks LIVE from the docked active vessel (flight-13: the
+        # captured self._station_tanks are PRE-launch-reload handles, destroyed by
+        # the reload exactly like the port handle, so the transfer would hit the
+        # same stale-handle wall). Partition the merged part tree at the mated
+        # docked-port pair; fall back to live-first-two, then the captured handle.
+        station_tank, transport_tank, tank_path = self._resolve_transfer_tanks_live(
+            v, resource)
         if station_tank is None or transport_tank is None:
             _stdout_sink(mlib.format_mission_log_line(
                 "Warn", "Transfer",
@@ -1341,15 +1345,144 @@ class KrpcMissionControl(MissionControl):
                 from_part, to_part, resource, amount)
             _stdout_sink(mlib.format_mission_log_line(
                 "Info", "Transfer",
-                "started %s amt=%.1f %s" % (resource, amount, label)))
+                "started %s amt=%.1f %s (tanks via %s)"
+                % (resource, amount, label, tank_path)))
         except Exception as exc:
             _stdout_sink(mlib.format_mission_log_line(
                 "Warn", "Transfer", "ResourceTransfer.start failed: %s" % (exc,)))
             self._active_transfer = None
 
+    def _resolve_transfer_tanks_live(self, v, resource):
+        """(station_tank, transport_tank, path) resolved LIVE from the docked active
+        vessel (flight-13). Primary: partition the merged part tree at the mated
+        docked-port pair; the TRANSPORT (Interceptor) side holds the active CONTROL
+        part (it launched last + is the active/controlling craft), the STATION side
+        is the other. Fallback: the first two distinct resource-bearing parts (side
+        assignment then arbitrary). Last resort: the captured station tank + a live
+        transport tank.
+
+        TODO(flight-14): the station/transport SIDE assignment (which drives the
+        recorded route-window delta SIGNS the offline oracle checks) is validated
+        only by the partition heuristic here -- confirm it in a live run against the
+        recorded deltas; if the oracle reds on flipped signs, key the sides off the
+        captured station VESSEL guid / a per-side marker resource instead. The
+        bounded TRANSFER-stall liveness watchdog covers a mis-resolved-tank stall in
+        the meantime (a stalled transfer fast-flakes, never hangs)."""
+        # Primary: docked-port partition.
+        station_tank, transport_tank = self._partition_docked_tanks(v, resource)
+        if station_tank is not None and transport_tank is not None:
+            return station_tank, transport_tank, "partition"
+        # Fallback: first two distinct live resource-bearing parts (arbitrary side).
+        first = self._find_transport_tank(v, resource, None)
+        second = self._find_transport_tank(v, resource, first)
+        if first is not None and second is not None:
+            return second, first, "live-first-two(TODO:sides-arbitrary)"
+        # Last resort: the captured (possibly stale) station tank + a live transport.
+        captured = self._station_tanks.get(resource)
+        transport = self._find_transport_tank(v, resource, captured)
+        return captured, transport, "captured-fallback(TODO:stale-handle)"
+
+    def _partition_docked_tanks(self, v, resource):
+        """Partition the docked active vessel at the mated docked-port pair and pick
+        (station_tank, transport_tank) holding ``resource``. Transport = the side
+        with the active control part. Returns (None, None) if it cannot resolve
+        (the caller falls back). Every kRPC read is guarded."""
+        try:
+            docked = [p for p in v.parts.docking_ports
+                      if str(getattr(p.state, "name", "")).strip().lower() == "docked"]
+        except Exception:
+            return None, None
+        if not docked:
+            return None, None
+        port = docked[0]
+        try:
+            near = port.part            # this port's part (side A)
+            across = port.docked_part   # the mated port's part (side B)
+        except Exception:
+            return None, None
+        if near is None or across is None:
+            return None, None
+        side_a = self._collect_side_parts(near, across)
+        if not side_a:
+            return None, None
+        try:
+            all_parts = list(v.parts.all)
+        except Exception:
+            return None, None
+        try:
+            side_b = [p for p in all_parts if p not in side_a]
+        except Exception:
+            return None, None
+        if not side_b:
+            return None, None
+        try:
+            control_part = v.parts.controlling
+        except Exception:
+            control_part = None
+        if control_part is not None and control_part in side_a:
+            transport_side, station_side = list(side_a), side_b
+        else:
+            transport_side, station_side = side_b, list(side_a)
+        station_tank = self._first_resource_part(station_side, resource)
+        transport_tank = self._first_resource_part(transport_side, resource)
+        if station_tank is None or transport_tank is None:
+            return None, None
+        return station_tank, transport_tank
+
+    def _collect_side_parts(self, start, stop_at):
+        """BFS the part tree from ``start`` over parent/children WITHOUT crossing the
+        docked joint at ``stop_at`` (the mated port's part). Returns the set of parts
+        on ``start``'s side. Every kRPC read guarded."""
+        seen = []
+        stack = [start]
+        while stack:
+            part = stack.pop()
+            if part is None:
+                continue
+            try:
+                if any(part == s for s in seen):
+                    continue
+                if stop_at is not None and part == stop_at:
+                    continue
+            except Exception:
+                continue
+            seen.append(part)
+            neighbors = []
+            try:
+                neighbors.extend(list(part.children))
+            except Exception:
+                pass
+            try:
+                parent = part.parent
+                if parent is not None:
+                    neighbors.append(parent)
+            except Exception:
+                pass
+            for n in neighbors:
+                if n is None:
+                    continue
+                try:
+                    if n == stop_at:
+                        continue
+                except Exception:
+                    continue
+                stack.append(n)
+        return seen
+
+    def _first_resource_part(self, parts, resource):
+        """The first part in ``parts`` holding a positive amount of ``resource``, or
+        None. Every kRPC read guarded."""
+        for part in parts:
+            try:
+                if part.resources.amount(resource) > 0.0:
+                    return part
+            except Exception:
+                continue
+        return None
+
     def _find_transport_tank(self, vessel, resource: str, station_tank):
-        """A merged-vessel part with ``resource`` that is NOT the captured station
-        tank (the transport side of the pre-dock part-set split, Q4)."""
+        """A merged-vessel part with ``resource`` that is NOT ``station_tank`` (a
+        live first-distinct-resource-part finder used by the transfer fallbacks)."""
         try:
             parts = vessel.parts.all
         except Exception:
@@ -1438,23 +1571,97 @@ class KrpcMissionControl(MissionControl):
             dk = False
         return rv, dk
 
-    def _read_docking_state(self) -> str:
-        """The captured/target docking port state.name (kRPC DockingPortState),
-        or "" (fail-closed: matches no gate). Prefers the captured station port
-        (stable across the merge); falls back to the target docking port."""
-        port = self._station_port
-        for candidate in (port,):
-            if candidate is None:
-                continue
+    def _set_target_docking_port_live(self, sc) -> None:
+        """Set the target docking port, resolved LIVE from the rendezvous target
+        vessel (flight-13 root cause of EVERY dock failure since flight 7):
+        ACTION_SET_TARGET_DOCKING_PORT used to assign the captured self._station_port
+        -- a handle captured at STATION-COMMIT, BEFORE the launch_vessel FLIGHT
+        reload destroyed/recreated every Part object. The stale handle resolves
+        server-side to a destroyed ModuleDockingNode; KSP's SetVesselTarget on a
+        destroyed ITargetable silently CLEARS the target (tgtD went None right after
+        the set in every flight), and MechJeb then refuses to engage the docking AP
+        with no port target (the "enable never took" / benched-NRE family). The
+        VESSEL target survived the reload all along, which masked this. Resolve the
+        port from sc.target_vessel (alive) instead; keep the captured handle only as
+        a last resort when a live vessel target exists; and if there is NO target
+        vessel, leave the target alone rather than clobber it with a dead handle."""
+        try:
+            tv = sc.target_vessel
+        except Exception:
+            tv = None
+        live_port = None
+        path = "none"
+        if tv is not None:
             try:
-                st = candidate.state
-                name = getattr(st, "name", None)
-                if name:
-                    # kRPC exposes lower_snake ("docked"); normalize to the
-                    # DockingPortState PascalCase the machine gates on.
-                    return "".join(seg.capitalize() for seg in str(name).split("_"))
+                ports = list(tv.parts.docking_ports)
+            except Exception:
+                ports = []
+            states = []
+            for p in ports:
+                try:
+                    states.append(getattr(p.state, "name", ""))
+                except Exception:
+                    states.append("")
+            idx = mlib.pick_ready_port_index(states)
+            if idx is not None:
+                live_port = ports[idx]
+                path = "live-ready" if str(states[idx]).strip().lower() == "ready" else "live-first"
+        if live_port is not None:
+            sc.target_docking_port = live_port
+            try:
+                st = getattr(live_port.state, "name", "?")
+            except Exception:
+                st = "?"
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Target",
+                "set_target_docking_port: live port via %s state=%s" % (path, st)))
+        elif tv is not None and self._station_port is not None:
+            # A live target vessel exists but exposed no docking port; the captured
+            # handle is the last resort (may be stale, but tv is set so the vessel
+            # target is real).
+            sc.target_docking_port = self._station_port
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Target",
+                "set_target_docking_port: LAST-RESORT captured handle "
+                "(target vessel has no live docking port)"))
+        else:
+            # No target vessel: never clear a working target with a dead handle.
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Target",
+                "set_target_docking_port: no live target vessel; leaving target "
+                "unchanged (not clobbering with a possibly-dead captured handle)"))
+
+    def _read_docking_state(self, v) -> str:
+        """The docking-port state.name (kRPC DockingPortState) normalized to the
+        machine's PascalCase, or "" (fail-closed: matches no gate). Resolved LIVE
+        from the ACTIVE vessel's ports (flight-13: the captured self._station_port
+        is a PRE-reload handle, so its .state read faulted to "" in every
+        post-reload flight, blinding the DOCK-done and undock gates). Post-merge the
+        active vessel carries BOTH mated ports; any 'docked'/'docking' port is
+        authoritative, and a post-undock split reads e.g. 'ready'. Falls back to the
+        captured handle only if the active vessel exposes no readable port."""
+        try:
+            ports = list(v.parts.docking_ports)
+        except Exception:
+            ports = []
+        states = []
+        for p in ports:
+            try:
+                states.append(mlib.normalize_docking_state(getattr(p.state, "name", "")))
             except Exception:
                 continue
+        states = [s for s in states if s]
+        if states:
+            for want in (mlib.DOCKING_STATE_DOCKED, mlib.DOCKING_STATE_DOCKING):
+                if want in states:
+                    return want
+            return states[0]
+        # Last fallback: the captured handle (may be stale post-reload).
+        if self._station_port is not None:
+            try:
+                return mlib.normalize_docking_state(getattr(self._station_port.state, "name", ""))
+            except Exception:
+                return ""
         return ""
 
     def _read_angular_velocity(self, v) -> float:

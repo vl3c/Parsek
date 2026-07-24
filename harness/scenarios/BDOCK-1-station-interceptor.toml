@@ -62,7 +62,11 @@
 #   DOCK                 Abort any pending maneuver execution FIRST (prox-ops
 #                        rule: a pending kill-rel-vel node rails-warps + packs the
 #                        port target null -> docking AP NREs), HOLD ATTITUDE (SAS +
-#                        RCS), set the port target, then enable the docking AP ONE
+#                        RCS), set the port target - resolved LIVE from the target
+#                        vessel's ports (flight-13: the port handle captured before
+#                        the launch_vessel reload is a destroyed part; assigning it
+#                        clears the target, and every dock since flight 7 died on
+#                        that null target) - then enable the docking AP ONE
 #                        poll LATER (flight-9: MechJeb's core.target syncs on its
 #                        next Update, so a same-batch enable makes the AP's first
 #                        Drive tick see the OLD vessel target and NRE). LIVENESS
