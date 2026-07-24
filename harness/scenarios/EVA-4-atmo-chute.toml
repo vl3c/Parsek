@@ -218,7 +218,13 @@ D14 = ["kerbin", "sandbox", "scene-flight"]
 # produces. The window is deliberately wide rather than tight: redding on breakup-timing
 # variance would be a false negative, and the analyzer over the produced recordings is
 # the real Parsek correctness gate.
-count = { min = 2, max = 10 }
+count = { min = 3, max = 3 }  # PINNED from the flight-2 PASS (measured 3 .prec in
+# saves/b1-pad-craft/Parsek/Recordings): pod root 1 + kerbal EVA split 1 + the pod's
+# post-EVA continuation 1. The parent breaks up on its own touchdown AFTER the EVA, but
+# that produced no extra recording on this profile. Exact, not a window: the step list is
+# fixed and logContracts are presence-only (hlib.evaluate_expectations uses re.search), so
+# this count is the sole numeric guard that the EVA split and the kerbal recording exist.
+# Re-pin (do not widen blindly) if a later run legitimately differs.
 
 [expectations.logContracts]
 # Every token below is quoted from the emitting ParsekLog call, with the source site.
