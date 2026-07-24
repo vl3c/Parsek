@@ -215,6 +215,44 @@ namespace Parsek.Tests
                 notConstruction: true, fsmStateName: "Idle_Grounded"));
         }
 
+        // ----- DecideSiteRenameDialogAction (afterFlagPlanted-fire seam, EVA-1 flight 3 2026-07-24) -----
+
+        [Fact]
+        public void DialogAction_PopupPresent_InvokeDismiss()
+        {
+            // The popup is live: invoke its button so afterFlagPlanted fires through the real
+            // confirm path.
+            Assert.Equal(SiteRenameDialogAction.InvokeDismiss,
+                TestCommandPlantFlag.DecideSiteRenameDialogAction(popupPresent: true, flagVesselExists: true));
+        }
+
+        [Fact]
+        public void DialogAction_FlagVesselExistsButNoPopup_KeepWaiting_NeverInferAnswer()
+        {
+            // The root-cause guard: FlagSite.CreateFlag makes the flag vessel at flagPlant_OnEnter,
+            // BEFORE the animation completes and RenameSite spawns the popup. Flag-vessel presence
+            // must NOT be read as "dialog answered" - keep waiting for the real popup so
+            // afterFlagPlanted actually fires (the old edge-case-10 "answered-externally" false-OK
+            // completed the plant before the dialog ever spawned).
+            Assert.Equal(SiteRenameDialogAction.KeepWaiting,
+                TestCommandPlantFlag.DecideSiteRenameDialogAction(popupPresent: false, flagVesselExists: true));
+        }
+
+        [Fact]
+        public void DialogAction_NoPopupNoFlagVessel_KeepWaiting()
+        {
+            Assert.Equal(SiteRenameDialogAction.KeepWaiting,
+                TestCommandPlantFlag.DecideSiteRenameDialogAction(popupPresent: false, flagVesselExists: false));
+        }
+
+        [Fact]
+        public void DialogAction_PopupPresentNoFlagVesselYet_InvokeDismiss()
+        {
+            // Popup presence alone drives the invoke; flag-vessel bookkeeping is non-decisive.
+            Assert.Equal(SiteRenameDialogAction.InvokeDismiss,
+                TestCommandPlantFlag.DecideSiteRenameDialogAction(popupPresent: true, flagVesselExists: false));
+        }
+
         // ----- BuildCompletePayload -----
 
         [Fact]

@@ -45,6 +45,20 @@ namespace Parsek.TestCommands
         FlagTimeout,
     }
 
+    /// <summary>Phase-B SiteRename dialog action, decided per poll after <c>PlantFlag()</c>
+    /// fired.</summary>
+    internal enum SiteRenameDialogAction
+    {
+        /// <summary>The popup is not live yet (the plant animation is still running): keep
+        /// polling. The dialog is answered ONLY through the real button callback once the
+        /// popup actually spawns.</summary>
+        KeepWaiting,
+
+        /// <summary>The live "SiteRename" popup was found: invoke its dismiss button's own
+        /// callback so <c>GameEvents.afterFlagPlanted.Fire</c> runs synchronously.</summary>
+        InvokeDismiss,
+    }
+
     /// <summary>
     /// Pure decision helpers for the two-phase, bounded-wait-gated, dialog-answering
     /// <c>PlantFlag</c> seam verb (M-C2, design-autotest-eva-missions.md). The Unity
@@ -143,6 +157,23 @@ namespace Parsek.TestCommands
                 return FlagPlantCompletionDecision.FlagTimeout;
             return FlagPlantCompletionDecision.StillWaiting;
         }
+
+        /// <summary>
+        /// Decide the Phase-B SiteRename dialog action. Decompile-proven (FlagSite.cs, KSP
+        /// 1.12.5): the FlagSite vessel is created at <c>KerbalEVA.flagPlant_OnEnter</c> via
+        /// <c>FlagSite.CreateFlag</c> - BEFORE the plant animation completes and long before
+        /// <c>FlagSite.OnPlacementComplete -> RenameSite</c> spawns the "SiteRename" popup, and
+        /// <c>GameEvents.afterFlagPlanted.Fire</c> runs ONLY inside that dialog's afterDialog
+        /// button callback. So the presence of the FlagSite vessel is NOT evidence the dialog
+        /// was answered: we must WAIT for the popup to actually spawn, then invoke its button.
+        /// Never infer "answered" from popup-absence + flag-vessel-presence (that false-OK'd the
+        /// plant before the dialog spawned and afterFlagPlanted never fired - EVA-1 flight 3,
+        /// 2026-07-24). <paramref name="flagVesselExists"/> is deliberately non-decisive; it is
+        /// accepted only to make the "flag vessel exists yet we still wait" contract explicit.
+        /// </summary>
+        internal static SiteRenameDialogAction DecideSiteRenameDialogAction(
+            bool popupPresent, bool flagVesselExists)
+            => popupPresent ? SiteRenameDialogAction.InvokeDismiss : SiteRenameDialogAction.KeepWaiting;
 
         /// <summary>Terminal completion payload once the flag vessel exists + the dialog answered.</summary>
         internal static List<KeyValuePair<string, string>> BuildCompletePayload(

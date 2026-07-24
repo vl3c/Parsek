@@ -442,11 +442,23 @@ namespace Parsek.TestCommands
                 }
             }
 
-            // Phase B: dialog answer + completion. The FSM spawns the FlagSite vessel and opens
-            // the "SiteRename" popup; answer it via the dismiss button's own callback (the
-            // afterFlagPlanted fires synchronously in that callback -> Parsek captures the
-            // FlagEvent). dialogAnswered is set ONLY when we actually invoke the button (never
-            // inferred from popup absence), except the documented external-answer edge case.
+            // Phase B: dialog answer + completion. Decompile-proven flag-plant path (KSP 1.12.5,
+            // FlagSite.cs / KerbalEVA.cs): KerbalEVA.PlantFlag() -> fsm On_flagPlantStart ->
+            // st_flagPlant. flagPlant_OnEnter creates the FlagSite vessel IMMEDIATELY via
+            // FlagSite.CreateFlag (which fires GameEvents.onFlagPlant only, NOT afterFlagPlanted).
+            // The "SiteRename" popup is spawned MUCH later, in flagPlant_OnLeave ->
+            // FlagSite.OnPlacementComplete -> RenameSite, gated behind the On_flagPlantComplete
+            // KFSMTimedEvent whose duration is the full plant-animation length (multiple seconds).
+            // GameEvents.afterFlagPlanted.Fire runs ONLY inside that dialog's afterDialog callback,
+            // which runs ONLY when a dialog BUTTON is clicked (AcceptSiteRename or DismissSiteRename);
+            // OnDismiss / a bare PopupDialog.Dismiss() do NOT fire it. So we must WAIT for the popup
+            // to actually spawn, then invoke the dismiss button's own callback -> afterFlagPlanted
+            // fires synchronously this frame -> ParsekFlight.OnAfterFlagPlanted records the
+            // FlagEvent. The FlagSite vessel EXISTING is NOT evidence the dialog was answered (it
+            // appears before the animation even completes), so we never infer an external answer
+            // from popup-absence + flag-presence (that false-OK'd the plant before the dialog
+            // spawned; the subsequent flushandquit tore the scene down and afterFlagPlanted never
+            // fired - EVA-1 flight 3, 2026-07-24).
             Vessel flagVessel = FindNewFlagVessel();
             if (flagVessel != null) plantFlagVessel = flagVessel;
             bool flagVesselExists = plantFlagVessel != null;
@@ -454,7 +466,9 @@ namespace Parsek.TestCommands
             if (!plantFlagDialogAnswered)
             {
                 PopupDialog popup = FindSiteRenamePopup();
-                if (popup != null)
+                SiteRenameDialogAction action =
+                    TestCommandPlantFlag.DecideSiteRenameDialogAction(popup != null, flagVesselExists);
+                if (action == SiteRenameDialogAction.InvokeDismiss)
                 {
                     if (TryInvokeSiteRenameDismiss(popup))
                     {
@@ -462,12 +476,13 @@ namespace Parsek.TestCommands
                         ParsekLog.Info(Tag, $"plantflag dialog answered site={(plantFlagVessel != null ? plantFlagVessel.vesselName : string.Empty)}");
                     }
                 }
-                else if (flagVesselExists)
+                else
                 {
-                    // Edge case 10: flag vessel exists, popup gone without our invoke -> treated
-                    // as answered externally (unreachable unattended).
-                    plantFlagDialogAnswered = true;
-                    ParsekLog.Info(Tag, "plantflag dialog-answered-externally");
+                    // Popup not live yet: the plant animation is still running (the FlagSite vessel
+                    // may already exist). Keep waiting for RenameSite to spawn the popup so we can
+                    // answer it through the real confirm path; a timeout must self-explain.
+                    ParsekLog.VerboseRateLimited("TestCommands", "plantflag-dialog-wait",
+                        $"plantflag waiting for SiteRename dialog elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s flagVessel={Bool(flagVesselExists)}");
                 }
             }
 
