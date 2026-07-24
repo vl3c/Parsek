@@ -176,11 +176,21 @@ FORGE_PHASES: Tuple[str, ...] = (FORGE_PRELAUNCH, FORGE_LAUNCH, FORGE_SETTLED)
 BDOCK_PRELAUNCH = "PRELAUNCH"
 BDOCK_STATION_ASCENT = "STATION-ASCENT"
 BDOCK_STATION_CIRCULARIZE = "STATION-CIRCULARIZE"
+# Post-circularize stage separation (flight-3 lesson, 2026-07-24): the spent
+# core never autostages off (MechJeb autostage only fires on EMPTY stages and the
+# Kerbal X core keeps residual fuel), so docking a ~20 t full stack on pod RCS is
+# broken. Each vehicle must be its ORBITAL STAGE ONLY before rendezvous -- exactly
+# one stage activation after circularize, verified by a NEW-vessel (spent core)
+# spawn, never a second activation (the OTHER stack decoupler jettisons the pod's
+# heat shield). See design section 3.3 (amended) + the mission-profile step list
+# in BDOCK-1-station-interceptor.toml.
+BDOCK_STATION_SEPARATE = "STATION-SEPARATE"
 BDOCK_STATION_ORBIT = "STATION-ORBIT"
 BDOCK_STATION_COMMIT = "STATION-COMMIT"
 BDOCK_INT_LAUNCH = "INT-LAUNCH"
 BDOCK_INT_ASCENT = "INT-ASCENT"
 BDOCK_INT_CIRCULARIZE = "INT-CIRCULARIZE"
+BDOCK_INT_SEPARATE = "INT-SEPARATE"
 BDOCK_INT_PHASING_ORBIT = "INT-PHASING-ORBIT"
 BDOCK_SET_TARGET = "SET-TARGET"
 BDOCK_RENDEZVOUS = "RENDEZVOUS"
@@ -191,8 +201,9 @@ BDOCK_UNDOCK = "UNDOCK"
 BDOCK_TERMINAL = "TERMINAL"
 BDOCK_PHASES: Tuple[str, ...] = (
     BDOCK_PRELAUNCH, BDOCK_STATION_ASCENT, BDOCK_STATION_CIRCULARIZE,
-    BDOCK_STATION_ORBIT, BDOCK_STATION_COMMIT, BDOCK_INT_LAUNCH, BDOCK_INT_ASCENT,
-    BDOCK_INT_CIRCULARIZE, BDOCK_INT_PHASING_ORBIT, BDOCK_SET_TARGET,
+    BDOCK_STATION_SEPARATE, BDOCK_STATION_ORBIT, BDOCK_STATION_COMMIT,
+    BDOCK_INT_LAUNCH, BDOCK_INT_ASCENT, BDOCK_INT_CIRCULARIZE,
+    BDOCK_INT_SEPARATE, BDOCK_INT_PHASING_ORBIT, BDOCK_SET_TARGET,
     BDOCK_RENDEZVOUS, BDOCK_MATCH_VELOCITY, BDOCK_DOCK, BDOCK_TRANSFER,
     BDOCK_UNDOCK, BDOCK_TERMINAL)
 
@@ -205,6 +216,31 @@ BDOCK_PHASES: Tuple[str, ...] = (
 DOCKING_STATE_DOCKED = "Docked"
 DOCKING_STATE_DOCKING = "Docking"
 DOCKING_STATE_READY = "Ready"
+
+
+def pick_ready_port_index(state_names) -> "Optional[int]":
+    """Pick the docking port to TARGET from a sequence of live DockingPort state
+    names (kRPC lower_snake spellings: 'ready' / 'docked' / 'docking' / ...): the
+    FIRST free 'ready' port, else the first port, else None (no ports). Pure -- the
+    runner reads the live states off the target vessel and applies this (flight-13:
+    the pre-reload captured port handle is a destroyed Part server-side; SetVessel
+    Target on it silently clears the target, so the port must be resolved LIVE)."""
+    names = list(state_names or [])
+    if not names:
+        return None
+    for i, nm in enumerate(names):
+        if str(nm).strip().lower() == "ready":
+            return i
+    return 0
+
+
+def normalize_docking_state(name) -> str:
+    """Normalize a kRPC DockingPortState.name (lower_snake, e.g. 'docked',
+    'pre_attached') to the PascalCase spelling the machine gates on ('Docked'),
+    or "" for an empty/None read (fail-closed: matches no gate)."""
+    if not name:
+        return ""
+    return "".join(seg.capitalize() for seg in str(name).split("_"))
 
 # Resource-transfer direction codes carried in Action.limit (section 5.1: the
 # Action dataclass is kind/value/text/limit, so the transfer direction rides
@@ -338,6 +374,9 @@ ACTION_SET_TARGET_DOCKING_PORT = "set_target_docking_port" # value = None
 ACTION_MJ_ENABLE_RENDEZVOUS = "mj_enable_rendezvous"       # value = distance m
 # Kill relative velocity to the target (MechJeb maneuver_planner
 # operation_kill_rel_vel, OR rely on the rendezvous AP's own terminal match).
+# The runner clears any stale node then retargets the op to XFromNow + ~15 s lead
+# (flight-5: the default closest-approach selector landed the node ~an orbit
+# ahead, stalling MATCH-VELOCITY until the wall).
 ACTION_MJ_KILL_REL_VEL = "mj_kill_rel_vel"                 # value = None
 # Enable MechJeb's docking autopilot (value = approach speed_limit m/s -- the
 # monoprop-budget knob, P2). Done evidence is docking_state == "Docked" AND the
@@ -345,6 +384,18 @@ ACTION_MJ_KILL_REL_VEL = "mj_kill_rel_vel"                 # value = None
 ACTION_MJ_ENABLE_DOCKING = "mj_enable_docking"             # value = speed m/s
 # Disable the docking autopilot (give-up cleanup: stall / monoprop-out / bounce).
 ACTION_MJ_DISABLE_DOCKING = "mj_disable_docking"           # value = None
+# Abort any pending MechJeb node execution + clear the maneuver nodes (runner:
+# node_executor.abort() + control.remove_nodes()). Emitted FIRST at DOCK entry so
+# no pending kill-rel-vel node / autowarp executor survives into terminal approach
+# (flight-8 prox-ops rule: a pending node rails-warped at ~92 m, packing cleared
+# the docking-port target, and the docking AP NRE'd forever). Best-effort.
+ACTION_MJ_ABORT_NODE_EXEC = "mj_abort_node_exec"           # value = None
+# Attitude control (flight-10 tumble fix). SET_SAS: control.sas = True, then try
+# control.sas_mode = stability_assist (separate try/except). SET_RCS: control.rcs
+# = (value != 0). Emitted after each SEPARATE (separation torque with no SAS = the
+# tumble the operator watched) and at DOCK entry (hand the AP a stabilized ship).
+ACTION_SET_SAS = "set_sas"                                 # value = None
+ACTION_SET_RCS = "set_rcs"                                 # value = 1.0 on / 0.0 off
 # Start a kRPC ResourceTransfer between the captured transport / station tanks
 # (text = resource name, value = amount, limit = direction code
 # TRANSFER_DIR_DELIVER / TRANSFER_DIR_PICKUP). The runner resolves the from/to
@@ -781,6 +832,20 @@ class TelemetrySnapshot:
     # waiting (fail closed -- STATION-COMMIT stays until a terminal token or its
     # phase budget), "OK" advances the machine, "ERROR"/"TIMEOUT" flakes it.
     seam_commit_result: str = ""
+    # --- Prox-ops observability (flight-10 operator directive: DOCK was blind).
+    # angular_velocity magnitude (rad/s) in the orbital frame: THE tumble signal
+    # (a stabilized ship reads ~0, a tumble reads high). NaN = unread (fail closed:
+    # never counts as "tumble killed" progress in the DOCK watchdog).
+    angular_velocity: float = float("nan")
+    # control.sas / control.rcs live readbacks (fail closed False: an unread state
+    # is treated as OFF so a diagnostic never claims a stabilized ship it cannot
+    # confirm). Diagnosability channels; no gate reads them.
+    sas_enabled: bool = False
+    rcs_enabled: bool = False
+    # MechJeb docking_autopilot.status string (KRPC.MechJeb DockingAutopilot.Status),
+    # truncated ~60 chars; "" = unread. What the AP thinks it is doing -- the
+    # missing signal the operator called out. Diagnosability only.
+    docking_ap_status: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -3373,6 +3438,36 @@ _BDOCK_FROZEN_PHASES: Tuple[str, ...] = (
 # from the monoprop reading). Fail closed on NaN (never fires on a missing read).
 BDOCK_MONOPROP_OUT_EPS = 0.5
 
+# STATION-SEPARATE / INT-SEPARATE completion debounce: consecutive frames whose
+# vessel_count exceeds the phase-entry baseline (the spent core spawned as a NEW
+# vessel) before the SEPARATE phase completes. Reuses the machine's K-consecutive
+# settle idiom (DEFAULT_DEBOUNCE_K) so a one-frame count blip never certifies a
+# separation. vessel_count defaults to 0 (unread -> fail closed), so an unreadable
+# count never advances the streak.
+BDOCK_SEPARATION_DEBOUNCE = DEFAULT_DEBOUNCE_K
+
+# DOCK liveness watchdogs (flight-10/11 operator directive: "budgets bound SLOW;
+# liveness watchdogs bound BROKEN. A phase may never idle to its budget while its
+# actor is provably dead or inert.").
+# - Consecutive polls the docking AP may be not-running before the machine acts:
+#   the enable-never-took re-emit (E1a) and the died-mid-approach re-enable (E1b).
+#   ~10 polls at 0.5 s each ~= 5 s -- MechJeb benches a NRE'd module within a
+#   second or two, so this is a fast fail without false-tripping a one-frame blip.
+BDOCK_DOCK_LIVENESS_K = 10
+# Max port re-acquires in DOCK (flight-9 one-shot was too stingy if KSP clears the
+# port target repeatedly): the dropped-target retarget latch is now a bounded
+# count, not a single bool.
+BDOCK_DOCK_MAX_RETARGETS = 3
+# DOCK progress-signature epsilons: a reading must improve by at least this to
+# count as observable progress (distance closing / monoprop burning / tumble
+# killed). Below the epsilon is "flat" for the no-progress watchdog.
+BDOCK_DOCK_DIST_EPS = 1.0        # metres
+BDOCK_DOCK_MONO_EPS = 0.01       # monoprop units (RCS actually firing)
+BDOCK_DOCK_ANGVEL_EPS = 0.001    # rad/s (tumble actually being reduced)
+# TRANSFER liveness: consecutive polls transfer_amount may be flat/unread before
+# the machine flakes the stall fast (well inside the transfer budget).
+BDOCK_TRANSFER_STALL_FRAMES = 20
+
 
 @dataclass(frozen=True)
 class BDockParams:
@@ -3390,6 +3485,12 @@ class BDockParams:
     peri_error: float = 5000.0
     ascent_timeout: float = 1200.0
     circularize_timeout: float = 600.0
+    # Post-circularize stage-separation give-up (GAME seconds): the SEPARATE phase
+    # flakes if no NEW vessel (the spent core) ever appears within this window
+    # after the single ACTION_ACTIVATE_STAGE. Estimated; re-timed against the
+    # first live run (the separation itself is instantaneous, so the budget is a
+    # generous stuck-decoupler backstop).
+    separation_timeout: float = 120.0
     # Interceptor launch (piece 2): the craft + the launch settle.
     craft_name: str = "Kerbal X"
     launch_site: str = "LaunchPad"
@@ -3400,6 +3501,7 @@ class BDockParams:
     approach_distance: float = 100.0           # rendezvous desired_distance (m)
     max_phasing_orbits: float = 5.0
     match_speed: float = 1.0                   # MATCH-VELOCITY rel-speed floor (m/s)
+    match_timeout: float = 600.0               # MATCH-VELOCITY give-up (GAME s; flight-5)
     dock_speed: float = 0.5                    # docking AP speed_limit (m/s)
     transfer_amount_lf: float = 40.0           # LiquidFuel deliver (transport->station)
     transfer_amount_mp: float = 15.0           # MonoPropellant pickup (station->transport)
@@ -3408,6 +3510,10 @@ class BDockParams:
     station_commit_timeout: float = 300.0      # bounded wait for the seam commit result
     rendezvous_timeout: float = 30000.0
     dock_timeout: float = 600.0                # the 1x approach
+    # DOCK progress watchdog (flight-11): while the docking AP is enabled, if NONE
+    # of distance / monoprop / angular_velocity shows progress for this many GAME
+    # seconds, flake fast instead of idling to dock_timeout (a dead AP).
+    dock_no_progress_seconds: float = 120.0
     transfer_timeout: float = 120.0            # each transfer; TRANSFER phase = 2x this
     undock_timeout: float = 120.0
     # RENDEZVOUS no-progress detector: consecutive finite frames whose
@@ -3427,6 +3533,7 @@ def bdock_params_from_dict(params: Dict) -> BDockParams:
         peri_error=float(params.get("periErrorMeters", 5000)),
         ascent_timeout=float(params.get("ascentTimeoutSeconds", 1200)),
         circularize_timeout=float(params.get("circularizeTimeoutSeconds", 600)),
+        separation_timeout=float(params.get("separationTimeoutSeconds", 120)),
         craft_name=str(params.get("craftName", "Kerbal X")),
         launch_site=str(params.get("launchSite", "LaunchPad")),
         launch_settle_situations=tuple(params.get("launchSettleSituations", ("PRE_LAUNCH",))),
@@ -3435,12 +3542,14 @@ def bdock_params_from_dict(params: Dict) -> BDockParams:
         approach_distance=float(params.get("approachDistanceMeters", 100)),
         max_phasing_orbits=float(params.get("maxPhasingOrbits", 5)),
         match_speed=float(params.get("matchSpeedMetersPerSec", 1.0)),
+        match_timeout=float(params.get("matchTimeoutSeconds", 600)),
         dock_speed=float(params.get("dockSpeedMetersPerSec", 0.5)),
         transfer_amount_lf=float(params.get("transferAmountLf", 40)),
         transfer_amount_mp=float(params.get("transferAmountMp", 15)),
         station_commit_timeout=float(params.get("stationCommitTimeoutSeconds", 300)),
         rendezvous_timeout=float(params.get("rendezvousTimeoutSeconds", 30000)),
         dock_timeout=float(params.get("dockTimeoutSeconds", 600)),
+        dock_no_progress_seconds=float(params.get("dockNoProgressSeconds", 120)),
         transfer_timeout=float(params.get("transferTimeoutSeconds", 120)),
         undock_timeout=float(params.get("undockTimeoutSeconds", 120)),
         rendezvous_noprogress_frames=int(params.get("rendezvousNoProgressFrames", 40)),
@@ -3461,6 +3570,10 @@ class BDockState:
     flake_phase: Optional[str] = None
     done: bool = False
     loss_reason: Optional[str] = None
+    # Custom FLAKE reason (surfaced by resolve_flight_verdict in place of the
+    # generic "phase X timed out"); set by the SEPARATE give-up so the operator
+    # sees "no separation observed" rather than a bare timeout. None -> generic.
+    flake_reason: Optional[str] = None
     # Shared frozen-telemetry detection (mirrors B2/B5).
     frozen_sig: Optional[FrozenSignature] = None
     frozen_count: int = 0
@@ -3472,9 +3585,66 @@ class BDockState:
     # RENDEZVOUS no-progress detector.
     rendezvous_min_distance: float = float("inf")
     rendezvous_noprogress_count: int = 0
+    # MATCH-VELOCITY dropped-target recovery (flight-5): consecutive non-finite
+    # target_rel_speed frames (the target likely dropped when the rendezvous AP
+    # disabled itself), and the one-shot re-target latch. NaN rel-speed never
+    # completes the phase (fail-closed); a dropped target is re-acquired ONCE.
+    match_nan_streak: int = 0
+    match_retarget_done: bool = False
+    # DOCK dropped-target recovery (flight-8/9): consecutive non-finite
+    # target_distance frames (the docking-port target went null when a pending
+    # kill-rel-vel node rails-warped + packed the ship) and the BOUNDED re-target
+    # count (flight-11: one-shot was too stingy if KSP clears the port repeatedly;
+    # cap BDOCK_DOCK_MAX_RETARGETS). NaN never completes DOCK (fail-closed).
+    dock_nan_streak: int = 0
+    dock_retarget_count: int = 0
+    # DOCK AP-death liveness (flight-11). E1a "enable never took": polls since the
+    # deferred enable was emitted with mj_docking_enabled still False, and the
+    # one-shot re-emit latch. E1b "died mid-approach": consecutive polls the AP is
+    # disabled after having run (not docked), and the one-shot re-enable latch.
+    dock_enable_wait_streak: int = 0
+    dock_enable_reissued: bool = False
+    dock_died_streak: int = 0
+    dock_reenabled_after_death: bool = False
+    # DOCK progress watchdog (flight-11). Running minima of the progress signature
+    # (distance closing / monoprop burning / tumble killed) and the UT of the last
+    # observed progress; if none improves for dock_no_progress_seconds the AP is
+    # inert and the phase flakes fast.
+    dock_best_distance: float = float("inf")
+    dock_best_monoprop: float = float("inf")
+    dock_best_angvel: float = float("inf")
+    dock_last_progress_ut: float = float("nan")
+    # Staggered docking-AP enable (flight 9): MechJeb's core.target syncs from
+    # the KSP-level target on its NEXT Update, so enabling the docking AP in
+    # the SAME action batch as set_target_docking_port makes the AP's first
+    # Drive tick see the OLD vessel target, cast it to a docking node, NRE,
+    # and get benched by MechJeb (2 NRE lines then silence, ship sat to the
+    # budget). Entry/retarget SET the port target and arm this flag; the
+    # enable is emitted on the NEXT poll (~0.5 s, plenty of Unity frames).
+    dock_enable_pending: bool = False
     # TRANSFER sequencing (T1 LiquidFuel deliver, T2 MonoPropellant pickup).
     current_transfer_started: bool = False
     transfers_done: int = 0
+    # TRANSFER liveness (flight-11): the max transfer_amount seen in the active
+    # transfer and consecutive polls without an increase; a flat/unread amount for
+    # BDOCK_TRANSFER_STALL_FRAMES flakes fast (dry source / full dest) instead of
+    # idling to the transfer budget. Reset when a new transfer starts.
+    transfer_best_amount: float = float("-inf")
+    transfer_noprogress_streak: int = 0
+    # STATION-SEPARATE / INT-SEPARATE evidence (flight-4 two-step contract). The
+    # vessel count captured at SEPARATE entry (mirrors the UNDOCK baseline); the
+    # K-consecutive streak of frames whose count exceeds it (step 1: the spent
+    # core spawned as a NEW vessel); the K-consecutive streak of frames with
+    # available_thrust > 0 (step 2: the orbital engine is lit); the latched
+    # split-confirmed flag; and the per-phase ACTIVATE_STAGE count (HARD-capped at
+    # 2 -- a third would fire the istg=0 heat-shield decoupler). All reset on entry
+    # to each SEPARATE phase (the two legs are sequential, never concurrent, so
+    # one set of fields serves both).
+    separate_baseline_vessel_count: int = 0
+    separate_settle_streak: int = 0
+    separate_thrust_streak: int = 0
+    separate_split_confirmed: bool = False
+    separate_activations: int = 0
     # UNDOCK split evidence.
     undock_baseline_vessel_count: int = 0
     # Carried evidence for the evaluator.
@@ -3500,6 +3670,8 @@ def _bdock_phase_budget(params: BDockParams, phase: str) -> Optional[float]:
         return params.ascent_timeout
     if phase in (BDOCK_STATION_CIRCULARIZE, BDOCK_INT_CIRCULARIZE):
         return params.circularize_timeout
+    if phase in (BDOCK_STATION_SEPARATE, BDOCK_INT_SEPARATE):
+        return params.separation_timeout
     if phase == BDOCK_STATION_COMMIT:
         return params.station_commit_timeout
     if phase == BDOCK_INT_LAUNCH:
@@ -3512,8 +3684,13 @@ def _bdock_phase_budget(params: BDockParams, phase: str) -> Optional[float]:
         return 2.0 * params.transfer_timeout
     if phase == BDOCK_UNDOCK:
         return params.undock_timeout
-    # SET-TARGET / MATCH-VELOCITY: no dedicated budget (fast transitions); the
-    # wall deadline in the fly loop is the ultimate backstop.
+    if phase == BDOCK_MATCH_VELOCITY:
+        # Flight-5 lesson: MATCH-VELOCITY is NOT a fast transition -- the
+        # kill-rel-vel node can land far ahead, so an unmet gate silently ate the
+        # whole 4800 s wall. It now carries its own bounded give-up.
+        return params.match_timeout
+    # SET-TARGET: no dedicated budget (a fast transition); the wall deadline in
+    # the fly loop is the ultimate backstop.
     return None
 
 
@@ -3546,6 +3723,117 @@ def _bdock_ascent_entry_actions(target_apoapsis: float) -> List[Action]:
         Action(ACTION_MJ_ENGAGE_ASCENT),
         Action(ACTION_ACTIVATE_STAGE),
     ]
+
+
+def _bdock_attitude_hold_actions() -> List[Action]:
+    """SAS stability-assist + RCS on (flight-10 tumble fix). Emitted when a stage
+    separation just dropped mass (separation torque with no SAS = a tumble) and at
+    DOCK entry (hand the docking AP a stabilized, RCS-ready ship). SET_RCS value
+    1.0 = on."""
+    return [Action(ACTION_SET_SAS), Action(ACTION_SET_RCS, value=1.0)]
+
+
+def _bdock_dock_progress(state: BDockState, snapshot: TelemetrySnapshot,
+                         params: BDockParams
+                         ) -> Tuple[BDockState, Optional[BDockState]]:
+    """DOCK progress watchdog (flight-11 liveness: "budgets bound SLOW; liveness
+    bounds BROKEN"). While the docking AP is enabled, ANY of target_distance
+    closing / monopropellant burning (RCS actually firing) / angular_velocity
+    falling (tumble actually being killed) is observable progress. If NONE improves
+    for dock_no_progress_seconds the AP is enabled-but-inert (benched / NRE / stuck)
+    -> a named fast flake instead of idling to the dock budget. Returns
+    (new_state, flake_state_or_None). Fail closed: an unread (NaN) reading is never
+    progress."""
+    improved = False
+    best_d, best_m, best_a = (state.dock_best_distance, state.dock_best_monoprop,
+                              state.dock_best_angvel)
+    d = snapshot.target_distance
+    m = snapshot.monopropellant
+    a = snapshot.angular_velocity
+    if _is_finite(d) and d < best_d - BDOCK_DOCK_DIST_EPS:
+        best_d = d
+        improved = True
+    if _is_finite(m) and m < best_m - BDOCK_DOCK_MONO_EPS:
+        best_m = m
+        improved = True
+    if _is_finite(a) and a < best_a - BDOCK_DOCK_ANGVEL_EPS:
+        best_a = a
+        improved = True
+    st = replace(state, dock_best_distance=best_d, dock_best_monoprop=best_m,
+                 dock_best_angvel=best_a)
+    if improved:
+        return replace(st, dock_last_progress_ut=snapshot.ut), None
+    if (_is_finite(snapshot.ut) and _is_finite(st.dock_last_progress_ut)
+            and (snapshot.ut - st.dock_last_progress_ut)
+            > params.dock_no_progress_seconds):
+        return st, replace(_bdock_flake(st), flake_reason=(
+            "phase %s: docking AP enabled but no observable progress "
+            "(dist/monoprop/angvel all flat)" % st.phase))
+    return st, None
+
+
+def _bdock_separate_step(state: BDockState, snapshot: TelemetrySnapshot,
+                         next_phase: str) -> Tuple[BDockState, List[Action]]:
+    """One SEPARATE-phase frame: the evidence-chained TWO-step separation contract
+    (flight-4 lesson -- flight 4 dropped the core but reached RENDEZVOUS with
+    avThr=0.000, the orbital engine never ignited, because the LV-T45 sits in a
+    LATER stage than the separation decoupler).
+
+    Step 1 (drop the spent core). The entry ACTION_ACTIVATE_STAGE (emitted by the
+    circularize->SEPARATE transition) drops the core. Step 1 completes when
+    vessel_count exceeds the phase-entry baseline (the core spawned as a NEW
+    vessel), debounced BDOCK_SEPARATION_DEBOUNCE frames.
+
+    Step 2 (ignite the orbital engine). AFTER the split is confirmed: if
+    available_thrust is ALREADY debounced-positive (a craft whose decoupler +
+    engine share a stage -- the engine lit on the entry activation), complete with
+    NO second activation. Otherwise emit EXACTLY ONE more ACTIVATE_STAGE to light
+    the orbital stage, then complete on available_thrust > 0 debounced. HARD CAP:
+    at most 2 activations per SEPARATE phase -- a THIRD would fire the istg=0
+    heat-shield decoupler, so the ignition activation is emitted at most once.
+
+    Fail closed: vessel_count defaults 0 (unread) and available_thrust defaults
+    NaN (unread) -- neither an unread count nor an unread / zero thrust ever
+    certifies a step, and NaN is never treated as ignited. Bounded give-up
+    (separationTimeoutSeconds spans BOTH steps) with a reason that distinguishes a
+    no-split from a split-but-no-ignition stall."""
+    split_bumped = snapshot.vessel_count > state.separate_baseline_vessel_count
+    settle = state.separate_settle_streak + 1 if split_bumped else 0
+    thrust_up = (_is_finite(snapshot.available_thrust)
+                 and snapshot.available_thrust > 0.0)
+    thrust_streak = state.separate_thrust_streak + 1 if thrust_up else 0
+    split_confirmed = (state.separate_split_confirmed
+                       or settle >= BDOCK_SEPARATION_DEBOUNCE)
+    st = replace(state, separate_settle_streak=settle,
+                 separate_thrust_streak=thrust_streak,
+                 separate_split_confirmed=split_confirmed)
+
+    if not split_confirmed:
+        # Step 1: still waiting for the spent core to spawn.
+        if _bdock_over_budget(st, snapshot):
+            return replace(_bdock_flake(st), flake_reason=(
+                "phase %s: no separation observed (vessel_count did not increase)"
+                % st.phase)), []
+        return st, []
+
+    # Step 2: the split is confirmed -> ensure the orbital engine is lit.
+    if thrust_streak >= BDOCK_SEPARATION_DEBOUNCE:
+        # Separation dropped the spent core -> hold attitude (SAS + RCS) into the
+        # next phase so the orbital stage does not tumble (flight-10).
+        return (_bdock_enter(st, next_phase, snapshot.ut,
+                             separate_settle_streak=0, separate_thrust_streak=0,
+                             separate_split_confirmed=False,
+                             separate_activations=0),
+                _bdock_attitude_hold_actions())
+    if st.separate_activations < 2:
+        # Ignition: exactly one more activation (never a third -> heat shield).
+        return (replace(st, separate_activations=st.separate_activations + 1),
+                [Action(ACTION_ACTIVATE_STAGE)])
+    if _bdock_over_budget(st, snapshot):
+        return replace(_bdock_flake(st), flake_reason=(
+            "phase %s: separated but no ignition (available_thrust stayed 0)"
+            % st.phase)), []
+    return st, []
 
 
 def bdock_decide(state: BDockState,
@@ -3595,8 +3883,22 @@ def bdock_decide(state: BDockState,
     if state.phase == BDOCK_STATION_CIRCULARIZE:
         if (_is_finite(snapshot.periapsis)
                 and snapshot.periapsis >= p.station_periapsis - p.peri_error):
-            return _bdock_enter(state, BDOCK_STATION_ORBIT, snapshot.ut), []
+            # Circularized -> drop the spent core AND ignite the orbital engine
+            # (the two-step SEPARATE contract). This entry ACTIVATE_STAGE (count 1)
+            # drops the core; SEPARATE step 1 confirms on the vessel_count
+            # increase, step 2 lights the orbital stage (at most one more
+            # activation, cap 2). Baseline the pre-split vessel count.
+            return (_bdock_enter(state, BDOCK_STATION_SEPARATE, snapshot.ut,
+                                 separate_baseline_vessel_count=snapshot.vessel_count,
+                                 separate_settle_streak=0,
+                                 separate_thrust_streak=0,
+                                 separate_split_confirmed=False,
+                                 separate_activations=1),
+                    [Action(ACTION_ACTIVATE_STAGE)])
         return _bdock_stay_or_flake(state, snapshot), []
+
+    if state.phase == BDOCK_STATION_SEPARATE:
+        return _bdock_separate_step(state, snapshot, BDOCK_STATION_ORBIT)
 
     if state.phase == BDOCK_STATION_ORBIT:
         # Capture the Station handle (while it is the active vessel, P9/Q4) and
@@ -3639,8 +3941,20 @@ def bdock_decide(state: BDockState,
     if state.phase == BDOCK_INT_CIRCULARIZE:
         if (_is_finite(snapshot.periapsis)
                 and snapshot.periapsis >= p.interceptor_periapsis - p.peri_error):
-            return _bdock_enter(state, BDOCK_INT_PHASING_ORBIT, snapshot.ut), []
+            # Same two-step separation as the Station leg: drop the spent
+            # Interceptor core AND ignite its orbital engine so it docks as its
+            # orbital stage only.
+            return (_bdock_enter(state, BDOCK_INT_SEPARATE, snapshot.ut,
+                                 separate_baseline_vessel_count=snapshot.vessel_count,
+                                 separate_settle_streak=0,
+                                 separate_thrust_streak=0,
+                                 separate_split_confirmed=False,
+                                 separate_activations=1),
+                    [Action(ACTION_ACTIVATE_STAGE)])
         return _bdock_stay_or_flake(state, snapshot), []
+
+    if state.phase == BDOCK_INT_SEPARATE:
+        return _bdock_separate_step(state, snapshot, BDOCK_INT_PHASING_ORBIT)
 
     if state.phase == BDOCK_INT_PHASING_ORBIT:
         return (_bdock_enter(state, BDOCK_SET_TARGET, snapshot.ut),
@@ -3666,8 +3980,15 @@ def bdock_decide(state: BDockState,
         if latched_off and close:
             return (_bdock_enter(st, BDOCK_MATCH_VELOCITY, snapshot.ut),
                     [Action(ACTION_MJ_KILL_REL_VEL)])
-        # No-progress detector: track the running minimum distance.
-        if _is_finite(snapshot.target_distance):
+        # No-progress detector: track the running minimum distance. PAUSED
+        # (counter reset) while a maneuver node is pending (flight 11): the
+        # rendezvous AP legitimately waits minutes for a burn window with the
+        # distance flat -- it killed a HEALTHY rendezvous 3.4 m/s from done.
+        # Liveness means the actor is DEAD, not "position not improving while
+        # a burn is scheduled"; the phase budget bounds slow-but-alive.
+        if snapshot.node_count > 0:
+            st = replace(st, rendezvous_noprogress_count=0)
+        elif _is_finite(snapshot.target_distance):
             if snapshot.target_distance < st.rendezvous_min_distance:
                 st = replace(st, rendezvous_min_distance=snapshot.target_distance,
                              rendezvous_noprogress_count=0)
@@ -3679,36 +4000,160 @@ def bdock_decide(state: BDockState,
         return _bdock_stay_or_flake(st, snapshot), []
 
     if state.phase == BDOCK_MATCH_VELOCITY:
-        if (_is_finite(snapshot.target_rel_speed)
-                and snapshot.target_rel_speed <= p.match_speed):
-            return (_bdock_enter(state, BDOCK_DOCK, snapshot.ut),
-                    [Action(ACTION_SET_TARGET_DOCKING_PORT),
-                     Action(ACTION_MJ_ENABLE_DOCKING, value=p.dock_speed)])
-        return _bdock_stay_or_flake(state, snapshot), []
+        rel = snapshot.target_rel_speed
+        st = state
+        if _is_finite(rel):
+            # A finite reading resets the dropped-target streak; complete when at
+            # or below the rel-speed floor.
+            st = replace(st, match_nan_streak=0)
+            if rel <= p.match_speed:
+                # Abort any pending maneuver execution FIRST (flight-8 prox-ops
+                # rule): the kill-rel-vel node can still be pending in the executor
+                # with autowarp when MATCH-VELOCITY completes in ~0.5 s, and it
+                # rails-warps at ~approach distance, packing the docking-port
+                # target null. Then target the port -- but do NOT enable the
+                # docking AP in the same batch (flight 9): MechJeb's core.target
+                # syncs on its next Update, so a same-batch enable makes the AP's
+                # first Drive tick see the OLD vessel target, NRE, and get benched
+                # by MechJeb. dock_enable_pending defers the enable to the next
+                # poll.
+                return (_bdock_enter(replace(st, dock_enable_pending=True),
+                                     BDOCK_DOCK, snapshot.ut,
+                                     dock_last_progress_ut=snapshot.ut),
+                        [Action(ACTION_MJ_ABORT_NODE_EXEC),
+                         Action(ACTION_SET_SAS), Action(ACTION_SET_RCS, value=1.0),
+                         Action(ACTION_SET_TARGET_DOCKING_PORT)])
+        else:
+            # Non-finite rel-speed (fail-closed: NaN NEVER completes the phase).
+            # The target likely dropped when the rendezvous AP disabled itself;
+            # re-acquire it EXACTLY ONCE, debounced K frames so a single transient
+            # read miss never re-targets. SET_TARGET is idempotent.
+            streak = st.match_nan_streak + 1
+            st = replace(st, match_nan_streak=streak)
+            if streak >= DEFAULT_DEBOUNCE_K and not st.match_retarget_done:
+                return (replace(st, match_retarget_done=True, match_nan_streak=0),
+                        [Action(ACTION_SET_TARGET_VESSEL)])
+        if _bdock_over_budget(st, snapshot):
+            last = ("%.3f" % rel) if _is_finite(rel) else "nan"
+            return replace(_bdock_flake(st), flake_reason=(
+                "phase %s: match-velocity did not reach rel-speed floor "
+                "(target_rel_speed=%s)" % (st.phase, last))), []
+        return st, []
 
     if state.phase == BDOCK_DOCK:
         st = state
-        if snapshot.mj_docking_enabled:
-            st = replace(st, docking_ever_enabled=True)
-        latched_off = st.docking_ever_enabled and not snapshot.mj_docking_enabled
+        # Deferred docking-AP enable (flight 9): the port target was set on the
+        # previous batch; by this poll MechJeb's core.target has synced to it, so
+        # the AP's first Drive tick sees a real docking node. Reset the enable-wait
+        # watchdog -- we have just (re-)issued the enable.
+        if st.dock_enable_pending:
+            return (replace(st, dock_enable_pending=False,
+                            dock_enable_wait_streak=0),
+                    [Action(ACTION_MJ_ENABLE_DOCKING, value=p.dock_speed)])
+
+        ap_on = snapshot.mj_docking_enabled
+        if ap_on:
+            # The AP is running: latch docking_ever_enabled and clear both
+            # AP-death watchdog streaks (it is alive this frame).
+            st = replace(st, docking_ever_enabled=True, dock_enable_wait_streak=0,
+                         dock_died_streak=0)
         docked = snapshot.docking_state == DOCKING_STATE_DOCKED
+        latched_off = st.docking_ever_enabled and not ap_on
+
+        # Completion: onPartCouple -> Parsek authors the cross-tree Dock branch +
+        # opens the RouteConnectionWindow. Disable the docking AP and start T1
+        # (reset the TRANSFER liveness tracker for the new transfer).
         if docked and latched_off:
-            # onPartCouple -> Parsek authors the cross-tree Dock branch + opens
-            # the RouteConnectionWindow. Disable the docking AP and start T1.
             return (_bdock_enter(replace(st, docked_confirmed=True,
-                                         current_transfer_started=True),
+                                         current_transfer_started=True,
+                                         transfer_best_amount=float("-inf"),
+                                         transfer_noprogress_streak=0),
                                  BDOCK_TRANSFER, snapshot.ut),
                     [Action(ACTION_MJ_DISABLE_DOCKING),
                      Action(ACTION_START_RESOURCE_TRANSFER,
                             value=p.transfer_amount_lf, text="LiquidFuel",
                             limit=TRANSFER_DIR_DELIVER)])
-        # Monoprop-out give-up (P2): a docking-AP stall thrashing RCS drains it.
-        if (not docked and _is_finite(snapshot.monopropellant)
-                and snapshot.monopropellant <= BDOCK_MONOPROP_OUT_EPS):
-            return (replace(_bdock_flake(st, BDOCK_DOCK)),
+
+        if ap_on:
+            # ---- AP running: dropped-target recovery + progress watchdog + give-ups.
+            # Dropped-target recovery (flight-8/9/11): the port target went null
+            # (target_distance non-finite) for K debounced frames -> re-acquire it,
+            # staggered enable, BOUNDED to BDOCK_DOCK_MAX_RETARGETS re-arms
+            # (flight-11: one-shot was too stingy if KSP clears the port
+            # repeatedly). NaN never completes anything (the docked gate reads
+            # docking_state), so fail-closed is preserved.
+            if not _is_finite(snapshot.target_distance):
+                streak = st.dock_nan_streak + 1
+                st = replace(st, dock_nan_streak=streak)
+                if (streak >= DEFAULT_DEBOUNCE_K
+                        and st.dock_retarget_count < BDOCK_DOCK_MAX_RETARGETS):
+                    return (replace(st,
+                                    dock_retarget_count=st.dock_retarget_count + 1,
+                                    dock_nan_streak=0, dock_enable_pending=True),
+                            [Action(ACTION_SET_TARGET_DOCKING_PORT)])
+            else:
+                st = replace(st, dock_nan_streak=0)
+            # Progress watchdog (flight-11): the AP is enabled -- is it DOING
+            # anything? None of dist/monoprop/angvel improving for the window is a
+            # dead/inert AP; flake fast with the named reason.
+            st, prog_flake = _bdock_dock_progress(st, snapshot, p)
+            if prog_flake is not None:
+                return prog_flake, [Action(ACTION_MJ_DISABLE_DOCKING)]
+            # Monoprop-out give-up (P2): a docking-AP stall thrashing RCS drains it.
+            if (not docked and _is_finite(snapshot.monopropellant)
+                    and snapshot.monopropellant <= BDOCK_MONOPROP_OUT_EPS):
+                return (replace(_bdock_flake(st, BDOCK_DOCK), flake_reason=(
+                            "phase %s: docking aborted, monopropellant exhausted"
+                            % BDOCK_DOCK)),
+                        [Action(ACTION_MJ_DISABLE_DOCKING)])
+            # Budget backstop (slow-but-alive).
+            if _bdock_over_budget(st, snapshot):
+                return (replace(_bdock_flake(st), flake_reason=(
+                            "phase %s: docking did not complete within budget"
+                            % st.phase)),
+                        [Action(ACTION_MJ_DISABLE_DOCKING)])
+            return st, []
+
+        # ---- AP NOT running (not the deferred-enable frame, not docked). ----
+        if not st.docking_ever_enabled:
+            # E1a: the enable never took (AP refused / NRE'd on enable). Wait a
+            # debounced window, re-emit the enable ONCE, then fast-flake.
+            streak = st.dock_enable_wait_streak + 1
+            st = replace(st, dock_enable_wait_streak=streak)
+            if streak >= BDOCK_DOCK_LIVENESS_K:
+                if not st.dock_enable_reissued:
+                    return (replace(st, dock_enable_reissued=True,
+                                    dock_enable_wait_streak=0),
+                            [Action(ACTION_MJ_ENABLE_DOCKING, value=p.dock_speed)])
+                return (replace(_bdock_flake(st), flake_reason=(
+                            "phase %s: docking AP enable did not take" % st.phase)),
+                        [Action(ACTION_MJ_DISABLE_DOCKING)])
+            if _bdock_over_budget(st, snapshot):
+                return (replace(_bdock_flake(st), flake_reason=(
+                            "phase %s: docking AP never enabled within budget"
+                            % st.phase)),
+                        [Action(ACTION_MJ_DISABLE_DOCKING)])
+            return st, []
+
+        # E1b: the AP ran then DIED mid-approach (benched / NRE) without docking.
+        # Re-target + re-enable ONCE (a dead AP often drops the port target too);
+        # if it dies again, fast-flake -- never idle to the budget with a dead AP.
+        streak = st.dock_died_streak + 1
+        st = replace(st, dock_died_streak=streak)
+        if streak >= BDOCK_DOCK_LIVENESS_K:
+            if not st.dock_reenabled_after_death:
+                return (replace(st, dock_reenabled_after_death=True,
+                                dock_died_streak=0, dock_enable_pending=True),
+                        [Action(ACTION_SET_TARGET_DOCKING_PORT)])
+            return (replace(_bdock_flake(st), flake_reason=(
+                        "phase %s: docking AP disabled without docking "
+                        "(benched/NRE?)" % st.phase)),
                     [Action(ACTION_MJ_DISABLE_DOCKING)])
         if _bdock_over_budget(st, snapshot):
-            return _bdock_flake(st), [Action(ACTION_MJ_DISABLE_DOCKING)]
+            return (replace(_bdock_flake(st), flake_reason=(
+                        "phase %s: docking AP idle after death within budget"
+                        % st.phase)),
+                    [Action(ACTION_MJ_DISABLE_DOCKING)])
         return st, []
 
     if state.phase == BDOCK_TRANSFER:
@@ -3722,12 +4167,32 @@ def bdock_decide(state: BDockState,
                 return (_bdock_enter(replace(st, undock_baseline_vessel_count=base),
                                      BDOCK_UNDOCK, snapshot.ut),
                         [Action(ACTION_UNDOCK)])
-            # Start T2 (MonoPropellant pickup, station -> transport).
-            return (replace(st, current_transfer_started=True),
+            # Start T2 (MonoPropellant pickup, station -> transport); reset the
+            # liveness tracker for the new transfer.
+            return (replace(st, current_transfer_started=True,
+                            transfer_best_amount=float("-inf"),
+                            transfer_noprogress_streak=0),
                     [Action(ACTION_START_RESOURCE_TRANSFER,
                             value=p.transfer_amount_mp, text="MonoPropellant",
                             limit=TRANSFER_DIR_PICKUP)])
-        return _bdock_stay_or_flake(state, snapshot), []
+        # Liveness watchdog (flight-11): a running transfer must move resource --
+        # transfer_amount climbs. Flat/unread for BDOCK_TRANSFER_STALL_FRAMES is a
+        # stalled transfer (dry source / full dest) -> fast flake, not an idle to
+        # the transfer budget. Fail closed: an unread (NaN) amount is no progress.
+        st = state
+        if st.current_transfer_started:
+            amt = snapshot.transfer_amount
+            if _is_finite(amt) and amt > st.transfer_best_amount + 1e-6:
+                st = replace(st, transfer_best_amount=amt,
+                             transfer_noprogress_streak=0)
+            else:
+                streak = st.transfer_noprogress_streak + 1
+                st = replace(st, transfer_noprogress_streak=streak)
+                if streak >= BDOCK_TRANSFER_STALL_FRAMES:
+                    return replace(_bdock_flake(st), flake_reason=(
+                        "phase %s: transfer stalled (transfer_amount not "
+                        "increasing)" % st.phase)), []
+        return _bdock_stay_or_flake(st, snapshot), []
 
     if state.phase == BDOCK_UNDOCK:
         # onVesselsUndocking -> Parsek authors the Undock split + completes the
@@ -3753,12 +4218,24 @@ def evaluate_bdock_assertions(frames, params: BDockParams,
     analyzer's, design section 6). ``state`` carries the docked / undock evidence.
 
     - ``reachedStationOrbit``:      STATION-ORBIT in phases_reached.
+    - ``stationSeparated``:         STATION-SEPARATE completed (the spent core
+      dropped) -- the phase was entered AND the machine advanced past it to
+      STATION-ORBIT (the flight-3 stage-separation contract).
     - ``reachedInterceptorOrbit``:  INT-PHASING-ORBIT in phases_reached.
+    - ``interceptorSeparated``:     INT-SEPARATE completed (entered AND advanced
+      to INT-PHASING-ORBIT).
     - ``docked``:                   DOCK reached AND docked_confirmed evidence.
     - ``transfersComplete``:        both commanded transfers completed (evidence
       transfers_done >= 2).
     - ``undocked``:                 the authoritative undock split fired
       (UNDOCK/TERMINAL reached AND undock_confirmed evidence).
+
+    A SEPARATE phase is only entered after its circularize completes and only
+    LEFT on a confirmed vessel_count increase, so reaching the phase AFTER it
+    (STATION-ORBIT / INT-PHASING-ORBIT) is proof the separation was observed;
+    requiring the SEPARATE phase itself in ``phases`` too keeps the row honest if
+    the flow is ever reordered (a run that entered SEPARATE but flaked before the
+    split reads met=False with value=the SEPARATE phase, naming the stall).
     """
     del frames, k
     phases = tuple(phases_reached or ())
@@ -3771,11 +4248,23 @@ def evaluate_bdock_assertions(frames, params: BDockParams,
                                (BDOCK_STATION_ORBIT if BDOCK_STATION_ORBIT in phases
                                 else (phases[-1] if phases else None)),
                                {"required": BDOCK_STATION_ORBIT})
+    station_sep = AssertionOutcome(
+        "stationSeparated",
+        (BDOCK_STATION_SEPARATE in phases) and (BDOCK_STATION_ORBIT in phases),
+        (BDOCK_STATION_SEPARATE if BDOCK_STATION_SEPARATE in phases
+         else (phases[-1] if phases else None)),
+        {"required": BDOCK_STATION_SEPARATE})
     interceptor = AssertionOutcome("reachedInterceptorOrbit",
                                    BDOCK_INT_PHASING_ORBIT in phases,
                                    (BDOCK_INT_PHASING_ORBIT if BDOCK_INT_PHASING_ORBIT in phases
                                     else (phases[-1] if phases else None)),
                                    {"required": BDOCK_INT_PHASING_ORBIT})
+    interceptor_sep = AssertionOutcome(
+        "interceptorSeparated",
+        (BDOCK_INT_SEPARATE in phases) and (BDOCK_INT_PHASING_ORBIT in phases),
+        (BDOCK_INT_SEPARATE if BDOCK_INT_SEPARATE in phases
+         else (phases[-1] if phases else None)),
+        {"required": BDOCK_INT_SEPARATE})
     docked = AssertionOutcome("docked",
                               (BDOCK_DOCK in phases) and docked_ev, docked_ev,
                               {"required": BDOCK_DOCK})
@@ -3785,7 +4274,8 @@ def evaluate_bdock_assertions(frames, params: BDockParams,
     undocked = AssertionOutcome("undocked",
                                 (BDOCK_TERMINAL in phases) and undock_ev, undock_ev,
                                 {"required": BDOCK_TERMINAL})
-    return [station, interceptor, docked, transfer, undocked]
+    return [station, station_sep, interceptor, interceptor_sep, docked,
+            transfer, undocked]
 
 
 # ---------------------------------------------------------------------------
@@ -4072,7 +4562,11 @@ def resolve_flight_verdict(machine_state, outcomes) -> Tuple[str, str]:
     verdict + reason (design "Mission B1/B2": all met -> OK; any unmet ->
     ASSERT-FAIL; a phase timeout -> FLAKE). Returns (verdict, reason)."""
     if getattr(machine_state, "verdict", None) == MISSION_FLAKE:
-        return MISSION_FLAKE, "phase %s timed out" % (machine_state.flake_phase,)
+        # A machine may attach a specific FLAKE reason (e.g. the B-DOCK SEPARATE
+        # give-up naming the missing split); otherwise the generic timeout line.
+        flake_reason = getattr(machine_state, "flake_reason", None)
+        return MISSION_FLAKE, flake_reason or (
+            "phase %s timed out" % (machine_state.flake_phase,))
     # A vessel-lost / destroyed terminal is a deterministic mission failure (not a
     # flake): return its reason verbatim BEFORE evaluating assertions, since a
     # destroyed craft's residual telemetry could otherwise spuriously satisfy them.
@@ -4428,11 +4922,27 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("docking_ever_enabled", "dockEnabled"),
     ("rendezvous_min_distance", "rvMinDist"),
     ("rendezvous_noprogress_count", "rvNoProgress"),
+    ("match_nan_streak", "matchNanStreak"),
+    ("match_retarget_done", "matchRetarget"),
+    ("dock_nan_streak", "dockNanStreak"),
+    ("dock_retarget_count", "dockRetargetCount"),
+    ("dock_enable_pending", "dockEnablePending"),
+    ("dock_enable_wait_streak", "dockEnableWait"),
+    ("dock_enable_reissued", "dockEnableReissued"),
+    ("dock_died_streak", "dockDiedStreak"),
+    ("dock_reenabled_after_death", "dockReenabled"),
+    ("dock_last_progress_ut", "dockLastProgressUt"),
     ("transfers_done", "transfersDone"),
     ("current_transfer_started", "transferStarted"),
+    ("transfer_noprogress_streak", "transferNoProgress"),
     ("docked_confirmed", "docked"),
     ("undock_confirmed", "undocked"),
     ("undock_baseline_vessel_count", "undockBaseVessels"),
+    ("separate_baseline_vessel_count", "sepBaseVessels"),
+    ("separate_settle_streak", "sepSettleStreak"),
+    ("separate_thrust_streak", "sepThrustStreak"),
+    ("separate_split_confirmed", "sepSplitOk"),
+    ("separate_activations", "sepActivations"),
 )
 
 # Fields whose CHANGE is a sparse, decision-relevant gate/latch event worth
@@ -4471,10 +4981,26 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("rendezvous_ever_enabled", "rvEnabled"),
     ("docking_ever_enabled", "dockEnabled"),
     ("rendezvous_noprogress_count", "rvNoProgress"),
+    # MATCH-VELOCITY / DOCK dropped-target re-acquire + DOCK AP-death liveness
+    # latches (sparse flips; the per-frame nan/wait/died streaks stay out of the
+    # diff to avoid noise). The re-target count + the two AP-death re-issue latches
+    # are the flight-11 fast-fail evidence, loud on change.
+    ("match_retarget_done", "matchRetarget"),
+    ("dock_retarget_count", "dockRetargetCount"),
+    ("dock_enable_pending", "dockEnablePending"),
+    ("dock_enable_reissued", "dockEnableReissued"),
+    ("dock_reenabled_after_death", "dockReenabled"),
     ("transfers_done", "transfersDone"),
     ("current_transfer_started", "transferStarted"),
     ("docked_confirmed", "docked"),
     ("undock_confirmed", "undocked"),
+    # Separation settle / thrust streaks + the split-confirmed latch + the
+    # activation count: sparse gate flips bounded by the debounce depth / the
+    # hard cap of 2 (mirrors launch_settle_streak above).
+    ("separate_settle_streak", "sepSettleStreak"),
+    ("separate_thrust_streak", "sepThrustStreak"),
+    ("separate_split_confirmed", "sepSplitOk"),
+    ("separate_activations", "sepActivations"),
 )
 
 _MACHINE_FIELD_ABSENT = object()
@@ -4593,6 +5119,16 @@ def snapshot_dict(snapshot: TelemetrySnapshot) -> Dict:
         "warpRate": _json_safe(snapshot.warp_rate),
         "apError": _json_safe(snapshot.ap_error),
         "vesselLost": snapshot.vessel_lost,
+        # B-DOCK rendezvous / match diagnosability (flight-5: a MATCH-VELOCITY
+        # stall was invisible in the status file without these). NaN -> None.
+        "targetDistance": _json_safe(snapshot.target_distance),
+        "targetRelSpeed": _json_safe(snapshot.target_rel_speed),
+        # Prox-ops observability (flight-10: DOCK was blind to tumble / control /
+        # AP-status). NaN -> None; booleans + status string pass through.
+        "angularVelocity": _json_safe(snapshot.angular_velocity),
+        "sasEnabled": snapshot.sas_enabled,
+        "rcsEnabled": snapshot.rcs_enabled,
+        "dockingApStatus": snapshot.docking_ap_status,
     }
 
 
@@ -4600,11 +5136,16 @@ def format_snapshot_compact(snapshot: TelemetrySnapshot) -> str:
     """One-line-per-frame compact snapshot form for the event-window ring
     buffer (design 2c): the fields the machines gate on, ~100 chars."""
     return ("ut=%s alt=%s ap=%s pe=%s body=%s nodes=%d nodeDv=%s thr=%s "
-            "apErr=%s warp=%sx%s sit=%s%s"
+            "apErr=%s tgtD=%s tgtV=%s angV=%s sas=%d rcs=%d apSt=%s warp=%sx%s "
+            "sit=%s%s"
             % (_obs_fmt(snapshot.ut), _obs_fmt(snapshot.altitude),
                _obs_fmt(snapshot.apoapsis), _obs_fmt(snapshot.periapsis),
                snapshot.body or "?", snapshot.node_count,
                _obs_fmt(snapshot.node_dv), _obs_fmt(snapshot.throttle),
-               _obs_fmt(snapshot.ap_error), snapshot.warp_mode,
+               _obs_fmt(snapshot.ap_error), _obs_fmt(snapshot.target_distance),
+               _obs_fmt(snapshot.target_rel_speed),
+               _obs_fmt(snapshot.angular_velocity),
+               1 if snapshot.sas_enabled else 0, 1 if snapshot.rcs_enabled else 0,
+               snapshot.docking_ap_status or "?", snapshot.warp_mode,
                _obs_fmt(snapshot.warp_rate), snapshot.situation or "?",
                " LOST" if snapshot.vessel_lost else ""))

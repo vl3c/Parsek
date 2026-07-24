@@ -155,6 +155,26 @@ class SnapshotFormatTests(unittest.TestCase):
         self.assertEqual(d["ut"], 5.0)
         self.assertFalse(d["vesselLost"])
 
+    def test_prox_ops_fields_fail_closed_defaults(self):
+        # Flight-10 prox-ops fields default fail-closed: NaN angvel -> None in the
+        # status dict, SAS/RCS off, empty AP status. A runner (or a B1-B7 snapshot
+        # that never reads the docking surface) leaves them at these sentinels.
+        s = mlib.TelemetrySnapshot(ut=1.0)
+        self.assertFalse(math.isfinite(s.angular_velocity))
+        self.assertFalse(s.sas_enabled)
+        self.assertFalse(s.rcs_enabled)
+        self.assertEqual(s.docking_ap_status, "")
+        d = mlib.snapshot_dict(s)
+        self.assertIsNone(d["angularVelocity"])   # NaN -> None
+        self.assertFalse(d["sasEnabled"])
+        self.assertFalse(d["rcsEnabled"])
+        self.assertEqual(d["dockingApStatus"], "")
+        self.assertNotIn("NaN", json.dumps(d))
+        # The compact line carries the new tumble/control/AP-status tokens.
+        line = mlib.format_snapshot_compact(s)
+        for token in ("angV=", "sas=0", "rcs=0", "apSt="):
+            self.assertIn(token, line)
+
 
 class StatusPathTests(unittest.TestCase):
     def test_mission_result_maps_to_status_sibling(self):

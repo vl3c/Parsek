@@ -554,11 +554,15 @@ class KrpcMissionControl(MissionControl):
             transfer_complete = False
             transfer_amount = float("nan")
             monopropellant = float("nan")
+            angular_velocity = float("nan")
+            sas_enabled = False
+            rcs_enabled = False
+            docking_ap_status = ""
             if self._read_docking:
                 target_distance, target_rel_speed, target_set = \
                     self._read_target_controller()
                 mj_rv_enabled, mj_dock_enabled = self._read_docking_ap_enabled()
-                docking_state = self._read_docking_state()
+                docking_state = self._read_docking_state(v)
                 try:
                     vessel_count = len(sc.vessels)
                 except Exception:
@@ -568,6 +572,20 @@ class KrpcMissionControl(MissionControl):
                     monopropellant = float(resources.amount("MonoPropellant"))
                 except Exception:
                     monopropellant = float("nan")
+                # Prox-ops observability (flight-10): the tumble signal + control
+                # + AP-status reads, each fail-closed in its own try/except so a
+                # fault degrades to the sentinel and never trips the vessel-lost
+                # read-fail streak.
+                angular_velocity = self._read_angular_velocity(v)
+                try:
+                    sas_enabled = bool(control_handle.sas)
+                except Exception:
+                    sas_enabled = False
+                try:
+                    rcs_enabled = bool(control_handle.rcs)
+                except Exception:
+                    rcs_enabled = False
+                docking_ap_status = self._read_docking_ap_status()
             snapshot = mlib.TelemetrySnapshot(
                 ut=float(sc.ut),
                 altitude=float(flight_srf.surface_altitude),
@@ -639,6 +657,11 @@ class KrpcMissionControl(MissionControl):
                 transfer_amount=transfer_amount,
                 monopropellant=monopropellant,
                 seam_commit_result=self._seam_commit_result,
+                # Prox-ops observability (flight-10): tumble / control / AP-status.
+                angular_velocity=angular_velocity,
+                sas_enabled=sas_enabled,
+                rcs_enabled=rcs_enabled,
+                docking_ap_status=docking_ap_status,
             )
             self._read_fail_streak = 0
             self._warp_watchdog(sc, snapshot.ut)
@@ -1002,15 +1025,23 @@ class KrpcMissionControl(MissionControl):
         # be absent; the machine's bounded give-ups own a non-advancing outcome.
         elif kind == mlib.ACTION_LAUNCH_VESSEL:
             # kRPC v0.5.4 SpaceCenter.launch_vessel(craft_directory, name,
-            # launch_site, recover=True, ...): resolves <save>/Ships/VAB/<name>.craft,
-            # recovers any vessel already on the pad, then StartWithNewLaunch (a
-            # FLIGHT->FLIGHT reload focused on the new craft). crew defaults to the
-            # KSP manifest (action.value crew-count seeding is a future refinement
-            # for the EVA-3 3-crew pod). Re-resolve the MechJeb handles against the
-            # NEW active vessel and reset the ascent-complete latch + read-fail
-            # streak so the fresh craft is judged from its own engage.
+            # launch_site, recover=True, crew=None, ...): resolves
+            # <save>/Ships/VAB/<name>.craft, recovers any vessel already on the
+            # pad, then StartWithNewLaunch (a FLIGHT->FLIGHT reload focused on the
+            # new craft). crew MUST be passed as an explicit EMPTY LIST by KEYWORD:
+            # the installed 0.5.4 client stub orders recover BEFORE crew (a
+            # positional list lands on recover: "argument 3 must be bool"), and its
+            # crew=None default fails protobuf coercion (None -> List(string)
+            # ValueError) before the RPC is even sent - both caught by the first
+            # FORGE-bdock-station live runs. The server doc contract is "Pass an
+            # empty list to use default crew assignments" (pinned source
+            # SpaceCenter.cs LaunchVessel), so [] = default manifest, controllable
+            # pod. Named crew seeding (EVA-3 3-crew pod) remains the future
+            # refinement. Re-resolve the MechJeb handles against the NEW active
+            # vessel and reset the ascent-complete latch + read-fail streak so the
+            # fresh craft is judged from its own engage.
             sc.launch_vessel("VAB", str(action.text), str(
-                getattr(action, "launch_site", None) or "LaunchPad"))
+                getattr(action, "launch_site", None) or "LaunchPad"), crew=[])
             self._mj_ever_enabled = False
             self._read_fail_streak = 0
             if self._use_mechjeb:
@@ -1022,10 +1053,15 @@ class KrpcMissionControl(MissionControl):
                         "Warn", "Launch",
                         "MechJeb re-resolve after launch failed: %s" % (exc,)))
         elif kind == mlib.ACTION_CAPTURE_STATION:
-            # Capture the Station handle (P9/Q4) while it IS the active vessel:
-            # the vessel, its top docking port, and its per-resource station-side
-            # tanks. kRPC Part proxies survive the later dock (parts are re-parented,
-            # not destroyed), so the captured handles stay valid post-merge.
+            # Capture the Station handle (P9/Q4) while it IS the active vessel: the
+            # vessel, its top docking port, and its per-resource station-side tanks.
+            # ANSWER to P9 (flight-13): the VESSEL handle survives the later
+            # launch_vessel FLIGHT reload (kRPC keys it by the vessel id, stable
+            # on-rails), but the PART handles (port + tanks) do NOT -- the reload
+            # destroys/recreates every Part object, so a captured Part proxy resolves
+            # to a destroyed part server-side. The port + tanks are therefore
+            # captured only as LAST-RESORT fallbacks; SET_TARGET_DOCKING_PORT,
+            # _read_docking_state, and the transfer all RE-RESOLVE the parts LIVE.
             self._station_vessel = v
             try:
                 ports = v.parts.docking_ports
@@ -1050,25 +1086,62 @@ class KrpcMissionControl(MissionControl):
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Target", "set_target_vessel: no captured station handle"))
         elif kind == mlib.ACTION_SET_TARGET_DOCKING_PORT:
-            if self._station_port is not None:
-                sc.target_docking_port = self._station_port
-            else:
-                _stdout_sink(mlib.format_mission_log_line(
-                    "Warn", "Target", "set_target_docking_port: no captured port handle"))
+            self._set_target_docking_port_live(sc)
         elif kind == mlib.ACTION_MJ_ENABLE_RENDEZVOUS:
             rv = self._mechjeb.rendezvous_autopilot
             if action.value is not None:
                 rv.desired_distance = float(action.value)
             if action.limit is not None:
                 rv.max_phasing_orbits = float(action.limit)
+            # Force node-executor autowarp ON at rendezvous enable (flight 12):
+            # the rendezvous AP consults the shared executor's autowarp for its
+            # between-burn / phasing-wait warping, and we only ever set it
+            # inside OTHER actions - so whether a rendezvous warped was luck.
+            # Flight 12 ran its entire phasing wait at 1x (game ut == wall
+            # second-for-second, warpMode NONE) and ate the whole mission
+            # budget; flight 11 with identical machine code happened to warp.
+            try:
+                self._mechjeb.node_executor.autowarp = True
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Rendezvous", "autowarp set failed: %s" % (exc,)))
             rv.enabled = True
         elif kind == mlib.ACTION_MJ_KILL_REL_VEL:
             # Belt+braces to the rendezvous AP's own terminal match: plan +
             # execute a kill-relative-velocity node. Throw/log/swallow (a
             # no-target plan throws server-side; the machine's match-velocity gate
             # owns the outcome).
+            #
+            # Flight 5 sat ~4300 s in MATCH-VELOCITY: operation_kill_rel_vel is a
+            # TimedOperation whose DEFAULT time selector is closest approach, which
+            # -- after the rendezvous AP has already delivered us to ~approach
+            # distance -- can land the node nearly a full orbit ahead. (a) clear
+            # any stale node first (a re-issue must not stack nodes), then (b) point
+            # the op at XFromNow + ~15 s lead so the burn is imminent.
+            try:
+                control.remove_nodes()
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Match",
+                    "remove_nodes before kill-rel-vel failed: %s" % (exc,)))
             try:
                 op = self._mechjeb.maneuver_planner.operation_kill_rel_vel
+                # The KRPC.MechJeb service generates snake_case python attributes
+                # from the C# KRPCProperty names: TimedOperation.TimeSelector ->
+                # op.time_selector; TimeSelector.TimeReference / .LeadTime ->
+                # .time_reference / .lead_time; the MechJeb-service enum value
+                # XFromNow -> mech_jeb.TimeReference.x_from_now. Defensive: fall
+                # back to the default selector on any AttributeError (an API-shape
+                # drift must not stop the node from planning).
+                try:
+                    ts = op.time_selector
+                    ts.time_reference = self._mechjeb.TimeReference.x_from_now
+                    ts.lead_time = 15.0
+                except Exception as exc:
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Warn", "Match",
+                        "kill-rel-vel time-selector default kept (retarget failed: %s)"
+                        % (exc,)))
                 op.make_nodes()
                 if len(control.nodes) > 0:
                     ne = self._mechjeb.node_executor
@@ -1088,18 +1161,85 @@ class KrpcMissionControl(MissionControl):
             except Exception as exc:
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Dock", "disable docking AP failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_MJ_ABORT_NODE_EXEC:
+            # Flight-8 prox-ops rule: no pending maneuver execution may survive
+            # into terminal approach. MATCH-VELOCITY can complete in ~0.5 s (rel-
+            # speed already under the floor) with the kill-rel-vel node still
+            # PENDING in the executor with autowarp=True; that node then rails-
+            # warps to ~92 m, packing clears the docking-port target, and the
+            # docking AP NREs forever. Abort the executor + clear the nodes BEFORE
+            # DOCK enables the docking AP. Best-effort (Warn-and-continue).
+            try:
+                self._mechjeb.node_executor.abort()
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Dock", "node_executor.abort() failed: %s" % (exc,)))
+            try:
+                control.remove_nodes()
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Dock", "remove_nodes at DOCK entry failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_SET_SAS:
+            # Flight-10 tumble fix: hold attitude after a stage separation / before
+            # the docking AP takes over. control.sas is the primary; sas_mode is a
+            # separate best-effort (a craft with no stability-assist availability
+            # must still get SAS on).
+            try:
+                control.sas = True
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Attitude", "set sas=True failed: %s" % (exc,)))
+            try:
+                control.sas_mode = sc.SASMode.stability_assist
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Attitude",
+                    "set sas_mode=stability_assist failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_SET_RCS:
+            on = bool(action.value) if action.value is not None else True
+            try:
+                control.rcs = on
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Attitude", "set rcs=%s failed: %s" % (on, exc)))
         elif kind == mlib.ACTION_START_RESOURCE_TRANSFER:
             self._start_resource_transfer(sc, v, action)
         elif kind == mlib.ACTION_UNDOCK:
-            if self._station_port is not None:
+            # Resolve the DOCKED port LIVE from the merged active vessel
+            # (flight 15: the captured pre-reload handle answered "The docking
+            # port is not docked" - the stale-part-handle family, same as the
+            # flight-13 targeting fix). Post-dock the active vessel carries
+            # BOTH mated ports; undock whichever reports docked, captured
+            # handle as last resort.
+            undocked = False
+            try:
+                for port in v.parts.docking_ports:
+                    try:
+                        st_name = getattr(port.state, "name", "") or ""
+                        if str(st_name).lower() == "docked":
+                            port.undock()
+                            undocked = True
+                            _stdout_sink(mlib.format_mission_log_line(
+                                "Info", "Undock", "undocked live-resolved port"))
+                            break
+                    except Exception as exc:
+                        _stdout_sink(mlib.format_mission_log_line(
+                            "Warn", "Undock",
+                            "live port undock candidate failed: %s" % (exc,)))
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Undock", "live port enumeration failed: %s" % (exc,)))
+            if not undocked and self._station_port is not None:
                 try:
                     self._station_port.undock()
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Info", "Undock", "undocked via captured handle"))
                 except Exception as exc:
                     _stdout_sink(mlib.format_mission_log_line(
                         "Warn", "Undock", "port.undock() failed: %s" % (exc,)))
-            else:
+            elif not undocked and self._station_port is None:
                 _stdout_sink(mlib.format_mission_log_line(
-                    "Warn", "Undock", "undock: no captured port handle"))
+                    "Warn", "Undock", "undock: no docked port resolved"))
         else:
             raise ValueError("unknown action kind: %r" % (kind,))
 
@@ -1206,10 +1346,13 @@ class KrpcMissionControl(MissionControl):
         resource = str(action.text)
         amount = float(action.value) if action.value is not None else 0.0
         direction = float(action.limit) if action.limit is not None else mlib.TRANSFER_DIR_DELIVER
-        station_tank = self._station_tanks.get(resource)
-        if station_tank is None:
-            station_tank = self._find_tank_with_resource(self._station_vessel, resource)
-        transport_tank = self._find_transport_tank(v, resource, station_tank)
+        # Re-resolve BOTH tanks LIVE from the docked active vessel (flight-13: the
+        # captured self._station_tanks are PRE-launch-reload handles, destroyed by
+        # the reload exactly like the port handle, so the transfer would hit the
+        # same stale-handle wall). Partition the merged part tree at the mated
+        # docked-port pair; fall back to live-first-two, then the captured handle.
+        station_tank, transport_tank, tank_path = self._resolve_transfer_tanks_live(
+            v, resource)
         if station_tank is None or transport_tank is None:
             _stdout_sink(mlib.format_mission_log_line(
                 "Warn", "Transfer",
@@ -1224,19 +1367,158 @@ class KrpcMissionControl(MissionControl):
             from_part, to_part = station_tank, transport_tank
             label = "station->transport"
         try:
-            self._active_transfer = sc.resource_transfer.start(
+            # kRPC 0.5.4: ResourceTransfer.start is a CLASSMETHOD on the
+            # generated service class (RPC ResourceTransfer_static_Start), NOT
+            # an attribute of the SpaceCenter instance (flight 14:
+            # "'SpaceCenter' object has no attribute 'resource_transfer'").
+            # The class gets its _client stamped at connect, so the module
+            # import path is callable after connection; prefer an
+            # instance-attached class if this client version exposes one.
+            rt_cls = getattr(sc, "ResourceTransfer", None)
+            if rt_cls is None:
+                from krpc.services.spacecenter import ResourceTransfer as rt_cls
+            self._active_transfer = rt_cls.start(
                 from_part, to_part, resource, amount)
             _stdout_sink(mlib.format_mission_log_line(
                 "Info", "Transfer",
-                "started %s amt=%.1f %s" % (resource, amount, label)))
+                "started %s amt=%.1f %s (tanks via %s)"
+                % (resource, amount, label, tank_path)))
         except Exception as exc:
             _stdout_sink(mlib.format_mission_log_line(
                 "Warn", "Transfer", "ResourceTransfer.start failed: %s" % (exc,)))
             self._active_transfer = None
 
+    def _resolve_transfer_tanks_live(self, v, resource):
+        """(station_tank, transport_tank, path) resolved LIVE from the docked active
+        vessel (flight-13). Primary: partition the merged part tree at the mated
+        docked-port pair; the TRANSPORT (Interceptor) side holds the active CONTROL
+        part (it launched last + is the active/controlling craft), the STATION side
+        is the other. Fallback: the first two distinct resource-bearing parts (side
+        assignment then arbitrary). Last resort: the captured station tank + a live
+        transport tank.
+
+        TODO(flight-14): the station/transport SIDE assignment (which drives the
+        recorded route-window delta SIGNS the offline oracle checks) is validated
+        only by the partition heuristic here -- confirm it in a live run against the
+        recorded deltas; if the oracle reds on flipped signs, key the sides off the
+        captured station VESSEL guid / a per-side marker resource instead. The
+        bounded TRANSFER-stall liveness watchdog covers a mis-resolved-tank stall in
+        the meantime (a stalled transfer fast-flakes, never hangs)."""
+        # Primary: docked-port partition.
+        station_tank, transport_tank = self._partition_docked_tanks(v, resource)
+        if station_tank is not None and transport_tank is not None:
+            return station_tank, transport_tank, "partition"
+        # Fallback: first two distinct live resource-bearing parts (arbitrary side).
+        first = self._find_transport_tank(v, resource, None)
+        second = self._find_transport_tank(v, resource, first)
+        if first is not None and second is not None:
+            return second, first, "live-first-two(TODO:sides-arbitrary)"
+        # Last resort: the captured (possibly stale) station tank + a live transport.
+        captured = self._station_tanks.get(resource)
+        transport = self._find_transport_tank(v, resource, captured)
+        return captured, transport, "captured-fallback(TODO:stale-handle)"
+
+    def _partition_docked_tanks(self, v, resource):
+        """Partition the docked active vessel at the mated docked-port pair and pick
+        (station_tank, transport_tank) holding ``resource``. Transport = the side
+        with the active control part. Returns (None, None) if it cannot resolve
+        (the caller falls back). Every kRPC read is guarded."""
+        try:
+            docked = [p for p in v.parts.docking_ports
+                      if str(getattr(p.state, "name", "")).strip().lower() == "docked"]
+        except Exception:
+            return None, None
+        if not docked:
+            return None, None
+        port = docked[0]
+        try:
+            near = port.part            # this port's part (side A)
+            across = port.docked_part   # the mated port's part (side B)
+        except Exception:
+            return None, None
+        if near is None or across is None:
+            return None, None
+        side_a = self._collect_side_parts(near, across)
+        if not side_a:
+            return None, None
+        try:
+            all_parts = list(v.parts.all)
+        except Exception:
+            return None, None
+        try:
+            side_b = [p for p in all_parts if p not in side_a]
+        except Exception:
+            return None, None
+        if not side_b:
+            return None, None
+        try:
+            control_part = v.parts.controlling
+        except Exception:
+            control_part = None
+        if control_part is not None and control_part in side_a:
+            transport_side, station_side = list(side_a), side_b
+        else:
+            transport_side, station_side = side_b, list(side_a)
+        station_tank = self._first_resource_part(station_side, resource)
+        transport_tank = self._first_resource_part(transport_side, resource)
+        if station_tank is None or transport_tank is None:
+            return None, None
+        return station_tank, transport_tank
+
+    def _collect_side_parts(self, start, stop_at):
+        """BFS the part tree from ``start`` over parent/children WITHOUT crossing the
+        docked joint at ``stop_at`` (the mated port's part). Returns the set of parts
+        on ``start``'s side. Every kRPC read guarded."""
+        seen = []
+        stack = [start]
+        while stack:
+            part = stack.pop()
+            if part is None:
+                continue
+            try:
+                if any(part == s for s in seen):
+                    continue
+                if stop_at is not None and part == stop_at:
+                    continue
+            except Exception:
+                continue
+            seen.append(part)
+            neighbors = []
+            try:
+                neighbors.extend(list(part.children))
+            except Exception:
+                pass
+            try:
+                parent = part.parent
+                if parent is not None:
+                    neighbors.append(parent)
+            except Exception:
+                pass
+            for n in neighbors:
+                if n is None:
+                    continue
+                try:
+                    if n == stop_at:
+                        continue
+                except Exception:
+                    continue
+                stack.append(n)
+        return seen
+
+    def _first_resource_part(self, parts, resource):
+        """The first part in ``parts`` holding a positive amount of ``resource``, or
+        None. Every kRPC read guarded."""
+        for part in parts:
+            try:
+                if part.resources.amount(resource) > 0.0:
+                    return part
+            except Exception:
+                continue
+        return None
+
     def _find_transport_tank(self, vessel, resource: str, station_tank):
-        """A merged-vessel part with ``resource`` that is NOT the captured station
-        tank (the transport side of the pre-dock part-set split, Q4)."""
+        """A merged-vessel part with ``resource`` that is NOT ``station_tank`` (a
+        live first-distinct-resource-part finder used by the transfer fallbacks)."""
         try:
             parts = vessel.parts.all
         except Exception:
@@ -1275,6 +1557,38 @@ class KrpcMissionControl(MissionControl):
             rel_speed = math.sqrt(sum(float(c) * float(c) for c in rv))
         except Exception:
             rel_speed = float("nan")
+        if not (math.isfinite(rel_speed) and math.isfinite(distance)):
+            # Pinned-stack fallback (flights 6+7): KRPC.MechJeb 0.8.1's
+            # RelativeVelocity casts MechJeb's value to (Vector3) server-side
+            # (TargetController.cs:109) and the unbox throws against MechJeb
+            # 2.15.1's Vector3d property, so that read NaNs on EVERY call;
+            # and once the target is a docking PORT (the DOCK phase's
+            # set_target_docking_port), tc.distance goes dark too (flight 7:
+            # DOCK flew blind, both None). Compute both from kRPC core
+            # instead: resolve the target vessel directly OR via the target
+            # port's parent vessel, then rel-speed = |active velocity in the
+            # target's orbital frame| and distance = |active position in the
+            # target's frame| (the stock docking-tutorial approach, no
+            # MechJeb surface involved).
+            try:
+                sc = self._conn.space_center
+                tv = sc.target_vessel
+                if tv is None:
+                    tp = sc.target_docking_port
+                    tv = tp.part.vessel if tp is not None else None
+                if tv is not None:
+                    av = sc.active_vessel
+                    if not math.isfinite(rel_speed):
+                        vel = av.velocity(tv.orbital_reference_frame)
+                        rel_speed = math.sqrt(
+                            sum(float(c) * float(c) for c in vel))
+                    if not math.isfinite(distance):
+                        pos = av.position(tv.reference_frame)
+                        distance = math.sqrt(
+                            sum(float(c) * float(c) for c in pos))
+                    target_set = True
+            except Exception:
+                pass
         return distance, rel_speed, target_set
 
     def _read_docking_ap_enabled(self) -> Tuple[bool, bool]:
@@ -1293,24 +1607,120 @@ class KrpcMissionControl(MissionControl):
             dk = False
         return rv, dk
 
-    def _read_docking_state(self) -> str:
-        """The captured/target docking port state.name (kRPC DockingPortState),
-        or "" (fail-closed: matches no gate). Prefers the captured station port
-        (stable across the merge); falls back to the target docking port."""
-        port = self._station_port
-        for candidate in (port,):
-            if candidate is None:
-                continue
+    def _set_target_docking_port_live(self, sc) -> None:
+        """Set the target docking port, resolved LIVE from the rendezvous target
+        vessel (flight-13 root cause of EVERY dock failure since flight 7):
+        ACTION_SET_TARGET_DOCKING_PORT used to assign the captured self._station_port
+        -- a handle captured at STATION-COMMIT, BEFORE the launch_vessel FLIGHT
+        reload destroyed/recreated every Part object. The stale handle resolves
+        server-side to a destroyed ModuleDockingNode; KSP's SetVesselTarget on a
+        destroyed ITargetable silently CLEARS the target (tgtD went None right after
+        the set in every flight), and MechJeb then refuses to engage the docking AP
+        with no port target (the "enable never took" / benched-NRE family). The
+        VESSEL target survived the reload all along, which masked this. Resolve the
+        port from sc.target_vessel (alive) instead; keep the captured handle only as
+        a last resort when a live vessel target exists; and if there is NO target
+        vessel, leave the target alone rather than clobber it with a dead handle."""
+        try:
+            tv = sc.target_vessel
+        except Exception:
+            tv = None
+        live_port = None
+        path = "none"
+        if tv is not None:
             try:
-                st = candidate.state
-                name = getattr(st, "name", None)
-                if name:
-                    # kRPC exposes lower_snake ("docked"); normalize to the
-                    # DockingPortState PascalCase the machine gates on.
-                    return "".join(seg.capitalize() for seg in str(name).split("_"))
+                ports = list(tv.parts.docking_ports)
+            except Exception:
+                ports = []
+            states = []
+            for p in ports:
+                try:
+                    states.append(getattr(p.state, "name", ""))
+                except Exception:
+                    states.append("")
+            idx = mlib.pick_ready_port_index(states)
+            if idx is not None:
+                live_port = ports[idx]
+                path = "live-ready" if str(states[idx]).strip().lower() == "ready" else "live-first"
+        if live_port is not None:
+            sc.target_docking_port = live_port
+            try:
+                st = getattr(live_port.state, "name", "?")
+            except Exception:
+                st = "?"
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Target",
+                "set_target_docking_port: live port via %s state=%s" % (path, st)))
+        elif tv is not None and self._station_port is not None:
+            # A live target vessel exists but exposed no docking port; the captured
+            # handle is the last resort (may be stale, but tv is set so the vessel
+            # target is real).
+            sc.target_docking_port = self._station_port
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Target",
+                "set_target_docking_port: LAST-RESORT captured handle "
+                "(target vessel has no live docking port)"))
+        else:
+            # No target vessel: never clear a working target with a dead handle.
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Target",
+                "set_target_docking_port: no live target vessel; leaving target "
+                "unchanged (not clobbering with a possibly-dead captured handle)"))
+
+    def _read_docking_state(self, v) -> str:
+        """The docking-port state.name (kRPC DockingPortState) normalized to the
+        machine's PascalCase, or "" (fail-closed: matches no gate). Resolved LIVE
+        from the ACTIVE vessel's ports (flight-13: the captured self._station_port
+        is a PRE-reload handle, so its .state read faulted to "" in every
+        post-reload flight, blinding the DOCK-done and undock gates). Post-merge the
+        active vessel carries BOTH mated ports; any 'docked'/'docking' port is
+        authoritative, and a post-undock split reads e.g. 'ready'. Falls back to the
+        captured handle only if the active vessel exposes no readable port."""
+        try:
+            ports = list(v.parts.docking_ports)
+        except Exception:
+            ports = []
+        states = []
+        for p in ports:
+            try:
+                states.append(mlib.normalize_docking_state(getattr(p.state, "name", "")))
             except Exception:
                 continue
+        states = [s for s in states if s]
+        if states:
+            for want in (mlib.DOCKING_STATE_DOCKED, mlib.DOCKING_STATE_DOCKING):
+                if want in states:
+                    return want
+            return states[0]
+        # Last fallback: the captured handle (may be stale post-reload).
+        if self._station_port is not None:
+            try:
+                return mlib.normalize_docking_state(getattr(self._station_port.state, "name", ""))
+            except Exception:
+                return ""
         return ""
+
+    def _read_angular_velocity(self, v) -> float:
+        """|angular velocity| (rad/s) in the vessel's ORBITAL reference frame --
+        the tumble signal (flight-10). The orbital frame excludes body rotation,
+        so a stabilized ship reads ~0 and a tumble reads high. Fail-closed NaN on
+        any read fault (the DOCK progress watchdog never counts an unread angvel as
+        tumble-killed progress)."""
+        try:
+            av = v.angular_velocity(v.orbital_reference_frame)
+            return math.sqrt(sum(float(c) * float(c) for c in av))
+        except Exception:
+            return float("nan")
+
+    def _read_docking_ap_status(self) -> str:
+        """MechJeb docking_autopilot.status (KRPC.MechJeb DockingAutopilot.Status),
+        truncated to 60 chars; "" (fail-closed) on any read fault. Diagnosability
+        only -- what the AP thinks it is doing (the flight-10 blind spot)."""
+        try:
+            status = self._mechjeb.docking_autopilot.status
+            return str(status)[:60] if status else ""
+        except Exception:
+            return ""
 
     def _read_active_transfer(self) -> Tuple[bool, float]:
         """(complete, amount) of the in-flight ResourceTransfer, or (False, NaN)
@@ -1742,9 +2152,14 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         # phase the machine had ALREADY entered this frame.
         _FLY_LOOP_LAST_STATE["state"] = state
         if state.phase != prev_phase:
-            log.info(state.phase, "phase %s -> %s ut=%s alt=%s ap=%s vsurf=%s"
+            # avThr rides every transition line: the B-DOCK SEPARATE->ORBIT /
+            # SEPARATE->PHASING handoff must show the orbital stage still has
+            # thrust for the rendezvous (available_thrust > 0), and it is a cheap
+            # diagnosability channel for every other transition too.
+            log.info(state.phase, "phase %s -> %s ut=%s alt=%s ap=%s vsurf=%s avThr=%s"
                      % (prev_phase, state.phase, _fmt(snapshot.ut), _fmt(snapshot.altitude),
-                        _fmt(snapshot.apoapsis), _fmt(snapshot.vertical_speed)))
+                        _fmt(snapshot.apoapsis), _fmt(snapshot.vertical_speed),
+                        _fmt(snapshot.available_thrust)))
         # GATE-EVIDENCE lines (design-live-observability 2b): every sparse
         # machine latch/gate flip logs the exact values that decided it, on
         # the frame it happened -- a single-frame transient (e.g. the
@@ -1765,6 +2180,30 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             log.info(state.phase, "action %s value=%s%s"
                      % (action.kind, _fmt(action.value),
                         (" text=%s" % action.text) if getattr(action, "text", None) else ""))
+        # MATCH-VELOCITY diagnostic (flight-5: the phase had NO per-frame line, so
+        # a stuck rel-speed silently ate the whole wall). Rate-limited per-phase
+        # key carrying the fields the gate reads, so a stall is greppable + rides
+        # the status file (targetDistance / targetRelSpeed added to snapshot_dict).
+        if state.phase == mlib.BDOCK_MATCH_VELOCITY:
+            log.verbose_rate_limited(
+                "match", state.phase,
+                "match-velocity tgtDist=%s tgtRelV=%s nodes=%d nodeDv=%s ut=%s"
+                % (_fmt(snapshot.target_distance), _fmt(snapshot.target_rel_speed),
+                   snapshot.node_count, _fmt(snapshot.node_dv), _fmt(snapshot.ut)))
+        # DOCK diagnostic (flight-10: the operator watched a tumble for ~28 min
+        # with DOCK logging NOTHING between entry and the give-up dump). Rate-
+        # limited per-phase key carrying the prox-ops signature (tumble / control /
+        # AP status) so a stall is greppable + rides the status file.
+        if state.phase == mlib.BDOCK_DOCK:
+            log.verbose_rate_limited(
+                "dock", state.phase,
+                "dock dist=%s relSpd=%s dockState=%s angVel=%s sas=%s rcs=%s "
+                "apStatus=%s apEnabled=%s ut=%s"
+                % (_fmt(snapshot.target_distance), _fmt(snapshot.target_rel_speed),
+                   snapshot.docking_state or "?", _fmt(snapshot.angular_velocity),
+                   snapshot.sas_enabled, snapshot.rcs_enabled,
+                   snapshot.docking_ap_status or "?", snapshot.mj_docking_enabled,
+                   _fmt(snapshot.ut)))
         # alt/vspeed/body/nodes ride the line too: B4 attempt-1 (2026-07-21)
         # stalled in REENTRY with a line that omitted altitude, leaving
         # frozen-physics vs normal-coast undiagnosable from the log. Log what

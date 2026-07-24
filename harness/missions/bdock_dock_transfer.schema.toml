@@ -48,6 +48,14 @@ required = true
 type = "number"
 min = 0.0
 
+# Post-circularize stage-separation give-up (GAME seconds): the SEPARATE phase
+# flakes if no NEW vessel (the spent core) appears within this window after the
+# single stage activation. mlib.BDockParams defaults it to 120.
+[params.separationTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+
 # --- Interceptor launch (piece 2). ---
 [params.craftName]
 required = true
@@ -87,6 +95,13 @@ required = true
 type = "number"
 min = 0.0
 
+# MATCH-VELOCITY give-up (GAME seconds; flight-5): the kill-rel-vel node can land
+# far ahead, so the phase carries its own bounded give-up. mlib defaults it to 600.
+[params.matchTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+
 # Docking AP approach speed_limit (m/s) -- the monoprop-budget knob, P2.
 [params.dockSpeedMetersPerSec]
 required = true
@@ -120,6 +135,15 @@ min = 0.0
 
 [params.dockTimeoutSeconds]
 required = true
+type = "number"
+min = 0.0
+
+# DOCK progress watchdog (flight-11 liveness): while the docking AP is enabled, if
+# none of distance / monoprop / angular_velocity shows progress for this many GAME
+# seconds, flake fast (a dead/inert AP) instead of idling to dockTimeoutSeconds.
+# mlib.BDockParams defaults it to 120.
+[params.dockNoProgressSeconds]
+required = false
 type = "number"
 min = 0.0
 

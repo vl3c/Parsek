@@ -4016,23 +4016,36 @@ def _bdock_walk_to(phase, params=BDOCK_PARAMS):
     frames = [
         snap(ut=0.0),                                              # PRELAUNCH->STATION-ASCENT
         snap(ut=100.0, apoapsis=108000.0, mj_ascent_complete=True),  # ->STATION-CIRCULARIZE
-        snap(ut=150.0, periapsis=109000.0),                       # ->STATION-ORBIT
+        snap(ut=150.0, periapsis=109000.0, vessel_count=1),       # ->STATION-SEPARATE (baseline=1, drop core)
+        snap(ut=151.0, vessel_count=2, available_thrust=0.0),     # split settle 1 (engine unlit)
+        snap(ut=152.0, vessel_count=2, available_thrust=0.0),     # split settle 2
+        snap(ut=153.0, vessel_count=2, available_thrust=0.0),     # split settle 3 -> confirmed, ignite
+        snap(ut=154.0, vessel_count=2, available_thrust=200000.0),   # thrust settle 1
+        snap(ut=155.0, vessel_count=2, available_thrust=200000.0),   # thrust settle 2
+        snap(ut=156.0, vessel_count=2, available_thrust=200000.0),   # thrust settle 3 -> STATION-ORBIT
         snap(ut=160.0),                                           # ->STATION-COMMIT (capture+commit)
         snap(ut=161.0, seam_commit_result="OK"),                 # ->INT-LAUNCH
         snap(ut=170.0, situation="PRE_LAUNCH"),                  # settle 1
         snap(ut=175.0, situation="PRE_LAUNCH"),                  # settle 2 -> INT-ASCENT
         snap(ut=400.0, apoapsis=88000.0, mj_ascent_complete=True),  # ->INT-CIRCULARIZE
-        snap(ut=450.0, periapsis=89000.0),                       # ->INT-PHASING-ORBIT
+        snap(ut=450.0, periapsis=89000.0, vessel_count=2),       # ->INT-SEPARATE (baseline=2, drop core)
+        snap(ut=451.0, vessel_count=3, available_thrust=0.0),    # split settle 1 (engine unlit)
+        snap(ut=452.0, vessel_count=3, available_thrust=0.0),    # split settle 2
+        snap(ut=453.0, vessel_count=3, available_thrust=0.0),    # split settle 3 -> confirmed, ignite
+        snap(ut=454.0, vessel_count=3, available_thrust=180000.0),   # thrust settle 1
+        snap(ut=455.0, vessel_count=3, available_thrust=180000.0),   # thrust settle 2
+        snap(ut=456.0, vessel_count=3, available_thrust=180000.0),   # thrust settle 3 -> INT-PHASING-ORBIT
         snap(ut=460.0),                                          # ->SET-TARGET
         snap(ut=470.0, target_set=True),                        # ->RENDEZVOUS
         snap(ut=480.0, mj_rendezvous_enabled=True, target_distance=5000.0),  # AP running
         snap(ut=490.0, mj_rendezvous_enabled=False, target_distance=80.0),   # ->MATCH-VELOCITY
-        snap(ut=500.0, target_rel_speed=0.5),                   # ->DOCK
-        snap(ut=510.0, mj_docking_enabled=True, docking_state="Docking"),    # AP running
+        snap(ut=500.0, target_rel_speed=0.5),                   # ->DOCK (entry: abort+set-target, enable pending)
+        snap(ut=505.0, target_distance=90.0),                   # deferred enable -> MJ_ENABLE_DOCKING
+        snap(ut=510.0, mj_docking_enabled=True, docking_state="Docking", target_distance=50.0),  # AP running
         snap(ut=520.0, mj_docking_enabled=False, docking_state="Docked"),    # ->TRANSFER (T1)
-        snap(ut=525.0, transfer_complete=True, vessel_count=1),  # T1 done -> T2
-        snap(ut=530.0, transfer_complete=True, vessel_count=1),  # T2 done -> UNDOCK
-        snap(ut=540.0, vessel_count=2, docking_state="Ready"),   # split -> TERMINAL
+        snap(ut=525.0, transfer_complete=True, vessel_count=3),  # T1 done -> T2
+        snap(ut=530.0, transfer_complete=True, vessel_count=3),  # T2 done -> UNDOCK (baseline=3)
+        snap(ut=540.0, vessel_count=4, docking_state="Ready"),   # split -> TERMINAL
     ]
     reached = state
     per = []
@@ -4056,12 +4069,20 @@ class BDockHappyPathTests(unittest.TestCase):
         self.assertTrue(state.docked_confirmed)
         self.assertEqual(state.transfers_done, 2)
         self.assertTrue(state.undock_confirmed)
-        # Every phase visited in order.
-        for want in (mlib.BDOCK_STATION_ORBIT, mlib.BDOCK_STATION_COMMIT,
-                     mlib.BDOCK_INT_LAUNCH, mlib.BDOCK_INT_PHASING_ORBIT,
+        # Every phase visited in order, INCLUDING the two stage-separation phases.
+        for want in (mlib.BDOCK_STATION_CIRCULARIZE, mlib.BDOCK_STATION_SEPARATE,
+                     mlib.BDOCK_STATION_ORBIT, mlib.BDOCK_STATION_COMMIT,
+                     mlib.BDOCK_INT_LAUNCH, mlib.BDOCK_INT_CIRCULARIZE,
+                     mlib.BDOCK_INT_SEPARATE, mlib.BDOCK_INT_PHASING_ORBIT,
                      mlib.BDOCK_RENDEZVOUS, mlib.BDOCK_DOCK, mlib.BDOCK_TRANSFER,
                      mlib.BDOCK_UNDOCK, mlib.BDOCK_TERMINAL):
             self.assertIn(want, state.phases_reached)
+        # SEPARATE precedes its park in phases_reached order.
+        pr = list(state.phases_reached)
+        self.assertLess(pr.index(mlib.BDOCK_STATION_SEPARATE),
+                        pr.index(mlib.BDOCK_STATION_ORBIT))
+        self.assertLess(pr.index(mlib.BDOCK_INT_SEPARATE),
+                        pr.index(mlib.BDOCK_INT_PHASING_ORBIT))
 
     def test_prelaunch_emits_station_ascent_at_station_apoapsis(self):
         state = _bdock()
@@ -4074,10 +4095,17 @@ class BDockHappyPathTests(unittest.TestCase):
         state, _ = _bdock_walk_to(mlib.BDOCK_STATION_COMMIT)
         # The entry to STATION-COMMIT emits capture + commit.
         state2 = mlib.bdock_initial_state(BDOCK_PARAMS)
-        # Drive to STATION-ORBIT then step into STATION-COMMIT to read the actions.
+        # Drive through STATION-SEPARATE (drop core + ignite) to STATION-ORBIT,
+        # then step into STATION-COMMIT to read the actions.
         for f in (snap(ut=0.0),
                   snap(ut=100.0, apoapsis=108000.0, mj_ascent_complete=True),
-                  snap(ut=150.0, periapsis=109000.0)):
+                  snap(ut=150.0, periapsis=109000.0, vessel_count=1),  # ->STATION-SEPARATE
+                  snap(ut=151.0, vessel_count=2, available_thrust=0.0),  # split settle 1
+                  snap(ut=152.0, vessel_count=2, available_thrust=0.0),  # split settle 2
+                  snap(ut=153.0, vessel_count=2, available_thrust=0.0),  # split settle 3 -> ignite
+                  snap(ut=154.0, vessel_count=2, available_thrust=2e5),  # thrust settle 1
+                  snap(ut=155.0, vessel_count=2, available_thrust=2e5),  # thrust settle 2
+                  snap(ut=156.0, vessel_count=2, available_thrust=2e5)): # thrust settle 3 -> STATION-ORBIT
             state2, actions = mlib.bdock_decide(state2, f)
         self.assertEqual(state2.phase, mlib.BDOCK_STATION_ORBIT)
         state2, actions = mlib.bdock_decide(state2, snap(ut=160.0))
@@ -4091,6 +4119,177 @@ class BDockHappyPathTests(unittest.TestCase):
         state, actions = mlib.bdock_decide(state, snap(ut=161.0, seam_commit_result="OK"))
         self.assertEqual(state.phase, mlib.BDOCK_INT_LAUNCH)
         self.assertEqual(actions, [Action(mlib.ACTION_LAUNCH_VESSEL, text="Kerbal X")])
+
+
+class BDockSeparateTests(unittest.TestCase):
+    """Post-circularize two-step stage separation (flight-3 + flight-4 lessons):
+    STATION-CIRCULARIZE -> STATION-SEPARATE emits ONE entry ACTIVATE_STAGE (drop
+    core), confirms the split on a debounced vessel_count bump, then IGNITES the
+    orbital engine (one more activation UNLESS thrust is already up), and completes
+    on debounced available_thrust > 0. HARD CAP: 2 activations. INT-SEPARATE
+    mirrors it. Give-up distinguishes no-split from split-but-no-ignition."""
+
+    K = mlib.BDOCK_SEPARATION_DEBOUNCE
+
+    def _at_station_separate(self, entry_count=1):
+        # Drive to STATION-CIRCULARIZE, then complete circularize to enter
+        # STATION-SEPARATE (baseline captured from the entry frame's count).
+        state, _ = _bdock_walk_to(mlib.BDOCK_STATION_CIRCULARIZE)
+        state, actions = mlib.bdock_decide(
+            state, snap(ut=150.0, periapsis=109000.0, vessel_count=entry_count))
+        return state, actions
+
+    def _confirm_split(self, state, base=1, start_ut=151.0):
+        # Feed K vessel-count-bump frames (thrust still 0) to confirm the split;
+        # the K-th frame emits the ignition activation. Returns (state, actions_on
+        # _the_ignition_frame).
+        actions = []
+        for i in range(self.K):
+            state, actions = mlib.bdock_decide(
+                state, snap(ut=start_ut + i, vessel_count=base + 1,
+                            available_thrust=0.0))
+        return state, actions
+
+    def test_circularize_enters_separate_and_activates_stage_once(self):
+        state, actions = self._at_station_separate(entry_count=1)
+        self.assertEqual(state.phase, mlib.BDOCK_STATION_SEPARATE)
+        # EXACTLY ONE stage activation on entry (drop the spent core).
+        self.assertEqual(actions, [Action(mlib.ACTION_ACTIVATE_STAGE)])
+        self.assertEqual(state.separate_baseline_vessel_count, 1)
+        self.assertEqual(state.separate_activations, 1)
+        # A subsequent split-settle frame (before confirm) does NOT re-activate.
+        state, actions2 = mlib.bdock_decide(
+            state, snap(ut=151.0, vessel_count=2, available_thrust=0.0))
+        self.assertEqual(state.phase, mlib.BDOCK_STATION_SEPARATE)
+        self.assertEqual(actions2, [])
+        self.assertEqual(state.separate_activations, 1)
+
+    def test_split_then_ignition_then_completes(self):
+        # Realistic Kerbal X: core drops (thrust 0), then the ignition activation
+        # lights the orbital LV-T45 -> thrust up -> complete.
+        state, _ = self._at_station_separate(entry_count=1)
+        state, ign_actions = self._confirm_split(state, base=1)
+        # The split-confirming frame emits EXACTLY ONE ignition activation.
+        self.assertTrue(state.separate_split_confirmed)
+        self.assertEqual(ign_actions, [Action(mlib.ACTION_ACTIVATE_STAGE)])
+        self.assertEqual(state.separate_activations, 2)
+        self.assertEqual(state.phase, mlib.BDOCK_STATION_SEPARATE)
+        # Two thrust frames are not enough; the K-th completes -> STATION-ORBIT.
+        for i in range(self.K - 1):
+            state, a = mlib.bdock_decide(
+                state, snap(ut=160.0 + i, vessel_count=2, available_thrust=2e5))
+            self.assertEqual(state.phase, mlib.BDOCK_STATION_SEPARATE)
+            self.assertEqual(a, [])
+        state, _ = mlib.bdock_decide(
+            state, snap(ut=170.0, vessel_count=2, available_thrust=2e5))
+        self.assertEqual(state.phase, mlib.BDOCK_STATION_ORBIT)
+        self.assertEqual(state.separate_activations, 0)  # reset on completion
+
+    def test_thrust_already_up_skips_second_activation(self):
+        # A craft whose decoupler + engine share a stage: thrust is up throughout
+        # the split debounce, so the split confirms with thrust ALREADY debounced
+        # and the phase completes with NO ignition activation (only 1 total).
+        state, _ = self._at_station_separate(entry_count=1)
+        actions_seen = []
+        for i in range(self.K):
+            state, a = mlib.bdock_decide(
+                state, snap(ut=151.0 + i, vessel_count=2, available_thrust=2e5))
+            actions_seen.append(a)
+        self.assertEqual(state.phase, mlib.BDOCK_STATION_ORBIT)
+        # Never a second activation: exactly the one entry activation happened.
+        for a in actions_seen:
+            self.assertNotIn(Action(mlib.ACTION_ACTIVATE_STAGE), a)
+        # The completing frame emits the attitude hold (SAS + RCS) into the next
+        # phase (flight-10 tumble fix); every earlier frame emits nothing.
+        self.assertEqual(actions_seen[-1], [
+            Action(mlib.ACTION_SET_SAS), Action(mlib.ACTION_SET_RCS, value=1.0)])
+        for a in actions_seen[:-1]:
+            self.assertEqual(a, [])
+        # separate_activations was 1 (entry) and reset to 0 on completion.
+        self.assertEqual(state.separate_activations, 0)
+
+    def test_activations_hard_capped_at_two(self):
+        # Split confirms but thrust never comes up: the ignition activation fires
+        # once, then NEVER a third (which would drop the heat shield).
+        state, _ = self._at_station_separate(entry_count=1)
+        state, _ = self._confirm_split(state, base=1)
+        self.assertEqual(state.separate_activations, 2)
+        activate = Action(mlib.ACTION_ACTIVATE_STAGE)
+        for i in range(20):
+            state, a = mlib.bdock_decide(
+                state, snap(ut=160.0 + i, vessel_count=2, available_thrust=0.0))
+            if state.done:
+                break
+            self.assertNotIn(activate, a)  # cap 2 -> never a third
+        self.assertEqual(state.separate_activations, 2)
+
+    def test_int_separate_two_step_completes_to_phasing_orbit(self):
+        state, _ = _bdock_walk_to(mlib.BDOCK_INT_CIRCULARIZE)
+        state, actions = mlib.bdock_decide(
+            state, snap(ut=450.0, periapsis=89000.0, vessel_count=2))
+        self.assertEqual(state.phase, mlib.BDOCK_INT_SEPARATE)
+        self.assertEqual(actions, [Action(mlib.ACTION_ACTIVATE_STAGE)])
+        self.assertEqual(state.separate_baseline_vessel_count, 2)
+        # Confirm split (thrust 0) then ignite + thrust up -> INT-PHASING-ORBIT.
+        for i in range(self.K):
+            state, _ = mlib.bdock_decide(
+                state, snap(ut=451.0 + i, vessel_count=3, available_thrust=0.0))
+        for i in range(self.K):
+            state, _ = mlib.bdock_decide(
+                state, snap(ut=460.0 + i, vessel_count=3, available_thrust=1.8e5))
+        self.assertEqual(state.phase, mlib.BDOCK_INT_PHASING_ORBIT)
+
+    def test_no_separation_within_budget_flakes_with_named_reason(self):
+        state, _ = self._at_station_separate(entry_count=1)
+        # No bump ever; the SEPARATE budget (separation_timeout=120) elapses.
+        state, actions = mlib.bdock_decide(
+            state, snap(ut=150.0 + 121.0, vessel_count=1))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.BDOCK_STATION_SEPARATE)
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertEqual(verdict, mlib.MISSION_FLAKE)
+        self.assertIn("STATION-SEPARATE", reason)
+        self.assertIn("no separation observed", reason)
+        self.assertEqual(actions, [])
+
+    def test_split_but_no_ignition_flakes_with_distinct_reason(self):
+        # Split confirmed, ignition activation fired, but thrust stays 0 past the
+        # budget -> a DISTINCT give-up reason (not the no-split one).
+        state, _ = self._at_station_separate(entry_count=1)
+        state, _ = self._confirm_split(state, base=1)
+        self.assertTrue(state.separate_split_confirmed)
+        state, actions = mlib.bdock_decide(
+            state, snap(ut=150.0 + 121.0, vessel_count=2, available_thrust=0.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertEqual(verdict, mlib.MISSION_FLAKE)
+        self.assertIn("separated but no ignition", reason)
+        self.assertNotIn("no separation observed", reason)
+
+    def test_vessel_count_stuck_at_baseline_does_not_complete(self):
+        state, _ = self._at_station_separate(entry_count=1)
+        # vessel_count never exceeds the baseline: never confirms the split, never
+        # ignites, never advances.
+        for ut in (152.0, 154.0, 156.0, 158.0):
+            state, _ = mlib.bdock_decide(
+                state, snap(ut=ut, vessel_count=1, available_thrust=0.0))
+            self.assertEqual(state.phase, mlib.BDOCK_STATION_SEPARATE)
+            self.assertFalse(state.separate_split_confirmed)
+            self.assertEqual(state.separate_settle_streak, 0)
+        self.assertFalse(state.done)
+
+    def test_nan_thrust_never_completes_fail_closed(self):
+        # Fail-closed: after the split, an unread (NaN) available_thrust is never
+        # treated as ignited, so the phase does not complete on it.
+        state, _ = self._at_station_separate(entry_count=1)
+        state, _ = self._confirm_split(state, base=1)
+        for i in range(self.K + 2):
+            state, _ = mlib.bdock_decide(
+                state, snap(ut=160.0 + i, vessel_count=2))  # available_thrust NaN
+            self.assertEqual(state.phase, mlib.BDOCK_STATION_SEPARATE)
+        self.assertFalse(state.done)
 
 
 class BDockSeamCommitTests(unittest.TestCase):
@@ -4184,9 +4383,99 @@ class BDockRendezvousTests(unittest.TestCase):
         self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
 
 
+class BDockMatchVelocityTests(unittest.TestCase):
+    """MATCH-VELOCITY (flight-5): a bounded give-up (matchTimeoutSeconds), NaN
+    rel-speed fail-closed, and a one-shot dropped-target re-acquire."""
+
+    def _at_match(self):
+        # Reach MATCH-VELOCITY (entered at ut 490 in the walk).
+        state, _ = _bdock_walk_to(mlib.BDOCK_MATCH_VELOCITY)
+        self.assertEqual(state.phase, mlib.BDOCK_MATCH_VELOCITY)
+        return state
+
+    def test_finite_rel_speed_below_floor_advances_to_dock(self):
+        state = self._at_match()
+        state, actions = mlib.bdock_decide(state, snap(ut=495.0, target_rel_speed=0.5))
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+        # Flight-9 stagger: entry abort + set-target only; the enable is deferred.
+        self.assertIn(Action(mlib.ACTION_MJ_ABORT_NODE_EXEC), actions)
+        self.assertIn(Action(mlib.ACTION_SET_TARGET_DOCKING_PORT), actions)
+        self.assertNotIn(Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5), actions)
+        self.assertTrue(state.dock_enable_pending)
+
+    def test_rel_speed_above_floor_stays(self):
+        state = self._at_match()
+        state, actions = mlib.bdock_decide(state, snap(ut=495.0, target_rel_speed=8.0))
+        self.assertEqual(state.phase, mlib.BDOCK_MATCH_VELOCITY)
+        self.assertEqual(actions, [])
+
+    def test_budget_flakes_with_named_reason(self):
+        state = self._at_match()
+        # Rel-speed stuck above the floor past matchTimeoutSeconds (600) -> FLAKE.
+        state, actions = mlib.bdock_decide(
+            state, snap(ut=490.0 + 601.0, target_rel_speed=8.5))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertEqual(state.flake_phase, mlib.BDOCK_MATCH_VELOCITY)
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertEqual(verdict, mlib.MISSION_FLAKE)
+        self.assertIn("MATCH-VELOCITY", reason)
+        self.assertIn("did not reach rel-speed floor", reason)
+        self.assertIn("8.5", reason)  # the last value rides the reason
+        self.assertEqual(actions, [])
+
+    def test_nan_rel_speed_never_completes_fail_closed(self):
+        state = self._at_match()
+        # NaN rel-speed for a couple frames must not complete (below-floor NaN
+        # would falsely satisfy <= match_speed without the finite guard).
+        for i in range(2):
+            state, _ = mlib.bdock_decide(
+                state, snap(ut=491.0 + i, target_rel_speed=float("nan")))
+            self.assertEqual(state.phase, mlib.BDOCK_MATCH_VELOCITY)
+        self.assertFalse(state.done)
+
+    def test_dropped_target_reacquired_exactly_once(self):
+        state = self._at_match()
+        # K consecutive NaN frames -> one SET_TARGET re-acquire, latch set.
+        actions_seen = []
+        for i in range(mlib.DEFAULT_DEBOUNCE_K):
+            state, a = mlib.bdock_decide(
+                state, snap(ut=491.0 + i, target_rel_speed=float("nan")))
+            actions_seen.append(a)
+        self.assertTrue(state.match_retarget_done)
+        self.assertEqual(actions_seen[-1], [Action(mlib.ACTION_SET_TARGET_VESSEL)])
+        self.assertEqual(state.match_nan_streak, 0)  # reset after re-target
+        # Further NaN frames NEVER re-target again (one-shot latch).
+        for i in range(mlib.DEFAULT_DEBOUNCE_K + 1):
+            state, a = mlib.bdock_decide(
+                state, snap(ut=500.0 + i, target_rel_speed=float("nan")))
+            self.assertNotIn(Action(mlib.ACTION_SET_TARGET_VESSEL), a)
+        self.assertEqual(state.phase, mlib.BDOCK_MATCH_VELOCITY)
+
+    def test_reacquire_then_finite_completes(self):
+        state = self._at_match()
+        for i in range(mlib.DEFAULT_DEBOUNCE_K):
+            state, _ = mlib.bdock_decide(
+                state, snap(ut=491.0 + i, target_rel_speed=float("nan")))
+        self.assertTrue(state.match_retarget_done)
+        # Target re-acquired -> a finite below-floor reading completes to DOCK.
+        state, actions = mlib.bdock_decide(state, snap(ut=510.0, target_rel_speed=0.4))
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+
+
 class BDockDockTests(unittest.TestCase):
     def _at_dock(self):
         state, _ = _bdock_walk_to(mlib.BDOCK_DOCK)
+        # Consume the flight-9 deferred-enable poll: DOCK entry armed
+        # dock_enable_pending (port target set on the entry batch); the next DOCK
+        # poll emits MJ_ENABLE_DOCKING once core.target has synced. Tests below
+        # start from the docking-ready state (pending cleared).
+        self.assertTrue(state.dock_enable_pending)
+        state, enable_actions = mlib.bdock_decide(
+            state, snap(ut=502.0, target_distance=90.0))
+        self.assertEqual(enable_actions,
+                         [Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5)])
+        self.assertFalse(state.dock_enable_pending)
         return state
 
     def test_docked_and_latch_advances_to_transfer_with_t1(self):
@@ -4228,6 +4517,212 @@ class BDockDockTests(unittest.TestCase):
         self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
         self.assertIn(Action(mlib.ACTION_MJ_DISABLE_DOCKING), actions)
 
+    def test_dock_entry_aborts_node_exec_first(self):
+        # Flight-8 prox-ops rule: MATCH-VELOCITY completion enters DOCK with the
+        # node-exec abort as the FIRST action. Flight-9 stagger: no same-batch
+        # enable. Flight-10: attitude hold (SAS + RCS) before the AP takes over.
+        state, _ = _bdock_walk_to(mlib.BDOCK_MATCH_VELOCITY)
+        state, actions = mlib.bdock_decide(state, snap(ut=495.0, target_rel_speed=0.5))
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+        self.assertEqual(actions, [
+            Action(mlib.ACTION_MJ_ABORT_NODE_EXEC),
+            Action(mlib.ACTION_SET_SAS),
+            Action(mlib.ACTION_SET_RCS, value=1.0),
+            Action(mlib.ACTION_SET_TARGET_DOCKING_PORT)])
+        self.assertNotIn(Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5), actions)
+
+    def test_dock_entry_then_next_step_enables(self):
+        # Flight-9 stagger contract: DOCK entry sets the port target + arms the
+        # deferred enable (MechJeb's core.target syncs on its NEXT Update, so a
+        # same-batch enable makes the AP's first Drive tick see the OLD vessel
+        # target and NRE). The enable arrives as the SOLE action on the FOLLOWING
+        # step, pending cleared.
+        state, _ = _bdock_walk_to(mlib.BDOCK_MATCH_VELOCITY)
+        state, entry = mlib.bdock_decide(state, snap(ut=495.0, target_rel_speed=0.5))
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+        self.assertEqual(entry, [
+            Action(mlib.ACTION_MJ_ABORT_NODE_EXEC),
+            Action(mlib.ACTION_SET_SAS),
+            Action(mlib.ACTION_SET_RCS, value=1.0),
+            Action(mlib.ACTION_SET_TARGET_DOCKING_PORT)])
+        self.assertTrue(state.dock_enable_pending)
+        # Next poll: the enable is the SOLE action; no re-target, no double enable.
+        state, nxt = mlib.bdock_decide(state, snap(ut=496.0, target_distance=90.0))
+        self.assertEqual(nxt, [Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5)])
+        self.assertFalse(state.dock_enable_pending)
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+
+    def test_dropped_target_first_reacquire_staggers_enable(self):
+        state = self._at_dock()
+        # Engage the docking AP (sets docking_ever_enabled), target still readable.
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=505.0, mj_docking_enabled=True, docking_state="Docking",
+            target_distance=50.0))
+        self.assertTrue(state.docking_ever_enabled)
+        # Target goes null: K consecutive NaN-distance frames -> a re-target that
+        # SETS the port only (flight-9 stagger) + arms the deferred enable.
+        actions_seen = []
+        for i in range(mlib.DEFAULT_DEBOUNCE_K):
+            state, a = mlib.bdock_decide(state, snap(
+                ut=510.0 + i, mj_docking_enabled=True, docking_state="Docking",
+                target_distance=float("nan"), monopropellant=100.0))
+            actions_seen.append(a)
+        self.assertEqual(state.dock_retarget_count, 1)
+        self.assertEqual(actions_seen[-1], [Action(mlib.ACTION_SET_TARGET_DOCKING_PORT)])
+        self.assertTrue(state.dock_enable_pending)
+        self.assertEqual(state.dock_nan_streak, 0)  # reset after re-target
+        # The deferred enable lands on the next poll as the SOLE action.
+        state, enable = mlib.bdock_decide(state, snap(
+            ut=515.0, mj_docking_enabled=True, docking_state="Docking",
+            target_distance=float("nan"), monopropellant=100.0))
+        self.assertEqual(enable, [Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5)])
+        self.assertFalse(state.dock_enable_pending)
+
+    def test_dropped_target_rearm_bounded_at_max(self):
+        # Flight-11: the retarget is RE-ARMABLE, bounded at BDOCK_DOCK_MAX_RETARGETS
+        # (one-shot was too stingy if KSP clears the port repeatedly).
+        state = self._at_dock()
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=505.0, mj_docking_enabled=True, docking_state="Docking",
+            target_distance=50.0))
+        retargets = 0
+        ut = 510.0
+        for _ in range((mlib.BDOCK_DOCK_MAX_RETARGETS + 2) * (mlib.DEFAULT_DEBOUNCE_K + 1)):
+            state, a = mlib.bdock_decide(state, snap(
+                ut=ut, altitude=ut, mj_docking_enabled=True, docking_state="Docking",
+                target_distance=float("nan"), monopropellant=100.0))
+            ut += 1.0
+            if Action(mlib.ACTION_SET_TARGET_DOCKING_PORT) in a:
+                retargets += 1
+                # Consume the staggered deferred enable.
+                state, _ = mlib.bdock_decide(state, snap(
+                    ut=ut, altitude=ut, mj_docking_enabled=True, docking_state="Docking",
+                    target_distance=float("nan"), monopropellant=100.0))
+                ut += 1.0
+            if state.done:
+                break
+        self.assertEqual(retargets, mlib.BDOCK_DOCK_MAX_RETARGETS)
+        self.assertEqual(state.dock_retarget_count, mlib.BDOCK_DOCK_MAX_RETARGETS)
+
+    def test_nan_distance_never_docks_fail_closed(self):
+        state = self._at_dock()
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=505.0, mj_docking_enabled=True, docking_state="Docking",
+            target_distance=float("nan")))
+        # NaN distance + not Docked -> never completes (docked gate reads state).
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=506.0, mj_docking_enabled=False, docking_state="Ready",
+            target_distance=float("nan"), monopropellant=100.0))
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+        self.assertFalse(state.done)
+
+    # ---- Liveness watchdogs (flight-11 centerpiece): a dead AP never rides the
+    # budget; it fails in seconds-to-minutes with a named reason. ----
+
+    def test_enable_never_took_reissues_once_then_flakes(self):
+        # E1a: the deferred enable was emitted (consumed by _at_dock) but
+        # mj_docking_enabled never becomes True. After K polls re-emit ONCE; after
+        # another K still not enabled -> fast FLAKE, distinctly named.
+        state = self._at_dock()
+        ut = 505.0
+        reissued = False
+        # altitude=ut keeps the frozen-telemetry signature advancing (a live craft
+        # jitters its orbit every frame; a constant sig would trip vessel-lost).
+        for _ in range(mlib.BDOCK_DOCK_LIVENESS_K):
+            state, a = mlib.bdock_decide(state, snap(
+                ut=ut, altitude=ut, mj_docking_enabled=False))
+            ut += 1.0
+            if Action(mlib.ACTION_MJ_ENABLE_DOCKING, value=0.5) in a:
+                reissued = True
+        self.assertTrue(reissued)
+        self.assertTrue(state.dock_enable_reissued)
+        self.assertFalse(state.done)
+        for _ in range(mlib.BDOCK_DOCK_LIVENESS_K):
+            state, a = mlib.bdock_decide(state, snap(
+                ut=ut, altitude=ut, mj_docking_enabled=False))
+            ut += 1.0
+            if state.done:
+                break
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        _, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertIn("enable did not take", reason)
+        self.assertIn(Action(mlib.ACTION_MJ_DISABLE_DOCKING), a)
+
+    def test_died_mid_approach_reenables_once_then_flakes(self):
+        # E1b: the AP ran (docking_ever_enabled) then went disabled without
+        # docking. After K polls re-enable ONCE (re-target first); if it dies
+        # again -> fast FLAKE, distinctly named ("benched/NRE?").
+        state = self._at_dock()
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=505.0, mj_docking_enabled=True, docking_state="Docking",
+            target_distance=50.0))
+        self.assertTrue(state.docking_ever_enabled)
+        ut = 506.0
+        reenabled = False
+        for _ in range(mlib.BDOCK_DOCK_LIVENESS_K):
+            state, a = mlib.bdock_decide(state, snap(
+                ut=ut, altitude=ut, mj_docking_enabled=False, docking_state="Docking",
+                target_distance=50.0, monopropellant=100.0))
+            ut += 1.0
+            if Action(mlib.ACTION_SET_TARGET_DOCKING_PORT) in a:
+                reenabled = True
+        self.assertTrue(reenabled)
+        self.assertTrue(state.dock_reenabled_after_death)
+        # Consume the staggered deferred enable.
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=ut, altitude=ut, mj_docking_enabled=False, docking_state="Docking",
+            target_distance=50.0, monopropellant=100.0))
+        ut += 1.0
+        for _ in range(mlib.BDOCK_DOCK_LIVENESS_K):
+            state, a = mlib.bdock_decide(state, snap(
+                ut=ut, altitude=ut, mj_docking_enabled=False, docking_state="Docking",
+                target_distance=50.0, monopropellant=100.0))
+            ut += 1.0
+            if state.done:
+                break
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        _, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertIn("benched/NRE", reason)
+
+    def test_progress_watchdog_flakes_when_all_flat(self):
+        # E2: the AP is ENABLED but distance/monoprop/angvel are all flat for
+        # dock_no_progress_seconds -> a dead/inert AP -> fast FLAKE, named.
+        state = self._at_dock()
+        p = state.params
+        # First frame establishes the minima (improves from inf) + starts the clock.
+        state, _ = mlib.bdock_decide(state, snap(
+            ut=505.0, mj_docking_enabled=True, docking_state="Docking",
+            target_distance=80.0, monopropellant=50.0, angular_velocity=0.5))
+        self.assertFalse(state.done)
+        # Everything flat past the window -> flake (well inside the dock budget).
+        state, a = mlib.bdock_decide(state, snap(
+            ut=505.0 + p.dock_no_progress_seconds + 2.0, mj_docking_enabled=True,
+            docking_state="Docking", target_distance=80.0, monopropellant=50.0,
+            angular_velocity=0.5))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        _, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertIn("no observable progress", reason)
+        self.assertIn(Action(mlib.ACTION_MJ_DISABLE_DOCKING), a)
+
+    def test_progress_watchdog_resets_on_closing_distance(self):
+        # A closing distance is progress: the watchdog never fires while the AP is
+        # actually approaching, even well past dock_no_progress_seconds.
+        state = self._at_dock()
+        p = state.params
+        dist = 400.0
+        ut = 505.0
+        for _ in range(int(p.dock_no_progress_seconds) + 40):
+            state, _ = mlib.bdock_decide(state, snap(
+                ut=ut, altitude=ut, mj_docking_enabled=True, docking_state="Docking",
+                target_distance=dist, monopropellant=50.0, angular_velocity=0.5))
+            self.assertFalse(state.done, "closing distance must not flake")
+            dist -= 2.0  # closing
+            ut += 1.0
+        self.assertEqual(state.phase, mlib.BDOCK_DOCK)
+
 
 class BDockTransferUndockTests(unittest.TestCase):
     def _at_transfer(self):
@@ -4262,6 +4757,25 @@ class BDockTransferUndockTests(unittest.TestCase):
         state, _ = mlib.bdock_decide(state, snap(ut=520.0 + 250.0, transfer_complete=False))
         self.assertTrue(state.done)
         self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+
+    def test_transfer_stall_flakes_fast_with_named_reason(self):
+        # Flight-11 liveness: transfer_amount flat for BDOCK_TRANSFER_STALL_FRAMES
+        # (dry source / full dest) flakes FAST -- well inside the 240 s budget --
+        # with a distinctly named reason.
+        state = self._at_transfer()
+        ut = 521.0
+        for _ in range(mlib.BDOCK_TRANSFER_STALL_FRAMES + 2):
+            state, _ = mlib.bdock_decide(state, snap(
+                ut=ut, transfer_complete=False, transfer_amount=0.0))
+            ut += 1.0
+            if state.done:
+                break
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        # Fast: flaked far below the 240 s transfer budget.
+        self.assertLess(ut - 520.0, 100.0)
+        _, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertIn("transfer stalled", reason)
 
     def test_undock_split_requires_vessel_count_increase_and_not_docked(self):
         state = self._at_transfer()
@@ -4332,7 +4846,8 @@ class BDockAssertionTests(unittest.TestCase):
             [], BDOCK_PARAMS,
             phases_reached=state.phases_reached, state=state)
         self.assertEqual([o.name for o in outs],
-                         ["reachedStationOrbit", "reachedInterceptorOrbit",
+                         ["reachedStationOrbit", "stationSeparated",
+                          "reachedInterceptorOrbit", "interceptorSeparated",
                           "docked", "transfersComplete", "undocked"])
         self.assertTrue(mlib.all_assertions_met(outs))
 
@@ -4380,6 +4895,33 @@ class BDockParamTests(unittest.TestCase):
         self.assertEqual(p.craft_name, "Kerbal X")
         self.assertIsNone(p.crew)
         self.assertEqual(p.launch_site, "LaunchPad")
+
+
+class BDockPortResolutionTests(unittest.TestCase):
+    """Pure helpers behind the flight-13 LIVE port/state resolution (the runner
+    reads the live kRPC states and applies these)."""
+
+    def test_pick_ready_port_prefers_first_ready(self):
+        self.assertEqual(mlib.pick_ready_port_index(["docked", "ready", "ready"]), 1)
+
+    def test_pick_ready_port_case_insensitive(self):
+        self.assertEqual(mlib.pick_ready_port_index(["Docked", "READY"]), 1)
+
+    def test_pick_ready_port_falls_back_to_first_when_none_ready(self):
+        self.assertEqual(mlib.pick_ready_port_index(["docked", "docking"]), 0)
+
+    def test_pick_ready_port_none_when_empty(self):
+        self.assertIsNone(mlib.pick_ready_port_index([]))
+        self.assertIsNone(mlib.pick_ready_port_index(None))
+
+    def test_normalize_docking_state_pascalcases(self):
+        self.assertEqual(mlib.normalize_docking_state("docked"), "Docked")
+        self.assertEqual(mlib.normalize_docking_state("pre_attached"), "PreAttached")
+        self.assertEqual(mlib.normalize_docking_state("ready"), mlib.DOCKING_STATE_READY)
+
+    def test_normalize_docking_state_empty_is_failclosed(self):
+        self.assertEqual(mlib.normalize_docking_state(""), "")
+        self.assertEqual(mlib.normalize_docking_state(None), "")
 
 
 if __name__ == "__main__":

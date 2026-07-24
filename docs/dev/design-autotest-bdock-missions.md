@@ -263,16 +263,86 @@ FLIGHT filter (`MapFocusObjectOnSelectPatch` Case B), so the auto-behavior on a
 
 ### 3.3 Phase flow (both pieces)
 
+> **AMENDED 2026-07-24 (live flight 3 + 4 lessons).** Flight 3 reached
+> MATCH-VELOCITY with BOTH vessels still FULL STACKS: the spent lifter never
+> separated (MechJeb autostage only fires on EMPTY stages, and the Kerbal X core
+> keeps residual fuel after circularize, so nothing autostaged), and docking a
+> ~20 t full stack on pod RCS is broken. Two explicit stage-separation phases were
+> inserted -- `STATION-SEPARATE` (between STATION-CIRCULARIZE and STATION-ORBIT)
+> and `INT-SEPARATE` (between INT-CIRCULARIZE and INT-PHASING-ORBIT). Flight 4 then
+> proved the separation itself works (vessel_count evidence fired, both cores
+> shed) but flaked in RENDEZVOUS with avThr=0.000 -- the orbital LV-T45 sits in a
+> LATER stage than the separation decoupler (craft istg: separation Decoupler.2 =
+> 2, LV-T45 = 1 in its own later stage, heat-shield Decoupler.2 = 0 and must never
+> fire), so the exactly-one-activation contract dropped the core but left the
+> engine UNLIT. SEPARATE is therefore an evidence-chained TWO-step contract: drop
+> the core (vessel_count evidence) THEN ignite the orbital engine
+> (available_thrust evidence), at most 2 stage activations, HARD-capped so a third
+> never fires the istg=0 heat-shield decoupler. GENERAL PRINCIPLE (operator
+> directive, binding on every mission design): **per-phase vehicle-configuration
+> contracts are part of the mission spec** -- the vessel configuration for each
+> stage has to make sense for that part of the mission, just like a real space
+> mission, and every mission must WRITE DOWN the full ordered step list including
+> the configuration transitions (stage separations, ignitions, dockings,
+> undocks). The full step list with the per-phase configuration contract is the
+> header comment block of `BDOCK-1-station-interceptor.toml`.
+>
+> **AMENDED AGAIN 2026-07-24 (live flight 10/11 lessons -- attitude, observability,
+> LIVENESS).** Flight 10: the operator watched the upper stage TUMBLE in orbit for
+> ~28 minutes doing nothing useful. Two root causes and a principle:
+> 1. **Attitude.** Separation torque with no SAS tumbles the orbital stage. After
+>    EACH separation and at DOCK entry the machine now holds attitude
+>    (`ACTION_SET_SAS` = SAS stability-assist, `ACTION_SET_RCS` on) so the stage
+>    never tumbles and the docking AP is handed a stabilized, RCS-ready ship.
+> 2. **Observability.** DOCK logged NOTHING between entry and the give-up dump, and
+>    telemetry could not even see a tumble. New docking-gated snapshot fields --
+>    `angular_velocity` (tumble signal), `sas_enabled` / `rcs_enabled`,
+>    `docking_ap_status` (what MechJeb thinks it is doing) -- ride the status file,
+>    the compact ring-buffer line, and a per-frame rate-limited DOCK diagnostic
+>    line. All fail-closed (NaN / False / "") and only read when `read_docking`, so
+>    the B1-B7 snapshot is byte-identical.
+> 3. **LIVENESS PRINCIPLE (centerpiece, binding on every mission design):**
+>    *budgets bound SLOW; liveness watchdogs bound BROKEN. A phase may never idle to
+>    its budget while its actor (a MechJeb AP, the node executor, a transfer) is
+>    provably dead or inert.* Flights 9/10 saw MechJeb bench the docking AP within
+>    seconds while the machine sat the full 1800 s dock budget, and the harness then
+>    retried the identical 75-minute mission into the same wall -- hours of zombie
+>    wall-clock. Every actor-dependent B-DOCK phase now carries BOTH a budget AND a
+>    fast is-the-actor-acting check with a distinctly named flake reason (see the
+>    DOCK / TRANSFER amendments below). SEPARATE / ORBIT / COMMIT are already
+>    evidence-driven and short-budgeted.
+
 ```
                         --- PIECE 1: STATION (pre-placed on the pad) ---
 PRELAUNCH
   (LoadGame drops into flight on the pre-placed Station, B2 shape. Active vessel
-   present from frame 1.)
+   present from frame 1. Config: Station FULL STACK on the pad.)
 
-PRELAUNCH -> STATION-ASCENT -> STATION-CIRCULARIZE -> STATION-ORBIT
+PRELAUNCH -> STATION-ASCENT -> STATION-CIRCULARIZE -> STATION-SEPARATE -> STATION-ORBIT
   (the B2-proven MJ ascent to the ~110 km park. autoRecordOnLaunch starts the
-   Station recording on first staging. reachedOrbit evidence: apo/peri within
-   window, ecc < max.)
+   Station recording on first staging. Config: FULL STACK during ascent - MechJeb
+   autostage drops the boosters + nose cones; the Mainsail core burns the
+   circularize node. reachedOrbit evidence: apo/peri within window, ecc < max.)
+
+STATION-CIRCULARIZE -> STATION-SEPARATE   (post-circularize two-step separation)
+  (Two evidence-chained steps. STEP 1 (drop the core): the entry
+   ACTION_ACTIVATE_STAGE drops the spent Mainsail core; step-1 done evidence =
+   vessel_count INCREASES past the phase-entry baseline (the spent core spawns as
+   a NEW vessel), debounced K consecutive frames; fail closed on an unread
+   vessel_count (default 0). STEP 2 (ignite the orbital engine): the LV-T45 sits
+   in a LATER stage than the separation decoupler, so AFTER the split -- if
+   available_thrust is not already debounced-positive -- emit EXACTLY ONE more
+   ACTION_ACTIVATE_STAGE to light it; phase done evidence = available_thrust > 0
+   debounced K frames; NaN fails closed (never treated as ignited). HARD CAP: at
+   most 2 activations per SEPARATE phase -- a THIRD would fire the istg=0
+   heat-shield Decoupler.2. Bounded give-up (separationTimeoutSeconds spans BOTH
+   steps) -> a named FLAKE that distinguishes "no separation observed (vessel_count
+   did not increase)" from "separated but no ignition (available_thrust stayed 0)",
+   retryable. available_thrust also rides the phase-transition log line. On
+   completion the machine emits the ATTITUDE HOLD (ACTION_SET_SAS +
+   ACTION_SET_RCS on, flight-10) so the dropped mass does not tumble the stage.
+   Config after: Station = ORBITAL STAGE ONLY, engine LIT, attitude HELD (pod +
+   dockingPort2 + 8 RCS + 4 monoprop tanks + LV-T45 + tank + probe core).)
 
 STATION-ORBIT -> STATION-COMMIT   (bounded-wait, section 3.2 route 1)
   (ACTION_PARSEK_COMMIT_TREE -> command-seam CommitTree, poll for OK. TB is
@@ -288,8 +358,13 @@ STATION-COMMIT -> INT-LAUNCH
    certainly regenerates the Interceptor's live pid on collision - the two trees
    then carry DIFFERENT pids (section 6 invariant 6). Read both live pids here - P5.)
 
-INT-LAUNCH -> INT-ASCENT -> INT-CIRCULARIZE -> INT-PHASING-ORBIT
-  (MJ ascent to the ~90 km phasing park, BELOW the Station so it phases faster.)
+INT-LAUNCH -> INT-ASCENT -> INT-CIRCULARIZE -> INT-SEPARATE -> INT-PHASING-ORBIT
+  (MJ ascent to the ~90 km phasing park, BELOW the Station so it phases faster.
+   Config: FULL STACK during ascent; the INT-SEPARATE phase applies the SAME
+   two-step separation as the Station leg - drop the spent Interceptor core
+   (vessel_count evidence) AND ignite its orbital engine (available_thrust
+   evidence), cap 2 activations, so it docks as its ORBITAL STAGE ONLY with the
+   engine LIT.)
 
 INT-PHASING-ORBIT -> SET-TARGET
   (ACTION_SET_TARGET_VESSEL = the captured Station HANDLE. The rendezvous AP and the
@@ -304,14 +379,76 @@ SET-TARGET -> RENDEZVOUS
 
 RENDEZVOUS -> MATCH-VELOCITY
   (the rendezvous AP's own terminal match, or ACTION_MJ_KILL_REL_VEL. Done evidence:
-   target_rel_speed <= matchSpeedMetersPerSec.)
+   target_rel_speed <= matchSpeedMetersPerSec. AMENDED 2026-07-24 (flight-5 lesson):
+   flight 5 sat ~4300 s here until the wall killed the mission. operation_kill_rel_vel
+   is a TimedOperation whose DEFAULT time selector is CLOSEST APPROACH -- after the
+   rendezvous AP has already delivered us to ~approach distance, that node lands
+   nearly a full orbit ahead, so no burn happens for an orbit. The runner now clears
+   any stale node then retargets the op to TimeReference.XFromNow + ~15 s LeadTime
+   (KRPC.MechJeb TimedOperation.TimeSelector, discovered from the pinned source;
+   defensive fall-back to the default selector on any AttributeError). The phase now
+   carries a bounded give-up (matchTimeoutSeconds, default 600 GAME s) -> a named
+   FLAKE "match-velocity did not reach rel-speed floor (target_rel_speed=<last>)",
+   and a per-frame rate-limited diagnostic line (target_distance / target_rel_speed /
+   node_count / node_dv, also in the status file's snapshot block). Robustness: a
+   non-finite target_rel_speed for K debounced frames (the target dropped when the
+   rendezvous AP disabled itself) re-emits ACTION_SET_TARGET exactly ONCE
+   (idempotent, latched); NaN never completes the phase (fail-closed).)
 
 MATCH-VELOCITY -> DOCK
-  (ACTION_SET_TARGET_DOCKING_PORT = the captured Station Clamp-O-Tron HANDLE, then
-   ACTION_MJ_ENABLE_DOCKING with speed_limit = dockSpeedMetersPerSec. Done evidence:
-   the docking-port state == Docked AND the docking AP's Enabled latch flips FALSE.
-   On dock, KSP fires onPartCouple -> Parsek authors the cross-tree Dock branch in
-   TA + opens the RouteConnectionWindow.)
+  (ACTION_MJ_ABORT_NODE_EXEC FIRST, then the ATTITUDE HOLD (ACTION_SET_SAS +
+   ACTION_SET_RCS on, flight-10), then ACTION_SET_TARGET_DOCKING_PORT = the
+   captured Station Clamp-O-Tron HANDLE; the docking AP enable
+   (ACTION_MJ_ENABLE_DOCKING with speed_limit = dockSpeedMetersPerSec) is emitted
+   on the NEXT DOCK poll, NOT the same batch (see the flight-9 amendment). Done
+   evidence: the docking-port state == Docked AND the docking AP's Enabled latch
+   flips FALSE. On dock, KSP fires onPartCouple -> Parsek authors the cross-tree
+   Dock branch in TA + opens the RouteConnectionWindow.
+   AMENDED 2026-07-24 (flight-8 lesson, the prox-ops variant of the operator's
+   mission-profile rule -- NEVER leave maneuver execution armed during terminal
+   approach): flight 8 entered DOCK with a PERFECT setup (tgtD 92 m, tgtV 0.017
+   m/s) and then flaked at the dock budget WITHOUT docking. Because MATCH-VELOCITY
+   now completes in ~0.5 s (rel-speed already under the floor), the kill-rel-vel
+   NODE (planned XFromNow+15 s) was still PENDING in MechJeb's node executor with
+   autowarp=True when DOCK enabled the docking AP; the executor rails-warped to the
+   node at ~92 m from the Station, PACKING CLEARS DOCKING-PORT TARGETS in stock
+   KSP, the target went null, and MechJebModuleDockingAutopilot NRE'd in Drive +
+   UpdateDistance every tick for ~28 minutes (window dump: tgtD=nan, nodes=0).
+   Fix: ACTION_MJ_ABORT_NODE_EXEC (node_executor.abort() + control.remove_nodes())
+   is the FIRST DOCK-entry action, so no pending node / executor / autowarp
+   survives into terminal approach.
+   AMENDED AGAIN 2026-07-24 (flight-9 lesson, the core.target one-Update sync
+   trap): with the abort in place flight 9 STILL died -- MechJebModuleDocking
+   Autopilot NRE'd in Drive + UpdateDistance WITHIN ONE FRAME of DOCK entry (ut
+   8687.6 vs entry 8688.2), exactly 2 NRE lines then silence (MechJeb benched the
+   module). Cause: ACTION_SET_TARGET_DOCKING_PORT and ACTION_MJ_ENABLE_DOCKING were
+   in the SAME action batch, but MechJeb's core.target only syncs from the
+   KSP-level target on its NEXT Update, so the AP's first Drive tick saw the OLD
+   VESSEL target (set in SET-TARGET), cast it to a docking node, and NRE'd. (Flight
+   8's tgtD=92 was the vessel-target fallback reading, which masked that the port
+   target had never taken.) Fix: the enable is STAGGERED -- the DOCK-entry batch is
+   ABORT + SET-TARGET only and arms the dock_enable_pending flag; the DOCK phase's
+   first step emits ACTION_MJ_ENABLE_DOCKING alone on the next poll (~0.5 s, ample
+   Unity frames for core.target to sync) and clears the flag.
+   Robustness: a DOCK-phase dropped-target recovery (mirrors matchRetarget) --
+   while docking_ever_enabled, a non-finite target_distance for K debounced frames
+   re-emits ACTION_SET_TARGET_DOCKING_PORT and re-arms the same staggered enable,
+   BOUNDED to BDOCK_DOCK_MAX_RETARGETS = 3 (flight-11: one-shot was too stingy if
+   KSP clears the port repeatedly); NaN never completes DOCK, fail-closed.
+   AMENDED AGAIN 2026-07-24 (flight-10/11 LIVENESS -- a dead AP must never ride the
+   budget): flight 10 entered DOCK with a perfect setup, the AP died, and the ship
+   drifted tumbling for the full budget. Three watchdogs, each a fast named flake:
+   (E1a) "enable never took" -- after the deferred enable, if mj_docking_enabled is
+   not observed True within BDOCK_DOCK_LIVENESS_K (~10) polls, re-emit the enable
+   ONCE; still not enabled within another K -> FLAKE "docking AP enable did not
+   take". (E1b) "died mid-approach" -- docking_ever_enabled AND now disabled AND not
+   docked for K polls -> re-target + re-enable ONCE; if it dies again -> FLAKE
+   "docking AP disabled without docking (benched/NRE?)". (E2) progress watchdog --
+   while the AP is enabled, ANY of target_distance closing / monopropellant burning
+   / angular_velocity falling is progress; NONE for dockNoProgressSeconds (default
+   120 GAME s) -> FLAKE "docking AP enabled but no observable progress
+   (dist/monoprop/angvel all flat)". The dock budget stays as the slow-but-alive
+   backstop.)
 
 DOCK -> TRANSFER
   (two commanded transfers, opposite directions and different resources:
@@ -321,7 +458,10 @@ DOCK -> TRANSFER
      T2: ACTION_START_RESOURCE_TRANSFER MonoPropellant, station tank -> transport
          tank, amount = transferAmountMp.
    Done evidence: both transfers report complete with transferred amount within
-   tolerance of commanded.)
+   tolerance of commanded. LIVENESS (flight-11): a running transfer must move
+   resource -- transfer_amount climbs. Flat/unread for BDOCK_TRANSFER_STALL_FRAMES
+   (~20 polls) -> FLAKE "transfer stalled (transfer_amount not increasing)" fast,
+   not an idle to the 2x transferTimeoutSeconds budget.)
 
 TRANSFER -> UNDOCK
   (ACTION_UNDOCK the Clamp-O-Tron. KSP fires onPartUndock then, authoritatively,
@@ -521,15 +661,40 @@ B2/B5 ascent ACTIONs; only the phase machine is new.
 | `ACTION_START_RESOURCE_TRANSFER` (text = resource, value = amount, from/to part HANDLEs) | `ResourceTransfer.start(from_part, to_part, resource, amount)`; the runner polls `.complete`. |
 | `ACTION_UNDOCK` (a captured port HANDLE) | `port.undock()`. |
 
-**Handle capture (P9).** kRPC v0.5.4 exposes no pid/guid on `Vessel`, both vessels
-are literally named "Kerbal X", and Parsek's ghost `ProtoVessel`s can inject
+**Handle capture (P9) - ANSWERED 2026-07-24 (flight 13): VESSEL handles survive the
+reload, PART handles do NOT.** kRPC v0.5.4 exposes no pid/guid on `Vessel`, both
+vessels are literally named "Kerbal X", and Parsek's ghost `ProtoVessel`s can inject
 same-named map entries - so target / transfer / undock selection MUST use kRPC object
-HANDLES captured while the object is reachable (the Station vessel + its top docking
-port captured during STATION-COMMIT while the Station is active; the transport /
-station tank handles captured post-dock from the merged vessel's parts by resource +
-by the pre-dock part-set split). Name/pid selection is forbidden in the driver;
-pid/guid identity is the OFFLINE oracle's job (section 6), reading the persisted
-recordings.
+HANDLES, never name/pid. The captured-handle LIFETIME was the unknown, and flight 13's
+telemetry pinned it as the root cause behind EVERY dock failure since flight 7:
+
+- A captured **Vessel** handle SURVIVES the `launch_vessel` FLIGHT reload (kRPC keys
+  it by the vessel id, stable while the Station goes on-rails). `ACTION_SET_TARGET_
+  VESSEL` on the captured `_station_vessel` worked all along -- which MASKED the
+  problem, because `target_distance` stayed finite through RENDEZVOUS / MATCH via the
+  vessel target.
+- A captured **Part** handle does NOT survive the reload. `FlightDriver.StartWith
+  NewLaunch` destroys/recreates every `Part` object, so a captured Part proxy (the
+  Station's docking port; the station-side tanks) resolves server-side to a DESTROYED
+  part. `ACTION_SET_TARGET_DOCKING_PORT` assigning the stale port handle hit KSP's
+  `SetVesselTarget` on a destroyed `ITargetable`, which SILENTLY CLEARS the target
+  (`target_distance` went None the instant the port was set, in every flight); MechJeb
+  then refused to engage its docking AP with no port target (the flight-8/9 benched-NRE
+  and the flight-13 "enable never took" were the same null-target family). The stale
+  station-tank handles would have hit the same wall in TRANSFER.
+
+FIX (flight 13): the driver captures the Station VESSEL handle at STATION-COMMIT (used
+for `SET_TARGET_VESSEL`, survives), but the port + tanks are captured only as
+LAST-RESORT fallbacks. `SET_TARGET_DOCKING_PORT` re-resolves the port LIVE from
+`sc.target_vessel.parts.docking_ports` (first 'ready' port; pure `pick_ready_port_
+index`), never clobbering a working vessel target with a dead handle when there is no
+target. `_read_docking_state` re-resolves LIVE from the ACTIVE vessel's ports (post-
+merge it carries both mated ports; any 'docked'/'docking' is authoritative) -- the
+stale handle read "" in every post-reload flight, blinding the DOCK-done gate too. The
+TRANSFER re-resolves both tanks LIVE by partitioning the merged part tree at the mated
+docked-port pair (transport = the active-control side). Name/pid selection stays
+forbidden in the driver; pid/guid identity is the OFFLINE oracle's job (section 6),
+reading the persisted recordings.
 
 ### 5.2 New TelemetrySnapshot fields (runner-populated, fail-closed defaults)
 
@@ -578,9 +743,14 @@ Each phase carries a GAME-time budget and a wall watchdog; expiry FLAKES the mis
 ### 5.4 Budgets (all ESTIMATED, flagged)
 
 GAME-time phase budgets: ascent 1200 / circularize 600 each leg (the ~110 / ~90 km
-parks); `rendezvousTimeoutSeconds = 30000` (phasing orbits under warp advance game
-time fast); `dockTimeoutSeconds = 600` (the 1x approach); `transferTimeoutSeconds =
-120` each; undock/settle 120. WALL: mission phase ~2400 s (Station ascent ~250 +
+parks); `separationTimeoutSeconds = 120` each SEPARATE leg (spans both the drop + the
+ignition step; both are near-instantaneous, so this is a stuck-decoupler /
+failed-ignition backstop, not a tuning knob);
+`rendezvousTimeoutSeconds = 30000` (phasing orbits under warp advance game time
+fast); `matchTimeoutSeconds = 600` (flight-5: MATCH-VELOCITY is NOT a fast
+transition, the kill-rel-vel node can land far ahead); `dockTimeoutSeconds = 1800`
+(the 1x approach, slow-but-alive backstop) with `dockNoProgressSeconds = 120` as
+the flight-11 liveness watchdog (a dead/inert AP flakes fast); `transferTimeoutSeconds = 120` each; undock/settle 120. WALL: mission phase ~2400 s (Station ascent ~250 +
 circularize + Interceptor launch/ascent ~250 + circularize + rendezvous ~200 under
 warp + docking ~120-180 at 1x + two transfers ~10 + undock/settle + margin); runtime
 ~3000 s (240 LoadGame + 2400 mission + the two commits + FlushAndQuit + margin,
@@ -744,11 +914,14 @@ D10 and is now cited; the remaining gap is only the D10-level orbital-dock value
 - **P8 - Session length under the wall budget.** The ~2400 s estimate is arithmetic;
   a slow rendezvous or a docking retry can blow it. Retry-once; re-time against the
   first run.
-- **P9 - Handle-based target / transfer / undock selection.** kRPC v0.5.4 Vessel
-  exposes no pid/guid, both vessels are named "Kerbal X", and ghost ProtoVessels can
-  inject same-named entries - so selection MUST use captured kRPC handles (Station
-  vessel + port captured while active; tanks captured post-dock by resource + pre-dock
-  part-set). Confirm the handles survive the merge / reload.
+- **P9 - Handle-based target / transfer / undock selection. ANSWERED (flight 13):
+  VESSEL handles survive the launch_vessel reload, PART handles do NOT** (kRPC keys a
+  Vessel by its stable id, but the reload destroys/recreates every Part object, so a
+  captured port/tank proxy resolves to a destroyed part and SetVesselTarget on it
+  silently clears the target - the root cause behind every dock failure since flight
+  7). Fix: capture the Station VESSEL handle (survives, used for SET_TARGET_VESSEL);
+  re-resolve the port, docking-state, and transfer tanks LIVE at call time. See the
+  "Handle capture (P9)" answer in section 5.1. Name/pid selection stays forbidden.
 
 ---
 
