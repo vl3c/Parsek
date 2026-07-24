@@ -40,6 +40,16 @@ namespace Parsek.TestCommands
         private static readonly FieldInfo PartAirlockField =
             typeof(Part).GetField("airlock", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
+        // KerbalEVA.CanPlantFlag() is protected virtual - not compile-visible. It is the LIVE
+        // plant-availability truth (vessel ACTIVE + part.GroundContact + flagItems>0 + not
+        // ragdoll + AC flag unlock + not construction), recomputed on every call. The seam
+        // reads it directly each poll instead of the stale edge-triggered
+        // Events["PlantFlag"].active cache. Null-safe: a failed bind reads the gate closed.
+        private static readonly MethodInfo KerbalEvaCanPlantFlagMethod =
+            typeof(KerbalEVA).GetMethod("CanPlantFlag",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public,
+                null, System.Type.EmptyTypes, null);
+
         // ----- EvaExit two-phase state (re-armed wholesale at each EvaExitImpl) -----
         private string evaExitKerbalName;
         private Vessel evaExitVessel;
@@ -299,7 +309,7 @@ namespace Parsek.TestCommands
             // fire PlantFlag() exactly once on the transition.
             if (!plantFlagFired)
             {
-                bool gateOpen = ReadPlantGate(plantFlagController);
+                bool gateOpen = ReadPlantGate(plantFlagController, out string gateDiag);
                 plantFlagLastGateOpen = gateOpen;
                 bool stableLockClosed = ReadFlagLockStable();
                 PlantGateDecision g = TestCommandPlantFlag.DecidePlantGateWait(elapsed, gateOpen, stableLockClosed, budget);
@@ -307,7 +317,7 @@ namespace Parsek.TestCommands
                 {
                     case PlantGateDecision.KeepWaiting:
                         ParsekLog.VerboseRateLimited("TestCommands", "plantflag-gate-wait",
-                            $"plantflag gate wait elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s gateOpen={Bool(gateOpen)}");
+                            $"plantflag gate wait elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s gateOpen={Bool(gateOpen)} blocked={gateDiag}");
                         return;
                     case PlantGateDecision.RejectStableLock:
                     {
@@ -322,7 +332,7 @@ namespace Parsek.TestCommands
                         string tid = completionId; long tseq = completionSeq; string tverb = completionVerb;
                         ClearTwoPhase();
                         TestCommandDiagnostics.Timeout(tid, tverb, elapsed, "flag-gate-timeout");
-                        ParsekLog.Error(Tag, $"plantflag failed reason=flag-gate-timeout lastGateOpen={Bool(gateOpen)} elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
+                        ParsekLog.Error(Tag, $"plantflag failed reason=flag-gate-timeout lastGateOpen={Bool(gateOpen)} blocked={gateDiag} elapsed={elapsed.ToString("F1", CultureInfo.InvariantCulture)}s");
                         EmitExecutedTerminal(tid, tseq, tverb, "ERROR", null, "flag-gate-timeout", dequeueHead: true);
                         return;
                     }
@@ -402,18 +412,68 @@ namespace Parsek.TestCommands
             }
         }
 
-        // Read the stock plant gate (Events["PlantFlag"].active), which the FSM keeps equal to
-        // CanPlantFlag() (active vessel + part ground contact + flagItems>0 + not ragdoll + AC
-        // flag unlock + not in construction mode). Null-safe.
-        private static bool ReadPlantGate(KerbalEVA evaCtl)
+        // Read the LIVE plant gate. This is deliberately NOT Events["PlantFlag"].active: that
+        // flag is an edge-triggered CACHE (decompiled KerbalEVA, KSP 1.12.5) assigned
+        // = CanPlantFlag() only at idle_OnEnter / idle_b_OnEnter (entering st_idle_gr /
+        // st_idle_b_gr), a vessel-situation change WHILE already in st_idle_gr, a
+        // construction-mode toggle, go-off-rails, or AddFlag. A kerbal that lands and stands
+        // still on the pad after an EvaExit release=true enters st_idle_gr exactly ONCE, and
+        // if the cache is computed while ground contact / ragdoll-settle is still transient it
+        // latches stale-false, then NOTHING re-fires - the button never opens even though
+        // CanPlantFlag() flips true a frame later (the 180s EVA-1 pad-flag timeout). We read
+        // the live CanPlantFlag() every poll and confirm the kerbal is in a state where
+        // PlantFlag()'s On_flagPlantStart (MANUAL_TRIGGER, registered on st_idle_gr /
+        // st_idle_b_gr only) will actually fire; otherwise PlantFlag() would decrement
+        // flagItems without planting. `diag` names the closed precondition(s) for the
+        // gate-wait / timeout log (liveness: a timeout must self-explain). Null-safe.
+        private static bool ReadPlantGate(KerbalEVA evaCtl, out string diag)
         {
+            diag = "no-eva";
             if (evaCtl == null) return false;
             try
             {
-                BaseEvent plantEvent = evaCtl.Events?["PlantFlag"];
-                return plantEvent != null && plantEvent.active;
+                // Plantable-fsm-state gate: PlantFlag()'s On_flagPlantStart only fires from
+                // st_idle_gr / st_idle_b_gr (the two states whose OnEnter also refreshes the
+                // stock cache). Sanitize the state name (drop spaces / parens) so the
+                // diagnostic token stays greppable.
+                bool inPlantableState = false;
+                string stateName = "?";
+                KerbalFSM fsm = evaCtl.fsm;
+                if (fsm != null && fsm.CurrentState != null)
+                {
+                    string raw = fsm.CurrentState.name;
+                    stateName = string.IsNullOrEmpty(raw)
+                        ? "?"
+                        : raw.Replace(' ', '_').Replace("(", string.Empty).Replace(")", string.Empty);
+                    inPlantableState = ReferenceEquals(fsm.CurrentState, evaCtl.st_idle_gr)
+                        || ReferenceEquals(fsm.CurrentState, evaCtl.st_idle_b_gr);
+                }
+
+                // Authoritative gate value: KSP's own CanPlantFlag() (no re-implementation, no
+                // drift). If the reflection bind failed, the gate reads closed.
+                bool canPlant = KerbalEvaCanPlantFlagMethod != null
+                    && KerbalEvaCanPlantFlagMethod.Invoke(evaCtl, null) is bool cp && cp;
+
+                // Component reads for the DIAGNOSTIC ONLY (the decision above uses the stock
+                // method); each mirrors one CanPlantFlag() conjunct.
+                bool vesselActive = evaCtl.vessel != null && evaCtl.vessel.state == Vessel.State.ACTIVE;
+                bool groundContact = evaCtl.part != null && evaCtl.part.GroundContact;
+                bool flagItemsPositive = evaCtl.flagItems > 0;
+                bool notRagdoll = !evaCtl.isRagdoll;
+                bool notConstruction = !evaCtl.InConstructionMode;
+                bool flagUnlocked = !ReadFlagLockStable();
+
+                bool open = TestCommandPlantFlag.IsPlantGateOpen(canPlant, inPlantableState);
+                diag = TestCommandPlantFlag.DescribePlantGateBlock(
+                    inPlantableState, vesselActive, groundContact, flagItemsPositive,
+                    notRagdoll, flagUnlocked, notConstruction, stateName);
+                return open;
             }
-            catch { return false; }
+            catch (System.Exception ex)
+            {
+                diag = "gate-read-threw:" + ex.GetType().Name;
+                return false;
+            }
         }
 
         // The AC flag unlock (GameVariables.UnlockedEVAFlags at the AC level) is the ONE

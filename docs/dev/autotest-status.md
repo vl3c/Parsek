@@ -1,10 +1,14 @@
 # Automated Testing System - Status
 
-Last updated: 2026-07-24 (EVA lane prep: PR #1345 review follow-ups 1-5 all
-addressed; crew-by-name + launch_site plumbing threaded; FORGE-eva3-pad forge
-spec + harvest path land; EVA batch-autorun evaluated = NOT wired). Prior:
-2026-07-23 M-C2 EVA verbs + EVA-1/2/3 specs; B-DOCK dock/transfer/undock lane +
-fixture-forge; all headless-green, pending live proof / first flight. This file
+Last updated: 2026-07-24 (H6-route-rewind-timeline LIVE-PROVEN on its first live
+run - FULL PASS attempt 1, all seven verifiers green - the route-rewind wave's
+last automated acceptance item; EVA-1-pad-flag first flight = EvaExit/EvaBoard/
+commit chain green + analyzer clean, PlantFlag gate defect found + fixed [live
+CanPlantFlag() read replaces the stale button-active cache]). Prior: EVA lane
+prep - PR #1345 review follow-ups 1-5 all addressed; crew-by-name + launch_site
+plumbing threaded; FORGE-eva3-pad forge spec + harvest path land; EVA
+batch-autorun evaluated = NOT wired; 2026-07-23 M-C2 EVA verbs + EVA-1/2/3 specs;
+B-DOCK dock/transfer/undock lane + fixture-forge; all headless-green. This file
 is the single at-a-glance answer
 to "what is done, what is proven, what is gated" for the automated testing
 initiative, so nobody has to re-derive status from code.
@@ -76,11 +80,12 @@ orbit, landing, docking, career-ledger lanes) is the frontier.
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
 
-### Live-proven (10)
+### Live-proven (11)
 
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|
 | B1-pad-hop | nightly | Auto-record-on-launch, atmospheric TrackSections, chute-deployed ground-arrival recording (DOWN contract) | D1 auto-record-launch; D4 atmospheric; D14 kerbin |
+| H6-route-rewind-timeline | daily | Route-rewind lifecycle rows, dormant classify + Tick materialize, kept-route reconciliation (Restore(cutoff) reconciliation-bundle path) | D9 reconciliation-bundle; D10 route-x-rewind; D14 sandbox/scene-flight. LIVE-PROVEN 2026-07-24: first live run = FULL PASS attempt 1, all seven verifiers green, in-game batch perCategory=1 - the route-rewind wave's last automated acceptance item |
 | B2-lko-ascent | nightly | Ascent-to-orbit recording, orbital checkpoints, 6-booster parent-anchored debris children model | D1; D3 orbital-checkpoint; D4 atmospheric/exo-propulsive; D14 kerbin |
 | B4-reentry-splashdown | nightly | Full-cycle recording (ascent/deorbit/reentry/splashdown intact), exo-ballistic sections, rails-warp recording | D1; D3; D4 +exo-ballistic; D14 kerbin/warp-rails |
 | B5-mun-flyby | nightly | Cross-SOI cohesive coast recording (Kerbin->Mun->Kerbin), on-rails checkpoints across warp, warp-reseed seams | D1; D3; D4 +cohesive-cross-body-coast; D14 kerbin/mun/warp-rails. NO-1X CERTIFIED at HEAD config (flight 26: wall 465 s, warp audit exit 0) |
@@ -91,11 +96,10 @@ The "Parsek surface verified" column is the reason the case exists.
 | S1.4-injected-playback | daily | 272-tree corpus injection, load, ghost map presence + polyline render with no anomalies | D6 basic-playback/ghost-map-presence/non-orbital-polyline; D16 sidecar-prec/sidecar-pcrf |
 | H5-invariants-corpus | daily | The full synthetic corpus (306 recordings / 276 trees) loads intact and holds every recording invariant in-game | D14 sandbox/scene-flight; D16 sidecar-prec/schema-gate |
 
-### Committed, not yet live-run (12)
+### Committed, not yet live-run (11)
 
 | Test case | Tier | Parsek surface verified | Blocker |
 |---|---|---|---|
-| H6-route-rewind-timeline | daily | Route-rewind lifecycle rows, dormant classify + Tick materialize, kept-route reconciliation | None - its next daily run IS its live-prove |
 | BDOCK-1-station-interceptor | nightly | FIRST two-vessel flight (18-phase machine): cross-tree Dock branch, authoritative onVesselsUndocking split, RouteConnectionWindow recorded-delta contract (the new `Route window delta:` line), same-craft-twice launch identity. Flight-1/2 wall budgets re-timed; flight-3 lesson (STATION-SEPARATE / INT-SEPARATE) + flight-4 lesson (two-step SEPARATE: drop the spent lifter AND ignite the orbital engine, thrust-verified, cap 2) both live-confirmed through RENDEZVOUS on flight 5; flight-5 lesson (MATCH-VELOCITY kill-rel-vel retargeted XFromNow ~15 s lead + bounded 600 s give-up + per-frame diagnostics + one-shot dropped-target re-acquire); flight-8 lesson (prox-ops rule: abort the pending kill-rel-vel node executor at DOCK entry before the docking AP owns the ship, else it rails-warps + packs the port target null + NREs); flight-9 lesson (core.target one-Update sync trap: stagger the docking-AP enable one poll after the port target); flight-10/11 lesson (prox-ops observability [angular_velocity/sas/rcs/docking_ap_status + per-frame DOCK diag line] + attitude hold [SAS+RCS after each separation and at DOCK entry] + LIVENESS watchdogs [budgets bound SLOW, watchdogs bound BROKEN: DOCK enable-never-took / died-mid-approach / no-progress fast flakes, TRANSFER stall fast flake, bounded dropped-target re-arm x3]). flight-13 ROOT CAUSE (behind every dock failure since flight 7): pre-`launch_vessel`-reload PART handles are stale - the reload destroys every Part, so the captured docking-port handle resolves to a destroyed part and assigning it silently CLEARS the target; VESSEL handles survive (P9 answered). Fix: resolve port + docking-state + transfer tanks LIVE at call time. Flight 13's liveness layer fast-flaked in 10 s with the named E1a reason (wall 2133 s) and pinned this. Flight 16 (2026-07-24): MISSION-OK END TO END (launch, separate, mid-mission commit seam, launch_vessel, rendezvous, hard dock, LF 40 + mono 15 transfers, undock, TERMINAL) - and the verifier chain caught the FIRST mission-machinery-found Parsek recording defect: analyzer RED, INV4-PARTEVENT-PID x13 on the Station recording d5355cc6. Root cause: the launch_vessel FLIGHT->FLIGHT reload is classified as a quickload (stale vesselSwitchPending), and RestoreActiveTreeFromPending's NAME fallback adopted the fresh-rollout Interceptor (same .craft, same "Kerbal X" name, different Vessel.id) and PID-remapped the Station recording onto it, so the whole Interceptor flight recorded into the Station recording with foreign craft-baked part pids. FIXED Parsek-side: QuickloadResumeMatchGuard (fresh-rollout pid + launch-guid gates in the restore match loop); forensics in todo-and-known-bugs.md flight-16 entry | LIVE-PROVEN 2026-07-24: flight 17 on the guard build = MISSION-OK + analyzer red=0 (the QuickloadResumeMatchGuard fix verified on a clean two-tree save; the one residual red was the spec's own dock token - docking MERGES trees, Parsek logs 'Tree merge created: type=Dock', only splits log 'Tree branch created'); flight 18 = FULL PASS, all seven verifiers green, fifth consecutive hard dock. Re-tiered nightly. 18-flight campaign, zero manual sessions |
 | FORGE-bdock-station | operator | (Not a Parsek-surface test) FIXTURE-FORGE: launch_vessel the docking Kerbal X onto the pad + SaveGame -> stamps the bdock-station-pad fixture headlessly (replaces the operator fixture flight) | None - runnable now on a provisioned instance; harvest tool normalizes the output |
 | FORGE-eva3-pad | operator | (Not a Parsek-surface test) FIXTURE-FORGE (EVA-3 sibling): launch_vessel the Kerbal X onto the pad with THREE named crew + SaveGame -> stamps the eva3-pad-3crew fixture headlessly. Uses the review-follow-up-2 crew (by NAME) + launch_site plumbing | Operator forge run + `harvest_bdock_station.py --target-name eva3-pad-3crew`. CAVEAT: the EVA-3 spec prefers a bare ground-level pod; the Kerbal X pod is ~20 m up an unreachable stack (add a bare-pod craft to bdock-forge-base if the live EVA-3 confirms it) |
@@ -121,7 +125,7 @@ recording paths.
 
 | Test case | Tier | Parsek surface verified | Blocker |
 |---|---|---|---|
-| EVA-1-pad-flag | nightly | Foreground EVA branch (structural snapshot + EvaCrewName), FlagEvent capture into the foreground recorder, board merge back to the pod | In-game proof: P1 fixture sanity, P3 count-window pin, P5 ladder-drop safety, P6 flag-capture proof |
+| EVA-1-pad-flag | nightly | Foreground EVA branch (structural snapshot + EvaCrewName), FlagEvent capture into the foreground recorder, board merge back to the pod | First flight 2026-07-24: EvaExit (ladder release applied) + EvaBoard merge-back + StopRecording + CommitTree chain all green, analyzer save CLEAN. PlantFlag gate defect FOUND + FIXED (`Events["PlantFlag"].active` is an edge-triggered cache that latches stale-false when a kerbal lands and stands still on the pad; gate now reads the live `CanPlantFlag()` + plantable-fsm-state - see todo-and-known-bugs.md). Re-flight pending to prove P6 flag-capture end to end |
 | EVA-2-orbital-board | pending-fixture | Deferred auto-record-on-EVA path (D1 auto-record-eva) + re-board; the settleSeconds dwell beats the auto-record race (F7) | Fixture `eva2-lko-crewed` (P2), then P3 count / P4 orbital auto-record wording |
 | EVA-3-multi-kerbal | pending-fixture | Two sequential EVA branch points + two board merges in one tree; the F2 quiescence conjunct protects the second exit | Fixture `eva3-pad-3crew` (P2): the forge spec `FORGE-eva3-pad.toml` + harvest path now land (bytes pending an operator forge run); then P3 count-window pin. Batch autorun evaluated = NOT wired (batchComplete SKIPPED, see EVA-1 spec) |
 
