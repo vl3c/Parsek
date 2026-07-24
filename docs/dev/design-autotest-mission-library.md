@@ -579,17 +579,30 @@ run.py:
    On a normal exit, run.py reads the mission-result JSON (falling back to the exit
    code if the file is absent) and maps the verdict: `MISSION-OK` matches the step's
    `expect`; any non-OK is a failed mission step with the mapped INVALID subkind.
-5. run.py drives the REMAINING seam steps REGARDLESS of the mission step outcome. On
-   a met (MISSION-OK) step the seam resumes normally: `CommitTree` commits the
-   recorded tree in FLIGHT (the seam verb's `activeTree != null` guard is satisfied
-   by the auto-recorded flight), then `FlushAndQuit` quits commit-safe. On a FAILED
-   or killed mission step run.py STILL drives them: `CommitTree` may return `ERROR`
-   (e.g. no-active-tree) -- that verdict is RECORDED, not acted on mid-drive -- and
-   `FlushAndQuit` still brings KSP down cleanly so no orphan process is left.
-   CLASSIFICATION happens AFTERWARD, from the accumulated facts (the mission verdict
-   PLUS every seam step's recorded verdict PLUS the verifier chain), never by
-   aborting the drive at the first failure -- see the classification carve-out above
-   for the MISSION-OK-but-no-recording case.
+5. run.py then drives the post-mission seam tail, and WHICH steps it drives depends on
+   the mission outcome (M-A5 "The unmet-mission tail" is the authority; this is a
+   summary).
+   - On a MET (MISSION-OK) step the seam resumes normally and the WHOLE tail runs:
+     `CommitTree` commits the recorded tree in FLIGHT (the seam verb's
+     `activeTree != null` guard is satisfied by the auto-recorded flight), then
+     `FlushAndQuit` quits commit-safe.
+   - On an UNMET or killed mission step run.py drives the CLEANUP steps ONLY
+     (`hlib.SEAM_VERB_TAIL_ROLE` == `cleanup`: `StopRecording`, `FlushAndQuit`) and
+     SKIPS the rest, writing no channel line for them. An unmet mission is the
+     statement "the flight never reached the state the tail assumes", so driving a
+     world-mutating verb on that evidence is unsound -- EVA-4-atmo-chute flight 1
+     (2026-07-24) EVA'd a kerbal out of a pod at terminal velocity because the tail
+     ran anyway. `CommitTree` is world-mutating, not cleanup: committing a junk tree
+     cannot buy the run anything back (an unmet mission is already driver-INVALID
+     above every save-reading verifier) and contaminates the failed attempt's
+     artifacts. The skipped steps are recorded in `driver.skippedTailSteps` +
+     `verifiers.unmetMissionTail`. A spec may set
+     `[driver].skipTailOnUnmetMission = false` to restore the old behaviour.
+   Either way CLASSIFICATION happens AFTERWARD, from the accumulated facts (the
+   mission verdict PLUS every DRIVEN seam step's recorded verdict PLUS the verifier
+   chain), never by aborting the drive at the first failure -- see the classification
+   carve-out above for the MISSION-OK-but-no-recording case. A step the harness chose
+   not to send is NOT an unmet step and never gates driver validity.
 
 The channel is QUIET during the mission phase (no seam commands in flight, so the
 seam pump idles), and the mission phase never runs concurrently with an in-game

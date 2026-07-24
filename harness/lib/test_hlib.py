@@ -1980,6 +1980,256 @@ class ClassifyMissionStepTests(unittest.TestCase):
         self.assertFalse(hlib.should_retry(r, 1, "once"))
 
 
+class SeamVerbTailRoleTests(unittest.TestCase):
+    """Guards (design "The unmet-mission tail"): the per-verb tail-role table is
+    TOTAL over the implemented verbs, names exactly the two cleanup verbs, and fails
+    SAFE on anything it does not know. A verb promoted from RESERVED (or added, as
+    SaveGame and the M-C2 EVA batch were) with no row here would otherwise inherit a
+    silent default -- which is how EvaChuteDeploy-class in-world actions end up being
+    driven after a mission that never reached its envelope."""
+
+    def test_table_is_total_over_implemented_verbs(self):
+        missing = [v for v in hlib.IMPLEMENTED_SEAM_VERBS
+                   if v not in hlib.SEAM_VERB_TAIL_ROLE]
+        self.assertEqual([], missing,
+                         "every IMPLEMENTED_SEAM_VERBS entry needs an explicit "
+                         "SEAM_VERB_TAIL_ROLE row; missing=%s" % (missing,))
+        for verb, role in hlib.SEAM_VERB_TAIL_ROLE.items():
+            self.assertIn(role, hlib.TAIL_ROLES, verb)
+
+    def test_table_has_no_rows_for_unimplemented_verbs(self):
+        # A row for a RESERVED / deleted verb is dead metadata that would quietly
+        # outlive the verb it describes.
+        extra = [v for v in hlib.SEAM_VERB_TAIL_ROLE
+                 if v not in hlib.IMPLEMENTED_SEAM_VERBS]
+        self.assertEqual([], extra, "stale tail-role rows: %s" % (extra,))
+
+    def test_cleanup_set_is_exactly_stop_recording_and_flush_and_quit(self):
+        cleanup = sorted(v for v, r in hlib.SEAM_VERB_TAIL_ROLE.items()
+                         if r == hlib.TAIL_ROLE_CLEANUP)
+        self.assertEqual(["FlushAndQuit", "StopRecording"], cleanup)
+
+    def test_the_irreversible_in_world_verbs_are_world_mutating(self):
+        # EvaExit + EvaChuteDeploy are the EVA-4 flight-1 pair: the two verbs the old
+        # drive-the-whole-tail contract fired at 356 m and -277 m/s.
+        for verb in ("EvaExit", "EvaChuteDeploy", "EvaBoard", "PlantFlag", "KscAction",
+                     "InvokeRewind", "CommitTree", "DiscardTree", "SaveGame"):
+            self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
+                             hlib.seam_verb_tail_role(verb), verb)
+
+    def test_read_only_verbs_are_inert_not_mislabelled_mutating(self):
+        for verb in ("RecordingState", "MissionMark"):
+            self.assertEqual(hlib.TAIL_ROLE_INERT, hlib.seam_verb_tail_role(verb), verb)
+
+    def test_unknown_verb_fails_safe_to_world_mutating(self):
+        # A verb this table has never heard of (a RESERVED verb driven by a spec that
+        # slipped validation, a typo, or a verb implemented on a branch that has not
+        # added its row yet) must be presumed to DO something, so the unmet tail skips
+        # it. EvaChuteDeploy WAS this case until PR #1348 merged it, which is exactly
+        # what the totality cell above now keeps from recurring silently.
+        for unknown in ("StartLoopPlayback", "SomeFutureVerb", ""):
+            self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
+                             hlib.seam_verb_tail_role(unknown), unknown)
+
+
+class PlanUnmetMissionTailTests(unittest.TestCase):
+    """Guards (design "The unmet-mission tail"): after an UNMET mission step only the
+    CLEANUP tail runs. The motivating incident is EVA-4-atmo-chute flight 1
+    (2026-07-24): the mission ASSERT-FAILed with eva-window-missed and the harness
+    drove EvaExit + EvaChuteDeploy anyway, EVAing a kerbal out of a pod at terminal
+    velocity 356 m above the ground. Fails if the tail plan drives a world-mutating
+    verb, drops a cleanup verb, renumbers step ids, or reaches back before the
+    mission step."""
+
+    # The EVA-4 tail shape (the incident): two irreversible in-world verbs, then the
+    # commit, then teardown.
+    EVA4_STEPS = [
+        {"cmd": "LoadGame", "args": {"save": "${runSave}"}, "expect": "OK"},
+        {"cmd": "SetSetting", "args": {"name": "autoRecordOnLaunch", "value": "true"}},
+        {"phase": "mission", "expect": "MISSION-OK", "budget": 900},
+        {"cmd": "EvaExit", "args": {"release": "true"}, "expect": "OK", "budget": 120},
+        {"cmd": "EvaChuteDeploy", "args": {"awaitDown": "true"}, "expect": "OK", "budget": 420},
+        {"cmd": "StopRecording", "expect": "OK"},
+        {"cmd": "CommitTree", "expect": "OK"},
+        {"cmd": "FlushAndQuit", "expect": "OK"},
+    ]
+
+    # The B1 / B2 / B4 / B5 / B7 / BDOCK-1 tail shape (every live-proven flown scenario).
+    B1_STEPS = [
+        {"cmd": "LoadGame", "args": {"save": "${runSave}"}, "expect": "OK"},
+        {"cmd": "SetSetting", "args": {"name": "autoRecordOnLaunch", "value": "true"}},
+        {"phase": "mission", "expect": "MISSION-OK", "budget": 600},
+        {"cmd": "CommitTree", "expect": "OK"},
+        {"cmd": "FlushAndQuit", "expect": "OK"},
+    ]
+
+    def test_eva4_tail_skips_both_in_world_verbs_and_the_commit(self):
+        plan = hlib.plan_unmet_mission_tail(self.EVA4_STEPS, 2)
+        skipped = [d.cmd for d in plan.dispositions if not d.run]
+        ran = [d.cmd for d in plan.dispositions if d.run]
+        self.assertEqual(["EvaExit", "EvaChuteDeploy", "CommitTree"], skipped)
+        self.assertEqual(["StopRecording", "FlushAndQuit"], ran)
+        self.assertEqual((3, 4, 6), plan.skipped_indices)
+        self.assertEqual((5, 7), plan.run_indices)
+
+    def test_b1_tail_skips_the_commit_and_still_quits_cleanly(self):
+        # FlushAndQuit must survive: it is the QUIT owner, and skipping it would let
+        # the watchdog KILL the tree -- KILLED outranks driver-INVALID in
+        # classify_verdict, MASKING the mission subkind and dropping the retry.
+        plan = hlib.plan_unmet_mission_tail(self.B1_STEPS, 2)
+        self.assertEqual(["CommitTree"], [d.cmd for d in plan.dispositions if not d.run])
+        self.assertEqual(["FlushAndQuit"], [d.cmd for d in plan.dispositions if d.run])
+
+    def test_forge_tail_skips_the_savegame_that_would_mint_a_bad_fixture(self):
+        steps = [
+            {"cmd": "LoadGame", "args": {"save": "${runSave}"}, "expect": "OK"},
+            {"phase": "mission", "expect": "MISSION-OK"},
+            {"cmd": "SaveGame", "expect": "OK"},
+            {"cmd": "FlushAndQuit", "expect": "OK"},
+        ]
+        plan = hlib.plan_unmet_mission_tail(steps, 1)
+        self.assertEqual(["SaveGame"], [d.cmd for d in plan.dispositions if not d.run])
+
+    def test_step_ids_are_index_derived_so_a_skip_never_renumbers(self):
+        plan = hlib.plan_unmet_mission_tail(self.EVA4_STEPS, 2)
+        self.assertEqual(["0004", "0005", "0006", "0007", "0008"],
+                         [d.step_id for d in plan.dispositions])
+        # The ids the drive loop assigns are the SAME function, so a planned skip row
+        # points at the spec step it stands for.
+        for d in plan.dispositions:
+            self.assertEqual(hlib.step_id_for_index(d.index), d.step_id)
+
+    def test_pre_mission_steps_are_never_in_the_plan(self):
+        plan = hlib.plan_unmet_mission_tail(self.EVA4_STEPS, 2)
+        self.assertTrue(all(d.index > 2 for d in plan.dispositions))
+        self.assertNotIn("LoadGame", [d.cmd for d in plan.dispositions])
+        self.assertNotIn("SetSetting", [d.cmd for d in plan.dispositions])
+
+    def test_skip_disabled_drives_the_full_tail(self):
+        plan = hlib.plan_unmet_mission_tail(self.EVA4_STEPS, 2, skip_tail=False)
+        self.assertFalse(plan.skip_enabled)
+        self.assertEqual((), plan.skipped_indices)
+        self.assertEqual(5, len(plan.run_indices))
+        self.assertTrue(all(d.run for d in plan.dispositions))
+        self.assertIn("skipTailOnUnmetMission=false", plan.summary)
+
+    def test_empty_tail_and_cleanup_only_tail(self):
+        no_tail = hlib.plan_unmet_mission_tail(self.B1_STEPS[:3], 2)
+        self.assertEqual((), no_tail.dispositions)
+        self.assertEqual((), no_tail.skipped_indices)
+        self.assertIn("no post-mission tail", no_tail.summary)
+
+        cleanup_only = hlib.plan_unmet_mission_tail(
+            self.B1_STEPS[:3] + [{"cmd": "FlushAndQuit", "expect": "OK"}], 2)
+        self.assertEqual((), cleanup_only.skipped_indices)
+        self.assertEqual((3,), cleanup_only.run_indices)
+        self.assertIn("cleanup-only", cleanup_only.summary)
+
+    def test_summary_names_every_skipped_step_with_its_role(self):
+        plan = hlib.plan_unmet_mission_tail(self.EVA4_STEPS, 2)
+        for token in ("0004:EvaExit(world-mutating)",
+                      "0005:EvaChuteDeploy(world-mutating)",
+                      "0007:CommitTree(world-mutating)",
+                      "0006:StopRecording", "0008:FlushAndQuit"):
+            self.assertIn(token, plan.summary)
+
+    def test_a_second_mission_step_in_the_tail_is_skipped_not_driven(self):
+        # validate_spec rejects two mission steps, so this is belt-and-braces: an
+        # unreachable shape must still fail safe rather than plan a second flight.
+        steps = list(self.B1_STEPS)
+        steps.insert(3, {"phase": "mission", "expect": "MISSION-OK"})
+        plan = hlib.plan_unmet_mission_tail(steps, 2)
+        second = plan.dispositions[0]
+        self.assertFalse(second.run)
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING, second.role)
+
+    def test_real_committed_eva4_spec_skips_its_two_in_world_verbs(self):
+        # The REAL committed spec, not a hand-built shape: this is the exact step list
+        # flight 1 drove at terminal velocity. Fixture-over-mock for the same reason
+        # RealProfileFileTests exists -- a spec edit that reorders or renames the tail
+        # must be caught here, not discovered on the next flight.
+        spec = load_spec("EVA-4-atmo-chute.toml")
+        steps = spec["driver"]["steps"]
+        mission_index = next(i for i, s in enumerate(steps) if s.get("phase") == "mission")
+        plan = hlib.plan_unmet_mission_tail(
+            steps, mission_index, skip_tail=hlib.spec_skips_tail_on_unmet_mission(spec))
+
+        self.assertEqual(["EvaExit", "EvaChuteDeploy", "CommitTree"],
+                         [d.cmd for d in plan.dispositions if not d.run])
+        self.assertEqual(["StopRecording", "FlushAndQuit"],
+                         [d.cmd for d in plan.dispositions if d.run])
+        # The named deferral budgets the skip stops burning on a dead attempt.
+        self.assertEqual(120.0, hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS["EvaExit"])
+        self.assertEqual(420.0, hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS["EvaChuteDeploy"])
+
+    def test_skipped_steps_are_absent_from_response_evaluation(self):
+        # The drive loop records only the steps it actually SENDS, so a skipped step
+        # must not surface as an unmet step (no response line for a line never
+        # written). This pins the contract the run.py wiring depends on.
+        plan = hlib.plan_unmet_mission_tail(self.EVA4_STEPS, 2)
+        driven = [{"id": hlib.step_id_for_index(0), "cmd": "LoadGame", "expect": "OK"},
+                  {"id": hlib.step_id_for_index(1), "cmd": "SetSetting", "expect": "OK"}]
+        driven += [{"id": d.step_id, "cmd": d.cmd, "expect": "OK"}
+                   for d in plan.dispositions if d.run]
+        lines = ["id=%s cmd=%s verdict=OK seq=%d" % (s["id"], s["cmd"], n)
+                 for n, s in enumerate(driven, start=1)]
+        ev = hlib.evaluate_response_stream(lines, driven)
+        self.assertTrue(ev.all_expected_met)
+        self.assertIsNone(ev.first_unmet)
+        self.assertNotIn("EvaExit", [o.cmd for o in ev.steps])
+
+
+class SkipTailSpecSurfaceTests(unittest.TestCase):
+    """Guards the [driver].skipTailOnUnmetMission spec surface: the DEFAULT is the
+    safe skip, an explicit false is honored, a non-bool is REJECTED (a string
+    "false" would read truthy and silently keep the legacy tail), and declaring it
+    on a seam-kind driver warns instead of silently doing nothing."""
+
+    def test_default_is_skip(self):
+        self.assertTrue(hlib.spec_skips_tail_on_unmet_mission({}))
+        self.assertTrue(hlib.spec_skips_tail_on_unmet_mission({"driver": {}}))
+        self.assertTrue(hlib.SKIP_TAIL_ON_UNMET_MISSION_DEFAULT)
+
+    def test_explicit_false_is_honored(self):
+        spec = {"driver": {"skipTailOnUnmetMission": False}}
+        self.assertFalse(hlib.spec_skips_tail_on_unmet_mission(spec))
+
+    def test_non_bool_reads_as_the_safe_default_and_fails_validation(self):
+        spec = copy.deepcopy(_autopilot_spec())
+        spec["driver"]["skipTailOnUnmetMission"] = "false"
+        # The reader never guesses what a string meant: it falls back to the SAFE
+        # default while validate_spec reds the spec outright.
+        self.assertTrue(hlib.spec_skips_tail_on_unmet_mission(spec))
+        v = hlib.validate_spec(spec, {}, mission_schemas=_mission_schemas())
+        self.assertFalse(v.ok)
+        self.assertTrue(any("skipTailOnUnmetMission" in e for e in v.errors))
+
+    def test_bool_validates_on_an_autopilot_driver_with_no_warning(self):
+        for value in (True, False):
+            spec = copy.deepcopy(_autopilot_spec())
+            spec["driver"]["skipTailOnUnmetMission"] = value
+            v = hlib.validate_spec(spec, {}, mission_schemas=_mission_schemas())
+            self.assertTrue(v.ok, "errors=%s" % (v.errors,))
+            self.assertFalse(any("skipTailOnUnmetMission" in w for w in v.warnings))
+
+    def test_seam_driver_declaration_warns_but_still_validates(self):
+        spec = load_spec("S0.6-live-record-commit.toml")
+        spec["driver"]["skipTailOnUnmetMission"] = True
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertTrue(v.ok, "errors=%s" % (v.errors,))
+        self.assertTrue(any("skipTailOnUnmetMission" in w and "inert" in w
+                            for w in v.warnings))
+
+    def test_every_committed_spec_takes_the_default(self):
+        # No committed scenario opts out today; if one ever does, the opt-out must be
+        # a deliberate, reviewed edit rather than something that drifted in.
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            spec = load_spec(name)
+            self.assertTrue(hlib.spec_skips_tail_on_unmet_mission(spec), name)
+
+
 class VenvAdmissionTests(unittest.TestCase):
     """Guards (design Test Plan "Venv admission"): a matching stamp admits, a
     missing stamp or a drifted pin refuses with the TERMINAL non-retryable

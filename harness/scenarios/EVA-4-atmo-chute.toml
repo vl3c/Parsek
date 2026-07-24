@@ -141,6 +141,13 @@ steps = [
   # verboseLogging: the Part-event lines and "Mid-recording EVA detected" are VERBOSE.
   { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
   { phase = "mission",                                                    expect = "MISSION-OK", budget = 900 },
+  # THE TAIL BELOW IS CONDITIONAL ON THE MISSION BEING MET. This is the scenario whose
+  # flight 1 proved why (design-autotest-harness-core.md "The unmet-mission tail"): the
+  # mission ASSERT-FAILed on eva-window-missed and the harness drove EvaExit +
+  # EvaChuteDeploy anyway, at 356 m and -277 m/s. On an UNMET mission the harness now
+  # drives the CLEANUP verbs only, so EvaExit / EvaChuteDeploy / CommitTree are SKIPPED
+  # and only StopRecording + FlushAndQuit run. Nothing to declare here: the default is
+  # the safe one ([driver].skipTailOnUnmetMission defaults true).
   # release=true: MANDATORY, see the FSM ground truth above. The seam reports
   # released=VERIFIED-left-the-ladder, never a bare called-the-event bit.
   { cmd = "EvaExit",        args = { release = "true" },                  expect = "OK", budget = 120 },

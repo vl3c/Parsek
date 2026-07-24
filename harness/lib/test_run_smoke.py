@@ -711,6 +711,135 @@ class AutopilotHandoffSmokeTests(unittest.TestCase):
         self.assertIn("LoadGame", mission_rows[0].get("reason", ""))
 
 
+class UnmetMissionTailSmokeTests(unittest.TestCase):
+    """The unmet-mission tail, driven end to end over the fake KSP + fake mission
+    (design "The unmet-mission tail"). The regression it guards is the EVA-4-atmo-
+    chute flight-1 incident (2026-07-24): the mission ASSERT-FAILed with
+    eva-window-missed and the harness drove the tail anyway, writing an EvaExit at
+    terminal velocity to the channel. These cells assert on the CHANNEL FILE -- the
+    only place that proves a command was never sent."""
+
+    #  The EVA-4 tail shape, using verbs the base seam-verb table already knows so
+    #  the spec validates: an in-world action, teardown, the commit, the quit.
+    TAIL = [
+        {"cmd": "EvaExit", "args": {"release": "true"}, "expect": "OK", "budget": 120},
+        {"cmd": "StopRecording", "expect": "OK"},
+        {"cmd": "CommitTree", "expect": "OK"},
+        {"cmd": "FlushAndQuit", "expect": "OK"},
+    ]
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-unmettail-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "b1-pad-craft")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "unmettail_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, mission_mode, skip_tail=None):
+        spec = _make_autopilot_spec(self.template)
+        # Replace the stock CommitTree/FlushAndQuit tail with the EVA-shaped one.
+        spec["driver"]["steps"] = spec["driver"]["steps"][:3] + [dict(s) for s in self.TAIL]
+        if skip_tail is not None:
+            spec["driver"]["skipTailOnUnmetMission"] = skip_tail
+        rt = FakeRuntime("autopilot", mission_mode=mission_mode, venv_ok=True)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        return result, self._commands()
+
+    def _commands(self):
+        path = os.path.join(self.instance, "parsek-test-commands.txt")
+        if not os.path.isfile(path):
+            return []
+        with open(path, "r", encoding="utf-8") as fh:
+            return [l.strip() for l in fh if l.strip()]
+
+    def _verbs(self, lines):
+        out = []
+        for line in lines:
+            for tok in line.split():
+                if tok.startswith("cmd="):
+                    out.append(tok[4:])
+        return out
+
+    def test_unmet_mission_never_writes_the_in_world_verb_to_the_channel(self):
+        """The incident cell: MISSION-ASSERT-FAIL -> EvaExit and CommitTree are never
+        written to the command channel, while StopRecording and FlushAndQuit still
+        are. Fails the moment the harness goes back to driving a world-mutating tail
+        over a mission that never reached its envelope."""
+        result, lines = self._run("assertfail")
+        verbs = self._verbs(lines)
+
+        self.assertNotIn("EvaExit", verbs, "an UNMET mission must not EVA a kerbal")
+        self.assertNotIn("CommitTree", verbs, "an UNMET mission must not commit a junk tree")
+        self.assertIn("StopRecording", verbs, "the recorder teardown must still run")
+        self.assertIn("FlushAndQuit", verbs, "KSP must still be brought down cleanly")
+
+        # The verdict is unchanged by the skip: the mission subkind still drives it,
+        # and it is still retryable-once.
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("mission", result["subkind"])
+        v = hlib.Verdict(result["verdict"], result["subkind"], False, "")
+        self.assertTrue(hlib.should_retry(v, attempt=1, retry_policy="once"))
+
+        # The skip is AUDITABLE in the durable record, outside driver.steps (a step
+        # never sent is not an unmet step).
+        skipped = result["driver"]["skippedTailSteps"]
+        self.assertEqual(["EvaExit", "CommitTree"], [r["cmd"] for r in skipped])
+        self.assertEqual(["world-mutating", "world-mutating"], [r["role"] for r in skipped])
+        self.assertEqual(["mission-unmet"], sorted({r["reason"] for r in skipped}))
+        self.assertNotIn("EvaExit", [s.get("cmd") for s in result["driver"]["steps"]])
+
+        # ... and in the verifiers block, explaining why the produced save is thin.
+        self.assertEqual("SKIPPED", result["verifiers"]["unmetMissionTail"]["status"])
+        self.assertEqual("mission-unmet", result["verifiers"]["unmetMissionTail"]["reason"])
+
+    def test_met_mission_still_drives_the_whole_tail(self):
+        """The non-regression cell for every live-proven flown scenario (B1/B2/B4/B5/
+        B7, BDOCK-1): a MISSION-OK run drives the FULL tail exactly as before, and
+        the result record carries no skip rows at all."""
+        result, lines = self._run("ok")
+        verbs = self._verbs(lines)
+
+        for verb in ("EvaExit", "StopRecording", "CommitTree", "FlushAndQuit"):
+            self.assertIn(verb, verbs, verb)
+        self.assertNotIn("skippedTailSteps", result["driver"])
+        self.assertNotIn("unmetMissionTail", result["verifiers"])
+
+    def test_spec_opt_out_restores_the_legacy_full_tail(self):
+        """skipTailOnUnmetMission=false drives everything, unmet mission or not --
+        the escape hatch a scenario can take deliberately."""
+        result, lines = self._run("assertfail", skip_tail=False)
+        verbs = self._verbs(lines)
+
+        self.assertIn("EvaExit", verbs)
+        self.assertIn("CommitTree", verbs)
+        self.assertNotIn("skippedTailSteps", result["driver"])
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("mission", result["subkind"])
+
+    def test_tooling_mission_no_result_also_skips_the_tail(self):
+        """Every UNMET path skips, not just ASSERT-FAIL: a mission that wrote no
+        readable result (edge 12, tooling-mission) is equally no evidence that the
+        flight reached the state the tail assumes."""
+        result, lines = self._run("noresult")
+
+        self.assertNotIn("EvaExit", self._verbs(lines))
+        self.assertEqual("tooling-mission", result["subkind"])
+        self.assertEqual(["EvaExit", "CommitTree"],
+                         [r["cmd"] for r in result["driver"]["skippedTailSteps"]])
+
+
 class MissionSpecAdmissionTests(unittest.TestCase):
     """M-B1 deliverable 1 (run.py spec admission): resolve_mission_schemas reads the
     mission's declared schema toml + confirms the mission .py resolves on disk, and

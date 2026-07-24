@@ -551,11 +551,49 @@ There is NO false PASS. The mission's ASSERT-FAIL classifies the whole scenario 
 `verdict=INVALID subkind=mission` - and the save is re-staged per attempt (`stage_fixture`
 does an `rmtree` + `copytree` of the template, `run.py:1995`), so no junk state survives
 into the next run. The problem is cost and artifact honesty, not verdict correctness.
-FIXING IT IS NOT EVA-4's JOB: "drive the remaining steps regardless" is a cross-cutting
-harness contract shared by every autopilot scenario, so the fix (skip / short-circuit the
-post-mission seam tail when the mission verdict is a hard ASSERT-FAIL) is filed
-separately. Until then, treat the artifacts of any window-missed EVA-4 attempt as
-containing a real but unintended EVA.
+FIXING IT WAS NOT EVA-4's JOB: "drive the remaining steps regardless" is a cross-cutting
+harness contract shared by every autopilot scenario, so it was filed separately and
+~~fixed there~~ - see the next entry. The artifacts of the flight-1 attempt still contain
+a real but unintended EVA; no future window-missed attempt will.
+
+~~**HARNESS: an UNMET mission step no longer drives the world-mutating seam tail.**~~
+FIXED 2026-07-25 (the cross-cutting fix filed by the entry above). After a mission step
+comes back UNMET, `run.py` now drives the CLEANUP tail steps ONLY and skips the rest,
+writing no channel line for a skipped step. Mechanism (general, not an EVA-4 special
+case): every implemented seam verb carries a TAIL ROLE in `hlib.SEAM_VERB_TAIL_ROLE`
+alongside the existing per-verb tables - `cleanup` (`StopRecording`, `FlushAndQuit`),
+`inert` (`RecordingState`, `MissionMark`), `world-mutating` (everything else). The unmet
+tail runs `cleanup` only; an UNKNOWN verb resolves to `world-mutating` (fail-safe), and a
+unit cell asserts the table is TOTAL over `IMPLEMENTED_SEAM_VERBS`, so a verb promoted
+from RESERVED forces an explicit role decision - that gate fired on `EvaChuteDeploy` while
+merging PR #1348, exactly as intended. Pure decision:
+`hlib.plan_unmet_mission_tail(steps, mission_index, skip_tail)`. Spec opt-out
+`[driver].skipTailOnUnmetMission` defaults to the safe `true`, must be a bool, and warns
+as inert on a seam-kind driver.
+- **Why `FlushAndQuit` and `StopRecording` are cleanup:** skipping the quit would let the
+  watchdog kill the tree, and KILLED outranks driver-INVALID in `classify_verdict`, so the
+  mission's own subkind would be MASKED and the attempt would stop being retryable;
+  `StopRecording` closes the recording so the recorder flushes instead of being torn down
+  mid-sample by the quit, and so the collected log's recording markers pair (the run's own
+  logValidate is already SKIPPED on driver-invalid, so that half is artifact honesty).
+- **Why `CommitTree` is NOT cleanup** (the one genuinely two-sided call): committing writes
+  the failed attempt's junk tree into the durable committed set and applies its resource
+  deltas, and it cannot buy the run a verdict back - an unmet mission is already
+  driver-INVALID at classification precedence 7, ABOVE every save-reading verifier, so on
+  that path the analyzer is triage-only and logValidate / testResults / anomalySweep /
+  expectations / ledgerOracle are all SKIPPED whether or not the tree was committed. The
+  "an uncommitted tree the analyzer then reports on" worry does not arise: the analyzer
+  never reports verdict-driving findings there. `verifiers.unmetMissionTail` records the
+  skip next to those SKIPPED rows so the thin save is self-explaining.
+- **Scope:** only the UNMET path changed. A MISSION-OK run drives the full tail exactly as
+  before (B1/B2/B4/B5/B7, BDOCK-1, the FORGE specs), and seam-only drivers (S0.5/S0.6/
+  S1.4/S1.5/S4.1, H5/H6, B10, the L1 six-pack, EVA-1/2/3) have no mission step at all.
+- Tests: 27 hlib cells (role-table totality + no stale rows, the cleanup set, fail-safe
+  unknown, the plan over the REAL committed EVA-4 / B1 / FORGE step lists, id stability,
+  the opt-out, the spec surface) + 4 fake-KSP smoke cells asserting on the COMMAND CHANNEL
+  FILE that `EvaExit` / `CommitTree` were never written on an unmet run while
+  `StopRecording` / `FlushAndQuit` were, that a MISSION-OK run still drives everything, and
+  that the opt-out restores the legacy tail.
 
 **FLIGHT 2 (2026-07-24): FULL PASS on attempt 1.** All seven verifiers PASS/SKIPPED
 (`batchComplete` SKIPPED as designed, everything else PASS), and the re-tune

@@ -15,6 +15,8 @@ Covered here (design docs/dev/design-autotest-harness-core.md):
     ``parse_analysis_red_token``, ``parse_analysis_json``, ``parse_results_failures``
   - verdict classification (``classify_verdict`` + ``should_retry`` +
     ``classify_expected_fail`` + ``resolve_terminal``)
+  - the unmet-mission tail decision (``SEAM_VERB_TAIL_ROLE`` +
+    ``plan_unmet_mission_tail`` + ``spec_skips_tail_on_unmet_mission``)
   - expectations evaluation (``evaluate_expectations``)
   - the M-B2 ledger-oracle PURE support: the ``[expectations.ledger]`` spec-surface
     validator (``validate_ledger_expectations``), the produced-save ``careerSave``
@@ -193,6 +195,79 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     # stays under the 540 s cap.
     "EvaChuteDeploy": 420.0,
 }
+
+# Per-verb TAIL ROLE: what a seam verb DOES, used to decide whether it may still be
+# driven after the mission step came back UNMET (design "The unmet-mission tail").
+# Three roles, sitting alongside the DEFERRED / DISPATCH tables above because the
+# classification is per-verb metadata like they are:
+#   cleanup        teardown that MUST always run so the harness can collect and exit
+#                  cleanly, whatever the mission did.
+#   inert          observation / annotation only: reads state or stamps the log, never
+#                  changes the game, the save, or Parsek's durable record.
+#   world-mutating changes game / world / durable state: an in-world action, a career
+#                  or ledger mutation, a save write, or a persisted setting.
+# The UNMET-mission tail runs the CLEANUP verbs only. Inert verbs are skipped not
+# because they are dangerous but because their observation is worthless on a run that
+# is already terminally INVALID (see plan_unmet_mission_tail).
+TAIL_ROLE_CLEANUP = "cleanup"
+TAIL_ROLE_INERT = "inert"
+TAIL_ROLE_WORLD_MUTATING = "world-mutating"
+TAIL_ROLES: Tuple[str, ...] = (TAIL_ROLE_CLEANUP, TAIL_ROLE_INERT, TAIL_ROLE_WORLD_MUTATING)
+
+# Every IMPLEMENTED_SEAM_VERBS entry carries an EXPLICIT role; the pairing is gated by
+# a unit cell, so promoting a verb from RESERVED (or adding a new one, as SaveGame and
+# the M-C2 EVA batch were) forces an explicit decision here rather than inheriting a
+# default silently.
+#
+# Only StopRecording and FlushAndQuit are cleanup, and each earns it:
+#   FlushAndQuit is the QUIT owner. Skipping it would leave KSP alive until the
+#     step-wait / run-budget watchdog kills the tree, and KILLED outranks driver-INVALID
+#     in classify_verdict -- the mission's own subkind would be MASKED and the attempt
+#     would stop being retryable. It must always run.
+#   StopRecording is the recorder's own teardown. It closes the recording so the
+#     recorder flushes instead of being torn down mid-sample by the quit, and so the
+#     KSP.log's recording markers pair (the collect-logs snapshot of a non-PASS run
+#     runs validate-ksp-log over that log; the run's OWN logValidate verifier is
+#     already SKIPPED on driver-invalid, so this is about artifact honesty, not the
+#     verdict). It performs no in-world action and writes nothing durable.
+# Everything else is skipped on the unmet tail. Three calls deserve their reasoning:
+#   CommitTree is world-mutating, NOT cleanup: it writes the failed attempt's junk tree
+#     into the durable committed set and applies its resource deltas to the career. It
+#     cannot buy anything back either -- an unmet mission is already terminal INVALID at
+#     classify_verdict precedence 7, ABOVE every save-reading verifier, so the analyzer /
+#     expectations / ledger-oracle verifiers are triage-only or SKIPPED on this path
+#     whether or not the tree was committed.
+#   DiscardTree is world-mutating too: deleting the failed attempt's recorded data would
+#     destroy the exact forensics the collect-logs snapshot exists to preserve.
+#   SaveGame is world-mutating: persisting a half-flown state is how a FORGE-style
+#     scenario would mint a contaminated fixture from a mission that never landed.
+SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
+    "SetSetting": TAIL_ROLE_WORLD_MUTATING,      # persisted Parsek setting
+    "StartRecording": TAIL_ROLE_WORLD_MUTATING,  # starts the recorder / an active tree
+    "StopRecording": TAIL_ROLE_CLEANUP,
+    "CommitTree": TAIL_ROLE_WORLD_MUTATING,
+    "DiscardTree": TAIL_ROLE_WORLD_MUTATING,
+    "RecordingState": TAIL_ROLE_INERT,           # read-only probe
+    "RunTests": TAIL_ROLE_WORLD_MUTATING,        # in-game batch mutates the save
+    "LoadGame": TAIL_ROLE_WORLD_MUTATING,        # replaces the loaded world
+    "MissionMark": TAIL_ROLE_INERT,              # stamps one log line, nothing else
+    "FlushAndQuit": TAIL_ROLE_CLEANUP,
+    "InvokeRewind": TAIL_ROLE_WORLD_MUTATING,
+    "AnswerMergeDialog": TAIL_ROLE_WORLD_MUTATING,
+    "TimeJump": TAIL_ROLE_WORLD_MUTATING,
+    "KscAction": TAIL_ROLE_WORLD_MUTATING,       # spends funds / hires / upgrades
+    "SaveGame": TAIL_ROLE_WORLD_MUTATING,
+    "EvaExit": TAIL_ROLE_WORLD_MUTATING,         # irreversible in-world action
+    "EvaBoard": TAIL_ROLE_WORLD_MUTATING,
+    "PlantFlag": TAIL_ROLE_WORLD_MUTATING,
+    "EvaChuteDeploy": TAIL_ROLE_WORLD_MUTATING,  # the EVA-4 flight-1 pair, with EvaExit
+}
+
+# The spec-level opt-out, read off [driver]. DEFAULT TRUE = the safe behaviour (skip
+# the world-mutating tail after an unmet mission); a spec sets it false only to opt
+# back into the pre-2026-07-25 drive-everything tail, and must say why.
+SKIP_TAIL_ON_UNMET_MISSION_KEY = "skipTailOnUnmetMission"
+SKIP_TAIL_ON_UNMET_MISSION_DEFAULT = True
 
 # The literal the harness substitutes with runSaveName before writing a LoadGame
 # line to the channel (design [driver]).
@@ -896,6 +971,16 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     steps = driver.get("steps", []) or []
     autorun = driver.get("autorun")
 
+    # skipTailOnUnmetMission (the unmet-mission tail opt-out): bool when present.
+    # A string "false" would read as truthy and silently keep the legacy tail, so a
+    # non-bool is an ERROR, not a coerced value. It only bites on an UNMET mission
+    # step, so declaring it on a seam-only driver is inert -- warned, not rejected,
+    # since it costs nothing and a driver may be converted to autopilot later.
+    skip_tail = driver.get(SKIP_TAIL_ON_UNMET_MISSION_KEY)
+    if skip_tail is not None and not isinstance(skip_tail, bool):
+        errors.append("driver.%s: %r must be a bool"
+                      % (SKIP_TAIL_ON_UNMET_MISSION_KEY, skip_tail))
+
     # First step must be a LoadGame boot handshake whose save arg is ${runSave}
     # or a literal equal to runSaveName (S3), so the loaded save cannot drift
     # from the staged save.
@@ -1015,6 +1100,11 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         for mi in mission_step_indices:
             errors.append(
                 "driver.steps[%d]: mission-kind step requires driver.kind 'autopilot'" % (mi,))
+        if isinstance(skip_tail, bool):
+            warnings.append(
+                "driver.%s declared on a seam-kind driver: inert (there is no mission "
+                "step whose UNMET outcome could skip a tail)"
+                % (SKIP_TAIL_ON_UNMET_MISSION_KEY,))
 
     # M-B2 ledger-oracle spec surface (design ~226): a malformed
     # [expectations.ledger] block must never launch KSP. Structural only; the
@@ -2090,6 +2180,132 @@ def classify_mission_step(mission_verdict: Optional[str]) -> Tuple[bool, str]:
     if subkind is None:
         return False, "tooling-mission"
     return False, subkind
+
+
+# ---------------------------------------------------------------------------
+# The unmet-mission tail (design "The unmet-mission tail"). Pure.
+# ---------------------------------------------------------------------------
+
+
+def step_id_for_index(index: int) -> str:
+    """The harness-assigned monotonic seam id for a zero-based step index.
+
+    ONE definition shared by the drive loop and the tail planner, so a planned
+    skip row and the line the drive loop would have written carry the same id.
+    Ids are index-derived, never sequence-derived: skipping a step does NOT
+    renumber the ones after it, so a result row still points at the spec's step.
+    """
+    return "%04d" % (index + 1)
+
+
+def seam_verb_tail_role(verb: str) -> str:
+    """The TAIL ROLE of a seam verb (cleanup / inert / world-mutating).
+
+    An UNKNOWN verb FAILS SAFE to ``world-mutating``: an unclassified verb is
+    presumed to do something, so the unmet tail skips it rather than driving a
+    verb nobody has reasoned about. The companion unit cell asserts every
+    IMPLEMENTED_SEAM_VERBS entry has an explicit row, so this fallback covers a
+    typo or an unreleased verb, never a shipped one.
+    """
+    return SEAM_VERB_TAIL_ROLE.get(verb, TAIL_ROLE_WORLD_MUTATING)
+
+
+def spec_skips_tail_on_unmet_mission(spec: Dict) -> bool:
+    """Read ``[driver].skipTailOnUnmetMission``, defaulting to the SAFE True.
+
+    Absent / non-bool -> the default (validate_spec is the place that reds a
+    non-bool; this reader never has to guess what a string "false" meant)."""
+    driver = (spec or {}).get("driver", {}) or {}
+    value = driver.get(SKIP_TAIL_ON_UNMET_MISSION_KEY)
+    if isinstance(value, bool):
+        return value
+    return SKIP_TAIL_ON_UNMET_MISSION_DEFAULT
+
+
+@dataclass(frozen=True)
+class TailStepDisposition:
+    index: int          # zero-based index into driver.steps
+    step_id: str        # the id the drive loop assigns that index
+    cmd: str            # "" for a mission-kind step (never reachable in a tail)
+    role: str           # one of TAIL_ROLES
+    run: bool           # True = still driven, False = skipped
+
+
+@dataclass(frozen=True)
+class UnmetTailPlan:
+    skip_enabled: bool
+    dispositions: Tuple[TailStepDisposition, ...]
+    run_indices: Tuple[int, ...]
+    skipped_indices: Tuple[int, ...]
+    summary: str
+
+
+def plan_unmet_mission_tail(steps: Sequence[Dict], mission_index: int,
+                            skip_tail: bool = SKIP_TAIL_ON_UNMET_MISSION_DEFAULT
+                            ) -> UnmetTailPlan:
+    """Decide which post-mission seam steps still run after an UNMET mission step.
+
+    Motivating incident (EVA-4-atmo-chute flight 1, 2026-07-24): the mission
+    ASSERT-FAILed with ``eva-window-missed`` (the pod was descending at -295 m/s,
+    never inside the EVA envelope) and the harness drove the tail anyway, EVAing a
+    kerbal out of a pod at terminal velocity ~356 m above the ground. That tail was
+    harmless while every post-mission tail was StopRecording / CommitTree /
+    FlushAndQuit; it stopped being harmless the moment a tail contained IRREVERSIBLE
+    IN-WORLD actions.
+
+    The rule: after an unmet mission, drive the CLEANUP steps only (``role ==
+    cleanup``), skip everything else. Steps at or before ``mission_index`` are NOT
+    part of the tail and never appear in the plan -- they already ran, and the
+    pre-mission steps are what gate driver validity.
+
+    Skipping costs the run NOTHING it could have used: an unmet mission is already
+    a terminal-for-this-attempt driver-INVALID at ``classify_verdict`` precedence 7,
+    which sits ABOVE every save-reading verifier, so the analyzer (triage-only),
+    logValidate / testResults / anomalySweep / expectations (SKIPPED on
+    ``not driver_valid``) and the ledger oracle (SKIPPED, reason driver-invalid)
+    contribute nothing to the verdict on this path whether or not the tail ran.
+    What skipping buys: no in-world action the scenario's own design says cannot
+    happen, no deferral budget burned per failed attempt (EvaExit 120s +
+    EvaChuteDeploy 420s, doubled under retry-once), and a collected save / log that
+    carries only what the flight actually did.
+
+    ``skip_tail=False`` (spec opt-out) returns the legacy plan: every tail step
+    runs, ``skipped_indices`` empty. The dispositions are still computed so the
+    harness can log WHAT it is about to drive.
+    """
+    dispositions: List[TailStepDisposition] = []
+    run_indices: List[int] = []
+    skipped_indices: List[int] = []
+    for i in range(mission_index + 1, len(steps)):
+        step = steps[i] or {}
+        if step.get("phase") == "mission":
+            # A second mission-kind step is rejected by validate_spec ("exactly one"),
+            # so this is unreachable for an admitted spec; classify it world-mutating
+            # (it flies a vessel) rather than silently treating it as runnable.
+            cmd, role = "", TAIL_ROLE_WORLD_MUTATING
+        else:
+            cmd = str(step.get("cmd", ""))
+            role = seam_verb_tail_role(cmd)
+        run = (not skip_tail) or role == TAIL_ROLE_CLEANUP
+        dispositions.append(TailStepDisposition(i, step_id_for_index(i), cmd, role, run))
+        (run_indices if run else skipped_indices).append(i)
+
+    if not skip_tail:
+        summary = ("skipTailOnUnmetMission=false: driving the FULL %d-step tail "
+                   "despite the unmet mission" % len(dispositions))
+    elif not dispositions:
+        summary = "no post-mission tail steps"
+    elif not skipped_indices:
+        summary = "tail is cleanup-only (%d step(s)); nothing to skip" % len(run_indices)
+    else:
+        summary = ("skipping %d of %d tail step(s) [%s]; driving cleanup [%s]"
+                   % (len(skipped_indices), len(dispositions),
+                      ", ".join("%s:%s(%s)" % (d.step_id, d.cmd or "mission", d.role)
+                                for d in dispositions if not d.run),
+                      ", ".join("%s:%s" % (d.step_id, d.cmd)
+                                for d in dispositions if d.run) or "none"))
+    return UnmetTailPlan(bool(skip_tail), tuple(dispositions),
+                         tuple(run_indices), tuple(skipped_indices), summary)
 
 
 def venv_admission(stamp: Optional[Dict], requirements: Optional[Dict]) -> Tuple[bool, str]:

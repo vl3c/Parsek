@@ -250,6 +250,15 @@ steps = [
 # PARSEK_AUTORUN_TESTS / PARSEK_AUTORUN_EXIT at launch. Exactly one of {a RunTests
 # step, an autorun block} should own the batch (validated).
 # autorun = { tests = "RecordingInvariants", exit = true }
+#
+# OPTIONAL opt-out of the unmet-mission tail skip (see "The unmet-mission tail").
+# DEFAULT true = after a mission step comes back UNMET, only the CLEANUP tail steps
+# are driven. Setting it false restores the pre-2026-07-25 behaviour (drive the whole
+# tail whatever the mission did) and requires a written reason in the spec, because it
+# re-arms driving world-mutating verbs over a flight that never reached its envelope.
+# Must be a bool (a string "false" is a spec-validation ERROR, not a coerced value).
+# Declaring it on a seam-kind driver is inert and warns.
+# skipTailOnUnmetMission = true
 
 # Dimension values this scenario covers. Keys/values validated against
 # harness/coverage/registry.toml (catalog section 1). An unknown key or value
@@ -407,6 +416,21 @@ guessing.
   "collectLogs": { "ran": false, "path": null }
 }
 ```
+
+Two CONDITIONAL fields exist only on a run whose post-mission tail was skipped
+(see "The unmet-mission tail"), so every other record is byte-identical to the
+shape above:
+
+- `driver.skippedTailSteps` -- the ordered rows the harness chose NOT to drive,
+  `{ "id": "0004", "cmd": "EvaExit", "role": "world-mutating", "reason":
+  "mission-unmet" }`. Recorded OUTSIDE `driver.steps` deliberately: a step the
+  harness never sent is not an unmet step, so it must not drag `allExpectedMet`
+  down or read as a seam verdict miss. Ids are index-derived, so a skipped row
+  still points at the spec step it stands for and skipping never renumbers.
+- `verifiers.unmetMissionTail` -- `{ "status": "SKIPPED", "reason":
+  "mission-unmet", "skippedSteps": [...] }`, sitting next to the verifier rows it
+  explains (on this path the analyzer is triage-only and every save-reading
+  verifier is SKIPPED, because the produced save is deliberately incomplete).
 
 ### Coverage / flake ledger: `harness/coverage/coverage.{json,txt}`, `harness/coverage/flake.json`
 
@@ -628,6 +652,93 @@ the FIRST terminal line (M-A2 crash-recovery rewrites re-emit a byte-equivalent
 line; first-wins matches the seam's own orchestrator contract), and for each
 expected step compare the observed verdict against `expect`. A step whose observed
 verdict does not equal its `expect` marks the driver stage failed at that step.
+
+### The unmet-mission tail
+
+On a `kind = "autopilot"` driver the mission-kind step is a handoff: run.py flies
+the mission, then resumes the seam. When the mission step is MET the whole tail
+runs, unchanged. When it comes back UNMET, run.py drives the CLEANUP tail steps
+ONLY and skips the rest.
+
+**Why this rule exists.** The original M-B1 contract drove the remaining seam steps
+regardless of the mission outcome, which was sound while every post-mission tail was
+`StopRecording` / `CommitTree` / `FlushAndQuit`. `EVA-4-atmo-chute` was the first
+spec whose tail contained IRREVERSIBLE IN-WORLD actions, and on its first live
+flight (2026-07-24) the consequence showed up exactly as the rule now forbids: the
+mission ASSERT-FAILed with `eva-window-missed` (the pod was descending at -295 m/s,
+never inside the EVA envelope), the harness drove the tail anyway, and a kerbal was
+EVA'd out of a pod at terminal velocity 356 m above the ground. He survived on
+canopy-jerk luck, and `StopRecording` + `CommitTree` then committed the resulting
+junk tree. An unmet mission is precisely the statement "the flight never reached the
+state the tail assumes"; driving the tail on that evidence is unsound.
+
+**The classification.** Each implemented seam verb carries a TAIL ROLE in
+`hlib.SEAM_VERB_TAIL_ROLE`, alongside the other per-verb tables
+(`IMPLEMENTED_SEAM_VERBS`, `DEFERRED_SEAM_VERBS`,
+`DISPATCH_DEFERRAL_BUDGET_SECONDS`):
+
+| Role | Meaning | Verbs |
+|---|---|---|
+| `cleanup` | teardown that MUST always run so the harness can collect and exit cleanly | `StopRecording`, `FlushAndQuit` |
+| `inert` | observation / annotation only; reads state or stamps the log | `RecordingState`, `MissionMark` |
+| `world-mutating` | changes game / world / durable state: an in-world action, a career or ledger mutation, a save write, or a persisted setting | everything else |
+
+The unmet tail runs `cleanup` only. `inert` verbs are skipped not because they are
+dangerous but because their observation is worthless on a run that is already
+terminally INVALID. An UNKNOWN verb resolves to `world-mutating`: an unclassified
+verb is presumed to do something, so it is skipped rather than driven blind. A unit
+cell asserts the table is TOTAL over `IMPLEMENTED_SEAM_VERBS`, so promoting a verb
+from RESERVED (or adding one) forces an explicit role decision instead of inheriting
+a default silently.
+
+**Why exactly those two are cleanup.** `FlushAndQuit` is the QUIT owner: skipping it
+would leave KSP alive until the step-wait / run-budget watchdog kills the tree, and
+KILLED outranks driver-INVALID in `classify_verdict`, so the mission's own subkind
+would be MASKED and the attempt would stop being retryable. `StopRecording` is the
+recorder's own teardown: it closes the recording so the recorder flushes instead of
+being torn down mid-sample by the quit, and so the KSP.log's recording markers pair
+for the collect-logs snapshot (which runs validate-ksp-log; the run's own logValidate
+verifier is already SKIPPED on driver-invalid, so this is artifact honesty rather than
+verdict correctness). It performs no in-world action and writes nothing durable.
+
+**Why `CommitTree` is NOT cleanup.** It is the one call with a real argument on both
+sides, and it lands on world-mutating:
+
+- Committing writes the failed attempt's junk tree into the durable committed set and
+  applies its resource deltas to the career, so the collected save of a failed
+  attempt carries a branch and a landing the flight never legitimately produced.
+- Skipping it cannot cost the run a verdict. An unmet mission is already a
+  driver-INVALID at classification precedence 7, which sits ABOVE every save-reading
+  verifier: on that path the analyzer runs triage-only (non-verdict), logValidate /
+  testResults / anomalySweep / expectations are SKIPPED on `not driver_valid`, and
+  the ledger oracle is SKIPPED with reason `driver-invalid`. Whether or not the tree
+  was committed, nothing reads the save as ground truth. The "the analyzer would
+  then report on an uncommitted tree" worry does not arise: it never reports
+  verdict-driving findings on this path at all.
+- `verifiers.unmetMissionTail` records the skip next to those SKIPPED rows, so a
+  reader of the result JSON does not have to reconstruct why the save is thin.
+
+`DiscardTree` and `SaveGame` land world-mutating for the same family of reasons:
+discarding would destroy the exact recorded data the collect-logs snapshot exists to
+preserve, and saving is how a FORGE-style scenario would mint a contaminated fixture
+from a mission that never landed.
+
+**What it buys.** No in-world action a scenario's own design says cannot happen; no
+per-verb deferral budget burned on a dead attempt (EVA-4's tail alone is `EvaExit`
+120s + `EvaChuteDeploy` 420s, doubled under retry-once); and a collected save / log
+that carries only what the flight actually did, so the written record of a failed
+run cannot be contradicted by its own artifacts.
+
+**Scope and opt-out.** Only the UNMET path changes. A MISSION-OK run drives the full
+tail exactly as before (`B1`/`B2`/`B4`/`B5`/`B7`, `BDOCK-1`, `FORGE-bdock-station`),
+and a seam-only driver has no mission step, so `S0.5`/`S0.6`/`S1.4`/`S1.5`/`S4.1`,
+`H5`/`H6`, `B10`, the L1 six-pack and `EVA-1`/`EVA-2`/`EVA-3` are untouched. A spec
+can set `[driver].skipTailOnUnmetMission = false` to restore the legacy behaviour;
+the flag defaults to the safe `true`, must be a bool (a string is a validation
+error), and warns as inert on a seam-kind driver. The decision itself is pure:
+`hlib.plan_unmet_mission_tail(steps, mission_index, skip_tail)` returns the per-step
+disposition, the run / skip index sets, and a log-ready summary; run.py's only job is
+to consult it and to log every skip.
 
 ### Budget enforcement and the kill
 
@@ -932,7 +1043,9 @@ than needing the summary parsed.
 decision as a pure function with injected clock/pid where needed:
 `validate_spec`, `select_scenarios`, `evaluate_response_stream`,
 `evaluate_expectations`, `classify_verdict`, `classify_expected_fail`,
-`should_retry`, `compute_coverage`, `compute_flake`, plus the small parsers
+`should_retry`, `plan_unmet_mission_tail` (with `seam_verb_tail_role` /
+`spec_skips_tail_on_unmet_mission` / `step_id_for_index`), `compute_coverage`,
+`compute_flake`, plus the small parsers
 (`parse_batch_complete_line`, `parse_analysis_red_token`, `parse_analysis_json`
 -- the JSON `failNonBaselined`/`staleNonBaselined`/findings-list reader from S1 --
 and `parse_results_failures`). run.py is the THIN imperative shell that does I/O
@@ -1295,6 +1408,21 @@ in-game-sweep-needs-operator).
   FIRST kept, the duplicate ignored. Fails if a crash-recovery rewrite (M-A2) is
   miscounted as a second outcome, or a verdict mismatch is missed (a driver failure
   reads as a pass).
+- **Unmet-mission tail plan.** The role table is TOTAL over
+  `IMPLEMENTED_SEAM_VERBS` (a verb promoted from RESERVED with no row FAILS the
+  cell, which is how `EvaChuteDeploy` was caught) and carries no stale rows for
+  verbs that no longer exist; the cleanup set is exactly
+  `{StopRecording, FlushAndQuit}`; an unknown verb resolves `world-mutating`
+  (fail-safe). Over the REAL committed step lists: EVA-4 skips
+  `EvaExit`/`EvaChuteDeploy`/`CommitTree` and keeps `StopRecording`/`FlushAndQuit`;
+  a B1-shaped tail skips `CommitTree` and keeps the quit; a FORGE-shaped tail skips
+  `SaveGame`. Step ids are index-derived so a skip never renumbers; pre-mission
+  steps never appear in the plan; skipped steps never enter
+  `evaluate_response_stream` (a step never sent is not an unmet step);
+  `skip_tail=False` returns the legacy full tail. Fails if the harness drives a
+  world-mutating verb after an unmet mission, drops a cleanup verb (a skipped
+  `FlushAndQuit` would turn a retryable driver-INVALID into a KILLED that MASKS the
+  mission subkind), or lets a new verb inherit a role silently.
 - **Verdict classification matrix.** Table-drive (driver_ok, batchComplete,
   analyzerRed{none|fail|stale|forbidden|forbidden+real-fail}, logValidate,
   resultsFail, anomaly, expectation, killed, expectedFail{none|matched|xpass},
@@ -1400,6 +1528,18 @@ CI exercises the tail/kill/verify plumbing without a real game:
 - **Fake-KSP boot crash -> INVALID + retry.** The stub exits during boot-wait with
   no response; run.py must classify INVALID(boot-crash) and retry once. Fails if a
   boot crash wedges the run or is not retried.
+- **Fake-mission UNMET -> the world-mutating tail is never written to the channel.**
+  Over a fake mission scripted to ASSERT-FAIL (and, separately, to write no result at
+  all) with an EVA-4-shaped tail, run.py must leave `EvaExit` and `CommitTree` OUT of
+  `parsek-test-commands.txt` while still writing `StopRecording` and `FlushAndQuit`,
+  keep the verdict INVALID with the mission subkind and still retryable, and record
+  the omission in `driver.skippedTailSteps` + `verifiers.unmetMissionTail`. The
+  assertion is on the COMMAND CHANNEL FILE, the only artifact that proves a command
+  was never sent. Companion cells: a MISSION-OK run drives the FULL tail with no skip
+  rows at all (the non-regression guard for every flown scenario), and
+  `skipTailOnUnmetMission = false` restores the legacy full tail. Fails the moment the
+  harness goes back to driving irreversible in-world verbs over a flight that never
+  reached its envelope.
 - **PENDING-OPERATOR live smoke (once, before nightly is trusted).** On a
   provisioned stock-minimal instance, run the daily selection: confirm the harness
   admits the instance, stages the fresh-career fixture, boots via the seam
