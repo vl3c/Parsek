@@ -427,9 +427,9 @@ count = { min = 8, max = 8 }
 #       KERBIN produced byte-identical evidence to one that ended around the MUN.
 #       Asserting terminalState=Orbiting AND terminalOrbitBody=Mun is what makes
 #       "commit while parked in a FOREIGN body's SOI" a checked claim.
-#       NOT YET FLOWN: the emitting code landed with this spec change and the
-#       token only exists once a rebuilt DLL is deployed. The first flight after
-#       that deploy proves it.
+#       LIVE-MATCHED: the emitting code landed with this spec change, and the
+#       token was proven on the first flight after the deploy (B11 flight 4,
+#       2026-07-25, results/2026-07-25_0400_B11-mun-orbit.json).
 required = [
   "Recording started",
   "Recording stopped",

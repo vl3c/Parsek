@@ -447,6 +447,12 @@ type = "number"
 min = 60.0
 max = 7200.0
 
+# NOTE (2026-07-26): the drop window is UNSATISFIABLE below this many metres AGL
+# by construction, so mlib.landing_progress_verdict WITHHOLDS the give-up
+# (LANDING_PROGRESS_VSPEED) on any frame where the craft's OWN vertical speed is
+# finite and NEGATIVE. That is what lets this be sized against the REAL descent
+# profile instead of against the last few hundred metres. SLOW stays bounded by
+# descentTimeoutSeconds; this watchdog bounds BROKEN.
 [params.landingProgressMinDropMeters]
 required = false
 type = "number"

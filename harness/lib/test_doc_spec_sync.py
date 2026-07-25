@@ -142,5 +142,83 @@ class B2DocSpecSyncTests(unittest.TestCase):
         self.assertEqual(int(m.group(2)), int(mission))
 
 
+class B13B14DocSpecSyncTests(unittest.TestCase):
+    """The LANDING lane's knobs were CLOSED from measured flight data on
+    2026-07-26, and the closure is narrated in two documents plus both specs.
+    That is exactly the shape that rotted on the B1 lane three times, so pin it.
+
+    B13 and B14 must also agree with EACH OTHER on the knobs the specs claim are
+    deliberately identical across bodies: a spec comment that says
+    "kept IDENTICAL to B13's" is a claim, and a claim gets a check.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.b13 = _spec("B13-mun-landing.toml")["driver"]["missionParams"]
+        cls.b14 = _spec("B14-minmus-landing.toml")["driver"]["missionParams"]
+
+    def test_the_cross_body_knobs_are_identical(self):
+        for key in ("descentTimeoutSeconds", "landingProgressWindowSeconds",
+                    "landingProgressMinDropMeters", "landedMaxVerticalSpeedMps",
+                    "landedMaxHorizontalSpeedMps", "landedDwellSeconds",
+                    "landedDebounceFrames", "landedTimeoutSeconds",
+                    "landingTouchdownSpeedMps"):
+            self.assertEqual(self.b13[key], self.b14[key],
+                             "%s differs across the two landing specs, but both "
+                             "specs claim the landing knobs are deliberately "
+                             "body-independent" % (key,))
+
+    def test_the_measured_margins_the_specs_claim_actually_hold(self):
+        """MEASURED on flight 1 of each (2026-07-25). If a knob moves, this says
+        which margin it broke."""
+        # DESCENT game spans, worst of the two bodies.
+        self.assertGreaterEqual(self.b13["descentTimeoutSeconds"],
+                                1.5 * 1381.3,
+                                "descentTimeoutSeconds is under 1.5x the worst "
+                                "MEASURED descent span (B14, 1381.3 game-s)")
+        # First no-progress window drop, tighter of the two bodies.
+        self.assertLessEqual(self.b13["landingProgressMinDropMeters"],
+                             21749.8 / 4.0,
+                             "landingProgressMinDropMeters leaves under 4x "
+                             "margin on the tighter MEASURED first-window drop "
+                             "(B14, 21749.8 m)")
+        # Worst settled-dwell speed samples across both flights.
+        self.assertGreaterEqual(self.b13["landedMaxHorizontalSpeedMps"],
+                                2.0 * 0.195,
+                                "landedMaxHorizontalSpeedMps is under 2x the "
+                                "worst MEASURED dwell horizontal speed "
+                                "(B13 touchdown frame, 0.195 m/s)")
+        self.assertGreaterEqual(self.b13["landedMaxVerticalSpeedMps"],
+                                2.0 * 0.279,
+                                "landedMaxVerticalSpeedMps is under 2x the worst "
+                                "MEASURED touchdown vertical speed "
+                                "(B13, 0.279 m/s)")
+
+    def test_the_docs_quote_the_live_knob_values(self):
+        # Whitespace-collapsed: the status doc hard-wraps its list items, so a
+        # claim can straddle a newline + indent. The claim is what is guarded,
+        # not the line breaks.
+        def flat(path):
+            return re.sub(r"\s+", " ", _read(os.path.join(DOCS, path)))
+
+        todo = flat("todo-and-known-bugs.md")
+        status = flat("autotest-status.md")
+        for doc, name, text in (("todo-and-known-bugs.md", "todo", todo),
+                                ("autotest-status.md", "status", status)):
+            m = re.search(r"`?descentTimeoutSeconds`? trimmed 3000 -> (\d+)", text)
+            self.assertIsNotNone(
+                m, "%s: the descentTimeoutSeconds closure sentence is gone; the "
+                   "guard now guards nothing" % (doc,))
+            self.assertEqual(int(m.group(1)),
+                             int(self.b13["descentTimeoutSeconds"]), doc)
+            m = re.search(r"`?landedMaxHorizontalSpeedMps`? tightened 1\.0 -> "
+                          r"([\d.]+)", text)
+            self.assertIsNotNone(
+                m, "%s: the landedMaxHorizontalSpeedMps closure sentence is gone"
+                   % (doc,))
+            self.assertEqual(float(m.group(1)),
+                             float(self.b13["landedMaxHorizontalSpeedMps"]), doc)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1111,6 +1111,12 @@ LANDING_AP_DEAD = "dead"           # observed down past the re-issue cap
 # landing_progress_verdict verdicts.
 LANDING_PROGRESS_PENDING = "pending"      # the window has not elapsed yet
 LANDING_PROGRESS_OK = "descending"        # the window's drop was delivered
+# The window under-delivered, but the craft is MEASURABLY descending on the
+# independent vertical-speed channel. HOLD, do not flake and do not re-anchor:
+# a craft with a finite NEGATIVE vertical speed is not stalled by any reading of
+# the word, so the altitude-drop window has no business calling it one. See the
+# reasoning in ``landing_progress_verdict``.
+LANDING_PROGRESS_VSPEED = "descending-under-drop"
 LANDING_STALL_BLIND = "altitude-unreadable"    # cannot prove progress
 LANDING_STALL_FLAT = "altitude-not-decreasing"  # proved NO progress
 
@@ -2339,8 +2345,25 @@ class B5Params:
 
 
 def b5_params_from_dict(params: Dict) -> B5Params:
-    """Build ``B5Params`` from a spec ``missionParams`` dict."""
+    """Build ``B5Params`` from a spec ``missionParams`` dict.
+
+    Raises ``ValueError`` when ``landingEnabled`` is set without
+    ``captureEnabled``. That implication is not a style preference, it is the
+    machine's TOPOLOGY: the ONLY edge into DESCENT is the capture lane's PARK
+    dwell (``b5_decide``'s PARK branch), so a landing-without-capture spec
+    silently degrades to the FLYBY machine -- it would fly a fly-past, evaluate
+    the four flyby assertion rows, and report MISSION-OK for a scenario whose
+    whole objective is a landing. Failing the spec load is the only place that
+    mistake is cheap; a lane whose design rests on an implication must assert
+    it rather than document it."""
     params = params or {}
+    if bool(params.get("landingEnabled", False)) \
+            and not bool(params.get("captureEnabled", False)):
+        raise ValueError(
+            "landingEnabled requires captureEnabled: the only door into the "
+            "DESCENT phase is the capture lane's PARK dwell, so landingEnabled "
+            "alone is INERT and the mission would silently degrade to the "
+            "flyby machine and its flyby assertion rows")
     return B5Params(
         target_apoapsis=float(params.get("targetApoapsisMeters", 80000)),
         target_periapsis=float(params.get("targetPeriapsisMeters", 80000)),
@@ -3661,6 +3684,16 @@ class B5State:
     # runs it out exactly once.
     landing_alt_ref: Optional[float] = None
     landing_alt_ref_ut: Optional[float] = None
+    # Frames on which an ELAPSED window under-delivered its drop but the craft's
+    # own vertical speed was finite and NEGATIVE, so the give-up was WITHHELD
+    # (``LANDING_PROGRESS_VSPEED``). Non-zero means the drop window is running
+    # against a genuinely slow-but-descending profile -- the operator signal that
+    # ``landingProgressMinDropMeters`` / ``landingProgressWindowSeconds`` are
+    # mis-sized for this body, not that anything is broken. Rides the periodic
+    # machine-state line and the status file ONLY (deliberately NOT a DIFF field:
+    # it can increment on consecutive frames near the ground, and an uncapped
+    # diffed counter is the ~180-360-extra-Info-lines trap PARK already paid for).
+    landing_vspeed_holds: int = 0
     # Consecutive in-gate LANDED-SETTLE frames, and the latch that the landing
     # was EVER settled (so the give-up separates "never settled" from "settled
     # but not in-gate at the end of the dwell" -- the PARK / forge_lko pattern).
@@ -4737,7 +4770,8 @@ def classify_landing_autopilot(
 
 def landing_progress_verdict(altitude: float, ref_altitude: Optional[float],
                              elapsed_seconds: float, window_seconds: float,
-                             min_drop: float) -> str:
+                             min_drop: float,
+                             vertical_speed: float = float("nan")) -> str:
     """One DESCENT frame's altitude-trend verdict over the running no-progress
     window. Pure; primitives in, one of the ``LANDING_PROGRESS_*`` /
     ``LANDING_STALL_*`` verdicts out.
@@ -4752,13 +4786,32 @@ def landing_progress_verdict(altitude: float, ref_altitude: Optional[float],
       unreadable). Nothing is decided; the caller HOLDS.
       ``LANDING_PROGRESS_OK``      - the window delivered at least ``min_drop``
       metres of surface-altitude drop. The caller RE-ANCHORS the window.
+      ``LANDING_PROGRESS_VSPEED``  - the window under-delivered, but the craft's
+      OWN vertical speed is finite and NEGATIVE. The caller HOLDS and does NOT
+      re-anchor, so the accumulated drop keeps counting toward the same anchor.
       ``LANDING_STALL_BLIND``      - the altitude (now or at the anchor) is not
       finite. FAIL CLOSED: an unreadable altitude is NOT evidence of descent, so
       it must never buy the descent another window. It gets its OWN name
       because the operator response differs completely from a real stall -- fix
       the channel, not the trajectory.
-      ``LANDING_STALL_FLAT``       - a full window elapsed with finite altitudes
-      and the drop was not delivered. The descent is provably not descending.
+      ``LANDING_STALL_FLAT``       - a full window elapsed with finite altitudes,
+      the drop was not delivered, and the vertical-speed channel does not show a
+      descent either. The descent is provably not descending.
+
+    WHY THE VERTICAL-SPEED RESCUE EXISTS (reviewer finding, 2026-07-26). The
+    drop window is UNSATISFIABLE BY CONSTRUCTION below ``min_drop`` metres AGL:
+    there is not that much altitude left to shed. The specs command
+    ``landingTouchdownSpeedMps = 0.5`` and MechJeb's ``FinalDescent`` holds
+    roughly that near the ground, so a lander whose window happens to re-anchor
+    a few hundred metres up and then takes longer than the window to touch down
+    averages under the commanded descent rate -- exactly what we ASKED FOR --
+    and the pre-fix code named it "provably not descending" on the FIRST frame
+    past the window, with no debounce and no second window. B13/B14 escaped only
+    by geometry (their single closed window ended at 64.4 km / 16.1 km altitude,
+    hundreds of seconds before touchdown), not by any guard. A craft with a
+    finite negative vertical speed is descending; the give-up must not claim
+    otherwise. SLOW is still bounded -- by ``descentTimeoutSeconds``, which is
+    the instrument for slow. This watchdog bounds BROKEN.
 
     The window is measured from the ANCHOR, not from phase entry, so a healthy
     descent rolls it forward indefinitely and only a genuine stall ever runs one
@@ -4769,9 +4822,15 @@ def landing_progress_verdict(altitude: float, ref_altitude: Optional[float],
         return LANDING_PROGRESS_PENDING
     if ref_altitude is None or not (_is_finite(altitude)
                                     and _is_finite(ref_altitude)):
+        # BLIND stays AHEAD of the vertical-speed rescue on purpose: an
+        # unreadable altitude is a CHANNEL fault, and the operator response is
+        # "fix the channel". A descending craft on a dark altitude channel is
+        # still a dark altitude channel.
         return LANDING_STALL_BLIND
     if (ref_altitude - altitude) >= min_drop:
         return LANDING_PROGRESS_OK
+    if _is_finite(vertical_speed) and vertical_speed < 0.0:
+        return LANDING_PROGRESS_VSPEED
     return LANDING_STALL_FLAT
 
 
@@ -6248,29 +6307,50 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                             landing_alt_ref=(float(snapshot.altitude)
                                              if _is_finite(snapshot.altitude)
                                              else None))
+        # The ALTITUDE half heals SEPARATELY (reviewer finding, 2026-07-26):
+        # gating the anchor on the UT alone left a DESCENT entered on ONE
+        # non-finite altitude frame with landing_alt_ref None FOREVER -- and a
+        # None ref reads BLIND, so the phase flaked `altitude-unreadable` a full
+        # window later on a channel that had recovered on frame two.
+        # DELIBERATELY does NOT re-stamp landing_alt_ref_ut: re-stamping the
+        # clock every frame the altitude is unreadable would hold `elapsed` at
+        # ~0 forever and make the NAMED altitude-unreadable give-up unreachable
+        # on a PERMANENTLY dark channel, which is the exact fail-closed property
+        # the BLIND verdict exists to provide.
+        elif state.landing_alt_ref is None and _is_finite(snapshot.altitude):
+            state = replace(state, landing_alt_ref=float(snapshot.altitude))
         elapsed = (snapshot.ut - state.landing_alt_ref_ut
                    if (state.landing_alt_ref_ut is not None
                        and _is_finite(snapshot.ut)) else float("nan"))
         progress = landing_progress_verdict(
             snapshot.altitude, state.landing_alt_ref, elapsed,
             state.params.landing_progress_window,
-            state.params.landing_progress_min_drop)
+            state.params.landing_progress_min_drop,
+            snapshot.vertical_speed)
         if progress == LANDING_PROGRESS_OK:
             state = replace(state, landing_alt_ref=float(snapshot.altitude),
                             landing_alt_ref_ut=float(snapshot.ut))
+        elif progress == LANDING_PROGRESS_VSPEED:
+            # HOLD, and DO NOT re-anchor: the accumulated drop keeps counting
+            # toward the SAME anchor, so the window still resolves OK the moment
+            # the craft has actually shed min_drop. Only the counter moves.
+            state = replace(state,
+                            landing_vspeed_holds=state.landing_vspeed_holds + 1)
         elif progress in (LANDING_STALL_FLAT, LANDING_STALL_BLIND):
             return _b5_named_flake(
                 state,
                 "phase %s: %s (%s) -- surface altitude went %s -> %s over %.0f "
-                "game seconds, less than the %.0f m the window requires "
-                "(apEnabled=%d status=%s vspd=%s thr=%s ut=%s)"
+                "game seconds, less than the %.0f m the window requires, and "
+                "the independent vertical-speed channel did not show a descent "
+                "either (apEnabled=%d status=%s vspd=%s thr=%s ut=%s "
+                "vspeedHolds=%d)"
                 % (B5_DESCENT, LANDING_GIVEUP_NO_PROGRESS, progress,
                    _obs_fmt(state.landing_alt_ref), _obs_fmt(snapshot.altitude),
                    elapsed, state.params.landing_progress_min_drop,
                    snapshot.landing_ap_enabled,
                    snapshot.landing_ap_status or "?",
                    _obs_fmt(snapshot.vertical_speed), _obs_fmt(snapshot.throttle),
-                   _obs_fmt(snapshot.ut)), peak), []
+                   _obs_fmt(snapshot.ut), state.landing_vspeed_holds), peak), []
         stayed = _b5_stay_or_flake(state, snapshot, peak)
         if stayed.done:
             return _b5_named_flake(
@@ -8440,6 +8520,13 @@ def evaluate_b5_assertions(frames, params: B5Params,
         # SURFACE-COMMIT entered proves the settled gate was met at a moment at
         # least landedDwellSeconds after touchdown; landed_ever_stable proves
         # the gate was met at all. Same phase-entry-clock caveat as parkedStable.
+        # The second conjunct IS redundant today (reviewer NIT, 2026-07-26):
+        # SURFACE-COMMIT is only reachable through the settled-dwell exit, which
+        # sets landed_ever_stable. It is KEPT deliberately -- the redundancy
+        # costs one boolean read and it is the only thing standing between this
+        # row and a future refactor that adds a second edge into SURFACE-COMMIT
+        # (a recovery path, an operator override) without noticing that this
+        # assertion silently stopped proving the landing was ever settled.
         stable_met = (B5_SURFACE_COMMIT in phases
                       and bool(getattr(state, "landed_ever_stable", False)))
         landed_v = getattr(state, "landed_vertical_speed", None)
@@ -9042,6 +9129,11 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("landing_ap_reissues", "landingApReissues"),
     ("landing_alt_ref", "landingAltRef"),
     ("landing_alt_ref_ut", "landingAltRefUt"),
+    # The vertical-speed RESCUE counter. Here and NOT in MACHINE_DIFF_FIELDS on
+    # purpose (see the field's own comment): non-zero is the operator's signal
+    # that the drop window is mis-sized for this body, which is a tuning read,
+    # not a per-frame gate event.
+    ("landing_vspeed_holds", "landingVspeedHolds"),
     ("landed_stable_streak", "landedStableStreak"),
     ("landed_ever_stable", "landedEverStable"),
     ("landed_body", "landedBody"),

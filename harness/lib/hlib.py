@@ -2755,6 +2755,27 @@ def merge_durations(existing: Optional[Dict[str, Dict]],
     "how long does this scenario take", not a global sample count, and a
     machine with more local results legitimately reports a larger n.
 
+    SAMPLE-COUNT FLOOR (reviewer finding, 2026-07-26). The rule above still
+    defeated the ledger for every scenario a fresh checkout DOES fly: a
+    worktree with one local B11 result REPLACED the committed ``n=5`` entry
+    with its own ``n=1``, and ``duration_regressions`` skips anything under
+    ``DURATION_MIN_SAMPLES`` (3), so the warn silently switched OFF for exactly
+    the scenarios that just ran. Under worktree-per-branch that is most
+    scenarios most of the time. So a fresh entry only WINS when it is at least
+    as well-sampled as the committed one; a strictly-thinner fresh entry loses
+    and the committed record stands.
+
+    This is deliberately the MINIMAL fix, not the "durable runId-deduped sample
+    list, recompute p50/p95 over the union" one. The union version needs a new
+    on-disk shape (a per-scenario list of ``{runId, utc, wall}``), a migration
+    from the current five-scalar entries, dedup semantics, and a size policy for
+    a file that is committed -- none of which is small, and none of which is
+    needed to stop the regression warn from switching itself off. The tradeoff
+    taken: a checkout with FEWER local samples cannot refresh a scenario's
+    ``last``, so a genuine slowdown first seen on a thin checkout waits for that
+    checkout to accumulate ``n``. That is the safe direction (a stale ledger
+    warns nothing new; a wiped one disables the warn outright).
+
     Pure; ``run.py`` owns reading the committed file and writing the result.
     """
     merged: Dict[str, Dict] = {}
@@ -2763,8 +2784,28 @@ def merge_durations(existing: Optional[Dict[str, Dict]],
             if isinstance(sid, str) and isinstance(entry, dict):
                 merged[sid] = entry
     for sid, entry in (fresh or {}).items():
+        prior = merged.get(sid)
+        if isinstance(prior, dict) and _duration_n(entry) < _duration_n(prior):
+            continue
         merged[sid] = entry
     return merged
+
+
+def _duration_n(entry: Optional[Dict]) -> int:
+    """The PASS-sample count of one duration entry, 0 on anything unreadable.
+    Fail-LOW on a malformed entry so a corrupt committed record can never pin a
+    healthy fresh one out of the ledger."""
+    if not isinstance(entry, dict):
+        return 0
+    value = entry.get("n", 0)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    try:
+        if not math.isfinite(float(value)):
+            return 0
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def duration_regressions(durations: Dict[str, Dict],

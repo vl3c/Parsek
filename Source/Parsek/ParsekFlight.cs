@@ -13250,21 +13250,52 @@ namespace Parsek
             // CaptureTerminalOrbit returns early for surface situations, and the
             // finalizer's refresh is gated on UsesTerminalOrbitMetadata, which
             // excludes Landed. Its body lives on TerminalPosition instead. Without
-            // this fallback the ONE fact a landed-on-another-body recording exists
+            // a fallback the ONE fact a landed-on-another-body recording exists
             // to prove - WHICH body it is sitting on - appears in no log line at
             // all, which is exactly the gap that let the orbit lane's commit claim
             // ship unverified.
-            string terminalBody = rec?.TerminalOrbitBody;
-            if (string.IsNullOrEmpty(terminalBody))
-            {
-                terminalBody = rec?.TerminalPosition?.body;
-            }
+            //
+            // The precedence is TERMINAL-STATE-AWARE, not "orbit body if non-empty"
+            // (review 2026-07-26). NOTHING ever CLEARS TerminalOrbitBody: it is
+            // write-only from CaptureTerminalOrbit, CopyTerminalOrbitFromSegment
+            // and the ballistic scene-exit finalizer. So a craft that orbited the
+            // Mun, came home and landed on KERBIN still carries
+            // TerminalOrbitBody="Mun" alongside TerminalPosition.body="Kerbin",
+            // and an orbit-body-first rule would print
+            // `terminalState=Landed terminalOrbitBody=Mun` - confidently wrong,
+            // and wrong in the one line an operator uses to answer "where did
+            // this recording end". For a SURFACE terminal the vessel's position
+            // IS the authority; for every other terminal the orbit metadata is.
+            string terminalBody = IsSurfaceTerminalState(rec?.TerminalStateValue)
+                ? FirstNonEmpty(rec?.TerminalPosition?.body, rec?.TerminalOrbitBody)
+                : FirstNonEmpty(rec?.TerminalOrbitBody, rec?.TerminalPosition?.body);
             if (string.IsNullOrEmpty(terminalBody))
             {
                 terminalBody = "(null)";
             }
             return $"CommitTreeFlight terminal: rec={recId} " +
                 $"terminalState={terminalState} terminalOrbitBody={terminalBody}";
+        }
+
+        /// <summary>
+        /// True when the terminal classification puts the vessel ON a body's surface,
+        /// so <see cref="Recording.TerminalPosition"/> is the authoritative body and
+        /// any stale <c>TerminalOrbitBody</c> from an earlier orbital phase is not.
+        /// The complement of <c>UsesTerminalOrbitMetadata</c> plus the states that
+        /// carry no body at all (Destroyed / Recovered / Boarded fall through to the
+        /// orbit-first branch, where both fields are usually empty anyway).
+        /// </summary>
+        internal static bool IsSurfaceTerminalState(TerminalState? state)
+        {
+            return state == TerminalState.Landed || state == TerminalState.Splashed;
+        }
+
+        /// <summary>
+        /// The first non-empty of two candidate body names, or <c>null</c>.
+        /// </summary>
+        private static string FirstNonEmpty(string first, string second)
+        {
+            return string.IsNullOrEmpty(first) ? second : first;
         }
 
         /// <summary>
@@ -13284,9 +13315,16 @@ namespace Parsek
                 ? (string.IsNullOrEmpty(tree?.RootRecordingId) ? "(null)" : tree.RootRecordingId)
                 : root.RecordingId;
             string rootState = root?.TerminalStateValue?.ToString() ?? "(null)";
-            string rootBody = string.IsNullOrEmpty(root?.TerminalOrbitBody)
-                ? "(null)"
-                : root.TerminalOrbitBody;
+            // Same terminal-state-aware precedence as the per-recording line: this
+            // summary replaces those lines above the cap, so it must not report a
+            // DIFFERENT body for the same root recording.
+            string rootBody = IsSurfaceTerminalState(root?.TerminalStateValue)
+                ? FirstNonEmpty(root?.TerminalPosition?.body, root?.TerminalOrbitBody)
+                : FirstNonEmpty(root?.TerminalOrbitBody, root?.TerminalPosition?.body);
+            if (string.IsNullOrEmpty(rootBody))
+            {
+                rootBody = "(null)";
+            }
 
             return $"CommitTreeFlight terminal summary: {total} recordings " +
                 $"(over the {CommitTerminalLogLimit} per-line cap), " +

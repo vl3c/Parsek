@@ -8189,6 +8189,65 @@ class LandingProgressVerdictTests(unittest.TestCase):
                                           self.W, self.D),
             mlib.LANDING_PROGRESS_PENDING)
 
+    # --- The vertical-speed rescue (reviewer finding, 2026-07-26) -------------
+
+    def test_descending_under_the_drop_is_not_a_stall(self):
+        """THE UNSATISFIABLE-WINDOW CASE. Below `min_drop` metres AGL there is
+        not `min_drop` left to shed, so the window cannot be met by any healthy
+        craft. The specs COMMAND landingTouchdownSpeedMps = 0.5 and MechJeb's
+        FinalDescent holds roughly that near the ground: a lander whose window
+        re-anchored at ~450 m and takes longer than the window to touch down is
+        doing exactly what it was told, and must not be named
+        'provably not descending'."""
+        self.assertEqual(
+            mlib.landing_progress_verdict(150.0, 450.0, 901.0, self.W, self.D,
+                                          -0.4),
+            mlib.LANDING_PROGRESS_VSPEED)
+
+    def test_a_genuinely_static_craft_still_flakes(self):
+        """The rescue must not disarm the watchdog: zero and POSITIVE vertical
+        speeds are not descents, so the FLAT give-up still fires."""
+        for vspd in (0.0, 0.5, 12.0):
+            self.assertEqual(
+                mlib.landing_progress_verdict(99_900.0, 100_000.0, 901.0,
+                                              self.W, self.D, vspd),
+                mlib.LANDING_STALL_FLAT, vspd)
+
+    def test_non_finite_vertical_speed_falls_back_to_the_altitude_evidence(self):
+        """An UNREAD vertical speed grants nothing (the -1 / NaN sentinel
+        discipline): the altitude evidence alone decides, exactly as before."""
+        for vspd in (float("nan"), float("inf"), float("-inf")):
+            self.assertEqual(
+                mlib.landing_progress_verdict(99_900.0, 100_000.0, 901.0,
+                                              self.W, self.D, vspd),
+                mlib.LANDING_STALL_FLAT, vspd)
+        # ... and a delivered drop is still OK regardless of the channel.
+        self.assertEqual(
+            mlib.landing_progress_verdict(90_000.0, 100_000.0, 901.0,
+                                          self.W, self.D, float("nan")),
+            mlib.LANDING_PROGRESS_OK)
+
+    def test_the_default_vertical_speed_preserves_the_original_behaviour(self):
+        """The parameter is trailing-defaulted, so every pre-existing caller and
+        cell keeps the altitude-only contract."""
+        self.assertEqual(
+            mlib.landing_progress_verdict(99_900.0, 100_000.0, 901.0,
+                                          self.W, self.D),
+            mlib.LANDING_STALL_FLAT)
+
+    def test_blind_beats_the_vertical_speed_rescue(self):
+        """An unreadable ALTITUDE is a CHANNEL fault and keeps its own name even
+        while the craft is measurably descending: the operator response is 'fix
+        the channel', and a descending craft on a dark altitude channel is still
+        a dark altitude channel."""
+        for alt, ref in ((float("nan"), 100_000.0),
+                         (90_000.0, float("nan")),
+                         (90_000.0, None)):
+            self.assertEqual(
+                mlib.landing_progress_verdict(alt, ref, 901.0, self.W, self.D,
+                                              -25.0),
+                mlib.LANDING_STALL_BLIND, (alt, ref))
+
 
 class LandedStableGateTests(unittest.TestCase):
     """landed_stable: every conjunct fails CLOSED, and the HORIZONTAL one is
@@ -8265,7 +8324,8 @@ class LandingParkHandoffTests(unittest.TestCase):
         cfg = mlib._b5_landing_config(B13_PARAMS)
         self.assertFalse(cfg[2])
         self.assertFalse(mlib.b5_params_from_dict(
-            {"landingEnabled": True}).landing_deploy_chutes)
+            {"landingEnabled": True,
+             "captureEnabled": True}).landing_deploy_chutes)
 
 
 class LandingDescentTests(unittest.TestCase):
@@ -8349,6 +8409,76 @@ class LandingDescentTests(unittest.TestCase):
         state, _ = mlib.b5_decide(
             state, _descending(ut=B13_PARAMS.landing_progress_window + 1.0,
                                altitude=float("nan")))
+        self.assertTrue(state.done)
+        self.assertIn(mlib.LANDING_STALL_BLIND, state.flake_reason)
+
+    def test_a_slow_final_descent_does_not_flake_the_no_progress_window(self):
+        """THE UNSATISFIABLE-WINDOW CASE, end to end through the machine
+        (reviewer finding, 2026-07-26). A window that re-anchored at 450 m AGL
+        cannot deliver 500 m of drop by construction; the pre-fix code returned
+        LANDING_STALL_FLAT on the FIRST frame past the window with no debounce
+        and no second window, flaking a lander that was descending at exactly
+        the COMMANDED landingTouchdownSpeedMps."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=450.0,
+                           landing_alt_ref_ut=0.0)
+        ut = 0.0
+        alt = 450.0
+        for _ in range(6):
+            ut += B13_PARAMS.landing_progress_window / 2.0
+            alt -= 0.4 * (B13_PARAMS.landing_progress_window / 2.0)
+            state, _ = mlib.b5_decide(
+                state, _descending(ut=ut, altitude=max(alt, 1.0),
+                                   vertical_speed=-0.4))
+            self.assertFalse(state.done, "flaked at ut=%s alt=%s" % (ut, alt))
+        # The rescue is COUNTED so an operator can see the window is mis-sized.
+        self.assertGreater(state.landing_vspeed_holds, 0)
+        # And the anchor was NOT re-stamped, so the accumulated drop still counts.
+        self.assertEqual(state.landing_alt_ref, 450.0)
+        self.assertEqual(state.landing_alt_ref_ut, 0.0)
+
+    def test_a_static_craft_still_flakes_with_the_rescue_in_place(self):
+        """The watchdog is not disarmed: a craft that is NOT descending still
+        gets the named give-up on the first frame past the window."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=450.0,
+                           landing_alt_ref_ut=0.0)
+        state, _ = mlib.b5_decide(
+            state, _descending(ut=B13_PARAMS.landing_progress_window + 1.0,
+                               altitude=449.0, vertical_speed=0.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.LANDING_GIVEUP_NO_PROGRESS, state.flake_reason)
+        self.assertIn("vspeedHolds=0", state.flake_reason)
+
+    def test_a_descent_entered_on_one_bad_altitude_frame_heals_its_anchor(self):
+        """The lazy re-anchor used to be gated on landing_alt_ref_ut ALONE, so a
+        DESCENT whose entry frame carried a non-finite altitude kept
+        landing_alt_ref = None FOREVER and flaked `altitude-unreadable` a full
+        window later -- on a channel that recovered on frame two."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=None,
+                           landing_alt_ref_ut=0.0)
+        state, _ = mlib.b5_decide(
+            state, _descending(ut=1.0, altitude=120_000.0))
+        self.assertEqual(state.landing_alt_ref, 120_000.0)
+        # The CLOCK is deliberately NOT re-stamped by the heal.
+        self.assertEqual(state.landing_alt_ref_ut, 0.0)
+        state, _ = mlib.b5_decide(
+            state, _descending(ut=B13_PARAMS.landing_progress_window + 2.0,
+                               altitude=40_000.0))
+        self.assertFalse(state.done)
+
+    def test_a_permanently_dark_altitude_channel_still_reaches_blind(self):
+        """The heal must NOT re-stamp the window clock: doing so would hold
+        `elapsed` at ~0 forever and make the NAMED altitude-unreadable give-up
+        unreachable, which is the fail-closed property BLIND exists for."""
+        state = _b13_state(mlib.B5_DESCENT, landing_alt_ref=None,
+                           landing_alt_ref_ut=0.0)
+        ut = 0.0
+        for _ in range(10):
+            ut += B13_PARAMS.landing_progress_window / 4.0
+            state, _ = mlib.b5_decide(
+                state, _descending(ut=ut, altitude=float("nan")))
+            if state.done:
+                break
         self.assertTrue(state.done)
         self.assertIn(mlib.LANDING_STALL_BLIND, state.flake_reason)
 
@@ -8632,6 +8762,27 @@ class LandingParamParseTests(unittest.TestCase):
         self.assertEqual(p.landed_dwell, 90.0)
         self.assertEqual(p.landed_debounce, 4)
         self.assertEqual(p.landed_timeout, 500.0)
+
+    def test_landing_without_capture_is_rejected_at_spec_load(self):
+        """The whole lane rests on 'landingEnabled implies captureEnabled': the
+        ONLY edge into DESCENT is the capture lane's PARK dwell. Without the
+        assert, `landingEnabled = true, captureEnabled = false` silently
+        degrades to the FLYBY machine -- it flies a fly-past, evaluates the four
+        FLYBY assertion rows and reports MISSION-OK for a scenario whose whole
+        objective is a landing. An implication a design rests on gets asserted,
+        not documented."""
+        with self.assertRaises(ValueError) as ctx:
+            mlib.b5_params_from_dict({"landingEnabled": True})
+        self.assertIn("landingEnabled requires captureEnabled", str(ctx.exception))
+        with self.assertRaises(ValueError):
+            mlib.b5_params_from_dict({"landingEnabled": True,
+                                      "captureEnabled": False})
+        # The three legal combinations still load.
+        self.assertTrue(mlib.b5_params_from_dict(
+            {"landingEnabled": True, "captureEnabled": True}).landing_enabled)
+        self.assertTrue(mlib.b5_params_from_dict(
+            {"captureEnabled": True}).capture_enabled)
+        self.assertFalse(mlib.b5_params_from_dict({}).landing_enabled)
 
     def test_phase_budgets_route_to_the_landing_tail_params(self):
         self.assertEqual(mlib._b5_phase_budget(B13_PARAMS, mlib.B5_DESCENT),

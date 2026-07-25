@@ -2804,3 +2804,33 @@ class MergeDurationsTests(unittest.TestCase):
     def test_empty_fresh_run_leaves_the_committed_ledger_untouched(self):
         existing = {"B11-mun-orbit": {"n": 5, "p50": 1317.0}}
         self.assertEqual(hlib.merge_durations(existing, {}), existing)
+
+    def test_a_thinner_fresh_entry_does_not_replace_a_better_sampled_one(self):
+        """The reviewer finding: a worktree with ONE local B11 result used to
+        overwrite the committed n=5 entry with its own n=1, and
+        duration_regressions then skipped it (DURATION_MIN_SAMPLES = 3). The
+        ledger stopped warning for exactly the scenario that just ran."""
+        existing = {"B11-mun-orbit": {"n": 5, "p50": 1317.0, "last": 1318.0}}
+        fresh = {"B11-mun-orbit": {"n": 1, "p50": 4000.0, "last": 4000.0}}
+        merged = hlib.merge_durations(existing, fresh)
+        self.assertEqual(merged["B11-mun-orbit"]["n"], 5)
+        self.assertEqual(merged["B11-mun-orbit"]["p50"], 1317.0)
+        # And the surviving entry still clears the regression gate.
+        self.assertEqual(hlib.DURATION_MIN_SAMPLES, 3)
+
+    def test_an_equally_sampled_fresh_entry_still_wins(self):
+        """Ties go to the fresh entry: same n means the same evidence recomputed
+        on this checkout, and `last` must be able to move."""
+        existing = {"B12-minmus-orbit": {"n": 4, "p50": 627.0, "last": 627.0}}
+        fresh = {"B12-minmus-orbit": {"n": 4, "p50": 627.0, "last": 900.0}}
+        merged = hlib.merge_durations(existing, fresh)
+        self.assertEqual(merged["B12-minmus-orbit"]["last"], 900.0)
+
+    def test_a_malformed_committed_n_never_pins_out_a_real_fresh_entry(self):
+        for bad in ({"n": "five"}, {"n": None}, {"n": True},
+                    {"n": float("nan")}, {}):
+            existing = {"B13-mun-landing": dict(bad, p50=9999.0)}
+            fresh = {"B13-mun-landing": {"n": 1, "p50": 2825.0}}
+            merged = hlib.merge_durations(existing, fresh)
+            self.assertEqual(merged["B13-mun-landing"]["p50"], 2825.0,
+                             "committed n=%r must fail LOW" % (bad.get("n"),))
