@@ -552,9 +552,9 @@ There is NO false PASS. The mission's ASSERT-FAIL classifies the whole scenario 
 does an `rmtree` + `copytree` of the template, `run.py:1995`), so no junk state survives
 into the next run. The problem is cost and artifact honesty, not verdict correctness.
 FIXING IT WAS NOT EVA-4's JOB: "drive the remaining steps regardless" is a cross-cutting
-harness contract shared by every autopilot scenario, so it was filed separately and
-~~fixed there~~ - see the next entry. The artifacts of the flight-1 attempt still contain
-a real but unintended EVA; no future window-missed attempt will.
+harness contract shared by every autopilot scenario, so it was filed separately and fixed
+there - see the next entry. The artifacts of the flight-1 attempt still contain a real but
+unintended EVA; no future window-missed attempt will.
 
 ~~**HARNESS: an UNMET mission step no longer drives the world-mutating seam tail.**~~
 FIXED 2026-07-25 (the cross-cutting fix filed by the entry above). After a mission step
@@ -576,20 +576,24 @@ as inert on a seam-kind driver.
   `StopRecording` closes the recording so the recorder flushes instead of being torn down
   mid-sample by the quit, and so the collected log's recording markers pair. Two scope
   limits kept honest after review: the run's own logValidate is already SKIPPED on
-  driver-invalid (artifact honesty, not verdict), and only the EVA scenarios carry a
-  `StopRecording` step at all - B1/B2/B4/B5/B6/B7 and BDOCK-1 end at `CommitTree` +
-  `FlushAndQuit`, so on their unmet runs the recorder is live at quit either way.
+  driver-invalid (artifact honesty, not verdict), and EVA-4 is today the ONLY scenario
+  that can reach this role - six specs carry a `StopRecording` step (EVA-1/2/3, S0.5,
+  S0.6, EVA-4) but the first five are seam-kind with no mission step, and every other
+  autopilot scenario ends without one, so on their unmet runs the recorder is live at
+  quit either way.
 - **Why `CommitTree` is NOT cleanup** (the one genuinely two-sided call): committing writes
   the failed attempt's junk tree into the durable committed set and applies its resource
   deltas, and it cannot buy the run a verdict back - an unmet mission is already
-  driver-INVALID at classification precedence 7, ABOVE every save-reading verifier, so on
+  driver-INVALID at `classify_verdict`'s "driver stage failed" branch, which precedes
+  EVERY save-reading verifier in that chain, so on
   that path the analyzer is triage-only and logValidate / testResults / anomalySweep /
   expectations / ledgerOracle are all SKIPPED whether or not the tree was committed. The
   "an uncommitted tree the analyzer then reports on" worry does not arise: the analyzer
   never reports verdict-driving findings there. `verifiers.unmetMissionTail` records the
   skip next to those SKIPPED rows so the thin save is self-explaining.
 - **Scope:** only the UNMET path changed. A MISSION-OK run drives the full tail exactly as
-  before (B1/B2/B4/B5/B7, BDOCK-1, the FORGE specs), and seam-only drivers (S0.5/S0.6/
+  before (all eleven autopilot scenarios: B1/B2/B4/B5/B6/B7, BDOCK-1, EVA-4 itself, and
+  the three FORGE specs), and seam-only drivers (S0.5/S0.6/
   S1.4/S1.5/S4.1, H5/H6, B10, the L1 six-pack, EVA-1/2/3) have no mission step at all.
   Verified empirically in review by running both trees side by side: a MET autopilot run
   and a seam-only run produce BYTE-IDENTICAL result records on `origin/main` and on the
@@ -604,14 +608,20 @@ as inert on a seam-kind driver.
   `FlushAndQuit` deliberately never auto-commits an in-flight recorder
   (`TestCommandFlushAndQuit`), so skipping `CommitTree` genuinely leaves the junk tree
   uncommitted.
-- Tests (30 new cells): 25 pure hlib cells (role-table totality + no stale rows, the
-  cleanup set, fail-safe unknown, the plan over the REAL committed EVA-4 / B1 / FORGE step
-  lists, id stability, the opt-out, the spec surface incl. the misplaced-key guard) + 5
-  fake-KSP smoke cells asserting on
-  the COMMAND CHANNEL FILE that `EvaExit` / `CommitTree` were never written on an unmet run
-  while
-  `StopRecording` / `FlushAndQuit` were, that a MISSION-OK run still drives everything, and
-  that the opt-out restores the legacy tail.
+- Tests (32 new cells): 25 pure hlib cells (role-table totality + no stale rows, the
+  cleanup set, fail-safe unknown, the plan over the REAL committed EVA-4 spec plus
+  B1-shaped and FORGE-shaped step lists, id stability, the opt-out, the spec surface
+  incl. the misplaced-key guard) + 6 fake-KSP smoke cells driving the REAL EVA-4 tail
+  shape (`EvaExit` + `EvaChuteDeploy` + `StopRecording` + `CommitTree` + `FlushAndQuit`)
+  and asserting on the COMMAND CHANNEL FILE - the only artifact that proves a command was
+  never sent - that neither in-world verb nor the commit was written on an unmet run while
+  `StopRecording` / `FlushAndQuit` were, that a MISSION-OK run still drives everything,
+  that the opt-out restores the legacy tail and is visible in the record, and that the
+  never-spawned UNMET paths (load-failed, no-result) skip too + 1 cell pinning that a
+  RUN-budget kill drives NO tail at all, cleanup included (it is not an unmet-tail case:
+  the KSP tree is already dead). Mutation-tested during review: 17 single-point mutations
+  of the production code (every-step-runs, CommitTree->cleanup, FlushAndQuit->mutating,
+  unknown-verb-defaults-cleanup, delete the skip branch, and 12 more), zero survivors.
 
 **HARNESS (latent, surfaced by the review above): a FORGE run whose mission fails still
 stamps its save, and nothing gates the harvest.** Not introduced by the tail-skip work and

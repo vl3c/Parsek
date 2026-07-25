@@ -2165,7 +2165,9 @@ class PlanUnmetMissionTailTests(unittest.TestCase):
     def test_skipped_steps_are_absent_from_response_evaluation(self):
         # The drive loop records only the steps it actually SENDS, so a skipped step
         # must not surface as an unmet step (no response line for a line never
-        # written). This pins the contract the run.py wiring depends on.
+        # written). This pins the PURE half of that contract by construction; the
+        # run.py wiring that actually builds the shortened list is pinned by
+        # UnmetMissionTailSmokeTests over the real drive loop.
         plan = hlib.plan_unmet_mission_tail(self.EVA4_STEPS, 2)
         driven = [{"id": hlib.step_id_for_index(0), "cmd": "LoadGame", "expect": "OK"},
                   {"id": hlib.step_id_for_index(1), "cmd": "SetSetting", "expect": "OK"}]

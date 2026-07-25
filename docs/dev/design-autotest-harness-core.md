@@ -257,7 +257,11 @@ steps = [
 # tail whatever the mission did) and requires a written reason in the spec, because it
 # re-arms driving world-mutating verbs over a flight that never reached its envelope.
 # Must be a bool (a string "false" is a spec-validation ERROR, not a coerced value).
-# Declaring it on a seam-kind driver is inert and warns.
+# Declaring it on a seam-kind driver is inert and warns. It is read off [driver] ONLY,
+# so writing it under [driver.missionParams] / [driver.autorun] / at the spec root is a
+# spec-validation ERROR too: TOML would scope it to that sub-table and the key would be
+# SILENTLY ignored, leaving a deliberate opt-out inert with nothing to notice (the same
+# trap EVA-4-atmo-chute.toml documents in-line for `steps`).
 # skipTailOnUnmetMission = true
 
 # Dimension values this scenario covers. Keys/values validated against
@@ -417,8 +421,8 @@ guessing.
 }
 ```
 
-Two CONDITIONAL fields exist only on a run whose post-mission tail was skipped
-(see "The unmet-mission tail"), so every other record is byte-identical to the
+THREE CONDITIONAL fields exist, all tied to "The unmet-mission tail" and all emitted
+only in the case each names, so a record from any other run is byte-identical to the
 shape above:
 
 - `driver.skippedTailSteps` -- the ordered rows the harness chose NOT to drive,
@@ -431,6 +435,11 @@ shape above:
   "mission-unmet", "skippedSteps": [...] }`, sitting next to the verifier rows it
   explains (on this path the analyzer is triage-only and every save-reading
   verifier is SKIPPED, because the produced save is deliberately incomplete).
+- `driver.skipTailOnUnmetMission` -- present as `false` on the MIRROR case: an UNMET
+  mission whose spec opted OUT, so the full tail was driven by policy. Named after the
+  spec key a reader would go looking for. Without it that run's record is
+  indistinguishable from one where the policy never applied (both carry no skip rows),
+  and the opt-out would live only in the harness log.
 
 ### Coverage / flake ledger: `harness/coverage/coverage.{json,txt}`, `harness/coverage/flake.json`
 
@@ -697,13 +706,16 @@ KILLED outranks driver-INVALID in `classify_verdict`, so the mission's own subki
 would be MASKED and the attempt would stop being retryable. `StopRecording` is the
 recorder's own teardown: it closes the recording so the recorder flushes instead of
 being torn down mid-sample by the quit, and so the collected KSP.log's recording
-markers pair. Two honest scope limits on that second half: the run's own logValidate
-verifier is already SKIPPED on driver-invalid, so it is artifact honesty rather than
-verdict correctness; and only the EVA scenarios actually carry a `StopRecording` step
-(B1/B2/B4/B5/B6/B7 and BDOCK-1 end at `CommitTree` + `FlushAndQuit`), so on their
-unmet runs the recorder is live at quit either way. `StopRecording` is cleanup
-because it is teardown that costs nothing and performs no in-world action, not
-because every scenario needs it.
+markers pair. Two honest scope limits on that second half. First, the run's own
+logValidate verifier is already SKIPPED on driver-invalid, so it is artifact honesty
+rather than verdict correctness. Second, **`EVA-4` is today the only scenario that can
+ever reach this role**: six specs carry a `StopRecording` step (`EVA-1`/`EVA-2`/`EVA-3`,
+`S0.5`, `S0.6`, `EVA-4`), but the first five are `kind = "seam"` with no mission step so
+they never take the unmet-tail path at all, and every other autopilot scenario
+(`B1`/`B2`/`B4`/`B5`/`B6`/`B7`, `BDOCK-1`, the three FORGE specs) has no `StopRecording`
+step, so on their unmet runs the recorder is live at quit either way. `StopRecording` is
+cleanup because it is teardown that costs nothing and performs no in-world action, not
+because the suite currently leans on it.
 
 **Why `CommitTree` is NOT cleanup.** It is the one call with a real argument on both
 sides, and it lands on world-mutating:
@@ -712,8 +724,9 @@ sides, and it lands on world-mutating:
   applies its resource deltas to the career, so the collected save of a failed
   attempt carries a branch and a landing the flight never legitimately produced.
 - Skipping it cannot cost the run a verdict. An unmet mission is already a
-  driver-INVALID at classification precedence 7, which sits ABOVE every save-reading
-  verifier: on that path the analyzer runs triage-only (non-verdict), logValidate /
+  driver-INVALID at `classify_verdict`'s "driver stage failed" branch, which precedes
+  EVERY save-reading verifier in that precedence chain: on that path the analyzer runs
+  triage-only (non-verdict), logValidate /
   testResults / anomalySweep / expectations are SKIPPED on `not driver_valid`, and
   the ledger oracle is SKIPPED with reason `driver-invalid`. Whether or not the tree
   was committed, nothing reads the save as ground truth. The "the analyzer would
@@ -741,7 +754,8 @@ that carries only what the flight actually did, so the written record of a faile
 run cannot be contradicted by its own artifacts.
 
 **Scope and opt-out.** Only the UNMET path changes. A MISSION-OK run drives the full
-tail exactly as before (`B1`/`B2`/`B4`/`B5`/`B7`, `BDOCK-1`, `FORGE-bdock-station`),
+tail exactly as before (all eleven autopilot scenarios: `B1`/`B2`/`B4`/`B5`/`B6`/`B7`,
+`BDOCK-1`, `EVA-4`, and the three FORGE specs),
 and a seam-only driver has no mission step, so `S0.5`/`S0.6`/`S1.4`/`S1.5`/`S4.1`,
 `H5`/`H6`, `B10`, the L1 six-pack and `EVA-1`/`EVA-2`/`EVA-3` are untouched. A spec
 can set `[driver].skipTailOnUnmetMission = false` to restore the legacy behaviour;

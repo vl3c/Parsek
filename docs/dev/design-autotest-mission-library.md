@@ -586,9 +586,13 @@ run.py:
      `CommitTree` commits the recorded tree in FLIGHT (the seam verb's
      `activeTree != null` guard is satisfied by the auto-recorded flight), then
      `FlushAndQuit` quits commit-safe.
-   - On an UNMET or killed mission step run.py drives the CLEANUP steps ONLY
+   - On an UNMET mission step run.py drives the CLEANUP steps ONLY
      (`hlib.SEAM_VERB_TAIL_ROLE` == `cleanup`: `StopRecording`, `FlushAndQuit`) and
-     SKIPS the rest, writing no channel line for them. An unmet mission is the
+     SKIPS the rest, writing no channel line for them. (A mission-STEP-budget expiry
+     lands here: it is `met = False` like any other unmet outcome. A RUN-budget expiry
+     does NOT: that path has already killed the mission subprocess AND the KSP tree, so
+     `drive_seam` returns immediately and NO tail step runs, not even cleanup. There is
+     no process left to send a command to.) An unmet mission is the
      statement "the flight never reached the state the tail assumes", so driving a
      world-mutating verb on that evidence is unsound -- EVA-4-atmo-chute flight 1
      (2026-07-24) EVA'd a kerbal out of a pod at terminal velocity because the tail

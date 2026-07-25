@@ -226,19 +226,22 @@ TAIL_ROLES: Tuple[str, ...] = (TAIL_ROLE_CLEANUP, TAIL_ROLE_INERT, TAIL_ROLE_WOR
 #     would stop being retryable. It must always run.
 #   StopRecording is the recorder's own teardown. It closes the recording so the
 #     recorder flushes instead of being torn down mid-sample by the quit, and so the
-#     collected KSP.log's recording markers pair. Scope note: only EVA-1/2/3 and EVA-4
-#     actually carry a StopRecording step; the other autopilot scenarios (B1/B2/B4/B5/
-#     B6/B7, BDOCK-1) end at CommitTree + FlushAndQuit, so on THEIR unmet runs the
-#     recorder is still live at quit either way and this buys nothing. It is cleanup
-#     because it is teardown that costs nothing and performs no in-world action, not
-#     because every scenario needs it.
+#     collected KSP.log's recording markers pair. HONEST SCOPE: today EVA-4 is the ONLY
+#     scenario that can ever reach this role. Six specs carry a StopRecording step
+#     (EVA-1/2/3, S0.5, S0.6, EVA-4), but the first five are kind="seam" with no mission
+#     step, so they never take the unmet-tail path at all; and every other autopilot
+#     scenario (B1/B2/B4/B5/B6/B7, BDOCK-1, the three FORGE specs) has no StopRecording
+#     step, so on THEIR unmet runs the recorder is live at quit either way. It is
+#     cleanup because it is teardown that costs nothing and performs no in-world action,
+#     not because the suite currently leans on it.
 # Everything else is skipped on the unmet tail. Three calls deserve their reasoning:
 #   CommitTree is world-mutating, NOT cleanup: it writes the failed attempt's junk tree
 #     into the durable committed set and applies its resource deltas to the career. It
 #     cannot buy anything back either -- an unmet mission is already terminal INVALID at
-#     classify_verdict precedence 7, ABOVE every save-reading verifier, so the analyzer /
-#     expectations / ledger-oracle verifiers are triage-only or SKIPPED on this path
-#     whether or not the tree was committed.
+#     the classify_verdict "driver stage failed" branch, which precedes EVERY
+#     save-reading verifier in that precedence chain, so the analyzer / expectations /
+#     ledger-oracle verifiers are triage-only or SKIPPED on this path whether or not the
+#     tree was committed.
 #   DiscardTree is world-mutating too: deleting the failed attempt's recorded data would
 #     destroy the exact forensics the collect-logs snapshot exists to preserve.
 #   SaveGame is world-mutating because an explicit persist is not teardown. Do NOT read
@@ -2284,8 +2287,9 @@ def plan_unmet_mission_tail(steps: Sequence[Dict], mission_index: int,
     pre-mission steps are what gate driver validity.
 
     Skipping costs the run NOTHING it could have used: an unmet mission is already
-    a terminal-for-this-attempt driver-INVALID at ``classify_verdict`` precedence 7,
-    which sits ABOVE every save-reading verifier, so the analyzer (triage-only),
+    a terminal-for-this-attempt driver-INVALID at ``classify_verdict``'s "driver stage
+    failed" branch, which precedes EVERY save-reading verifier in that chain, so the
+    analyzer (triage-only),
     logValidate / testResults / anomalySweep / expectations (SKIPPED on
     ``not driver_valid``) and the ledger oracle (SKIPPED, reason driver-invalid)
     contribute nothing to the verdict on this path whether or not the tail ran.

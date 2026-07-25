@@ -719,10 +719,11 @@ class UnmetMissionTailSmokeTests(unittest.TestCase):
     terminal velocity to the channel. These cells assert on the CHANNEL FILE -- the
     only place that proves a command was never sent."""
 
-    #  The EVA-4 tail shape, using verbs the base seam-verb table already knows so
-    #  the spec validates: an in-world action, teardown, the commit, the quit.
+    #  The REAL EVA-4 tail shape, verb for verb: the two irreversible in-world actions
+    #  flight 1 fired at terminal velocity, then teardown, the commit, the quit.
     TAIL = [
         {"cmd": "EvaExit", "args": {"release": "true"}, "expect": "OK", "budget": 120},
+        {"cmd": "EvaChuteDeploy", "args": {"awaitDown": "true"}, "expect": "OK", "budget": 420},
         {"cmd": "StopRecording", "expect": "OK"},
         {"cmd": "CommitTree", "expect": "OK"},
         {"cmd": "FlushAndQuit", "expect": "OK"},
@@ -781,6 +782,8 @@ class UnmetMissionTailSmokeTests(unittest.TestCase):
         verbs = self._verbs(lines)
 
         self.assertNotIn("EvaExit", verbs, "an UNMET mission must not EVA a kerbal")
+        self.assertNotIn("EvaChuteDeploy", verbs,
+                         "an UNMET mission must not deploy a kerbal chute at terminal velocity")
         self.assertNotIn("CommitTree", verbs, "an UNMET mission must not commit a junk tree")
         self.assertIn("StopRecording", verbs, "the recorder teardown must still run")
         self.assertIn("FlushAndQuit", verbs, "KSP must still be brought down cleanly")
@@ -795,8 +798,9 @@ class UnmetMissionTailSmokeTests(unittest.TestCase):
         # The skip is AUDITABLE in the durable record, outside driver.steps (a step
         # never sent is not an unmet step).
         skipped = result["driver"]["skippedTailSteps"]
-        self.assertEqual(["EvaExit", "CommitTree"], [r["cmd"] for r in skipped])
-        self.assertEqual(["world-mutating", "world-mutating"], [r["role"] for r in skipped])
+        self.assertEqual(["EvaExit", "EvaChuteDeploy", "CommitTree"],
+                         [r["cmd"] for r in skipped])
+        self.assertEqual(["world-mutating"] * 3, [r["role"] for r in skipped])
         self.assertEqual(["mission-unmet"], sorted({r["reason"] for r in skipped}))
         self.assertNotIn("EvaExit", [s.get("cmd") for s in result["driver"]["steps"]])
 
@@ -811,7 +815,8 @@ class UnmetMissionTailSmokeTests(unittest.TestCase):
         result, lines = self._run("ok")
         verbs = self._verbs(lines)
 
-        for verb in ("EvaExit", "StopRecording", "CommitTree", "FlushAndQuit"):
+        for verb in ("EvaExit", "EvaChuteDeploy", "StopRecording", "CommitTree",
+                     "FlushAndQuit"):
             self.assertIn(verb, verbs, verb)
         self.assertNotIn("skippedTailSteps", result["driver"])
         self.assertNotIn("unmetMissionTail", result["verifiers"])
@@ -846,10 +851,34 @@ class UnmetMissionTailSmokeTests(unittest.TestCase):
         readable result (edge 12, tooling-mission) is equally no evidence that the
         flight reached the state the tail assumes."""
         result, lines = self._run("noresult")
+        verbs = self._verbs(lines)
 
-        self.assertNotIn("EvaExit", self._verbs(lines))
+        self.assertNotIn("EvaExit", verbs)
+        self.assertNotIn("EvaChuteDeploy", verbs)
+        # A POSITIVE assertion too: _commands() returns [] for a missing file, so a
+        # negative-only cell would pass vacuously if the channel path ever drifted.
+        self.assertIn("FlushAndQuit", verbs)
         self.assertEqual("tooling-mission", result["subkind"])
-        self.assertEqual(["EvaExit", "CommitTree"],
+        self.assertEqual(["EvaExit", "EvaChuteDeploy", "CommitTree"],
+                         [r["cmd"] for r in result["driver"]["skippedTailSteps"]])
+
+    def test_load_failure_before_the_mission_also_skips_the_tail(self):
+        """The UNMET paths that never spawn a mission at all (here: the boot LoadGame
+        returned ERROR, so run.py skips the handoff) take the same skip. Pins that the
+        skip keys off `met`, not off "a mission subprocess ran"."""
+        spec = _make_autopilot_spec(self.template)
+        spec["driver"]["steps"] = spec["driver"]["steps"][:3] + [dict(s) for s in self.TAIL]
+        rt = FakeRuntime("autopilot-loadfail", mission_mode="ok", venv_ok=True)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+
+        self.assertEqual(0, rt.mission_spawn_count, "a failed boot must not spawn a mission")
+        self.assertEqual("load-failed", result["subkind"])
+        verbs = self._verbs(self._commands())
+        self.assertNotIn("EvaExit", verbs)
+        self.assertNotIn("EvaChuteDeploy", verbs)
+        self.assertIn("FlushAndQuit", verbs)
+        self.assertEqual(["EvaExit", "EvaChuteDeploy", "CommitTree"],
                          [r["cmd"] for r in result["driver"]["skippedTailSteps"]])
 
 
@@ -1071,6 +1100,34 @@ class MissionBudgetExpiryFinalReadTests(unittest.TestCase):
         self.assertEqual(hlib.MISSION_VERDICT_FLAKE, result.mission_step["missionVerdict"])
         self.assertEqual("autopilot-flake", result.mission_step["subkind"])
         self.assertIn("no result", result.mission_step.get("reason", ""))
+
+    def test_run_budget_kill_drives_no_tail_at_all_not_even_cleanup(self):
+        """The RUN-budget expiry is NOT an unmet-tail case and must not be documented as
+        one: it kills the mission subprocess AND the KSP tree, so `drive_seam` returns
+        immediately and NOTHING is driven, cleanup included. There is no process left to
+        send a command to. Pins the distinction from a MISSION-STEP-budget expiry, which
+        IS `met=False` and does take the cleanup-only tail."""
+        rt = _MiniMissionRuntime(write_result_verdict=None)
+        result = run.DriveResult()
+        ctx = run.MissionContext("m", "vpy", "m.py", {}, self.tmp,
+                                 "stamp.json", {"krpc": "0.5.4"})
+        step = {"phase": "mission", "expect": "MISSION-OK", "budget": 10_000}
+        proc = type("P", (), {"pid": 12345})()
+        # run_budget already exhausted at entry -> the run-budget branch, not the
+        # mission-step branch.
+        killed = run._drive_mission_step(result, step, "0003", 2, proc, rt, self.logger,
+                                         run_budget=0.0, run_start=0.0,
+                                         mission_ctx=ctx, run_id="testrun-killed",
+                                         preceding_load_ok=True)
+
+        self.assertTrue(killed, "a run-budget expiry must report killed")
+        self.assertTrue(result.killed)
+        self.assertEqual("run", result.kill_scope)
+        # No mission row, so drive_seam's unmet check cannot fire; and it returns before
+        # any tail step, so nothing is skipped OR driven.
+        self.assertIsNone(result.mission_step)
+        self.assertEqual([], result.skipped_tail_steps)
+        self.assertFalse(result.tail_skip_opted_out)
 
 
 class LedgerOracleEndToEndTests(unittest.TestCase):
