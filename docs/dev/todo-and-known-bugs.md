@@ -682,7 +682,28 @@ Tests: TestCommand xUnit +~69 cells (verb-table 18/11, C2 dispatch matrix incl. 
 
 **PENDING-OPERATOR (design live-prove list, one KSP session):** P1 load-and-focus sanity of `gloops-airshow`; P2 commit `eva2-lko-crewed` + `eva3-pad-3crew` then re-tier EVA-2/EVA-3 pending-fixture -> daily/nightly; P3 first EVA-1/2/3 runs pin the recordings-count windows (currently provisional per R-C) and the exact structural-snapshot message (the `[Pipeline-Smoothing]` token is regex-escaped in-spec pending confirmation); P4 pin the orbital auto-record log wording (EVA-2's required token keeps the stable `Auto-record started` prefix); P5 confirm ladder release lands with ground contact + zero kerbal damage; P6 confirm the SiteRename dismiss-callback fires `afterFlagPlanted` and Parsek's capture line appears. Also promotes EVA-1 nightly -> daily once the windows are pinned.
 
-## EVA-4 - atmospheric mid-flight EVA + kerbal personal chute: `EvaChuteDeploy` + mission `eva4_atmo_chute` [LIVE-PROVEN 2026-07-24, branch `autotest-eva4-chute`]
+## EVA-4 - atmospheric mid-flight EVA + kerbal personal chute: `EvaChuteDeploy` + mission `eva4_atmo_chute` [LIVE-PROVEN 2026-07-24, branch `autotest-eva4-chute`; **INTERMITTENT FAILURE FOUND 2026-07-25, OPEN**]
+
+**OPEN 2026-07-25 - the EVA chute CUTS ITSELF mid-descent and the kerbal dies; and the MISSION still returns MISSION-OK.** Found by the first full daily+nightly sweep (24 of 25 scenarios green; this was the only red). Verdict `PARSEK-FAIL(expectations)`, wall 187 s, `results/2026-07-25_1007_EVA-4-atmo-chute.json`, collected log `logs/2026-07-25_1310_EVA-4-atmo-chute/`.
+
+Measured descent profile from the verb's own polling (this is the whole defect in five lines):
+
+```
+t=0.0s   state=SemiDeployed  alt=1650.4  vspeed=-11.0    canopy verified
+t=5.0s   state=Cut           alt=1480.0  vspeed=-55.5
+t=10.0s  state=Cut           alt=1115.8  vspeed=-86.7
+t=15.0s  state=Cut           alt=634.3   vspeed=-103.0
+t=20.1s  state=Cut           alt=101.1   vspeed=-109.2
+t=20.5s  [ERROR] evachutedeploy eva-chute-kerbal-lost ... chuteState=Stowed alive=false
+```
+
+The chute DID open - `canopy verified ... state=SemiDeployed` at t=0, which is the OBSERVED-state gate the 2026-07-24 hardening added, working correctly. It then went to **Cut** within 5 s and the kerbal accelerated from -11 to -109 m/s and died. This is NOT the flight-1 failure mode (that one was an INERT chute that never left Stowed, `automateSafeDeploy=0`); the canopy opened and was then cut. Note the terminal read prints `chuteState=Stowed` because the kerbal vessel is already gone by then - the live states are the `wait` lines above.
+
+Root cause NOT yet established. The leading suspect is the same KerbalFSM coupling family already documented for this module: `ModuleEvaChute`'s deploy events are registered only on specific kerbal fsm states (`st_ragdoll` / `st_idle_fl`), so an fsm transition out of freefall can invalidate the canopy. The kerbal here exited from a craft already descending slowly under its own chute (-11 m/s at 1,650 m), which is an unusual, low-relative-speed state.
+
+**The second, independent defect this exposed - a mission that reports OK while its subject dies.** `eva4_atmo_chute` returned `MISSION-OK reason=all telemetry assertions met` on this exact flight. Its four assertions are `apoapsisWindow`, `evaWindowReached`, `evaWindowDescentRate`, `craftCanopyObserved` - every one about the CRAFT and the EVA WINDOW, none about the kerbal surviving, even though "let the kerbal land or splash safely" is the mission's stated purpose. Kerbal survival is currently proven ONLY by seam log tokens (`evachutedeploy complete`, `down=true situation=`, `Part event: ParachuteDeployed 'kerbalEVA`) plus the forbidden-`[Parsek][ERROR]` contract. That is what red'd this run, so the lane is not green-for-the-wrong-reason today - but the numeric/assertion surface says the flight succeeded, and anyone reading mission results alone would believe it. Fix: add a kerbal-survival assertion (observed `alive` + a terminal `LANDED`/`SPLASHED` situation for the kerbal vessel) to the mission machine so the mission verdict cannot disagree with the outcome.
+
+Both items are EVA-lane work and were deliberately NOT taken in the telemetry task that found them.
 
 Adds the one EVA surface the M-C2 trio does not reach. EVA-1/EVA-3 exit on the pad and
 EVA-2 exits in orbit; EVA-4 exits MID-FLIGHT IN ATMOSPHERE, so it is the only case where
