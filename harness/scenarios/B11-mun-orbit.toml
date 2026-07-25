@@ -48,10 +48,21 @@
 #   CORRECTION-BURN    DIY burner: native AP pointed at the node (2x physics-warp
 #                      flip), aim-then-warp to node UT minus the arrival margin,
 #                      physics warp DROPPED to 0, then one low-throttle burn.
-#   TARGET-FLYBY       IN MUN SOI, unpowered, attitude free, rails on the flyby
-#                      stair (100x floor). The SOI-EXIT native warp is SUPPRESSED
-#                      here (captureEnabled): warping toward the exit is warping
-#                      toward the failure. Arms the capture after
+#   TARGET-FLYBY       IN MUN SOI, unpowered, attitude free. The SOI-EXIT native
+#                      warp is SUPPRESSED here (captureEnabled): warping toward
+#                      the exit is warping toward the failure. Since B12 flight 3
+#                      the ONLY legitimate warp target inside the target SOI is
+#                      periapsis_ut - CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS (900),
+#                      read from the ORBIT's own periapsis clock
+#                      (Orbit.TimeToPeriapsis, readPeriapsis opt-in) - the old
+#                      rails flyby stair floored at flybyWarpFactor knew nothing
+#                      about the periapsis CLOCK and on a fast cross-SOI arrival
+#                      sailed straight past the only capture point on the pass.
+#                      Past the bound, or with the clock unreadable, the machine
+#                      does NOT warp at all (fail closed; 1x is slow but correct
+#                      and the flyby budget bounds it). The COAST -> TARGET-FLYBY
+#                      handoff also STOPS the inherited coast warp on the
+#                      transition frame. Arms the capture after
 #                      CAPTURE_ARM_DEBOUNCE_FRAMES in-SOI frames with a finite
 #                      ABOVE-SURFACE periapsis.
 #   PLAN-CAPTURE       Coasting inward, rails at planWarpFactor; MechJeb plans
@@ -140,6 +151,18 @@ id = "B11-mun-orbit"
 # that the Mun geometry masks here on 25% margin - the aim-then-warp wait spends
 # the phase's own game-time budget, 2,994 s of 4,000 on this very flight. Fixed
 # by anchoring that budget to the warp arrival; see the B12 spec.)
+#
+# RE-FLY OWED (2026-07-25). B12 flight 3 found a THIRD shared-machine defect,
+# and unlike the first two this one CHANGES THIS MISSION'S FLOWN PROFILE:
+# TARGET-FLYBY in capture mode now warps to periapsis_ut - 900 instead of riding
+# the rails flyby stair, and the COAST -> TARGET-FLYBY handoff stops the
+# inherited coast warp. Flight 2 armed the capture 87 game seconds after SOI
+# entry at alt 2,187 km and let MechJeb's executor autowarp fly the ~5,000 s
+# coast down to periapsis; the fixed machine warps that coast itself and arms
+# ~900 s before periapsis instead. The OUTCOME should be identical (MechJeb
+# still plans circularize-at-periapsis for the same node UT and still holds its
+# ~600 s pre-ignition window), and the wall cost should DROP, but this mission
+# is LIVE-PROVEN and the profile moved, so one confirmation flight is owed.
 tier = "nightly"
 description = "Mun ORBIT / commit-in-target-orbit: MechJeb ascent to LKO, ManeuverPlanner Hohmann transfer, autowarped TLI, dv-capped course corrections, cross-SOI coast, CAPTURE burn (circularize at periapsis) inside the Mun SOI, a held stable park, and a mid-mission command-seam CommitTree that closes the tree WHILE PARKED IN THE FOREIGN SOI."
 instanceProfile = "stock-minimal"

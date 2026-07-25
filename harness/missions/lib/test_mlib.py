@@ -6148,20 +6148,46 @@ class B5CaptureArmingTests(unittest.TestCase):
                                               periapsis=float("nan")))
         self.assertEqual(state.capture_arm_streak, 0)
 
-    def test_capture_mode_never_warps_toward_the_soi_exit(self):
+    def test_capture_mode_warps_only_to_the_periapsis_bound(self):
         """The SOI-EXIT native warp is suppressed in capture mode (warping
-        toward the exit is warping toward the failure terminal), but the rails
-        stair still floors at flybyWarpFactor -- never 1x."""
+        toward the exit is warping toward the failure terminal), and since B12
+        flight 3 the ONLY warp target here is periapsis_ut - the capture lead:
+        the rails stair floored at flybyWarpFactor knew nothing about the
+        periapsis CLOCK and sailed straight past the capture point."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        _, actions = mlib.b5_decide(
+            state, snap(ut=10.0, body="Mun", altitude=2_000_000.0,
+                        periapsis=900_000.0, time_to_soi=8000.0,
+                        time_to_periapsis=5000.0))
+        self.assertEqual(
+            actions,
+            [Action(mlib.ACTION_WARP_TO_UT,
+                    10.0 + 5000.0 - mlib.CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS)])
+
+    def test_capture_mode_does_not_warp_at_all_without_a_periapsis_clock(self):
+        """FAIL CLOSED, deliberately breaking the no-1x-coast preference: with
+        no periapsis clock there is no way to prove a warp would not sail past
+        the only capture point on the pass, so the machine does not warp. 1x is
+        slow but correct and the flyby budget bounds it."""
         state = _b11_state(mlib.B5_TARGET_FLYBY)
         _, actions = mlib.b5_decide(
             state, snap(ut=10.0, body="Mun", altitude=2_000_000.0,
                         periapsis=900_000.0, time_to_soi=8000.0))
-        kinds = [a.kind for a in actions]
-        self.assertNotIn(mlib.ACTION_WARP_TO_UT, kinds)
+        self.assertNotIn(mlib.ACTION_WARP_TO_UT, [a.kind for a in actions])
         rails = [a.value for a in actions if a.kind == mlib.ACTION_SET_RAILS_WARP]
-        self.assertTrue(rails, actions)
-        for v in rails:
-            self.assertGreaterEqual(v, 2.0)
+        self.assertTrue(all(v == 0.0 for v in rails), actions)
+
+    def test_capture_mode_stops_warping_once_the_bound_has_passed(self):
+        """Past periapsis - lead there is nothing left to capture on this pass:
+        no warp, and an inherited native warp is cancelled."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY, warp_to_cmd=99_000.0,
+                           last_warp_issue_ut=0.0)
+        _, actions = mlib.b5_decide(
+            state, snap(ut=10.0, body="Mun", altitude=100_000.0,
+                        periapsis=90_000.0, time_to_periapsis=10.0,
+                        warping_to=99_000.0, warp_mode="RAILS",
+                        warp_rate=1000.0))
+        self.assertEqual(actions, [Action(mlib.ACTION_CANCEL_WARP)])
 
     def test_return_body_in_capture_mode_is_assert_fail(self):
         """Reading Kerbin again in capture mode is the FAILURE (B5's success
@@ -6320,6 +6346,76 @@ class B5CaptureBurnTests(unittest.TestCase):
         self.assertTrue(state.done)
         self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
         self.assertIn("capture burn did not complete", state.flake_reason)
+
+
+class CaptureFlybyPeriapsisBoundTests(unittest.TestCase):
+    """mlib.capture_flyby_warp_target: the PURE core of the B12 flight-3 fix.
+    Inside the target SOI in capture mode the ONLY legitimate warp target is
+    periapsis_ut - the capture lead; past it there is nothing to capture."""
+
+    def test_target_is_periapsis_minus_the_lead(self):
+        self.assertAlmostEqual(
+            mlib.capture_flyby_warp_target(time_to_periapsis=5000.0, ut=100.0),
+            100.0 + 5000.0 - mlib.CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS)
+
+    def test_no_warp_once_inside_the_lead(self):
+        lead = mlib.CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS
+        self.assertIsNone(mlib.capture_flyby_warp_target(lead, 100.0))
+        self.assertIsNone(mlib.capture_flyby_warp_target(lead - 1.0, 100.0))
+
+    def test_no_warp_after_periapsis(self):
+        """B12 flight 3 armed PLAN-CAPTURE while CLIMBING at +92 m/s. Past
+        periapsis the arrived-late re-plan / capture-window-missed backstop
+        owns the outcome, never more warp."""
+        self.assertIsNone(mlib.capture_flyby_warp_target(-500.0, 100.0))
+
+    def test_unreadable_clock_fails_closed_to_no_warp(self):
+        self.assertIsNone(mlib.capture_flyby_warp_target(float("nan"), 100.0))
+        self.assertIsNone(mlib.capture_flyby_warp_target(5000.0, float("nan")))
+
+    def test_lead_covers_mechjebs_own_pre_ignition_hold(self):
+        """The lead must at least cover MechJeb's 600 s WARPALIGN hold plus the
+        plan + ignition lead, or the capture arms with no time to burn."""
+        self.assertGreater(mlib.CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS,
+                           mlib.MJ_EXECUTOR_WARPALIGN_HOLD_SECONDS)
+
+
+class CaptureFlybyEntryHandoffTests(unittest.TestCase):
+    """COAST -> TARGET-FLYBY must not carry the coast's runaway warp into the
+    target SOI in capture mode (B12 flight 3 crossed at RAILSx10000 and its
+    FIRST flyby poll advanced 3,907 game seconds)."""
+
+    def test_capture_mode_stops_the_inherited_native_warp(self):
+        state = _b11_state(mlib.B5_COAST_TO_TARGET, warp_to_cmd=280_000.0,
+                           last_warp_issue_ut=1000.0)
+        state, actions = mlib.b5_decide(
+            state, snap(ut=268_934.5, body="Mun", altitude=1_902_524.0,
+                        warping_to=280_000.0, warp_mode="RAILS",
+                        warp_rate=10_000.0))
+        self.assertEqual(state.phase, mlib.B5_TARGET_FLYBY)
+        self.assertEqual(actions, [Action(mlib.ACTION_CANCEL_WARP)])
+        self.assertIsNone(state.warp_to_cmd)
+
+    def test_capture_mode_drops_a_held_rails_factor(self):
+        state = _b11_state(mlib.B5_COAST_TO_TARGET, warp_cmd=6)
+        state, actions = mlib.b5_decide(
+            state, snap(ut=268_934.5, body="Mun", altitude=1_902_524.0,
+                        warp_mode="RAILS", warp_rate=1000.0))
+        self.assertEqual(state.phase, mlib.B5_TARGET_FLYBY)
+        self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+
+    def test_flyby_missions_keep_the_byte_identical_handoff(self):
+        """B5/B6/B7 pass THROUGH periapsis by design: their transition still
+        emits nothing and the inherited coast warp rides on."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, warp_to_cmd=280_000.0,
+                          warp_cmd=6, last_warp_issue_ut=1000.0)
+        state, actions = mlib.b5_decide(
+            state, snap(ut=268_934.5, body="Mun", altitude=1_902_524.0,
+                        warping_to=280_000.0, warp_mode="RAILS",
+                        warp_rate=10_000.0))
+        self.assertEqual(state.phase, mlib.B5_TARGET_FLYBY)
+        self.assertEqual(actions, [])
+        self.assertEqual(state.warp_to_cmd, 280_000.0)
 
 
 class CoastNativeWarpLatchTests(unittest.TestCase):

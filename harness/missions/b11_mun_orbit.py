@@ -94,9 +94,15 @@ def make_control() -> mission_runner.MissionControl:
     # per poll reads MechJeb NodeExecutor.Enabled; without it the field keeps its
     # -1 UNREAD sentinel and the capture supervisor grants no executor verdict
     # (fail closed).
+    #
+    # read_periapsis=True (B12 flight-3 forensics, 2026-07-25): TARGET-FLYBY in
+    # capture mode may warp ONLY to periapsis_ut - the capture lead, read from
+    # the orbit's own clock. Without the flag the field stays NaN and the
+    # capture-mode flyby warp is disabled outright (1x, fail closed) rather
+    # than falling back to a rails stair that knows nothing about periapsis.
     return mission_runner.KrpcMissionControl(
         use_mechjeb=True, client_name=MISSION_NAME, read_docking=True,
-        read_node_executor=True)
+        read_node_executor=True, read_periapsis=True)
 
 
 SPEC = mission_runner.MissionSpec(

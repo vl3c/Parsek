@@ -613,6 +613,42 @@ ACTION_MJ_PLAN_CAPTURE = "mj_plan_capture"                 # value = None
 CAPTURE_ARM_DEBOUNCE_FRAMES = 3
 
 # ---------------------------------------------------------------------------
+# TARGET-FLYBY periapsis bound in CAPTURE mode (B12 flight 3, 2026-07-25).
+# THE PROVEN ROOT CAUSE of a capture that armed AFTER periapsis:
+#
+# In capture mode the flyby suppresses the SOI-EXIT native warp (warping
+# toward the exit is warping toward the failure) and falls through to the
+# RAILS STAIR, whose factor is floored at flybyWarpFactor and whose distance
+# term is (altitude - periapsis). Nothing in it is bounded by the PERIAPSIS
+# CLOCK, and two things then compound:
+#   1. The COAST -> TARGET-FLYBY transition emits NO warp cleanup, so the
+#      craft crosses into the target SOI still running the coast's native
+#      warp. B12 flight 3 entered at RAILSx10000: the FIRST flyby poll alone
+#      advanced 3,907 game seconds (ut 268,934.5 -> 272,841.1, alt 1,902 km
+#      -> 977 km) before any decision could be taken.
+#   2. The capture-arming debounce needs CAPTURE_ARM_DEBOUNCE_FRAMES
+#      CONSECUTIVE polls, so arming alone cost ~8,000 game seconds -- more
+#      than the entire SOI-entry-to-periapsis coast. PLAN-CAPTURE was entered
+#      at alt 41,609 m with vertical speed +92 m/s: already CLIMBING AWAY.
+# The late burn produced a bound but wildly eccentric 325 x 5.3 km orbit that
+# grazes Minmus, correctly rejected by the capture window as an under-burn.
+#
+# THE CONTRACT: inside the target SOI in capture mode the ONLY legitimate
+# warp target is periapsis_ut - CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS, computed
+# from the ORBIT's own periapsis clock, never inferred from altitude trends.
+# Past that bound there is nothing left to capture on this pass, so the
+# machine does not warp at all.
+#
+# The lead covers, in order: our arming debounce + the PLAN-CAPTURE RPC
+# (tens of game seconds on the 10x plan hold), MechJeb's ignition lead
+# (_ignitionUT = node.UT - halfBurnTime, ~10-60 s for this class of burn) and
+# MechJeb's own 600 s pre-ignition WARPALIGN hold (see
+# MJ_EXECUTOR_WARPALIGN_HOLD_SECONDS). Stopping EARLIER than needed only
+# costs a little low-warp coast that MechJeb's executor autowarp then flies;
+# stopping later loses the pass outright, so the asymmetry is deliberate.
+CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS = 900.0
+
+# ---------------------------------------------------------------------------
 # CAPTURE-BURN executor supervision (B11 flight 1, 2026-07-24). THE PROVEN
 # ROOT CAUSE, cited from source, not inferred:
 #
@@ -1246,6 +1282,15 @@ class TelemetrySnapshot:
     # ExecuteAllNodes / Abort plus the inherited Enabled), so Enabled is the
     # ONLY observable executor channel available to us.
     node_executor_enabled: int = -1
+    # Seconds until the craft reaches PERIAPSIS of its CURRENT orbit (kRPC
+    # Orbit.TimeToPeriapsis, surface-verified against the installed 0.5.4
+    # client). NaN = UNREAD / unreadable, the fail-closed sentinel: with no
+    # periapsis clock the capture-mode flyby warp is DISABLED outright (1x is
+    # slow but correct; the phase budget bounds it), because there is no way
+    # to prove a warp would not sail past the only capture point on the pass.
+    # Read only when the control was built with read_periapsis=True (B11/B12),
+    # so every other mission's snapshot is byte-identical.
+    time_to_periapsis: float = float("nan")
 
 
 # ---------------------------------------------------------------------------
@@ -3527,6 +3572,33 @@ def _b5_named_flake(state: B5State, reason: str,
                    flake_reason=reason, done=True)
 
 
+def capture_flyby_warp_target(time_to_periapsis: float, ut: float,
+                              lead: float = CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS
+                              ) -> Optional[float]:
+    """The ONLY legitimate warp target inside the target SOI in capture mode:
+    ``periapsis_ut - lead``. Pure; primitives in, target UT (or None) out.
+
+    Returns None -- meaning DO NOT WARP AT ALL -- in every case where warping
+    cannot be proven safe:
+      - a non-finite periapsis clock or UT (fail closed: with no clock there
+        is no way to show a warp would not sail past the only capture point
+        on the pass; 1x is slow but correct and the phase budget bounds it);
+      - the bound has already passed (``ut >= target``), including a periapsis
+        that is already behind us. After periapsis there is nothing to capture
+        on this pass, so the arrived-late re-plan / capture-window-missed
+        backstop owns the outcome rather than more warp.
+
+    B12 flight 3 is the case this exists for: the flyby entered the Minmus SOI
+    still running the coast's RAILSx10000 warp and blew through periapsis
+    before the capture was even armed."""
+    if not (_is_finite(time_to_periapsis) and _is_finite(ut)):
+        return None
+    target = ut + time_to_periapsis - lead
+    if ut >= target:
+        return None
+    return target
+
+
 def _b5_capture_arm_ready(state: B5State, snapshot: TelemetrySnapshot) -> bool:
     """One TARGET-FLYBY frame's capture-arming verdict: capture is enabled, the
     SOI body IS the target, and the arrival periapsis reads FINITE and ABOVE the
@@ -4204,7 +4276,22 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
 
     if state.phase == B5_COAST_TO_TARGET:
         if snapshot.body == state.params.target_body:
-            return _b5_enter(state, B5_TARGET_FLYBY, snapshot.ut, peak), []
+            entered = _b5_enter(state, B5_TARGET_FLYBY, snapshot.ut, peak)
+            if not state.params.capture_enabled:
+                # FLYBY missions are unchanged: passing periapsis IS the
+                # point, so the inherited coast warp rides on byte-identically.
+                return entered, []
+            # CAPTURE mode (B12 flight 3): the craft crosses the SOI boundary
+            # still running the COAST's native warp -- flight 3 entered at
+            # RAILSx10000 and its FIRST flyby poll advanced 3,907 game seconds
+            # before any decision could be taken. STOP the inherited warp on
+            # the transition frame; the flyby's own periapsis-bounded warp
+            # re-arms next poll from a known-stopped state.
+            entered = replace(entered, warp_cmd=0, warp_to_cmd=None)
+            if state.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
+                return entered, [Action(ACTION_CANCEL_WARP)]
+            return entered, ([Action(ACTION_SET_RAILS_WARP, 0.0)]
+                             if state.warp_cmd != 0 else [])
         if snapshot.body not in _b5_coast_bodies(state.params):
             # A REAL foreign body name is the ejected terminal; "" (no reading
             # this frame) is NOT -- it stays in phase with no hop, and a
@@ -4541,8 +4628,20 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         native_target = None
         if impact_bound:
             desired = 0
-        elif (not state.params.capture_enabled
-                and _is_finite(snapshot.time_to_soi) and _is_finite(snapshot.ut)
+        elif state.params.capture_enabled:
+            # CAPTURE MODE (B12 flight 3): the ONLY legitimate warp target
+            # inside the target SOI is periapsis_ut - the capture lead, read
+            # from the ORBIT's own periapsis clock. Past that bound (or with
+            # no readable clock) the machine does NOT warp: there is nothing
+            # left to capture on this pass, and 1x is slow but correct. This
+            # REPLACES the rails distance stair here -- the stair is floored
+            # at flybyWarpFactor and knows nothing about the periapsis CLOCK,
+            # so at the rates a cross-SOI arrival carries it sailed past the
+            # capture point inside the arming debounce.
+            desired = 0
+            native_target = capture_flyby_warp_target(
+                snapshot.time_to_periapsis, snapshot.ut)
+        elif (_is_finite(snapshot.time_to_soi) and _is_finite(snapshot.ut)
                 and snapshot.time_to_soi > state.params.soi_lead):
             # (c) Outer flyby legs: NATIVE warp to the SOI EXIT minus
             # soi_lead. NEVER in capture mode: warping toward the SOI EXIT is

@@ -418,7 +418,8 @@ class KrpcMissionControl(MissionControl):
     def __init__(self, use_mechjeb: bool = False, client_name: str = "parsek-mission",
                  read_docking: bool = False, read_crew: bool = False,
                  read_chute: bool = False,
-                 read_node_executor: bool = False) -> None:
+                 read_node_executor: bool = False,
+                 read_periapsis: bool = False) -> None:
         self._use_mechjeb = use_mechjeb
         self._client_name = client_name
         # OPT-IN B-DOCK docking/rendezvous/transfer telemetry (design section 5.2).
@@ -445,6 +446,14 @@ class KrpcMissionControl(MissionControl):
         # engaged rather than trust that it commanded one (B11 flight-1 lesson,
         # the same commanded-vs-observed gap as the B-DOCK docking AP).
         self._read_node_executor = bool(read_node_executor)
+        # OPT-IN periapsis-clock telemetry (B11/B12 ORBIT lane). OFF everywhere
+        # else so every other mission's read_snapshot stays byte-identical
+        # (time_to_periapsis keeps its NaN UNREAD sentinel, which disables the
+        # capture-mode flyby warp outright). ONE extra RPC per poll, taken only
+        # by the missions whose TARGET-FLYBY must NOT warp past periapsis --
+        # the B12 flight-3 lesson: an altitude-trend rails stair cannot bound a
+        # capture point, only the orbit's own clock can.
+        self._read_periapsis = bool(read_periapsis)
         self._conn = None
         self._mechjeb = None
         self._ascent = None
@@ -630,6 +639,17 @@ class KrpcMissionControl(MissionControl):
             node_executor_enabled = -1
             if self._read_node_executor:
                 node_executor_enabled = self._read_node_executor_enabled()
+            # Periapsis clock (opt-in, B11/B12). Own try/except with the NaN
+            # UNREAD sentinel: a fault must degrade to fail-closed (no warp),
+            # NEVER count toward the vessel-lost read-fail streak. Surface
+            # verified against the installed krpc 0.5.4 client
+            # (Orbit_get_TimeToPeriapsis, seconds).
+            time_to_periapsis = float("nan")
+            if self._read_periapsis:
+                try:
+                    time_to_periapsis = float(orbit.time_to_periapsis)
+                except Exception:
+                    time_to_periapsis = float("nan")
             snapshot = mlib.TelemetrySnapshot(
                 ut=float(sc.ut),
                 altitude=float(flight_srf.surface_altitude),
@@ -713,6 +733,9 @@ class KrpcMissionControl(MissionControl):
                 # OBSERVED MechJeb NodeExecutor.Enabled (-1 = not read / read
                 # failed; grants no executor verdict at all).
                 node_executor_enabled=node_executor_enabled,
+                # Seconds to periapsis of the CURRENT orbit (NaN = not read /
+                # read failed; disables the capture-mode flyby warp).
+                time_to_periapsis=time_to_periapsis,
             )
             self._read_fail_streak = 0
             self._warp_watchdog(sc, snapshot.ut)
@@ -2425,6 +2448,8 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         # mission that does not read it keeps a byte-identical telemetry line.
         node_exec_token = ("" if snapshot.node_executor_enabled < 0
                            else (" nodeExec=%d" % snapshot.node_executor_enabled))
+        if math.isfinite(snapshot.time_to_periapsis):
+            node_exec_token += " ttPe=%s" % _fmt(snapshot.time_to_periapsis)
         log.verbose_rate_limited(
             "telemetry", state.phase,
             "telemetry ap=%s pe=%s ecc=%s inc=%s alt=%s vspd=%s body=%s nodes=%d "

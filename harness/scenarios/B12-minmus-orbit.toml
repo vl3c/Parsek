@@ -59,9 +59,36 @@
 # past MAX_COAST_WARP_ISSUES fast-fails NAMED (coast-warp-thrash). The mission
 # result also carries a per-phase warpUtilisation block whose
 # gameSecondsPerWallSecond names this class in one line.
+#
+# TARGET-FLYBY MAY NOT WARP PAST PERIAPSIS (B12 flight 3, 2026-07-25 - the third
+# defect this mission FOUND, again SHARED). Capture mode suppresses the SOI-EXIT
+# native warp and used to fall through to the rails flyby stair, whose factor is
+# floored at flybyWarpFactor and whose distance term is (altitude - periapsis) -
+# nothing in it is bounded by the periapsis CLOCK. Compounded by a COAST ->
+# TARGET-FLYBY handoff that emitted no warp cleanup, flight 3 crossed into the
+# Minmus SOI still running the coast's RAILSx10000 warp: its FIRST flyby poll
+# advanced 3,907 game seconds (alt 1,902 km -> 977 km), the 3-frame arming
+# debounce cost ~8,000 more, and PLAN-CAPTURE was entered at alt 41,609 m with
+# vertical speed +92 m/s - already CLIMBING AWAY. The late burn produced a bound
+# but wildly eccentric 325 x 5.3 km orbit grazing Minmus, correctly rejected by
+# the capture window. FIXED: the only legitimate warp target inside the target
+# SOI is periapsis_ut - CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS (900, sized to cover
+# our arming + plan, MechJeb's halfBurnTime ignition lead AND its 600 s
+# pre-ignition hold), read from Orbit.TimeToPeriapsis; past the bound or with the
+# clock unreadable the machine does not warp at all; and the handoff stops the
+# inherited coast warp on the transition frame.
 # =============================================================================
 schema = 1
 id = "B12-minmus-orbit"
+# FLIGHT 3 (2026-07-25) - the coast fix WORKED SPECTACULARLY and the mission
+# reached a capture burn. The warp-utilisation block diagnosed the next defect at
+# a glance: COAST-TO-TARGET 26 wall / 194,704 game (ratio 7,543, 3 warp commands,
+# down from never-finishing), CORRECTION-BURN 40 wall / 73,723 game (ratio 1,834,
+# 1 command) - but TARGET-FLYBY 2 wall / 8,213 game (ratio 5,341, 2 commands),
+# which is the phase blowing through periapsis. Result: ASSERT-level capture
+# under-burn (ap=324,973 pe=5,267 ecc=0.710), correctly rejected. Fixed by the
+# periapsis bound above.
+#
 # FLIGHT 2 (2026-07-25) - the correction fix WORKED (both rounds cleared,
 # rounds=2, round 1's 73,720 game-second aim-warp ran as one continuous warp
 # from ut 475.3 to 74,195.7 with no cancel), and the run then died on the WALL

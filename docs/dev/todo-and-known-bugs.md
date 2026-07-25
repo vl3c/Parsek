@@ -139,7 +139,7 @@ Live finding 4 (fourth flight 2026-07-21/22): `rendezvous=True` produced a REAL 
 
 Live finding 3 (third flight 2026-07-21; the dv cap doubled as the diagnostic): the capped correction warns revealed MechJeb demanding 15,930-25,559 m/s immediately post-TLI, settling at a PERSISTENT ~403 m/s - and the coast then reached apoapsis 11.39M and fell BACK to Kerbin with no encounter. Root cause CONFIRMED in the decompiled MechJeb 2.15.1 `OperationGeneric`: `Rendezvous` is the TARGETED-INTERCEPT flag (it flows into `DeltaVAndTimeForHohmannTransfer` as the arrive-AT-the-target mode; the GUI pairs "Rendezvous" vs phase-blind "Transfer"), so finding 1's over-eager `rendezvous=False` degraded the plan to a phase-blind altitude-only Hohmann with a deterministic miss - and finding 2's monster "correction" (flight 2 executed a 15,930 m/s plan uncapped, wedging the executor on dry tanks) was MechJeb pricing the re-aim to CREATE the missing encounter. Fix: `capture=False` (the GUI's intercept-only checkbox is literally `Capture = !intercept_only`) + `plan_capture=False` + `rendezvous=True`. Also of note from the decompile: MechJeb itself warns that a plotted insertion burn to a celestial with an SOI is unsupported ("A Transfer-to-Moon maneuver needs to be written"), so flight 1's second node was an unsupported artifact regardless.
 
-## B11 / B12 Mun + Minmus ORBIT missions - capture, park, commit-in-foreign-SOI (b11_mun_orbit / b12_minmus_orbit) [B11 LIVE-PROVEN 2026-07-25 (flight 2 FULL PASS); B12 flights 1 and 2 each found a SHARED-machine defect (CORRECTION-BURN budget, COAST warp thrash), both ROOT-CAUSED + FIXED; branch `autotest-orbit-missions`]
+## B11 / B12 Mun + Minmus ORBIT missions - capture, park, commit-in-foreign-SOI (b11_mun_orbit / b12_minmus_orbit) [B11 LIVE-PROVEN 2026-07-25 (flight 2 FULL PASS) but a CONFIRMATION RE-FLY is now owed; B12 flights 1, 2 and 3 each found a SHARED-machine defect (CORRECTION-BURN budget, COAST warp thrash, TARGET-FLYBY warping past periapsis), all three ROOT-CAUSED + FIXED; branch `autotest-orbit-missions`]
 
 Roadmap item 2 ("Mun/Minmus ORBIT missions - capture burn + commit-in-target-orbit terminal"). **ID note:** the roadmap called this lane "B8", but `automated-testing-scenario-catalog.md` section 2 already assigns B8 (loop the B7 tree as a mission), B9 (crash / rewind / re-fly) and B10 (career passive safety, a committed spec), and B3 is the EVA branch - so the lane is **B11-mun-orbit** + **B12-minmus-orbit**, and both the catalog and `autotest-status.md` now carry the mapping so nobody trips on the informal label again.
 
@@ -286,7 +286,68 @@ A NaN `time_to_soi` fails the `elif`, falls into the rails fallback, leaves `nat
 
 **Blast radius (honest).** The change alters the shared coast decision on exactly one frame class: a blind `time_to_soi` while the game is warping with a native warp armed. B11 flight 2 never took that frame (0 cancels in its coast), so its FULL PASS profile is unaffected. B5/B7 have no logs on hand to prove the same, but the change can only stop a valid warp being thrown away - it never makes a coast slower or lets one warp past a boundary (the target is still `soi_arrival - soi_lead`, and arrival still hands back at 1x). One pre-existing cell (`test_coast_rails_intent_cancels_active_native_warp_first`) constructed exactly the flipped frame; it now exercises the blind-and-NOT-warping frame, and the new `test_coast_blind_soi_read_under_warp_holds_the_command` covers the flipped one.
 
-**Expected re-fly signature (B12 flight 3).** COAST-TO-TARGET after round 2 (ut ~74,228): ONE `action warp_to_ut 267644.669`, `coastWarpIssues=1`, ZERO `cancel_warp`, rails climbing past 1000x toward the 100,000x tier that is legal at those Kerbin altitudes, and the coast's ~193,400 game seconds passing in the low hundreds of wall seconds. Then TARGET-FLYBY in the Minmus SOI, PLAN-CAPTURE, CAPTURE-BURN (MechJeb's ~600 s 1x pre-ignition hold, `nodeExec=1`, no flake), the capture burn flipping the apoapsis positive, PARK, ORBIT-COMMIT, ORBIT-COMMITTED. The result's `warpUtilisation` block should show COAST-TO-TARGET at hundreds of game-seconds per wall-second with `warpCommands` in single digits.
+**CONFIRMED by flight 3 (2026-07-25), spectacularly.** COAST-TO-TARGET went from never-finishing to **26 wall seconds** for 194,704 game seconds (ratio 7,543) on **3** warp commands, and the mission reached a capture burn for the first time. The new `warpUtilisation` block earned its keep immediately: it named the NEXT defect at a glance (TARGET-FLYBY at ratio 5,341, see the next entry). `coastWarpIssues` behaved.
+
+**Predicted re-fly signature (for the record, observed).** COAST-TO-TARGET after round 2 (ut ~74,228): ONE `action warp_to_ut 267644.669`, `coastWarpIssues=1`, ZERO `cancel_warp`, rails climbing past 1000x toward the 100,000x tier that is legal at those Kerbin altitudes, and the coast's ~193,400 game seconds passing in the low hundreds of wall seconds. Then TARGET-FLYBY in the Minmus SOI, PLAN-CAPTURE, CAPTURE-BURN (MechJeb's ~600 s 1x pre-ignition hold, `nodeExec=1`, no flake), the capture burn flipping the apoapsis positive, PARK, ORBIT-COMMIT, ORBIT-COMMITTED. The result's `warpUtilisation` block should show COAST-TO-TARGET at hundreds of game-seconds per wall-second with `warpCommands` in single digits.
+
+### B12 flight 3 (2026-07-25) - TARGET-FLYBY warped straight through periapsis [FIXED in the SHARED machine, branch `autotest-orbit-missions`]
+
+**The third shared B5/B6/B7 defect this lane has surfaced, and the first one whose fix CHANGES a live-proven mission's profile (B11 owes a confirmation re-fly).**
+
+**What flew.** The coast fix worked: the mission cleared both correction rounds, crossed to Minmus and reached a CAPTURE-BURN. It then failed the capture window with `capture under-burn (executor wedged with the node still pending; ap=324973 pe=5267 ecc=0.710 is not a bound orbit inside [pe>=10000, ap<=1500000, ecc<=0.25])` - a bound but wildly eccentric 325 x 5.3 km orbit that grazes Minmus (radius 60 km). **The machine did not lie:** the bound-orbit gate did exactly its job and rejected it.
+
+**The metric found it in one glance.** The `warpUtilisation` block added the previous day:
+
+| phase | wall | game | game/wall | warpCmds |
+|---|---|---|---|---|
+| CORRECTION-BURN | 40 s | 73,723 s | 1,834 | 1 |
+| COAST-TO-TARGET | 26 s | 194,704 s | 7,543 | 3 |
+| **TARGET-FLYBY** | **2 s** | **8,213 s** | **5,341** | **2** |
+| CAPTURE-BURN | 138 s | 152 s | 1 | 0 |
+
+A flyby phase warping 8,213 game seconds at 5,341x is the whole diagnosis on one line.
+
+**The evidence.** The entire TARGET-FLYBY phase was FOUR polls:
+
+```
+phase COAST-TO-TARGET -> TARGET-FLYBY ut=268934.528 alt=1902523.981 ap=-223466.427 vsurf=-236.331
+gate captureArmStreak 0->1 | ut=272841.058 alt=976633.488  warp=RAILSx10000.000
+action set_rails_warp value=5.000
+gate captureArmStreak 1->2 | ut=276530.313 alt=98531.240   warp=RAILSx5860.077
+action set_rails_warp value=5.000
+phase TARGET-FLYBY -> PLAN-CAPTURE     ut=277147.541 alt=41609 vsurf=+92   (CLIMBING)
+```
+
+The FIRST poll after entry advanced **3,907 game seconds** on its own; the second advanced 3,689 more while the commanded factor-5 rails was still ramping down from 10,000x. By the time the 3-frame arming debounce completed, periapsis was behind us.
+
+**ROOT CAUSE, two compounding parts, both in the shared machine.**
+
+1. **The COAST -> TARGET-FLYBY handoff emitted no warp cleanup.** `if snapshot.body == state.params.target_body: return _b5_enter(state, B5_TARGET_FLYBY, snapshot.ut, peak), []` - so the craft crossed the SOI boundary still running the coast's native warp (the fixed coast now legitimately reaches RAILSx10000, which made this latent hazard fatal).
+2. **Capture mode had no periapsis bound at all.** With the SOI-EXIT native warp suppressed (`not state.params.capture_enabled`), the branch fell through to the rails flyby stair:
+
+```python
+pe_ref = (max(snapshot.periapsis, 0.0) if _is_finite(snapshot.periapsis) else 0.0)
+stair = rails_factor_for_distance(snapshot.altitude - pe_ref, snapshot.vertical_speed,
+                                  state.params.flyby_max_warp_factor)
+desired = min(max(state.params.flyby_warp_factor, stair),
+              max_legal_rails_factor(snapshot.body, snapshot.altitude))
+```
+
+That is an ALTITUDE-DISTANCE stair with a factor FLOOR (`max(flyby_warp_factor, stair)`), and nothing in it consults the periapsis CLOCK. At the rates a cross-SOI arrival carries, and around a small body whose warp-altitude limits permit high rates close in, it cannot brake in time - and the floor forbids it from reaching 1x even if it wanted to.
+
+**Why B11 (Mun) passed - forgiving geometry, not a different code path.** B11 flight 2 entered TARGET-FLYBY at ut 16,411.0 and reached PLAN-CAPTURE at ut 16,497.8: **87 game seconds**, because its coast handed over at a modest rate rather than 10,000x, so the 3-frame arming debounce cost almost nothing. Same code, same hazard, luckier entry state. That is exactly the question worth asking of every "it passed" - and the answer here was "by luck".
+
+**The fix.**
+- `mlib.capture_flyby_warp_target` (pure) - inside the target SOI in capture mode the ONLY legitimate warp target is `periapsis_ut - CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS`, computed from the ORBIT's own clock (`Orbit.TimeToPeriapsis`, surface-verified against the installed krpc 0.5.4 client, opt-in `read_periapsis` so every other mission's snapshot stays byte-identical). Past the bound, or with the clock unreadable, it returns None and the machine does NOT warp at all - fail closed, 1x is slow but correct and the flyby budget bounds it. This REPLACES the rails stair in capture mode.
+- The lead is **900 s**, sized to cover in order: our 3-frame arming debounce + the PLAN-CAPTURE RPC (tens of game seconds on the 10x plan hold), MechJeb's ignition lead (`_ignitionUT = node.UT - halfBurnTime`, ~10-60 s for this burn class) and MechJeb's own 600 s pre-ignition WARPALIGN hold. The asymmetry is deliberate: stopping early costs a little low-warp coast that MechJeb's executor autowarp then flies, stopping late loses the pass outright.
+- The COAST -> TARGET-FLYBY handoff STOPS the inherited warp on the transition frame in capture mode (cancel a native warp, else drop a held rails factor). Flyby missions keep the byte-identical no-action handoff - passing periapsis IS the point for B5/B6/B7.
+- The arrived-late backstop from flight 1 (re-plan once, then `capture-window-missed`) is unchanged and stays the genuine exception path it was meant to be.
+
+**Blast radius.** Both changes are gated on `capture_enabled`, which is False for B5/B6/B7, and the new snapshot field is opt-in, so the flyby family is byte-identical (a cell asserts the unchanged handoff). **B11 IS affected and owes a confirmation re-fly:** its TARGET-FLYBY now warps to `periapsis_ut - 900` instead of riding the stair, so PLAN-CAPTURE moves from ~87 game seconds after SOI entry to ~900 s before periapsis. The outcome should be identical - MechJeb still plans circularize-at-periapsis for the same node UT and still runs its ~600 s hold - and the wall cost should drop (we warp the ~4,240 s approach instead of MechJeb's executor autowarp), but the profile moved on a LIVE-PROVEN mission, so it needs one flight to confirm.
+
+**On MechJeb's pre-ignition hold (CAPTURE-BURN 138 wall / 152 game, ratio 1).** Not a bug, and deliberately NOT fought. The hold ends when `AlignedAndSettled()` is true, which is `Aligned()` (angle < 1 deg) AND `Core.vessel.angularVelocity.magnitude < 0.001` rad/s - and that angular velocity is driven by MechJeb's OWN attitude controller. Nothing we can do makes the craft settle faster without taking attitude control away from the executor, which is precisely fighting it. The one clean, non-fighting lever is enabling RCS so MechJeb's controller has finer authority to null the residual rate (B11 flight 1 sat at 0.003 rad/s, 3x the threshold), but that costs monopropellant and can only be proven by a live A/B - it is a dedicated experiment, not a change to make on speculation. What the periapsis bound DOES guarantee is that the hold is now deterministically at most ~600 game seconds instead of an open-ended cost.
+
+**Expected re-fly signature (B12 flight 4).** TARGET-FLYBY entered just inside the Minmus SOI: ONE `action cancel_warp` on the transition frame, then a single `action warp_to_ut` at `periapsis_ut - 900` and `ttPe=` visible on the telemetry line. The phase's `warpUtilisation` row should read a HIGH ratio with 1-2 warp commands but END ~900 game seconds before periapsis with the craft still DESCENDING (vsurf negative). Then the arming debounce at low warp, PLAN-CAPTURE with a healthy periapsis clock, CAPTURE-BURN with `nodeExec=1` and MechJeb's ~600 s hold, the burn flipping the apoapsis into the capture window, PARK, ORBIT-COMMIT, ORBIT-COMMITTED. `captureReplans=0` (the arrived-late path should now be the exception it was designed to be).
 
 ## B-DOCK station + interceptor dock / transfer / undock (bdock_dock_transfer) [BUILT, pending forge run + first flight, branch `autotest-bdock-impl`; design `docs/dev/design-autotest-bdock-missions.md`]
 

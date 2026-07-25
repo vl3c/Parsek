@@ -67,7 +67,7 @@ def make_control() -> mission_runner.MissionControl:
     # UNREAD sentinel and the capture supervisor grants no executor verdict.
     return mission_runner.KrpcMissionControl(
         use_mechjeb=True, client_name=MISSION_NAME, read_docking=True,
-        read_node_executor=True)
+        read_node_executor=True, read_periapsis=True)
 
 
 SPEC = mission_runner.MissionSpec(
