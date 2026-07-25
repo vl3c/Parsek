@@ -7583,6 +7583,63 @@ def warp_utilisation_row(phase: str, wall_seconds: float, game_seconds: float,
     }
 
 
+def should_dump_gate_flip_window(now: float, last_dump: Optional[float],
+                                 interval: float) -> bool:
+    """Rate-limit gate-flip event-window dumps to at most one per ``interval``
+    WALL seconds (measured amplifier, 2026-07-25).
+
+    MEASURED: results/2026-07-25_0103_B12-minmus-orbit_mission.stdout.log is
+    43 MB / 181,786 lines, of which 144,561 (79.5%) are ``window[NN/20]``
+    payload from 7,218 gate-flip dumps -- 7,207 of them triggered by the single
+    field ``gate warpToCmd`` while the coast thrashed its own warp. Even a
+    HEALTHY B5 run spends 721 of 1,431 lines (50%) on window payload carrying
+    only 209 unique frames (71% duplication), because consecutive dumps re-emit
+    an overlapping slice of the same ring.
+
+    Only ``gate-flip`` is rate-limited. ``phase-transition``, ``terminal-*``,
+    ``vessel-lost`` and the give-up dumps stay unconditional: those are sparse
+    by construction and are the ones a post-mortem actually needs. The ``gate
+    warpToCmd`` line ITSELF is untouched (it was informative in replay); it is
+    the 20-line dump behind it that is the amplifier.
+
+    Pure: ``last_dump`` None (no dump yet this flight) always admits.
+    """
+    if last_dump is None:
+        return True
+    if not (_is_finite(now) and _is_finite(last_dump) and _is_finite(interval)):
+        return True
+    return (now - last_dump) >= interval
+
+
+def wall_budget_block(now: float, deadline: Optional[float],
+                      wall_budget: Optional[float]) -> Dict:
+    """The live WALL accounting for the status payload (audit finding G1).
+
+    Every phase budget in this system is GAME time; there was no WALL budget
+    anywhere in the live surface. A B12 run consequently died on
+    ``mission-budget-expired`` after burning 57% of its wall budget in ONE
+    phase while every displayed budget read ~7.5% consumed. The fly loop
+    already holds both numbers (``deadline`` and the ``--budget`` it was spawned
+    with); this just shapes them.
+
+    Returns ``{wallElapsedSeconds, wallRemainingSeconds, wallBudgetSeconds}``
+    with None for anything not derivable (no deadline / no budget). Pure.
+    """
+    remaining: Optional[float] = None
+    elapsed: Optional[float] = None
+    budget: Optional[float] = None
+    if _is_finite(wall_budget):
+        budget = round(float(wall_budget), 3)
+    if _is_finite(now) and _is_finite(deadline):
+        remaining = round(float(deadline) - float(now), 3)
+        if budget is not None:
+            # wall_start = deadline - budget; elapsed = now - wall_start.
+            elapsed = round(float(budget) - (float(deadline) - float(now)), 3)
+    return {"wallElapsedSeconds": elapsed,
+            "wallRemainingSeconds": remaining,
+            "wallBudgetSeconds": budget}
+
+
 def build_mission_result(
     mission: str,
     verdict: str,

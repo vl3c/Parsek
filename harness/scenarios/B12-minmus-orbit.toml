@@ -116,10 +116,22 @@ id = "B12-minmus-orbit"
 # was never burned - the flake was the shared aim-then-warp budget defect
 # described above, fixed in mlib. (The capture / park / commit tail was unproven
 # on this body at the time; flights 4 and 5 have since flown it green, so this
-# entry is history, not an open gap.) Fly B11 FIRST when re-baselining - it is
-# the shorter coast, so it prices the capture tail in ~20 wall-minutes instead of
-# ~30, and every B11 finding transfers here unchanged (the B5 -> B6 relationship,
-# repeated). B11 is LIVE-PROVEN as of 2026-07-25.
+# entry is history, not an open gap.) Every B11 finding transfers here unchanged
+# (the B5 -> B6 relationship, repeated). B11 is LIVE-PROVEN as of 2026-07-25.
+#
+# FLY B12 FIRST WHEN RE-BASELINING, NOT B11 - CORRECTED 2026-07-25 AGAINST
+# MEASURED DATA. This block used to say "Fly B11 FIRST ... it is the shorter
+# coast, so it prices the capture tail in ~20 wall-minutes instead of ~30". That
+# was BACKWARDS, and it stayed backwards across four measured runs each because
+# nothing durable compared two runs of the same scenario (fixed: the committed
+# harness/coverage/duration.json). MEASURED PASS wall seconds:
+#   B11-mun-orbit     1315 / 1319 / 1317 / 1317   p50 1317 s = ~22 wall-minutes
+#   B12-minmus-orbit   627 /  627 /  627 /  626   p50  627 s = ~10.5 wall-minutes
+# B12 is HALF the wall cost. The intuition behind the old claim (Minmus is the
+# longer COAST in game time) is true and irrelevant: the Minmus coast is one
+# continuous native warp of ~26 wall seconds, while the Mun's CAPTURE-BURN eats
+# 642 wall seconds in MechJeb's 1x pre-ignition hold - a GAME-time span costs
+# almost nothing in wall once it warps, and a 1x hold costs wall at 1:1.
 #
 # ID NOTE: see B11-mun-orbit.toml. The roadmap's informal "B8" label for this
 # lane collides with the catalog's existing B8/B9/B10 rows, so the ORBIT lane is

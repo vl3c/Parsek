@@ -770,17 +770,19 @@ class DriveResult:
         # M-B1: the one mission-kind step's outcome row (design "Mission result"
         # driver.steps row), or None for a seam-only driver.
         self.mission_step: Optional[Dict] = None
+        # The mission's OWN wallSeconds, read out of the mission-result JSON the
+        # mission step already parses (audit finding G6). None when the mission
+        # never ran / wrote no readable result.
+        self.mission_wall_seconds: Optional[float] = None
 
 
-def _read_mission_verdict(result_path: str) -> Optional[str]:
-    """Read the mission-result JSON and return its ``verdict`` string, or None when
-    the file is absent / unparseable / carries the WRONG schema / carries no string
-    verdict (design edge 12: a missing or unreadable result fails closed via
-    hlib.classify_mission_step(None)). The ``schema`` gate (design Backward
+def _read_mission_result(result_path: str) -> Optional[Dict]:
+    """The mission-result JSON as a dict, or None when the file is absent /
+    unparseable / carries the WRONG schema. The ``schema`` gate (design Backward
     Compatibility: "a schema bump makes the harness refuse an old artifact ...
-    rather than mis-parse") makes run.py refuse a result whose top-level ``schema``
-    is not the one it understands, so a future/legacy mission-result shape is
-    treated as unreadable tooling-mission rather than silently mis-read."""
+    rather than mis-parse") makes run.py refuse a result whose top-level
+    ``schema`` is not the one it understands, so a future/legacy mission-result
+    shape is treated as unreadable rather than silently mis-read."""
     if not os.path.isfile(result_path):
         return None
     try:
@@ -792,8 +794,40 @@ def _read_mission_verdict(result_path: str) -> Optional[str]:
         return None
     if obj.get("schema") != MISSION_RESULT_SCHEMA:
         return None
+    return obj
+
+
+def _read_mission_verdict(result_path: str) -> Optional[str]:
+    """The mission result's ``verdict`` string, or None when the result is
+    absent / unreadable / carries no string verdict (design edge 12: a missing
+    or unreadable result fails closed via hlib.classify_mission_step(None))."""
+    obj = _read_mission_result(result_path)
+    if obj is None:
+        return None
     v = obj.get("verdict")
     return v if isinstance(v, str) else None
+
+
+def _read_mission_wall_seconds(result_path: str) -> Optional[float]:
+    """The mission's OWN measured wall span, for the harness-vs-mission residue
+    (audit finding G6).
+
+    ``harness wallSeconds - missionWallSeconds`` is the whole non-flight cost of
+    a run in one subtraction: KSP boot, LoadGame, the SetSetting steps, the
+    verifier chain, FlushAndQuit, collect-logs. The audit MEASURED that residue
+    at a stable 40-67 s across 16 archived runs (KSP boot ~35 s + verifier chain
+    ~10 s), which is why the seven individual call sites are deliberately NOT
+    instrumented: the subtraction already bounds them, and every extra timer is
+    a permanent maintenance cost for a quantity that does not move. If the
+    residue ever climbs past ~120 s, THAT is the signal to go instrument the
+    call sites -- not before."""
+    obj = _read_mission_result(result_path)
+    if obj is None:
+        return None
+    wall = obj.get("wallSeconds")
+    if isinstance(wall, (int, float)) and not isinstance(wall, bool):
+        return float(wall)
+    return None
 
 
 def _forward_mission_stdout(stdout_path: str, logger: HarnessLogger) -> None:
@@ -989,6 +1023,13 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
                            "missionVerdict": verdict, "met": met, "subkind": subkind or ""}
     if expiry_reason:
         result.mission_step["reason"] = expiry_reason
+    # G6: carry the mission's own wall span up to the harness result so the
+    # harness-vs-mission residue is a subtraction, not an investigation.
+    result.mission_wall_seconds = _read_mission_wall_seconds(result_path)
+    if result.mission_wall_seconds is not None:
+        logger.info("Mission", "mission wall=%.0fs (harness residue = run "
+                               "wallSeconds - this: KSP boot + verifier chain)"
+                    % result.mission_wall_seconds)
     _log_handoff_return(logger, step_index, verdict, met, subkind or "")
     return False
 
@@ -2156,6 +2197,13 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
         "startedUtc": started,
         "endedUtc": ended,
         "wallSeconds": wall,
+        # G6: the mission subprocess's own wall span (None on a seam-only run /
+        # a mission that wrote no readable result). wallSeconds minus this IS
+        # the harness overhead; see _read_mission_wall_seconds.
+        "missionWallSeconds": (int(round(drive.mission_wall_seconds))
+                               if drive is not None
+                               and drive.mission_wall_seconds is not None
+                               else None),
         "attempt": attempt,
         "verdict": verdict.verdict,
         "subkind": verdict.subkind,
@@ -2185,7 +2233,12 @@ def _extract_collect_path(stdout: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 
-def write_result(result: Dict, logger: HarnessLogger) -> None:
+def write_result(result: Dict, logger: HarnessLogger,
+                 append_summary: bool = True) -> None:
+    """Persist one result record. ``append_summary=False`` re-writes the JSON
+    WITHOUT a second summary.txt line -- used by the per-scenario cost pass,
+    which enriches an already-written result and must not double the rolling
+    summary for every run."""
     os.makedirs(RESULTS_DIR, exist_ok=True)
     text = hlib.serialize_result(result)
     path = os.path.join(RESULTS_DIR, "%s.json" % result["runId"])
@@ -2208,6 +2261,8 @@ def write_result(result: Dict, logger: HarnessLogger) -> None:
             logger.error("Result", "result write failed: %s; emitted to stdout+log" % exc)
             print(text)
 
+    if not append_summary:
+        return
     summary = "%s %s %s attempt=%d wall=%ds%s" % (
         result["endedUtc"], result["verdict"], result["scenarioId"], result["attempt"],
         result["wallSeconds"], (" note=%s" % result["note"]) if result.get("note") else "")
@@ -2283,6 +2338,27 @@ def refresh_coverage_and_flake(specs: Sequence[Dict], registry: Dict,
                         % (sid, fr.rate))
     with open(flake_path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(json.dumps(flake_out, sort_keys=True, indent=2) + "\n")
+
+    # Cross-run DURATION record (audit finding G5). Committed, unlike
+    # coverage.json / flake.json: it is a few hundred bytes and it IS the
+    # history -- results/*.json, results/summary.txt and every *.log are
+    # gitignored, so without this nothing durable knows how long a scenario
+    # takes and a backwards ordering claim can sit in a spec unnoticed across
+    # four measured runs (it did).
+    durations = hlib.compute_durations(results)
+    with open(os.path.join(COVERAGE_DIR, "duration.json"), "w",
+              encoding="utf-8", newline="\n") as fh:
+        fh.write(json.dumps({"schema": hlib.SCHEMA_VERSION,
+                             "scenarios": durations},
+                            sort_keys=True, indent=2) + "\n")
+    for sid in hlib.duration_regressions(durations):
+        entry = durations[sid]
+        logger.warn("Duration", "duration regression scenario=%s last=%.0fs "
+                                "p50=%.0fs p95=%.0fs n=%d lastVsP50=%.2fx"
+                    % (sid, entry["last"], entry["p50"], entry["p95"],
+                       entry["n"], entry["lastVsP50"]))
+    logger.info("Duration", "duration record scenarios=%d (PASS results only) -> %s"
+                % (len(durations), os.path.join(COVERAGE_DIR, "duration.json")))
 
     logger.info("Coverage", "coverage: values=%d covered=%d uncovered=%d expectedFail=%d xpass=%d"
                 % (report.rollup["values"], report.rollup["covered"], report.rollup["uncovered"],
@@ -2447,14 +2523,27 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
 
 
 def _run_scenario_with_retry(spec, instance_dir, umbrella_root, runtime, logger) -> Dict:
+    """Run a scenario with the spec's retry policy and return the LAST attempt's
+    result, enriched with ``attemptsWallSeconds`` (audit finding G6).
+
+    Before this, each attempt wrote its own result and nothing summed them, so
+    B7-duna burning 794 + 776 = 1,570 wall seconds across two INVALID attempts
+    and producing nothing was traceable only as two unrelated summary lines.
+    """
     retry_policy = (spec.get("retry", {}) or {}).get("policy", "once")
     attempts: List[hlib.Verdict] = []
     last_result = None
     prior_boot_crashed = False
+    attempts_wall = 0.0
+    attempts_run = 0
     for attempt in (1, 2):
         result = run_attempt(spec, instance_dir, umbrella_root, runtime, attempt,
                              prior_boot_crashed, logger)
         last_result = result
+        attempts_run += 1
+        wall = result.get("wallSeconds")
+        if isinstance(wall, (int, float)) and not isinstance(wall, bool):
+            attempts_wall += float(wall)
         v = hlib.Verdict(result["verdict"], result.get("subkind", ""), False,
                          "", result.get("expectedFail", {}).get("matched", False),
                          result.get("note", ""))
@@ -2466,11 +2555,21 @@ def _run_scenario_with_retry(spec, instance_dir, umbrella_root, runtime, logger)
                     % (spec.get("id"), result["verdict"]))
 
     terminal = hlib.resolve_terminal(attempts)
-    if terminal.note == "flakedThenPassed" and last_result is not None:
+    flaked_then_passed = (terminal.note == "flakedThenPassed"
+                          and last_result is not None)
+    if flaked_then_passed:
         last_result["note"] = "flakedThenPassed"
-        write_result(last_result, logger)
         logger.info("Classify", "verdict=PASS scenario=%s reason=flakedThenPassed (attempt-1 INVALID)"
                     % spec.get("id"))
+    if last_result is not None:
+        last_result["attemptsWallSeconds"] = int(round(attempts_wall))
+        # Re-write the enriched record. The summary line is appended ONLY on
+        # the flakedThenPassed path (which is what it always did); the plain
+        # path already wrote its summary line inside run_attempt and must not
+        # write a second one.
+        write_result(last_result, logger, append_summary=flaked_then_passed)
+    logger.info("Cost", "scenario cost attempts=%d wallTotal=%ds terminal=%s"
+                % (attempts_run, int(round(attempts_wall)), terminal.verdict))
     return last_result
 
 

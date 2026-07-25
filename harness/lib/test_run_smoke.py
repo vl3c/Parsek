@@ -662,6 +662,11 @@ class AutopilotHandoffSmokeTests(unittest.TestCase):
         # The per-attempt mission-result JSON landed under results/.
         mission_json = os.path.join(run.RESULTS_DIR, "%s_mission.json" % result["runId"])
         self.assertTrue(os.path.isfile(mission_json))
+        # G6: the mission's own wall span rides the harness result, so the
+        # harness-vs-mission residue (KSP boot + verifier chain) is a plain
+        # subtraction rather than an investigation. The fake mission reports 1.
+        self.assertEqual(1, result["missionWallSeconds"])
+        self.assertIsNotNone(result["wallSeconds"])
 
     def test_mission_assert_fail_is_invalid_mission_retryable(self):
         """(b) The mission writes MISSION-ASSERT-FAIL -> INVALID(mission),
@@ -847,6 +852,102 @@ class ReadMissionVerdictSchemaGateTests(unittest.TestCase):
     def test_no_verdict_is_none(self):
         p = self._write({"schema": run.MISSION_RESULT_SCHEMA})
         self.assertIsNone(run._read_mission_verdict(p))
+
+    def test_mission_wall_seconds_shares_the_schema_gate(self):
+        """G6: the wall read goes through the SAME schema gate as the verdict
+        read, so a future/legacy result cannot leak a mis-scaled duration."""
+        ok = self._write({"schema": run.MISSION_RESULT_SCHEMA,
+                          "verdict": "MISSION-OK", "wallSeconds": 580.826})
+        self.assertAlmostEqual(580.826, run._read_mission_wall_seconds(ok))
+        bad = self._write({"schema": 2, "wallSeconds": 580.826})
+        self.assertIsNone(run._read_mission_wall_seconds(bad))
+        nowall = self._write({"schema": run.MISSION_RESULT_SCHEMA})
+        self.assertIsNone(run._read_mission_wall_seconds(nowall))
+        self.assertIsNone(run._read_mission_wall_seconds(
+            os.path.join(self.tmp, "nope.json")))
+
+
+class ScenarioCostAccountingTests(unittest.TestCase):
+    """G6: each attempt wrote its own result and NOTHING summed them, so
+    B7-duna burning 794 + 776 = 1,570 wall seconds across two INVALID attempts
+    and producing nothing was traceable only as two unrelated summary lines."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-cost-")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        self.lines = []
+        self.logger = run.HarnessLogger(
+            os.path.join(run.RESULTS_DIR, "cost_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _drive(self, verdicts, walls):
+        """Run _run_scenario_with_retry over a stubbed run_attempt."""
+        calls = {"n": 0}
+        orig = run.run_attempt
+
+        def fake_attempt(spec, instance_dir, umbrella_root, runtime, attempt,
+                         prior_boot_crashed, logger):
+            i = calls["n"]
+            calls["n"] += 1
+            return {"schema": hlib.SCHEMA_VERSION,
+                    "runId": "2026-07-25_0100_S1%s" % ("_a2" if attempt == 2 else ""),
+                    "scenarioId": "S1", "endedUtc": "2026-07-25T01:00:00Z",
+                    "verdict": verdicts[i],
+                    # A RETRYABLE subkind so attempt 1 actually retries (the
+                    # B7-duna case was INVALID(mission)).
+                    "subkind": "mission" if verdicts[i] == "INVALID" else "",
+                    "note": "",
+                    "wallSeconds": walls[i], "attempt": attempt,
+                    "expectedFail": {"bugId": "", "matched": False}}
+
+        run.run_attempt = fake_attempt
+        try:
+            return run._run_scenario_with_retry(
+                {"id": "S1", "retry": {"policy": "once"}}, self.tmp, self.tmp,
+                None, self.logger), calls["n"]
+        finally:
+            run.run_attempt = orig
+
+    def _summary_lines(self):
+        path = os.path.join(run.RESULTS_DIR, "summary.txt")
+        if not os.path.isfile(path):
+            return []
+        with open(path, "r", encoding="utf-8") as fh:
+            return [l for l in fh.read().splitlines() if l.strip()]
+
+    def test_two_invalid_attempts_sum_into_one_number(self):
+        # The measured B7-duna case: 794 + 776 = 1,570 s for nothing.
+        result, attempts = self._drive(["INVALID", "INVALID"], [794, 776])
+        self.assertEqual(2, attempts)
+        self.assertEqual(1570, result["attemptsWallSeconds"])
+
+    def test_single_attempt_records_its_own_cost(self):
+        result, attempts = self._drive(["PASS", "PASS"], [627, 627])
+        self.assertEqual(1, attempts)
+        self.assertEqual(627, result["attemptsWallSeconds"])
+
+    def test_plain_path_does_not_double_the_rolling_summary(self):
+        """The enrichment re-write must not append a second summary.txt line
+        for every run (write_result(append_summary=False))."""
+        self._drive(["PASS", "PASS"], [627, 627])
+        self.assertEqual(0, len(self._summary_lines()),
+                         "the stubbed run_attempt writes no summary; the cost "
+                         "re-write must not add one either")
+
+    def test_flaked_then_passed_still_records_its_note_line(self):
+        result, attempts = self._drive(["INVALID", "PASS"], [300, 620])
+        self.assertEqual(2, attempts)
+        self.assertEqual("flakedThenPassed", result["note"])
+        self.assertEqual(920, result["attemptsWallSeconds"])
+        summary = self._summary_lines()
+        self.assertEqual(1, len(summary), summary)
+        self.assertIn("note=flakedThenPassed", summary[0])
 
 
 class RequirementsCanonicalizationTests(unittest.TestCase):

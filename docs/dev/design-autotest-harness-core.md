@@ -381,6 +381,8 @@ guessing.
   "startedUtc": "2026-07-12T18:30:04Z",
   "endedUtc":   "2026-07-12T18:36:56Z",
   "wallSeconds": 412,
+  "missionWallSeconds": 380,
+  "attemptsWallSeconds": 412,
   "attempt": 1,
   "verdict": "PASS",
   "admission": { "admitted": true, "diff": [] },
@@ -432,6 +434,23 @@ grep-friendly, one line per value:
 `flake.json`: per `(scenarioId, driverStage)`, a rolling 7-day window of attempt
 outcomes and the computed flake rate, with a `quarantined` bool set when the rate
 exceeds 20% over the week (plan section 10).
+
+**ADDED 2026-07-25 (telemetry audit): `harness/coverage/duration.json`, and it is
+COMMITTED.** Per scenario, `{n, p50, p95, last, lastVsP50}` over PASS results
+only (`hlib.compute_durations`; an INVALID that died on a budget or a KILLED
+reaped at the wall bound measures the BOUND, not the scenario), with a Warn when
+`last > 1.5 * p50` at 3+ samples (`hlib.duration_regressions`). It is the ONLY
+durable cross-run duration history - `results/*.json`, `results/summary.txt` and
+every `*.log` are gitignored - and the gap was not theoretical: the B12 spec
+header claimed B11 was the shorter run for four measured runs each while B11
+read p50 1,317 s and B12 read p50 627 s. Three per-run duration fields ride the
+result record for the same reason: `missionWallSeconds` (the mission
+subprocess's own span, read through the same schema gate as the verdict) so
+`wallSeconds - missionWallSeconds` IS the harness overhead in one subtraction
+(MEASURED stable at 40-67 s over 16 runs: KSP boot ~35 s + verifier chain ~10 s,
+which is why the individual call sites are deliberately not instrumented), and
+`attemptsWallSeconds` (the sum across retry attempts) with a per-scenario
+`scenario cost attempts=N wallTotal=Xs terminal=Y` Info line.
 
 ### Results layout decision (harness/results vs ../logs)
 

@@ -1583,6 +1583,115 @@ class CoverageTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Cross-run duration record (2026-07-25 telemetry audit, finding G5).
+# ---------------------------------------------------------------------------
+
+
+def _dresult(scenario, verdict, wall, ended):
+    return {"schema": hlib.SCHEMA_VERSION, "scenarioId": scenario,
+            "verdict": verdict, "wallSeconds": wall, "endedUtc": ended}
+
+
+class DurationRecordTests(unittest.TestCase):
+    """Guards the record that did not exist: nothing durable knew how long a
+    scenario takes, so the B12 spec claimed B11 was the SHORTER run for four
+    measured runs each while B11 read 1315-1319 s and B12 read 626-627 s."""
+
+    def _b12(self):
+        return [_dresult("B12-minmus-orbit", "PASS", w,
+                         "2026-07-25T0%d:00:00Z" % i)
+                for i, w in enumerate((627, 627, 627, 626), start=1)]
+
+    def test_measured_b11_vs_b12_medians_are_the_real_ordering(self):
+        b11 = [_dresult("B11-mun-orbit", "PASS", w,
+                        "2026-07-25T0%d:00:00Z" % i)
+               for i, w in enumerate((1315, 1319, 1317, 1317), start=1)]
+        d = hlib.compute_durations(b11 + self._b12())
+        self.assertEqual(d["B11-mun-orbit"]["n"], 4)
+        self.assertEqual(d["B12-minmus-orbit"]["n"], 4)
+        # B11 is the LONGER scenario, the opposite of what the spec claimed.
+        self.assertGreater(d["B11-mun-orbit"]["p50"],
+                           d["B12-minmus-orbit"]["p50"])
+        self.assertEqual(d["B12-minmus-orbit"]["p50"], 627.0)
+        self.assertEqual(d["B12-minmus-orbit"]["last"], 626.0)
+
+    def test_non_pass_results_are_excluded(self):
+        """An INVALID that died on a budget measures the BOUND, not the
+        scenario; folding it in would drag the median toward the timeout."""
+        rows = self._b12() + [
+            _dresult("B12-minmus-orbit", "INVALID", 4200, "2026-07-25T09:00:00Z"),
+            _dresult("B12-minmus-orbit", "KILLED", 4700, "2026-07-25T10:00:00Z"),
+        ]
+        d = hlib.compute_durations(rows)
+        self.assertEqual(d["B12-minmus-orbit"]["n"], 4)
+        self.assertEqual(d["B12-minmus-orbit"]["last"], 626.0)
+
+    def test_single_sample_is_its_own_percentiles_and_never_warns(self):
+        d = hlib.compute_durations(
+            [_dresult("S1", "PASS", 500, "2026-07-25T01:00:00Z")])
+        self.assertEqual(d["S1"], {"n": 1, "p50": 500.0, "p95": 500.0,
+                                   "last": 500.0, "lastVsP50": 1.0})
+        self.assertEqual(hlib.duration_regressions(d), [])
+
+    def test_too_few_samples_never_warns_even_on_a_huge_outlier(self):
+        rows = [_dresult("S1", "PASS", 500, "2026-07-25T01:00:00Z"),
+                _dresult("S1", "PASS", 5000, "2026-07-25T02:00:00Z")]
+        d = hlib.compute_durations(rows)
+        self.assertEqual(d["S1"]["n"], 2)
+        self.assertGreater(d["S1"]["lastVsP50"], hlib.DURATION_WARN_FACTOR)
+        self.assertEqual(hlib.duration_regressions(d), [])  # n < 3
+
+    def test_outlier_last_warns_once_enough_samples_exist(self):
+        rows = [_dresult("S1", "PASS", 600, "2026-07-25T01:00:00Z"),
+                _dresult("S1", "PASS", 600, "2026-07-25T02:00:00Z"),
+                _dresult("S1", "PASS", 600, "2026-07-25T03:00:00Z"),
+                _dresult("S1", "PASS", 1800, "2026-07-25T04:00:00Z")]
+        d = hlib.compute_durations(rows)
+        self.assertEqual(d["S1"]["p50"], 600.0)
+        self.assertEqual(d["S1"]["last"], 1800.0)
+        self.assertEqual(d["S1"]["lastVsP50"], 3.0)
+        self.assertEqual(hlib.duration_regressions(d), ["S1"])
+
+    def test_warn_boundary_is_strictly_greater_than_the_factor(self):
+        # last == exactly 1.5 * p50 does NOT warn; a hair over does.
+        at = [_dresult("S1", "PASS", 100, "2026-07-25T01:00:00Z"),
+              _dresult("S1", "PASS", 100, "2026-07-25T02:00:00Z"),
+              _dresult("S1", "PASS", 150, "2026-07-25T03:00:00Z")]
+        d = hlib.compute_durations(at)
+        self.assertEqual(d["S1"]["lastVsP50"], 1.5)
+        self.assertEqual(hlib.duration_regressions(d), [])
+        over = at[:2] + [_dresult("S1", "PASS", 151, "2026-07-25T03:00:00Z")]
+        self.assertEqual(hlib.duration_regressions(hlib.compute_durations(over)),
+                         ["S1"])
+
+    def test_last_is_by_ended_utc_not_input_order(self):
+        rows = [_dresult("S1", "PASS", 900, "2026-07-25T03:00:00Z"),
+                _dresult("S1", "PASS", 600, "2026-07-25T01:00:00Z"),
+                _dresult("S1", "PASS", 600, "2026-07-25T02:00:00Z")]
+        d = hlib.compute_durations(rows)
+        self.assertEqual(d["S1"]["last"], 900.0)
+
+    def test_malformed_rows_are_skipped(self):
+        rows = [{"verdict": "PASS", "wallSeconds": 10},              # no id
+                {"scenarioId": "S1", "verdict": "PASS"},             # no wall
+                {"scenarioId": "S1", "verdict": "PASS",
+                 "wallSeconds": "600"},                              # not numeric
+                _dresult("S1", "PASS", 600, "2026-07-25T01:00:00Z")]
+        d = hlib.compute_durations(rows)
+        self.assertEqual(d["S1"]["n"], 1)
+
+    def test_empty_input_yields_an_empty_record(self):
+        self.assertEqual(hlib.compute_durations([]), {})
+        self.assertEqual(hlib.duration_regressions({}), [])
+
+    def test_percentile_is_nearest_rank(self):
+        vals = [1.0, 2.0, 3.0, 4.0]
+        self.assertEqual(hlib._percentile(vals, 50.0), 2.0)
+        self.assertEqual(hlib._percentile(vals, 95.0), 4.0)
+        self.assertEqual(hlib._percentile([7.0], 95.0), 7.0)
+
+
+# ---------------------------------------------------------------------------
 # Flake computation + quarantine.
 # ---------------------------------------------------------------------------
 

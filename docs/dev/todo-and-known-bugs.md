@@ -509,6 +509,112 @@ Built per the design (implementation-PR decisions taken as recommended):
 
 Operator-requested after the B5/B6 diagnostic pattern (grep the newest mission stdout, sample rate-limited telemetry, INFER machine state) nearly hid two defect classes (the finding-12 single-frame attitude transient; the over-cap plan-removal loop that reads as a silent 1x hang). Phase 1 (supervisor-side, stdlib-only): `harness/status.py` renders one live panel from the existing artifacts - phase + time-in-phase vs budget, decoded telemetry, sparse events, phase history, and a heuristic "what is it doing / why might it look stuck" line (named the 2026-07-22_1210 over-cap block instantly in replay); `--watch/--raw/--run/--head`. Phase 2 (mission-side): a 5 s rate-limited `machine ...` decision-state line (incl. `planAttempts`/`bodyBlank`), a trailing `ut=` telemetry token, loud `gate <field> a->b | <snapshot values>` lines on every machine latch flip (single-frame transients visible by definition), a 20-frame ring-buffer `window dump` on transition/flake/vessel-lost/gate-flip, the classify=fly accepted-plan event, and an atomic best-effort `results/<runId>_status.json` every ~2 s that status.py prefers over log parsing. Pure helpers in mlib (`format_machine_state`/`diff_machine_state`/`format_snapshot_compact`/`snapshot_dict`/`machine_state_dict`), unit-tested; the fly loop only performs the I/O. Watch item: confirm live log-volume stays under the ~2x estimate on the next operator flight.
 
+### Telemetry audit 2026-07-25: six things the runner MEASURED and never SHOWED [FIXED, branch `autotest-orbit-missions`]
+
+An audit of the live surface after the ORBIT lane closed. Nothing here is a new
+subsystem; every one of the six is a number the runner was already computing
+and then discarding. The framing defect: **every phase budget in this system is
+GAME time, and there was no WALL budget anywhere in the live surface.**
+
+1. **No wall accounting at all.** MEASURED: a B12 run died on
+   `mission-budget-expired` after burning **57% of its wall budget in ONE
+   phase** while every displayed budget read ~7.5% consumed. The per-phase WALL
+   was already measured exactly (`mission_runner._WarpUtilisation` closes a row
+   on every phase exit; its rows summed to 467.87 s against a `wallSeconds` of
+   468.009 on a real B5 run) and simply never shown, compared, or remembered.
+   FIXED: `mlib.wall_budget_block` publishes
+   `wallElapsedSeconds`/`wallRemainingSeconds`/`wallBudgetSeconds`/`phaseWallSeconds`
+   into the status payload, and `status.py` prints
+   `mission wall: 39m39s / 1h10m (57%) | phase wall 39m39s` instead of the old
+   denominator-free `wall ~N (telemetry-line est.)`. The estimate stays as the
+   fallback for an older/stale status file. SEPARATE BUG found while fixing it:
+   `status.py load_mission_params` read only `[driver.missionParams]` and never
+   `driver.steps[].budget`, which is where the wall budget (4200) actually
+   lives - so the panel could not have known the denominator even in principle.
+
+2. **`gameSecondsPerWallSecond` had ZERO programmatic consumers.** The number
+   that named two shared-machine warp defects at a glance was end-of-run only
+   (built by mlib, asserted by one unit test, quoted in three docs, read by
+   nothing). FIXED: a ratio column on the phase-history rows, the OPEN phase's
+   live `phaseWarp` block in the status payload, and a LOW marker.
+   **The threshold is informational BY CONSTRUCTION and that is the finding:**
+   the measured thrash reads ~40 while MechJeb's legitimate 600 s pre-ignition
+   hold reads **7.96**, so the ratio alone CANNOT separate broken from
+   deliberate. Marking on ratio alone would fire on every 1x phase and mean
+   nothing. The marker therefore requires BOTH `>= 120 s wall` and
+   `< 100 game-s per wall-s` - "this phase cost real wall and bought almost no
+   game time" - which on a healthy B11 run names exactly four rows (MJ-ASCENT
+   199 s, TRANSFER-BURN 129 s, CAPTURE-BURN 642 s, PARK 180 s = 91% of its
+   non-warp wall). Three of those four are legitimate by design. No new give-up
+   was added: `warp_liveness_starved` already owns the BROKEN case.
+
+3. **`PHASE_BUDGET_KEYS` was blind to the entire ORBIT tail.** The table covered
+   8 phases; `PLAN-CAPTURE`/`CAPTURE-BURN`/`PARK`/`ORBIT-COMMIT` were missing
+   even though their keys exist in both specs, and `derive_heuristic` had no
+   branch for them - so **B11's CAPTURE-BURN, the single most expensive phase in
+   the whole suite at 642 wall seconds, printed `budget n/a`**. FIXED: all four
+   keys plus the B1 / B4 / EVA-4 / FORGE / B-DOCK phases, each mirroring mlib's
+   own `_*_phase_budget` dispatcher (a phase name that collides across machines
+   maps to the same param key everywhere, which is what makes one flat table
+   sound; B-DOCK's `TRANSFER` carries the 2x multiplier mlib applies). Four new
+   heuristic branches read `captureExecDownStreak` / `parkStableStreak` /
+   `nodeExec`, from the status file's machine block or the `machine ...` log
+   line. A test cell asserts every table key is defined by a committed spec, so
+   no invented keys. NO missing-but-undefined keys were found.
+
+4. **The ring dump is an unbounded log amplifier.** MEASURED:
+   `results/2026-07-25_0103_B12-minmus-orbit_mission.stdout.log` is **43 MB /
+   181,786 lines**, of which **144,561 (79.5%)** are `window[NN/20]` payload
+   from **7,218** gate-flip dumps - **7,207 of them triggered by the single
+   field `gate warpToCmd`** while the coast thrashed its warp. Even a HEALTHY B5
+   run spends **721 of 1,431 lines (50%)** on window payload carrying only 209
+   unique frames (**71% duplication**), because consecutive dumps re-emit an
+   overlapping slice of the same ring. The repo had already fixed this exact
+   class once, for `park_stable_streak`. FIXED: `gate-flip` dumps only are
+   rate-limited to one per **10 s** = `RING_BUFFER_FRAMES * POLL_INTERVAL_SECONDS`,
+   the ring's own span, so admitted dumps carry contiguous non-overlapping
+   history (a shorter gap duplicates, a longer one drops). `phase-transition`,
+   `terminal-*`, `vessel-lost` and the give-up dumps stay unconditional; the
+   `gate warpToCmd` LINE is untouched (it was informative in replay); one
+   batch-summary line per flight names how many dumps were suppressed, emitted
+   from a `finally` so it covers all five exit paths plus the exception unwind.
+
+5. **No cross-run duration record.** `flake.json` tracked `{total, numerator,
+   rate, quarantined}` and nothing tracked duration, and every artifact that
+   carried one is gitignored (`results/*.json`, `results/summary.txt`, `*.log`,
+   `coverage/*`). CONSEQUENCE MEASURED: the B12 spec header claimed "Fly B11
+   FIRST ... it prices the capture tail in ~20 wall-minutes instead of ~30",
+   while every archived run says the opposite - **B11 PASS wall 1315 / 1319 /
+   1317 / 1317 (p50 1,317 s), B12 PASS wall 627 / 627 / 627 / 626 (p50 627 s)**.
+   Backwards across four measured runs each, unnoticed, because nothing durable
+   ever compared two runs of the same scenario. The intuition behind the claim
+   (Minmus is the longer coast in GAME time) is true and irrelevant: a game-time
+   span costs almost nothing in wall once it warps, while a 1x hold costs wall
+   at 1:1, so the Mun's 642 s pre-ignition hold outweighs the Minmus coast.
+   FIXED: `hlib.compute_durations` / `duration_regressions` (pure) +
+   `harness/coverage/duration.json`, **COMMITTED** (a few hundred bytes, and
+   regenerating it requires re-flying the suite), PASS results only - an INVALID
+   that died on a budget measures the BOUND, not the scenario. Warns at
+   `last > 1.5 * p50` with a 3-sample floor (the measured run-to-run spread is
+   0.2-0.3%, so 1.5x is far outside noise). The B12 spec claim is corrected;
+   `autotest-status.md` did NOT repeat it (its B12 row already said, correctly,
+   that B12 is the cheaper of the two).
+
+6. **Retry cost was never summed.** `_run_scenario_with_retry` wrote each
+   attempt's result and returned the last; no scenario total was logged.
+   MEASURED: B7-duna burned **794 + 776 = 1,570 s across two INVALID attempts**
+   and produced nothing, traceable only as two unrelated summary lines. FIXED:
+   one `scenario cost attempts=N wallTotal=Xs terminal=Y` Info line plus
+   `attemptsWallSeconds` on the terminal result (re-written with
+   `append_summary=False` so the rolling summary does not double). The result
+   also carries `missionWallSeconds`, read from the mission JSON the mission
+   step already parses through the same schema gate as the verdict read, so
+   **the harness-vs-mission residue is a subtraction**. That residue MEASURED at
+   a stable **40-67 s across 16 runs** (KSP boot ~35 s + verifier chain ~10 s),
+   which is why the seven individual call sites are deliberately NOT
+   instrumented - the subtraction bounds them, and a residue past ~120 s is the
+   signal to go look, not a reason to add seven permanent timers now.
+
 ## First end-to-end harness run fixes: H5 walk contract + S0.5 discard sidecar residue [BUILT, branch `autotest-s05-autorecord-pin`]
 
 The first daily-cadence composition run against merged main (2026-07-19; S1.4 PASS, S0.6 PASS) surfaced two reds:

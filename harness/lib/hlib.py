@@ -41,6 +41,7 @@ ASCII only; stdlib only (plus provlib, the M-A6 pure sibling, for admission).
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -2404,6 +2405,112 @@ def _parse_iso(ts: str) -> Optional[datetime]:
         return datetime.fromisoformat(ts.replace("Z", "+00:00"))
     except (ValueError, TypeError):
         return None
+
+
+# ---------------------------------------------------------------------------
+# Cross-run DURATION record (2026-07-25 telemetry audit, finding G5).
+#
+# flake.json tracked {total, numerator, rate, quarantined} and NOTHING about how
+# long a scenario takes, and every artifact that carried a duration was
+# gitignored (results/*.json, results/summary.txt, coverage/*), so no durable
+# cross-run history existed at all.
+#
+# MEASURED CONSEQUENCE: the B12 spec header claimed "Fly B11 FIRST ... it prices
+# the capture tail in ~20 wall-minutes instead of ~30", while every archived run
+# says the opposite -- B11 PASS wall 1315 / 1319 / 1317 / 1317 s, B12 PASS wall
+# 627 / 627 / 627 / 626 s. Backwards across four runs each, unnoticed, because
+# nothing ever compared two runs of the same scenario.
+#
+# duration.json IS the history and is COMMITTED (it is a few hundred bytes and
+# regenerating it requires re-flying the suite).
+# ---------------------------------------------------------------------------
+
+# A scenario needs at least this many PASS samples before a slow run is worth
+# warning about. With 1 sample last == p50 by construction; with 2 a single
+# outlier moves the median enough to make the ratio meaningless.
+DURATION_MIN_SAMPLES = 3
+# last > factor * p50 warns. 1.5x is well outside the measured run-to-run
+# spread: B12's four passes span 626-627 s (0.2%) and B11's four span
+# 1315-1319 s (0.3%), so anything approaching 1.5x is a real change, not noise.
+DURATION_WARN_FACTOR = 1.5
+
+
+def _percentile(values: Sequence[float], pct: float) -> float:
+    """Nearest-rank percentile over a NON-EMPTY sorted-able sequence. Chosen
+    over interpolation because it always returns a value that was actually
+    measured, and it is exact for n == 1. Pure."""
+    ordered = sorted(float(v) for v in values)
+    if not ordered:
+        raise ValueError("percentile of an empty sequence")
+    rank = int(math.ceil((pct / 100.0) * len(ordered)))
+    rank = min(max(rank, 1), len(ordered))
+    return ordered[rank - 1]
+
+
+def compute_durations(results: Sequence[Dict]) -> Dict[str, Dict]:
+    """Per-scenario PASS wall-duration record: ``{scenarioId: {n, p50, p95,
+    last, lastVsP50}}``.
+
+    PASS results ONLY: an INVALID that died on a budget or a KILLED that was
+    reaped at the wall bound measures the BOUND, not the scenario, and folding
+    those in would drag the median toward the timeout. ``last`` is the most
+    recent PASS by ``endedUtc``. ``lastVsP50`` is None when p50 is 0 (a
+    degenerate all-zero record) so the caller never divides by zero.
+
+    Pure; ``run.py`` owns the I/O. See ``duration_regressions`` for the warn.
+    """
+    by_scenario: Dict[str, List[Tuple[str, float]]] = {}
+    for result in results or []:
+        if (result or {}).get("verdict") != VERDICT_PASS:
+            continue
+        sid = result.get("scenarioId")
+        wall = result.get("wallSeconds")
+        if not sid or not isinstance(wall, (int, float)) or isinstance(wall, bool):
+            continue
+        if not math.isfinite(float(wall)):
+            continue
+        by_scenario.setdefault(str(sid), []).append(
+            (_result_utc(result), float(wall)))
+
+    out: Dict[str, Dict] = {}
+    for sid, rows in sorted(by_scenario.items()):
+        # UTC ISO-8601 string compare is immune to tz/DST (design edge 26);
+        # the original index is the stable tiebreaker for identical timestamps.
+        ordered = [row[1][1] for row in sorted(enumerate(rows),
+                                               key=lambda p: (p[1][0], p[0]))]
+        values = [w for _utc, w in rows]
+        p50 = _percentile(values, 50.0)
+        p95 = _percentile(values, 95.0)
+        last = ordered[-1]
+        out[sid] = {
+            "n": len(values),
+            "p50": round(p50, 3),
+            "p95": round(p95, 3),
+            "last": round(last, 3),
+            "lastVsP50": (round(last / p50, 3) if p50 > 0.0 else None),
+        }
+    return out
+
+
+def duration_regressions(durations: Dict[str, Dict],
+                         warn_factor: float = DURATION_WARN_FACTOR,
+                         min_samples: int = DURATION_MIN_SAMPLES) -> List[str]:
+    """The scenario ids whose LAST PASS ran more than ``warn_factor`` times the
+    median, once at least ``min_samples`` PASS samples exist. Sorted, pure.
+
+    The min-samples gate is what keeps this from crying on a scenario's second
+    ever green run, where the median is one sample away from the value it is
+    being compared against.
+    """
+    hits: List[str] = []
+    for sid, entry in sorted((durations or {}).items()):
+        if int(entry.get("n", 0)) < min_samples:
+            continue
+        ratio = entry.get("lastVsP50")
+        if isinstance(ratio, (int, float)) and not isinstance(ratio, bool) \
+                and math.isfinite(float(ratio)) and float(ratio) > warn_factor:
+            hits.append(sid)
+    return hits
 
 
 def compute_flake(

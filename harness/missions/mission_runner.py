@@ -141,6 +141,15 @@ MACHINE_STATE_INTERVAL_SECONDS = 5.0
 # is a ~10 s flight-data-recorder window dumped once on transition / flake /
 # vessel-lost / gate-flip.
 RING_BUFFER_FRAMES = 20
+# Minimum WALL gap between two GATE-FLIP window dumps (audit finding G4). Sized
+# at exactly the ring's own span -- RING_BUFFER_FRAMES * POLL_INTERVAL_SECONDS
+# = 10.0 s -- so consecutive admitted dumps carry CONTIGUOUS, non-overlapping
+# history: no frame is emitted twice and no frame between two dumps is lost.
+# A shorter gap re-emits frames the previous dump already carried (the measured
+# 71% duplication on a healthy run); a longer one would drop frames that fell
+# out of the ring. Only gate-flip dumps are limited; see
+# mlib.should_dump_gate_flip_window for the measured amplification.
+GATE_FLIP_WINDOW_DUMP_INTERVAL_SECONDS = RING_BUFFER_FRAMES * POLL_INTERVAL_SECONDS
 # Live status file rewrite cadence (2d): results/<runId>_status.json,
 # atomic tmp+os.replace, best-effort (never blocks the fly loop).
 STATUS_WRITE_INTERVAL_SECONDS = 2.0
@@ -2299,6 +2308,7 @@ def fly_loop(
     allow_rails_warp: bool = False,
     max_physics_warp: float = 0.0,
     status_writer: Optional[StatusFileWriter] = None,
+    wall_budget: Optional[float] = None,
 ):
     """Drive a mission's ``mlib`` phase machine to completion, bounded by BOTH the
     machine's per-phase budgets (inside ``decide``) AND a wall-clock ``deadline``
@@ -2322,7 +2332,12 @@ def fly_loop(
     samples a bounded SETTLE-TAIL of ``settle_frames`` more snapshots before
     returning, so the assertion evaluators' K-consecutive debounce has settled
     orbit data (design guardrails: sample only after warp settles, require K
-    consecutive in-tolerance snapshots). A flake terminal skips the settle-tail."""
+    consecutive in-tolerance snapshots). A flake terminal skips the settle-tail.
+
+    ``wall_budget`` is the ``--budget`` the deadline was derived from, carried
+    ONLY so the live status file can publish wall elapsed / remaining / budget
+    (audit finding G1). It bounds nothing on its own -- ``deadline`` is still
+    the sole authority for the wall reaper."""
     state = initial_state
     frames: List = []
     # Seed the exception-state slot immediately: without this, a raise BEFORE
@@ -2333,7 +2348,7 @@ def fly_loop(
     try:
         return _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                               poll_interval, settle_frames, allow_rails_warp, max_physics_warp, frames,
-                              status_writer)
+                              status_writer, wall_budget)
     except Exception as exc:
         # Preserve the ADVANCED machine state for the shell's error result:
         # without this a mid-flight kRPC error reported phasesReached=[] even
@@ -2350,6 +2365,17 @@ def fly_loop(
         if wu is not None:
             wu.close(wu.last_ut)
         raise
+    finally:
+        # G4 batch summary: ONE line naming how many gate-flip window dumps
+        # were emitted vs suppressed, on EVERY exit path (the five returns, the
+        # terminal break and the exception unwind), so the rate limit is never
+        # silent. Best-effort like every other observability write here.
+        limiter = _FLY_LOOP_GATE_DUMPS
+        if limiter is not None:
+            try:
+                log.info("Window", limiter.summary_message())
+            except Exception:  # noqa: BLE001 -- observability never breaks a flight
+                pass
 
 
 # The loop body publishes its current state here each frame so the fly_loop
@@ -2425,15 +2451,59 @@ class _WarpUtilisation:
 _FLY_LOOP_WU: Optional[_WarpUtilisation] = None
 
 
+class _GateFlipDumpLimiter:
+    """Rate limiter + batch counter for GATE-FLIP event-window dumps (audit
+    finding G4). Held as an OBJECT and published module-side for the same
+    reason ``_WarpUtilisation`` is: the fly loop has five exit paths (wall
+    budget, warp flake, warp-liveness flake, terminal break, exception unwind)
+    and the suppression summary must be emitted on ALL of them, so ``fly_loop``
+    logs it from a ``finally``.
+
+    Batch-counting convention: no per-item log inside the loop, one summary
+    line after it, so the suppression is never silent.
+    """
+
+    def __init__(self, interval: float = GATE_FLIP_WINDOW_DUMP_INTERVAL_SECONDS) -> None:
+        self.interval = float(interval)
+        self.last_dump: Optional[float] = None
+        self.emitted = 0
+        self.suppressed = 0
+
+    def admit(self, now: float) -> bool:
+        """True when this gate-flip dump may be emitted; counts either way."""
+        if mlib.should_dump_gate_flip_window(now, self.last_dump, self.interval):
+            self.last_dump = now
+            self.emitted += 1
+            return True
+        self.suppressed += 1
+        return False
+
+    def summary_message(self) -> str:
+        return ("gate-flip window dumps emitted=%d suppressed=%d "
+                "(rate limit %.1fs; phase-transition / terminal / vessel-lost "
+                "dumps are never suppressed)"
+                % (self.emitted, self.suppressed, self.interval))
+
+
+# The live gate-flip limiter, published for the fly_loop wrapper's summary.
+_FLY_LOOP_GATE_DUMPS: Optional[_GateFlipDumpLimiter] = None
+
+
 def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                    poll_interval, settle_frames, allow_rails_warp, max_physics_warp, frames,
-                   status_writer=None):
+                   status_writer=None, wall_budget=None):
     warp_violations = 0
     # Event-window ring buffer (design-live-observability 2c): the last
     # RING_BUFFER_FRAMES raw snapshots in compact one-line form, dumped ONCE
     # at Verbose on transition / flake / vessel-lost / gate-flip so the
     # frames BETWEEN rate-limited telemetry samples are recoverable post-hoc.
     ring: deque = deque(maxlen=RING_BUFFER_FRAMES)
+    # GATE-FLIP window-dump rate limiter (audit finding G4). Published FIRST so
+    # the fly_loop wrapper's finally can never log a PRIOR flight's suppression
+    # counts if anything below raises during setup.
+    global _FLY_LOOP_GATE_DUMPS
+    gate_dumps = _GateFlipDumpLimiter()
+    _FLY_LOOP_GATE_DUMPS = gate_dumps
     # WARP-UTILISATION accounting (B12 flight 2): wall + game span and warp
     # commands issued per phase. Reset here so a retried mission never
     # inherits a prior attempt's rows.
@@ -2660,13 +2730,19 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         elif gate_changes:
             dump_reason = "gate-flip"
         if dump_reason is not None:
-            _dump_event_window(log, state.phase, ring, dump_reason)
+            # G4: gate-flip is the ONLY rate-limited trigger. Everything else
+            # here (terminal-*, vessel-lost, phase-transition) is sparse by
+            # construction and stays unconditional.
+            if dump_reason != "gate-flip" or gate_dumps.admit(clock()):
+                _dump_event_window(log, state.phase, ring, dump_reason)
         # LIVE STATUS FILE (2d): atomic best-effort rewrite every ~2 s; the
         # builder only runs when the write is due, and every failure is
         # swallowed inside maybe_write (never blocks the fly loop).
         if status_writer is not None:
             status_writer.maybe_write(
-                lambda: _build_status_payload(status_writer, state, snapshot))
+                lambda: _build_status_payload(status_writer, state, snapshot,
+                                              deadline=deadline, clock=clock,
+                                              wall_budget=wall_budget, wu=wu))
         if state.done:
             _wu_close(snapshot.ut if math.isfinite(snapshot.ut) else None)
             break
@@ -2710,10 +2786,22 @@ def _dump_event_window(log, phase: str, ring, reason: str) -> None:
 
 
 def _build_status_payload(status_writer: "StatusFileWriter", state,
-                          snapshot) -> Dict:
+                          snapshot, deadline: Optional[float] = None,
+                          clock: Optional[Callable[[], float]] = None,
+                          wall_budget: Optional[float] = None,
+                          wu: Optional["_WarpUtilisation"] = None) -> Dict:
     """The live status-file payload (design 2d): static base fields + phase +
-    machine-state dict + decoded snapshot + the last sparse events. Pure
-    apart from the wall timestamp."""
+    machine-state dict + decoded snapshot + the last sparse events, PLUS the
+    WALL accounting (audit finding G1) and the OPEN phase's live warp
+    utilisation (G2). Pure apart from the wall timestamp.
+
+    Why the wall block is here: every phase budget in this system is GAME time,
+    so a mission could burn 57% of its WALL budget in one phase while every
+    displayed budget read ~7.5% consumed -- which is exactly how a B12 run died
+    on ``mission-budget-expired`` with no warning anywhere in the live surface.
+    ``deadline`` and ``wall_budget`` are the two numbers the fly loop was
+    already holding; nothing new is measured.
+    """
     payload = dict(status_writer.base)
     payload["schema"] = 1
     payload["wallWritten"] = time.time()
@@ -2722,6 +2810,21 @@ def _build_status_payload(status_writer: "StatusFileWriter", state,
     verdict = getattr(state, "verdict", None)
     if verdict is not None:
         payload["verdict"] = verdict
+    now = clock() if clock is not None else None
+    payload.update(mlib.wall_budget_block(
+        now if now is not None else float("nan"), deadline, wall_budget))
+    # G2: the OPEN phase's live {wall, game, ratio}. Same row shape the mission
+    # result's per-phase warpUtilisation block uses, so the live number and the
+    # post-hoc number are the same quantity read at different times.
+    phase_wall: Optional[float] = None
+    if wu is not None and now is not None and wu.open:
+        phase_wall = round(now - wu.wall_start, 3)
+        game = ((float(snapshot.ut) - wu.ut_start)
+                if (wu.ut_start is not None and math.isfinite(snapshot.ut))
+                else float("nan"))
+        payload["phaseWarp"] = mlib.warp_utilisation_row(
+            wu.phase, now - wu.wall_start, game, wu.warp_cmds)
+    payload["phaseWallSeconds"] = phase_wall
     payload["machine"] = mlib.machine_state_dict(state, snapshot.ut)
     payload["snapshot"] = mlib.snapshot_dict(snapshot)
     payload["events"] = list(status_writer.recent_events)
@@ -2880,7 +2983,8 @@ def run_mission(
                                          settle_frames=spec.settle_frames,
                                          allow_rails_warp=spec.allow_rails_warp,
                                          max_physics_warp=spec.max_physics_warp,
-                                         status_writer=status_writer)
+                                         status_writer=status_writer,
+                                         wall_budget=float(budget))
                 phases_reached = list(state.phases_reached)
                 outcomes = spec.evaluate(frames, params, state)
                 for o in outcomes:

@@ -403,6 +403,27 @@ class FakeFlightInstrumentationTests(unittest.TestCase):
             # The tee captured sparse Info lines, not telemetry samples.
             self.assertTrue(all("] telemetry " not in e
                                 for e in status["events"]))
+            # G1: the WALL block rides every status write. The fake flight is
+            # spawned with budget 600 and a FakeClock, so the numbers are exact
+            # in shape (present, finite, budget verbatim) even though the fake
+            # clock makes elapsed tiny.
+            self.assertEqual(status["wallBudgetSeconds"], 600.0)
+            self.assertIsNotNone(status["wallElapsedSeconds"])
+            self.assertIsNotNone(status["wallRemainingSeconds"])
+            self.assertAlmostEqual(
+                status["wallElapsedSeconds"] + status["wallRemainingSeconds"],
+                600.0, places=3)
+            self.assertIsNotNone(status["phaseWallSeconds"])
+            # G2: the OPEN phase's live warp row.
+            self.assertIn("phaseWarp", status)
+            self.assertIn("gameSecondsPerWallSecond", status["phaseWarp"])
+            self.assertEqual(status["phaseWarp"]["phase"], status["phase"])
+            # G4: exactly ONE gate-flip suppression summary per flight, and no
+            # phase-transition dump was suppressed.
+            summaries = [l for l in lines
+                         if "gate-flip window dumps emitted=" in l]
+            self.assertEqual(len(summaries), 1, summaries)
+            self.assertIn("[Window]", summaries[0])
 
     def test_status_file_skipped_for_hermetic_tests(self):
         """writer-injected runs (the existing test_shells pattern) create NO
@@ -425,6 +446,88 @@ class FakeFlightInstrumentationTests(unittest.TestCase):
             writer=lambda p, t: captured.append((p, t)))
         self.assertEqual(code, 0)
         self.assertFalse(os.path.exists("unused/x_status.json"))
+
+
+class GateFlipDumpRateLimitTests(unittest.TestCase):
+    """G4: the gate-flip window dump is the measured log amplifier (7,218
+    dumps / 144,561 payload lines on ONE B12 run, 79.5% of a 43 MB log).
+    ``mlib.should_dump_gate_flip_window`` is the whole decision."""
+
+    def test_first_dump_is_always_admitted(self):
+        self.assertTrue(mlib.should_dump_gate_flip_window(0.0, None, 10.0))
+        self.assertTrue(mlib.should_dump_gate_flip_window(12345.0, None, 10.0))
+
+    def test_dump_inside_the_interval_is_suppressed(self):
+        self.assertFalse(mlib.should_dump_gate_flip_window(105.0, 100.0, 10.0))
+        self.assertFalse(mlib.should_dump_gate_flip_window(100.5, 100.0, 10.0))
+
+    def test_boundary_admits(self):
+        # >= interval, so the boundary itself is a dump (contiguous, not
+        # overlapping, ring coverage).
+        self.assertTrue(mlib.should_dump_gate_flip_window(110.0, 100.0, 10.0))
+        self.assertTrue(mlib.should_dump_gate_flip_window(110.1, 100.0, 10.0))
+
+    def test_non_finite_inputs_fail_open(self):
+        """Observability must never suppress on a clock fault: a NaN admits."""
+        nan = float("nan")
+        self.assertTrue(mlib.should_dump_gate_flip_window(nan, 100.0, 10.0))
+        self.assertTrue(mlib.should_dump_gate_flip_window(110.0, nan, 10.0))
+        self.assertTrue(mlib.should_dump_gate_flip_window(110.0, 100.0, nan))
+
+    def test_limiter_counts_both_sides_and_summarizes(self):
+        limiter = mission_runner._GateFlipDumpLimiter(interval=10.0)
+        self.assertTrue(limiter.admit(0.0))       # first
+        self.assertFalse(limiter.admit(1.0))      # inside
+        self.assertFalse(limiter.admit(9.9))      # inside
+        self.assertTrue(limiter.admit(10.0))      # boundary
+        self.assertEqual((limiter.emitted, limiter.suppressed), (2, 2))
+        msg = limiter.summary_message()
+        self.assertIn("emitted=2", msg)
+        self.assertIn("suppressed=2", msg)
+
+    def test_interval_matches_the_ring_span(self):
+        """The interval IS the ring's own span, so consecutive admitted dumps
+        carry contiguous non-overlapping history."""
+        self.assertEqual(
+            mission_runner.GATE_FLIP_WINDOW_DUMP_INTERVAL_SECONDS,
+            mission_runner.RING_BUFFER_FRAMES
+            * mission_runner.POLL_INTERVAL_SECONDS)
+
+
+class WallBudgetBlockTests(unittest.TestCase):
+    """G1: the WALL accounting the live surface never had. A B12 run died on
+    mission-budget-expired after burning 57% of its wall budget in one phase
+    while every displayed (GAME) budget read ~7.5% consumed."""
+
+    def test_elapsed_remaining_and_budget(self):
+        block = mlib.wall_budget_block(now=100.0, deadline=4300.0,
+                                       wall_budget=4200.0)
+        self.assertEqual(block["wallBudgetSeconds"], 4200.0)
+        self.assertEqual(block["wallRemainingSeconds"], 4200.0)
+        self.assertEqual(block["wallElapsedSeconds"], 0.0)
+
+    def test_mid_run_split_sums_to_the_budget(self):
+        # The measured incident: 2,394 s of a 4,200 s wall budget consumed.
+        block = mlib.wall_budget_block(now=2394.0, deadline=4200.0,
+                                       wall_budget=4200.0)
+        self.assertEqual(block["wallElapsedSeconds"], 2394.0)
+        self.assertEqual(block["wallRemainingSeconds"], 1806.0)
+        self.assertEqual(block["wallElapsedSeconds"]
+                         + block["wallRemainingSeconds"], 4200.0)
+
+    def test_missing_budget_still_yields_remaining(self):
+        block = mlib.wall_budget_block(now=10.0, deadline=100.0,
+                                       wall_budget=None)
+        self.assertIsNone(block["wallBudgetSeconds"])
+        self.assertIsNone(block["wallElapsedSeconds"])
+        self.assertEqual(block["wallRemainingSeconds"], 90.0)
+
+    def test_no_deadline_yields_all_none_but_keeps_the_budget(self):
+        block = mlib.wall_budget_block(now=float("nan"), deadline=None,
+                                       wall_budget=4200.0)
+        self.assertEqual(block["wallBudgetSeconds"], 4200.0)
+        self.assertIsNone(block["wallElapsedSeconds"])
+        self.assertIsNone(block["wallRemainingSeconds"])
 
 
 if __name__ == "__main__":
