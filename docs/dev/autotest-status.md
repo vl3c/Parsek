@@ -163,7 +163,9 @@ IMPLEMENTED and headless-green, pending a headless fixture-forge run + its
 first flight. The Mun/Minmus ORBIT lane (B11/B12: capture burn, park, and a
 commit while parked in a FOREIGN SOI) is LIVE-PROVEN on both axes as of
 2026-07-25. Coverage stands at 70 of 239 registry cells claimed by at least one
-scenario, of which 12 have a green run behind them. The 70 is recomputed from
+scenario, of which 58 have a green run behind them; 12 are claimed but never
+green (every one of them from the two un-flown rewind scenarios plus EVA-4's
+`chute-two-phase`). The 70 is recomputed from
 `hlib.compute_coverage` over the committed specs + registry, not carried
 forward: the "52" this sentence used to print had drifted across many spec
 additions (it predates the EVA, B-DOCK and ORBIT lanes), so the ORBIT lane's
@@ -263,15 +265,20 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
 
 ## Verification layers (all active)
 
-- Headless: 592 mission-machine + 483 harness + 203 provisioner unittest
-  cells; 18,647 xUnit on the C# side (analyzer, seam, log contracts, the
-  new route-window delta formatter).
+- Headless: 621 mission-machine + 524 harness + 203 provisioner unittest
+  cells; 18,657 xUnit on the C# side (analyzer, seam, log contracts, the
+  new route-window delta formatter). Re-measure these rather than editing them
+  by memory - `cd harness && python -m unittest discover -s missions/lib -q`
+  (and `-s lib -q`, `-s provision -q`), plus
+  `cd Source/Parsek.Tests && dotnet test`.
 - Per-run: the 7-verifier chain + collect-logs on every non-PASS.
 - In-game: 158 runtime tests / 42 categories (autorun-able), H5 invariants,
   log-contract tests.
 - Findings baseline: 5 historical saves baselined; fresh harness saves run
   baseline-Forbid (structural fresh-save guard).
-- Coverage ledger: 52 / 238 registry cells covered (the growth metric).
+- Coverage ledger: 70 / 239 registry cells claimed, 58 of them with a green
+  run behind them (the growth metric). Recomputed from
+  `harness/coverage/coverage.json`, which is generated + gitignored.
 
 ## Run telemetry - what a live run actually shows you
 
@@ -348,9 +355,12 @@ six publish or compare numbers the runner already measured.
    (`MAX_PHASE_WARP_ISSUES` = 500, counted per phase entry and also armed at the
    correction aim-warp and flyby warp sites as `correction-aim-warp-thrash` /
    `flyby-warp-thrash`) plus the per-phase `warpUtilisation` block and the
-   `warp-liveness-starved` floor that consumes `gameSecondsPerWallSecond`,
-   but the AUDIT itself remains blind to the class - a real gap in an existing
-   gate, not a new instrument.
+   `warp-liveness-starved` floor that consumes `gameSecondsPerWallSecond`
+   (that floor is UNEXERCISED - no archived flight's armed native warp ever
+   reached its 180 wall-second judging window, longest 76.4 s; see the re-fly
+   sweep note under item 2 of the scenario roadmap), but the AUDIT itself
+   remains blind to the class - a real gap in an existing gate, not a new
+   instrument.
 9. ~~B11 / B12 recordings-count windows are PROVISIONAL at {1, 9}~~ **CLOSED
    2026-07-25.** Both are PINNED at `{min 8, max 8}` from
    `verifiers.expectations.observed.recordings.count` on a measured green run
@@ -442,7 +452,20 @@ six publish or compare numbers the runner already measured.
    | B5-mun-flyby | PASS, wall 468.009 s | `flyby-warp-thrash` / `correction-aim-warp-thrash` / `warp-liveness-starved` are new terminals reachable on the flyby family |
    | B6-minmus-flyby | PASS, wall 359.425 s | same |
    None of the three new terminals fired on a healthy flight, so they bound the
-   broken case without narrowing the correct one.
+   broken case without narrowing the correct one - but that sentence carries NO
+   weight for `warp-liveness-starved`, which is UNEXERCISED. Measured from
+   `warpUtilisation` across every archived `harness/results/*_mission.json`, no
+   phase that armed a NATIVE warp ever reached the floor's 180 wall-second
+   minimum judging window: the longest is COAST-TO-TARGET at 76.4 s (B7), then
+   CORRECTION-BURN 69.6 s, TARGET-FLYBY 30.2 s, PLAN-CORRECTION 3.7 s,
+   PLAN-CAPTURE 0.6 s. Not one episode was ever even judged, so "it did not
+   fire" is what the window guarantees, not evidence the floor is tuned. What
+   IS verified is that it stays DISARMED where a long deliberate hold happens:
+   CAPTURE-BURN issues `warpCommands=0` on all ten archived captures (B11 runs
+   ~642 wall-s of MechJeb's own pre-ignition hold there) because
+   `_b5_enter_plan_capture` and PARK entry both clear `warp_to_cmd`. The two
+   thrash terminals are on firmer ground - `action warp_to_ut` counts exactly
+   1 per phase on all four flights above, against a cap of 500.
    ID NOTE: this item was informally called "B8", but B8/B9/B10 are already
    taken in `automated-testing-scenario-catalog.md` section 2 (loop-B7-as-
    mission / crash-rewind-refly / career passive safety) and B3 is the EVA

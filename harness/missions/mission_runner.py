@@ -2623,6 +2623,17 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         # The episode is armed by the MACHINE's own outstanding native warp
         # command, so a deliberate 1x phase can never trip it, and it is reset
         # whenever the command clears (arrival, cancel, phase exit).
+        #
+        # The `wl_ut_start is None` re-stamp closes a FAIL-OPEN hole (2026-07-26
+        # review): if `snapshot.ut` read non-finite on the very frame the
+        # episode armed, the UT baseline was never taken and NO later branch
+        # took it either -- the judging branch requires it non-None -- so the
+        # floor stayed disarmed for the whole episode, until warp_to_cmd
+        # cleared. A liveness guard that fails open on its own arming frame is
+        # worse than no guard, because the roadmap counts it as covering the
+        # shape. The re-stamp also RESETS the wall clock, so the judged window
+        # always starts from a frame with a real UT and can never bill the
+        # blind frames against the ratio.
         armed = getattr(state, "warp_to_cmd", None) is not None
         if not armed:
             wl_wall_start = None
@@ -2631,7 +2642,11 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             wl_wall_start = clock()
             wl_ut_start = (float(snapshot.ut) if math.isfinite(snapshot.ut)
                            else None)
-        elif wl_ut_start is not None and math.isfinite(snapshot.ut):
+        elif wl_ut_start is None:
+            wl_wall_start = clock()
+            wl_ut_start = (float(snapshot.ut) if math.isfinite(snapshot.ut)
+                           else None)
+        elif math.isfinite(snapshot.ut):
             wl_wall = clock() - wl_wall_start
             wl_game = float(snapshot.ut) - wl_ut_start
             if mlib.warp_liveness_starved(wl_game, wl_wall):

@@ -6546,7 +6546,11 @@ class CaptureNeverArmedLivenessTests(unittest.TestCase):
     def test_the_message_distinguishes_a_bad_trajectory_from_a_dark_clock(self):
         """Sub-surface and past-periapsis are FLIGHT outcomes; a dark clock is
         a MACHINE fault. Naming them identically would send an operator to the
-        wrong half of the system."""
+        wrong half of the system.
+
+        Sub-surface additionally differs in VERDICT CLASS -- it is deterministic
+        so it reds as ASSERT-FAIL and carries loss_reason, not flake_reason --
+        which is why that half reads a different field here."""
         state = _b11_state(mlib.B5_TARGET_FLYBY)
         # Sub-surface at HIGH altitude: the impact-certain terminal cannot fire
         # (it needs altitude < IMPACT_WARP_GUARD_ALT), so this run really was
@@ -6556,15 +6560,40 @@ class CaptureNeverArmedLivenessTests(unittest.TestCase):
                 state, self._dark(periapsis=-31_800.0, time_to_periapsis=400.0,
                                   altitude=3 * mlib.IMPACT_WARP_GUARD_ALT))
         self.assertTrue(state.done)
-        self.assertIn(mlib.CAPTURE_ARM_SUBSURFACE, state.flake_reason)
-        self.assertNotIn(mlib.CAPTURE_ARM_BLIND, state.flake_reason)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn(mlib.CAPTURE_ARM_SUBSURFACE, state.loss_reason)
+        self.assertNotIn(mlib.CAPTURE_ARM_BLIND, state.loss_reason)
 
         state = _b11_state(mlib.B5_TARGET_FLYBY)
         for _ in range(mlib.CAPTURE_NEVER_ARMED_FRAMES):
             state, _ = mlib.b5_decide(
                 state, self._dark(periapsis=41_000.0, time_to_periapsis=-120.0))
         self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
         self.assertIn(mlib.CAPTURE_ARM_PAST_PERIAPSIS, state.flake_reason)
+
+    def test_the_give_up_leaves_nothing_warped_behind(self):
+        """Every other terminal in the file cancels on the way out; this one
+        shipped returning actions=[] with warp_to_cmd still armed, so the
+        runner drove StopRecording / CommitTree / FlushAndQuit against a
+        warping game. A periapsis clock still ahead of the capture lead is
+        enough to arm the capture warp, so this shape really did leave one
+        running."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        actions = []
+        for _ in range(mlib.CAPTURE_NEVER_ARMED_FRAMES):
+            state, actions = mlib.b5_decide(
+                state, self._dark(
+                    periapsis=-31_800.0,
+                    time_to_periapsis=(
+                        3 * mlib.CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS),
+                    altitude=3 * mlib.IMPACT_WARP_GUARD_ALT))
+            if not state.done:
+                self.assertIsNotNone(state.warp_to_cmd)
+        self.assertTrue(state.done)
+        self.assertEqual([a.kind for a in actions], [mlib.ACTION_CANCEL_WARP])
+        self.assertIsNone(state.warp_to_cmd)
+        self.assertEqual(state.warp_cmd, 0)
 
     def test_one_ready_frame_resets_the_run(self):
         """A merely jittery clock must not end a live mission: the run is
@@ -6600,6 +6629,86 @@ class CaptureNeverArmedLivenessTests(unittest.TestCase):
         self.assertGreaterEqual(mlib.CAPTURE_NEVER_ARMED_FRAMES,
                                 10 * mlib.CAPTURE_ARM_DEBOUNCE_FRAMES)
         self.assertLessEqual(mlib.CAPTURE_NEVER_ARMED_FRAMES, 100)
+
+    def _descending_subsurface(self, polls=200):
+        """A PHYSICAL sub-surface arrival: SOI entry high and descending, so
+        the altitude falls frame over frame exactly as it does in flight. The
+        sibling tests pin altitude CONSTANT above the impact guard, which
+        cannot happen with a sub-surface periapsis -- they prove the message,
+        not the ordering. This one steps the real thing."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        ut, alt, vspd = 20_000.0, 2_400_000.0, -700.0
+        for _ in range(polls):
+            state, actions = mlib.b5_decide(state, snap(
+                ut=ut, body="Mun", altitude=alt, vertical_speed=vspd,
+                periapsis=-31_800.0,
+                time_to_periapsis=3_000.0 - (ut - 20_000.0)))
+            if state.done:
+                return state, actions, alt
+            ut += 25.0
+            alt += vspd * 25.0
+            vspd -= 2.0
+        self.fail("a descending sub-surface arrival never terminated")
+
+    def test_a_descending_subsurface_arrival_reds_it_does_not_flake(self):
+        """THE ORDERING BUG (2026-07-26 review). This gate runs BEFORE the
+        IMPACT-CERTAIN EARLY TERMINAL in the same branch and on a sub-surface
+        arrival it ALWAYS wins: the arming verdict is False from the FIRST
+        in-SOI frame so this counter starts immediately, while the impact
+        terminal cannot arm until altitude < IMPACT_WARP_GUARD_ALT plus its own
+        debounce. Shipping it as a FLAKE contradicted the policy the same
+        branch states fifteen lines above the arming gate, and mis-classified a
+        FLIGHT outcome as a MACHINE fault (`autopilot-flake` instead of
+        `mission`). It does not change the retry: hlib retries both."""
+        state, _, alt = self._descending_subsurface()
+        # It really did pre-empt: still far above the impact guard's altitude.
+        self.assertGreater(alt, mlib.IMPACT_WARP_GUARD_ALT)
+        self.assertEqual(state.impact_certain_streak, 0)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIsNone(state.flake_reason)
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertEqual(verdict, mlib.MISSION_ASSERT_FAIL)
+        # The operator must read the same diagnosis the impact terminal gives.
+        self.assertIn("impact certain", reason)
+        self.assertIn(mlib.CAPTURE_ARM_SUBSURFACE, reason)
+        self.assertIn("capture-never-armed", reason)
+
+    def test_the_dark_clock_stays_a_retryable_flake(self):
+        """The half that must NOT change class. A dark periapsis clock is a
+        MACHINE fault, not a decided flight outcome, and it is the one shape
+        nothing else in capture mode can end -- so it keeps the fast FLAKE the
+        bound was designed as."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        for i in range(mlib.CAPTURE_NEVER_ARMED_FRAMES):
+            state, _ = mlib.b5_decide(state, self._dark(ut=10.0 + i))
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIsNone(state.loss_reason)
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertEqual(verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.CAPTURE_ARM_BLIND, reason)
+
+    def test_the_impact_terminal_still_owns_a_late_subsurface_turn(self):
+        """The give-up is NOT the impact terminal relocated. A run reset by a
+        ready frame hands the outcome back to the impact terminal, whose
+        5-frame debounce beats this 30-frame one whenever the arrival has
+        already fallen below the impact guard altitude."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        # Healthy above-surface reads keep the unarmed run at zero...
+        state, _ = mlib.b5_decide(state, snap(
+            ut=10.0, body="Mun", altitude=300_000.0, vertical_speed=-400.0,
+            periapsis=90_000.0, time_to_periapsis=600.0))
+        self.assertEqual(state.capture_unarmed_streak, 0)
+        # ...then the periapsis turns sub-surface at low altitude.
+        for i in range(mlib.IMPACT_TERMINAL_DEBOUNCE_FRAMES):
+            state, actions = mlib.b5_decide(state, snap(
+                ut=20.0 + i, body="Mun", altitude=280_000.0 - 1_000.0 * i,
+                vertical_speed=-400.0, periapsis=-5_000.0,
+                time_to_periapsis=500.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("flyby impact certain", state.loss_reason)
+        self.assertLess(state.capture_unarmed_streak,
+                        mlib.CAPTURE_NEVER_ARMED_FRAMES)
 
     def test_capture_mode_warps_only_to_the_periapsis_bound(self):
         """The SOI-EXIT native warp is suppressed in capture mode (warping
@@ -7056,9 +7165,16 @@ class CoastWarpThrashWatchdogTests(unittest.TestCase):
     def test_cap_flakes_with_its_own_name(self):
         state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
                           phase_warp_issues=mlib.MAX_PHASE_WARP_ISSUES)
-        state, _ = mlib.b5_decide(state, snap(
+        state, actions = mlib.b5_decide(state, snap(
             ut=100.0, body="Kerbin", altitude=8_000_000.0,
             time_to_soi=50_000.0))
+        # "Leave nothing warped behind": the frame's own warp_to_ut is
+        # DISCARDED and cancelled instead. The shipped version returned []
+        # with warp_to_cmd still armed, so the runner drove StopRecording /
+        # CommitTree / FlushAndQuit against a warping game.
+        self.assertEqual([a.kind for a in actions], [mlib.ACTION_CANCEL_WARP])
+        self.assertIsNone(state.warp_to_cmd)
+        self.assertEqual(state.warp_cmd, 0)
         self.assertTrue(state.done)
         self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
         self.assertIn(mlib.WARP_THRASH_COAST, state.flake_reason)
@@ -7097,7 +7213,8 @@ class CoastWarpThrashWatchdogTests(unittest.TestCase):
         self.assertTrue(state.done)
         self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
         self.assertIn(mlib.WARP_THRASH_CORRECTION_AIM, state.flake_reason)
-        self.assertEqual(actions, [])
+        self.assertEqual([a.kind for a in actions], [mlib.ACTION_CANCEL_WARP])
+        self.assertIsNone(state.warp_to_cmd)
 
     def test_the_flyby_capture_warp_is_counted_with_its_own_name(self):
         state = _b11_state(mlib.B5_TARGET_FLYBY,
@@ -7108,7 +7225,50 @@ class CoastWarpThrashWatchdogTests(unittest.TestCase):
         self.assertTrue(state.done)
         self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
         self.assertIn(mlib.WARP_THRASH_FLYBY, state.flake_reason)
-        self.assertEqual(actions, [])
+        self.assertEqual([a.kind for a in actions], [mlib.ACTION_CANCEL_WARP])
+        self.assertIsNone(state.warp_to_cmd)
+
+    def test_every_thrash_terminal_leaves_nothing_warped(self):
+        """The standing terminal rule, asserted at all three call sites at
+        once: a give-up frame never hands the runner a live warp. A held RAILS
+        factor with no native command is dropped with set_rails_warp 0 instead
+        (never two warp writers in one frame)."""
+        coast = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
+                          phase_warp_issues=mlib.MAX_PHASE_WARP_ISSUES,
+                          warp_cmd=6)
+        coast, coast_actions = mlib.b5_decide(coast, snap(
+            ut=100.0, body="Kerbin", altitude=8_000_000.0,
+            time_to_soi=50_000.0))
+        flyby = _b11_state(mlib.B5_TARGET_FLYBY,
+                           phase_warp_issues=mlib.MAX_PHASE_WARP_ISSUES,
+                           warp_cmd=5)
+        flyby, flyby_actions = mlib.b5_decide(flyby, snap(
+            ut=10.0, body="Mun", altitude=2_000_000.0, periapsis=900_000.0,
+            time_to_periapsis=5_000.0))
+        for state, actions in ((coast, coast_actions), (flyby, flyby_actions)):
+            self.assertTrue(state.done)
+            self.assertIsNone(state.warp_to_cmd)
+            self.assertEqual(state.warp_cmd, 0)
+            self.assertTrue(
+                actions and actions[-1].kind in (mlib.ACTION_CANCEL_WARP,
+                                                 mlib.ACTION_SET_RAILS_WARP),
+                actions)
+
+    def test_stop_all_warp_drops_a_held_rails_factor(self):
+        """The second half of the teardown: with NO native command armed and
+        no warp reported active, a held rails factor still has to come down."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, warp_cmd=6,
+                          warp_to_cmd=None)
+        stopped, actions = mlib._b5_stop_all_warp(
+            state, snap(ut=10.0, body="Kerbin", warping_to=float("nan")))
+        self.assertEqual([(a.kind, a.value) for a in actions],
+                         [(mlib.ACTION_SET_RAILS_WARP, 0.0)])
+        self.assertEqual(stopped.warp_cmd, 0)
+        # Nothing armed and nothing held: emit nothing at all.
+        idle, idle_actions = mlib._b5_stop_all_warp(
+            _b5_state(mlib.B5_COAST_TO_TARGET, warp_cmd=0, warp_to_cmd=None),
+            snap(ut=10.0, body="Kerbin", warping_to=float("nan")))
+        self.assertEqual(idle_actions, [])
 
     def test_the_three_names_are_distinct(self):
         """'which warp thrashed' is the first question an operator asks."""
@@ -7117,12 +7277,13 @@ class CoastWarpThrashWatchdogTests(unittest.TestCase):
         self.assertEqual(len(names), 3)
 
     def test_cap_is_far_above_every_healthy_call_site(self):
-        """Measured healthy baselines: the COAST issued the warp ONCE on B11
-        flight 2 (full pass); the aim-warp target is the node's FIXED UT so it
-        never retargets and can only re-issue through the 30-game-second
-        self-heal; the capture warp's target (ut + ttPe - lead) is constant
-        along the approach. The thrash that motivated the cap issued 3,603 in
-        ONE phase."""
+        """Measured healthy baselines, `action warp_to_ut` counted PER PHASE
+        over the four HEAD flyby logs re-flown 2026-07-25 (B11 / B12 / B5 /
+        B6): COAST-TO-TARGET 1/1/1/1, CORRECTION-BURN 1/1/1/1, TARGET-FLYBY
+        1/1/1/1. That measurement -- not the per-phase reset, which only
+        RELAXES the COAST site and says nothing about the three where the
+        guard is NEW -- is what makes the cap safe for the live-proven lane.
+        The thrash that motivated it issued 3,603 in ONE phase."""
         self.assertGreaterEqual(mlib.MAX_PHASE_WARP_ISSUES, 100)
         self.assertLess(mlib.MAX_PHASE_WARP_ISSUES, 3603)
 
