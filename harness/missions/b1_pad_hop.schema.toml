@@ -23,10 +23,47 @@ max = 1.0
 required = true
 type = "window"
 
-[params.chuteDeployAltMeters]
+# ARM-WHILE-SLOW bound (2026-07-25). The machine arms the chute on the first DESCENT
+# frame whose |vertical speed| is within this, i.e. at the APOAPSIS CROSSING -- NOT at
+# an altitude. The old chuteDeployAltMeters altitude trigger was inert on this fixture:
+# stock's ACTIVE -> SEMIDEPLOYED needs automateSafeDeploy >= deploymentSafeState, the
+# fixture persists automateSafeDeploy = 0 (SAFE only), and a craft at terminal velocity
+# in dense air never reads SAFE and never slows on its own. Bounded well under a
+# free-fall second (Kerbin adds ~10 m/s per ~1 s poll) so it can only ever be satisfied
+# near the apex. The min/max below bound what the SCHEMA will accept, not what is
+# sensible: the live value is 30, and anything approaching the 100 ceiling would be
+# ~10 free-fall seconds past the apex and defeat the point.
+[params.chuteArmMaxRateMps]
 required = true
 type = "number"
-min = 0.0
+min = 1.0
+max = 100.0
+
+# The stock deployAltitude the machine writes onto every parachute in the same frame it
+# arms. Declared here rather than inherited from the fixture's persisted PAW value so
+# the full-canopy leg is a mission input, not a silent fixture property.
+#
+# BOUNDS ARE LOAD-BEARING (Opus review panel 2026-07-25, finding 3). These were
+# inherited verbatim from the deleted chuteDeployAltMeters block (`min = 0.0`, no max),
+# but the SEMANTICS changed underneath them: this value is no longer a trigger the
+# machine compares against, it is WRITTEN ONTO stock's own `deployAltitude`. A spec
+# value of 0 would make ModuleParachute.ShouldDeploy() (`altitude < deployAltitude`)
+# permanently false, so the chute would hold SEMIDEPLOYED all the way to the ground and
+# impact at ~220 m/s -- a variant of the very bug this mission was fixed for, and the
+# old bounds would have accepted it silently. The ceiling matches stock's own PAW
+# control range (UI_FloatRange [50, 5000]); note the EVA-4 sibling schema still allows
+# 10000 for the same stock field, which is the looser of the two.
+#
+# The floor kills the pathological 0 but is NOT sized to the full-canopy derivation
+# above: at 500 the craft would still be braking at touchdown (the brake alone costs
+# ~894 m). It is a schema guardrail against nonsense, not a guarantee of a settled
+# canopy - the live value (2500) is what buys that, and the reasoning for it lives in
+# the spec.
+[params.chuteFullDeployAltMeters]
+required = true
+type = "number"
+min = 500.0
+max = 5000.0
 
 [params.landedSituations]
 required = true
