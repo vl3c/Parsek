@@ -1,0 +1,528 @@
+# =============================================================================
+# MISSION PROFILE - full ordered step list with the per-phase VEHICLE
+# CONFIGURATION contract (the standing spec rule: every phase names the vehicle
+# configuration that must hold for that leg, JUST LIKE A REAL SPACE MISSION).
+# The machine (mlib.b5_decide with the five interplanetary params) enforces this
+# order. It is B7-duna-flyby's profile with Eve in place of Duna; the phase list
+# is reproduced here in full because B7's spec predates the standing rule.
+#
+# WHY THIS MISSION EXISTS - READ THIS BEFORE BELIEVING THE HEADLINE. This is the
+# most honest thing in the file, so it goes first.
+#
+#   WHAT IT DOES NOT BUY. A plain Eve flyby largely RE-EXERCISES the cross-SOI
+#   recording surface B7 already covers: Kerbin -> Sun -> target -> Sun, the
+#   ExoBallistic heliocentric coast kept cohesive across body changes, on-rails
+#   orbital checkpoints under 100,000x, the same optimizer split decisions. The
+#   dimension cells below are B7's cells with the body axis moved. On the
+#   Parsek surface specifically, "second interplanetary body" is a MULTIPLIER,
+#   not a new mechanism.
+#
+#   THE ONE THING EVE COULD REACH THAT NOTHING ELSE CAN, AND WHY THIS FLIGHT
+#   DOES NOT REACH IT. Eve has the deepest atmosphere in the stock system
+#   (90 km) and is the only body outside Kerbin this craft can reach that has
+#   one at all. A NON-KERBIN ATMOSPHERIC TrackSection is therefore genuinely
+#   unclaimed coverage - B13/B14 just bought the AIRLESS `Approach -> Surface*`
+#   path, and every `atmospheric` cell in the whole suite is a KERBIN cell.
+#   THIS SPEC DOES NOT CLAIM IT, because this flight cannot earn it:
+#     (a) GEOMETRY. The pass is deliberately aimed at a 1,000 km periapsis, more
+#         than TEN TIMES Eve's 90 km atmosphere depth. Nothing about this
+#         trajectory goes near air. Aiming it lower is not a tweak: an
+#         atmosphere-grazing periapsis at Eve's ~10.9 km/s heliocentric arrival
+#         speed is an aerocapture / breakup event, not a flyby.
+#     (b) RECORDING GATE. `FlightRecorder.OnPhysicsFrame` early-returns on
+#         `isOnRails` and `BackgroundRecorder.OnBackgroundPhysicsFrame` on
+#         `bgVessel.packed`. The whole in-SOI leg is flown packed under rails
+#         warp, so even a grazing pass would emit no Atmospheric section unless
+#         the craft were loaded and off rails inside the atmosphere.
+#     (c) OBSERVABILITY - the blocker that outlives (a) and (b). NO EMITTED LOG
+#         LINE PAIRS AN ENVIRONMENT CLASS WITH A BODY NAME. The two candidate
+#         tokens are `TrackSection started: env=Atmospheric ...`
+#         (FlightRecorder.cs) and `Environment transition: X -> Y at UT=...`
+#         (EnvironmentDetector.EnvironmentHysteresis.Update); neither carries a
+#         body. Since every Eve mission launches from Kerbin, both tokens are
+#         satisfied by the ASCENT alone, so a logContract asserting them would
+#         be unearned by construction. B13/B14's `Approach -> Surface*` trick
+#         cannot be cloned either: it works only because a vacuum class
+#         immediately before a surface class is IMPOSSIBLE on an atmospheric
+#         body - and on Eve the pre-touchdown class is necessarily Atmospheric,
+#         which reads identically to a Kerbin landing.
+#     WHAT A FOLLOW-UP VARIANT WOULD NEED, stated so nobody re-derives it: a
+#     Parsek change mirroring the B13 `terminalOrbitBody` fix - add `body=` to
+#     the `TrackSection started:` format string (the recorder has
+#     `v.mainBody.name` in hand at the call site) - plus a rebuilt DLL, plus
+#     `provision.py --profile stock-minimal`, plus an aerobraking or
+#     atmosphere-grazing profile that is loaded and OFF RAILS through the pass.
+#     That is a different mission with a different risk profile. It is NOT this
+#     one, and this one must not pretend otherwise. (An unearned `D5
+#     bg-recording` claim was removed from B11/B12 for exactly this class of
+#     mistake, and `D7 gear` was deliberately left unclaimed on B13/B14.)
+#
+#   WHAT IT DOES BUY, stated small because it is small: a SECOND interplanetary
+#   destination on a lane whose only interplanetary case is B7, and B7 is
+#   currently FLAKY (see the IKE / GILLY block). An Eve case that does not have
+#   B7's moon problem gives the interplanetary machine a stable regression
+#   subject. It is also the cheap prerequisite for B16-eve-orbit, which is where
+#   the capture-after-a-heliocentric-traverse surface actually lives.
+#
+# VEHICLE CONFIGURATION: the stock Kerbal X flies the WHOLE mission as one
+# stack, exactly as B5/B6/B7/B11/B12 do - there is NO deliberate separation
+# phase, because there is no rendezvous or docking here. The flameout-staging
+# watchdog (B5 live finding 15) is the only staging: it pops the next stage when
+# a COMMANDED burn reads zero available thrust for FLAMEOUT_DEBOUNCE_FRAMES,
+# capped at MAX_FLAMEOUT_STAGES, so mid-mission staging is an OBSERVED,
+# evidence-verified event, never an assumed side effect. Any phase below that
+# says "full stack" means "whatever stages the flameout watchdog has not yet had
+# to pop"; the mission asserts THRUST and ORBIT outcomes, never a stage count.
+#
+# LIVENESS PRINCIPLE (standing rule): budgets bound SLOW, liveness watchdogs
+# bound BROKEN. A phase may never idle to its budget while its actor (a MechJeb
+# AP, the node executor, the command seam) is provably dead. Every
+# actor-dependent phase below carries BOTH a GAME-time budget AND a distinctly
+# named fast-fail, and every one of those names ALREADY EXISTS in the shared
+# machine - this lane invents none.
+#
+#   PRELAUNCH          Kerbal X full stack on the pad, MechJeb autostage armed.
+#   MJ-ASCENT          Full stack; MechJeb autostage drops the 6 radial boosters
+#                      + nose cones during the climb to a HIGH 700 km apoapsis.
+#                      Budget ascentTimeoutSeconds (GAME).
+#   CIRCULARIZE        Core stage burns the circularization node to a ROUGH
+#                      700 km circular park. Throttle then idle. Budget
+#                      circularizeTimeoutSeconds (GAME).
+#   ORBIT              One-frame waypoint: set target body = Eve, ask the
+#                      ManeuverPlanner for the INTERPLANETARY transfer
+#                      (OperationInterplanetaryTransfer, WaitForPhaseAngle).
+#   PLAN-TRANSFER      Coasting park, rails held at planWarpFactor (10x) between
+#                      bounded plan attempts. No burn configured. NAMED
+#                      fast-fail: the PLAN_MAX_ATTEMPTS give-up (a no-window
+#                      plan throws server-side and leaves node_count 0);
+#                      PLAN-TRANSFER expiry FLAKES - no transfer, no mission.
+#   TRANSFER-BURN      Core/orbiter stage burns the EJECTION under MechJeb's
+#                      NodeExecutor with autowarp; the executor's autowarp
+#                      carries the ejection-window wait (up to ~1 Kerbin-Eve
+#                      synodic ahead). Exit evidence is a HYPERBOLIC Kerbin-frame
+#                      eccentricity >= ejectionEccFloor, NOT an apoapsis floor -
+#                      an escape burn drives the Kerbin-frame apoapsis NEGATIVE.
+#                      Budget transferBurnTimeoutSeconds (GAME) must cover the
+#                      whole wait. NAMED fast-fails: the burn-stagnation and
+#                      no-start watchdogs.
+#   COAST-TO-TARGET    Unpowered HELIOCENTRIC coast in SUN SOI (a via body:
+#                      legal, never the ejected ASSERT-FAIL terminal), throttle
+#                      cut, ONE continuous native warp to the Eve SOI boundary
+#                      minus soiLeadSeconds. Two correction rounds trigger from
+#                      here on TIME-TO-EVE-SOI thresholds (the coast is in Sun
+#                      SOI, so B5's Kerbin-altitude trigger can never fire).
+#                      Budget coastTimeoutSeconds (GAME). NAMED fast-fail:
+#                      coast-warp-thrash past MAX_PHASE_WARP_ISSUES (the B12
+#                      flight-2 defect; a healthy coast issues 1).
+#   PLAN-CORRECTION    Coasting, rails at planWarpFactor, no burn configured.
+#                      Budget planTimeoutSeconds (GAME); expiry falls THROUGH to
+#                      the coast and consumes the round - a correction is
+#                      best-effort, unlike the transfer.
+#   CORRECTION-BURN    DIY burner: native AP pointed at the node (2x physics-warp
+#                      flip + aligned debounce), aim-then-warp to node UT minus
+#                      nodeArrivalMarginSeconds, physics warp DROPPED to 0, then
+#                      one low-throttle burn. The GAME budget is SUPPRESSED while
+#                      the aim-warp is in flight and re-anchors at the warp
+#                      ARRIVAL (the B12 flight-1 fix). NAMED fast-fails:
+#                      correction-burner-no-start / correction-burn-incomplete,
+#                      plus a corrGiveup reason on every round give-up.
+#   TARGET-FLYBY       IN EVE SOI, unpowered, attitude free. Native warp to the
+#                      SOI exit minus soiLeadSeconds, with the rails flyby stair
+#                      (floor flybyWarpFactor, cap flybyMaxWarpFactor) clamped
+#                      per body - mlib.STOCK_WARP_ALTITUDE_LIMITS already carries
+#                      Eve. Budget flybyTimeoutSeconds (GAME). The impact guard
+#                      is AUTHORITATIVE here: a sub-surface periapsis at low
+#                      altitude CANCELS warp and holds 1x, and sustained for
+#                      IMPACT_TERMINAL_DEBOUNCE_FRAMES it is an early ASSERT-FAIL
+#                      terminal instead of riding the crash down at 1x.
+#   RETURN             TERMINAL: back in SUN SOI after the flyby. An Eve flyby
+#                      exits heliocentric; a free-return to Kerbin takes years
+#                      and is out of scope. No settle tail (SF-4).
+#
+# THE FAILURES THAT ARE NOT SUCCESSES. Reading ANY body other than "", Kerbin,
+# Sun or Eve at any point is an ASSERT-FAIL (`ejected` / `flew past`), never a
+# terminal. In particular GILLY is deliberately NOT a via body - see below.
+#
+# GILLY: THE IKE QUESTION, ANSWERED WITH NUMBERS. B7's Duna flyby is INTERMITTENT
+# because its ~300 km periapsis target makes the inbound leg transit the shell
+# where IKE orbits, and Ike captured the craft on 1 of 2 sweeps
+# (`flyby ejected the craft off-course: body='Ike'`). Eve has exactly one moon,
+# GILLY, so the question is real. It does NOT transfer, on four independent
+# counts (stock constants; DERIVED, not measured here):
+#   1. CAPTURE CROSS-SECTION. Gilly's SOI radius is ~126 km
+#      (31,500,000 * (8,289,449.8 / 8.1717302e12)^0.4). Ike's is ~1,050 km
+#      (3,200,000 * (1.8568369e10 / 3.0136321e11)^0.4). That is 8.3x smaller in
+#      radius and ~69x smaller in cross-sectional area.
+#   2. WHERE IT SITS RELATIVE TO THE SOI. Ike orbits at 3,200 km inside Duna's
+#      47,922 km SOI = 6.7% of the SOI radius, i.e. DEEP in the funnel every
+#      arrival aimed at a low periapsis must pass through. Gilly orbits at
+#      31,500 km (e = 0.55, so 14,175-48,825 km) inside Eve's 85,109 km SOI =
+#      17-57% of the SOI radius, far out where the inbound cone is wide.
+#   3. INCLINATION. Ike's orbit is inclined 0.2 deg - essentially coplanar with
+#      everything that arrives. Gilly's is inclined 12 deg, so a roughly
+#      ecliptic arrival spends almost all of its transit far from Gilly's plane.
+#   4. PERIAPSIS IRRELEVANCE. Unlike Ike, Gilly cannot be avoided or hit by
+#      CHOOSING the periapsis: at 14,175 km minimum it is far above any sane
+#      flyby periapsis, so the inbound leg crosses its shell whatever we aim at.
+#      That is why this spec does not try to dodge it.
+#   RESIDUAL RISK, STATED: non-zero, not zero. If Gilly does grab the craft the
+#   machine ASSERT-FAILs with `flyby ejected the craft off-course: body='Gilly'`
+#   - a NAMED, deterministic, self-explaining failure, which is strictly better
+#   than a silent one. Gilly is deliberately NOT added to viaBodyNames: doing so
+#   would turn a Gilly capture into a silent PASS. `retry.policy = "once"`
+#   absorbs a single occurrence exactly as it does for B7.
+#
+# INWARD TRANSFER: THE HIGHEST-RISK UNKNOWN IN THIS LANE, AND IT IS NOT OURS.
+# Every interplanetary case flown so far goes OUTWARD (Kerbin -> Duna). Eve is
+# INWARD, so the ejection burn is RETROGRADE relative to Kerbin's heliocentric
+# motion and the transfer's apoapsis is at DEPARTURE rather than at arrival.
+# AUDITED, and mlib has no direction anywhere:
+#   - `_b5_transfer_burn_done` reads eccentricity >= ejectionEccFloor in the HOME
+#     frame. An inward escape is exactly as hyperbolic as an outward one.
+#   - `_b5_coast_bodies` / `_b5_warp_bodies` / `_b5_return_body` are NAME
+#     comparisons against homeBodyName + viaBodyNames + returnBodyName.
+#   - `_b5_correction_round_ready` in time mode is a scalar clock
+#     (time_to_soi <= threshold) with no sign.
+#   - `mlib.STOCK_WARP_ALTITUDE_LIMITS` already carries Eve, and the Sun entry's
+#     factor-7 limit (65,400 km altitude) is five orders of magnitude below Eve's
+#     ~9.57e9 m heliocentric altitude, so the inward leg is as warp-legal as the
+#     outward one.
+# The direction assumption, if one exists at all, lives in MechJeb's own
+# `OperationInterplanetaryTransfer` (WaitForPhaseAngle), which the runner drives
+# by setting two properties (mission_runner.py, ACTION_MJ_PLAN_INTERPLANETARY
+# _TRANSFER). We have NOT verified it against an inner target, and no headless
+# test can: MechJeb's server-side planner is live-only (the standing
+# PENDING-OPERATOR traceability note). If it cannot plan an inner window it will
+# throw server-side, node_count stays 0, and PLAN-TRANSFER flakes on the
+# PLAN_MAX_ATTEMPTS give-up in ~90 game-seconds with a named reason - a cheap,
+# legible first-flight failure rather than a wedge. That is the designed-for
+# outcome, not a hope.
+# =============================================================================
+schema = 1
+id = "B15-eve-flyby"
+# nightly: same committed Kerbal X fixture as B2/B4/B5/B6/B7/B11/B12/B13/B14.
+# NOT YET FLOWN - every number below is DERIVED or carried from a MEASURED B7
+# flight, and each one says which. The first flight pins the PROVISIONAL items
+# called out inline (recordings count, the two wall budgets, the ejection-window
+# wait).
+tier = "nightly"
+description = "Eve interplanetary flyby (INWARD transfer): MechJeb ascent to a HIGH (700 km) park, OperationInterplanetaryTransfer ejection at the next Kerbin->Eve window, autowarped hyperbolic ejection burn, heliocentric coast with time-to-SOI-triggered corrections, Eve flyby well clear of the 90 km atmosphere, exit into Sun SOI; assert orbit + target SOI reached + vacuum-clearance floor + returned-to-exit (Sun)."
+instanceProfile = "stock-minimal"
+tags = ["B15", "mechjeb", "eve", "interplanetary", "cross-soi", "inward-transfer"]
+
+[fixture]
+# The SAME committed Kerbal X fixture B2/B4/B5/B6/B7/B11-B14 fly (no new fixture,
+# no forge run): the ascent half is byte-for-byte B7's mission path.
+#
+# DELTA-V FEASIBILITY. Provenance labelled per number.
+#   MEASURED (archived end-of-run saves of the three green B7 flights,
+#     logs/2026-07-25_{0753,0806,1216}_B7-duna-flyby/saves/b2-lko-craft/
+#     persistent.sfs): after the full 700 km ascent + interplanetary ejection +
+#     2-3 course corrections, the 17-part orbiter has LF = 494.560 / 496.959 /
+#     495.479 of the X200-16's 720 capacity.
+#   DERIVED (stock part cfgs in the local KSP install + the rocket equation):
+#     orbiter dry mass ~7.7 t (Mk1-3 2.6 + 30 MonoPropellant 0.12 + Mk16-XL 0.3
+#     + HeatShield2 0.5 + 400 Ablator 0.4 + 2x Decoupler.2 0.32 + X200-16 dry 1.0
+#     + Poodle 1.75 + ~0.42 of batteries/panels/legs/ladders/antenna + ~0.4 crew
+#     and inventory), propellant 11.111 kg per LF unit at the stock 9:11 LF:Ox
+#     ratio, Poodle Isp 350 s / 250 kN (cfg-verified; the flight telemetry's
+#     avThr 249,999.984 agrees). => ~1,825-1,880 m/s REMAINING after a
+#     Duna-shaped ejection.
+#   DERIVED: an Eve ejection from the same 700 km park costs ~829 m/s versus
+#     Duna's ~857 m/s (v_inf 838.8 vs 918.5 m/s; Eve's 2.1 deg inclination is
+#     folded in vectorially and the departure is the CHEAP end of an inward
+#     transfer for a plane change). So the Eve arrival should hold AT LEAST what
+#     B7 measured, not less.
+#   NOTE the committed survey (todo-and-known-bugs.md, B6/B7 section) says the
+#     orbiter holds "~1500-1600 m/s after the 80 km circularization" and rates
+#     Eve at ~1090 m/s FEASIBLE. Both readings agree that Eve closes; the survey
+#     is PESSIMISTIC about the margin because it did not know that the flameout
+#     watchdog lets the CORE fly the whole transfer, leaving the upper stage
+#     nearly full (B11 MEASURED lf 592.814 at the Mun park, B12 650.592 at
+#     Minmus). A flyby needs no capture, so B15 has margin either way; B16 is
+#     where the number has to be right, and its spec carries that arithmetic.
+saveTemplate       = "fixtures/saves/b2-lko-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+# Thin alias over the body-parameterized B5 machine with B7's five
+# interplanetary params (see b15_eve_flyby.py). There is NO b15_decide and NO
+# new mlib code: this lane is a PARAMETER change.
+mission = "b15_eve_flyby"
+
+# `steps` MUST stay in the [driver] table (declared ABOVE the
+# [driver.missionParams] header, or a key after the sub-table header would scope
+# to driver.missionParams.steps and the spec would validate as zero steps).
+#
+# BUDGET ARITHMETIC (WALL seconds unless noted; every input labelled).
+#   MEASURED, B7's three green flights: mission wall 779.1 / 767.1 / 767.9 s for
+#     a total UT span of 11,302,407 / 11,301,491 / 11,304,640 GAME seconds. The
+#     committed duration ledger (coverage/duration.json) records the SCENARIO
+#     wall at 787 s.
+#   MEASURED, B7 phase spans: ejection-window wait 4,966,291 / 4,966,316 /
+#     4,966,292 game s (parking-orbit checkpoint ut ~1,477 -> ejection ignition
+#     ut ~4,967,768); heliocentric coast 6,189,363 / 6,188,183 / 6,191,488 game s
+#     (Kerbin->Sun to Sun->Duna); Duna SOI residence 47,214 / 47,449 / 47,319.
+#   DERIVED throughput, from those two: ~14,700 GAME seconds per WALL second
+#     aggregate. Netting out the ~1,477 game-s ascent (which costs real wall at
+#     roughly 1:1 and is bounded by B2's MEASURED 252 s scenario wall), the
+#     WARPED remainder runs at ~24,000 game-s per wall-s.
+#   DERIVED Eve game-time load:
+#     ejection-window wait  0 .. 14,700,000  (0..1 Kerbin-Eve synodic; the
+#                                             fixture UT fixes it, so it is
+#                                             DETERMINISTIC but UNKNOWN until
+#                                             flown. B7's fixture happened to sit
+#                                             0.253 synodic from its window.)
+#     heliocentric coast      ~3,490,000     (~56% of Duna's; Eve is INWARD and
+#                                             closer, so this is the one leg that
+#                                             is CHEAPER than B7's)
+#     Eve SOI transit           ~150,000-250,000
+#     -------------------------------------------------------------------------
+#     worst case             ~18,400,000 game s ; expected ~7,000,000
+#   DERIVED wall: 300 (ascent, ~1:1) + 18,400,000 / 24,000 (767) + ~200 (the 1x
+#     windows of 2-3 DIY correction burns; B7 fired a THIRD late correction on
+#     one of its three flights, so budget for it) = ~1,265 wall WORST case,
+#     ~800 expected.
+#   => missionBudget 3000 (WALL) is ~2.4x the derived worst case and below B7's
+#     3600 - Eve's coast is shorter and its synodic is 25% shorter than Duna's,
+#     so this lane does NOT need B7's headroom. runtime 3600 >= 240 LoadGame +
+#     ~5 SetSetting + 3000 mission + ~120 CommitTree + ~60 FlushAndQuit + ~175
+#     margin: the post-mission seam steps must survive a FULL-budget mission
+#     (review SF-5).
+#   PROVISIONAL: both wall numbers. The first green flight measures the real
+#     ejection-window wait, which is the only term with a 14,700,000 game-second
+#     range, and re-derives these from it.
+# Phase budgets in missionParams are GAME time.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 3000 },
+  { cmd = "CommitTree",                                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                        expect = "OK" },
+]
+
+# Ascent half = B7's HIGH-park shape verbatim (it is Kerbin-side and
+# body-independent); transfer half = B7's interplanetary shape re-sized for Eve
+# (validated against b15_eve_flyby.schema.toml). Every value is a tolerance /
+# threshold / budget, never a golden trajectory.
+[driver.missionParams]
+# HIGH 700 km circular park, B7's value and B7's rationale VERBATIM: 700 km is
+# above the 600 km Kerbin factor-7 altitude limit, so the ejection-window wait
+# rails-warps at 100,000x instead of the 50x an 80 km park caps at. At 80 km a
+# worst-case ~14,700,000 game-second Eve wait would cost ~82 HOURS of wall time.
+targetApoapsisMeters       = 700000
+targetPeriapsisMeters      = 700000
+# ROUGH park windows, B7's MEASURED value: MechJeb's own high-altitude
+# circularization is sloppy (B7 flight 2 left ap 778 / pe 562 km with no node and
+# nothing burning). The park exists ONLY for warp legality and as a stable
+# ejection origin - the interplanetary planner ejects fine from a mild ellipse.
+apoErrorMeters             = 150000
+periErrorMeters            = 150000
+# B7 MEASURED: the coast to a 700 km apoapsis plus MechJeb's at-apoapsis
+# circularization runs ~1,400-1,600 game-s from launch. 2400 = measured need
+# + ~50% margin. Kerbin-side, so carried over unchanged.
+ascentTimeoutSeconds       = 2400
+# One full 700 km orbital period (~4,900 game-s) + burn + margin: a
+# circularization node can sit up to a period away. B7's value, unchanged.
+circularizeTimeoutSeconds  = 6000
+targetBodyName             = "Eve"
+homeBodyName               = "Kerbin"
+# DISABLED (B7's contract): an escape burn drives the Kerbin-frame apoapsis
+# NEGATIVE, so the apoapsis floor cannot be the burn-done evidence.
+# ejectionEccFloor replaces it. Kept present (schema required key) at 0.
+transferMinApoapsisMeters  = 0
+# Hyperbolic ejection burn-done evidence, B7's LIVE-PROVEN value: comfortably
+# > 1 and below any physically-plausible reading noise. Direction-agnostic - an
+# INWARD escape is exactly as hyperbolic as an outward one.
+ejectionEccFloor           = 1.05
+# OperationInterplanetaryTransfer (WaitForPhaseAngle) instead of the moon
+# Hohmann OperationTransfer. See the INWARD TRANSFER block above for the one
+# real risk this carries.
+interplanetaryTransfer     = true
+# The coast legally crosses Kerbin -> Sun -> Eve. "Sun" is an intermediate coast
+# body, NOT the ejected ASSERT-FAIL terminal, and is a legal rails-warp body.
+# GILLY IS DELIBERATELY ABSENT: see the GILLY block. Adding it would convert a
+# Gilly capture from a named ASSERT-FAIL into a silent pass.
+viaBodyNames               = ["Sun"]
+# An Eve flyby exits into heliocentric (Sun) space; a free-return to Kerbin takes
+# years and is out of scope. RETURN (the success terminal) fires on body == Sun
+# AFTER the flyby.
+returnBodyName             = "Sun"
+# 1,000 km flyby periapsis target. DELIBERATELY MUCH HIGHER than B5's 250 km,
+# B6's 20 km or B7's 300 km, and the reason is EVE-SPECIFIC: those bodies are
+# airless and their floors are terrain numbers, whereas Eve's 90 km ATMOSPHERE is
+# the hazard - a periapsis that lands in it is an aerocapture / breakup, not a
+# flyby. 1,000 km is 11x the atmosphere depth and 10x the assertion floor below.
+# The bias runs in the SAFE direction anyway: finding 16d says MechJeb's
+# OperationCourseCorrection systematically arrives HIGHER than requested (B5
+# turned 250 km into 956-1,142 km; B7 turned 300 km into ~564 km derived from
+# the recorded arrival elements), so the achieved periapsis should be >= this.
+courseCorrectPeriapsisMeters = 1000000
+# Interplanetary mid-course corrections can be larger than the moon ones
+# (ejection aim errors over a multi-year coast); an over-cap plan is still
+# removed and the coast flies the raw intercept. B7's value, unchanged.
+maxCorrectionDvMps         = 200
+# Correction ROUNDS in TIME-TO-EVE-SOI mode (the coast is in Sun SOI, so the B5
+# Kerbin-altitude trigger can never fire). DESCENDING thresholds (GAME s), B7's
+# values re-checked against the shorter Eve coast:
+#   round 0 @ 20,000,000 -> fires right after Sun-SOI entry (Eve tof ~3,490,000
+#                           is already below it): fix the ejection error.
+#   round 1 @    500,000 -> fires ~500,000 game s before Eve SOI entry, i.e. at
+#                           ~14% of the coast remaining (on B7's longer Duna
+#                           coast the same number is ~8%). Fine-tunes the flyby
+#                           periapsis while there is still leverage.
+# correctionTriggerAltsMeters is left EMPTY (time mode supersedes altitude mode).
+correctionTriggerAltsMeters       = []
+correctionTriggerTimeToSoiSeconds = [20000000, 500000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+# GAME seconds. Must cover the ENTIRE ejection-window wait: the NodeExecutor
+# autowarp advances game time to the node, up to ~1 Kerbin-Eve synodic ahead.
+# DERIVED synodic 14,700,000 (1/|1/5,658,300 - 1/9,204,000|, both periods
+# re-derived from stock sma + mu and agreeing with the published year lengths to
+# better than 0.01%). 18,000,000 = synodic worst case + ~22% burn margin. This is
+# 28% BELOW B7's 25,000,000 because the Kerbin-Eve synodic is 25% shorter than
+# the Kerbin-Duna ~19,650,000.
+transferBurnTimeoutSeconds = 18000000
+# GAME seconds. DERIVED heliocentric Kerbin->Eve tof ~3,490,000 (Hohmann
+# half-period 3,679,880 scaled by the 0.9485 ratio B7's flights MEASURED between
+# their real coast and the same formula). 7,000,000 = 2x.
+coastTimeoutSeconds        = 7000000
+# GAME seconds. Eve's SOI is the LARGEST in the inner system at ~85,109 km radius
+# (1.78x Duna's ~47,922 km). DERIVED via hyperbolic Kepler for THIS lane's own
+# geometry (1,000 km periapsis altitude = 1,700 km radius): SOI-edge-to-periapsis
+# is ~72,200 game s at v_inf 931 m/s and ~76,800 at the ideal-Hohmann 846, so a
+# full in-and-out transit is ~145,000-155,000. B7 MEASURED 47,214-47,449 s of Duna
+# residence for scale. 600,000 = ~4x the transit.
+flybyTimeoutSeconds        = 600000
+# Warp shaping, B7's values. coastWarpFactor 7 (100,000x) is legal on the
+# heliocentric leg (Eve's orbit is ~9.57e9 m above the Sun's surface, five orders
+# of magnitude past the 65,400 km Sun factor-7 limit) AND above the 600 km Kerbin
+# factor-7 limit during the post-ejection escape. The per-body altitude clamp
+# handles the low Eve legs automatically - mlib.STOCK_WARP_ALTITUDE_LIMITS
+# already carries Eve, and its table is IDENTICAL to Kerbin's.
+coastWarpFactor            = 7
+flybyWarpFactor            = 5
+flybyMaxWarpFactor         = 6
+# No-1x-coast lane (delta-review E1): the burn phase aims first, then natively
+# warps to node UT minus this margin.
+nodeArrivalMarginSeconds   = 15
+planWarpFactor             = 2
+soiLeadSeconds             = 30
+flipPhysicsWarpFactor      = 1
+# THE VACUUM FLOOR, and it means something different here than on any other body
+# in the suite. B5 (10 km), B6 (6 km) and B7 (15 km) set this just above the
+# TERRAIN peaks of an airless body. Eve's peaks are only ~7.5 km, but its
+# ATMOSPHERE is 90 km deep, so the assertion that actually matters is "the pass
+# stayed in VACUUM". 100 km is 11% above the atmosphere ceiling. NOTE the
+# documented reading of this row (B7 forensics): it certifies the MIN SAMPLED
+# ALTITUDE inside the target SOI over a coarse poll, not the orbital periapsis.
+targetPeriapsisFloorMeters = 100000
+
+# Coverage: the Kerbin -> Sun -> Eve -> Sun traverse is the multi-SOI cross-body
+# recording - the SAME cell set B7 claims, with the body axis moved to Eve.
+# NOTHING NEW IS CLAIMED and NO REGISTRY GROWTH IS NEEDED: D14 already carries
+# "eve" (coverage/registry.toml), so this lane adds no value and therefore
+# triggers no growth-rule obligation.
+#
+# D4 "atmospheric" IS claimed, and it is the KERBIN ASCENT's cell - the same
+# cell every flown scenario in the suite claims. It is NOT an Eve atmospheric
+# claim; see the WHY THIS MISSION EXISTS block for why this flight cannot earn
+# one and what a follow-up variant would need.
+#
+# D14 "atmosphere" is NOT claimed: the only atmosphere this flight touches is
+# Kerbin's, which is the trivial case that axis exists to multiply AWAY from.
+# D14 "gilly" is NOT claimed: entering Gilly's SOI is an ASSERT-FAIL, so a run
+# that touched it would be RED, and coverage may not be claimed on a failure path.
+[dimensionsCovered]
+D1  = ["auto-record-launch"]
+D3  = ["orbital-checkpoint"]
+D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
+D14 = ["kerbin", "eve", "soi-count", "warp-rails", "warp-high"]
+
+[expectations.recordings]
+# PROVISIONAL WINDOW, not a pin. THE EXPECTATION IS EXACTLY 8, on strong
+# evidence, but this lane has never flown and a window that has never been
+# measured must not masquerade as a measurement.
+#
+# WHY 8 IS THE EXPECTATION (same fixture, same craft, same ascent as every other
+# flown mission on b2-lko-craft):
+#   +1  the root/main recording (autoRecordOnLaunch is pinned true, and the
+#       "Recording started" logContract already fails without it)
+#   +6  the six radial boosters, each dropped as its own vessel and recorded as a
+#       parent-anchored debris child. LIVE-ESTABLISHED by the first live B2
+#       flight (2026-07-20): exactly 7 sidecars, analyzer RED=0.
+#   +1  the FLAMEOUT-STAGED ascent core - the 8th recording, and what separates
+#       this profile from B2's 7.
+#   = 8
+# MEASURED corroboration on THIS EXACT PROFILE: all three green B7 Duna runs
+# (logs/2026-07-25_{0753,0806,1216}) produced exactly 8 `.prec` sidecars, and so
+# did every archived run at or after commit 82398e157 ("Live finding 15:
+# flameout staging") that crossed into a foreign SOI - 10 runs of 10. The five
+# clean runs BEFORE that commit read 7; those are an older build, not variance.
+#
+# WHY IT SHIPS AS {7, 9} ANYWAY. B15 stages nothing after the ascent (the
+# orbiter flies the raise, the ejection and the corrections), so 8 is the
+# structural expectation - but `_b5_flameout_stage` is a CONDITIONAL watchdog
+# that fires only on OBSERVED zero available thrust under a commanded burn, and
+# B15's ejection is a DIFFERENT burn profile from B7's at a different vehicle
+# mass. 7 is the no-flameout topology and 9 leaves one unit of LES-tower margin,
+# exactly as B5/B6 carry {1, 9}. A window that cannot red on a plausible
+# legitimate outcome is the right shape for a first flight; a PIN that reds the
+# lane's debut on a topology question is not.
+#
+# READ THIS BEFORE TRUSTING IT FOR ANYTHING ELSE - THE COUNT IS COMMIT-BLIND.
+# `run.py count_recordings` counts `.prec` sidecars, and ParsekScenario's OnSave
+# writes sidecars for the ACTIVE (uncommitted) tree too
+# (EnsureRecordingFilesCurrentForSave, treeKind="active tree"). This window
+# guards recording TOPOLOGY only.
+#
+# PIN IT FROM THE FIRST GREEN FLIGHT: read
+# `verifiers.expectations.observed.recordings.count` out of that run's
+# results/*.json and narrow to {n, n}, with the same min=n-is-not-a-floor
+# reasoning B11/B12 carry. Do not widen it blindly.
+count = { min = 7, max = 9 }
+
+[expectations.logContracts]
+# Every token is sourced from its ACTUAL emitting ParsekLog call site.
+#   "Recording started" / "Recording stopped" - the lifecycle pair every flown
+#       scenario asserts (live-proven across B1/B2/B4/B5/B6/B7/B11-B14).
+#   "SOI change boundary suppressed in tree mode: Kerbin to Sun" and
+#       "... Sun to Eve" - ParsekFlight.HandleSoiChangeSplit, ParsekLog.Info
+#       ("Flight", ...), the PRODUCTION branch (`ShouldSuppressBoundarySplit`
+#       returns `activeTree != null`, and always-tree mode (#271) gives every
+#       recording a tree, so a foreground SOI change in a recorded flight ALWAYS
+#       lands here). FORMAT VERIFIED against a real interplanetary flight:
+#       logs/2026-07-25_1216_B7-duna-flyby/KSP.log carries exactly three of
+#       these - `Kerbin to Sun`, `Sun to Duna` and `Duna to Ike` - so `Sun to
+#       Eve` is the right shape, not a guess.
+#       WHY BOTH: `Sun to Eve` alone would green a flight that somehow reached
+#       Eve, but `Kerbin to Sun` is the one that witnesses the EJECTION leg, and
+#       an interplanetary lane whose only interplanetary evidence is the arrival
+#       cannot tell "the ejection worked" from "the ejection was never needed".
+#       Together they assert the full Kerbin -> Sun -> Eve traverse, which is
+#       precisely the coverage claim above.
+required = [
+  "Recording started",
+  "Recording stopped",
+  "SOI change boundary suppressed in tree mode: Kerbin to Sun",
+  "SOI change boundary suppressed in tree mode: Sun to Eve",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+budgetSeconds = 3600
+
+[retry]
+# First flights are tuning flights, and this lane additionally carries the
+# Gilly risk (small but non-zero) and the unverified inward-window plan. A
+# single retry absorbs one transient; it does NOT absorb a systematic inward
+# planner failure, which will red both attempts identically and say so.
+policy = "once"
+
+[expectedFail]
+bugId = ""

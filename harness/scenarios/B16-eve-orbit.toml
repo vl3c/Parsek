@@ -1,0 +1,490 @@
+# =============================================================================
+# MISSION PROFILE - full ordered step list with the per-phase VEHICLE
+# CONFIGURATION contract. The FRONT HALF (PRELAUNCH through TARGET-FLYBY) is
+# IDENTICAL to B15-eve-flyby.toml's profile - same machine, same craft, same
+# five interplanetary params, same phase order, same named give-ups. Read the
+# B15 spec header for that half plus the GILLY answer and the INWARD TRANSFER
+# risk statement; they are not duplicated here so the two cannot drift. The TAIL
+# (TARGET-FLYBY onward) is B11/B12's capture tail, and its full per-phase
+# contract - including MechJeb's 600-game-second pre-ignition WARPALIGN hold and
+# why it is NOT a dead actor - lives in the B11-mun-orbit.toml header.
+#
+#   PRELAUNCH -> MJ-ASCENT (700 km) -> CIRCULARIZE -> ORBIT -> PLAN-TRANSFER
+#   (INTERPLANETARY) -> TRANSFER-BURN (ejection, hyperbolic ecc evidence) ->
+#   COAST-TO-TARGET (heliocentric, 2 time-to-SOI correction rounds) ->
+#   TARGET-FLYBY (capture arming; SOI-exit warp SUPPRESSED, the only legitimate
+#   in-SOI warp target is periapsis_ut - 900) -> PLAN-CAPTURE -> CAPTURE-BURN ->
+#   PARK (throttle cut, nodes cleared, SAS + RCS held, rails 1x, 180 game-s held
+#   dwell) -> ORBIT-COMMIT (mid-mission seam CommitTree) -> ORBIT-COMMITTED
+#
+# VEHICLE CONFIGURATION, same as B15/B11/B12: the stock Kerbal X flies as one
+# stack with no deliberate separation phase; the flameout-staging watchdog (B5
+# finding 15) is the only staging, and it fires only on OBSERVED zero available
+# thrust under a commanded burn, capped at MAX_FLAMEOUT_STAGES. From TARGET-FLYBY
+# onward, reading SUN again is an ASSERT-FAIL ("left the target SOI without
+# capturing; the arrival flew past instead of circularizing"), never a RETURN
+# terminal - B15's heliocentric exit is exactly the outcome this mission must not
+# have.
+#
+# THIS SPEC IS THE FIRST TO COMBINE THE TWO PROVEN PARAM GROUPS, AND THAT IS THE
+# WHOLE MACHINE STORY. B7's five interplanetary params (three green Duna flights)
+# plus B11/B12's capture tail (five green Mun + six green Minmus flights). No
+# third mechanism was needed and none was added: the groups are read by DISJOINT
+# parts of mlib.b5_decide - interplanetary shapes everything BEFORE the target
+# SOI, capture shapes everything after it. The single point of contact is
+# `_b5_return_body`, and the effect is a better failure MESSAGE, not a different
+# verdict (see the returnBodyName note below). If a future change to this lane
+# needs a new phase or a new mlib branch, that is evidence the "Eve is a
+# parameter change" claim has stopped being true and it should be re-argued
+# rather than quietly patched.
+#
+# WHY THIS MISSION EXISTS - the skeptical version, because the sales-pitch
+# version would be wrong.
+#
+#   WHAT IT DOES NOT BUY. B11/B12 ALREADY close and commit a tree while the
+#   vessel is parked in another body's SOI; that is the D1 `commit-in-foreign-soi`
+#   cell and it is already LIVE-PROVEN on two bodies. Doing it a third time at
+#   Eve does NOT add a commit path, a terminal classification, or a recording
+#   topology that the Mun and Minmus runs do not already produce. On the Parsek
+#   surface, "capture at a third body" is a MULTIPLIER.
+#
+#   WHAT IT DOES BUY, and it is one thing, stated small. The capture tail has
+#   only ever run after a LUNAR transfer - one SOI transition, Kerbin -> target,
+#   with the arrival hyperbola and the whole capture geometry set inside the home
+#   system. B16 runs it after a HELIOCENTRIC traverse: the committed tree's
+#   terminal orbit body is reached through TWO SOI transitions (Kerbin -> Sun ->
+#   Eve), the arrival v_inf is ~4x the Mun's, and the capture node is planned in
+#   a frame the craft entered from interplanetary space. That is a real
+#   difference in the recorded track structure feeding the commit, and it is the
+#   only claim this spec makes that B11/B12 do not already own.
+#
+#   WHAT IT EXPLICITLY DOES NOT CLAIM. Eve's 90 km atmosphere - the one genuinely
+#   new Parsek surface Eve could reach - is NOT touched by this profile and is
+#   NOT claimed. The park is at ~5,000 km, fifty-five times the atmosphere depth.
+#   Read the B15 spec's WHY THIS MISSION EXISTS block for the full argument,
+#   including the observability blocker (no emitted log line pairs an environment
+#   class with a body name, so the claim is not even ASSERTABLE today) and what a
+#   follow-up aerobraking variant would need. An unearned `D5 bg-recording` claim
+#   was removed from B11/B12 for exactly this class of mistake.
+#
+# =============================================================================
+# DELTA-V FEASIBILITY - THE ARITHMETIC THAT DECIDES WHETHER THIS MISSION CAN
+# EXIST. Eve is far more massive than the Mun or Minmus, so the capture burn from
+# a hyperbolic arrival is the load-bearing number. Every input is labelled
+# MEASURED / DERIVED. Nothing here is guessed.
+#
+# STEP 1 - WHAT THE CRAFT HAS AT AN INTERPLANETARY ARRIVAL.
+#   MEASURED (archived end-of-run saves of the three green B7 Duna flights,
+#   logs/2026-07-25_{0753,0806,1216}_B7-duna-flyby/saves/b2-lko-craft/
+#   persistent.sfs): after the full 700 km ascent + interplanetary ejection +
+#   2-3 course corrections, the 17-part orbiter holds
+#       LF = 494.560 / 496.959 / 495.479   of the X200-16's 720 capacity.
+#   DERIVED from that, with the stock part cfgs read out of the local KSP install
+#   and the rocket equation:
+#       orbiter dry     ~7.7 t   (Mk1-3 2.6 + 30 MonoPropellant 0.12 + Mk16-XL
+#                                 0.3 + HeatShield2 0.5 + 400 Ablator 0.4 +
+#                                 2x Decoupler.2 0.32 + X200-16 dry 1.0 +
+#                                 Poodle 1.75 + ~0.42 batteries/panels/legs/
+#                                 ladders/antenna + ~0.4 crew and inventory)
+#       propellant      11.111 kg per LF unit (stock 9:11 LF:Ox, 5 kg/unit each)
+#       Poodle          Isp 350 s, 250 kN (cfg-verified; the flight telemetry's
+#                                 avThr 249,999.984 agrees)
+#       => dv = 350 * 9.80665 * ln((7.7 + 495.5*0.011111) / 7.7)
+#             = ~1,850 m/s, and ~1,825-1,880 across the +/-0.15 t dry-mass band.
+#   CROSS-CHECK against the other two MEASURED fuel states, which the same model
+#   has to reproduce: lf 592.814 at the Mun park and 650.592 at Minmus (the
+#   numbers this task supplied) give ~2,101 and ~2,250 m/s remaining. A FULL
+#   720 LF tank gives ~2,422. Mun therefore spent ~321 m/s of upper-stage dv on
+#   its whole post-TLI tail, against a MEASURED B11 capture node of 277.016 m/s
+#   plus small corrections. The model reproduces an independently measured burn
+#   to within tens of m/s, so it is load-bearing, not decorative.
+#   HONEST NOTE ON THE COMMITTED SURVEY: todo-and-known-bugs.md says the orbiter
+#   holds "~1500-1600 m/s after the 80 km circularization". That is PESSIMISTIC
+#   and it is now known why - it predates B5 finding 15, so it did not know the
+#   flameout watchdog lets the CORE fly the whole transfer, leaving the upper
+#   stage nearly full at the target. The survey's Eve verdict (~1090 m/s
+#   ejection, FEASIBLE) and this derivation agree that Eve closes; they disagree
+#   about the size of the margin, and the MEASURED fuel states settle it.
+#
+# STEP 2 - WHAT AN EVE CAPTURE COSTS. All DERIVED (stock mu_Eve = 8.1717302e12
+# m^3/s^2, R_Eve = 700,000 m, SOI 85,109,365 m; the Hohmann geometry from
+# r_Kerbin = 13,599,840,256 m, r_Eve = 9,832,684,544 m, mu_Sun = 1.1723328e18).
+#   Hohmann arrival v_inf at Eve = 11,764 - 10,918 = 846 m/s.
+#   CALIBRATION, because an ideal Hohmann is not what MechJeb actually flies:
+#   B7's three green flights recorded Duna arrival hyperbolas with sma
+#   -364,416 / -364,568 / -364,454 m, i.e. v_inf = sqrt(mu_Duna/|a|) = 909 m/s
+#   MEASURED against 826 m/s ideal - a 1.10x factor. Applying it to Eve gives a
+#   working v_inf of ~931 m/s, which is what every number below uses.
+#   Capture to a CIRCULAR orbit (MechJeb plans circularize-at-periapsis):
+#       dv(r) = sqrt(v_inf^2 + 2*mu/r) - sqrt(mu/r)
+#   which is MINIMISED at r = 2*mu/v_inf^2 with dv_min = v_inf/sqrt(2). For
+#   v_inf = 931 that is 658 m/s at r = 18,857 km (18,157 km altitude).
+#       altitude   dv (v_inf 931)   dv (v_inf 846)
+#        2,000 km      891 m/s          855 m/s
+#        5,000 km      735 m/s          690 m/s   <- THE CHOSEN PARK
+#        8,000 km      688 m/s          642 m/s
+#       10,000 km      673 m/s          627 m/s
+#       18,157 km      658 m/s          (the theoretical floor)
+#   THE COST CURVE IS FLAT from ~5,000 km outward, which is what makes this
+#   mission comfortable rather than marginal: there is no need to chase the
+#   optimum.
+#
+# STEP 3 - THE VERDICT. ~735 m/s needed against ~1,850 m/s available: a 2.5x
+# margin. Even after subtracting the full 2 x 200 m/s correction cap the margin
+# is ~1,450 vs ~735, still ~2.0x. B16 IS FEASIBLE, and NOT marginally so.
+#   WHY THE PARK IS STILL HIGH (5,000 km) despite the margin: it is not a fuel
+#   decision, it is a GILLY decision. See below.
+#   THE HONEST RESIDUAL: the ~1,850 m/s figure is DERIVED from a MEASURED fuel
+#   state on a DUNA ejection. An Eve ejection from the same 700 km park is
+#   DERIVED at ~829 m/s versus Duna's ~857 (v_inf 838.8 vs 918.5 m/s, with Eve's
+#   2.1 deg inclination folded in vectorially - and the departure is the CHEAP
+#   end for a plane change on an INWARD transfer, because the transfer's apoapsis
+#   is at Kerbin). So Eve should arrive with AT LEAST what B7 measured. If
+#   MechJeb's inner-planet planner is materially less efficient than that, the
+#   first flight measures it directly: the CAPTURE-BURN under-burn watchdog reds
+#   with the achieved orbit in the reason string, and `lf=` is in every telemetry
+#   line.
+#
+# GILLY, AND WHY IT SETS THE PARK CEILING. The B15 header carries the full
+# four-count argument for why Gilly is not Ike (126 km SOI vs 1,050 km; 17-57% of
+# the SOI radius vs 6.7%; 12 deg inclination vs 0.2 deg). ONE extra consideration
+# applies HERE and not to the flyby: a captured PARK orbit is a place the craft
+# STAYS. Gilly's orbit is sma 31,500 km at e = 0.55, so its periapsis radius is
+# 14,175 km. A park whose apoapsis stays below that can never be reached by
+# Gilly at all, at any phase.
+#   park target        5,000 km altitude  =  5,700 km radius
+#   parkMaxApoapsis   13,000 km altitude  = 13,700 km radius
+#   Gilly periapsis                          14,175 km radius
+# So the capture window's apoapsis CEILING is doing double duty here: it is the
+# captured-or-not evidence (a hyperbolic approach reads a NEGATIVE apoapsis, so
+# `0 < ap <= ceiling` cannot be faked by flying past) AND the Gilly exclusion.
+# That is WHY the park is not placed at the 18,157 km dv optimum: the optimum
+# sits INSIDE Gilly's shell, and saving ~77 m/s out of a 1,100 m/s margin is not
+# worth parking a committed recording in a moon's path.
+# =============================================================================
+schema = 1
+id = "B16-eve-orbit"
+# nightly: same committed Kerbal X fixture as B2/B4/B5/B6/B7/B11-B15.
+# NOT YET FLOWN. Every number is DERIVED or carried from a MEASURED B7 / B11 /
+# B12 flight, and each one says which. The first flight pins the PROVISIONAL
+# items called out inline (recordings count, the two wall budgets, the
+# ejection-window wait, the achieved capture geometry).
+tier = "nightly"
+description = "Eve ORBIT / commit-in-target-orbit across a heliocentric traverse: MechJeb ascent to a HIGH (700 km) park, OperationInterplanetaryTransfer ejection at the next Kerbin->Eve window, heliocentric coast with time-to-SOI corrections, CAPTURE burn (circularize at a ~5,000 km periapsis) inside the Eve SOI, a held stable park below Gilly's orbit, and a mid-mission command-seam CommitTree that closes the tree WHILE PARKED IN EVE'S SOI."
+instanceProfile = "stock-minimal"
+tags = ["B16", "orbit", "mechjeb", "eve", "interplanetary", "cross-soi", "capture", "commit-in-foreign-soi"]
+
+[fixture]
+# The SAME committed Kerbal X fixture B2/B4/B5/B6/B7/B11-B15 fly. No new
+# fixture, no forge run: the ascent and transfer halves are byte-for-byte B15's
+# mission path, which is byte-for-byte B7's.
+# DELTA-V: see the FEASIBILITY block above. Short version - ~735 m/s of capture
+# needed against ~1,850 m/s available, a 2.5x margin, DERIVED from the MEASURED
+# end-of-flight fuel state of three green B7 flights.
+saveTemplate       = "fixtures/saves/b2-lko-craft"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+# Thin alias over the body-parameterized B5 machine with B7's five
+# interplanetary params AND B11/B12's captureEnabled tail (see b16_eve_orbit.py).
+# There is NO b16_decide and NO new mlib code.
+mission = "b16_eve_orbit"
+
+# `steps` MUST stay in the [driver] table (above the [driver.missionParams]
+# header).
+#
+# COMMIT ACCOUNTING - read this before adding a CommitTree step. There is
+# EXACTLY ONE commit: the MID-MISSION one the machine fires from ORBIT-COMMIT via
+# ACTION_PARSEK_COMMIT_TREE (route 1, reusing the mission step's own reserved id
+# on the seam channel). There is deliberately NO post-mission CommitTree - the
+# seam's CommitTreeImpl returns ERROR with `no-active-tree`
+# (ParsekTestCommandAddon.cs) when no tree is live, and after the mid-mission
+# commit that is the expected state. This is the B11/B12 shape, NOT B15's: B15 is
+# a flyby and commits after the mission. FIRST-FLIGHT-TO-CONFIRM: if the flight
+# shows Parsek opening a FRESH tree for the still-orbiting vessel after the
+# commit, add a post-mission CommitTree step then - not on speculation, because a
+# wrong guess reds the run either way.
+#
+# BUDGET ARITHMETIC (WALL seconds unless noted; every input labelled).
+#   FRONT HALF = B15's derivation verbatim: ~1,265 wall WORST case, ~800
+#     expected. It is built from B7's MEASURED 767-779 s mission wall over
+#     11.30e6 game seconds, the MEASURED phase spans (ejection wait ~4,966,290;
+#     coast ~6,189,000), the DERIVED ~24,000 game-s-per-wall-s warped throughput,
+#     and the DERIVED Eve game-time load (worst case ~18.4e6 game s, dominated by
+#     the 0..14,700,000 ejection-window wait the fixture UT fixes).
+#   CAPTURE TAIL, MEASURED on B11/B12 and re-sized for Eve:
+#     capture arming + PLAN-CAPTURE   ~30 wall
+#     CAPTURE-BURN                   ~610 wall. The SOI-entry -> periapsis coast
+#                                    is DERIVED at ~74,700 GAME seconds (Eve's
+#                                    SOI edge is ~85,109 km out, 38x the Mun's
+#                                    ~2,230 km) but the executor AUTOWARPS it at
+#                                    a legal factor 7, so it costs ~10 wall. The
+#                                    ~600 is MechJeb's OWN 1x pre-ignition
+#                                    WARPALIGN hold, MEASURED on B11 flight 1 and
+#                                    body-INDEPENDENT: 600 GAME seconds at 1x is
+#                                    600 WALL seconds wherever it happens.
+#     PARK                           ~200 wall (180 game-s dwell held at 1x -
+#                                    this dwell IS the recorded coverage, so it
+#                                    is deliberately NOT warped)
+#     ORBIT-COMMIT                   <1 typical, 120 worst (the runner's
+#                                    SEAM_COMMIT_POLL_SECONDS bound)
+#     => +~840 nominal. WORST adds one bounded stale-node capture re-plan: +90
+#     wall of window grace, a re-planned (autowarped) coast, and a SECOND ~600
+#     wall pre-ignition hold => +~1,700.
+#   => ~2,100 wall expected-worst, ~2,965 worst-worst. missionBudget 4200 (WALL)
+#     is ~1.4x the worst case - the same ratio B12 carries and defends. runtime
+#     4700 >= 240 LoadGame + ~5 SetSetting + 4200 mission + ~60 FlushAndQuit +
+#     ~195 margin (review SF-5).
+#   WHAT THIS COSTS THE NIGHTLY, stated plainly since wall cost is now a real
+#     constraint (suite p50 ~219 minutes, coverage/duration.json): B15 should
+#     land near ~800-900 s and B16 near ~1,900-2,200 s, so the pair adds roughly
+#     45-50 minutes to a sweep - about a 21% increase, and B16 alone would become
+#     the second most expensive scenario after B13's MEASURED 2,825 s. If that is
+#     not worth the one surface B16 actually buys (the capture tail after a
+#     heliocentric traverse - see WHY THIS MISSION EXISTS), the honest move is to
+#     ship B15 alone and drop B16, NOT to shrink its budgets.
+#   PROVISIONAL: both wall numbers, pending the first green flight.
+# Phase budgets in missionParams are GAME time.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 4200 },
+  { cmd = "FlushAndQuit",                                        expect = "OK" },
+]
+
+# Front half = B15's params VERBATIM except where an Eve capture needs a
+# different number; tail = B11/B12's capture params re-sized for Eve (validated
+# against b16_eve_orbit.schema.toml). Every value is a tolerance / threshold /
+# budget, never a golden trajectory.
+[driver.missionParams]
+targetApoapsisMeters       = 700000
+targetPeriapsisMeters      = 700000
+apoErrorMeters             = 150000
+periErrorMeters            = 150000
+ascentTimeoutSeconds       = 2400
+circularizeTimeoutSeconds  = 6000
+targetBodyName             = "Eve"
+homeBodyName               = "Kerbin"
+transferMinApoapsisMeters  = 0
+ejectionEccFloor           = 1.05
+interplanetaryTransfer     = true
+viaBodyNames               = ["Sun"]
+# IN CAPTURE MODE THIS IS THE FAILURE BODY, NOT A SUCCESS TERMINAL. mlib's
+# TARGET-FLYBY branch reads `capture_enabled and body == return_body` as "left
+# the target SOI without capturing; the arrival flew past instead of
+# circularizing" and ASSERT-FAILs. "Sun" is where an UNCAPTURED Eve arrival
+# actually goes, so naming it here makes the failure self-explaining. Left empty
+# it would default to Kerbin and a Sun reading would STILL ASSERT-FAIL, just
+# through the generic ejected-off-course branch - so this is a diagnosis-quality
+# choice, never a pass/fail one.
+returnBodyName             = "Sun"
+# THE CAPTURE ALTITUDE, and the one param whose value is set by GILLY rather
+# than by fuel. MechJeb circularizes AT PERIAPSIS, so this target IS the park
+# altitude. 5,000 km costs a DERIVED ~735 m/s against ~1,850 available; the
+# theoretical optimum (18,157 km, ~658 m/s) would save ~77 m/s and put the park
+# INSIDE Gilly's 14,175 km periapsis shell, which is not a trade worth making for
+# a committed recording. 5,000 km also leaves room for finding 16d's documented
+# bias - MechJeb's OperationCourseCorrection arrives HIGHER than requested (B5
+# turned 250 km into 956-1,142 km) - so even a 2x overshoot lands at ~10,000 km,
+# still comfortably below the ceiling below.
+courseCorrectPeriapsisMeters = 5000000
+maxCorrectionDvMps         = 200
+correctionTriggerAltsMeters       = []
+correctionTriggerTimeToSoiSeconds = [20000000, 500000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+transferBurnTimeoutSeconds = 18000000
+coastTimeoutSeconds        = 7000000
+# GAME seconds. UNLIKE B15, this bounds only the ARMING window: in capture mode
+# TARGET-FLYBY hands the SOI-edge-to-periapsis coast to CAPTURE-BURN's executor
+# autowarp, and B11 flight 3 MEASURED that window at 27 game seconds once the
+# periapsis-bounded warp landed. 600,000 is a deliberately SLOW bound; the NAMED
+# capture-never-armed give-up is what bounds BROKEN.
+flybyTimeoutSeconds        = 600000
+coastWarpFactor            = 7
+flybyWarpFactor            = 5
+flybyMaxWarpFactor         = 6
+nodeArrivalMarginSeconds   = 15
+planWarpFactor             = 2
+soiLeadSeconds             = 30
+flipPhysicsWarpFactor      = 1
+# THE VACUUM FLOOR across the WHOLE in-SOI stay (arrival AND park), not just a
+# flyby pass. Unlike B11's 10 km (Mun peaks ~7 km) or B12's 6 km (Minmus ~5.7 km)
+# this is NOT a terrain number: Eve's peaks are only ~7.5 km but its ATMOSPHERE
+# is 90 km deep, so 100 km asserts "the craft never entered air". With the park
+# at ~5,000 km this row has enormous headroom by construction - it exists to
+# catch an ARRIVAL that came in far lower than planned, which on Eve is the
+# difference between a capture and an aerocapture.
+targetPeriapsisFloorMeters = 100000
+
+# --- ORBIT TAIL -------------------------------------------------------------
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+# CAPTURE-BURN budget (GAME seconds), the LARGEST in the lane. The executor
+# autowarps the SOI-entry -> periapsis coast, and Eve's SOI edge sits ~85,109 km
+# above the surface - 38x the Mun's ~2,230 km and 39x Minmus's ~2,187 km. DERIVED
+# via hyperbolic Kepler onto THIS lane's park (5,000 km altitude = 5,700 km
+# radius): ~74,700 GAME seconds from the SOI boundary to periapsis at v_inf
+# 931 m/s, ~79,700 at the ideal-Hohmann 846. 400,000 is ~5x that -
+# a SLOW bound. The executor-not-enabled, window-missed, no-start and under-burn
+# watchdogs bound BROKEN, which is the standing division of labour.
+# PROVISIONAL pending flight 1.
+captureBurnTimeoutSeconds  = 400000
+# THE CAPTURE WINDOW (also the PARK gate). WIDE on the floor, because the arrival
+# periapsis is MechJeb's business, and HARD on the ceiling, because the ceiling is
+# the Gilly exclusion:
+#   parkMinPeriapsisMeters  500 km  - 5.5x Eve's 90 km atmosphere ceiling. A
+#                                     capture that lands far lower than the
+#                                     5,000 km request is still a legitimate Eve
+#                                     park as long as it is in VACUUM; below this
+#                                     it is an aerobraking orbit that will decay.
+#   parkMaxApoapsisMeters   13,000 km - LOAD-BEARING TWICE. (1) A hyperbolic
+#                                     (uncaptured) approach reads a NEGATIVE
+#                                     apoapsis in the Eve frame, so
+#                                     "0 < ap <= ceiling" is the actually-captured
+#                                     evidence and cannot be faked by flying past.
+#                                     (2) 13,000 km altitude = 13,700 km radius,
+#                                     just under Gilly's 14,175 km periapsis
+#                                     radius, so a park that passes this gate can
+#                                     never be reached by Gilly at any phase.
+#   parkMaxEccentricity     0.25    - B11/B12's value. A circularize-at-periapsis
+#                                     burn should land well under it; it leaves
+#                                     room for the executor's own 0.1 tolerance
+#                                     and for a partial burn that is still a
+#                                     perfectly stable park.
+# WHICH CONJUNCT DOES THE WORK depends on the failure, and all three are
+# load-bearing - B12 flight 3's under-burn (ap 324,973 pe 5,267 ecc 0.710) PASSED
+# its apoapsis ceiling and was rejected by the periapsis floor and the
+# eccentricity bound.
+parkMinPeriapsisMeters     = 500000
+parkMaxApoapsisMeters      = 13000000
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+# Same 180 game-s held dwell as B11/B12: this dwell IS the recorded
+# parked-in-foreign-SOI coverage (the machine holds 1x through it), so it is also
+# a direct ~180 s of wall cost. PROVISIONAL: raise only if flight 1 shows the
+# committed recording carrying too little in-Eve-SOI coverage to be a useful
+# playback / ghost fixture.
+parkDwellSeconds           = 180
+parkDebounceFrames         = 3
+# PARK budget (GAME seconds) = the dwell + 420 s of stabilization slack. At 1x
+# that is a 10-minute wall worst case, so the NAMED park give-ups ("never
+# stabilized" vs "stabilized but never HELD") always fire before the 4200 s
+# mission wall budget could reap the run generically.
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+
+# Coverage: B15's interplanetary cell set PLUS D1 commit-in-foreign-soi, which
+# B11/B12 already own and this lane re-claims on the eve axis. NOTHING NEW IS
+# CLAIMED and NO REGISTRY GROWTH IS NEEDED: D14 already carries "eve" and D1
+# already carries "commit-in-foreign-soi" (coverage/registry.toml), so this
+# change triggers no growth-rule obligation.
+#
+# D4 "atmospheric" IS claimed and it is the KERBIN ASCENT's cell, exactly as on
+# every other flown scenario. It is NOT an Eve atmospheric claim - the park sits
+# at ~5,000 km, and the claim is not even ASSERTABLE today (no emitted log line
+# pairs an environment class with a body name). See the B15 spec.
+# D5 bg-recording is NOT claimed, for the reason B11/B12 record: CommitTreeFlight
+# nulls both `backgroundRecorder` and
+# `Patches.PhysicsFramePatch.BackgroundRecorderInstance` before returning,
+# nothing asserts a handoff, and settle_frames = 0 (missions/b16_eve_orbit.py)
+# ends the mission on the commit frame itself.
+# D14 "gilly" is NOT claimed: entering Gilly's SOI is an ASSERT-FAIL, so a run
+# that touched it would be RED, and coverage may not be claimed on a failure path.
+[dimensionsCovered]
+D1  = ["auto-record-launch", "commit-in-foreign-soi"]
+D3  = ["orbital-checkpoint"]
+D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
+D14 = ["kerbin", "eve", "soi-count", "warp-rails", "warp-high"]
+
+[expectations.recordings]
+# PROVISIONAL WINDOW, not a pin - identical reasoning to B15, and for the same
+# reason: this lane has never flown.
+#
+# THE EXPECTATION IS EXACTLY 8. B11, B12, B13, B14 and all three green B7 runs
+# MEASURED exactly 8 on this fixture and this ascent, as did every archived run
+# at or after commit 82398e157 ("Live finding 15: flameout staging") that crossed
+# into a foreign SOI - 10 runs of 10. The topology:
+#   +1  the root/main recording, +6  the six radial boosters as parent-anchored
+#   debris children, +1  the FLAMEOUT-STAGED ascent core = 8.
+#
+# IT SHIPS AS {7, 9} because `_b5_flameout_stage` is a CONDITIONAL watchdog (it
+# fires only on OBSERVED zero available thrust under a commanded burn) and B16's
+# ejection is a different burn profile at a different vehicle mass from any run
+# that produced the measured 8. 7 is the no-flameout topology; 9 leaves one unit
+# of LES-tower margin.
+#
+# READ THIS BEFORE TRUSTING IT - THE COUNT IS COMMIT-BLIND. `run.py
+# count_recordings` counts `.prec` sidecars, and ParsekScenario's OnSave writes
+# sidecars for the ACTIVE (uncommitted) tree too. MEASURED: the archived runs
+# logs/2026-07-25_0253_B11-mun-orbit and logs/2026-07-25_0538_B12-minmus-orbit
+# flew the full ascent, crossed into the target SOI, NEVER committed (ZERO
+# `CommitTreeFlight` lines in their KSP.log) and still produced exactly 8
+# `.prec`. This window guards recording TOPOLOGY only; the COMMIT is guarded by
+# the logContract tokens below and by nothing else.
+#
+# PIN IT FROM THE FIRST GREEN FLIGHT: read
+# `verifiers.expectations.observed.recordings.count` out of that run's
+# results/*.json and narrow to {n, n}, carrying B11/B12's explicit
+# "min = n is not a floor" reasoning. Do not widen it blindly.
+count = { min = 7, max = 9 }
+
+[expectations.logContracts]
+# Every token is sourced from its ACTUAL emitting ParsekLog call site.
+#   "Recording started" / "Recording stopped" - the lifecycle pair every flown
+#       scenario asserts.
+#   "SOI change boundary suppressed in tree mode: Kerbin to Sun" / "... Sun to
+#       Eve" - ParsekFlight.HandleSoiChangeSplit, ParsekLog.Info("Flight", ...),
+#       the PRODUCTION branch. FORMAT VERIFIED against a real interplanetary
+#       flight: logs/2026-07-25_1216_B7-duna-flyby/KSP.log carries exactly three
+#       of these (`Kerbin to Sun`, `Sun to Duna`, `Duna to Ike`). Together the
+#       two assert the full Kerbin -> Sun -> Eve traverse, which is what makes
+#       "capture after a HELIOCENTRIC traverse" - this mission's one real claim -
+#       a checked one rather than an inference.
+#   "CommitTreeFlight: starting tree commit at UT=" - ParsekFlight.cs,
+#       ParsekLog.Info("Flight", ...). Proves the commit path actually ran.
+#   "committree committed=true" - ParsekTestCommandAddon.cs,
+#       ParsekLog.Info(Tag="TestCommands", ...) on the seam verb's success
+#       branch. Proves the MID-MISSION seam commit reached its OK result.
+#   "CommitTreeFlight terminal: rec=\w+ terminalState=Orbiting
+#       terminalOrbitBody=Eve" - ParsekFlight.LogCommitTerminalVerdicts ->
+#       FormatCommitTerminalLine, one line per committed recording. THIS is the
+#       headline claim's only real evidence: "starting tree commit at UT=" is
+#       logged unconditionally the moment the path is entered and "committree
+#       committed=true" only proves the seam call returned, so without this token
+#       a tree that ended around KERBIN would produce byte-identical evidence to
+#       one that ended around EVE. FORMAT VERIFIED against the emitter, which
+#       builds exactly `$"CommitTreeFlight terminal: rec={recId} " +
+#       $"terminalState={terminalState} terminalOrbitBody={terminalBody}"`, with
+#       terminalBody falling back to TerminalPosition.body when
+#       TerminalOrbitBody is empty (the B13/B14 landed case - not this one, which
+#       is a genuine Orbiting terminal and takes TerminalOrbitBody).
+required = [
+  "Recording started",
+  "Recording stopped",
+  "SOI change boundary suppressed in tree mode: Kerbin to Sun",
+  "SOI change boundary suppressed in tree mode: Sun to Eve",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "committree committed=true",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Eve",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+budgetSeconds = 4700
+
+[retry]
+# First flights are tuning flights, and this lane carries three unknowns at once:
+# the unverified inward-window plan, the small-but-nonzero Gilly risk, and the
+# first-ever capture after a heliocentric traverse. A single retry absorbs one
+# transient; it does NOT absorb a systematic failure, which will red both
+# attempts identically and name itself.
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -32,6 +32,7 @@ All notable changes to Parsek are documented here.
 
 ### Internals & Tests
 
+- Added two developer-only automated test flights to Eve: a flyby and an orbit that captures, parks and closes the mission tree there. They are the first tests to fly INWARD toward the sun rather than outward, and the orbit one is the first to close a mission tree around a world reached across interplanetary space. Test-tooling only; no gameplay change.
 - Added two developer-only automated test flights that land on the Mun and on Minmus and close the mission tree while sitting on the surface, so recordings that END on another world are now covered end to end (every existing flight either ends in orbit around another world or lands back on Kerbin). Test-tooling only; no gameplay change.
 - When an automated test flight fails to reach the state it was flying toward, the harness now runs only the teardown that closes the recording and quits the game, instead of carrying on with the rest of the scripted steps (on one failed run that meant sending a kerbal out the hatch while the craft was still falling at terminal velocity). Test-tooling only; no gameplay change.
 - Career recalculation is slightly cheaper: the walk now skips a redundant re-sort of the action list when nothing changed it. Recalculated career values are unchanged.

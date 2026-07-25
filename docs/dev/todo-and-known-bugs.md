@@ -178,6 +178,163 @@ Live finding 4 (fourth flight 2026-07-21/22): `rendezvous=True` produced a REAL 
 
 Live finding 3 (third flight 2026-07-21; the dv cap doubled as the diagnostic): the capped correction warns revealed MechJeb demanding 15,930-25,559 m/s immediately post-TLI, settling at a PERSISTENT ~403 m/s - and the coast then reached apoapsis 11.39M and fell BACK to Kerbin with no encounter. Root cause CONFIRMED in the decompiled MechJeb 2.15.1 `OperationGeneric`: `Rendezvous` is the TARGETED-INTERCEPT flag (it flows into `DeltaVAndTimeForHohmannTransfer` as the arrive-AT-the-target mode; the GUI pairs "Rendezvous" vs phase-blind "Transfer"), so finding 1's over-eager `rendezvous=False` degraded the plan to a phase-blind altitude-only Hohmann with a deterministic miss - and finding 2's monster "correction" (flight 2 executed a 15,930 m/s plan uncapped, wedging the executor on dry tanks) was MechJeb pricing the re-aim to CREATE the missing encounter. Fix: `capture=False` (the GUI's intercept-only checkbox is literally `Capture = !intercept_only`) + `plan_capture=False` + `rendezvous=True`. Also of note from the decompile: MechJeb itself warns that a plotted insertion burn to a celestial with an SOI is unsupported ("A Transfer-to-Moon maneuver needs to be written"), so flight 1's second node was an unsupported artifact regardless.
 
+## B15 / B16 Eve interplanetary FLYBY + ORBIT missions - the first INWARD transfer, and the first capture after a heliocentric traverse (b15_eve_flyby / b16_eve_orbit) [BUILT, NOT YET FLOWN - branch `autotest-eve-missions`, stacked on `autotest-landing-missions`]
+
+**ZERO NEW MACHINE CODE, and that is the claim to check first.** B15 is B7's
+exact param key set re-valued for Eve. B16 is that set unioned with B11/B12's
+capture tail. `mlib.py` is untouched; `mission_runner.py` is untouched. The two
+param groups are read by DISJOINT parts of `mlib.b5_decide` - interplanetary
+shapes everything BEFORE the target SOI, capture shapes everything after it -
+and their single point of contact (`_b5_return_body`) changes a failure MESSAGE,
+not a verdict. `EveLaneIsAParameterChangeTests` in `test_shells.py` machine-checks
+this: B15's key set must be a subset of B7's and B16's a subset of B7's plus
+B11's, so a future change that needs new machine surface fails a test instead of
+sliding in. Eleven new cells, all green on the first run - which is itself the
+strongest evidence for the claim.
+
+**BE SKEPTICAL ABOUT THE VALUE. The specs are, and this entry is.** A plain Eve
+flyby largely RE-EXERCISES B7's cross-SOI surface at a different body, and an Eve
+capture RE-EXERCISES B11/B12's commit-in-foreign-SOI at a different body. Both are
+D14 MULTIPLIERS, not new mechanisms, and NEITHER LANE CLAIMS A NEW REGISTRY VALUE
+(D14 already carries `eve`; D1 already carries `commit-in-foreign-soi`), so the
+growth rule is not triggered. What they actually buy:
+- B15: a STABLE interplanetary regression subject. B7 is currently FLAKY - Ike
+  grabs its 300 km Duna approach on roughly half of sweeps - so the only
+  interplanetary lane in the suite cannot be trusted as a regression signal.
+- B16: the capture tail run after a HELIOCENTRIC traverse. It has only ever run
+  after a LUNAR transfer; here the committed tree's terminal orbit body is
+  reached through TWO SOI transitions with an arrival v_inf ~4x the Mun's.
+
+**THE SURFACE EVE COULD HAVE BOUGHT, AND DELIBERATELY DOES NOT - do not let a
+later reader think this was an oversight.** Eve has the deepest atmosphere in the
+stock system (90 km) and is the only non-Kerbin body the Kerbal X can reach that
+has one, so a NON-KERBIN ATMOSPHERIC TrackSection is genuinely unclaimed coverage
+(B13/B14 bought only the AIRLESS `Approach -> Surface*` path). Three stacked
+reasons it is not claimed here, in increasing order of how hard they are to fix:
+1. GEOMETRY. B15 passes at 1,000 km and B16 parks at ~5,000 km - 11x and 55x the
+   atmosphere depth. Aiming lower is not a tweak: at Eve's arrival speeds an
+   atmosphere-grazing periapsis is an aerocapture / breakup event.
+2. RECORDING GATE. `FlightRecorder.OnPhysicsFrame` early-returns on `isOnRails`
+   and `BackgroundRecorder.OnBackgroundPhysicsFrame` on `bgVessel.packed`. The
+   whole in-SOI leg is packed under rails warp, so even a grazing pass emits no
+   Atmospheric section unless the craft is loaded and OFF RAILS in the air.
+3. OBSERVABILITY, the blocker that outlives the other two. **NO EMITTED LOG LINE
+   PAIRS AN ENVIRONMENT CLASS WITH A BODY NAME.** The two candidates are
+   `TrackSection started: env=Atmospheric ...` (`FlightRecorder.cs`) and
+   `Environment transition: X -> Y at UT=...`
+   (`EnvironmentDetector.EnvironmentHysteresis.Update`); neither carries a body,
+   and since every Eve mission launches from Kerbin, both are satisfied by the
+   ASCENT alone. A logContract asserting them would be unearned BY CONSTRUCTION.
+   B13/B14's `Approach -> Surface*` trick cannot be cloned either - it works only
+   because a vacuum class immediately before a surface class is impossible on an
+   atmospheric body, and on Eve the pre-touchdown class is necessarily
+   Atmospheric, which reads identically to a Kerbin landing.
+   FOLLOW-UP VARIANT, if the atmospheric cell is wanted: add `body=` to the
+   `TrackSection started:` format string (the recorder has `v.mainBody.name` in
+   hand at the call site), mirroring the B13 `terminalOrbitBody` fix, then a
+   rebuilt DLL, then `provision.py --profile stock-minimal`, then an aerobraking
+   profile that is loaded and off rails through the pass. Different mission,
+   different risk profile. `EnvironmentDetector.Classify` itself is fully
+   body-generic (one line: `hasAtmosphere && altitude < atmosphereDepth`, with
+   NO hysteresis into or out of the vacuum classes), so the classifier is not the
+   problem - the logging is. NOTE also that the B13/B14 specs attribute that
+   token to `EnvironmentDetector.ConfirmTransition`, a method that does not
+   exist; the real emitter is `EnvironmentHysteresis.Update`. File is right,
+   method name is stale.
+
+**B16 FEASIBILITY - DERIVED, and it CLOSES with room.** This was the open
+question, since Eve is far more massive than the Mun or Minmus.
+- MEASURED (archived end-of-run saves of the three green B7 flights,
+  `logs/2026-07-25_{0753,0806,1216}_B7-duna-flyby/saves/b2-lko-craft/persistent.sfs`):
+  after a full 700 km ascent + interplanetary ejection + 2-3 corrections the
+  17-part orbiter holds LF = 494.560 / 496.959 / 495.479 of the X200-16's 720.
+- DERIVED from that with stock part cfgs + the rocket equation (orbiter dry
+  ~7.7 t, 11.111 kg propellant per LF unit at the stock 9:11 ratio, Poodle
+  Isp 350 s): **~1,825-1,880 m/s remaining at an interplanetary arrival.**
+- CROSS-CHECKED: the same model turns the supplied lf 592.814 at the Mun park
+  into ~2,101 m/s and a full tank into ~2,422 m/s, so the Mun's post-TLI tail
+  spent ~321 m/s against B11's MEASURED 277.016 m/s capture node plus small
+  corrections. It reproduces an independently measured burn to within tens of
+  m/s.
+- DERIVED Eve capture: `dv(r) = sqrt(v_inf^2 + 2mu/r) - sqrt(mu/r)`, minimised at
+  `r = 2mu/v_inf^2` with `dv_min = v_inf/sqrt(2)`. Hohmann arrival v_inf is
+  846 m/s, calibrated to ~931 m/s by the 1.10x factor B7's three MEASURED Duna
+  arrival hyperbolas (sma -364,416 / -364,568 / -364,454) show against ideal.
+  That gives **~735 m/s at the chosen 5,000 km park**, 688 at 8,000 km, and a
+  658 m/s floor at 18,157 km. **A 2.5x margin; ~2.0x after the full 2x200 m/s
+  correction cap.**
+- **THE COMMITTED SURVEY IS PESSIMISTIC AND NOW WE KNOW WHY.** This doc's B6/B7
+  section says the orbiter holds "~1500-1600 m/s after the 80 km
+  circularization". That predates B5 finding 15, so it did not know the flameout
+  watchdog lets the CORE fly the whole transfer, leaving the upper stage nearly
+  full at the target. Both readings agree Eve closes; the MEASURED fuel states
+  settle the size of the margin. The survey line is left as written - it is
+  historically accurate about what was known then - but do not size a new lane
+  from it without checking a measured `lf` first.
+
+**GILLY IS NOT IKE, and the numbers say so.** B7's Duna lane is intermittent
+because its ~300 km periapsis target makes the inbound leg transit Ike's shell.
+Eve's one moon does not reproduce it, on four independent counts:
+1. Gilly's SOI radius is ~126 km against Ike's ~1,050 km - 8.3x smaller in
+   radius, ~69x smaller in cross-section.
+2. Ike sits at 6.7% of Duna's SOI radius, DEEP in the funnel every low-periapsis
+   arrival passes through. Gilly sits at 17-57% of Eve's (sma 31,500 km,
+   e = 0.55, inside an 85,109 km SOI), far out where the inbound cone is wide.
+3. Ike's inclination is 0.2 deg - coplanar with everything that arrives. Gilly's
+   is 12 deg.
+4. Unlike Ike, Gilly cannot be dodged by choosing a periapsis (it is at
+   14,175 km minimum), so the spec does not try - it accepts the transit.
+RESIDUAL RISK IS NON-ZERO, NOT ZERO. A Gilly capture is a NAMED ASSERT-FAIL
+(`flyby ejected the craft off-course: body='Gilly'`), and Gilly is DELIBERATELY
+absent from `viaBodyNames` - adding it would convert that into a silent PASS.
+`retry.policy = "once"` absorbs one occurrence. Two unit cells pin the choice.
+Gilly DOES set B16's park ceiling: the dv optimum (18,157 km) sits inside Gilly's
+14,175 km periapsis shell, so `parkMaxApoapsisMeters` 13,000 km does double duty
+as the captured-or-not evidence AND the Gilly exclusion, and the park is high for
+that reason rather than for a fuel reason.
+
+**THE INWARD TRANSFER IS THE HIGHEST-RISK UNKNOWN, and it is not ours.** Every
+interplanetary case so far goes OUTWARD. AUDITED: mlib has no direction anywhere
+- `_b5_transfer_burn_done` reads |ecc| >= floor in the HOME frame (an inward
+escape is exactly as hyperbolic), `_b5_coast_bodies` / `_b5_warp_bodies` /
+`_b5_return_body` are name comparisons, `_b5_correction_round_ready` in time mode
+is a scalar clock, and `STOCK_WARP_ALTITUDE_LIMITS` already carries Eve (its
+table is identical to Kerbin's) with the Sun's factor-7 limit five orders of
+magnitude below Eve's heliocentric altitude. The assumption, if any, lives in
+MechJeb's own `OperationInterplanetaryTransfer` (WaitForPhaseAngle), which NO
+headless test can exercise (the standing PENDING-OPERATOR traceability note). If
+it cannot plan an inner window it throws server-side, `node_count` stays 0, and
+PLAN-TRANSFER flakes on the PLAN_MAX_ATTEMPTS give-up in ~90 game-seconds with a
+named reason. **FLY B15 FIRST**: it prices this unknown and the ejection-window
+wait for half of B16's cost.
+
+**WALL COST, stated plainly because it is now a real constraint.** Suite p50 is
+~219 minutes (`harness/coverage/duration.json`). Budgets are 3000 s / 4200 s WALL,
+DERIVED from B7's MEASURED 767-779 s mission wall over 11.30e6 game seconds, its
+MEASURED phase spans (ejection wait ~4,966,290 game s; heliocentric coast
+~6,189,000), the DERIVED ~24,000 game-s-per-wall-s warped throughput, and the
+DERIVED Eve game-time load. Expected actuals are ~800-900 s (B15) and
+~1,900-2,200 s (B16), so the pair adds roughly 45-50 minutes to a sweep, about
++21%, and B16 would become the second most expensive scenario after B13's
+MEASURED 2,825 s. IF THAT IS NOT WORTH THE ONE SURFACE B16 BUYS, the honest move
+is to ship B15 alone and drop B16 - NOT to shrink the budgets.
+
+PENDING-OPERATOR first-flight pins, each naming what closes it:
+- `recordings.count` ships PROVISIONAL at {7, 9} on BOTH lanes. The expectation is
+  EXACTLY 8 (B11/B12/B13/B14 and all three green B7 runs measured 8; 10 of 10
+  archived foreign-SOI runs at or after commit 82398e157 read 8). It is a window
+  and not a pin because `_b5_flameout_stage` is a CONDITIONAL watchdog and B15/B16
+  fly a different burn profile at a different vehicle mass. Pin to {n, n} from the
+  first green flight's `verifiers.expectations.observed.recordings.count`.
+- Both wall budgets on both lanes, and the real ejection-window wait (the only
+  budget term with a 14,700,000 game-second range; the fixture UT fixes it, so it
+  is deterministic but unknown until flown).
+- B16's `captureBurnTimeoutSeconds` 400,000 (DERIVED ~74,700 game s of
+  SOI-edge-to-periapsis coast via hyperbolic Kepler onto the 5,700 km park
+  radius, ~79,700 at the ideal-Hohmann v_inf; Eve's SOI edge is 38x the Mun's).
+- The achieved capture geometry, which decides whether `courseCorrectPeriapsisMeters`
+  5,000,000 lands where intended.
+
 ## B13 / B14 Mun + Minmus LANDING missions - powered descent, landed dwell, commit-on-the-surface (b13_mun_landing / b14_minmus_landing) [BUILT, NOT YET FLOWN - branch `autotest-landing-missions`, stacked on `autotest-orbit-missions`]
 
 Roadmap item 3 ("Mun/Minmus LANDING missions - upper stage landed: landed-on-other-body recording, surface TrackSections off Kerbin, the landing FSM seam"). **ID note:** same reasoning as B11/B12 - B8/B9/B10 are taken in `automated-testing-scenario-catalog.md` section 2 and B3 is the EVA branch, so the LANDING lane takes the next free ids, **B13-mun-landing** + **B14-minmus-landing**.
