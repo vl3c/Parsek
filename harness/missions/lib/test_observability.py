@@ -189,6 +189,20 @@ class SnapshotFormatTests(unittest.TestCase):
         down = mlib.TelemetrySnapshot(ut=1.0, node_executor_enabled=0)
         self.assertIn(" nodeExec=0", mlib.format_snapshot_compact(down))
 
+    def test_correction_giveup_rides_the_machine_line(self):
+        """B12 flight 1: a correction round exit was indistinguishable from a
+        clean cut in the log. The reason is now a diffed machine field."""
+        line = mlib.format_machine_state(
+            _b5_state(corr_giveup=mlib.CORR_GIVEUP_NO_PROGRESS,
+                      corr_budget_anchor_ut=74193.5), ut=74200.0)
+        self.assertIn("corrGiveup=no-progress", line)
+        self.assertIn("corrBudgetAnchorUt=74193.500", line)
+        self.assertIn(("corr_giveup", "corrGiveup"), mlib.MACHINE_DIFF_FIELDS)
+        # A fresh machine carries neither (the "" / None sentinels).
+        clean = mlib.format_machine_state(_b5_state(), ut=1.0)
+        self.assertIn("corrGiveup=", clean)
+        self.assertIn("corrBudgetAnchorUt=none", clean)
+
     def test_capture_executor_supervision_rides_the_machine_line(self):
         """The two hard-capped recovery counters + the observed-down debounce
         run must be greppable from the machine-state line."""

@@ -2519,6 +2519,43 @@ class B5MachineTests(unittest.TestCase):
                                    Action(mlib.ACTION_AP_DISENGAGE),
                                    Action(mlib.ACTION_CANCEL_WARP)])
 
+    def test_b12_flight1_long_aim_warp_no_longer_times_out(self):
+        """THE B12 flight-1 regression cell, replayed from
+        harness/results/b12-flight1.out. Entry ut 475.3, MechJeb put the
+        Minmus correction node at ut 74,208.3, so the aim-warp target is
+        74,193.3 and the wait is 73,733 game seconds against a 4,000 s
+        budget. Flight 1 flaked mid-warp with the GENERIC "phase
+        CORRECTION-BURN timed out"; the fixed machine must hold and keep
+        driving the warp."""
+        state = _b5_state(mlib.B5_CORRECTION_BURN, phase_entry_ut=475.337,
+                          warp_to_cmd=74193.288, last_warp_issue_ut=492.668)
+        # The exact frame flight 1 died on: 7,952 game-s into a 4,000 s budget.
+        state, actions = mlib.b5_decide(
+            state, snap(ut=8427.354, body="Kerbin", altitude=8_385_964.0,
+                        node_count=1, node_ut=74208.288, node_dv=13.301,
+                        ap_error=18.461, warping_to=74193.288,
+                        warp_mode="RAILS", warp_rate=10000.0))
+        self.assertFalse(state.done)
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        self.assertEqual(state.warp_to_cmd, 74193.288)
+        self.assertNotIn(Action(mlib.ACTION_CANCEL_WARP), actions)
+
+    def test_budget_re_anchors_at_the_aim_warp_arrival(self):
+        """The budget bounds the BURN: it restarts at the warp ARRIVAL, the
+        same seam that re-anchors the no-start clock and the aligned streak."""
+        state = _b5_state(mlib.B5_CORRECTION_BURN, phase_entry_ut=475.337,
+                          warp_to_cmd=74193.288, last_warp_issue_ut=492.668)
+        state, _ = mlib.b5_decide(
+            state, snap(ut=74193.5, body="Kerbin", node_count=1,
+                        node_ut=74208.288, node_dv=13.301, ap_error=100.0))
+        self.assertFalse(state.done)
+        self.assertEqual(state.corr_budget_anchor_ut, 74193.5)
+        self.assertEqual(state.corr_nostart_anchor_ut, 74193.5)
+        # 73,718 game-s past PHASE ENTRY but only 0.5 s past the anchor: the
+        # pre-fix machine flaked here on the very first post-arrival frame.
+        self.assertFalse(mlib.correction_budget_expired(
+            74194.0, 475.337, 74193.5, 4000.0, None))
+
     def test_plan_phase_holds_rails_warp_between_attempts(self):
         """OPERATOR PR GATE: plan phases ride the legality-clamped
         planWarpFactor (10x) between attempts -- never 1x."""
@@ -6267,6 +6304,148 @@ class B5CaptureBurnTests(unittest.TestCase):
         self.assertTrue(state.done)
         self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
         self.assertIn("capture burn did not complete", state.flake_reason)
+
+
+class CorrectionBudgetTests(unittest.TestCase):
+    """mlib.correction_budget_expired + classify_correction_timeout: the PURE
+    core of the B12 flight-1 fix. The CORRECTION-BURN budget bounds the BURN,
+    never the ballistic wait for the node."""
+
+    def test_suppressed_while_the_aim_warp_is_in_flight(self):
+        # B12 flight 1's exact numbers: 7,952 game-s of a 4,000 s budget spent
+        # warping toward a node 73,733 s ahead.
+        self.assertFalse(mlib.correction_budget_expired(
+            ut=8427.354, phase_entry_ut=475.337, budget_anchor_ut=None,
+            budget=4000.0, aim_warp_target=74193.288))
+
+    def test_expires_normally_with_no_aim_warp(self):
+        """A round that never aim-warped is UNCHANGED: the clock runs from
+        phase entry exactly as it always did (the B5/B6/B7 close-node path)."""
+        self.assertFalse(mlib.correction_budget_expired(
+            ut=4000.0, phase_entry_ut=0.0, budget_anchor_ut=None,
+            budget=4000.0, aim_warp_target=None))
+        self.assertTrue(mlib.correction_budget_expired(
+            ut=4000.1, phase_entry_ut=0.0, budget_anchor_ut=None,
+            budget=4000.0, aim_warp_target=None))
+
+    def test_clock_runs_again_once_the_warp_target_is_reached(self):
+        # Target reached but no anchor stamped yet (same frame): the budget is
+        # live again, measured from phase entry.
+        self.assertTrue(mlib.correction_budget_expired(
+            ut=74193.5, phase_entry_ut=475.337, budget_anchor_ut=None,
+            budget=4000.0, aim_warp_target=74193.288))
+
+    def test_anchor_wins_over_phase_entry(self):
+        self.assertFalse(mlib.correction_budget_expired(
+            ut=74300.0, phase_entry_ut=475.337, budget_anchor_ut=74193.5,
+            budget=4000.0, aim_warp_target=None))
+        self.assertTrue(mlib.correction_budget_expired(
+            ut=78200.0, phase_entry_ut=475.337, budget_anchor_ut=74193.5,
+            budget=4000.0, aim_warp_target=None))
+
+    def test_non_finite_ut_never_expires_the_budget(self):
+        self.assertFalse(mlib.correction_budget_expired(
+            ut=float("nan"), phase_entry_ut=0.0, budget_anchor_ut=None,
+            budget=4000.0, aim_warp_target=None))
+
+    def test_timeout_names_the_dead_actor(self):
+        """The naming gap B12 flight 1 rode: node pending, burner never
+        started, orbit unchanged."""
+        self.assertEqual(
+            mlib.classify_correction_timeout(False, 1, False),
+            mlib.CORR_TIMEOUT_NO_START)
+        self.assertEqual(
+            mlib.classify_correction_timeout(True, 1, False),
+            mlib.CORR_TIMEOUT_INCOMPLETE)
+        self.assertEqual(
+            mlib.classify_correction_timeout(False, 1, True),
+            mlib.CORR_TIMEOUT_INCOMPLETE)
+        # No node pending is not a dead burner (the node-gone exit owns it).
+        self.assertEqual(
+            mlib.classify_correction_timeout(False, 0, False),
+            mlib.CORR_TIMEOUT_INCOMPLETE)
+
+
+class CorrectionGiveupNamingTests(unittest.TestCase):
+    """Every correction ROUND give-up carries its own name on the machine
+    state (and the machine-diff line), so a round exit is never again
+    indistinguishable from a clean cut in the log."""
+
+    def _burning(self, **kw):
+        base = dict(corr_burn_started=True, min_node_dv=39.0,
+                    burn_static_since=100.0)
+        base.update(kw)
+        return _b5_state(mlib.B5_CORRECTION_BURN, **base)
+
+    def test_cut_reached(self):
+        state, _ = mlib.b5_decide(self._burning(), snap(
+            ut=200.0, body="Kerbin", node_count=1, node_dv=1.0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.corr_giveup, mlib.CORR_GIVEUP_CUT)
+
+    def test_node_gone(self):
+        state, _ = mlib.b5_decide(self._burning(), snap(
+            ut=200.0, body="Kerbin", node_count=0))
+        self.assertEqual(state.corr_giveup, mlib.CORR_GIVEUP_NODE_GONE)
+
+    def test_overshoot(self):
+        state, _ = mlib.b5_decide(self._burning(), snap(
+            ut=200.0, body="Kerbin", node_count=1, node_dv=45.0))
+        self.assertEqual(state.corr_giveup, mlib.CORR_GIVEUP_OVERSHOOT)
+
+    def test_no_progress(self):
+        state, _ = mlib.b5_decide(self._burning(), snap(
+            ut=100.0 + B5_PARAMS.burn_stagnant_seconds + 1.0, body="Kerbin",
+            node_count=1, node_dv=39.0))
+        self.assertEqual(state.corr_giveup, mlib.CORR_GIVEUP_NO_PROGRESS)
+
+    def test_alignment_no_start(self):
+        state = _b5_state(mlib.B5_CORRECTION_BURN, phase_entry_ut=0.0)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=B5_PARAMS.burn_nostart_seconds + 1.0, body="Kerbin",
+            node_count=1, node_ut=10.0, node_dv=39.0, ap_error=120.0))
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
+        self.assertEqual(state.corr_giveup, mlib.CORR_GIVEUP_ALIGN_NO_START)
+
+    def test_a_fresh_round_clears_the_latch(self):
+        """The latch is per-ROUND, so the next handoff starts clean (else the
+        diff line would not flip on a repeat give-up)."""
+        state = _b5_state(mlib.B5_PLAN_CORRECTION,
+                          corr_giveup=mlib.CORR_GIVEUP_CUT,
+                          corr_budget_anchor_ut=123.0)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=20.0, body="Kerbin", node_count=1, node_dv=12.0))
+        self.assertEqual(state.phase, mlib.B5_CORRECTION_BURN)
+        self.assertEqual(state.corr_giveup, mlib.CORR_GIVEUP_NONE)
+        self.assertIsNone(state.corr_budget_anchor_ut)
+
+    def test_named_budget_flake_replaces_the_generic_timeout(self):
+        state = self._burning(phase_entry_ut=0.0, burn_static_since=None)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=B5_PARAMS.transfer_burn_timeout + 10.0, body="Kerbin",
+            node_count=1, node_dv=39.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.CORR_TIMEOUT_INCOMPLETE, state.flake_reason)
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertEqual(verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.CORR_TIMEOUT_INCOMPLETE, reason)
+
+    def test_never_started_budget_flake_names_the_dead_burner(self):
+        state = _b5_state(mlib.B5_CORRECTION_BURN, phase_entry_ut=0.0,
+                          corr_budget_anchor_ut=0.0,
+                          corr_nostart_anchor_ut=0.0,
+                          burn_entry_ap=1_000_000.0)
+        # Past the phase budget but INSIDE burnNoStartSeconds is impossible
+        # here (600 < 4000), so drive the budget with the no-start clock
+        # re-anchored by a rails frame each poll.
+        state, _ = mlib.b5_decide(state, snap(
+            ut=B5_PARAMS.transfer_burn_timeout + 10.0, body="Kerbin",
+            apoapsis=1_000_000.0, node_count=1, node_ut=99_999.0, node_dv=13.3,
+            ap_error=120.0, warp_mode="RAILS", warp_rate=50.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.CORR_TIMEOUT_NO_START, state.flake_reason)
 
 
 class CaptureNoStartClassifierTests(unittest.TestCase):

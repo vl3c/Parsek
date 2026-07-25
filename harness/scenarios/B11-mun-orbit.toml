@@ -130,6 +130,16 @@ id = "B11-mun-orbit"
 # was our OWN watchdog, not MechJeb: see the pre-ignition-hold note under
 # CAPTURE-BURN. Fixed by the OBSERVED NodeExecutor.Enabled channel + the
 # node-clock classifier; the numbers below are updated from that flight.
+#
+# FLIGHT 2 (2026-07-25) - FULL PASS on attempt 1, all seven verifiers green,
+# wall 1268 s, analyzer red=0. The capture burn ran through MechJeb's 1x
+# pre-ignition window without flaking and flipped the apoapsis
+# -1,560,099 -> +138,789 m at eccentricity 0.000127; PARK, ORBIT-COMMIT and
+# ORBIT-COMMITTED all completed with every assertion met. THIS MISSION IS
+# LIVE-PROVEN. (B12 flight 1 then found a SHARED-machine CORRECTION-BURN defect
+# that the Mun geometry masks here on 25% margin - the aim-then-warp wait spends
+# the phase's own game-time budget, 2,994 s of 4,000 on this very flight. Fixed
+# by anchoring that budget to the warp arrival; see the B12 spec.)
 tier = "nightly"
 description = "Mun ORBIT / commit-in-target-orbit: MechJeb ascent to LKO, ManeuverPlanner Hohmann transfer, autowarped TLI, dv-capped course corrections, cross-SOI coast, CAPTURE burn (circularize at periapsis) inside the Mun SOI, a held stable park, and a mid-mission command-seam CommitTree that closes the tree WHILE PARKED IN THE FOREIGN SOI."
 instanceProfile = "stock-minimal"

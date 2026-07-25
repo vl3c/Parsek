@@ -678,6 +678,62 @@ CAPTURE_NOSTART_HOLD = "hold"          # MechJeb's own pre-ignition WARPALIGN
 CAPTURE_NOSTART_REPLAN = "replan"      # window passed unburned, re-plan left
 CAPTURE_NOSTART_FLAKE = "flake"        # window passed, nothing left to try
 
+# ---------------------------------------------------------------------------
+# CORRECTION-BURN budget anchoring (B12 flight 1, 2026-07-25). THE PROVEN
+# ROOT CAUSE of "phase CORRECTION-BURN timed out", and it is a SHARED-machine
+# defect, not a B12 one:
+#
+# The no-1x-coast PR (commit 4219832b6, 2026-07-22) changed the DIY correction
+# burner from "aim, then burn NOW" to AIM-THEN-WARP: aim, then natively warp
+# to node_ut - nodeArrivalMarginSeconds, re-verify the attitude, then throttle.
+# That made the phase's completion time depend on WHERE MECHJEB PUT THE NODE,
+# while its budget stayed transferBurnTimeoutSeconds -- 4000 GAME seconds in
+# B5 / B6 / B11 / B12 alike -- and the wait itself BURNS that budget, because
+# the warp advances game time.
+#
+# Measured, same machine, same params, two bodies:
+#   B11 (Mun, flight 2 PASS)    entry ut 1898.5, node ut 4907.7 -> the aim-warp
+#                               ate 2,994 of the 4,000 s budget (75%) and the
+#                               burn finished at 4914.7 with ~1,000 s to spare.
+#   B12 (Minmus, flight 1 FLAKE) entry ut 475.3, node ut 74,208.3 -> the wait
+#                               needs 73,733 s of a 4,000 s budget. 18x over.
+#                               Impossible by construction, every single time.
+#
+# So the Mun family passes on 25% margin and the Minmus family cannot pass at
+# all. B6-minmus-flyby shares the machine, the params AND the 4000 s budget,
+# and its live-proven flights all predate 4219832b6 -- it is exposed, it has
+# simply not been re-flown since.
+#
+# THE FIX: a GAME-TIME budget is the wrong instrument for a ballistic wait. It
+# is also structurally incapable of bounding the failure it was reached for (a
+# STALLED warp advances no game time, so a game-time bound never fires on one;
+# the runner's own warp-stall watchdog and the mission WALL budget own that).
+# So CORRECTION-BURN's budget now bounds the BURN: it is suppressed entirely
+# while an aim-then-warp is in flight toward a still-future node, and it
+# re-anchors at the warp ARRIVAL -- the same "warp time is not alignment time"
+# seam that already re-anchors corr_nostart_anchor_ut and the aligned streak.
+# Post-anchor the phase needs ~25 game-s (B11 round 1: arrival 4892.8 -> exit
+# 4914.7) against a 4,000 s budget, so the bound is 100x+ generous for BOTH
+# bodies instead of 1.3x for one and negative for the other.
+
+# classify_correction_timeout verdicts: the NAMED CORRECTION-BURN give-ups
+# (the standing rule -- an actor-dependent phase may never idle to its budget
+# without saying which actor was dead). B12 flight 1 rode the GENERIC
+# "phase CORRECTION-BURN timed out" and that is the gap these close.
+CORR_TIMEOUT_NO_START = "correction-burner-no-start"
+CORR_TIMEOUT_INCOMPLETE = "correction-burn-incomplete"
+
+# corr_giveup values: why a correction ROUND ended. Carried on the machine
+# state (and diffed, so every round give-up emits its own loud gate line)
+# because a round exit is otherwise indistinguishable from a clean one in the
+# log -- B12 flight 1's whole diagnosis hinged on knowing WHICH exit fired.
+CORR_GIVEUP_NONE = ""
+CORR_GIVEUP_NODE_GONE = "node-gone"        # the node vanished under us
+CORR_GIVEUP_CUT = "cut-reached"            # remaining dv hit correctionCutDv
+CORR_GIVEUP_OVERSHOOT = "overshoot"        # remaining dv started RISING
+CORR_GIVEUP_NO_PROGRESS = "no-progress"    # throttle up, dv frozen
+CORR_GIVEUP_ALIGN_NO_START = "align-no-start"   # alignment never converged
+
 # classify_capture_executor verdicts.
 CAPTURE_EXEC_RUNNING = "running"       # observed enabled (or nothing to judge)
 CAPTURE_EXEC_UNKNOWN = "unknown"       # channel unread: no evidence either way
@@ -2791,6 +2847,17 @@ class B5State:
     # node is not alignment time). None = no arrival yet; the give-up counts
     # from phase entry.
     corr_nostart_anchor_ut: Optional[float] = None
+    # AIM-THEN-WARP BUDGET anchor (B12 flight 1): the same warp-ARRIVAL UT,
+    # re-anchoring the CORRECTION-BURN phase BUDGET so it bounds the burn
+    # rather than the ballistic wait for the node. None = no arrival yet (the
+    # budget counts from phase entry, exactly as it always did for a round
+    # with no aim-warp). See correction_budget_expired.
+    corr_budget_anchor_ut: Optional[float] = None
+    # WHY the last correction round ended (CORR_GIVEUP_*; "" = none yet). A
+    # diffed observability latch: a round exit is otherwise indistinguishable
+    # from a clean one in the log, and B12 flight 1's diagnosis hinged
+    # entirely on knowing which exit fired.
+    corr_giveup: str = CORR_GIVEUP_NONE
     # Flameout staging (twenty-second flight): consecutive frames a COMMANDED
     # burn read zero available thrust, and stages popped so far (bounded by
     # MAX_FLAMEOUT_STAGES for the whole mission -- staging is irreversible,
@@ -3056,6 +3123,53 @@ def _b5_track_burn_stagnation(
             stuck_after_burn, stuck_no_start, burned)
 
 
+def correction_budget_expired(ut: float, phase_entry_ut: float,
+                              budget_anchor_ut: Optional[float],
+                              budget: float,
+                              aim_warp_target: Optional[float]) -> bool:
+    """CORRECTION-BURN's own budget verdict. Pure; primitives in, bool out.
+
+    The phase budget bounds the BURN, never the ballistic wait for the node
+    (see the MJ/aim-then-warp block above for the measured B11-vs-B12 proof):
+
+      - While an aim-then-warp is IN FLIGHT toward a still-future node
+        (``aim_warp_target`` set and ``ut`` short of it) the budget is
+        SUPPRESSED. The wait is bounded by the node's own UT, and a game-time
+        bound cannot bound the only real failure here anyway -- a STALLED warp
+        advances no game time, so it would never fire; the runner's warp-stall
+        watchdog and the mission WALL budget own that class.
+      - Otherwise the clock runs from ``budget_anchor_ut`` when set (stamped
+        at the warp ARRIVAL, the same seam that re-anchors the no-start clock
+        and the aligned streak -- warp time is not burn time), else from
+        ``phase_entry_ut`` (a round with no aim-warp is unchanged).
+
+    A non-finite ``ut`` never expires the budget (fail closed: an unreadable
+    clock must not end a live round)."""
+    if not _is_finite(ut):
+        return False
+    if aim_warp_target is not None and ut < aim_warp_target:
+        return False
+    anchor = budget_anchor_ut if budget_anchor_ut is not None else phase_entry_ut
+    return (ut - anchor) > budget
+
+
+def classify_correction_timeout(corr_burn_started: bool, node_count: int,
+                                orbit_changed: bool) -> str:
+    """Name a CORRECTION-BURN budget expiry. Pure.
+
+    ``CORR_TIMEOUT_NO_START`` - the burner never throttled up AND the orbit
+    never moved: a dead actor (the node is pending, nothing is burning). This
+    is the case B12 flight 1 rode out under the GENERIC "phase CORRECTION-BURN
+    timed out", which is exactly what the liveness rule forbids.
+    ``CORR_TIMEOUT_INCOMPLETE`` - a burn demonstrably ran (throttle commanded
+    or the orbit moved) and simply did not finish inside the budget."""
+    if corr_burn_started or orbit_changed:
+        return CORR_TIMEOUT_INCOMPLETE
+    if node_count < 1:
+        return CORR_TIMEOUT_INCOMPLETE
+    return CORR_TIMEOUT_NO_START
+
+
 def _b5_flameout_stage(state: B5State,
                        snapshot: TelemetrySnapshot,
                        mid_burn: bool = False) -> Tuple[B5State, List[Action]]:
@@ -3133,7 +3247,11 @@ def _b5_plan_phase(state: B5State, snapshot: TelemetrySnapshot, peak: Optional[f
             # Delta-review A2: a stale streak of 1 left by a prior burn's
             # exit frame would weaken the next burn's flameout debounce to a
             # single frame -- exactly the transient the debounce exists for.
-            corr_nostart_anchor_ut=None, flameout_streak=0)
+            corr_nostart_anchor_ut=None, flameout_streak=0,
+            # B12 flight 1: the aim-warp budget anchor and the round-give-up
+            # latch are per-ROUND, so a fresh burn phase starts with neither.
+            # Inert for TRANSFER-BURN / CAPTURE-BURN (neither reads them).
+            corr_budget_anchor_ut=None, corr_giveup=CORR_GIVEUP_NONE)
         return entered, [handoff_action]
     if _b5_over_budget(state, snapshot) and on_timeout_phase is not None:
         return _b5_enter(state, on_timeout_phase, snapshot.ut, peak), []
@@ -3784,13 +3902,19 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # (burning past the vector). Every exit consumes the round and cleans
         # up (throttle, AP, leftover nodes); the flyby floor assertion still
         # judges the outcome.
-        def _corr_exit(st: B5State) -> Tuple[B5State, List[Action]]:
+        def _corr_exit(st: B5State, reason: str) -> Tuple[B5State, List[Action]]:
             entered = _b5_enter(st, B5_COAST_TO_TARGET, snapshot.ut, peak)
             entered = replace(entered,
                               correction_rounds_done=st.correction_rounds_done + 1,
                               corr_burn_started=False, min_node_dv=None,
                               phys_warp_cmd=0, warp_to_cmd=None,
-                              corr_nostart_anchor_ut=None)
+                              corr_nostart_anchor_ut=None,
+                              corr_budget_anchor_ut=None,
+                              # WHY this round ended (B12 flight 1): a diffed
+                              # latch, so every give-up emits its own loud gate
+                              # line instead of being indistinguishable from a
+                              # clean cut in the log.
+                              corr_giveup=reason)
             cleanup = [Action(ACTION_CUT_THROTTLE, 0.0), Action(ACTION_AP_DISENGAGE)]
             if st.phys_warp_cmd != 0:
                 # The flip ran under physics warp and the burn never started
@@ -3803,6 +3927,34 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             if snapshot.node_count > 0:
                 cleanup.append(Action(ACTION_MJ_ABORT_AND_CLEAR_NODES))
             return entered, cleanup
+
+        def _corr_stay_or_flake(st: B5State) -> B5State:
+            """CORRECTION-BURN's OWN stay/flake (B12 flight 1). The phase
+            budget bounds the BURN, not the ballistic wait for the node: it is
+            suppressed while an aim-then-warp is in flight and re-anchors at
+            the warp ARRIVAL (see correction_budget_expired). Expiry is a
+            NAMED flake, never the generic "phase X timed out"."""
+            if not correction_budget_expired(
+                    snapshot.ut, st.phase_entry_ut, st.corr_budget_anchor_ut,
+                    state.params.transfer_burn_timeout, st.warp_to_cmd):
+                return replace(st, peak_apoapsis=peak)
+            orbit_changed = (st.burn_entry_ap is not None
+                             and _is_finite(snapshot.apoapsis)
+                             and abs(snapshot.apoapsis - st.burn_entry_ap)
+                             > _BURN_CHANGED_EPS)
+            name = classify_correction_timeout(
+                st.corr_burn_started, snapshot.node_count, orbit_changed)
+            return _b5_named_flake(
+                st,
+                "phase %s: %s (budget %.0f game-s measured from %s; nodes=%d "
+                "nodeDv=%s apErr=%s thr=%s burnStarted=%s)"
+                % (B5_CORRECTION_BURN, name,
+                   state.params.transfer_burn_timeout,
+                   ("the aim-warp arrival" if st.corr_budget_anchor_ut is not None
+                    else "phase entry"),
+                   snapshot.node_count, _obs_fmt(snapshot.node_dv),
+                   _obs_fmt(snapshot.ap_error), _obs_fmt(snapshot.throttle),
+                   st.corr_burn_started), peak)
 
         dv = snapshot.node_dv
         # ``improved`` = the remaining dv made real progress this frame (a
@@ -3828,11 +3980,15 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                            and state.burn_static_since is not None
                            and (snapshot.ut - state.burn_static_since)
                            >= state.params.burn_stagnant_seconds)
-            if (snapshot.node_count == 0
-                    or (_is_finite(dv) and dv <= state.params.correction_cut_dv)
-                    or overshoot or no_progress):
-                return _corr_exit(state)
-            stayed = _b5_stay_or_flake(state, snapshot, peak)
+            if snapshot.node_count == 0:
+                return _corr_exit(state, CORR_GIVEUP_NODE_GONE)
+            if _is_finite(dv) and dv <= state.params.correction_cut_dv:
+                return _corr_exit(state, CORR_GIVEUP_CUT)
+            if overshoot:
+                return _corr_exit(state, CORR_GIVEUP_OVERSHOOT)
+            if no_progress:
+                return _corr_exit(state, CORR_GIVEUP_NO_PROGRESS)
+            stayed = _corr_stay_or_flake(state)
             if stayed.done:
                 return stayed, []
             # Flameout staging AFTER the exit/flake checks (delta-review
@@ -3848,15 +4004,21 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # Pre-burn: node vanished (defensive; the plan handoff requires one) ->
         # give the round up cleanly (cancels a mid-flight aim-warp too).
         if snapshot.node_count == 0:
-            return _corr_exit(state)
+            return _corr_exit(state, CORR_GIVEUP_NODE_GONE)
         # AIM-THEN-WARP warp-hold (operator PR gate, no-1x-coast): the aim
         # locked and the native warp toward node_ut - nodeArrivalMarginSeconds
         # is running -- rails warp FREEZES orientation, so the machine just
-        # holds (self-healed, bounded by the burn budget). Give-up clocks do
-        # not count warp time.
+        # holds (self-healed). Give-up clocks do not count warp time -- and
+        # since B12 flight 1 that is TRUE OF THE PHASE BUDGET TOO: the wait is
+        # ballistic and MechJeb can put a Minmus-class correction node 73,733
+        # game seconds ahead of a 4,000 s budget, so a game-time bound here is
+        # both wrong and (against a stalled warp, which advances no game time)
+        # useless. correction_budget_expired suppresses it while the warp is in
+        # flight; the runner's warp-stall watchdog + the mission WALL budget own
+        # a wedged warp.
         if state.warp_to_cmd is not None:
             if not (_is_finite(snapshot.ut) and snapshot.ut >= state.warp_to_cmd):
-                held = _b5_stay_or_flake(state, snapshot, peak)
+                held = _corr_stay_or_flake(state)
                 if held.done:
                     # Budget flake mid-warp: leave nothing warped behind.
                     return (replace(held, warp_to_cmd=None),
@@ -3867,9 +4029,11 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             # its full debounce -- rails should have held the orientation; a
             # drifted apErr re-enters the 2x-physics flip below, bounded by
             # the re-anchored give-up) and restart the no-start clock (warp
-            # time is not alignment time).
+            # time is not alignment time). B12 flight 1: the phase BUDGET
+            # re-anchors on the same instant and for the same reason.
             state = replace(state, warp_to_cmd=None, aligned_streak=0,
-                            corr_nostart_anchor_ut=float(snapshot.ut))
+                            corr_nostart_anchor_ut=float(snapshot.ut),
+                            corr_budget_anchor_ut=float(snapshot.ut))
         # HIGH-RATE FRAMES ARE NOT ALIGNMENT TIME (findings 19/19b, B7
         # fifth + sixth flights): a round granted from a 100,000x
         # heliocentric coast enters this phase mid-RAMP-DOWN and the
@@ -3898,7 +4062,7 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                           else state.phase_entry_ut)
         if (_is_finite(snapshot.ut)
                 and (snapshot.ut - nostart_anchor) >= state.params.burn_nostart_seconds):
-            return _corr_exit(state)
+            return _corr_exit(state, CORR_GIVEUP_ALIGN_NO_START)
         settled = (_is_finite(snapshot.ut)
                    and (snapshot.ut - state.phase_entry_ut) >= state.params.correction_settle_seconds)
         # abs(): kRPC's error reads NEGATIVE in some regimes (-178 deg
@@ -3917,8 +4081,7 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # gate line + 21-line window dump per aligned settle frame.
         streak = (min(state.aligned_streak + 1, ALIGNED_DEBOUNCE_FRAMES)
                   if aligned else 0)
-        stayed = replace(_b5_stay_or_flake(state, snapshot, peak),
-                         aligned_streak=streak)
+        stayed = replace(_corr_stay_or_flake(state), aligned_streak=streak)
         if stayed.done:
             # Budget flake mid-flip: leave nothing warped behind.
             return stayed, ([Action(ACTION_SET_PHYSICS_WARP, 0.0)]
@@ -6875,6 +7038,9 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("corr_burn_started", "corrBurnStarted"),
     ("aligned_streak", "alignedStreak"),
     ("min_node_dv", "minNodeDv"),
+    # CORRECTION-BURN budget anchoring + round-give-up naming (B12 flight 1).
+    ("corr_budget_anchor_ut", "corrBudgetAnchorUt"),
+    ("corr_giveup", "corrGiveup"),
     ("warp_cmd", "warpCmd"),
     ("phys_warp_cmd", "physWarpCmd"),
     ("warp_to_cmd", "warpToCmd"),
@@ -6951,6 +7117,11 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("body_blank_count", "bodyBlank"),
     ("corr_burn_started", "corrBurnStarted"),
     ("aligned_streak", "alignedStreak"),
+    # WHY a correction round ended (B12 flight 1). A round exit is otherwise
+    # indistinguishable from a clean cut in the log, and the whole B12
+    # diagnosis hinged on knowing which give-up fired. One sparse line per
+    # round, at most MAX rounds + the arrival re-anchor per flight.
+    ("corr_giveup", "corrGiveup"),
     ("warp_cmd", "warpCmd"),
     ("phys_warp_cmd", "physWarpCmd"),
     ("warp_to_cmd", "warpToCmd"),
