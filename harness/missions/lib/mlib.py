@@ -66,7 +66,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass, field, replace
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 MISSION_RESULT_SCHEMA = 1
 
@@ -1006,17 +1006,38 @@ CAPTURE_NOSTART_FLAKE = "flake"        # window passed, nothing left to try
 #     asymmetric retarget hysteresis with an absolute 120 s floor against
 #     multi-million-second spans over 2+ rounds whose healthy issue count has
 #     never been measured. Resetting the counter on every PHASE ENTRY bounds
-#     the episode and removes that false-flake risk. For COAST this is strictly
-#     a RELAXATION of the shipped bound (per-episode >= per-mission), so the
-#     live-proven B5/B6/B7 lane cannot red on it where it did not before.
+#     the episode and removes that false-flake risk.
 #
-# The cap stays where it was measured against: a healthy COAST issued the warp
-# ONCE (B11 flight 2, full pass), the thrash issued 3,603. The two newly
-# counted sites are structurally quieter still -- the aim-warp target is the
-# node's FIXED UT, so it never retargets and can only re-issue through the
-# 30-game-second self-heal, and the capture warp's target (ut + ttPe - lead) is
-# constant along the coast. Anything approaching 500 issues in ONE phase at
-# either site is the cancel/re-arm loop by construction.
+# WHAT THE PER-PHASE RESET IS AND IS NOT (corrected by the 2026-07-26 review;
+# the earlier wording claimed the reset made the whole change safe, which does
+# not follow). At the COAST site the reset is strictly a RELAXATION of the
+# shipped bound -- per-episode >= per-mission -- so that site genuinely cannot
+# red where it did not before. At the OTHER three sites (both CORRECTION-BURN
+# aim-warps and TARGET-FLYBY) the guard is NEW: those sites had no thrash bound
+# at all, so B5/B6/B7 face a bound there they never faced. The relaxation
+# argument says nothing about them. What makes THOSE sites safe is the MEASURED
+# HEADROOM below, not the reset.
+#
+# THE MEASUREMENT (the actual safety argument). `action warp_to_ut` counted per
+# phase over the four HEAD flyby logs re-flown 2026-07-25 -- B11 (1,271 s),
+# B12 (581 s), B5 (469 s), B6 (359 s):
+#
+#   COAST-TO-TARGET   1 / 1 / 1 / 1        (3 warp_to_ut per MISSION in total)
+#   CORRECTION-BURN   1 / 1 / 1 / 1
+#   TARGET-FLYBY      1 / 1 / 1 / 1
+#
+# against a cap of 500. Three orders of magnitude of headroom at every site,
+# and the pathological coast that motivated the guard issued 3,603 in ONE
+# phase (B12 flight 2). Structural corroboration, per site: the aim-warp
+# target is the node's FIXED UT, so it never retargets and can only re-issue
+# through the 30-game-second self-heal; the CAPTURE-mode flyby target
+# (ut + ttPe - lead) is constant along the approach, though that site barely
+# runs at all because arming completes in CAPTURE_ARM_DEBOUNCE_FRAMES = 3
+# polls. The TARGET-FLYBY site that actually carries B5/B6/B7 traffic is the
+# NON-capture branch (the SOI-EXIT native warp), whose target derives from the
+# same jittery `time_to_soi` read that produced B12 flight 2's thrash -- which
+# is exactly why it needed a bound, and why the measured 1-per-phase on all
+# four flights is the number that matters here.
 MAX_PHASE_WARP_ISSUES = 500
 
 # The distinct thrash names, one per call site (the standing rule: every
@@ -1045,6 +1066,29 @@ WARP_THRASH_FLYBY = "flyby-warp-thrash"
 # before it can be judged: a warp whose whole episode is under
 # WARP_LIVENESS_MIN_WALL_SECONDS is never judged at all.
 WARP_LIVENESS_MIN_RATIO = 5.0
+
+# PROVISIONAL (2026-07-26 review): 180.0 is a round number chosen to sit safely
+# above any warp episode the archive contains, NOT a measured threshold, and
+# the consequence is that THE FLOOR HAS NEVER FIRED ON ANY ARCHIVED FLIGHT --
+# not once, healthy or otherwise. Measured from `warpUtilisation` over every
+# `harness/results/*_mission.json`, the LONGEST wall-clock window of any phase
+# that issued a native warp is COAST-TO-TARGET at 76.4 s (B7, 2026-07-25),
+# then CORRECTION-BURN 69.6 s, TARGET-FLYBY 30.2 s, PLAN-CORRECTION 3.7 s,
+# PLAN-CAPTURE 0.6 s. (PARK runs ~180 s and does emit warp commands, but never
+# a NATIVE one, so it never arms this floor -- see below.) Every one of those
+# is under the 180 s minimum window, so no archived episode was ever even
+# JUDGED. The floor is therefore UNEXERCISED, and its cheapness -- it cannot
+# false-fire on anything we have flown -- is the only property currently
+# demonstrated.
+#
+# WHAT WOULD CLOSE IT: one flight whose armed native warp legitimately runs
+# past 180 wall-seconds (the natural candidate is a long B7-class heliocentric
+# coast, or any lane whose warp rate is clamped by altitude legality for
+# minutes). Measure that episode's game-s/wall-s and re-anchor BOTH numbers on
+# it -- the window just under the shortest legitimate long warp, the ratio
+# safely under its measured value. Until such a flight exists, treat a
+# `warp-liveness-starved` verdict as unproven in the field and read the
+# episode's actual utilisation from the result JSON before believing it.
 WARP_LIVENESS_MIN_WALL_SECONDS = 180.0
 WARP_LIVENESS_GIVEUP = "warp-liveness-starved"
 
@@ -4277,8 +4321,15 @@ def _b5_native_warp_guarded(state: B5State, snapshot: TelemetrySnapshot,
     issues = issued.phase_warp_issues + 1
     issued = replace(issued, phase_warp_issues=issues)
     if issues > MAX_PHASE_WARP_ISSUES:
+        # The warp this frame just armed is DISCARDED and torn down instead:
+        # "leave nothing warped behind" (2026-07-26 review). The shipped
+        # version returned actions=[] with warp_to_cmd still set, so the
+        # runner drove StopRecording / CommitTree / FlushAndQuit against a
+        # warping game -- the one thing every other terminal in this file is
+        # careful not to do.
+        stopped, teardown = _b5_stop_all_warp(issued, snapshot)
         return _b5_named_flake(
-            issued,
+            stopped,
             "phase %s: %s (%d native warp_to_ut issues in THIS phase, cap %d "
             "-- the warp policy is cancelling and re-arming its own warp "
             "instead of warping; ut=%s target=%s tts=%s ttPe=%s warp=%sx%s)"
@@ -4287,7 +4338,7 @@ def _b5_native_warp_guarded(state: B5State, snapshot: TelemetrySnapshot,
                _obs_fmt(snapshot.time_to_soi),
                _obs_fmt(snapshot.time_to_periapsis),
                snapshot.warp_mode, _obs_fmt(snapshot.warp_rate)),
-            peak), []
+            peak), teardown
     return issued, actions
 
 
@@ -4345,6 +4396,30 @@ def _b5_cancel_native_warp(state: B5State,
         return state, []
     return (replace(state, warp_to_cmd=None, warp_cmd=0),
             [Action(ACTION_CANCEL_WARP)])
+
+
+def _b5_stop_all_warp(state: B5State,
+                      snapshot: TelemetrySnapshot) -> Tuple[B5State, List[Action]]:
+    """Leave nothing warped behind: the warp teardown a TERMINAL frame owes the
+    runner, which drives StopRecording / CommitTree / FlushAndQuit next and must
+    not drive them against a warping game.
+
+    The same two-case shape the impact-certain terminal and the RETURN exit
+    already spell out inline: CANCEL an active native warp (the runner's cancel
+    closes the warp connection and zeroes both factors), ELSE drop a held rails
+    factor. Never both -- never two warp writers in one frame.
+
+    Added by the 2026-07-26 review for the two give-ups that shipped WITHOUT a
+    teardown (``capture-never-armed`` and the ``*-warp-thrash`` family). The
+    two inline copies are deliberately left alone: they sit on the live-proven
+    B5/B6/B7 lane and rewriting them to call this would buy nothing."""
+    if state.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
+        return (replace(state, warp_to_cmd=None, warp_cmd=0),
+                [Action(ACTION_CANCEL_WARP)])
+    if state.warp_cmd != 0:
+        return (replace(state, warp_cmd=0),
+                [Action(ACTION_SET_RAILS_WARP, 0.0)])
+    return state, []
 
 
 # ---------------------------------------------------------------------------
@@ -4461,6 +4536,77 @@ _CAPTURE_ARM_FAILURE_HINT = {
                         "classifier -- this is a machine bug, not a flight "
                         "outcome."),
 }
+
+
+def _b5_capture_never_armed_giveup(state: B5State, snapshot: TelemetrySnapshot,
+                                   unarmed: int, peak: Optional[float]
+                                   ) -> Tuple[B5State, List[Action]]:
+    """The ``capture-never-armed`` terminal, SPLIT BY VERDICT CLASS.
+
+    THE ORDERING BUG THIS FIXES (2026-07-26 review). The never-armed gate runs
+    BEFORE the IMPACT-CERTAIN EARLY TERMINAL further down the same branch, and
+    on a sub-surface arrival it ALWAYS wins the race: ``_b5_capture_arm_ready``
+    is False from the FIRST in-target-SOI frame, so this counter starts
+    immediately, while the impact terminal cannot arm until
+    ``altitude < IMPACT_WARP_GUARD_ALT`` (400 km) plus its own 5-frame
+    debounce. Shipping that as a FLAKE was wrong: the SAME branch states the
+    policy fifteen lines above the arming gate -- a capture that provably
+    cannot happen is a DETERMINISTIC flight outcome, so ASSERT-FAIL, never a
+    retryable flake -- and the give-up that pre-empted the impact terminal did
+    not honour it.
+
+    WHAT THE FIX DOES NOT BUY (checked, 2026-07-26): it does NOT save the
+    retry flight. `hlib.MISSION_VERDICT_SUBKINDS` maps ASSERT-FAIL to `mission`
+    and FLAKE to `autopilot-flake`, and BOTH are in
+    `RETRYABLE_INVALID_SUBKINDS`, so the harness retries either way (B7's Ike
+    red is the live proof: attempt 1 ASSERT-FAIL, attempt 2 flown and passed).
+    What it buys is the CLASSIFICATION: `mission` says the FLIGHT failed and
+    sends an operator to the trajectory, `autopilot-flake` says the MACHINE
+    broke and sends them to the machine. On a sub-surface arrival the
+    trajectory is the answer.
+
+    So CAPTURE_ARM_SUBSURFACE now terminates MISSION_ASSERT_FAIL carrying the
+    impact language, and the other two shapes keep the FLAKE fast-fail they
+    were designed as. CAPTURE_ARM_BLIND above all: a dark periapsis clock is a
+    MACHINE fault (the channel, not the trajectory) and it is the one shape
+    NOTHING else in capture mode can end, which is why the bound exists.
+
+    This is NOT the impact terminal relocated. It fires on the ARMING counter,
+    30 frames deep; the impact terminal keeps its own 5-frame debounce and
+    still owns a low-altitude sub-surface arrival that develops AFTER a ready
+    frame reset this run (jittery periapsis), where it is by far the faster of
+    the two.
+
+    Every path tears the warp down on the way out (``_b5_stop_all_warp``): the
+    shipped version returned ``actions=[]`` with ``warp_to_cmd`` still armed,
+    so the runner drove StopRecording / CommitTree / FlushAndQuit against a
+    warping game."""
+    why = classify_capture_arm_failure(snapshot.periapsis,
+                                       snapshot.time_to_periapsis)
+    evidence = ("%d consecutive in-%s-SOI frames could not arm PLAN-CAPTURE "
+                "(cap %d; pe=%s ttPe=%s alt=%s vspd=%s ut=%s). %s"
+                % (unarmed, state.params.target_body,
+                   CAPTURE_NEVER_ARMED_FRAMES,
+                   _obs_fmt(snapshot.periapsis),
+                   _obs_fmt(snapshot.time_to_periapsis),
+                   _obs_fmt(snapshot.altitude),
+                   _obs_fmt(snapshot.vertical_speed),
+                   _obs_fmt(snapshot.ut),
+                   _CAPTURE_ARM_FAILURE_HINT.get(why, "")))
+    stopped, teardown = _b5_stop_all_warp(state, snapshot)
+    if why == CAPTURE_ARM_SUBSURFACE:
+        return replace(
+            stopped,
+            peak_apoapsis=(peak if peak is not None else stopped.peak_apoapsis),
+            done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason=("phase %s: flyby impact certain, capture-never-armed "
+                         "(%s) -- %s"
+                         % (B5_TARGET_FLYBY, why, evidence))), teardown
+    return _b5_named_flake(
+        stopped,
+        "phase %s: capture-never-armed (%s) -- %s"
+        % (B5_TARGET_FLYBY, why, evidence),
+        peak), teardown
 
 
 def capture_node_at_periapsis(node_ut: float, ut: float,
@@ -5769,26 +5915,19 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 # a debounced run of unarmable frames is a NAMED fast-fail that
                 # says WHICH shape it saw. Capture-mode only by construction:
                 # the enclosing branch is gated on capture_enabled.
+                #
+                # This gate PRE-EMPTS the impact-certain terminal below on a
+                # sub-surface arrival (it starts counting on the SOI-entry
+                # frame; that terminal cannot arm above 400 km), so the VERDICT
+                # CLASS is decided in _b5_capture_never_armed_giveup, not here:
+                # sub-surface is a deterministic flight outcome -> ASSERT-FAIL,
+                # the dark clock and past-periapsis stay flakes.
                 unarmed = state.capture_unarmed_streak + 1
                 state = replace(state, capture_arm_streak=0,
                                 capture_unarmed_streak=unarmed)
                 if unarmed >= CAPTURE_NEVER_ARMED_FRAMES:
-                    why = classify_capture_arm_failure(
-                        snapshot.periapsis, snapshot.time_to_periapsis)
-                    return _b5_named_flake(
-                        state,
-                        "phase %s: capture-never-armed (%s) -- %d consecutive "
-                        "in-%s-SOI frames could not arm PLAN-CAPTURE "
-                        "(cap %d; pe=%s ttPe=%s alt=%s vspd=%s ut=%s). %s"
-                        % (B5_TARGET_FLYBY, why, unarmed,
-                           state.params.target_body, CAPTURE_NEVER_ARMED_FRAMES,
-                           _obs_fmt(snapshot.periapsis),
-                           _obs_fmt(snapshot.time_to_periapsis),
-                           _obs_fmt(snapshot.altitude),
-                           _obs_fmt(snapshot.vertical_speed),
-                           _obs_fmt(snapshot.ut),
-                           _CAPTURE_ARM_FAILURE_HINT.get(why, "")),
-                        peak), []
+                    return _b5_capture_never_armed_giveup(
+                        state, snapshot, unarmed, peak)
         if not state.params.capture_enabled and snapshot.body == return_body:
             # The exit: back in the return body's SOI after the flyby (home
             # for the B5/B6 free-return, Sun for B7 -- a Duna flyby exits
@@ -8795,8 +8934,36 @@ def classify_post_connect_exception(exc_module: Optional[str], exc_name: Optiona
 # ---------------------------------------------------------------------------
 
 
+def is_warp_arming_command(kind: str, value) -> bool:
+    """True when a warp action ARMS warp, as opposed to cancelling it.
+
+    The distinction the LOW-throughput marker needs (2026-07-26 review,
+    MINOR-5). ``warp_utilisation_row``'s ``warpCommands`` counts every warp
+    action the phase issued, which conflates "this phase tried to warp and got
+    nothing" (the defect) with "this phase deliberately ran at 1x and said so
+    once" (PARK's single ``set_rails_warp value=0.000``, a cancel to 1x).
+
+    MEASURED over the archive: every FALSE POSITIVE of the ratio-only marker
+    issued ZERO arming commands (B11 MJ-ASCENT 0, TRANSFER-BURN 0, CAPTURE-BURN
+    0; PARK's one command is the 1x cancel), while the B12 flight-2 thrash the
+    marker exists for issued thousands.
+
+    ``ACTION_WARP_TO_UT`` always arms. ``ACTION_SET_RAILS_WARP`` arms only for a
+    factor index > 0 (index 0 IS 1x, i.e. a cancel). ``ACTION_CANCEL_WARP``
+    never arms. Pure.
+    """
+    if kind == ACTION_WARP_TO_UT:
+        return True
+    if kind == ACTION_SET_RAILS_WARP:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return False
+        return _is_finite(value) and float(value) > 0.0
+    return False
+
+
 def warp_utilisation_row(phase: str, wall_seconds: float, game_seconds: float,
-                         warp_commands: int) -> Dict:
+                         warp_commands: int,
+                         armed_warp_commands: int = 0) -> Dict:
     """One per-phase WARP-UTILISATION row for the mission result (B12 flight 2
     follow-up; the queued mission time-accounting task owns the full version).
 
@@ -8805,7 +8972,12 @@ def warp_utilisation_row(phase: str, wall_seconds: float, game_seconds: float,
     2's thrashing coast read ~1.3 while issuing 3,603 warp commands. That one
     line would have named the defect without any log archaeology. Pure; a
     non-positive or non-finite wall span yields a None ratio rather than a
-    divide-by-zero."""
+    divide-by-zero.
+
+    ``armedWarpCommands`` is the subset that actually ARMED warp (see
+    ``is_warp_arming_command``); it is what separates "tried to warp and got
+    nothing" from "deliberately ran at 1x".
+    """
     ratio: Optional[float] = None
     if (_is_finite(wall_seconds) and wall_seconds > 0.0
             and _is_finite(game_seconds)):
@@ -8816,13 +8988,40 @@ def warp_utilisation_row(phase: str, wall_seconds: float, game_seconds: float,
         "gameSeconds": round(float(game_seconds), 3) if _is_finite(game_seconds) else None,
         "gameSecondsPerWallSecond": ratio,
         "warpCommands": int(warp_commands),
+        "armedWarpCommands": int(armed_warp_commands),
     }
 
 
+def gate_flip_novelty_keys(phase: str, gate_changes: Sequence[str]) -> List[str]:
+    """The ``phase|field`` novelty keys one frame's gate flips carry.
+
+    A ``diff_machine_state`` entry is ``"<key> <old>-><new>"``, so the FIELD is
+    the token before the first space. MEASURED on the 43 MB pathological log:
+    7,218 gate-flip dumps but only SIXTEEN distinct ``(phase, field)`` pairs in
+    the entire run (7,207 dumps came from ``warpToCmd`` alone). Admitting the
+    FIRST occurrence of each pair unconditionally therefore emits 16 windows
+    instead of 7,218 -- a bigger reduction than the time rule alone -- while
+    guaranteeing that no NOVEL flip ever loses its 20-frame context, which the
+    time rule cannot promise (a suppressed flip followed by >10 s of quiet loses
+    its window permanently). Pure.
+    """
+    keys: List[str] = []
+    for change in gate_changes or ():
+        field = str(change).split(" ", 1)[0]
+        if not field:
+            continue
+        key = "%s|%s" % (phase, field)
+        if key not in keys:
+            keys.append(key)
+    return keys
+
+
 def should_dump_gate_flip_window(now: float, last_dump: Optional[float],
-                                 interval: float) -> bool:
-    """Rate-limit gate-flip event-window dumps to at most one per ``interval``
-    WALL seconds (measured amplifier, 2026-07-25).
+                                 interval: float, first_seen: bool = False) -> bool:
+    """Admit a gate-flip event-window dump: unconditionally on the FIRST
+    occurrence of a ``(phase, gate-field)`` pair, then at most one per
+    ``interval`` WALL seconds for repeats (measured amplifier, 2026-07-25;
+    novelty rule added by the 2026-07-26 review, MINOR-7).
 
     MEASURED: results/2026-07-25_0103_B12-minmus-orbit_mission.stdout.log is
     43 MB / 181,786 lines, of which 144,561 (79.5%) are ``window[NN/20]``
@@ -8832,6 +9031,11 @@ def should_dump_gate_flip_window(now: float, last_dump: Optional[float],
     only 209 unique frames (71% duplication), because consecutive dumps re-emit
     an overlapping slice of the same ring.
 
+    ``first_seen`` is the caller's answer to "is any of this frame's flipped
+    (phase, field) pairs new?" -- see ``gate_flip_novelty_keys``. It wins over
+    the time limit so a brand-new gate can never be silently suppressed by an
+    unrelated flip that happened 3 seconds earlier.
+
     Only ``gate-flip`` is rate-limited. ``phase-transition``, ``terminal-*``,
     ``vessel-lost`` and the give-up dumps stay unconditional: those are sparse
     by construction and are the ones a post-mortem actually needs. The ``gate
@@ -8840,6 +9044,8 @@ def should_dump_gate_flip_window(now: float, last_dump: Optional[float],
 
     Pure: ``last_dump`` None (no dump yet this flight) always admits.
     """
+    if first_seen:
+        return True
     if last_dump is None:
         return True
     if not (_is_finite(now) and _is_finite(last_dump) and _is_finite(interval)):
@@ -9144,8 +9350,11 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     # WHY the machine is about to end (the named give-up). It already reaches
     # the mission RESULT via resolve_flight_verdict, but it never reached the
     # periodic machine-state line or the status file, so a live status read
-    # could see done/verdict without ever seeing the reason. Sparse by
-    # construction: it is set exactly once, on the terminal frame.
+    # could see done/verdict without ever seeing the reason. The VALUE is
+    # sparse by construction -- set exactly once, on the terminal frame -- but
+    # the KEY is not: listing it here puts `flakeReason=none` on every machine
+    # line of every mission, which is the intended cost (a fixed-width line is
+    # what makes the terminal frame's value greppable next to its neighbours).
     ("flake_reason", "flakeReason"),
 )
 

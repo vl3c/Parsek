@@ -57,7 +57,7 @@ import time
 import traceback
 from collections import deque
 from dataclasses import dataclass, replace
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 # The mission shells run as subprocesses (``python missions/<name>.py ...``) with
 # their own directory (missions/) as sys.path[0]; the pure decision library lives
@@ -2665,6 +2665,11 @@ class _WarpUtilisation:
         self.wall_start = 0.0
         self.ut_start: Optional[float] = None
         self.warp_cmds = 0
+        # The subset that actually ARMED warp (mlib.is_warp_arming_command).
+        # A cancel-to-1x is a warp command but not an arming one, and that
+        # distinction is what separates "this phase tried to warp and got
+        # nothing" from "this phase deliberately ran at 1x".
+        self.armed_warp_cmds = 0
         # The last FINITE ut seen this phase: the unwind closes with it so the
         # crashing phase still reports a real game span.
         self.last_ut: Optional[float] = None
@@ -2676,6 +2681,7 @@ class _WarpUtilisation:
         self.ut_start = ut
         self.last_ut = ut
         self.warp_cmds = 0
+        self.armed_warp_cmds = 0
         self.open = True
 
     def note_ut(self, ut: float) -> None:
@@ -2684,8 +2690,10 @@ class _WarpUtilisation:
                 self.ut_start = float(ut)
             self.last_ut = float(ut)
 
-    def note_warp_command(self) -> None:
+    def note_warp_command(self, armed: bool = False) -> None:
         self.warp_cmds += 1
+        if armed:
+            self.armed_warp_cmds += 1
 
     def close(self, end_ut: Optional[float]) -> None:
         if not self.open:
@@ -2695,7 +2703,8 @@ class _WarpUtilisation:
                 if (end_ut is not None and self.ut_start is not None)
                 else float("nan"))
         _FLY_LOOP_WARP_UTILISATION.append(mlib.warp_utilisation_row(
-            self.phase, self._clock() - self.wall_start, game, self.warp_cmds))
+            self.phase, self._clock() - self.wall_start, game, self.warp_cmds,
+            self.armed_warp_cmds))
 
 
 # The live accumulator, published for the fly_loop wrapper's unwind path.
@@ -2712,28 +2721,54 @@ class _GateFlipDumpLimiter:
 
     Batch-counting convention: no per-item log inside the loop, one summary
     line after it, so the suppression is never silent.
+
+    NOVELTY FIRST (2026-07-26 review, MINOR-7): the FIRST occurrence of each
+    ``(phase, gate-field)`` pair is admitted unconditionally and only REPEATS
+    face the time limit. The whole 43 MB pathological run contained just 16
+    distinct pairs against 7,218 dumps, so the novelty rule is both the bigger
+    reduction and the safer one -- a novel flip can never lose its 20-frame
+    context, which the time rule alone could not promise.
     """
+
+    # Distinct (phase, field) pairs one flight may admit on novelty. Sized far
+    # above the 16 the pathological run produced; a flight that somehow exceeds
+    # it simply falls back to the time rule (bounded memory, never unbounded).
+    NOVELTY_KEY_CAP = 512
 
     def __init__(self, interval: float = GATE_FLIP_WINDOW_DUMP_INTERVAL_SECONDS) -> None:
         self.interval = float(interval)
         self.last_dump: Optional[float] = None
         self.emitted = 0
         self.suppressed = 0
+        self.novel = 0
+        self.seen_keys: set = set()
 
-    def admit(self, now: float) -> bool:
-        """True when this gate-flip dump may be emitted; counts either way."""
-        if mlib.should_dump_gate_flip_window(now, self.last_dump, self.interval):
+    def admit(self, now: float, keys: Optional[Sequence[str]] = None) -> bool:
+        """True when this gate-flip dump may be emitted; counts either way.
+
+        ``keys`` are this frame's ``mlib.gate_flip_novelty_keys``; any key not
+        seen this flight admits unconditionally."""
+        fresh = [k for k in (keys or ()) if k not in self.seen_keys]
+        first_seen = bool(fresh) and len(self.seen_keys) < self.NOVELTY_KEY_CAP
+        if first_seen:
+            self.seen_keys.update(fresh)
+        if mlib.should_dump_gate_flip_window(now, self.last_dump, self.interval,
+                                             first_seen=first_seen):
             self.last_dump = now
             self.emitted += 1
+            if first_seen:
+                self.novel += 1
             return True
         self.suppressed += 1
         return False
 
     def summary_message(self) -> str:
-        return ("gate-flip window dumps emitted=%d suppressed=%d "
-                "(rate limit %.1fs; phase-transition / terminal / vessel-lost "
-                "dumps are never suppressed)"
-                % (self.emitted, self.suppressed, self.interval))
+        return ("gate-flip window dumps emitted=%d (novel=%d) suppressed=%d "
+                "distinctGateKeys=%d (first (phase,field) occurrence always "
+                "admitted; repeats rate-limited to %.1fs; phase-transition / "
+                "terminal / vessel-lost dumps are never suppressed)"
+                % (self.emitted, self.novel, self.suppressed,
+                   len(self.seen_keys), self.interval))
 
 
 # The live gate-flip limiter, published for the fly_loop wrapper's summary.
@@ -2858,7 +2893,8 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         for action in actions:
             if action.kind in (mlib.ACTION_WARP_TO_UT, mlib.ACTION_CANCEL_WARP,
                                mlib.ACTION_SET_RAILS_WARP):
-                wu.note_warp_command()
+                wu.note_warp_command(
+                    armed=mlib.is_warp_arming_command(action.kind, action.value))
             control.perform(action)
             log.info(state.phase, "action %s value=%s%s"
                      % (action.kind, _fmt(action.value),
@@ -2874,6 +2910,17 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         # The episode is armed by the MACHINE's own outstanding native warp
         # command, so a deliberate 1x phase can never trip it, and it is reset
         # whenever the command clears (arrival, cancel, phase exit).
+        #
+        # The `wl_ut_start is None` re-stamp closes a FAIL-OPEN hole (2026-07-26
+        # review): if `snapshot.ut` read non-finite on the very frame the
+        # episode armed, the UT baseline was never taken and NO later branch
+        # took it either -- the judging branch requires it non-None -- so the
+        # floor stayed disarmed for the whole episode, until warp_to_cmd
+        # cleared. A liveness guard that fails open on its own arming frame is
+        # worse than no guard, because the roadmap counts it as covering the
+        # shape. The re-stamp also RESETS the wall clock, so the judged window
+        # always starts from a frame with a real UT and can never bill the
+        # blind frames against the ratio.
         armed = getattr(state, "warp_to_cmd", None) is not None
         if not armed:
             wl_wall_start = None
@@ -2882,7 +2929,11 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             wl_wall_start = clock()
             wl_ut_start = (float(snapshot.ut) if math.isfinite(snapshot.ut)
                            else None)
-        elif wl_ut_start is not None and math.isfinite(snapshot.ut):
+        elif wl_ut_start is None:
+            wl_wall_start = clock()
+            wl_ut_start = (float(snapshot.ut) if math.isfinite(snapshot.ut)
+                           else None)
+        elif math.isfinite(snapshot.ut):
             wl_wall = clock() - wl_wall_start
             wl_game = float(snapshot.ut) - wl_ut_start
             if mlib.warp_liveness_starved(wl_game, wl_wall):
@@ -3020,8 +3071,12 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         if dump_reason is not None:
             # G4: gate-flip is the ONLY rate-limited trigger. Everything else
             # here (terminal-*, vessel-lost, phase-transition) is sparse by
-            # construction and stays unconditional.
-            if dump_reason != "gate-flip" or gate_dumps.admit(clock()):
+            # construction and stays unconditional. A gate-flip whose
+            # (phase, field) pair is new this flight is admitted unconditionally
+            # too (MINOR-7); only repeats face the time limit.
+            if dump_reason != "gate-flip" or gate_dumps.admit(
+                    clock(),
+                    mlib.gate_flip_novelty_keys(state.phase, gate_changes)):
                 _dump_event_window(log, state.phase, ring, dump_reason)
         # LIVE STATUS FILE (2d): atomic best-effort rewrite every ~2 s; the
         # builder only runs when the write is due, and every failure is
@@ -3111,7 +3166,8 @@ def _build_status_payload(status_writer: "StatusFileWriter", state,
                 if (wu.ut_start is not None and math.isfinite(snapshot.ut))
                 else float("nan"))
         payload["phaseWarp"] = mlib.warp_utilisation_row(
-            wu.phase, now - wu.wall_start, game, wu.warp_cmds)
+            wu.phase, now - wu.wall_start, game, wu.warp_cmds,
+            wu.armed_warp_cmds)
     payload["phaseWallSeconds"] = phase_wall
     payload["machine"] = mlib.machine_state_dict(state, snapshot.ut)
     payload["snapshot"] = mlib.snapshot_dict(snapshot)

@@ -2276,7 +2276,8 @@ class WarpLivenessFloorWiringTests(unittest.TestCase):
     phase budget is either advanced by the crawl or -- for CORRECTION-BURN's
     aim-warp -- suppressed outright."""
 
-    def _fly(self, ut_per_frame, wall_per_frame, armed=True, frames=600):
+    def _fly(self, ut_per_frame, wall_per_frame, armed=True, frames=600,
+             blind_frames=0):
         clock = _StepClock()
         log = mission_runner.MissionLogger(sink=lambda _l: None, clock=clock)
         state = mlib.b5_initial_state(mlib.b5_params_from_dict(dict(B5_PARAMS)))
@@ -2295,7 +2296,9 @@ class WarpLivenessFloorWiringTests(unittest.TestCase):
                 return replace(st, done=True), []
             return st, []
 
-        snaps = [snap(ut=ut_per_frame * i, body="Kerbin",
+        snaps = [snap(ut=(float("nan") if i < blind_frames
+                          else ut_per_frame * i),
+                      body="Kerbin",
                       altitude=8_000_000.0, warp_mode="RAILS", warp_rate=2.68,
                       warping_to=1e12)
                  for i in range(frames)]
@@ -2329,6 +2332,28 @@ class WarpLivenessFloorWiringTests(unittest.TestCase):
         dwell, all of B1/B2/B4, the whole FORGE / B-DOCK family): the episode is
         armed by the machine's OWN outstanding native warp command."""
         final = self._fly(ut_per_frame=0.5, wall_per_frame=1.0, armed=False)
+        self.assertNotEqual(final.verdict, mlib.MISSION_FLAKE)
+
+    def test_a_blind_ut_on_the_arming_frame_does_not_disarm_the_floor(self):
+        """FAIL-OPEN HOLE (2026-07-26 review). If snapshot.ut read non-finite
+        on the very frame the episode armed, wl_ut_start was never taken -- and
+        no later branch took it, because the judging branch REQUIRES it
+        non-None. The floor stayed disarmed for the whole episode. A liveness
+        guard that fails open on its own arming frame is worse than none, since
+        the roadmap counts it as covering the shape. The re-stamp branch takes
+        the baseline on the first frame that has a real UT."""
+        final = self._fly(ut_per_frame=1.3, wall_per_frame=1.0, blind_frames=3)
+        self.assertTrue(final.done)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason)
+
+    def test_the_re_stamp_does_not_bill_the_blind_frames_against_the_ratio(self):
+        """The re-stamp resets the WALL clock with the UT baseline, so the
+        judged window starts from a frame that has both. A genuinely fast warp
+        that happened to arm on a blind frame must still never be judged
+        starved."""
+        final = self._fly(ut_per_frame=1000.0, wall_per_frame=1.0, frames=400,
+                          blind_frames=3)
         self.assertNotEqual(final.verdict, mlib.MISSION_FLAKE)
 
 

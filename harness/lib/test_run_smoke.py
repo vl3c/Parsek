@@ -1602,6 +1602,157 @@ class SubprocessScopedRetrySmokeTests(unittest.TestCase):
         self.assertEqual([], result["verifiers"].get("subprocessRetry", []))
 
 
+class DurationLedgerIoTests(unittest.TestCase):
+    """The COMMITTED duration ledger's I/O contract (2026-07-26 review,
+    BLOCKER-1 / MAJOR-2 / MAJOR-4).
+
+    ``coverage/duration.json`` is the ONLY committed artifact this refresh
+    writes, and ``results/`` is gitignored and per-checkout -- so a recompute
+    over the local results dir replaces the whole-suite record with whatever
+    this worktree happened to fly. Two things must hold on every run: the merge
+    preserves scenarios this checkout never measured, and an unreadable ledger
+    is never REPLACED by a partial one."""
+
+    SCENARIO = "SMOKE-fake"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-duration-")
+        self._orig_results = run.RESULTS_DIR
+        self._orig_cov = run.COVERAGE_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        run.COVERAGE_DIR = os.path.join(self.tmp, "coverage")
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        os.makedirs(run.COVERAGE_DIR, exist_ok=True)
+        self.logger = run.HarnessLogger(
+            os.path.join(run.RESULTS_DIR, "duration_harness.log"))
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        self.spec = _make_spec(self.template, 30, 600)
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        run.COVERAGE_DIR = self._orig_cov
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    @property
+    def _path(self):
+        return os.path.join(run.COVERAGE_DIR, "duration.json")
+
+    def _write_ledger(self, text):
+        with open(self._path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+
+    def _seed_pass_result(self, wall, ended, run_id):
+        result = {"schema": hlib.SCHEMA_VERSION, "runId": run_id,
+                  "scenarioId": self.SCENARIO, "verdict": hlib.VERDICT_PASS,
+                  "attempt": 1, "wallSeconds": wall, "startedUtc": ended,
+                  "endedUtc": ended, "note": ""}
+        with open(os.path.join(run.RESULTS_DIR, "%s.json" % run_id), "w",
+                  encoding="utf-8", newline="\n") as fh:
+            fh.write(hlib.serialize_result(result))
+
+    def _read_ledger(self):
+        with open(self._path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def _log_body(self):
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_a_one_scenario_checkout_does_not_wipe_the_committed_record(self):
+        """BLOCKER-1, the observed live failure: a fresh worktree that flew ONE
+        scenario overwrote the 24-entry committed ledger with 1 entry."""
+        self._write_ledger(json.dumps({
+            "schema": hlib.SCHEMA_VERSION,
+            "scenarios": {
+                "B11-mun-orbit": {"n": 5, "p50": 1317.0, "p95": 1319.0,
+                                  "last": 1318.0, "lastVsP50": 1.001},
+                "B12-minmus-orbit": {"n": 4, "p50": 627.0, "p95": 627.0,
+                                     "last": 626.0, "lastVsP50": 0.998},
+            }}, sort_keys=True, indent=2) + "\n")
+        self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
+        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        scenarios = self._read_ledger()["scenarios"]
+        self.assertEqual(sorted(scenarios),
+                         ["B11-mun-orbit", "B12-minmus-orbit", self.SCENARIO])
+        self.assertEqual(scenarios["B11-mun-orbit"]["n"], 5)
+        self.assertEqual(scenarios["B12-minmus-orbit"]["p50"], 627.0)
+        self.assertEqual(scenarios[self.SCENARIO]["n"], 1)
+
+    def test_a_measured_scenario_accrues_instead_of_being_replaced(self):
+        """MAJOR-2: the summary-only committed entry keeps its n instead of
+        being recomputed down to this checkout's 1, so the regression warn
+        stays armed. Then the NEXT run accrues on top of it."""
+        self._write_ledger(json.dumps({
+            "schema": hlib.SCHEMA_VERSION,
+            "scenarios": {self.SCENARIO: {"n": 5, "p50": 1317.0, "p95": 1319.0,
+                                          "last": 1318.0, "lastVsP50": 1.001}},
+        }, sort_keys=True, indent=2) + "\n")
+        self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
+        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        entry = self._read_ledger()["scenarios"][self.SCENARIO]
+        self.assertEqual(entry["n"], 5)
+        self.assertGreaterEqual(entry["n"], hlib.DURATION_MIN_SAMPLES)
+        self.assertEqual(entry["last"], 1400.0)
+        # A second run over the SAME accumulated results dir plus one new PASS.
+        self._seed_pass_result(1290, "2026-07-27T10:00:00Z", "2026-07-27_1000_x")
+        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        entry = self._read_ledger()["scenarios"][self.SCENARIO]
+        self.assertEqual(entry["n"], 6)
+        self.assertEqual(sorted(entry["samples"].values()), [1290.0, 1400.0])
+
+    def test_an_unparseable_ledger_is_never_replaced_and_reds_loudly(self):
+        """MAJOR-4: the recovery path must not reopen the bug it closes. A
+        partial file (truncate-then-die) must leave the file UNTOUCHED and log
+        an Error, not silently replace 24 scenarios with this run's one."""
+        partial = '{\n  "schema": 1,\n  "scenarios": {\n    "B11-mun-orb'
+        self._write_ledger(partial)
+        self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
+        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        with open(self._path, "r", encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), partial)
+        body = self._log_body()
+        self.assertIn("[Error][Duration]", body)
+        self.assertIn("SKIPPING the duration write", body)
+
+    def test_a_future_schema_ledger_is_refused_not_overwritten(self):
+        self._write_ledger(json.dumps(
+            {"schema": hlib.SCHEMA_VERSION + 1, "scenarios": {}}) + "\n")
+        self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
+        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        self.assertEqual(self._read_ledger()["schema"], hlib.SCHEMA_VERSION + 1)
+        self.assertIn("failed the schema gate", self._log_body())
+
+    def test_a_missing_ledger_is_a_legitimate_first_write(self):
+        self.assertFalse(os.path.exists(self._path))
+        self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
+        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        self.assertEqual(self._read_ledger()["scenarios"][self.SCENARIO]["n"], 1)
+        self.assertNotIn("[Error][Duration]", self._log_body())
+
+    def test_the_write_leaves_no_tmp_behind(self):
+        """The write is tmp + os.replace (MAJOR-4a); a leftover .tmp would mean
+        the rename never happened."""
+        self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
+        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        self.assertFalse(os.path.exists(self._path + ".tmp"))
+        self.assertTrue(os.path.isfile(self._path))
+
+    def test_a_malformed_entry_cannot_crash_the_end_of_a_flown_suite(self):
+        """MINOR-8: the ledger is committed and hand-editable, and the warn line
+        formats last/p50/p95. Before the fix this raised KeyError out of
+        refresh_coverage_and_flake AFTER the whole suite had flown, so
+        logger.close() never ran."""
+        self._write_ledger(json.dumps({
+            "schema": hlib.SCHEMA_VERSION,
+            "scenarios": {"X": {"n": 5, "lastVsP50": 2.0}}},
+            sort_keys=True, indent=2) + "\n")
+        self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
+        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        self.assertNotIn("X", self._read_ledger()["scenarios"])
+
+
 class MultiCategoryBatchSmokeTests(unittest.TestCase):
     """M-A5.1 item 2 over the REAL run loop (fake runtime): a multi-category RunTests
     emits per-category BATCH_COMPLETE lines + a category=multi:<count> aggregate. With

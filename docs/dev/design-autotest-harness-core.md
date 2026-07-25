@@ -469,14 +469,47 @@ outcomes and the computed flake rate, with a `quarantined` bool set when the rat
 exceeds 20% over the week (plan section 10).
 
 **ADDED 2026-07-25 (telemetry audit): `harness/coverage/duration.json`, and it is
-COMMITTED.** Per scenario, `{n, p50, p95, last, lastVsP50}` over PASS results
-only (`hlib.compute_durations`; an INVALID that died on a budget or a KILLED
-reaped at the wall bound measures the BOUND, not the scenario), with a Warn when
-`last > 1.5 * p50` at 3+ samples (`hlib.duration_regressions`). It is the ONLY
-durable cross-run duration history - `results/*.json`, `results/summary.txt` and
-every `*.log` are gitignored - and the gap was not theoretical: the B12 spec
-header claimed B11 was the shorter run for four measured runs each while B11
-read p50 1,317 s and B12 read p50 627 s. Three per-run duration fields ride the
+COMMITTED.** Per scenario, `{n, p50, p95, last, lastVsP50, samples}` over PASS
+results only (an INVALID that died on a budget or a KILLED reaped at the wall
+bound measures the BOUND, not the scenario), with a Warn when `last > 1.5 * p50`
+at 3+ samples (`hlib.duration_regressions`). It is the ONLY durable cross-run
+duration history - `results/*.json`, `results/summary.txt` and every `*.log` are
+gitignored - and the gap was not theoretical: the B12 spec header claimed B11
+was the shorter run for four measured runs each while B11 read p50 1,317 s and
+B12 read p50 627 s.
+
+**REVISED 2026-07-26 (mutation review): the ledger is SAMPLE-BASED and the write
+path MERGES.** `results/` is gitignored and per-checkout, so recomputing the
+whole record from it and truncate-writing replaced the committed 24-entry file
+with whatever this worktree happened to fly (observed live 2026-07-25), and even
+a missing-scenarios-only merge downgraded a MEASURED scenario from `n=5` to a
+per-checkout `n=1` - below `DURATION_MIN_SAMPLES`, which silently DISARMS the
+regression warn. The pipeline is now:
+`hlib.duration_samples(results)` -> `{scenarioId: {endedUtc: wallSeconds}}` ->
+`hlib.merge_durations(committed, fresh)`, which unions the samples (bounded tail
+`DURATION_SAMPLE_TAIL = 10`, one JSON line per sample) and recomputes
+`n/p50/p95/last` over the union. `n` counts every sample ever contributed,
+including ones aged out of the tail, so the warn's arming gate reflects real
+history rather than the window size. THE LEDGER ONLY EVER ADVANCES: a sample
+counts as NEW only when its `endedUtc` is strictly newer than every key the
+committed tail holds, because a long-lived worktree's `results/` dir keeps the
+samples that already aged OUT of the tail and re-adding them would double-count
+on every run (25 real samples became n=41 after one more run in the first cut of
+this fix). A summary-only entry (the pre-samples shape) has no watermark, so it
+bootstraps with `n = max(prior_n, len(samples))` rather than a sum - a fresh
+worktree then KEEPS the committed `n` (the warn stays armed, which is the point)
+and a long-lived one does not double it. Both error directions here are
+UNDER-counts, which can only make the warn more conservative. `endedUtc` keying
+makes repeated merges over an accumulating results dir idempotent.
+`hlib.compute_durations` is
+retained as the no-prior one-shot form (`merge_durations({}, ...)`) for tests and
+a first write; the live path never uses it. The write is tmp + `os.replace`, and
+`run.read_duration_ledger` FAILS LOUD - an existing file that does not parse /
+fails the schema gate / has no scenarios map logs an Error and SKIPS the
+duration write for that run, because silently treating it as empty would reopen
+the wipe in the recovery path. Malformed entries are dropped by the merge and
+never flagged by the warn (the warn's log line formats `last`/`p50`/`p95`/`n`,
+and the file is committed and hand-editable). Three per-run duration fields ride the
 result record for the same reason: `missionWallSeconds` (the mission
 subprocess's own span, read through the same schema gate as the verdict) so
 `wallSeconds - missionWallSeconds` IS the harness overhead in one subtraction

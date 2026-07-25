@@ -127,7 +127,7 @@ B7 LIVE-PROVEN (seventh flight, 2026-07-22): PASS attempt 1, wall 752 s, every v
 
 B7 first-flight campaign (flights 1-7, 2026-07-22, peel-one-layer): live-proves Q2/Q3/Q4 ALL ANSWERED GREEN on flight 4 -- ejection priced 797.6 m/s as ONE node (the 700 km park's energy discount vs the ~1,050 estimate), the executor held ~100,000x across the ~35-day window wait, and the burn completed with 544/720 LF still in the Poodle (margin comfortable). Findings, each committed with tests: (flight 1) ascentTimeoutSeconds 1200 -> 2400 (the 700 km apoapsis coast + MechJeb's at-apoapsis circularization run ~1400-1600 game-s; the flake hit with ap already in-window); (flight 2) ROUGH PARK WINDOWS +/-15 -> +/-150 km + circularize budget 600 -> 6000 (MechJeb's high-altitude circularization left ap 778 / pe 562 km with no node and nothing burning; the park's contract is warp legality >= 600 km + a stable ejection origin, not precision); (flight 3 = finding 17) flameout staging under the EXECUTOR's collapsed throttle -- the deterministic core-dry flameout hit mid-ejection at 476.9 of 797.6 m/s remaining and MechJeb zeroes the throttle when the engine dies, so the commanded-throttle gate was blind in TRANSFER-BURN; mid-burn evidence (orbit changed since entry + node still pending + zero available thrust, via _b5_track_burn_stagnation's new burned return) substitutes, and flight 4 proved the executor RESUMES on the fresh stage and finishes the burn; (flight 4 = finding 18) NO-ENCOUNTER EARLY TRIGGER -- the phase-angle ejection reliably produces NO Duna encounter (design Q5's contrary assumption refuted; tts NaN the whole heliocentric coast, triggers correctly closed, coast sailed past Duna to the budget flake), so a debounced (3-frame) encounter-less time-mode coast over a via body now fires the pending round early; flight 5 then proved MechJeb's course-correct PLANS WITHOUT an encounter (108.7 m/s accepted, Q5's throw assumption also wrong); (flights 5-6 = findings 19/19b) HIGH-RATE FRAMES ARE NOT ALIGNMENT TIME -- rounds granted from the 100,000x coast entered CORRECTION-BURN mid-rails-ramp-down and the GAME-time no-start budget (600 s) evaporated in ~2 polls with the plan unburned and apErr frozen ~110 deg; 19 re-anchored on rails frames, 19b re-keyed the re-anchor to the OBSERVED RATE > NOSTART_COUNTABLE_RATE_MAX (4.5) because commanding the flip mid-ramp flips TimeWarp.Mode to LOW immediately while CurrentRate still decays from 100,000 (kRPC truthfully reports PHYSICS at 5.32x). Plus the ec= ElectricCharge telemetry channel (a drained battery on the solar-panel-less Kerbal X presents exactly like the frozen apErr; next suspect if the flip still will not turn under an honestly-counted clock).
 
-## B6 Minmus / B7 Duna flybys: Kerbal X feasibility survey + lanes [B6 LIVE-PROVEN, B7 LIVE-PROVEN 2026-07-22, branches `autotest-b5-mun` / `autotest-b7-duna`; **B6 CONFIRMATION RE-FLY PAID 2026-07-25** - PASS, wall 359 s, all seven verifiers green on HEAD, clearing the debt the B12 flight-1 entry opened (B6's prior proof predated the aim-then-warp change and it shared the budget that change broke; it was also the mission most exposed to the flight-2 coast warp-thrash, same long Minmus coast). B5/B7 exposure RE-ASSESSED 2026-07-25 after review: the "NOT-AFFECTED, the fixes gate on `capture_enabled` / opt-in snapshot fields" claim was WRONG for two of the four fixes (the correction-budget re-anchor and the coast native-warp latch are ungated shared-machine changes). B5 is covered by PROXY (B11 carries identical coast/correction params and flew them green). B7 was FLOWN at HEAD instead of argued about and does NOT pass - see the B7 Ike entry below; the failure is pre-existing, not a lane regression]
+## B6 Minmus / B7 Duna flybys: Kerbal X feasibility survey + lanes [B6 LIVE-PROVEN, B7 LIVE-PROVEN 2026-07-22, branches `autotest-b5-mun` / `autotest-b7-duna`; **B6 CONFIRMATION RE-FLY PAID 2026-07-25** - PASS, wall 359 s, all seven verifiers green on HEAD, clearing the debt the B12 flight-1 entry opened (B6's prior proof predated the aim-then-warp change and it shared the budget that change broke; it was also the mission most exposed to the flight-2 coast warp-thrash, same long Minmus coast). B5/B7 exposure RE-ASSESSED 2026-07-25 after review: the "NOT-AFFECTED, the fixes gate on `capture_enabled` / opt-in snapshot fields" claim was WRONG for two of the four fixes (the correction-budget re-anchor and the coast native-warp latch are ungated shared-machine changes). **B5 CONFIRMATION RE-FLY PAID 2026-07-25** - PASS attempt 1, wall 468 s, all seven verifiers green on HEAD (`results/2026-07-25_0643_B5-mun-flyby.json`, repeated at 468.9 s), so the proxy argument is retired: B5 is ACTUALLY RE-FLOWN, not covered by B11. B7 was FLOWN at HEAD instead of argued about and is INTERMITTENT, not a flat fail - the 2026-07-25 sweep red'd attempt 1 (`MISSION-ASSERT-FAIL`, Ike capture, wall 736 s) and PASSED attempt 2 on the harness retry (wall 739 s), and an earlier run red'd both attempts; see the B7 Ike entry below. The failure is pre-existing, not a lane regression]
 
 **B7 AT HEAD FAILS: the 300 km Duna approach gets captured by IKE (2026-07-25, OPEN).** The B7 row already carried the gate "HEAD's 300 km target has not itself flown (the pass flew 50 km); first nightly covers it". That flight has now happened - twice, as the harness retry - and it FAILS: `MISSION-ASSERT-FAIL reason=flyby ejected the craft off-course: body='Ike' (expected 'Duna' or exit 'Sun')`, wall 747 s / 735 s.
 
@@ -697,6 +697,131 @@ GAME time, and there was no WALL budget anywhere in the live surface.**
    which is why the seven individual call sites are deliberately NOT
    instrumented - the subtraction bounds them, and a residue past ~120 s is the
    signal to go look, not a reason to add seven permanent timers now.
+
+### Telemetry audit follow-up 2026-07-26: the mutation review [FIXED, branch `autotest-orbit-missions`]
+
+A reviewer audited the six changes above by MUTATING them (12 mutations, 10
+caught, 2 survived) and returned FIX-FIRST. Everything below lands on the same
+branch, so #1350 is safe standalone regardless of merge order.
+
+1. ~~**The duration ledger was DESTRUCTIVE (G5).**~~ `refresh_coverage_and_flake`
+   recomputed `harness/coverage/duration.json` from `results/*.json` and
+   truncate-wrote it. `results/` is GITIGNORED and per-checkout, so a fresh
+   worktree that flew ONE scenario overwrote the committed 24-entry record with
+   1 entry. OBSERVED LIVE 2026-07-25. FIXED here (the fix previously existed
+   only on the descendant `autotest-landing-missions`, which would have let main
+   inherit the bug if #1350 merged first).
+2. ~~**Merging only the MISSING scenarios is HALF a fix.**~~ A scenario the run
+   DID measure still had its committed entry REPLACED: `{"n": 5, "p50": 1317}`
+   became a per-checkout `{"n": 1, "p50": 1400}`, and `n=1 <
+   DURATION_MIN_SAMPLES` DISARMS the regression warn. Under the
+   one-worktree-per-branch workflow that is most scenarios most of the time, and
+   only 3 of the 24 committed entries carry `n >= 3` today. FIXED by storing the
+   SAMPLES, not the summary: `hlib.duration_samples` extracts
+   `{scenarioId: {endedUtc: wallSeconds}}` from PASS results,
+   `hlib.merge_durations` unions them with the committed tail (bounded at
+   `DURATION_SAMPLE_TAIL = 10`, one JSON line per sample) and recomputes
+   `n/p50/p95/last` over the union. `n` counts every sample ever contributed
+   (including ones aged out of the tail) so the arming gate reflects real
+   history. THE LEDGER ONLY EVER ADVANCES: a sample counts as new only when its
+   `endedUtc` is strictly newer than every key the committed tail holds -
+   without that watermark a long-lived worktree double-counts, because the
+   samples that aged OUT of the tail are still sitting in its `results/` dir
+   (25 real samples became n=41 on the next run in the first cut of this fix,
+   caught by self-review before commit). A summary-only committed entry has no
+   watermark, so it bootstraps with `n = max(prior_n, len(samples))`: a fresh
+   worktree KEEPS the committed `n` (the warn stays armed) and a long-lived one
+   does not double it. Both error directions are UNDER-counts, which can only
+   make the warn more conservative. Keyed by `endedUtc`, so merging the same
+   result set repeatedly is idempotent; results sharing a `runId` collapse to
+   the newest first.
+3. ~~**G4's one safety claim had ZERO test coverage.**~~ Two mutations survived
+   1,117 green tests: removing the gate-flip rate limit entirely, and
+   rate-limiting EVERY reason (`phase-transition` / `terminal-*` /
+   `vessel-lost` too). Cause: the only end-to-end cell flew a fake B1 producing
+   exactly ONE gate flip, so the suppression path never ran, and under the
+   second mutation three phase-transition windows and the gate-flip window
+   vanished while the summary line printed a claim it had just violated. FIXED:
+   `GateFlipSuppressionFlightTests` drives the real fly loop with a scripted
+   machine flipping a gate on many consecutive frames under a clock stepping
+   inside the limit, and asserts `suppressed > 0`, `count(reason=gate-flip
+   dumps) == emitted`, `count(phase-transition dumps) == count(transitions)`,
+   the terminal window, and an unsuppressed `vessel-lost` window. Both
+   mutations now die (verified by re-applying them).
+4. ~~**`duration.json` was written non-atomically and an unreadable ledger was
+   silently replaced.**~~ The recovery path reopened the exact bug it was
+   written to close: a partial file from a Ctrl-C / run-budget process-tree
+   kill / power loss failed the next run's parse, fell back to "no prior", and
+   truncate-wrote this checkout's handful over the 24-scenario record - visible
+   to `git status` as an ordinary modification a "stage everything" pass would
+   commit. FIXED: `run.write_text_atomic` (tmp + `os.replace`, mirroring
+   `write_result`) for all four generated artifacts, and
+   `run.read_duration_ledger` FAILS LOUD - a file that exists but does not
+   parse, fails `hlib.check_schema`, or has no scenarios map logs an Error and
+   SKIPS the duration write entirely for that run.
+5. ~~**The LOW throughput marker was noise (G2).**~~ MEASURED across the
+   archive: on healthy B11 it marked 4 rows, ALL FOUR legitimate (MJ-ASCENT
+   1.33, TRANSFER-BURN 12.3, CAPTURE-BURN 8.0, PARK 1.0); across 5 healthy B12
+   runs it marked the identical 2 rows every time. **ZERO true positives.** The
+   decisive number: healthy CORRECTION-BURN reads ratio 43.6 while the defect
+   the marker exists for reads ~40, so the ratio cannot separate them; the 120 s
+   wall floor separates by DURATION, not health. FIXED: the marker now requires
+   `armedWarpCommands > 0` as well. `mlib.is_warp_arming_command` splits arming
+   from cancelling (`ACTION_CANCEL_WARP` and `SET_RAILS_WARP(0)`, a cancel to
+   1x, do NOT arm), `warp_utilisation_row` carries `armedWarpCommands`, and
+   `status.armed_warp_commands_in_span` counts them per phase off the log's
+   `action ...` lines for the closed history rows. Every false positive issued
+   ZERO arming commands (PARK's single command is `set_rails_warp value=0.000`);
+   the thrash issued 3,603. On healthy B11 and all 5 healthy B12 runs the
+   tightened rule fires on ZERO rows. HONESTLY: one archived B12 flake
+   (`2026-07-25_0229`, CAPTURE-BURN 138 s / ratio 1.102) ALSO had zero warp
+   commands, so the tighter rule would not have caught it either - but it was
+   already caught by its own `capture under-burn` assertion, so the marker added
+   nothing there.
+6. ~~**The panel labelled the throughput block with the WRONG phase.**~~ The
+   header phase comes from the LOG's last transition; the throughput numbers
+   come from the STATUS FILE's phase. Neither was labelled, so a real render
+   printed `PHASE: EVA-WINDOW` above DESCENT's numbers. FIXED:
+   `status.format_phase_throughput_line` prints the payload's own
+   `phaseWarp["phase"]` whenever it disagrees with the header.
+7. ~~**A strictly better G4 rule, same code size.**~~ The 43 MB pathological log
+   holds only **16 distinct `(phase, gate-field)` pairs** against 7,218
+   gate-flip dumps (7,207 from `warpToCmd` alone). Admitting the FIRST
+   occurrence of each pair unconditionally emits 16 windows instead of 7,218 - a
+   bigger reduction than the time rule - and no novel flip ever loses its
+   20-frame context, which the time rule could not promise (a suppressed flip
+   followed by >10 s of quiet lost its window permanently). FIXED:
+   `mlib.gate_flip_novelty_keys` + `should_dump_gate_flip_window(...,
+   first_seen=)`; the limiter keeps a bounded seen-set (cap 512, far above the
+   measured 16) and the time limit now applies to REPEATS only.
+8. ~~**A malformed ledger entry crashed the end of a run.**~~ `run.py` indexed
+   `entry["last"]` while `duration_regressions` read defensively, so a
+   hand-edited `{"n": 5, "lastVsP50": 2.0}` raised `KeyError` out of
+   `refresh_coverage_and_flake` AFTER the whole suite had flown, and
+   `logger.close()` never ran. Reachable now that the file is committed. FIXED
+   at both ends: `merge_durations` DROPS an entry that carries neither samples
+   nor the full numeric shape, `duration_regressions` never flags one, and the
+   warn line uses `.get`.
+9. ~~**Two NITs.**~~ (a) `(no GAME budget for this phase)` was an affirmative
+   claim that was false when the phase IS in the table but the spec omits the
+   key and `mlib` applies a machine default; `status.phase_budget_note` now
+   distinguishes "untimed phase" from "key absent, machine default applies".
+   (b) The panel showed only the mission budget though `_drive_mission_step`
+   holds both kills, and the percentage under-reads by KSP boot + seam steps
+   (always in the "looks safer than it is" direction); the wall line now carries
+   a `run budget` term and an `excl. boot` token.
+10. ~~**The "no invented keys" test proved almost nothing.**~~ It was a
+    SUBSTRING search over concatenated scenario TOMLs, so a key appearing only
+    in a COMMENT passed; it said nothing about `mlib` (the real authority) and
+    nothing about the reverse direction - a phase mlib budgets that the table
+    omits, which was the original G3 bug. REPLACED with an oracle: build
+    sentinel params (a distinct value per table key), construct each machine's
+    params via its `*_params_from_dict` builder, and assert `_*_phase_budget(P,
+    phase) == status.phase_budget_seconds(phase, sentinels)` for EVERY phase
+    constant of all seven machines that have a dispatcher, plus a
+    no-unread-keys direction. Verified to catch a dropped `CAPTURE-BURN`, a
+    mis-mapped `PARK`, an invented key, and a dropped B-DOCK `TRANSFER` 2x
+    multiplier.
 
 ## First end-to-end harness run fixes: H5 walk contract + S0.5 discard sidecar residue [BUILT, branch `autotest-s05-autorecord-pin`]
 
