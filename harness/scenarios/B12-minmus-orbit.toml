@@ -56,7 +56,7 @@
 # coast that needs 193,416 of them. The target is an ABSOLUTE UT, so a blind
 # read UNDER WARP now HOLDS the armed command; only a blind read with the game
 # NOT warping is evidence the encounter is gone. A coast that fights itself
-# past MAX_COAST_WARP_ISSUES fast-fails NAMED (coast-warp-thrash). The mission
+# past MAX_PHASE_WARP_ISSUES fast-fails NAMED (coast-warp-thrash). The mission
 # result also carries a per-phase warpUtilisation block whose
 # gameSecondsPerWallSecond names this class in one line.
 #
