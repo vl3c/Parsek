@@ -213,7 +213,7 @@ mission = "b1_pad_hop"            # -> harness/missions/b1_pad_hop.py  (filename
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
-  { phase = "mission",  expect = "MISSION-OK", budget = 600 },   # <- flight happens here
+  { phase = "mission",  expect = "MISSION-OK", budget = 900 },   # <- flight happens here
   { cmd = "CommitTree",                                          expect = "OK" },
   { cmd = "FlushAndQuit",                                        expect = "OK" },
 ]
@@ -224,11 +224,12 @@ steps = [
 [driver.missionParams]
 throttle              = 1.0
 apoapsisWindowMeters  = { min = 6000, max = 30000 }   # a WINDOW, not a golden apoapsis
-chuteDeployAltMeters  = 2500
+chuteArmMaxRateMps    = 30                            # arm at the apoapsis crossing
+chuteFullDeployAltMeters = 2500                       # stock deployAltitude, pinned
 landedSituations      = ["LANDED", "SPLASHED"]        # either accepted
 ascentTimeoutSeconds  = 90
 coastTimeoutSeconds   = 180
-descentTimeoutSeconds = 240
+descentTimeoutSeconds = 360
 
 # A flown scenario PRODUCES a recording, so recordings are expected. count.min>=1
 # keeps the REC-001/REC-003 log rules MANDATORY (M-A5 verifier 4): a dropped
@@ -242,7 +243,7 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 allowedAnomalies = []
 
 [runtime]
-budgetSeconds = 900               # outer wall-clock ceiling (M-A5 watchdog)
+budgetSeconds = 1320               # outer wall-clock ceiling (M-A5 watchdog)
 [retry]
 policy = "once"                   # mission FLAKE / connect-timeout retry-once (below)
 [expectedFail]
@@ -284,11 +285,11 @@ budget must out-wait the whole attempt:
 
 - `missionBudget >= connectBudget + sum(phaseBudgets) + margin` -- the mission
   subprocess wall-clock ceiling covers the bounded connect plus every phase budget
-  plus slack. B1: 600 >= 30 (connect) + (90+180+240) + margin. B2: 780 >= 30 +
+  plus slack. B1: 900 >= 30 (connect) + (90+180+360) + margin. B2: 780 >= 30 +
   (420+300) + margin.
 - `runtime.budgetSeconds >= sum(step budgets) + margin` -- the outer KSP run budget
   covers every budgeted step (LoadGame + the mission step; CommitTree / FlushAndQuit
-  are fast and unbudgeted) plus slack. B1: 900 >= 240 (LoadGame) + 600 (mission) +
+  are fast and unbudgeted) plus slack. B1: 1320 >= 240 (LoadGame) + 900 (mission) +
   margin. B2: 1200 >= 240 + 780 + margin.
 
 A spec that violates the second rule surfaces as a KILLED attempt (M-A5 watchdog),
@@ -579,17 +580,34 @@ run.py:
    On a normal exit, run.py reads the mission-result JSON (falling back to the exit
    code if the file is absent) and maps the verdict: `MISSION-OK` matches the step's
    `expect`; any non-OK is a failed mission step with the mapped INVALID subkind.
-5. run.py drives the REMAINING seam steps REGARDLESS of the mission step outcome. On
-   a met (MISSION-OK) step the seam resumes normally: `CommitTree` commits the
-   recorded tree in FLIGHT (the seam verb's `activeTree != null` guard is satisfied
-   by the auto-recorded flight), then `FlushAndQuit` quits commit-safe. On a FAILED
-   or killed mission step run.py STILL drives them: `CommitTree` may return `ERROR`
-   (e.g. no-active-tree) -- that verdict is RECORDED, not acted on mid-drive -- and
-   `FlushAndQuit` still brings KSP down cleanly so no orphan process is left.
-   CLASSIFICATION happens AFTERWARD, from the accumulated facts (the mission verdict
-   PLUS every seam step's recorded verdict PLUS the verifier chain), never by
-   aborting the drive at the first failure -- see the classification carve-out above
-   for the MISSION-OK-but-no-recording case.
+5. run.py then drives the post-mission seam tail, and WHICH steps it drives depends on
+   the mission outcome (M-A5 "The unmet-mission tail" is the authority; this is a
+   summary).
+   - On a MET (MISSION-OK) step the seam resumes normally and the WHOLE tail runs:
+     `CommitTree` commits the recorded tree in FLIGHT (the seam verb's
+     `activeTree != null` guard is satisfied by the auto-recorded flight), then
+     `FlushAndQuit` quits commit-safe.
+   - On an UNMET mission step run.py drives the CLEANUP steps ONLY
+     (`hlib.SEAM_VERB_TAIL_ROLE` == `cleanup`: `StopRecording`, `FlushAndQuit`) and
+     SKIPS the rest, writing no channel line for them. (A mission-STEP-budget expiry
+     lands here: it is `met = False` like any other unmet outcome. A RUN-budget expiry
+     does NOT: that path has already killed the mission subprocess AND the KSP tree, so
+     `drive_seam` returns immediately and NO tail step runs, not even cleanup. There is
+     no process left to send a command to.) An unmet mission is the
+     statement "the flight never reached the state the tail assumes", so driving a
+     world-mutating verb on that evidence is unsound -- EVA-4-atmo-chute flight 1
+     (2026-07-24) EVA'd a kerbal out of a pod at terminal velocity because the tail
+     ran anyway. `CommitTree` is world-mutating, not cleanup: committing a junk tree
+     cannot buy the run anything back (an unmet mission is already driver-INVALID
+     above every save-reading verifier) and contaminates the failed attempt's
+     artifacts. The skipped steps are recorded in `driver.skippedTailSteps` +
+     `verifiers.unmetMissionTail`. A spec may set
+     `[driver].skipTailOnUnmetMission = false` to restore the old behaviour.
+   Either way CLASSIFICATION happens AFTERWARD, from the accumulated facts (the
+   mission verdict PLUS every DRIVEN seam step's recorded verdict PLUS the verifier
+   chain), never by aborting the drive at the first failure -- see the classification
+   carve-out above for the MISSION-OK-but-no-recording case. A step the harness chose
+   not to send is NOT an unmet step and never gates driver validity.
 
 The channel is QUIET during the mission phase (no seam commands in flight, so the
 seam pump idles), and the mission phase never runs concurrently with an in-game
@@ -614,15 +632,30 @@ Phases (each transition a pure decision over a snapshot):
   `ascentTimeoutSeconds`.
 - **COAST -> DESCENT**: coast to apoapsis at 1x (a 6-30 km hop never leaves
   Kerbin's 70 km atmosphere, and stock KSP FORBIDS rails warp inside the atmosphere,
-  so B1 never rails-warps -- the whole hop is powered / atmospheric at 1x), then on
-  the way down deploy the chute when `altitude <= chuteDeployAltMeters`. Bounded by
+  so B1 never rails-warps -- the whole hop is powered / atmospheric at 1x). The
+  transition FALLS THROUGH into the DESCENT body on the same frame. Bounded by
   `coastTimeoutSeconds`.
+- **DESCENT**: on the first frame whose `|vertical speed|` is within
+  `chuteArmMaxRateMps` -- i.e. the apoapsis crossing -- write
+  `chuteFullDeployAltMeters` onto the parachutes and ARM them, both actions on the
+  SAME frame. ARM WHILE SLOW, never at an altitude (2026-07-25): stock's
+  ACTIVE -> SEMIDEPLOYED needs `automateSafeDeploy >= (int)deploymentSafeState`, the
+  fixture persists `automateSafeDeploy = 0`, and a craft already at terminal velocity
+  in dense air never reads SAFE and never slows on its own -- an altitude-triggered
+  arm sat inert in ARMED all the way into the ground for four months of green runs.
 - **DESCENT -> LANDED**: when `vessel.situation` in `landedSituations`
   (LANDED or SPLASHED). Bounded by `descentTimeoutSeconds`.
+- **DESCENT -> DOWN**: a vessel-lost / frozen-telemetry terminal in DESCENT with the
+  canopy OBSERVED open and the craft last seen at/below `downMaxAltMeters` is a
+  SUCCESS end (a breakup at a canopy-borne touchdown). The conjunct is the OBSERVED
+  `craft_chute_state` latch, never the machine's commanded one.
 
 Telemetry assertions (driver validity):
 - `apoapsisWindow`: peak apoapsis within `apoapsisWindowMeters` (a WINDOW, not a
   golden apoapsis).
+- `craftCanopyObserved`: the craft's parachute READ `Deployed` on at least one live
+  frame. Applies to BOTH terminals -- a LANDED craft whose chute never opened fails
+  too. Requires `KrpcMissionControl(read_chute=True)`.
 - `landedSituation`: final situation in `landedSituations`.
 All met -> `MISSION-OK`. Any unmet -> `MISSION-ASSERT-FAIL`. A phase timeout ->
 `MISSION-FLAKE`.

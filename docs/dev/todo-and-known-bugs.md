@@ -14,6 +14,33 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## B1's parachute never opened, and its DOWN terminal could not tell [FIXED, branch `autotest-b1chute`]
+
+B1-pad-hop was marked LIVE-PROVEN on 2026-07-19/20 with a documented Parsek surface of "chute-deployed ground-arrival recording (DOWN contract)". The chute never opened on any of those runs. Found 2026-07-25 while diagnosing the EVA-4 flight-1 failure; no new flight was needed to prove it, only the already-committed collected logs.
+
+**Evidence.**
+
+1. `logs/2026-07-20_1829_B1-pad-hop/parsek/Recordings/19e55f1ffe044543a84c2f5b8dea0294.prec.txt` - the pad craft's recording holds exactly ONE `parachuteSingle` part event, `type=0` (`PartEventType.Decoupled`) at `ut=119.70`, which is the ground-impact breakup. There is NO `ParachuteSemiDeployed` (type 33) and NO `ParachuteDeployed` (type 2) anywhere in the recording. Its last TrackSection is `ut=[14.64, 119.70]`, `alt=[65, 12031]`: the craft fell 12 km and broke apart.
+2. `logs/2026-07-24_2210_EVA-4-atmo-chute` reproduced it on the same craft with per-frame telemetry - unchuted descent settles at TERMINAL -301 m/s by ~2,700 m and holds it; the chute was armed at 2,382 m / -301 m/s and 5.1 s later, at 855 m, the rate had moved 4.7 m/s. That recording also carries zero `Parachute*` events.
+
+**Root cause (decompiled stock `ModuleParachute`, KSP 1.12.5).** The ACTIVE -> SEMIDEPLOYED transition requires `automateSafeDeploy >= (int)deploymentSafeState`, and `DeploySafe` returns SAFE only while `shockTemp <= chuteMaxTemp * safeMult` (it is a THERMAL test, so it tracks airspeed). The `b1-pad-craft` fixture persists `automateSafeDeploy = 0` - "open only while SAFE", the stock default - so a chute armed at terminal velocity in dense air waits for a SAFE reading that a craft at terminal velocity can never produce, because it never slows on its own. Arming LOW was INERT, not late. (The other gates are all satisfied and are not the cause: `minAirPressureToOpen = 0.04` atm is met from ~15 km down, and `IsMovingFastEnoughToDeploy` only needs \|v\| > 1 m/s.)
+
+**Why it stayed green for four months.** The DOWN terminal's eligibility was `DESCENT && chute_deployed && last_finite_altitude <= downMaxAltMeters`, and `chute_deployed` is the machine's own COMMANDED latch - set the instant the deploy action is emitted, regardless of what the module does. A terminal-velocity impact satisfies all three conjuncts (it IS in DESCENT, it DID command the chute, and it very much reached the ground), so every run was awarded the "chute-deployed impact" success terminal. This is a fail-OPEN assertion: the machine asserted its own behavior instead of KSP's.
+
+The 2026-07-21 review round predicted the damage was bounded ("the altitude gate now bounds the damage of a failed canopy to a sub-500m impact classification"). It was not - a failed canopy puts the craft at sub-500 m at 300 m/s, which is precisely the case the altitude gate waves through. The residual note below is corrected in place.
+
+**Fix.** Both halves, because either alone is insufficient (fixing only the docs abandons the chute surface; adding only the observed gate reds a scenario whose chute genuinely cannot open):
+
+- **Arm while slow.** The machine now arms on the first DESCENT frame whose \|vertical speed\| is within `chuteArmMaxRateMps` (30) - the apoapsis crossing - instead of at an altitude, and writes `chuteFullDeployAltMeters` (2500, pinned by the spec rather than inherited from the fixture's 1000 m PAW value) onto the parachutes on the SAME frame via the new `ACTION_SET_CHUTE_DEPLOY_ALTITUDE`. At the apex the airspeed is near zero, `DeploySafe` is trivially SAFE, and Kerbin is far above the 0.04 atm gate, so the canopy opens within a frame or two. COAST -> DESCENT now FALLS THROUGH into the DESCENT body on the same frame, because the rate only ever worsens (~10 m/s per poll) and one deferred poll eats the arming bound. This is the technique EVA-4 flight 2 LIVE-PROVED on this exact fixture and craft.
+- **Gate on the observed canopy.** New opt-in telemetry channel `TelemetrySnapshot.craft_chute_state` (`KrpcMissionControl(read_chute=True)`, one RPC per poll, "" = fail-closed unread sentinel) carrying the live kRPC `ParachuteState`, most-deployed-port-wins. `B1State.craft_chute_full_seen` is a sticky OBSERVED latch set only when the canopy READS Deployed. `_b1_down_eligible` now requires that latch instead of the commanded one, and a new third assertion `craftCanopyObserved` applies to BOTH terminals, so a LANDED craft with an unopened chute also fails. DOWN-ineligible loss reasons now carry `craftChute=` / `canopyObserved=` / `armCommanded=`, so an inert chute reds as `craftChute=Armed` and names itself.
+- **Parsek-side proof.** The spec now requires the `Part event: ParachuteSemiDeployed 'parachuteSingle` and `Part event: ParachuteDeployed 'parachuteSingle` log tokens (hence a new `verboseLogging` step), so the run proves not just that KSP opened the chute but that PARSEK RECORDED the two-phase event pair. B1 claims D7 `chute-two-phase` for the first time. Both tokens would have FAILED every B1 run flown before this change.
+- Budgets: descent 240 -> 360 s, mission 600 -> 900 s, wall 900 -> 1320 s. The first draft of this fix raised them much further (600/1020/1440) on the assumption that a chuted descent would be several times longer than the ~56 s unchuted fall, sized against a pessimistic ~30 m/s semi-deployed crawl. EVA-4 flight 2 then measured the real numbers on this same craft and that assumption was wrong by ~8x: the SEMI-deployed Jumping Flea sinks at up to -236 m/s (peak ~5.7 km, still -223 m/s at 2500 m), and the full canopy needs ~5.6 s / 894 m to brake it to -23 m/s (measured: EVA-4 triggered at 2500 m and handed off at 1,606 m). EVA-4 timed apoapsis -> 1,606 m at 61.6 s; B1 adds the full-canopy leg to the ground (~1,536 m, 154-176 s integrated against the stock drag model), giving ~216-238 s expected and 360 as a ~1.5x backstop. (A first draft of this entry said ~180 s / 2x, from a linear 23 -> 8 m/s decay over the full-canopy leg; integrated against the stock drag model that leg is 154-176 s, not 110-130 s, because under a full canopy the relaxation time to terminal is v_t/2g ~ 0.45 s and the craft is AT terminal within ~2 s of the handoff.) The schema bounds on `chuteFullDeployAltMeters` were also tightened to [500, 5000]: they had been inherited from the deleted altitude-trigger param as `min = 0.0` with no max, and since the value is now WRITTEN ONTO stock's `deployAltitude`, a 0 there would make `ShouldDeploy()` permanently false and hold the chute SEMIDEPLOYED to a ~220 m/s ground impact - re-creating a variant of this bug through a value the schema accepted. Those same measurements are why `chuteFullDeployAltMeters` is 2500 and not the fixture's 1000: at 1000 m that 894 m brake would consume ~96% of the usable sky. CAVEAT: the flight-2 numbers are quoted from the EVA-4 spec on main, not from a collected log in this tree (`logs/` holds only EVA-4 flight 1), so they are second-hand evidence, not machine-verifiable here.
+- B1 DE-LISTED from live-proven in `autotest-status.md` (its next nightly IS its re-prove). The fixture comment's "the stack ALWAYS breaks apart at touchdown (~9 m/s vs the booster's 7 m/s tolerance)" was never measured - every observed breakup was a ~300 m/s impact - and is corrected. Whether the stack survives a real canopy landing is open until the first run; LANDED and DOWN are both accepted ends.
+
+**Merge note:** the chute telemetry channel (`CHUTE_STATE_*`, `normalize_parachute_state`, `TelemetrySnapshot.craft_chute_state`, `ACTION_SET_CHUTE_DEPLOY_ALTITUDE`, `_read_craft_chute_state`, the `chute=` telemetry-line field) is written BYTE-IDENTICAL to the same additions on the unmerged `autotest-eva4-chute` branch so the two resolve without conflict. The one expected textual conflict is the `KrpcMissionControl.__init__` signature line, where that branch also adds `read_crew`.
+
+**Follow-up (not fixed here): B4 has the same latent bug.** `evaluate_b4_assertions`'s `chuteDeployed` is also a COMMANDED latch, `b4_decide` still deploys on an ALTITUDE trigger (`chuteDeployAltMeters = 3000`), and the B4 fixture `b2-lko-craft` carries the same `automateSafeDeploy = 0`. A reentry capsule at 3,000 m is at terminal velocity in dense air, so it should hit the identical wall. B4 is currently live-proven with a SPLASHDOWN, which means something did slow that craft - so this needs its own diagnosis from a B4 recording (check for `Parachute*` part events) before assuming it is broken, and its own fix if it is: a reentry has no apoapsis crossing to arm at, so the arm point has to come from the descent profile. Tracked as gate 7 in `autotest-status.md`.
+
 ## First live L-track ledger batch: two seam<->recorder fidelity fixes [BUILT, branch `autotest-career-fixtures`]
 
 The first live run of the L-track ledger campaign passed 5/7 (B10, L1-dismiss, L1-passive-sandbox, L1-research-node-career, L1-research-node-science). Two reds, both real seam<->Parsek fidelity gaps (NOT the already-landed no-vessel LoadGame boot path):
@@ -57,12 +84,12 @@ New flown mission owning the craft-survives-intact contract the B1 option-A deci
 - B1 + B2 re-tiered `pending-fixture` -> `nightly` (fixtures committed 2026-07-19, both missions live-proven flyable; flown missions are too long for daily).
 
 Review round applied 2026-07-21 (Fable review of the PR, no blockers; 4 SHOULD-FIX + 1 NIT taken as code):
-- **SF-1 (B1 DOWN missing "reached the ground"):** the DOWN carve-outs now route through `_b1_down_eligible` - DESCENT + chute deployed + `last_finite_altitude <= down_max_alt` (new `B1Params.down_max_alt`, spec key `downMaxAltMeters`, default 500 m, schema-bounded 10-5000). `B1State.last_finite_altitude` tracks the last finite non-lost altitude sample; a chute-ripped loss at 1800 m is now an ASSERT-FAIL with "; last altitude 1800m" appended to the loss reason instead of a false DOWN PASS. Residual (documented, accepted): `chute_deployed` remains COMMANDED evidence (the deploy action was issued and acknowledged), not observed canopy state - kRPC part-state polling per frame was judged not worth the RPC cost for a nightly smoke; the altitude gate now bounds the damage of a failed canopy to a sub-500m impact classification.
+- **SF-1 (B1 DOWN missing "reached the ground"):** the DOWN carve-outs now route through `_b1_down_eligible` - DESCENT + chute deployed + `last_finite_altitude <= down_max_alt` (new `B1Params.down_max_alt`, spec key `downMaxAltMeters`, default 500 m, schema-bounded 10-5000). `B1State.last_finite_altitude` tracks the last finite non-lost altitude sample; a chute-ripped loss at 1800 m is now an ASSERT-FAIL with "; last altitude 1800m" appended to the loss reason instead of a false DOWN PASS. Residual (documented, accepted at the time; ~~OVERTURNED 2026-07-25~~ - see the B1 parachute entry at the top of this file): `chute_deployed` remains COMMANDED evidence (the deploy action was issued and acknowledged), not observed canopy state - kRPC part-state polling per frame was judged not worth the RPC cost for a nightly smoke; the altitude gate now bounds the damage of a failed canopy to a sub-500m impact classification. **That last clause was wrong, and it was the load-bearing one:** a failed canopy leaves the craft at sub-500 m doing 300 m/s, so the altitude gate passes the exact case it was supposed to bound. The chute on this fixture NEVER opened on any B1 run, and the commanded latch certified every one of those impacts as a chute-deployed success. The DOWN gate now reads the OBSERVED `craft_chute_state`, and the one-RPC-per-poll cost that was declined here is what the whole surface depended on.
 - **SF-2 (ap_error fail-closed):** `TelemetrySnapshot.ap_error` default changed 0.0 -> NaN. A runner that never populates it (or a read error) now FAILS CLOSED - the B4 attitude gate never opens on a phantom-aligned default, and the bounded deorbit budget converts it to a flake instead of a mid-flip burn.
 - **SF-3 (warp hops exo-only):** `B4Params.warp_above_alt` default 45000 -> 70000 (spec updated too); rails-warp hops now happen only above the atmosphere, removing the in-atmosphere hop-overshoot variance band.
 - **SF-4:** B4 spec header comments rewritten to the LIVE-PROVEN state with the real budget arithmetic.
 - **NIT (runner):** `ACTION_AP_POINT_RETROGRADE` aborts any MechJeb node executor before engaging the kRPC AutoPilot, so the two controllers can never fight during the flip.
-Both missions were LIVE RE-PROVEN post-review 2026-07-21: B1 PASS attempt 1 (DOWN fired at last altitude 0.5 m, gate satisfied, all verifiers green); B4 PASS flakedThenPassed (attempt 2 flew the full chain with the 70 km warp floor and the craft survived intact, CommitTree OK). B4 attempt 1 stalled in REENTRY with a bit-identical ap/pe/ecc telemetry line (SUB_ORBITAL, warp=NONE) until the mission budget expired - the rate-limited line omits altitude so frozen-physics vs normal Keplerian coast is not distinguishable from the log; if this signature recurs in the flake ledger, add altitude/vspeed to the REENTRY telemetry line as the first diagnostic step.
+Both missions were LIVE RE-PROVEN post-review 2026-07-21: B1 PASS attempt 1 (DOWN fired at last altitude 0.5 m, gate satisfied, all verifiers green) -- ~~that B1 PASS was FALSE and is OVERTURNED 2026-07-25 (see the B1 parachute entry at the top of this file): the chute never opened, and the DOWN gate read the machine's own COMMANDED latch, so a ~300 m/s impact satisfied it~~; B4 PASS flakedThenPassed (attempt 2 flew the full chain with the 70 km warp floor and the craft survived intact, CommitTree OK). B4 attempt 1 stalled in REENTRY with a bit-identical ap/pe/ecc telemetry line (SUB_ORBITAL, warp=NONE) until the mission budget expired - the rate-limited line omits altitude so frozen-physics vs normal Keplerian coast is not distinguishable from the log; if this signature recurs in the flake ledger, add altitude/vspeed to the REENTRY telemetry line as the first diagnostic step.
 
 ## Flight 21 (2026-07-22): full-stack PASS, wall 551 s - the warp-audit BASELINE
 
@@ -375,7 +402,7 @@ A NaN `time_to_soi` fails the `elif`, falls into the rails fallback, leaves `nat
 **Why the no-1x-coast certification did not catch it - AND STILL CANNOT. This is a real gap in an EXISTING gate, not a missing new instrument.** Two independent reasons, both worth writing down because both survive the fix:
 - `test_no_1x_coast_invariant` is a MACHINE-COMMAND invariant: it asserts the machine only COMMANDS rails 0 in named cases. Here the machine never commanded 1x. The game was at 1x because the machine had just CANCELLED its own warp, which the invariant does not model at all. A command-side assertion is structurally blind to a defect whose whole signature is the game's OBSERVED rate disagreeing with what we commanded.
 - `warp_audit.py`'s 1X-COAST VIOLATIONS rule needs a CONTIGUOUS 1x window of >= 30 wall seconds. Flight 2's 1x is frame-INTERLEAVED with ~2.7x rails (issue, blind read, cancel, re-issue), so no contiguous window ever forms. 3,603 warp commands and ~78.5k frames at 1x produced ZERO audit violations.
-Net: B5 flight 26 is NO-1X CERTIFIED at HEAD config and the metastable thrash would have passed that certification too. The gap is a UTILISATION gap, not a mode gap. It is covered for now on the MACHINE side (the `coast-warp-thrash` fast-fail at `MAX_PHASE_WARP_ISSUES` = 500 plus the per-phase `warpUtilisation` block, which named the very next defect at a glance) - but the AUDIT itself is still blind to the class, and closing it properly means a utilisation rule in `warp_audit.py` that replaces the contiguous-1x heuristic. Filed under the mission time-accounting task; recorded here as a KNOWN GATE, mirrored in `autotest-status.md` known-gates item 7.
+Net: B5 flight 26 is NO-1X CERTIFIED at HEAD config and the metastable thrash would have passed that certification too. The gap is a UTILISATION gap, not a mode gap. It is covered for now on the MACHINE side (the `coast-warp-thrash` fast-fail at `MAX_PHASE_WARP_ISSUES` = 500 plus the per-phase `warpUtilisation` block, which named the very next defect at a glance) - but the AUDIT itself is still blind to the class, and closing it properly means a utilisation rule in `warp_audit.py` that replaces the contiguous-1x heuristic. Filed under the mission time-accounting task; recorded here as a KNOWN GATE, mirrored in `autotest-status.md` known-gates item 8 (item 7 is the commanded-vs-observed class the B1 chute fix opened).
 
 **The fix.**
 - `mlib.coast_native_warp_hold` (pure) - the native coast target is an ABSOLUTE UT and does not need `time_to_soi` to stay readable. A blind read while the game IS warping (rails mode, a live `warping_to`, or any rate above 1x) HOLDS the armed command and emits nothing. A blind read with the game NOT warping still cancels - that is the honest "the encounter really is gone" frame. A readable frame always belongs to the normal policy (retarget through the existing asymmetric hysteresis, or the inside-the-lead rails handover). Scoped to the SOI-coast fallback branch only, so the pending-node and both correction-trigger warp modes keep their exact prior cancel behaviour and a correction trigger can never be warped past.
@@ -840,7 +867,7 @@ already carries the stock default `evaChute,evaJetpack` inventory.
 
 **The parent craft is a deliberate second surface.** After the EVA the pod descends under
 its own canopy as a background vessel and touches down BEFORE the kerbal. Per the B1
-fixture note the Jumping Flea ALWAYS breaks apart at touchdown (~9 m/s vs the booster's 7
+fixture note the Jumping Flea breaks apart at touchdown (a COMPUTED ~8-9 m/s vs the booster's 7
 m/s tolerance); that is EXPECTED here. Nothing in the spec asserts the pod survives - B4
 owns the craft-survives-intact contract; EVA-4's survival contract is the KERBAL's. The
 recordings count shipped as a provisional 2-10 window sized to absorb the breakup
@@ -926,7 +953,7 @@ RE-DERIVED PARAMS: window `[800, 2400] m / |vs| <= 60` -> `[700, 2100] m / |vs| 
 become true inside/above the band; floor gives 1400 m of settle room for the ~8 s
 animation and still ~700 m of sky for the kerbal, whose own chute fully deploys under
 1000 m at ~5-6 m/s so its descent time is bounded by that leg rather than by the exit
-altitude; 25 m/s passes the B1-measured ~9 m/s full-canopy touchdown rate with ~2.8x
+altitude; 25 m/s passes the COMPUTED ~8-9 m/s full-canopy touchdown rate (never B1-measured; B1's chute had never opened) with ~2.8x
 margin while a merely semi-deployed craft can never satisfy it). BUDGETS re-checked
 against the measured fall times: ASCENT 90 and COAST 180 keep B1's values (measured 9.7 s
 and 40.8 s); `descentTimeoutSeconds` was raised 240 -> 480, the mission step 600 -> 900
@@ -952,8 +979,11 @@ ut 119.70, and its recording ends at 65 m. B1 arms at the same 2500 m with the s
 anyway because `_b1_down_eligible` awards its "chute-deployed impact" DOWN terminal on the
 COMMANDED latch (`state.chute_deployed`) plus vessel-lost plus last-altitude, never on an
 observed canopy. So B1's documented Parsek surface ("chute-deployed ground-arrival
-recording") does not match what it flies. Left alone here because B1 is live-proven and
-other work depends on its shape; tracked as its own task.
+recording") does not match what it flies. ~~Left alone here because B1 is live-proven and
+other work depends on its shape; tracked as its own task.~~ DONE 2026-07-25: that task is
+the B1 parachute entry at the top of this file. B1 now arms at the apoapsis crossing and
+gates on the OBSERVED canopy, and it was de-listed from live-proven pending its
+re-prove.
 
 **FLIGHT-1 TAIL BEHAVIOUR - what actually happened after the ASSERT-FAIL, and why it
 matters.** An earlier version of this section said "flight 1 never reached the EVA". That
@@ -989,11 +1019,99 @@ There is NO false PASS. The mission's ASSERT-FAIL classifies the whole scenario 
 `verdict=INVALID subkind=mission` - and the save is re-staged per attempt (`stage_fixture`
 does an `rmtree` + `copytree` of the template, `run.py:1995`), so no junk state survives
 into the next run. The problem is cost and artifact honesty, not verdict correctness.
-FIXING IT IS NOT EVA-4's JOB: "drive the remaining steps regardless" is a cross-cutting
-harness contract shared by every autopilot scenario, so the fix (skip / short-circuit the
-post-mission seam tail when the mission verdict is a hard ASSERT-FAIL) is filed
-separately. Until then, treat the artifacts of any window-missed EVA-4 attempt as
-containing a real but unintended EVA.
+FIXING IT WAS NOT EVA-4's JOB: "drive the remaining steps regardless" is a cross-cutting
+harness contract shared by every autopilot scenario, so it was filed separately and fixed
+there - see the next entry. The artifacts of the flight-1 attempt still contain a real but
+unintended EVA; no future window-missed attempt will.
+
+~~**HARNESS: an UNMET mission step no longer drives the world-mutating seam tail.**~~
+FIXED 2026-07-25 (the cross-cutting fix filed by the entry above). After a mission step
+comes back UNMET, `run.py` now drives the CLEANUP tail steps ONLY and skips the rest,
+writing no channel line for a skipped step. Mechanism (general, not an EVA-4 special
+case): every implemented seam verb carries a TAIL ROLE in `hlib.SEAM_VERB_TAIL_ROLE`
+alongside the existing per-verb tables - `cleanup` (`StopRecording`, `FlushAndQuit`),
+`inert` (`RecordingState`, `MissionMark`), `world-mutating` (everything else). The unmet
+tail runs `cleanup` only; an UNKNOWN verb resolves to `world-mutating` (fail-safe), and a
+unit cell asserts the table is TOTAL over `IMPLEMENTED_SEAM_VERBS`, so a verb promoted
+from RESERVED forces an explicit role decision - that gate fired on `EvaChuteDeploy` while
+merging PR #1348, exactly as intended. Pure decision:
+`hlib.plan_unmet_mission_tail(steps, mission_index, skip_tail)`. Spec opt-out
+`[driver].skipTailOnUnmetMission` defaults to the safe `true`, must be a bool, and warns
+as inert on a seam-kind driver.
+- **Why `FlushAndQuit` and `StopRecording` are cleanup:** skipping the quit would let the
+  watchdog kill the tree, and KILLED outranks driver-INVALID in `classify_verdict`, so the
+  mission's own subkind would be MASKED and the attempt would stop being retryable;
+  `StopRecording` closes the recording so the recorder flushes instead of being torn down
+  mid-sample by the quit, and so the collected log's recording markers pair. Two scope
+  limits kept honest after review: the run's own logValidate is already SKIPPED on
+  driver-invalid (artifact honesty, not verdict), and EVA-4 is today the ONLY scenario
+  that can reach this role - six specs carry a `StopRecording` step (EVA-1/2/3, S0.5,
+  S0.6, EVA-4) but the first five are seam-kind with no mission step, and every other
+  autopilot scenario ends without one, so on their unmet runs the recorder is live at
+  quit either way.
+- **Why `CommitTree` is NOT cleanup** (the one genuinely two-sided call): committing writes
+  the failed attempt's junk tree into the durable committed set and applies its resource
+  deltas, and it cannot buy the run a verdict back - an unmet mission is already
+  driver-INVALID at `classify_verdict`'s "driver stage failed" branch, which precedes
+  EVERY save-reading verifier in that chain, so on
+  that path the analyzer is triage-only and logValidate / testResults / anomalySweep /
+  expectations / ledgerOracle are all SKIPPED whether or not the tree was committed. The
+  "an uncommitted tree the analyzer then reports on" worry does not arise: the analyzer
+  never reports verdict-driving findings there. `verifiers.unmetMissionTail` records the
+  skip next to those SKIPPED rows so the thin save is self-explaining.
+- **Scope:** only the UNMET path changed. A MISSION-OK run drives the full tail exactly as
+  before (all eleven autopilot scenarios: B1/B2/B4/B5/B6/B7, BDOCK-1, EVA-4 itself, and
+  the three FORGE specs), and seam-only drivers (S0.5/S0.6/
+  S1.4/S1.5/S4.1, H5/H6, B10, the L1 six-pack, EVA-1/2/3) have no mission step at all.
+  Verified empirically in review by running both trees side by side: a MET autopilot run
+  and a seam-only run produce BYTE-IDENTICAL result records on `origin/main` and on the
+  branch, and `validate_spec` over all 28 committed scenarios yields an identical
+  error+warning list on both.
+- **NON-CLAIM (review correction):** skipping `SaveGame` does NOT protect the FORGE
+  fixture path, and the first version of this entry wrongly said it did. `FlushAndQuit`
+  ITSELF forces `GamePersistence.SaveGame("persistent", HighLogic.SaveFolder, OVERWRITE)`
+  (`ParsekTestCommandAddon.FlushAndQuitImpl`), the SAME slot all three FORGE specs'
+  `SaveGame` step targets, so a half-forged state reaches disk either way. See the
+  separate FORGE-harvest entry below. The `CommitTree` half of the argument is unaffected:
+  `FlushAndQuit` deliberately never auto-commits an in-flight recorder
+  (`TestCommandFlushAndQuit`), so skipping `CommitTree` genuinely leaves the junk tree
+  uncommitted.
+- Tests (34 new cells): 26 pure hlib cells (role-table totality + no stale rows, the
+  cleanup set, fail-safe unknown, id stability, the opt-out, the spec surface incl. the
+  misplaced-key guard, and a DATA-DRIVEN sweep over every committed autopilot spec
+  loaded from disk - all 11 - asserting each keeps its QUIT owner and drives nothing
+  outside the cleanup set, so the coverage cannot go stale when a scenario is added or
+  its tail edited) + 6 fake-KSP smoke cells driving the REAL EVA-4 tail
+  shape (`EvaExit` + `EvaChuteDeploy` + `StopRecording` + `CommitTree` + `FlushAndQuit`)
+  and asserting on the COMMAND CHANNEL FILE - the only artifact that proves a command was
+  never sent - that neither in-world verb nor the commit was written on an unmet run while
+  `StopRecording` / `FlushAndQuit` were, that a MISSION-OK run still drives everything,
+  that the opt-out restores the legacy tail and is visible in the record, and that the
+  never-spawned UNMET paths (load-failed, no-result) skip too + 2 mission-step cells:
+  the third never-spawned UNMET path (the in-flight venv backstop, unmet with zero
+  spawns) and the proof that a RUN-budget kill drives NO tail at all, cleanup included
+  (it is not an unmet-tail case: the KSP tree is already dead).
+  Mutation-tested during review: 17 single-point mutations
+  of the production code (every-step-runs, CommitTree->cleanup, FlushAndQuit->mutating,
+  unknown-verb-defaults-cleanup, delete the skip branch, and 12 more), zero survivors.
+
+**HARNESS (latent, surfaced by the review above): a FORGE run whose mission fails still
+stamps its save, and nothing gates the harvest.** Not introduced by the tail-skip work and
+not made worse by it, but the tail skip does NOT cover it, so it is filed rather than
+assumed handled. `FlushAndQuit` force-saves the `persistent` slot
+(`ParsekTestCommandAddon.FlushAndQuitImpl` -> `GamePersistence.SaveGame("persistent",
+HighLogic.SaveFolder, OVERWRITE)`) on every path, which is exactly the slot
+`FORGE-bdock-station` / `FORGE-eva3-pad` / `FORGE-eva2-lko` target with their `SaveGame`
+step and exactly the file `harness/tools/harvest_bdock_station.py` reads. So a forge whose
+mission ASSERT-FAILs part-way through assembly still leaves a half-forged
+`saves/<runSave>/persistent.sfs` on disk. The harvest's only always-on gates are
+"activeVessel present" + ">= 1 VESSEL node"; its `--expect-situation` gate is OPTIONAL and
+only the ORBITAL harvest documents using it (`--expect-situation ORBITING`), so a pad
+forge would harvest a half-forged state without complaint. Fix (not attempted here): make
+the harvest refuse unless the run it is harvesting from ended MISSION-OK - e.g. read the
+forge run's result JSON, or require `--expect-situation` for every harvest. Cheap and
+worth doing before the next fixture mint; until then, only harvest a forge run you have
+confirmed PASSED.
 
 **FLIGHT 2 (2026-07-24): FULL PASS on attempt 1.** All seven verifiers PASS/SKIPPED
 (`batchComplete` SKIPPED as designed, everything else PASS), and the re-tune

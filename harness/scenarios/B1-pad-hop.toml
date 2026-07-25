@@ -3,8 +3,28 @@ id = "B1-pad-hop"
 # nightly: the fixtures/saves/b1-pad-craft template is committed (operator
 # 2026-07-19) and the mission is live-proven flyable (2026-07-19/20 runs, all
 # phases reached); flown missions are too long for daily.
+#
+# ===================================================================================
+# RE-PROOF PENDING (2026-07-25). The 2026-07-19/20 runs proved the FLIGHT, not the
+# CHUTE. Their recordings carry ZERO Parachute* part events: the craft fell from
+# ~12 km to the ground at terminal velocity and broke up, and the DOWN terminal --
+# which gated only on the machine's own COMMANDED chute latch -- awarded that impact
+# the "chute-deployed impact" success end. See the [driver.missionParams] block for
+# the decompiled root cause and the two flights of evidence.
+#
+# This spec now arms at the apoapsis crossing (the technique EVA-4 flight 2
+# LIVE-PROVED on this exact fixture and craft) and gates BOTH the DOWN terminal and
+# the new craftCanopyObserved assertion on the OBSERVED kRPC ParachuteState. Every
+# decision is unit-covered, but three things can only be pinned by the first live run
+# on this build and are called out inline: (P1) the final full-canopy leg to the
+# ground, the one segment EVA-4 never times because it always hands off in mid-air
+# (every other part of the descent is now measured, so the budget is derived rather
+# than guessed), (P2) whether the stack survives touchdown (LANDED) or still breaks up
+# under canopy (DOWN) -- both are accepted ends, (P3) the recordings count on the
+# chuted profile.
+# ===================================================================================
 tier = "nightly"
-description = "Pad hop: pre-placed craft, throttle+stage, coast, chute, land; assert apoapsis window + landed."
+description = "Pad hop: pre-placed craft, throttle+stage, coast, arm the chute at apoapsis, land under an observed canopy; assert apoapsis window + landed + canopy observed."
 instanceProfile = "stock-minimal"
 tags = ["B1", "S0.1", "flown"]
 
@@ -14,9 +34,28 @@ tags = ["B1", "S0.1", "flown"]
 # (operator 2026-07-19). The vessel is KSP's own stock "Jumping Flea"
 # (Ships/VAB/Jumping Flea.craft: mk1pod.v2 + parachuteSingle + RT-5 Flea
 # solidBooster.sm.v2 + fins). Its full-throttle hop fits the apoapsis window
-# below. NOTE: the stack ALWAYS breaks apart at touchdown (~9 m/s vs the
-# booster's 7 m/s tolerance); per the operator decision 2026-07-20 (option A)
-# that chute-deployed impact is a SUCCESSFUL end (the mlib DOWN terminal).
+# below.
+#
+# The parachuteSingle persists automateSafeDeploy = 0, deployAltitude = 1000 and
+# minAirPressureToOpen = 0.04 (fixture persistent.sfs). automateSafeDeploy = 0 is
+# the whole reason the mission must arm at the apex; it is left AS THE STOCK
+# DEFAULT deliberately, because a scenario that edits its fixture to dodge a stock
+# rule stops testing the stock rule.
+#
+# CORRECTION (2026-07-25): this note used to claim "the stack ALWAYS breaks apart at
+# touchdown (~9 m/s vs the booster's 7 m/s tolerance)" as a MEASURED fact. It was not
+# measured - the chute never opened on any run that produced it, so every observed
+# breakup was a ~300 m/s terminal-velocity impact, not a canopy touchdown.
+#
+# The number itself turns out to be about right, just computed rather than observed:
+# integrating the stock drag model over the full-canopy leg gives a touchdown rate of
+# ~8-9 m/s. Against the parts' own crashTolerance values (basicFin 4,
+# solidBooster.sm.v2 7, parachuteSingle 12, mk1pod.v2 14) that predicts the fins and
+# the spent booster are destroyed on contact while the pod and chute survive. So P2 is
+# not a coin flip: expect LANDED with breakup debris, with DOWN (operator decision
+# 2026-07-20, option A) as the accepted fallback if the whole stack goes. Both ends
+# require the OBSERVED canopy either way. Treat "~8-9 m/s" as computed until a live
+# run measures it.
 saveTemplate       = "fixtures/saves/b1-pad-craft"
 injectedRecordings = "none"
 craft              = []
@@ -28,51 +67,186 @@ mission = "b1_pad_hop"
 # `steps` MUST stay in the [driver] table, so it is declared ABOVE the
 # [driver.missionParams] header (a key after the sub-table header would be scoped
 # to driver.missionParams.steps and the spec would validate as having zero steps).
-# Budget arithmetic (design invariant): missionBudget 600 >= 30 connect +
-# (90+180+240) phases + margin; runtime 900 >= 240 LoadGame + 600 mission + margin.
+# Budget arithmetic (design invariant): missionBudget 900 >= 30 connect +
+# (90+180+360) phases + margin; runtime 1320 >= 240 LoadGame + 900 mission + margin.
+# RAISED 2026-07-25 with the descent budget: the craft now flies its descent under
+# canopy. The raise is modest because EVA-4 flight 2 measured the semi-deployed rate
+# at up to -236 m/s - a chuted descent on this craft is not much longer than the
+# unchuted one. See descentTimeoutSeconds for the full derivation.
+#
+# The phase budgets are GAME time and the mission step budget is WALL time, and B1
+# never warps (allow_rails_warp False, max_physics_warp 0), so the two run 1:1 and the
+# wall budget must clear the worst-case game-time sum of 660 s with room for venv
+# startup, connect, the settle tail, and any real-time-factor dip. 900 gives 1.36x;
+# the first draft's 780 gave only 1.18x, which is the regime where a frame-rate dip
+# converts a NAMED MISSION-FLAKE (which reports the stuck phase) into an unnamed
+# mission-budget kill that reports nothing. Matches EVA-4's 900.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
-  { phase = "mission",  expect = "MISSION-OK", budget = 600 },
+  # verboseLogging: the "Part event: ..." lines the chute logContracts below require
+  # are emitted at Verbose (FlightRecorder.cs:1687). Belt-and-braces rather than
+  # load-bearing - ParsekSettings defaults it true, and the 2026-07-20 run logged
+  # Part-event lines without this step - but it is a per-save GameParameters setting
+  # that could drift, and the log contract is now a hard gate, so pin it.
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 900 },
   { cmd = "CommitTree",                                          expect = "OK" },
   { cmd = "FlushAndQuit",                                        expect = "OK" },
 ]
 
 # Mission parameters are TOLERANCES / WINDOWS, never golden trajectories
 # (plan section 10); validated against b1_pad_hop.schema.toml.
+#
+# ===================================================================================
+# CHUTE PARAMS: ARM WHILE SLOW (2026-07-25). Root cause of the silent failure these
+# replace, from the decompiled stock ModuleParachute plus two flights of evidence:
+#
+#   ACTIVE -> SEMIDEPLOYED requires ALL of: static pressure > minAirPressureToOpen
+#   (0.04 atm) or below deployAltitude; |v| > 1 m/s; and
+#   `automateSafeDeploy >= (int)deploymentSafeState`. DeploySafe reads SAFE only
+#   while `shockTemp <= chuteMaxTemp * safeMult`, i.e. only while the craft is not
+#   ramming hot air. The fixture persists automateSafeDeploy = 0 (SAFE only), so a
+#   chute armed at terminal velocity in dense air waits for a SAFE reading that a
+#   craft at terminal velocity can never produce on its own -- it just sits in ARMED.
+#
+#   EVIDENCE 1 (B1's own 2026-07-20 run, logs/2026-07-20_1829_B1-pad-hop): the
+#   recording has exactly ONE parachuteSingle part event, a Decoupled at the ut of
+#   the ground impact. No ParachuteSemiDeployed, no ParachuteDeployed, anywhere.
+#   EVIDENCE 2 (EVA-4 flight 1, logs/2026-07-24_2210_EVA-4-atmo-chute): same craft,
+#   same 2500 m altitude trigger, per-frame telemetry -- armed at 2,382 m / -301 m/s,
+#   and 5.1 s later at 855 m the rate had moved 4.7 m/s.
+#
+# The fix is the one EVA-4 flight 2 LIVE-PROVED on this exact fixture and craft: arm
+# at the APOAPSIS CROSSING, where the airspeed is near zero, DeploySafe is trivially
+# SAFE, and Kerbin is ~0.12 atm at the ~12 km apex both inspectable runs actually
+# reached - 3x the module's 0.04 atm gate. That margin is a property of the MEASURED
+# apex, not of the whole apoapsisWindowMeters range: Kerbin crosses 0.04 atm at roughly
+# 17-18 km, so an apex near the window's 30 km ceiling would arm on the right frame but
+# could not open until the craft had fallen back under the pressure gate - by which
+# point it is fast again. The ceiling is a VALIDITY bound (this deterministic RT-5 hop
+# peaks ~12 km), not a regime this technique is claimed to cover. (The module's
+# other gate, IsMovingFastEnoughToDeploy, is never binding despite the "arm while slow"
+# framing: it sums Rigidbody.velocity + Krakensbane.GetFrameVelocity(), i.e. the
+# BODY-CENTRED INERTIAL velocity - Kerbin's rotation, ~175 m/s at the KSC surface and
+# ~178 m/s at 12 km - even at a zero-airspeed apex, against a 1 m/s floor.) The
+# chute SEMI-deploys at ~11.9 km (the full canopy comes later, at
+# chuteFullDeployAltMeters) and the craft never reaches the terminal velocity that made
+# an altitude trigger unopenable. Note the semi-deployed craft is NOT slow: EVA-4
+# flight 2 measured it sinking at up to -236 m/s. Semi-deploy is what makes the FULL
+# canopy reachable, not what brakes the craft.
+# ===================================================================================
 [driver.missionParams]
 throttle              = 1.0
 apoapsisWindowMeters  = { min = 6000, max = 30000 }
-chuteDeployAltMeters  = 2500
+# 30 m/s: arms at the apoapsis crossing. Since COAST -> DESCENT now falls through into
+# the DESCENT body, the arm is evaluated on the ENTRY frame, so the only question is how
+# negative that frame can already be - bounded by one poll gap of free fall (g ~ 9.4
+# m/s^2 up there; EVA-4 flight 1's -7.4, -16.9, -26.1, -35.5 m/s series steps by ~9.4,
+# and flight 2 armed at -0.43 m/s). 30 m/s therefore tolerates a ~3 s poll stall at the
+# apex, and is unreachable later in the fall (semi-deployed peak -236, unchuted -301).
+# A miss is the fast NAMED chute-arm-window-missed ASSERT-FAIL, not a budget burn.
+chuteArmMaxRateMps    = 30
+# 2500 m: pinned here rather than inherited from the fixture's PAW so the full-canopy
+# leg is a declared mission input, and set to EVA-4's LIVE-PROVEN value on this exact
+# craft rather than the fixture default of 1000.
+#
+# 1000 was this spec's first choice, on the reasoning that B1 has no EVA band to clear
+# and a lower trigger keeps slow full-canopy descent out of the budget. EVA-4 flight 2
+# MEASURED the numbers that make it a bad trade: the SEMI-deployed Jumping Flea does
+# not crawl, it sinks at up to -236 m/s (peak at ~5.7 km, still -223 m/s at 2500 m),
+# and the full canopy needs ~5.6 s to brake it to -23 m/s. That brake costs 894 m of
+# altitude, MEASURED, not modelled: EVA-4 flight 2 triggered at 2500 m and handed off
+# at 1,606 m. (An earlier draft said "about 680 m", assuming a linear deceleration.
+# The module's deploymentCurve = 2.5 ramp is not linear: 894 m / 5.6 s is a 160 m/s
+# mean, well above the 123 m/s a linear 223 -> 23 m/s brake would give.) At a 1000 m
+# trigger that brake would consume ~96% of the ~930 m of usable sky - the craft would
+# still be decelerating at touchdown, which is where "did the craft survive?" stops
+# being a question about Parsek. The saving was illusory anyway: at ~220 m/s the extra
+# 1500 m of semi-deployed fall is ~7 s.
+chuteFullDeployAltMeters = 2500
 landedSituations      = ["LANDED", "SPLASHED"]
+# ASCENT/COAST keep their live-proven values (measured 9.7 s and 40.8 s).
 ascentTimeoutSeconds  = 90
 coastTimeoutSeconds   = 180
-descentTimeoutSeconds = 240
+# DESCENT: 360, DERIVED FROM EVA-4 FLIGHT-2 MEASUREMENTS on this same craft, not
+# guessed. This spec first carried 600 on the assumption that a chuted descent would be
+# several times longer than the ~56 s unchuted fall, sized to out-wait a pessimistic
+# ~30 m/s semi-deployed crawl. That assumption was wrong by ~8x: the semi-deployed
+# Jumping Flea sinks at up to -236 m/s, so the chute costs the descent far less time
+# than expected.
+#
+# Build-up: EVA-4 timed apoapsis crossing -> 1,606 m (its handoff, already past its
+# 2500 m full-deploy trigger and braked to -23.2 m/s) at 61.6 s. B1 continues to
+# touchdown, which adds the full-canopy leg from 1,606 m to KSC ground (~70 m ASL).
+# Integrating that leg against the stock drag model (F[kN] = 0.0005 * rho * v^2 *
+# AreaDrag * DragCubeMultiplier 0.1 * DragMultiplier 8, per Physics.cfg and
+# FlightIntegrator, with the DEPLOYED drag cube from PartDatabase.cfg and the fixture's own
+# 1.52 t descent mass) gives 154-176 s: under a full canopy the relaxation time to
+# terminal is v_t/2g ~ 0.45 s, so the craft is AT terminal within ~2 s of the handoff
+# and the mean speed over that 1,536 m is ~8.6-10 m/s, not the ~13 m/s a linear
+# 23 -> 8 decay would suggest. Total expected DESCENT ~216-238 s, so 360 is ~1.5x.
+# (An earlier draft of this comment claimed ~180 s and "~2x" from that linear decay.
+# The budget did not change; the reasoning behind it was wrong, which matters because
+# a future trim anchored on "180 x 2" would eat real margin.)
+#
+# P1 - the one leg nothing has TIMED is that final full-canopy descent: EVA-4 always
+# hands off in mid-air and never follows its craft to the ground, so the 154-176 s
+# above is computed, not observed. Trim from evidence once the first B1 run times it.
+#
+# Like EVA-4's, this budget is a BACKSTOP, not the real guard: a canopy that fails to
+# open is caught first and fast by the craftCanopyObserved assertion plus the DOWN-
+# ineligible ASSERT-FAIL, which name the inert chute instead of burning the budget.
+descentTimeoutSeconds = 360
 
 [dimensionsCovered]
 D1  = ["auto-record-launch"]
 D4  = ["atmospheric"]
+# D7 chute-two-phase: CLAIMED 2026-07-25, on the CRAFT's own parachuteSingle, and
+# only now that the canopy actually opens. It was never claimed before because the
+# chute never opened; the required Part-event tokens below are what back the claim.
+# EVA-4 covers the same cell on a KERBAL's ModuleEvaChute -- a different module and a
+# different recording, so both are worth having.
+D7  = ["chute-two-phase"]
 D14 = ["kerbin"]
 
 # A flown scenario PRODUCES a recording, so recordings are expected. count.min>=1
 # keeps the REC-001/REC-003 log rules MANDATORY (M-A5 verifier 4): a dropped
 # recording reds. The analyzer (Forbid) over the produced recording is the
-# Parsek correctness gate. max models the touchdown BREAKUP debris: the Jumping
-# Flea always breaks apart at touchdown (live crashes 2026-07-19/20; one run
-# produced 4 breakup-child pids), and per-run child-count variance is
-# unestablished, so the window absorbs main + up to 5 children rather than
-# redding on breakup-timing variance.
+# Parsek correctness gate.
+#
+# P3 - the max models touchdown BREAKUP debris. Both inspectable 2026-07-19/20 runs
+# actually produced exactly ONE .prec: the "4 breakup-child pids" from those crashes
+# were in-memory rows created by ProcessBreakupEvent at the ~300 m/s impact, and none
+# of them persisted as recordings. Those were terminal-velocity impacts, not the canopy
+# touchdowns this spec now flies, and a ~8-9 m/s canopy touchdown destroys parts rather
+# than shedding debris vessels, so expect 1-2. The window is deliberately left wide rather
+# than re-pinned from a profile nobody has flown yet: redding on breakup-timing
+# variance would be a false negative, and the analyzer over the produced recordings
+# is the real Parsek correctness gate. Re-pin from the first live run.
 [expectations.recordings]
 count = { min = 1, max = 6 }
 
 [expectations.logContracts]
-required  = ["Recording started", "Recording stopped"]
+# The two Part-event tokens are the PARSEK-SIDE proof of the canopy, and the reason
+# this scenario can claim a chute surface at all: the mission's craftCanopyObserved
+# assertion proves KSP opened the chute, and these prove PARSEK RECORDED it as the
+# two-phase ParachuteSemiDeployed -> ParachuteDeployed pair. Emitted at Verbose from
+# FlightRecorder.cs:1687 as `Part event: {eventType} '{partName}' pid={pid}`, hence
+# the verboseLogging step above and the trailing-quote-less part-name prefix. Both
+# tokens would have FAILED every B1 run flown before 2026-07-25.
+required  = ["Recording started",
+             "Part event: ParachuteSemiDeployed 'parachuteSingle",
+             "Part event: ParachuteDeployed 'parachuteSingle",
+             "Recording stopped"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 allowedAnomalies = []
 
 [runtime]
-budgetSeconds = 900
+# WALL clock. RAISED 2026-07-25 with the descent budget: 240 LoadGame + 900 mission
+# + the fast SetSetting / CommitTree / FlushAndQuit verbs (seconds each) + 180 margin.
+budgetSeconds = 1320
 
 [retry]
 policy = "once"

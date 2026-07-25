@@ -98,7 +98,8 @@ max = 5000.0
 
 # |vertical speed| bound at the handoff frame: the safety bound the kerbal leaves the
 # hatch into, and a cross-check that the OBSERVED canopy is actually doing work. Sized
-# against the B1-measured ~9 m/s Jumping Flea touchdown rate under full canopy - low
+# against the COMPUTED ~8-9 m/s Jumping Flea touchdown rate under full canopy (this read
+# "B1-measured" until 2026-07-25; B1's chute had never opened, so it measured nothing) - low
 # enough that a merely semi-deployed craft can never satisfy it, so the window stays
 # meaningful rather than rubber-stamping any slow-ish frame.
 [params.evaMaxDescentRateMps]
