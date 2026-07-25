@@ -716,6 +716,42 @@ CAPTURE_NOSTART_FLAKE = "flake"        # window passed, nothing left to try
 # 4914.7) against a 4,000 s budget, so the bound is 100x+ generous for BOTH
 # bodies instead of 1.3x for one and negative for the other.
 
+# ---------------------------------------------------------------------------
+# COAST-TO-TARGET native-warp LATCH (B12 flight 2, 2026-07-25). THE PROVEN
+# ROOT CAUSE of a Minmus coast that crawled at ~2.7x and ate the whole wall
+# budget, and it is a SHARED-machine defect:
+#
+# The coast derives its native warp target from a DERIVED OBSERVATION every
+# single poll --
+#     native_target = ut + time_to_soi - soi_lead
+# -- and when `time_to_soi` reads NaN the branch falls through to the rails
+# fallback, which then CANCELS the armed native warp (never two warp writers
+# in one frame). But `Orbit.TimeToSOIChange` is unreadable while KSP is
+# re-patching conics under a warp RAMP, so the cancel destroys the very
+# observation the command depends on, and the next (unwarped) poll re-reads it
+# finite and re-arms. Measured over B12 flight 2's COAST frames:
+#
+#              warp=NONE   warp=RAILS
+#   tts finite     2451            7
+#   tts NaN           0         1154
+#
+# 3,603 warp_to_ut issues, 3,602 cancels, 78,568 frames at exactly 1x, and the
+# rails rate never escaped ~2.7x because every ramp was cancelled before it
+# could climb. The loop is METASTABLE, which is why it had never been seen:
+# B11 flight 2's Mun coast issued the warp ONCE, its first post-issue read
+# happened to be finite (30/30 warping frames finite), the warp locked in at
+# RAILSx1000 and the coast flew. B12 hit a NaN inside the first ramp and never
+# escaped. The B5 no-1x certification cannot see this shape either: the 1x is
+# interleaved frame-by-frame with 2.7x rails, so no contiguous 1x window
+# exists for the audit's >= 30 wall-s violation rule to catch.
+#
+# THE FIX: the native warp target is an ABSOLUTE UT. Once armed it does not
+# need `time_to_soi` to stay readable -- so a BLIND read while the game is
+# warping HOLDS the command instead of revoking it. Only a readable frame may
+# retarget (through the existing asymmetric hysteresis), and only a blind read
+# with the game NOT warping is evidence that the encounter is actually gone.
+MAX_COAST_WARP_ISSUES = 500
+
 # classify_correction_timeout verdicts: the NAMED CORRECTION-BURN give-ups
 # (the standing rule -- an actor-dependent phase may never idle to its budget
 # without saying which actor was dead). B12 flight 1 rode the GENERIC
@@ -2858,6 +2894,12 @@ class B5State:
     # from a clean one in the log, and B12 flight 1's diagnosis hinged
     # entirely on knowing which exit fired.
     corr_giveup: str = CORR_GIVEUP_NONE
+    # Native warp_to_ut issues emitted from COAST-TO-TARGET this MISSION (B12
+    # flight 2). A healthy coast issues a handful; the thrash watchdog names
+    # the failure past MAX_COAST_WARP_ISSUES. Never reset -- a coast re-entered
+    # after each correction round legitimately re-arms once per entry, and the
+    # cap is two orders of magnitude above that.
+    coast_warp_issues: int = 0
     # Flameout staging (twenty-second flight): consecutive frames a COMMANDED
     # burn read zero available thrust, and stages popped so far (bounded by
     # MAX_FLAMEOUT_STAGES for the whole mission -- staging is irreversible,
@@ -3353,6 +3395,42 @@ def _b5_clear_arrived_warp(state: B5State, snapshot: TelemetrySnapshot) -> B5Sta
             and snapshot.ut >= state.warp_to_cmd):
         return replace(state, warp_to_cmd=None)
     return state
+
+
+def coast_native_warp_hold(time_to_soi: float, warp_to_cmd: Optional[float],
+                           ut: float, warp_mode: str, warp_rate: float,
+                           warping_to: float) -> bool:
+    """True when COAST-TO-TARGET must HOLD an already-armed native warp this
+    frame instead of cancelling it. Pure; primitives in, bool out.
+
+    The native coast target is an ABSOLUTE UT. Once armed it does not need
+    ``time_to_soi`` to stay readable, and B12 flight 2 proved that reading it
+    under a warp ramp is exactly when it goes blind (1,154 of 1,161 warping
+    COAST frames read NaN; 2,451 of 2,451 unwarped frames read finite). So:
+
+      - no command armed, or the target is already reached -> nothing to hold
+        (arrival and the ordinary policy own those frames);
+      - a READABLE ``time_to_soi`` -> nothing to hold, the normal policy
+        decides (including a legitimate retarget or an inside-the-lead
+        handover to the rails stair);
+      - a BLIND read while the game IS warping (rails mode, a live native
+        warp, or any rate above 1x) -> HOLD. The blindness is the warp's own
+        artifact, not evidence the encounter is gone.
+      - a BLIND read with the game NOT warping -> do NOT hold. That is the
+        honest "the encounter really is gone" frame, and the existing
+        cancel/no-encounter paths own it.
+
+    A non-finite ``ut`` never holds (fail closed: an unreadable clock cannot
+    establish that the target is still ahead)."""
+    if warp_to_cmd is None:
+        return False
+    if not (_is_finite(ut) and ut < warp_to_cmd):
+        return False
+    if _is_finite(time_to_soi):
+        return False
+    return (warp_mode == WARP_RAILS
+            or _is_finite(warping_to)
+            or (_is_finite(warp_rate) and warp_rate > 1.0))
 
 
 def _b5_native_warp(state: B5State, snapshot: TelemetrySnapshot,
@@ -4226,6 +4304,10 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             stayed = replace(stayed, body_blank_count=0)
         stayed = _b5_clear_arrived_warp(stayed, snapshot)
         native_target: Optional[float] = None
+        # B12 flight 2: set only by the SOI-coast fallback branch below, so
+        # every other warp mode (pending node, altitude / time correction
+        # stairs) keeps its exact pre-existing cancel behaviour.
+        blind_soi_hold = False
         desired = 0
         if snapshot.node_count != 0:
             # (a) Pending node: NATIVE warp to node_ut minus the ARRIVAL
@@ -4308,8 +4390,40 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             if desired > 0:
                 desired = min(desired, max_legal_rails_factor(
                     snapshot.body, snapshot.altitude))
+            # NATIVE-WARP LATCH (B12 flight 2): this branch is also where a
+            # BLIND time_to_soi lands, and a blind read UNDER WARP is the
+            # warp's own artifact -- cancelling the armed command on it is
+            # what produced 3,602 cancel/re-issue cycles and a 2.7x coast.
+            # The target is an absolute UT and stays valid; hold it.
+            blind_soi_hold = coast_native_warp_hold(
+                snapshot.time_to_soi, stayed.warp_to_cmd, snapshot.ut,
+                snapshot.warp_mode, snapshot.warp_rate, snapshot.warping_to)
         if native_target is not None:
-            return _b5_native_warp(stayed, snapshot, native_target)
+            issued, warp_actions = _b5_native_warp(stayed, snapshot, native_target)
+            if any(a.kind == ACTION_WARP_TO_UT for a in warp_actions):
+                # THRASH WATCHDOG (B12 flight 2 liveness): a healthy coast
+                # issues the native warp a handful of times (arm + the
+                # occasional hysteresis retarget); flight 2 issued it 3,603
+                # times and crawled to the wall budget. Past the cap the warp
+                # policy is provably fighting itself -> NAMED fast-fail, at
+                # roughly a seventh of the wall cost that flake took.
+                issues = issued.coast_warp_issues + 1
+                issued = replace(issued, coast_warp_issues=issues)
+                if issues > MAX_COAST_WARP_ISSUES:
+                    return _b5_named_flake(
+                        issued,
+                        "phase %s: coast-warp-thrash (%d native warp_to_ut "
+                        "issues this mission, cap %d -- the coast is "
+                        "cancelling and re-arming its own warp instead of "
+                        "warping; ut=%s tts=%s warp=%sx%s)"
+                        % (B5_COAST_TO_TARGET, issues, MAX_COAST_WARP_ISSUES,
+                           _obs_fmt(snapshot.ut), _obs_fmt(snapshot.time_to_soi),
+                           snapshot.warp_mode, _obs_fmt(snapshot.warp_rate)),
+                        peak), []
+            return issued, warp_actions
+        if blind_soi_hold:
+            # HOLD: emit nothing, keep warp_to_cmd armed, let the warp ramp.
+            return stayed, []
         if stayed.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
             # Rails intent while a native warp is (expected) active: CANCEL
             # first -- never two warp writers in the same frame (WarpTo wins
@@ -6875,6 +6989,30 @@ def classify_post_connect_exception(exc_module: Optional[str], exc_name: Optiona
 # ---------------------------------------------------------------------------
 
 
+def warp_utilisation_row(phase: str, wall_seconds: float, game_seconds: float,
+                         warp_commands: int) -> Dict:
+    """One per-phase WARP-UTILISATION row for the mission result (B12 flight 2
+    follow-up; the queued mission time-accounting task owns the full version).
+
+    ``gameSecondsPerWallSecond`` is THE number: a phase that is genuinely
+    warping reads hundreds-to-thousands, a 1x phase reads ~1, and B12 flight
+    2's thrashing coast read ~1.3 while issuing 3,603 warp commands. That one
+    line would have named the defect without any log archaeology. Pure; a
+    non-positive or non-finite wall span yields a None ratio rather than a
+    divide-by-zero."""
+    ratio: Optional[float] = None
+    if (_is_finite(wall_seconds) and wall_seconds > 0.0
+            and _is_finite(game_seconds)):
+        ratio = round(game_seconds / wall_seconds, 3)
+    return {
+        "phase": phase,
+        "wallSeconds": round(float(wall_seconds), 3) if _is_finite(wall_seconds) else None,
+        "gameSeconds": round(float(game_seconds), 3) if _is_finite(game_seconds) else None,
+        "gameSecondsPerWallSecond": ratio,
+        "warpCommands": int(warp_commands),
+    }
+
+
 def build_mission_result(
     mission: str,
     verdict: str,
@@ -6888,6 +7026,7 @@ def build_mission_result(
     krpc_client_version: str,
     krpc_server_version: str,
     error: Optional[str] = None,
+    warp_utilisation=None,
 ) -> Dict:
     """Assemble the mission-result dict in the design's schema (line ~331).
 
@@ -6917,6 +7056,10 @@ def build_mission_result(
         "wallSeconds": wall_seconds,
         "krpcClientVersion": krpc_client_version,
         "krpcServerVersion": krpc_server_version,
+        # Per-phase warp utilisation (B12 flight 2). Omitted entirely when the
+        # runner did not accumulate any, so every pre-existing result is
+        # byte-identical.
+        **({"warpUtilisation": list(warp_utilisation)} if warp_utilisation else {}),
         "error": error,
     }
 
@@ -7041,6 +7184,9 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     # CORRECTION-BURN budget anchoring + round-give-up naming (B12 flight 1).
     ("corr_budget_anchor_ut", "corrBudgetAnchorUt"),
     ("corr_giveup", "corrGiveup"),
+    # COAST native-warp issue count (B12 flight 2): the ONE number that names
+    # a self-fighting warp policy at a glance.
+    ("coast_warp_issues", "coastWarpIssues"),
     ("warp_cmd", "warpCmd"),
     ("phys_warp_cmd", "physWarpCmd"),
     ("warp_to_cmd", "warpToCmd"),

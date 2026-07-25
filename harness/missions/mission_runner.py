@@ -2261,6 +2261,17 @@ def fly_loop(
 # wrapper can attach it to an escaping exception (single-threaded shell; the
 # dict is overwritten per call and read only on the unwind path).
 _FLY_LOOP_LAST_STATE: Dict = {}
+# Per-phase WARP-UTILISATION accumulator (B12 flight 2 follow-up). The fly loop
+# appends one mlib.warp_utilisation_row per phase it leaves; run_mission folds
+# the list into the mission result. A module-level accumulator (the same shape
+# as _FLY_LOOP_LAST_STATE) keeps _fly_loop_body's signature and every caller
+# untouched. THE number it carries is gameSecondsPerWallSecond: B12 flight 2's
+# thrashing coast read ~1.3 while issuing 3,603 warp commands, which names the
+# defect in one line instead of a 51 MB log grep. The full mission
+# time-accounting task owns the richer version (per-warp-mode segments, wall
+# attribution across the whole run); this is the cheap slice that pays for the
+# incident that motivated it.
+_FLY_LOOP_WARP_UTILISATION: List[Dict] = []
 
 
 def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
@@ -2272,12 +2283,29 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
     # at Verbose on transition / flake / vessel-lost / gate-flip so the
     # frames BETWEEN rate-limited telemetry samples are recoverable post-hoc.
     ring: deque = deque(maxlen=RING_BUFFER_FRAMES)
+    # WARP-UTILISATION accounting (B12 flight 2): wall + game span and warp
+    # commands issued per phase. Reset here so a retried mission never
+    # inherits a prior attempt's rows.
+    del _FLY_LOOP_WARP_UTILISATION[:]
+    wu_phase = state.phase
+    wu_wall_start = clock()
+    wu_ut_start: Optional[float] = None
+    wu_warp_cmds = 0
+
+    def _wu_close(end_ut: Optional[float]) -> None:
+        game = ((end_ut - wu_ut_start)
+                if (end_ut is not None and wu_ut_start is not None)
+                else float("nan"))
+        _FLY_LOOP_WARP_UTILISATION.append(mlib.warp_utilisation_row(
+            wu_phase, clock() - wu_wall_start, game, wu_warp_cmds))
+
     while not state.done:
         _FLY_LOOP_LAST_STATE["state"] = state
         if clock() >= deadline:
             log.warn(state.phase, "wall budget elapsed in phase %s -> %s"
                      % (state.phase, mlib.MISSION_FLAKE))
             _dump_event_window(log, state.phase, ring, "wall-budget-flake")
+            _wu_close(None)
             return replace(state, verdict=mlib.MISSION_FLAKE, flake_phase=state.phase, done=True), frames
         try:
             snapshot = control.read_snapshot()
@@ -2297,6 +2325,8 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             continue
         frames.append(snapshot)
         ring.append(mlib.format_snapshot_compact(snapshot))
+        if wu_ut_start is None and math.isfinite(snapshot.ut):
+            wu_ut_start = float(snapshot.ut)
         # Edge 7: an unexpected physics (or, for B1, any) warp state distorts the
         # flight; flake naming the phase + warp state rather than record a warped
         # run. DEBOUNCED to two CONSECUTIVE violating samples (Fable review of
@@ -2314,6 +2344,7 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                 log.warn(state.phase, "unexpected warp persisted 2 consecutive samples -> %s"
                          % (mlib.MISSION_FLAKE,))
                 _dump_event_window(log, state.phase, ring, "warp-flake")
+                _wu_close(snapshot.ut if math.isfinite(snapshot.ut) else None)
                 return replace(state, verdict=mlib.MISSION_FLAKE, flake_phase=state.phase, done=True), frames
         else:
             warp_violations = 0
@@ -2324,6 +2355,12 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         # phase the machine had ALREADY entered this frame.
         _FLY_LOOP_LAST_STATE["state"] = state
         if state.phase != prev_phase:
+            _wu_close(snapshot.ut if math.isfinite(snapshot.ut) else None)
+            wu_phase = state.phase
+            wu_wall_start = clock()
+            wu_ut_start = (float(snapshot.ut) if math.isfinite(snapshot.ut)
+                           else None)
+            wu_warp_cmds = 0
             # avThr rides every transition line: the B-DOCK SEPARATE->ORBIT /
             # SEPARATE->PHASING handoff must show the orbital stage still has
             # thrust for the rendezvous (available_thrust > 0), and it is a cheap
@@ -2348,6 +2385,9 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                         _fmt(snapshot.next_pe), snapshot.warp_mode,
                         _fmt(snapshot.warp_rate)))
         for action in actions:
+            if action.kind in (mlib.ACTION_WARP_TO_UT, mlib.ACTION_CANCEL_WARP,
+                               mlib.ACTION_SET_RAILS_WARP):
+                wu_warp_cmds += 1
             control.perform(action)
             log.info(state.phase, "action %s value=%s%s"
                      % (action.kind, _fmt(action.value),
@@ -2428,6 +2468,7 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             status_writer.maybe_write(
                 lambda: _build_status_payload(status_writer, state, snapshot))
         if state.done:
+            _wu_close(snapshot.ut if math.isfinite(snapshot.ut) else None)
             break
         sleep(poll_interval)
 
@@ -2706,6 +2747,9 @@ def run_mission(
         wall_seconds=round(wall_seconds, 3),
         krpc_client_version=str(getattr(control, "client_version", "") or ""),
         krpc_server_version=str(getattr(control, "server_version", "") or ""),
+        # Per-phase warp utilisation (B12 flight 2). Empty on any path that
+        # never entered the fly loop, and then omitted from the JSON entirely.
+        warp_utilisation=list(_FLY_LOOP_WARP_UTILISATION),
         error=error,
     )
     writer(result_path, mlib.serialize_mission_result(result))

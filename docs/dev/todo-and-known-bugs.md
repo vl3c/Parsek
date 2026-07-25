@@ -139,7 +139,7 @@ Live finding 4 (fourth flight 2026-07-21/22): `rendezvous=True` produced a REAL 
 
 Live finding 3 (third flight 2026-07-21; the dv cap doubled as the diagnostic): the capped correction warns revealed MechJeb demanding 15,930-25,559 m/s immediately post-TLI, settling at a PERSISTENT ~403 m/s - and the coast then reached apoapsis 11.39M and fell BACK to Kerbin with no encounter. Root cause CONFIRMED in the decompiled MechJeb 2.15.1 `OperationGeneric`: `Rendezvous` is the TARGETED-INTERCEPT flag (it flows into `DeltaVAndTimeForHohmannTransfer` as the arrive-AT-the-target mode; the GUI pairs "Rendezvous" vs phase-blind "Transfer"), so finding 1's over-eager `rendezvous=False` degraded the plan to a phase-blind altitude-only Hohmann with a deterministic miss - and finding 2's monster "correction" (flight 2 executed a 15,930 m/s plan uncapped, wedging the executor on dry tanks) was MechJeb pricing the re-aim to CREATE the missing encounter. Fix: `capture=False` (the GUI's intercept-only checkbox is literally `Capture = !intercept_only`) + `plan_capture=False` + `rendezvous=True`. Also of note from the decompile: MechJeb itself warns that a plotted insertion burn to a celestial with an SOI is unsupported ("A Transfer-to-Moon maneuver needs to be written"), so flight 1's second node was an unsupported artifact regardless.
 
-## B11 / B12 Mun + Minmus ORBIT missions - capture, park, commit-in-foreign-SOI (b11_mun_orbit / b12_minmus_orbit) [B11 LIVE-PROVEN 2026-07-25 (flight 2 FULL PASS); B12 flight 1 flaked upstream at CORRECTION-BURN, ROOT-CAUSED + FIXED in the SHARED machine; branch `autotest-orbit-missions`]
+## B11 / B12 Mun + Minmus ORBIT missions - capture, park, commit-in-foreign-SOI (b11_mun_orbit / b12_minmus_orbit) [B11 LIVE-PROVEN 2026-07-25 (flight 2 FULL PASS); B12 flights 1 and 2 each found a SHARED-machine defect (CORRECTION-BURN budget, COAST warp thrash), both ROOT-CAUSED + FIXED; branch `autotest-orbit-missions`]
 
 Roadmap item 2 ("Mun/Minmus ORBIT missions - capture burn + commit-in-target-orbit terminal"). **ID note:** the roadmap called this lane "B8", but `automated-testing-scenario-catalog.md` section 2 already assigns B8 (loop the B7 tree as a mission), B9 (crash / rewind / re-fly) and B10 (career passive safety, a committed spec), and B3 is the EVA branch - so the lane is **B11-mun-orbit** + **B12-minmus-orbit**, and both the catalog and `autotest-status.md` now carry the mapping so nobody trips on the informal label again.
 
@@ -229,7 +229,64 @@ B7 is unaffected only because its interplanetary spec already carries `transferB
 
 **Blast radius.** The change is confined to the `B5_CORRECTION_BURN` branch (`_corr_stay_or_flake` replaces `_b5_stay_or_flake` there; every other phase is untouched) and it strictly RELAXES a bound on the paths B5/B11 already pass. All 513 mission cells, 420 harness cells and 203 provision cells pass unmodified, as does the 18,647-test C# suite.
 
-**Expected re-fly signature (B12).** CORRECTION-BURN round 1: flip converges in ~17 game s, `warpToCmd none->74193.288`, the native warp runs at up to RAILSx10000 with NO flake and NO `cancel_warp`, arrival re-anchors both clocks (`corrBudgetAnchorUt` appears on the machine line), the attitude re-verifies, `set_throttle 0.25` fires and `nodeDv` collapses 13.3 -> under `correctionCutDvMps`, then `corrGiveup=cut-reached` and back to COAST-TO-TARGET with `rounds=1`. Round 2 the same at the 20,000 km trigger, then the Minmus SOI, PLAN-CAPTURE, the ~600 s MechJeb pre-ignition hold, the capture burn, PARK, ORBIT-COMMIT, ORBIT-COMMITTED.
+**CONFIRMED by flight 2 (2026-07-25).** Both correction rounds cleared: round 1 ran ut 475.315 -> 74,195.733 as ONE continuous aim-warp (73,720 game seconds) with no flake and no `cancel_warp`, round 2 completed at ut 74,228, `rounds=2`, and the machine reached COAST-TO-TARGET. The fix is LIVE-PROVEN. (Flight 2 then died on the wall budget inside that coast - a DIFFERENT shared defect, see the next entry.)
+
+**Predicted re-fly signature (for the record, observed).** CORRECTION-BURN round 1: flip converges in ~17 game s, `warpToCmd none->74193.288`, the native warp runs at up to RAILSx10000 with NO flake and NO `cancel_warp`, arrival re-anchors both clocks (`corrBudgetAnchorUt` appears on the machine line), the attitude re-verifies, `set_throttle 0.25` fires and `nodeDv` collapses 13.3 -> under `correctionCutDvMps`, then `corrGiveup=cut-reached` and back to COAST-TO-TARGET with `rounds=1`. Round 2 the same at the 20,000 km trigger, then the Minmus SOI, PLAN-CAPTURE, the ~600 s MechJeb pre-ignition hold, the capture burn, PARK, ORBIT-COMMIT, ORBIT-COMMITTED.
+
+### B12 flight 2 (2026-07-25) - COAST-TO-TARGET cancelled its own warp on every blind conic read [FIXED in the SHARED machine, branch `autotest-orbit-missions`]
+
+**Also a shared B5/B6/B7 defect, and also metastable.** B11's Mun coast escapes it by luck; B12's long Minmus coast latches into it and never escapes.
+
+**What flew.** `INVALID` autopilot-flake `mission-budget-expired (no result)`. The correction fix from flight 1 WORKED - both rounds cleared (`rounds=2`, round 1 ran ut 475.315 -> 74,195.733 as one continuous 73,720 game-second aim-warp) - and the run then burned its entire 4,200 s wall budget inside COAST-TO-TARGET, reaching ut 225,990 with the coast target at 267,644.669, i.e. **41,655 game seconds still to go**. Full stdout: `harness/results/b12-flight2.out` (51 MB, 182,205 lines).
+
+**The evidence.** Over the whole run: **3,603** `warp_to_ut` issues and **3,602** `cancel_warp`, all in COAST-TO-TARGET, in an endless four-line cycle:
+
+```
+gate warpToCmd 267644.669->none | ... nextPe=nan   warp=RAILSx2.680
+action cancel_warp
+gate warpToCmd none->267644.669 | ... nextPe=38305 warp=NONEx1.000
+action warp_to_ut 267644.669
+```
+
+The two alternating frames differ in exactly one input, and the crosstab over the sampled COAST telemetry frames is total:
+
+| | warp=NONE | warp=RAILS |
+|---|---|---|
+| `time_to_soi` finite | 2,451 | 7 |
+| `time_to_soi` NaN | 0 | 1,154 |
+
+Every blind SOI read happened while rails-warping; every unwarped frame read it fine. The rails rate never escaped ~2.7x because every ramp was cancelled before it could climb, and the coast averaged ~40 game seconds per wall second against a span that needs 193,416 of them (it would have needed ~5,240 wall seconds at that rate).
+
+**ROOT CAUSE (code citation).** `mlib.b5_decide`, the COAST-TO-TARGET warp policy, derives the native target from a DERIVED OBSERVATION on every single poll:
+
+```python
+elif (_is_finite(snapshot.time_to_soi) and _is_finite(snapshot.ut)
+        and snapshot.time_to_soi > state.params.soi_lead):
+    native_target = snapshot.ut + snapshot.time_to_soi - state.params.soi_lead
+else:
+    desired = state.params.coast_warp_factor      # rails fallback
+...
+if native_target is not None:
+    return _b5_native_warp(stayed, snapshot, native_target)
+if stayed.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
+    return _b5_cancel_native_warp(stayed, snapshot)   # <-- revokes the command
+```
+
+A NaN `time_to_soi` fails the `elif`, falls into the rails fallback, leaves `native_target` None, and the "never two warp writers" cancel then revokes the armed native warp. KSP cannot read the patched-conic SOI time while it is re-patching under a warp ramp, so **the cancel destroys the very observation the command depends on**, the next (unwarped) poll re-reads it finite, re-arms, ramps, goes blind, and cancels again. Of the candidate hypotheses: it is a state-vs-observation mismatch, it is not a per-poll unconditional cancel, no gate toggles, and the runner does treat an in-flight warp as active (`warping_to` was finite on the cancel frames - that is one of the two conditions the cancel fires on).
+
+**Why B11 (and B5) survive.** The loop is metastable, not deterministic. B11 flight 2's Mun coast issued `warp_to_ut` exactly ONCE with ZERO cancels: its first post-issue read happened to be finite (30 of 30 warping COAST frames read finite), the warp locked in at RAILSx1000 and the coast flew. B12 hit a NaN inside the first ramp and never escaped. B7 is insulated by enormous budgets rather than by geometry.
+
+**Why the no-1x-coast certification did not catch it.** Two reasons, both worth writing down. `test_no_1x_coast_invariant` is a MACHINE-COMMAND invariant (it asserts the machine only COMMANDS rails 0 in named cases), and here the machine never commanded 1x - the game was at 1x because its warp had just been cancelled. And `warp_audit.py`'s 1X-COAST VIOLATIONS rule needs a contiguous 1x window of >= 30 wall seconds; flight 2's 1x is interleaved frame-by-frame with 2.7x rails, so no such window exists. The gap is a UTILISATION gap, not a mode gap - which is exactly what the new metric measures.
+
+**The fix.**
+- `mlib.coast_native_warp_hold` (pure) - the native coast target is an ABSOLUTE UT and does not need `time_to_soi` to stay readable. A blind read while the game IS warping (rails mode, a live `warping_to`, or any rate above 1x) HOLDS the armed command and emits nothing. A blind read with the game NOT warping still cancels - that is the honest "the encounter really is gone" frame. A readable frame always belongs to the normal policy (retarget through the existing asymmetric hysteresis, or the inside-the-lead rails handover). Scoped to the SOI-coast fallback branch only, so the pending-node and both correction-trigger warp modes keep their exact prior cancel behaviour and a correction trigger can never be warped past.
+- `MAX_COAST_WARP_ISSUES` (500) + the NAMED `coast-warp-thrash` fast-fail, counted on `coast_warp_issues` (also on the machine-state line as `coastWarpIssues`). A healthy coast issues 1; flight 2 issued 3,603. The cap fires at roughly a seventh of the wall cost that flake took.
+
+**The warp-utilisation metric (the queued telemetry task's cheap slice, emitted here).** The mission result now carries a per-phase `warpUtilisation` block - `{phase, wallSeconds, gameSeconds, gameSecondsPerWallSecond, warpCommands}` - built by the pure `mlib.warp_utilisation_row` and accumulated in the runner's fly loop. `gameSecondsPerWallSecond` IS the diagnosis: a warping coast reads hundreds to thousands, flight 2's thrashing coast reads ~40 while issuing 3,603 warp commands. The block is omitted entirely when no rows were accumulated, so every pre-existing result is byte-identical. The RICHER version (per-warp-mode segments, whole-run wall attribution, and a `warp_audit.py` utilisation rule to replace its contiguous-1x heuristic) still belongs to the mission time-accounting task.
+
+**Blast radius (honest).** The change alters the shared coast decision on exactly one frame class: a blind `time_to_soi` while the game is warping with a native warp armed. B11 flight 2 never took that frame (0 cancels in its coast), so its FULL PASS profile is unaffected. B5/B7 have no logs on hand to prove the same, but the change can only stop a valid warp being thrown away - it never makes a coast slower or lets one warp past a boundary (the target is still `soi_arrival - soi_lead`, and arrival still hands back at 1x). One pre-existing cell (`test_coast_rails_intent_cancels_active_native_warp_first`) constructed exactly the flipped frame; it now exercises the blind-and-NOT-warping frame, and the new `test_coast_blind_soi_read_under_warp_holds_the_command` covers the flipped one.
+
+**Expected re-fly signature (B12 flight 3).** COAST-TO-TARGET after round 2 (ut ~74,228): ONE `action warp_to_ut 267644.669`, `coastWarpIssues=1`, ZERO `cancel_warp`, rails climbing past 1000x toward the 100,000x tier that is legal at those Kerbin altitudes, and the coast's ~193,400 game seconds passing in the low hundreds of wall seconds. Then TARGET-FLYBY in the Minmus SOI, PLAN-CAPTURE, CAPTURE-BURN (MechJeb's ~600 s 1x pre-ignition hold, `nodeExec=1`, no flake), the capture burn flipping the apoapsis positive, PARK, ORBIT-COMMIT, ORBIT-COMMITTED. The result's `warpUtilisation` block should show COAST-TO-TARGET at hundreds of game-seconds per wall-second with `warpCommands` in single digits.
 
 ## B-DOCK station + interceptor dock / transfer / undock (bdock_dock_transfer) [BUILT, pending forge run + first flight, branch `autotest-bdock-impl`; design `docs/dev/design-autotest-bdock-missions.md`]
 

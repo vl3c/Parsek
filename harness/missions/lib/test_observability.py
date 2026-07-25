@@ -189,6 +189,40 @@ class SnapshotFormatTests(unittest.TestCase):
         down = mlib.TelemetrySnapshot(ut=1.0, node_executor_enabled=0)
         self.assertIn(" nodeExec=0", mlib.format_snapshot_compact(down))
 
+    def test_warp_utilisation_row_names_a_thrashing_coast(self):
+        """B12 flight 2 in one line: ~41,650 game seconds still to go after
+        3,603 warp commands and a whole wall budget. The ratio IS the
+        diagnosis."""
+        row = mlib.warp_utilisation_row("COAST-TO-TARGET", wall_seconds=3900.0,
+                                        game_seconds=5000.0, warp_commands=3603)
+        self.assertAlmostEqual(row["gameSecondsPerWallSecond"], 1.282)
+        self.assertEqual(row["warpCommands"], 3603)
+        self.assertEqual(row["phase"], "COAST-TO-TARGET")
+        # A healthy warped coast reads hundreds-to-thousands.
+        healthy = mlib.warp_utilisation_row("COAST-TO-TARGET", 60.0, 60000.0, 1)
+        self.assertAlmostEqual(healthy["gameSecondsPerWallSecond"], 1000.0)
+
+    def test_warp_utilisation_row_survives_a_zero_or_unread_span(self):
+        row = mlib.warp_utilisation_row("PRELAUNCH", 0.0, 0.0, 0)
+        self.assertIsNone(row["gameSecondsPerWallSecond"])
+        nan_row = mlib.warp_utilisation_row("PRELAUNCH", 5.0, float("nan"), 0)
+        self.assertIsNone(nan_row["gameSecondsPerWallSecond"])
+        self.assertIsNone(nan_row["gameSeconds"])
+        self.assertNotIn("NaN", json.dumps(nan_row))
+
+    def test_mission_result_omits_warp_utilisation_when_absent(self):
+        """Byte-identical results for every path that never accumulated any."""
+        base = dict(mission="b1", verdict=mlib.MISSION_OK, reason="ok",
+                    phases_reached=["PRELAUNCH"], connect_attempts=1,
+                    connected_seconds=1.0, rpc_port=50000, assertions=[],
+                    wall_seconds=1.0, krpc_client_version="",
+                    krpc_server_version="")
+        self.assertNotIn("warpUtilisation", mlib.build_mission_result(**base))
+        with_rows = mlib.build_mission_result(
+            warp_utilisation=[mlib.warp_utilisation_row("X", 1.0, 10.0, 2)],
+            **base)
+        self.assertEqual(with_rows["warpUtilisation"][0]["warpCommands"], 2)
+
     def test_correction_giveup_rides_the_machine_line(self):
         """B12 flight 1: a correction round exit was indistinguishable from a
         clean cut in the log. The reason is now a diffed machine field."""

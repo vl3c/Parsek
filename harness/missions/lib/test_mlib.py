@@ -3062,16 +3062,18 @@ class B5MachineTests(unittest.TestCase):
 
     def test_coast_rails_intent_cancels_active_native_warp_first(self):
         """Never two warp writers: when the machine wants a rails factor but
-        a native warp is still (expected) active -- e.g. the encounter was
-        lost mid-warp -- it emits CANCEL first and the rails command follows
-        on the next poll."""
+        a native warp is still (expected) active, it emits CANCEL first and
+        the rails command follows on the next poll.
+
+        The blind frame here is NOT warping (warp NONE, warping_to NaN) --
+        that is the HONEST "the encounter really is gone" observation. A blind
+        read WHILE warping is the warp's own artifact and now holds instead
+        (test_coast_blind_soi_read_under_warp_holds_the_command, B12 flight
+        2)."""
         state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
                           warp_to_cmd=500_000.0, last_warp_issue_ut=10.0)
-        # Encounter gone (tts NaN): rails fallback wanted, native active ->
-        # CANCEL only this frame.
         state, actions = mlib.b5_decide(state, snap(
-            ut=20.0, body="Kerbin", altitude=8_000_000.0,
-            warping_to=500_000.0, warp_mode="RAILS", warp_rate=10_000.0))
+            ut=20.0, body="Kerbin", altitude=8_000_000.0))
         self.assertEqual(actions, [Action(mlib.ACTION_CANCEL_WARP)])
         self.assertIsNone(state.warp_to_cmd)
         self.assertEqual(state.warp_cmd, 0)
@@ -3079,6 +3081,20 @@ class B5MachineTests(unittest.TestCase):
         state, actions = mlib.b5_decide(state, snap(
             ut=21.0, body="Kerbin", altitude=8_000_000.0))
         self.assertEqual(actions, [Action(mlib.ACTION_SET_RAILS_WARP, 6.0)])
+
+    def test_coast_blind_soi_read_under_warp_holds_the_command(self):
+        """THE B12 flight-2 regression cell. A NaN time_to_soi read while the
+        game IS warping is the warp's own artifact, not a lost encounter:
+        cancelling on it produced 3,602 cancel/re-arm cycles and a 2.7x
+        coast. The armed target is an absolute UT -- HOLD it, emit nothing."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
+                          warp_to_cmd=267_644.669, last_warp_issue_ut=10.0)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=220_940.094, body="Kerbin", altitude=49_098_338.639,
+            warping_to=267_644.669, warp_mode="RAILS", warp_rate=2.68))
+        self.assertEqual(actions, [])
+        self.assertEqual(state.warp_to_cmd, 267_644.669)
+        self.assertEqual(state.phase, mlib.B5_COAST_TO_TARGET)
 
     def test_coast_trigger_prelude_cancels_native_warp(self):
         """Crossing a correction trigger with a native warp active cancels
@@ -6304,6 +6320,86 @@ class B5CaptureBurnTests(unittest.TestCase):
         self.assertTrue(state.done)
         self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
         self.assertIn("capture burn did not complete", state.flake_reason)
+
+
+class CoastNativeWarpLatchTests(unittest.TestCase):
+    """mlib.coast_native_warp_hold: the PURE core of the B12 flight-2 fix.
+    The native coast target is an absolute UT; a BLIND time_to_soi read while
+    the game is warping must not revoke it."""
+
+    def _hold(self, **kw):
+        base = dict(time_to_soi=float("nan"), warp_to_cmd=267_644.669,
+                    ut=220_940.0, warp_mode="RAILS", warp_rate=2.68,
+                    warping_to=267_644.669)
+        base.update(kw)
+        return mlib.coast_native_warp_hold(**base)
+
+    def test_blind_read_under_rails_warp_holds(self):
+        self.assertTrue(self._hold())
+
+    def test_blind_read_holds_on_a_live_native_warp_even_before_the_ramp(self):
+        """The frame between warp_to_ut and the rails ramp reads mode NONE at
+        1x while warping_to is already live; that is still a warp frame."""
+        self.assertTrue(self._hold(warp_mode="NONE", warp_rate=1.0))
+
+    def test_blind_read_holds_on_any_rate_above_1x(self):
+        self.assertTrue(self._hold(warp_mode="NONE", warp_rate=2.68,
+                                   warping_to=float("nan")))
+
+    def test_blind_read_while_NOT_warping_does_not_hold(self):
+        """The honest "the encounter really is gone" frame: the existing
+        cancel / no-encounter paths must still own it."""
+        self.assertFalse(self._hold(warp_mode="NONE", warp_rate=1.0,
+                                    warping_to=float("nan")))
+
+    def test_readable_soi_never_holds(self):
+        """A readable frame belongs to the normal policy (retarget through
+        the existing hysteresis, or the inside-the-lead rails handover)."""
+        self.assertFalse(self._hold(time_to_soi=41_650.0))
+
+    def test_no_command_armed_never_holds(self):
+        self.assertFalse(self._hold(warp_to_cmd=None))
+
+    def test_target_reached_never_holds(self):
+        """Arrival owns that frame (_b5_clear_arrived_warp)."""
+        self.assertFalse(self._hold(ut=267_645.0))
+
+    def test_non_finite_ut_fails_closed(self):
+        self.assertFalse(self._hold(ut=float("nan")))
+
+
+class CoastWarpThrashWatchdogTests(unittest.TestCase):
+    """LIVENESS: a coast that cancels and re-arms its own warp must fast-fail
+    with its own name, not crawl to the wall budget (B12 flight 2 issued
+    warp_to_ut 3,603 times and died on the mission budget with no result)."""
+
+    def test_issue_count_accumulates_and_rides_the_machine_line(self):
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=100.0, body="Kerbin", altitude=8_000_000.0,
+            time_to_soi=50_000.0))
+        self.assertEqual([a.kind for a in actions], [mlib.ACTION_WARP_TO_UT])
+        self.assertEqual(state.coast_warp_issues, 1)
+        self.assertIn("coastWarpIssues=1",
+                      mlib.format_machine_state(state, 100.0))
+
+    def test_cap_flakes_with_its_own_name(self):
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
+                          coast_warp_issues=mlib.MAX_COAST_WARP_ISSUES)
+        state, _ = mlib.b5_decide(state, snap(
+            ut=100.0, body="Kerbin", altitude=8_000_000.0,
+            time_to_soi=50_000.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("coast-warp-thrash", state.flake_reason)
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertIn("coast-warp-thrash", reason)
+
+    def test_cap_is_far_above_a_healthy_coast(self):
+        """B11 flight 2 (FULL PASS) issued the coast warp ONCE; the cap is
+        500, and the thrash that motivated it issued 3,603."""
+        self.assertGreaterEqual(mlib.MAX_COAST_WARP_ISSUES, 100)
+        self.assertLess(mlib.MAX_COAST_WARP_ISSUES, 3603)
 
 
 class CorrectionBudgetTests(unittest.TestCase):

@@ -45,9 +45,30 @@
 # reason. NOTE for the operator reading this spec: B6-minmus-flyby shares the
 # machine, the correction params AND this budget, and its live proof predates
 # the change that broke them - it owes a confirmation re-fly.
+#
+# THE COAST WARPS CONTINUOUSLY, ONCE (B12 flight 2, 2026-07-25 - the second
+# defect this mission FOUND, again in the SHARED B5/B6/B7 machine). The coast
+# derives its native warp target from time_to_soi every poll, and KSP cannot
+# read the patched-conic SOI time while it is re-patching under a warp ramp,
+# so the machine kept cancelling its own warp on the blind read and re-arming
+# on the next (unwarped) poll: 3,603 warp_to_ut issues, 3,602 cancels, a rails
+# rate that never escaped ~2.7x, and ~40 game-seconds per wall-second for a
+# coast that needs 193,416 of them. The target is an ABSOLUTE UT, so a blind
+# read UNDER WARP now HOLDS the armed command; only a blind read with the game
+# NOT warping is evidence the encounter is gone. A coast that fights itself
+# past MAX_COAST_WARP_ISSUES fast-fails NAMED (coast-warp-thrash). The mission
+# result also carries a per-phase warpUtilisation block whose
+# gameSecondsPerWallSecond names this class in one line.
 # =============================================================================
 schema = 1
 id = "B12-minmus-orbit"
+# FLIGHT 2 (2026-07-25) - the correction fix WORKED (both rounds cleared,
+# rounds=2, round 1's 73,720 game-second aim-warp ran as one continuous warp
+# from ut 475.3 to 74,195.7 with no cancel), and the run then died on the WALL
+# budget inside COAST-TO-TARGET at ut 225,990 with 41,655 game seconds still to
+# go - the warp-thrash defect described above. Fixed; flight 3 is the first run
+# whose coast actually warps.
+#
 # FLIGHT 1 (2026-07-25) - FLAKE at CORRECTION-BURN, wall 286 s, UPSTREAM of the
 # capture tail: PRELAUNCH, MJ-ASCENT, CIRCULARIZE, ORBIT, PLAN-TRANSFER,
 # TRANSFER-BURN (clean, ap 48,823,627 m), COAST-TO-TARGET, PLAN-CORRECTION,
@@ -102,12 +123,21 @@ mission = "b12_minmus_orbit"
 # ~2,187 km up but its arrival speeds are ~5x lower than the Mun's, so the
 # SOI-entry -> periapsis coast is ~10-20 GAME hours instead of 1-3 - more warp,
 # but the executor's autowarp covers it in comparable wall time (~200 s).
-#   2x CORRECTION-BURN             ~100 wall MEASURED-ADJACENT (the flip is ~17
-#                                   game-s at 1x-2x; the aim-then-warp wait to a
-#                                   ~74,000 s-ahead node runs at up to RAILSx10000
-#                                   and cost ~30 wall-s for its first 7,900 game
-#                                   seconds on flight 1, so the full wait is
-#                                   tens of wall seconds, not minutes)
+#   2x CORRECTION-BURN             ~255 wall (MEASURED spans from flight 2: round
+#                                   1 covers ut 475.3 -> 74,195.7 = 73,720 game
+#                                   seconds of aim-warp plus a ~20 s burn; round 2
+#                                   is 32 game seconds. Priced at a conservative
+#                                   250-400 game-s per wall-second)
+#   COAST-TO-TARGET                ~700 wall (MEASURED span: ut 74,228 -> the
+#                                   267,645 SOI-lead target = 193,416 game
+#                                   seconds. At Kerbin altitudes of 8,000-49,000
+#                                   km the 100,000x rails tier is legal, so a
+#                                   CONTINUOUS native warp_to costs seconds of
+#                                   steady state; priced pessimistically at
+#                                   250-400 game-s per wall-second = 484-774 wall.
+#                                   Flight 2's THRASHING coast managed ~40 and
+#                                   would have needed ~5,240 wall for the same
+#                                   span, which is what killed it.)
 #   capture arming + PLAN-CAPTURE  ~30 wall
 #   CAPTURE-BURN                   ~800 wall (~200 for the autowarped coast PLUS
 #                                   the ~600 wall MechJeb pre-ignition hold that
@@ -115,13 +145,17 @@ mission = "b12_minmus_orbit"
 #                                   predates that discovery)
 #   PARK                           ~200 wall (180 game-s at 1x)
 #   ORBIT-COMMIT                   <1 wall typical, 120 worst (seam poll bound)
-# => B6 1167 + ~1,250 = ~2,420 expected nominal. WORST case adds one bounded
-# stale-node re-plan (+90 wall grace, a re-planned coast, a SECOND ~600 wall
-# hold) => ~3,150. missionBudget raised 3600 -> 4200 (WALL) so the worst case
-# keeps ~1.3x margin instead of 1.2x; runtime raised 4100 -> 4700 to match
-# (>= 240 LoadGame + ~5 SetSetting + 4200 mission + ~60 FlushAndQuit + ~195
-# margin, SF-5). PROVISIONAL until flight 1; phase budgets in missionParams are
-# GAME time.
+# => 286 (ascent + transfer, MEASURED flight 1) + 255 + 700 + 30 + 800 + 200 + 5
+# = ~2,280 wall expected nominal, RE-DERIVED bottom-up from flight 2's measured
+# phase spans rather than from B6's pre-fix 1167 s. WORST case adds one bounded
+# stale-node capture re-plan (+90 wall grace, a re-planned coast, a SECOND ~600
+# wall pre-ignition hold) => ~3,100. missionBudget stays 4200 (WALL) - ~1.8x
+# nominal, ~1.35x worst - and runtime stays 4700 (>= 240 LoadGame + ~5
+# SetSetting + 4200 mission + ~60 FlushAndQuit + ~195 margin, SF-5). The budget
+# is deliberately NOT raised for the warp defect: the defect was the warp, not
+# the budget, and with a continuous coast warp the two 1x HOLDS (MechJeb's
+# ~600 s pre-ignition WARPALIGN and the 180 s park dwell) are now the dominant
+# wall cost, not the coast. Phase budgets in missionParams are GAME time.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
