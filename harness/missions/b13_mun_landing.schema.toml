@@ -1,0 +1,498 @@
+# Declared param schema for mission b13_mun_landing (B2 ascent + Mun transfer +
+# CAPTURE burn + park + POWERED DESCENT + landed dwell + commit-ON-THE-SURFACE
+# terminal; see docs/dev/todo-and-known-bugs.md "B13 / B14 Mun+Minmus LANDING
+# missions").
+#
+# The ascent + transfer + ORBIT-TAIL halves are b11_mun_orbit.schema.toml
+# VERBATIM (this mission is the same LIVE-PROVEN machine with landingEnabled
+# added on top of captureEnabled); the LANDING-TAIL block at the bottom is the
+# only addition.
+#
+# hlib.validate_spec does NOT read this file itself: run.py (shell / I/O) parses
+# every harness/missions/<mission>.schema.toml with tomllib into a registry
+# { mission-name -> schema-dict } and INJECTS it as validate_spec's
+# `mission_schemas` argument. hlib's PURE validator (_validate_mission_params)
+# then drives required-key presence and per-value type/range checks from the
+# `params` table below. Shape consumed by hlib:
+#   {"params": {"<name>": {"required": bool, "type": "<t>", "min": <num?>, "max": <num?>}}}
+# Every value here is a tolerance / threshold / budget, never a golden
+# trajectory (design "Determinism guardrails").
+#
+# The ascent half is B2's ascent params verbatim. B2's eccentricityMax /
+# inclinationErrorDeg / launchSiteLatitude are deliberately ABSENT: like B4, the
+# flyby half makes no orbital-precision assertions about the PARKING orbit (it is
+# a waypoint the TLI burn then deliberately leaves). The CAPTURED orbit is a
+# different matter -- the parkMin/Max block below is its window, and it is a
+# WINDOW, not a golden orbit.
+
+[params.targetApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.targetPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.apoErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.periErrorMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.ascentTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.circularizeTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# Transfer target / home SOI body names (kRPC orbit.body.name values). The
+# machine's SOI gates compare snapshot.body against these.
+[params.targetBodyName]
+required = true
+type = "string"
+
+[params.homeBodyName]
+required = true
+type = "string"
+
+# TRANSFER-BURN exit floor: the TLI burn must have raised apoapsis at/above
+# this (evidence the NodeExecutor actually burned toward the target, not just
+# consumed an empty node list).
+[params.transferMinApoapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+# > 0: after the TLI burn, plan + execute a MechJeb course correction to this
+# target-flyby periapsis (metres) -- pins the flyby geometry and keeps the
+# periapsis off the terrain. 0 disables the two correction phases.
+[params.courseCorrectPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+# PLAN-* phase budget (GAME seconds). PLAN-TRANSFER expiry flakes (no transfer
+# = no mission); PLAN-CORRECTION expiry falls through to the coast (the
+# correction is best-effort).
+[params.planTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# Re-issue a failed plan every this many game seconds while no node appeared
+# (a no-encounter plan throws server-side and leaves the node list empty).
+[params.planRetrySeconds]
+required = false
+type = "number"
+min = 1.0
+max = 600.0
+
+# TRANSFER-BURN / CORRECTION-BURN budget (GAME seconds): the NodeExecutor
+# autowarps to the node (up to ~1 parking orbit ahead) then burns it.
+[params.transferBurnTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# COAST-TO-TARGET budget (GAME seconds; the LKO->Mun transfer coast is ~2 days
+# of game time, advanced fast by the bounded rails hops).
+[params.coastTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# TARGET-FLYBY budget (GAME seconds; SOI entry to SOI exit).
+[params.flybyTimeoutSeconds]
+required = true
+type = "number"
+min = 1.0
+
+# Non-blocking rails-warp factors (KSP factor INDEX 0-7; the machine holds
+# the factor via on-change set_rails_warp emissions and keeps polling -- no
+# blocking warp RPC, no per-hop ramp sawtooth). Optional; mlib defaults 6
+# (10,000x) coast cap / 5 (100x) flyby floor. Every commanded factor is
+# additionally pre-clamped to the stock per-body altitude-limit table
+# (mlib.STOCK_WARP_ALTITUDE_LIMITS) so the command is always achievable and
+# escalates as the vessel climbs.
+[params.coastWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+[params.flybyWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+# TARGET-FLYBY stair-down cap: far above periapsis the factor rises toward
+# this with the remaining (altitude - periapsis) distance, falling back to
+# the flybyWarpFactor floor (the proven 100x evidence cadence) near
+# periapsis. Optional; mlib defaults 6 (10,000x).
+[params.flybyMaxWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+# AIM-THEN-WARP arrival margin (GAME seconds; operator PR gate,
+# no-1x-coast): after the attitude flip locks, CORRECTION-BURN warps
+# natively to node UT minus this margin (rails warp freezes orientation);
+# the coast's pending-node path uses the same margin. 1x is allowed only
+# inside the margin or on a NaN node UT (fail closed). Replaces the retired
+# nodeWarpLeadSeconds. Optional; mlib defaults 15.
+[params.nodeArrivalMarginSeconds]
+required = false
+type = "number"
+min = 5.0
+max = 120.0
+
+# PLAN-* rails hold factor INDEX (operator PR gate): the plan phases ride
+# this altitude-legality-clamped factor between plan attempts instead of 1x
+# (make_nodes is an RPC; 10x bounds plan-position drift to ~5 game-s per
+# poll). Optional; mlib defaults 2 (10x).
+[params.planWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 7
+
+# Native SOI warp lead (GAME seconds): the post-correction coast and the
+# flyby outer legs issue a native warp_to_ut to now + timeToSoi minus this
+# lead, so the machine regains poll control just before the boundary (the
+# inside-lead fallback rides the flyby-factor floor, never 1x) and the body
+# change never happens inside a high-rate warp. Optional; mlib defaults 30
+# (operator PR gate: halved from 60).
+[params.soiLeadSeconds]
+required = false
+type = "number"
+min = 5.0
+max = 600.0
+
+# CORRECTION-BURN pre-burn attitude-flip physics warp factor INDEX (0-3;
+# 1 = 2x, MechJeb's own WarpToUT physics cap). The flip is the single
+# biggest 1x wall-time block (~340 s worst case); 2x physics halves it. The
+# machine always drops physics warp to 0 BEFORE throttle-up. 0 disables
+# (the proven 1x flip). Optional; mlib defaults 1.
+[params.flipPhysicsWarpFactor]
+required = false
+type = "int"
+min = 0
+max = 3
+
+# Flyby min-altitude assertion floor (metres above the target body; the Mun has
+# ~7 km peaks). The machine tracks the min finite altitude inside the target
+# SOI; the assertion requires it at/above this floor.
+[params.targetPeriapsisFloorMeters]
+required = true
+type = "number"
+min = 0.0
+
+# Correction ROUNDS: COAST-TO-TARGET enters PLAN-CORRECTION once per entry
+# when altitude crosses that trigger (0 = immediately post-TLI). A mid-coast
+# round is live-proven necessary: executor residual over the long coast
+# drifted a corrected +60 km flyby periapsis to -29 km (impact) on the fourth
+# B5 flight; refining near the trigger altitude prices the residual at a few
+# m/s.
+[params.correctionTriggerAltsMeters]
+required = false
+type = "list"
+
+# dv cap (m/s) an acceptable course-correction plan must fit under. A genuine
+# correction is a small tweak; the runner removes an over-cap plan's nodes so
+# PLAN-CORRECTION's bounded fall-through coasts on the raw Hohmann intercept
+# (second live flight 2026-07-21: an oversized "correction" wedged the
+# executor until the burn budget flaked).
+[params.maxCorrectionDvMps]
+required = false
+type = "number"
+min = 1.0
+max = 2000.0
+
+# BURN-phase stagnation watchdog (game seconds): once the orbit has CHANGED
+# since burn entry and then sat static at 1x with the node still pending for
+# this long, the executor is wedged holding a completed node -> abort+clear
+# and move on (fifth live flight 2026-07-22). Optional; mlib defaults 120.
+[params.burnStagnantSeconds]
+required = false
+type = "number"
+min = 30.0
+max = 3600.0
+
+# CORRECTION-BURN no-start watchdog (game seconds): orbit UNCHANGED since burn
+# entry and static at 1x for this long = the executor never began -> abort+
+# clear and consume the round. Must exceed the worst-case pre-burn attitude
+# flip (~340 s). Optional; mlib defaults 600.
+[params.burnNoStartSeconds]
+required = false
+type = "number"
+min = 60.0
+max = 3600.0
+
+# DIY correction burner (live finding 8: MechJeb's executor demands an
+# AlignedAndSettled gate a low-torque craft never meets for close-in nodes, so
+# corrections are flown with the native AP + throttle). All optional.
+[params.correctionThrottle]
+required = false
+type = "number"
+min = 0.05
+max = 1.0
+
+[params.correctionCutDvMps]
+required = false
+type = "number"
+min = 0.5
+max = 20.0
+
+[params.correctionSettleSeconds]
+required = false
+type = "number"
+min = 1.0
+max = 120.0
+
+[params.maxAttitudeErrorDeg]
+required = false
+type = "number"
+min = 0.5
+max = 45.0
+
+# Optional: consecutive AIRBORNE frozen-telemetry samples (bit-identical orbit
+# fields while UT advances) before the mission declares the vessel lost and
+# terminates. mlib.B5Params defaults it to 10 when absent. Always an
+# ASSERT-FAIL loss (survival is the contract).
+[params.frozenTelemetrySamples]
+required = false
+type = "int"
+min = 2
+max = 1000
+
+# =============================================================================
+# ORBIT TAIL (the B11/B12-only block). With captureEnabled false every one of
+# these is inert and the machine is the byte-identical B5 flyby.
+# =============================================================================
+
+# REQUIRED true for an orbit mission: inside the target SOI, plan + fly a
+# periapsis circularization, hold a stable park, and COMMIT the tree there. Also
+# flips the return-body exit from the success terminal to an ASSERT-FAIL.
+[params.captureEnabled]
+required = true
+type = "bool"
+
+# PLAN-CAPTURE budget (GAME seconds). Expiry FLAKES with a named reason: unlike
+# a best-effort course correction, a capture node IS the mission.
+[params.capturePlanTimeoutSeconds]
+required = true
+type = "number"
+min = 30.0
+
+# CAPTURE-BURN budget (GAME seconds): the NodeExecutor autowarps from the SOI
+# boundary DOWN to periapsis, which on a Mun/Minmus arrival is hours of game
+# time. Sized as a SLOW bound; the no-start / under-burn watchdogs bound BROKEN.
+[params.captureBurnTimeoutSeconds]
+required = true
+type = "number"
+min = 60.0
+
+# The CAPTURE WINDOW (also the PARK gate). A bound orbit reads a POSITIVE
+# apoapsis in the target's frame; a hyperbolic (uncaptured) approach reads a
+# NEGATIVE one, so "0 < apoapsis <= parkMaxApoapsisMeters" is the real
+# captured-or-not evidence, not a trajectory assertion. The periapsis floor
+# keeps the park clear of terrain, and the eccentricity ceiling is the
+# "circularized, not a grazing ellipse" signal.
+[params.parkMinPeriapsisMeters]
+required = true
+type = "number"
+min = 0.0
+
+[params.parkMaxApoapsisMeters]
+required = true
+type = "number"
+min = 1000.0
+
+[params.parkMaxEccentricity]
+required = true
+type = "number"
+min = 0.0
+max = 1.0
+
+# PARK tumble ceiling (rad/s): with SAS stability-assist + RCS held a settled
+# stage reads ~0. NaN (unread) fails closed, so the mission must run with the
+# opt-in angular-velocity telemetry (the shells pass read_docking=True).
+[params.parkMaxAngularVelocityRadPerSec]
+required = false
+type = "number"
+min = 0.0
+max = 1.0
+
+# Accepted kRPC situations for the park (upper-cased enum names).
+[params.parkSituations]
+required = false
+type = "list"
+
+# GAME seconds the stable park must be HELD before the commit. This dwell IS the
+# recorded parked-in-foreign-SOI coverage the lane exists for, and the machine
+# holds 1x through it, so it is also the flight's main wall-clock cost.
+[params.parkDwellSeconds]
+required = true
+type = "number"
+min = 10.0
+
+# Consecutive in-gate PARK frames before the dwell may complete.
+[params.parkDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 100
+
+# PARK budget (GAME seconds). Expiry flakes with a reason that distinguishes
+# "never stabilized" from "stabilized but never HELD through the dwell".
+[params.parkTimeoutSeconds]
+required = true
+type = "number"
+min = 60.0
+
+# ORBIT-COMMIT budget (GAME seconds) for the command-seam CommitTree round trip.
+# The seam's own ERROR / TIMEOUT tokens are the fast-fail; this bounds a seam
+# that never answers at all.
+[params.commitTimeoutSeconds]
+required = false
+type = "number"
+min = 30.0
+max = 3600.0
+
+# =============================================================================
+# LANDING TAIL (the B13/B14-only block). With landingEnabled false every one of
+# these is inert and the machine is the byte-identical B11/B12 ORBIT lane.
+# =============================================================================
+
+# REQUIRED true for a landing mission: after the PARK dwell, hand the craft to
+# MechJeb's UNTARGETED LandingAutopilot, hold a settled landed dwell, and COMMIT
+# the tree ON THE SURFACE. The terminal becomes SURFACE-COMMITTED instead of
+# ORBIT-COMMITTED.
+#
+# IMPLIES captureEnabled BY CONSTRUCTION: the ONLY door into DESCENT is the
+# capture lane's PARK dwell, so landingEnabled without captureEnabled is inert
+# rather than an error (a mission that never parks never descends, and the
+# capture assertions red the run long before anything is confusing).
+[params.landingEnabled]
+required = true
+type = "bool"
+
+# DESCENT budget (GAME seconds). A GAME-time budget IS the right instrument
+# here, unlike CORRECTION-BURN's (whose game-time bound was spent by the
+# aim-then-warp it was meant to bound): the deorbit-to-touchdown fall is a
+# BALLISTIC duration set by orbital mechanics, and warp changes only how much
+# WALL time it costs, never how many game seconds it takes. Sized so the NAMED
+# landing-touchdown-timeout fires BEFORE the generic mission WALL reaper even in
+# the worst case where MechJeb never warps and the descent runs 1:1.
+[params.descentTimeoutSeconds]
+required = true
+type = "number"
+min = 60.0
+
+# MechJeb LandingAutopilot TouchdownSpeed (m/s). Optional; mlib defaults 0.5,
+# which is MechJeb's own default.
+[params.landingTouchdownSpeedMps]
+required = false
+type = "number"
+min = 0.1
+max = 10.0
+
+# MechJeb DeployGears: extend the landing legs below 1 km AGL. The Kerbal X
+# upper stage carries 3x landingLeg1-2, so this is a real part-event surface and
+# not a no-op. Optional; mlib defaults true.
+[params.landingDeployGears]
+required = false
+type = "bool"
+
+# MechJeb DeployChutes. MUST be false for Mun / Minmus: both are AIRLESS, a
+# parachute cannot deploy in vacuum, and arming one would be a lie about the
+# vehicle configuration in a spec whose whole job is to state that
+# configuration truthfully. Optional; mlib defaults false.
+[params.landingDeployChutes]
+required = false
+type = "bool"
+
+# MechJeb RcsAdjustment. False for this vehicle: the Kerbal X upper stage has NO
+# RCS thruster blocks, so asking MechJeb to trim the descent with RCS commands a
+# control authority that does not exist. Optional; mlib defaults false.
+[params.landingRcsAdjustment]
+required = false
+type = "bool"
+
+# landing-no-progress watchdog: the descent must shed landingProgressMinDropMeters
+# of SURFACE altitude within landingProgressWindowSeconds of GAME time, or the
+# watchdog NAMES the stall (with a separate altitude-unreadable name for a blind
+# channel). This is the SECOND, independent liveness channel: the OBSERVED
+# LandingAutopilot.Enabled read answers "did the module take control", this
+# answers "is it achieving anything" -- an autopilot holding a useless attitude
+# reads ENABLED forever. The window must exceed the worst-case pre-deorbit
+# attitude flip, during which a circular park's altitude is flat by construction.
+[params.landingProgressWindowSeconds]
+required = false
+type = "number"
+min = 60.0
+max = 7200.0
+
+[params.landingProgressMinDropMeters]
+required = false
+type = "number"
+min = 1.0
+
+# Accepted kRPC situations for the touchdown (upper-cased enum names). SPLASHED
+# is kept alongside LANDED even though Mun and Minmus have no ocean: hard-coding
+# it away would make the machine wrong for any future body that does.
+[params.landedSituations]
+required = false
+type = "list"
+
+# Settled-touchdown gate: the two speed ceilings (m/s). BOTH are conjuncts and
+# both fail CLOSED on a non-finite read. The HORIZONTAL one is load-bearing and
+# is why the lane opts into an extra telemetry read: a lander that touched down
+# on a slope and is sliding reads situation=LANDED with a vertical speed of ~0,
+# so vertical speed alone would certify a craft that is still moving.
+[params.landedMaxVerticalSpeedMps]
+required = false
+type = "number"
+min = 0.01
+max = 20.0
+
+[params.landedMaxHorizontalSpeedMps]
+required = false
+type = "number"
+min = 0.01
+max = 20.0
+
+# GAME seconds the settled landing must be HELD before the commit. This dwell IS
+# the recorded landed-on-another-body coverage the lane exists for, and the
+# machine holds 1x through it, so it is also a direct wall-clock cost.
+[params.landedDwellSeconds]
+required = true
+type = "number"
+min = 10.0
+
+# Consecutive in-gate LANDED-SETTLE frames before the dwell may complete.
+[params.landedDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 100
+
+# LANDED-SETTLE budget (GAME seconds). Expiry flakes landed-never-stable with a
+# reason that distinguishes "never settled after touchdown" from "settled but
+# not in-gate at the end of the dwell".
+[params.landedTimeoutSeconds]
+required = true
+type = "number"
+min = 60.0

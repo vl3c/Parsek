@@ -247,6 +247,41 @@ class SnapshotFormatTests(unittest.TestCase):
                       "captureReplans=1"):
             self.assertIn(token, line)
 
+    def test_landing_channel_is_opt_in_and_fails_closed(self):
+        """The OBSERVED MechJeb LandingAutopilot channel + the horizontal speed
+        the settled gate reads (B13/B14). UNREAD is -1 / "" / NaN and emits NO
+        compact token, so every mission that does not opt into the read keeps a
+        byte-identical event-window line."""
+        s = mlib.TelemetrySnapshot(ut=1.0)
+        self.assertEqual(s.landing_ap_enabled, -1)
+        self.assertEqual(s.landing_ap_status, "")
+        self.assertTrue(math.isnan(s.horizontal_speed))
+        d = mlib.snapshot_dict(s)
+        self.assertEqual(d["landingApEnabled"], -1)
+        self.assertEqual(d["landingApStatus"], "")
+        self.assertIsNone(d["horizontalSpeed"])
+        line = mlib.format_snapshot_compact(s)
+        self.assertNotIn("landAP=", line)
+        self.assertNotIn("hspd=", line)
+        opted = mlib.format_snapshot_compact(
+            mlib.TelemetrySnapshot(ut=1.0, landing_ap_enabled=1,
+                                   horizontal_speed=0.25))
+        self.assertIn(" landAP=1", opted)
+        self.assertTrue(opted.endswith(" hspd=0.250"), opted)
+
+    def test_landing_supervision_rides_the_machine_line(self):
+        """COMMANDED and OBSERVED side by side: an operator watching a descent
+        must be able to read 'we asked for it' next to 'MechJeb took it' in one
+        greppable line, which is the single failure this lane most expects."""
+        line = mlib.format_machine_state(
+            _b5_state(landing_engaged=True, landing_ap_down_streak=2,
+                      landing_ap_reissues=1, landed_stable_streak=3,
+                      landed_ever_stable=True, landed_body="Mun"), ut=100.0)
+        for token in ("landingEngaged=True", "landingApDownStreak=2",
+                      "landingApReissues=1", "landedStableStreak=3",
+                      "landedEverStable=True", "landedBody=Mun"):
+            self.assertIn(token, line)
+
 
 class StatusPathTests(unittest.TestCase):
     def test_mission_result_maps_to_status_sibling(self):

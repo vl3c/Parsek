@@ -235,6 +235,13 @@ class BudgetMappingTests(unittest.TestCase):
                     "parkTimeoutSeconds": 600,
                     "commitTimeoutSeconds": 300}
 
+    # The B13/B14 LANDING-tail params, verbatim from
+    # scenarios/B13-mun-landing.toml.
+    LANDING_PARAMS = {"descentTimeoutSeconds": 3000,
+                      "landedTimeoutSeconds": 600,
+                      "commitTimeoutSeconds": 300,
+                      "landedDwellSeconds": 120}
+
     def test_plan_phases_share_plan_timeout(self):
         self.assertEqual(
             status.phase_budget_seconds("PLAN-CORRECTION", self.PARAMS), 300)
@@ -257,6 +264,23 @@ class BudgetMappingTests(unittest.TestCase):
             status.phase_budget_seconds("PARK", self.ORBIT_PARAMS), 600)
         self.assertEqual(
             status.phase_budget_seconds("ORBIT-COMMIT", self.ORBIT_PARAMS), 300)
+
+    def test_landing_tail_phases_resolve(self):
+        """The B13/B14 tail. DESCENT deliberately REUSES the B1/EVA-4 row (that
+        is why the landing phase is NAMED DESCENT and its param
+        descentTimeoutSeconds -- the status table, the warp audit and every log
+        grep already know that name)."""
+        self.assertEqual(
+            status.phase_budget_seconds("DESCENT", self.LANDING_PARAMS), 3000)
+        self.assertEqual(
+            status.phase_budget_seconds("LANDED-SETTLE", self.LANDING_PARAMS),
+            600)
+        self.assertEqual(
+            status.phase_budget_seconds("SURFACE-COMMIT", self.LANDING_PARAMS),
+            300)
+        self.assertIsNone(
+            status.phase_budget_seconds("SURFACE-COMMITTED",
+                                        self.LANDING_PARAMS))
 
     def test_ascent_aliases_share_one_key(self):
         """The flat table is only sound because colliding phase names map to
@@ -603,6 +627,49 @@ class OrbitTailHeuristicTests(unittest.TestCase):
                       status.derive_heuristic(summary, self.PARAMS,
                                               machine={"commitResult": "OK"}))
 
+    def test_descent_is_landing_aware_only_when_the_machine_fields_exist(self):
+        """DESCENT is SHARED with B1 / EVA-4 / B4's suborbital lane, so the
+        landing branch must key off the landing machine fields, not the phase
+        name. A B1 descent has neither and must keep its generic line."""
+        summary = status.summarize_mission_lines(self._at("DESCENT"))
+        generic = status.derive_heuristic(summary, self.PARAMS, machine={})
+        self.assertNotIn("LandingAutopilot", generic)
+        self.assertNotIn("MechJeb OWNS the warp", generic)
+        landing = status.derive_heuristic(
+            summary, dict(self.PARAMS, descentTimeoutSeconds=3000),
+            machine={"landingEngaged": True, "landingApDownStreak": 0,
+                     "landingAltRef": 141000.0})
+        self.assertIn("MechJeb OWNS the warp", landing)
+        self.assertIn("engaged=True", landing)
+
+    def test_descent_names_the_observed_autopilot_down_streak(self):
+        summary = status.summarize_mission_lines(self._at("DESCENT"))
+        line = status.derive_heuristic(
+            summary, self.PARAMS,
+            machine={"landingEngaged": True, "landingApDownStreak": 2,
+                     "landingApReissues": 1})
+        self.assertIn("read DOWN for 2", line)
+        self.assertIn("landing-autopilot-not-enabled", line)
+
+    def test_landed_settle_names_the_dwell_and_the_body(self):
+        summary = status.summarize_mission_lines(self._at("LANDED-SETTLE"))
+        line = status.derive_heuristic(
+            summary, dict(self.PARAMS, landedDwellSeconds=120),
+            machine={"landedStableStreak": 3, "landedEverStable": True,
+                     "landedBody": "Mun"})
+        self.assertIn("touched down on Mun", line)
+        self.assertIn("debounce at 3", line)
+        self.assertIn("recorded surface coverage", line)
+
+    def test_surface_commit_reports_the_seam_result(self):
+        summary = status.summarize_mission_lines(self._at("SURFACE-COMMIT"))
+        self.assertIn("polling the response channel",
+                      status.derive_heuristic(summary, self.PARAMS,
+                                              machine={"commitResult": ""}))
+        self.assertIn("returned OK",
+                      status.derive_heuristic(summary, self.PARAMS,
+                                              machine={"commitResult": "OK"}))
+
     def test_machine_falls_back_to_the_log_line_when_no_status_file(self):
         lines = self._at("PARK") + [
             "[Mission][VerboseRateLimited][PARK] machine phase=PARK "
@@ -685,10 +752,23 @@ class OptInTelemetryTailTests(unittest.TestCase):
         self.assertEqual(telem["nodeExec"], 1.0)
         self.assertAlmostEqual(telem["ttPe"], 275.822)
 
+    def test_landing_tail_parsed_when_present(self):
+        """The B13/B14 opt-ins ride the SAME opt_token mechanism; the DESCENT
+        heuristic reads landAP and the settled gate reads hspd."""
+        telem = status.parse_telemetry_message(
+            "telemetry ap=1 pe=2 ecc=0 inc=0 alt=5 vspd=-1 body=Mun nodes=0 "
+            "nodeDv=nan nodeUt=nan tts=nan warpTo=nan lf=1 thr=0 "
+            "situation=LANDED warp=NONEx1.000 apErr=nan ut=10.0 landAP=1 "
+            "hspd=0.250")
+        self.assertEqual(telem["landAP"], 1.0)
+        self.assertAlmostEqual(telem["hspd"], 0.25)
+
     def test_absent_tail_is_nan_not_an_error(self):
         telem = status.parse_telemetry_message(REAL_TELEMETRY.split("] ", 2)[-1])
         self.assertTrue(math.isnan(telem["nodeExec"]))
         self.assertTrue(math.isnan(telem["ttPe"]))
+        self.assertTrue(math.isnan(telem["landAP"]))
+        self.assertTrue(math.isnan(telem["hspd"]))
 
 
 class EventFilterTests(unittest.TestCase):

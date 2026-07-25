@@ -428,7 +428,8 @@ class KrpcMissionControl(MissionControl):
                  read_docking: bool = False, read_crew: bool = False,
                  read_chute: bool = False,
                  read_node_executor: bool = False,
-                 read_periapsis: bool = False) -> None:
+                 read_periapsis: bool = False,
+                 read_landing: bool = False) -> None:
         self._use_mechjeb = use_mechjeb
         self._client_name = client_name
         # OPT-IN B-DOCK docking/rendezvous/transfer telemetry (design section 5.2).
@@ -463,6 +464,20 @@ class KrpcMissionControl(MissionControl):
         # the B12 flight-3 lesson: an altitude-trend rails stair cannot bound a
         # capture point, only the orbit's own clock can.
         self._read_periapsis = bool(read_periapsis)
+        # OPT-IN landing telemetry (B13/B14 LANDING lane): MechJeb
+        # LandingAutopilot.Enabled (the OBSERVED channel the descent supervisor
+        # gates on), its Status string (diagnosability) and the surface
+        # HORIZONTAL speed (the conjunct that separates a settled lander from
+        # one still sliding). OFF everywhere else so every other mission's
+        # read_snapshot stays byte-identical: landing_ap_enabled keeps its -1
+        # UNREAD sentinel (which grants no autopilot verdict at all) and
+        # horizontal_speed keeps its NaN sentinel (which fails the settled gate
+        # closed). THREE extra RPCs per poll, taken only by the missions whose
+        # DESCENT must OBSERVE that MechJeb took control rather than trust that
+        # it was asked to -- the same commanded-vs-observed gap that produced
+        # the B11 flight-1 NodeExecutor defect, the B1 chute latch and the
+        # EVA-4 ladder release.
+        self._read_landing = bool(read_landing)
         # DARK-CHANNEL WARN LATCHES (reviewer finding, 2026-07-25). Both opt-in
         # reads degrade to their UNREAD sentinel on a bare `except Exception`,
         # and both sentinels DISABLE machinery downstream (-1 grants no executor
@@ -474,6 +489,11 @@ class KrpcMissionControl(MissionControl):
         # permanently dark channel cannot spam a multi-thousand-poll flight.
         self._warned_node_executor_read = False
         self._warned_periapsis_read = False
+        # Same latch for the landing channel: its -1 / NaN sentinels stand the
+        # descent supervisor and the settled gate DOWN silently, so a drifted
+        # kRPC surface must name itself once instead of producing a mute
+        # no-progress give-up 900 game seconds later.
+        self._warned_landing_read = False
         self._conn = None
         self._mechjeb = None
         self._ascent = None
@@ -682,6 +702,20 @@ class KrpcMissionControl(MissionControl):
                             "warp and the capture arming gate. Logged once "
                             "per run."
                             % (type(exc).__name__, str(exc)[:160])))
+            # LANDING channel (opt-in, B13/B14). Own try/except per read with
+            # the fail-closed sentinels (-1 / "" / NaN): a landing-surface fault
+            # must NEVER count toward the vessel-lost read-fail streak, and it
+            # must never be silent (the sentinels stand real machinery down).
+            landing_ap_enabled = -1
+            landing_ap_status = ""
+            horizontal_speed = float("nan")
+            if self._read_landing:
+                landing_ap_enabled, landing_ap_status = \
+                    self._read_landing_autopilot()
+                try:
+                    horizontal_speed = float(flight_srf.horizontal_speed)
+                except Exception:
+                    horizontal_speed = float("nan")
             snapshot = mlib.TelemetrySnapshot(
                 ut=float(sc.ut),
                 altitude=float(flight_srf.surface_altitude),
@@ -768,6 +802,13 @@ class KrpcMissionControl(MissionControl):
                 # Seconds to periapsis of the CURRENT orbit (NaN = not read /
                 # read failed; disables the capture-mode flyby warp).
                 time_to_periapsis=time_to_periapsis,
+                # OBSERVED MechJeb LandingAutopilot.Enabled (-1 = not read /
+                # read failed; grants no autopilot verdict at all), its status
+                # string, and the surface horizontal speed the settled gate
+                # reads (NaN = not read; fails that gate closed).
+                landing_ap_enabled=landing_ap_enabled,
+                landing_ap_status=landing_ap_status,
+                horizontal_speed=horizontal_speed,
             )
             self._read_fail_streak = 0
             self._warp_watchdog(sc, snapshot.ut)
@@ -1076,6 +1117,21 @@ class KrpcMissionControl(MissionControl):
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Capture",
                     "operation_circularize.make_nodes failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_MJ_LAND_UNTARGETED:
+            self._perform_land_untargeted(action)
+        elif kind == mlib.ACTION_MJ_STOP_LANDING:
+            # Release MechJeb's LandingAutopilot. Idempotent by design (its own
+            # FinalDescent step stops it on the touchdown frame), and swallowed
+            # like every other MechJeb call: the machine's OBSERVED channel and
+            # the landed-settle gate own the outcome, not this call returning.
+            try:
+                self._mechjeb.landing_autopilot.stop_landing()
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Info", "Landing", "landing autopilot released "
+                                       "(StopLanding)"))
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Landing", "stop_landing failed: %s" % (exc,)))
         elif kind == mlib.ACTION_MJ_EXECUTE_NODES:
             # Hand the planned node(s) to MechJeb's NodeExecutor with autowarp:
             # it rails-warps to each node and burns it (the warp guard permits
@@ -1843,6 +1899,157 @@ class KrpcMissionControl(MissionControl):
                     "named executor-dead flake). Logged once per run."
                     % (type(exc).__name__, str(exc)[:160])))
             return -1
+
+    # The LandingAutopilot settings mj_land_untargeted writes, as
+    # (python attribute, human name, LOAD-BEARING?). Load-bearing settings get a
+    # Warn on a read-back mismatch AND are named in the engage line; the rest
+    # are Info. Nothing here REFUSES to engage on a mismatch, unlike the capture
+    # planner's time-reference gate, and that asymmetry is deliberate: a wrong
+    # TimeReference silently produced a VALID-LOOKING node at an arbitrary UT
+    # that the machine then flew, whereas every setting here is a comfort knob
+    # whose failure the machine's own OBSERVED gates still catch (deploy_chutes
+    # is inert on an airless body by physics; deploy_gears failing shows up as a
+    # broken lander, i.e. landing-vessel-lost; touchdown_speed and
+    # rcs_adjustment only shade the descent profile).
+    _LANDING_SETTINGS = (
+        ("touchdown_speed", "TouchdownSpeed", False),
+        ("deploy_gears", "DeployGears", True),
+        ("deploy_chutes", "DeployChutes", True),
+        ("rcs_adjustment", "RcsAdjustment", False),
+    )
+
+    def _perform_land_untargeted(self, action: "mlib.Action") -> None:
+        """Configure and engage MechJeb's UNTARGETED LandingAutopilot, then READ
+        BACK whether it actually armed.
+
+        Order matters and is not arbitrary:
+
+        1. ``node_executor.autowarp = True`` FIRST. MechJeb's landing states
+           gate their OWN time-warp on ``Core.Node.Autowarp`` -- the NodeExecutor
+           flag, which is SHARED GLOBAL MechJeb state (the B-DOCK flight-12
+           lesson: an unset autowarp warps or coasts at 1x by luck). The
+           machine deliberately issues NO warp of its own during DESCENT, so
+           this flag is the only thing standing between a warped descent and a
+           1:1 real-time one; setting it explicitly is what makes the wall
+           budget predictable.
+        2. Settings, each SET then READ BACK. A refused set is logged with the
+           value that actually stuck.
+        3. ``land_untargeted()``.
+        4. ``enabled`` READ BACK. This line is the commanded-vs-observed record
+           for the flight log; the machine does NOT consume it (it re-reads the
+           channel every poll through ``_read_landing_autopilot``), so an
+           engage that silently no-ops is named by the DESCENT supervisor within
+           LANDING_AP_DISABLED_DEBOUNCE_FRAMES either way.
+        """
+        cfg = action.landing_config
+        if not cfg or len(cfg) < 4:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Landing",
+                "mj_land_untargeted carried no landing_config (%r); falling "
+                "back to conservative defaults (touchdown 0.5 m/s, gears ON, "
+                "chutes OFF, RCS OFF)" % (cfg,)))
+            cfg = (0.5, True, False, False)
+        wanted = (float(cfg[0]), bool(cfg[1]), bool(cfg[2]), bool(cfg[3]))
+        try:
+            landing = self._mechjeb.landing_autopilot
+        except Exception as exc:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Landing",
+                "MechJeb LandingAutopilot unreachable (%s): the descent cannot "
+                "be commanded, and the DESCENT supervisor will name it "
+                "landing-autopilot-not-enabled" % (exc,)))
+            return
+        try:
+            self._mechjeb.node_executor.autowarp = True
+        except Exception as exc:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Landing",
+                "node_executor.autowarp=True failed (%s): MechJeb's landing "
+                "states gate their own warp on it, so the descent may run at "
+                "1x for its whole ballistic fall" % (exc,)))
+        applied = []
+        for (attr, label, load_bearing), want in zip(self._LANDING_SETTINGS,
+                                                     wanted):
+            try:
+                setattr(landing, attr, want)
+                back = getattr(landing, attr)
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Landing",
+                    "LandingAutopilot.%s = %r FAILED (%s)"
+                    % (label, want, exc)))
+                continue
+            applied.append("%s=%r" % (label, back))
+            if bool(back) != bool(want) and not isinstance(want, float):
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn" if load_bearing else "Info", "Landing",
+                    "LandingAutopilot.%s READ BACK as %r, not %r"
+                    % (label, back, want)))
+        try:
+            landing.land_untargeted()
+        except Exception as exc:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Landing", "land_untargeted() failed: %s" % (exc,)))
+            return
+        observed, status = self._read_landing_autopilot()
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info" if observed == 1 else "Warn", "Landing",
+            "landing engaged (untargeted); config %s; OBSERVED enabled=%s "
+            "status=%s -- the DESCENT supervisor re-reads this channel every "
+            "poll, so an engage that did not take is named "
+            "landing-autopilot-not-enabled, never assumed away"
+            % (" ".join(applied) or "(none applied)", observed,
+               status or "?")))
+
+    def _read_landing_autopilot(self) -> Tuple[int, str]:
+        """OBSERVED MechJeb LandingAutopilot state as
+        ``(enabled_tristate, status)``: enabled is 1 = armed, 0 = down,
+        -1 = UNREAD; status is the module's own progress string ("" = unread).
+
+        SURFACE (verified against the INSTALLED pin, not the umbrella clone):
+        ``automation/stock-minimal/GameData/kRPC/KRPC.MechJeb.json`` exports
+        ``LandingAutopilot_get_Enabled`` and ``LandingAutopilot_get_Status``, so
+        the python attributes are ``mech_jeb.landing_autopilot.enabled`` /
+        ``.status``. ``Enabled`` is the inherited
+        ``MuMech.ComputerModule.Enabled`` re-exposed as a KRPCProperty by
+        ``AutopilotModule : KRPCComputerModule``; ``Status`` is
+        ``AutopilotModule.Status``. Unlike the NodeExecutor -- whose internal
+        State field the wrapper does NOT bind -- the landing module DOES expose
+        a status string, so this lane gets both the gate channel and a human
+        channel for free.
+
+        Fail-CLOSED to (-1, "") on ANY fault, for the NodeExecutor reason: an
+        unread channel must never be read as either "armed" (which would
+        suppress the liveness watchdog on a dead descent) or "down" (which would
+        fast-fail a healthy one). NOT silent: the -1 sentinel quietly stands the
+        whole descent supervisor down, so the FIRST fault emits one Warn naming
+        the channel, latched so a permanently dark surface cannot spam a
+        multi-thousand-poll flight.
+
+        The two reads share ONE latch and ONE except: they come from the same
+        module handle, so a drifted surface breaks both together and two Warns
+        would say the same thing twice."""
+        try:
+            landing = self._mechjeb.landing_autopilot
+            enabled = 1 if bool(landing.enabled) else 0
+            try:
+                status = str(landing.status or "")[:60]
+            except Exception:
+                status = ""
+            return enabled, status
+        except Exception as exc:
+            if not self._warned_landing_read:
+                self._warned_landing_read = True
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Telemetry",
+                    "LandingAutopilot.Enabled UNREADABLE (%s: %s); the channel "
+                    "degrades to the -1 UNREAD sentinel, which stands the "
+                    "DESCENT autopilot supervisor down (no re-issue, no named "
+                    "landing-autopilot-not-enabled flake) and leaves the "
+                    "altitude-trend watchdog + the descent budget as the only "
+                    "bounds. Logged once per run."
+                    % (type(exc).__name__, str(exc)[:160])))
+            return -1, ""
 
     def _set_target_docking_port_live(self, sc) -> None:
         """Set the target docking port, resolved LIVE from the rendezvous target
@@ -2680,6 +2887,31 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                    snapshot.sas_enabled, snapshot.rcs_enabled,
                    snapshot.docking_ap_status or "?", snapshot.mj_docking_enabled,
                    _fmt(snapshot.ut)))
+        # DESCENT diagnostic (the B13/B14 landing lane; same rationale as the
+        # MATCH-VELOCITY and DOCK lines above -- a phase whose actor is a MechJeb
+        # module we do not own must never be silent between its entry and its
+        # give-up). Carries the module's OWN status string, which is the first
+        # question asked of a descent that reads ENABLED and is not descending;
+        # whitespace is collapsed so the line stays kv-parseable.
+        #
+        # GATED ON THE MACHINE FIELD, NOT THE PHASE NAME. "DESCENT" is NOT unique
+        # to this lane: B1's pad hop, B4's suborbital lane and EVA-4 all have a
+        # phase of that name, and none of them has a landing autopilot to report
+        # on. `landing_engaged` exists only on the B5 state and is only ever True
+        # inside the landing tail, so those three missions' logs stay
+        # byte-identical.
+        if getattr(state, "landing_engaged", False) and state.phase == mlib.B5_DESCENT:
+            log.verbose_rate_limited(
+                "descent", state.phase,
+                "descent landAP=%d landStatus=%s alt=%s vspd=%s hspd=%s "
+                "thr=%s situation=%s body=%s warp=%sx%s ut=%s"
+                % (snapshot.landing_ap_enabled,
+                   "_".join((snapshot.landing_ap_status or "?").split()),
+                   _fmt(snapshot.altitude), _fmt(snapshot.vertical_speed),
+                   _fmt(snapshot.horizontal_speed), _fmt(snapshot.throttle),
+                   snapshot.situation or "?", snapshot.body or "?",
+                   snapshot.warp_mode, _fmt(snapshot.warp_rate),
+                   _fmt(snapshot.ut)))
         # alt/vspeed/body/nodes ride the line too: B4 attempt-1 (2026-07-21)
         # stalled in REENTRY with a line that omitted altitude, leaving
         # frozen-physics vs normal-coast undiagnosable from the log. Log what
@@ -2695,6 +2927,18 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                      else (" nodeExec=%d" % snapshot.node_executor_enabled))
         if math.isfinite(snapshot.time_to_periapsis):
             opt_token += " ttPe=%s" % _fmt(snapshot.time_to_periapsis)
+        # LANDING lane (B13/B14): the OBSERVED autopilot tri-state and the
+        # horizontal speed, each appended ONLY when its channel was read, so
+        # every mission that does not opt in keeps a byte-identical line. Both
+        # are GATE inputs (landing-autopilot-not-enabled reads the first, the
+        # settled-touchdown gate reads the second), and the standing rule is to
+        # log what you gate on. The AP STATUS STRING is deliberately NOT here:
+        # it contains spaces, and parse_kv_tokens splits on whitespace, so it
+        # rides its own DESCENT line below instead of corrupting this one.
+        if snapshot.landing_ap_enabled >= 0:
+            opt_token += " landAP=%d" % snapshot.landing_ap_enabled
+        if math.isfinite(snapshot.horizontal_speed):
+            opt_token += " hspd=%s" % _fmt(snapshot.horizontal_speed)
         log.verbose_rate_limited(
             "telemetry", state.phase,
             "telemetry ap=%s pe=%s ecc=%s inc=%s alt=%s vspd=%s body=%s nodes=%d "
