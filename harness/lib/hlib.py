@@ -42,8 +42,8 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 SCHEMA_VERSION = 1
 
@@ -1313,6 +1313,14 @@ class ExpectationResult:
     status: str  # "PASS" | "FAIL"
     mismatches: Tuple[str, ...]
     reserved: Tuple[str, ...]
+    # The MEASURED counterpart of the evaluated spec facets, mirroring the
+    # [expectations.*] block shape ({"recordings": {"count": 7}}). Added AFTER
+    # the schema-1 results already in results/ were written, so it is purely
+    # ADDITIVE and OPTIONAL: it defaults to empty, every existing positional
+    # construction still type-checks, and a consumer must treat ABSENT as "this
+    # run predates the measurement" - never as zero. See
+    # ``observed_expectation_facets`` for what lands in it and why.
+    observed: Dict[str, Any] = field(default_factory=dict)
 
 
 # M-B2 (design ~495): on activation ``world`` LEAVES this tuple -- the ledger-oracle
@@ -1320,6 +1328,36 @@ class ExpectationResult:
 # STOPS recording it as reserved and there is exactly ONE owner (no double-count).
 # ``ledger`` was never reserved here (it is a tolerated-unknown block slot 7 ignores).
 RESERVED_EXPECTATION_BLOCKS: Tuple[str, ...] = ("route", "rewind", "loop")
+
+
+def observed_expectation_facets(recording_count: Optional[int]) -> Dict[str, Any]:
+    """Build the MEASURED-facet dict verifier 7 records alongside its verdict.
+
+    Why this exists: verifier 7 evaluated ``recordings.count`` against a window
+    but recorded only the VERDICT, never the number. On a PASS the harness does
+    not run collect-logs (design results layout / edge 18) and the produced save
+    is transient, so a green run's measured count was UNRECOVERABLE post-hoc -
+    which is exactly the number an operator needs to turn a provisional
+    ``count = { min = 1, max = 10 }`` window into an honest pin. Recording it
+    costs nothing (run.py already computed it for the comparison) and closes the
+    loop: fly once green, read the count out of ``results/<runId>.json``, pin.
+
+    Shape: mirrors the ``[expectations.*]`` spec surface, so a future measured
+    facet slots in beside its spec counterpart without a format break
+    (``{"recordings": {"count": 7}}``). ``recordings.count`` is presently the
+    ONLY facet the recordings block declares (hence the only one to observe);
+    the logContracts facets are regex predicates with no numeric counterpart
+    worth persisting, and route/rewind/loop stay RESERVED.
+
+    Recording is UNCONDITIONAL on the spec: a scenario that declares no count
+    window still gets its measured count recorded, which is how a NEW scenario
+    earns its first honest window. A ``None`` count (save unreadable / not
+    counted) omits the key entirely - ABSENT means "not measured", never zero.
+    """
+    observed: Dict[str, Any] = {}
+    if recording_count is not None:
+        observed["recordings"] = {"count": int(recording_count)}
+    return observed
 
 
 def evaluate_expectations(
@@ -1335,6 +1373,10 @@ def evaluate_expectations(
     scenario written now needs no format break then. ``world`` is NO LONGER reserved
     here (M-B2 gave verifier 8 sole ownership, design ~495) and ``ledger`` is a
     tolerated-unknown block this evaluator ignores (verifier 8 owns it).
+
+    The result also carries ``observed`` - the MEASURED facets
+    (``observed_expectation_facets``) - so a green run's numbers survive into
+    ``results/<runId>.json`` instead of dying with the transient save.
     """
     expectations = expectations or {}
     mismatches: List[str] = []
@@ -1366,7 +1408,8 @@ def evaluate_expectations(
 
     reserved = tuple(b for b in RESERVED_EXPECTATION_BLOCKS if b in expectations)
     status = "PASS" if not mismatches else "FAIL"
-    return ExpectationResult(status, tuple(mismatches), reserved)
+    return ExpectationResult(status, tuple(mismatches), reserved,
+                             observed_expectation_facets(recording_count))
 
 
 # ---------------------------------------------------------------------------

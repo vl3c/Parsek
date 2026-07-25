@@ -331,15 +331,55 @@ D5  = ["bg-recording"]
 D14 = ["kerbin", "mun", "warp-rails"]
 
 [expectations.recordings]
-# PROVISIONAL, derived from the TOPOLOGY, not measured (logContracts are
-# presence-only via re.search, so this window is the only numeric guard):
-# B5's identical ascent topology (main recording + up to 6 dropped Kerbal X
-# boosters as parent-anchored debris children + 1 LES-tower margin + 1 for a
-# flameout-staged dry core) gives {1, 9}; max is widened by 1 to absorb a fresh
-# post-commit recording for the still-orbiting vessel IF Parsek opens one. min
-# stays 1: the main recording must exist even if debris admission varies.
-# PIN EXACTLY from the measured save after the first green flight.
-count = { min = 1, max = 10 }
+# STILL PROVISIONAL, but TIGHTENED 10 -> 9 on a part-level derivation (2026-07-25).
+# This window is the ONLY numeric guard on the run: logContracts are presence-only
+# (re.search over the log body), so nothing else here can count anything. A window
+# that is too WIDE hides a topology regression; a window PINNED WRONG reds a
+# correct run. Honesty beats tightness, so the ceiling below is the SUM of
+# enumerated sources and nothing more, and min stays at the family floor.
+#
+# DERIVATION (fixture fixtures/saves/b2-lko-craft, the stock Kerbal X that
+# B2/B4/B5/B6 also fly; part list read out of the fixture's persistent.sfs):
+#   +1  the root/main recording. Mandatory: autoRecordOnLaunch is pinned true and
+#       the "Recording started" logContract already fails without it.
+#   +6  the six radial boosters (6x radialDecoupler1-2 + 6x liquidEngine2 + 6x
+#       fuelLine + 6x pointyNoseConeB + 6x R8winglet). Each drops as its own
+#       vessel and is recorded as a parent-anchored debris child - LIVE-ESTABLISHED,
+#       not assumed: the first live B2 flight (2026-07-20) produced exactly 7
+#       sidecars, analyzer RED=0 over all of them.
+#   +1  the ascent core stack separation (1 of the 2 Decoupler.2 parts), which can
+#       surface as one more debris child via B5 live finding 15 (the machine pops
+#       the next stage when a commanded burn reads zero available thrust, so the
+#       jettisoned dry core can record). It did NOT record on the B2 flight (7,
+#       not 8), so this is a MARGIN, not an expectation.
+#   +1  a fresh post-commit recording for the still-orbiting vessel IF Parsek
+#       opens one after the mid-mission CommitTree. Unestablished in either
+#       direction, so it stays as slack.
+#   = 9
+# SOURCES RULED OUT (this is what buys the tightening):
+#   - The LES-tower margin that B2/B4/B5/B6's windows carry has NO PART BEHIND IT
+#     on this craft: there is no launchEscapeSystem / escape-tower part anywhere in
+#     the fixture's part list. That +1 is dead weight inherited from a generic
+#     Kerbal-X assumption, and dropping it is what takes 10 down to 9.
+#   - The 3 launchClamp1 parts release at t=0 on every flight of this fixture and
+#     did not record on the B2 flight (exactly 7), so clamps contribute 0.
+#   - The SECOND Decoupler.2 (upper stage -> pod) never fires here: B11 has NO
+#     separation phase and ends parked in the Mun SOI with the stack intact.
+# Consistency check: B5/B6 fly the byte-identical ascent + the same machine at
+# {1, 9} and are live-proven green; strip their phantom LES margin and their real
+# ceiling is 8, so B11 = 8 + the post-commit slack = 9.
+#
+# min stays 1 (the B2/B4/B5/B6 family rule): the main recording must exist even if
+# debris ADMISSION varies flight to flight, and a min above 1 would red a correct
+# run over debris timing.
+#
+# PIN EXACTLY on the next green flight. The measured count is now RECORDED in
+# results/<runId>.json under verifiers.expectations.observed.recordings.count
+# (harness/lib/hlib.py observed_expectation_facets), so the pin no longer needs the
+# transient save that a PASS never collects - just read the number and set
+# min = max = it. The two 2026-07-25 FULL-PASS flights predate that field, so all
+# they establish is "<= 10".
+count = { min = 1, max = 9 }
 
 [expectations.logContracts]
 # Every token below is sourced from the ACTUAL emitting ParsekLog call site:

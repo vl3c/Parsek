@@ -1346,6 +1346,54 @@ class EvaluateExpectationsTests(unittest.TestCase):
         self.assertNotIn("ledger", hlib.RESERVED_EXPECTATION_BLOCKS)
 
 
+class ObservedExpectationFacetsTests(unittest.TestCase):
+    """Guards the MEASURED-facet record verifier 7 now carries. The gap it closes:
+    a PASS does not run collect-logs and the produced save is transient, so a green
+    run's recordings count was unrecoverable post-hoc - which is precisely the number
+    needed to turn a provisional count window into an honest pin."""
+
+    def test_measured_count_is_recorded(self):
+        self.assertEqual(hlib.observed_expectation_facets(7), {"recordings": {"count": 7}})
+
+    def test_zero_is_recorded_not_omitted(self):
+        # 0 is a MEASUREMENT (a no-recording scenario legitimately produces none);
+        # only None means "not measured", so a falsy-check would lose real data.
+        self.assertEqual(hlib.observed_expectation_facets(0), {"recordings": {"count": 0}})
+
+    def test_none_omits_the_key_entirely(self):
+        # ABSENT means "not measured" - never zero. A consumer pinning a window off
+        # a defaulted 0 would pin a lie.
+        self.assertEqual(hlib.observed_expectation_facets(None), {})
+
+    def test_evaluate_carries_observed_even_with_no_count_spec(self):
+        # Recording is unconditional on the spec: a scenario that declares NO count
+        # window still gets its measured count, which is how a new scenario earns
+        # its first honest window.
+        r = hlib.evaluate_expectations({"logContracts": {"required": []}}, 4, "")
+        self.assertEqual(r.status, "PASS")
+        self.assertEqual(r.observed, {"recordings": {"count": 4}})
+
+    def test_observed_is_recorded_on_a_failing_run_too(self):
+        # The measured value is the diagnostic on a FAIL ("9 > max 8" only tells you
+        # the window is wrong if you can see the 9), so it must not be PASS-only.
+        exp = {"recordings": {"count": {"min": 1, "max": 8}}}
+        r = hlib.evaluate_expectations(exp, 9, "")
+        self.assertEqual(r.status, "FAIL")
+        self.assertEqual(r.observed, {"recordings": {"count": 9}})
+
+    def test_observed_defaults_empty_for_backward_compatible_construction(self):
+        # Backward compatibility: the field is OPTIONAL, so an old 3-arg positional
+        # construction still builds and reads as "no measurement recorded".
+        legacy = hlib.ExpectationResult("PASS", tuple(), tuple())
+        self.assertEqual(legacy.observed, {})
+
+    def test_unmeasured_run_leaves_observed_absent(self):
+        # A None count (save unreadable) must leave the block empty rather than
+        # inventing a number.
+        r = hlib.evaluate_expectations({"recordings": {"count": {"min": 1, "max": 8}}}, None, "")
+        self.assertEqual(r.observed, {})
+
+
 class AnomalySweepTests(unittest.TestCase):
     """Guards N2: an unallowed Tier-C line reds; a known-benign token in
     allowedAnomalies is tolerated; a scenario cannot invent a new anomaly."""

@@ -348,7 +348,17 @@ class FakeKspSmokeTests(unittest.TestCase):
         # A PASS does not snapshot heavy diagnostics.
         self.assertFalse(result["collectLogs"]["ran"])
         # The durable result landed.
-        self.assertTrue(os.path.isfile(os.path.join(run.RESULTS_DIR, "%s.json" % result["runId"])))
+        result_path = os.path.join(run.RESULTS_DIR, "%s.json" % result["runId"])
+        self.assertTrue(os.path.isfile(result_path))
+        # ... and it carries the MEASURED recordings count, not just the verdict.
+        # This is the ONLY place a green run's count survives: a PASS runs no
+        # collect-logs and the produced save is transient, so without this the
+        # number needed to pin a provisional count window is gone forever.
+        with open(result_path, "r", encoding="utf-8") as fh:
+            persisted = json.load(fh)
+        self.assertEqual({"recordings": {"count": 0}},
+                         persisted["verifiers"]["expectations"]["observed"],
+                         "the measured count must round-trip into results/<runId>.json")
         # S6: the per-invocation harness log file exists and carries the verdict line.
         self.assertTrue(os.path.isfile(self.logger.log_path))
         with open(self.logger.log_path, "r", encoding="utf-8") as fh:
@@ -639,6 +649,10 @@ class AutopilotHandoffSmokeTests(unittest.TestCase):
         self.assertEqual("PASS", v["mission"]["status"])
         self.assertEqual("PASS", v["analyzer"]["status"])
         self.assertEqual("PASS", v["expectations"]["status"])
+        # The FLOWN shape records its measured count too (the mission dropped one
+        # .prec), so an orbit-lane operator can pin a provisional window off a
+        # green autopilot run without re-flying to catch the save.
+        self.assertEqual({"recordings": {"count": 1}}, v["expectations"]["observed"])
         # The per-attempt mission-result JSON landed under results/.
         mission_json = os.path.join(run.RESULTS_DIR, "%s_mission.json" % result["runId"])
         self.assertTrue(os.path.isfile(mission_json))

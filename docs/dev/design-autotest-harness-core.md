@@ -399,7 +399,7 @@ guessing.
     "logValidate":    { "status": "PASS", "recRulesSuppressed": true, "killedRunMode": false },
     "testResults":    { "status": "PASS", "failures": 0, "path": "parsek-test-results.txt" },
     "anomalySweep":   { "status": "PASS", "hits": 0 },
-    "expectations":   { "status": "PASS", "mismatches": [] },
+    "expectations":   { "status": "PASS", "mismatches": [], "reserved": [], "observed": { "recordings": { "count": 7 } } },
     "ledgerOracle":   { "status": "SKIPPED", "reason": "no-actions-or-mb2-not-landed" }
   },
   "expectedFail": { "bugId": "", "matched": false },
@@ -407,6 +407,17 @@ guessing.
   "collectLogs": { "ran": false, "path": null }
 }
 ```
+
+`verifiers.expectations.observed` is the MEASURED counterpart of the evaluated
+`[expectations.*]` facets, mirroring the spec block shape
+(`hlib.observed_expectation_facets`). It exists because a PASS runs no
+collect-logs and the produced save is transient, so a green run's recordings
+count was otherwise unrecoverable - which is the number needed to turn a
+provisional `count = { min, max }` window into an honest pin. It is ADDITIVE and
+OPTIONAL: results written before it lack the key, and a consumer must read ABSENT
+as "not measured", never as zero. A `None` count omits the key; a measured 0 is
+recorded. Only `recordings.count` is observed today (it is the only numeric facet
+the recordings block declares).
 
 ### Coverage / flake ledger: `harness/coverage/coverage.{json,txt}`, `harness/coverage/flake.json`
 

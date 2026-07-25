@@ -267,10 +267,40 @@ D5  = ["bg-recording"]
 D14 = ["kerbin", "minmus", "warp-rails"]
 
 [expectations.recordings]
-# PROVISIONAL, derived from the topology exactly as B11's is (B5/B6 ascent
-# topology {1, 9}, max widened by 1 for a possible post-commit recording).
-# PIN EXACTLY from the measured save after the first green flight.
-count = { min = 1, max = 10 }
+# STILL PROVISIONAL, but TIGHTENED 10 -> 9 on the SAME part-level derivation B11
+# carries (2026-07-25); B12 flies the same fixture, the same craft and the same
+# machine, so the topology is identical and only the target body differs. This
+# window is the ONLY numeric guard on the run (logContracts are presence-only
+# re.search), so it is the sum of enumerated sources and nothing more.
+#
+# DERIVATION (fixture fixtures/saves/b2-lko-craft, stock Kerbal X; part list read
+# out of the fixture's persistent.sfs):
+#   +1  root/main recording (mandatory - autoRecordOnLaunch true, and the
+#       "Recording started" logContract already fails without it)
+#   +6  the six radial boosters as parent-anchored debris children. LIVE-ESTABLISHED
+#       by the first live B2 flight (2026-07-20): exactly 7 sidecars, analyzer RED=0.
+#   +1  MARGIN for the ascent core stack separation surfacing as one more debris
+#       child (B5 live finding 15, the zero-thrust stage pop). It did NOT record on
+#       the B2 flight.
+#   +1  MARGIN for a fresh post-commit recording for the still-orbiting vessel IF
+#       Parsek opens one after the mid-mission CommitTree. Unestablished either way.
+#   = 9
+# RULED OUT: no launchEscapeSystem / escape-tower part exists anywhere in this
+# fixture's part list, so the +1 LES margin B2/B4/B5/B6 carry is dead weight here -
+# dropping it is exactly what takes 10 down to 9. The 3 launchClamp1 parts
+# contribute 0 (they release on every flight and the B2 count was 7). The second
+# Decoupler.2 (upper stage -> pod) never fires: B12 has NO separation phase and
+# ends parked in the Minmus SOI with the stack intact.
+#
+# min stays 1 (the B2/B4/B5/B6 family rule): the main recording must exist even if
+# debris ADMISSION varies flight to flight.
+#
+# PIN EXACTLY on the next green flight - the measured count now lands in
+# results/<runId>.json at verifiers.expectations.observed.recordings.count
+# (harness/lib/hlib.py observed_expectation_facets), so it no longer dies with the
+# transient save a PASS never collects. The 2026-07-25 FULL-PASS flight predates
+# that field, so it only establishes "<= 10".
+count = { min = 1, max = 9 }
 
 [expectations.logContracts]
 # Same four tokens as B11, each sourced from its ACTUAL emitting ParsekLog call

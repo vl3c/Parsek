@@ -1693,7 +1693,8 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         exp = hlib.evaluate_expectations(expectations, recording_count, log_text)
         verifiers["expectation_mismatch"] = (exp.status != "PASS")
         detail["expectations"] = {"status": exp.status, "mismatches": list(exp.mismatches),
-                                  "reserved": list(exp.reserved)}
+                                  "reserved": list(exp.reserved),
+                                  "observed": dict(exp.observed)}
         logger.info("Verify", "verify expectations status=%s mismatches=%d"
                     % (exp.status, len(exp.mismatches)))
     else:
