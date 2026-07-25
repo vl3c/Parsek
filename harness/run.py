@@ -1698,7 +1698,18 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         logger.info("Verify", "verify expectations status=%s mismatches=%d"
                     % (exp.status, len(exp.mismatches)))
     else:
-        detail.setdefault("expectations", {"status": "SKIPPED", "reason": "short-circuit"})
+        # The MEASURED facets ride the SKIPPED branch TOO. The whole point of
+        # `observed` is that a green run's numbers survive into
+        # results/<runId>.json instead of dying with the transient save -- and a
+        # run that short-circuited or came back driver-INVALID is exactly the
+        # run whose recording count an operator most wants (did the save have
+        # ANY recordings? did a killed run get partway?). recording_count is
+        # already computed above; recording it costs nothing and omitting it
+        # made the number absent precisely where it was needed.
+        detail.setdefault("expectations",
+                          {"status": "SKIPPED", "reason": "short-circuit",
+                           "observed": hlib.observed_expectation_facets(
+                               recording_count)})
 
     # 8. Ledger oracle (M-B2). Active iff the scenario declares [expectations.ledger]
     # OR [expectations.world]; else SKIPPED(no-ledger-block-declared), the reserved

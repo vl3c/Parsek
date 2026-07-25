@@ -387,6 +387,12 @@ class FakeKspSmokeTests(unittest.TestCase):
         # Save-reading verifiers are skipped on a torn (killed) save.
         self.assertEqual("SKIPPED", result["verifiers"]["analyzer"]["status"])
         self.assertEqual("SKIPPED", result["verifiers"]["expectations"]["status"])
+        # A KILLED run deliberately does not read the torn save at all
+        # (recordingCount is None), so it carries no measured facets. The
+        # SKIPPED-with-observed contract belongs to the non-killed
+        # short-circuit / driver-INVALID branch -- see
+        # test_loadgame_error_skips_mission_spawn.
+        self.assertNotIn("observed", result["verifiers"]["expectations"])
         # Non-PASS snapshots diagnostics.
         self.assertTrue(result["collectLogs"]["ran"])
 
@@ -723,6 +729,17 @@ class AutopilotHandoffSmokeTests(unittest.TestCase):
         self.assertFalse(mission_rows[0]["met"])
         self.assertIsNone(mission_rows[0]["missionVerdict"])
         self.assertIn("LoadGame", mission_rows[0].get("reason", ""))
+        # The expectations verifier is SKIPPED on a driver-INVALID save -- but
+        # it still records the MEASURED facets. `observed` exists so a run's
+        # numbers survive into results/<runId>.json instead of dying with the
+        # transient save, and a run that came back INVALID is exactly the run
+        # whose recording count an operator needs (did the save get ANY
+        # recordings before the driver failed?). recording_count is already
+        # computed for the comparison; it used to be dropped on this branch.
+        exp = result["verifiers"]["expectations"]
+        self.assertEqual("SKIPPED", exp["status"])
+        self.assertEqual({"recordings": {"count": 0}}, exp["observed"],
+                         "the measured count must survive a SKIPPED expectations verifier")
 
 
 class MissionSpecAdmissionTests(unittest.TestCase):

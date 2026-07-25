@@ -613,6 +613,85 @@ ACTION_MJ_PLAN_CAPTURE = "mj_plan_capture"                 # value = None
 CAPTURE_ARM_DEBOUNCE_FRAMES = 3
 
 # ---------------------------------------------------------------------------
+# CAPTURE-mode TARGET-FLYBY "never armed" LIVENESS BOUND (reviewer finding,
+# 2026-07-25). THE GAP: with the periapsis clock dark, capture mode has NO
+# bound short of the wall reaper.
+#
+#   - the periapsis-bounded warp (capture_flyby_warp_target) correctly refuses
+#     to warp on a non-finite clock, so the phase runs at 1x;
+#   - _b5_capture_arm_ready fails closed on the same non-finite read, so
+#     PLAN-CAPTURE is never entered;
+#   - the impact-certain terminal needs a FINITE sub-surface periapsis, so it
+#     cannot fire either;
+#   - and the only remaining bound is flybyTimeoutSeconds -- 300,000 GAME
+#     seconds on B11, 400,000 on B12. At 1x, inside a 3,000-4,200 wall-second
+#     mission budget, that is unreachable by three orders of magnitude.
+#
+# The reviewer replayed 6,000 polls of a descending in-SOI arrival reading
+# periapsis=NaN, time_to_periapsis=NaN: NOT terminated, phase=TARGET-FLYBY,
+# actions=[]. A dead actor idling to a generic wall kill is precisely what the
+# standing liveness rule forbids -- budgets bound SLOW, watchdogs bound BROKEN.
+#
+# THE BOUND: N CONSECUTIVE in-target-SOI capture frames on which the arming
+# verdict is False -> a NAMED fast-fail that says WHICH of the three failure
+# shapes it saw (classify_capture_arm_failure). N is frozen_sample_limit-scale
+# (the same order as the blank-body dwell that bounds an unreadable SOI) with
+# real margin over the healthy path: a healthy arrival arms in
+# CAPTURE_ARM_DEBOUNCE_FRAMES = 3 consecutive polls, so 30 is TEN TIMES the
+# healthy run and ~10x the "conic reads settle over a poll or two" window the
+# arming debounce itself was sized against. At the ~0.5 s poll cadence the
+# whole bound costs ~15 wall-seconds before it names the defect, against the
+# ~3,000 s it used to burn. A single ready frame RESETS the run, so a merely
+# jittery clock cannot trip it (an endlessly FLAPPING clock that never gets 3
+# consecutive ready frames is still owned by the flyby budget; that shape has
+# never been observed and a non-consecutive counter would risk the live-proven
+# lane for it).
+CAPTURE_NEVER_ARMED_FRAMES = 30
+
+# ---------------------------------------------------------------------------
+# CAPTURE NODE-UT SANITY TOLERANCE (reviewer finding, 2026-07-25). The
+# PLAN-CAPTURE -> CAPTURE-BURN handoff used to accept ANY node_count >= 1 with
+# no gate on WHEN the node was, while the runner's circularize planner set
+# TimeReference.Periapsis on a SHARED, PERSISTED MechJeb TimeSelector whose
+# setter THROWS on a disallowed reference (KRPC.MechJeb Maneuver/TimeSelector.cs
+# :120-124). A swallowed throw left MechJeb's inherited currentTimeRef in place
+# and the plan was issued anyway -- inherited global state granting a capture at
+# an arbitrary UT.
+#
+# THE GATE: the planned node must sit AT the arrival periapsis, i.e.
+#     |node_ut - (ut + time_to_periapsis)| <= this.
+#
+# The tolerance is DEFENSIVE in both directions. Lower bound on what it must
+# admit: the node UT and the periapsis clock are read on the SAME frame, and
+# both are read some polls AFTER the plan was issued -- but the plan runs under
+# the 10x PLAN hold, so `ut + time_to_periapsis` (an absolute UT) drifts only by
+# conic re-solve noise, tens of game seconds at the very worst. Upper bound on
+# what it must reject: the plausible WRONG references are apoapsis, an
+# altitude crossing, or an X-from-now offset, all of which land tens of minutes
+# to hours away on a Mun / Minmus capture orbit. 300 s sits an order of
+# magnitude above the drift and an order of magnitude below the cheapest wrong
+# answer.
+#
+# A non-finite time_to_periapsis FAILS CLOSED (the node is refused): with no
+# periapsis clock there is no evidence the node is where the mission needs it,
+# and a capture is the mission. Both live shells opt into the clock
+# (read_periapsis=True), so this costs the healthy path nothing.
+CAPTURE_NODE_PERIAPSIS_TOLERANCE_SECONDS = 300.0
+# Consecutive off-periapsis frames before the gate fires. Debounced for the
+# same reason every other gate here is -- a transient read must not end a live
+# mission -- and specifically because the stale-node RE-PLAN path re-enters
+# PLAN-CAPTURE with a JUST-CLEARED node that can still read node_count >= 1 for
+# a poll or two, with its UT in the past. Cheap: the phase polls under the 10x
+# plan hold, ~5 game-s per poll.
+CAPTURE_NODE_SANITY_DEBOUNCE_FRAMES = 3
+
+# classify_capture_arm_failure verdicts.
+CAPTURE_ARM_READY = "ready"                     # every conjunct satisfied
+CAPTURE_ARM_BLIND = "clock-unreadable"          # non-finite periapsis clock
+CAPTURE_ARM_SUBSURFACE = "periapsis-subsurface"  # impact trajectory
+CAPTURE_ARM_PAST_PERIAPSIS = "past-periapsis"   # nothing left to capture
+
+# ---------------------------------------------------------------------------
 # TARGET-FLYBY periapsis bound in CAPTURE mode (B12 flight 3, 2026-07-25).
 # THE PROVEN ROOT CAUSE of a capture that armed AFTER periapsis:
 #
@@ -653,7 +732,7 @@ CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS = 900.0
 # ROOT CAUSE, cited from source, not inferred:
 #
 #   MechJeb2 2.15.1.0, MuMech.MechJebModuleNodeExecutor.StateWarpAlign()
-#   (ilspycmd decompile of the installed MechJeb2.dll):
+#   (ilspycmd decompile of the INSTALLED MechJeb2.dll):
 #
 #       else if (_ignitionUT - VesselState.time > 600.0)
 #       {
@@ -666,24 +745,52 @@ CAPTURE_PERIAPSIS_WARP_LEAD_SECONDS = 900.0
 #           SetAttitude();
 #       }
 #
+#   CITATION SCOPE: the decompile above is of the INSTALLED PIN, MechJeb2
+#   2.15.1.0. The umbrella checkout at mods/MechJeb2 is a NEWER upstream
+#   refactor in which StateWarpAlign no longer exists (grep it: zero hits), so
+#   this verbatim body CANNOT be re-derived from that source tree. Re-derive it
+#   from the installed DLL, or not at all.
+#
 #   with _ignitionUT = node.UT - halfBurnTime (CalculateIgnitionUT), the
 #   WARPALIGN -> LEAD flip at _ignitionUT - LeadTime (default 3 s) and
-#   LEAD -> BURN at _ignitionUT. The high-warp branch is taken only while
-#   AlignedAndSettled() -- angle < 1 deg AND vessel.angularVelocity < 0.001
-#   rad/s -- so a craft that never SETTLES under that (B11 flight 1 read
-#   angV=0.003 through the whole hold) sits at 1x, zero throttle, orbit
-#   UNCHANGED, for the FULL 600 GAME seconds before ignition.
+#   LEAD -> BURN at _ignitionUT. The ELSE arm -- MinimumWarp(), i.e. 1x with
+#   the orbit untouched -- is taken on the TIME TERM ALONE, for the FULL 600
+#   GAME seconds before ignition, on EVERY node this executor flies.
+#
+#   (An earlier revision of this block blamed AlignedAndSettled(), claiming a
+#   craft that never settles is what sits at 1x. The branch's own evidence
+#   refutes it: flight 1 read angV=0.003 -- above the 0.001 rad/s settle bound
+#   -- CONTINUOUSLY, on both sides of the transition, so the settle predicate
+#   did not change state when the warp dropped; and the warp dropped at exactly
+#   ut=20939 == _ignitionUT - 600, which is precisely where the time term
+#   flips. Upstream, DetermineState orders `if (_timeToBurn >
+#   InitialWarpLeadTime) return INITIAL_WARP` BELOW the settled check, so an
+#   unsettled craft does not get routed out of WARPALIGN into a high-warp state
+#   either. The corrected reading is STRONGER, not weaker: the 600 s 1x park is
+#   unconditional, so this collision is waiting on every capture burn, not only
+#   on a craft that fails to settle.)
 #
 # That is byte-for-byte the "orbit unchanged and static at 1x" signature the
 # no-start watchdog fires on, and burn_nostart_seconds defaults to the SAME
 # 600.0. Flight 1: warp dropped to 1x at ut=20939, node at ut=21549.027,
-# _ignitionUT ~= 21539 (277.0 m/s at ~250 kN), and the give-up fired at
-# ut=21539.4 with burnStaticAge=600.18 -- roughly ONE POLL before a perfectly
-# healthy executor would have lit the engine. TRANSFER-BURN survived the same
+# _ignitionUT ~= 21539 (277.0 m/s at ~250 kN, i.e. halfBurnTime ~10 s), and the
+# give-up fired at ut=21539.4: 9.6 s before the NODE's own UT, and within half a
+# second of _ignitionUT itself -- i.e. at the very instant a healthy executor
+# lights the engine, not comfortably before it. TRANSFER-BURN survived the same
 # mechanism only by luck: in LKO the craft DID settle after ~55 s at 1x
 # (ut 1265 -> 1321) and MechJeb re-warped, so the static run never reached the
 # bound. (TRANSFER-BURN also deliberately ignores the no-start signal, so the
 # flyby family is untouched by everything below.)
+#
+# DOCUMENTATION CONSTANT: nothing in the code reads this number, and that is
+# deliberate. The disambiguation does NOT rest on any numeric relation between
+# burn_nostart_seconds and the hold -- classify_capture_nostart uses the NODE's
+# OWN clock (node_ut + CAPTURE_BURN_WINDOW_GRACE_SECONDS), which is correct for
+# every value of burn_nostart_seconds, including the schema's 60 s floor. An
+# earlier plan was to assert `burn_nostart_seconds >= this` at param build; that
+# would have been a NEW hard failure path bounding a collision the node-clock
+# guard already closes, on scenarios this branch cannot edit. Pinned by
+# MjWarpalignHoldConstantTests instead.
 MJ_EXECUTOR_WARPALIGN_HOLD_SECONDS = 600.0
 # Grace past the node's OWN UT before "nothing has burned" becomes evidence
 # of a dead executor. MechJeb ignites at node.UT - halfBurnTime, i.e. never
@@ -786,7 +893,69 @@ CAPTURE_NOSTART_FLAKE = "flake"        # window passed, nothing left to try
 # warping HOLDS the command instead of revoking it. Only a readable frame may
 # retarget (through the existing asymmetric hysteresis), and only a blind read
 # with the game NOT warping is evidence that the encounter is actually gone.
-MAX_COAST_WARP_ISSUES = 500
+#
+# ---------------------------------------------------------------------------
+# NATIVE-WARP THRASH WATCHDOG (widened by the 2026-07-25 review). The original
+# guard counted ONE of the FOUR _b5_native_warp call sites (COAST) and counted
+# it PER MISSION. Both were wrong:
+#
+#   - the metastability proven on B12 flight 2 is a property of the SHARED
+#     _b5_native_warp primitive (cancel / re-arm within one poll), not of the
+#     coast branch, so the CORRECTION-BURN aim-warp (two call sites) and the
+#     TARGET-FLYBY capture warp had NO thrash bound at all. Worse, the B12
+#     flight-1 fix suppresses the CORRECTION-BURN phase BUDGET entirely while
+#     the aim-warp is in flight, and neither mechanism named as covering that
+#     class actually does: the runner's stall watchdog only fires when UT
+#     FREEZES for 10 wall-s (a crawling warp advances UT), and the mission wall
+#     budget is the un-named generic reaper. A 73,733 game-second aim-warp
+#     ramping at ~2.7x had literally nothing bounding it.
+#   - a PER-MISSION counter bounds the wrong thing. The failure it describes is
+#     a SINGLE episode fighting itself; a coast legitimately re-arms once per
+#     re-entry (once per correction round), and B7's heliocentric coast runs an
+#     asymmetric retarget hysteresis with an absolute 120 s floor against
+#     multi-million-second spans over 2+ rounds whose healthy issue count has
+#     never been measured. Resetting the counter on every PHASE ENTRY bounds
+#     the episode and removes that false-flake risk. For COAST this is strictly
+#     a RELAXATION of the shipped bound (per-episode >= per-mission), so the
+#     live-proven B5/B6/B7 lane cannot red on it where it did not before.
+#
+# The cap stays where it was measured against: a healthy COAST issued the warp
+# ONCE (B11 flight 2, full pass), the thrash issued 3,603. The two newly
+# counted sites are structurally quieter still -- the aim-warp target is the
+# node's FIXED UT, so it never retargets and can only re-issue through the
+# 30-game-second self-heal, and the capture warp's target (ut + ttPe - lead) is
+# constant along the coast. Anything approaching 500 issues in ONE phase at
+# either site is the cancel/re-arm loop by construction.
+MAX_PHASE_WARP_ISSUES = 500
+
+# The distinct thrash names, one per call site (the standing rule: every
+# give-up says which actor was provably dead, and "which warp" is the first
+# question an operator asks).
+WARP_THRASH_COAST = "coast-warp-thrash"
+WARP_THRASH_CORRECTION_AIM = "correction-aim-warp-thrash"
+WARP_THRASH_FLYBY = "flyby-warp-thrash"
+
+# ---------------------------------------------------------------------------
+# NATIVE-WARP LIVENESS FLOOR (same review). The thrash counter bounds a warp
+# that is BEING RE-ISSUED; it says nothing about a warp that was armed ONCE and
+# is simply not moving. `warpUtilisation.gameSecondsPerWallSecond` was already
+# computed for exactly this shape and nothing consumed it as a give-up.
+#
+# The floor is deliberately far below any legitimate warp and comfortably above
+# the measured pathological one: B12 flight 2's thrashing coast read ~1.3
+# game-s per wall-s (rails rate never escaping ~2.7x), while a genuinely
+# warping phase reads hundreds to thousands. 5.0 is ~4x above the measured
+# defect and ~20x below the cheapest healthy warp.
+#
+# It is armed ONLY while the machine has a NATIVE warp command outstanding
+# (state.warp_to_cmd is not None), so a deliberate 1x phase -- B5's PARK dwell,
+# every B1/B2/B4 phase, the whole FORGE / B-DOCK family -- can never trip it.
+# The minimum window covers the rails ramp and any short warp that completes
+# before it can be judged: a warp whose whole episode is under
+# WARP_LIVENESS_MIN_WALL_SECONDS is never judged at all.
+WARP_LIVENESS_MIN_RATIO = 5.0
+WARP_LIVENESS_MIN_WALL_SECONDS = 180.0
+WARP_LIVENESS_GIVEUP = "warp-liveness-starved"
 
 # classify_correction_timeout verdicts: the NAMED CORRECTION-BURN give-ups
 # (the standing rule -- an actor-dependent phase may never idle to its budget
@@ -2939,12 +3108,13 @@ class B5State:
     # from a clean one in the log, and B12 flight 1's diagnosis hinged
     # entirely on knowing which exit fired.
     corr_giveup: str = CORR_GIVEUP_NONE
-    # Native warp_to_ut issues emitted from COAST-TO-TARGET this MISSION (B12
-    # flight 2). A healthy coast issues a handful; the thrash watchdog names
-    # the failure past MAX_COAST_WARP_ISSUES. Never reset -- a coast re-entered
-    # after each correction round legitimately re-arms once per entry, and the
-    # cap is two orders of magnitude above that.
-    coast_warp_issues: int = 0
+    # Native warp_to_ut issues emitted THIS PHASE (B12 flight 2; widened by the
+    # 2026-07-25 review to every _b5_native_warp call site). RESET on every
+    # phase entry, because the failure it bounds is a SINGLE warp episode
+    # fighting itself -- see MAX_PHASE_WARP_ISSUES for why per-mission counting
+    # bounded the wrong thing and put B7's multi-round heliocentric coast at
+    # false-flake risk.
+    phase_warp_issues: int = 0
     # Flameout staging (twenty-second flight): consecutive frames a COMMANDED
     # burn read zero available thrust, and stages popped so far (bounded by
     # MAX_FLAMEOUT_STAGES for the whole mission -- staging is irreversible,
@@ -2964,8 +3134,16 @@ class B5State:
     no_encounter_streak: int = 0
     # --- ORBIT-mission tail (B11/B12); all inert with capture_enabled False.
     # Consecutive in-target-SOI frames with a finite ABOVE-SURFACE periapsis
-    # (the PLAN-CAPTURE arming debounce).
+    # still AHEAD of us (the PLAN-CAPTURE arming debounce), and its MIRROR: the
+    # consecutive in-target-SOI frames the arming verdict came back FALSE. The
+    # mirror is the liveness bound -- with a dark periapsis clock nothing else
+    # in capture mode can terminate the phase short of the wall reaper (see
+    # CAPTURE_NEVER_ARMED_FRAMES). Exactly one of the two is non-zero.
     capture_arm_streak: int = 0
+    capture_unarmed_streak: int = 0
+    # Consecutive PLAN-CAPTURE frames whose planned node is NOT at the arrival
+    # periapsis (see CAPTURE_NODE_SANITY_DEBOUNCE_FRAMES).
+    capture_node_bad_streak: int = 0
     # CAPTURE-BURN executor supervision (B11 flight 1). Consecutive frames
     # OBSERVING NodeExecutor.Enabled == False with a node pending, the number
     # of bounded mj_execute_nodes re-issues spent, and the number of bounded
@@ -3046,7 +3224,11 @@ def _b5_enter(state: B5State, new_phase: str, ut: float,
     to ``phases_reached``. RETURN (the flyby free-return) and ORBIT-COMMITTED
     (the capture mission's committed-in-foreign-SOI terminal) are the only
     phases whose ENTRY terminates the machine (done, verdict None -- the
-    assertions decide)."""
+    assertions decide).
+
+    ``phase_warp_issues`` resets here: the thrash watchdog bounds ONE warp
+    episode, and a phase entry is exactly the episode boundary (see
+    MAX_PHASE_WARP_ISSUES)."""
     entry = ut if _is_finite(ut) else state.phase_entry_ut
     return replace(
         state,
@@ -3054,6 +3236,7 @@ def _b5_enter(state: B5State, new_phase: str, ut: float,
         phase_entry_ut=entry,
         peak_apoapsis=peak,
         phases_reached=state.phases_reached + (new_phase,),
+        phase_warp_issues=0,
         done=(new_phase in (B5_RETURN, B5_ORBIT_COMMITTED)),
     )
 
@@ -3523,6 +3706,67 @@ def _b5_native_warp(state: B5State, snapshot: TelemetrySnapshot,
     return state, []
 
 
+def _b5_native_warp_guarded(state: B5State, snapshot: TelemetrySnapshot,
+                            target: float, peak: Optional[float],
+                            giveup_name: str) -> Tuple[B5State, List[Action]]:
+    """``_b5_native_warp`` plus the THRASH WATCHDOG, for every call site.
+
+    A healthy phase issues warp_to_ut once (plus the occasional hysteresis
+    retarget or 30-game-second self-heal); B12 flight 2's coast issued it 3,603
+    times inside one phase and crawled to the wall budget at ~2.7x. Past
+    MAX_PHASE_WARP_ISSUES issues IN THIS PHASE the warp policy is provably
+    fighting itself -> NAMED fast-fail carrying ``giveup_name`` (one of the
+    WARP_THRASH_* constants, so an operator reads WHICH warp thrashed without
+    grepping the phase out of the message).
+
+    The counter is per-PHASE (reset in ``_b5_enter``): the failure is one warp
+    episode, not a mission-long total."""
+    issued, actions = _b5_native_warp(state, snapshot, target)
+    if not any(a.kind == ACTION_WARP_TO_UT for a in actions):
+        return issued, actions
+    issues = issued.phase_warp_issues + 1
+    issued = replace(issued, phase_warp_issues=issues)
+    if issues > MAX_PHASE_WARP_ISSUES:
+        return _b5_named_flake(
+            issued,
+            "phase %s: %s (%d native warp_to_ut issues in THIS phase, cap %d "
+            "-- the warp policy is cancelling and re-arming its own warp "
+            "instead of warping; ut=%s target=%s tts=%s ttPe=%s warp=%sx%s)"
+            % (issued.phase, giveup_name, issues, MAX_PHASE_WARP_ISSUES,
+               _obs_fmt(snapshot.ut), _obs_fmt(float(target)),
+               _obs_fmt(snapshot.time_to_soi),
+               _obs_fmt(snapshot.time_to_periapsis),
+               snapshot.warp_mode, _obs_fmt(snapshot.warp_rate)),
+            peak), []
+    return issued, actions
+
+
+def warp_liveness_starved(game_seconds: float, wall_seconds: float,
+                          min_ratio: float = WARP_LIVENESS_MIN_RATIO,
+                          min_wall: float = WARP_LIVENESS_MIN_WALL_SECONDS
+                          ) -> bool:
+    """True when an ARMED native warp has been running long enough to judge and
+    is not actually warping. Pure; primitives in, bool out (the fly loop owns
+    the wall clock, so it feeds the spans in).
+
+    The complement of the thrash watchdog: that one bounds a warp being
+    RE-ISSUED, this one bounds a warp armed ONCE that crawls. Neither the
+    runner's warp-stall watchdog (which needs UT to FREEZE for 10 wall-s) nor a
+    GAME-time phase budget (which a crawling warp advances, and which the B12
+    flight-1 fix suppresses outright during an aim-warp) can see this shape; the
+    only thing that used to bound it was the generic un-named wall reaper.
+
+    Fails CLOSED in every unreadable case -- a non-finite or non-positive span
+    is not evidence of a starved warp -- and never judges an episode shorter
+    than ``min_wall`` (a short warp completes before it could be judged, and a
+    rails ramp is legitimately slow at the start)."""
+    if not (_is_finite(wall_seconds) and _is_finite(game_seconds)):
+        return False
+    if wall_seconds < min_wall or wall_seconds <= 0.0:
+        return False
+    return (game_seconds / wall_seconds) < min_ratio
+
+
 def _b5_hold_blank_body(stayed: B5State) -> Tuple[B5State, List[Action]]:
     """One COAST/FLYBY frame with body == "" (no SOI reading): HOLD all warp
     state (never cancel/re-command on a transient blank), but BOUND the dwell
@@ -3601,22 +3845,117 @@ def capture_flyby_warp_target(time_to_periapsis: float, ut: float,
 
 def _b5_capture_arm_ready(state: B5State, snapshot: TelemetrySnapshot) -> bool:
     """One TARGET-FLYBY frame's capture-arming verdict: capture is enabled, the
-    SOI body IS the target, and the arrival periapsis reads FINITE and ABOVE the
-    surface. A sub-surface periapsis is an impact trajectory (the
-    impact-certain terminal owns it), and a NaN read fails CLOSED -- never arm a
-    capture on evidence we do not have."""
+    SOI body IS the target, the arrival periapsis reads FINITE and ABOVE the
+    surface, AND periapsis is still AHEAD of us. A sub-surface periapsis is an
+    impact trajectory (the impact-certain terminal owns it), and a NaN read
+    fails CLOSED -- never arm a capture on evidence we do not have.
+
+    The ``time_to_periapsis > 0`` conjunct is DEFENCE IN DEPTH added after B12
+    flight 3, which armed the capture AFTER periapsis (alt 41,609 m, vertical
+    speed +92 m/s, already climbing away) and produced a 325 x 5.3 km graze the
+    park window correctly rejected. The altitude/periapsis pair alone cannot see
+    which SIDE of periapsis the craft is on; the clock can. It costs the healthy
+    path nothing -- b11/b12 both build their control with read_periapsis=True,
+    so the channel is live on every frame of both lanes -- but note it makes the
+    ARMING depend on that opt-in read: a shell that copies b11 WITHOUT
+    read_periapsis=True now never arms, which is exactly what the
+    capture-never-armed give-up below is there to name in bounded time."""
     return (state.params.capture_enabled
             and snapshot.body == state.params.target_body
-            and _is_finite(snapshot.periapsis) and snapshot.periapsis > 0.0)
+            and _is_finite(snapshot.periapsis) and snapshot.periapsis > 0.0
+            and _is_finite(snapshot.time_to_periapsis)
+            and snapshot.time_to_periapsis > 0.0)
+
+
+def classify_capture_arm_failure(periapsis: float,
+                                 time_to_periapsis: float) -> str:
+    """WHY a TARGET-FLYBY capture frame did not arm. Pure; primitives in, one of
+    the ``CAPTURE_ARM_*`` verdicts out. Only meaningful on a frame where
+    ``_b5_capture_arm_ready`` already returned False.
+
+    The three cases need DIFFERENT operator responses, which is the whole point
+    of splitting them:
+
+      - ``CAPTURE_ARM_BLIND``     the periapsis clock is unreadable (the opt-in
+        read is off, it faulted, or the kRPC surface drifted). Nothing is wrong
+        with the trajectory; the MACHINE is blind. Fix the channel.
+      - ``CAPTURE_ARM_SUBSURFACE`` the arrival periapsis is below the surface --
+        an impact trajectory. The corrections under-performed.
+      - ``CAPTURE_ARM_PAST_PERIAPSIS`` periapsis is BEHIND us. There is nothing
+        left to capture on this pass (B12 flight 3's signature).
+    """
+    if not _is_finite(periapsis) or not _is_finite(time_to_periapsis):
+        return CAPTURE_ARM_BLIND
+    if periapsis <= 0.0:
+        return CAPTURE_ARM_SUBSURFACE
+    if time_to_periapsis <= 0.0:
+        return CAPTURE_ARM_PAST_PERIAPSIS
+    # Every conjunct satisfied: the caller should not have asked.
+    return CAPTURE_ARM_READY
+
+
+# The operator-facing half of each verdict: the three shapes need three
+# DIFFERENT responses, and "capture-never-armed" alone does not say which.
+_CAPTURE_ARM_FAILURE_HINT = {
+    CAPTURE_ARM_BLIND: ("The PERIAPSIS CLOCK IS UNREADABLE, not the "
+                        "trajectory: check that the mission control was built "
+                        "with read_periapsis=True and that Orbit"
+                        ".time_to_periapsis still resolves on this kRPC pin."),
+    CAPTURE_ARM_SUBSURFACE: ("The arrival periapsis is BELOW THE SURFACE: the "
+                             "course corrections under-performed and this is "
+                             "an impact trajectory."),
+    CAPTURE_ARM_PAST_PERIAPSIS: ("PERIAPSIS IS ALREADY BEHIND US: the arrival "
+                                 "flew through the capture point before the "
+                                 "machine could arm (B12 flight 3's shape)."),
+    CAPTURE_ARM_READY: ("The arming verdict disagrees with the failure "
+                        "classifier -- this is a machine bug, not a flight "
+                        "outcome."),
+}
+
+
+def capture_node_at_periapsis(node_ut: float, ut: float,
+                              time_to_periapsis: float,
+                              tolerance: float =
+                              CAPTURE_NODE_PERIAPSIS_TOLERANCE_SECONDS
+                              ) -> bool:
+    """True when a planned capture node actually sits at the arrival periapsis.
+    Pure; primitives in, bool out. See
+    CAPTURE_NODE_PERIAPSIS_TOLERANCE_SECONDS for the tolerance rationale.
+
+    FAILS CLOSED on any non-finite input -- a node whose UT cannot be read, or
+    a periapsis clock that cannot be read, is not evidence that the node is
+    where the capture needs it. That is deliberate asymmetry: refusing a good
+    node costs one bounded named flake, flying a node planned against MechJeb's
+    inherited time reference costs the mission AND records a garbage orbit."""
+    if not (_is_finite(node_ut) and _is_finite(ut)
+            and _is_finite(time_to_periapsis)):
+        return False
+    return abs(node_ut - (ut + time_to_periapsis)) <= tolerance
 
 
 def _b5_enter_plan_capture(state: B5State, snapshot: TelemetrySnapshot,
-                           peak: Optional[float]) -> Tuple[B5State, List[Action]]:
+                           peak: Optional[float],
+                           issue_plan: bool = True
+                           ) -> Tuple[B5State, List[Action]]:
     """PLAN-CAPTURE entry. Same warp prelude as the correction entry: bring warp
     under PLAN control before planning -- cancel an active native warp (which
     also zeroes the rails factors runner-side), else step a held rails factor
     straight to the plan hold (never 1x: planning is an RPC, and the 10x hold
-    bounds plan-position drift to ~5 game-s per poll)."""
+    bounds plan-position drift to ~5 game-s per poll).
+
+    ``issue_plan=False`` enters the phase WITHOUT emitting the plan on this
+    frame, leaving PLAN-CAPTURE's own plan_retry_seconds cadence to issue it on
+    the NEXT poll. That is the stale-node RE-PLAN path (see the CAPTURE-BURN
+    caller): the transition frame emits only the node CLEAR, because MechJeb's
+    NodeExecutor self-aborts on the next physics frame ONLY once the node list
+    is observed EMPTY (decompiled 2.15.1 OnFixedUpdate: !_hasNodes -> Abort()),
+    and remove_nodes() + make_nodes() in one fly-loop frame are two RPCs that
+    can both land inside a single 20 ms physics frame -- so the precondition
+    may never be observed, the executor stays engaged across the re-plan, and
+    the next handoff calls execute_all_nodes() on an already-enabled module
+    (the poisoned re-engage family from flights 6-7). The attempt budget is
+    NOT consumed by the skipped emission: plan_attempts stays 0 and last_plan_ut
+    is backdated by the retry interval, so the next poll issues attempt 1."""
     entered = _b5_enter(state, B5_PLAN_CAPTURE, snapshot.ut, peak)
     plan_hold = min(state.params.plan_warp_factor,
                     max_legal_rails_factor(snapshot.body, snapshot.altitude))
@@ -3629,11 +3968,22 @@ def _b5_enter_plan_capture(state: B5State, snapshot: TelemetrySnapshot,
     else:
         prelude = []
         entered_warp_cmd = state.warp_cmd
+    if issue_plan:
+        last_plan_ut = snapshot.ut if _is_finite(snapshot.ut) else 0.0
+        attempts = 1
+        plan_actions = [Action(ACTION_MJ_PLAN_CAPTURE)]
+    else:
+        last_plan_ut = ((snapshot.ut - state.params.plan_retry_seconds)
+                        if _is_finite(snapshot.ut) else 0.0)
+        attempts = 0
+        plan_actions = []
     entered = replace(entered,
-                      last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0,
+                      last_plan_ut=last_plan_ut,
                       warp_cmd=entered_warp_cmd, warp_to_cmd=None,
-                      body_blank_count=0, plan_attempts=1, capture_arm_streak=0)
-    return entered, prelude + [Action(ACTION_MJ_PLAN_CAPTURE)]
+                      body_blank_count=0, plan_attempts=attempts,
+                      capture_arm_streak=0, capture_unarmed_streak=0,
+                      capture_node_bad_streak=0)
+    return entered, prelude + plan_actions
 
 
 def classify_capture_nostart(node_ut: float, ut: float, node_count: int,
@@ -4168,12 +4518,20 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # a wedged warp.
         if state.warp_to_cmd is not None:
             if not (_is_finite(snapshot.ut) and snapshot.ut >= state.warp_to_cmd):
-                held = _corr_stay_or_flake(state)
-                if held.done:
-                    # Budget flake mid-warp: leave nothing warped behind.
-                    return (replace(held, warp_to_cmd=None),
-                            [Action(ACTION_CANCEL_WARP)])
-                return _b5_native_warp(held, snapshot, state.warp_to_cmd)
+                # NO budget check here, and none is possible: the enclosing
+                # condition (ut non-finite, or ut short of the aim-warp target)
+                # is EXACTLY correction_budget_expired's own suppression
+                # condition, so calling it here always returned False. The
+                # branch that used to sit here -- "budget flake mid-warp,
+                # cancel and leave nothing warped behind" -- was UNREACHABLE
+                # for every input, and reading as a surviving mid-warp bound is
+                # what hid the fact that NOTHING bounded a crawling aim-warp.
+                # The two real bounds are now the thrash watchdog below and the
+                # runner's native-warp liveness floor (warp_liveness_starved).
+                held = replace(state, peak_apoapsis=peak)
+                return _b5_native_warp_guarded(held, snapshot,
+                                               state.warp_to_cmd, peak,
+                                               WARP_THRASH_CORRECTION_AIM)
             # ARRIVAL: the server stepper zeroed the factor on completion.
             # Re-verify the attitude from FRESH readings (the streak re-earns
             # its full debounce -- rails should have held the orientation; a
@@ -4256,8 +4614,9 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             if (_is_finite(snapshot.node_ut) and _is_finite(snapshot.ut)
                     and snapshot.ut < snapshot.node_ut - state.params.node_arrival_margin):
                 aim_target = snapshot.node_ut - state.params.node_arrival_margin
-                return _b5_native_warp(replace(stayed, aligned_streak=0),
-                                       snapshot, aim_target)
+                return _b5_native_warp_guarded(
+                    replace(stayed, aligned_streak=0), snapshot, aim_target,
+                    peak, WARP_THRASH_CORRECTION_AIM)
             started = replace(stayed, corr_burn_started=True,
                               burn_static_since=(snapshot.ut if _is_finite(snapshot.ut)
                                                  else None))
@@ -4486,28 +4845,12 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 snapshot.time_to_soi, stayed.warp_to_cmd, snapshot.ut,
                 snapshot.warp_mode, snapshot.warp_rate, snapshot.warping_to)
         if native_target is not None:
-            issued, warp_actions = _b5_native_warp(stayed, snapshot, native_target)
-            if any(a.kind == ACTION_WARP_TO_UT for a in warp_actions):
-                # THRASH WATCHDOG (B12 flight 2 liveness): a healthy coast
-                # issues the native warp a handful of times (arm + the
-                # occasional hysteresis retarget); flight 2 issued it 3,603
-                # times and crawled to the wall budget. Past the cap the warp
-                # policy is provably fighting itself -> NAMED fast-fail, at
-                # roughly a seventh of the wall cost that flake took.
-                issues = issued.coast_warp_issues + 1
-                issued = replace(issued, coast_warp_issues=issues)
-                if issues > MAX_COAST_WARP_ISSUES:
-                    return _b5_named_flake(
-                        issued,
-                        "phase %s: coast-warp-thrash (%d native warp_to_ut "
-                        "issues this mission, cap %d -- the coast is "
-                        "cancelling and re-arming its own warp instead of "
-                        "warping; ut=%s tts=%s warp=%sx%s)"
-                        % (B5_COAST_TO_TARGET, issues, MAX_COAST_WARP_ISSUES,
-                           _obs_fmt(snapshot.ut), _obs_fmt(snapshot.time_to_soi),
-                           snapshot.warp_mode, _obs_fmt(snapshot.warp_rate)),
-                        peak), []
-            return issued, warp_actions
+            # THRASH WATCHDOG (B12 flight 2 liveness): a healthy coast issues
+            # the native warp a handful of times (arm + the occasional
+            # hysteresis retarget); flight 2 issued it 3,603 times in one phase
+            # and crawled to the wall budget.
+            return _b5_native_warp_guarded(stayed, snapshot, native_target,
+                                           peak, WARP_THRASH_COAST)
         if blind_soi_hold:
             # HOLD: emit nothing, keep warp_to_cmd armed, let the warp ramp.
             return stayed, []
@@ -4552,12 +4895,41 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             # there is no way to warp past the burn.
             if _b5_capture_arm_ready(state, snapshot):
                 streak = state.capture_arm_streak + 1
+                state = replace(state, capture_unarmed_streak=0)
                 if streak >= CAPTURE_ARM_DEBOUNCE_FRAMES:
                     return _b5_enter_plan_capture(
                         replace(state, capture_arm_streak=0), snapshot, peak)
                 state = replace(state, capture_arm_streak=streak)
-            elif state.capture_arm_streak:
-                state = replace(state, capture_arm_streak=0)
+            else:
+                # NEVER-ARMED LIVENESS BOUND (see CAPTURE_NEVER_ARMED_FRAMES).
+                # With the periapsis clock dark NOTHING else in capture mode can
+                # end this phase: the warp refuses to arm (correctly), the
+                # arming gate fails closed, the impact terminal needs a FINITE
+                # sub-surface periapsis, and flybyTimeoutSeconds is 300,000+
+                # GAME seconds -- unreachable at 1x inside the wall budget. So
+                # a debounced run of unarmable frames is a NAMED fast-fail that
+                # says WHICH shape it saw. Capture-mode only by construction:
+                # the enclosing branch is gated on capture_enabled.
+                unarmed = state.capture_unarmed_streak + 1
+                state = replace(state, capture_arm_streak=0,
+                                capture_unarmed_streak=unarmed)
+                if unarmed >= CAPTURE_NEVER_ARMED_FRAMES:
+                    why = classify_capture_arm_failure(
+                        snapshot.periapsis, snapshot.time_to_periapsis)
+                    return _b5_named_flake(
+                        state,
+                        "phase %s: capture-never-armed (%s) -- %d consecutive "
+                        "in-%s-SOI frames could not arm PLAN-CAPTURE "
+                        "(cap %d; pe=%s ttPe=%s alt=%s vspd=%s ut=%s). %s"
+                        % (B5_TARGET_FLYBY, why, unarmed,
+                           state.params.target_body, CAPTURE_NEVER_ARMED_FRAMES,
+                           _obs_fmt(snapshot.periapsis),
+                           _obs_fmt(snapshot.time_to_periapsis),
+                           _obs_fmt(snapshot.altitude),
+                           _obs_fmt(snapshot.vertical_speed),
+                           _obs_fmt(snapshot.ut),
+                           _CAPTURE_ARM_FAILURE_HINT.get(why, "")),
+                        peak), []
         if not state.params.capture_enabled and snapshot.body == return_body:
             # The exit: back in the return body's SOI after the flyby (home
             # for the B5/B6 free-return, Sun for B7 -- a Duna flyby exits
@@ -4673,7 +5045,11 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                               max_legal_rails_factor(snapshot.body,
                                                      snapshot.altitude))
         if native_target is not None:
-            return _b5_native_warp(stayed, snapshot, native_target)
+            # Same THRASH WATCHDOG as the coast: the capture warp's target
+            # (ut + ttPe - lead) is constant along the approach, so a phase
+            # that issues it hundreds of times is cancelling and re-arming.
+            return _b5_native_warp_guarded(stayed, snapshot, native_target,
+                                           peak, WARP_THRASH_FLYBY)
         if stayed.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
             # 1x/rails intent while a native warp is (expected) active --
             # including the impact guard's authoritative stop: CANCEL first,
@@ -4700,6 +5076,48 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         left = _b5_left_target_soi(state, snapshot)
         if left is not None:
             return replace(left, peak_apoapsis=peak), []
+        # NODE-UT SANITY GATE (reviewer finding, 2026-07-25). The handoff below
+        # accepts ANY node_count >= 1 with no gate on WHEN the node is, and the
+        # runner's circularize planner sets TimeReference.Periapsis on a
+        # SHARED, PERSISTED MechJeb TimeSelector. A refused set (the property
+        # throws OperationException on a disallowed reference) used to be
+        # swallowed and the plan issued anyway, so INHERITED GLOBAL MechJeb
+        # STATE could grant a capture at an arbitrary UT -- the same
+        # commanded-vs-OBSERVED gap this branch closed for
+        # NodeExecutor.Enabled. The runner now refuses to plan on a failed
+        # read-back; this is the machine-side half, so a node that arrives at
+        # the wrong UT by ANY route is refused rather than flown.
+        #
+        # DEBOUNCED, like every other gate here. Two reasons: a transient
+        # node/clock read must not end a live mission, and the stale-node
+        # RE-PLAN path re-enters this phase with a just-cleared node that can
+        # still read node_count >= 1 for a poll or two (its UT is in the past,
+        # so it would classify off-periapsis). The debounce is cheap: the phase
+        # polls under the 10x plan hold, ~5 game-s per poll.
+        if snapshot.node_count >= 1 and not capture_node_at_periapsis(
+                snapshot.node_ut, snapshot.ut, snapshot.time_to_periapsis):
+            bad = state.capture_node_bad_streak + 1
+            state = replace(state, capture_node_bad_streak=bad)
+            if bad >= CAPTURE_NODE_SANITY_DEBOUNCE_FRAMES:
+                return _b5_named_flake(
+                    replace(state, peak_apoapsis=peak),
+                    "phase %s: capture-node-off-periapsis (the planned node is "
+                    "not at the arrival periapsis for %d consecutive frames: "
+                    "nodeUt=%s, periapsis is at %s (ut=%s + ttPe=%s), "
+                    "tolerance %.0f s). Refusing to fly a capture node planned "
+                    "against MechJeb's inherited time reference; nodes=%d"
+                    % (B5_PLAN_CAPTURE, bad, _obs_fmt(snapshot.node_ut),
+                       _obs_fmt(snapshot.ut + snapshot.time_to_periapsis),
+                       _obs_fmt(snapshot.ut),
+                       _obs_fmt(snapshot.time_to_periapsis),
+                       CAPTURE_NODE_PERIAPSIS_TOLERANCE_SECONDS,
+                       snapshot.node_count)), [
+                    Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)]
+            # Hold this frame: do NOT hand a suspect node to the executor while
+            # the debounce is still running.
+            return replace(state, peak_apoapsis=peak), []
+        if state.capture_node_bad_streak:
+            state = replace(state, capture_node_bad_streak=0)
         new_state, actions = _b5_plan_phase(
             state, snapshot, peak,
             plan_action=Action(ACTION_MJ_PLAN_CAPTURE),
@@ -4744,15 +5162,24 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                               capture_eccentricity=float(snapshot.eccentricity))
             return entered, _b5_park_entry_actions()
         if stuck:
-            # A burn demonstrably ran, the executor wedged holding the node, and
-            # the orbit is STILL not bound inside the window: the capture
-            # under-burned. An autopilot failure -> bounded, NAMED flake.
+            # A burn demonstrably ran, progress then stopped for
+            # burnStagnantSeconds, and the orbit is STILL not bound inside the
+            # window: the capture under-burned. An autopilot failure ->
+            # bounded, NAMED flake.
+            #
+            # ``stuck`` does NOT imply the node is still pending: it is
+            # burn-progress stagnation, which also fires when the executor
+            # CONSUMED the node and produced an out-of-window orbit. So report
+            # the OBSERVED node count instead of asserting a wedge; nodes=0
+            # here means "the burn finished and missed", nodes>0 means "the
+            # executor stopped holding an unfinished node".
             return _b5_named_flake(
                 state,
-                "phase %s: capture under-burn (executor wedged with the node "
-                "still pending; ap=%.0f pe=%.0f ecc=%.3f is not a bound orbit "
+                "phase %s: capture under-burn (burn progress stalled with "
+                "nodes=%d; ap=%.0f pe=%.0f ecc=%.3f is not a bound orbit "
                 "inside [pe>=%.0f, ap<=%.0f, ecc<=%.2f])"
-                % (B5_CAPTURE_BURN, snapshot.apoapsis, snapshot.periapsis,
+                % (B5_CAPTURE_BURN, snapshot.node_count, snapshot.apoapsis,
+                   snapshot.periapsis,
                    snapshot.eccentricity, state.params.park_min_periapsis,
                    state.params.park_max_apoapsis,
                    state.params.park_max_eccentricity), peak), []
@@ -4802,11 +5229,16 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 # untouched (the craft coasted through periapsis unburned).
                 # Never fly a node whose window is gone -- drop it and solve a
                 # fresh capture. Bounded at MAX_CAPTURE_REPLANS.
+                # ONLY the clear on this frame (issue_plan=False): the plan
+                # follows on the next poll through PLAN-CAPTURE's own cadence,
+                # so MechJeb can actually OBSERVE an empty node list and run
+                # its own abort before a new node appears. See
+                # _b5_enter_plan_capture's docstring for the mechanism.
                 entered, plan_actions = _b5_enter_plan_capture(
                     replace(state,
                             capture_replans_done=state.capture_replans_done + 1,
                             capture_exec_disabled_streak=0),
-                    snapshot, peak)
+                    snapshot, peak, issue_plan=False)
                 return entered, ([Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)]
                                  + plan_actions)
             if verdict == CAPTURE_NOSTART_FLAKE:
@@ -4854,15 +5286,34 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         if left is not None:
             return replace(left, peak_apoapsis=peak), []
         stable = _b5_park_stable(state.params, snapshot)
-        streak = state.park_stable_streak + 1 if stable else 0
+        # CAPPED at the debounce depth (the aligned_streak / flameout_streak
+        # discipline): every gate below tests only `>= park_debounce`, so the
+        # cap is behaviour-identical, but park_stable_streak is a DIFFED field
+        # and an uncapped counter emits one loud Info gate line plus a 21-line
+        # window dump for EVERY frame of the whole 180 s dwell (~180-360 extra
+        # lines per park).
+        streak = (min(state.park_stable_streak + 1, state.params.park_debounce)
+                  if stable else 0)
         st = replace(state, peak_apoapsis=peak, park_stable_streak=streak,
                      park_ever_stable=(state.park_ever_stable
                                        or streak >= state.params.park_debounce))
         dwelled = (_is_finite(snapshot.ut)
                    and (snapshot.ut - st.phase_entry_ut) >= state.params.park_dwell)
         if streak >= state.params.park_debounce and dwelled:
-            # HELD stable through the dwell -> commit the tree HERE, parked in
-            # the foreign SOI (the Parsek surface the whole lane exists for).
+            # In-gate NOW, and the phase has been running for the whole dwell
+            # -> commit the tree HERE, parked in the foreign SOI (the Parsek
+            # surface the whole lane exists for).
+            #
+            # WORDING NOTE (reviewer finding): the dwell is measured from
+            # phase_entry_ut, NOT from the first stable frame, so "park_dwell
+            # seconds of instability followed by park_debounce stable frames"
+            # also satisfies this. That is inherited VERBATIM from the
+            # LIVE-PROVEN forge_lko FLKO_PARK gate and is deliberately NOT
+            # changed here; the docstrings and the give-up text below say what
+            # the code enforces rather than the stronger thing. Tracking a
+            # `park_stable_since` stamp and measuring the dwell from IT is the
+            # stronger contract if it is ever wanted -- it would have to land
+            # on forge_lko at the same time, and be re-flown.
             return (_b5_enter(st, B5_ORBIT_COMMIT, snapshot.ut, peak),
                     [Action(ACTION_PARSEK_COMMIT_TREE)])
         # PARK is the RECORDED in-foreign-SOI coverage this lane exists for, so
@@ -4881,8 +5332,10 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             if st.park_ever_stable:
                 return _b5_named_flake(
                     st,
-                    "phase %s: the captured orbit stabilized but never HELD "
-                    "stable through the %.0f s park dwell"
+                    "phase %s: the captured orbit reached the park gate at "
+                    "least once but was not in-gate at the end of the %.0f s "
+                    "dwell (the dwell is measured from phase entry, not from "
+                    "first stability)"
                     % (B5_PARK, state.params.park_dwell)), []
             return _b5_named_flake(
                 st,
@@ -6422,10 +6875,20 @@ def forge_lko_decide(state: ForgeLkoState, snapshot: TelemetrySnapshot
 
     if state.phase == FLKO_PARK:
         stable = _flko_park_stable(p, snapshot)
-        streak = state.park_stable_streak + 1 if stable else 0
+        # CAPPED at the debounce depth: park_stable_streak is a DIFFED field
+        # and every gate below tests only `>= park_debounce`, so the cap is
+        # behaviour-identical while removing one gate line + one 21-line window
+        # dump per dwell frame. Same change as the B5 PARK branch.
+        streak = (min(state.park_stable_streak + 1, p.park_debounce)
+                  if stable else 0)
         st = replace(state, park_stable_streak=streak,
                      park_ever_stable=(state.park_ever_stable
                                        or streak >= p.park_debounce))
+        # NOTE (same wording caveat as B5 PARK): the dwell runs from
+        # phase_entry_ut, not from the first stable frame, so this gate means
+        # "in-gate now, and the phase has been running for the dwell", NOT
+        # "in-gate continuously through the dwell". LIVE-PROVEN as written --
+        # do not tighten it without a re-fly.
         dwelled = (_is_finite(snapshot.ut)
                    and (snapshot.ut - st.phase_entry_ut) >= p.park_dwell)
         if streak >= p.park_debounce and dwelled:
@@ -6433,8 +6896,10 @@ def forge_lko_decide(state: ForgeLkoState, snapshot: TelemetrySnapshot
         if _flko_over_budget(st, snapshot):
             if st.park_ever_stable:
                 return _flko_flake(st, (
-                    "phase %s: the orbit stabilized but never HELD stable through "
-                    "the %.0f s park dwell" % (FLKO_PARK, p.park_dwell))), []
+                    "phase %s: the orbit reached the park gate at least once but "
+                    "was not in-gate at the end of the %.0f s dwell (the dwell is "
+                    "measured from phase entry, not from first stability)"
+                    % (FLKO_PARK, p.park_dwell))), []
             return _flko_flake(st, (
                 "phase %s: never reached a stable park (situation=%s apo=%.0f "
                 "pe=%.0f angVel=%.4f)"
@@ -6813,8 +7278,14 @@ def evaluate_b5_assertions(frames, params: B5Params,
       pe >= parkMinPeriapsisMeters, ecc <= parkMaxEccentricity). A hyperbolic
       (uncaptured) approach reads a NEGATIVE apoapsis, so this cannot be
       satisfied by flying past.
-    - ``parkedStable``:         ORBIT-COMMIT was entered (the stable park HELD
-      through the whole dwell) AND the park was ever in-gate.
+    - ``parkedStable``:         ORBIT-COMMIT was entered AND the park was ever
+      in-gate. What entering ORBIT-COMMIT actually proves is that the craft was
+      IN-GATE (park_debounce consecutive frames) at a moment at least
+      park_dwell game-seconds after PARK ENTRY -- NOT that it held the gate
+      continuously across the dwell (the dwell clock runs from phase entry).
+      The gate is inherited verbatim from the LIVE-PROVEN forge_lko park; see
+      the note at the B5_PARK branch for the stronger `park_stable_since`
+      contract if it is ever wanted.
     - ``treeCommitted``:        ORBIT-COMMITTED was entered AND the seam
       answered OK -- the tree was committed while the vessel was parked in the
       FOREIGN SOI, the Parsek surface the lane exists for.
@@ -7155,9 +7626,14 @@ def build_mission_result(
         "wallSeconds": wall_seconds,
         "krpcClientVersion": krpc_client_version,
         "krpcServerVersion": krpc_server_version,
-        # Per-phase warp utilisation (B12 flight 2). Omitted entirely when the
-        # runner did not accumulate any, so every pre-existing result is
-        # byte-identical.
+        # Per-phase warp utilisation (B12 flight 2). ADDITIVE ON EVERY RESULT
+        # from a flown mission: run_mission passes the accumulator
+        # unconditionally and _fly_loop_body closes at least one row for any
+        # mission that entered the loop, so the key is present on every real
+        # flight. It is omitted only for a result built WITHOUT rows at all --
+        # a connect failure, a build_state fault, a hand-built result in a
+        # test. (An earlier revision of this comment claimed pre-existing
+        # results stayed byte-identical; they do not.)
         **({"warpUtilisation": list(warp_utilisation)} if warp_utilisation else {}),
         "error": error,
     }
@@ -7283,9 +7759,11 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     # CORRECTION-BURN budget anchoring + round-give-up naming (B12 flight 1).
     ("corr_budget_anchor_ut", "corrBudgetAnchorUt"),
     ("corr_giveup", "corrGiveup"),
-    # COAST native-warp issue count (B12 flight 2): the ONE number that names
-    # a self-fighting warp policy at a glance.
-    ("coast_warp_issues", "coastWarpIssues"),
+    # PER-PHASE native-warp issue count (B12 flight 2, widened by the
+    # 2026-07-25 review): the ONE number that names a self-fighting warp policy
+    # at a glance, now counted at every _b5_native_warp call site and reset on
+    # phase entry.
+    ("phase_warp_issues", "phaseWarpIssues"),
     ("warp_cmd", "warpCmd"),
     ("phys_warp_cmd", "physWarpCmd"),
     ("warp_to_cmd", "warpToCmd"),
@@ -7336,6 +7814,11 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     # park_stable_streak is shared with the FORGE-LKO state, which gains the
     # same (purely additive) observability field.
     ("capture_arm_streak", "captureArmStreak"),
+    # The arming MIRROR (the never-armed liveness run). Without it a live
+    # status read cannot tell "still coasting toward the arming point" from
+    # "counting down to capture-never-armed".
+    ("capture_unarmed_streak", "captureUnarmedStreak"),
+    ("capture_node_bad_streak", "captureNodeBadStreak"),
     ("capture_exec_disabled_streak", "captureExecDownStreak"),
     ("capture_exec_reissues", "captureExecReissues"),
     ("capture_replans_done", "captureReplans"),
@@ -7345,6 +7828,12 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("capture_periapsis", "capturePe"),
     ("capture_eccentricity", "captureEcc"),
     ("commit_result", "commitResult"),
+    # WHY the machine is about to end (the named give-up). It already reaches
+    # the mission RESULT via resolve_flight_verdict, but it never reached the
+    # periodic machine-state line or the status file, so a live status read
+    # could see done/verdict without ever seeing the reason. Sparse by
+    # construction: it is set exactly once, on the terminal frame.
+    ("flake_reason", "flakeReason"),
 )
 
 # Fields whose CHANGE is a sparse, decision-relevant gate/latch event worth
@@ -7414,10 +7903,25 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     # getattr-generic: absent on every other machine, so no other mission's log moves.
     ("window_open_streak", "evaWindowStreak"),
     # ORBIT-mission tail (B11/B12): the capture-arming and park-hold debounce
-    # runs (both bounded by their debounce depths), the ever-stable latch and
-    # the observed seam commit verdict -- exactly the sparse decision events an
-    # operator needs when a capture or a parked-in-foreign-SOI commit misses.
+    # runs, the ever-stable latch and the observed seam commit verdict --
+    # exactly the sparse decision events an operator needs when a capture or a
+    # parked-in-foreign-SOI commit misses.
+    #
+    # Both streaks are bounded IN THE MACHINE, at their debounce depths. That
+    # was true of capture_arm_streak from the start (it is consumed and reset
+    # on the arming frame) but NOT of park_stable_streak, which incremented for
+    # every frame of the whole 180 s dwell and emitted one gate line plus a
+    # 21-line window dump for each -- ~180-360 extra Info lines per park. The
+    # B5 and FORGE-LKO PARK branches now cap it at park_debounce (a
+    # behaviour-identical cap: every gate tests only `>= park_debounce`), so
+    # the claim this comment makes is now actually enforced.
     ("capture_arm_streak", "captureArmStreak"),
+    # The two capture-side liveness countdowns, both bounded by their debounce
+    # depths: "the machine cannot arm the capture" and "the planned node is not
+    # at periapsis" are exactly the sparse decision events the gate lines exist
+    # for, and both used to be invisible until the give-up fired.
+    ("capture_unarmed_streak", "captureUnarmedStreak"),
+    ("capture_node_bad_streak", "captureNodeBadStreak"),
     # CAPTURE-BURN executor supervision (B11 flight 1): the observed-down
     # debounce run (bounded by CAPTURE_EXECUTOR_DISABLED_DEBOUNCE_FRAMES), and
     # the two hard-capped recovery counters. A re-issue or a re-plan is
@@ -7447,6 +7951,31 @@ def _obs_fmt(value) -> str:
             return "nan"
         return "%.3f" % value
     return str(value)
+
+
+# Free-text state fields that must be squeezed into ONE `key=value` token for
+# the machine-state LINE. The give-up reasons are whole sentences containing
+# spaces AND '=' characters (they quote the deciding telemetry), and
+# status.py's parse_kv_tokens splits on whitespace and partitions on '=', so an
+# unsanitized reason would inject bogus keys -- including collisions with real
+# ones like ut= / nodes=. The status FILE (machine_state_dict -> JSON) carries
+# the full untruncated string; only the line is squeezed.
+_MACHINE_TOKEN_FIELDS = ("flake_reason",)
+_MACHINE_TOKEN_LIMIT = 120
+
+
+def _obs_fmt_token(value) -> str:
+    """One-token rendering of a free-text state value: whitespace and '='
+    collapsed away, truncated with a '~' marker so a reader knows the line form
+    is lossy and the status file has the rest."""
+    if value is _MACHINE_FIELD_ABSENT:
+        return "-"
+    if value is None or value == "":
+        return "none"
+    text = "_".join(str(value).split()).replace("=", ":")
+    if len(text) > _MACHINE_TOKEN_LIMIT:
+        text = text[:_MACHINE_TOKEN_LIMIT] + "~"
+    return text
 
 
 def _json_safe(value):
@@ -7483,8 +8012,9 @@ def format_machine_state(state, ut: float = float("nan")) -> str:
     emits it unconditionally."""
     parts = ["machine"]
     for attr, key in MACHINE_STATE_FIELDS:
-        parts.append("%s=%s" % (key, _obs_fmt(getattr(state, attr,
-                                                      _MACHINE_FIELD_ABSENT))))
+        raw = getattr(state, attr, _MACHINE_FIELD_ABSENT)
+        render = _obs_fmt_token if attr in _MACHINE_TOKEN_FIELDS else _obs_fmt
+        parts.append("%s=%s" % (key, render(raw)))
     since = getattr(state, "burn_static_since", _MACHINE_FIELD_ABSENT)
     if since is _MACHINE_FIELD_ABSENT:
         age = _MACHINE_FIELD_ABSENT
@@ -7563,8 +8093,18 @@ def snapshot_dict(snapshot: TelemetrySnapshot) -> Dict:
         # OBSERVED MechJeb NodeExecutor.Enabled tri-state (-1 unread / 0 down /
         # 1 armed). Raw int for the same reason as crewCount: the -1 sentinel
         # IS the diagnosis when a capture watchdog fires on a run that never
-        # opted into the read.
+        # opted into the read. NOTE: emitted UNCONDITIONALLY, so the status
+        # file's snapshot block carries nodeExecutorEnabled=-1 on every mission
+        # that does not opt in. That is deliberate (an absent key and an unread
+        # channel are not the same thing) and it is NOT byte-identical to the
+        # pre-B11 status file -- the byte-identical claim on the
+        # TelemetrySnapshot field is about the MACHINE DECISIONS, which the -1
+        # default does keep unchanged, not about this block.
         "nodeExecutorEnabled": snapshot.node_executor_enabled,
+        # Seconds to periapsis (NaN -> None when unread). THE field the
+        # capture-mode flyby warp GATES ON: without it a status read cannot
+        # explain why the periapsis-bounded warp did or did not arm.
+        "timeToPeriapsis": _json_safe(snapshot.time_to_periapsis),
     }
 
 
@@ -7573,12 +8113,20 @@ def format_snapshot_compact(snapshot: TelemetrySnapshot) -> str:
     buffer (design 2c): the fields the machines gate on, ~100 chars.
 
     ``crew=N`` is appended ONLY when the crew count was actually read (the
-    opt-in FORGE-LKO channel) and ``nodeExec=N`` ONLY when the MechJeb
-    NodeExecutor.Enabled channel was actually read (the opt-in B11/B12
-    channel), so every other mission's line is unchanged."""
+    opt-in FORGE-LKO channel), ``nodeExec=N`` ONLY when the MechJeb
+    NodeExecutor.Enabled channel was actually read and ``ttPe=`` ONLY when the
+    periapsis clock was actually read (both opt-in B11/B12 channels), so every
+    other mission's line is unchanged.
+
+    ``ttPe=`` is here because the capture-mode flyby warp GATES ON it: without
+    it the event-window ring dump -- the ONE artifact that survives a
+    periapsis-bounded warp misbehaving between rate-limited telemetry samples
+    -- could not show why the warp armed, held or refused."""
     crew = "" if snapshot.crew_count < 0 else (" crew=%d" % snapshot.crew_count)
     node_exec = ("" if snapshot.node_executor_enabled < 0
                  else (" nodeExec=%d" % snapshot.node_executor_enabled))
+    tt_pe = ("" if not _is_finite(snapshot.time_to_periapsis)
+             else (" ttPe=%s" % _obs_fmt(snapshot.time_to_periapsis)))
     line = ("ut=%s alt=%s ap=%s pe=%s body=%s nodes=%d nodeDv=%s thr=%s "
             "apErr=%s tgtD=%s tgtV=%s angV=%s sas=%d rcs=%d apSt=%s warp=%sx%s "
             "sit=%s%s"
@@ -7593,4 +8141,4 @@ def format_snapshot_compact(snapshot: TelemetrySnapshot) -> str:
                snapshot.docking_ap_status or "?", snapshot.warp_mode,
                _obs_fmt(snapshot.warp_rate), snapshot.situation or "?",
                " LOST" if snapshot.vessel_lost else ""))
-    return line + crew + node_exec
+    return line + crew + node_exec + tt_pe

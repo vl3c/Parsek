@@ -25,6 +25,7 @@ import sys
 import threading
 import time
 import unittest
+from dataclasses import replace
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _MISSIONS = os.path.dirname(_HERE)                       # harness/missions
@@ -1619,6 +1620,12 @@ B11_PARAMS = dict(
     commitTimeoutSeconds=300,
 )
 
+# The UT of the scripted arrival PERIAPSIS: the capture burn completes there
+# (the CAPTURE-BURN frame below), the planned capture node sits ON it, and
+# every in-SOI frame's time_to_periapsis is derived from it. One constant so
+# the clock, the node and the burn cannot drift apart in the fixture.
+_ARRIVAL_PERIAPSIS_UT = 48_000.0
+
 
 class B11OrbitShellTests(unittest.TestCase):
     """B11/B12 shell wiring: the B5 transfer half plus the ORBIT tail
@@ -1682,25 +1689,36 @@ class B11OrbitShellTests(unittest.TestCase):
                  node_count=0),                                  # consumed -> COAST
             snap(ut=40_000.0, apoapsis=-4_000_000.0, periapsis=1_000_000.0,
                  eccentricity=1.4, altitude=2_100_000.0,
-                 situation="ESCAPING", body=body),               # SOI -> TARGET-FLYBY
+                 situation="ESCAPING", body=body,
+                 time_to_periapsis=_ARRIVAL_PERIAPSIS_UT - 40_000.0),  # SOI -> TARGET-FLYBY
         ]
 
     def _capture_frames(self, body="Mun"):
         """The ORBIT tail: arm the capture, plan it, burn it, park it, commit
         it. Altitudes drift frame to frame so the 1x frozen-telemetry detector
-        (which compares bit-identical orbit fields) never trips on the park."""
+        (which compares bit-identical orbit fields) never trips on the park.
+
+        Every in-SOI frame carries the PERIAPSIS CLOCK, because both live
+        shells build their control with read_periapsis=True: the capture arming
+        gate needs periapsis still AHEAD of us, the capture warp is bounded by
+        that clock, and the PLAN-CAPTURE handoff refuses a node that is not AT
+        the arrival periapsis. A fixture without it is a fixture of a mission
+        that never flies."""
         arming = [
             snap(ut=40_000.0 + 10.0 * i, apoapsis=-4_000_000.0,
                  periapsis=1_000_000.0, eccentricity=1.4,
                  altitude=2_000_000.0 - 1000.0 * i, situation="ESCAPING",
-                 body=body)
+                 body=body,
+                 time_to_periapsis=_ARRIVAL_PERIAPSIS_UT - (40_000.0 + 10.0 * i))
             for i in range(1, mlib.CAPTURE_ARM_DEBOUNCE_FRAMES + 1)
         ]
         tail = [
-            # PLAN-CAPTURE: the node appears -> hand off to the node executor.
+            # PLAN-CAPTURE: the node appears AT the arrival periapsis -> hand
+            # off to the node executor.
             snap(ut=40_100.0, apoapsis=-4_000_000.0, periapsis=1_000_000.0,
                  eccentricity=1.4, altitude=1_900_000.0, situation="ESCAPING",
-                 body=body, node_count=1),
+                 body=body, node_count=1, node_ut=_ARRIVAL_PERIAPSIS_UT,
+                 time_to_periapsis=_ARRIVAL_PERIAPSIS_UT - 40_100.0),
             # CAPTURE-BURN: node consumed AND the orbit is now BOUND.
             snap(ut=48_000.0, apoapsis=1_010_000.0, periapsis=990_000.0,
                  eccentricity=0.01, altitude=1_000_000.0, situation="ORBITING",
@@ -1821,6 +1839,265 @@ class B11OrbitShellTests(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertIn("tree-commit seam returned ERROR", result["reason"])
         self.assertNotIn(mlib.B5_ORBIT_COMMITTED, result["phasesReached"])
+
+
+# ---------------------------------------------------------------------------
+# Fly-loop liveness + accounting wiring (2026-07-25 review). These live in the
+# SHELL tests, not mlib's, because they need the WALL clock the pure decision
+# library deliberately does not have.
+# ---------------------------------------------------------------------------
+
+
+class _StepClock:
+    """A wall clock the TEST advances. FakeClock ticks on every READ, which
+    would make a wall-span assertion depend on how many times the loop happens
+    to call clock()."""
+
+    def __init__(self):
+        self.t = 0.0
+
+    def advance(self, dt):
+        self.t += dt
+
+    def __call__(self):
+        return self.t
+
+
+class WarpLivenessFloorWiringTests(unittest.TestCase):
+    """The fly-loop half of the native-warp liveness floor: nothing bounded a
+    warp that was ARMED ONCE and simply crawled. The runner's warp-stall
+    watchdog needs UT to FREEZE (a crawling warp advances UT), and a GAME-time
+    phase budget is either advanced by the crawl or -- for CORRECTION-BURN's
+    aim-warp -- suppressed outright."""
+
+    def _fly(self, ut_per_frame, wall_per_frame, armed=True, frames=600):
+        clock = _StepClock()
+        log = mission_runner.MissionLogger(sink=lambda _l: None, clock=clock)
+        state = mlib.b5_initial_state(mlib.b5_params_from_dict(dict(B5_PARAMS)))
+        state = replace(state, phase=mlib.B5_COAST_TO_TARGET,
+                        phase_entry_ut=0.0,
+                        warp_to_cmd=(1e12 if armed else None))
+
+        seen = {"n": 0}
+
+        def decide(st, snapshot):
+            clock.advance(wall_per_frame)
+            seen["n"] += 1
+            # A benign terminal once the scripted frames run out, so a NEGATIVE
+            # cell (the floor must NOT fire) ends cleanly instead of spinning.
+            if seen["n"] >= frames:
+                return replace(st, done=True), []
+            return st, []
+
+        snaps = [snap(ut=ut_per_frame * i, body="Kerbin",
+                      altitude=8_000_000.0, warp_mode="RAILS", warp_rate=2.68,
+                      warping_to=1e12)
+                 for i in range(frames)]
+        control = FakeMissionControl(snaps, max_last_repeats=4)
+        final, _ = mission_runner.fly_loop(
+            control, state, decide, log, deadline=1e12, clock=clock,
+            sleep=lambda _s: None, poll_interval=0.0, settle_frames=0,
+            allow_rails_warp=True)
+        return final
+
+    def test_a_crawling_armed_warp_fast_fails_with_its_own_name(self):
+        """B12 flight 2's measured shape: ~1.3 game-s per wall-s while a native
+        warp is armed. Before this the ONLY bound was the generic un-named wall
+        reaper."""
+        final = self._fly(ut_per_frame=1.3, wall_per_frame=1.0)
+        self.assertTrue(final.done)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason)
+        self.assertIn("running but not warping", final.flake_reason)
+        verdict, reason = mlib.resolve_flight_verdict(final, [])
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, reason)
+
+    def test_a_genuinely_warping_armed_warp_is_never_touched(self):
+        """A real rails warp reads hundreds to thousands of game-s per wall-s;
+        the floor must not come near it."""
+        final = self._fly(ut_per_frame=1000.0, wall_per_frame=1.0, frames=400)
+        self.assertNotEqual(final.verdict, mlib.MISSION_FLAKE)
+
+    def test_an_unarmed_1x_phase_is_never_judged(self):
+        """THE guard against killing every deliberate 1x phase (B5's PARK
+        dwell, all of B1/B2/B4, the whole FORGE / B-DOCK family): the episode is
+        armed by the machine's OWN outstanding native warp command."""
+        final = self._fly(ut_per_frame=0.5, wall_per_frame=1.0, armed=False)
+        self.assertNotEqual(final.verdict, mlib.MISSION_FLAKE)
+
+
+class WarpUtilisationUnwindTests(unittest.TestCase):
+    """_wu_close ran on every NORMAL fly-loop exit and none of the raising
+    ones, so a crashed run silently lost its FINAL phase's warp-utilisation row
+    -- exactly the phase whose warp accounting a post-mortem needs."""
+
+    def test_a_mid_flight_raise_still_closes_the_open_row(self):
+        clock = FakeClock()
+        log = mission_runner.MissionLogger(sink=lambda _l: None, clock=clock)
+        state = mlib.b5_initial_state(mlib.b5_params_from_dict(dict(B5_PARAMS)))
+        state = replace(state, phase=mlib.B5_COAST_TO_TARGET,
+                        phase_entry_ut=0.0)
+        control = FakeMissionControl(
+            [snap(ut=10.0, body="Kerbin", altitude=8_000_000.0),
+             snap(ut=20.0, body="Kerbin", altitude=8_000_000.0)],
+            raise_on_read_index=2,
+            raise_exc=ConnectionResetError("fake socket died mid-flight"))
+        with self.assertRaises(ConnectionResetError):
+            mission_runner.fly_loop(
+                control, state, lambda st, s: (st, []), log, deadline=1e12,
+                clock=clock, sleep=lambda _s: None, poll_interval=0.0,
+                settle_frames=0, allow_rails_warp=True)
+        rows = list(mission_runner._FLY_LOOP_WARP_UTILISATION)
+        self.assertEqual(len(rows), 1, rows)
+        self.assertEqual(rows[0]["phase"], mlib.B5_COAST_TO_TARGET)
+        # A REAL game span, taken from the last finite UT -- not a null.
+        self.assertEqual(rows[0]["gameSeconds"], 10.0)
+
+    def test_the_row_is_not_double_closed(self):
+        """The accumulator no-ops when the row is already closed, so a normal
+        terminal followed by the wrapper's unwind path cannot emit twice."""
+        wu = mission_runner._WarpUtilisation(FakeClock())
+        del mission_runner._FLY_LOOP_WARP_UTILISATION[:]
+        wu.begin("PHASE", 0.0)
+        wu.close(50.0)
+        wu.close(50.0)
+        self.assertEqual(len(mission_runner._FLY_LOOP_WARP_UTILISATION), 1)
+
+
+class _FakeTimeSelector:
+    def __init__(self, accept=True, initial="APOAPSIS"):
+        object.__setattr__(self, "_accept", accept)
+        object.__setattr__(self, "time_reference", initial)
+
+    def __setattr__(self, name, value):
+        if name == "time_reference" and not object.__getattribute__(self, "_accept"):
+            raise RuntimeError("OperationException: reference not allowed")
+        object.__setattr__(self, name, value)
+
+
+class _StickyTimeSelector(_FakeTimeSelector):
+    """Accepts the write and keeps its old value -- indistinguishable from a
+    throw, downstream, which is exactly why the READ BACK is the point."""
+
+    def __setattr__(self, name, value):
+        if name == "time_reference" and hasattr(self, "time_reference"):
+            return
+        object.__setattr__(self, name, value)
+
+
+class CapturePlanTimeSelectorTests(unittest.TestCase):
+    """ACTION_MJ_PLAN_CAPTURE must not plan on a REFUSED time-reference set.
+
+    TimeSelector's setter throws OperationException on a disallowed reference
+    (pinned KRPC.MechJeb Maneuver/TimeSelector.cs:120-124) and its backing
+    currentTimeRef is SHARED, PERSISTED MechJeb state, so the old
+    swallow-and-plan-anyway shape let INHERITED global state place a valid
+    capture node at an arbitrary UT -- the same commanded-vs-OBSERVED gap this
+    branch closed for NodeExecutor.Enabled."""
+
+    class _Op:
+        def __init__(self, selector):
+            self.time_selector = selector
+            self.made = 0
+
+        def make_nodes(self):
+            self.made += 1
+
+    class _Planner:
+        def __init__(self, op):
+            self.operation_circularize = op
+
+    class _TimeReference:
+        periapsis = "PERIAPSIS"
+
+    class _MechJeb:
+        def __init__(self, planner, reference):
+            self.maneuver_planner = planner
+            self.TimeReference = reference
+
+    class _Control:
+        nodes = ()
+
+    class _Vessel:
+        def __init__(self):
+            self.control = CapturePlanTimeSelectorTests._Control()
+
+    class _Sc:
+        def __init__(self, vessel):
+            self.active_vessel = vessel
+
+    class _Conn:
+        def __init__(self, sc):
+            self.space_center = sc
+
+    def _perform_plan_capture(self, selector):
+        op = self._Op(selector)
+        ctrl = mission_runner.KrpcMissionControl(use_mechjeb=True)
+        ctrl._mechjeb = self._MechJeb(self._Planner(op), self._TimeReference)
+        ctrl._conn = self._Conn(self._Sc(self._Vessel()))
+        lines = []
+        orig = mission_runner._stdout_sink
+        mission_runner._stdout_sink = lines.append
+        try:
+            ctrl.perform(mlib.Action(mlib.ACTION_MJ_PLAN_CAPTURE))
+        finally:
+            mission_runner._stdout_sink = orig
+        return op, lines
+
+    def test_a_confirmed_periapsis_reference_plans(self):
+        op, lines = self._perform_plan_capture(_FakeTimeSelector(accept=True))
+        self.assertEqual(op.made, 1)
+        self.assertEqual(op.time_selector.time_reference, "PERIAPSIS")
+        self.assertTrue(any("READ BACK confirmed" in l for l in lines), lines)
+
+    def test_a_throwing_setter_refuses_to_plan(self):
+        op, lines = self._perform_plan_capture(_FakeTimeSelector(accept=False))
+        self.assertEqual(op.made, 0,
+                         "a refused time-reference set must NOT plan: MechJeb "
+                         "would place the node at its inherited reference")
+        self.assertTrue(any("REFUSING to plan" in l for l in lines), lines)
+
+    def test_a_silently_ignored_setter_refuses_to_plan(self):
+        op, lines = self._perform_plan_capture(_StickyTimeSelector())
+        self.assertEqual(op.made, 0)
+        self.assertTrue(any("READ BACK" in l for l in lines), lines)
+
+
+class DarkChannelWarnTests(unittest.TestCase):
+    """Both opt-in reads degrade to an UNREAD sentinel on a bare
+    `except Exception`, and both sentinels DISABLE machinery downstream --
+    silently. Combined with the capture-never-armed liveness gap that was a
+    SILENT wall kill with nothing in the log naming the channel."""
+
+    def _capture(self, fn):
+        lines = []
+        orig = mission_runner._stdout_sink
+        mission_runner._stdout_sink = lines.append
+        try:
+            fn()
+        finally:
+            mission_runner._stdout_sink = orig
+        return lines
+
+    def test_node_executor_read_fault_warns_once_and_fails_closed(self):
+        class Boom:
+            @property
+            def node_executor(self):
+                raise RuntimeError("no such attribute on this pin")
+
+        ctrl = mission_runner.KrpcMissionControl(use_mechjeb=True,
+                                                 read_node_executor=True)
+        ctrl._mechjeb = Boom()
+        reads = []
+        lines = self._capture(
+            lambda: [reads.append(ctrl._read_node_executor_enabled())
+                     for _ in range(50)])
+        warns = [l for l in lines if "NodeExecutor.Enabled UNREADABLE" in l]
+        self.assertEqual(len(warns), 1, lines)
+        self.assertIn("Warn", warns[0])
+        # The -1 UNREAD sentinel is still the value: fail CLOSED, but LOUD once.
+        self.assertEqual(set(reads), {-1})
+
 
 if __name__ == "__main__":
     unittest.main()

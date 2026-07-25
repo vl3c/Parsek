@@ -454,6 +454,17 @@ class KrpcMissionControl(MissionControl):
         # the B12 flight-3 lesson: an altitude-trend rails stair cannot bound a
         # capture point, only the orbit's own clock can.
         self._read_periapsis = bool(read_periapsis)
+        # DARK-CHANNEL WARN LATCHES (reviewer finding, 2026-07-25). Both opt-in
+        # reads degrade to their UNREAD sentinel on a bare `except Exception`,
+        # and both sentinels DISABLE machinery downstream (-1 grants no executor
+        # verdict; NaN disables the capture warp AND the capture arming gate).
+        # Silently. Combined with the capture-never-armed liveness gap, a
+        # drifted kRPC surface used to produce a SILENT wall kill with nothing
+        # in the log naming the channel. One Warn on the FIRST fault per
+        # channel: enough to name it, rate-limited by construction so a
+        # permanently dark channel cannot spam a multi-thousand-poll flight.
+        self._warned_node_executor_read = False
+        self._warned_periapsis_read = False
         self._conn = None
         self._mechjeb = None
         self._ascent = None
@@ -644,12 +655,24 @@ class KrpcMissionControl(MissionControl):
             # NEVER count toward the vessel-lost read-fail streak. Surface
             # verified against the installed krpc 0.5.4 client
             # (Orbit_get_TimeToPeriapsis, seconds).
+            # NOT silent: the NaN sentinel disables the capture warp AND the
+            # capture arming gate, so a channel that faults must SAY SO once.
             time_to_periapsis = float("nan")
             if self._read_periapsis:
                 try:
                     time_to_periapsis = float(orbit.time_to_periapsis)
-                except Exception:
+                except Exception as exc:
                     time_to_periapsis = float("nan")
+                    if not self._warned_periapsis_read:
+                        self._warned_periapsis_read = True
+                        _stdout_sink(mlib.format_mission_log_line(
+                            "Warn", "Telemetry",
+                            "periapsis clock UNREADABLE (%s: %s); "
+                            "time_to_periapsis degrades to the NaN UNREAD "
+                            "sentinel, which DISABLES the capture-mode flyby "
+                            "warp and the capture arming gate. Logged once "
+                            "per run."
+                            % (type(exc).__name__, str(exc)[:160])))
             snapshot = mlib.TelemetrySnapshot(
                 ut=float(sc.ut),
                 altitude=float(flight_srf.surface_altitude),
@@ -993,24 +1016,53 @@ class KrpcMissionControl(MissionControl):
             # NO target altitude: the capture circularizes at WHATEVER arrival
             # periapsis the course-correction rounds produced, and the machine's
             # PARK window judges the result -- a tolerance, never a golden orbit.
-            # Defensive on the time-selector set (an API-shape drift must not
-            # stop the node from planning); same throw/log/swallow contract as
-            # every other plan action, so a failed plan leaves node_count at 0
-            # and the machine's bounded re-plan cadence owns the retry.
+            #
+            # COMMANDED IS NOT OBSERVED (reviewer finding, 2026-07-25). The
+            # earlier shape set time_reference inside its own try/except, LOGGED
+            # a failure, and then called make_nodes() ANYWAY. That is not
+            # defensive, it is dangerous: TimeSelector's setter THROWS
+            # OperationException on a reference the operation does not allow
+            # (pinned KRPC.MechJeb Maneuver/TimeSelector.cs:120-124), and the
+            # backing currentTimeRef is SHARED, PERSISTED MechJeb state -- so a
+            # refused set left whatever reference MechJeb had inherited from a
+            # previous session or operation and planned a perfectly valid node
+            # at an ARBITRARY UT, which the machine then accepted as a capture.
+            # Exactly the commanded-vs-OBSERVED gap this branch already closed
+            # for NodeExecutor.Enabled.
+            #
+            # So: SET, then READ BACK (the getter exists, TimeSelector.cs:114),
+            # and plan ONLY on a reference that reads periapsis. A refusal
+            # leaves node_count at 0, which routes to the machine's already
+            # bounded PLAN-CAPTURE re-plan cadence and named flake -- the same
+            # throw/log/swallow contract as every other plan action.
             try:
                 op = self._mechjeb.maneuver_planner.operation_circularize
+                want = self._mechjeb.TimeReference.periapsis
+                confirmed = False
                 try:
-                    op.time_selector.time_reference = self._mechjeb.TimeReference.periapsis
+                    op.time_selector.time_reference = want
+                    confirmed = (op.time_selector.time_reference == want)
+                    if not confirmed:
+                        _stdout_sink(mlib.format_mission_log_line(
+                            "Warn", "Capture",
+                            "circularize time-selector READ BACK as %r, not "
+                            "periapsis: REFUSING to plan (MechJeb kept an "
+                            "inherited time reference)"
+                            % (op.time_selector.time_reference,)))
                 except Exception as exc:
                     _stdout_sink(mlib.format_mission_log_line(
                         "Warn", "Capture",
-                        "circularize time-selector default kept (periapsis "
-                        "retarget failed: %s)" % (exc,)))
-                op.make_nodes()
-                _stdout_sink(mlib.format_mission_log_line(
-                    "Info", "Capture",
-                    "capture plan issued (circularize at periapsis); nodes=%d"
-                    % (len(control.nodes),)))
+                        "circularize time-selector periapsis retarget FAILED "
+                        "(%s): REFUSING to plan rather than let MechJeb's "
+                        "inherited time reference place the capture node"
+                        % (exc,)))
+                if confirmed:
+                    op.make_nodes()
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Info", "Capture",
+                        "capture plan issued (circularize at periapsis, time "
+                        "reference READ BACK confirmed); nodes=%d"
+                        % (len(control.nodes),)))
             except Exception as exc:
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Capture",
@@ -1765,10 +1817,22 @@ class KrpcMissionControl(MissionControl):
 
         Fail-CLOSED to -1 on ANY fault: an unread channel must never be read as
         either "armed" (which would suppress the liveness watchdog) or "down"
-        (which would fast-fail a healthy burn)."""
+        (which would fast-fail a healthy burn). NOT silent, though: -1 quietly
+        stands the whole executor supervisor down, so the FIRST fault emits one
+        Warn naming the channel (latched, so a permanently dark surface cannot
+        spam a multi-thousand-poll flight)."""
         try:
             return 1 if bool(self._mechjeb.node_executor.enabled) else 0
-        except Exception:
+        except Exception as exc:
+            if not self._warned_node_executor_read:
+                self._warned_node_executor_read = True
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Telemetry",
+                    "NodeExecutor.Enabled UNREADABLE (%s: %s); the channel "
+                    "degrades to the -1 UNREAD sentinel, which stands the "
+                    "CAPTURE-BURN executor supervisor down (no re-issue, no "
+                    "named executor-dead flake). Logged once per run."
+                    % (type(exc).__name__, str(exc)[:160])))
             return -1
 
     def _set_target_docking_port_live(self, sc) -> None:
@@ -2277,6 +2341,14 @@ def fly_loop(
         # ``mission_state`` rides the exception; run_mission reads it back.
         if not hasattr(exc, "mission_state"):
             exc.mission_state = _FLY_LOOP_LAST_STATE.get("state", state)  # type: ignore[attr-defined]
+        # ... and CLOSE the open warp-utilisation row. _wu_close ran on every
+        # normal exit path and none of the raising ones, so a crashed run lost
+        # its FINAL phase's row -- exactly the phase whose warp accounting a
+        # post-mortem needs. Closing with the last FINITE ut keeps a real game
+        # span; the accumulator no-ops when the row is already closed.
+        wu = _FLY_LOOP_WU
+        if wu is not None:
+            wu.close(wu.last_ut)
         raise
 
 
@@ -2297,6 +2369,62 @@ _FLY_LOOP_LAST_STATE: Dict = {}
 _FLY_LOOP_WARP_UTILISATION: List[Dict] = []
 
 
+class _WarpUtilisation:
+    """Per-phase warp accounting for the fly loop, held as an OBJECT rather
+    than loop locals so the ``fly_loop`` wrapper can close the open row on the
+    EXCEPTION UNWIND.
+
+    Before this, ``_wu_close`` was a closure over ``_fly_loop_body`` locals and
+    was called on every NORMAL exit path but none of the raising ones, so a
+    crashed run silently lost its FINAL phase's row -- precisely the phase a
+    post-mortem needs the warp accounting for. Single-threaded shell; one
+    instance is published module-side (mirroring _FLY_LOOP_LAST_STATE) and the
+    wrapper closes it if it is still open.
+    """
+
+    def __init__(self, clock) -> None:
+        self._clock = clock
+        self.phase = ""
+        self.wall_start = 0.0
+        self.ut_start: Optional[float] = None
+        self.warp_cmds = 0
+        # The last FINITE ut seen this phase: the unwind closes with it so the
+        # crashing phase still reports a real game span.
+        self.last_ut: Optional[float] = None
+        self.open = False
+
+    def begin(self, phase: str, ut: Optional[float] = None) -> None:
+        self.phase = phase
+        self.wall_start = self._clock()
+        self.ut_start = ut
+        self.last_ut = ut
+        self.warp_cmds = 0
+        self.open = True
+
+    def note_ut(self, ut: float) -> None:
+        if math.isfinite(ut):
+            if self.ut_start is None:
+                self.ut_start = float(ut)
+            self.last_ut = float(ut)
+
+    def note_warp_command(self) -> None:
+        self.warp_cmds += 1
+
+    def close(self, end_ut: Optional[float]) -> None:
+        if not self.open:
+            return
+        self.open = False
+        game = ((end_ut - self.ut_start)
+                if (end_ut is not None and self.ut_start is not None)
+                else float("nan"))
+        _FLY_LOOP_WARP_UTILISATION.append(mlib.warp_utilisation_row(
+            self.phase, self._clock() - self.wall_start, game, self.warp_cmds))
+
+
+# The live accumulator, published for the fly_loop wrapper's unwind path.
+_FLY_LOOP_WU: Optional[_WarpUtilisation] = None
+
+
 def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                    poll_interval, settle_frames, allow_rails_warp, max_physics_warp, frames,
                    status_writer=None):
@@ -2309,18 +2437,21 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
     # WARP-UTILISATION accounting (B12 flight 2): wall + game span and warp
     # commands issued per phase. Reset here so a retried mission never
     # inherits a prior attempt's rows.
+    global _FLY_LOOP_WU
     del _FLY_LOOP_WARP_UTILISATION[:]
-    wu_phase = state.phase
-    wu_wall_start = clock()
-    wu_ut_start: Optional[float] = None
-    wu_warp_cmds = 0
+    wu = _WarpUtilisation(clock)
+    _FLY_LOOP_WU = wu
+    wu.begin(state.phase)
+    # NATIVE-WARP LIVENESS EPISODE (reviewer finding, 2026-07-25). Armed only
+    # while the machine has a native warp command outstanding, so a deliberate
+    # 1x phase (B5's PARK dwell, every B1/B2/B4 phase, the whole FORGE /
+    # B-DOCK family, which never set warp_to_cmd) can never trip it. See
+    # mlib.warp_liveness_starved.
+    wl_wall_start: Optional[float] = None
+    wl_ut_start: Optional[float] = None
 
     def _wu_close(end_ut: Optional[float]) -> None:
-        game = ((end_ut - wu_ut_start)
-                if (end_ut is not None and wu_ut_start is not None)
-                else float("nan"))
-        _FLY_LOOP_WARP_UTILISATION.append(mlib.warp_utilisation_row(
-            wu_phase, clock() - wu_wall_start, game, wu_warp_cmds))
+        wu.close(end_ut)
 
     while not state.done:
         _FLY_LOOP_LAST_STATE["state"] = state
@@ -2348,8 +2479,7 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             continue
         frames.append(snapshot)
         ring.append(mlib.format_snapshot_compact(snapshot))
-        if wu_ut_start is None and math.isfinite(snapshot.ut):
-            wu_ut_start = float(snapshot.ut)
+        wu.note_ut(snapshot.ut)
         # Edge 7: an unexpected physics (or, for B1, any) warp state distorts the
         # flight; flake naming the phase + warp state rather than record a warped
         # run. DEBOUNCED to two CONSECUTIVE violating samples (Fable review of
@@ -2379,11 +2509,8 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         _FLY_LOOP_LAST_STATE["state"] = state
         if state.phase != prev_phase:
             _wu_close(snapshot.ut if math.isfinite(snapshot.ut) else None)
-            wu_phase = state.phase
-            wu_wall_start = clock()
-            wu_ut_start = (float(snapshot.ut) if math.isfinite(snapshot.ut)
-                           else None)
-            wu_warp_cmds = 0
+            wu.begin(state.phase,
+                     float(snapshot.ut) if math.isfinite(snapshot.ut) else None)
             # avThr rides every transition line: the B-DOCK SEPARATE->ORBIT /
             # SEPARATE->PHASING handoff must show the orbital stage still has
             # thrust for the rendezvous (available_thrust > 0), and it is a cheap
@@ -2410,11 +2537,55 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         for action in actions:
             if action.kind in (mlib.ACTION_WARP_TO_UT, mlib.ACTION_CANCEL_WARP,
                                mlib.ACTION_SET_RAILS_WARP):
-                wu_warp_cmds += 1
+                wu.note_warp_command()
             control.perform(action)
             log.info(state.phase, "action %s value=%s%s"
                      % (action.kind, _fmt(action.value),
                         (" text=%s" % action.text) if getattr(action, "text", None) else ""))
+        # NATIVE-WARP LIVENESS FLOOR (reviewer finding, 2026-07-25). The thrash
+        # watchdog inside the machine bounds a warp being RE-ISSUED; nothing
+        # bounded a warp armed ONCE that simply crawls. The warp-stall watchdog
+        # needs UT to FREEZE for WARP_STALL_WALL_SECONDS (a crawling warp
+        # advances UT), and a GAME-time phase budget is either advanced by the
+        # crawl or -- for CORRECTION-BURN's aim-warp -- suppressed outright, so
+        # the only thing left was the generic un-named wall reaper.
+        #
+        # The episode is armed by the MACHINE's own outstanding native warp
+        # command, so a deliberate 1x phase can never trip it, and it is reset
+        # whenever the command clears (arrival, cancel, phase exit).
+        armed = getattr(state, "warp_to_cmd", None) is not None
+        if not armed:
+            wl_wall_start = None
+            wl_ut_start = None
+        elif wl_wall_start is None:
+            wl_wall_start = clock()
+            wl_ut_start = (float(snapshot.ut) if math.isfinite(snapshot.ut)
+                           else None)
+        elif wl_ut_start is not None and math.isfinite(snapshot.ut):
+            wl_wall = clock() - wl_wall_start
+            wl_game = float(snapshot.ut) - wl_ut_start
+            if mlib.warp_liveness_starved(wl_game, wl_wall):
+                reason = ("phase %s: %s (a native warp has been armed for "
+                          "%.0f wall-s and advanced only %.0f game-s = "
+                          "%.2f game-s/wall-s, floor %.1f; warp=%sx%s "
+                          "warpTo=%s ut=%s). The warp is running but not "
+                          "warping."
+                          % (state.phase, mlib.WARP_LIVENESS_GIVEUP, wl_wall,
+                             wl_game, wl_game / wl_wall if wl_wall else 0.0,
+                             mlib.WARP_LIVENESS_MIN_RATIO, snapshot.warp_mode,
+                             _fmt(snapshot.warp_rate),
+                             _fmt(snapshot.warping_to), _fmt(snapshot.ut)))
+                log.warn(state.phase, reason)
+                _dump_event_window(log, state.phase, ring, "warp-liveness-flake")
+                _wu_close(float(snapshot.ut))
+                terminal = dict(verdict=mlib.MISSION_FLAKE,
+                                flake_phase=state.phase, done=True)
+                # Every machine that can arm a native warp carries
+                # flake_reason today; stay getattr-generic anyway so a future
+                # one cannot turn this give-up into a TypeError.
+                if hasattr(state, "flake_reason"):
+                    terminal["flake_reason"] = reason
+                return replace(state, **terminal), frames
         # MATCH-VELOCITY diagnostic (flight-5: the phase had NO per-frame line, so
         # a stuck rel-speed silently ate the whole wall). Rate-limited per-phase
         # key carrying the fields the gate reads, so a stall is greppable + rides
@@ -2443,13 +2614,17 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         # stalled in REENTRY with a line that omitted altitude, leaving
         # frozen-physics vs normal-coast undiagnosable from the log. Log what
         # the machines gate on.
-        # nodeExec= (the OBSERVED MechJeb NodeExecutor.Enabled tri-state) is
-        # appended ONLY when the opt-in channel was actually read, so every
-        # mission that does not read it keeps a byte-identical telemetry line.
-        node_exec_token = ("" if snapshot.node_executor_enabled < 0
-                           else (" nodeExec=%d" % snapshot.node_executor_enabled))
+        # The OPT-IN telemetry tail: nodeExec= (the OBSERVED MechJeb
+        # NodeExecutor.Enabled tri-state) and ttPe= (the periapsis clock the
+        # capture warp gates on) are each appended ONLY when their channel was
+        # actually read, so every mission that reads neither keeps a
+        # byte-identical telemetry line. (Named opt_token, not node_exec_token:
+        # it has carried more than the executor since the periapsis clock
+        # landed.)
+        opt_token = ("" if snapshot.node_executor_enabled < 0
+                     else (" nodeExec=%d" % snapshot.node_executor_enabled))
         if math.isfinite(snapshot.time_to_periapsis):
-            node_exec_token += " ttPe=%s" % _fmt(snapshot.time_to_periapsis)
+            opt_token += " ttPe=%s" % _fmt(snapshot.time_to_periapsis)
         log.verbose_rate_limited(
             "telemetry", state.phase,
             "telemetry ap=%s pe=%s ecc=%s inc=%s alt=%s vspd=%s body=%s nodes=%d "
@@ -2465,7 +2640,7 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                _fmt(snapshot.available_thrust), snapshot.situation,
                snapshot.craft_chute_state or "-", snapshot.warp_mode,
                _fmt(snapshot.warp_rate), _fmt(snapshot.ap_error), _fmt(snapshot.ut),
-               node_exec_token))
+               opt_token))
         # MACHINE-STATE line (design-live-observability 2a): the decision
         # state verbatim on a ~5 s cadence, so an operator report maps to
         # machine state without inference.

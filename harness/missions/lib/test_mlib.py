@@ -6117,11 +6117,13 @@ class B5CaptureArmingTests(unittest.TestCase):
 
     def test_debounced_arming_enters_plan_capture_with_the_plan_action(self):
         state = _b11_state(mlib.B5_TARGET_FLYBY)
-        frame = snap(ut=10.0, body="Mun", altitude=2_000_000.0, periapsis=900_000.0)
+        frame = snap(ut=10.0, body="Mun", altitude=2_000_000.0,
+                     periapsis=900_000.0, time_to_periapsis=5000.0)
         for i in range(mlib.CAPTURE_ARM_DEBOUNCE_FRAMES - 1):
             state, actions = mlib.b5_decide(state, frame)
             self.assertEqual(state.phase, mlib.B5_TARGET_FLYBY, i)
             self.assertEqual(state.capture_arm_streak, i + 1)
+            self.assertEqual(state.capture_unarmed_streak, 0)
         state, actions = mlib.b5_decide(state, frame)
         self.assertEqual(state.phase, mlib.B5_PLAN_CAPTURE)
         self.assertIn(mlib.ACTION_MJ_PLAN_CAPTURE, [a.kind for a in actions])
@@ -6136,7 +6138,7 @@ class B5CaptureArmingTests(unittest.TestCase):
         for _ in range(mlib.CAPTURE_ARM_DEBOUNCE_FRAMES + 3):
             state, actions = mlib.b5_decide(
                 state, snap(ut=10.0, body="Mun", altitude=2_000_000.0,
-                            periapsis=-20000.0))
+                            periapsis=-20000.0, time_to_periapsis=5000.0))
             self.assertNotIn(mlib.ACTION_MJ_PLAN_CAPTURE, [a.kind for a in actions])
         self.assertEqual(state.phase, mlib.B5_TARGET_FLYBY)
         self.assertEqual(state.capture_arm_streak, 0)
@@ -6145,8 +6147,152 @@ class B5CaptureArmingTests(unittest.TestCase):
         state = _b11_state(mlib.B5_TARGET_FLYBY)
         state, _ = mlib.b5_decide(state, snap(ut=10.0, body="Mun",
                                               altitude=2_000_000.0,
-                                              periapsis=float("nan")))
+                                              periapsis=float("nan"),
+                                              time_to_periapsis=5000.0))
         self.assertEqual(state.capture_arm_streak, 0)
+
+    def test_arming_requires_periapsis_still_ahead(self):
+        """B12 flight 3 armed AFTER periapsis (alt 41,609 m, vspeed +92 m/s,
+        already climbing away) and produced a 325 x 5.3 km graze. An
+        above-surface periapsis reading alone cannot see which SIDE of
+        periapsis the craft is on; the clock can."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        for _ in range(mlib.CAPTURE_ARM_DEBOUNCE_FRAMES + 2):
+            state, actions = mlib.b5_decide(
+                state, snap(ut=10.0, body="Mun", altitude=41_609.0,
+                            vertical_speed=92.0, periapsis=41_000.0,
+                            time_to_periapsis=-120.0))
+            self.assertNotIn(mlib.ACTION_MJ_PLAN_CAPTURE,
+                             [a.kind for a in actions])
+        self.assertEqual(state.phase, mlib.B5_TARGET_FLYBY)
+        self.assertEqual(state.capture_arm_streak, 0)
+
+
+class CaptureArmFailureClassifierTests(unittest.TestCase):
+    """mlib.classify_capture_arm_failure: the three shapes need three DIFFERENT
+    operator responses, so 'capture-never-armed' alone is not enough."""
+
+    def test_non_finite_reads_are_a_dark_clock_not_a_bad_trajectory(self):
+        for pe, ttpe in ((float("nan"), 500.0), (900_000.0, float("nan")),
+                         (float("nan"), float("nan")),
+                         (float("inf"), 500.0)):
+            self.assertEqual(mlib.classify_capture_arm_failure(pe, ttpe),
+                             mlib.CAPTURE_ARM_BLIND, (pe, ttpe))
+
+    def test_sub_surface_periapsis(self):
+        self.assertEqual(mlib.classify_capture_arm_failure(-20_000.0, 500.0),
+                         mlib.CAPTURE_ARM_SUBSURFACE)
+        # A grazing zero is sub-surface too (the arming gate wants pe > 0).
+        self.assertEqual(mlib.classify_capture_arm_failure(0.0, 500.0),
+                         mlib.CAPTURE_ARM_SUBSURFACE)
+
+    def test_past_periapsis(self):
+        self.assertEqual(mlib.classify_capture_arm_failure(41_000.0, -120.0),
+                         mlib.CAPTURE_ARM_PAST_PERIAPSIS)
+        self.assertEqual(mlib.classify_capture_arm_failure(41_000.0, 0.0),
+                         mlib.CAPTURE_ARM_PAST_PERIAPSIS)
+
+    def test_a_ready_frame_classifies_ready(self):
+        """The classifier and the arming gate must agree: a frame the gate
+        would ACCEPT must not classify as a failure shape."""
+        self.assertEqual(mlib.classify_capture_arm_failure(900_000.0, 5000.0),
+                         mlib.CAPTURE_ARM_READY)
+
+    def test_every_verdict_has_an_operator_hint(self):
+        for verdict in (mlib.CAPTURE_ARM_BLIND, mlib.CAPTURE_ARM_SUBSURFACE,
+                        mlib.CAPTURE_ARM_PAST_PERIAPSIS,
+                        mlib.CAPTURE_ARM_READY):
+            self.assertTrue(mlib._CAPTURE_ARM_FAILURE_HINT.get(verdict),
+                            verdict)
+
+
+class CaptureNeverArmedLivenessTests(unittest.TestCase):
+    """LIVENESS: with the periapsis clock dark, capture-mode TARGET-FLYBY had
+    NO bound short of the wall reaper -- the warp refuses to arm (correctly),
+    the arming gate fails closed, the impact terminal needs a FINITE
+    sub-surface periapsis, and flybyTimeoutSeconds is 300,000+ GAME seconds."""
+
+    def _dark(self, **kw):
+        """The reviewer's replayed shape: a descending in-SOI arrival whose
+        periapsis clock reads NaN."""
+        base = dict(ut=10.0, body="Mun", altitude=1_500_000.0,
+                    vertical_speed=-300.0, periapsis=float("nan"),
+                    time_to_periapsis=float("nan"))
+        base.update(kw)
+        return snap(**base)
+
+    def test_a_dark_clock_no_longer_idles_to_the_wall(self):
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        for i in range(mlib.CAPTURE_NEVER_ARMED_FRAMES - 1):
+            state, actions = mlib.b5_decide(state, self._dark(ut=10.0 + i))
+            self.assertFalse(state.done, i)
+            self.assertEqual(state.capture_unarmed_streak, i + 1)
+        state, actions = mlib.b5_decide(state, self._dark(ut=9000.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("capture-never-armed", state.flake_reason)
+        self.assertIn(mlib.CAPTURE_ARM_BLIND, state.flake_reason)
+        self.assertIn("read_periapsis=True", state.flake_reason)
+        verdict, reason = mlib.resolve_flight_verdict(state, [])
+        self.assertIn("capture-never-armed", reason)
+
+    def test_the_message_distinguishes_a_bad_trajectory_from_a_dark_clock(self):
+        """Sub-surface and past-periapsis are FLIGHT outcomes; a dark clock is
+        a MACHINE fault. Naming them identically would send an operator to the
+        wrong half of the system."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        # Sub-surface at HIGH altitude: the impact-certain terminal cannot fire
+        # (it needs altitude < IMPACT_WARP_GUARD_ALT), so this run really was
+        # unbounded before the give-up.
+        for _ in range(mlib.CAPTURE_NEVER_ARMED_FRAMES):
+            state, _ = mlib.b5_decide(
+                state, self._dark(periapsis=-31_800.0, time_to_periapsis=400.0,
+                                  altitude=3 * mlib.IMPACT_WARP_GUARD_ALT))
+        self.assertTrue(state.done)
+        self.assertIn(mlib.CAPTURE_ARM_SUBSURFACE, state.flake_reason)
+        self.assertNotIn(mlib.CAPTURE_ARM_BLIND, state.flake_reason)
+
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        for _ in range(mlib.CAPTURE_NEVER_ARMED_FRAMES):
+            state, _ = mlib.b5_decide(
+                state, self._dark(periapsis=41_000.0, time_to_periapsis=-120.0))
+        self.assertTrue(state.done)
+        self.assertIn(mlib.CAPTURE_ARM_PAST_PERIAPSIS, state.flake_reason)
+
+    def test_one_ready_frame_resets_the_run(self):
+        """A merely jittery clock must not end a live mission: the run is
+        CONSECUTIVE."""
+        state = _b11_state(mlib.B5_TARGET_FLYBY)
+        for _ in range(mlib.CAPTURE_NEVER_ARMED_FRAMES - 1):
+            state, _ = mlib.b5_decide(state, self._dark())
+        state, _ = mlib.b5_decide(
+            state, self._dark(periapsis=900_000.0, time_to_periapsis=5000.0))
+        self.assertEqual(state.capture_unarmed_streak, 0)
+        self.assertEqual(state.capture_arm_streak, 1)
+        for _ in range(mlib.CAPTURE_NEVER_ARMED_FRAMES - 1):
+            state, _ = mlib.b5_decide(state, self._dark())
+        self.assertFalse(state.done)
+
+    def test_never_fires_in_flyby_mode(self):
+        """B5/B6/B7 do not read the periapsis clock at all, so a give-up that
+        keyed on it would kill the whole LIVE-PROVEN flyby family. The branch
+        is gated on capture_enabled."""
+        state = _b5_state(mlib.B5_TARGET_FLYBY)
+        for i in range(mlib.CAPTURE_NEVER_ARMED_FRAMES * 3):
+            state, _ = mlib.b5_decide(
+                state, snap(ut=10.0 + i, body="Mun", altitude=1_500_000.0,
+                            periapsis=float("nan"),
+                            time_to_periapsis=float("nan")))
+            self.assertFalse(state.done, i)
+        self.assertEqual(state.capture_unarmed_streak, 0)
+
+    def test_the_bound_has_real_margin_over_the_healthy_arm(self):
+        """A healthy arrival arms in CAPTURE_ARM_DEBOUNCE_FRAMES consecutive
+        polls; the give-up must be many times that, and frozen_sample_limit
+        scale (the same order as the blank-body dwell)."""
+        self.assertGreaterEqual(mlib.CAPTURE_NEVER_ARMED_FRAMES,
+                                10 * mlib.CAPTURE_ARM_DEBOUNCE_FRAMES)
+        self.assertLessEqual(mlib.CAPTURE_NEVER_ARMED_FRAMES, 100)
 
     def test_capture_mode_warps_only_to_the_periapsis_bound(self):
         """The SOI-EXIT native warp is suppressed in capture mode (warping
@@ -6210,7 +6356,8 @@ class B5PlanCaptureTests(unittest.TestCase):
         state = _b11_state(mlib.B5_PLAN_CAPTURE, plan_attempts=1)
         state, actions = mlib.b5_decide(
             state, snap(ut=20.0, body="Mun", altitude=1_500_000.0,
-                        periapsis=900_000.0, node_count=1))
+                        periapsis=900_000.0, node_count=1,
+                        time_to_periapsis=5000.0, node_ut=5020.0))
         self.assertEqual(state.phase, mlib.B5_CAPTURE_BURN)
         self.assertEqual([a.kind for a in actions], [mlib.ACTION_MJ_EXECUTE_NODES])
         self.assertEqual(state.planned_node_count, 1)
@@ -6245,6 +6392,124 @@ class B5PlanCaptureTests(unittest.TestCase):
         state = _b11_state(mlib.B5_PLAN_CAPTURE, plan_attempts=1)
         state, _ = mlib.b5_decide(state, snap(ut=20.0, body="",
                                               altitude=1_500_000.0))
+        self.assertFalse(state.done)
+        self.assertEqual(state.phase, mlib.B5_PLAN_CAPTURE)
+
+
+class CaptureNodeAtPeriapsisTests(unittest.TestCase):
+    """mlib.capture_node_at_periapsis: the machine-side half of the swallowed
+    time-selector defect. The runner's circularize planner sets
+    TimeReference.Periapsis on a SHARED, PERSISTED MechJeb TimeSelector whose
+    setter THROWS on a disallowed reference; a swallowed throw used to leave
+    MechJeb's INHERITED currentTimeRef in place and plan anyway, and the
+    handoff accepted any node_count >= 1 with no gate on WHEN the node was."""
+
+    def test_a_node_at_periapsis_is_accepted(self):
+        self.assertTrue(mlib.capture_node_at_periapsis(
+            node_ut=48_000.0, ut=40_100.0, time_to_periapsis=7_900.0))
+
+    def test_drift_inside_the_tolerance_is_accepted(self):
+        """The node UT and the clock are read on the same frame but some polls
+        AFTER the plan; under the 10x plan hold that is tens of game seconds of
+        conic re-solve noise, an order of magnitude inside the tolerance."""
+        tol = mlib.CAPTURE_NODE_PERIAPSIS_TOLERANCE_SECONDS
+        self.assertTrue(mlib.capture_node_at_periapsis(
+            48_000.0 + tol, 40_100.0, 7_900.0))
+        self.assertTrue(mlib.capture_node_at_periapsis(
+            48_000.0 - tol, 40_100.0, 7_900.0))
+
+    def test_an_apoapsis_referenced_node_is_refused(self):
+        """The plausible WRONG references (apoapsis, an altitude crossing, an
+        X-from-now offset) land tens of minutes to hours away on a Mun/Minmus
+        capture orbit -- an order of magnitude outside the tolerance."""
+        self.assertFalse(mlib.capture_node_at_periapsis(
+            node_ut=52_000.0, ut=40_100.0, time_to_periapsis=7_900.0))
+
+    def test_non_finite_inputs_fail_closed(self):
+        nan = float("nan")
+        self.assertFalse(mlib.capture_node_at_periapsis(nan, 40_100.0, 7_900.0))
+        self.assertFalse(mlib.capture_node_at_periapsis(48_000.0, nan, 7_900.0))
+        self.assertFalse(mlib.capture_node_at_periapsis(48_000.0, 40_100.0, nan))
+
+    def test_the_tolerance_separates_drift_from_a_wrong_reference(self):
+        tol = mlib.CAPTURE_NODE_PERIAPSIS_TOLERANCE_SECONDS
+        self.assertGreaterEqual(tol, 100.0)   # >> the plan-hold read drift
+        self.assertLessEqual(tol, 1800.0)     # << any wrong time reference
+
+
+class CaptureNodeSanityGateTests(unittest.TestCase):
+    """The PLAN-CAPTURE branch wiring of the predicate above: a node planned
+    against MechJeb's inherited time reference must be REFUSED, not flown."""
+
+    def _planning(self, **kw):
+        base = dict(ut=40_100.0, body="Mun", altitude=1_500_000.0,
+                    periapsis=900_000.0, node_count=1, node_ut=48_000.0,
+                    time_to_periapsis=7_900.0)
+        base.update(kw)
+        return snap(**base)
+
+    def _drive(self, state, frame, frames):
+        for _ in range(frames):
+            state, actions = mlib.b5_decide(state, frame)
+        return state, actions
+
+    def test_an_off_periapsis_node_is_refused_and_cleared(self):
+        state = _b11_state(mlib.B5_PLAN_CAPTURE, plan_attempts=1)
+        frame = self._planning(node_ut=52_000.0)
+        # DEBOUNCED: the suspect node is HELD (never handed to the executor)
+        # while the run builds.
+        for i in range(mlib.CAPTURE_NODE_SANITY_DEBOUNCE_FRAMES - 1):
+            state, actions = mlib.b5_decide(state, frame)
+            self.assertFalse(state.done, i)
+            self.assertEqual(state.phase, mlib.B5_PLAN_CAPTURE)
+            self.assertEqual(actions, [])
+            self.assertEqual(state.capture_node_bad_streak, i + 1)
+        state, actions = mlib.b5_decide(state, frame)
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("capture-node-off-periapsis", state.flake_reason)
+        self.assertNotEqual(state.phase, mlib.B5_CAPTURE_BURN)
+        # The bad node is CLEARED on the way out: nothing may fly it later.
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES])
+
+    def test_one_sane_frame_resets_the_run(self):
+        """A transient node/clock read must not end a live mission."""
+        state = _b11_state(mlib.B5_PLAN_CAPTURE, plan_attempts=1)
+        for _ in range(mlib.CAPTURE_NODE_SANITY_DEBOUNCE_FRAMES - 1):
+            state, _ = mlib.b5_decide(state, self._planning(node_ut=52_000.0))
+        state, actions = mlib.b5_decide(state, self._planning())
+        self.assertFalse(state.done)
+        self.assertEqual(state.phase, mlib.B5_CAPTURE_BURN)
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_MJ_EXECUTE_NODES])
+
+    def test_a_dark_periapsis_clock_refuses_the_node(self):
+        """FAIL CLOSED: with no periapsis clock there is no evidence the node
+        is where the capture needs it, and a capture IS the mission."""
+        state = _b11_state(mlib.B5_PLAN_CAPTURE, plan_attempts=1)
+        state, _ = self._drive(state,
+                               self._planning(time_to_periapsis=float("nan")),
+                               mlib.CAPTURE_NODE_SANITY_DEBOUNCE_FRAMES)
+        self.assertTrue(state.done)
+        self.assertIn("capture-node-off-periapsis", state.flake_reason)
+
+    def test_a_good_node_still_hands_off(self):
+        state = _b11_state(mlib.B5_PLAN_CAPTURE, plan_attempts=1)
+        state, actions = mlib.b5_decide(state, self._planning())
+        self.assertEqual(state.phase, mlib.B5_CAPTURE_BURN)
+        self.assertEqual([a.kind for a in actions],
+                         [mlib.ACTION_MJ_EXECUTE_NODES])
+
+    def test_no_node_yet_is_untouched_by_the_gate(self):
+        """The gate only judges a node that EXISTS: a planning frame with
+        node_count 0 must keep its bounded re-plan cadence."""
+        state = _b11_state(mlib.B5_PLAN_CAPTURE, plan_attempts=1,
+                           last_plan_ut=0.0)
+        state, _ = mlib.b5_decide(
+            state, self._planning(ut=20.0, node_count=0,
+                                  node_ut=float("nan"),
+                                  time_to_periapsis=float("nan")))
         self.assertFalse(state.done)
         self.assertEqual(state.phase, mlib.B5_PLAN_CAPTURE)
 
@@ -6465,9 +6730,11 @@ class CoastNativeWarpLatchTests(unittest.TestCase):
 
 
 class CoastWarpThrashWatchdogTests(unittest.TestCase):
-    """LIVENESS: a coast that cancels and re-arms its own warp must fast-fail
-    with its own name, not crawl to the wall budget (B12 flight 2 issued
-    warp_to_ut 3,603 times and died on the mission budget with no result)."""
+    """LIVENESS: a warp that cancels and re-arms itself must fast-fail with its
+    own name, not crawl to the wall budget (B12 flight 2 issued warp_to_ut
+    3,603 times and died on the mission budget with no result). Counted at
+    EVERY _b5_native_warp call site since the 2026-07-25 review, and bounded
+    PER PHASE (one warp episode), not per mission."""
 
     def test_issue_count_accumulates_and_rides_the_machine_line(self):
         state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2)
@@ -6475,27 +6742,142 @@ class CoastWarpThrashWatchdogTests(unittest.TestCase):
             ut=100.0, body="Kerbin", altitude=8_000_000.0,
             time_to_soi=50_000.0))
         self.assertEqual([a.kind for a in actions], [mlib.ACTION_WARP_TO_UT])
-        self.assertEqual(state.coast_warp_issues, 1)
-        self.assertIn("coastWarpIssues=1",
+        self.assertEqual(state.phase_warp_issues, 1)
+        self.assertIn("phaseWarpIssues=1",
                       mlib.format_machine_state(state, 100.0))
 
     def test_cap_flakes_with_its_own_name(self):
         state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
-                          coast_warp_issues=mlib.MAX_COAST_WARP_ISSUES)
+                          phase_warp_issues=mlib.MAX_PHASE_WARP_ISSUES)
         state, _ = mlib.b5_decide(state, snap(
             ut=100.0, body="Kerbin", altitude=8_000_000.0,
             time_to_soi=50_000.0))
         self.assertTrue(state.done)
         self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
-        self.assertIn("coast-warp-thrash", state.flake_reason)
+        self.assertIn(mlib.WARP_THRASH_COAST, state.flake_reason)
         verdict, reason = mlib.resolve_flight_verdict(state, [])
         self.assertIn("coast-warp-thrash", reason)
 
-    def test_cap_is_far_above_a_healthy_coast(self):
-        """B11 flight 2 (FULL PASS) issued the coast warp ONCE; the cap is
-        500, and the thrash that motivated it issued 3,603."""
-        self.assertGreaterEqual(mlib.MAX_COAST_WARP_ISSUES, 100)
-        self.assertLess(mlib.MAX_COAST_WARP_ISSUES, 3603)
+    def test_the_counter_resets_on_phase_entry(self):
+        """THE fix for the per-mission counter: the failure is ONE warp episode
+        fighting itself. A coast legitimately re-arms once per re-entry (once
+        per correction round), and B7's heliocentric coast runs an asymmetric
+        retarget hysteresis over multi-million-second spans across 2+ rounds
+        whose healthy issue count has never been measured. For COAST this is
+        strictly a RELAXATION of the shipped per-mission bound."""
+        state = _b5_state(mlib.B5_COAST_TO_TARGET, correction_rounds_done=2,
+                          phase_warp_issues=mlib.MAX_PHASE_WARP_ISSUES - 1)
+        # Enter a correction round: the coast counter must not follow it.
+        entered = mlib._b5_enter(state, mlib.B5_PLAN_CORRECTION, 100.0, None)
+        self.assertEqual(entered.phase_warp_issues, 0)
+        back = mlib._b5_enter(entered, mlib.B5_COAST_TO_TARGET, 200.0, None)
+        self.assertEqual(back.phase_warp_issues, 0)
+
+    def test_the_correction_aim_warp_is_counted_with_its_own_name(self):
+        """UNCOUNTED before the review: the aim-then-warp has TWO call sites,
+        the CORRECTION-BURN budget is SUPPRESSED while it is in flight, the
+        runner's stall watchdog only fires when UT FREEZES (a crawling warp
+        advances UT), and a 73,733 game-second aim-warp had no bound but the
+        generic wall reaper."""
+        state = _b5_state(mlib.B5_CORRECTION_BURN,
+                          warp_to_cmd=74_193.288,
+                          phase_warp_issues=mlib.MAX_PHASE_WARP_ISSUES,
+                          last_warp_issue_ut=0.0)
+        # A self-heal frame (the game reports no active warp) re-issues.
+        state, actions = mlib.b5_decide(state, snap(
+            ut=8_427.354, body="Kerbin", altitude=8_000_000.0, node_count=1,
+            node_dv=50.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_THRASH_CORRECTION_AIM, state.flake_reason)
+        self.assertEqual(actions, [])
+
+    def test_the_flyby_capture_warp_is_counted_with_its_own_name(self):
+        state = _b11_state(mlib.B5_TARGET_FLYBY,
+                           phase_warp_issues=mlib.MAX_PHASE_WARP_ISSUES)
+        state, actions = mlib.b5_decide(state, snap(
+            ut=10.0, body="Mun", altitude=2_000_000.0, periapsis=900_000.0,
+            time_to_periapsis=5_000.0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_THRASH_FLYBY, state.flake_reason)
+        self.assertEqual(actions, [])
+
+    def test_the_three_names_are_distinct(self):
+        """'which warp thrashed' is the first question an operator asks."""
+        names = {mlib.WARP_THRASH_COAST, mlib.WARP_THRASH_CORRECTION_AIM,
+                 mlib.WARP_THRASH_FLYBY}
+        self.assertEqual(len(names), 3)
+
+    def test_cap_is_far_above_every_healthy_call_site(self):
+        """Measured healthy baselines: the COAST issued the warp ONCE on B11
+        flight 2 (full pass); the aim-warp target is the node's FIXED UT so it
+        never retargets and can only re-issue through the 30-game-second
+        self-heal; the capture warp's target (ut + ttPe - lead) is constant
+        along the approach. The thrash that motivated the cap issued 3,603 in
+        ONE phase."""
+        self.assertGreaterEqual(mlib.MAX_PHASE_WARP_ISSUES, 100)
+        self.assertLess(mlib.MAX_PHASE_WARP_ISSUES, 3603)
+
+
+class WarpLivenessFloorTests(unittest.TestCase):
+    """mlib.warp_liveness_starved: the complement of the thrash counter. That
+    one bounds a warp being RE-ISSUED; this one bounds a warp armed ONCE that
+    crawls. gameSecondsPerWallSecond was already computed for exactly this
+    shape and nothing consumed it as a give-up."""
+
+    def test_the_measured_thrash_ratio_is_starved(self):
+        """B12 flight 2's coast read ~1.3 game-s per wall-s."""
+        self.assertTrue(mlib.warp_liveness_starved(
+            game_seconds=1.3 * 600.0, wall_seconds=600.0))
+
+    def test_a_genuinely_warping_phase_is_never_starved(self):
+        """A warping phase reads hundreds to thousands."""
+        self.assertFalse(mlib.warp_liveness_starved(
+            game_seconds=1000.0 * 600.0, wall_seconds=600.0))
+        # Even the cheapest legitimate rails factor clears the floor.
+        self.assertFalse(mlib.warp_liveness_starved(
+            game_seconds=10.0 * 600.0, wall_seconds=600.0))
+
+    def test_a_short_episode_is_never_judged(self):
+        """A rails ramp is legitimately slow at the start, and a warp whose
+        whole episode completes inside the window must not be judged at all."""
+        self.assertFalse(mlib.warp_liveness_starved(
+            game_seconds=1.0, wall_seconds=mlib.WARP_LIVENESS_MIN_WALL_SECONDS - 0.001))
+
+    def test_non_finite_and_non_positive_spans_fail_closed(self):
+        nan = float("nan")
+        self.assertFalse(mlib.warp_liveness_starved(nan, 600.0))
+        self.assertFalse(mlib.warp_liveness_starved(600.0, nan))
+        self.assertFalse(mlib.warp_liveness_starved(600.0, 0.0))
+        self.assertFalse(mlib.warp_liveness_starved(600.0, -5.0))
+
+    def test_the_floor_sits_between_the_measured_defect_and_healthy_warp(self):
+        self.assertGreater(mlib.WARP_LIVENESS_MIN_RATIO, 2.7)  # the B12 rails rate
+        self.assertLess(mlib.WARP_LIVENESS_MIN_RATIO, 10.0)    # cheapest real warp
+
+
+class MjWarpalignHoldConstantTests(unittest.TestCase):
+    """MJ_EXECUTOR_WARPALIGN_HOLD_SECONDS is a DOCUMENTATION constant, and the
+    forensics it records must stay honest even though no code reads it."""
+
+    def test_the_hold_matches_the_decompiled_branch(self):
+        self.assertEqual(mlib.MJ_EXECUTOR_WARPALIGN_HOLD_SECONDS, 600.0)
+
+    def test_the_node_clock_guard_does_not_depend_on_the_numeric_relation(self):
+        """THE reason this is not wired as a param-build assertion: the
+        disambiguation uses the NODE's own clock, so it is correct for EVERY
+        burn_nostart_seconds -- including the schema's 60 s floor, far below
+        the 600 s hold. A pre-node frame is never evidence of a dead actor."""
+        for nostart in (60.0, 600.0, 3600.0):
+            params = mlib.b5_params_from_dict({"burnNoStartSeconds": nostart})
+            self.assertEqual(params.burn_nostart_seconds, nostart)
+        # A frame INSIDE MechJeb's own pre-ignition hold classifies HOLD, not
+        # a dead executor, at any nostart bound.
+        self.assertEqual(
+            mlib.classify_capture_nostart(node_ut=21_549.027, ut=21_539.434,
+                                          node_count=1, replans_done=0),
+            mlib.CAPTURE_NOSTART_HOLD)
 
 
 class CorrectionBudgetTests(unittest.TestCase):
@@ -6836,7 +7218,23 @@ class B5CaptureExecutorSupervisionTests(unittest.TestCase):
         self.assertEqual(state.capture_replans_done, 1)
         kinds = [a.kind for a in actions]
         self.assertEqual(kinds[0], mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)
-        self.assertIn(mlib.ACTION_MJ_PLAN_CAPTURE, kinds)
+        # ONLY the clear on the transition frame: MechJeb's NodeExecutor
+        # self-aborts on the next physics frame ONLY once it OBSERVES an empty
+        # node list, and remove_nodes() + make_nodes() in one fly-loop frame
+        # are two RPCs that can land inside a single 20 ms physics frame -- so
+        # the precondition may never hold, the executor stays engaged across
+        # the re-plan and the next handoff calls execute_all_nodes() on an
+        # already-enabled module (the flights 6-7 poisoned-re-engage family).
+        self.assertNotIn(mlib.ACTION_MJ_PLAN_CAPTURE, kinds)
+        # The plan follows on the NEXT poll through PLAN-CAPTURE's own cadence,
+        # and the skipped emission does NOT consume an attempt.
+        self.assertEqual(state.plan_attempts, 0)
+        state, actions = mlib.b5_decide(
+            state, snap(ut=1_000.0 + grace + 2.0, body="Mun",
+                        altitude=1_000_000.0, periapsis=900_000.0,
+                        node_count=0))
+        self.assertIn(mlib.ACTION_MJ_PLAN_CAPTURE, [a.kind for a in actions])
+        self.assertEqual(state.plan_attempts, 1)
         # A SECOND missed window has no budget left -> the named fast-fail.
         state = self._armed(capture_replans_done=mlib.MAX_CAPTURE_REPLANS)
         state, _ = mlib.b5_decide(
@@ -6926,7 +7324,52 @@ class B5ParkTests(unittest.TestCase):
         state, _ = mlib.b5_decide(
             state, _parked(ut=B11_PARAMS.park_timeout + 1.0, situation="FLYING"))
         self.assertTrue(state.done)
-        self.assertIn("never HELD stable", state.flake_reason)
+        self.assertIn("reached the park gate at least once", state.flake_reason)
+        # The wording must say what the code ENFORCES: the dwell is measured
+        # from PHASE ENTRY, not from first stability, so the give-up may not
+        # claim the park "HELD" (or failed to hold) across the whole dwell.
+        self.assertNotIn("HELD", state.flake_reason)
+        self.assertIn("measured from phase entry", state.flake_reason)
+
+    def test_park_stable_streak_is_capped_at_the_debounce_depth(self):
+        """park_stable_streak is a DIFFED field: an uncapped counter emits one
+        gate line + one 21-line window dump per frame of the whole dwell. The
+        cap is behaviour-identical (every gate tests only >= park_debounce)."""
+        state = _b11_state(mlib.B5_PARK)
+        for i in range(B11_PARAMS.park_debounce + 20):
+            prev = state
+            state, _ = mlib.b5_decide(state, _parked(ut=10.0 + i))
+            self.assertLessEqual(state.park_stable_streak,
+                                 B11_PARAMS.park_debounce)
+            if i >= B11_PARAMS.park_debounce:
+                # Past the cap the field stops changing, so it stops emitting.
+                self.assertEqual(
+                    [c for c in mlib.diff_machine_state(prev, state)
+                     if c.startswith("parkStableStreak")], [])
+        self.assertTrue(state.park_ever_stable)
+
+    def test_flake_reason_rides_the_machine_state_line_and_dict(self):
+        """A live status read must be able to show WHY the machine is about to
+        end. The reason reached the RESULT but never the periodic machine-state
+        line, so an operator watching a run saw done/verdict with no cause."""
+        state = _b11_state(mlib.B5_PARK)
+        state, _ = mlib.b5_decide(
+            state, _parked(ut=B11_PARAMS.park_timeout + 1.0, situation="FLYING"))
+        self.assertTrue(state.done)
+        line = mlib.format_machine_state(state, 700.0)
+        self.assertIn("flakeReason=", line)
+        self.assertIn("never_reached_a_stable_park", line)
+        # ONE token: the reason is a whole sentence carrying '=' characters, and
+        # status.py's parse_kv_tokens splits on whitespace and partitions on
+        # '=' -- an unsanitized reason would inject bogus keys (ut=, nodes=).
+        tokens = [t for t in line.split() if "=" in t]
+        self.assertEqual(len(tokens), len(mlib.MACHINE_STATE_FIELDS) + 1)
+        self.assertEqual(mlib.machine_state_dict(state, 700.0)["flakeReason"],
+                         state.flake_reason)
+
+    def test_machine_state_line_has_no_reason_before_a_give_up(self):
+        state = _b11_state(mlib.B5_PARK)
+        self.assertIn("flakeReason=none", mlib.format_machine_state(state, 10.0))
 
     def test_leaving_the_soi_during_park_is_assert_fail(self):
         state = _b11_state(mlib.B5_PARK)
