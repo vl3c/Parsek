@@ -143,7 +143,7 @@ Live finding 3 (third flight 2026-07-21; the dv cap doubled as the diagnostic): 
 
 Roadmap item 2 ("Mun/Minmus ORBIT missions - capture burn + commit-in-target-orbit terminal"). **ID note:** the roadmap called this lane "B8", but `automated-testing-scenario-catalog.md` section 2 already assigns B8 (loop the B7 tree as a mission), B9 (crash / rewind / re-fly) and B10 (career passive safety, a committed spec), and B3 is the EVA branch - so the lane is **B11-mun-orbit** + **B12-minmus-orbit**, and both the catalog and `autotest-status.md` now carry the mapping so nobody trips on the informal label again.
 
-**Why it exists (the Parsek surface, not the rocketry).** B5 (Mun flyby), B6 (Minmus flyby) and B7 (Duna flyby) all fly THROUGH a foreign SOI and come back or continue. NONE of them ends its recording parked in another body's SOI. That end-state is the whole point: the commit path, the terminal classification, and the background-recording handoff for a tree whose recording CLOSES while the vessel is in orbit around a FOREIGN body. New registry cell `D1 commit-in-foreign-soi` (added to `harness/coverage/registry.toml` in the same change, per the growth rule); the lane also claims `D5 bg-recording` because the committed vessel keeps existing in the target SOI after the commit.
+**Why it exists (the Parsek surface, not the rocketry).** B5 (Mun flyby), B6 (Minmus flyby) and B7 (Duna flyby) all fly THROUGH a foreign SOI and come back or continue. NONE of them ends its recording parked in another body's SOI. That end-state is the whole point: the commit path, the terminal classification, and the background-recording handoff for a tree whose recording CLOSES while the vessel is in orbit around a FOREIGN body. New registry cell `D1 commit-in-foreign-soi` (added to `harness/coverage/registry.toml` in the same change, per the growth rule). The lane originally also claimed `D5 bg-recording` on the argument that the committed vessel keeps existing in the target SOI; that claim was REMOVED 2026-07-25 because nothing gates it - `CommitTreeFlight` sets `backgroundRecorder = null` and `Patches.PhysicsFramePatch.BackgroundRecorderInstance = null` before returning, no assertion or required log token covers a handoff, and `settle_frames = 0` terminates the mission on the commit frame. BDOCK-1 is the honest claimant of that cell (two vessels, a real split).
 
 **Reuse, not reinvention.** Both missions are the LIVE-PROVEN `mlib.b5_decide` machine with ONE new param, `captureEnabled`. Ascent, circularization, target selection, the ManeuverPlanner Hohmann transfer, the autowarped TLI, the dv-capped DIY course corrections, the arrival-quality re-correct, the flameout staging and the entire native/rails warp policy are byte-identical to the 26 B5 flights; with the flag OFF (the default) none of the new code is reachable, which the pre-existing suites prove by passing unmodified. B12 is a thin alias over the same machine, exactly as B6 is to B5.
 
@@ -161,38 +161,52 @@ Roadmap item 2 ("Mun/Minmus ORBIT missions - capture burn + commit-in-target-orb
 
 **Fixture:** the already-committed `b2-lko-craft` (shared with B2/B4/B5/B6). No forge run, no new fixture. Delta-v survey: the stage holds ~1500-1600 m/s after the 80 km circularization; Mun = ~860 TLI + up to ~340 corrections + ~150-220 capture (capturing HIGH is CHEAPER, and B5's certified arrivals were 956-1,142 km), Minmus = ~930 TLI + corrections + ~70-90 capture. Both fit, with the flameout-staging watchdog reaching the X200-16 upper tank if the core dies mid-burn.
 
-**POST-FLIGHT STATUS of the five first-flight pins (both missions have now flown green; four are CLOSED, one remains):**
-1. **PIN `recordings.count` - STILL OPEN, but no longer needs a save capture.** Both windows
-   were TIGHTENED 2026-07-25 from the provisional `{min 1, max 10}` to `{min 1, max 9}` on a
-   PART-LEVEL derivation read out of the fixture itself, and both specs now carry that derivation
-   as a comment. The enumeration, for `fixtures/saves/b2-lko-craft` (the stock Kerbal X B2/B4/B5/B6
-   also fly): **+1** root/main recording (mandatory - `autoRecordOnLaunch` true and the
-   `Recording started` logContract already fails without it); **+6** radial boosters as
-   parent-anchored debris children, LIVE-ESTABLISHED by the first live B2 flight (2026-07-20:
-   exactly 7 sidecars, analyzer RED=0); **+1** MARGIN for the ascent core stack separation
-   surfacing as one more debris child (B5 live finding 15's zero-thrust stage pop - it did NOT
-   record on the B2 flight); **+1** MARGIN for a fresh post-commit recording for the still-orbiting
-   vessel IF Parsek opens one. Total 9. What buys the tightening is a source RULED OUT: the
-   `+1 LES-tower margin` that B2/B4/B5/B6's windows carry **has no part behind it on this craft**
-   - there is no `launchEscapeSystem` / escape-tower part anywhere in the fixture's part list
-   (verified by reading the PART blocks out of `persistent.sfs`), so it was dead weight inherited
-   from a generic Kerbal-X assumption. Also ruled out: the 3 `launchClamp1` parts contribute 0
-   (they release on every flight and the B2 count was 7), and the SECOND `Decoupler.2`
+**POST-FLIGHT STATUS of the five first-flight pins (both missions have now flown green; all five are CLOSED):**
+1. ~~**PIN `recordings.count`**~~ **CLOSED 2026-07-25 - both windows PINNED at `{min 8, max 8}`.**
+   The numbers are MEASURED, not derived: B11 flight 4 (wall 1,271 s,
+   `results/2026-07-25_0400_B11-mun-orbit.json`) and B12 flight 5 (wall 580 s,
+   `results/2026-07-25_0349_B12-minmus-orbit.json`) are the first passes of each carrying
+   `verifiers.expectations.observed.recordings.count`, and both read **8**. The enumeration behind
+   the 8, for `fixtures/saves/b2-lko-craft` (the stock Kerbal X B2/B4/B5/B6 also fly): **+1**
+   root/main recording (mandatory - `autoRecordOnLaunch` true and the `Recording started`
+   logContract already fails without it); **+6** radial boosters as parent-anchored debris
+   children, LIVE-ESTABLISHED by the first live B2 flight (2026-07-20: exactly 7 sidecars,
+   analyzer RED=0); **+1** the FLAMEOUT-STAGED ascent core, which is the 8th and the one that
+   separates this profile from B2's 7. Ruled out: no `launchEscapeSystem` / escape-tower part
+   exists anywhere in the fixture's part list (verified by reading the PART blocks out of
+   `persistent.sfs`), the 3 `launchClamp1` parts contribute 0, and the SECOND `Decoupler.2`
    (upper stage -> pod) never fires because B11/B12 have no separation phase and end parked with
-   the stack intact. Consistency check: B5/B6 fly the byte-identical ascent at `{1, 9}` and are
-   live-proven green; strip their phantom LES margin and their real ceiling is 8, so the orbit
-   lane = 8 + the post-commit slack = 9. `min` stays at the family floor of 1 - the main recording
-   must exist even if debris ADMISSION varies flight to flight, and a higher min would red a
-   correct run over debris timing. Deliberately NOT pinned yet: the two 2026-07-25 FULL-PASS
-   flights predate the measurement field, so all they establish is "<= 10", and a wrong pin reds a
-   correct run. **What changed so the next flight closes it:** the harness now RECORDS the measured
-   count. `hlib.observed_expectation_facets` returns it from verifier 7 and run.py persists it at
+   the stack intact.
+   **`min = 8` is measured too.** Across every archived run that actually crossed into a foreign
+   SOI (selector: the `SOI change boundary suppressed in tree mode: Kerbin to` token in the
+   collected KSP.log), the count is 8 on EVERY run at or after commit `82398e157` ("Live finding
+   15: flameout staging", 2026-07-22 18:30) - 10 runs of 10 (B5 x4, B7 x4, B11, B12) - and 7 on
+   the five clean runs before it; the first 8 came from the run whose `git-state.txt` reads
+   exactly `82398e157`. The 7s are an OLDER BUILD, not run-to-run variance. `min = 7` was
+   considered and REJECTED: 7 is the exact count a single dropped recording would produce, so a
+   floor of 7 would blind the only numeric guard to the regression class it exists to catch.
+   **Residual risk, stated honestly:** `_b5_flameout_stage` is a CONDITIONAL watchdog (it pops a
+   stage only when a commanded burn reads zero available thrust for `FLAMEOUT_DEBOUNCE_FRAMES`),
+   so the 8th recording is deterministic for THIS vehicle's fuel budget rather than guaranteed by
+   the machine. A future change to ascent efficiency or MechJeb autostage that removes the
+   flameout WILL red this window, and an operator must then re-derive it from a fresh measured
+   count.
+   **THE COUNT IS COMMIT-BLIND - do not read it as commit evidence.** `run.py count_recordings`
+   counts `.prec` sidecars, and `ParsekScenario` OnSave writes sidecars for the ACTIVE
+   (uncommitted) tree too (`EnsureRecordingFilesCurrentForSave`, `treeKind="active tree"`). Two
+   archived runs (`logs/2026-07-25_0253_B11-mun-orbit`, `logs/2026-07-25_0538_B12-minmus-orbit`)
+   flew the full ascent, crossed into the target SOI, NEVER committed (zero `CommitTreeFlight`
+   lines, zero `committree committed=true`) and still produced exactly 8 `.prec`. The window
+   guards recording TOPOLOGY; the commit is guarded by the logContract tokens, which now include
+   the foreground SOI-crossing line and a per-recording terminal verdict naming
+   `terminalOrbitBody`.
+   **What made the pin possible:** `hlib.observed_expectation_facets` returns the measured count
+   from verifier 7 and run.py persists it at
    `verifiers.expectations.observed.recordings.count` in `results/<runId>.json`, on PASS as well as
    FAIL. Before this, a PASS ran no collect-logs and the produced save was transient, so a green
-   run's count was unrecoverable post-hoc - which is exactly why these two windows are the only
-   unpinned ones left. Read the number off the next green run of each and set `min = max = it`.
-2. **The post-mission CommitTree question - CLOSED (no change needed).** Neither spec declares one and none was added: all three FULL-PASS flights (B11 flights 2 and 3, B12 flight 4) greened with the mid-mission commit alone, so nothing forced the question. It stays worth re-checking if the count pin lands at the top of the window, since a post-commit recording is one of the two margins in the derivation above. For the record: the seam's `CommitTreeImpl` returns ERROR `no-active-tree` (`ParsekTestCommandAddon.cs`) with no live tree, which is the expected state after the mid-mission commit. If flight 1 shows Parsek opening a FRESH tree for the still-orbiting vessel after the commit, add a post-mission `CommitTree` step THEN - a speculative guess reds the run either way.
-3. **A foreground SOI-change log token - STILL NOT ASSERTED, deliberately.** Three green flights produced no candidate worth pinning, and the four asserted tokens carried the runs on their own, so nothing was added on speculation. Original reasoning, unchanged: the only SOI-change Info lines in the source are `BackgroundRecorder.cs:2542` (background vessels only) and `ParsekFlight.cs:12229` (the suppressed-in-tree-mode branch), neither of which is the foreground Kerbin -> Mun crossing. Flight 1's KSP.log decides whether a usable token exists. The four asserted tokens ARE sourced from their emitting call sites: the `Recording started` / `Recording stopped` pair, `CommitTreeFlight: starting tree commit at UT=` (`ParsekFlight.cs:13136`) and `committree committed=true` (`ParsekTestCommandAddon.cs:1520`).
+   run's count was unrecoverable post-hoc.
+2. **The post-mission CommitTree question - CLOSED (no change needed).** Neither spec declares one and none was added: all five FULL-PASS flights (B11 flights 2, 3 and 4; B12 flights 4 and 5) greened with the mid-mission commit alone, so nothing forced the question. The measured pin settles it in the other direction too: at exactly 8 there is NO post-commit recording, so Parsek does not open a fresh tree for the still-orbiting vessel. For the record: the seam's `CommitTreeImpl` returns ERROR `no-active-tree` (`ParsekTestCommandAddon.cs`) with no live tree, which is the expected state after the mid-mission commit. If flight 1 shows Parsek opening a FRESH tree for the still-orbiting vessel after the commit, add a post-mission `CommitTree` step THEN - a speculative guess reds the run either way.
+3. ~~**A foreground SOI-change log token - STILL NOT ASSERTED**~~ **CLOSED 2026-07-25 - it IS the suppressed-in-tree-mode line, and both specs now assert it.** The original reasoning was wrong about which branch is production: `ParsekFlight.HandleSoiChangeSplit`'s suppressed branch gates on `ShouldSuppressBoundarySplit(activeTree)`, which returns `activeTree != null`, and always-tree mode (#271) gives EVERY recording a tree - so a foreground SOI change in a recorded flight ALWAYS emits `SOI change boundary suppressed in tree mode: <from> to <to>`. Verified present exactly ONCE per flight in `logs/2026-07-25_0253_B11-mun-orbit/KSP.log` (`Kerbin to Mun`) and `logs/2026-07-25_0538_B12-minmus-orbit/KSP.log` (`Kerbin to Minmus`). Without it the lane could green a mission that never left Kerbin's SOI. **A second token landed with it:** `CommitTreeFlight terminal: rec=<id> terminalState=<state> terminalOrbitBody=<body>` (`ParsekFlight.LogCommitTerminalVerdicts`, one bounded line per committed recording, summary above 20). This is the headline claim's only real evidence - `CommitTreeFlight: starting tree commit at UT=` is logged unconditionally on entry and `committree committed=true` only proves the seam call returned, so before this a tree that ended around KERBIN produced byte-identical evidence to one that ended around the MUN. Both specs now require `terminalState=Orbiting terminalOrbitBody=Mun` / `=Minmus`. NOT YET FLOWN: the emitting code landed with this doc change, so the token first appears in the flight after the next DLL deploy. The other four tokens are unchanged and still sourced from their call sites: the `Recording started` / `Recording stopped` pair, `CommitTreeFlight: starting tree commit at UT=` (`ParsekFlight.cs:13136`) and `committree committed=true` (`ParsekTestCommandAddon.cs:1520`).
 4. **Re-time the budgets - CLOSED, and both are now measured end to end.** B11 flies in **1,269 wall seconds** against 3000/3500 and B12 in **580** against 4200/4700, so both carry 2-8x headroom on FULL runs (not just to the capture instant). The B12 number is the one worth remembering: the coast + periapsis fixes turned the longest-coast mission into the CHEAPEST of the pair. Budgets deliberately left as-is - they are wall-clock envelopes, not targets. Original entry: ~~B11 3000/3500 and B12 3600/4100 are pure estimates~~ - flight 1 MEASURED B11 at 1064 wall seconds to the capture ignition instant, so B11's 3000/3500 now stand on measurement (~1,300 nominal end to end, ~2,100 with the one bounded stale-node re-plan) and B12's were raised 3600/4100 -> 4200/4700 because MechJeb's ~600 s pre-ignition hold is a real, now-known wall cost. Still to measure: PARK + ORBIT-COMMIT (never reached), and `captureBurnTimeoutSeconds` 60000/200000 (flight 1 used 5,030 game seconds of the 60,000).
 5. **Confirm the capture-window sizing - CLOSED, and the window proved BOTH directions.** Every green capture landed deep inside it (B11 eccentricity 0.000127, B12 0.00026, both far under the 0.25 ceiling), and B12 flight 3's 325 x 5.3 km grazing orbit was CORRECTLY rejected as an under-burn rather than greened - so the window is neither too tight nor a rubber stamp. Original sizing note: `parkMaxApoapsisMeters` 2,000 km (Mun; SOI edge ~2,230 km) and 1,500 km (Minmus; SOI edge ~2,187 km) are deliberately wide because the arrival periapsis is MechJeb's business. An arrival above the ceiling produces a NAMED under-burn flake, not a hang - but it means the window, not the flight, is wrong.
 
@@ -297,7 +311,7 @@ B7 is unaffected only because its interplanetary spec already carries `transferB
 - `mlib.classify_correction_timeout` - the naming gap. A budget expiry is now a NAMED flake: `correction-burner-no-start` (node pending, burner never throttled, orbit unchanged - the B12 case) or `correction-burn-incomplete`. It can never again ride the generic "phase X timed out".
 - `corr_giveup` - every correction ROUND give-up (`node-gone` / `cut-reached` / `overshoot` / `no-progress` / `align-no-start`) now names itself on the machine state and the machine-DIFF line. A round exit used to be indistinguishable from a clean cut in the log, and the whole B12 diagnosis hinged on knowing which one fired.
 
-**Blast radius.** The change is confined to the `B5_CORRECTION_BURN` branch (`_corr_stay_or_flake` replaces `_b5_stay_or_flake` there; every other phase is untouched) and it strictly RELAXES a bound on the paths B5/B11 already pass. All 513 mission cells, 420 harness cells and 203 provision cells pass unmodified, as does the 18,647-test C# suite.
+**Blast radius.** The change is confined to the `B5_CORRECTION_BURN` branch (`_corr_stay_or_flake` replaces `_b5_stay_or_flake` there; every other phase is untouched) and it strictly RELAXES a bound on the paths B5/B11 already pass. All 538 mission cells, 427 harness cells and 203 provision cells pass unmodified, as does the C# suite.
 
 **CONFIRMED by flight 2 (2026-07-25).** Both correction rounds cleared: round 1 ran ut 475.315 -> 74,195.733 as ONE continuous aim-warp (73,720 game seconds) with no flake and no `cancel_warp`, round 2 completed at ut 74,228, `rounds=2`, and the machine reached COAST-TO-TARGET. The fix is LIVE-PROVEN. (Flight 2 then died on the wall budget inside that coast - a DIFFERENT shared defect, see the next entry.)
 

@@ -131,7 +131,7 @@ its fixture shortcut (synthetic recording or stock Scenario save).
 | B8 | Loop B7 tree as mission, phase-locked | D6(loop),D11(span,phase) | inject committed B7 tree |
 | B9 | Crash A from B5, rewind, re-fly, merge | D9(full),D8(recalc) | inject tree with Crashed sibling + RP |
 | B10 | Career passive safety: stock actions only, warp, scene change, cold load | D8(all),D14(career),D16 | fresh career save |
-| B11 | Mun ORBIT: transfer, capture burn, park, commit while parked in the Mun SOI | D1(commit-in-foreign-soi),D3,D4,D5(bg-recording),D14(mun) | b2-lko-craft (shared with B2/B4/B5/B6) |
+| B11 | Mun ORBIT: transfer, capture burn, park, commit while parked in the Mun SOI | D1(commit-in-foreign-soi),D3,D4,D14(mun) | b2-lko-craft (shared with B2/B4/B5/B6) |
 | B12 | Minmus ORBIT: the B11 machine on the minmus axis | As B11 with D14 minmus | b2-lko-craft |
 
 B10 requires almost no flying and covers the historically most destructive

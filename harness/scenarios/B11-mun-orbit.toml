@@ -123,8 +123,8 @@
 # =============================================================================
 schema = 1
 id = "B11-mun-orbit"
-# NEVER FLOWN. Committed pending its first live flight; every number below marked
-# PROVISIONAL is pinned exactly from the measured flight afterwards.
+# LIVE-PROVEN (2026-07-25). Four flights: 1 flake, then three FULL PASSES. The
+# flight log below runs oldest first.
 #
 # ID NOTE: the roadmap called this lane "B8", but B8 is already taken in
 # docs/dev/automated-testing-scenario-catalog.md section 2 ("Loop B7 tree as
@@ -152,21 +152,27 @@ id = "B11-mun-orbit"
 # the phase's own game-time budget, 2,994 s of 4,000 on this very flight. Fixed
 # by anchoring that budget to the warp arrival; see the B12 spec.)
 #
-# RE-FLY OWED (2026-07-25). B12 flight 3 found a THIRD shared-machine defect,
-# and unlike the first two this one CHANGES THIS MISSION'S FLOWN PROFILE:
-# TARGET-FLYBY in capture mode now warps to periapsis_ut - 900 instead of riding
-# the rails flyby stair, and the COAST -> TARGET-FLYBY handoff stops the
-# inherited coast warp. Flight 2 armed the capture 87 game seconds after SOI
-# entry at alt 2,187 km and let MechJeb's executor autowarp fly the ~5,000 s
-# coast down to periapsis; the fixed machine warps that coast itself and arms
-# ~900 s before periapsis instead. The OUTCOME should be identical (MechJeb
-# still plans circularize-at-periapsis for the same node UT and still holds its
-# ~600 s pre-ignition window), and the wall cost should DROP, but this mission
-# is LIVE-PROVEN and the profile moved, so one confirmation flight is owed.
+# FLIGHT 3 (2026-07-25) - RE-FLY PAID, FULL PASS, wall 1,269 s
+# (results/2026-07-25_0301_B11-mun-orbit.json). B12 flight 3 found a THIRD
+# shared-machine defect, and unlike the first two this one CHANGED THIS MISSION'S
+# FLOWN PROFILE: TARGET-FLYBY in capture mode now warps to periapsis_ut - 900
+# instead of riding the rails flyby stair, and the COAST -> TARGET-FLYBY handoff
+# stops the inherited coast warp. Flight 2 had armed the capture 87 game seconds
+# after SOI entry at alt 2,187 km and let MechJeb's executor autowarp fly the
+# ~5,000 s coast down to periapsis; the fixed machine warps that coast itself and
+# arms ~900 s before periapsis. A LIVE-PROVEN mission whose profile moved owes one
+# confirmation flight, and this was it: capture eccentricity 0.000127 (identical
+# to flight 2, so the profile change did not move the capture quality) and
+# TARGET-FLYBY collapsed from 8,213 game seconds to 27 on 2 warp commands.
+#
+# FLIGHT 4 (2026-07-25) - FULL PASS, wall 1,271 s
+# (results/2026-07-25_0400_B11-mun-orbit.json). The run that PINNED the
+# recordings count: it is the first B11 pass carrying
+# verifiers.expectations.observed.recordings.count, and it read 8.
 tier = "nightly"
 description = "Mun ORBIT / commit-in-target-orbit: MechJeb ascent to LKO, ManeuverPlanner Hohmann transfer, autowarped TLI, dv-capped course corrections, cross-SOI coast, CAPTURE burn (circularize at periapsis) inside the Mun SOI, a held stable park, and a mid-mission command-seam CommitTree that closes the tree WHILE PARKED IN THE FOREIGN SOI."
 instanceProfile = "stock-minimal"
-tags = ["B11", "orbit", "mechjeb", "mun", "cross-soi", "capture", "commit-in-foreign-soi", "pending-flight"]
+tags = ["B11", "orbit", "mechjeb", "mun", "cross-soi", "capture", "commit-in-foreign-soi"]
 
 [fixture]
 # The SAME committed Kerbal X fixture B2/B4/B5/B6 fly (no new fixture, no forge
@@ -319,27 +325,42 @@ commitTimeoutSeconds       = 300
 # Coverage. The transfer half is B5's cell set; the NEW cell is D1
 # commit-in-foreign-soi (added to harness/coverage/registry.toml in this same
 # change per the registry growth rule) - the commit path for a tree whose
-# recording closes while the vessel is in orbit around another body. D5
-# bg-recording is claimed because the committed vessel keeps existing in the Mun
-# SOI after the commit, which is exactly the background-recording handoff the
-# roadmap item names.
+# recording closes while the vessel is in orbit around another body.
+#
+# D5 bg-recording is NOT claimed (removed 2026-07-25 after two independent
+# reviews found nothing gating it). The original claim was that "the committed
+# vessel keeps existing in the Mun SOI after the commit" is a background
+# -recording handoff - but CommitTreeFlight sets `backgroundRecorder = null` AND
+# `Patches.PhysicsFramePatch.BackgroundRecorderInstance = null` before it
+# returns (ParsekFlight.cs), no assertion or required log token covers any
+# handoff, and settle_frames = 0 (missions/b11_mun_orbit.py) means the mission
+# terminates on the commit frame itself. There is no observed evidence of a
+# background recording anywhere in this run. BDOCK-1 legitimately claims that
+# cell with two vessels and a real split.
 [dimensionsCovered]
 D1  = ["auto-record-launch", "commit-in-foreign-soi"]
 D3  = ["orbital-checkpoint"]
 D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
-D5  = ["bg-recording"]
 D14 = ["kerbin", "mun", "warp-rails"]
 
 [expectations.recordings]
-# STILL PROVISIONAL, but TIGHTENED 10 -> 9 on a part-level derivation (2026-07-25).
-# This window is the ONLY numeric guard on the run: logContracts are presence-only
-# (re.search over the log body), so nothing else here can count anything. A window
-# that is too WIDE hides a topology regression; a window PINNED WRONG reds a
-# correct run. Honesty beats tightness, so the ceiling below is the SUM of
-# enumerated sources and nothing more, and min stays at the family floor.
+# PINNED EXACTLY at 8 from a MEASURED green run (2026-07-25): flight 4
+# (wall 1,271 s, results/2026-07-25_0400_B11-mun-orbit.json) reported
+# verifiers.expectations.observed.recordings.count = 8.
 #
-# DERIVATION (fixture fixtures/saves/b2-lko-craft, the stock Kerbal X that
-# B2/B4/B5/B6 also fly; part list read out of the fixture's persistent.sfs):
+# READ THIS FIRST - THE COUNT IS COMMIT-BLIND. `run.py count_recordings` counts
+# `.prec` sidecars in the save's Parsek/Recordings dir, and ParsekScenario's
+# OnSave writes sidecars for the ACTIVE (uncommitted) tree too
+# (EnsureRecordingFilesCurrentForSave, treeKind="active tree"). MEASURED: the two
+# archived runs logs/2026-07-25_0253_B11-mun-orbit and
+# logs/2026-07-25_0538_B12-minmus-orbit flew the full ascent, crossed into the
+# target SOI, NEVER committed (ZERO `CommitTreeFlight` lines and ZERO
+# `committree committed=true` in their KSP.log) and still produced exactly 8
+# `.prec`. So this window guards recording TOPOLOGY only; it is NOT evidence
+# that the commit ran. The commit is guarded by the logContract tokens below.
+#
+# WHY 8 IS THE RIGHT NUMBER (fixture fixtures/saves/b2-lko-craft, the stock
+# Kerbal X that B2/B4/B5/B6 also fly):
 #   +1  the root/main recording. Mandatory: autoRecordOnLaunch is pinned true and
 #       the "Recording started" logContract already fails without it.
 #   +6  the six radial boosters (6x radialDecoupler1-2 + 6x liquidEngine2 + 6x
@@ -347,49 +368,36 @@ D14 = ["kerbin", "mun", "warp-rails"]
 #       vessel and is recorded as a parent-anchored debris child - LIVE-ESTABLISHED,
 #       not assumed: the first live B2 flight (2026-07-20) produced exactly 7
 #       sidecars, analyzer RED=0 over all of them.
-#   +1  the ascent core stack separation (1 of the 2 Decoupler.2 parts), which can
-#       surface as one more debris child via B5 live finding 15 (the machine pops
-#       the next stage when a commanded burn reads zero available thrust, so the
-#       jettisoned dry core can record). It did NOT record on the B2 flight (7,
-#       not 8), so this is a MARGIN, not an expectation.
-#   +1  a fresh post-commit recording for the still-orbiting vessel IF Parsek
-#       opens one after the mid-mission CommitTree. Unestablished in either
-#       direction, so it stays as slack.
-#   = 9
-# SOURCES RULED OUT (this is what buys the tightening):
-#   - The LES-tower margin that B2/B4/B5/B6's windows carry has NO PART BEHIND IT
-#     on this craft: there is no launchEscapeSystem / escape-tower part anywhere in
-#     the fixture's part list. That +1 is dead weight inherited from a generic
-#     Kerbal-X assumption, and dropping it is what takes 10 down to 9.
-#   - The 3 launchClamp1 parts release at t=0 on every flight of this fixture and
-#     did not record on the B2 flight (exactly 7), so clamps contribute 0.
-#   - The SECOND Decoupler.2 (upper stage -> pod) never fires here: B11 has NO
-#     separation phase and ends parked in the Mun SOI with the stack intact.
-# Consistency check: B5/B6 fly the byte-identical ascent + the same machine at
-# {1, 9} and are live-proven green; strip their phantom LES margin and their real
-# ceiling is 8, so B11 = 8 + the post-commit slack = 9.
+#   +1  the FLAMEOUT-STAGED ascent core (1 of the 2 Decoupler.2 parts). This is
+#       the 8th recording, and it is what separates this profile from B2's 7.
+#   = 8
+# WHY min=8 AND NOT A FLOOR (measured, not derived). Across every archived run
+# that actually crossed into a foreign SOI (selector: the token
+# `SOI change boundary suppressed in tree mode: Kerbin to` in the collected
+# KSP.log), the count is 8 on EVERY run at or after commit 82398e157
+# ("Live finding 15: flameout staging", 2026-07-22 18:30) - 10 runs of 10
+# (B5 x4, B7 x4, B11, B12) - and 7 on the five clean runs before it. The 7s are
+# an OLDER BUILD, not run-to-run variance; the first 8 came from the run whose
+# git-state.txt reads exactly 82398e157. (Two much older pre-commit B5 runs read
+# 10 and 11; both carry "Vessel destroyed during pending split" in their logs, so
+# they are crash topology from a different machine, not this profile.)
 #
-# min stays 1 (the B2/B4/B5/B6 family rule): the main recording must exist even if
-# debris ADMISSION varies flight to flight, and a min above 1 would red a correct
-# run over debris timing.
+# RESIDUAL RISK, stated honestly: `_b5_flameout_stage` is a CONDITIONAL watchdog -
+# it pops a stage only when a commanded burn reads zero available thrust for
+# FLAMEOUT_DEBOUNCE_FRAMES, bounded at MAX_FLAMEOUT_STAGES. So the 8th recording
+# is deterministic for THIS vehicle's fuel budget, not guaranteed by the machine.
+# If a future change to ascent efficiency or to MechJeb autostage removes the
+# flameout, this window WILL red and an operator must re-derive it from a fresh
+# measured observed.recordings.count. That is the intended failure mode.
 #
-# PIN EXACTLY on the next green flight. The measured count is now RECORDED in
-# results/<runId>.json under verifiers.expectations.observed.recordings.count
-# (harness/lib/hlib.py observed_expectation_facets), so the pin no longer needs the
-# transient save that a PASS never collects - just read the number and set
-# min = max = it. The two 2026-07-25 FULL-PASS flights predate that field, so all
-# they establish is "<= 10".
-count = { min = 8, max = 8 }  # PINNED from the measured green run:
-# flight 4 (2026-07-25, wall 1271 s) reported observed.recordings.count = 8 in its result JSON
-# (the new expectations-observed field). Matches the derivation exactly: root 1
-# + 6 radial boosters as parent-anchored debris children + 1 for the ascent core
-# stack-sep surfacing as a debris child. Exact, not a window: the craft, the
-# ascent and the step list are all fixed, there is no separation phase, and the
-# single commit closes the tree in the target SOI. logContracts are presence-only
-# (hlib.evaluate_expectations uses re.search), so this count is the ONLY numeric
-# guard that the flight produced its full recording topology. Re-pin from a
-# measured observed.recordings.count if a later run legitimately differs; never
-# widen it blindly.
+# min=7 WAS CONSIDERED AND REJECTED: 7 is the exact count a single dropped
+# recording would produce, so a floor of 7 would blind the only numeric guard on
+# this run to the regression class it exists to catch. logContracts are
+# presence-only (hlib.evaluate_expectations uses re.search), so nothing else in
+# this spec can count anything. Re-pin from a measured
+# observed.recordings.count if a later run legitimately differs; never widen it
+# blindly.
+count = { min = 8, max = 8 }
 
 [expectations.logContracts]
 # Every token below is sourced from the ACTUAL emitting ParsekLog call site:
@@ -401,18 +409,34 @@ count = { min = 8, max = 8 }  # PINNED from the measured green run:
 #       ParsekLog.Info(Tag="TestCommands", ...) on the seam verb's success
 #       branch. Proves the MID-MISSION seam commit (not a post-mission one)
 #       reached its OK result.
-# FIRST-FLIGHT-TO-CONFIRM (deliberately NOT asserted yet, because no token
-# could be sourced with certainty): a foreground SOI-change / body-change line
-# for the ACTIVE vessel. The only SOI-change Info lines found in the source are
-# BackgroundRecorder.cs:2542 (background vessels only) and
-# ParsekFlight.cs:12229 (the SUPPRESSED-in-tree-mode branch), neither of which
-# is the foreground Kerbin->Mun crossing. Flight 1's KSP.log decides whether a
-# usable token exists.
+#   "SOI change boundary suppressed in tree mode: Kerbin to Mun" -
+#       ParsekFlight.HandleSoiChangeSplit, ParsekLog.Info("Flight", ...).
+#       THE foreground Kerbin -> Mun crossing for the ACTIVE vessel, and it is
+#       the PRODUCTION branch, not a corner: `ShouldSuppressBoundarySplit`
+#       returns `activeTree != null`, and always-tree mode (#271) gives every
+#       recording a tree, so a foreground SOI change in a recorded flight ALWAYS
+#       lands here. VERIFIED present exactly ONCE per flight in
+#       logs/2026-07-25_0253_B11-mun-orbit/KSP.log. Without it the lane could
+#       green a mission that never left Kerbin's SOI.
+#   "CommitTreeFlight terminal: ... terminalOrbitBody=Mun" -
+#       ParsekFlight.LogCommitTerminalVerdicts, ParsekLog.Info("Flight", ...),
+#       one line per committed recording. THIS is the headline claim's only real
+#       evidence: "starting tree commit at UT=" is logged unconditionally the
+#       moment the path is entered and "committree committed=true" only proves
+#       the seam call returned, so before this token a tree that ended around
+#       KERBIN produced byte-identical evidence to one that ended around the MUN.
+#       Asserting terminalState=Orbiting AND terminalOrbitBody=Mun is what makes
+#       "commit while parked in a FOREIGN body's SOI" a checked claim.
+#       NOT YET FLOWN: the emitting code landed with this spec change and the
+#       token only exists once a rebuilt DLL is deployed. The first flight after
+#       that deploy proves it.
 required = [
   "Recording started",
   "Recording stopped",
+  "SOI change boundary suppressed in tree mode: Kerbin to Mun",
   "CommitTreeFlight: starting tree commit at UT=",
   "committree committed=true",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Mun",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

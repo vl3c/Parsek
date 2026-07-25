@@ -80,6 +80,19 @@
 # =============================================================================
 schema = 1
 id = "B12-minmus-orbit"
+# FLIGHT 5 (2026-07-25) - FULL PASS, wall 580 s
+# (results/2026-07-25_0349_B12-minmus-orbit.json). The run that PINNED the
+# recordings count: it is the first B12 pass carrying
+# verifiers.expectations.observed.recordings.count, and it read 8.
+#
+# FLIGHT 4 (2026-07-25) - FULL PASS on the periapsis-bounded profile, wall 580 s
+# (results/2026-07-25_0250_B12-minmus-orbit.json), capture eccentricity 0.00026,
+# PARK -> ORBIT-COMMIT -> ORBIT-COMMITTED, all six mission assertions met. THIS
+# MISSION IS LIVE-PROVEN. COAST-TO-TARGET flew 194,543 game seconds in 26 wall
+# seconds (ratio 7,535) on 3 warp commands, and the periapsis-bounded
+# TARGET-FLYBY armed the capture on the orbit's own clock instead of blowing
+# through it - both shared-machine fixes this mission's forensics produced held.
+#
 # FLIGHT 3 (2026-07-25) - the coast fix WORKED SPECTACULARLY and the mission
 # reached a capture burn. The warp-utilisation block diagnosed the next defect at
 # a glance: COAST-TO-TARGET 26 wall / 194,704 game (ratio 7,543, 3 warp commands,
@@ -101,11 +114,12 @@ id = "B12-minmus-orbit"
 # TRANSFER-BURN (clean, ap 48,823,627 m), COAST-TO-TARGET, PLAN-CORRECTION,
 # CORRECTION-BURN. The correction node planned fine and TINY (nodeDv 13.301) and
 # was never burned - the flake was the shared aim-then-warp budget defect
-# described above, fixed in mlib. The capture / park / commit tail is STILL
-# unproven on this body; flight 2 is its first real attempt. Fly B11 FIRST when
-# re-baselining - it is the shorter coast, so it prices the capture tail in ~20
-# wall-minutes instead of ~30, and every B11 finding transfers here unchanged
-# (the B5 -> B6 relationship, repeated). B11 is LIVE-PROVEN as of 2026-07-25.
+# described above, fixed in mlib. (The capture / park / commit tail was unproven
+# on this body at the time; flights 4 and 5 have since flown it green, so this
+# entry is history, not an open gap.) Fly B11 FIRST when re-baselining - it is
+# the shorter coast, so it prices the capture tail in ~20 wall-minutes instead of
+# ~30, and every B11 finding transfers here unchanged (the B5 -> B6 relationship,
+# repeated). B11 is LIVE-PROVEN as of 2026-07-25.
 #
 # ID NOTE: see B11-mun-orbit.toml. The roadmap's informal "B8" label for this
 # lane collides with the catalog's existing B8/B9/B10 rows, so the ORBIT lane is
@@ -113,7 +127,7 @@ id = "B12-minmus-orbit"
 tier = "nightly"
 description = "Minmus ORBIT / commit-in-target-orbit: the B11 machine and craft with targetBodyName=Minmus -- MechJeb ascent, Hohmann transfer, autowarped burn, dv-capped corrections, ~9-day cross-SOI coast, CAPTURE burn inside the Minmus SOI, a held stable park, and a mid-mission command-seam CommitTree that closes the tree WHILE PARKED IN THE FOREIGN SOI."
 instanceProfile = "stock-minimal"
-tags = ["B12", "orbit", "mechjeb", "minmus", "cross-soi", "capture", "commit-in-foreign-soi", "pending-flight"]
+tags = ["B12", "orbit", "mechjeb", "minmus", "cross-soi", "capture", "commit-in-foreign-soi"]
 
 [fixture]
 # Same committed Kerbal X fixture as B2/B4/B5/B6/B11.
@@ -243,8 +257,13 @@ captureBurnTimeoutSeconds  = 200000
 # for Minmus: the observed B6 arrival was 512 km, the peaks are ~5.7 km, and the
 # SOI edge is ~2,187 km up - so 10 km to 1,500 km altitude is a legitimate
 # captured Minmus orbit, with the ceiling keeping the park clear of the SOI edge.
-# The apoapsis ceiling is the load-bearing conjunct (a hyperbolic approach reads
-# a NEGATIVE apoapsis).
+# WHICH CONJUNCT DOES THE WORK depends on the failure. The apoapsis ceiling
+# certifies CAPTURE (a hyperbolic approach reads a NEGATIVE apoapsis, so
+# `0 < ap <= ceiling` cannot be faked by flying past), but it is NOT what
+# rejected the flight-3 under-burn: that orbit read ap 324,973 (PASSES the
+# 1,500,000 ceiling) and was rejected by the PERIAPSIS FLOOR (pe 5,267 < 10,000)
+# and the ECCENTRICITY BOUND (ecc 0.710 > 0.25). The three conjuncts cover
+# different failures and all three are load-bearing.
 parkMinPeriapsisMeters     = 10000
 parkMaxApoapsisMeters      = 1500000
 parkMaxEccentricity        = 0.25
@@ -258,71 +277,91 @@ commitTimeoutSeconds       = 300
 
 # Coverage: B11's cell set on the minmus axis. D1 commit-in-foreign-soi is the
 # NEW registry value this lane adds (harness/coverage/registry.toml, same
-# change).
+# change). D5 bg-recording is NOT claimed - see the B11 spec's block for the
+# full reasoning; the short version is that CommitTreeFlight nulls both
+# `backgroundRecorder` and `PhysicsFramePatch.BackgroundRecorderInstance` before
+# returning, nothing asserts a handoff, and settle_frames = 0
+# (missions/b12_minmus_orbit.py) ends the mission on the commit frame.
 [dimensionsCovered]
 D1  = ["auto-record-launch", "commit-in-foreign-soi"]
 D3  = ["orbital-checkpoint"]
 D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast"]
-D5  = ["bg-recording"]
 D14 = ["kerbin", "minmus", "warp-rails"]
 
 [expectations.recordings]
-# STILL PROVISIONAL, but TIGHTENED 10 -> 9 on the SAME part-level derivation B11
-# carries (2026-07-25); B12 flies the same fixture, the same craft and the same
-# machine, so the topology is identical and only the target body differs. This
-# window is the ONLY numeric guard on the run (logContracts are presence-only
-# re.search), so it is the sum of enumerated sources and nothing more.
+# PINNED EXACTLY at 8 from a MEASURED green run (2026-07-25): flight 5
+# (wall 580 s, results/2026-07-25_0349_B12-minmus-orbit.json) reported
+# verifiers.expectations.observed.recordings.count = 8. B12 flies the same
+# fixture, the same craft and the same machine as B11, so the topology is
+# identical and only the target body differs; the full reasoning lives in the
+# B11 spec and is summarized here.
 #
-# DERIVATION (fixture fixtures/saves/b2-lko-craft, stock Kerbal X; part list read
-# out of the fixture's persistent.sfs):
+# READ THIS FIRST - THE COUNT IS COMMIT-BLIND. `run.py count_recordings` counts
+# `.prec` sidecars, and ParsekScenario's OnSave writes sidecars for the ACTIVE
+# (uncommitted) tree too (EnsureRecordingFilesCurrentForSave, treeKind="active
+# tree"). MEASURED: logs/2026-07-25_0538_B12-minmus-orbit and
+# logs/2026-07-25_0253_B11-mun-orbit both flew the full ascent, crossed into the
+# target SOI, NEVER committed (ZERO `CommitTreeFlight` lines and ZERO
+# `committree committed=true` in their KSP.log) and still produced exactly 8
+# `.prec`. This window guards recording TOPOLOGY only; it is NOT evidence that
+# the commit ran. The commit is guarded by the logContract tokens below.
+#
+# WHY 8 (fixture fixtures/saves/b2-lko-craft, stock Kerbal X):
 #   +1  root/main recording (mandatory - autoRecordOnLaunch true, and the
 #       "Recording started" logContract already fails without it)
 #   +6  the six radial boosters as parent-anchored debris children. LIVE-ESTABLISHED
 #       by the first live B2 flight (2026-07-20): exactly 7 sidecars, analyzer RED=0.
-#   +1  MARGIN for the ascent core stack separation surfacing as one more debris
-#       child (B5 live finding 15, the zero-thrust stage pop). It did NOT record on
-#       the B2 flight.
-#   +1  MARGIN for a fresh post-commit recording for the still-orbiting vessel IF
-#       Parsek opens one after the mid-mission CommitTree. Unestablished either way.
-#   = 9
-# RULED OUT: no launchEscapeSystem / escape-tower part exists anywhere in this
-# fixture's part list, so the +1 LES margin B2/B4/B5/B6 carry is dead weight here -
-# dropping it is exactly what takes 10 down to 9. The 3 launchClamp1 parts
-# contribute 0 (they release on every flight and the B2 count was 7). The second
-# Decoupler.2 (upper stage -> pod) never fires: B12 has NO separation phase and
-# ends parked in the Minmus SOI with the stack intact.
+#   +1  the FLAMEOUT-STAGED ascent core, the 8th recording and the one that
+#       separates this profile from B2's 7.
+#   = 8
+# WHY min=8 AND NOT A FLOOR (measured). Across every archived run that actually
+# crossed into a foreign SOI (selector: the token `SOI change boundary suppressed
+# in tree mode: Kerbin to` in the collected KSP.log), the count is 8 on EVERY run
+# at or after commit 82398e157 ("Live finding 15: flameout staging",
+# 2026-07-22 18:30) - 10 runs of 10 (B5 x4, B7 x4, B11, B12) - and 7 on the five
+# clean runs before it. The 7s are an OLDER BUILD, not run-to-run variance.
 #
-# min stays 1 (the B2/B4/B5/B6 family rule): the main recording must exist even if
-# debris ADMISSION varies flight to flight.
+# RESIDUAL RISK, stated honestly: `_b5_flameout_stage` is a CONDITIONAL watchdog -
+# it pops a stage only when a commanded burn reads zero available thrust for
+# FLAMEOUT_DEBOUNCE_FRAMES, bounded at MAX_FLAMEOUT_STAGES. The 8th recording is
+# therefore deterministic for THIS vehicle's fuel budget, not guaranteed by the
+# machine. If a future change to ascent efficiency or to MechJeb autostage
+# removes the flameout, this window WILL red and an operator must re-derive it
+# from a fresh measured observed.recordings.count.
 #
-# PIN EXACTLY on the next green flight - the measured count now lands in
-# results/<runId>.json at verifiers.expectations.observed.recordings.count
-# (harness/lib/hlib.py observed_expectation_facets), so it no longer dies with the
-# transient save a PASS never collects. The 2026-07-25 FULL-PASS flight predates
-# that field, so it only establishes "<= 10".
-count = { min = 8, max = 8 }  # PINNED from the measured green run:
-# flight 5 (2026-07-25, wall 580 s) reported observed.recordings.count = 8 in its result JSON
-# (the new expectations-observed field). Matches the derivation exactly: root 1
-# + 6 radial boosters as parent-anchored debris children + 1 for the ascent core
-# stack-sep surfacing as a debris child. Exact, not a window: the craft, the
-# ascent and the step list are all fixed, there is no separation phase, and the
-# single commit closes the tree in the target SOI. logContracts are presence-only
-# (hlib.evaluate_expectations uses re.search), so this count is the ONLY numeric
-# guard that the flight produced its full recording topology. Re-pin from a
-# measured observed.recordings.count if a later run legitimately differs; never
-# widen it blindly.
+# min=7 WAS CONSIDERED AND REJECTED: 7 is the exact count a single dropped
+# recording would produce, so a floor of 7 would blind the only numeric guard on
+# this run to the regression class it exists to catch. logContracts are
+# presence-only (hlib.evaluate_expectations uses re.search), so nothing else in
+# this spec can count anything. Re-pin from a measured
+# observed.recordings.count if a later run legitimately differs; never widen it
+# blindly.
+count = { min = 8, max = 8 }
 
 [expectations.logContracts]
-# Same four tokens as B11, each sourced from its ACTUAL emitting ParsekLog call
-# site (lifecycle pair; ParsekFlight.cs:13136 "CommitTreeFlight: starting tree
-# commit at UT="; ParsekTestCommandAddon.cs:1520 "committree committed=true").
-# Same FIRST-FLIGHT-TO-CONFIRM: no foreground SOI-change token could be sourced
-# with certainty, so none is asserted.
+# The same six tokens as B11 on the minmus axis, each sourced from its ACTUAL
+# emitting ParsekLog call site (read the B11 spec for the full per-token
+# rationale):
+#   lifecycle pair; ParsekFlight.cs:13136 "CommitTreeFlight: starting tree commit
+#   at UT="; ParsekTestCommandAddon.cs:1520 "committree committed=true";
+#   ParsekFlight.HandleSoiChangeSplit "SOI change boundary suppressed in tree
+#   mode: Kerbin to Minmus" (the foreground crossing for the ACTIVE vessel, and
+#   the PRODUCTION branch - `ShouldSuppressBoundarySplit` returns
+#   `activeTree != null` and always-tree mode (#271) gives every recording a
+#   tree; VERIFIED present exactly ONCE in
+#   logs/2026-07-25_0538_B12-minmus-orbit/KSP.log); and
+#   ParsekFlight.LogCommitTerminalVerdicts "CommitTreeFlight terminal: ...
+#   terminalOrbitBody=Minmus", the only token that actually witnesses WHERE the
+#   tree ended - without it a commit at Kerbin reads identically to one at
+#   Minmus. NOT YET FLOWN: the emitting code landed with this spec change, so the
+#   token only exists once a rebuilt DLL is deployed.
 required = [
   "Recording started",
   "Recording stopped",
+  "SOI change boundary suppressed in tree mode: Kerbin to Minmus",
   "CommitTreeFlight: starting tree commit at UT=",
   "committree committed=true",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Minmus",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
