@@ -128,12 +128,71 @@ namespace Parsek.Tests
         [Fact]
         public void FormatCommitTerminalLine_OrbitBodyWinsOverSurfaceBody()
         {
-            // Orbit metadata stays authoritative when both are somehow populated, so
-            // the fallback can never rewrite an ORBITING recording's body.
+            // Orbit metadata stays authoritative for a NON-surface terminal when both
+            // are somehow populated, so the fallback can never rewrite an ORBITING
+            // recording's body.
             string line = ParsekFlight.FormatCommitTerminalLine(
                 Rec("r1", TerminalState.Orbiting, terminalBody: "Mun", surfaceBody: "Kerbin"));
 
             Assert.Contains("terminalOrbitBody=Mun", line);
+        }
+
+        [Fact]
+        public void FormatCommitTerminalLine_LandedPrefersSurfaceBodyOverStaleOrbitBody()
+        {
+            // THE PRECEDENCE BUG (review 2026-07-26). NOTHING ever CLEARS
+            // TerminalOrbitBody - CaptureTerminalOrbit, CopyTerminalOrbitFromSegment
+            // and the ballistic scene-exit finalizer only ever WRITE it. So a craft
+            // that orbited the Mun, came home and landed on KERBIN still carries
+            // TerminalOrbitBody="Mun", and an orbit-body-first rule printed
+            // "terminalState=Landed terminalOrbitBody=Mun" - confidently wrong in the
+            // one line an operator reads to answer "where did this recording end".
+            string line = ParsekFlight.FormatCommitTerminalLine(
+                Rec("r1", TerminalState.Landed, terminalBody: "Mun", surfaceBody: "Kerbin"));
+
+            Assert.Equal(
+                "CommitTreeFlight terminal: rec=r1 terminalState=Landed terminalOrbitBody=Kerbin",
+                line);
+        }
+
+        [Fact]
+        public void FormatCommitTerminalLine_SplashedPrefersSurfaceBodyOverStaleOrbitBody()
+        {
+            // Splashed is the other surface terminal and takes the same branch: a
+            // reentry that splashes down on Kerbin after a Mun orbit must not report
+            // the Mun.
+            string line = ParsekFlight.FormatCommitTerminalLine(
+                Rec("r1", TerminalState.Splashed, terminalBody: "Mun", surfaceBody: "Kerbin"));
+
+            Assert.Contains("terminalOrbitBody=Kerbin", line);
+        }
+
+        [Fact]
+        public void FormatCommitTerminalLine_LandedWithOnlyOrbitBodyStillNamesIt()
+        {
+            // The surface-first rule must not LOSE information: with no
+            // TerminalPosition at all, the orbit body is still better than "(null)".
+            string line = ParsekFlight.FormatCommitTerminalLine(
+                Rec("r1", TerminalState.Landed, terminalBody: "Mun"));
+
+            Assert.Contains("terminalOrbitBody=Mun", line);
+        }
+
+        [Fact]
+        public void IsSurfaceTerminalState_CoversExactlyLandedAndSplashed()
+        {
+            Assert.True(ParsekFlight.IsSurfaceTerminalState(TerminalState.Landed));
+            Assert.True(ParsekFlight.IsSurfaceTerminalState(TerminalState.Splashed));
+            foreach (var other in new TerminalState?[]
+                     {
+                         TerminalState.Orbiting, TerminalState.SubOrbital,
+                         TerminalState.Destroyed, TerminalState.Recovered,
+                         TerminalState.Docked, TerminalState.Boarded, null,
+                     })
+            {
+                Assert.False(ParsekFlight.IsSurfaceTerminalState(other),
+                    $"{other?.ToString() ?? "null"} must not take the surface-first branch");
+            }
         }
 
         [Fact]
@@ -205,6 +264,24 @@ namespace Parsek.Tests
             Assert.Contains("root rec=root-1", line);
             Assert.Contains("terminalState=Orbiting", line);
             Assert.Contains("terminalOrbitBody=Mun", line);
+        }
+
+        [Fact]
+        public void FormatCommitTerminalSummaryLine_UsesTheSameSurfaceFirstPrecedence()
+        {
+            // The summary REPLACES the per-recording lines above the cap, so it must
+            // not report a different body for the same root recording.
+            var root = Rec("root-1", TerminalState.Landed,
+                           terminalBody: "Mun", surfaceBody: "Kerbin");
+            var tree = TreeWith(root, Rec("debris-1", TerminalState.Destroyed));
+
+            string line = ParsekFlight.FormatCommitTerminalSummaryLine(tree);
+
+            Assert.Contains("terminalState=Landed", line);
+            Assert.Contains("terminalOrbitBody=Kerbin", line);
+            Assert.Contains(
+                "terminalOrbitBody=Kerbin",
+                ParsekFlight.FormatCommitTerminalLine(root));
         }
 
         // --- Live-site batching ------------------------------------------------

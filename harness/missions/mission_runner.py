@@ -494,6 +494,17 @@ class KrpcMissionControl(MissionControl):
         # kRPC surface must name itself once instead of producing a mute
         # no-progress give-up 900 game seconds later.
         self._warned_landing_read = False
+        # THE SETTLED GATE'S OWN CHANNEL, latched SEPARATELY (reviewer finding,
+        # 2026-07-26). ``_warned_landing_read`` covers only the MechJeb module
+        # handle inside ``_read_landing_autopilot``; the surface HORIZONTAL speed
+        # is a DIFFERENT kRPC surface (``flight_srf.horizontal_speed``) read in
+        # ``read_snapshot``, and it degraded to NaN on a bare except with no warn
+        # at all. ``mlib.landed_stable`` requires ``_is_finite(horizontal_speed)``,
+        # so a NaN fails the settled gate FOREVER: a perfectly settled lander
+        # sits through the whole ``landedTimeoutSeconds`` dwell and flakes
+        # ``landed-never-stable`` with NOTHING in the log naming the channel that
+        # decided it. One Warn on the first fault, latched.
+        self._warned_horizontal_speed_read = False
         self._conn = None
         self._mechjeb = None
         self._ascent = None
@@ -714,8 +725,20 @@ class KrpcMissionControl(MissionControl):
                     self._read_landing_autopilot()
                 try:
                     horizontal_speed = float(flight_srf.horizontal_speed)
-                except Exception:
+                except Exception as exc:
                     horizontal_speed = float("nan")
+                    if not self._warned_horizontal_speed_read:
+                        self._warned_horizontal_speed_read = True
+                        _stdout_sink(mlib.format_mission_log_line(
+                            "Warn", "Telemetry",
+                            "Flight.HorizontalSpeed UNREADABLE (%s: %s); the "
+                            "channel degrades to the NaN UNREAD sentinel, and "
+                            "mlib.landed_stable fails CLOSED on it -- so the "
+                            "settled gate can NEVER be met, a perfectly settled "
+                            "lander sits out the whole landedTimeoutSeconds "
+                            "dwell and the phase flakes landed-never-stable. "
+                            "Logged once per run."
+                            % (type(exc).__name__, str(exc)[:160])))
             snapshot = mlib.TelemetrySnapshot(
                 ut=float(sc.ut),
                 altitude=float(flight_srf.surface_altitude),
@@ -1980,7 +2003,28 @@ class KrpcMissionControl(MissionControl):
                     % (label, want, exc)))
                 continue
             applied.append("%s=%r" % (label, back))
-            if bool(back) != bool(want) and not isinstance(want, float):
+            # NUMERIC settings compare NUMERICALLY (reviewer finding,
+            # 2026-07-26). The old form was `bool(back) != bool(want) and not
+            # isinstance(want, float)`, which EXCLUDED touchdown_speed from the
+            # mismatch check entirely -- a `bool(0.5) != bool(0.5)` compare says
+            # nothing, and the float carve-out then silenced it. TouchdownSpeed
+            # is the knob that makes MechJeb's FinalDescent slow near the ground,
+            # so it is exactly the setting whose silent refusal changes the
+            # descent's duration (and interacts with the no-progress window).
+            # 1e-6 absolute: these are m/s in the 0.1-10 range and the wrapper
+            # round-trips a float, so anything beyond float noise is a refusal.
+            # LEVEL stays Info (load_bearing False) deliberately: the commanded
+            # 0.5 m/s IS MechJeb's own default, so a refusal currently lands on
+            # the same value. The point of this fix is that the line EXISTS if
+            # the pinned default ever moves, not that it should red a flight.
+            if isinstance(want, float):
+                mismatched = not (isinstance(back, (int, float))
+                                  and not isinstance(back, bool)
+                                  and math.isfinite(float(back))
+                                  and abs(float(back) - want) <= 1e-6)
+            else:
+                mismatched = bool(back) != bool(want)
+            if mismatched:
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn" if load_bearing else "Info", "Landing",
                     "LandingAutopilot.%s READ BACK as %r, not %r"

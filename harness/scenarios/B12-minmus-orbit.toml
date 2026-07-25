@@ -365,8 +365,9 @@ count = { min = 8, max = 8 }
 #   ParsekFlight.LogCommitTerminalVerdicts "CommitTreeFlight terminal: ...
 #   terminalOrbitBody=Minmus", the only token that actually witnesses WHERE the
 #   tree ended - without it a commit at Kerbin reads identically to one at
-#   Minmus. NOT YET FLOWN: the emitting code landed with this spec change, so the
-#   token only exists once a rebuilt DLL is deployed.
+#   Minmus. LIVE-MATCHED: the emitting code landed with this spec change, and the
+#   token was proven on the first flight after the deploy (B12 flight 5,
+#   2026-07-25, results/2026-07-25_0349_B12-minmus-orbit.json).
 required = [
   "Recording started",
   "Recording stopped",

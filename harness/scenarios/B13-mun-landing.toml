@@ -147,9 +147,11 @@
 # =============================================================================
 schema = 1
 id = "B13-mun-landing"
-# NOT YET FLOWN. Every number below is derived or measured from the LIVE-PROVEN
-# B11 lane it inherits, and every value that a first flight must pin is marked
-# PROVISIONAL with the flight that will close it.
+# LIVE-PROVEN: FULL PASS on flight 1 (2026-07-25, attempt 1, wall 2,747.9 s;
+# `results/2026-07-25_1626_B13-mun-landing.json`). The four first-flight pins
+# this spec shipped as PROVISIONAL are CLOSED from that flight's measured data
+# (recordings count, descentTimeoutSeconds, the settled-speed floors, the landed
+# dwell); each knob below states what was measured and what margin remains.
 #
 # ID NOTE: B8/B9/B10 are taken in docs/dev/automated-testing-scenario-catalog.md
 # section 2 and B3 is the EVA branch; the ORBIT lane took B11/B12, so the LANDING
@@ -199,23 +201,25 @@ mission = "b13_mun_landing"
 #                           deorbit drops periapsis to -20 km (a = 260.5 km,
 #                           e = 0.309), and the coast from apoapsis to the
 #                           surface radius is 1,367 s by Kepler's equation, plus
-#                           the final deceleration. The WALL cost depends
-#                           entirely on whether MechJeb warps it: its landing
-#                           states DO call WarpRegularAtRate / WarpToUT, but only
-#                           when Core.Node.Autowarp is set (the runner sets it
-#                           explicitly) and only while its own attitude gates are
-#                           satisfied. So budget the PESSIMISTIC 1:1 case:
-#                           ~1,700 wall worst, ~250 wall if it warps.
+#                           the final deceleration. MEASURED on flight 1: 1,353.9
+#                           GAME seconds, and the WALL cost matched it 1:1 -
+#                           `warp=NONEx1.000` on ALL 1,303 DESCENT telemetry
+#                           samples. MechJeb's landing states DO call
+#                           WarpRegularAtRate / WarpToUT when Core.Node.Autowarp
+#                           is set (the runner sets it explicitly), but under the
+#                           installed 2.15.1 pin they never did on this profile,
+#                           so the warped branch is FICTION here and the
+#                           pessimistic 1:1 case is the only one that happens.
 #   LANDED-SETTLE          ~120 wall (landedDwellSeconds of GAME time at 1x -
 #                           this dwell IS the recorded surface coverage, so it is
-#                           deliberately NOT warped)
+#                           deliberately NOT warped). MEASURED 120.1.
 #   SURFACE-COMMIT         <1 wall typical, 120 wall worst (the runner's
-#                           SEAM_COMMIT_POLL_SECONDS bound)
-# => ~1,650 wall expected if MechJeb warps the descent; ~3,100 wall if it does
-# not. WORST case additionally inherits B11's own bounded stale-node re-plan
+#                           SEAM_COMMIT_POLL_SECONDS bound). MEASURED 0.6.
+# => ~3,100 wall for the (only observed) unwarped descent; MEASURED 2,747.9 on
+# flight 1. WORST case additionally inherits B11's own bounded stale-node re-plan
 # (+90 s window grace, a re-planned coast, a SECOND ~600 s pre-ignition hold)
-# => ~3,900. missionBudget 5000 (WALL) is ~3x the warped-descent nominal, ~1.6x
-# the unwarped case and ~1.3x that absolute worst. This makes B13 the most
+# => ~3,900. missionBudget 5000 (WALL) is ~1.8x the measured run, ~1.6x
+# the unwarped estimate and ~1.3x that absolute worst. This makes B13 the most
 # expensive scenario in the suite by a wide margin (B11 is 1,317 s at p50,
 # BDOCK-1 2,164 s), which is stated here rather than hidden: the honest
 # expectation is that a nightly rotation cannot afford B13 and B14 on the same
@@ -284,16 +288,22 @@ commitTimeoutSeconds       = 300
 
 # --- LANDING TAIL -----------------------------------------------------------
 landingEnabled             = true
-# DESCENT budget (GAME seconds). DERIVED above: the ballistic fall is ~1,400 s
-# and the deceleration adds a few hundred, so 3000 is ~1.9x the physics duration
-# and warp-independent. It is deliberately NOT larger: at 1x, game seconds ARE
-# wall seconds, and with ~1,270 wall already spent on the inherited half a
-# descent budget above ~3,700 would let the GENERIC mission wall reaper fire
-# before the NAMED landing-touchdown-timeout. A named give-up that a generic one
-# beats to the punch is not a named give-up.
-# PROVISIONAL: the first green flight measures the real DESCENT game-time span
-# (grep the phase transition lines) and this can be trimmed toward it.
-descentTimeoutSeconds      = 3000
+# DESCENT budget (GAME seconds). CLOSED FROM MEASUREMENT on flight 1 (2026-07-25,
+# FULL PASS): the DESCENT phase transitions read ut=21,734.3 (PARK -> DESCENT) and
+# ut=23,088.3 (DESCENT -> LANDED-SETTLE), a span of 1,353.9 game seconds. B14
+# measured 1,381.3 s on the Minmus axis, so 1,381.3 is the worst measured case
+# across both bodies.
+#   MEASURED worst case 1,381.3 s -> 2200 leaves 1.59x margin.
+# Trimmed from the shipped-provisional 3000 (2.17x) because the derived value was
+# never the constraint - the wall reaper was: at 1x, game seconds ARE wall seconds,
+# and with ~1,270 wall already spent on the inherited half a descent budget above
+# ~3,700 would let the GENERIC mission wall reaper fire before the NAMED
+# landing-touchdown-timeout. 2200 keeps a comfortable distance from BOTH bounds.
+# It is deliberately NOT trimmed harder: 1.5x is the smallest margin this suite
+# accepts on a single-sample measurement, and the descent runs entirely at 1x
+# (warp=NONEx1.000 on all 1,303 DESCENT samples), so a slower physics frame rate
+# does not stretch it but a different arrival periapsis does.
+descentTimeoutSeconds      = 2200
 # MechJeb's own default touchdown speed.
 landingTouchdownSpeedMps   = 0.5
 # 3x landingLeg1-2 on the upper stage - a real part-event surface.
@@ -314,33 +324,73 @@ landingRcsAdjustment       = false
 # the ~340 s the correction burner's burnNoStartSeconds was sized against. A
 # CIRCULAR park's altitude is flat by construction during that flip, so a window
 # shorter than it would fire on a perfectly healthy descent. 900 s is ~2.6x that
-# flip and leaves room for THREE full windows inside the 3000 s budget.
+# flip and leaves room for TWO full windows inside the 2200 s budget (it left
+# room for three against the shipped-provisional 3000; the budget was trimmed
+# from measurement, this window was not). MEASURED on flight 1: the descent ran
+# 1,353.9 game seconds and closed exactly ONE window, at 64.4 km altitude, ~454 s
+# before touchdown - so the second window is headroom, not a working part of the
+# profile.
 landingProgressWindowSeconds = 900
-# Metres of surface-altitude drop the window must deliver. Deliberately tiny
-# against the real profile - the first 900 s off a Mun park sheds ~69 km by
-# Kepler - because this bounds BROKEN, not SLOW.
-landingProgressMinDropMeters = 500
+# Metres of surface-altitude drop the window must deliver.
+# CLOSED FROM MEASUREMENT on flight 1 (2026-07-25): the first window opened at
+# alt 134,586.0 m (ut 21,734.3) and closed at alt 64,963.5 m (ut 22,634.4), a
+# MEASURED drop of 69,622.5 m. B14 measured 21,749.8 m on the tighter Minmus
+# axis, so 21,749.8 is the worst measured case across both bodies.
+#   MEASURED worst case 21,749.8 m -> 5000 leaves 4.35x margin.
+# Raised from the shipped-provisional 500 because 500 m is 0.7% of the drop the
+# autopilot actually delivers: a MechJeb that shed 500 m in 900 s would be
+# catastrophically broken and the gate would still pass it. 5000 still bounds
+# BROKEN, not SLOW - a healthy descent clears it in the first 3 minutes.
+# NOTE the interaction with the vertical-speed rescue in
+# `mlib.landing_progress_verdict`: below min_drop metres AGL the window is
+# UNSATISFIABLE by construction, so the verdict withholds the give-up whenever
+# the craft's own vertical speed is finite and NEGATIVE. That is what makes a
+# 5,000 m drop requirement safe on a final descent that only has 450 m left.
+landingProgressMinDropMeters = 5000
 # LANDED is what the Mun will read; SPLASHED is kept because hard-coding it away
 # would make the machine wrong for any body that has an ocean, and it costs
 # nothing here.
 landedSituations           = ["LANDED", "SPLASHED"]
 # Settled-touchdown gate. BOTH conjuncts, both fail CLOSED on a non-finite read.
-# 1.0 m/s is loose enough for the residual settle of a craft on three legs and
-# tight enough that a slide or a bounce fails it. The HORIZONTAL floor is the
-# load-bearing one: a lander sitting on a slope and sliding reads
-# situation=LANDED with a vertical speed of ~0.
-# PROVISIONAL: if the first flight shows the Kerbal X legs still creeping at
-# touchdown+dwell, raise BOTH together and say so - never just the one that reds.
+# The HORIZONTAL floor is the load-bearing one: a lander sitting on a slope and
+# sliding reads situation=LANDED with a vertical speed of ~0.
+#
+# VERTICAL stays 1.0, and that is a decision, not an oversight. MEASURED
+# touchdown vertical speed: -0.279 m/s (B13 flight 1) / -0.253 m/s (B14 flight
+# 1), so 1.0 already carries 3.6x margin, and vertical speed is the axis a
+# slightly harder touchdown moves FIRST. Tightening it would buy nothing (a
+# bounce is already caught) and risk false-flaking a good landing.
+#
+# HORIZONTAL tightened 1.0 -> 0.5. 1.0 m/s is 3.6 km/h - a real slide, which is
+# precisely what this conjunct exists to catch, so it was certifying the failure
+# it was written to reject. MEASURED horizontal speed across both flights'
+# LANDED-SETTLE dwells (116 telemetry samples each):
+#   worst sample anywhere in the dwell   0.195 m/s (B13 touchdown frame)
+#   worst GATE-EVALUATED sample          0.052 m/s (B13, first frame after entry
+#                                        - the touchdown frame itself is the
+#                                        phase-entry frame and is never gate-
+#                                        evaluated by construction)
+#   both dwells settle to 0.000-0.004 within ~6 frames
+#   -> 0.5 leaves 2.6x margin on the worst sample, 9.6x on the worst evaluated
+#      one, and is still 2x tighter than what shipped.
+# NOT the 0.25 a first reading of the data suggests: 0.25 would leave only 1.28x
+# over B13's 0.195 m/s touchdown-frame reading, which is far too thin for a
+# single-sample basis on an axis where a bouncier touchdown moves the first
+# evaluated frame directly. A real slide is not slow: on the Mun a craft sliding
+# downhill accelerates at up to 1.63 m/s^2, so it exceeds 0.5 m/s within a
+# fraction of a second and cannot hide under this floor for a 120 s dwell.
 landedMaxVerticalSpeedMps  = 1.0
-landedMaxHorizontalSpeedMps = 1.0
+landedMaxHorizontalSpeedMps = 0.5
 # GAME seconds the settled landing is HELD before the commit. This dwell IS the
 # recorded landed-on-another-body coverage the whole lane exists for, and the
 # machine holds 1x through it, so 120 game-s ~= 120 wall-s of direct cost.
 # Shorter than PARK's 180 deliberately: a landed craft is static, so a shorter
 # dwell still yields SurfaceStationary TrackSections, whereas the orbital dwell
 # has to cover enough arc to be a useful playback fixture.
-# PROVISIONAL: raise only if the first flight shows the committed recording
-# carrying too little surface coverage to be a useful playback / ghost fixture.
+# CLOSED FROM MEASUREMENT on flight 1 (2026-07-25): the dwell ran ut 23,088.3 ->
+# 23,208.4 = 120.1 game seconds (B14: 120.5), the committed recording carries the
+# Approach -> SurfaceStationary transition, and the surface coverage was
+# sufficient. Left at 120.
 landedDwellSeconds         = 120
 landedDebounceFrames       = 3
 # LANDED-SETTLE budget (GAME seconds) = the dwell + 480 s of settle slack. At 1x
@@ -388,28 +438,25 @@ D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-co
 D14 = ["kerbin", "mun", "warp-rails"]
 
 [expectations.recordings]
-# PROVISIONAL WINDOW, and deliberately NOT pinned at {8, 8} on a guess.
+# PINNED at {8, 8} FROM MEASUREMENT. The provisional {8, 9} window this spec
+# shipped with is CLOSED (see the flight note below); what follows is the
+# derivation the measurement confirmed, kept because it is what makes a future
+# count change readable as a REGRESSION rather than as noise.
 #
-# WHY 8 IS THE EXPECTED TOPOLOGY: this mission flies the SAME craft, the SAME
-# ascent and the SAME transfer as B11/B12, and a LANDING ADDS NO VESSEL - nothing
+# WHY 8 IS THE TOPOLOGY: this mission flies the SAME craft, the SAME ascent and
+# the SAME transfer as B11/B12, and a LANDING ADDS NO VESSEL - nothing
 # separates, nothing decouples, the lander IS the upper stage. B11 flight 4 and
 # B12 flight 5 both MEASURED exactly 8:
 #   +1  the root/main recording
 #   +6  the six radial boosters (each drops as its own parent-anchored child)
 #   +1  the FLAMEOUT-STAGED ascent core
 #   = 8
-# So 8 is the expectation, and the window {8, 9} is a ONE-SLOT allowance for the
-# single thing a landing can plausibly add that an orbit cannot: a fragment shed
-# on touchdown (a leg, the heat shield, the inert chute) becoming its own
-# recording. It is NOT a floor - {1, 9} style windows were closed out of this
-# suite for blinding the only numeric guard to the regression class it exists to
-# catch.
-#
-# FIRST-FLIGHT-TO-CLOSE: the FIRST GREEN B13 flight. Read
-# `verifiers.expectations.observed.recordings.count` out of its result JSON and
-# re-pin this to {N, N} in the same commit, with the flight named - exactly as
-# B11 flight 4 and B12 flight 5 closed their windows. Do not close it from a
-# RED or KILLED run: a partial flight's topology is not this profile's topology.
+# The one-slot allowance the window shipped with covered the single thing a
+# landing can plausibly add that an orbit cannot - a fragment shed on touchdown
+# (a leg, the heat shield, the inert chute) becoming its own recording. Flight 1
+# shed none, so the allowance is gone. The window was never a floor: {1, 9} style
+# windows were closed out of this suite for blinding the only numeric guard to
+# the regression class it exists to catch.
 #
 # READ THIS FIRST - THE COUNT IS COMMIT-BLIND. `run.py count_recordings` counts
 # `.prec` sidecars, and ParsekScenario's OnSave writes sidecars for the ACTIVE
@@ -463,15 +510,27 @@ count = { min = 8, max = 8 }
 #       So the ONE fact this whole lane exists to prove - that a recording ended
 #       on MUN - was absent from every log line, which is exactly the class of
 #       gap that let the orbit lane's commit claim ship unverified until review.
-#       FIXED in this same change: FormatCommitTerminalLine now falls back to
-#       TerminalPosition.body when TerminalOrbitBody is empty, so a landed
-#       recording names its surface body while orbit metadata stays
-#       authoritative when both are populated. Covered by four new cells in
+#       FIXED in this same lane: FormatCommitTerminalLine resolves the terminal
+#       body TERMINAL-STATE-AWARE - TerminalPosition.body first for the SURFACE
+#       terminals (Landed / Splashed), TerminalOrbitBody first for everything
+#       else, each falling back to the other. The state-awareness is not
+#       decoration: NOTHING ever CLEARS TerminalOrbitBody (CaptureTerminalOrbit,
+#       CopyTerminalOrbitFromSegment and the ballistic scene-exit finalizer only
+#       ever write it), so a craft that orbited the Mun, came home and landed on
+#       KERBIN would print `terminalState=Landed terminalOrbitBody=Mun` under an
+#       orbit-body-first rule - confidently wrong in the one line an operator
+#       reads to answer "where did this recording end". Covered by nine cells in
 #       Source/Parsek.Tests/CommitTerminalVerdictLoggingTests.cs (landed names
-#       its body; Mun / Minmus / Kerbin are mutually distinguishable; orbit body
-#       wins over surface body; a landed recording with no body still renders
-#       the (null) token). REQUIRES a rebuild + provision.py before this spec can
-#       go green - the deployed automation DLL must carry the fallback.
+#       its body; Mun / Minmus / Kerbin mutually distinguishable; orbit body wins
+#       for a NON-surface terminal; Landed and Splashed both prefer the surface
+#       body over a stale orbit body; a landed recording with only an orbit body
+#       still names it; the surface-terminal predicate covers exactly Landed +
+#       Splashed; the over-cap summary line uses the same precedence; a landed
+#       recording with no body at all still renders the (null) token).
+#       REQUIRES a rebuild + provision.py before this spec can go green - the
+#       deployed automation DLL must carry the resolver.
+#       MATCHED LIVE on flight 1 (2026-07-25, FULL PASS): the committed tree
+#       printed 1 Landed/Mun, 6 Destroyed/(null) and 1 Orbiting/Kerbin.
 #   "Environment transition: (Approach|ExoBallistic|ExoPropulsive) -> Surface..."
 #       EnvironmentDetector.ConfirmTransition, ParsekLog.Info("Environment", ...).
 #       THE token that proves SURFACE-class TrackSections OFF KERBIN, and it is

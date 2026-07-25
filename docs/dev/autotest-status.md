@@ -479,8 +479,13 @@ six publish or compare numbers the runner already measured.
    early for surface situations and `UsesTerminalOrbitMetadata` excludes
    `Landed`), so every landed commit line read `terminalOrbitBody=(null)` and
    the ONE fact this lane proves - WHICH body - was unprovable from logs.
-   `FormatCommitTerminalLine` now falls back to `TerminalPosition.body`, with
-   orbit metadata still authoritative when both are set (4 new xUnit cells).
+   `FormatCommitTerminalLine` (and the over-cap summary line) now resolve the
+   body TERMINAL-STATE-AWARE: `TerminalPosition.body` first for the SURFACE
+   terminals (`Landed` / `Splashed`), `TerminalOrbitBody` first otherwise, each
+   falling back to the other. The state-awareness is load-bearing - NOTHING ever
+   CLEARS `TerminalOrbitBody`, so a craft that orbited the Mun and later landed
+   on Kerbin would otherwise print `terminalState=Landed terminalOrbitBody=Mun`.
+   9 xUnit cells.
    MECHJEB CAVEAT CONFIRMED LIVE: the untargeted descent runs at 1x with ZERO
    warp commands under the installed 2.15.1 pin, exactly as the decompile
    predicted, so the wall budget was sized for the no-warp case and the flight
@@ -516,22 +521,33 @@ six publish or compare numbers the runner already measured.
      separate `altitude-unreadable` name), `landing-touchdown-timeout` and
      `landing-vessel-lost` (a crash must read as neither a timeout nor a
      success). LANDED-SETTLE adds `landed-never-stable`.
-   - TWO KNOWN GAPS, both filed rather than papered over (full text in
-     `todo-and-known-bugs.md`): (a) the commit-terminal log line CANNOT name the
-     body for a `Landed` terminal - `CaptureTerminalOrbit` writes
-     `TerminalOrbitBody` only for ORBITING / SUB_ORBITAL / FLYING / ESCAPING and
-     `UsesTerminalOrbitMetadata` excludes Landed, so
-     `terminalState=Landed terminalOrbitBody=Mun` can never match and the specs
-     require the body-agnostic form plus the SOI token; (b) DESCENT has no
-     WALL-time bound of its own, because the `warp-liveness-starved` floor is
-     armed only by OUR OWN native warp and arming it across a phase that
-     legitimately runs at 1x would false-flake a healthy landing.
-   - PENDING-OPERATOR: five first-flight pins (recordings count `{8, 9}`,
-     `descentTimeoutSeconds`, the two wall budgets, the settled-speed floors and
-     the landed dwell), each naming the flight that closes it. B13 will be the
-     MOST EXPENSIVE scenario in the suite (mission budget 5000 s wall against
-     B11's 3000 and BDOCK-1's measured 2,164 s), which is stated in the spec
-     rather than hidden.
+   - ONE KNOWN GAP, filed rather than papered over (full text in
+     `todo-and-known-bugs.md`): DESCENT has no WALL-time bound of its own,
+     because the `warp-liveness-starved` floor is armed only by OUR OWN native
+     warp and arming it across a phase that legitimately runs at 1x would
+     false-flake a healthy landing. It is theoretical on the current pin -
+     MechJeb issued zero warp commands across both descents, so there is no
+     MechJeb warp to wedge. (The lane originally filed a SECOND gap, that the
+     commit-terminal line could not name the body for a `Landed` terminal. That
+     one was CLOSED by the Parsek fix described above, not carried.)
+   - COVERAGE HONESTY: the DESCENT autopilot supervisor's debounce / re-issue /
+     DEAD ladder has NO live coverage - neither flight emitted a non-zero
+     `landingApDownStreak` or `landingApReissues` line, because
+     `LandingAutopilot.Enabled` read 1 on every polled frame. Same for all four
+     named DESCENT give-ups and `landed-never-stable`: unit-covered, never
+     fired live. What is live-proven is the happy path plus the two exit gates
+     it crossed (touchdown detection with MechJeb's self-disable carve-out, and
+     the settled dwell).
+   - PINS CLOSED: four of the five first-flight pins are closed from measured
+     data (recordings count re-pinned `{8, 9}` -> `{8, 8}`;
+     `descentTimeoutSeconds` trimmed 3000 -> 2200 against measured spans of
+     1,353.9 / 1,381.3 game-s; `landedMaxHorizontalSpeedMps` tightened 1.0 ->
+     0.5 against a worst measured 0.195 m/s, with the vertical floor left at
+     1.0 by decision; `landedDwellSeconds` confirmed at 120). The fifth, the
+     wall budgets, is closed AS SIZED: B13 finished at 55% of its mission
+     budget and B14 at 50%, so B13 5000 / 5600 and B14 4200 / 4800 stand.
+     B13 IS the MOST EXPENSIVE scenario in the suite (2,825 s measured against
+     BDOCK-1's 2,164 s).
 4. Ledger campaign resumption once career fixtures exist (L1 -> L2+): the
    initiative's END GOAL.
 5. B-DOCK first flight - the docking/rendezvous lane (dock-undock recording
