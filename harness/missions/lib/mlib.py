@@ -612,6 +612,78 @@ ACTION_MJ_PLAN_CAPTURE = "mj_plan_capture"                 # value = None
 # terminal should own instead.
 CAPTURE_ARM_DEBOUNCE_FRAMES = 3
 
+# ---------------------------------------------------------------------------
+# CAPTURE-BURN executor supervision (B11 flight 1, 2026-07-24). THE PROVEN
+# ROOT CAUSE, cited from source, not inferred:
+#
+#   MechJeb2 2.15.1.0, MuMech.MechJebModuleNodeExecutor.StateWarpAlign()
+#   (ilspycmd decompile of the installed MechJeb2.dll):
+#
+#       else if (_ignitionUT - VesselState.time > 600.0)
+#       {
+#           Core.Attitude.SetAxisControl(pitch: false, yaw: false, roll: false);
+#           Core.Warp.WarpToUT(_ignitionUT - 600.0);
+#       }
+#       else
+#       {
+#           Core.Warp.MinimumWarp();
+#           SetAttitude();
+#       }
+#
+#   with _ignitionUT = node.UT - halfBurnTime (CalculateIgnitionUT), the
+#   WARPALIGN -> LEAD flip at _ignitionUT - LeadTime (default 3 s) and
+#   LEAD -> BURN at _ignitionUT. The high-warp branch is taken only while
+#   AlignedAndSettled() -- angle < 1 deg AND vessel.angularVelocity < 0.001
+#   rad/s -- so a craft that never SETTLES under that (B11 flight 1 read
+#   angV=0.003 through the whole hold) sits at 1x, zero throttle, orbit
+#   UNCHANGED, for the FULL 600 GAME seconds before ignition.
+#
+# That is byte-for-byte the "orbit unchanged and static at 1x" signature the
+# no-start watchdog fires on, and burn_nostart_seconds defaults to the SAME
+# 600.0. Flight 1: warp dropped to 1x at ut=20939, node at ut=21549.027,
+# _ignitionUT ~= 21539 (277.0 m/s at ~250 kN), and the give-up fired at
+# ut=21539.4 with burnStaticAge=600.18 -- roughly ONE POLL before a perfectly
+# healthy executor would have lit the engine. TRANSFER-BURN survived the same
+# mechanism only by luck: in LKO the craft DID settle after ~55 s at 1x
+# (ut 1265 -> 1321) and MechJeb re-warped, so the static run never reached the
+# bound. (TRANSFER-BURN also deliberately ignores the no-start signal, so the
+# flyby family is untouched by everything below.)
+MJ_EXECUTOR_WARPALIGN_HOLD_SECONDS = 600.0
+# Grace past the node's OWN UT before "nothing has burned" becomes evidence
+# of a dead executor. MechJeb ignites at node.UT - halfBurnTime, i.e. never
+# LATER than node.UT, so a no-start verdict raised before node.UT is
+# unfounded by construction; the grace covers a slow ship whose ignition
+# straddles the node and a poll or two of conic settle. Once it expires the
+# static clock (already past its bound) fires on the very next frame, so the
+# liveness cost of the whole guard is bounded by
+# MJ_EXECUTOR_WARPALIGN_HOLD_SECONDS + CAPTURE_BURN_WINDOW_GRACE_SECONDS,
+# never the (hours-long) capture-burn budget.
+CAPTURE_BURN_WINDOW_GRACE_SECONDS = 90.0
+# The OBSERVED-side liveness bound: consecutive frames reading
+# NodeExecutor.Enabled == FALSE with a node still pending. Debounced because
+# one dropped RPC must not re-issue a burn command.
+CAPTURE_EXECUTOR_DISABLED_DEBOUNCE_FRAMES = 3
+# Bounded re-issue of mj_execute_nodes when the executor is OBSERVED down,
+# then a distinctly named fast-fail. Never unbounded: a server-side surface
+# that refuses to arm must end the phase, not loop on it.
+MAX_CAPTURE_EXECUTOR_REISSUES = 2
+# Bounded re-plan when the node's own burn window passed unburned (the craft
+# arrived LATE at periapsis with a stale node): clear the node, go back to
+# PLAN-CAPTURE for a fresh circularize-at-periapsis solve. Capped at one --
+# a second missed window is a named fast-fail, never a stale burn.
+MAX_CAPTURE_REPLANS = 1
+
+# classify_capture_nostart verdicts.
+CAPTURE_NOSTART_HOLD = "hold"          # MechJeb's own pre-ignition WARPALIGN
+CAPTURE_NOSTART_REPLAN = "replan"      # window passed unburned, re-plan left
+CAPTURE_NOSTART_FLAKE = "flake"        # window passed, nothing left to try
+
+# classify_capture_executor verdicts.
+CAPTURE_EXEC_RUNNING = "running"       # observed enabled (or nothing to judge)
+CAPTURE_EXEC_UNKNOWN = "unknown"       # channel unread: no evidence either way
+CAPTURE_EXEC_REISSUE = "reissue"       # observed down, re-issue budget left
+CAPTURE_EXEC_DEAD = "dead"             # observed down past the re-issue cap
+
 # TARGET-FLYBY impact-warp guard: below this altitude with a SUB-SURFACE
 # periapsis the machine stops issuing warp hops and polls at 1x, so a crash
 # happens under live telemetry (clean vessel-lost terminal in seconds) instead
@@ -1063,6 +1135,25 @@ class TelemetrySnapshot:
     # fabricated value. THE lesson of the EVA-4 first flight: "the machine COMMANDED
     # the chute" is not evidence the canopy opened - only this read is.
     craft_chute_state: str = ""
+    # OBSERVED MechJeb NodeExecutor.Enabled (KRPC.MechJeb 0.8.1
+    # NodeExecutor : ComputerModule -> the inherited MuMech.ComputerModule
+    # Enabled property). TRI-STATE, -1 = UNREAD (the fail-closed sentinel,
+    # same discipline as crew_count): -1 never proves the executor alive AND
+    # never proves it dead, so an unread channel falls back to the node-clock
+    # classifier instead of acting on evidence we do not have. 1 = observed
+    # ENABLED, 0 = observed DISABLED. Read only when the control was built
+    # with read_node_executor=True (B11/B12), so every other mission's
+    # snapshot is byte-identical. THE B11 flight-1 lesson, and the same
+    # commanded-vs-OBSERVED gap that produced the B-DOCK docking-AP and the
+    # EVA-4 ladder-release defects: "we issued mj_execute_nodes" is not
+    # evidence the executor engaged -- only this read is.
+    # NOTE: KRPC.MechJeb 0.8.1 exposes NO executor status string. MechJeb's
+    # own MechJebModuleNodeExecutor.State (WARPALIGN / LEAD / BURN / IDLE) is
+    # a public field but is NOT wrapped by the service (pinned source
+    # NodeExecutor.cs binds only Autowarp / LeadTime / ExecuteOneNode /
+    # ExecuteAllNodes / Abort plus the inherited Enabled), so Enabled is the
+    # ONLY observable executor channel available to us.
+    node_executor_enabled: int = -1
 
 
 # ---------------------------------------------------------------------------
@@ -2721,6 +2812,13 @@ class B5State:
     # Consecutive in-target-SOI frames with a finite ABOVE-SURFACE periapsis
     # (the PLAN-CAPTURE arming debounce).
     capture_arm_streak: int = 0
+    # CAPTURE-BURN executor supervision (B11 flight 1). Consecutive frames
+    # OBSERVING NodeExecutor.Enabled == False with a node pending, the number
+    # of bounded mj_execute_nodes re-issues spent, and the number of bounded
+    # stale-node re-plans spent.
+    capture_exec_disabled_streak: int = 0
+    capture_exec_reissues: int = 0
+    capture_replans_done: int = 0
     # Consecutive in-gate PARK frames, and the latch that the park was EVER
     # in-gate (so the give-up can distinguish "never stabilized" from
     # "stabilized but never HELD through the dwell" -- the forge_lko pattern).
@@ -3270,6 +3368,94 @@ def _b5_enter_plan_capture(state: B5State, snapshot: TelemetrySnapshot,
     return entered, prelude + [Action(ACTION_MJ_PLAN_CAPTURE)]
 
 
+def classify_capture_nostart(node_ut: float, ut: float, node_count: int,
+                             replans_done: int,
+                             max_replans: int = MAX_CAPTURE_REPLANS,
+                             grace: float = CAPTURE_BURN_WINDOW_GRACE_SECONDS
+                             ) -> str:
+    """Classify a CAPTURE-BURN frame that TRIPPED the static-at-1x no-start
+    watchdog. Pure; primitives in, verdict string out.
+
+    ``CAPTURE_NOSTART_HOLD``  - a node is pending and its UT (plus ``grace``)
+    has NOT passed. MechJeb's NodeExecutor ignites at ``node.UT -
+    halfBurnTime``, i.e. never later than ``node.UT``, and its own WARPALIGN
+    branch deliberately holds at 1x with an UNCHANGED orbit for up to
+    MJ_EXECUTOR_WARPALIGN_HOLD_SECONDS before that instant (see the constant's
+    decompile citation). A no-start verdict inside that window is a FALSE
+    POSITIVE -- exactly the one that killed B11 flight 1 nine seconds early --
+    so the machine holds instead of flaking.
+
+    ``CAPTURE_NOSTART_REPLAN`` - a node is pending, its window HAS passed with
+    the orbit still unchanged (the craft arrived LATE, e.g. coasted through
+    periapsis with the node unburned) and a re-plan is still budgeted: clear
+    the stale node and solve a fresh capture rather than fly a node whose
+    window is gone.
+
+    ``CAPTURE_NOSTART_FLAKE`` - nothing left to try: no node at all, an
+    unreadable node clock, or the re-plan budget is spent. The caller names
+    the failure.
+
+    A NON-FINITE ``node_ut`` (or ``ut``) fails CLOSED to the flake, checked
+    BEFORE the window arithmetic: an unreadable node clock is neither
+    evidence that the burn is still ahead (no hold) nor evidence that its
+    window has passed (no re-plan), so the original no-start name owns it."""
+    if node_count < 1:
+        return CAPTURE_NOSTART_FLAKE
+    if not (_is_finite(node_ut) and _is_finite(ut)):
+        return CAPTURE_NOSTART_FLAKE
+    if ut <= node_ut + grace:
+        return CAPTURE_NOSTART_HOLD
+    if replans_done < max_replans:
+        return CAPTURE_NOSTART_REPLAN
+    return CAPTURE_NOSTART_FLAKE
+
+
+def classify_capture_executor(
+        executor_enabled: int, disabled_streak: int, reissues_done: int,
+        node_count: int,
+        debounce: int = CAPTURE_EXECUTOR_DISABLED_DEBOUNCE_FRAMES,
+        max_reissues: int = MAX_CAPTURE_EXECUTOR_REISSUES) -> Tuple[str, int]:
+    """One CAPTURE-BURN frame's OBSERVED executor verdict; returns
+    ``(verdict, new_disabled_streak)``. Pure.
+
+    This is the commanded-vs-OBSERVED channel the B11 flight-1 forensics
+    called for: the machine COMMANDS ``mj_execute_nodes`` and previously never
+    verified that MechJeb's NodeExecutor actually ENGAGED (the same gap that
+    produced the B-DOCK docking-AP and the EVA-4 ladder-release defects).
+
+      ``CAPTURE_EXEC_UNKNOWN`` - ``executor_enabled`` is the -1 UNREAD
+      sentinel. NO action: an unread channel is not evidence of a dead actor,
+      and the node-clock classifier owns the outcome (fail closed against
+      acting on evidence we do not have). The streak resets.
+
+      ``CAPTURE_EXEC_RUNNING`` - observed ENABLED, or no node is pending (the
+      executor legitimately self-disables once it consumes the node; the
+      consumed / under-burn paths own that frame). The streak resets.
+
+      ``CAPTURE_EXEC_REISSUE`` - observed DISABLED for ``debounce``
+      consecutive frames with a node still pending and re-issue budget left:
+      hand the node to the executor again.
+
+      ``CAPTURE_EXEC_DEAD`` - the same debounced observation past
+      ``max_reissues``: the executor provably will not arm. Distinctly named
+      fast-fail, seconds after the evidence rather than hours later."""
+    if node_count < 1:
+        return CAPTURE_EXEC_RUNNING, 0
+    if executor_enabled < 0:
+        return CAPTURE_EXEC_UNKNOWN, 0
+    if executor_enabled > 0:
+        return CAPTURE_EXEC_RUNNING, 0
+    streak = disabled_streak + 1
+    if streak < debounce:
+        return CAPTURE_EXEC_RUNNING, streak
+    if reissues_done < max_reissues:
+        return CAPTURE_EXEC_REISSUE, 0
+    # Cap the streak at the debounce depth (the delta-review C1 discipline):
+    # past the re-issue budget every disabled frame would otherwise increment
+    # it forever, and each increment is a gate line + a window dump.
+    return CAPTURE_EXEC_DEAD, debounce
+
+
 def _b5_capture_achieved(params: B5Params, snapshot: TelemetrySnapshot) -> bool:
     """CAPTURE-BURN done evidence: the craft is BOUND to the target body. A
     hyperbolic approach reads a NEGATIVE apoapsis in the target's frame, so a
@@ -3410,9 +3596,22 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         node AND the orbit is BOUND inside the capture window (0 < ap <=
         parkMaxApoapsisMeters, pe >= parkMinPeriapsisMeters, ecc <=
         parkMaxEccentricity -- a hyperbolic approach reads a NEGATIVE apoapsis,
-        so this is real capture evidence). Named fast-fails: capture under-burn
-        (executor wedged, orbit still unbound) and capture-executor-no-start
-        (orbit unchanged, static at 1x past burnNoStartSeconds).
+        so this is real capture evidence). The phase SUPERVISES its actor from
+        an OBSERVED channel (snapshot.node_executor_enabled, B11 flight 1):
+        NodeExecutor.Enabled read FALSE for
+        CAPTURE_EXECUTOR_DISABLED_DEBOUNCE_FRAMES consecutive frames with a
+        node pending re-issues mj_execute_nodes, bounded by
+        MAX_CAPTURE_EXECUTOR_REISSUES, then fast-fails
+        capture-executor-not-enabled. The static-at-1x no-start signature is
+        classified by classify_capture_nostart, because MechJeb's own
+        WARPALIGN state holds at 1x with an unchanged orbit for up to
+        MJ_EXECUTOR_WARPALIGN_HOLD_SECONDS BEFORE ignition (see that
+        constant's decompile citation): pre-node frames HOLD, a passed burn
+        window re-plans once (MAX_CAPTURE_REPLANS) rather than fly a stale
+        node, and past that it fast-fails capture-window-missed. Named
+        fast-fails: capture under-burn (executor wedged, orbit still unbound),
+        capture-executor-not-enabled, capture-window-missed and
+        capture-executor-no-start (no node / no readable node clock).
       - PARK -> ORBIT-COMMIT: throttle cut, nodes cleared, SAS + RCS held and
         rails dropped to 1x on entry (the park dwell IS the recorded coverage),
         then parkDebounceFrames consecutive in-gate frames HELD across
@@ -4181,16 +4380,85 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                    snapshot.eccentricity, state.params.park_min_periapsis,
                    state.params.park_max_apoapsis,
                    state.params.park_max_eccentricity), peak), []
-        if nostart:
-            # LIVENESS: the orbit never changed and the craft has sat static at
-            # 1x past the no-start bound -- the executor never began. Fast-fail
-            # with its own name instead of idling to the (hours-long) burn
-            # budget while the actor is provably dead.
+        # OBSERVED executor supervision (B11 flight 1). "We issued
+        # mj_execute_nodes" is a COMMAND, never evidence; this is the read-back.
+        # It runs BEFORE the static-at-1x no-start branch because it is the
+        # FASTER signal: a dead executor is named in ~3 polls instead of after
+        # the 600-second static window.
+        exec_verdict, exec_streak = classify_capture_executor(
+            snapshot.node_executor_enabled, state.capture_exec_disabled_streak,
+            state.capture_exec_reissues, snapshot.node_count)
+        state = replace(state, capture_exec_disabled_streak=exec_streak)
+        if exec_verdict == CAPTURE_EXEC_DEAD:
             return _b5_named_flake(
                 state,
-                "phase %s: capture-executor-no-start (the NodeExecutor never "
-                "began; orbit unchanged and static at 1x for %.0f s)"
-                % (B5_CAPTURE_BURN, state.params.burn_nostart_seconds), peak), []
+                "phase %s: capture-executor-not-enabled (MechJeb "
+                "NodeExecutor.Enabled read FALSE for %d consecutive frames "
+                "with %d node(s) pending, after %d bounded re-issue(s) of "
+                "mj_execute_nodes)"
+                % (B5_CAPTURE_BURN, exec_streak, snapshot.node_count,
+                   state.capture_exec_reissues), peak), []
+        if exec_verdict == CAPTURE_EXEC_REISSUE:
+            # Re-hand the node to the executor and re-stamp the static clock so
+            # the fresh attempt earns a full window (the flameout-stage
+            # re-anchor discipline). Bounded by MAX_CAPTURE_EXECUTOR_REISSUES.
+            return (replace(state,
+                            capture_exec_reissues=state.capture_exec_reissues + 1,
+                            burn_static_since=(float(snapshot.ut)
+                                               if _is_finite(snapshot.ut)
+                                               else state.burn_static_since),
+                            peak_apoapsis=peak),
+                    [Action(ACTION_MJ_EXECUTE_NODES)])
+        if nostart:
+            # The orbit never changed and the craft has sat static at 1x past
+            # the no-start bound. That signature is AMBIGUOUS: MechJeb's own
+            # WARPALIGN state parks at 1x with an unchanged orbit for up to
+            # MJ_EXECUTOR_WARPALIGN_HOLD_SECONDS *before* ignition, and
+            # burn_nostart_seconds defaults to the SAME 600 s (B11 flight 1
+            # died on exactly that collision). The node's own clock
+            # disambiguates: MechJeb ignites at node.UT - halfBurnTime, so
+            # nothing about a pre-node frame is evidence of a dead actor.
+            verdict = classify_capture_nostart(
+                snapshot.node_ut, snapshot.ut, snapshot.node_count,
+                state.capture_replans_done)
+            if verdict == CAPTURE_NOSTART_REPLAN:
+                # LATE ARRIVAL: the node's burn window passed with the orbit
+                # untouched (the craft coasted through periapsis unburned).
+                # Never fly a node whose window is gone -- drop it and solve a
+                # fresh capture. Bounded at MAX_CAPTURE_REPLANS.
+                entered, plan_actions = _b5_enter_plan_capture(
+                    replace(state,
+                            capture_replans_done=state.capture_replans_done + 1,
+                            capture_exec_disabled_streak=0),
+                    snapshot, peak)
+                return entered, ([Action(ACTION_MJ_ABORT_AND_CLEAR_NODES)]
+                                 + plan_actions)
+            if verdict == CAPTURE_NOSTART_FLAKE:
+                # LIVENESS: nothing left to try. Either the node's window is
+                # gone and the re-plan budget is spent, or there is no node /
+                # no readable node clock at all. Fast-fail with its own name
+                # instead of idling to the (hours-long) burn budget.
+                if (snapshot.node_count >= 1 and _is_finite(snapshot.node_ut)
+                        and _is_finite(snapshot.ut)):
+                    return _b5_named_flake(
+                        state,
+                        "phase %s: capture-window-missed (node UT %.3f passed "
+                        "by %.0f s with the node still pending and the orbit "
+                        "unchanged; replans=%d)"
+                        % (B5_CAPTURE_BURN, snapshot.node_ut,
+                           snapshot.ut - snapshot.node_ut,
+                           state.capture_replans_done), peak), []
+                return _b5_named_flake(
+                    state,
+                    "phase %s: capture-executor-no-start (the NodeExecutor "
+                    "never began; orbit unchanged and static at 1x for %.0f s, "
+                    "nodes=%d nodeUt=%s execEnabled=%d)"
+                    % (B5_CAPTURE_BURN, state.params.burn_nostart_seconds,
+                       snapshot.node_count, _obs_fmt(snapshot.node_ut),
+                       snapshot.node_executor_enabled), peak), []
+            # CAPTURE_NOSTART_HOLD: MechJeb's own pre-ignition hold. Fall
+            # through to the ordinary stay/budget path -- the phase budget
+            # still bounds it, and the grace expiry re-raises this branch.
         stayed = _b5_stay_or_flake(state, snapshot, peak)
         if stayed.done:
             return _b5_named_flake(
@@ -6657,6 +6925,9 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     # park_stable_streak is shared with the FORGE-LKO state, which gains the
     # same (purely additive) observability field.
     ("capture_arm_streak", "captureArmStreak"),
+    ("capture_exec_disabled_streak", "captureExecDownStreak"),
+    ("capture_exec_reissues", "captureExecReissues"),
+    ("capture_replans_done", "captureReplans"),
     ("park_stable_streak", "parkStableStreak"),
     ("park_ever_stable", "parkEverStable"),
     ("capture_apoapsis", "captureAp"),
@@ -6731,6 +7002,13 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     # the observed seam commit verdict -- exactly the sparse decision events an
     # operator needs when a capture or a parked-in-foreign-SOI commit misses.
     ("capture_arm_streak", "captureArmStreak"),
+    # CAPTURE-BURN executor supervision (B11 flight 1): the observed-down
+    # debounce run (bounded by CAPTURE_EXECUTOR_DISABLED_DEBOUNCE_FRAMES), and
+    # the two hard-capped recovery counters. A re-issue or a re-plan is
+    # EXACTLY the sparse decision event the gate lines exist for.
+    ("capture_exec_disabled_streak", "captureExecDownStreak"),
+    ("capture_exec_reissues", "captureExecReissues"),
+    ("capture_replans_done", "captureReplans"),
     ("park_stable_streak", "parkStableStreak"),
     ("park_ever_stable", "parkEverStable"),
     ("commit_result", "commitResult"),
@@ -6866,6 +7144,11 @@ def snapshot_dict(snapshot: TelemetrySnapshot) -> Dict:
         # (not None-scrubbed): the sentinel IS the diagnosis when a crew gate
         # never opens.
         "crewCount": snapshot.crew_count,
+        # OBSERVED MechJeb NodeExecutor.Enabled tri-state (-1 unread / 0 down /
+        # 1 armed). Raw int for the same reason as crewCount: the -1 sentinel
+        # IS the diagnosis when a capture watchdog fires on a run that never
+        # opted into the read.
+        "nodeExecutorEnabled": snapshot.node_executor_enabled,
     }
 
 
@@ -6874,8 +7157,12 @@ def format_snapshot_compact(snapshot: TelemetrySnapshot) -> str:
     buffer (design 2c): the fields the machines gate on, ~100 chars.
 
     ``crew=N`` is appended ONLY when the crew count was actually read (the
-    opt-in FORGE-LKO channel), so every other mission's line is unchanged."""
+    opt-in FORGE-LKO channel) and ``nodeExec=N`` ONLY when the MechJeb
+    NodeExecutor.Enabled channel was actually read (the opt-in B11/B12
+    channel), so every other mission's line is unchanged."""
     crew = "" if snapshot.crew_count < 0 else (" crew=%d" % snapshot.crew_count)
+    node_exec = ("" if snapshot.node_executor_enabled < 0
+                 else (" nodeExec=%d" % snapshot.node_executor_enabled))
     line = ("ut=%s alt=%s ap=%s pe=%s body=%s nodes=%d nodeDv=%s thr=%s "
             "apErr=%s tgtD=%s tgtV=%s angV=%s sas=%d rcs=%d apSt=%s warp=%sx%s "
             "sit=%s%s"
@@ -6890,4 +7177,4 @@ def format_snapshot_compact(snapshot: TelemetrySnapshot) -> str:
                snapshot.docking_ap_status or "?", snapshot.warp_mode,
                _obs_fmt(snapshot.warp_rate), snapshot.situation or "?",
                " LOST" if snapshot.vessel_lost else ""))
-    return line + crew
+    return line + crew + node_exec

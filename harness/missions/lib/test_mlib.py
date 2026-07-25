@@ -6269,6 +6269,225 @@ class B5CaptureBurnTests(unittest.TestCase):
         self.assertIn("capture burn did not complete", state.flake_reason)
 
 
+class CaptureNoStartClassifierTests(unittest.TestCase):
+    """mlib.classify_capture_nostart: the PURE core of the B11 flight-1 fix.
+
+    The static-at-1x "no-start" signature is AMBIGUOUS, because MechJeb's own
+    NodeExecutor.StateWarpAlign holds at 1x with an UNCHANGED orbit for up to
+    600 game-seconds BEFORE ignition when the craft is not AlignedAndSettled.
+    The node's own clock disambiguates it."""
+
+    def test_pre_node_frame_holds_instead_of_flaking(self):
+        """THE flight-1 regression cell. Node at 21549.027, the give-up frame
+        at 21539.4 (burnStaticAge 600.18): MechJeb had not reached ignition
+        yet, so this must HOLD, not flake."""
+        self.assertEqual(
+            mlib.classify_capture_nostart(node_ut=21549.027, ut=21539.434,
+                                          node_count=1, replans_done=0),
+            mlib.CAPTURE_NOSTART_HOLD)
+
+    def test_hold_extends_through_the_grace_past_the_node(self):
+        grace = mlib.CAPTURE_BURN_WINDOW_GRACE_SECONDS
+        self.assertEqual(
+            mlib.classify_capture_nostart(node_ut=1000.0, ut=1000.0 + grace,
+                                          node_count=1, replans_done=0),
+            mlib.CAPTURE_NOSTART_HOLD)
+
+    def test_passed_window_replans_once_then_flakes(self):
+        grace = mlib.CAPTURE_BURN_WINDOW_GRACE_SECONDS
+        late = 1000.0 + grace + 1.0
+        self.assertEqual(
+            mlib.classify_capture_nostart(node_ut=1000.0, ut=late,
+                                          node_count=1, replans_done=0),
+            mlib.CAPTURE_NOSTART_REPLAN)
+        self.assertEqual(
+            mlib.classify_capture_nostart(
+                node_ut=1000.0, ut=late, node_count=1,
+                replans_done=mlib.MAX_CAPTURE_REPLANS),
+            mlib.CAPTURE_NOSTART_FLAKE)
+
+    def test_no_node_and_unreadable_node_clock_fail_closed_to_the_flake(self):
+        """An unreadable clock is neither "still ahead" nor "window passed":
+        it must burn NO re-plan budget and keep the original no-start name."""
+        self.assertEqual(
+            mlib.classify_capture_nostart(node_ut=1000.0, ut=2000.0,
+                                          node_count=0, replans_done=0),
+            mlib.CAPTURE_NOSTART_FLAKE)
+        self.assertEqual(
+            mlib.classify_capture_nostart(node_ut=float("nan"), ut=2000.0,
+                                          node_count=1, replans_done=0),
+            mlib.CAPTURE_NOSTART_FLAKE)
+        self.assertEqual(
+            mlib.classify_capture_nostart(node_ut=1000.0, ut=float("nan"),
+                                          node_count=1, replans_done=0),
+            mlib.CAPTURE_NOSTART_FLAKE)
+
+    def test_mechjeb_hold_constant_matches_the_default_nostart_bound(self):
+        """The collision that CAUSED flight-1's false positive, pinned so a
+        future bound change cannot silently re-create it: MechJeb's WARPALIGN
+        hold is 600 s and burnNoStartSeconds defaults to 600 s, so the static
+        clock expires at the exact ignition instant."""
+        self.assertEqual(mlib.MJ_EXECUTOR_WARPALIGN_HOLD_SECONDS, 600.0)
+        self.assertEqual(mlib.b5_params_from_dict({}).burn_nostart_seconds,
+                         mlib.MJ_EXECUTOR_WARPALIGN_HOLD_SECONDS)
+
+
+class CaptureExecutorClassifierTests(unittest.TestCase):
+    """mlib.classify_capture_executor: the OBSERVED (not commanded) executor
+    channel. Returns (verdict, new_disabled_streak)."""
+
+    def test_unread_channel_grants_no_verdict(self):
+        self.assertEqual(
+            mlib.classify_capture_executor(-1, 0, 0, node_count=1),
+            (mlib.CAPTURE_EXEC_UNKNOWN, 0))
+        # An unread channel never accumulates a streak either.
+        self.assertEqual(
+            mlib.classify_capture_executor(-1, 2, 0, node_count=1),
+            (mlib.CAPTURE_EXEC_UNKNOWN, 0))
+
+    def test_observed_enabled_is_running_and_clears_the_streak(self):
+        self.assertEqual(
+            mlib.classify_capture_executor(1, 2, 0, node_count=1),
+            (mlib.CAPTURE_EXEC_RUNNING, 0))
+
+    def test_no_pending_node_is_never_an_executor_fault(self):
+        """The executor legitimately self-disables once it consumes the node
+        (decompiled OnFixedUpdate: !_hasNodes -> Abort()); the consumed /
+        under-burn paths own that frame."""
+        self.assertEqual(
+            mlib.classify_capture_executor(0, 2, 0, node_count=0),
+            (mlib.CAPTURE_EXEC_RUNNING, 0))
+
+    def test_observed_down_debounces_then_reissues_then_dies(self):
+        debounce = mlib.CAPTURE_EXECUTOR_DISABLED_DEBOUNCE_FRAMES
+        streak = 0
+        for i in range(debounce - 1):
+            verdict, streak = mlib.classify_capture_executor(0, streak, 0,
+                                                             node_count=1)
+            self.assertEqual(verdict, mlib.CAPTURE_EXEC_RUNNING, i)
+            self.assertEqual(streak, i + 1)
+        verdict, streak = mlib.classify_capture_executor(0, streak, 0,
+                                                         node_count=1)
+        self.assertEqual(verdict, mlib.CAPTURE_EXEC_REISSUE)
+        self.assertEqual(streak, 0)
+        # Past the re-issue cap the same debounced observation is terminal,
+        # and the streak is CAPPED (no unbounded gate-line storm).
+        verdict, streak = mlib.classify_capture_executor(
+            0, debounce - 1, mlib.MAX_CAPTURE_EXECUTOR_REISSUES, node_count=1)
+        self.assertEqual(verdict, mlib.CAPTURE_EXEC_DEAD)
+        self.assertEqual(streak, debounce)
+
+
+class B5CaptureExecutorSupervisionTests(unittest.TestCase):
+    """The CAPTURE-BURN branch wiring of the two classifiers above (B11
+    flight 1, 2026-07-24)."""
+
+    def _static(self, ut, **kw):
+        """A static-at-1x, still-hyperbolic capture frame: the exact shape
+        that trips the no-start watchdog."""
+        base = dict(body="Mun", altitude=1_000_000.0, apoapsis=-4_000_000.0,
+                    periapsis=900_000.0, eccentricity=1.3, node_count=1,
+                    node_dv=277.016)
+        base.update(kw)
+        return snap(ut=ut, **base)
+
+    def _armed(self, **kw):
+        """A CAPTURE-BURN state whose static-at-1x clock is already expired."""
+        base = dict(planned_node_count=1, burn_entry_ap=-4_000_000.0,
+                    burn_entry_pe=900_000.0, burn_prev_ap=-4_000_000.0,
+                    burn_prev_pe=900_000.0, burn_static_since=0.0)
+        base.update(kw)
+        return _b11_state(mlib.B5_CAPTURE_BURN, **base)
+
+    def test_flight1_signature_no_longer_flakes(self):
+        """THE regression cell, replayed from harness/results/b11-flight1.out:
+        the executor is OBSERVED armed, the orbit has been static at 1x for
+        600.18 s, and the node is 9.6 s away. Flight 1 flaked here; the fixed
+        machine must stay in CAPTURE-BURN."""
+        state = self._armed(burn_static_since=20939.25)
+        state, actions = mlib.b5_decide(
+            state, self._static(21539.434, node_ut=21549.027,
+                                node_executor_enabled=1))
+        self.assertFalse(state.done)
+        self.assertEqual(state.phase, mlib.B5_CAPTURE_BURN)
+        self.assertEqual(actions, [])
+
+    def test_hold_applies_even_with_the_channel_unread(self):
+        """The node-clock guard does not DEPEND on the new channel: a run that
+        never opted into the read is still protected from the false positive."""
+        state = self._armed(burn_static_since=20939.25)
+        state, _ = mlib.b5_decide(
+            state, self._static(21539.434, node_ut=21549.027))
+        self.assertFalse(state.done)
+        self.assertEqual(state.phase, mlib.B5_CAPTURE_BURN)
+
+    def test_observed_down_executor_is_reissued_then_named(self):
+        state = self._armed()
+        debounce = mlib.CAPTURE_EXECUTOR_DISABLED_DEBOUNCE_FRAMES
+        reissues = 0
+        for _ in range(mlib.MAX_CAPTURE_EXECUTOR_REISSUES):
+            for _ in range(debounce):
+                state, actions = mlib.b5_decide(
+                    state, self._static(100.0, node_ut=9_000.0,
+                                        node_executor_enabled=0))
+            reissues += 1
+            self.assertEqual([a.kind for a in actions],
+                             [mlib.ACTION_MJ_EXECUTE_NODES])
+            self.assertEqual(state.capture_exec_reissues, reissues)
+            self.assertFalse(state.done)
+        for _ in range(debounce):
+            state, actions = mlib.b5_decide(
+                state, self._static(100.0, node_ut=9_000.0,
+                                    node_executor_enabled=0))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("capture-executor-not-enabled", state.flake_reason)
+
+    def test_reissue_restamps_the_progress_anchor(self):
+        """A fresh executor attempt earns a FULL static window (the
+        flameout-stage re-anchor discipline), never the expired one."""
+        state = self._armed()
+        for _ in range(mlib.CAPTURE_EXECUTOR_DISABLED_DEBOUNCE_FRAMES):
+            state, _ = mlib.b5_decide(
+                state, self._static(4_242.0, node_ut=9_000.0,
+                                    node_executor_enabled=0))
+        self.assertAlmostEqual(state.burn_static_since, 4_242.0)
+
+    def test_late_arrival_replans_once_then_names_the_missed_window(self):
+        """The craft coasted through the node's window with the node UNBURNED:
+        never fly a stale node -- clear it and re-solve, bounded."""
+        grace = mlib.CAPTURE_BURN_WINDOW_GRACE_SECONDS
+        state = self._armed()
+        state, actions = mlib.b5_decide(
+            state, self._static(1_000.0 + grace + 1.0, node_ut=1_000.0,
+                                node_executor_enabled=1))
+        self.assertEqual(state.phase, mlib.B5_PLAN_CAPTURE)
+        self.assertEqual(state.capture_replans_done, 1)
+        kinds = [a.kind for a in actions]
+        self.assertEqual(kinds[0], mlib.ACTION_MJ_ABORT_AND_CLEAR_NODES)
+        self.assertIn(mlib.ACTION_MJ_PLAN_CAPTURE, kinds)
+        # A SECOND missed window has no budget left -> the named fast-fail.
+        state = self._armed(capture_replans_done=mlib.MAX_CAPTURE_REPLANS)
+        state, _ = mlib.b5_decide(
+            state, self._static(1_000.0 + grace + 1.0, node_ut=1_000.0,
+                                node_executor_enabled=1))
+        self.assertTrue(state.done)
+        self.assertEqual(state.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("capture-window-missed", state.flake_reason)
+
+    def test_a_real_burn_still_exits_to_park(self):
+        """The supervisor must not intercept the SUCCESS path: an executor
+        that consumed the node into a bound orbit still parks."""
+        state = _b11_state(mlib.B5_CAPTURE_BURN, planned_node_count=1,
+                           burn_entry_ap=-5_000_000.0, burn_entry_pe=900_000.0)
+        state, _ = mlib.b5_decide(
+            state, snap(ut=200.0, body="Mun", altitude=1_000_000.0,
+                        apoapsis=1_010_000.0, periapsis=990_000.0,
+                        eccentricity=0.01, node_count=0,
+                        node_executor_enabled=0))
+        self.assertEqual(state.phase, mlib.B5_PARK)
+
+
 class B5ParkTests(unittest.TestCase):
     """PARK: the held-dwell gate (the forge_lko pattern re-pointed at a foreign
     body), the 1x warp self-heal that protects the recorded coverage, and the

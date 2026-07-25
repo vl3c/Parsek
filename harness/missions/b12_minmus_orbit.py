@@ -60,8 +60,14 @@ def make_control() -> mission_runner.MissionControl:
     # Same seam as B11: MechJeb for ascent / transfer / capture, and
     # read_docking=True for the angular_velocity the PARK tumble gate needs
     # (it fails CLOSED on the NaN an un-opted-in read would leave).
+    #
+    # read_node_executor=True is the B11 flight-1 lesson (see b11_mun_orbit):
+    # CAPTURE-BURN must OBSERVE that MechJeb's NodeExecutor engaged, not infer
+    # it from having commanded it. Without the flag the channel stays at its -1
+    # UNREAD sentinel and the capture supervisor grants no executor verdict.
     return mission_runner.KrpcMissionControl(
-        use_mechjeb=True, client_name=MISSION_NAME, read_docking=True)
+        use_mechjeb=True, client_name=MISSION_NAME, read_docking=True,
+        read_node_executor=True)
 
 
 SPEC = mission_runner.MissionSpec(

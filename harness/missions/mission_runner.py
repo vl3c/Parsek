@@ -417,7 +417,8 @@ class KrpcMissionControl(MissionControl):
 
     def __init__(self, use_mechjeb: bool = False, client_name: str = "parsek-mission",
                  read_docking: bool = False, read_crew: bool = False,
-                 read_chute: bool = False) -> None:
+                 read_chute: bool = False,
+                 read_node_executor: bool = False) -> None:
         self._use_mechjeb = use_mechjeb
         self._client_name = client_name
         # OPT-IN B-DOCK docking/rendezvous/transfer telemetry (design section 5.2).
@@ -436,6 +437,14 @@ class KrpcMissionControl(MissionControl):
         # taken only by the mission whose whole terminal depends on OBSERVING the canopy
         # rather than trusting that it commanded one (EVA-4 flight-1 lesson).
         self._read_chute = bool(read_chute)
+        # OPT-IN MechJeb NodeExecutor.Enabled telemetry (B11/B12 ORBIT lane). OFF
+        # everywhere else so every other mission's read_snapshot stays
+        # byte-identical (node_executor_enabled keeps its -1 UNREAD sentinel,
+        # which grants no executor verdict at all). ONE extra RPC per poll, taken
+        # only by the missions whose CAPTURE phase must OBSERVE that the executor
+        # engaged rather than trust that it commanded one (B11 flight-1 lesson,
+        # the same commanded-vs-observed gap as the B-DOCK docking AP).
+        self._read_node_executor = bool(read_node_executor)
         self._conn = None
         self._mechjeb = None
         self._ascent = None
@@ -614,6 +623,13 @@ class KrpcMissionControl(MissionControl):
             craft_chute_state = ""
             if self._read_chute:
                 craft_chute_state = self._read_craft_chute_state(v)
+            # MechJeb NodeExecutor.Enabled (opt-in, B11/B12). Own try/except with
+            # the -1 UNREAD sentinel: an executor read fault must degrade to
+            # fail-closed (no executor verdict is granted on a blind frame),
+            # NEVER count toward the vessel-lost read-fail streak.
+            node_executor_enabled = -1
+            if self._read_node_executor:
+                node_executor_enabled = self._read_node_executor_enabled()
             snapshot = mlib.TelemetrySnapshot(
                 ut=float(sc.ut),
                 altitude=float(flight_srf.surface_altitude),
@@ -694,6 +710,9 @@ class KrpcMissionControl(MissionControl):
                 # Crew aboard (-1 = not read / read failed; fails every crew gate
                 # closed).
                 crew_count=crew_count,
+                # OBSERVED MechJeb NodeExecutor.Enabled (-1 = not read / read
+                # failed; grants no executor verdict at all).
+                node_executor_enabled=node_executor_enabled,
             )
             self._read_fail_streak = 0
             self._warp_watchdog(sc, snapshot.ut)
@@ -1706,6 +1725,29 @@ class KrpcMissionControl(MissionControl):
             dk = False
         return rv, dk
 
+    def _read_node_executor_enabled(self) -> int:
+        """OBSERVED MechJeb NodeExecutor.Enabled as the tri-state int the
+        snapshot carries: 1 = armed, 0 = down, -1 = UNREAD.
+
+        Surface: KRPC.MechJeb 0.8.1 ``NodeExecutor : ComputerModule`` exposes
+        ``Enabled`` (the inherited ``MuMech.ComputerModule.Enabled`` property)
+        as a KRPCProperty, so the python client attribute is
+        ``mechjeb.node_executor.enabled``. That is the ONLY observable executor
+        channel the service wraps -- MechJeb's own
+        ``MechJebModuleNodeExecutor.State`` (WARPALIGN / LEAD / BURN / IDLE) is
+        a public field but is NOT bound by the wrapper (pinned source
+        NodeExecutor.cs binds Autowarp / LeadTime / ExecuteOneNode /
+        ExecuteAllNodes / Abort only), and its ``Tolerance`` property is
+        outright broken (InitInstance never initializes the backing object).
+
+        Fail-CLOSED to -1 on ANY fault: an unread channel must never be read as
+        either "armed" (which would suppress the liveness watchdog) or "down"
+        (which would fast-fail a healthy burn)."""
+        try:
+            return 1 if bool(self._mechjeb.node_executor.enabled) else 0
+        except Exception:
+            return -1
+
     def _set_target_docking_port_live(self, sc) -> None:
         """Set the target docking port, resolved LIVE from the rendezvous target
         vessel (flight-13 root cause of EVERY dock failure since flight 7):
@@ -2338,11 +2380,16 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
         # stalled in REENTRY with a line that omitted altitude, leaving
         # frozen-physics vs normal-coast undiagnosable from the log. Log what
         # the machines gate on.
+        # nodeExec= (the OBSERVED MechJeb NodeExecutor.Enabled tri-state) is
+        # appended ONLY when the opt-in channel was actually read, so every
+        # mission that does not read it keeps a byte-identical telemetry line.
+        node_exec_token = ("" if snapshot.node_executor_enabled < 0
+                           else (" nodeExec=%d" % snapshot.node_executor_enabled))
         log.verbose_rate_limited(
             "telemetry", state.phase,
             "telemetry ap=%s pe=%s ecc=%s inc=%s alt=%s vspd=%s body=%s nodes=%d "
             "nodeDv=%s nodeUt=%s tts=%s nextBody=%s nextPe=%s warpTo=%s lf=%s "
-            "ec=%s thr=%s avThr=%s situation=%s chute=%s warp=%sx%s apErr=%s ut=%s"
+            "ec=%s thr=%s avThr=%s situation=%s chute=%s warp=%sx%s apErr=%s ut=%s%s"
             % (_fmt(snapshot.apoapsis), _fmt(snapshot.periapsis), _fmt(snapshot.eccentricity),
                _fmt(snapshot.inclination), _fmt(snapshot.altitude),
                _fmt(snapshot.vertical_speed), snapshot.body or "?", snapshot.node_count,
@@ -2352,7 +2399,8 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
                _fmt(snapshot.electric_charge), _fmt(snapshot.throttle),
                _fmt(snapshot.available_thrust), snapshot.situation,
                snapshot.craft_chute_state or "-", snapshot.warp_mode,
-               _fmt(snapshot.warp_rate), _fmt(snapshot.ap_error), _fmt(snapshot.ut)))
+               _fmt(snapshot.warp_rate), _fmt(snapshot.ap_error), _fmt(snapshot.ut),
+               node_exec_token))
         # MACHINE-STATE line (design-live-observability 2a): the decision
         # state verbatim on a ~5 s cadence, so an operator report maps to
         # machine state without inference.

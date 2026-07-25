@@ -59,13 +59,40 @@
 #                      after PLAN_MAX_ATTEMPTS or the plan budget.
 #   CAPTURE-BURN       THE CAPTURE. NodeExecutor (autowarp set EXPLICITLY
 #                      runner-side - the B-DOCK flight-12 lesson, the executor's
-#                      autowarp is shared global state) rails-warps down to
-#                      periapsis and burns. Done evidence is a BOUND orbit
+#                      autowarp is shared global state) rails-warps down toward
+#                      periapsis, then serves MechJeb's OWN pre-ignition hold
+#                      (see below) and burns. Done evidence is a BOUND orbit
 #                      (0 < apoapsis <= ceiling; a hyperbolic approach reads a
 #                      NEGATIVE apoapsis, so this cannot be faked by flying
-#                      past). NAMED fast-fails: capture under-burn (executor
-#                      wedged, orbit still unbound) and capture-executor-no-start
-#                      (orbit unchanged, static at 1x past burnNoStartSeconds).
+#                      past). The phase SUPERVISES its actor from an OBSERVED
+#                      channel: MechJeb NodeExecutor.Enabled is read every poll
+#                      (readNodeExecutor opt-in) and a debounced FALSE with a
+#                      node pending re-issues mj_execute_nodes, bounded, then
+#                      fast-fails. NAMED fast-fails: capture under-burn
+#                      (executor wedged, orbit still unbound),
+#                      capture-executor-not-enabled (OBSERVED down past the
+#                      bounded re-issues), capture-window-missed (the node's
+#                      burn window passed unburned and the bounded re-plan is
+#                      spent - the machine re-plans ONCE rather than fly a
+#                      stale node) and capture-executor-no-start (no node / no
+#                      readable node clock, static at 1x past
+#                      burnNoStartSeconds).
+#
+#                      MECHJEB'S PRE-IGNITION HOLD IS NOT A DEAD ACTOR (flight-1
+#                      root cause, decompiled MechJeb2 2.15.1.0
+#                      MechJebModuleNodeExecutor.StateWarpAlign): when the craft
+#                      is not AlignedAndSettled (angle < 1 deg AND
+#                      angularVelocity < 0.001 rad/s) the executor warps to
+#                      _ignitionUT - 600 and then holds MinimumWarp - 1x, zero
+#                      throttle, orbit UNCHANGED - for the FULL 600 GAME seconds
+#                      before ignition. That is byte-for-byte the no-start
+#                      signature, and burnNoStartSeconds is ALSO 600, so the
+#                      watchdog used to fire at the exact ignition instant.
+#                      The node's own clock now disambiguates it: MechJeb
+#                      ignites at node.UT - halfBurnTime, so no frame before
+#                      node.UT (+ a 90 s grace) is evidence of a dead executor.
+#                      BUDGET CONSEQUENCE: a nominal capture spends up to ~600
+#                      GAME seconds at 1x here, which is ~600 WALL seconds.
 #   PARK               PARKED CONFIGURATION, and the RECORDED coverage the whole
 #                      lane exists for: throttle CUT, every maneuver node
 #                      CLEARED, attitude HELD (SAS stability-assist + RCS on),
@@ -94,6 +121,15 @@ id = "B11-mun-orbit"
 # passive safety, a committed spec). B3 is the EVA branch. The ORBIT lane is
 # therefore B11 (Mun) + B12 (Minmus); the catalog carries the mapping so nobody
 # trips on the informal "B8" label again.
+#
+# FLIGHT 1 (2026-07-24) - FLAKE at CAPTURE-BURN, everything else GREEN. The lane
+# reached PRELAUNCH -> MJ-ASCENT -> CIRCULARIZE -> ORBIT -> PLAN-TRANSFER ->
+# TRANSFER-BURN -> COAST-TO-TARGET -> (2x PLAN-CORRECTION / CORRECTION-BURN) ->
+# TARGET-FLYBY -> PLAN-CAPTURE -> CAPTURE-BURN in 1064 wall seconds, the capture
+# node planned cleanly (nodes=1, nodeDv=277.016 at ut=21549.027) and the flake
+# was our OWN watchdog, not MechJeb: see the pre-ignition-hold note under
+# CAPTURE-BURN. Fixed by the OBSERVED NodeExecutor.Enabled channel + the
+# node-clock classifier; the numbers below are updated from that flight.
 tier = "nightly"
 description = "Mun ORBIT / commit-in-target-orbit: MechJeb ascent to LKO, ManeuverPlanner Hohmann transfer, autowarped TLI, dv-capped course corrections, cross-SOI coast, CAPTURE burn (circularize at periapsis) inside the Mun SOI, a held stable park, and a mid-mission command-seam CommitTree that closes the tree WHILE PARKED IN THE FOREIGN SOI."
 instanceProfile = "stock-minimal"
@@ -136,24 +172,32 @@ mission = "b11_mun_orbit"
 # commit, add a post-mission CommitTree step then - do not add one on
 # speculation, because a wrong guess reds the run either way.
 #
-# BUDGET ARITHMETIC. Base = the MEASURED B5 flights on this same machine and
-# fixture (wall 465 s on the no-1x certification flight, 625 / 824 / 854 s on
-# the three earlier passes). The ORBIT tail adds, per phase:
-#   capture arming + PLAN-CAPTURE   ~30 wall (plan is an RPC; 3 bounded attempts
-#                                    at 10 game-s cadence on a 10x hold)
-#   CAPTURE-BURN                    ~150 wall (the executor rails-warps the
-#                                    SOI-entry -> periapsis coast, ~1-3 game
-#                                    hours, then burns ~150-220 m/s)
+# BUDGET ARITHMETIC. MEASURED on flight 1 (2026-07-24) where it could be, no
+# longer purely derived: that flight reached the CAPTURE-BURN ignition instant
+# in 1064 WALL seconds, and that figure ALREADY contains one full MechJeb
+# pre-ignition hold. Per phase:
+#   ascent -> PLAN-CAPTURE          ~460 wall (MEASURED: everything up to the
+#                                    capture plan on flight 1, consistent with
+#                                    the B5 465 / 625 / 824 / 854 s band)
+#   CAPTURE-BURN                    ~620 wall (MEASURED 600 of it is MechJeb's
+#                                    OWN 1x pre-ignition WARPALIGN hold - see
+#                                    the CAPTURE-BURN note above; the SOI-entry
+#                                    -> periapsis coast itself is autowarped and
+#                                    nearly free, and the ~277 m/s burn is ~20 s.
+#                                    The ORIGINAL ~150 wall estimate was wrong
+#                                    because it did not know about the hold.)
 #   PARK                            ~200 wall (parkDwellSeconds of GAME time at
 #                                    1x - this dwell IS the recorded coverage,
 #                                    so it is deliberately NOT warped)
 #   ORBIT-COMMIT                    <1 wall typical, 120 wall worst case (the
 #                                    runner's SEAM_COMMIT_POLL_SECONDS bound)
-# => B5 worst 854 + ~500 = ~1,360 expected worst. missionBudget 3000 (WALL) is
-# ~2.2x that and above B5's own 2400. runtime 3500 >= 240 LoadGame + ~5
-# SetSetting + 3000 mission + ~60 FlushAndQuit + ~195 margin: the post-mission
-# seam steps must survive a FULL-budget mission (SF-5). PROVISIONAL until
-# flight 1; phase budgets in missionParams are GAME time.
+# => ~1,300 wall expected nominal. WORST case adds one bounded stale-node
+# re-plan: +90 wall of window grace, a re-planned coast (autowarped) and a
+# SECOND ~600 wall pre-ignition hold => ~2,100. missionBudget 3000 (WALL) is
+# ~2.3x nominal and ~1.4x that worst case, and above B5's own 2400. runtime
+# 3500 >= 240 LoadGame + ~5 SetSetting + 3000 mission + ~60 FlushAndQuit + ~195
+# margin: the post-mission seam steps must survive a FULL-budget mission (SF-5).
+# Phase budgets in missionParams are GAME time.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
@@ -205,9 +249,11 @@ captureEnabled             = true
 capturePlanTimeoutSeconds  = 300
 # CAPTURE-BURN budget (GAME seconds). The executor autowarps the SOI-entry ->
 # periapsis coast: the Mun SOI edge sits ~2,230 km above the surface and the
-# arrival crosses it at ~0.5-0.8 km/s, so that coast is ~1-3 game hours
-# (3,600-11,000 s). 60,000 is ~5x the worst case - a SLOW bound; the no-start
-# and under-burn watchdogs bound BROKEN. PROVISIONAL pending flight 1.
+# arrival crosses it at ~0.5-0.8 km/s, so that coast is ~1-3 game hours.
+# MEASURED on flight 1: entry ut 16518.6 -> node ut 21549.0 = 5,030 game
+# seconds, of which the last 600 are MechJeb's 1x pre-ignition hold. 60,000 is
+# ~12x that - a SLOW bound; the executor-not-enabled, window-missed, no-start
+# and under-burn watchdogs bound BROKEN.
 captureBurnTimeoutSeconds  = 60000
 # THE CAPTURE WINDOW (also the PARK gate). Deliberately WIDE, because the
 # arrival periapsis is MechJeb's business and the observed B5 band is

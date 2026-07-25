@@ -86,8 +86,17 @@ def make_control() -> mission_runner.MissionControl:
     # readbacks are its diagnosability channel. Without it angular_velocity
     # stays NaN and the park gate fails CLOSED forever, so this flag is
     # load-bearing, not cosmetic.
+    #
+    # read_node_executor=True (flight-1 forensics, 2026-07-24): CAPTURE-BURN
+    # COMMANDED mj_execute_nodes and had NO channel that OBSERVED whether the
+    # NodeExecutor engaged -- the exact commanded-vs-observed gap that produced
+    # the B-DOCK docking-AP and the EVA-4 ladder-release defects. One extra RPC
+    # per poll reads MechJeb NodeExecutor.Enabled; without it the field keeps its
+    # -1 UNREAD sentinel and the capture supervisor grants no executor verdict
+    # (fail closed).
     return mission_runner.KrpcMissionControl(
-        use_mechjeb=True, client_name=MISSION_NAME, read_docking=True)
+        use_mechjeb=True, client_name=MISSION_NAME, read_docking=True,
+        read_node_executor=True)
 
 
 SPEC = mission_runner.MissionSpec(

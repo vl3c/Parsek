@@ -175,6 +175,30 @@ class SnapshotFormatTests(unittest.TestCase):
         for token in ("angV=", "sas=0", "rcs=0", "apSt="):
             self.assertIn(token, line)
 
+    def test_node_executor_channel_is_opt_in_and_fails_closed(self):
+        """The OBSERVED MechJeb NodeExecutor.Enabled channel (B11 flight 1).
+        UNREAD is the -1 sentinel and emits NO compact token, so every mission
+        that does not opt into the read keeps a byte-identical line."""
+        s = mlib.TelemetrySnapshot(ut=1.0)
+        self.assertEqual(s.node_executor_enabled, -1)
+        self.assertEqual(mlib.snapshot_dict(s)["nodeExecutorEnabled"], -1)
+        self.assertNotIn("nodeExec=", mlib.format_snapshot_compact(s))
+        armed = mlib.TelemetrySnapshot(ut=1.0, node_executor_enabled=1)
+        self.assertTrue(
+            mlib.format_snapshot_compact(armed).endswith(" nodeExec=1"))
+        down = mlib.TelemetrySnapshot(ut=1.0, node_executor_enabled=0)
+        self.assertIn(" nodeExec=0", mlib.format_snapshot_compact(down))
+
+    def test_capture_executor_supervision_rides_the_machine_line(self):
+        """The two hard-capped recovery counters + the observed-down debounce
+        run must be greppable from the machine-state line."""
+        line = mlib.format_machine_state(
+            _b5_state(capture_exec_disabled_streak=2, capture_exec_reissues=1,
+                      capture_replans_done=1), ut=100.0)
+        for token in ("captureExecDownStreak=2", "captureExecReissues=1",
+                      "captureReplans=1"):
+            self.assertIn(token, line)
+
 
 class StatusPathTests(unittest.TestCase):
     def test_mission_result_maps_to_status_sibling(self):
