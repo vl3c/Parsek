@@ -2772,3 +2772,35 @@ class LedgerSpecSurfaceValidationTests(unittest.TestCase):
         # The block is present with the expected v1 surface.
         self.assertEqual("template", spec["expectations"]["ledger"]["seedFrom"])
         self.assertEqual([], spec["expectations"]["ledger"].get("manifest", []))
+
+
+class MergeDurationsTests(unittest.TestCase):
+    """The committed duration ledger must survive a checkout that has only
+    flown a couple of scenarios. results/*.json is gitignored, so a fresh
+    worktree's compute_durations covers only what it ran; writing that
+    unmerged destroyed a 24-scenario ledger down to 2 entries live."""
+
+    def test_scenarios_absent_from_the_fresh_run_are_preserved(self):
+        existing = {"B11-mun-orbit": {"n": 5, "p50": 1317.0},
+                    "B5-mun-flyby": {"n": 2, "p50": 515.0}}
+        fresh = {"B13-mun-landing": {"n": 1, "p50": 2825.0}}
+        merged = hlib.merge_durations(existing, fresh)
+        self.assertEqual(sorted(merged), ["B11-mun-orbit", "B13-mun-landing",
+                                          "B5-mun-flyby"])
+        self.assertEqual(merged["B11-mun-orbit"]["p50"], 1317.0)
+
+    def test_a_freshly_measured_scenario_wins_over_the_committed_entry(self):
+        existing = {"B13-mun-landing": {"n": 1, "p50": 9999.0}}
+        fresh = {"B13-mun-landing": {"n": 2, "p50": 2825.0}}
+        merged = hlib.merge_durations(existing, fresh)
+        self.assertEqual(merged["B13-mun-landing"]["p50"], 2825.0)
+
+    def test_missing_or_malformed_committed_record_is_not_fatal(self):
+        fresh = {"B14-minmus-landing": {"n": 1, "p50": 2141.0}}
+        self.assertEqual(hlib.merge_durations(None, fresh), fresh)
+        self.assertEqual(hlib.merge_durations({}, fresh), fresh)
+        self.assertEqual(hlib.merge_durations({"bad": "notadict"}, fresh), fresh)
+
+    def test_empty_fresh_run_leaves_the_committed_ledger_untouched(self):
+        existing = {"B11-mun-orbit": {"n": 5, "p50": 1317.0}}
+        self.assertEqual(hlib.merge_durations(existing, {}), existing)

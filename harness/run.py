@@ -2412,7 +2412,21 @@ def refresh_coverage_and_flake(specs: Sequence[Dict], registry: Dict,
     # gitignored, so without this nothing durable knows how long a scenario
     # takes and a backwards ordering claim can sit in a spec unnoticed across
     # four measured runs (it did).
-    durations = hlib.compute_durations(results)
+    # MERGE over the committed record, never replace it: results/*.json is
+    # gitignored, so a fresh worktree computes a record covering only the
+    # scenarios it has flown. Writing that straight out wiped a 24-scenario
+    # ledger down to 2 the first time a new worktree ran (observed 2026-07-25).
+    duration_path = os.path.join(COVERAGE_DIR, "duration.json")
+    prior_durations = None
+    try:
+        with open(duration_path, "r", encoding="utf-8") as fh:
+            prior_obj = json.load(fh)
+        if isinstance(prior_obj, dict):
+            prior_durations = prior_obj.get("scenarios")
+    except (OSError, ValueError):
+        prior_durations = None
+    durations = hlib.merge_durations(prior_durations,
+                                     hlib.compute_durations(results))
     with open(os.path.join(COVERAGE_DIR, "duration.json"), "w",
               encoding="utf-8", newline="\n") as fh:
         fh.write(json.dumps({"schema": hlib.SCHEMA_VERSION,

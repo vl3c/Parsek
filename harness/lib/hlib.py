@@ -2737,6 +2737,36 @@ def compute_durations(results: Sequence[Dict]) -> Dict[str, Dict]:
     return out
 
 
+def merge_durations(existing: Optional[Dict[str, Dict]],
+                    fresh: Dict[str, Dict]) -> Dict[str, Dict]:
+    """Merge a freshly computed duration record over the COMMITTED one.
+
+    ``compute_durations`` only ever sees THIS checkout's ``results/*.json``,
+    and that directory is gitignored. So a fresh worktree computes a record
+    covering only the scenarios it happened to run, and writing that straight
+    out DESTROYS the committed history of every other scenario -- which is
+    exactly what the ledger exists to preserve. Observed live: a worktree that
+    had flown only B13 + B14 rewrote a 24-scenario ledger down to 2 entries.
+
+    Semantics: a scenario the fresh run measured takes the fresh entry (this
+    checkout just recomputed it from real results); a scenario it did not
+    measure keeps whatever the committed file already recorded. ``n`` is
+    therefore PER-CHECKOUT, not global -- the ledger is a durable record of
+    "how long does this scenario take", not a global sample count, and a
+    machine with more local results legitimately reports a larger n.
+
+    Pure; ``run.py`` owns reading the committed file and writing the result.
+    """
+    merged: Dict[str, Dict] = {}
+    if isinstance(existing, dict):
+        for sid, entry in existing.items():
+            if isinstance(sid, str) and isinstance(entry, dict):
+                merged[sid] = entry
+    for sid, entry in (fresh or {}).items():
+        merged[sid] = entry
+    return merged
+
+
 def duration_regressions(durations: Dict[str, Dict],
                          warn_factor: float = DURATION_WARN_FACTOR,
                          min_samples: int = DURATION_MIN_SAMPLES) -> List[str]:

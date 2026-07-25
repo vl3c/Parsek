@@ -416,7 +416,15 @@ D14 = ["kerbin", "mun", "warp-rails"]
 # (uncommitted) tree too. MEASURED on B11/B12: runs that never committed still
 # produced exactly 8. This window guards recording TOPOLOGY only; the commit is
 # guarded by the logContract tokens below.
-count = { min = 8, max = 9 }
+# PINNED from measurement on FLIGHT 1 (2026-07-25, FULL PASS attempt 1, wall
+# 2,747.9 s): verifiers.expectations.observed.recordings.count read exactly 8,
+# so the touchdown-fragment allowance was never needed. Topology confirmed by
+# the commit-terminal lines: 1 Landed/Mun (the lander), 6 Destroyed (the radial
+# boosters), 1 Orbiting/Kerbin (the flameout-staged ascent core) - identical to
+# B11 except the ROOT terminal, which is the whole point of this lane. Same
+# caveat as B11/B12/B14: the count is COMMIT-BLIND, so it guards recording
+# TOPOLOGY while the log tokens guard the landed terminal.
+count = { min = 8, max = 8 }
 
 [expectations.logContracts]
 # Every token below is sourced from the ACTUAL emitting ParsekLog call site.
