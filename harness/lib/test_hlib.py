@@ -2054,7 +2054,10 @@ class PlanUnmetMissionTailTests(unittest.TestCase):
         {"cmd": "FlushAndQuit", "expect": "OK"},
     ]
 
-    # The B1 / B2 / B4 / B5 / B7 / BDOCK-1 tail shape (every live-proven flown scenario).
+    # A B1-SHAPED tail (a literal, deliberately: the focused cells below assert on an
+    # exact minimal shape). Every REAL committed autopilot spec is covered by
+    # test_every_committed_autopilot_spec_keeps_its_quit_owner below, which loads them
+    # from disk rather than trusting this literal to stay representative.
     B1_STEPS = [
         {"cmd": "LoadGame", "args": {"save": "${runSave}"}, "expect": "OK"},
         {"cmd": "SetSetting", "args": {"name": "autoRecordOnLaunch", "value": "true"}},
@@ -2161,6 +2164,56 @@ class PlanUnmetMissionTailTests(unittest.TestCase):
         # The named deferral budgets the skip stops burning on a dead attempt.
         self.assertEqual(120.0, hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS["EvaExit"])
         self.assertEqual(420.0, hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS["EvaChuteDeploy"])
+
+    def test_every_committed_autopilot_spec_keeps_its_quit_owner(self):
+        """Data-driven over EVERY committed autopilot spec, loaded from disk. Closes the
+        gap left by the hand-written literals above (which pin a shape, not the suite)
+        and cannot go stale when a scenario is added or its tail is edited: the list of
+        autopilot specs is DISCOVERED, never hardcoded.
+
+        The invariant that matters for every one of them: an unmet run must still be
+        able to bring KSP down. A scenario whose QUIT owner is a FlushAndQuit step must
+        keep it; one that owns the quit via autorun.exit needs no tail step at all.
+        Fails if a role-table edit ever makes a quit-owning step skippable - which would
+        convert a retryable driver-INVALID into a KILLED that MASKS the mission subkind.
+        """
+        checked = []
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            spec = load_spec(name)
+            driver = spec.get("driver", {}) or {}
+            steps = driver.get("steps", []) or []
+            mission_index = next((i for i, s in enumerate(steps)
+                                  if s.get("phase") == "mission"), None)
+            if mission_index is None:
+                continue  # seam-only: never reaches the unmet-tail path
+            checked.append(name)
+            plan = hlib.plan_unmet_mission_tail(
+                steps, mission_index,
+                skip_tail=hlib.spec_skips_tail_on_unmet_mission(spec))
+            tail_cmds = [s.get("cmd") for s in steps[mission_index + 1:]]
+            run_cmds = [d.cmd for d in plan.dispositions if d.run]
+
+            if "FlushAndQuit" in tail_cmds:
+                self.assertIn("FlushAndQuit", run_cmds,
+                              "%s: the QUIT owner must survive an unmet tail" % name)
+            else:
+                self.assertTrue(driver.get("autorun", {}).get("exit"),
+                                "%s: no FlushAndQuit step and no autorun.exit" % name)
+            # Nothing outside the cleanup set is ever driven.
+            for cmd in run_cmds:
+                self.assertEqual(hlib.TAIL_ROLE_CLEANUP, hlib.seam_verb_tail_role(cmd),
+                                 "%s drives non-cleanup %r on an unmet tail" % (name, cmd))
+            # And every tail step is accounted for exactly once.
+            self.assertEqual(len(tail_cmds), len(plan.dispositions), name)
+
+        # Sanity: the sweep actually swept. If autopilot specs stop being discovered the
+        # loop above would pass vacuously.
+        self.assertGreaterEqual(len(checked), 8,
+                                "expected the committed autopilot specs; found %s" % (checked,))
+        self.assertIn("EVA-4-atmo-chute.toml", checked)
+        self.assertIn("B1-pad-hop.toml", checked)
 
     def test_skipped_steps_are_absent_from_response_evaluation(self):
         # The drive loop records only the steps it actually SENDS, so a skipped step

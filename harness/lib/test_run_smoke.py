@@ -809,9 +809,10 @@ class UnmetMissionTailSmokeTests(unittest.TestCase):
         self.assertEqual("mission-unmet", result["verifiers"]["unmetMissionTail"]["reason"])
 
     def test_met_mission_still_drives_the_whole_tail(self):
-        """The non-regression cell for every live-proven flown scenario (B1/B2/B4/B5/
-        B7, BDOCK-1): a MISSION-OK run drives the FULL tail exactly as before, and
-        the result record carries no skip rows at all."""
+        """The non-regression cell for the MISSION-OK path every autopilot scenario
+        takes (B1/B2/B4/B5/B6/B7, BDOCK-1, EVA-4, the three FORGE specs): a met mission
+        drives the FULL tail exactly as before, and the result record carries no skip
+        rows at all."""
         result, lines = self._run("ok")
         verbs = self._verbs(lines)
 
@@ -1100,6 +1101,46 @@ class MissionBudgetExpiryFinalReadTests(unittest.TestCase):
         self.assertEqual(hlib.MISSION_VERDICT_FLAKE, result.mission_step["missionVerdict"])
         self.assertEqual("autopilot-flake", result.mission_step["subkind"])
         self.assertIn("no result", result.mission_step.get("reason", ""))
+
+    def test_in_flight_venv_backstop_is_unmet_and_spawns_nothing(self):
+        """The THIRD never-spawned UNMET path (after load-failed and no-result): the
+        in-flight venv backstop, reachable only by a venv mutated AFTER pre-launch
+        ADMIT. It must record an unmet mission step - which is what makes the tail skip
+        fire - with NO subprocess spawned. Pins that the skip keys off `met`, not off
+        "a mission subprocess ran"; the pre-launch refusal is a different path that
+        never launches KSP at all."""
+        class _StampGoodThenGone(_MiniMissionRuntime):
+            """Admits at ADMIT, then the stamp vanishes before the backstop re-reads.
+            Counts spawns locally rather than touching the shared fake."""
+            def __init__(self):
+                super().__init__(write_result_verdict=None)
+                self.reads = 0
+                self.spawns = 0
+
+            def read_venv_stamp(self, stamp_path):
+                self.reads += 1
+                return {"pins": {"krpc": "0.5.4"}} if self.reads == 1 else None
+
+            def spawn_mission(self, venv_python, mission_py, args, cwd, stdout_path):
+                self.spawns += 1
+                return super().spawn_mission(venv_python, mission_py, args, cwd, stdout_path)
+
+        rt = _StampGoodThenGone()
+        rt.reads = 1  # pretend ADMIT already consumed its read
+        result = run.DriveResult()
+        ctx = run.MissionContext("m", "vpy", "m.py", {}, self.tmp,
+                                 "stamp.json", {"krpc": "0.5.4"})
+        step = {"phase": "mission", "expect": "MISSION-OK", "budget": 60}
+        proc = type("P", (), {"pid": 12345})()
+        killed = run._drive_mission_step(result, step, "0003", 2, proc, rt, self.logger,
+                                         run_budget=10_000, run_start=0.0,
+                                         mission_ctx=ctx, run_id="testrun-venv",
+                                         preceding_load_ok=True)
+
+        self.assertFalse(killed)
+        self.assertEqual(0, rt.spawns, "the backstop must spawn no subprocess")
+        self.assertFalse(result.mission_step["met"], "an unmet step is what triggers the skip")
+        self.assertEqual("tooling-venv", result.mission_step["subkind"])
 
     def test_run_budget_kill_drives_no_tail_at_all_not_even_cleanup(self):
         """The RUN-budget expiry is NOT an unmet-tail case and must not be documented as

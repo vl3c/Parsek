@@ -608,18 +608,22 @@ as inert on a seam-kind driver.
   `FlushAndQuit` deliberately never auto-commits an in-flight recorder
   (`TestCommandFlushAndQuit`), so skipping `CommitTree` genuinely leaves the junk tree
   uncommitted.
-- Tests (32 new cells): 25 pure hlib cells (role-table totality + no stale rows, the
-  cleanup set, fail-safe unknown, the plan over the REAL committed EVA-4 spec plus
-  B1-shaped and FORGE-shaped step lists, id stability, the opt-out, the spec surface
-  incl. the misplaced-key guard) + 6 fake-KSP smoke cells driving the REAL EVA-4 tail
+- Tests (34 new cells): 26 pure hlib cells (role-table totality + no stale rows, the
+  cleanup set, fail-safe unknown, id stability, the opt-out, the spec surface incl. the
+  misplaced-key guard, and a DATA-DRIVEN sweep over every committed autopilot spec
+  loaded from disk - all 11 - asserting each keeps its QUIT owner and drives nothing
+  outside the cleanup set, so the coverage cannot go stale when a scenario is added or
+  its tail edited) + 6 fake-KSP smoke cells driving the REAL EVA-4 tail
   shape (`EvaExit` + `EvaChuteDeploy` + `StopRecording` + `CommitTree` + `FlushAndQuit`)
   and asserting on the COMMAND CHANNEL FILE - the only artifact that proves a command was
   never sent - that neither in-world verb nor the commit was written on an unmet run while
   `StopRecording` / `FlushAndQuit` were, that a MISSION-OK run still drives everything,
   that the opt-out restores the legacy tail and is visible in the record, and that the
-  never-spawned UNMET paths (load-failed, no-result) skip too + 1 cell pinning that a
-  RUN-budget kill drives NO tail at all, cleanup included (it is not an unmet-tail case:
-  the KSP tree is already dead). Mutation-tested during review: 17 single-point mutations
+  never-spawned UNMET paths (load-failed, no-result) skip too + 2 mission-step cells:
+  the third never-spawned UNMET path (the in-flight venv backstop, unmet with zero
+  spawns) and the proof that a RUN-budget kill drives NO tail at all, cleanup included
+  (it is not an unmet-tail case: the KSP tree is already dead).
+  Mutation-tested during review: 17 single-point mutations
   of the production code (every-step-runs, CommitTree->cleanup, FlushAndQuit->mutating,
   unknown-verb-defaults-cleanup, delete the skip branch, and 12 more), zero survivors.
 
