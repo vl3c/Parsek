@@ -50,8 +50,15 @@ max = 100.0
 # value of 0 would make ModuleParachute.ShouldDeploy() (`altitude < deployAltitude`)
 # permanently false, so the chute would hold SEMIDEPLOYED all the way to the ground and
 # impact at ~220 m/s -- a variant of the very bug this mission was fixed for, and the
-# old bounds would have accepted it silently. The floor is now well clear of that, and
-# the ceiling matches stock's own PAW control range (UI_FloatRange [50, 5000]).
+# old bounds would have accepted it silently. The ceiling matches stock's own PAW
+# control range (UI_FloatRange [50, 5000]); note the EVA-4 sibling schema still allows
+# 10000 for the same stock field, which is the looser of the two.
+#
+# The floor kills the pathological 0 but is NOT sized to the full-canopy derivation
+# above: at 500 the craft would still be braking at touchdown (the brake alone costs
+# ~894 m). It is a schema guardrail against nonsense, not a guarantee of a settled
+# canopy - the live value (2500) is what buys that, and the reasoning for it lives in
+# the spec.
 [params.chuteFullDeployAltMeters]
 required = true
 type = "number"

@@ -119,11 +119,17 @@ steps = [
 #
 # The fix is the one EVA-4 flight 2 LIVE-PROVED on this exact fixture and craft: arm
 # at the APOAPSIS CROSSING, where the airspeed is near zero, DeploySafe is trivially
-# SAFE, and Kerbin is already ~0.12 atm - 3x the module's 0.04 atm gate. (The module's
+# SAFE, and Kerbin is ~0.12 atm at the ~12 km apex both inspectable runs actually
+# reached - 3x the module's 0.04 atm gate. That margin is a property of the MEASURED
+# apex, not of the whole apoapsisWindowMeters range: Kerbin crosses 0.04 atm at roughly
+# 17-18 km, so an apex near the window's 30 km ceiling would arm on the right frame but
+# could not open until the craft had fallen back under the pressure gate - by which
+# point it is fast again. The ceiling is a VALIDITY bound (this deterministic RT-5 hop
+# peaks ~12 km), not a regime this technique is claimed to cover. (The module's
 # other gate, IsMovingFastEnoughToDeploy, is never binding despite the "arm while slow"
 # framing: it sums Rigidbody.velocity + Krakensbane.GetFrameVelocity(), i.e. the
-# BODY-CENTRED INERTIAL velocity, which is ~178 m/s at KSC even at a zero-airspeed
-# apex, against a 1 m/s floor.) The
+# BODY-CENTRED INERTIAL velocity - Kerbin's rotation, ~175 m/s at the KSC surface and
+# ~178 m/s at 12 km - even at a zero-airspeed apex, against a 1 m/s floor.) The
 # chute SEMI-deploys at ~11.9 km (the full canopy comes later, at
 # chuteFullDeployAltMeters) and the craft never reaches the terminal velocity that made
 # an altitude trigger unopenable. Note the semi-deployed craft is NOT slow: EVA-4
@@ -151,9 +157,9 @@ chuteArmMaxRateMps    = 30
 # not crawl, it sinks at up to -236 m/s (peak at ~5.7 km, still -223 m/s at 2500 m),
 # and the full canopy needs ~5.6 s to brake it to -23 m/s. That brake costs 894 m of
 # altitude, MEASURED, not modelled: EVA-4 flight 2 triggered at 2500 m and handed off
-# at 1,606 m. (An earlier draft of this comment said "about 680 m" from a linear
-# deceleration; the module's deploymentCurve = 2.5 ramp is not linear, and 894 m /
-# 5.6 s = 160 m/s mean is exactly what a 223 -> 23 m/s brake gives.) At a 1000 m
+# at 1,606 m. (An earlier draft said "about 680 m", assuming a linear deceleration.
+# The module's deploymentCurve = 2.5 ramp is not linear: 894 m / 5.6 s is a 160 m/s
+# mean, well above the 123 m/s a linear 223 -> 23 m/s brake would give.) At a 1000 m
 # trigger that brake would consume ~96% of the ~930 m of usable sky - the craft would
 # still be decelerating at touchdown, which is where "did the craft survive?" stops
 # being a question about Parsek. The saving was illusory anyway: at ~220 m/s the extra
@@ -174,7 +180,8 @@ coastTimeoutSeconds   = 180
 # 2500 m full-deploy trigger and braked to -23.2 m/s) at 61.6 s. B1 continues to
 # touchdown, which adds the full-canopy leg from 1,606 m to KSC ground (~70 m ASL).
 # Integrating that leg against the stock drag model (F[kN] = 0.0005 * rho * v^2 *
-# AreaDrag, with the DEPLOYED drag cube from PartDatabase.cfg and the fixture's own
+# AreaDrag * DragCubeMultiplier 0.1 * DragMultiplier 8, per Physics.cfg and
+# FlightIntegrator, with the DEPLOYED drag cube from PartDatabase.cfg and the fixture's own
 # 1.52 t descent mass) gives 154-176 s: under a full canopy the relaxation time to
 # terminal is v_t/2g ~ 0.45 s, so the craft is AT terminal within ~2 s of the handoff
 # and the mean speed over that 1,536 m is ~8.6-10 m/s, not the ~13 m/s a linear

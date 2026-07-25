@@ -429,7 +429,7 @@ already carries the stock default `evaChute,evaJetpack` inventory.
 
 **The parent craft is a deliberate second surface.** After the EVA the pod descends under
 its own canopy as a background vessel and touches down BEFORE the kerbal. Per the B1
-fixture note the Jumping Flea ALWAYS breaks apart at touchdown (~9 m/s vs the booster's 7
+fixture note the Jumping Flea breaks apart at touchdown (a COMPUTED ~8-9 m/s vs the booster's 7
 m/s tolerance); that is EXPECTED here. Nothing in the spec asserts the pod survives - B4
 owns the craft-survives-intact contract; EVA-4's survival contract is the KERBAL's. The
 recordings count shipped as a provisional 2-10 window sized to absorb the breakup
@@ -515,7 +515,7 @@ RE-DERIVED PARAMS: window `[800, 2400] m / |vs| <= 60` -> `[700, 2100] m / |vs| 
 become true inside/above the band; floor gives 1400 m of settle room for the ~8 s
 animation and still ~700 m of sky for the kerbal, whose own chute fully deploys under
 1000 m at ~5-6 m/s so its descent time is bounded by that leg rather than by the exit
-altitude; 25 m/s passes the B1-measured ~9 m/s full-canopy touchdown rate with ~2.8x
+altitude; 25 m/s passes the COMPUTED ~8-9 m/s full-canopy touchdown rate (never B1-measured; B1's chute had never opened) with ~2.8x
 margin while a merely semi-deployed craft can never satisfy it). BUDGETS re-checked
 against the measured fall times: ASCENT 90 and COAST 180 keep B1's values (measured 9.7 s
 and 40.8 s); `descentTimeoutSeconds` was raised 240 -> 480, the mission step 600 -> 900

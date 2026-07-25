@@ -650,11 +650,25 @@ class _FakeNodeControl:
     throttle = 0.0
 
 
+class _FakeParachuteState:
+    # kRPC hands back an enum whose .name is lower_snake; mlib normalizes it.
+    name = "deployed"
+
+
+class _FakeParachute:
+    state = _FakeParachuteState()
+
+
+class _FakeParts:
+    parachutes = [_FakeParachute()]
+
+
 class _FakeVessel:
     situation = _FakeSituation()
     orbit = _FakeOrbit()
     resources = _FakeResources()
     control = _FakeNodeControl()
+    parts = _FakeParts()
     available_thrust = 215_000.0
 
     def flight(self, _frame):
@@ -997,6 +1011,40 @@ class DownTerminalShellTests(unittest.TestCase):
         self.assertEqual(sit["value"], "LANDED")
         self.assertFalse(sit["downTerminal"])
 
+    def test_b1_single_deployed_frame_is_not_a_canopy_through_shell(self):
+        """F2: the K=2 debounce, asserted END TO END on the DOWN path rather than only
+        as a state field. Drop the fixture's first Deployed frame so exactly ONE
+        qualifying read reaches the machine before the loss: that must NOT earn the
+        canopy, so DOWN is refused and the run reds."""
+        frames = _B1_DESCENT_WITH_CHUTE_FRAMES[:-2] + [
+            _B1_DESCENT_WITH_CHUTE_FRAMES[-1],          # a single Deployed frame
+            snap(ut=8.0, vessel_lost=True)]
+        control = FakeMissionControl(frames)
+        code, result = run(b1_pad_hop.SPEC, B1_PARAMS, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_ASSERT_FAIL, result)
+        self.assertNotIn(mlib.B1_DOWN, result["phasesReached"])
+        self.assertNotEqual(code, 0)
+
+    def test_b1_arm_evidence_reaches_the_result_json(self):
+        """F3: the arm altitude / rate are the COMMANDED half of the distinction this
+        whole scenario is about, and their predecessor was already dead once - written
+        on every arm and read by nothing while its comment claimed otherwise. Deleting
+        the detail keys or the shell wiring left the suite green, so pin the surface."""
+        frames = list(_B1_DESCENT_WITH_CHUTE_FRAMES) + [
+            snap(ut=8.0, altitude=0.0, apoapsis=14000, situation="LANDED",
+                 craft_chute_state=mlib.CHUTE_STATE_DEPLOYED)]
+        control = FakeMissionControl(frames)
+        _, result = run(b1_pad_hop.SPEC, B1_PARAMS, control)
+        row = {a["name"]: a for a in result["assertions"]}["craftCanopyObserved"]
+        self.assertTrue(row["met"])
+        # The arm rode the ut=4.0 frame (vs -5.0, inside the 30 m/s bound).
+        self.assertTrue(row["armCommanded"])
+        self.assertEqual(row["armCommandedRate"], -5.0)
+        self.assertEqual(row["armMaxRate"], float(B1_PARAMS["chuteArmMaxRateMps"]))
+        self.assertEqual(row["fullDeployAltitude"],
+                         float(B1_PARAMS["chuteFullDeployAltMeters"]))
+        self.assertEqual(row["debounceK"], mlib.B1_CANOPY_DEBOUNCE_K)
+
     def test_b1_lost_without_chute_is_assert_fail_through_shell(self):
         """A vessel lost in DESCENT BEFORE the chute deployed stays a failed
         mission through the whole shell path (loss_reason short-circuits the
@@ -1057,6 +1105,21 @@ class DownTerminalShellTests(unittest.TestCase):
         names = {a["name"]: a["met"] for a in result["assertions"]}
         self.assertTrue(names["landedSituation"])
         self.assertFalse(names["craftCanopyObserved"])
+
+    def test_read_chute_flag_actually_populates_the_snapshot(self):
+        """BEHAVIOURAL companion to the constructor-flag test: asserting the flag is
+        set does not prove the read site honours it. Reviewers showed that stubbing
+        the read site to `if False:` - the same broken chain one layer down - left the
+        whole suite green. This drives the real KrpcMissionControl.read_snapshot."""
+        conn = _FakeConn([True])
+        on = mission_runner.KrpcMissionControl(read_chute=True)
+        on._conn = conn
+        self.assertEqual(on.read_snapshot().craft_chute_state,
+                         mlib.CHUTE_STATE_DEPLOYED)
+        # Opted out: the "" unread sentinel, which fails every chute gate closed.
+        off = mission_runner.KrpcMissionControl(read_chute=False)
+        off._conn = _FakeConn([True])
+        self.assertEqual(off.read_snapshot().craft_chute_state, "")
 
     def test_b1_control_opts_into_the_chute_read(self):
         """read_chute=True is the single line that makes the observed-canopy chain

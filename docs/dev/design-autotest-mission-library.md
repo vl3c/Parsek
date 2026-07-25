@@ -285,11 +285,11 @@ budget must out-wait the whole attempt:
 
 - `missionBudget >= connectBudget + sum(phaseBudgets) + margin` -- the mission
   subprocess wall-clock ceiling covers the bounded connect plus every phase budget
-  plus slack. B1: 600 >= 30 (connect) + (90+180+240) + margin. B2: 780 >= 30 +
+  plus slack. B1: 900 >= 30 (connect) + (90+180+360) + margin. B2: 780 >= 30 +
   (420+300) + margin.
 - `runtime.budgetSeconds >= sum(step budgets) + margin` -- the outer KSP run budget
   covers every budgeted step (LoadGame + the mission step; CommitTree / FlushAndQuit
-  are fast and unbudgeted) plus slack. B1: 900 >= 240 (LoadGame) + 600 (mission) +
+  are fast and unbudgeted) plus slack. B1: 1320 >= 240 (LoadGame) + 900 (mission) +
   margin. B2: 1200 >= 240 + 780 + margin.
 
 A spec that violates the second rule surfaces as a KILLED attempt (M-A5 watchdog),

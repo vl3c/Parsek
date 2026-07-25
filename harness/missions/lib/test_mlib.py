@@ -184,6 +184,10 @@ class B1MachineTests(unittest.TestCase):
             state, snap(ut=1.0, altitude=900.0, vertical_speed=-301.0))
         self.assertEqual(actions, [])
         self.assertFalse(new.chute_deployed)
+        # NOTE: this frame is also below chuteFullDeployAltMeters, so it starts the
+        # arm-window-missed streak. The rate gate is what this test guards; the streak
+        # is asserted here only so the frame's full behaviour is visible to a reader.
+        self.assertEqual(new.below_floor_streak, 1)
 
     def test_arm_rides_the_same_frame_as_the_coast_to_descent_transition(self):
         # Regression: COAST->DESCENT must FALL THROUGH into the DESCENT body, not
@@ -238,22 +242,67 @@ class B1MachineTests(unittest.TestCase):
         self.assertFalse(state.craft_chute_full_seen)
         self.assertEqual(state.canopy_seen_streak, 0)
 
-    def test_vessel_lost_frame_never_fabricates_a_canopy(self):
-        # Guards the `not snapshot.vessel_lost` leg of the latch specifically: a
-        # vessel_lost snapshot carries benign defaults, and if one arrived carrying
-        # Deployed it must NOT earn the latch (it would hand DOWN a canopy that was
-        # never observed alive). Reviewers found this leg untested.
+    def test_vessel_lost_frame_never_supplies_the_second_canopy_read(self):
+        # Guards the `not snapshot.vessel_lost` leg of the latch. The FIRST version of
+        # this test drove two vessel_lost frames, which was tautological: the first is
+        # a terminal, so `done` short-circuits the second, and one frame can never earn
+        # a K=2 latch whether the guard is there or not. Removing the guard left the
+        # whole suite green.
+        #
+        # The sequence that actually exercises it: a LIVE Deployed frame takes the
+        # streak to 1, then a vessel_lost snapshot ALSO carrying Deployed. Without the
+        # guard that benign-default frame supplies the second qualifying read and hands
+        # DOWN a canopy that was never observed alive - MISSION-OK on a craft whose
+        # chute may never have opened, which is this PR's entire bug class.
         state = mlib.b1_initial_state(B1_PARAMS)
         state = state.__class__(**{**state.__dict__, "phase": mlib.B1_DESCENT,
-                                   "phase_entry_ut": 0.0, "chute_deployed": True,
-                                   "last_finite_altitude": 120.0})
-        for ut in (1.0, 2.0):
-            state, _ = mlib.b1_decide(
-                state, snap(ut=ut, vessel_lost=True,
-                            craft_chute_state=mlib.CHUTE_STATE_DEPLOYED))
-            self.assertFalse(state.craft_chute_full_seen)
+                                   "phase_entry_ut": 0.0, "chute_deployed": True})
+        state, _ = mlib.b1_decide(
+            state, snap(ut=1.0, altitude=120.0, vertical_speed=-9.0,
+                        craft_chute_state=mlib.CHUTE_STATE_DEPLOYED))
+        self.assertEqual(state.canopy_seen_streak, 1)
+        self.assertFalse(state.craft_chute_full_seen)
+        state, _ = mlib.b1_decide(
+            state, snap(ut=2.0, vessel_lost=True,
+                        craft_chute_state=mlib.CHUTE_STATE_DEPLOYED))
+        self.assertFalse(state.craft_chute_full_seen)
         self.assertNotEqual(state.phase, mlib.B1_DOWN)
         self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+
+    def test_landing_between_the_two_canopy_reads_still_earns_the_latch(self):
+        # The debounce must not fail a REAL canopy closed: if the craft touches down on
+        # the very frame that supplies the second Deployed read, the latch is still
+        # earned (the latch runs before the phase dispatch, so the LANDED frame counts).
+        # Guards a future refactor that moved the latch after the dispatch.
+        state = mlib.b1_initial_state(B1_PARAMS)
+        state = state.__class__(**{**state.__dict__, "phase": mlib.B1_DESCENT,
+                                   "phase_entry_ut": 0.0, "chute_deployed": True})
+        state, _ = mlib.b1_decide(
+            state, snap(ut=1.0, altitude=40.0, vertical_speed=-8.0,
+                        craft_chute_state=mlib.CHUTE_STATE_DEPLOYED))
+        state, _ = mlib.b1_decide(
+            state, snap(ut=1.5, altitude=0.0, situation="LANDED",
+                        craft_chute_state=mlib.CHUTE_STATE_DEPLOYED))
+        self.assertTrue(state.craft_chute_full_seen)
+        self.assertEqual(state.phase, mlib.B1_LANDED)
+
+    def test_arm_window_missed_pre_empts_the_frozen_terminal_and_says_so(self):
+        # Ordering pin: a craft below the full-deploy floor with the chute unarmed
+        # whose telemetry then freezes hits the arm-window-missed branch BEFORE the
+        # frozen counter reaches its limit. Same verdict class either way, but the
+        # forensic reason differs, so pin which one wins.
+        state = mlib.b1_initial_state(B1_PARAMS)
+        state = state.__class__(**{**state.__dict__, "phase": mlib.B1_DESCENT,
+                                   "phase_entry_ut": 0.0})
+        frozen = dict(altitude=800.0, vertical_speed=-250.0, apoapsis=14000.0,
+                      periapsis=500.0)
+        for i in range(6):
+            state, _ = mlib.b1_decide(state, snap(ut=float(i + 1), **frozen))
+            if state.done:
+                break
+        self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        self.assertIn("chute-arm-window-missed", state.loss_reason)
+        self.assertNotIn("frozen", state.loss_reason)
 
     def test_canopy_latch_is_descent_scoped(self):
         # THE F1 regression (Opus review panel 2026-07-25). The latch used to run
@@ -278,10 +327,12 @@ class B1MachineTests(unittest.TestCase):
         self.assertFalse(state.craft_chute_full_seen)
         self.assertNotEqual(state.phase, mlib.B1_DOWN)
         self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
+        # Assert the ROW directly: resolve_flight_verdict short-circuits on loss_reason,
+        # so routing through it here would pass even with the canopy wrongly certified.
         outs = mlib.evaluate_b1_assertions(frames, B1_PARAMS,
                                            craft_canopy_observed=state.craft_chute_full_seen)
-        verdict, _ = mlib.resolve_flight_verdict(state, outs)
-        self.assertEqual(verdict, mlib.MISSION_ASSERT_FAIL)
+        canopy = {o.name: o for o in outs}["craftCanopyObserved"]
+        self.assertFalse(canopy.met)
 
     def test_missed_arm_window_fails_fast_and_names_the_chute(self):
         # THE F2 regression: the arm gate is one-shot and unreachable once missed (the
