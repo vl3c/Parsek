@@ -2363,15 +2363,70 @@ def load_all_results() -> List[Dict]:
     return out
 
 
+def write_text_atomic(path: str, text: str) -> None:
+    """tmp + ``os.replace`` write for a generated/committed artifact, mirroring
+    ``write_result``.
+
+    A truncate-in-place write leaves a PARTIAL file when the process dies
+    between the truncate and the write (Ctrl-C, the run-budget process-tree
+    kill, power loss). For ``coverage/duration.json`` -- the one COMMITTED
+    artifact here -- that partial file is then unparseable to the next run,
+    which is exactly the state the duration recovery path must never resolve by
+    replacing the record (2026-07-26 review, MAJOR-4).
+    """
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+    os.replace(tmp, path)
+
+
+def read_duration_ledger(path: str, logger: HarnessLogger) -> Tuple[Dict, bool]:
+    """The committed duration ledger's ``scenarios`` block, plus whether the
+    read is TRUSTWORTHY.
+
+    Fail LOUD, never fail quiet: a missing file is a legitimate first write
+    (``{}``, ok=True), but a file that EXISTS and does not parse / fails the
+    schema gate / has no scenarios map returns ok=False, and the caller then
+    SKIPS the duration write entirely for this run. Silently treating an
+    unreadable ledger as empty would replace a 24-scenario committed record with
+    this checkout's handful -- reopening the very bug the merge exists to close,
+    and doing it in a form ``git status`` shows as an ordinary modification.
+    """
+    if not os.path.isfile(path):
+        return {}, True
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            obj = json.load(fh)
+    except (OSError, ValueError) as exc:
+        logger.error("Duration", "duration ledger %s exists but did not parse "
+                                 "(%s); SKIPPING the duration write this run so a "
+                                 "partial file cannot replace the committed record"
+                     % (path, exc))
+        return {}, False
+    ok, message = hlib.check_schema(obj)
+    if not ok:
+        logger.error("Duration", "duration ledger %s failed the schema gate (%s); "
+                                 "SKIPPING the duration write this run" % (path, message))
+        return {}, False
+    scenarios = (obj or {}).get("scenarios")
+    if not isinstance(scenarios, dict):
+        logger.error("Duration", "duration ledger %s has no scenarios map "
+                                 "(got %r); SKIPPING the duration write this run"
+                     % (path, type(scenarios).__name__))
+        return {}, False
+    return scenarios, True
+
+
 def refresh_coverage_and_flake(specs: Sequence[Dict], registry: Dict,
                                logger: HarnessLogger) -> None:
     results = load_all_results()
     report = hlib.compute_coverage(specs, results, registry)
     os.makedirs(COVERAGE_DIR, exist_ok=True)
-    with open(os.path.join(COVERAGE_DIR, "coverage.json"), "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(json.dumps(hlib.coverage_to_json_obj(report), sort_keys=True, indent=2) + "\n")
-    with open(os.path.join(COVERAGE_DIR, "coverage.txt"), "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(hlib.coverage_to_txt(report))
+    write_text_atomic(os.path.join(COVERAGE_DIR, "coverage.json"),
+                      json.dumps(hlib.coverage_to_json_obj(report),
+                                 sort_keys=True, indent=2) + "\n")
+    write_text_atomic(os.path.join(COVERAGE_DIR, "coverage.txt"),
+                      hlib.coverage_to_txt(report))
 
     # Flake: per scenario (v1 stage = "run"), a rolling window of attempt outcomes.
     prior = {}
@@ -2403,8 +2458,7 @@ def refresh_coverage_and_flake(specs: Sequence[Dict], registry: Dict,
         if fr.quarantined:
             logger.warn("Coverage", "flake quarantine scenario=%s stage=run rate=%.2f over 7d"
                         % (sid, fr.rate))
-    with open(flake_path, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(json.dumps(flake_out, sort_keys=True, indent=2) + "\n")
+    write_text_atomic(flake_path, json.dumps(flake_out, sort_keys=True, indent=2) + "\n")
 
     # Cross-run DURATION record (audit finding G5). Committed, unlike
     # coverage.json / flake.json: it is a few hundred bytes and it IS the
@@ -2412,20 +2466,36 @@ def refresh_coverage_and_flake(specs: Sequence[Dict], registry: Dict,
     # gitignored, so without this nothing durable knows how long a scenario
     # takes and a backwards ordering claim can sit in a spec unnoticed across
     # four measured runs (it did).
-    durations = hlib.compute_durations(results)
-    with open(os.path.join(COVERAGE_DIR, "duration.json"), "w",
-              encoding="utf-8", newline="\n") as fh:
-        fh.write(json.dumps({"schema": hlib.SCHEMA_VERSION,
-                             "scenarios": durations},
-                            sort_keys=True, indent=2) + "\n")
-    for sid in hlib.duration_regressions(durations):
-        entry = durations[sid]
-        logger.warn("Duration", "duration regression scenario=%s last=%.0fs "
-                                "p50=%.0fs p95=%.0fs n=%d lastVsP50=%.2fx"
-                    % (sid, entry["last"], entry["p50"], entry["p95"],
-                       entry["n"], entry["lastVsP50"]))
-    logger.info("Duration", "duration record scenarios=%d (PASS results only) -> %s"
-                % (len(durations), os.path.join(COVERAGE_DIR, "duration.json")))
+    #
+    # MERGE, never recompute (2026-07-26 review, BLOCKER-1 / MAJOR-2). This
+    # checkout's results/ dir holds only the scenarios THIS worktree flew, so a
+    # recompute-and-overwrite replaces the committed record with a one-entry
+    # file, and even a missing-scenarios-only merge downgrades a measured
+    # scenario's n=5 record to a per-checkout n=1 -- which disarms the very
+    # regression warn the ledger exists for. hlib.merge_durations unions the
+    # committed SAMPLES with this run's new PASS values.
+    duration_path = os.path.join(COVERAGE_DIR, "duration.json")
+    prior_durations, ledger_ok = read_duration_ledger(duration_path, logger)
+    if ledger_ok:
+        fresh_samples = hlib.duration_samples(results)
+        durations = hlib.merge_durations(prior_durations, fresh_samples)
+        write_text_atomic(duration_path,
+                          json.dumps({"schema": hlib.SCHEMA_VERSION,
+                                      "scenarios": durations},
+                                     sort_keys=True, indent=2) + "\n")
+        for sid in hlib.duration_regressions(durations):
+            entry = durations[sid]
+            logger.warn("Duration", "duration regression scenario=%s last=%.0fs "
+                                    "p50=%.0fs p95=%.0fs n=%d lastVsP50=%.2fx"
+                        % (sid, entry.get("last", 0), entry.get("p50", 0),
+                           entry.get("p95", 0), entry.get("n", 0),
+                           entry.get("lastVsP50", 0) or 0))
+        logger.info("Duration", "duration record scenarios=%d measured-this-run=%d "
+                                "(PASS results only) -> %s"
+                    % (len(durations), len(fresh_samples), duration_path))
+    # else: the reader already logged an Error and NOTHING is written. An
+    # unreadable ledger must be repaired (git checkout), never replaced by this
+    # checkout's partial view.
 
     logger.info("Coverage", "coverage: values=%d covered=%d uncovered=%d expectedFail=%d xpass=%d"
                 % (report.rollup["values"], report.rollup["covered"], report.rollup["uncovered"],

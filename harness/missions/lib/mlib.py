@@ -66,7 +66,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass, field, replace
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 MISSION_RESULT_SCHEMA = 1
 
@@ -7924,8 +7924,36 @@ def classify_post_connect_exception(exc_module: Optional[str], exc_name: Optiona
 # ---------------------------------------------------------------------------
 
 
+def is_warp_arming_command(kind: str, value) -> bool:
+    """True when a warp action ARMS warp, as opposed to cancelling it.
+
+    The distinction the LOW-throughput marker needs (2026-07-26 review,
+    MINOR-5). ``warp_utilisation_row``'s ``warpCommands`` counts every warp
+    action the phase issued, which conflates "this phase tried to warp and got
+    nothing" (the defect) with "this phase deliberately ran at 1x and said so
+    once" (PARK's single ``set_rails_warp value=0.000``, a cancel to 1x).
+
+    MEASURED over the archive: every FALSE POSITIVE of the ratio-only marker
+    issued ZERO arming commands (B11 MJ-ASCENT 0, TRANSFER-BURN 0, CAPTURE-BURN
+    0; PARK's one command is the 1x cancel), while the B12 flight-2 thrash the
+    marker exists for issued thousands.
+
+    ``ACTION_WARP_TO_UT`` always arms. ``ACTION_SET_RAILS_WARP`` arms only for a
+    factor index > 0 (index 0 IS 1x, i.e. a cancel). ``ACTION_CANCEL_WARP``
+    never arms. Pure.
+    """
+    if kind == ACTION_WARP_TO_UT:
+        return True
+    if kind == ACTION_SET_RAILS_WARP:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return False
+        return _is_finite(value) and float(value) > 0.0
+    return False
+
+
 def warp_utilisation_row(phase: str, wall_seconds: float, game_seconds: float,
-                         warp_commands: int) -> Dict:
+                         warp_commands: int,
+                         armed_warp_commands: int = 0) -> Dict:
     """One per-phase WARP-UTILISATION row for the mission result (B12 flight 2
     follow-up; the queued mission time-accounting task owns the full version).
 
@@ -7934,7 +7962,12 @@ def warp_utilisation_row(phase: str, wall_seconds: float, game_seconds: float,
     2's thrashing coast read ~1.3 while issuing 3,603 warp commands. That one
     line would have named the defect without any log archaeology. Pure; a
     non-positive or non-finite wall span yields a None ratio rather than a
-    divide-by-zero."""
+    divide-by-zero.
+
+    ``armedWarpCommands`` is the subset that actually ARMED warp (see
+    ``is_warp_arming_command``); it is what separates "tried to warp and got
+    nothing" from "deliberately ran at 1x".
+    """
     ratio: Optional[float] = None
     if (_is_finite(wall_seconds) and wall_seconds > 0.0
             and _is_finite(game_seconds)):
@@ -7945,13 +7978,40 @@ def warp_utilisation_row(phase: str, wall_seconds: float, game_seconds: float,
         "gameSeconds": round(float(game_seconds), 3) if _is_finite(game_seconds) else None,
         "gameSecondsPerWallSecond": ratio,
         "warpCommands": int(warp_commands),
+        "armedWarpCommands": int(armed_warp_commands),
     }
 
 
+def gate_flip_novelty_keys(phase: str, gate_changes: Sequence[str]) -> List[str]:
+    """The ``phase|field`` novelty keys one frame's gate flips carry.
+
+    A ``diff_machine_state`` entry is ``"<key> <old>-><new>"``, so the FIELD is
+    the token before the first space. MEASURED on the 43 MB pathological log:
+    7,218 gate-flip dumps but only SIXTEEN distinct ``(phase, field)`` pairs in
+    the entire run (7,207 dumps came from ``warpToCmd`` alone). Admitting the
+    FIRST occurrence of each pair unconditionally therefore emits 16 windows
+    instead of 7,218 -- a bigger reduction than the time rule alone -- while
+    guaranteeing that no NOVEL flip ever loses its 20-frame context, which the
+    time rule cannot promise (a suppressed flip followed by >10 s of quiet loses
+    its window permanently). Pure.
+    """
+    keys: List[str] = []
+    for change in gate_changes or ():
+        field = str(change).split(" ", 1)[0]
+        if not field:
+            continue
+        key = "%s|%s" % (phase, field)
+        if key not in keys:
+            keys.append(key)
+    return keys
+
+
 def should_dump_gate_flip_window(now: float, last_dump: Optional[float],
-                                 interval: float) -> bool:
-    """Rate-limit gate-flip event-window dumps to at most one per ``interval``
-    WALL seconds (measured amplifier, 2026-07-25).
+                                 interval: float, first_seen: bool = False) -> bool:
+    """Admit a gate-flip event-window dump: unconditionally on the FIRST
+    occurrence of a ``(phase, gate-field)`` pair, then at most one per
+    ``interval`` WALL seconds for repeats (measured amplifier, 2026-07-25;
+    novelty rule added by the 2026-07-26 review, MINOR-7).
 
     MEASURED: results/2026-07-25_0103_B12-minmus-orbit_mission.stdout.log is
     43 MB / 181,786 lines, of which 144,561 (79.5%) are ``window[NN/20]``
@@ -7961,6 +8021,11 @@ def should_dump_gate_flip_window(now: float, last_dump: Optional[float],
     only 209 unique frames (71% duplication), because consecutive dumps re-emit
     an overlapping slice of the same ring.
 
+    ``first_seen`` is the caller's answer to "is any of this frame's flipped
+    (phase, field) pairs new?" -- see ``gate_flip_novelty_keys``. It wins over
+    the time limit so a brand-new gate can never be silently suppressed by an
+    unrelated flip that happened 3 seconds earlier.
+
     Only ``gate-flip`` is rate-limited. ``phase-transition``, ``terminal-*``,
     ``vessel-lost`` and the give-up dumps stay unconditional: those are sparse
     by construction and are the ones a post-mortem actually needs. The ``gate
@@ -7969,6 +8034,8 @@ def should_dump_gate_flip_window(now: float, last_dump: Optional[float],
 
     Pure: ``last_dump`` None (no dump yet this flight) always admits.
     """
+    if first_seen:
+        return True
     if last_dump is None:
         return True
     if not (_is_finite(now) and _is_finite(last_dump) and _is_finite(interval)):
