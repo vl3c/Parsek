@@ -46,15 +46,21 @@ namespace Parsek.Tests
         private static Recording Rec(
             string id,
             TerminalState? terminal = null,
-            string terminalBody = null)
+            string terminalBody = null,
+            string surfaceBody = null)
         {
-            return new Recording
+            var rec = new Recording
             {
                 RecordingId = id,
                 VesselName = "Test " + id,
                 TerminalStateValue = terminal,
                 TerminalOrbitBody = terminalBody,
             };
+            if (surfaceBody != null)
+            {
+                rec.TerminalPosition = new SurfacePosition { body = surfaceBody };
+            }
+            return rec;
         }
 
         private static RecordingTree TreeWith(params Recording[] recordings)
@@ -85,6 +91,58 @@ namespace Parsek.Tests
             Assert.Equal(
                 "CommitTreeFlight terminal: rec=abc123 terminalState=Orbiting terminalOrbitBody=Mun",
                 line);
+        }
+
+        [Fact]
+        public void FormatCommitTerminalLine_LandedRecordingNamesItsSurfaceBody()
+        {
+            // A LANDED recording never carries TerminalOrbitBody (CaptureTerminalOrbit
+            // returns early for surface situations), so without the TerminalPosition
+            // fallback this line would read "(null)" and the landing lane's whole
+            // claim - that the recording ended on MUN - would be unprovable from logs.
+            string line = ParsekFlight.FormatCommitTerminalLine(
+                Rec("lander1", TerminalState.Landed, terminalBody: null, surfaceBody: "Mun"));
+
+            Assert.Equal(
+                "CommitTreeFlight terminal: rec=lander1 terminalState=Landed terminalOrbitBody=Mun",
+                line);
+        }
+
+        [Fact]
+        public void FormatCommitTerminalLine_LandedOnMunIsDistinguishableFromMinmusAndKerbin()
+        {
+            string mun = ParsekFlight.FormatCommitTerminalLine(
+                Rec("r1", TerminalState.Landed, terminalBody: null, surfaceBody: "Mun"));
+            string minmus = ParsekFlight.FormatCommitTerminalLine(
+                Rec("r1", TerminalState.Landed, terminalBody: null, surfaceBody: "Minmus"));
+            string kerbin = ParsekFlight.FormatCommitTerminalLine(
+                Rec("r1", TerminalState.Landed, terminalBody: null, surfaceBody: "Kerbin"));
+
+            Assert.Contains("terminalOrbitBody=Mun", mun);
+            Assert.Contains("terminalOrbitBody=Minmus", minmus);
+            Assert.Contains("terminalOrbitBody=Kerbin", kerbin);
+            Assert.NotEqual(mun, minmus);
+            Assert.NotEqual(mun, kerbin);
+        }
+
+        [Fact]
+        public void FormatCommitTerminalLine_OrbitBodyWinsOverSurfaceBody()
+        {
+            // Orbit metadata stays authoritative when both are somehow populated, so
+            // the fallback can never rewrite an ORBITING recording's body.
+            string line = ParsekFlight.FormatCommitTerminalLine(
+                Rec("r1", TerminalState.Orbiting, terminalBody: "Mun", surfaceBody: "Kerbin"));
+
+            Assert.Contains("terminalOrbitBody=Mun", line);
+        }
+
+        [Fact]
+        public void FormatCommitTerminalLine_LandedWithNoSurfaceBodyStillRendersNullToken()
+        {
+            string line = ParsekFlight.FormatCommitTerminalLine(
+                Rec("r1", TerminalState.Landed));
+
+            Assert.Contains("terminalOrbitBody=(null)", line);
         }
 
         [Fact]

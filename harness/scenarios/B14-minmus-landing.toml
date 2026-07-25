@@ -344,7 +344,16 @@ D14 = ["kerbin", "minmus", "warp-rails"]
 # READ THIS FIRST - THE COUNT IS COMMIT-BLIND (see B11/B12): sidecars are written
 # for the ACTIVE tree too, so this window guards recording TOPOLOGY only. The
 # commit is guarded by the logContract tokens below.
-count = { min = 8, max = 9 }
+# PINNED from measurement on FLIGHT 1 (2026-07-25, FULL PASS attempt 1, wall
+# 2,083.9 s): verifiers.expectations.observed.recordings.count read exactly 8,
+# so the allowance for a touchdown fragment was never needed and the window is
+# now pinned. Topology confirmed by the commit-terminal lines: 1 Landed/Minmus
+# (the lander), 6 Destroyed (the radial boosters), 1 Orbiting/Kerbin (the
+# flameout-staged ascent core) - identical to B11/B12 except the ROOT's terminal,
+# which is the whole point of this lane. Same caveat as B11/B12: the count is
+# COMMIT-BLIND (sidecars are written for the active tree too), so it guards
+# recording TOPOLOGY while the log tokens guard the landed terminal.
+count = { min = 8, max = 8 }
 
 [expectations.logContracts]
 # Sourced from the ACTUAL emitting ParsekLog call sites; identical set to B13
@@ -368,7 +377,7 @@ required = [
   "SOI change boundary suppressed in tree mode: Kerbin to Minmus",
   "CommitTreeFlight: starting tree commit at UT=",
   "committree committed=true",
-  "CommitTreeFlight terminal: rec=\\w+ terminalState=Landed",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Landed terminalOrbitBody=Minmus",
   "Environment transition: (Approach|ExoBallistic|ExoPropulsive) -> Surface(Stationary|Mobile) at UT=",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]

@@ -431,37 +431,39 @@ count = { min = 8, max = 9 }
 #       unconditionally the moment the commit path is entered.
 #   "committree committed=true" - ParsekTestCommandAddon.cs, the seam verb's
 #       success branch. Proves the MID-MISSION seam commit reached its OK result.
-#   "CommitTreeFlight terminal: rec=\w+ terminalState=Landed" -
+#   "CommitTreeFlight terminal: rec=\w+ terminalState=Landed terminalOrbitBody=Mun" -
 #       ParsekFlight.LogCommitTerminalVerdicts via FormatCommitTerminalLine, one
 #       line per committed recording. THIS is what makes the LANDED terminal
-#       classification a checked claim instead of an inference from the mission
-#       phase list.
+#       classification AND ITS BODY a checked claim instead of an inference from
+#       the mission phase list.
 #
-#       *** WHY THIS TOKEN OMITS THE BODY, unlike B11/B12's ***
-#       The obvious token to write here was
-#         `terminalState=Landed terminalOrbitBody=Mun`
-#       mirroring B11's `terminalState=Orbiting terminalOrbitBody=Mun`. IT CAN
-#       NEVER MATCH. Read the emitting code:
-#         - FormatCommitTerminalLine (ParsekFlight.cs) prints
-#           `terminalOrbitBody={rec.TerminalOrbitBody}` or the literal `(null)`;
-#         - ParsekFlight.CaptureTerminalOrbit (ParsekFlight.TerminalOrbit.cs)
-#           writes TerminalOrbitBody ONLY for situations ORBITING / SUB_ORBITAL /
-#           FLYING / ESCAPING - a LANDED vessel returns early;
-#         - the finalizer's terminal-orbit refresh block is gated on
-#           UsesTerminalOrbitMetadata (ParsekFlight.cs), which covers Orbiting /
-#           SubOrbital / Docked and EXCLUDES Landed;
-#         - a landed recording's body goes to rec.TerminalPosition.body instead
-#           (CaptureTerminalPosition), which no log line prints.
+#       *** THIS TOKEN NEEDED A PARSEK FIX TO BE WRITABLE AT ALL ***
+#       The first cut of this spec could NOT name the body. Read the emitting
+#       code as it was:
+#         - ParsekFlight.CaptureTerminalOrbit writes TerminalOrbitBody ONLY for
+#           situations ORBITING / SUB_ORBITAL / FLYING / ESCAPING - a LANDED
+#           vessel returns early;
+#         - the finalizer's terminal-orbit refresh is gated on
+#           UsesTerminalOrbitMetadata, which covers Orbiting / SubOrbital /
+#           Docked and EXCLUDES Landed;
+#         - a landed recording's body goes to rec.TerminalPosition.body
+#           (CaptureTerminalPosition), which NO log line printed.
 #       CONFIRMED against a real flight, not just the source:
 #       logs/2026-07-25_1216_B7-duna-flyby/KSP.log shows
 #       `terminalState=Destroyed terminalOrbitBody=(null)` for all six boosters
 #       and a body only on the Orbiting / SubOrbital lines.
-#       So the honest per-body evidence for THIS lane is the pair
-#       (SOI-crossing token + terminalState=Landed) plus the machine-side
-#       landedOnTargetBody assertion, which reads the OBSERVED body at touchdown.
-#       A Parsek-side follow-up that carries the surface body on the commit
-#       terminal line is filed in docs/dev/todo-and-known-bugs.md; when it lands,
-#       tighten this token to name the body and delete this paragraph.
+#       So the ONE fact this whole lane exists to prove - that a recording ended
+#       on MUN - was absent from every log line, which is exactly the class of
+#       gap that let the orbit lane's commit claim ship unverified until review.
+#       FIXED in this same change: FormatCommitTerminalLine now falls back to
+#       TerminalPosition.body when TerminalOrbitBody is empty, so a landed
+#       recording names its surface body while orbit metadata stays
+#       authoritative when both are populated. Covered by four new cells in
+#       Source/Parsek.Tests/CommitTerminalVerdictLoggingTests.cs (landed names
+#       its body; Mun / Minmus / Kerbin are mutually distinguishable; orbit body
+#       wins over surface body; a landed recording with no body still renders
+#       the (null) token). REQUIRES a rebuild + provision.py before this spec can
+#       go green - the deployed automation DLL must carry the fallback.
 #   "Environment transition: (Approach|ExoBallistic|ExoPropulsive) -> Surface..."
 #       EnvironmentDetector.ConfirmTransition, ParsekLog.Info("Environment", ...).
 #       THE token that proves SURFACE-class TrackSections OFF KERBIN, and it is
@@ -481,7 +483,7 @@ required = [
   "SOI change boundary suppressed in tree mode: Kerbin to Mun",
   "CommitTreeFlight: starting tree commit at UT=",
   "committree committed=true",
-  "CommitTreeFlight terminal: rec=\\w+ terminalState=Landed",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Landed terminalOrbitBody=Mun",
   "Environment transition: (Approach|ExoBallistic|ExoPropulsive) -> Surface(Stationary|Mobile) at UT=",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]

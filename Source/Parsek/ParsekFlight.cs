@@ -13246,9 +13246,23 @@ namespace Parsek
         {
             string recId = string.IsNullOrEmpty(rec?.RecordingId) ? "(null)" : rec.RecordingId;
             string terminalState = rec?.TerminalStateValue?.ToString() ?? "(null)";
-            string terminalBody = string.IsNullOrEmpty(rec?.TerminalOrbitBody)
-                ? "(null)"
-                : rec.TerminalOrbitBody;
+            // A LANDED / SPLASHED recording never carries TerminalOrbitBody:
+            // CaptureTerminalOrbit returns early for surface situations, and the
+            // finalizer's refresh is gated on UsesTerminalOrbitMetadata, which
+            // excludes Landed. Its body lives on TerminalPosition instead. Without
+            // this fallback the ONE fact a landed-on-another-body recording exists
+            // to prove - WHICH body it is sitting on - appears in no log line at
+            // all, which is exactly the gap that let the orbit lane's commit claim
+            // ship unverified.
+            string terminalBody = rec?.TerminalOrbitBody;
+            if (string.IsNullOrEmpty(terminalBody))
+            {
+                terminalBody = rec?.TerminalPosition?.body;
+            }
+            if (string.IsNullOrEmpty(terminalBody))
+            {
+                terminalBody = "(null)";
+            }
             return $"CommitTreeFlight terminal: rec={recId} " +
                 $"terminalState={terminalState} terminalOrbitBody={terminalBody}";
         }
