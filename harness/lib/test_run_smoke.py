@@ -1560,5 +1560,124 @@ def _clean_ledger_facts():
     return driver, verifiers
 
 
+class SettingsSidecarResetSmokeTests(unittest.TestCase):
+    """The tracer-leak fix (shell half), driven through the REAL run.run_attempt
+    over the fake-KSP seam.
+
+    THE INCIDENT. `SetSetting mapRenderTracing=true` does not only touch the live
+    per-save GameParameters: it is one of the eight settings Parsek ALSO persists
+    to the instance-wide GameData/Parsek/PluginData/settings.cfg, and Parsek
+    applies that sidecar OVER every save it loads. So after S1.4 ran once, the
+    automation instance's sidecar held `mapRenderTracing = True` and EVERY later
+    run - including two 2,000+ second landing flights - paid the per-frame
+    map/TS render tracer cost and was gated by an anomaly sweep it never
+    declared. These cells assert on the FILE, the only place that proves the
+    instance was left clean.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-sidecar-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "gloops-airshow")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "sidecar_harness.log"))
+        self.sidecar = run.settings_sidecar_path(self.instance)
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _contaminate(self, body="mapRenderTracing = True\n"):
+        os.makedirs(os.path.dirname(self.sidecar), exist_ok=True)
+        with open(self.sidecar, "w", encoding="utf-8") as fh:
+            fh.write(body)
+
+    def _read(self):
+        if not os.path.isfile(self.sidecar):
+            return None
+        with open(self.sidecar, "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def _run(self, mode="pass", run_tests_budget=30, run_budget=600):
+        spec = _make_spec(self.template, run_tests_budget, run_budget)
+        rt = FakeRuntime(mode)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        return result, rt
+
+    def test_stage_clears_a_leaked_tracer_before_the_game_boots(self):
+        """The exact live shape: the instance carries S1.4's leaked
+        `mapRenderTracing = True`. Staging must overwrite it with the baseline
+        BEFORE launch, so this run does not silently inherit another scenario's
+        tracer."""
+        self._contaminate()
+        ok, _, subkind = run.stage_fixture(
+            _make_spec(self.template, 30, 600), self.instance, run.Runtime(), self.logger)
+        self.assertTrue(ok, subkind)
+        self.assertEqual([], hlib.settings_sidecar_tracers_on(self._read()))
+        self.assertEqual(hlib.render_settings_sidecar_baseline(), self._read())
+
+    def test_pass_run_leaves_the_instance_at_the_baseline(self):
+        self._contaminate()
+        result, _ = self._run("pass")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertEqual(hlib.render_settings_sidecar_baseline(), self._read())
+
+    def test_killed_run_still_leaves_the_instance_at_the_baseline(self):
+        """The robustness claim: a scenario whose KSP is process-tree-killed by the
+        budget watchdog must not leave the instance contaminated. The teardown
+        write lives in run_attempt's finally, which the kill path still runs."""
+        self._contaminate()
+        result, _ = self._run("hang", run_tests_budget=1, run_budget=2)
+        self.assertEqual(hlib.VERDICT_KILLED, result["verdict"])
+        self.assertEqual([], hlib.settings_sidecar_tracers_on(self._read()))
+
+    def test_a_mid_run_setsetting_does_not_survive_the_attempt(self):
+        """Simulates what the seam does during a tracer-on scenario: the sidecar is
+        rewritten to True while KSP is alive. Teardown must put it back, so the
+        NEXT scenario starts from the declared baseline rather than this one's."""
+        spec = _make_spec(self.template, 30, 600)
+        rt = FakeRuntime("pass")
+        real_launch = rt.launch
+
+        def launch_then_contaminate(exe, args, env, cwd):
+            proc = real_launch(exe, args, env, cwd)
+            self._contaminate("mapRenderTracing = True\nledgerTracing = True\n")
+            return proc
+
+        rt.launch = launch_then_contaminate
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertEqual([], hlib.settings_sidecar_tracers_on(self._read()),
+                         "a scenario's own SetSetting must not outlive its attempt")
+
+    def test_the_clearing_is_named_in_the_harness_log(self):
+        """A silent clobber would hide the leak instead of surfacing it; the stage
+        line must name which tracer it found switched on."""
+        self._contaminate()
+        self._run("pass")
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            body = fh.read()
+        self.assertIn("settings-sidecar baseline written phase=stage", body)
+        self.assertIn("cleared leaked: mapRenderTracing", body)
+        self.assertIn("settings-sidecar baseline written phase=teardown", body)
+
+    def test_baseline_leaves_the_other_tracked_settings_unset(self):
+        """Only the three tracers are pinned. Writing any of the other five
+        sidecar-tracked settings would override the fixture's own GameParameters
+        for every save on the instance - the same bug in a different key."""
+        self._run("pass")
+        values = hlib.parse_settings_sidecar(self._read())
+        self.assertEqual(sorted(hlib.TRACER_SETTING_KEYS), sorted(values))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,244 @@
+schema = 1
+id = "S1.6-render-parity"
+tier = "daily"
+#
+# WHY THIS EXISTS
+# ---------------
+# Every other committed scenario verifies RECORDING: a flight happens, Parsek
+# writes a recording, and the analyzer / invariants / ledger oracle judge what was
+# written. Nothing gates PLAYBACK - whether the geometry Parsek RENDERS for a
+# committed recording is the geometry it RECORDED. That oracle already exists and
+# is production-wired (Source/Parsek/MapRender/RenderParityOracle.cs +
+# MapRenderProbe.ComputeFaithfulOrbitParity / ComputeSynthesizedConicParity: the
+# live OrbitDriver.orbit that drives the icon AND the orbit line, diffed against
+# the recorded OrbitSegment, body-relative, scale-derived tolerance), and 25
+# in-game tests assert through it - but NO scenario has ever driven them. The only
+# categories any spec drives are GhostPlayback, RecordingInvariants and
+# RouteRewindTimeline, so the whole GhostMap / MapRender parity cluster has never
+# run unattended. This cell drives it.
+#
+# WHAT IT PROVES
+# --------------
+# On a live FLIGHT scene, with the map-render tracer pinned ON:
+#   1. the in-game GhostMap batch runs clean (batchComplete failed=0), which
+#      includes the recorded-vs-rendered faithful-parity baselines, the two
+#      loop-shift epoch-convention arms, the Unity capture-path fixture, the
+#      synthesized rendered-vs-intended arms, the icon-glide / gap-glide /
+#      arc-clip cells and the polyline leg-draw cells;
+#   2. the harness-owned Tier-C anomaly sweep is CLEAN with allowedAnomalies = []
+#      - so parity-drift, icon-jump, line-blink, decision-vs-truth,
+#      polyline-orbit-overlap and rigid-seam-tangent-discontinuity all red;
+#   3. the oracle ACTUALLY MEASURED (the anti-vacuity conjunct below).
+#
+# THE ANTI-VACUITY CONJUNCT (the point of the whole exercise)
+# ----------------------------------------------------------
+# A green anomaly sweep over ZERO samples is the same failure mode as a chute
+# that never opened but passed for four months. It is not hypothetical here: on
+# S1.4's last flight EVERY one of the 552 [MapRenderTrace] probe frames read
+# `ghosts=0 sampled=0`, ZERO `faithful-parity summary` lines were emitted, and the
+# archived result still read `anomalySweep: {hits: [], status: PASS}` - a PASS
+# indistinguishable from "the oracle never looked". Two independent vacuity holes
+# have to be closed, so there are two kinds of required contract:
+#
+#   (a) STRUCTURAL - `passed=[1-9]...`. The batch counts an InGameAssert.Skip as
+#       NOT-failed, and several parity tests Skip on 5+ preconditions (no Kerbin,
+#       ghost did not create, ghost world position unresolved). An all-skip batch
+#       reads failed=0 and would pass. Requiring a non-zero PASSED count makes
+#       an all-skip batch red.
+#
+#   (b) SEMANTIC - the two `[TestRunner]` measurement lines below. These are
+#       emitted only AFTER the test got past every Skip precondition and computed
+#       a real diff on live ghost geometry, so their presence is proof the oracle
+#       measured rather than stood down. The second one additionally carries the
+#       LOAD-BEARING NEGATIVE CONTROL (`mismatchedDev`): it is emitted only if a
+#       deliberately phase-mismatched reference DID flag drift on the same correct
+#       draw, i.e. only if the comparison can still fail. Without that arm the
+#       zero-drift assertion could be a circle compared with itself.
+#
+# NOTE ON THE PROBE-LEVEL SUMMARY. The mod also emits
+# `faithful-parity summary sampled=N overTolerance=M skip.<reason>=K` from
+# MapRenderProbe.LateUpdate, which would be the ideal anti-vacuity signal. It is
+# deliberately NOT a required contract here, because on this fixture it will not
+# be emitted at all: that summary is produced only when the per-frame probe walks
+# a LIVE ghost map vessel, and every GhostMap test is SYNCHRONOUS - it creates its
+# ghost and calls RemoveAllGhostVessels (which clears ghostMapVesselPids
+# synchronously) inside a single frame, so LateUpdate never observes one. The
+# fixture's own corpus produces no live map ghosts either (S1.4's log: ghosts=0 on
+# every probe frame). Requiring that line would red this scenario on every flight
+# for a reason that is not a Parsek defect. It IS used as a FORBIDDEN contract
+# below, where a false negative costs nothing.
+#
+# WHAT IT DOES NOT PROVE (read this before trusting a green run)
+# -------------------------------------------------------------
+# - NOTHING about Recording.Points / TrackSection.frames / bodyFixedFrames. The
+#   parity fixtures author 2-point recordings whose TrajectoryPoints are declared
+#   non-load-bearing ("only used to author plausible altitudes"); the geometry
+#   under test comes entirely from the OrbitSegment Kepler elements. Surface,
+#   atmospheric, Relative-frame and parent-anchored playback are untouched.
+# - NOTHING about the FLIGHT-scene ghost MESH or IGhostPositioner. This is the
+#   map / tracking-station render path only: OrbitDriver-driven icons, orbit
+#   lines and polyline legs. Where the physical ghost model is placed in the
+#   flight scene is a different pipeline with a different oracle.
+# - NOTHING across TIME. Every parity assertion samples ONE frame. Drift that
+#   only appears after a warp step-up, a segment handoff, an SOI crossing or a
+#   loop wrap is not covered here (the high-warp canary that would cover it is
+#   AllowBatchExecution = false, so no batch can drive it).
+# - NOTHING about re-aim SOLVE correctness. The synthesized arms verify DRAW
+#   fidelity (rendered == the seed the producer fed the drive). Whether the
+#   producer's re-aimed seed is the RIGHT arc is a separate question this cell
+#   does not ask.
+# - NOTHING about the 272-recording corpus rendering correctly. The corpus is
+#   staged (and its survival is pinned) but the parity tests build their own
+#   synthetic ghosts; they do not replay corpus recordings on the map.
+#
+# The natural follow-up is the same shape over `category = "MapRender"` (22 more
+# tests: the three-oracle flag-on baselines, multi-body concurrent ghosts, the
+# re-aimed-loop synthesized arm, the descent / dock-undock / overlap spine cells).
+# One batch per scenario is a hard constraint - run.py's `_driven_category`
+# returns the FIRST RunTests category, so a second RunTests step in this spec
+# would not be gated by batchComplete at all.
+description = "Drive the in-game GhostMap recorded-vs-rendered parity cluster over the injected corpus fixture with the map-render tracer pinned on; clean anomaly sweep AND proof the parity oracle actually measured."
+instanceProfile = "stock-minimal"
+tags = ["playback", "render-parity", "S1.6", "ghost", "map"]
+
+[fixture]
+# S1.4's fixture VERBATIM (zero new fixture work). gloops-airshow is SANDBOX
+# (GAME.Mode = SANDBOX, Title "smoke-fixture (SANDBOX)") and carries two
+# protoVessels with activeVessel = 1 (the mk1-capsule, PRELAUNCH on the
+# LaunchPad), so TestCommandLoadGame.DecideLoadRoute takes the FOCUSABLE route
+# (FlightDriver.StartAndFocusVessel) and the batch runs in FLIGHT with a live
+# active vessel - the precondition every GhostMap FLIGHT test needs.
+# injectedRecordings = "all-synthetic" seeds the same 272-tree corpus.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "all-synthetic"
+craft = []
+
+[driver]
+kind = "seam"
+# Non-live run (no StartRecording, autoRecordOnLaunch pinned false), so
+# spec_expects_live_recording is False and REC-001/REC-003 are suppressed.
+#
+# SETTINGS, and only the ones actually needed:
+#  - autoRecordOnLaunch=false: the fixture save carries autoRecordOnLaunch=True,
+#    and a save-setting-triggered live recording during a driven test would pass
+#    a dropped stop marker silently (S1.4's rationale, unchanged).
+#  - mapRenderTracing=true: MANDATORY. Every MapRenderTrace emit - the Tier-C
+#    parity-drift / icon-jump / line-blink / decision-vs-truth anomalies the
+#    sweep greps for - early-returns on MapRenderTrace.IsEnabled. With the
+#    tracer off this scenario's anomaly sweep is structurally inert.
+#    (This is now a REAL opt-in: run.py resets the instance-wide sidecar
+#    GameData/Parsek/PluginData/settings.cfg to tracers-OFF at stage and at
+#    teardown, so no scenario inherits another's tracer state.)
+#  - verboseLogging is deliberately NOT set. It defaults true and the fixture
+#    save carries verboseLogging = True, but more importantly nothing this
+#    scenario gates on needs it: MapRenderTrace.EmitAnomaly routes to
+#    ParsekLog.Info unconditionally (EmitRaw important:true), BATCH_COMPLETE is
+#    Info, and the two [TestRunner] measurement lines are Info. Only the
+#    probe-level `faithful-parity summary` is VerboseRateLimited, and that line
+#    is not a required contract here (see the header).
+#
+# RunTests is the single BATCH owner and there is exactly ONE of them.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" },    expect = "OK" },
+  { cmd = "RunTests",   args = { category = "GhostMap" },                        expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                        expect = "OK" },
+]
+
+[dimensionsCovered]
+# The SMALLEST honest claim. D6 recorded-vs-rendered-parity is NEW in
+# harness/coverage/registry.toml in this same change (registry growth rule): no
+# existing D6 token means "the rendered geometry matches the recorded geometry".
+# The run is SANDBOX and the driven batch is FLIGHT-scoped (D14).
+#
+# NOT claimed, deliberately:
+#  - D6 ghost-map-presence / non-orbital-polyline: S1.4 already owns those, and
+#    this batch's polyline cells assert leg BUILDING, not corpus map presence.
+#  - D6 loop-period-modes: the loop-shifted arms bake an epoch SHIFT into one
+#    ghost; they never drive the loop period machinery.
+#  - D3 orbital-checkpoint / D16 sidecar-*: the parity fixtures build their
+#    OrbitSegments in memory; nothing here exercises the sidecar format beyond
+#    the corpus load S1.4 and H5 already gate.
+#  - D11 reaim-*: the synthesized arms check DRAW fidelity, not solve quality.
+D6  = ["recorded-vs-rendered-parity"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# ZERO tolerated anomalies. Unlike S1.4 (which means to allow one known-benign
+# polyline-orbit-overlap on a corpus leg boundary), this batch draws only its own
+# synthetic fixtures, so any Tier-C token is a real signal. If a benign token
+# shows up on the first flight, quarantine it via [expectedFail] keyed to a
+# todo-doc bug id rather than widening this list.
+#
+# PLACEMENT IS LOAD-BEARING, and every other committed spec gets it wrong: run.py
+# reads `expectations.allowedAnomalies`, but a bare `allowedAnomalies = [...]`
+# written after the `[expectations.logContracts]` header is TOML-scoped to
+# `expectations.logContracts.allowedAnomalies` and is NEVER read. That is
+# harmless for the 27 specs declaring `[]` (the default is also `[]`) but it
+# makes S1.4's declared polyline-orbit-overlap exception INERT. Declared HERE, in
+# an explicit `[expectations]` table ahead of the sub-tables, so it actually
+# binds; hlib.validate_spec now warns on the misplaced form.
+allowedAnomalies = []
+
+[expectations.recordings]
+# The injected corpus, unchanged. Same 272 pin as S1.4 / H5 on stock-minimal: the
+# GhostMap parity tests swap RecordingStore's committed list for their own
+# synthetic recording and restore it in a finally, so a count drift here means a
+# test leaked a recording into the save or the corpus failed to load.
+count = { min = 272, max = 272 }
+
+[expectations.logContracts]
+# 1. The gate (mirrors S1.4/H5): the driven category's batch reported no failures.
+# 2. ANTI-VACUITY (structural): a NON-ZERO passed count. Skips are not failures,
+#    so without this an all-skip GhostMap batch reads failed=0 and passes. The
+#    line format is InGameTestRunner.FormatBatchCompleteLine:
+#    "BATCH_COMPLETE v1 total={0} passed={1} failed={2} skipped={3} category={4} scene={5}".
+#    NOTE the batch runs in FLIGHT, so the 9 TRACKSTATION-scene GhostMap tests are
+#    scene-skipped by design and land in `skipped`, not `failed`; 16 FLIGHT tests
+#    are eligible.
+# 3+4. ANTI-VACUITY (semantic): the two [TestRunner] measurement lines, emitted by
+#    RenderParitySamplerFixtureTest only after every Skip precondition passed and
+#    a real diff was computed on a LIVE ghost's OrbitDriver.orbit.
+#      - ParitySampler_CapturesHandComputedOrbitGeometry ... refDelta=<m>: the
+#        RECORDED reference (BuildOrbitFromSegment) and the RENDERED orbit were
+#        both sampled through the production OrbitRelativePositionYup capture and
+#        compared. This is the recorded-vs-rendered measurement itself.
+#      - SynthesizedParity_LoopShiftedGhost_PhaseMatched_ZeroDrift ...
+#        mismatchedDev=<m>: the loop-shift epoch bake was read back off the
+#        production map (GetGhostOrbitEpochShift) and BOTH arms measured - the
+#        phase-matched one within tolerance AND the raw-epoch control OVER it.
+#        The line is unreachable unless the negative control fired, so it is the
+#        anti-tautology proof, not just a "we ran" marker.
+#    Both are ParsekLog.Info, so they survive with verbose off.
+required = [
+  "BATCH_COMPLETE v1 .* failed=0\\b",
+  "BATCH_COMPLETE v1 total=\\d+ passed=[1-9][0-9]* ",
+  "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] ParitySampler_CapturesHandComputedOrbitGeometry: pid=\\d+ .* refDelta=[0-9.]+m",
+  "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] SynthesizedParity_LoopShiftedGhost_PhaseMatched_ZeroDrift: pid=\\d+ loopShift=[0-9.]+ matchedDev=[0-9]+m mismatchedDev=[0-9]+m",
+]
+# The over-tolerance count is STRICTLY STRONGER than the parity-drift anomaly
+# token: MapRenderProbe increments faithfulParityOverCount BEFORE consulting the
+# per-pid rate limit (MapRenderProbe.cs - `faithfulParityOverCount++` then
+# `if (!PassesParityDriftRateLimit(...)) return;`), so a drift that the 1-per-pid
+# throttle suppresses still shows up in the summary's overTolerance and reds
+# here, while the anomaly sweep would see nothing. Inert on a run where the probe
+# never sampled (see the header note); a false negative costs nothing, a hit is
+# unambiguous.
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "faithful-parity summary sampled=\\d+ overTolerance=[1-9][0-9]*",
+]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): 720 >= 300 (LoadGame) + 300 (RunTests) + boot and
+# settle headroom. All 16 FLIGHT-eligible GhostMap tests are SYNCHRONOUS (no
+# IEnumerator in the category), so the batch itself is fast; the 300 s RunTests
+# budget is slack, well under the 540 s deferred cap.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

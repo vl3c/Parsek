@@ -1134,6 +1134,28 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                 "step whose UNMET outcome could skip a tail)"
                 % (SKIP_TAIL_ON_UNMET_MISSION_KEY,))
 
+    # MISPLACED-KEY guard for allowedAnomalies (same class as the
+    # skipTailOnUnmetMission guard above, found 2026-07-26). The anomaly sweep
+    # reads ``expectations.allowedAnomalies``, but a bare ``allowedAnomalies``
+    # written after the ``[expectations.logContracts]`` header is TOML-scoped to
+    # ``expectations.logContracts.allowedAnomalies`` and is silently never read.
+    # WARN rather than ERROR: every committed spec but one declares ``[]`` there,
+    # which is also the default, so the misplacement is inert for them and
+    # rejecting would invalidate the whole committed set for no behavior change.
+    # It is NOT inert where the list is non-empty - a declared known-benign
+    # exception simply does not apply - so it must be visible.
+    if isinstance(log_contracts, dict) and "allowedAnomalies" in log_contracts:
+        declared = log_contracts.get("allowedAnomalies") or []
+        errors_or_warn = (
+            "expectations.logContracts.allowedAnomalies: allowedAnomalies belongs "
+            "in [expectations], not [expectations.logContracts] (a bare key after "
+            "that header is TOML-scoped to the sub-table, so the anomaly sweep "
+            "never reads it)%s"
+            % ("" if not declared
+               else "; the declared exception(s) %s are currently INERT and the "
+                    "sweep is running with none allowed" % (list(declared),)))
+        warnings.append(errors_or_warn)
+
     # M-B2 ledger-oracle spec surface (design ~226): a malformed
     # [expectations.ledger] block must never launch KSP. Structural only; the
     # per-entry manifest validation runs at run time (oracle.parse_manifest_entries).
@@ -1309,6 +1331,97 @@ def admit_instance(
     if diff:
         return AdmissionDecision(False, "drift", diff)
     return AdmissionDecision(True, "", tuple())
+
+
+# ---------------------------------------------------------------------------
+# Instance settings-sidecar baseline (the tracer-leak fix). Pure.
+#
+# THE LEAK. `SetSetting` does NOT only mutate the live per-save GameParameters:
+# eight of the sixteen whitelisted settings (Parsek's SettingWhitelist
+# PersistenceRoute.GameParametersPlusSidecar) are ALSO written to the
+# INSTANCE-WIDE `GameData/Parsek/PluginData/settings.cfg`, and Parsek's
+# ParsekScenario.OnLoad applies that sidecar OVER whatever the loaded save
+# carries. So one scenario's `SetSetting mapRenderTracing=true` silently pins the
+# per-frame map/TS render tracer ON for EVERY later run on that instance -
+# including multi-thousand-second autopilot flights that never asked for it, and
+# whose anomaly sweep then gates on a tracer they did not declare. This was
+# observed live: the automation instance's sidecar held exactly
+# `mapRenderTracing = True` after S1.4.
+#
+# THE SECOND HALF OF THE LEAK. Every committed fixture save ALSO carries
+# `mapRenderTracing = True` inside its own GameParameters ParsekSettings node
+# (they were harvested from a dev save with tracing on), so even a pristine
+# sidecar would leave the tracer on for every fixture-based flight. Deleting the
+# sidecar therefore does NOT fix it; only an explicit stored OFF does, because
+# the sidecar is the layer that WINS over the save.
+#
+# THE FIX. run.py writes this deterministic baseline (the three diagnostic
+# tracers pinned OFF) into the sidecar at STAGE, before launch, and again at
+# TEARDOWN in the per-attempt finally. A scenario that wants a tracer declares it
+# with its own SetSetting step, which is honoured for that run and reverted after
+# it. Idempotent and self-healing: a run killed hard enough to skip teardown is
+# cleaned by the next run's stage. Only the three tracer keys are written, so the
+# other five sidecar-tracked settings stay unset and the fixture's own values
+# continue to govern them.
+# ---------------------------------------------------------------------------
+
+# Path of the sidecar RELATIVE to the instance directory (the shell joins it).
+SETTINGS_SIDECAR_RELPATH: Tuple[str, ...] = (
+    "GameData", "Parsek", "PluginData", "settings.cfg")
+
+# The diagnostic tracer flags, pinned OFF. Values are written exactly as Parsek's
+# ParsekSettingsPersistence.Save emits them (bool.ToString() -> "True"/"False");
+# its reader is bool.TryParse, which accepts either casing.
+TRACER_SETTING_KEYS: Tuple[str, ...] = (
+    "ghostRenderTracing", "mapRenderTracing", "ledgerTracing")
+
+
+def render_settings_sidecar_baseline() -> str:
+    """The exact settings.cfg body the harness stages: the three tracer flags
+    pinned False, nothing else.
+
+    The file format is ConfigNode CONTENTS ONLY (no node-name wrapper) - that is
+    what ConfigNode.Save writes and what ConfigNode.Load expects back, and it is
+    the shape the live instance's leaked file had.
+    """
+    return "".join("%s = False\n" % key for key in TRACER_SETTING_KEYS)
+
+
+def parse_settings_sidecar(text: Optional[str]) -> Dict[str, str]:
+    """Parse a settings.cfg body into {key: raw-value}.
+
+    Tolerant on purpose (this only ever feeds a LOG line, never a decision that
+    could red a run): blank lines, comment lines and brace lines are ignored, and
+    a duplicate key keeps the LAST occurrence, matching ConfigNode.GetValue's
+    single-value read being last-write-wins for our single-writer file.
+    """
+    out: Dict[str, str] = {}
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("//") or line in ("{", "}"):
+            continue
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key:
+            out[key] = value.strip()
+    return out
+
+
+def settings_sidecar_tracers_on(text: Optional[str]) -> List[str]:
+    """The tracer keys the given sidecar body leaves switched ON, in
+    TRACER_SETTING_KEYS order.
+
+    Used to make the leak VISIBLE in the harness log when the baseline is
+    written: an empty list means the instance was already clean, a non-empty one
+    names exactly which tracer a previous run (or a hand edit) left on. Anything
+    other than a parseable true is treated as not-on, mirroring the mod's
+    bool.TryParse-or-default read.
+    """
+    values = parse_settings_sidecar(text)
+    return [k for k in TRACER_SETTING_KEYS
+            if values.get(k, "").strip().lower() == "true"]
 
 
 # ---------------------------------------------------------------------------

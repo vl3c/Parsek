@@ -32,6 +32,8 @@ All notable changes to Parsek are documented here.
 
 ### Internals & Tests
 
+- Added a developer-only automated-test scenario that checks PLAYBACK rather than recording: it drives the in-game map-render parity tests, which compare the orbit geometry Parsek actually draws for a ghost against the geometry it recorded, and fails if that comparison never actually ran instead of passing on an empty measurement. Test-tooling only; no gameplay change.
+- A developer-only test scenario that switches a diagnostic tracer on no longer leaves it switched on for every later test run on that install: the harness now resets the shared Parsek settings file to a known state before and after each run, so long unattended flights stop paying for a tracer they never asked for. Test-tooling only; no gameplay change.
 - When an automated test flight fails to reach the state it was flying toward, the harness now runs only the teardown that closes the recording and quits the game, instead of carrying on with the rest of the scripted steps (on one failed run that meant sending a kerbal out the hatch while the craft was still falling at terminal velocity). Test-tooling only; no gameplay change.
 - Career recalculation is slightly cheaper: the walk now skips a redundant re-sort of the action list when nothing changed it. Recalculated career values are unchanged.
 - Added a developer-only way to run in-game test batches unattended, driven entirely by launch-time environment variables, plus a new set of recording-integrity checks that run in-game. It is completely inert in a normal game and never changes anything Parsek saves.

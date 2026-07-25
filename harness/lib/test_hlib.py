@@ -11,6 +11,7 @@ caught against a real file (mirroring test_provlib.py's RealProfileFileTests).
 
 import copy
 import os
+import re
 import sys
 import tomllib
 import unittest
@@ -2615,3 +2616,239 @@ class LedgerSpecSurfaceValidationTests(unittest.TestCase):
         # The block is present with the expected v1 surface.
         self.assertEqual("template", spec["expectations"]["ledger"]["seedFrom"])
         self.assertEqual([], spec["expectations"]["ledger"].get("manifest", []))
+
+
+class SettingsSidecarBaselineTests(unittest.TestCase):
+    """The tracer-leak fix (pure half).
+
+    THE REGRESSION. `SetSetting` on a sidecar-tracked setting persists
+    INSTANCE-WIDE (GameData/Parsek/PluginData/settings.cfg) and Parsek applies
+    that file OVER every loaded save, so S1.4's `mapRenderTracing=true` left the
+    per-frame map/TS render tracer pinned on for every subsequent run on the
+    automation instance - including multi-thousand-second flights that never
+    declared it, whose anomaly sweep then gated on a tracer they did not ask for.
+    Verified live: the instance's sidecar contained exactly
+    `mapRenderTracing = True`.
+    """
+
+    def test_baseline_body_pins_every_tracer_off(self):
+        body = hlib.render_settings_sidecar_baseline()
+        values = hlib.parse_settings_sidecar(body)
+        self.assertEqual(sorted(hlib.TRACER_SETTING_KEYS), sorted(values))
+        for key in hlib.TRACER_SETTING_KEYS:
+            self.assertEqual("False", values[key], key)
+
+    def test_baseline_body_is_its_own_fixed_point(self):
+        # Re-reading the file the harness wrote must report ZERO tracers on, so a
+        # second (teardown) write never logs a phantom "cleared leaked" line.
+        body = hlib.render_settings_sidecar_baseline()
+        self.assertEqual([], hlib.settings_sidecar_tracers_on(body))
+
+    def test_baseline_writes_no_key_the_mod_does_not_read(self):
+        # The five OTHER sidecar-tracked settings must stay UNSET so the fixture's
+        # own GameParameters keep governing them (a stored value would override
+        # every save on the instance, which is the bug being fixed).
+        values = hlib.parse_settings_sidecar(hlib.render_settings_sidecar_baseline())
+        for key in ("writeReadableSidecarMirrors", "autoBackupExistingSaves",
+                    "showCommittedFutureOverlays", "blockCommittedActions",
+                    "showRouteLines"):
+            self.assertNotIn(key, values, key)
+
+    def test_leaked_tracer_is_detected_in_the_real_leaked_shape(self):
+        # The EXACT body observed on the live automation instance after S1.4.
+        self.assertEqual(["mapRenderTracing"],
+                         hlib.settings_sidecar_tracers_on("mapRenderTracing = True\n"))
+
+    def test_all_three_tracers_reported_in_declaration_order(self):
+        body = ("ledgerTracing = True\nmapRenderTracing = true\n"
+                "ghostRenderTracing = True\n")
+        self.assertEqual(["ghostRenderTracing", "mapRenderTracing", "ledgerTracing"],
+                         hlib.settings_sidecar_tracers_on(body))
+
+    def test_absent_or_false_or_garbage_is_not_on(self):
+        for body in (None, "", "mapRenderTracing = False\n",
+                     "mapRenderTracing = \n", "mapRenderTracing\n",
+                     "// mapRenderTracing = True\n", "mapRenderTracing = yes\n"):
+            self.assertEqual([], hlib.settings_sidecar_tracers_on(body), repr(body))
+
+    def test_parser_tolerates_config_flavoured_wrapper_lines(self):
+        # A hand-written file may carry the node-name wrapper even though
+        # ConfigNode.Save does not; the parser must still find the values.
+        body = "PARSEK_SETTINGS\n{\n\tmapRenderTracing = True\n}\n"
+        self.assertEqual(["mapRenderTracing"], hlib.settings_sidecar_tracers_on(body))
+
+    def test_relpath_matches_the_mod_side_location(self):
+        # ParsekSettingsPersistence.GetFilePath: GameData/Parsek/PluginData/settings.cfg
+        self.assertEqual(("GameData", "Parsek", "PluginData", "settings.cfg"),
+                         hlib.SETTINGS_SIDECAR_RELPATH)
+
+
+class RenderParityScenarioTests(unittest.TestCase):
+    """S1.6-render-parity's ANTI-VACUITY conjunct, pinned.
+
+    The whole point of that scenario is that a green anomaly sweep over ZERO
+    parity samples must NOT read as a pass: S1.4's archived result showed
+    `anomalySweep: {hits: [], status: PASS}` on a run where every probe frame
+    logged `ghosts=0 sampled=0`. These cells fail if the conjunct is weakened or
+    silently dropped, which is exactly how such a guard rots.
+    """
+
+    def setUp(self):
+        self.spec = load_spec("S1.6-render-parity.toml")
+        self.required = self.spec["expectations"]["logContracts"]["required"]
+        self.forbidden = self.spec["expectations"]["logContracts"]["forbidden"]
+
+    def test_spec_validates(self):
+        v = hlib.validate_spec(self.spec, load_registry())
+        self.assertTrue(v.ok, "S1.6 must validate; errors=%s" % (v.errors,))
+
+    def test_drives_exactly_one_runtests_batch(self):
+        # run.py's _driven_category returns the FIRST RunTests category, so a
+        # second batch would not be gated by batchComplete at all.
+        steps = self.spec["driver"]["steps"]
+        run_tests = [s for s in steps if s.get("cmd") == "RunTests"]
+        self.assertEqual(1, len(run_tests))
+        self.assertEqual("GhostMap", run_tests[0]["args"]["category"])
+        self.assertEqual("GhostMap", run._driven_category(self.spec))
+
+    def test_pins_the_map_render_tracer_on(self):
+        # Every MapRenderTrace emit the anomaly sweep greps for early-returns on
+        # MapRenderTrace.IsEnabled; without this SetSetting the sweep is inert.
+        tracer = [s for s in self.spec["driver"]["steps"]
+                  if s.get("cmd") == "SetSetting"
+                  and s.get("args", {}).get("name") == "mapRenderTracing"]
+        self.assertEqual(1, len(tracer))
+        self.assertEqual("true", tracer[0]["args"]["value"])
+
+    def test_anti_vacuity_requires_a_nonzero_passed_count(self):
+        # An InGameAssert.Skip is not a failure, so an all-skip batch reads
+        # failed=0. A non-zero PASSED count is what makes that red.
+        pat = next((p for p in self.required if "passed=" in p), None)
+        self.assertIsNotNone(pat, "the structural anti-vacuity conjunct is gone")
+        all_skip = ("BATCH_COMPLETE v1 total=25 passed=0 failed=0 skipped=25 "
+                    "category=GhostMap scene=FLIGHT")
+        measured = ("BATCH_COMPLETE v1 total=25 passed=16 failed=0 skipped=9 "
+                    "category=GhostMap scene=FLIGHT")
+        self.assertIsNone(re.search(pat, all_skip), "an all-skip batch must NOT match")
+        self.assertIsNotNone(re.search(pat, measured))
+
+    def test_anti_vacuity_requires_the_two_measurement_lines(self):
+        # These are emitted by RenderParitySamplerFixtureTest ONLY after every Skip
+        # precondition passed and a real diff ran on live ghost geometry. The
+        # second is unreachable unless the phase-MISMATCHED negative control also
+        # flagged drift, so it is the anti-tautology proof, not a "we ran" marker.
+        joined = "\n".join(self.required)
+        self.assertIn("ParitySampler_CapturesHandComputedOrbitGeometry", joined)
+        self.assertIn("SynthesizedParity_LoopShiftedGhost_PhaseMatched_ZeroDrift", joined)
+
+    def test_required_patterns_match_the_real_emitted_line_shapes(self):
+        # Rendered from the exact C# format strings in
+        # Source/Parsek/InGameTests/RenderParitySamplerFixtureTest.cs:
+        #   "ParitySampler_CapturesHandComputedOrbitGeometry: pid={0} sma={1:F0} "
+        #   "ecc={2:F2} iconR={3:F0} orbitAtLiveR={4:F0} iconOnLineDelta={5:F0}m "
+        #   "refDelta={6:F1}m"
+        #   "SynthesizedParity_LoopShiftedGhost_PhaseMatched_ZeroDrift: pid={0} "
+        #   "loopShift={1:F1} matchedDev={2:F0}m mismatchedDev={3:F0}m tol={4:F0}m"
+        log = (
+            "[Parsek][INFO][TestRunner] ParitySampler_CapturesHandComputedOrbitGeometry:"
+            " pid=1490391000 sma=800000 ecc=0.00 iconR=800000 orbitAtLiveR=800000"
+            " iconOnLineDelta=12m refDelta=0.3m\n"
+            "[Parsek][INFO][TestRunner]"
+            " SynthesizedParity_LoopShiftedGhost_PhaseMatched_ZeroDrift:"
+            " pid=1490391000 loopShift=1100.0 matchedDev=0m mismatchedDev=1583421m"
+            " tol=1604m\n"
+            "BATCH_COMPLETE v1 total=25 passed=16 failed=0 skipped=9"
+            " category=GhostMap scene=FLIGHT\n")
+        for pat in self.required:
+            self.assertIsNotNone(re.search(pat, log),
+                                 "required pattern never matches the real line: %s" % pat)
+        for pat in self.forbidden:
+            self.assertIsNone(re.search(pat, log),
+                              "forbidden pattern matches a CLEAN log: %s" % pat)
+
+    def test_forbidden_over_tolerance_catches_a_rate_limited_drift(self):
+        # MapRenderProbe increments faithfulParityOverCount BEFORE the per-pid rate
+        # limit, so a throttled drift still shows here while the anomaly sweep sees
+        # no parity-drift token at all.
+        drifted = ("[Parsek][VERBOSE][MapRenderTrace] faithful-parity summary"
+                   " sampled=3 overTolerance=1 skip.no-covering-segment=2\n")
+        clean = ("[Parsek][VERBOSE][MapRenderTrace] faithful-parity summary"
+                 " sampled=3 overTolerance=0 skip.no-covering-segment=2\n")
+        pat = next(p for p in self.forbidden if "overTolerance" in p)
+        self.assertIsNotNone(re.search(pat, drifted))
+        self.assertIsNone(re.search(pat, clean))
+
+    def test_tolerates_no_anomaly_and_reuses_the_s14_fixture_verbatim(self):
+        self.assertEqual([], self.spec["expectations"]["allowedAnomalies"])
+        s14 = load_spec("S1.4-injected-playback.toml")
+        self.assertEqual(s14["fixture"]["saveTemplate"],
+                         self.spec["fixture"]["saveTemplate"])
+        self.assertEqual(s14["fixture"]["injectedRecordings"],
+                         self.spec["fixture"]["injectedRecordings"])
+        self.assertEqual(s14["expectations"]["recordings"]["count"],
+                         self.spec["expectations"]["recordings"]["count"])
+
+    def test_allowed_anomalies_is_declared_where_run_py_reads_it(self):
+        # The MISPLACED-KEY trap every other committed spec falls into: a bare
+        # `allowedAnomalies` after the [expectations.logContracts] header is
+        # TOML-scoped to that sub-table, and run.py reads
+        # expectations.allowedAnomalies - so the declaration is silently ignored.
+        exp = self.spec["expectations"]
+        self.assertIn("allowedAnomalies", exp,
+                      "allowedAnomalies must sit in [expectations] to bind")
+        self.assertNotIn("allowedAnomalies", exp.get("logContracts", {}),
+                         "allowedAnomalies leaked into [expectations.logContracts]")
+        v = hlib.validate_spec(self.spec, load_registry())
+        self.assertFalse([w for w in v.warnings if "allowedAnomalies" in w],
+                         "S1.6 must not trip the misplaced-key warning: %s" % (v.warnings,))
+
+
+class MisplacedAllowedAnomaliesWarningTests(unittest.TestCase):
+    """Found 2026-07-26 while wiring S1.6: EVERY committed spec writes
+    `allowedAnomalies` after the `[expectations.logContracts]` header, which TOML
+    scopes to `expectations.logContracts.allowedAnomalies` - a key run.py never
+    reads (it reads `expectations.allowedAnomalies`). Inert for the 27 specs
+    declaring `[]`, but it makes S1.4's declared polyline-orbit-overlap exception
+    silently INERT. WARN, not ERROR, so the committed set keeps validating."""
+
+    def _spec_with(self, block):
+        spec = load_spec("S1.6-render-parity.toml")
+        spec["expectations"] = block
+        return spec
+
+    def test_misplaced_empty_list_warns(self):
+        spec = self._spec_with({"logContracts": {
+            "required": ["BATCH_COMPLETE v1 .* failed=0"], "allowedAnomalies": []}})
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertTrue(v.ok, "a misplaced key must WARN, never reject: %s" % (v.errors,))
+        self.assertTrue(any("allowedAnomalies" in w for w in v.warnings))
+
+    def test_misplaced_nonempty_list_names_the_inert_exceptions(self):
+        spec = self._spec_with({"logContracts": {
+            "required": ["BATCH_COMPLETE v1 .* failed=0"],
+            "allowedAnomalies": ["polyline-orbit-overlap"]}})
+        v = hlib.validate_spec(spec, load_registry())
+        hit = [w for w in v.warnings if "allowedAnomalies" in w]
+        self.assertEqual(1, len(hit))
+        self.assertIn("polyline-orbit-overlap", hit[0])
+        self.assertIn("INERT", hit[0])
+
+    def test_correct_placement_is_silent(self):
+        spec = self._spec_with({
+            "allowedAnomalies": ["polyline-orbit-overlap"],
+            "logContracts": {"required": ["BATCH_COMPLETE v1 .* failed=0"]}})
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertEqual([], [w for w in v.warnings if "allowedAnomalies" in w])
+
+    def test_every_committed_spec_that_trips_it_is_the_known_set(self):
+        # Pins the CURRENT extent of the trap so a newly added spec written the
+        # right way shrinks this and a regression cannot hide in the noise.
+        tripped = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            spec = load_spec(name)
+            lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+            if "allowedAnomalies" in lc:
+                tripped.append(name)
+        self.assertNotIn("S1.6-render-parity.toml", tripped)
+        self.assertIn("S1.4-injected-playback.toml", tripped,
+                      "S1.4 still carries the misplaced (and therefore inert) exception")
