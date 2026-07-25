@@ -300,7 +300,17 @@ D14 = ["kerbin", "minmus", "warp-rails"]
 # (harness/lib/hlib.py observed_expectation_facets), so it no longer dies with the
 # transient save a PASS never collects. The 2026-07-25 FULL-PASS flight predates
 # that field, so it only establishes "<= 10".
-count = { min = 1, max = 9 }
+count = { min = 8, max = 8 }  # PINNED from the measured green run:
+# flight 5 (2026-07-25, wall 580 s) reported observed.recordings.count = 8 in its result JSON
+# (the new expectations-observed field). Matches the derivation exactly: root 1
+# + 6 radial boosters as parent-anchored debris children + 1 for the ascent core
+# stack-sep surfacing as a debris child. Exact, not a window: the craft, the
+# ascent and the step list are all fixed, there is no separation phase, and the
+# single commit closes the tree in the target SOI. logContracts are presence-only
+# (hlib.evaluate_expectations uses re.search), so this count is the ONLY numeric
+# guard that the flight produced its full recording topology. Re-pin from a
+# measured observed.recordings.count if a later run legitimately differs; never
+# widen it blindly.
 
 [expectations.logContracts]
 # Same four tokens as B11, each sourced from its ACTUAL emitting ParsekLog call
