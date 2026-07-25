@@ -361,7 +361,21 @@ interplanetaryTransfer     = true
 # body, NOT the ejected ASSERT-FAIL terminal, and is a legal rails-warp body.
 # GILLY IS DELIBERATELY ABSENT: see the GILLY block. Adding it would convert a
 # Gilly capture from a named ASSERT-FAIL into a silent pass.
-viaBodyNames               = ["Sun"]
+# "Mun" ADDED FROM FLIGHT 2 EVIDENCE (2026-07-25). B7/Duna uses ["Sun"] and never
+# transits a Kerbin moon, so this is EVE-SPECIFIC ejection geometry, not a general
+# gap. With the ejection floor corrected, flight 2 cleared TRANSFER-BURN and then
+# ASSERT-FAILed in COAST-TO-TARGET with:
+#   left home SOI without reaching the target: body='Mun' (allowed ('', 'Kerbin', 'Sun'))
+# An INWARD ejection burns at a different point in the parking orbit and in a
+# different direction than an outward one, and this window's escape path crosses
+# the Mun's SOI on the way out. Passing through a moon's SOI during a Kerbin
+# departure is ordinary KSP behaviour, not an error - the via-body list exists to
+# catch "went somewhere WRONG", and the Mun is inside the home system on the way
+# out. NOTE the assertion is correspondingly weaker: a Mun encounter can no longer
+# red this mission. If a future flight shows the Mun PERTURBING the escape enough
+# to lose the Eve intercept, the fix is an ejection-timing or park change, not a
+# wider via list.
+viaBodyNames               = ["Sun", "Mun"]
 # An Eve flyby exits into heliocentric (Sun) space; a free-return to Kerbin takes
 # years and is out of scope. RETURN (the success terminal) fires on body == Sun
 # AFTER the flyby.

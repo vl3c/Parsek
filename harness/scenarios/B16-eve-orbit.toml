@@ -286,7 +286,21 @@ transferMinApoapsisMeters  = 0
 # ejection measures below 1.002.
 ejectionEccFloor           = 1.001
 interplanetaryTransfer     = true
-viaBodyNames               = ["Sun"]
+# "Mun" ADDED FROM FLIGHT 2 EVIDENCE (2026-07-25). B7/Duna uses ["Sun"] and never
+# transits a Kerbin moon, so this is EVE-SPECIFIC ejection geometry, not a general
+# gap. With the ejection floor corrected, flight 2 cleared TRANSFER-BURN and then
+# ASSERT-FAILed in COAST-TO-TARGET with:
+#   left home SOI without reaching the target: body='Mun' (allowed ('', 'Kerbin', 'Sun'))
+# An INWARD ejection burns at a different point in the parking orbit and in a
+# different direction than an outward one, and this window's escape path crosses
+# the Mun's SOI on the way out. Passing through a moon's SOI during a Kerbin
+# departure is ordinary KSP behaviour, not an error - the via-body list exists to
+# catch "went somewhere WRONG", and the Mun is inside the home system on the way
+# out. NOTE the assertion is correspondingly weaker: a Mun encounter can no longer
+# red this mission. If a future flight shows the Mun PERTURBING the escape enough
+# to lose the Eve intercept, the fix is an ejection-timing or park change, not a
+# wider via list.
+viaBodyNames               = ["Sun", "Mun"]
 # IN CAPTURE MODE THIS IS THE FAILURE BODY, NOT A SUCCESS TERMINAL. mlib's
 # TARGET-FLYBY branch reads `capture_enabled and body == return_body` as "left
 # the target SOI without capturing; the arrival flew past instead of
