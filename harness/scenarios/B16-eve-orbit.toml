@@ -268,7 +268,23 @@ circularizeTimeoutSeconds  = 6000
 targetBodyName             = "Eve"
 homeBodyName               = "Kerbin"
 transferMinApoapsisMeters  = 0
-ejectionEccFloor           = 1.05
+# MEASURED AND RE-DERIVED FROM FLIGHT 1 (2026-07-25). The value copied from
+# B7/Duna (1.05) is an OUTWARD-transfer calibration and an INWARD transfer
+# legitimately fails it. Flight 1 flew the ejection correctly - the node was
+# planned, the executor burned it (lf 998.455 -> 595.016), the node was consumed
+# (nodes=0) and the craft ended on a genuine hyperbolic Kerbin escape:
+#   ap=-545,897,712 m   ecc=1.004   body=Kerbin
+# but 1.004 < 1.05, so `_b5_transfer_burn_done` never saw the ejection as escape
+# and the phase died on the burn-stagnation watchdog after 11.8M game seconds.
+# THIS IS THE INWARD-TRANSFER ASSUMPTION the lane was built to look for. It is
+# NOT a direction check in mlib - the machine has none, which is why an audit of
+# the code found nothing - it is a THRESHOLD calibrated on an outward transfer.
+# Kerbin -> Eve is INWARD and needs less C3 than Kerbin -> Duna, so a lower
+# ejection eccentricity is CORRECT here, not deficient. Escape is ecc > 1.0 by
+# definition; 1.001 keeps a hair of margin over the parabolic boundary while
+# leaving 4x headroom under the measured 1.004. Re-derive if a future Eve
+# ejection measures below 1.002.
+ejectionEccFloor           = 1.001
 interplanetaryTransfer     = true
 viaBodyNames               = ["Sun"]
 # IN CAPTURE MODE THIS IS THE FAILURE BODY, NOT A SUCCESS TERMINAL. mlib's
