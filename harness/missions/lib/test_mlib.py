@@ -297,14 +297,42 @@ class B1MachineTests(unittest.TestCase):
             state, snap(ut=1.0, altitude=8000.0, vertical_speed=-80.0))
         self.assertEqual(actions, [])
         self.assertFalse(state.done)
-        # Falls below the full-deploy altitude with the chute still stowed: named fail.
+        # ONE sub-floor frame is not enough: the terminal is debounced like the canopy
+        # latch, so a lone glitched altitude read cannot condemn a healthy flight.
         state, _ = mlib.b1_decide(
             state, snap(ut=2.0, altitude=2400.0, vertical_speed=-230.0))
+        self.assertFalse(state.done)
+        self.assertEqual(state.below_floor_streak, 1)
+        # The second consecutive sub-floor frame fires the named fail.
+        state, _ = mlib.b1_decide(
+            state, snap(ut=2.5, altitude=2300.0, vertical_speed=-235.0))
         self.assertTrue(state.done)
         self.assertEqual(state.verdict, mlib.MISSION_ASSERT_FAIL)
         self.assertIn("chute-arm-window-missed", state.loss_reason)
-        self.assertIn("2400m", state.loss_reason)
+        self.assertIn("craftChute=", state.loss_reason)   # carries the observed evidence
         self.assertNotEqual(state.verdict, mlib.MISSION_FLAKE)
+
+    def test_single_glitched_altitude_read_does_not_condemn_the_flight(self):
+        # Review round 3, F1. The arm-window-missed terminal was undebounced, so ONE
+        # bogus surface_altitude sample ASSERT-FAILed a healthy craft that had simply
+        # not reached its arming window yet - with a reason confidently asserting the
+        # arm frame "was never sampled". Reproduced then, guarded now.
+        state = mlib.b1_initial_state(B1_PARAMS)
+        state = state.__class__(**{**state.__dict__, "phase": mlib.B1_DESCENT,
+                                   "phase_entry_ut": 0.0})
+        state, _ = mlib.b1_decide(
+            state, snap(ut=1.0, altitude=11500.0, vertical_speed=-45.0))
+        state, _ = mlib.b1_decide(          # one bogus 0 m read
+            state, snap(ut=2.0, altitude=0.0, vertical_speed=-46.0))
+        self.assertFalse(state.done)
+        state, _ = mlib.b1_decide(          # back to reality, streak resets
+            state, snap(ut=3.0, altitude=11000.0, vertical_speed=-45.0))
+        self.assertEqual(state.below_floor_streak, 0)
+        self.assertIsNone(state.verdict)
+        # ...and the craft still arms if it re-enters the rate window.
+        state, actions = mlib.b1_decide(
+            state, snap(ut=3.5, altitude=10800.0, vertical_speed=-12.0))
+        self.assertIn(Action(mlib.ACTION_DEPLOY_CHUTE), actions)
 
     def test_armed_but_never_open_chute_never_sets_the_observed_latch(self):
         # THE regression this whole change exists for: a chute that reads Armed for

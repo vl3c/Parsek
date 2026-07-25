@@ -56,7 +56,8 @@ def evaluate(frames, params: dict, state=None) -> List[mlib.AssertionOutcome]:
                                        down_terminal=down,
                                        craft_canopy_observed=canopy,
                                        arm_altitude=getattr(state, "chute_armed_altitude", None),
-                                       arm_rate=getattr(state, "chute_armed_rate", None))
+                                       arm_rate=getattr(state, "chute_armed_rate", None),
+                                       arm_commanded=bool(getattr(state, "chute_deployed", False)))
 
 
 def make_control() -> mission_runner.MissionControl:

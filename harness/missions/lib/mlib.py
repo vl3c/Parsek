@@ -1633,6 +1633,9 @@ class B1State:
     craft_chute_full_seen: bool = False
     # Consecutive Deployed reads so far; reset by any non-Deployed frame (fail-closed).
     canopy_seen_streak: int = 0
+    # Consecutive unarmed DESCENT frames read BELOW chuteFullDeployAltMeters; reset by
+    # any at-or-above-floor frame. Debounces the chute-arm-window-missed terminal.
+    below_floor_streak: int = 0
     # The last non-empty observed chute state, carried so a failure names what the
     # canopy was actually doing ("Armed" = commanded but never opened).
     last_chute_state: str = ""
@@ -1872,20 +1875,30 @@ def b1_decide(state: B1State, snapshot: TelemetrySnapshot) -> Tuple[B1State, Lis
             chute_deployed = True
             armed_alt = snapshot.altitude if _is_finite(snapshot.altitude) else None
             armed_rate = snapshot.vertical_speed
+        # Below-floor streak, computed BEFORE the terminal checks so every return path
+        # below can carry it (it is read by the LANDED return too).
+        below_floor = state.below_floor_streak
+        if not chute_deployed and _is_finite(snapshot.altitude):
+            below_floor = (below_floor + 1
+                           if snapshot.altitude < state.params.chute_full_deploy_alt
+                           else 0)
+
         if snapshot.situation in state.params.landed_situations:
             landed = _b1_enter(state, B1_LANDED, snapshot.ut, peak)
             return replace(landed, chute_deployed=chute_deployed,
                            chute_armed_altitude=armed_alt,
-                           chute_armed_rate=armed_rate), actions
+                           chute_armed_rate=armed_rate,
+                           below_floor_streak=below_floor), actions
 
         # ARM-WINDOW-MISSED: a NAMED, FAST ASSERT-FAIL (Opus review panel 2026-07-25,
         # F2). The arm gate is one-shot and monotonically unreachable once missed - the
         # fall rate only grows - so a single skipped poll across apoapsis (an RPC
         # latency spike, a KSP hitch) permanently disarms the mission. Without this
         # branch the craft simply kept falling to the descent budget and reported
-        # MISSION-FLAKE "phase DESCENT timed out", which hlib maps to the retryable
-        # autopilot-flake bucket: a DETERMINISTIC failure filed as flake, polluting the
-        # flake ledger and naming nothing about the chute. It also falsified this
+        # MISSION-FLAKE "phase DESCENT timed out": a DETERMINISTIC failure filed in the
+        # flake bucket, polluting the flake ledger and naming nothing about the chute.
+        # (Both verdicts are retry-once in hlib, so this buys the NAME and the saved
+        # descent budget, not a saved retry.) It also falsified this
         # spec's own claim that a canopy failure is "caught first and fast ... instead
         # of burning the budget" - true on the LANDED / vessel-lost paths, false here.
         # Sibling of EVA-4's eva-window-missed terminal.
@@ -1893,21 +1906,31 @@ def b1_decide(state: B1State, snapshot: TelemetrySnapshot) -> Tuple[B1State, Lis
         # The floor is chuteFullDeployAltMeters: below it an unarmed chute can no
         # longer produce the full canopy the mission asserts, so the outcome is already
         # decided and waiting only wastes budget.
-        if (not chute_deployed and _is_finite(snapshot.altitude)
-                and snapshot.altitude < state.params.chute_full_deploy_alt):
+        # DEBOUNCED by B1_CANOPY_DEBOUNCE_K, for the same reason the canopy latch is
+        # (review round 3, F1): a terminal that CONDEMNS deserves the identical
+        # treatment as one that CERTIFIES. Undebounced, one glitched surface_altitude
+        # sample ended a healthy flight - reproduced: a craft at 11,500 m that had
+        # simply not reached its arming window yet returned a single bogus 0 m read and
+        # was ASSERT-FAILed on the spot, with a reason confidently asserting the arm
+        # frame "was never sampled". At a 0.5 s poll and a ~300 m/s fall, waiting for a
+        # second corroborating frame costs ~150 m against a 2500 m floor.
+        if below_floor >= B1_CANOPY_DEBOUNCE_K:
             return replace(
-                state, peak_apoapsis=peak, done=True, verdict=MISSION_ASSERT_FAIL,
-                loss_reason=(
-                    "chute-arm-window-missed: fell to %.0fm (below the %.0fm full-deploy "
-                    "altitude) at %.1fm/s without ever entering the %.0fm/s arming "
-                    "window; the apoapsis-crossing arm frame was never sampled"
-                    % (snapshot.altitude, state.params.chute_full_deploy_alt,
-                       snapshot.vertical_speed, state.params.chute_arm_max_rate))), actions
+                state, peak_apoapsis=peak, below_floor_streak=below_floor, done=True,
+                verdict=MISSION_ASSERT_FAIL,
+                loss_reason=_b1_loss_reason_with_altitude(
+                    state,
+                    "chute-arm-window-missed: fell below the %.0fm full-deploy altitude "
+                    "at %.1fm/s on %d consecutive frames without ever entering the "
+                    "%.0fm/s arming window"
+                    % (state.params.chute_full_deploy_alt, snapshot.vertical_speed,
+                       below_floor, state.params.chute_arm_max_rate))), actions
 
         stayed = _b1_stay_or_flake(state, snapshot, peak)
         return replace(stayed, chute_deployed=chute_deployed,
                        chute_armed_altitude=armed_alt,
-                       chute_armed_rate=armed_rate), actions
+                       chute_armed_rate=armed_rate,
+                       below_floor_streak=below_floor), actions
 
     # Unknown phase: defensively terminate as an error-shaped flake so the shell
     # never spins. (Unreachable given the enum above.)
@@ -5587,7 +5610,8 @@ def evaluate_b1_assertions(frames, params: B1Params,
                            down_terminal: bool = False,
                            craft_canopy_observed: bool = False,
                            arm_altitude: Optional[float] = None,
-                           arm_rate: Optional[float] = None) -> List[AssertionOutcome]:
+                           arm_rate: Optional[float] = None,
+                           arm_commanded: bool = False) -> List[AssertionOutcome]:
     """Evaluate the three B1 driver-validity assertions over the flight frames.
 
     - ``apoapsisWindow``: the PEAK apoapsis must sit within apoapsisWindowMeters
@@ -5607,9 +5631,13 @@ def evaluate_b1_assertions(frames, params: B1Params,
       the detail (``downTerminal``) so the result JSON says which end it was.
       (A situation is a discrete kRPC enum, not a noisy float, so it is read from
       the last frame directly rather than debounced.)
-    - ``craftCanopyObserved``: the craft's parachute READ Deployed on at least one
-      live frame (``craft_canopy_observed``, the machine's sticky OBSERVED latch over
-      TelemetrySnapshot.craft_chute_state). This is the assertion that makes B1's
+    - ``craftCanopyObserved``: the craft's parachute READ Deployed on
+      B1_CANOPY_DEBOUNCE_K consecutive live DESCENT frames (``craft_canopy_observed``,
+      the machine's sticky OBSERVED latch over TelemetrySnapshot.craft_chute_state;
+      DESCENT-scoped and debounced so no stray read outside the descent, and no lone
+      glitched frame, can earn it). ``arm_altitude`` / ``arm_rate`` / ``arm_commanded``
+      carry the COMMANDED half into the row's value and detail, so the result JSON
+      holds both halves of the distinction. This is the assertion that makes B1's
       claimed Parsek surface -- a chute-borne ground arrival, with the two-phase
       ParachuteSemiDeployed / ParachuteDeployed part events in the recording -- an
       OBSERVED fact rather than an assumed one. It is deliberately independent of the
@@ -5649,12 +5677,19 @@ def evaluate_b1_assertions(frames, params: B1Params,
     # (Mirrors evaluate_eva4_assertions. Before the 2026-07-25 review these two fields
     # were written into B1State on every arm and read by nothing, while their comment
     # claimed they were "carried into the result".)
+    # ``value`` is the altitude the arm was COMMANDED at, falling back to NaN (never a
+    # bool) so the column stays float-or-null across runs, matching
+    # evaluate_eva4_assertions. ``armCommanded`` reads the machine's real latch, NOT
+    # "did we capture an arm altitude" - an arm on a frame with a non-finite altitude
+    # leaves arm_altitude None while the deploy actions genuinely were emitted, and
+    # reporting armCommanded=false beside a finite armCommandedRate would be a
+    # commanded-vs-observed inversion in the very PR about that distinction.
     canopy = AssertionOutcome(
         "craftCanopyObserved", bool(craft_canopy_observed),
-        arm_altitude if arm_altitude is not None else bool(craft_canopy_observed),
+        arm_altitude if arm_altitude is not None else float("nan"),
         {"required": CHUTE_STATE_DEPLOYED,
          "debounceK": B1_CANOPY_DEBOUNCE_K,
-         "armCommanded": arm_altitude is not None,
+         "armCommanded": bool(arm_commanded),
          "armCommandedRate": arm_rate,
          "armMaxRate": params.chute_arm_max_rate,
          "fullDeployAltitude": params.chute_full_deploy_alt})
@@ -6350,6 +6385,13 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     # "a frame disagreed about the handoff envelope" event an operator needs to see.
     # getattr-generic: absent on every other machine, so no other mission's log moves.
     ("window_open_streak", "evaWindowStreak"),
+    # B1 canopy gates. The observed latch decides a success terminal and the two streaks
+    # are its debounce state, so a reader must be able to tell "one Deployed read then a
+    # reset" from "never Deployed", and "one sub-floor sample" from "genuinely below the
+    # floor". Sibling counters (aligned_streak, impact_certain_streak) are all here.
+    ("craft_chute_full_seen", "canopySeen"),
+    ("canopy_seen_streak", "canopyStreak"),
+    ("below_floor_streak", "belowFloorStreak"),
 )
 
 _MACHINE_FIELD_ABSENT = object()
