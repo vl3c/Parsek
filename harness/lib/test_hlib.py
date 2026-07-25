@@ -2212,6 +2212,34 @@ class SkipTailSpecSurfaceTests(unittest.TestCase):
             self.assertTrue(v.ok, "errors=%s" % (v.errors,))
             self.assertFalse(any("skipTailOnUnmetMission" in w for w in v.warnings))
 
+    def test_misplaced_key_is_rejected_not_silently_ignored(self):
+        """The TOML-scoping trap EVA-4-atmo-chute.toml already documents for `steps`: a
+        key written after the [driver.missionParams] header is scoped to that sub-table.
+        The flag is read off [driver] ONLY, so a misplaced opt-out would be silently
+        inert and the SAFE default would apply against the author's explicit intent.
+        Reject it with a message that names where it belongs."""
+        for path in (("driver", "missionParams"), ("driver", "autorun")):
+            spec = copy.deepcopy(_autopilot_spec())
+            spec[path[0]].setdefault(path[1], {})[
+                hlib.SKIP_TAIL_ON_UNMET_MISSION_KEY] = False
+            v = hlib.validate_spec(spec, {}, mission_schemas=_mission_schemas())
+            self.assertFalse(v.ok, "%s must reject" % (path,))
+            self.assertTrue(any("belongs in [driver]" in e for e in v.errors),
+                            "errors=%s" % (v.errors,))
+        # ... and at the spec root (a key written ABOVE the [driver] header).
+        spec = copy.deepcopy(_autopilot_spec())
+        spec[hlib.SKIP_TAIL_ON_UNMET_MISSION_KEY] = False
+        v = hlib.validate_spec(spec, {}, mission_schemas=_mission_schemas())
+        self.assertFalse(v.ok)
+        self.assertTrue(any("belongs in [driver]" in e for e in v.errors))
+
+    def test_correctly_placed_key_is_not_caught_by_the_misplaced_guard(self):
+        spec = copy.deepcopy(_autopilot_spec())
+        spec["driver"][hlib.SKIP_TAIL_ON_UNMET_MISSION_KEY] = False
+        v = hlib.validate_spec(spec, {}, mission_schemas=_mission_schemas())
+        self.assertTrue(v.ok, "errors=%s" % (v.errors,))
+        self.assertFalse(hlib.spec_skips_tail_on_unmet_mission(spec))
+
     def test_seam_driver_declaration_warns_but_still_validates(self):
         spec = load_spec("S0.6-live-record-commit.toml")
         spec["driver"]["skipTailOnUnmetMission"] = True

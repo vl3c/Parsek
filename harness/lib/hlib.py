@@ -226,10 +226,12 @@ TAIL_ROLES: Tuple[str, ...] = (TAIL_ROLE_CLEANUP, TAIL_ROLE_INERT, TAIL_ROLE_WOR
 #     would stop being retryable. It must always run.
 #   StopRecording is the recorder's own teardown. It closes the recording so the
 #     recorder flushes instead of being torn down mid-sample by the quit, and so the
-#     KSP.log's recording markers pair (the collect-logs snapshot of a non-PASS run
-#     runs validate-ksp-log over that log; the run's OWN logValidate verifier is
-#     already SKIPPED on driver-invalid, so this is about artifact honesty, not the
-#     verdict). It performs no in-world action and writes nothing durable.
+#     collected KSP.log's recording markers pair. Scope note: only EVA-1/2/3 and EVA-4
+#     actually carry a StopRecording step; the other autopilot scenarios (B1/B2/B4/B5/
+#     B6/B7, BDOCK-1) end at CommitTree + FlushAndQuit, so on THEIR unmet runs the
+#     recorder is still live at quit either way and this buys nothing. It is cleanup
+#     because it is teardown that costs nothing and performs no in-world action, not
+#     because every scenario needs it.
 # Everything else is skipped on the unmet tail. Three calls deserve their reasoning:
 #   CommitTree is world-mutating, NOT cleanup: it writes the failed attempt's junk tree
 #     into the durable committed set and applies its resource deltas to the career. It
@@ -239,8 +241,14 @@ TAIL_ROLES: Tuple[str, ...] = (TAIL_ROLE_CLEANUP, TAIL_ROLE_INERT, TAIL_ROLE_WOR
 #     whether or not the tree was committed.
 #   DiscardTree is world-mutating too: deleting the failed attempt's recorded data would
 #     destroy the exact forensics the collect-logs snapshot exists to preserve.
-#   SaveGame is world-mutating: persisting a half-flown state is how a FORGE-style
-#     scenario would mint a contaminated fixture from a mission that never landed.
+#   SaveGame is world-mutating because an explicit persist is not teardown. Do NOT read
+#     that as protecting the FORGE fixture path: FlushAndQuit ITSELF forces a
+#     GamePersistence.SaveGame("persistent", HighLogic.SaveFolder, OVERWRITE)
+#     (ParsekTestCommandAddon.FlushAndQuitImpl), which is the SAME slot all three FORGE
+#     specs' SaveGame step targets, so a half-forged state is persisted either way and
+#     skipping the step changes nothing about what lands on disk. Guarding the mint is
+#     the harvest tool's job (harvest_bdock_station.py --expect-situation), tracked
+#     separately.
 SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     "SetSetting": TAIL_ROLE_WORLD_MUTATING,      # persisted Parsek setting
     "StartRecording": TAIL_ROLE_WORLD_MUTATING,  # starts the recorder / an active tree
@@ -980,6 +988,23 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     if skip_tail is not None and not isinstance(skip_tail, bool):
         errors.append("driver.%s: %r must be a bool"
                       % (SKIP_TAIL_ON_UNMET_MISSION_KEY, skip_tail))
+    # MISPLACED-KEY guard. The flag is only read off [driver], and a key written after
+    # the [driver.missionParams] header is scoped to driver.missionParams by TOML -- the
+    # exact trap EVA-4-atmo-chute.toml already documents in-line for `steps`. Without
+    # this the misplacement is SILENT and the reader falls back to the default, so an
+    # author's deliberate opt-out is inert with nothing to notice. It fails in the safe
+    # direction (the skip stays ON), which is why a silent drop would be so easy to miss;
+    # reject it outright rather than warn, since the author explicitly asked for the
+    # opposite of what they would get.
+    for scope_name, scope in (("driver.missionParams", driver.get("missionParams")),
+                              ("driver.autorun", autorun),
+                              ("the spec root", spec)):
+        if isinstance(scope, dict) and SKIP_TAIL_ON_UNMET_MISSION_KEY in scope:
+            errors.append(
+                "%s: %s belongs in [driver], not here (a key after the "
+                "[driver.missionParams] header is TOML-scoped to that sub-table, so it "
+                "would be silently ignored and the default would apply)"
+                % (scope_name, SKIP_TAIL_ON_UNMET_MISSION_KEY))
 
     # First step must be a LoadGame boot handshake whose save arg is ${runSave}
     # or a literal equal to runSaveName (S3), so the loaded save cannot drift

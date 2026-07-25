@@ -696,10 +696,14 @@ would leave KSP alive until the step-wait / run-budget watchdog kills the tree, 
 KILLED outranks driver-INVALID in `classify_verdict`, so the mission's own subkind
 would be MASKED and the attempt would stop being retryable. `StopRecording` is the
 recorder's own teardown: it closes the recording so the recorder flushes instead of
-being torn down mid-sample by the quit, and so the KSP.log's recording markers pair
-for the collect-logs snapshot (which runs validate-ksp-log; the run's own logValidate
-verifier is already SKIPPED on driver-invalid, so this is artifact honesty rather than
-verdict correctness). It performs no in-world action and writes nothing durable.
+being torn down mid-sample by the quit, and so the collected KSP.log's recording
+markers pair. Two honest scope limits on that second half: the run's own logValidate
+verifier is already SKIPPED on driver-invalid, so it is artifact honesty rather than
+verdict correctness; and only the EVA scenarios actually carry a `StopRecording` step
+(B1/B2/B4/B5/B6/B7 and BDOCK-1 end at `CommitTree` + `FlushAndQuit`), so on their
+unmet runs the recorder is live at quit either way. `StopRecording` is cleanup
+because it is teardown that costs nothing and performs no in-world action, not
+because every scenario needs it.
 
 **Why `CommitTree` is NOT cleanup.** It is the one call with a real argument on both
 sides, and it lands on world-mutating:
@@ -718,10 +722,17 @@ sides, and it lands on world-mutating:
 - `verifiers.unmetMissionTail` records the skip next to those SKIPPED rows, so a
   reader of the result JSON does not have to reconstruct why the save is thin.
 
-`DiscardTree` and `SaveGame` land world-mutating for the same family of reasons:
-discarding would destroy the exact recorded data the collect-logs snapshot exists to
-preserve, and saving is how a FORGE-style scenario would mint a contaminated fixture
-from a mission that never landed.
+`DiscardTree` lands world-mutating for a related reason: discarding would destroy the
+exact recorded data the collect-logs snapshot exists to preserve.
+
+`SaveGame` lands world-mutating because an explicit persist is not teardown, but with
+an explicit non-claim: skipping it does NOT protect the FORGE fixture path.
+`FlushAndQuit` itself forces `GamePersistence.SaveGame("persistent",
+HighLogic.SaveFolder, OVERWRITE)`, the SAME slot all three FORGE specs' `SaveGame`
+step targets, so a half-forged state reaches disk either way. Guarding the mint
+belongs to the harvest tool (`harvest_bdock_station.py --expect-situation`), which
+neither pad forge currently passes; that is tracked as its own item rather than
+papered over here.
 
 **What it buys.** No in-world action a scenario's own design says cannot happen; no
 per-verb deferral budget burned on a dead attempt (EVA-4's tail alone is `EvaExit`

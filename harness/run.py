@@ -775,6 +775,12 @@ class DriveResult:
         # other path, including a MISSION-OK run and a seam-only driver, so a normal
         # result record is byte-identical to what it was before this seam existed.
         self.skipped_tail_steps: List[Dict] = []
+        # True IFF a mission came back UNMET while the spec's skipTailOnUnmetMission was
+        # false, i.e. the full tail was driven BY POLICY. Without this the durable record
+        # of such a run is indistinguishable from one where the policy never applied
+        # (both have an empty skipped list), and the opt-out would live only in the
+        # harness log.
+        self.tail_skip_opted_out = False
 
 
 def _read_mission_verdict(result_path: str) -> Optional[str]:
@@ -843,7 +849,7 @@ def _preceding_loadgame_ok(steps: Sequence[Dict], mission_index: int,
             break
     if load_index is None:
         return False
-    load_id = "%04d" % (load_index + 1)
+    load_id = hlib.step_id_for_index(load_index)
     return _response_has_terminal(_read_response_lines(responses_path), load_id) == "OK"
 
 
@@ -1026,6 +1032,7 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                 return result
             if result.mission_step is not None and not result.mission_step.get("met"):
                 tail_plan = hlib.plan_unmet_mission_tail(steps, i, skip_tail=skip_tail)
+                result.tail_skip_opted_out = not tail_plan.skip_enabled
                 log = logger.info if not tail_plan.skipped_indices else logger.warn
                 log("Drive", "mission UNMET verdict=%s subkind=%s: %s"
                     % (result.mission_step.get("missionVerdict") or "<no-result>",
@@ -1547,8 +1554,15 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         "status": "PASS" if driver_valid else ("SKIPPED" if killed else "FAIL"),
         "allExpectedMet": ev.all_expected_met, "subkind": stage_subkind,
     }
-    logger.info("Verify", "verify driverValidity status=%s allMet=%s subkind=%s%s"
-                % (detail["driverValidity"]["status"], ev.all_expected_met, stage_subkind or "-",
+    # allMet covers the steps actually DRIVEN, so on a tail-skipped run it can read true
+    # next to status=FAIL (the mission, not a seam step, is what failed). Name the skipped
+    # count inline so that pairing reads as designed rather than as a contradiction.
+    logger.info("Verify", "verify driverValidity status=%s allMet=%s%s subkind=%s%s"
+                % (detail["driverValidity"]["status"], ev.all_expected_met,
+                   (" (over the %d driven step(s); %d tail step(s) skipped)"
+                    % (len(ev.steps), len(drive.skipped_tail_steps)))
+                   if drive.skipped_tail_steps else "",
+                   stage_subkind or "-",
                    (" missionVerdict=%s" % mission["missionVerdict"]) if mission else ""))
 
     # The unmet-mission tail skip, recorded next to the verifier rows it EXPLAINS: on
@@ -2165,6 +2179,11 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
     # Emitted only when non-empty, so every other run's record is unchanged.
     if drive is not None and drive.skipped_tail_steps:
         driver_rec["skippedTailSteps"] = list(drive.skipped_tail_steps)
+    # The mirror case: an UNMET mission whose spec opted OUT, so the full tail was driven
+    # by policy. Named after the spec key a reader would go looking for. Emitted only in
+    # that case, so a default-policy run's record is unchanged.
+    if drive is not None and drive.tail_skip_opted_out:
+        driver_rec[hlib.SKIP_TAIL_ON_UNMET_MISSION_KEY] = False
 
     verifiers_detail = facts["detail"] if facts else {}
     ef = spec.get("expectedFail", {}) or {}

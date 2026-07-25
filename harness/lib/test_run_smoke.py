@@ -827,6 +827,19 @@ class UnmetMissionTailSmokeTests(unittest.TestCase):
         self.assertNotIn("skippedTailSteps", result["driver"])
         self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
         self.assertEqual("mission", result["subkind"])
+        # The opt-out is VISIBLE in the durable record. Without this the JSON of an
+        # opted-out unmet run is indistinguishable from one where the policy never
+        # applied (both carry an empty skip list) and the opt-out would live only in
+        # the harness log.
+        self.assertFalse(result["driver"]["skipTailOnUnmetMission"])
+
+    def test_default_policy_run_does_not_carry_the_opt_out_marker(self):
+        """The mirror of the cell above: the marker is emitted ONLY when the opt-out was
+        actually in force, so a default-policy record is unchanged."""
+        result, _ = self._run("assertfail")
+        self.assertNotIn("skipTailOnUnmetMission", result["driver"])
+        ok_result, _ = self._run("ok")
+        self.assertNotIn("skipTailOnUnmetMission", ok_result["driver"])
 
     def test_tooling_mission_no_result_also_skips_the_tail(self):
         """Every UNMET path skips, not just ASSERT-FAIL: a mission that wrote no

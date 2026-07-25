@@ -574,8 +574,11 @@ as inert on a seam-kind driver.
   watchdog kill the tree, and KILLED outranks driver-INVALID in `classify_verdict`, so the
   mission's own subkind would be MASKED and the attempt would stop being retryable;
   `StopRecording` closes the recording so the recorder flushes instead of being torn down
-  mid-sample by the quit, and so the collected log's recording markers pair (the run's own
-  logValidate is already SKIPPED on driver-invalid, so that half is artifact honesty).
+  mid-sample by the quit, and so the collected log's recording markers pair. Two scope
+  limits kept honest after review: the run's own logValidate is already SKIPPED on
+  driver-invalid (artifact honesty, not verdict), and only the EVA scenarios carry a
+  `StopRecording` step at all - B1/B2/B4/B5/B6/B7 and BDOCK-1 end at `CommitTree` +
+  `FlushAndQuit`, so on their unmet runs the recorder is live at quit either way.
 - **Why `CommitTree` is NOT cleanup** (the one genuinely two-sided call): committing writes
   the failed attempt's junk tree into the durable committed set and applies its resource
   deltas, and it cannot buy the run a verdict back - an unmet mission is already
@@ -588,13 +591,45 @@ as inert on a seam-kind driver.
 - **Scope:** only the UNMET path changed. A MISSION-OK run drives the full tail exactly as
   before (B1/B2/B4/B5/B7, BDOCK-1, the FORGE specs), and seam-only drivers (S0.5/S0.6/
   S1.4/S1.5/S4.1, H5/H6, B10, the L1 six-pack, EVA-1/2/3) have no mission step at all.
-- Tests (27 new cells): 23 pure hlib cells (role-table totality + no stale rows, the
+  Verified empirically in review by running both trees side by side: a MET autopilot run
+  and a seam-only run produce BYTE-IDENTICAL result records on `origin/main` and on the
+  branch, and `validate_spec` over all 28 committed scenarios yields an identical
+  error+warning list on both.
+- **NON-CLAIM (review correction):** skipping `SaveGame` does NOT protect the FORGE
+  fixture path, and the first version of this entry wrongly said it did. `FlushAndQuit`
+  ITSELF forces `GamePersistence.SaveGame("persistent", HighLogic.SaveFolder, OVERWRITE)`
+  (`ParsekTestCommandAddon.FlushAndQuitImpl`), the SAME slot all three FORGE specs'
+  `SaveGame` step targets, so a half-forged state reaches disk either way. See the
+  separate FORGE-harvest entry below. The `CommitTree` half of the argument is unaffected:
+  `FlushAndQuit` deliberately never auto-commits an in-flight recorder
+  (`TestCommandFlushAndQuit`), so skipping `CommitTree` genuinely leaves the junk tree
+  uncommitted.
+- Tests (30 new cells): 25 pure hlib cells (role-table totality + no stale rows, the
   cleanup set, fail-safe unknown, the plan over the REAL committed EVA-4 / B1 / FORGE step
-  lists, id stability, the opt-out, the spec surface) + 4 fake-KSP smoke cells asserting on
+  lists, id stability, the opt-out, the spec surface incl. the misplaced-key guard) + 5
+  fake-KSP smoke cells asserting on
   the COMMAND CHANNEL FILE that `EvaExit` / `CommitTree` were never written on an unmet run
   while
   `StopRecording` / `FlushAndQuit` were, that a MISSION-OK run still drives everything, and
   that the opt-out restores the legacy tail.
+
+**HARNESS (latent, surfaced by the review above): a FORGE run whose mission fails still
+stamps its save, and nothing gates the harvest.** Not introduced by the tail-skip work and
+not made worse by it, but the tail skip does NOT cover it, so it is filed rather than
+assumed handled. `FlushAndQuit` force-saves the `persistent` slot
+(`ParsekTestCommandAddon.FlushAndQuitImpl` -> `GamePersistence.SaveGame("persistent",
+HighLogic.SaveFolder, OVERWRITE)`) on every path, which is exactly the slot
+`FORGE-bdock-station` / `FORGE-eva3-pad` / `FORGE-eva2-lko` target with their `SaveGame`
+step and exactly the file `harness/tools/harvest_bdock_station.py` reads. So a forge whose
+mission ASSERT-FAILs part-way through assembly still leaves a half-forged
+`saves/<runSave>/persistent.sfs` on disk. The harvest's only always-on gates are
+"activeVessel present" + ">= 1 VESSEL node"; its `--expect-situation` gate is OPTIONAL and
+only the ORBITAL harvest documents using it (`--expect-situation ORBITING`), so a pad
+forge would harvest a half-forged state without complaint. Fix (not attempted here): make
+the harvest refuse unless the run it is harvesting from ended MISSION-OK - e.g. read the
+forge run's result JSON, or require `--expect-situation` for every harvest. Cheap and
+worth doing before the next fixture mint; until then, only harvest a forge run you have
+confirmed PASSED.
 
 **FLIGHT 2 (2026-07-24): FULL PASS on attempt 1.** All seven verifiers PASS/SKIPPED
 (`batchComplete` SKIPPED as designed, everything else PASS), and the re-tune
