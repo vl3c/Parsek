@@ -177,7 +177,7 @@ The "Parsek surface verified" column is the reason the case exists.
 | B4-reentry-splashdown | nightly | Full-cycle recording (ascent/deorbit/reentry/splashdown intact), exo-ballistic sections, rails-warp recording | D1; D3; D4 +exo-ballistic; D14 kerbin/warp-rails |
 | B5-mun-flyby | nightly | Cross-SOI cohesive coast recording (Kerbin->Mun->Kerbin), on-rails checkpoints across warp, warp-reseed seams | D1; D3; D4 +cohesive-cross-body-coast; D14 kerbin/mun/warp-rails. NO-1X CERTIFIED at HEAD config (flight 26: wall 465 s, warp audit exit 0) |
 | B6-minmus-flyby | nightly | Same cells on the minmus axis | As B5 with D14 minmus. GATE: 20 km course-correct target predates finding 16d; guarded (arrival gate + impact terminal fail clean); re-target ~150 km only if it reds. **CONFIRMATION RE-FLY PAID 2026-07-25 (wall 359 s, all seven verifiers green):** B6's prior live proof predated the no-1x-coast aim-then-warp (4219832b6) and B6 shares the machine, the correction params AND the 4,000 s `transferBurnTimeoutSeconds` that B12 flight 1 proved cannot cover a Minmus-class correction node's 73,733 s wait - B6 was exposed and had simply not re-flown. It is ALSO the mission most exposed to B12 flight 2's coast warp-thrash (same long Minmus coast). Both shared-machine fixes landed with the B12 forensics and the confirmation flight flew them green on the flyby side, so B6's LIVE-PROVEN mark is honest at HEAD again |
-| B7-duna-flyby | nightly | Multi-SOI interplanetary recording (Kerbin->Sun->Duna->Sun), 100,000x warp recording, SOI-count | As B5 with D14 duna/soi-count/warp-high. GATE: HEAD's 300 km target has not itself flown (the pass flew 50 km); first nightly covers it |
+| B7-duna-flyby | nightly | Multi-SOI interplanetary recording (Kerbin->Sun->Duna->Sun), 100,000x warp recording, SOI-count | As B5 with D14 duna/soi-count/warp-high. **GATE CLOSED WITH A RED 2026-07-25 - B7 DOES NOT PASS AT HEAD.** The gate ("HEAD's 300 km target has not itself flown; the pass flew 50 km") was paid by flying it, twice: both attempts `MISSION-ASSERT-FAIL body='Ike' (expected 'Duna' or exit 'Sun')`, wall 747 s / 735 s. The 300 km target was hit correctly (`pe=310089`); the inbound approach transits Ike's orbital shell and Ike captured the craft (`window[19] body=Duna alt=3,687,346` -> `window[20] body=Ike alt=897,085`). NOT an ORBIT-lane regression: `corrBudgetAnchorUt=none` (the correction re-anchor never engaged, so it ran main's bound) and `phaseWarpIssues=1` (the coast latch worked, which is why it reached Duna at all - every archived pre-fix B7 run stopped at `Kerbin to Sun` and never reached the target SOI). Needs a B7 SPEC decision - accept an Ike encounter as a legitimate Duna-system arrival, or aim to clear Ike's shell - deliberately not taken in the ORBIT lane. Forensics in `todo-and-known-bugs.md` |
 | S0.5-live-record-discard | daily | Live record start/stop marker pairing + DiscardTree returns the store to zero (caught the orphan-sidecar leak) | D1 discard-rollback; D5 single-node; D14 |
 | S0.6-live-record-commit | daily | Commit on top of the injected corpus without corpus loss (the save-hollowing guard class) | D5; D14; D16 sidecar-prec |
 | S1.4-injected-playback | daily | 272-tree corpus injection, load, ghost map presence + polyline render with no anomalies | D6 basic-playback/ghost-map-presence/non-orbital-polyline; D16 sidecar-prec/sidecar-pcrf |
@@ -342,9 +342,26 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
    MechJeb's own 600 s pre-ignition hold; a GAME-time correction budget spent by
    the aim-then-warp it waits on; the metastable coast warp-thrash behind KSP's
    NaN `time_to_soi` under a warp ramp; warp inherited across the SOI boundary at
-   10,000x) - full forensics in `todo-and-known-bugs.md`. B5/B7 were judged
-   NOT-AFFECTED (both changes gate on `capture_enabled` / opt-in fields) and were
-   deliberately not re-flown.
+   10,000x) - full forensics in `todo-and-known-bugs.md`. B5/B7 exposure was
+   RE-ASSESSED after review (the earlier "both changes gate on `capture_enabled`
+   / opt-in fields" claim was WRONG: two of the four fixes - the correction-budget
+   re-anchor and the coast native-warp latch - are ungated shared-machine
+   changes, which is exactly why B6 owed a re-fly). Corrected position:
+   - B5 is covered by PROXY, not by a gate. `B11-mun-orbit` carries params
+     IDENTICAL to `B5-mun-flyby` (same `targetBodyName`, `correctionTriggerAlts`,
+     `transferBurnTimeout`, `coastTimeout`, `coastWarpFactor`, `flybyWarpFactor`,
+     `soiLead`, `nodeArrivalMargin`) and flew that coast + correction
+     configuration green on the fixed machine.
+   - B7 was FLOWN at HEAD 2026-07-25 rather than argued about, and it does NOT
+     pass - but for a PRE-EXISTING reason, not a lane regression. See the B7 row
+     and the todo entry: it is the first flight of HEAD's 300 km periapsis target
+     (the gate that row already carried), the target was hit correctly
+     (`pe=310089`), and the approach was captured by IKE on both attempts. The
+     lane's changes are exonerated on the evidence: `corrBudgetAnchorUt=none`
+     (the re-anchor never engaged, so it ran main's exact bound) and
+     `phaseWarpIssues=1` (the coast latch worked, which is WHY the flight reached
+     Duna at all - every archived pre-fix B7 run died at `Kerbin to Sun` and
+     never reached the target SOI).
    ID NOTE: this item was informally called "B8", but B8/B9/B10 are already
    taken in `automated-testing-scenario-catalog.md` section 2 (loop-B7-as-
    mission / crash-rewind-refly / career passive safety) and B3 is the EVA
