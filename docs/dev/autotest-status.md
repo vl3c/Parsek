@@ -1,6 +1,24 @@
 # Automated Testing System - Status
 
-Last updated: 2026-07-25 (B1-pad-hop DE-LISTED from live-proven: its
+Last updated: 2026-07-26 (VACUOUS-BATCH class found and closed, plus the first
+two D11 scenarios. B10-career-passive-safety - shipped, daily tier - was proved
+live to read GREEN while executing ZERO tests: its RecordingInvariants batch ran
+at SPACECENTER, where both FLIGHT-scene tests are scene-skipped, and its only
+contract `BATCH_COMPLETE v1 .* failed=0\b` cannot tell `passed=0 skipped=2` from
+two passes. L1-passive-sandbox had the identical shape. Both fixtures are
+vessel-less by design, so the CATEGORY moved to GameActionsHealth (4
+scene-agnostic read-only tests) rather than papering the pin over a category the
+fixture can never host. All five RunTests specs now pin the batch tally whole
+(H5's numbers are MEASURED off its 2026-07-19 line; S1.4 pins total + a non-zero
+passed class and carries a PENDING-OPERATOR to pin the exact split). The class is
+closed harness-side: hlib.validate_spec now synthesizes every BATCH_COMPLETE line
+a vacuous batch could emit and REJECTS any spec whose contract would accept one -
+checked by construction, not by a syntactic "must mention total=" tautology, with
+a reason-required opt-out. NEW: M1-mission-loop-unit and M2-periodicity-solver
+take D11 from 0/18 to 8/18 by running the Missions / Periodicity in-game
+categories, which needed no fixture and had never run because no spec named them;
+both gate the mission-loop PLAN and the periodicity SOLVER, explicitly not the
+playback. Prior 2026-07-25: B1-pad-hop DE-LISTED from live-proven: its
 2026-07-19/20 PASSes proved the flight but its chute never opened - the
 recordings carry ZERO Parachute* events - and its DOWN terminal gated on the
 machine's own COMMANDED chute latch, so a ~300 m/s terminal-velocity impact was
@@ -111,8 +129,10 @@ row below and gate 7.) All
 infrastructure modules are shipped and merged. The FIRST two-vessel lane
 (B-DOCK: dock/transfer/undock, the logistics-route recording entry point) is
 IMPLEMENTED and headless-green, pending a headless fixture-forge run + its
-first flight. Coverage stands at 52 of 238 registry cells - breadth (EVA,
-orbit, landing, docking, career-ledger lanes) is the frontier.
+first flight. Coverage stands at 77 of 238 registry cells (the "52" this line
+carried until 2026-07-26 was stale; the recount at that date was 69, and
+M1-mission-loop-unit + M2-periodicity-solver added the 8 D11 cells below) -
+breadth (EVA, orbit, landing, docking, career-ledger lanes) is the frontier.
 
 ## Infrastructure modules (all SHIPPED and merged)
 
@@ -130,7 +150,7 @@ orbit, landing, docking, career-ledger lanes) is the frontier.
 | M-C2 EVA verbs + missions | EvaExit/EvaBoard/PlantFlag -> crew/EVA/flag recording coverage | LIVE-PROVEN 2026-07-24; 18 implemented verbs, 11 reserved; verbs + pure deciders + hlib companions + EVA-1/2/3 specs land, both fixtures forged headlessly, all three scenarios flown green, live-prove list P1-P6 closed |
 | EVA-4 atmospheric chute | EvaChuteDeploy (the kerbal personal parachute) + mission `eva4_atmo_chute` -> mid-flight atmospheric EVA branch, kerbal-owned atmospheric TrackSections, two-phase chute part events ON the kerbal, kerbal DOWN-alive terminal | LIVE-PROVEN 2026-07-24 (flight 2 full PASS); 19 implemented verbs, 11 reserved; all four first-flight pins closed (count 3, kerbalEVA token, semi-deployed rate measured -> descent budget trimmed 480 -> 240, kerbal lands alive), plus the K=2 window debounce + raw-alive CompleteOk conjunct hardenings |
 
-## Test cases (all 28 committed scenarios)
+## Test cases (all 30 committed scenarios)
 
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
@@ -139,7 +159,7 @@ The "Parsek surface verified" column is the reason the case exists.
 
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|
-| H6-route-rewind-timeline | daily | Route-rewind lifecycle rows, dormant classify + Tick materialize, kept-route reconciliation (Restore(cutoff) reconciliation-bundle path) | D9 reconciliation-bundle; D10 route-x-rewind; D14 sandbox/scene-flight. LIVE-PROVEN 2026-07-24: first live run = FULL PASS attempt 1, all seven verifiers green, in-game batch perCategory=1 - the route-rewind wave's last automated acceptance item |
+| H6-route-rewind-timeline | daily | Route-rewind lifecycle rows, dormant classify + Tick materialize, kept-route reconciliation (Restore(cutoff) reconciliation-bundle path) | D9 reconciliation-bundle; D10 route-x-rewind; D14 sandbox/scene-flight. LIVE-PROVEN 2026-07-24: first live run = FULL PASS attempt 1, all seven verifiers green, in-game batch perCategory=1 - the route-rewind wave's last automated acceptance item. Batch tally pinned WHOLE 2026-07-26: `failed=0 skipped=0` still accepted an EMPTY batch (`total=0 passed=0 ...`), so the pin is now `total=7 passed=7 failed=0 skipped=0 category=RouteRewindTimeline scene=FLIGHT` (7 = the category's scene-agnostic, batch-allowed test count; the live PASS's skipped=0 fixes passed=total) |
 | B2-lko-ascent | nightly | Ascent-to-orbit recording, orbital checkpoints, 6-booster parent-anchored debris children model | D1; D3 orbital-checkpoint; D4 atmospheric/exo-propulsive; D14 kerbin |
 | B4-reentry-splashdown | nightly | Full-cycle recording (ascent/deorbit/reentry/splashdown intact), exo-ballistic sections, rails-warp recording | D1; D3; D4 +exo-ballistic; D14 kerbin/warp-rails |
 | B5-mun-flyby | nightly | Cross-SOI cohesive coast recording (Kerbin->Mun->Kerbin), on-rails checkpoints across warp, warp-reseed seams | D1; D3; D4 +cohesive-cross-body-coast; D14 kerbin/mun/warp-rails. NO-1X CERTIFIED at HEAD config (flight 26: wall 465 s, warp audit exit 0) |
@@ -147,10 +167,10 @@ The "Parsek surface verified" column is the reason the case exists.
 | B7-duna-flyby | nightly | Multi-SOI interplanetary recording (Kerbin->Sun->Duna->Sun), 100,000x warp recording, SOI-count | As B5 with D14 duna/soi-count/warp-high. GATE: HEAD's 300 km target has not itself flown (the pass flew 50 km); first nightly covers it |
 | S0.5-live-record-discard | daily | Live record start/stop marker pairing + DiscardTree returns the store to zero (caught the orphan-sidecar leak) | D1 discard-rollback; D5 single-node; D14 |
 | S0.6-live-record-commit | daily | Commit on top of the injected corpus without corpus loss (the save-hollowing guard class) | D5; D14; D16 sidecar-prec |
-| S1.4-injected-playback | daily | 272-tree corpus injection, load, ghost map presence + polyline render with no anomalies | D6 basic-playback/ghost-map-presence/non-orbital-polyline; D16 sidecar-prec/sidecar-pcrf |
-| H5-invariants-corpus | daily | The full synthetic corpus (306 recordings / 276 trees) loads intact and holds every recording invariant in-game | D14 sandbox/scene-flight; D16 sidecar-prec/schema-gate |
+| S1.4-injected-playback | daily | 272-tree corpus injection, load, ghost map presence + polyline render with no anomalies | D6 basic-playback/ghost-map-presence/non-orbital-polyline; D16 sidecar-prec/sidecar-pcrf. Batch contract hardened 2026-07-26: was `failed=0` only, now pins `total=42 passed=[1-9][0-9]* ... category=GhostPlayback scene=FLIGHT`. PENDING-OPERATOR: read the real passed/skipped off the next live run and pin both exactly (12 of the 42 carry conditional self-skips, so the split is not statically derivable) |
+| H5-invariants-corpus | daily | The full synthetic corpus (306 recordings / 276 trees) loads intact and holds every recording invariant in-game | D14 sandbox/scene-flight; D16 sidecar-prec/schema-gate. Batch tally pinned WHOLE 2026-07-26 from the MEASURED 2026-07-19 line: `total=2 passed=2 failed=0 skipped=0 category=RecordingInvariants scene=FLIGHT` |
 
-### Committed, not yet live-run (14)
+### Committed, not yet live-run (16)
 
 | Test case | Tier | Parsek surface verified | Blocker |
 |---|---|---|---|
@@ -161,13 +181,15 @@ The "Parsek surface verified" column is the reason the case exists.
 | FORGE-eva2-lko | operator | (Not a Parsek-surface test) FIXTURE-FORGE, the FIRST ORBITAL one (mission `forge_lko`): boots the SAME bdock-forge-base, launch_vessel the Kerbal X with TWO named crew (Valentina + Bob), then flies the LIVE-PROVEN B-DOCK Interceptor-leg shape - MechJeb ascent, circularization with node-executor autowarp EXPLICIT (flight-12 lesson), the two-step separation contract (drop the spent core AND ignite the orbital stage, thrust-verified, cap 2), then a PARK phase that cuts throttle, clears nodes, holds SAS+RCS and requires a HELD stable ~100 km circular orbit (pe >= 75 km, tumble <= 0.05 rad/s) before SaveGame. Crew is gated ON THE PAD (crew_count >= minCrew, fail-closed on the -1 unread sentinel) so an uncrewed stamp flakes in 300 s instead of after a 10-minute flight. autoRecordOnLaunch pinned false so the fixture carries no recordings / trees / ledger state (the stamped .sfs does keep an inert populated `SCENARIO{name=ParsekScenario}` node - `gameStateEventCount=18` + one MILESTONE_STATE row - which is what suppresses PreParsekBackup at load) | DONE 2026-07-24: forge run = MISSION-OK / PASS, 268 s wall, full profile PRELAUNCH -> LAUNCH -> ASCENT -> CIRCULARIZE -> SEPARATE -> PARK -> ORBIT; harvested with `harvest_bdock_station.py --target-name eva2-lko-crewed --expect-situation ORBITING` (the harvest's new optional situation gate, added for this orbital harvest); the `eva2-lko-crewed` fixture is COMMITTED and EVA-2-orbital-board flew it green on its first flight |
 | S1.5-rewind-loop | operator | TimeJump-past-EndUT spawn, then rewind-strip-respawn cycle observables | Operator observation session (B9 pair) |
 | S4.1-rewind-merge | operator | Full re-fly cycle: InvokeRewind a crashed slot, merge-dialog fold, corpus survival, read-back guard | Operator observation session (B9 pair) |
-| B10-career-passive-safety | daily | Fresh career + stock actions only = ZERO economy drift (the BUG-A science/funds corruption class) | Fixture committed (fresh-career); first green live run re-tiers to daily |
-| L1-passive-sandbox | daily | Sandbox cold load moves nothing (recalc/orchestrator/patcher inert) | Fixture committed (fresh-sandbox); + seed-baseline no-pools gate must accept an empty-manifest sandbox template (see fixtures README) |
+| B10-career-passive-safety | daily | Fresh career + stock actions only = ZERO economy drift (the BUG-A science/funds corruption class) | Fixture committed (fresh-career); first green live run re-tiers to daily. DE-LISTED from "batch proven" 2026-07-26: it read GREEN while executing ZERO tests. Its `RunTests category=RecordingInvariants` step ran at SPACECENTER (fresh-career is vessel-less, so LoadGame takes the NoVesselSpaceCenter route) where BOTH FLIGHT-scene tests were scene-skipped, and the contract `BATCH_COMPLETE v1 .* failed=0\b` cannot tell `passed=0 skipped=2` from 2 passes. A vessel-less career fixture can never host a FLIGHT category, so the CATEGORY moved (-> GameActionsHealth: 4 scene-agnostic read-only tests, all 4 execute in CAREER) and the tally is pinned whole. D16 schema-gate also dropped - it was claimed over a save with zero recordings |
+| L1-passive-sandbox | daily | Sandbox cold load moves nothing (recalc/orchestrator/patcher inert) | Fixture committed (fresh-sandbox); + seed-baseline no-pools gate must accept an empty-manifest sandbox template (see fixtures README). Same zero-executed-batch defect as B10, same fix (-> GameActionsHealth); in SANDBOX the 3 pool-singleton tests correctly self-skip on `Mode != CAREER` and the suppression-flag test executes, so the pin is `total=4 passed=1 failed=0 skipped=3` |
 | L1-hire-kerbal-career | daily | Hire debits funds by exactly the pinned cost, nothing else | First live run (2026-07-23) RED = seam double-debit: the hire verb manually mirrored a stock debit that stock already applies (Funding.onCrewHired via OnCrewmemberHired), charging the pool twice. Fixed (seam AddFunds removed); single cost re-pinned -62113 (seed 500000 -> 437887). Re-run confirms hardDivergences=0 + re-tiers to daily |
 | L1-dismiss-kerbal-career | daily | Dismiss is pool-neutral | Fixture committed (fresh-career, dismiss Bill Kerman); first green live run re-tiers to daily |
 | L1-research-node-career | daily | Research debits science exactly | Fixture committed (fresh-career, basicRocketry=5 verified); first green live run re-tiers to daily |
 | L1-research-node-science | daily | Same in science mode (no funds/rep pools) | Fixture committed (fresh-science); RnDPresent widen landed; first green live run re-tiers to daily |
 | L1-upgrade-facility-career | daily | Facility upgrade debits funds per-level exactly | First live run (2026-07-23) ledger math PASSED (-150000, hardDivergences=0) but logContract RED = FacilityUpgraded never recorded: the facility recorder only polled on scene load (and cold-load seeded an empty baseline), so a seam upgrade-then-quit was never captured. Fixed (subscribe GameStateFacilityRecorder to OnKSCFacilityUpgrading, event-driven). Re-run confirms "Game state: FacilityUpgraded" present + re-tiers to daily |
+| M1-mission-loop-unit | daily | The mission-loop PLAN against LIVE stock ephemerides: cross-tree partner-journey link discovery + include/normalize mutation + the REAL MissionLoopUnitBuilder shared span clock landing member windows on the recorded dock/undock UTs; joint landing+station arrival hold (with the landing-only byte-identical-off control); the resonant Jool inner-three configuration hold; incommensurate Bop failing CLOSED to faithful | D11 partner-journey/land-dock-dual-constraint/arrival-hold/multi-moon-config-hold/fail-closed-to-faithful; D14 sandbox/scene-ksc. NEW 2026-07-26 - the first spec to claim ANY D11 cell (the dimension was 0/18: twelve in-game tests encoding a real mission-loop oracle, needing no fixture, never run because no spec named the category). Fixture-free (fresh-sandbox, vessel-less -> SPACECENTER, which is where the 5 batch-eligible tests live). Explicitly does NOT observe a replaying ghost, a rendered icon, a cycle boundary, or an elapsed period - it gates the PLAN, not the playback. Never live-run |
+| M2-periodicity-solver | daily | The periodicity SOLVER against LIVE stock ephemerides: the re-aim feasibility scan over a pinned synodic period, UvLambert transfer synthesis that must actually encounter the target, the window schedule, the eccentric/inclined stage-A un-projection + stage-B tof band (Moho / Eeloo), heliocentric-parking r1==park-end, and deterministic clean declines at the band edge | D11 reaim-lambert/eccentric-inclined-targets/heliocentric-parking-departure/fail-closed-to-faithful; D14 sandbox/scene-ksc. NEW 2026-07-26, M1's sibling (separate spec because run.py's _driven_category reads only the FIRST RunTests category and a per-category line with no aggregate is a defined fault - one batch per spec). Tally is NOT total=passed: 1 of the 11 is FLIGHT-scene and 3 declare AllowBatchExecution=false, so the pin is `total=11 passed=7 failed=0 skipped=4`. Gates the SOLVER, not the playback. Never live-run |
 
 ### EVA (M-C2 + EVA-4), committed (4): all four LIVE-PROVEN
 

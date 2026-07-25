@@ -32,6 +32,8 @@ All notable changes to Parsek are documented here.
 
 ### Internals & Tests
 
+- Fixed a developer test scenario that reported success while running no tests at all: its in-game test batch loaded a save with no vessels, so every test in the batch was skipped for needing the flight scene, and the scenario's only check ("no failures") could not tell that apart from every test passing. All batch-running scenarios now state exactly how many tests must run and pass, and the harness refuses any scenario whose check an empty batch could satisfy. Test-tooling only; no gameplay change.
+- Added two developer-only automated-test scenarios that run the existing in-game mission-loop and re-aim/periodicity test categories against the live game's real planet data. These tests existed but had never run unattended because no scenario referenced them. Test-tooling only; no gameplay change.
 - When an automated test flight fails to reach the state it was flying toward, the harness now runs only the teardown that closes the recording and quits the game, instead of carrying on with the rest of the scripted steps (on one failed run that meant sending a kerbal out the hatch while the craft was still falling at terminal velocity). Test-tooling only; no gameplay change.
 - Career recalculation is slightly cheaper: the walk now skips a redundant re-sort of the action list when nothing changed it. Recalculated career values are unchanged.
 - Added a developer-only way to run in-game test batches unattended, driven entirely by launch-time environment variables, plus a new set of recording-integrity checks that run in-game. It is completely inert in a normal game and never changes anything Parsek saves.

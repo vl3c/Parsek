@@ -1,0 +1,135 @@
+schema = 1
+id = "M1-mission-loop-unit"
+tier = "daily"
+# The in-game "Missions" category run unattended. It claims coverage NOTHING else in
+# the suite touches: before this scenario, D11 (missions / periodicity / re-aim, 18
+# registry values) was 0/18 - entirely unclaimed - because no spec named the category,
+# so twelve in-game tests that encode a real mission-loop oracle never ran outside a
+# manual Ctrl+Shift+T session.
+#
+# WHAT THIS GATES, AND WHAT IT DOES NOT. This gates the mission-loop PLAN, not the
+# playback. The five batch-eligible tests build synthetic committed trees, register
+# them through the REAL RecordingStore.CommitTree, drive the REAL
+# MissionCrossTreeDock.FindLinks / MissionStore include+normalize mutations / the REAL
+# MissionLoopUnitBuilder against LIVE stock ephemerides (FlightGlobalsBodyInfo.Instance
+# reading real FlightGlobals bodies), and assert the resulting LoopUnit's shared span
+# clock puts its member windows exactly on the recorded dock/undock UTs, that a
+# landing+station destination resolves a JOINT arrival hold, that the resonant Jool
+# inner three engage a configuration hold, and that an incommensurate moon set fails
+# CLOSED to faithful. Every one of those is a decision made BEFORE anything renders.
+# NOT observed here, and deliberately NOT claimed: a replaying ghost, a rendered map
+# icon or polyline, a loop cycle boundary actually being crossed, or an elapsed loop
+# period. Nothing in this scenario advances the clock or spawns a ghost. A green M1 says
+# "the plan the loop machinery computes against the shipped planet pack is correct"; it
+# says NOTHING about what the player then sees. The playback half stays with S1.4 /
+# the operator-tier observation sessions.
+#
+# Why it is worth a daily slot despite needing no fixture flight: the whole reason these
+# tests are in-game rather than xUnit is the LIVE body graph. The xUnit siblings
+# (MissionCrossTreeDockTests, ArrivalHoldPlannerTests, MultiMoonAlignmentTests) pin
+# stock periods / SOI radii as hand-authored constants, so they prove the math and can
+# never prove the shipped game's ephemerides still satisfy it. Only this run does.
+description = "Run the in-game Missions category unattended at the Space Center: cross-tree partner-journey loop units, joint landing+station arrival holds, and the live-Jool configuration hold, all planned against real stock ephemerides."
+instanceProfile = "stock-minimal"
+tags = ["missions", "loop-unit", "periodicity", "M1", "D11"]
+
+[fixture]
+# fresh-sandbox: GAME { Mode = SANDBOX }, ZERO VESSEL nodes. That is exactly what these
+# tests want. TestCommandLoadGame.DecideLoadRoute routes a vessel-less save down the
+# NoVesselSpaceCenter branch, and the batch-eligible Missions tests are
+# Scene = GameScenes.SPACECENTER, so the fixture lands the batch precisely where the
+# tests live. No craft, no forge, no flight - the tests build their own inputs.
+# Deliberately NO [expectations.ledger] block: a SANDBOX template parses with every
+# pool absent, which run.py::_capture_seed_baseline still terminal-INVALIDs
+# (see harness/fixtures/saves/README.md); this scenario asserts nothing about the
+# economy, so it never enters that gate.
+saveTemplate = "fixtures/saves/fresh-sandbox"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Mirrors the H5 / H6 batch-driver shape. autoRecordOnLaunch pinned false so
+# spec_expects_live_recording is False and the REC-001/REC-003 recording rules are
+# correctly suppressed for a run that legitimately records nothing. RunTests is the
+# single BATCH owner; 540 is the deferred per-step cap (S8).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Missions" },                    expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+# The SMALLEST honest set. Each token names a decision one of the five executed tests
+# actually asserts:
+#  - partner-journey: CrossTreeDock_PartnerLoopUnit_... drives MissionCrossTreeDock
+#    .FindLinks (the exact read-model behind the Missions window's "Partner journey"
+#    row), the include mutation, and the shared-span-clock loop unit built from it.
+#  - land-dock-dual-constraint + arrival-hold: JointArrivalHold_LandingPlusStation_...
+#    resolves a destination carrying BOTH a body-rotation landing constraint and a
+#    station rendezvous into a kind=joint arrival hold; the LandingOnly control proves
+#    the single-constraint path stays byte-identical.
+#  - multi-moon-config-hold: ResonantInnerThree_EngagesConfigHold_AgainstLiveJool
+#    engages T_config against the LIVE Laythe/Vall/Tylo 1:2:4 lock.
+#  - fail-closed-to-faithful: IncommensurateBop_FailsClosedFaithful_AgainstLiveJool,
+#    plus the cross-tree unit's own fail-closed periodicity/re-aim branch.
+# NOT claimed (and this is the point of the header above): whole-mission-loop,
+# self-overlap, clone, zero-drift-schedule, loiter-compression - all of those are
+# statements about a loop that RUNS, and nothing here runs one. Nor D5
+# cross-tree-foreign-dock: the dock link is synthetic input to the read-model, not a
+# recorded dock topology (BDOCK-1 owns that cell).
+# D14: the fixture is SANDBOX and the batch executes in the Space Center scene.
+D11 = ["partner-journey", "land-dock-dual-constraint", "arrival-hold",
+       "multi-moon-config-hold", "fail-closed-to-faithful"]
+D14 = ["sandbox", "scene-ksc"]
+
+[expectations.recordings]
+# count.max == 0: the fixture carries none, nothing is injected, and the one test that
+# commits trees (CrossTreeDock) removes both via RemoveCommittedTreeById in its finally
+# before the FlushAndQuit save ever runs - so a .prec in the produced save means a
+# synthetic tree LEAKED. Also selects the B1 recording-rules log-validation suppression.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# The batch tally is pinned WHOLE, which hlib.batch_contract_vacuity_gap requires of any
+# RunTests spec: a contract an empty or all-skipped batch could satisfy is rejected at
+# spec-validation time. This scenario is the one MOST at risk of that failure mode - its
+# entire value is that the tests execute - so every token is derived explicitly:
+#  - total=12: exactly 12 [InGameTest(Category = "Missions")] methods exist
+#    (CrossTreeDockLoopUnitInGameTest 1, JointArrivalHoldInGameTest 2,
+#    JoolConfigHoldInGameTest 2, DescentHandoffVisibilityInGameTest 1,
+#    MissionDockCompositionRuntimeTest 1, ReaimRenderLoopShiftCanaryInGameTest 1,
+#    RealSaveMissionInGameTests 4). BATCH_COMPLETE's total is
+#    `allTests.Count(Status != NotRun)` over the single RunCategory batch, which counts
+#    the scene-skipped ones too.
+#  - skipped=7: the 7 Scene = GameScenes.FLIGHT members (the 4 RealSave_* tests, which
+#    need a real flown save, plus DescentHandoff, DockTree_Composition and the re-aim
+#    render canary) are scene-eligibility skipped at SPACECENTER. That is CORRECT, not a
+#    shortfall: they are the render/real-save half this scenario explicitly does not
+#    claim. No Missions test declares AllowBatchExecution=false, so nothing else skips.
+#  - passed=5: the 5 Scene = GameScenes.SPACECENTER members execute. Their
+#    InGameAssert.Skip guards fire only on a NON-STOCK body graph (Kerbin/Duna/Jool/
+#    Laythe/Vall/Tylo/Bop missing or not sharing the expected parent) or degenerate live
+#    orbit/rotation data, none of which the stock-minimal profile produces.
+#  - scene=SPACECENTER: the vessel-less fixture's LoadGame route. Pinning it is what
+#    makes the B10 class (a batch silently running in the wrong scene) impossible here.
+# PENDING-OPERATOR on the first live run: if a stock rebalance ever trips one of those
+# skip guards this reds with the exact numbers to re-derive from - which is the intended
+# behavior, not a flake. Do NOT relax it back to a bare failed=0.
+required  = ["BATCH_COMPLETE v1 total=12 passed=5 failed=0 skipped=7 category=Missions scene=SPACECENTER"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+allowedAnomalies = []
+
+[runtime]
+# Budget arithmetic (M-A5 S8, mirrors H5/H6): 720 >= 300 LoadGame + 540 RunTests ceiling
+# headroom. The five executed tests are synchronous planner/builder calls over live body
+# data, so the real batch runs far under the cap.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

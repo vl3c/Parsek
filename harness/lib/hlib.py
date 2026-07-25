@@ -18,6 +18,8 @@ Covered here (design docs/dev/design-autotest-harness-core.md):
   - the unmet-mission tail decision (``SEAM_VERB_TAIL_ROLE`` +
     ``plan_unmet_mission_tail`` + ``spec_skips_tail_on_unmet_mission``)
   - expectations evaluation (``evaluate_expectations``)
+  - the in-game batch anti-vacuity gate (``batch_contract_vacuity_gap`` +
+    ``vacuous_batch_complete_probes``), enforced by ``validate_spec``
   - the M-B2 ledger-oracle PURE support: the ``[expectations.ledger]`` spec-surface
     validator (``validate_ledger_expectations``), the produced-save ``careerSave``
     block read (``parse_career_save_block``), and the leg-A stock-award capture
@@ -554,6 +556,150 @@ def resolve_batch_complete(
         category_count_mismatch=False, expected_category_count=None)
 
 
+# ---------------------------------------------------------------------------
+# Anti-vacuity gate for in-game batch contracts (the "GREEN over ZERO executed
+# tests" class, proved live on B10-career-passive-safety 2026-07-26).
+#
+# THE DEFECT THIS EXISTS FOR. B10 declared `RunTests category="RecordingInvariants"`
+# and gated the batch on the single contract `BATCH_COMPLETE v1 .* failed=0\b`.
+# Both RecordingInvariants tests are Scene = FLIGHT; B10's fresh-career fixture has
+# zero VESSEL nodes, so TestCommandLoadGame.DecideLoadRoute takes the
+# NoVesselSpaceCenter route and the batch runs at the Space Center. Every test was
+# scene-eligibility skipped and the runner emitted
+#   BATCH_COMPLETE v1 total=2 passed=0 failed=0 skipped=2 category=... scene=SPACECENTER
+# which SATISFIES `failed=0` - a shipped daily scenario reading GREEN while executing
+# ZERO tests, indefinitely. `failed=0` alone cannot distinguish "everything passed"
+# from "nothing ran".
+#
+# THE RULE. A spec that OWNS a batch (a RunTests step or an [driver.autorun] block)
+# must carry a logContracts.required pin that a VACUOUS batch cannot satisfy. This is
+# NOT checked syntactically (a syntactic "must contain total=" rule is itself a
+# tautology - `total=\d+` pins nothing). It is checked by CONSTRUCTION: synthesize
+# every BATCH_COMPLETE line a vacuous batch could emit and confirm the spec's own
+# patterns REJECT each one. A contract that accepts any of them is rejected at
+# spec-validation time, before KSP is ever launched.
+#
+# WHAT COUNTS AS VACUOUS. The runner's tally always satisfies
+# total == passed + failed + skipped (Passed/Failed/Skipped are recounted over the
+# same `considered` set, InGameTestRunner.RunBatch). So `passed == 0 and failed == 0`
+# forces `total == skipped`: the empty batch (all zero) and the all-skipped batch are
+# the SAME one-parameter family, enumerated over `skipped`.
+# ---------------------------------------------------------------------------
+
+# The opt-out lives in [expectations.logContracts] beside the contract it exempts.
+# It is deliberately two keys: a bare bool could drift in unexplained, so the reason
+# is REQUIRED and a spec author has to write down why the batch cannot be pinned.
+BATCH_VACUITY_OPT_OUT_KEY = "batchVacuityOptOut"
+BATCH_VACUITY_OPT_OUT_REASON_KEY = "batchVacuityOptOutReason"
+
+# Every scene token InGameTestRunner can print (HighLogic.LoadedScene.ToString()).
+# The B10 defect WAS a scene surprise (the spec assumed FLIGHT, the fixture routed to
+# SPACECENTER / earlier MAINMENU), so the probe sweeps them all: a contract that pins
+# `scene=FLIGHT` rejects the off-scene probes by scene mismatch, which is exactly the
+# behavior wanted - an off-scene vacuous batch reds.
+_BATCH_PROBE_SCENES: Tuple[str, ...] = (
+    "FLIGHT", "SPACECENTER", "TRACKSTATION", "EDITOR", "MAINMENU",
+    "LOADING", "LOADINGBUFFER", "SETTINGS", "CREDITS", "PSYSTEM",
+)
+
+# Bounded enumeration of the all-skipped family. 256 comfortably exceeds every
+# in-game category (the largest today is Logistics at 47), and any integer literal
+# the spec's own patterns mention is added on top, so a pattern that pins a total
+# ABOVE the bound is still probed at exactly the value it pins.
+_BATCH_PROBE_MAX_SKIPPED = 256
+
+# The probes carry the real KSP.log line prefix so a contract that anchors on
+# "\[Parsek\]\[INFO\]\[TestRunner\]" is exercised as written; a BARE probe is swept
+# too so a "^BATCH_COMPLETE"-anchored contract is not silently exempted.
+_BATCH_PROBE_PREFIX = "[LOG 00:00:00.000] [Parsek][INFO][TestRunner] "
+
+
+def _batch_probe_skipped_counts(patterns: Sequence[str]) -> List[int]:
+    counts = set(range(0, _BATCH_PROBE_MAX_SKIPPED + 1))
+    for pat in patterns:
+        for lit in re.findall(r"\d+", str(pat)):
+            try:
+                counts.add(int(lit))
+            except ValueError:  # pragma: no cover - findall only yields digits
+                pass
+    return sorted(counts)
+
+
+def _batch_probe_categories(selector: Optional[str]) -> Tuple[str, ...]:
+    """Category tokens the GATING BATCH_COMPLETE line could carry for ``selector``.
+
+    Single category -> that exact token. No category (RunTests with no arg ->
+    InGameTestRunner.RunAll) -> the literal "all" the runner stamps as
+    currentBatchSelector. A multi-category selector gates on the
+    ``category=multi:<n>`` AGGREGATE (resolve_batch_complete), so the aggregate token
+    for the declared count is probed alongside each constituent.
+    """
+    if not selector:
+        return ("all",)
+    s = selector.strip()
+    if not is_multi_category_selector(s):
+        return (s,)
+    toks = tuple(t.strip() for t in s.split(",") if t.strip()) if s != "all" else ()
+    n = len(toks) if toks else 1
+    return ("multi:%d" % n, "all") + toks
+
+
+def vacuous_batch_complete_probes(
+    selector: Optional[str], patterns: Sequence[str]
+) -> List[str]:
+    """Every KSP.log line a VACUOUS batch for ``selector`` could emit.
+
+    Vacuous = zero tests EXECUTED: ``passed=0 failed=0``, which (see the module note
+    above) forces ``total == skipped``. skipped=0 is the empty batch (the category
+    matched nothing at all); skipped=N is the all-skipped batch (scene-ineligible or
+    AllowBatchExecution=false). Pure; no I/O.
+    """
+    out: List[str] = []
+    counts = _batch_probe_skipped_counts(patterns)
+    for cat in _batch_probe_categories(selector):
+        for scene in _BATCH_PROBE_SCENES:
+            for n in counts:
+                body = ("BATCH_COMPLETE v1 total=%d passed=0 failed=0 skipped=%d "
+                        "category=%s scene=%s" % (n, n, cat, scene))
+                out.append(_BATCH_PROBE_PREFIX + body)
+                out.append(body)
+    return out
+
+
+def batch_contract_vacuity_gap(
+    required_patterns: Sequence[str], selector: Optional[str]
+) -> Optional[str]:
+    """The first vacuous BATCH_COMPLETE line this contract would ACCEPT, or None.
+
+    A log body is accepted by ``evaluate_expectations`` when EVERY required pattern
+    re.search-matches it, so the batch contract detects vacuity iff, for each probe,
+    at least ONE BATCH_COMPLETE-naming pattern fails to match. Returns the offending
+    probe line (so the error message can quote the exact tally that would have passed)
+    or None when the contract discriminates.
+
+    Patterns that do not name BATCH_COMPLETE are IGNORED here: they are satisfied by
+    other log lines that a vacuous batch still emits, so they can never be the thing
+    that reds an empty tally.
+    """
+    batch_patterns = [str(p) for p in (required_patterns or []) if "BATCH_COMPLETE" in str(p)]
+    if not batch_patterns:
+        return "<no logContracts.required pattern names BATCH_COMPLETE>"
+    compiled = []
+    for pat in batch_patterns:
+        try:
+            compiled.append(re.compile(pat))
+        except re.error:
+            # An invalid regex is already an expectations-evaluation mismatch at run
+            # time; treat it as non-discriminating here rather than crashing validation.
+            continue
+    if not compiled:
+        return "<every BATCH_COMPLETE pattern is an invalid regex>"
+    for probe in vacuous_batch_complete_probes(selector, batch_patterns):
+        if all(rx.search(probe) is not None for rx in compiled):
+            return probe
+    return None
+
+
 # The terminal RED token is the LAST token on the [Analyzer] header line and the
 # SOLE gate source (baseline doc). Anchored at end-of-line so a save leaf that
 # literally contains "RED=0" earlier in the header can never spoof the gate.
@@ -1026,6 +1172,7 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                     % (save_arg, RUN_SAVE_TOKEN, run_save_name))
 
     run_tests_steps = 0
+    run_tests_selector: Optional[str] = None
     mission_step_indices: List[int] = []
     first_loadgame_index: Optional[int] = None
     for i, step in enumerate(steps):
@@ -1061,6 +1208,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                 % (i, expect, list(SEAM_EXPECT_VERDICTS)))
         budget = step.get("budget")
         if cmd == "RunTests":
+            # The FIRST RunTests category is what run.py's _driven_category resolves,
+            # so it is the selector the vacuity probe must be built for.
+            if run_tests_steps == 0:
+                run_tests_selector = (step.get("args", {}) or {}).get("category")
             run_tests_steps += 1
         if budget is not None and cmd in DEFERRED_SEAM_VERBS:
             if not isinstance(budget, (int, float)) or budget > MAX_DEFERRED_STEP_BUDGET_SECONDS:
@@ -1080,6 +1231,57 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         errors.append("BATCH owner: both a RunTests step and [driver.autorun] declared (exactly one allowed)")
     if batch_owners == 0 and requires_batch:
         errors.append("BATCH owner: none declared but logContracts.required names BATCH_COMPLETE")
+
+    # --- Anti-vacuity gate (the B10 "GREEN over ZERO executed tests" class). A spec
+    # that owns a batch must pin a tally an EMPTY or ALL-SKIPPED batch cannot satisfy;
+    # see the batch_contract_vacuity_gap module note for the mechanism (probe by
+    # construction, never a syntactic "must mention total=" tautology).
+    opt_out = log_contracts.get(BATCH_VACUITY_OPT_OUT_KEY)
+    opt_out_reason = log_contracts.get(BATCH_VACUITY_OPT_OUT_REASON_KEY)
+    if opt_out is not None and not isinstance(opt_out, bool):
+        errors.append("expectations.logContracts.%s: %r must be a bool"
+                      % (BATCH_VACUITY_OPT_OUT_KEY, opt_out))
+    # MISPLACED-KEY guard, mirroring skipTailOnUnmetMission: a key written before the
+    # [expectations.logContracts] header lands in a different TOML table and the flag
+    # would be SILENTLY inert - and this one fails in the UNSAFE direction (the author
+    # believes they opted out; validation then rejects the spec for a reason the
+    # misplaced key was meant to waive). Reject outright so the misplacement is named.
+    for scope_name, scope in (("expectations", expectations),
+                              ("the spec root", spec),
+                              ("driver", driver)):
+        if isinstance(scope, dict):
+            for key in (BATCH_VACUITY_OPT_OUT_KEY, BATCH_VACUITY_OPT_OUT_REASON_KEY):
+                if key in scope:
+                    errors.append(
+                        "%s: %s belongs in [expectations.logContracts], not here "
+                        "(a key outside that table is silently ignored)" % (scope_name, key))
+    if batch_owners > 0:
+        selector = run_tests_selector if run_tests_steps > 0 else (autorun or {}).get("tests")
+        if opt_out is True:
+            if not isinstance(opt_out_reason, str) or not opt_out_reason.strip():
+                errors.append(
+                    "expectations.logContracts.%s: a non-empty %s is REQUIRED (an "
+                    "unexplained opt-out is how the vacuous-batch class comes back)"
+                    % (BATCH_VACUITY_OPT_OUT_KEY, BATCH_VACUITY_OPT_OUT_REASON_KEY))
+        else:
+            gap = batch_contract_vacuity_gap(required_patterns, selector)
+            if gap is not None:
+                errors.append(
+                    "expectations.logContracts.required: the batch contract for "
+                    "selector %r cannot detect a vacuous batch -- it ACCEPTS %s. Pin "
+                    "the tally that must actually execute (e.g. 'BATCH_COMPLETE v1 "
+                    "total=N passed=N failed=0 skipped=0 category=X scene=Y', or "
+                    "'passed=[1-9][0-9]*' when the exact split is not yet measured); "
+                    "derive N from the category's [InGameTest] Scene / "
+                    "AllowBatchExecution attributes and the fixture's LoadGame route. "
+                    "Deliberate exception: set %s = true with a %s."
+                    % (selector, gap, BATCH_VACUITY_OPT_OUT_KEY,
+                       BATCH_VACUITY_OPT_OUT_REASON_KEY))
+    elif opt_out is not None:
+        warnings.append(
+            "expectations.logContracts.%s declared on a spec with no batch owner: "
+            "inert (there is no batch whose tally could be vacuous)"
+            % (BATCH_VACUITY_OPT_OUT_KEY,))
 
     # Exactly one QUIT owner: a FlushAndQuit step XOR autorun.exit = true (N3).
     has_flush = any((s or {}).get("cmd") == "FlushAndQuit" for s in steps)

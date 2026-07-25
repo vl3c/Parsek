@@ -1,15 +1,36 @@
 schema = 1
 id = "B10-career-passive-safety"
-# pending-fixture (NOT daily): the fixtures/saves/fresh-career template is not committed
-# yet, so a --cadence daily run would INVALID(staging) this terminally and self-quarantine
-# a scenario that never ran. Re-tier to "daily" once the fixture lands.
+# daily. The comment here used to say "pending-fixture (NOT daily): the
+# fixtures/saves/fresh-career template is not committed yet" - stale since 2026-07-23,
+# when the career fixtures were file-constructed and committed and this was re-tiered.
 tier = "daily"
-# The v1 seam driver does a cold LoadGame into an in-scene RecordingInvariants batch;
-# it has NO warp or scene-change verb (design ~541 defers R1's warp/scene-change
-# economy-drift trigger to the TimeJump/scene verbs), so the description names what the
-# driver actually does and the R1 tag is dropped (it is not covered here; tags feed
-# --tag selection only, not the coverage registry, so removal breaks no consumer).
-description = "Fresh career, stock actions only, cold load into an in-scene test batch; no economy drift."
+# The v1 seam driver does a cold LoadGame into an in-scene test batch; it has NO warp
+# or scene-change verb (design ~541 defers R1's warp/scene-change economy-drift trigger
+# to the TimeJump/scene verbs), so the description names what the driver actually does
+# and the R1 tag is dropped (it is not covered here; tags feed --tag selection only,
+# not the coverage registry, so removal breaks no consumer).
+#
+# BATCH CATEGORY CORRECTED 2026-07-26 (RecordingInvariants -> GameActionsHealth).
+# THE DEFECT: this scenario shipped daily and read GREEN while executing ZERO tests,
+# proved live on the real automation instance:
+#   BATCH_COMPLETE v1 total=2 passed=0 failed=0 skipped=2 category=RecordingInvariants scene=SPACECENTER
+#   Scene eligibility skip summary: skipped=2 currentScene=SPACECENTER byRequiredScene=FLIGHT:2
+# Both RecordingInvariants tests are Scene = GameScenes.FLIGHT; fresh-career has ZERO
+# VESSEL nodes by construction (that IS the scenario), so
+# TestCommandLoadGame.DecideLoadRoute takes the NoVesselSpaceCenter route and the batch
+# runs at the Space Center where neither test is eligible. The old contract
+# (`BATCH_COMPLETE v1 .* failed=0\b`) could not tell that apart from 2 passes.
+# THE FIX IS NOT A STRONGER PIN ON THE SAME CATEGORY: a vessel-less career fixture can
+# NEVER host a FLIGHT-scene category, so pinning `total=2 passed=2` would just convert a
+# permanent false green into a permanent red. The category moves to one that genuinely
+# runs where this fixture lands AND is what a passive-career-safety cell wants asserted:
+# GameActionsHealth is 4 scene-agnostic (RequiredScene == AnyScene), batch-allowed,
+# READ-ONLY tests - GameStateRecorder's three suppression flags are not stuck (the
+# "silently stopped recording" class) plus Funding / ResearchAndDevelopment / Reputation
+# singletons resolve with in-range pools. Read-only matters: this scenario's ledger
+# oracle asserts a ZERO career delta, so the batch must not move the economy, and these
+# four tests write nothing.
+description = "Fresh career, stock actions only, cold load into an in-scene game-actions-health batch; no economy drift."
 instanceProfile = "stock-minimal"
 tags = ["ledger", "B10", "R2"]
 
@@ -30,15 +51,24 @@ kind = "seam"
 steps = [
   { cmd = "LoadGame",    args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting",  args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
-  { cmd = "RunTests",    args = { category = "RecordingInvariants" },          expect = "OK", budget = 540 },
+  { cmd = "RunTests",    args = { category = "GameActionsHealth" },            expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit",                                                       expect = "OK" },
 ]
 
 # Dimension values this scenario covers (validated against coverage/registry.toml).
+# D16 schema-gate DROPPED 2026-07-26 (same vacuity audit as the batch category above):
+# the load-time schema gate is per-recording (RecordingSidecarStore ->
+# RecordingStore.IsRecordingSchemaCompatible; analyzer INV5 likewise), and this
+# scenario injects NOTHING and records NOTHING (injectedRecordings = "none",
+# recordings.count 0..0). The gate therefore ran over an empty set and the cell was
+# claimed without being exercised. H5-invariants-corpus covers it honestly over 306
+# recordings, so no registry cell is lost.
+# D14 scene-ksc is claimed because the batch genuinely runs at the Space Center: the
+# vessel-less fresh-career fixture routes LoadGame through DecideLoadRoute's
+# NoVesselSpaceCenter branch (measured, see the logContracts note).
 [dimensionsCovered]
 D8  = ["funds", "science", "reputation", "recalc-from-ut0"]
-D14 = ["career", "cold-load-ut0"]
-D16 = ["schema-gate"]
+D14 = ["career", "cold-load-ut0", "scene-ksc"]
 
 [expectations.recordings]
 # count.max == 0 selects the recording-rules log-validation suppression (B1): a
@@ -46,11 +76,25 @@ D16 = ["schema-gate"]
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
-# LITERAL KSP.log line patterns, NOT anomaly tokens. The BATCH_COMPLETE match is
-# anchored with a trailing \b so "failed=0" cannot match "failed=05".
+# LITERAL KSP.log line patterns, NOT anomaly tokens.
 # The level token is UPPERCASE in ParsekLog.Write ("[Parsek][ERROR][...]"), and
 # the forbidden patterns are case-sensitive re.search; match ERROR, not Error.
-required  = ["BATCH_COMPLETE v1 .* failed=0\\b"]
+#
+# The batch tally is pinned WHOLE (hlib.batch_contract_vacuity_gap enforces that a
+# RunTests spec carry a pin an empty / all-skipped batch cannot satisfy). Derivation,
+# all four numbers:
+#  - total=4: ExtendedRuntimeTests declares exactly 4
+#    [InGameTest(Category = "GameActionsHealth")] methods, and BATCH_COMPLETE's total is
+#    `allTests.Count(Status != NotRun)` over the single RunCategory batch.
+#  - skipped=0 / passed=4: all 4 are RequiredScene == AnyScene (no Scene = argument) and
+#    AllowBatchExecution default-true, so none is filtered. The three singleton tests
+#    self-skip only when HighLogic.CurrentGame is null or the mode is not CAREER
+#    (ScienceSingletonAccessible also accepts SCIENCE_SANDBOX); fresh-career is
+#    GAME { Mode = CAREER } and the seam loads it before the batch, so none fires.
+#  - scene=SPACECENTER: fresh-career has zero VESSEL nodes, so LoadGame takes
+#    DecideLoadRoute's NoVesselSpaceCenter route. Pinning the scene is what makes the
+#    original defect impossible to repeat silently - a route change reds here.
+required  = ["BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=GameActionsHealth scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 # The scenario's bounded, documented exceptions to the harness-owned Tier-C

@@ -73,6 +73,17 @@ count = { min = 0, max = 0 }
 #   pin, a permanently-skipping DormantRoute_MaterializesViaScenarioDrivenTick
 #   (the ONLY production-wiring proof) would stay invisible because the
 #   sibling dormant test emits the same Materialize line.
+# - ANTI-VACUITY (hlib.batch_contract_vacuity_gap): `failed=0 skipped=0` was
+#   still satisfied by an EMPTY batch (`total=0 passed=0 failed=0 skipped=0`,
+#   which a renamed / mis-typed category selector produces), so the tally now
+#   pins total AND passed too. The derivation is closed:
+#   RouteRewindTimelineRuntimeTests declares exactly 7
+#   [InGameTest(Category = Category)] methods, every one scene-agnostic (no
+#   Scene = argument, so RequiredScene == AnyScene) and batch-allowed
+#   (AllowBatchExecution default true), so all 7 are eligible and execute at
+#   whatever scene the batch runs in. The 2026-07-24 live PASS met the
+#   `failed=0 skipped=0` pin over those 7, which fixes passed = total = 7.
+#   Adding a test to the category moves BOTH numbers here, same commit.
 # - Every LifecycleMarker regex ends in " ut=" so it can only match a genuine
 #   emission line ("... reason=X ut=<UT> seq=..."), never the "SKIPPED - live
 #   UT unresolved" warn line (RouteOrchestrator.cs:3613), which puts
@@ -93,7 +104,7 @@ required  = [
   "Restore: retired 1 free-standing route row\\(s\\)",
   "Restore: dropped 1 pending science subject\\(s\\)",
   "RetireFutureRouteActionsAtRewind: removed 2 free-standing route",
-  "BATCH_COMPLETE v1 .* failed=0 skipped=0\\b",
+  "BATCH_COMPLETE v1 total=7 passed=7 failed=0 skipped=0 category=RouteRewindTimeline scene=FLIGHT",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

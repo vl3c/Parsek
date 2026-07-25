@@ -242,7 +242,11 @@ kind = "seam"                        # v1 ONLY. "autopilot" is RESERVED (M-B1) -
 steps = [
   { cmd = "LoadGame",    args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting",  args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
-  { cmd = "RunTests",    args = { category = "RecordingInvariants" },          expect = "OK", budget = 540 },
+  # Pick a category whose tests can actually RUN where this fixture's LoadGame route
+  # lands. fresh-career has no VESSEL nodes, so DecideLoadRoute settles at SPACECENTER
+  # and a FLIGHT-scene category (RecordingInvariants, which this example named until
+  # 2026-07-26) would be skipped WHOLESALE. See the anti-vacuity rule above.
+  { cmd = "RunTests",    args = { category = "GameActionsHealth" },            expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit",                                                       expect = "OK" },
 ]
 # OPTIONAL autorun path (M-A3): instead of (or in addition to) a RunTests step,
@@ -269,8 +273,11 @@ steps = [
 # fails spec validation.
 [dimensionsCovered]
 D8  = ["funds", "science", "reputation", "recalc-from-ut0"]
-D14 = ["career", "cold-load-ut0"]
-D16 = ["schema-gate"]
+D14 = ["career", "cold-load-ut0", "scene-ksc"]
+# NOTE: this example listed D16 = ["schema-gate"] until 2026-07-26. It was dropped from
+# the real spec as a second vacuity: the load-time schema gate is PER-RECORDING, and a
+# scenario with injectedRecordings = "none" and recordings.count 0..0 evaluates it over
+# an empty set. Claim a cell only where the run actually exercises it.
 
 # Expectations manifest. The block vocabulary is the plan section 4 item 2 schema.
 # v1 EVALUATES: recordings, perRecording, logContracts, plus the analyzer red gate
@@ -283,11 +290,17 @@ count = { min = 0, max = 0 }
 # treeShape, sectionFrameKinds, eventKinds, resourceDeltas -> reserved
 [expectations.logContracts]
 # required/forbidden are LITERAL KSP.log line patterns, NOT anomaly tokens (the
-# anomaly sweep is harness-owned; see allowedAnomalies below). Anchor the
-# BATCH_COMPLETE match so "failed=0" cannot match "failed=05": the pattern ends in
-# a word boundary (\b) -- equivalently a trailing space, since the M-A3 line always
-# has "failed=<n> skipped=".
-required  = ["BATCH_COMPLETE v1 .* failed=0\\b"]
+# anomaly sweep is harness-owned; see allowedAnomalies below).
+#
+# PIN THE WHOLE TALLY. This example used to read `["BATCH_COMPLETE v1 .* failed=0\\b"]`,
+# and that recommendation is what let the REAL B10 read GREEN over ZERO executed tests
+# for as long as it ran: an all-skipped batch has failed=0 too. Spec validation now
+# REJECTS any batch contract an empty or all-skipped tally could satisfy (see the
+# anti-vacuity rule above). Derive the numbers from the category's [InGameTest]
+# attributes and the fixture's LoadGame route -- for this scenario, GameActionsHealth
+# is 4 AnyScene batch-allowed tests and the vessel-less fresh-career fixture settles at
+# the Space Center, so all four execute there:
+required  = ["BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=GameActionsHealth scene=SPACECENTER"]
 # The level token is UPPERCASE in ParsekLog.Write ("[Parsek][ERROR][...]") and the
 # forbidden patterns are case-sensitive re.search, so match ERROR (not Error).
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
@@ -339,7 +352,8 @@ cannot drive it); every `steps[].expect` in the seam verdict set
 the harness never restarts KSP mid-run to observe an at-most-once replay; see the
 edge-case note); exactly one BATCH owner (a `RunTests` step XOR an
 `[driver.autorun]` block, never both, never neither when `logContracts.required`
-names BATCH_COMPLETE); exactly one QUIT owner (a `FlushAndQuit` step XOR
+names BATCH_COMPLETE); a batch owner's contract must be able to DETECT A VACUOUS
+BATCH (see the anti-vacuity rule below); exactly one QUIT owner (a `FlushAndQuit` step XOR
 `autorun.exit = true`, never both, never neither); any `RunTests` step `budget`
 (and any per-step budget bounding a deferred seam command) is `<= 540` seconds,
 because the seam's own fallback deferral ceiling is 600s and the harness step-wait
@@ -348,6 +362,43 @@ every `dimensionsCovered` key and value present in the registry;
 `runtime.budgetSeconds > 0`; `retry.policy` in the enum; if `expectedFail.bugId`
 set, it must resolve in the todo doc (warn, not hard-fail, so a scenario can land
 slightly ahead of the doc entry).
+
+**Anti-vacuity rule for batch contracts (added 2026-07-26).** A spec that owns a
+batch must carry a `logContracts.required` pin that an EMPTY or ALL-SKIPPED batch
+cannot satisfy. The rule exists because `B10-career-passive-safety` shipped at daily
+tier and read GREEN while executing ZERO tests: its `RecordingInvariants` batch ran
+at SPACECENTER (the `fresh-career` fixture is vessel-less, so
+`TestCommandLoadGame.DecideLoadRoute` takes the `NoVesselSpaceCenter` branch), both
+FLIGHT-scene tests were scene-eligibility skipped, and the contract this document's
+own example recommended - `BATCH_COMPLETE v1 .* failed=0\b` - matches
+`total=2 passed=0 failed=0 skipped=2` exactly as well as two passes.
+
+The check is by CONSTRUCTION, not syntax. A syntactic "the pattern must mention
+`total=`" rule would be its own tautology (`total=\d+` pins nothing), so
+`hlib.vacuous_batch_complete_probes` synthesizes every `BATCH_COMPLETE v1` line a
+vacuous batch could emit for the spec's driven selector and
+`hlib.batch_contract_vacuity_gap` reports the first one the spec's own patterns would
+accept. The vacuous family is one-parameter because the runner's tally always
+satisfies `total == passed + failed + skipped`: `passed=0 failed=0` forces
+`total == skipped`, so `skipped=0` is the empty batch and `skipped=N` the all-skipped
+one. Probes sweep every `GameScenes` token (the original defect was a SCENE surprise),
+both the prefixed and bare log-line forms, and `skipped` over 0..256 plus every
+integer literal the patterns themselves name.
+
+Authoring guidance: pin the whole tally,
+`BATCH_COMPLETE v1 total=N passed=P failed=0 skipped=S category=X scene=Y`, deriving
+`N`/`P`/`S` from the category's `[InGameTest]` `Scene` and `AllowBatchExecution`
+attributes plus the fixture's LoadGame route (`RunCategory` applies
+`FilterSceneEligibleBatchCandidates` first, then `PrepareBatchExecution`; both mark
+Skipped, and `total` is `allTests.Count(Status != NotRun)` so it counts them). `P` need
+NOT equal `N` - a category with FLIGHT-scene or `AllowBatchExecution=false` members
+correctly reports a nonzero `skipped`, and pretending otherwise would be a different
+lie. Where a live tally has not been measured and conditional `InGameAssert.Skip`
+guards make the split underivable, `passed=[1-9][0-9]*` with `skipped=[0-9]+` is the
+honest interim form and carries a PENDING-OPERATOR to tighten. Deliberate exception:
+`batchVacuityOptOut = true` in `[expectations.logContracts]`, which REQUIRES a
+non-empty `batchVacuityOptOutReason` (an unexplained bool is how the class returns) and
+is misplaced-key-guarded like `skipTailOnUnmetMission`.
 
 ### Dimension registry: `harness/coverage/registry.toml`
 
