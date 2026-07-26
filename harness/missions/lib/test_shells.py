@@ -2380,11 +2380,11 @@ class WarpLivenessRealMachineTests(unittest.TestCase):
     per wall-second."""
 
     THRASH_RAILS_RATE = 2.76      # measured, flight 2's final coast
-    STARVED_GAME_PER_WALL = 1.41  # measured, ditto (7.05-7.13 game-s / 5 s)
+    STARVED_GAME_PER_WALL = 1.41  # measured, ditto (median 7.105 game-s / 5 s)
     COAST_ALTITUDE = 49_028_969.0
 
     def _fly_real_machine(self, game_per_wall, frames, wall_per_frame=1.0,
-                          rails_rate=None):
+                          rails_rate=None, control_factory=None):
         clock = _StepClock()
         log = mission_runner.MissionLogger(sink=lambda _l: None, clock=clock)
         state = mlib.b5_initial_state(mlib.b5_params_from_dict(dict(B5_PARAMS)))
@@ -2422,12 +2422,127 @@ class WarpLivenessRealMachineTests(unittest.TestCase):
                        time_to_soi=float("nan"), warp_mode="RAILS",
                        warp_rate=rails_rate, warping_to=tts - 30.0)
                   for i in range(1, frames)]
+        control = (control_factory or FakeMissionControl)(snaps,
+                                                          max_last_repeats=4)
+        final, _ = mission_runner.fly_loop(
+            control, state, decide, log, deadline=1e12, clock=clock,
+            sleep=lambda _s: None, poll_interval=0.0, settle_frames=0,
+            allow_rails_warp=True)
+        return final, control
+
+    # THE EPISODE-RESET SCRIPT (2026-07-26 review round 2, BLOCKER-2). The one
+    # line that makes the liveness ratio EPISODE-local rather than cumulative is
+    # `if not armed: wl_wall_start = None; wl_ut_start = None` in the fly loop,
+    # and replacing it with `pass` survived the whole mission suite. This script
+    # is what kills that mutation: the real machine ARMS a native warp, ARRIVES
+    # (so the machine itself disarms), holds a long deliberate 1x stretch, then
+    # RE-ARMS and warps for real. Without the reset the stale baseline bills the
+    # 1x hold against the re-armed episode's ratio and the floor false-fires on
+    # a healthy flight -- which is not hypothetical: nine archived PARK rows run
+    # 180.2-180.6 wall-seconds at ratio 0.999, i.e. just past the judging window
+    # and 5x under the floor.
+    HOLD_WALL_SECONDS = 600.0     # the deliberate 1x stretch, ~3.3x the window
+    REARMED_GAME_PER_WALL = 300.0  # the re-armed episode, genuinely warping
+
+    def _fly_disarm_rearm(self, rearmed_game_per_wall=None,
+                          rearmed_frames=250, hold_frames=600,
+                          arm_frames=12, wall_per_frame=1.0):
+        """Three scripted stretches through the REAL b5 coast machine:
+
+        1. ARM: a readable ``time_to_soi`` of 40 s arms a native warp to
+           ``ut + 10`` (soi_lead 30). The machine holds it while UT crawls to
+           the target, then ``_b5_clear_arrived_warp`` DISARMS on arrival -- the
+           machine's own disarm, not a test-injected one.
+        2. HOLD: ``hold_frames`` of deliberate, unarmed 1x (blank encounter, no
+           warp). This is the stretch a stale baseline would bill.
+        3. RE-ARM: a fresh readable ``time_to_soi`` re-arms the native warp and
+           the game warps at ``rearmed_game_per_wall`` game-s per wall-s for
+           ``rearmed_frames`` -- long past WARP_LIVENESS_MIN_WALL_SECONDS, so
+           the episode IS judged rather than skipped.
+        """
+        game_per_wall = (self.REARMED_GAME_PER_WALL
+                         if rearmed_game_per_wall is None
+                         else rearmed_game_per_wall)
+        clock = _StepClock()
+        log = mission_runner.MissionLogger(sink=lambda _l: None, clock=clock)
+        state = mlib.b5_initial_state(mlib.b5_params_from_dict(dict(B5_PARAMS)))
+        state = replace(state, phase=mlib.B5_COAST_TO_TARGET, phase_entry_ut=0.0,
+                        correction_rounds_done=len(
+                            state.params.correction_trigger_alts))
+        total = arm_frames + hold_frames + rearmed_frames
+        seen = {"n": 0}
+
+        def decide(st, snapshot):
+            clock.advance(wall_per_frame)
+            seen["n"] += 1
+            if seen["n"] >= total:
+                return replace(st, done=True), []
+            return mlib.b5_decide(st, snapshot)
+
+        common = dict(body="Kerbin", altitude=self.COAST_ALTITUDE)
+        # 1. ARM: target = ut + time_to_soi - soi_lead = 0 + 40 - 30 = 10.
+        snaps = [snap(ut=0.0, time_to_soi=40.0, warp_mode="NONE",
+                      warp_rate=1.0, **common)]
+        snaps += [snap(ut=float(i), time_to_soi=float("nan"), warp_mode="RAILS",
+                       warp_rate=2.0, warping_to=10.0, **common)
+                  for i in range(1, arm_frames)]
+        # 2. HOLD: unarmed, un-warped, 1 game-s per wall-s. The altitude walks
+        # (a real 1x coast never repeats a float): these are the only warp_mode
+        # NONE frames in the script, and the frozen-telemetry detector advances
+        # ONLY at 1x, so a bit-identical altitude here would trip vessel-lost at
+        # frame 10 and the script would never reach the re-arm.
+        hold_start = float(arm_frames)
+        snaps += [snap(ut=hold_start + i, time_to_soi=float("nan"),
+                       warp_mode="NONE", warp_rate=1.0, body="Kerbin",
+                       altitude=self.COAST_ALTITUDE + i * 0.5)
+                  for i in range(hold_frames)]
+        # 3. RE-ARM: a readable encounter far enough ahead that the target stays
+        # ahead for the whole stretch, then a genuinely fast warp.
+        rearm_ut = hold_start + hold_frames
+        rearm_tts = game_per_wall * wall_per_frame * rearmed_frames * 4.0 + 40_000.0
+        snaps += [snap(ut=rearm_ut, time_to_soi=rearm_tts, warp_mode="NONE",
+                       warp_rate=1.0, **common)]
+        snaps += [snap(ut=rearm_ut + game_per_wall * wall_per_frame * i,
+                       time_to_soi=float("nan"), warp_mode="RAILS",
+                       warp_rate=1000.0,
+                       warping_to=rearm_ut + rearm_tts - 30.0, **common)
+                  for i in range(1, rearmed_frames)]
         control = FakeMissionControl(snaps, max_last_repeats=4)
         final, _ = mission_runner.fly_loop(
             control, state, decide, log, deadline=1e12, clock=clock,
             sleep=lambda _s: None, poll_interval=0.0, settle_frames=0,
             allow_rails_warp=True)
         return final, control
+
+    def test_a_healthy_rearmed_warp_is_judged_on_its_own_episode_not_the_1x_hold(self):
+        """KILLS the `if not armed: pass` mutation. The re-armed warp is fast
+        (300 game-s per wall-s, 60x the floor) and the deliberate 1x hold before
+        it is 600 wall-seconds long. With the reset the episode is judged from
+        the re-arming frame and runs clean; without it the judged window starts
+        600 wall-seconds and ~612 game-seconds earlier, so the FIRST re-armed
+        frame reads ~1.0 game-s/wall-s and the floor kills a healthy flight."""
+        final, control = self._fly_disarm_rearm()
+        self.assertNotEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertNotIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason or "")
+        # NOT VACUOUS: the machine really did disarm and re-arm, so the reset
+        # branch was genuinely taken (one arm per armed stretch, and the second
+        # can only be issued from a disarmed state).
+        arms = [a for a in control.actions if a.kind == mlib.ACTION_WARP_TO_UT]
+        self.assertEqual(len(arms), 2, control.actions[:12])
+        # And the re-armed episode is long enough to BE judged, so the pass is
+        # not "the window never opened".
+        self.assertGreater(250 * 1.0, mlib.WARP_LIVENESS_MIN_WALL_SECONDS)
+
+    def test_the_rearmed_episode_is_still_judged_after_the_reset(self):
+        """The negative control for the cell above: same script, but the
+        re-armed warp crawls at the measured 1.41 game-s/wall-s. The reset must
+        restart the window, NOT disarm the guard -- so this one still fires."""
+        final, control = self._fly_disarm_rearm(
+            rearmed_game_per_wall=self.STARVED_GAME_PER_WALL)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason)
+        arms = [a for a in control.actions if a.kind == mlib.ACTION_WARP_TO_UT]
+        self.assertEqual(len(arms), 2, control.actions[:12])
 
     def test_the_real_coast_machine_holds_a_starved_warp_until_the_floor_fires(self):
         """The shape the floor exists for, flown by the real machine: the hold
@@ -2456,25 +2571,46 @@ class WarpLivenessRealMachineTests(unittest.TestCase):
         self.assertEqual(final.phase_warp_issues, 1)
         self.assertNotIn(mlib.WARP_THRASH_COAST, final.flake_reason)
 
-    def test_the_floor_terminal_leaves_the_warp_standing_like_every_fly_loop_terminal(self):
-        """Pins a deliberate ASYMMETRY this coverage surfaced, so nobody
-        "fixes" one side of it in isolation.
+    def test_the_floor_terminal_tears_the_warp_down_before_returning(self):
+        """LEAVE NOTHING WARPED BEHIND (2026-07-26 review round 2).
 
-        MACHINE-level terminals tear the warp down (`_b5_stop_all_warp`, the
-        "leave nothing warped behind" rule the 2026-07-26 review added to the
-        thrash family) because the machine returns ACTIONS and the fly loop
-        performs them before driving the seam. FLY-LOOP-level terminals do not,
-        and all three behave identically: the wall reaper, the unexpected-warp
-        flake, and this floor all return a done state with the warp still
-        armed. That is the right call here rather than an oversight -- a
-        teardown would have to `control.perform` from inside the give-up
-        branch, and a perform that raises on a degraded connection would escape
-        as a post-connect drop and DESTROY the named reason, which is the entire
-        value of the terminal. Nothing drives the game after a fly-loop
-        terminal: run_mission evaluates, closes the connection, and run.py kills
-        the process for the retry."""
-        final, _ = self._fly_real_machine(
+        The shipped version returned here with the warp still armed, justified
+        by a comment asserting "nothing drives the game afterwards". That was
+        FALSE: `hlib.plan_unmet_mission_tail` drives the TAIL_ROLE_CLEANUP verbs
+        (StopRecording, FlushAndQuit) after ANY unmet mission, and MISSION-FLAKE
+        is unmet exactly like an ASSERT-FAIL -- so the seam was driven against a
+        rails-warping game, the one thing every MACHINE terminal
+        (`_b5_stop_all_warp`) is careful not to do. This terminal fires ONLY
+        while a warp is armed, so it is the fly-loop terminal that owes the
+        teardown most. It now performs a cancel inline, best-effort, and the
+        returned state stops claiming an armed command."""
+        final, control = self._fly_real_machine(
             self.STARVED_GAME_PER_WALL, frames=600)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason)
+        self.assertEqual(control.actions[-1].kind, mlib.ACTION_CANCEL_WARP)
+        self.assertIsNone(final.warp_to_cmd)
+        self.assertEqual(final.warp_cmd, 0)
+
+    def test_a_teardown_that_raises_never_destroys_the_named_give_up(self):
+        """The reason the teardown is best-effort rather than plain. A cancel
+        that dies on a degraded connection must NOT escape as a post-connect
+        drop: the named `warp-liveness-starved` verdict is the entire value of
+        this terminal, and a generic transport flake would erase it."""
+        class _CancelRaises(FakeMissionControl):
+            def perform(self, action):
+                FakeMissionControl.perform(self, action)
+                if action.kind == mlib.ACTION_CANCEL_WARP:
+                    raise ConnectionResetError("fake: warp socket died on cancel")
+
+        final, control = self._fly_real_machine(
+            self.STARVED_GAME_PER_WALL, frames=600,
+            control_factory=_CancelRaises)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason)
+        self.assertEqual(control.actions[-1].kind, mlib.ACTION_CANCEL_WARP)
+        # And the state does NOT claim a teardown that did not happen: the
+        # command stays armed when the cancel could not be delivered.
         self.assertIsNotNone(final.warp_to_cmd)
 
     def test_the_real_machine_on_a_genuinely_warping_coast_is_never_judged_starved(self):
