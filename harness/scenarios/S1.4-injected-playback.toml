@@ -61,7 +61,76 @@ count = { min = 272, max = 272 }
 
 [expectations.logContracts]
 # ERROR is UPPERCASE in ParsekLog.Write and the patterns are case-sensitive.
-required  = ["BATCH_COMPLETE v1 .* failed=0\\b"]
+#
+# ANTI-VACUITY (hlib.batch_contract_vacuity_gap). The original pin was
+# `BATCH_COMPLETE v1 .* failed=0\b`, which an ALL-SKIPPED batch satisfies just as
+# well as an all-passed one (the B10 defect: `passed=0 failed=0 skipped=N`). The
+# 2026-07-26 hardening replaced it with a loose `passed=[1-9][0-9]*` +
+# `skipped=[0-9]+` and a PENDING-OPERATOR, because 12 of the 42 carry conditional
+# skips and no live tally had ever been recorded.
+#
+# THAT PENDING-OPERATOR IS NOW CLOSED. Flown 2026-07-26 (run
+# 2026-07-26_1012_S1.4-injected-playback, PASS) and pinned WHOLE:
+#
+#   BATCH_COMPLETE v1 total=42 passed=40 failed=0 skipped=2 category=GhostPlayback scene=FLIGHT
+#
+# EVIDENCE STANDING, STATED HONESTLY - this row is WEAKER than the other four and a
+# future maintainer must know which half is re-checkable:
+#  - B10 / L1 / M1 / M2 all carried their EXACT whole-tally pins in the commit
+#    BEFORE their live runs (a0d03a949), so each run's `expectations status=PASS`
+#    matched the whole line - those four are measured in the strict sense.
+#  - S1.4 is NOT. This spec still carried the loose
+#    `passed=[1-9][0-9]* skipped=[0-9]+` form at a0d03a949; the exact split below
+#    was written in the commit AFTER the run. So what the committed run artifact
+#    (harness/results/2026-07-26_1012_S1.4-injected-playback.json) proves is
+#    total=42, failed=0, category=GhostPlayback, scene=FLIGHT and passed>=1 - the
+#    tokens the loose pin already carried.
+#  - The 40/2 split is NOT proven by any committed artifact. That run had
+#    `collectLogs: {ran: false}` (it PASSED, and collect-logs only fires on
+#    non-PASS), so no KSP.log or parsek-test-results.txt was archived for it, and
+#    the instance KSP.log has since been overwritten by later runs. The 40/2
+#    numbers were read off that run's LIVE log at the time; the exact pin below has
+#    never itself been executed as a contract.
+#  - What IS re-derivable from source, and what the pin therefore still gates
+#    honestly: total=42 and the 1 structural skip below are attribute-exact (see
+#    those two bullets). skipped >= 1 follows from the attributes alone; the exact
+#    value 2 requires the conditional self-skip to fire, which is fixture-determined
+#    and not statically derivable.
+# So: keep the pin (a wrong split reds LOUDLY and names the numbers to re-derive
+# from - the failure mode is a false RED, never a false green), but if you need the
+# split re-proven from an artifact, re-fly with collect-logs forced.
+#
+# What each token means, and what a change in it would be telling you:
+#  - total=42 is attribute-exact: RuntimeTests declares 42
+#    [InGameTest(Category = "GhostPlayback")] methods, and BATCH_COMPLETE's total
+#    is `allTests.Count(Status != NotRun)` (InGameTestRunner.RunBatch), which for a
+#    single RunCategory batch in a fresh process is every test in the category -
+#    scene-skipped and batch-skipped ones included. A category rename or a lost
+#    test file reds here.
+#  - scene=FLIGHT: gloops-airshow carries a focusable vessel, so
+#    TestCommandLoadGame.DecideLoadRoute takes the Focusable/FLIGHT route (the
+#    same route H5 MEASURED on this fixture). This is the token that would have
+#    caught B10 directly.
+#  - skipped=2, both accounted for in that run's live log (not archived - see the
+#    evidence-standing note above), and NEITHER is a scene skip
+#    (41 of the 42 are Scene = FLIGHT, 1 is scene-agnostic, so scene eligibility
+#    drops none):
+#      * 1 batch-execution skip - RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs is
+#        AllowBatchExecution=false (it destroys live ghosts while the camera watches
+#        one), logged as "Batch execution skipped 1 single-run-only test(s)". This
+#        one is structural and cannot vary.
+#      * 1 conditional self-skip - GhostPlaybackTests
+#        .WatchEntry_SameBody_PreservesFreshEntryAngles, "no stable same-body ghost
+#        available for watch-entry regression". Fixture-determined: the same
+#        gloops-airshow + all-synthetic corpus produces the same answer every run.
+#    The other 10 conditional-skip guards did NOT fire on this corpus.
+#  - passed=40: everything else executed. This is the number the loose pin could
+#    not state, and the reason the loose pin was a placeholder: `passed=[1-9][0-9]*`
+#    would have accepted a run where 39 tests silently stopped executing.
+# If the conditional skip ever flips, this reds with the exact numbers to
+# re-derive from - that is the intended signal, not a flake. Re-measure and re-pin
+# from the new line; do NOT widen the pattern back out.
+required  = ["BATCH_COMPLETE v1 total=42 passed=40 failed=0 skipped=2 category=GhostPlayback scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

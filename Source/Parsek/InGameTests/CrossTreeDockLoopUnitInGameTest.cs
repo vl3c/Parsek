@@ -50,9 +50,12 @@ namespace Parsek.InGameTests
     /// <para><b>Isolation.</b> Batch-safe by construction: the whole
     /// <c>MissionStore</c> is snapshotted to a ConfigNode up front and restored
     /// via the production <c>Load</c> in the finally, both synthetic trees are
-    /// removed via <c>RemoveCommittedTreeById</c>, and the log observer is
-    /// restored - regardless of pass / fail / skip. All ids are Guid-prefixed
-    /// (<c>mmis8-xdock-*</c>) so they can never collide with the
+    /// removed via <c>RemoveCommittedTreeById</c>, their sidecars are reaped via
+    /// <c>InGameTestSidecarReaper</c> (<c>CommitTree</c> flushes a .prec / .pann /
+    /// .prec.txt per recording, and the memory-only tree removal cannot reach
+    /// them - the orphan leak M1-mission-loop-unit caught live 2026-07-26), and
+    /// the log observer is restored - regardless of pass / fail / skip. All ids
+    /// are Guid-prefixed (<c>mmis8-xdock-*</c>) so they can never collide with the
     /// InjectAllRecordings fixtures or live recordings.
     /// </summary>
     public sealed class CrossTreeDockLoopUnitInGameTest
@@ -396,8 +399,24 @@ namespace Parsek.InGameTests
                 if (taCommitted && RecordingStore.RemoveCommittedTreeById(taId, "CrossTreeDockLoopUnit-cleanup"))
                     removedTrees++;
                 MissionStore.Load(missionSnapshot);
+
+                // RemoveCommittedTreeById is memory-only. CommitTree already flushed a
+                // .prec / .pann / .prec.txt for all five synthetic recordings, and once
+                // their ids leave the store CleanOrphanFiles preserves those files
+                // forever - the leak M1-mission-loop-unit caught live on 2026-07-26
+                // (recordings.count 5 against a {0,0} pin, with zero RECORDING nodes in
+                // persistent.sfs). Reap AFTER the removals so the reaper's known-ids
+                // guard reads the post-removal store.
+                int reaped = 0;
+                if (tbCommitted || taCommitted)
+                {
+                    reaped = InGameTestSidecarReaper.DeleteSidecarsForIds(
+                        new List<string> { idB0, idA0, idAB, idA1, idB1 },
+                        "CrossTreeDockLoopUnit");
+                }
                 ParsekLog.Verbose(Tag,
                     "CrossTreeDockLoopUnit cleanup: removedTrees=" + removedTrees.ToString(IC)
+                    + " reapedSidecars=" + reaped.ToString(IC)
                     + " missionsRestored=" + MissionStore.Missions.Count.ToString(IC));
             }
         }

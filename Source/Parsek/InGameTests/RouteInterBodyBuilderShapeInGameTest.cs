@@ -394,8 +394,15 @@ namespace Parsek.InGameTests
                 {
                     bool removedTree = RecordingStore.RemoveCommittedTreeById(
                         treeId, "InterBodyBuilderShape-cleanup");
+                    // The removal is memory-only; CommitTree already flushed this
+                    // recording's .prec / .pann / .prec.txt to the save. Reap them AFTER
+                    // the removal so the reaper's known-ids guard reads the post-removal
+                    // store (same leak class M1 caught on CrossTreeDockLoopUnit).
+                    int reaped = InGameTestSidecarReaper.DeleteSidecarsForIds(
+                        new List<string> { dockRecId }, "InterBodyBuilderShape");
                     ParsekLog.Verbose(Tag,
-                        $"InterBodyBuilderShape cleanup: removed committed tree {treeId} => {removedTree}");
+                        $"InterBodyBuilderShape cleanup: removed committed tree {treeId} => {removedTree} " +
+                        $"reapedSidecars={reaped.ToString(IC)}");
                 }
 
                 // Drop the two delivery rows this test appended to the live ledger (the

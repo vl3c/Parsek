@@ -123,7 +123,11 @@ python -m unittest discover -s missions/lib -q
 
 Stdlib only (no pytest, no third-party deps) on the BASE interpreter: the
 mission shells lazy-import krpc inside their connect function, so all three
-discovery roots run with no venv. The ONLY third-party python lives in the
+discovery roots run with no venv. The `lib` root is the one that reads OUTSIDE
+`harness/`: `CommittedBatchTallySourceSyncTests` walks `../Source/Parsek` to
+cross-check each spec's pinned `BATCH_COMPLETE` tally against the C#
+`[InGameTest]` attributes, and `test_doc_spec_sync.py` reads `../docs/dev`. Both
+are read-only and need the full repo checkout, not a built DLL. The ONLY third-party python lives in the
 mission venv (`missions/requirements.txt`, bootstrapped by
 `missions/bootstrap_venv.py`, gitignored `.venv/`), used exclusively by the
 mission subprocess at flight time. A `--dry-run` provision needs no

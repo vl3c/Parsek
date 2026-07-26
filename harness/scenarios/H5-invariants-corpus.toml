@@ -68,7 +68,19 @@ count = { min = 272, max = 272 }
 # recording is deliberately degenerate, quarantine it via expectedFail keyed to
 # a todo-doc bug id rather than weakening failed=0. Update BOTH numbers here
 # and recordings.count above whenever the corpus changes.
-required  = ["RecordingInvariants walk: recordings=306 trees=276\\b", "BATCH_COMPLETE v1 .* failed=0\\b"]
+#
+# ANTI-VACUITY (hlib.batch_contract_vacuity_gap). The old pin was
+# `BATCH_COMPLETE v1 .* failed=0\b`, which a ZERO-EXECUTED batch satisfies
+# (`total=2 passed=0 failed=0 skipped=2` has failed=0 too - the B10 defect).
+# The tally is now pinned WHOLE. Every number is MEASURED, not derived: the
+# 2026-07-19 live run logged exactly
+#   BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=RecordingInvariants scene=FLIGHT
+# and it agrees with the attributes (RecordingInvariants has exactly 2 tests,
+# both Scene = FLIGHT and AllowBatchExecution default-true; the gloops-airshow
+# fixture carries a focusable vessel so LoadGame takes the FLIGHT route). If a
+# test is added to the category, BOTH numbers move here in the same commit.
+required  = ["RecordingInvariants walk: recordings=306 trees=276\\b",
+             "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=RecordingInvariants scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

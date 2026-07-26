@@ -1,11 +1,29 @@
 schema = 1
 id = "L1-passive-sandbox"
-# pending-fixture: fixtures/saves/fresh-sandbox is not committed yet (M-B3 operator
-# runbook creates it). Re-tier to "daily" once the fixture lands.
+# daily. The comment here used to say "pending-fixture: fixtures/saves/fresh-sandbox is
+# not committed yet" - stale since 2026-07-23, when the fixture was file-constructed and
+# committed and this was re-tiered.
 tier = "daily"
-description = "Sandbox: no economy pool exists; cold load into an in-scene test batch drives no career action and moves nothing. A pure B10 variant."
+# BATCH CATEGORY CORRECTED 2026-07-26 (RecordingInvariants -> GameActionsHealth), the
+# same defect B10 was proved to have live: both RecordingInvariants tests are
+# Scene = GameScenes.FLIGHT, fresh-sandbox carries ZERO VESSEL nodes, so
+# TestCommandLoadGame.DecideLoadRoute settles at SPACECENTER and BOTH tests were
+# scene-eligibility skipped. The batch emitted `passed=0 ... skipped=2`, which the old
+# `BATCH_COMPLETE v1 .* failed=0\b` contract accepted - a batch step that proved
+# nothing. A vessel-less sandbox fixture can never host a FLIGHT category, so the
+# category moves rather than the pin: GameActionsHealth is 4 scene-agnostic, read-only
+# tests, and in SANDBOX it is ALSO a positive assertion about this scenario's subject -
+# see the logContracts derivation for why 3 of the 4 correctly skip here.
+description = "Sandbox: no economy pool exists; cold load into an in-scene game-actions-health batch drives no career action and moves nothing. A pure B10 variant."
 instanceProfile = "stock-minimal"
-tags = ["ledger", "L1", "sandbox", "pending-operator"]
+# `pending-operator` DROPPED 2026-07-26: the tag was stale (it is non-gating - hlib.py
+# comment above TIERS says only the tier gates - but it contradicted the record). This
+# scenario was LIVE-PROVEN 2026-07-23 on the ledger-oracle half and RE-PROVEN
+# 2026-07-26 in the corrected GameActionsHealth category, run
+# 2026-07-26_1011_L1-passive-sandbox: PASS on attempt 1, every verifier green
+# including ledgerOracle hardDivergences=0, with the exact whole tally below already
+# pinned before the flight.
+tags = ["ledger", "L1", "sandbox"]
 
 [fixture]
 # fresh-sandbox (GAME node Mode = SANDBOX): NO funds/science/rep pool. CareerSaveParser
@@ -19,19 +37,21 @@ kind = "seam"
 # PASSIVE-ONLY, a PURE B10 variant with NO KscAction step. Sandbox is Game.Modes.SANDBOX,
 # NOT CAREER, so research-node (like every CAREER-gated verb) would DEFER career-not-ready
 # -> TIMEOUT -> INVALID -- it never reaches a node-already-unlocked check, so the script does
-# not attempt it (Edge 5). The RecordingInvariants batch is the passive-safety proof: it
+# not attempt it (Edge 5). The GameActionsHealth batch is the passive-safety proof: it
 # must not move the (absent) economy, and the facet-skip-when-absent path must be correct for
 # a no-pools save.
 steps = [
   { cmd = "LoadGame",    args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting",  args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
-  { cmd = "RunTests",    args = { category = "RecordingInvariants" },          expect = "OK", budget = 540 },
+  { cmd = "RunTests",    args = { category = "GameActionsHealth" },            expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit",                                                       expect = "OK" },
 ]
 
+# D14 scene-ksc: the vessel-less fresh-sandbox fixture routes LoadGame through
+# DecideLoadRoute's NoVesselSpaceCenter branch, so the batch genuinely runs at the KSC.
 [dimensionsCovered]
 D8  = ["recalc-engine", "orchestrator", "ksp-state-patcher"]
-D14 = ["sandbox"]
+D14 = ["sandbox", "scene-ksc"]
 
 [expectations]
 # PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
@@ -45,7 +65,32 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
-required  = ["BATCH_COMPLETE v1 .* failed=0\\b"]
+# The batch tally is pinned WHOLE (hlib.batch_contract_vacuity_gap rejects a RunTests
+# spec whose contract an empty / all-skipped batch could satisfy). Every number is
+# MEASURED off the first live run in the corrected category, 2026-07-26:
+#
+#   BATCH_COMPLETE v1 total=4 passed=1 failed=0 skipped=3 category=GameActionsHealth scene=SPACECENTER
+#
+# Under the old RecordingInvariants category the same step emitted
+# `total=2 passed=0 failed=0 skipped=2` and read green; one real assertion now runs.
+# The pre-flight derivation was confirmed token for token and is kept below as the
+# explanation of each number:
+#  - total=4: ExtendedRuntimeTests declares exactly 4
+#    [InGameTest(Category = "GameActionsHealth")] methods; BATCH_COMPLETE's total is
+#    `allTests.Count(Status != NotRun)` over the single RunCategory batch.
+#  - skipped=3 / passed=1 is the SANDBOX-CORRECT split, not a tolerated shortfall.
+#    FundingSingletonAccessible and ReputationSingletonAccessible self-skip on
+#    `Mode != CAREER`, ScienceSingletonAccessible on `Mode` being neither CAREER nor
+#    SCIENCE_SANDBOX; fresh-sandbox is GAME { Mode = SANDBOX }, so all three skip and
+#    that IS this scenario's subject ("no economy pool exists"). The one that EXECUTES,
+#    SuppressionFlagsNotStuck, is scene- and mode-independent and asserts the three
+#    GameStateRecorder suppression flags are false - the "recording silently disabled"
+#    class - so the batch is non-vacuous: exactly one real assertion runs and passes.
+#    A 4th skip would mean the suppression check stopped running and reds.
+#  - scene=SPACECENTER: fresh-sandbox has zero VESSEL nodes, so LoadGame takes
+#    DecideLoadRoute's NoVesselSpaceCenter route. Pinning it makes the original
+#    scene-mismatch defect impossible to repeat silently.
+required  = ["BATCH_COMPLETE v1 total=4 passed=1 failed=0 skipped=3 category=GameActionsHealth scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 # EMPTY manifest (like B10): expected == seed. All pools absent in Sandbox, so the oracle

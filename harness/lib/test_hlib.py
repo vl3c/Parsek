@@ -21,8 +21,14 @@ import hlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HARNESS_ROOT = os.path.dirname(HERE)
+REPO_ROOT = os.path.dirname(HARNESS_ROOT)
 REGISTRY_PATH = os.path.join(HARNESS_ROOT, "coverage", "registry.toml")
 SCENARIOS_DIR = os.path.join(HARNESS_ROOT, "scenarios")
+# The mod assembly the in-game test runner reflects over. DiscoverTests scans the
+# WHOLE executing assembly, so the sweep walks the whole project rather than just
+# InGameTests/ -- an [InGameTest] method that lands elsewhere in Parsek.dll counts
+# toward a category total exactly the same, and must not become invisible here.
+PARSEK_SOURCE_DIR = os.path.join(REPO_ROOT, "Source", "Parsek")
 
 # The committed-spec round-trip test (BLOCKER-1 regression) drives the REAL run.py
 # admission path (run.resolve_mission_schemas), so import the orchestrator. run.py
@@ -41,6 +47,71 @@ def load_registry():
 def load_spec(name):
     with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
         return tomllib.load(fh)
+
+
+def walk_parsek_sources():
+    """(relpath, text) for every .cs file in the mod assembly that mentions
+    InGameTest.
+
+    The ONLY file I/O the batch-tally sync gate needs; every decision it then
+    makes is a pure hlib call. bin/obj are pruned so a generated or stale copy of
+    a source file cannot double-count a category.
+    """
+    for dirpath, dirnames, filenames in os.walk(PARSEK_SOURCE_DIR):
+        dirnames[:] = [d for d in dirnames if d not in ("bin", "obj")]
+        for fn in sorted(filenames):
+            if not fn.endswith(".cs"):
+                continue
+            path = os.path.join(dirpath, fn)
+            with open(path, "r", encoding="utf-8") as fh:
+                text = fh.read()
+            if "InGameTest" not in text:
+                continue
+            yield os.path.relpath(path, REPO_ROOT).replace("\\", "/"), text
+
+
+def load_ingame_test_declarations():
+    """Every [InGameTest] declaration in the mod assembly's source tree."""
+    decls = []
+    for rel, text in walk_parsek_sources():
+        decls.extend(hlib.parse_ingame_test_declarations(text, rel))
+    return decls
+
+
+def load_unclaimed_ingame_attribute_tokens():
+    """Every attribute-position InGameTest spelling the strict parse did not claim
+    (the RECOGNITION-completeness half of the gate)."""
+    out = []
+    for rel, text in walk_parsek_sources():
+        out.extend(hlib.unclaimed_ingame_attribute_tokens(text, rel))
+    return out
+
+
+def batch_owning_specs():
+    """(name, spec, selector) for every committed spec that OWNS a batch.
+
+    Ownership mirrors hlib.validate_spec exactly: a RunTests step XOR an
+    [driver.autorun] block (hlib.py's "Exactly one BATCH owner" rule), with the
+    same selector resolution -- the FIRST RunTests category, else autorun.tests.
+    Matching only cmd == "RunTests" would leave an autorun-owned spec carrying a
+    pinned tally that the anti-vacuity rule validates and this one never sees.
+    Discovered, never hardcoded, so a scenario added later is gated automatically.
+    """
+    out = []
+    for name in sorted(os.listdir(SCENARIOS_DIR)):
+        if not name.endswith(".toml"):
+            continue
+        spec = load_spec(name)
+        driver = spec.get("driver", {}) or {}
+        steps = driver.get("steps", []) or []
+        run_tests = [s for s in steps if (s or {}).get("cmd") == "RunTests"]
+        autorun_tests = (driver.get("autorun", {}) or {}).get("tests")
+        if not run_tests and not autorun_tests:
+            continue
+        selector = (((run_tests[0].get("args", {}) or {}).get("category"))
+                    if run_tests else autorun_tests)
+        out.append((name, spec, selector))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -853,6 +924,964 @@ class SpecValidationRejectTests(unittest.TestCase):
         v = hlib.validate_spec(spec, self.reg, bug_ids=["R1-known"])
         self.assertTrue(v.ok, "a dangling bugId must WARN, not hard-fail")
         self.assertTrue(any("dangling" in w or "not resolvable" in w for w in v.warnings))
+
+
+# ---------------------------------------------------------------------------
+# In-game batch anti-vacuity gate.
+# ---------------------------------------------------------------------------
+
+
+class BatchVacuityGateTests(unittest.TestCase):
+    """The regression this exists for, verbatim from the live instance
+    (2026-07-26): B10-career-passive-safety shipped at daily tier and read GREEN
+    while executing ZERO tests, for as long as it had been running.
+
+        BATCH_COMPLETE v1 total=2 passed=0 failed=0 skipped=2 category=RecordingInvariants scene=SPACECENTER
+        Scene eligibility skip summary: skipped=2 currentScene=SPACECENTER byRequiredScene=FLIGHT:2
+
+    Both RecordingInvariants tests are Scene = FLIGHT; the fresh-career fixture has
+    no VESSEL nodes so LoadGame routes to SPACECENTER; both were scene-skipped; and
+    the spec's only batch contract was ``BATCH_COMPLETE v1 .* failed=0\\b``, which
+    that line satisfies. Fails if the gate ever stops rejecting a contract an empty
+    or all-skipped batch could satisfy, or starts rejecting one that discriminates.
+    """
+
+    def setUp(self):
+        self.reg = load_registry()
+
+    # ----- the pure probe / gap functions -----
+
+    def test_bare_failed_zero_pin_is_a_gap(self):
+        gap = hlib.batch_contract_vacuity_gap(
+            ["BATCH_COMPLETE v1 .* failed=0\\b"], "RecordingInvariants")
+        self.assertIsNotNone(gap, "failed=0 alone cannot tell 2 passes from 2 skips")
+        self.assertIn("passed=0", gap)
+
+    def test_the_exact_shipped_b10_line_is_among_the_probes(self):
+        # Not a paraphrase: the literal tally the live instance emitted must be one
+        # of the lines the gate probes for, or the gate would not have caught it.
+        probes = hlib.vacuous_batch_complete_probes(
+            "RecordingInvariants", ["BATCH_COMPLETE v1 .* failed=0\\b"])
+        self.assertIn(
+            "BATCH_COMPLETE v1 total=2 passed=0 failed=0 skipped=2 "
+            "category=RecordingInvariants scene=SPACECENTER", probes)
+
+    def test_failed_and_skipped_zero_pin_is_still_a_gap(self):
+        # H6's pre-fix contract. skipped=0 catches an all-skipped batch but NOT an
+        # EMPTY one (total=0 passed=0 failed=0 skipped=0), which a renamed or
+        # mis-typed category selector produces.
+        gap = hlib.batch_contract_vacuity_gap(
+            ["BATCH_COMPLETE v1 .* failed=0 skipped=0\\b"], "RouteRewindTimeline")
+        self.assertIsNotNone(gap)
+        self.assertIn("total=0 passed=0 failed=0 skipped=0", gap)
+
+    def test_total_only_pin_is_a_gap(self):
+        # A total= pin without a passed= pin still accepts the all-skipped tally at
+        # that total -- the reason the rule is not "must mention total=".
+        gap = hlib.batch_contract_vacuity_gap(
+            ["BATCH_COMPLETE v1 total=12 .* failed=0\\b"], "Missions")
+        self.assertIsNotNone(gap)
+        self.assertIn("total=12 passed=0", gap)
+
+    def test_whole_tally_pin_discriminates(self):
+        self.assertIsNone(hlib.batch_contract_vacuity_gap(
+            ["BATCH_COMPLETE v1 total=12 passed=5 failed=0 skipped=7 "
+             "category=Missions scene=SPACECENTER"], "Missions"))
+
+    def test_nonzero_passed_class_pin_discriminates(self):
+        # The weaker but honest form used where the exact split is not yet measured.
+        self.assertIsNone(hlib.batch_contract_vacuity_gap(
+            ["BATCH_COMPLETE v1 total=42 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ "
+             "category=GhostPlayback scene=FLIGHT"], "GhostPlayback"))
+
+    def test_pin_above_the_enumeration_bound_still_discriminates(self):
+        # A total larger than the bounded all-skipped sweep is probed at exactly the
+        # value the pattern itself names, so a big-category pin cannot slip through.
+        big = 1024
+        self.assertGreater(big, hlib._BATCH_PROBE_MAX_SKIPPED)
+        gap = hlib.batch_contract_vacuity_gap(
+            ["BATCH_COMPLETE v1 total=%d .* failed=0\\b" % big], "Huge")
+        self.assertIsNotNone(gap)
+        self.assertIn("total=%d passed=0" % big, gap)
+
+    def test_no_batch_complete_pattern_at_all_is_a_gap(self):
+        gap = hlib.batch_contract_vacuity_gap(["Recording started"], "Missions")
+        self.assertIsNotNone(gap)
+        self.assertIn("BATCH_COMPLETE", gap)
+
+    def test_probe_matches_prefixed_and_bare_lines(self):
+        # A contract anchored on the KSP.log prefix and one anchored at line start
+        # must BOTH be exercised; neither anchoring style is a silent exemption.
+        for pat in (r"\[Parsek\]\[INFO\]\[TestRunner\] BATCH_COMPLETE v1 .* failed=0\b",
+                    r"^BATCH_COMPLETE v1 .* failed=0\b"):
+            with self.subTest(pattern=pat):
+                self.assertIsNotNone(hlib.batch_contract_vacuity_gap([pat], "Missions"))
+
+    def test_off_scene_vacuous_batch_is_rejected_by_a_scene_pin(self):
+        # The B10 shape exactly: the spec expected FLIGHT, the fixture delivered
+        # SPACECENTER. A scene-pinned contract reds that even before the counts.
+        probes = hlib.vacuous_batch_complete_probes("RecordingInvariants", [])
+        pinned = ("BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+                  "category=RecordingInvariants scene=FLIGHT")
+        self.assertTrue(any("scene=SPACECENTER" in p for p in probes))
+        self.assertIsNone(hlib.batch_contract_vacuity_gap([pinned], "RecordingInvariants"))
+
+    # ----- validate_spec wiring -----
+
+    def _spec_with_contract(self, required, base="H5-invariants-corpus.toml"):
+        spec = copy.deepcopy(load_spec(base))
+        spec["expectations"]["logContracts"]["required"] = list(required)
+        return spec
+
+    def test_spec_with_only_failed_zero_is_rejected(self):
+        v = hlib.validate_spec(
+            self._spec_with_contract(["BATCH_COMPLETE v1 .* failed=0\\b"]), self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("cannot detect a vacuous batch" in e for e in v.errors),
+                        list(v.errors))
+
+    def test_spec_with_total_and_passed_pin_is_accepted(self):
+        v = hlib.validate_spec(
+            self._spec_with_contract([
+                "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+                "category=RecordingInvariants scene=FLIGHT"]), self.reg)
+        self.assertTrue(v.ok, list(v.errors))
+
+    def test_spec_with_no_runtests_step_is_unaffected(self):
+        # A seam-only scenario owns no batch, so the gate must not fire on it at all
+        # (and its batchComplete verifier is correctly SKIPPED at run time).
+        spec = copy.deepcopy(load_spec("S0.5-live-record-discard.toml"))
+        self.assertFalse(any((s or {}).get("cmd") == "RunTests"
+                             for s in spec["driver"]["steps"]))
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertTrue(v.ok, list(v.errors))
+        self.assertFalse(any("vacuous" in e for e in v.errors))
+
+    def test_opt_out_requires_a_reason(self):
+        spec = self._spec_with_contract(["BATCH_COMPLETE v1 .* failed=0\\b"])
+        spec["expectations"]["logContracts"][hlib.BATCH_VACUITY_OPT_OUT_KEY] = True
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any(hlib.BATCH_VACUITY_OPT_OUT_REASON_KEY in e for e in v.errors),
+                        list(v.errors))
+
+    def test_opt_out_with_reason_accepts_the_weak_contract(self):
+        spec = self._spec_with_contract(["BATCH_COMPLETE v1 .* failed=0\\b"])
+        lc = spec["expectations"]["logContracts"]
+        lc[hlib.BATCH_VACUITY_OPT_OUT_KEY] = True
+        lc[hlib.BATCH_VACUITY_OPT_OUT_REASON_KEY] = "documented reason"
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertTrue(v.ok, list(v.errors))
+
+    def test_opt_out_must_be_a_bool(self):
+        spec = self._spec_with_contract([
+            "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+            "category=RecordingInvariants scene=FLIGHT"])
+        spec["expectations"]["logContracts"][hlib.BATCH_VACUITY_OPT_OUT_KEY] = "false"
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("must be a bool" in e for e in v.errors), list(v.errors))
+
+    def test_misplaced_opt_out_key_is_rejected_not_silently_ignored(self):
+        # TOML scoping trap: written outside [expectations.logContracts] the flag is
+        # inert, and this one fails UNSAFE (the author thinks they waived the gate).
+        for scope in ("expectations", "root", "driver"):
+            with self.subTest(scope=scope):
+                spec = self._spec_with_contract([
+                    "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+                    "category=RecordingInvariants scene=FLIGHT"])
+                target = (spec["expectations"] if scope == "expectations"
+                          else spec if scope == "root" else spec["driver"])
+                target[hlib.BATCH_VACUITY_OPT_OUT_KEY] = True
+                v = hlib.validate_spec(spec, self.reg)
+                self.assertFalse(v.ok)
+                self.assertTrue(
+                    any("belongs in [expectations.logContracts]" in e for e in v.errors),
+                    list(v.errors))
+
+    def test_opt_out_on_a_batchless_spec_warns_inert(self):
+        spec = copy.deepcopy(load_spec("S0.5-live-record-discard.toml"))
+        spec["expectations"]["logContracts"][hlib.BATCH_VACUITY_OPT_OUT_KEY] = True
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertTrue(v.ok, list(v.errors))
+        self.assertTrue(any("inert" in w for w in v.warnings), list(v.warnings))
+
+    def test_every_committed_batch_spec_pins_a_nonvacuous_tally(self):
+        """Repo-wide: no committed spec may own a batch it cannot gate. Discovered,
+        never hardcoded, so a scenario added later is covered automatically."""
+        checked = []
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            spec = load_spec(name)
+            steps = (spec.get("driver", {}) or {}).get("steps", []) or []
+            selector = next((((s or {}).get("args", {}) or {}).get("category")
+                             for s in steps if (s or {}).get("cmd") == "RunTests"), None)
+            if not any((s or {}).get("cmd") == "RunTests" for s in steps):
+                continue
+            checked.append(name)
+            lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+            if lc.get(hlib.BATCH_VACUITY_OPT_OUT_KEY) is True:
+                continue
+            self.assertIsNone(
+                hlib.batch_contract_vacuity_gap(lc.get("required", []) or [], selector),
+                "%s: batch contract accepts a vacuous tally" % name)
+        self.assertTrue(checked, "no committed RunTests spec found - the sweep is inert")
+
+
+class BatchVacuityGateShapeTests(unittest.TestCase):
+    """The three ways a spec could satisfy the gate and STILL admit a vacuous batch,
+    found by adversarial review 2026-07-26 and closed here. Each cell is the
+    reviewer's counterexample verbatim; each must now be REJECTED.
+    """
+
+    def setUp(self):
+        self.reg = load_registry()
+        self.pin = ["BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+                    "category=RecordingInvariants scene=FLIGHT"]
+
+    def _h5(self):
+        spec = copy.deepcopy(load_spec("H5-invariants-corpus.toml"))
+        spec["expectations"]["logContracts"]["required"] = list(self.pin)
+        return spec
+
+    def test_second_runtests_step_is_rejected(self):
+        # Dodge 1: validate_spec probed only the FIRST category and batch_owners
+        # counted 1 for any n>0, so a whole-tally pin on the first batch left a
+        # second `RunTests GhostPlayback` batch completely ungated.
+        spec = self._h5()
+        steps = spec["driver"]["steps"]
+        idx = next(i for i, s in enumerate(steps) if (s or {}).get("cmd") == "RunTests")
+        steps.insert(idx + 1, {"cmd": "RunTests", "args": {"category": "GhostPlayback"},
+                               "expect": "OK", "budget": 540})
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("2 RunTests steps declared" in e for e in v.errors), list(v.errors))
+
+    def test_multi_category_selector_is_rejected(self):
+        # Dodge 2: a pin naming ONE constituent rejects the other constituent's
+        # probes for the wrong reason (category-token mismatch), so the gate reported
+        # no gap while category B could run all-skipped.
+        spec = self._h5()
+        for s in spec["driver"]["steps"]:
+            if (s or {}).get("cmd") == "RunTests":
+                s["args"]["category"] = "RecordingInvariants,GhostPlayback"
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("multi-category" in e for e in v.errors), list(v.errors))
+
+    def test_absent_category_selector_is_rejected(self):
+        # Same class: RunTests with no category is RunAll, i.e. every category at
+        # once, with the same inexpressible per-constituent tally.
+        spec = self._h5()
+        for s in spec["driver"]["steps"]:
+            if (s or {}).get("cmd") == "RunTests":
+                s["args"].pop("category", None)
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("absent" in e for e in v.errors), list(v.errors))
+
+    def test_shape_errors_are_waivable_by_the_documented_opt_out(self):
+        # Both shape errors ride the SAME reason-required opt-out as the contract
+        # gate itself: opting out means "this spec's batch cannot be non-vacuity
+        # gated", which is exactly what an unpinnable second batch or aggregate is.
+        for shape in ("multi-selector", "second-step"):
+            with self.subTest(shape=shape):
+                spec = self._h5()
+                if shape == "multi-selector":
+                    for s in spec["driver"]["steps"]:
+                        if (s or {}).get("cmd") == "RunTests":
+                            s["args"]["category"] = "RecordingInvariants,GhostPlayback"
+                else:
+                    steps = spec["driver"]["steps"]
+                    idx = next(i for i, s in enumerate(steps)
+                               if (s or {}).get("cmd") == "RunTests")
+                    steps.insert(idx + 1, {"cmd": "RunTests",
+                                           "args": {"category": "GhostPlayback"},
+                                           "expect": "OK", "budget": 540})
+                lc = spec["expectations"]["logContracts"]
+                lc[hlib.BATCH_VACUITY_OPT_OUT_KEY] = True
+                lc[hlib.BATCH_VACUITY_OPT_OUT_REASON_KEY] = "documented shape exception"
+                v = hlib.validate_spec(spec, self.reg)
+                self.assertTrue(v.ok, list(v.errors))
+
+    def test_two_patterns_satisfiable_by_different_lines_is_a_gap(self):
+        # Dodge 3: the gate ANDed its patterns against ONE synthesized probe, but
+        # evaluate_expectations re.searches each pattern over the WHOLE log
+        # independently. `total=42 passed=40` is satisfied by the LogContractTests
+        # decoy line while `.* failed=0` is satisfied by the vacuous tally, so the
+        # contract passed over a batch that executed nothing.
+        gap = hlib.batch_contract_vacuity_gap(
+            ["BATCH_COMPLETE v1 total=42 passed=40",
+             "BATCH_COMPLETE v1 .* failed=0\\b"], "GhostPlayback")
+        self.assertIsNotNone(gap)
+        self.assertIn("accepted by required pattern", gap)
+
+    def test_a_pattern_only_the_decoy_satisfies_is_not_a_discriminator(self):
+        # The LogContractTests literal is emitted by ParsekLog.Info regardless of the
+        # driven batch, so a pattern matching only IT proves nothing about the batch.
+        self.assertEqual(1, len(hlib._BATCH_DECOY_BODIES))
+        gap = hlib.batch_contract_vacuity_gap(
+            [hlib._BATCH_DECOY_BODIES[0], "BATCH_COMPLETE v1 .* failed=0\\b"],
+            "RecordingInvariants")
+        self.assertIsNotNone(gap)
+
+    def test_the_decoy_line_matches_the_shipped_c_sharp_literal(self):
+        # If LogContractTests.BatchCompleteFormatValid ever changes its numbers, the
+        # decoy this gate models goes stale and the gate silently weakens. Cross-check
+        # against the C# source, normalising away its string-concatenation line breaks.
+        src = os.path.join(os.path.dirname(HARNESS_ROOT), "Source", "Parsek",
+                           "InGameTests", "LogContractTests.cs")
+        self.assertTrue(os.path.isfile(src), src)
+        with open(src, "r", encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+        # Join C# adjacent-literal concatenation ("a" + "b") and collapse whitespace.
+        joined = re.sub(r'"\s*\+\s*"', "", text)
+        joined = re.sub(r"\s+", " ", joined)
+        for body in hlib._BATCH_DECOY_BODIES:
+            self.assertIn(re.sub(r"\s+", " ", body), joined,
+                          "decoy body is no longer the literal LogContractTests asserts")
+
+    def test_single_strong_pin_still_passes(self):
+        # Guard against over-tightening: the shipped shape must stay accepted.
+        self.assertIsNone(hlib.batch_contract_vacuity_gap(
+            ["BATCH_COMPLETE v1 total=42 passed=40 failed=0 skipped=2 "
+             "category=GhostPlayback scene=FLIGHT"], "GhostPlayback"))
+
+    def test_every_committed_batch_spec_still_validates_clean(self):
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            with self.subTest(spec=name):
+                v = hlib.validate_spec(load_spec(name), self.reg)
+                self.assertTrue(v.ok, "%s: %s" % (name, list(v.errors)))
+
+
+# ---------------------------------------------------------------------------
+# Batch-tally source sync: the pinned tally vs the C# [InGameTest] attributes.
+# ---------------------------------------------------------------------------
+
+
+class InGameAttributeParseTests(unittest.TestCase):
+    """Guards the parse against the four forms the real tree uses, each of which
+    defeats a single-line regex. Every case is written as C# text so a failure
+    points at the parse rule, not at whichever file happened to change."""
+
+    def one(self, text):
+        decls = hlib.parse_ingame_test_declarations(text, "T.cs")
+        self.assertEqual(len(decls), 1, decls)
+        return decls[0]
+
+    def test_single_line_form(self):
+        d = self.one('[InGameTest(Category = "Missions", Scene = GameScenes.FLIGHT)]\n'
+                     '        public void Foo() { }')
+        self.assertEqual((d.category, d.scene, d.allow_batch),
+                         ("Missions", "FLIGHT", True))
+        self.assertIn("T.cs:1 Foo", d.origin)
+
+    def test_multi_line_form(self):
+        d = self.one('        [InGameTest(\n'
+                     '            Category = "SwitchIntentPatch",\n'
+                     '            Description = "TS Fly patch is registered",\n'
+                     '            Scene = GameScenes.TRACKSTATION)]\n'
+                     '        public void Bar() { }')
+        self.assertEqual((d.category, d.scene), ("SwitchIntentPatch", "TRACKSTATION"))
+
+    def test_category_resolves_through_a_const(self):
+        # RouteRewindTimelineRuntimeTests' real form: the attribute names a const,
+        # so a regex looking for Category = "<literal>" sees the category as absent
+        # and silently attributes all 7 tests to "General".
+        d = self.one('        private const string Category = "RouteRewindTimeline";\n'
+                     '        [InGameTest(Category = Category)]\n'
+                     '        public void Baz() { }')
+        self.assertEqual(d.category, "RouteRewindTimeline")
+
+    def test_category_resolves_through_a_qualified_const(self):
+        d = self.one('    const string Category = "Periodicity";\n'
+                     '    [InGameTest(Category = Fixture.Category)]\n'
+                     '    public void Q() { }')
+        self.assertEqual(d.category, "Periodicity")
+
+    def test_description_commas_and_parens_do_not_split_the_arg_list(self):
+        d = self.one('[InGameTest(Description = "a, b (c), d = e",'
+                     ' Category = "Missions", AllowBatchExecution = false)]\n'
+                     'public void W() { }')
+        self.assertEqual((d.category, d.allow_batch), ("Missions", False))
+
+    def test_attribute_shaped_text_inside_a_string_is_not_a_declaration(self):
+        # The real trap: IncompleteBallisticRuntimeTests has a Description that
+        # literally reads "no [InGameTest] declares Scene=EDITOR".
+        decls = hlib.parse_ingame_test_declarations(
+            '[InGameTest(Category = "X",\n'
+            '    Description = "Contract: no [InGameTest] declares Scene=EDITOR")]\n'
+            'public void V() { }', "T.cs")
+        self.assertEqual([d.category for d in decls], ["X"])
+
+    def test_commented_out_attributes_are_ignored(self):
+        decls = hlib.parse_ingame_test_declarations(
+            '// [InGameTest(Category = "Ghost")]\n'
+            '/* [InGameTest(Category = "Ghost")]\n'
+            '   [InGameTest(Category = "Ghost")] */\n'
+            '[InGameTest(Category = "Ghost")]\n'
+            'public void R() { }', "T.cs")
+        self.assertEqual([d.category for d in decls], ["Ghost"])
+
+    def test_verbatim_string_description_does_not_swallow_the_file(self):
+        decls = hlib.parse_ingame_test_declarations(
+            '[InGameTest(Category = "A", Description = @"quote "" and , inside")]\n'
+            'public void A1() { }\n'
+            '[InGameTest(Category = "B")]\n'
+            'public void B1() { }', "T.cs")
+        self.assertEqual([d.category for d in decls], ["A", "B"])
+
+    def test_scene_defaults_to_any_scene_and_accepts_the_explicit_sentinel(self):
+        self.assertIs(self.one('[InGameTest(Category = "A")] void M(){}').scene,
+                      hlib.INGAME_ANY_SCENE)
+        self.assertIs(
+            self.one('[InGameTest(Category = "A",\n'
+                     ' Scene = InGameTestAttribute.AnyScene)] void M(){}').scene,
+            hlib.INGAME_ANY_SCENE)
+
+    def test_allow_batch_execution_defaults_true_and_only_false_disables(self):
+        self.assertTrue(self.one('[InGameTest(Category = "A")] void M(){}').allow_batch)
+        self.assertTrue(self.one(
+            '[InGameTest(Category = "A", AllowBatchExecution = true)] void M(){}'
+        ).allow_batch)
+        self.assertFalse(self.one(
+            '[InGameTest(Category = "A", AllowBatchExecution = false)] void M(){}'
+        ).allow_batch)
+
+    def test_bare_attribute_counts_as_the_default_category(self):
+        # Legal C#, absent from the tree today. It must COUNT (as "General"), not
+        # vanish, or a future bare declaration would go unnoticed.
+        d = self.one('[InGameTest]\npublic void N() { }')
+        self.assertEqual(d.category, "General")
+
+    def test_an_indexer_on_a_similarly_named_type_is_not_a_declaration(self):
+        # `[\s*InGameTest` alone also matches ordinary subscript code, inventing a
+        # phantom "General" declaration; the trailing `(`/`]` requirement is what
+        # keeps a real indexer out of the tally.
+        self.assertEqual(hlib.parse_ingame_test_declarations(
+            'var t = lookup[InGameTestRunner.Tag];\n'
+            'var u = byName[InGameTestInfo.Key];\n', "T.cs"), [])
+
+    def test_member_name_survives_a_following_attribute(self):
+        d = self.one('[InGameTest(Category = "A")]\n'
+                     '[Obsolete("x")]\n'
+                     'public IEnumerator Later() { yield break; }')
+        self.assertIn("Later", d.origin)
+
+    def test_unresolvable_forms_are_reported_not_dropped(self):
+        # Fail LOUD: a form the parse does not model must not silently shrink a
+        # category total, which is the one way this gate could fail OPEN.
+        decls = hlib.parse_ingame_test_declarations(
+            '[InGameTest(Category = SomeOther.Thing, Scene = ResolveScene())]\n'
+            'void M(){}', "T.cs")
+        self.assertEqual(len(hlib.unresolved_ingame_declarations(decls)), 1)
+
+
+class RoslynAttributeSpellingTests(unittest.TestCase):
+    """The four spellings Roslyn binds that the ORIGINAL `[`-anchored parse missed.
+
+    Each was mutation-proved to add a REAL test to a category while leaving the
+    gate green - a SILENT DROP, because unresolved_ingame_declarations only ever
+    sees forms the parse already recognised. Not hypothetical either: the tree
+    already carried five `[Parsek.InGameTests.InGameTest(...)]` declarations that
+    both this parse AND a raw `[InGameTest(` grep dropped identically, which is
+    why the two agreeing on 534 proved nothing. All four must now be COUNTED, and
+    the ordinary code the old anchor existed to exclude must stay excluded.
+    """
+
+    def cats(self, text):
+        return [d.category
+                for d in hlib.parse_ingame_test_declarations(text, "T.cs")]
+
+    def test_stacked_attribute_list_is_counted(self):
+        self.assertEqual(self.cats(
+            '[System.Obsolete("x"), InGameTest(Category = "GameActionsHealth")]\n'
+            'public void Foo() { }'), ["GameActionsHealth"])
+
+    def test_explicit_attribute_suffix_is_counted(self):
+        self.assertEqual(self.cats(
+            '[InGameTestAttribute(Category = "GameActionsHealth")]\n'
+            'public void Foo() { }'), ["GameActionsHealth"])
+
+    def test_namespace_qualified_name_is_counted(self):
+        # The form the tree ACTUALLY uses in IncompleteBallisticRuntimeTests.cs.
+        decls = hlib.parse_ingame_test_declarations(
+            '[Parsek.InGameTests.InGameTest(Category = "Ledger",\n'
+            '    Scene = GameScenes.SPACECENTER,\n'
+            '    Description = "x")]\n'
+            'public void Foo() { }', "T.cs")
+        self.assertEqual([(d.category, d.scene) for d in decls],
+                         [("Ledger", "SPACECENTER")])
+        self.assertIn("T.cs:1 Foo", decls[0].origin)
+
+    def test_attribute_target_prefix_is_counted(self):
+        self.assertEqual(self.cats(
+            '[method: InGameTest(Category = "GameActionsHealth")]\n'
+            'public void Foo() { }'), ["GameActionsHealth"])
+
+    def test_bare_attribute_sharing_a_bracket_is_counted(self):
+        self.assertEqual(self.cats(
+            '[InGameTest, System.Obsolete("x")]\npublic void Foo() { }'),
+            ["General"])
+
+    def test_member_name_survives_a_shared_bracket(self):
+        d = hlib.parse_ingame_test_declarations(
+            '[InGameTest(Category = "A"), Obsolete("x")]\n'
+            'public IEnumerator Later() { yield break; }', "T.cs")[0]
+        self.assertIn("Later", d.origin)
+
+
+class UnclaimedInGameAttributeTests(unittest.TestCase):
+    """The residual backstop: an attribute-bracket occurrence of the name that the
+    parse claims NOTHING for. Empty for every form the parse models; non-empty
+    (and asserted empty repo-wide) for the next spelling nobody anticipated."""
+
+    def unclaimed(self, text):
+        return hlib.unclaimed_ingame_attribute_tokens(text, "T.cs")
+
+    def test_house_style_declaration_is_claimed(self):
+        self.assertEqual(self.unclaimed(
+            '[InGameTest(Category = "Missions", Scene = GameScenes.FLIGHT)]\n'
+            'public void Foo() { }'), [])
+
+    def test_bare_attribute_is_claimed(self):
+        self.assertEqual(self.unclaimed('[InGameTest]\npublic void Foo() { }'), [])
+
+    def test_multi_line_declaration_is_claimed(self):
+        self.assertEqual(self.unclaimed(
+            '        [InGameTest(\n'
+            '            Category = "X",\n'
+            '            Scene = GameScenes.FLIGHT)]\n'
+            '        public void Foo() { }'), [])
+
+    def test_the_four_roslyn_spellings_are_all_claimed(self):
+        for text in (
+                '[System.Obsolete("x"), InGameTest(Category = "G")]\nvoid F(){}',
+                '[InGameTestAttribute(Category = "G")]\nvoid F(){}',
+                '[Parsek.InGameTests.InGameTest(Category = "G")]\nvoid F(){}',
+                '[method: InGameTest(Category = "G")]\nvoid F(){}'):
+            with self.subTest(text=text):
+                self.assertEqual(self.unclaimed(text), [])
+
+    def test_an_unmodelled_spelling_is_reported(self):
+        # `@InGameTest` is C#'s verbatim-identifier escape: legal, binds to the
+        # same attribute, and the element grammar rejects it. Stands for the
+        # general case - a spelling nobody anticipated must RED, not vanish.
+        got = self.unclaimed(
+            '[@InGameTest(Category = "GameActionsHealth")]\npublic void Bar(){}')
+        self.assertEqual(len(got), 1, got)
+        self.assertIn("T.cs:1", got[0])
+        self.assertEqual(
+            [d.category for d in hlib.parse_ingame_test_declarations(
+                '[@InGameTest(Category = "GameActionsHealth")]\nvoid Bar(){}')],
+            [], "the point of the cell: the parse really does drop it")
+
+    def test_indexer_on_a_similarly_named_type_is_not_reported(self):
+        # The false-positive direction: these are ordinary subscript code, and the
+        # `\b` boundaries plus the "(" / "]" follow requirement keep them out.
+        self.assertEqual(self.unclaimed(
+            'var t = lookup[InGameTestRunner.Tag];\n'
+            'var u = byName[InGameTestInfo.Key];\n'
+            'var v = map[InGameTestAttribute.Something];\n'), [])
+
+    def test_a_type_reference_outside_a_bracket_is_not_reported(self):
+        self.assertEqual(self.unclaimed(
+            'var a = m.GetCustomAttribute<InGameTestAttribute>();\n'
+            'if (attr is InGameTestAttribute) { }\n'
+            'typeof(InGameTest);\n'), [])
+
+    def test_a_typeof_reference_inside_a_bracket_is_not_reported(self):
+        self.assertEqual(self.unclaimed(
+            '[SomeAttr(typeof(InGameTestAttribute))]\npublic void Foo() { }'), [])
+
+    def test_commented_out_and_stringified_forms_are_not_reported(self):
+        self.assertEqual(self.unclaimed(
+            '// [InGameTestAttribute(Category = "X")]\n'
+            '/* [method: InGameTest(Category = "X")] */\n'
+            'var s = "[InGameTestAttribute(Category = \\"X\\")]";\n'), [])
+
+
+class DeriveBatchTallyTests(unittest.TestCase):
+    """Guards the two-filter model against InGameTestRunner.RunCategory."""
+
+    @staticmethod
+    def decl(cat="C", scene=hlib.INGAME_ANY_SCENE, allow=True, origin="o"):
+        return hlib.InGameTestDecl(category=cat, scene=scene, allow_batch=allow,
+                                   origin=origin)
+
+    def test_any_scene_is_eligible_everywhere(self):
+        d = hlib.derive_batch_tally([self.decl(), self.decl(origin="p")], "C",
+                                    "SPACECENTER")
+        self.assertEqual((d.total, d.scene_skipped, d.batch_skipped, d.executable),
+                         (2, 0, 0, 2))
+
+    def test_other_categories_are_not_counted(self):
+        d = hlib.derive_batch_tally(
+            [self.decl(cat="C"), self.decl(cat="D")], "C", "FLIGHT")
+        self.assertEqual(d.total, 1)
+
+    def test_scene_mismatch_skips(self):
+        d = hlib.derive_batch_tally(
+            [self.decl(scene="FLIGHT"), self.decl(scene="SPACECENTER", origin="p")],
+            "C", "SPACECENTER")
+        self.assertEqual((d.total, d.scene_skipped, d.executable), (2, 1, 1))
+        self.assertEqual(d.scene_skipped_members, ("o",))
+
+    def test_allow_batch_false_skips_after_the_scene_filter(self):
+        d = hlib.derive_batch_tally(
+            [self.decl(allow=False), self.decl(origin="p")], "C", "SPACECENTER")
+        self.assertEqual((d.total, d.scene_skipped, d.batch_skipped, d.executable),
+                         (2, 0, 1, 1))
+
+    def test_a_test_failing_both_filters_is_counted_once_in_the_scene_bucket(self):
+        # The reason the filters are modelled IN ORDER. RunCategory hands
+        # FilterSceneEligibleBatchCandidates' OUTPUT to PrepareBatchExecution, so a
+        # scene-ineligible batch-disabled test never reaches the second filter.
+        # Double-counting it would inflate the derived floor and false-red a spec.
+        d = hlib.derive_batch_tally(
+            [self.decl(scene="FLIGHT", allow=False)], "C", "SPACECENTER")
+        self.assertEqual((d.total, d.scene_skipped, d.batch_skipped), (1, 1, 0))
+        self.assertEqual(d.attribute_skipped, 1)
+
+    def test_total_always_partitions_into_the_three_buckets(self):
+        d = hlib.derive_batch_tally(
+            [self.decl(scene="FLIGHT"), self.decl(allow=False, origin="p"),
+             self.decl(origin="q")], "C", "SPACECENTER")
+        self.assertEqual(d.total, d.scene_skipped + d.batch_skipped + d.executable)
+
+    def test_runall_token_spans_every_category(self):
+        # RunTests with no category argument drives InGameTestRunner.RunAll, which
+        # stamps currentBatchSelector = "all" and scene-filters the WHOLE allTests
+        # set. Reading "all" as a category name would derive total=0 and report the
+        # category as missing -- a false RED pointing the wrong way.
+        decls = [self.decl(cat="C"), self.decl(cat="D", origin="p"),
+                 self.decl(cat="E", scene="FLIGHT", origin="q"),
+                 self.decl(cat="F", allow=False, origin="r")]
+        d = hlib.derive_batch_tally(decls, hlib.INGAME_RUNALL_CATEGORY,
+                                    "SPACECENTER")
+        self.assertEqual((d.total, d.scene_skipped, d.batch_skipped, d.executable),
+                         (4, 1, 1, 2))
+
+    def test_runall_pin_is_checked_not_reported_as_a_missing_category(self):
+        decls = [self.decl(cat="C"), self.decl(cat="D", origin="p")]
+        pin = hlib.resolve_batch_tally_pin([
+            "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+            "category=all scene=SPACECENTER"])
+        self.assertEqual(hlib.batch_tally_pin_mismatches(pin, decls), [])
+        stale = hlib.resolve_batch_tally_pin([
+            "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 "
+            "category=all scene=SPACECENTER"])
+        problems = hlib.batch_tally_pin_mismatches(stale, decls)
+        self.assertTrue(any("the source declares 2" in p for p in problems),
+                        problems)
+        # The false-RED this replaces: reading "all" as a category name derived
+        # total=0 and claimed the batch "would run EMPTY" - the wrong direction.
+        self.assertFalse(any("would run EMPTY" in p for p in problems), problems)
+
+    def test_duplicate_looking_declarations_are_both_counted(self):
+        # Frozen dataclasses compare by value; a membership-based split would
+        # mis-bucket the twin.
+        twin = self.decl(scene="FLIGHT")
+        d = hlib.derive_batch_tally([twin, twin], "C", "SPACECENTER")
+        self.assertEqual((d.total, d.scene_skipped), (2, 2))
+
+    def test_unknown_category_derives_an_empty_batch(self):
+        d = hlib.derive_batch_tally([self.decl(cat="C")], "Renamed", "FLIGHT")
+        self.assertEqual((d.total, d.executable), (0, 0))
+
+
+class BatchTallyPinTests(unittest.TestCase):
+    """Guards which tokens are read as PINNED literals and which as deliberately
+    unpinned regex classes (S1.4's honest interim form)."""
+
+    def test_reads_every_literal_token(self):
+        pin = hlib.resolve_batch_tally_pin([
+            "BATCH_COMPLETE v1 total=12 passed=5 failed=0 skipped=7 "
+            "category=Missions scene=SPACECENTER"])
+        self.assertEqual((pin.total, pin.passed, pin.failed, pin.skipped),
+                         (12, 5, 0, 7))
+        self.assertEqual((pin.category, pin.scene), ("Missions", "SPACECENTER"))
+        self.assertTrue(pin.statically_checkable)
+
+    def test_regex_class_tokens_read_as_unpinned(self):
+        pin = hlib.resolve_batch_tally_pin([
+            "BATCH_COMPLETE v1 total=42 passed=[1-9][0-9]* failed=0 "
+            "skipped=[0-9]+ category=GhostPlayback scene=FLIGHT"])
+        self.assertEqual(pin.total, 42)
+        self.assertIsNone(pin.passed)
+        self.assertIsNone(pin.skipped)
+        self.assertEqual(pin.failed, 0)
+        self.assertTrue(pin.statically_checkable)
+
+    def test_trailing_regex_anchor_does_not_hide_a_literal(self):
+        pin = hlib.resolve_batch_tally_pin(
+            ["BATCH_COMPLETE v1 total=7 passed=7 failed=0 skipped=0\\b "
+             "category=RouteRewindTimeline scene=FLIGHT$"])
+        self.assertEqual((pin.skipped, pin.scene), (0, "FLIGHT"))
+
+    def test_non_batch_patterns_are_ignored_and_absence_reads_none(self):
+        self.assertIsNone(hlib.resolve_batch_tally_pin(
+            ["RecordingInvariants walk: recordings=306 trees=276"]))
+        self.assertIsNone(hlib.resolve_batch_tally_pin([]))
+
+    def test_tokens_merge_across_patterns(self):
+        pin = hlib.resolve_batch_tally_pin([
+            "BATCH_COMPLETE v1 total=4 ",
+            "BATCH_COMPLETE v1 .* category=GameActionsHealth scene=SPACECENTER"])
+        self.assertEqual((pin.total, pin.category, pin.scene),
+                         (4, "GameActionsHealth", "SPACECENTER"))
+
+    def test_the_old_bare_failed_zero_pin_is_not_statically_checkable(self):
+        pin = hlib.resolve_batch_tally_pin(["BATCH_COMPLETE v1 .* failed=0\\b"])
+        self.assertIsNotNone(pin)
+        self.assertFalse(pin.statically_checkable)
+
+    def test_a_multi_category_aggregate_pin_is_recognized_as_such(self):
+        # A future RunTests category = "A,B" spec gates on the UNION line, whose
+        # total sums categories the pin never enumerates. It must read as
+        # out-of-scope, NOT as a category that vanished from the source.
+        pin = hlib.resolve_batch_tally_pin([
+            "BATCH_COMPLETE v1 total=19 passed=19 failed=0 skipped=0 "
+            "category=multi:2 scene=FLIGHT"])
+        self.assertTrue(pin.is_aggregate)
+        self.assertFalse(pin.statically_checkable)
+        self.assertEqual(pin.total, 19)
+
+
+class BatchTallyMismatchTests(unittest.TestCase):
+    """Guards each mismatch rule, and (as much) each NON-mismatch: a rule that
+    reds a legitimate pin is worse than no rule, because the fix is to weaken it."""
+
+    @staticmethod
+    def decls(*specs):
+        return [hlib.InGameTestDecl(category=c, scene=s, allow_batch=a,
+                                    origin="F.cs:%d m%d" % (i + 1, i + 1))
+                for i, (c, s, a) in enumerate(specs)]
+
+    @staticmethod
+    def pin(text):
+        return hlib.resolve_batch_tally_pin([text])
+
+    def test_agreeing_pin_has_no_problems(self):
+        d = self.decls(("C", hlib.INGAME_ANY_SCENE, True),
+                       ("C", hlib.INGAME_ANY_SCENE, True))
+        self.assertEqual(hlib.batch_tally_pin_mismatches(
+            self.pin("BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+                     "category=C scene=FLIGHT"), d), [])
+
+    def test_an_added_test_reds_the_total(self):
+        # THE regression this gate exists for: someone adds one method to a
+        # category and the daily scenario reds hours later on the nightly run.
+        d = self.decls(("C", hlib.INGAME_ANY_SCENE, True),
+                       ("C", hlib.INGAME_ANY_SCENE, True),
+                       ("C", hlib.INGAME_ANY_SCENE, True))
+        problems = hlib.batch_tally_pin_mismatches(
+            self.pin("BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+                     "category=C scene=FLIGHT"), d)
+        self.assertTrue(any("pins total=2" in p and "declares 3" in p
+                            for p in problems), problems)
+
+    def test_a_renamed_category_reds_loudly(self):
+        problems = hlib.batch_tally_pin_mismatches(
+            self.pin("BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+                     "category=Renamed scene=FLIGHT"),
+            self.decls(("C", hlib.INGAME_ANY_SCENE, True)))
+        self.assertTrue(any("was renamed" in p for p in problems), problems)
+
+    def test_a_new_flight_scene_test_reds_the_skipped_floor(self):
+        d = self.decls(("C", "SPACECENTER", True), ("C", "FLIGHT", True),
+                       ("C", "FLIGHT", True))
+        problems = hlib.batch_tally_pin_mismatches(
+            self.pin("BATCH_COMPLETE v1 total=3 passed=2 failed=0 skipped=1 "
+                     "category=C scene=SPACECENTER"), d)
+        self.assertTrue(any("pins skipped=1" in p and "force 2" in p
+                            for p in problems), problems)
+
+    def test_runtime_self_skips_above_the_floor_are_accepted(self):
+        # L1-passive-sandbox's real shape: 4 AnyScene batch-allowed tests, 3 of
+        # which self-skip on Mode != CAREER. skipped is a FLOOR, never an equality.
+        d = self.decls(*[("C", hlib.INGAME_ANY_SCENE, True)] * 4)
+        self.assertEqual(hlib.batch_tally_pin_mismatches(
+            self.pin("BATCH_COMPLETE v1 total=4 passed=1 failed=0 skipped=3 "
+                     "category=C scene=SPACECENTER"), d), [])
+
+    def test_over_claimed_passed_reds_the_eligible_ceiling(self):
+        d = self.decls(("C", hlib.INGAME_ANY_SCENE, True),
+                       ("C", hlib.INGAME_ANY_SCENE, False))
+        problems = hlib.batch_tally_pin_mismatches(
+            self.pin("BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+                     "category=C scene=FLIGHT"), d)
+        self.assertTrue(any("can never run" in p for p in problems), problems)
+
+    def test_a_self_inconsistent_pin_reds(self):
+        d = self.decls(*[("C", hlib.INGAME_ANY_SCENE, True)] * 5)
+        problems = hlib.batch_tally_pin_mismatches(
+            self.pin("BATCH_COMPLETE v1 total=5 passed=3 failed=0 skipped=1 "
+                     "category=C scene=FLIGHT"), d)
+        self.assertTrue(any("not self-consistent" in p for p in problems), problems)
+
+    def test_only_total_is_checked_when_passed_and_skipped_are_regex_classes(self):
+        # S1.4's form. total= must still be enforced; the unpinned tokens must not
+        # be silently read as 0 (which would red on the eligible ceiling).
+        d = self.decls(*[("C", "FLIGHT", True)] * 3)
+        pin = self.pin("BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 "
+                       "skipped=[0-9]+ category=C scene=FLIGHT")
+        self.assertEqual(hlib.batch_tally_pin_mismatches(pin, d), [])
+        stale = self.pin("BATCH_COMPLETE v1 total=2 passed=[1-9][0-9]* failed=0 "
+                         "skipped=[0-9]+ category=C scene=FLIGHT")
+        self.assertTrue(hlib.batch_tally_pin_mismatches(stale, d))
+
+    def test_conflicting_pins_across_patterns_red(self):
+        d = self.decls(*[("C", hlib.INGAME_ANY_SCENE, True)] * 4)
+        pin = hlib.resolve_batch_tally_pin([
+            "BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=C "
+            "scene=FLIGHT",
+            "BATCH_COMPLETE v1 total=5"])
+        self.assertTrue(any("conflicting total=" in p
+                            for p in hlib.batch_tally_pin_mismatches(pin, d)))
+
+    def test_an_uncheckable_pin_is_reported_not_waved_through(self):
+        problems = hlib.batch_tally_pin_mismatches(
+            self.pin("BATCH_COMPLETE v1 .* failed=0"), self.decls())
+        self.assertTrue(any("cannot be cross-checked" in p for p in problems),
+                        problems)
+
+    def test_an_aggregate_pin_is_out_of_scope_not_a_missing_category(self):
+        # The distinction the two branches draw: an UNREADABLE pin is suspicious
+        # and complains; a multi-category aggregate is understood and stays silent.
+        # Without the split, `category=multi:2` would derive total=0 and red as
+        # "the category was renamed".
+        self.assertEqual(hlib.batch_tally_pin_mismatches(
+            self.pin("BATCH_COMPLETE v1 total=19 passed=19 failed=0 skipped=0 "
+                     "category=multi:2 scene=FLIGHT"),
+            self.decls(("C", hlib.INGAME_ANY_SCENE, True))), [])
+
+
+class CommittedBatchTallySourceSyncTests(unittest.TestCase):
+    """THE gate. Repo-wide: every committed spec's pinned BATCH_COMPLETE tally is
+    cross-checked against the real C# [InGameTest] attributes in Source/Parsek.
+
+    Why it exists: the anti-vacuity gate above forces the tally to be pinned WHOLE,
+    which makes the pin a hardcoded copy of a number that lives in C#. Adding one
+    [InGameTest] method to Missions / Periodicity / GameActionsHealth /
+    RouteRewindTimeline / RecordingInvariants / GhostPlayback moved `total` and
+    reds that category's daily scenario on its next NIGHTLY run, in another
+    process, hours later, on a spec the author never opened. This turns that into a
+    local `python -m unittest` failure that names the spec and the new number.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.decls = load_ingame_test_declarations()
+        cls.specs = batch_owning_specs()
+
+    def test_the_source_tree_is_actually_readable(self):
+        # Guards the gate itself: if the walk silently found nothing (a moved
+        # source tree, a bad relative path), every assertion below passes vacuously
+        # -- which is the exact class of defect this whole family exists for.
+        self.assertTrue(os.path.isdir(PARSEK_SOURCE_DIR), PARSEK_SOURCE_DIR)
+        self.assertGreater(len(self.decls), 100,
+                           "only %d [InGameTest] declarations parsed out of %s - the "
+                           "sweep would be vacuous" % (len(self.decls),
+                                                       PARSEK_SOURCE_DIR))
+
+    def test_every_declaration_resolves(self):
+        unresolved = hlib.unresolved_ingame_declarations(self.decls)
+        self.assertEqual(
+            [d.origin for d in unresolved], [],
+            "these [InGameTest] attributes use a Category/Scene form the harness "
+            "parse does not model, so their category totals are wrong: %s"
+            % [(d.origin, d.category, d.scene) for d in unresolved])
+
+    def test_every_attribute_occurrence_is_claimed_by_the_parse(self):
+        # The OTHER half of "reported, never dropped". test_every_declaration_
+        # resolves only sees forms the strict regex already RECOGNISED; a spelling
+        # it never matches (a stacked attribute list, an explicit `Attribute`
+        # suffix, a namespace-qualified name, a `[method: ...]` target) is simply
+        # absent from self.decls and silently shrinks a pinned category total.
+        unclaimed = load_unclaimed_ingame_attribute_tokens()
+        self.assertEqual(
+            unclaimed, [],
+            "these attribute brackets name InGameTest in a spelling the C# "
+            "compiler binds but hlib.parse_ingame_test_declarations does not "
+            "claim, so the tests they declare are MISSING from every category "
+            "total. Either write them in house style ([InGameTest(...)] first in "
+            "its own bracket) or teach the parse the new form:\n  - %s"
+            % "\n  - ".join(unclaimed))
+
+    def test_no_category_is_literally_the_runall_selector_token(self):
+        # derive_batch_tally reads "all" as RunAll's whole-assembly batch, not as a
+        # category name. A declaration categorised "all" would make the two
+        # readings silently disagree.
+        clashing = [d.origin for d in self.decls
+                    if d.category == hlib.INGAME_RUNALL_CATEGORY]
+        self.assertEqual(
+            clashing, [],
+            "Category = %r collides with the token InGameTestRunner.RunAll stamps "
+            "as currentBatchSelector; rename the category: %s"
+            % (hlib.INGAME_RUNALL_CATEGORY, clashing))
+
+    def test_every_batch_spec_pins_a_statically_checkable_tally(self):
+        checked = []
+        for name, spec, selector in self.specs:
+            lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+            if lc.get(hlib.BATCH_VACUITY_OPT_OUT_KEY) is True:
+                continue
+            # A multi-category selector gates on the union aggregate, whose total
+            # spans categories the pin does not enumerate; nothing to demand here.
+            if hlib.is_multi_category_selector(selector):
+                continue
+            pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
+            self.assertIsNotNone(
+                pin, "%s owns a RunTests batch but no logContracts.required pattern "
+                     "names BATCH_COMPLETE" % name)
+            self.assertTrue(
+                pin.statically_checkable,
+                "%s pins a BATCH_COMPLETE line with no literal category=/scene=, so "
+                "its tally cannot be kept in sync with the source" % name)
+            self.assertIsNotNone(
+                pin.total,
+                "%s must pin total= as a LITERAL: it is the one token derivable "
+                "exactly from the [InGameTest] attributes, and the token that "
+                "catches an added or removed test" % name)
+            checked.append(name)
+        self.assertTrue(checked, "no committed RunTests spec found - sweep is inert")
+
+    def test_every_pinned_tally_agrees_with_the_source(self):
+        for name, spec, _selector in self.specs:
+            with self.subTest(spec=name):
+                lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
+                if pin is None or not pin.statically_checkable:
+                    continue
+                problems = hlib.batch_tally_pin_mismatches(pin, self.decls)
+                self.assertEqual(
+                    problems, [],
+                    "%s's pinned BATCH_COMPLETE tally no longer matches "
+                    "Source/Parsek. Re-derive it and update the spec (and its "
+                    "derivation comment) in the same commit:\n  - %s"
+                    % (name, "\n  - ".join(problems)))
+
+    def test_the_spec_selector_matches_the_pinned_category(self):
+        # A RunTests selector and the category= it pins are two independent copies
+        # of one name. If they drift, the batch runs one category while the contract
+        # gates another -- and hlib.resolve_batch_complete would red on a mismatch
+        # only at run time, on the nightly.
+        for name, spec, selector in self.specs:
+            with self.subTest(spec=name):
+                lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
+                if pin is None or pin.category is None or selector is None:
+                    continue
+                if hlib.is_multi_category_selector(selector):
+                    continue
+                self.assertEqual(
+                    pin.category, selector.strip(),
+                    "%s drives RunTests category=%r but pins category=%r"
+                    % (name, selector, pin.category))
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,139 @@
+schema = 1
+id = "M2-periodicity-solver"
+tier = "daily"
+# The in-game "Periodicity" category run unattended - the second half of the
+# previously-unclaimed D11 space (missions / periodicity / re-aim). Sibling of
+# M1-mission-loop-unit; DELIBERATELY a separate spec rather than a second RunTests step,
+# because run.py::_driven_category resolves only the FIRST RunTests category and
+# hlib.resolve_batch_complete treats per-category lines with no aggregate as a defined
+# fault. One batch per spec.
+#
+# WHAT THIS GATES, AND WHAT IT DOES NOT. This gates the periodicity SOLVER, not the
+# playback. The executed tests drive the real re-aim chain - ReaimFeasibilityScan over a
+# pinned synodic period, ReaimTransferSynthesizer (UvLambert -> Orbit
+# .UpdateFromStateVectors -> CalculatePatch), ReaimWindowPlanner.Plan, the stage-A
+# inclination un-projection and the stage-B eccentricity-scaled tof band - against LIVE
+# stock ephemerides, and assert that each synodic window either resolves a sane elliptic
+# prograde transfer that actually encounters the target, or declines CLEANLY to faithful,
+# deterministically across a cache-cleared re-solve. NOT observed here, and deliberately
+# NOT claimed: any ghost replaying the re-aimed transfer, any rendered icon or orbit
+# line, any loop cycle boundary, any elapsed period. The scenario computes plans and
+# checks their geometry; it never advances the clock or spawns anything. A green M2 says
+# "the solver still finds correct transfers against the shipped planet pack"; it says
+# NOTHING about how the resulting trajectory renders - the map/TS render side is owned by
+# S1.4 and the operator-tier observation sessions.
+#
+# Why in-game rather than xUnit: FlightGlobals is empty headless, so the xUnit siblings
+# must inject hand-pinned stock constants. Only this run reads the real bodies.
+description = "Run the in-game Periodicity category unattended at the Space Center: the re-aim feasibility scan, Lambert transfer synthesis, window schedule and eccentric/inclined stage-A/stage-B bands solved against real stock ephemerides."
+instanceProfile = "stock-minimal"
+tags = ["periodicity", "reaim", "solver", "M2", "D11"]
+
+[fixture]
+# fresh-sandbox (see M1): vessel-less, so TestCommandLoadGame.DecideLoadRoute settles at
+# SPACECENTER, which is where 10 of the category's 11 tests live. The solver tests need
+# nothing from the save except a loaded game and a populated FlightGlobals.Bodies.
+# No [expectations.ledger] block: this scenario asserts nothing about the economy, so it
+# never meets the no-pools seed-baseline gate that blocks L1-passive-sandbox.
+saveTemplate = "fixtures/saves/fresh-sandbox"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# Same batch-driver shape as M1 / H5 / H6. autoRecordOnLaunch pinned false so the
+# recording rules are correctly suppressed on a run that records nothing. RunTests is
+# the single BATCH owner; 540 is the deferred per-step cap (S8).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Periodicity" },                 expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+# The SMALLEST honest set, one token per decision an EXECUTED test actually asserts:
+#  - reaim-lambert: the Kerbin->Duna canary and the three window tests drive
+#    ReaimTransferSynthesizer's UvLambert solve and require a real Duna encounter with a
+#    finite future SOI-entry UT.
+#  - eccentric-inclined-targets: the Moho (eccentric + inclined + near-180) and Eeloo
+#    (high eccentricity) structural-contract tests, including the stage-B
+#    eccentricity-scaled band and stage-A's inclination lift.
+#  - heliocentric-parking-departure: Reaim_KerbinToDuna_ParkingDeparture_... pins
+#    r1 == park-end (the transfer starts at the ghost's re-phased parking position, not
+#    the launch body's center) over both an identity and a non-identity window.
+#  - fail-closed-to-faithful: the band-edge test's contract is explicitly "resolve a sane
+#    transfer OR decline cleanly to faithful, deterministically".
+# NOT claimed: s4-arrival-restitch (its only test is FLIGHT-scene and is filtered out
+# here - see the tally derivation), and every loop-behavior token (whole-mission-loop,
+# self-overlap, clone, phase-lock, zero-drift-schedule, loiter-compression), none of
+# which this scenario runs. D14: SANDBOX fixture, Space Center scene.
+D11 = ["reaim-lambert", "eccentric-inclined-targets", "heliocentric-parking-departure",
+       "fail-closed-to-faithful"]
+D14 = ["sandbox", "scene-ksc"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py:1733 reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read. This table must stay AHEAD of the sub-tables below.
+allowedAnomalies = []
+
+[expectations.recordings]
+# count.max == 0: nothing is injected and every Periodicity test is a pure planner call
+# over explicit inputs - no RecordingStore / MissionStore / RouteStore mutation at all -
+# so a .prec in the produced save means something leaked. Also selects the B1
+# recording-rules log-validation suppression.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# The batch tally is pinned WHOLE (hlib.batch_contract_vacuity_gap). Every number is
+# MEASURED off the first live run, 2026-07-26:
+#
+#   BATCH_COMPLETE v1 total=11 passed=7 failed=0 skipped=4 category=Periodicity scene=SPACECENTER
+#
+# The pre-flight derivation below was written from the [InGameTest] attributes and the
+# live line confirmed it token for token. This category is the one where a naive
+# "total=N passed=N skipped=0" pin would be WRONG, so the derivation is kept as the
+# explanation of WHY each number is what it is:
+#  - total=11: exactly 11 [InGameTest(Category = "Periodicity")] methods exist
+#    (ReaimEndToEndInGameTest 9, CrossParentReaimCanaryInGameTest 1,
+#    ReaimLandingCoincidenceInGameTest 1 - and that last one is FLIGHT-scene).
+#    Re-derive with `grep -c 'Category = "Periodicity"'` over those three files; the
+#    9 + 1 + 1 must equal the pinned total. BATCH_COMPLETE's total is
+#    `allTests.Count(Status != NotRun)`, which counts every filtered test too.
+#  - skipped=4, from TWO different filters applied in order by RunCategory:
+#      * FilterSceneEligibleBatchCandidates first drops the 1 Scene = GameScenes.FLIGHT
+#        member (S4Restitch_RotatedDeorbitPoint_MeetsRecordedSiteAtTrigger, which needs a
+#        real landing site);
+#      * PrepareBatchExecution then drops the 3 that declare AllowBatchExecution = false
+#        (Reaim_KerbinTo{Moho,Eeloo,Duna}_FeasibilitySweep_Diagnostic at
+#        ReaimEndToEndInGameTest.cs:572/581/752 - measurement artifacts, single-run-only
+#        by design).
+#    Both filters mark the test Skipped, so all 4 land in the skipped tally.
+#  - passed=7: the remaining 7 batch-eligible SPACECENTER tests execute - the other 6 of
+#    ReaimEndToEndInGameTest's 9 (EveryWindowResolvesSaneTransfer, BandEdgeWindows,
+#    ObservedEdgeDeparture, KerbinToMoho / KerbinToEeloo StructuralContract,
+#    ParkingDeparture) plus the CrossParentReaimCanary. Their
+#    InGameAssert.Skip guards fire only on a non-stock body graph, degenerate live orbit
+#    data, or a fixture offset that stock eccentricity drift has pushed outside the
+#    stage-B band - none of which the stock-minimal profile produces (the tests' own
+#    comments say "unexpected on stock").
+#  - scene=SPACECENTER: the vessel-less fixture's LoadGame route.
+# The former PENDING-OPERATOR is CLOSED by the 2026-07-26 flight. A stock rebalance
+# tripping one of those guards now reds here with the exact number to re-derive from.
+# That is the intended behavior. Do NOT relax this back to a bare failed=0 - the whole
+# point of the scenario is that these solvers actually ran.
+required  = ["BATCH_COMPLETE v1 total=11 passed=7 failed=0 skipped=4 category=Periodicity scene=SPACECENTER"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8, mirrors M1/H5/H6): 720 >= 300 LoadGame + 540 RunTests
+# ceiling headroom. The three FeasibilitySweep_Diagnostic sweeps - the expensive ones -
+# are AllowBatchExecution=false and never run in this batch.
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

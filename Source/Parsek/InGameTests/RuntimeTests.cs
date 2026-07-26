@@ -5167,11 +5167,23 @@ namespace Parsek.InGameTests
             return DialogGuiButtonTextField.GetValue(button) as string;
         }
 
+        // Same disk-blind teardown problem as RemoveCommittedTreeByIdForPlaybackRuntimeTest
+        // (see the comment there). Callers of THIS overload reach a real
+        // RecordingStore.CommitTree indirectly, through the production merge paths rather
+        // than a direct call: TreeMergeDialog_DeferredMergeButton_CommitsPendingTree
+        // clicks the real "Merge to Timeline" button on a stashed synthetic tree, and
+        // EvaKerbalGhostHasVesselSnapshot runs a real StartRecording + FinalizeTreeRecordings.
+        // CommitTree flushes SaveRecordingFiles for every recording in the tree, so the
+        // memory-only removal below leaves the .prec / .pann / .prec.txt sidecars behind
+        // forever. Ids are collected BEFORE the removal and reaped AFTER it, so the
+        // reaper's known-ids guard reads the post-removal store. A tree that was never
+        // committed matches nothing here, so the reap is a no-op on those paths.
         private static void RemoveCommittedTreeByIdForRuntimeTest(string treeId)
         {
             if (string.IsNullOrEmpty(treeId))
                 return;
 
+            var reapIds = new List<string>();
             var committed = RecordingStore.CommittedTrees;
             for (int i = committed.Count - 1; i >= 0; i--)
             {
@@ -5180,9 +5192,16 @@ namespace Parsek.InGameTests
                     continue;
 
                 foreach (Recording rec in tree.Recordings.Values)
+                {
+                    if (rec != null && !string.IsNullOrEmpty(rec.RecordingId))
+                        reapIds.Add(rec.RecordingId);
                     RecordingStore.RemoveCommittedInternal(rec);
+                }
                 committed.RemoveAt(i);
             }
+
+            if (reapIds.Count > 0)
+                InGameTestSidecarReaper.DeleteSidecarsForIds(reapIds, "RuntimeTest");
         }
 
         #endregion
@@ -11105,12 +11124,20 @@ namespace Parsek.InGameTests
             HighLogic.LoadScene(GameScenes.SPACECENTER);
         }
 
+        // Reap rationale identical to the single-argument overload above. Callers here are
+        // the two SceneExitMerge canaries: the Merge branch drives the real pre-transition
+        // "Merge to Timeline" flow (a genuine CommitTree, so real sidecars), the Discard
+        // branch commits nothing and this stays a no-op for it. The reap runs LAST, after
+        // RunOptimizationPass, so the known-ids set the guard reads is the final one -
+        // the optimizer re-flushes (and can re-id) the recordings it keeps, and those
+        // must never be reaped.
         private static void RemoveCommittedTreeByIdForRuntimeTest(string treeId, bool recalculateAfterRemoval)
         {
             if (string.IsNullOrEmpty(treeId))
                 return;
 
             bool removedAny = false;
+            var reapIds = new List<string>();
             var committed = RecordingStore.CommittedTrees;
             for (int i = committed.Count - 1; i >= 0; i--)
             {
@@ -11119,7 +11146,11 @@ namespace Parsek.InGameTests
                     continue;
 
                 foreach (Recording rec in tree.Recordings.Values)
+                {
+                    if (rec != null && !string.IsNullOrEmpty(rec.RecordingId))
+                        reapIds.Add(rec.RecordingId);
                     RecordingStore.RemoveCommittedInternal(rec);
+                }
                 committed.RemoveAt(i);
                 removedAny = true;
             }
@@ -11129,6 +11160,9 @@ namespace Parsek.InGameTests
                 RecordingStore.RunOptimizationPass();
                 LedgerOrchestrator.RecalculateAndPatch();
             }
+
+            if (reapIds.Count > 0)
+                InGameTestSidecarReaper.DeleteSidecarsForIds(reapIds, "RuntimeTest");
         }
 
         [InGameTest(Category = "FlightIntegration", Scene = GameScenes.FLIGHT,
@@ -15819,11 +15853,20 @@ namespace Parsek.InGameTests
             return -1;
         }
 
+        // The three callers all put their synthetic tree through the REAL
+        // RecordingStore.CommitTree, which flushes SaveRecordingFiles (.prec / .pann /
+        // .prec.txt) for every recording in it. This removal is memory-only, so without
+        // the reap below those sidecars stay in saves/<save>/Parsek/Recordings/ forever
+        // (CleanOrphanFiles preserves ids it no longer knows). Same leak class the
+        // M1-mission-loop-unit harness scenario caught live on 2026-07-26 against
+        // CrossTreeDockLoopUnitInGameTest. Ids are collected BEFORE the removal and
+        // reaped AFTER it, so the reaper's known-ids guard reads the post-removal store.
         private static void RemoveCommittedTreeByIdForPlaybackRuntimeTest(string treeId)
         {
             if (string.IsNullOrEmpty(treeId))
                 return;
 
+            var reapIds = new List<string>();
             var committed = RecordingStore.CommittedTrees;
             for (int i = committed.Count - 1; i >= 0; i--)
             {
@@ -15832,9 +15875,16 @@ namespace Parsek.InGameTests
                     continue;
 
                 foreach (Recording rec in tree.Recordings.Values)
+                {
+                    if (rec != null && !string.IsNullOrEmpty(rec.RecordingId))
+                        reapIds.Add(rec.RecordingId);
                     RecordingStore.RemoveCommittedInternal(rec);
+                }
                 committed.RemoveAt(i);
             }
+
+            if (reapIds.Count > 0)
+                InGameTestSidecarReaper.DeleteSidecarsForIds(reapIds, "PlaybackRuntimeTest");
         }
 
         #endregion
