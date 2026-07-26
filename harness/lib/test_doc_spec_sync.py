@@ -176,12 +176,17 @@ class B13B14DocSpecSyncTests(unittest.TestCase):
                                 1.5 * 1381.3,
                                 "descentTimeoutSeconds is under 1.5x the worst "
                                 "MEASURED descent span (B14, 1381.3 game-s)")
-        # First no-progress window drop, tighter of the two bodies.
+        # First no-progress window drop, tighter of the two bodies. 21,730.6 m
+        # is B14's anchor movement read off the periodic machine-state lines
+        # (37,829.610 m @ ut 277,200.402 -> 16,099.041 m @ ut 278,100.482); the
+        # 21,749.8 m this used to carry came from the rate-limited telemetry
+        # stream, which has no sample at the PARK -> DESCENT frame the machine
+        # actually anchored on.
         self.assertLessEqual(self.b13["landingProgressMinDropMeters"],
-                             21749.8 / 4.0,
+                             21730.6 / 4.0,
                              "landingProgressMinDropMeters leaves under 4x "
                              "margin on the tighter MEASURED first-window drop "
-                             "(B14, 21749.8 m)")
+                             "(B14, 21730.6 m)")
         # Worst settled-dwell speed samples across both flights.
         self.assertGreaterEqual(self.b13["landedMaxHorizontalSpeedMps"],
                                 2.0 * 0.195,

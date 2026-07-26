@@ -276,6 +276,23 @@ folded in (`B5State.plan_attempts`, `B5State.body_blank_count`, and the
   (`phase-transition`, `terminal-*`, `vessel-lost`, the give-up dumps) stays
   unconditional, the `gate ...` lines themselves are untouched, and `fly_loop`
   emits one `[Window]` batch summary per flight naming emitted vs suppressed.
+  **AMENDED 2026-07-26 (mutation review): NOVELTY beats the clock.** That same
+  43 MB run contained only **16 distinct `(phase, gate-field)` pairs** against
+  its 7,218 dumps, so the FIRST occurrence of each pair is now admitted
+  UNCONDITIONALLY (`mlib.gate_flip_novelty_keys` ->
+  `should_dump_gate_flip_window(..., first_seen=True)`) and the 10 s limit
+  applies to REPEATS only. That is both the bigger reduction (16 windows vs
+  7,218) and the safer rule: under the time limit alone a suppressed flip
+  followed by >10 s of quiet lost its 20-frame context permanently, so a novel
+  gate could be silenced by an unrelated flip 3 seconds earlier. The limiter's
+  seen-set is bounded (`_GateFlipDumpLimiter.NOVELTY_KEY_CAP = 512`, far above
+  the measured 16); past the cap a novel key falls back to the time rule. The
+  batch summary names `emitted` / `novel` / `suppressed` / `distinctGateKeys`.
+  COVERAGE NOTE: the claim "only gate-flip is rate-limited" is now asserted
+  end to end by `GateFlipSuppressionFlightTests`, which flies the real loop with
+  a gate flipping on consecutive frames. Before it, the only end-to-end cell
+  produced exactly ONE gate flip, so removing the rate limit entirely AND
+  rate-limiting every reason both survived the whole suite.
 - **LIVE STATUS FILE** (2d): `results/<runId>_status.json` (path via
   `mission_runner.status_path_for`), rewritten atomically (tmp +
   `os.replace`) at most every `STATUS_WRITE_INTERVAL_SECONDS = 2.0` by
@@ -290,8 +307,12 @@ folded in (`B5State.plan_attempts`, `B5State.body_blank_count`, and the
   phaseWallSeconds}` (`mlib.wall_budget_block`, from the `deadline` and
   `--budget` the fly loop already held) and the OPEN phase's live
   `phaseWarp: {phase, wallSeconds, gameSeconds, gameSecondsPerWallSecond,
-  warpCommands}` (same row shape as the mission result's per-phase
-  `warpUtilisation`). Rationale: every phase budget in this design is GAME
+  warpCommands, armedWarpCommands}` (same row shape as the mission result's
+  per-phase `warpUtilisation`; `armedWarpCommands` added 2026-07-26 - it is the
+  subset that actually ARMED warp, i.e. excludes `cancel_warp` and
+  `set_rails_warp 0`, and it is what makes the LOW-throughput marker mean "we
+  asked for warp and did not get it" instead of "this phase ran at 1x").
+  Rationale: every phase budget in this design is GAME
   time, so a run could burn 57% of its WALL budget in one phase while every
   displayed budget read ~7.5% consumed - which is exactly how a B12 run died on
   `mission-budget-expired` with no warning in the live surface. `status.py`

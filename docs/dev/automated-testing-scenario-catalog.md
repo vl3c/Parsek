@@ -134,7 +134,7 @@ its fixture shortcut (synthetic recording or stock Scenario save).
 | B11 | Mun ORBIT: transfer, capture burn, park, commit while parked in the Mun SOI | D1(commit-in-foreign-soi),D3,D4,D14(mun) | b2-lko-craft (shared with B2/B4/B5/B6) |
 | B12 | Minmus ORBIT: the B11 machine on the minmus axis | As B11 with D14 minmus | b2-lko-craft |
 | B13 | Mun LANDING: the B11 machine plus a MechJeb untargeted descent, a settled landed dwell, and a commit ON THE SURFACE | D1(commit-landed-foreign-body),D3,D4(surface-stationary),D14(mun) | b2-lko-craft (shared with B2/B4/B5/B6/B11) |
-| B14 | Minmus LANDING: the B13 machine on the minmus axis | As B13 with D14 minmus | b2-lko-craft |
+| B14 | Minmus LANDING: the B13 machine on the minmus axis | As B13 with D14 minmus and D4(surface-mobile) in place of surface-stationary | b2-lko-craft |
 | B15 | Eve interplanetary FLYBY (INWARD transfer): the B7 machine and param set with targetBodyName=Eve | D3,D4,D14(eve,soi-count,warp-high) | b2-lko-craft (shared with B2/B4/B5/B6/B7/B11-B14) |
 | B16 | Eve ORBIT: B7's five interplanetary params AND B11/B12's capture tail in one mission - capture + park + commit after a HELIOCENTRIC traverse | D1(commit-in-foreign-soi),D3,D4,D14(eve,soi-count,warp-high) | b2-lko-craft |
 
@@ -164,8 +164,11 @@ foreign-body tree, the SURFACE-class TrackSections the environment classifier
 only reaches on an AIRLESS body (`Approach -> Surface*`, unreachable where an
 atmosphere classifies first), the landing-leg part events, or the landed-vessel
 ghost / playback surface. That is why they claim the new D1
-`commit-landed-foreign-body` value and the previously unclaimed D4
-`surface-stationary`.
+`commit-landed-foreign-body` value and the two previously unclaimed D4 surface
+classes - `surface-stationary` on B13 and `surface-mobile` on B14, each claimed
+by the scenario whose flight MEASURED that class and gated by a class-specific
+log token, because which class a touchdown confirms is `srfSpeed > 0.1` at the
+confirm frame and not a property of the lane.
 
 B15/B16 ARE THE ROADMAP'S "Eve flyby (cheap B7 clone)" CANDIDATE, promoted and
 widened to a pair, and they take the next free ids for the same reason B11-B14

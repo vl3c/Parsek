@@ -3039,7 +3039,8 @@ class WarpLivenessFloorWiringTests(unittest.TestCase):
     phase budget is either advanced by the crawl or -- for CORRECTION-BURN's
     aim-warp -- suppressed outright."""
 
-    def _fly(self, ut_per_frame, wall_per_frame, armed=True, frames=600):
+    def _fly(self, ut_per_frame, wall_per_frame, armed=True, frames=600,
+             blind_frames=0):
         clock = _StepClock()
         log = mission_runner.MissionLogger(sink=lambda _l: None, clock=clock)
         state = mlib.b5_initial_state(mlib.b5_params_from_dict(dict(B5_PARAMS)))
@@ -3058,7 +3059,9 @@ class WarpLivenessFloorWiringTests(unittest.TestCase):
                 return replace(st, done=True), []
             return st, []
 
-        snaps = [snap(ut=ut_per_frame * i, body="Kerbin",
+        snaps = [snap(ut=(float("nan") if i < blind_frames
+                          else ut_per_frame * i),
+                      body="Kerbin",
                       altitude=8_000_000.0, warp_mode="RAILS", warp_rate=2.68,
                       warping_to=1e12)
                  for i in range(frames)]
@@ -3093,6 +3096,293 @@ class WarpLivenessFloorWiringTests(unittest.TestCase):
         armed by the machine's OWN outstanding native warp command."""
         final = self._fly(ut_per_frame=0.5, wall_per_frame=1.0, armed=False)
         self.assertNotEqual(final.verdict, mlib.MISSION_FLAKE)
+
+    def test_a_blind_ut_on_the_arming_frame_does_not_disarm_the_floor(self):
+        """FAIL-OPEN HOLE (2026-07-26 review). If snapshot.ut read non-finite
+        on the very frame the episode armed, wl_ut_start was never taken -- and
+        no later branch took it, because the judging branch REQUIRES it
+        non-None. The floor stayed disarmed for the whole episode. A liveness
+        guard that fails open on its own arming frame is worse than none, since
+        the roadmap counts it as covering the shape. The re-stamp branch takes
+        the baseline on the first frame that has a real UT."""
+        final = self._fly(ut_per_frame=1.3, wall_per_frame=1.0, blind_frames=3)
+        self.assertTrue(final.done)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason)
+
+    def test_the_re_stamp_does_not_bill_the_blind_frames_against_the_ratio(self):
+        """The re-stamp resets the WALL clock with the UT baseline, so the
+        judged window starts from a frame that has both. A genuinely fast warp
+        that happened to arm on a blind frame must still never be judged
+        starved."""
+        final = self._fly(ut_per_frame=1000.0, wall_per_frame=1.0, frames=400,
+                          blind_frames=3)
+        self.assertNotEqual(final.verdict, mlib.MISSION_FLAKE)
+
+
+class WarpLivenessRealMachineTests(unittest.TestCase):
+    """The floor driven by the REAL b5 machine, not a stub decide.
+
+    WHY THIS EXISTS ON TOP OF WarpLivenessFloorWiringTests (2026-07-26). Those
+    cells pin the fly-loop WIRING with a decide that returns its state
+    unchanged, so ``warp_to_cmd`` stays armed BY CONSTRUCTION. That assumes away
+    the load-bearing question: does the real machine actually HOLD an armed
+    native warp across a starved episode, or does it clear the command and reset
+    the window? For B12 flight 2 the answer was "clears it" -- 3,603
+    ``warp_to_ut`` against 3,602 ``cancel_warp``, the episode never lasting two
+    frames -- which is why this floor could NOT have caught that flight and the
+    thrash counter is what bounds it.
+
+    What the floor DOES bound is the post-fix residual, and that is what these
+    cells fly: ``coast_native_warp_hold`` removed the cancel half of the cycle,
+    so a blind ``time_to_soi`` under warp now HOLDS the command, while flight
+    2's other half (a rails rate that never escaped 2.76x) is untouched by that
+    fix. Held command + crawling rate is an unbounded episode that no other
+    guard can see. The telemetry below is flight 2's own, post-fix: same body,
+    same altitude band, same 2.76x rails rate, same measured 1.41 game-seconds
+    per wall-second."""
+
+    THRASH_RAILS_RATE = 2.76      # measured, flight 2's final coast
+    STARVED_GAME_PER_WALL = 1.41  # measured, ditto (median 7.105 game-s / 5 s)
+    COAST_ALTITUDE = 49_028_969.0
+
+    def _fly_real_machine(self, game_per_wall, frames, wall_per_frame=1.0,
+                          rails_rate=None, control_factory=None):
+        clock = _StepClock()
+        log = mission_runner.MissionLogger(sink=lambda _l: None, clock=clock)
+        state = mlib.b5_initial_state(mlib.b5_params_from_dict(dict(B5_PARAMS)))
+        # rounds_done = both correction rounds spent, which is exactly where
+        # flight 2 sat when its coast went bad (its status.json reads
+        # `rounds: 2`). Without it the ALTITUDE trigger for round 0 is 0.0 m and
+        # the machine correctly plans a correction on frame 1 instead of
+        # coasting.
+        state = replace(state, phase=mlib.B5_COAST_TO_TARGET, phase_entry_ut=0.0,
+                        correction_rounds_done=len(
+                            state.params.correction_trigger_alts))
+        rails_rate = self.THRASH_RAILS_RATE if rails_rate is None else rails_rate
+        # The native target must stay AHEAD for the whole script, else the
+        # machine legitimately disarms on arrival and the cell stops testing the
+        # armed episode.
+        tts = game_per_wall * wall_per_frame * frames * 4.0 + 40_000.0
+
+        seen = {"n": 0}
+
+        def decide(st, snapshot):
+            clock.advance(wall_per_frame)
+            seen["n"] += 1
+            # A benign terminal once the script runs out, so a NEGATIVE cell
+            # ends cleanly instead of spinning (same shape as _fly above).
+            if seen["n"] >= frames:
+                return replace(st, done=True), []
+            return mlib.b5_decide(st, snapshot)
+
+        # Frame 0 ARMS the native warp off a readable time_to_soi. Every later
+        # frame is the post-fix blind read under warp that the hold keeps armed.
+        snaps = [snap(ut=0.0, body="Kerbin", altitude=self.COAST_ALTITUDE,
+                      time_to_soi=tts, warp_mode="NONE", warp_rate=1.0)]
+        snaps += [snap(ut=game_per_wall * wall_per_frame * i, body="Kerbin",
+                       altitude=self.COAST_ALTITUDE,
+                       time_to_soi=float("nan"), warp_mode="RAILS",
+                       warp_rate=rails_rate, warping_to=tts - 30.0)
+                  for i in range(1, frames)]
+        control = (control_factory or FakeMissionControl)(snaps,
+                                                          max_last_repeats=4)
+        final, _ = mission_runner.fly_loop(
+            control, state, decide, log, deadline=1e12, clock=clock,
+            sleep=lambda _s: None, poll_interval=0.0, settle_frames=0,
+            allow_rails_warp=True)
+        return final, control
+
+    # THE EPISODE-RESET SCRIPT (2026-07-26 review round 2, BLOCKER-2). The one
+    # line that makes the liveness ratio EPISODE-local rather than cumulative is
+    # `if not armed: wl_wall_start = None; wl_ut_start = None` in the fly loop,
+    # and replacing it with `pass` survived the whole mission suite. This script
+    # is what kills that mutation: the real machine ARMS a native warp, ARRIVES
+    # (so the machine itself disarms), holds a long deliberate 1x stretch, then
+    # RE-ARMS and warps for real. Without the reset the stale baseline bills the
+    # 1x hold against the re-armed episode's ratio and the floor false-fires on
+    # a healthy flight -- which is not hypothetical: nine archived PARK rows run
+    # 180.2-180.6 wall-seconds at ratio 0.999, i.e. just past the judging window
+    # and 5x under the floor.
+    HOLD_WALL_SECONDS = 600.0     # the deliberate 1x stretch, ~3.3x the window
+    REARMED_GAME_PER_WALL = 300.0  # the re-armed episode, genuinely warping
+
+    def _fly_disarm_rearm(self, rearmed_game_per_wall=None,
+                          rearmed_frames=250, hold_frames=600,
+                          arm_frames=12, wall_per_frame=1.0):
+        """Three scripted stretches through the REAL b5 coast machine:
+
+        1. ARM: a readable ``time_to_soi`` of 40 s arms a native warp to
+           ``ut + 10`` (soi_lead 30). The machine holds it while UT crawls to
+           the target, then ``_b5_clear_arrived_warp`` DISARMS on arrival -- the
+           machine's own disarm, not a test-injected one.
+        2. HOLD: ``hold_frames`` of deliberate, unarmed 1x (blank encounter, no
+           warp). This is the stretch a stale baseline would bill.
+        3. RE-ARM: a fresh readable ``time_to_soi`` re-arms the native warp and
+           the game warps at ``rearmed_game_per_wall`` game-s per wall-s for
+           ``rearmed_frames`` -- long past WARP_LIVENESS_MIN_WALL_SECONDS, so
+           the episode IS judged rather than skipped.
+        """
+        game_per_wall = (self.REARMED_GAME_PER_WALL
+                         if rearmed_game_per_wall is None
+                         else rearmed_game_per_wall)
+        clock = _StepClock()
+        log = mission_runner.MissionLogger(sink=lambda _l: None, clock=clock)
+        state = mlib.b5_initial_state(mlib.b5_params_from_dict(dict(B5_PARAMS)))
+        state = replace(state, phase=mlib.B5_COAST_TO_TARGET, phase_entry_ut=0.0,
+                        correction_rounds_done=len(
+                            state.params.correction_trigger_alts))
+        total = arm_frames + hold_frames + rearmed_frames
+        seen = {"n": 0}
+
+        def decide(st, snapshot):
+            clock.advance(wall_per_frame)
+            seen["n"] += 1
+            if seen["n"] >= total:
+                return replace(st, done=True), []
+            return mlib.b5_decide(st, snapshot)
+
+        common = dict(body="Kerbin", altitude=self.COAST_ALTITUDE)
+        # 1. ARM: target = ut + time_to_soi - soi_lead = 0 + 40 - 30 = 10.
+        snaps = [snap(ut=0.0, time_to_soi=40.0, warp_mode="NONE",
+                      warp_rate=1.0, **common)]
+        snaps += [snap(ut=float(i), time_to_soi=float("nan"), warp_mode="RAILS",
+                       warp_rate=2.0, warping_to=10.0, **common)
+                  for i in range(1, arm_frames)]
+        # 2. HOLD: unarmed, un-warped, 1 game-s per wall-s. The altitude walks
+        # (a real 1x coast never repeats a float): these are the only warp_mode
+        # NONE frames in the script, and the frozen-telemetry detector advances
+        # ONLY at 1x, so a bit-identical altitude here would trip vessel-lost at
+        # frame 10 and the script would never reach the re-arm.
+        hold_start = float(arm_frames)
+        snaps += [snap(ut=hold_start + i, time_to_soi=float("nan"),
+                       warp_mode="NONE", warp_rate=1.0, body="Kerbin",
+                       altitude=self.COAST_ALTITUDE + i * 0.5)
+                  for i in range(hold_frames)]
+        # 3. RE-ARM: a readable encounter far enough ahead that the target stays
+        # ahead for the whole stretch, then a genuinely fast warp.
+        rearm_ut = hold_start + hold_frames
+        rearm_tts = game_per_wall * wall_per_frame * rearmed_frames * 4.0 + 40_000.0
+        snaps += [snap(ut=rearm_ut, time_to_soi=rearm_tts, warp_mode="NONE",
+                       warp_rate=1.0, **common)]
+        snaps += [snap(ut=rearm_ut + game_per_wall * wall_per_frame * i,
+                       time_to_soi=float("nan"), warp_mode="RAILS",
+                       warp_rate=1000.0,
+                       warping_to=rearm_ut + rearm_tts - 30.0, **common)
+                  for i in range(1, rearmed_frames)]
+        control = FakeMissionControl(snaps, max_last_repeats=4)
+        final, _ = mission_runner.fly_loop(
+            control, state, decide, log, deadline=1e12, clock=clock,
+            sleep=lambda _s: None, poll_interval=0.0, settle_frames=0,
+            allow_rails_warp=True)
+        return final, control
+
+    def test_a_healthy_rearmed_warp_is_judged_on_its_own_episode_not_the_1x_hold(self):
+        """KILLS the `if not armed: pass` mutation. The re-armed warp is fast
+        (300 game-s per wall-s, 60x the floor) and the deliberate 1x hold before
+        it is 600 wall-seconds long. With the reset the episode is judged from
+        the re-arming frame and runs clean; without it the judged window starts
+        600 wall-seconds and ~612 game-seconds earlier, so the FIRST re-armed
+        frame reads ~1.0 game-s/wall-s and the floor kills a healthy flight."""
+        final, control = self._fly_disarm_rearm()
+        self.assertNotEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertNotIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason or "")
+        # NOT VACUOUS: the machine really did disarm and re-arm, so the reset
+        # branch was genuinely taken (one arm per armed stretch, and the second
+        # can only be issued from a disarmed state).
+        arms = [a for a in control.actions if a.kind == mlib.ACTION_WARP_TO_UT]
+        self.assertEqual(len(arms), 2, control.actions[:12])
+        # And the re-armed episode is long enough to BE judged, so the pass is
+        # not "the window never opened".
+        self.assertGreater(250 * 1.0, mlib.WARP_LIVENESS_MIN_WALL_SECONDS)
+
+    def test_the_rearmed_episode_is_still_judged_after_the_reset(self):
+        """The negative control for the cell above: same script, but the
+        re-armed warp crawls at the measured 1.41 game-s/wall-s. The reset must
+        restart the window, NOT disarm the guard -- so this one still fires."""
+        final, control = self._fly_disarm_rearm(
+            rearmed_game_per_wall=self.STARVED_GAME_PER_WALL)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason)
+        arms = [a for a in control.actions if a.kind == mlib.ACTION_WARP_TO_UT]
+        self.assertEqual(len(arms), 2, control.actions[:12])
+
+    def test_the_real_coast_machine_holds_a_starved_warp_until_the_floor_fires(self):
+        """The shape the floor exists for, flown by the real machine: the hold
+        keeps ONE armed command outstanding while the rate crawls, and the floor
+        is the only guard that can end it."""
+        final, control = self._fly_real_machine(
+            self.STARVED_GAME_PER_WALL, frames=600)
+        self.assertTrue(final.done)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason)
+        self.assertIn("running but not warping", final.flake_reason)
+        self.assertEqual(final.phase, mlib.B5_COAST_TO_TARGET)
+        verdict, reason = mlib.resolve_flight_verdict(final, [])
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, reason)
+
+    def test_the_thrash_counter_cannot_take_the_credit_for_this_shape(self):
+        """The two guards are complements, and this cell proves they do not
+        overlap: the hold means the machine issues the native warp exactly ONCE
+        for the whole episode, so the thrash cap (500) is three orders of
+        magnitude away from firing. Whatever ends this flight, it is not the
+        thrash counter."""
+        final, control = self._fly_real_machine(
+            self.STARVED_GAME_PER_WALL, frames=600)
+        issues = [a for a in control.actions if a.kind == mlib.ACTION_WARP_TO_UT]
+        self.assertEqual(len(issues), 1, control.actions[:8])
+        self.assertEqual(final.phase_warp_issues, 1)
+        self.assertNotIn(mlib.WARP_THRASH_COAST, final.flake_reason)
+
+    def test_the_floor_terminal_tears_the_warp_down_before_returning(self):
+        """LEAVE NOTHING WARPED BEHIND (2026-07-26 review round 2).
+
+        The shipped version returned here with the warp still armed, justified
+        by a comment asserting "nothing drives the game afterwards". That was
+        FALSE: `hlib.plan_unmet_mission_tail` drives the TAIL_ROLE_CLEANUP verbs
+        (StopRecording, FlushAndQuit) after ANY unmet mission, and MISSION-FLAKE
+        is unmet exactly like an ASSERT-FAIL -- so the seam was driven against a
+        rails-warping game, the one thing every MACHINE terminal
+        (`_b5_stop_all_warp`) is careful not to do. This terminal fires ONLY
+        while a warp is armed, so it is the fly-loop terminal that owes the
+        teardown most. It now performs a cancel inline, best-effort, and the
+        returned state stops claiming an armed command."""
+        final, control = self._fly_real_machine(
+            self.STARVED_GAME_PER_WALL, frames=600)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason)
+        self.assertEqual(control.actions[-1].kind, mlib.ACTION_CANCEL_WARP)
+        self.assertIsNone(final.warp_to_cmd)
+        self.assertEqual(final.warp_cmd, 0)
+
+    def test_a_teardown_that_raises_never_destroys_the_named_give_up(self):
+        """The reason the teardown is best-effort rather than plain. A cancel
+        that dies on a degraded connection must NOT escape as a post-connect
+        drop: the named `warp-liveness-starved` verdict is the entire value of
+        this terminal, and a generic transport flake would erase it."""
+        class _CancelRaises(FakeMissionControl):
+            def perform(self, action):
+                FakeMissionControl.perform(self, action)
+                if action.kind == mlib.ACTION_CANCEL_WARP:
+                    raise ConnectionResetError("fake: warp socket died on cancel")
+
+        final, control = self._fly_real_machine(
+            self.STARVED_GAME_PER_WALL, frames=600,
+            control_factory=_CancelRaises)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason)
+        self.assertEqual(control.actions[-1].kind, mlib.ACTION_CANCEL_WARP)
+        # And the state does NOT claim a teardown that did not happen: the
+        # command stays armed when the cancel could not be delivered.
+        self.assertIsNotNone(final.warp_to_cmd)
+
+    def test_the_real_machine_on_a_genuinely_warping_coast_is_never_judged_starved(self):
+        """The negative that matters: the SAME machine, the SAME hold, an armed
+        episode judged well past the 180 s window (300 wall-seconds here), but
+        warping at a real rate. It must run clean."""
+        final, _ = self._fly_real_machine(1000.0, frames=300, rails_rate=1000.0)
+        self.assertNotEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertNotIn(mlib.WARP_LIVENESS_GIVEUP, final.flake_reason or "")
 
 
 class WarpUtilisationUnwindTests(unittest.TestCase):
@@ -3581,6 +3871,330 @@ class LandingEngageTests(unittest.TestCase):
         self.assertFalse(landing.enabled)
         self.assertTrue(any("landing autopilot released" in l for l in lines),
                         lines)
+
+
+class _LandingDescentFlightFixture:
+    """Shared fly-loop fixtures for the two DESCENT give-up ladders below.
+
+    A MIXIN, not a base test case, deliberately: making one ladder class
+    inherit the other would re-run every one of its cells under a second name
+    and inflate the suite count with duplicates that measure nothing new."""
+
+    # Both ladders are entered ALREADY ENGAGED: the PARK -> DESCENT entry engage
+    # is covered end to end by B13LandingShellTests, and starting past it makes
+    # every ACTION_MJ_LAND_UNTARGETED the loop performs a RE-ISSUE, so the bound
+    # is asserted against a count that means only one thing. The no-progress
+    # window is anchored at 100,000 m / ut 0 by the same call.
+    def _descent_state(self, params=None):
+        p = mlib.b5_params_from_dict(dict(params or B13_PARAMS))
+        return replace(mlib.b5_initial_state(p),
+                       phase=mlib.B5_DESCENT, phase_entry_ut=0.0,
+                       landing_engaged=True,
+                       landing_alt_ref=100_000.0, landing_alt_ref_ut=0.0)
+
+    def _fly(self, frames, params=None, max_last_repeats=4):
+        clock = _StepClock()
+        lines = []
+        log = mission_runner.MissionLogger(sink=lines.append, clock=clock)
+        control = FakeMissionControl(frames, max_last_repeats=max_last_repeats)
+        final, _ = mission_runner.fly_loop(
+            control, self._descent_state(params), mlib.b5_decide, log,
+            deadline=1e12, clock=clock, sleep=lambda _s: None,
+            poll_interval=0.0, settle_frames=0)
+        return final, control, lines
+
+    @staticmethod
+    def _descending(i, **kw):
+        """One DESCENT frame, 10 game-seconds apart and genuinely falling. The
+        spacing is deliberate: the whole ladder must resolve INSIDE one
+        no-progress window (900 s) and inside the descent budget, so the
+        give-up under test is the only one that can fire."""
+        base = dict(ut=10.0 * i, body="Mun", situation="SUB_ORBITAL",
+                    altitude=100_000.0 - 1000.0 * i, vertical_speed=-100.0,
+                    horizontal_speed=200.0, landing_ap_enabled=1,
+                    landing_ap_status="Doing deorbit burn.")
+        base.update(kw)
+        return snap(**base)
+
+    @staticmethod
+    def _gates(lines, key):
+        """The ordered `old->new` transitions the loop logged for one gate
+        field, with the surrounding telemetry stripped."""
+        out = []
+        for line in lines:
+            marker = "gate %s " % key
+            if marker in line:
+                out.append(line.split(marker, 1)[1].split(" |", 1)[0])
+        return out
+
+    def _landing_tail(self, first_index):
+        """A healthy touchdown -> settled dwell -> surface commit tail, so a
+        NEGATIVE cell reaches a real terminal instead of running the frame list
+        dry (which the fake reports as a transport drop)."""
+        touchdown_ut = 10.0 * first_index
+        frames = [snap(ut=touchdown_ut, body="Mun", situation="LANDED",
+                       altitude=3.0, vertical_speed=-0.3,
+                       horizontal_speed=0.05, landing_ap_enabled=0)]
+        frames += [snap(ut=touchdown_ut + float(i), body="Mun",
+                        situation="LANDED", altitude=3.0, vertical_speed=0.0,
+                        horizontal_speed=0.01, landing_ap_enabled=0)
+                   for i in range(1, 4)]                       # debounce 3
+        frames.append(snap(ut=touchdown_ut + 130.0, body="Mun",
+                           situation="LANDED", altitude=2.99,
+                           vertical_speed=0.0, horizontal_speed=0.01,
+                           landing_ap_enabled=0))              # dwell elapsed
+        frames.append(snap(ut=touchdown_ut + 140.0, body="Mun",
+                           situation="LANDED", altitude=2.98,
+                           vertical_speed=0.0, horizontal_speed=0.01,
+                           landing_ap_enabled=0,
+                           seam_commit_result="OK"))
+        return frames
+
+class LandingAutopilotLadderFlightTests(_LandingDescentFlightFixture,
+                                       unittest.TestCase):
+    """The DESCENT autopilot supervision ladder, driven through the REAL fly
+    loop: debounce -> bounded re-issue -> distinctly named DEAD fast-fail.
+
+    WHY THIS CLASS EXISTS. B13 and B14 both PASSED on their first flight with
+    `LandingAutopilot.Enabled` reading 1 on every DESCENT frame THE SUPERVISOR
+    EVALUATED -- not on every polled frame, which is a claim the archived
+    telemetry contradicts: `landAP=0` appears on B13's PARK -> DESCENT entry
+    frame (ut 21,734.345, decided in PARK, before the engage went out) and on
+    the TOUCHDOWN frame of BOTH flights (B13 ut 23,088.285, B14 ut 278,581.702),
+    which is MechJeb disabling its own module on the landed frame and is exactly
+    what the touchdown-before-supervisor ordering exists for. So NEITHER flight
+    emitted a single `landingApDownStreak` or
+    `landingApReissues` line -- the ladder has never executed against real
+    MechJeb, and the machine-diff CHANNEL it reports through has never been
+    seen carrying a non-zero value on any surface. These cells do not create a
+    live proof and must not be read as one. What they do is bound what a live
+    firing could still surprise us with to MechJeb's own behaviour, by pinning
+    everything on OUR side of the seam end to end: the debounce DEPTH (the
+    existing all-disabled cells cannot tell a 3-frame debounce from a 1-frame
+    one), the re-issue ACTION reaching the seam with the spec's vehicle
+    configuration, the bound on how many times it can, the give-up NAME, and
+    the gate lines an operator would grep for when it fires for real.
+
+    Driven through ``mission_runner.fly_loop`` rather than ``b5_decide``
+    directly because the gate lines are emitted by the LOOP (``diff_machine_state``
+    -> ``log.info``), not by the machine: an mlib-only cell proves the state
+    field moved and says nothing about whether anybody would ever see it.
+    """
+
+    # The exact frame count the ladder needs: (debounce) frames per rung, one
+    # rung per re-issue plus the final DEAD rung. Derived from the constants
+    # rather than hardcoded, so re-tuning either one re-derives the script
+    # instead of silently making the cell assert a shorter ladder.
+    @property
+    def _ladder_frames(self):
+        return (mlib.LANDING_AP_DISABLED_DEBOUNCE_FRAMES
+                * (mlib.MAX_LANDING_AP_REISSUES + 1))
+
+    def test_the_full_ladder_runs_debounce_reissue_then_names_the_giveup(self):
+        """THE headline cell. A module that reads DOWN every poll must climb
+        the debounce, be re-handed the descent a BOUNDED number of times, and
+        then fast-fail under its own name -- not idle out the 3000 game-second
+        descent budget under a generic phase-timeout."""
+        frames = [self._descending(i, landing_ap_enabled=0, landing_ap_status="")
+                  for i in range(1, self._ladder_frames + 1)]
+        final, control, lines = self._fly(frames)
+        self.assertTrue(final.done)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.LANDING_GIVEUP_AP_NOT_ENABLED, final.flake_reason)
+        self.assertIn("COMMANDED and never OBSERVED", final.flake_reason)
+        # NOT the touchdown-timeout / no-progress names: a dead actor must be
+        # named as a dead actor, which is the whole point of four give-ups.
+        self.assertNotIn(mlib.LANDING_GIVEUP_TOUCHDOWN_TIMEOUT,
+                         final.flake_reason)
+        self.assertNotIn(mlib.LANDING_GIVEUP_NO_PROGRESS, final.flake_reason)
+        # It fast-failed on the ladder's OWN frame, seconds in -- it did not
+        # ride the phase budget out (the failure this ladder exists to avoid).
+        self.assertEqual(control.reads, self._ladder_frames)
+        self.assertLess(final.phase_entry_ut + 10.0 * self._ladder_frames,
+                        B13_PARAMS["descentTimeoutSeconds"])
+        # ... and the machine never left DESCENT for the landed tail.
+        self.assertEqual(final.phase, mlib.B5_DESCENT)
+        self.assertNotIn(mlib.B5_LANDED_SETTLE, final.phases_reached)
+
+    def test_the_reissue_is_bounded_and_carries_the_vehicle_configuration(self):
+        """BOUNDED: a server-side surface that refuses to arm must END the
+        phase, not loop on it. And each re-issue must re-send the SPEC's
+        landing configuration -- a re-issue that silently dropped
+        DeployGears would land the craft on its engine bell."""
+        frames = [self._descending(i, landing_ap_enabled=0)
+                  for i in range(1, self._ladder_frames + 1)]
+        final, control, _ = self._fly(frames)
+        engages = [a for a in control.actions
+                   if a.kind == mlib.ACTION_MJ_LAND_UNTARGETED]
+        self.assertEqual(len(engages), mlib.MAX_LANDING_AP_REISSUES)
+        self.assertEqual(final.landing_ap_reissues, mlib.MAX_LANDING_AP_REISSUES)
+        for engage in engages:
+            self.assertEqual(engage.landing_config, (0.5, True, False, False))
+        # DESCENT stays warp-PASSIVE and attitude-PASSIVE even while recovering:
+        # MechJeb owns both, and a second writer is the thrash class this suite
+        # has already paid for twice.
+        self.assertEqual({a.kind for a in control.actions},
+                         {mlib.ACTION_MJ_LAND_UNTARGETED})
+
+    def test_the_ladder_reaches_the_log_as_greppable_gate_lines(self):
+        """THE CHANNEL THE TWO FLIGHTS NEVER LIT. `landingApDownStreak` and
+        `landingApReissues` are the two fields an operator greps when a descent
+        does not engage, and no flight has ever emitted either carrying a
+        non-zero value. This asserts the loop emits the WHOLE ladder: one
+        transition per debounce step, the reset on each re-issue, and the
+        capped final rung."""
+        frames = [self._descending(i, landing_ap_enabled=0)
+                  for i in range(1, self._ladder_frames + 1)]
+        _final, _control, lines = self._fly(frames)
+        depth = mlib.LANDING_AP_DISABLED_DEBOUNCE_FRAMES
+        expected = []
+        for rung in range(mlib.MAX_LANDING_AP_REISSUES):
+            expected += ["%d->%d" % (n, n + 1) for n in range(depth - 1)]
+            expected.append("%d->0" % (depth - 1))      # consumed by the re-issue
+        expected += ["%d->%d" % (n, n + 1) for n in range(depth)]  # DEAD, capped
+        self.assertEqual(self._gates(lines, "landingApDownStreak"), expected)
+        self.assertEqual(
+            self._gates(lines, "landingApReissues"),
+            ["%d->%d" % (n, n + 1)
+             for n in range(mlib.MAX_LANDING_AP_REISSUES)])
+
+    def test_a_flickering_channel_never_reaches_a_reissue(self):
+        """THE DEBOUNCE, measured. Every existing cell scripts the module
+        disabled on EVERY frame, which cannot tell a 3-frame debounce from a
+        1-frame one. Here the reading flickers -- two down, one up, forever --
+        so a single-frame transient (a poll landing between MechJeb's own state
+        transitions) must never re-hand it the descent."""
+        frames = []
+        for i in range(1, 40):
+            frames.append(self._descending(
+                i, landing_ap_enabled=(1 if i % 3 == 0 else 0)))
+        frames += self._landing_tail(40)
+        final, control, lines = self._fly(frames)
+        # The flight LANDED: the flicker cost it nothing at all.
+        self.assertTrue(final.done)
+        self.assertIsNone(final.verdict, final.flake_reason)
+        self.assertEqual(final.phase, mlib.B5_SURFACE_COMMITTED)
+        self.assertEqual(final.landing_ap_reissues, 0)
+        self.assertEqual(
+            [a.kind for a in control.actions].count(
+                mlib.ACTION_MJ_LAND_UNTARGETED), 0)
+        # The streak was OBSERVED climbing and resetting, so the cell proves the
+        # debounce absorbed the flicker rather than never seeing it.
+        streaks = self._gates(lines, "landingApDownStreak")
+        self.assertIn("0->1", streaks)
+        self.assertIn("2->0", streaks)
+        self.assertNotIn("2->3", streaks)
+        self.assertEqual(self._gates(lines, "landingApReissues"), [])
+
+    def test_a_healthy_landing_never_enters_the_supervision_path(self):
+        """THE SHAPE BOTH LIVE FLIGHTS FLEW. An always-enabled descent must
+        leave the ladder's two channels completely silent -- which is why the
+        two green flights emitting nothing is evidence of a healthy descent and
+        NOT evidence of a dark channel. The other three cells above are what
+        turn that reading from an assumption into a measured one."""
+        frames = [self._descending(i) for i in range(1, 12)]
+        frames += self._landing_tail(12)
+        final, control, lines = self._fly(frames)
+        self.assertTrue(final.done)
+        self.assertIsNone(final.verdict, final.flake_reason)
+        self.assertEqual(final.phase, mlib.B5_SURFACE_COMMITTED)
+        self.assertEqual(final.landing_ap_down_streak, 0)
+        self.assertEqual(final.landing_ap_reissues, 0)
+        self.assertEqual(self._gates(lines, "landingApDownStreak"), [])
+        self.assertEqual(self._gates(lines, "landingApReissues"), [])
+        self.assertEqual(
+            [a.kind for a in control.actions].count(
+                mlib.ACTION_MJ_LAND_UNTARGETED), 0)
+
+    def test_an_unread_channel_is_not_evidence_of_a_dead_module(self):
+        """FAIL CLOSED against acting on evidence we do not have: the -1 UNREAD
+        sentinel (a run that forgot read_landing, or a channel that dropped)
+        must never climb the ladder. The altitude-trend watchdog and the descent
+        budget own that outcome instead."""
+        frames = [self._descending(i, landing_ap_enabled=-1)
+                  for i in range(1, 30)]
+        frames += self._landing_tail(30)
+        final, control, lines = self._fly(frames)
+        self.assertIsNone(final.verdict, final.flake_reason)
+        self.assertEqual(final.landing_ap_reissues, 0)
+        self.assertEqual(self._gates(lines, "landingApDownStreak"), [])
+        self.assertEqual(
+            [a.kind for a in control.actions].count(
+                mlib.ACTION_MJ_LAND_UNTARGETED), 0)
+
+
+class LandingNoProgressDebounceFlightTests(_LandingDescentFlightFixture,
+                                          unittest.TestCase):
+    """The SECOND DESCENT give-up's debounce, driven through the REAL fly loop
+    (review round 2, 2026-07-26).
+
+    `landing-no-progress` used to fire on the FIRST frame past the window, and
+    the countdown it now runs is only useful if an operator can SEE it: the
+    depth lives in mlib, but the `gate landingStallStreak` lines are emitted by
+    the LOOP (`diff_machine_state` -> `log.info`). An mlib-only cell proves the
+    field moved and says nothing about whether anybody would ever read it --
+    the same reason the autopilot ladder above is flown rather than decided.
+
+    Shares the ladder's fixture mixin deliberately: same `_descent_state`
+    (anchored at 100,000 m / ut 0), same `_fly`, same `_gates`, same 10
+    game-second frame spacing."""
+
+    def _stalled(self, i, **kw):
+        """A frame PAST the no-progress window that proves nothing moved: the
+        window opened at ut 0 / 100,000 m, so ut > 900 with a flat altitude is
+        an elapsed window that under-delivered, from an anchor high enough that
+        the band disarm does not apply."""
+        base = dict(ut=B13_PARAMS["landingProgressWindowSeconds"] + 10.0 * i,
+                    altitude=99_950.0 + 0.01 * i, vertical_speed=0.0)
+        base.update(kw)
+        return self._descending(i, **base)
+
+    def test_the_countdown_reaches_the_log_then_names_the_giveup(self):
+        depth = mlib.LANDING_STALL_DEBOUNCE_FRAMES
+        frames = [self._stalled(i) for i in range(1, depth + 1)]
+        final, control, lines = self._fly(frames)
+        self.assertTrue(final.done)
+        self.assertEqual(final.verdict, mlib.MISSION_FLAKE)
+        self.assertIn(mlib.LANDING_GIVEUP_NO_PROGRESS, final.flake_reason)
+        # One gate line per step of the countdown, so the give-up is visible
+        # coming rather than only on arrival.
+        self.assertEqual(self._gates(lines, "landingStallStreak"),
+                         ["%d->%d" % (n, n + 1) for n in range(depth)])
+        # It fired on the ladder's own frame, not on the descent budget.
+        self.assertEqual(control.reads, depth)
+        self.assertNotIn(mlib.LANDING_GIVEUP_TOUCHDOWN_TIMEOUT,
+                         final.flake_reason)
+
+    def test_a_hop_short_of_the_depth_costs_the_landing_nothing(self):
+        """THE MEASURED CASE: B14 flight 1's Minmus final descent produced FIVE
+        consecutive non-descending frames on a HEALTHY landing. A run that stops
+        short of the depth must leave no trace but the reset, and the flight
+        must still land and commit."""
+        depth = mlib.LANDING_STALL_DEBOUNCE_FRAMES
+        frames = [self._stalled(i) for i in range(1, depth)]
+        # ... then one frame that delivers the drop, and a normal tail.
+        frames.append(self._stalled(depth, altitude=99_000.0,
+                                    vertical_speed=-50.0))
+        frames += self._landing_tail(200)
+        final, _control, lines = self._fly(frames)
+        self.assertTrue(final.done)
+        self.assertIsNone(final.verdict, final.flake_reason)
+        self.assertEqual(final.phase, mlib.B5_SURFACE_COMMITTED)
+        streaks = self._gates(lines, "landingStallStreak")
+        self.assertIn("0->1", streaks)
+        self.assertIn("%d->0" % (depth - 1), streaks)
+        self.assertNotIn("%d->%d" % (depth - 1, depth), streaks)
+
+    def test_a_healthy_descent_leaves_the_countdown_silent(self):
+        """The shape both live flights flew: every window delivered its drop, so
+        the channel emits nothing at all. That silence is only evidence of a
+        healthy descent because the two cells above prove the channel speaks."""
+        frames = [self._descending(i) for i in range(1, 12)]
+        frames += self._landing_tail(12)
+        final, _control, lines = self._fly(frames)
+        self.assertIsNone(final.verdict, final.flake_reason)
+        self.assertEqual(final.landing_stall_streak, 0)
+        self.assertEqual(self._gates(lines, "landingStallStreak"), [])
 
 
 if __name__ == "__main__":

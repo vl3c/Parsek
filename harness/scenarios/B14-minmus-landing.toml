@@ -111,7 +111,9 @@
 #                      carve-out is required because MechJeb disables its own
 #                      module on the landed frame), landing-no-progress (the
 #                      independent altitude-trend channel, with a separate
-#                      altitude-unreadable name), landing-touchdown-timeout (the
+#                      altitude-unreadable name; debounced, and disarmed while
+#                      its anchor is below landingProgressMinDropMeters AGL,
+#                      where descentTimeoutSeconds is the bound instead), landing-touchdown-timeout (the
 #                      GAME-time budget, which is the right instrument for a
 #                      ballistic fall warp does not shorten) and
 #                      landing-vessel-lost (a CRASH, named so it can never read
@@ -192,8 +194,10 @@ mission = "b14_minmus_landing"
 #                           shallow well makes MechJeb's descent-speed policy
 #                           permissive. MEASURED on flight 1: 1,381.3 GAME
 #                           seconds, and the WALL cost matched it 1:1 -
-#                           `warp=NONEx1.000` on ALL 1,329 DESCENT telemetry
-#                           samples. MechJeb's landing states DO call
+#                           `warp=NONEx1.000` on ALL 1,330 DESCENT telemetry
+#                           samples (the frames the DESCENT branch decided:
+#                           ut in (277,200.402, 278,581.702] - the PARK -> DESCENT
+#                           frame itself is decided in PARK). MechJeb's landing states DO call
 #                           WarpRegularAtRate / WarpToUT when Core.Node.Autowarp
 #                           is set (the runner sets it explicitly), but under the
 #                           installed 2.15.1 pin they never did on this profile,
@@ -290,18 +294,29 @@ landingRcsAdjustment       = false
 # park's altitude is flat by construction.
 landingProgressWindowSeconds = 900
 # Metres of surface-altitude drop the window must deliver.
-# CLOSED FROM MEASUREMENT on flight 1 (2026-07-25): the first window opened at
-# alt 37,829.6 m (ut 277,200.4) and closed at alt 16,079.8 m (ut 278,101.0), a
-# MEASURED drop of 21,749.8 m - the TIGHTER of the two axes (B13 shed 69,622.5).
-#   MEASURED worst case 21,749.8 m -> 5000 leaves 4.35x margin.
+# CLOSED FROM MEASUREMENT on flight 1 (2026-07-25), read off the periodic
+# machine-state lines rather than the rate-limited telemetry stream: the first
+# window opened at alt 37,829.610 m (ut 277,200.402) and closed at alt
+# 16,099.041 m (ut 278,100.482), a MEASURED drop of 21,730.6 m - the TIGHTER of
+# the two axes (B13 shed 69,622.5). Touchdown came 481.2 s after that
+# re-anchor, with 418.8 s of the second window still unspent, so this descent
+# also closed exactly ONE window.
+#   MEASURED worst case 21,730.6 m -> 5000 leaves 4.35x margin.
 # Raised from the shipped-provisional 500 because 500 m is 2% of the drop the
 # autopilot actually delivers here: a MechJeb that shed 500 m in 900 s would be
 # catastrophically broken and the gate would still pass it.
-# NOTE the interaction with the vertical-speed rescue in
-# `mlib.landing_progress_verdict`: below min_drop metres AGL the window is
-# UNSATISFIABLE by construction, so the verdict withholds the give-up whenever
-# the craft's own vertical speed is finite and NEGATIVE. That is what makes a
-# 5,000 m drop requirement safe on a final descent that only has 450 m left.
+#
+# WHAT GUARDS THE LAST 5,000 m, since this window cannot: the band below
+# min_drop AGL is UNSATISFIABLE by construction, so
+# `mlib.landing_progress_verdict` DISARMS the window whenever the ANCHOR sits
+# there and `descentTimeoutSeconds` owns the phase instead; above the band the
+# give-up is DEBOUNCED over LANDING_STALL_DEBOUNCE_FRAMES consecutive frames.
+# THIS FLIGHT is where the measurement behind both came from: MechJeb's Minmus
+# final descent hops, and 23 of this run's 1,330 DESCENT frames read vspd >= 0
+# (peak +1.305 m/s, longest consecutive run FIVE, ut 278,489.7 -> 278,493.8,
+# alt climbing 92.711 -> 96.370 m). See B13-mun-landing.toml for the full
+# derivation. Neither guard has been exercised live - this flight's anchor
+# stayed at 16,099.0 m, far above the band.
 landingProgressMinDropMeters = 5000
 landedSituations           = ["LANDED", "SPLASHED"]
 # Settled-touchdown gate. BOTH conjuncts, both fail CLOSED on a non-finite read.
@@ -338,11 +353,21 @@ landedDebounceFrames       = 3
 # wall budget could reap the run generically.
 landedTimeoutSeconds       = 600
 
-# Coverage. Identical claim set to B13 on the Minmus axis; every claim is gated
-# by the same evidence (see B13-mun-landing.toml for the per-cell reasoning).
-# The two NEW cells the lane adds are D1 commit-landed-foreign-body (added to
-# harness/coverage/registry.toml in this same change per the growth rule) and
-# D4 surface-stationary (which no committed scenario claims today).
+# Coverage. Same claim set as B13 on the Minmus axis EXCEPT the surface class -
+# see below; every other claim is gated by the same evidence (B13-mun-landing.toml
+# has the per-cell reasoning). The two NEW cells this lane adds across its two
+# scenarios are D1 commit-landed-foreign-body (added to
+# harness/coverage/registry.toml in this same change per the growth rule) and the
+# D4 surface classes.
+#
+# D4 surface-MOBILE, not surface-stationary (review round 2, 2026-07-26). This
+# spec claimed `surface-stationary` while its own measured evidence was
+# `Approach -> SurfaceMobile`, and the token it required accepted EITHER class -
+# so the claim was covered by a green verdict that had not seen it. That is the
+# exact pattern D5 `bg-recording` was removed from B11/B12 for. The claim now
+# matches what this flight MEASURED, and the token below is class-specific so it
+# cannot be satisfied by B13's class. `surface-stationary` stays on B13, which
+# measured it.
 #
 # DELIBERATELY NOT CLAIMED, though the recording will carry them: D7 gear (the
 # landing legs DO produce GearDeployed part events, but nothing in the harness
@@ -353,8 +378,19 @@ landedTimeoutSeconds       = 600
 D1  = ["auto-record-launch", "commit-in-foreign-soi", "commit-landed-foreign-body"]
 D3  = ["orbital-checkpoint"]
 D4  = ["atmospheric", "exo-propulsive", "exo-ballistic", "cohesive-cross-body-coast",
-       "surface-stationary"]
+       "surface-mobile"]
 D14 = ["kerbin", "minmus", "warp-rails"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped
+# to that SUB-table and is never read. This spec shipped it that way (under
+# [expectations.logContracts]) - harmless today, because an absent key already
+# means "none allowed", but INVALID once the sibling render-parity change
+# promotes the misplaced form to a spec error. These are NEW files that change
+# never touches, so a clean merge would leave them silently INVALID; the key is
+# moved here now.
+allowedAnomalies = []
 
 [expectations.recordings]
 # PINNED at {8, 8} FROM MEASUREMENT. The provisional {8, 9} window this spec
@@ -372,12 +408,14 @@ D14 = ["kerbin", "minmus", "warp-rails"]
 # PINNED from measurement on FLIGHT 1 (2026-07-25, FULL PASS attempt 1, wall
 # 2,083.9 s): verifiers.expectations.observed.recordings.count read exactly 8,
 # so the allowance for a touchdown fragment was never needed and the window is
-# now pinned. Topology confirmed by the commit-terminal lines: 1 Landed/Minmus
-# (the lander), 6 Destroyed (the radial boosters), 1 Orbiting/Kerbin (the
-# flameout-staged ascent core) - identical to B11/B12 except the ROOT's terminal,
-# which is the whole point of this lane. Same caveat as B11/B12: the count is
-# COMMIT-BLIND (sidecars are written for the active tree too), so it guards
-# recording TOPOLOGY while the log tokens guard the landed terminal.
+# now pinned. That count, plus `verifiers.expectations.status = PASS` with
+# `mismatches = []`, is the whole of what the archive carries: the per-recording
+# terminal breakdown this note used to quote (1 Landed/Minmus, 6 Destroyed,
+# 1 Orbiting/Kerbin) came from reading the live log during the run and is NOT
+# re-verifiable, because `collectLogs.ran = false` kept no KSP.log. Same caveat
+# as B11/B12: the count is COMMIT-BLIND (sidecars are written for the active tree
+# too), so it guards recording TOPOLOGY while the log tokens guard the landed
+# terminal.
 count = { min = 8, max = 8 }
 
 [expectations.logContracts]
@@ -400,11 +438,25 @@ count = { min = 8, max = 8 }
 # The per-body evidence is therefore log-side (the required token below) PLUS the
 # SOI-crossing token PLUS the machine-side landedOnTargetBody assertion.
 #
-# The Environment-transition token is the one that proves SURFACE-class
-# TrackSections OFF KERBIN, and it is discriminating BY CONSTRUCTION:
-# EnvironmentDetector.Classify returns Atmospheric below atmosphereDepth, so on
-# Kerbin a descent ALWAYS enters the surface classes through Atmospheric and
-# never straight from a vacuum class.
+# TWO Environment-transition tokens, and they prove DIFFERENT things.
+#
+#   1. The AIRLESS-ENTRY token stays class-AGNOSTIC on purpose. What is
+#      structural is the PREDECESSOR: EnvironmentDetector.Classify returns
+#      Atmospheric below atmosphereDepth, so on Kerbin a descent ALWAYS enters
+#      the surface classes through Atmospheric and never straight from a vacuum
+#      class. Which surface class the confirmed transition lands in is NOT
+#      structural - it is `srfSpeed > 0.1` at the confirm frame, which is why
+#      B13 measured SurfaceStationary and B14 measured SurfaceMobile on the same
+#      machine. Pinning a class here would make this token a coin flip.
+#   2. The CLAIMED-CLASS token gates the D4 value this spec claims, with ANY
+#      predecessor, so it stays true whether the class is reached at touchdown or
+#      later. B14 flight 1's measured `Approach -> SurfaceMobile` line satisfies
+#      BOTH tokens at once, so token 2 adds a gate without adding an unverified
+#      requirement.
+#
+# IF A FUTURE FLIGHT FLIPS THE CLASS and token 2 reds, the honest fix is to move
+# the D4 claim with it - not to loosen the token back to class-agnostic while
+# keeping a per-class claim, which is precisely the defect this replaced.
 required = [
   "Recording started",
   "Recording stopped",
@@ -413,10 +465,9 @@ required = [
   "committree committed=true",
   "CommitTreeFlight terminal: rec=\\w+ terminalState=Landed terminalOrbitBody=Minmus",
   "Environment transition: (Approach|ExoBallistic|ExoPropulsive) -> Surface(Stationary|Mobile) at UT=",
+  "Environment transition: \\w+ -> SurfaceMobile at UT=",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
-
-allowedAnomalies = []
 
 [runtime]
 budgetSeconds = 4800

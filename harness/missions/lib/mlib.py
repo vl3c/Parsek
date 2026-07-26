@@ -66,7 +66,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass, field, replace
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 MISSION_RESULT_SCHEMA = 1
 
@@ -1015,17 +1015,38 @@ CAPTURE_NOSTART_FLAKE = "flake"        # window passed, nothing left to try
 #     asymmetric retarget hysteresis with an absolute 120 s floor against
 #     multi-million-second spans over 2+ rounds whose healthy issue count has
 #     never been measured. Resetting the counter on every PHASE ENTRY bounds
-#     the episode and removes that false-flake risk. For COAST this is strictly
-#     a RELAXATION of the shipped bound (per-episode >= per-mission), so the
-#     live-proven B5/B6/B7 lane cannot red on it where it did not before.
+#     the episode and removes that false-flake risk.
 #
-# The cap stays where it was measured against: a healthy COAST issued the warp
-# ONCE (B11 flight 2, full pass), the thrash issued 3,603. The two newly
-# counted sites are structurally quieter still -- the aim-warp target is the
-# node's FIXED UT, so it never retargets and can only re-issue through the
-# 30-game-second self-heal, and the capture warp's target (ut + ttPe - lead) is
-# constant along the coast. Anything approaching 500 issues in ONE phase at
-# either site is the cancel/re-arm loop by construction.
+# WHAT THE PER-PHASE RESET IS AND IS NOT (corrected by the 2026-07-26 review;
+# the earlier wording claimed the reset made the whole change safe, which does
+# not follow). At the COAST site the reset is strictly a RELAXATION of the
+# shipped bound -- per-episode >= per-mission -- so that site genuinely cannot
+# red where it did not before. At the OTHER three sites (both CORRECTION-BURN
+# aim-warps and TARGET-FLYBY) the guard is NEW: those sites had no thrash bound
+# at all, so B5/B6/B7 face a bound there they never faced. The relaxation
+# argument says nothing about them. What makes THOSE sites safe is the MEASURED
+# HEADROOM below, not the reset.
+#
+# THE MEASUREMENT (the actual safety argument). `action warp_to_ut` counted per
+# phase over the four HEAD flyby logs re-flown 2026-07-25 -- B11 (1,271 s),
+# B12 (581 s), B5 (469 s), B6 (359 s):
+#
+#   COAST-TO-TARGET   1 / 1 / 1 / 1        (3 warp_to_ut per MISSION in total)
+#   CORRECTION-BURN   1 / 1 / 1 / 1
+#   TARGET-FLYBY      1 / 1 / 1 / 1
+#
+# against a cap of 500. Three orders of magnitude of headroom at every site,
+# and the pathological coast that motivated the guard issued 3,603 in ONE
+# phase (B12 flight 2). Structural corroboration, per site: the aim-warp
+# target is the node's FIXED UT, so it never retargets and can only re-issue
+# through the 30-game-second self-heal; the CAPTURE-mode flyby target
+# (ut + ttPe - lead) is constant along the approach, though that site barely
+# runs at all because arming completes in CAPTURE_ARM_DEBOUNCE_FRAMES = 3
+# polls. The TARGET-FLYBY site that actually carries B5/B6/B7 traffic is the
+# NON-capture branch (the SOI-EXIT native warp), whose target derives from the
+# same jittery `time_to_soi` read that produced B12 flight 2's thrash -- which
+# is exactly why it needed a bound, and why the measured 1-per-phase on all
+# four flights is the number that matters here.
 MAX_PHASE_WARP_ISSUES = 500
 
 # The distinct thrash names, one per call site (the standing rule: every
@@ -1041,11 +1062,55 @@ WARP_THRASH_FLYBY = "flyby-warp-thrash"
 # is simply not moving. `warpUtilisation.gameSecondsPerWallSecond` was already
 # computed for exactly this shape and nothing consumed it as a give-up.
 #
-# The floor is deliberately far below any legitimate warp and comfortably above
-# the measured pathological one: B12 flight 2's thrashing coast read ~1.3
-# game-s per wall-s (rails rate never escaping ~2.7x), while a genuinely
-# warping phase reads hundreds to thousands. 5.0 is ~4x above the measured
-# defect and ~20x below the cheapest healthy warp.
+# WHICH SHAPE THIS ACTUALLY BOUNDS (corrected 2026-07-26 from flight 2's own
+# gate lines; the earlier wording here implied this floor would have caught B12
+# flight 2, and it would NOT have). Flight 2's coast CANCELLED the command every
+# other frame -- 3,603 `warp_to_ut` against 3,602 `cancel_warp`, with the
+# `gate warpToCmd <target>->none` / `none-><target>` pair alternating frame by
+# frame -- and the fly loop resets the liveness episode the moment
+# `warp_to_cmd` clears. That episode never lasted two frames, so this floor
+# could not have accumulated a judging window regardless of how it was tuned.
+# The THRASH counter is what bounds that shape.
+#
+# What this floor bounds is the POST-FIX RESIDUAL. `coast_native_warp_hold`
+# removed the cancel half of flight 2's cycle (a blind read UNDER WARP now HOLDS
+# the armed command), so the command stays armed continuously. Flight 2's OTHER
+# half -- a rails rate that never escaped 2.76x while the game reported a live
+# warp -- is untouched by that fix. Held command + crawling rate is an episode
+# that accumulates without bound while advancing almost no game time, and
+# nothing else in the stack can see it: the runner's warp-stall watchdog needs
+# UT to FREEZE (a crawl advances it), and a GAME-time phase budget is either
+# advanced by the crawl or, at CORRECTION-BURN, suppressed outright during an
+# aim-warp. That shape has never been flown; it is reachable, it is what this
+# floor is for, and it is covered by driving the REAL b5 machine over flight 2's
+# post-fix telemetry through fly_loop (test_shells.WarpLivenessRealMachineTests).
+#
+# THE RATIO, MEASURED -- AND WHICH RATIO. Read the paragraph above carefully:
+# this floor does NOT consume `warpUtilisation.gameSecondsPerWallSecond`, which
+# is a PER-PHASE average. It computes its own EPISODE-LOCAL ratio in the fly
+# loop, from the frame the command armed. On flight 2 those two numbers differ
+# by a factor of 27 and only one of them can name the defect:
+#
+#   PHASE ratio, COAST-TO-TARGET   151,763 game-s / ~3,890 wall-s = ~39
+#   EPISODE ratio, the thrash      1.41
+#
+# The phase average is ~39 because ONE successful warp burst (ut 74,241.8 ->
+# 220,311.6, 146,070 game-seconds in 7 frames) precedes the thrash inside the
+# same phase and dominates the mean. At ~39 a 5.0 floor could never fire, which
+# is exactly why the phase metric is a MARKER and this is a GIVE-UP: the marker
+# cannot separate flight 2's coast from a healthy one, the episode ratio names
+# it instantly. The episode number is measured off flight 2's MACHINE-STATE
+# lines, emitted on a >= 5.0 wall-second cadence
+# (MACHINE_STATE_INTERVAL_SECONDS). RE-MEASURED 2026-07-26 over the 724
+# final-coast machine-state lines of
+# results/2026-07-25_0103_B12-minmus-orbit_mission.stdout.log (the game clock
+# each line carries is lastWarpIssueUt -- the thrash re-issues every frame):
+# 723 deltas, MEDIAN 7.105 game-s, mean 7.071, full span 3.813 to 7.381, and
+# 275 of the 723 fall in the 7.05-7.13 band the earlier wording quoted as if it
+# were the whole range. 1.41 is median/cadence and survives on the mean too;
+# the coast itself is 7,204 frames, ut 220,311.6 -> 225,991.7 (5,680 game-s).
+# So 5.0 sits ~3.5x above the measured defect and below the cheapest healthy
+# warp. Do not "simplify" this to read the warpUtilisation row.
 #
 # It is armed ONLY while the machine has a NATIVE warp command outstanding
 # (state.warp_to_cmd is not None), so a deliberate 1x phase -- B5's PARK dwell,
@@ -1054,6 +1119,39 @@ WARP_THRASH_FLYBY = "flyby-warp-thrash"
 # before it can be judged: a warp whose whole episode is under
 # WARP_LIVENESS_MIN_WALL_SECONDS is never judged at all.
 WARP_LIVENESS_MIN_RATIO = 5.0
+
+# THE WINDOW, MEASURED (this replaces the 2026-07-26 PROVISIONAL note). 180.0
+# was picked round; it is now ANCHORED rather than re-tuned, and the VALUE IS
+# UNCHANGED, so no frame any flown mission took can move. Over all 118 archived
+# per-phase `warpUtilisation` rows that issued a warp command in a
+# NATIVE-arming phase, the longest wall-clock window is COAST-TO-TARGET at
+# 76.4 s (B7, 2026-07-25), then CORRECTION-BURN 69.6 s, TARGET-FLYBY 30.2 s,
+# PLAN-CORRECTION 3.7 s, PLAN-CAPTURE 0.6 s. 180.0 is 2.36x that measured
+# healthy maximum: not larger because it does not need to be, not smaller
+# because the maximum comes from ONE lane (B7's heliocentric coast) and an
+# unflown lane may legitimately warp longer.
+#
+# WHAT THE WINDOW IS NOT, and must never be sold as: the margin protecting the
+# long deliberate 1x holds. MEASURED, 31 archived phase rows across SEVEN phase
+# names run PAST 180 wall-seconds at a ratio BELOW the 5.0 floor -- REENTRY
+# 428.4 s @ 1.45, DEORBIT 349.8 s @ 1.00, DOCK 247.1 s @ 1.00, MJ-ASCENT
+# 198.5-199.3 s @ 1.33 (17 rows), INT-ASCENT 194.6 s @ 1.55, STATION-ASCENT
+# 194.3 s @ 1.83, PARK 180.2-180.6 s @ 1.00 (9 rows) -- and CAPTURE-BURN has
+# been measured at 138.0 s @ 1.10, only 42 seconds short of being judged. Every
+# one of those would FIRE if `warp_to_cmd` were ever left armed across them.
+# Nothing but the DISARM keeps them safe: CAPTURE-BURN reads warpCommands=0 on
+# all ten archived captures because `_b5_enter_plan_capture` clears the command,
+# and the PARK entry clears it again on the way in. Those two clears are
+# load-bearing safety, not bookkeeping -- pinned by
+# test_mlib.WarpLivenessFloorTests so a later edit cannot quietly re-arm them.
+#
+# FIELD STATUS: the floor has never fired on an archived flight, and that is the
+# CORRECT state, not a coverage debt. Every healthy armed episode we have flown
+# is 0.5-76.4 wall-seconds and finishes far inside the window; the shape the
+# floor bounds is unhealthy by construction and reaching it in the field would
+# mean reintroducing the defect. Read a live `warp-liveness-starved` verdict
+# against the episode's actual utilisation in the result JSON before acting on
+# it, the same as any other first-in-the-field terminal.
 WARP_LIVENESS_MIN_WALL_SECONDS = 180.0
 WARP_LIVENESS_GIVEUP = "warp-liveness-starved"
 
@@ -1117,14 +1215,45 @@ LANDING_AP_UNKNOWN = "unknown"     # channel unread: no evidence either way
 LANDING_AP_REISSUE = "reissue"     # observed down, re-issue budget left
 LANDING_AP_DEAD = "dead"           # observed down past the re-issue cap
 
+# Consecutive DESCENT frames that must PROVE no progress before
+# `landing-no-progress` fires. Every other liveness gate in this machine is
+# debounced (AP-down 3, capture-executor-down 3, capture-arm 3, park-stable 3,
+# landed-stable 3, impact-certain 5) and this one was NOT: it flaked on the
+# FIRST frame past the window.
+#
+# EIGHT, not the house 3, and the floor under it is MEASURED rather than
+# picked. B14 flight 1's archived telemetry
+# (`harness/results/2026-07-25_1543_B14-minmus-landing_mission.stdout.log`)
+# shows MechJeb's Minmus FinalDescent hopping and settling: 23 of the 1,330
+# DESCENT frames read a vertical speed >= 0 (the craft genuinely GAINS
+# altitude, peak +1.305 m/s), and the LONGEST CONSECUTIVE run of them is FIVE
+# (ut 278,489.7 -> 278,493.8, alt climbing 92.711 -> 96.370 m), with six
+# further runs of three. A HEALTHY landing therefore produces five consecutive
+# non-descending frames, so any depth <= 5 would still name it "provably not
+# descending" whenever the window happens to be elapsed with an anchor just
+# above the disarm band (min_drop < ref < min_drop + a few hundred metres, the
+# one geometry the band disarm does not cover). 8 is 1.6x the measured worst
+# healthy run; the cost is 3 extra polls, ~3 game seconds against a 900 s
+# window. Pinned by LandingStallDebounceDepthTests, which replays those five
+# measured frames.
+LANDING_STALL_DEBOUNCE_FRAMES = 8
+
 # landing_progress_verdict verdicts.
 LANDING_PROGRESS_PENDING = "pending"      # the window has not elapsed yet
 LANDING_PROGRESS_OK = "descending"        # the window's drop was delivered
+# The ANCHOR sits below min_drop metres AGL, so the window demands a drop that
+# does not exist below the craft. DISARMED: the give-up is withheld outright and
+# `descentTimeoutSeconds` owns the phase, because no reading of the altitude
+# channel in that band can distinguish a slow lander from a stuck one. See the
+# reasoning in ``landing_progress_verdict``.
+LANDING_PROGRESS_UNSATISFIABLE = "window-unsatisfiable-agl"
 # The window under-delivered, but the craft is MEASURABLY descending on the
 # independent vertical-speed channel. HOLD, do not flake and do not re-anchor:
 # a craft with a finite NEGATIVE vertical speed is not stalled by any reading of
-# the word, so the altitude-drop window has no business calling it one. See the
-# reasoning in ``landing_progress_verdict``.
+# the word, so the altitude-drop window has no business calling it one. This is
+# a CORROBORATION channel, not the near-ground guard -- see
+# ``landing_progress_verdict``, which quotes the flight frames that prove the
+# vertical-speed channel is NOT reliably negative near the ground.
 LANDING_PROGRESS_VSPEED = "descending-under-drop"
 LANDING_STALL_BLIND = "altitude-unreadable"    # cannot prove progress
 LANDING_STALL_FLAT = "altitude-not-decreasing"  # proved NO progress
@@ -3901,16 +4030,34 @@ class B5State:
     # runs it out exactly once.
     landing_alt_ref: Optional[float] = None
     landing_alt_ref_ut: Optional[float] = None
-    # Frames on which an ELAPSED window under-delivered its drop but the craft's
-    # own vertical speed was finite and NEGATIVE, so the give-up was WITHHELD
-    # (``LANDING_PROGRESS_VSPEED``). Non-zero means the drop window is running
-    # against a genuinely slow-but-descending profile -- the operator signal that
+    # Consecutive DESCENT frames whose ELAPSED window PROVED no progress
+    # (``LANDING_STALL_FLAT``) or could not be read at all
+    # (``LANDING_STALL_BLIND``). ``landing-no-progress`` fires at
+    # ``LANDING_STALL_DEBOUNCE_FRAMES``; any PENDING / OK / disarmed / vspeed
+    # frame resets it, because the claim the give-up makes is about a SUSTAINED
+    # observation. Bounded IN THE MACHINE (the phase ends on the frame that
+    # reaches the depth), so it is safe as a DIFF field.
+    landing_stall_streak: int = 0
+    # Frames on which an ELAPSED window under-delivered its drop from an anchor
+    # HIGH enough to deliver it, while the craft's own vertical speed was finite
+    # and NEGATIVE, so the give-up was WITHHELD (``LANDING_PROGRESS_VSPEED``).
+    # Non-zero means the drop window is running against a genuinely
+    # slow-but-descending profile -- the operator signal that
     # ``landingProgressMinDropMeters`` / ``landingProgressWindowSeconds`` are
     # mis-sized for this body, not that anything is broken. Rides the periodic
     # machine-state line and the status file ONLY (deliberately NOT a DIFF field:
-    # it can increment on consecutive frames near the ground, and an uncapped
-    # diffed counter is the ~180-360-extra-Info-lines trap PARK already paid for).
+    # it can increment on consecutive frames, and an uncapped diffed counter is
+    # the ~180-360-extra-Info-lines trap PARK already paid for).
     landing_vspeed_holds: int = 0
+    # Frames on which the window was DISARMED because its anchor sat below
+    # ``landingProgressMinDropMeters`` AGL (``LANDING_PROGRESS_UNSATISFIABLE``).
+    # Non-zero says "the last stretch of this descent was watched by
+    # descentTimeoutSeconds, not by the drop window" -- which is the honest
+    # answer to "what bounded the final descent", and the number an operator
+    # needs before believing the drop window guarded anything near the ground.
+    # Same surfaces as landing_vspeed_holds, and NOT a DIFF field for the same
+    # reason.
+    landing_unsat_holds: int = 0
     # Consecutive in-gate LANDED-SETTLE frames, and the latch that the landing
     # was EVER settled (so the give-up separates "never settled" from "settled
     # but not in-gate at the end of the dwell" -- the PARK / forge_lko pattern).
@@ -4627,8 +4774,15 @@ def _b5_native_warp_guarded(state: B5State, snapshot: TelemetrySnapshot,
     issues = issued.phase_warp_issues + 1
     issued = replace(issued, phase_warp_issues=issues)
     if issues > MAX_PHASE_WARP_ISSUES:
+        # The warp this frame just armed is DISCARDED and torn down instead:
+        # "leave nothing warped behind" (2026-07-26 review). The shipped
+        # version returned actions=[] with warp_to_cmd still set, so the
+        # runner drove StopRecording / CommitTree / FlushAndQuit against a
+        # warping game -- the one thing every other terminal in this file is
+        # careful not to do.
+        stopped, teardown = _b5_stop_all_warp(issued, snapshot)
         return _b5_named_flake(
-            issued,
+            stopped,
             "phase %s: %s (%d native warp_to_ut issues in THIS phase, cap %d "
             "-- the warp policy is cancelling and re-arming its own warp "
             "instead of warping; ut=%s target=%s tts=%s ttPe=%s warp=%sx%s)"
@@ -4637,7 +4791,7 @@ def _b5_native_warp_guarded(state: B5State, snapshot: TelemetrySnapshot,
                _obs_fmt(snapshot.time_to_soi),
                _obs_fmt(snapshot.time_to_periapsis),
                snapshot.warp_mode, _obs_fmt(snapshot.warp_rate)),
-            peak), []
+            peak), teardown
     return issued, actions
 
 
@@ -4695,6 +4849,30 @@ def _b5_cancel_native_warp(state: B5State,
         return state, []
     return (replace(state, warp_to_cmd=None, warp_cmd=0),
             [Action(ACTION_CANCEL_WARP)])
+
+
+def _b5_stop_all_warp(state: B5State,
+                      snapshot: TelemetrySnapshot) -> Tuple[B5State, List[Action]]:
+    """Leave nothing warped behind: the warp teardown a TERMINAL frame owes the
+    runner, which drives StopRecording / CommitTree / FlushAndQuit next and must
+    not drive them against a warping game.
+
+    The same two-case shape the impact-certain terminal and the RETURN exit
+    already spell out inline: CANCEL an active native warp (the runner's cancel
+    closes the warp connection and zeroes both factors), ELSE drop a held rails
+    factor. Never both -- never two warp writers in one frame.
+
+    Added by the 2026-07-26 review for the two give-ups that shipped WITHOUT a
+    teardown (``capture-never-armed`` and the ``*-warp-thrash`` family). The
+    two inline copies are deliberately left alone: they sit on the live-proven
+    B5/B6/B7 lane and rewriting them to call this would buy nothing."""
+    if state.warp_to_cmd is not None or _is_finite(snapshot.warping_to):
+        return (replace(state, warp_to_cmd=None, warp_cmd=0),
+                [Action(ACTION_CANCEL_WARP)])
+    if state.warp_cmd != 0:
+        return (replace(state, warp_cmd=0),
+                [Action(ACTION_SET_RAILS_WARP, 0.0)])
+    return state, []
 
 
 # ---------------------------------------------------------------------------
@@ -4811,6 +4989,77 @@ _CAPTURE_ARM_FAILURE_HINT = {
                         "classifier -- this is a machine bug, not a flight "
                         "outcome."),
 }
+
+
+def _b5_capture_never_armed_giveup(state: B5State, snapshot: TelemetrySnapshot,
+                                   unarmed: int, peak: Optional[float]
+                                   ) -> Tuple[B5State, List[Action]]:
+    """The ``capture-never-armed`` terminal, SPLIT BY VERDICT CLASS.
+
+    THE ORDERING BUG THIS FIXES (2026-07-26 review). The never-armed gate runs
+    BEFORE the IMPACT-CERTAIN EARLY TERMINAL further down the same branch, and
+    on a sub-surface arrival it ALWAYS wins the race: ``_b5_capture_arm_ready``
+    is False from the FIRST in-target-SOI frame, so this counter starts
+    immediately, while the impact terminal cannot arm until
+    ``altitude < IMPACT_WARP_GUARD_ALT`` (400 km) plus its own 5-frame
+    debounce. Shipping that as a FLAKE was wrong: the SAME branch states the
+    policy fifteen lines above the arming gate -- a capture that provably
+    cannot happen is a DETERMINISTIC flight outcome, so ASSERT-FAIL, never a
+    retryable flake -- and the give-up that pre-empted the impact terminal did
+    not honour it.
+
+    WHAT THE FIX DOES NOT BUY (checked, 2026-07-26): it does NOT save the
+    retry flight. `hlib.MISSION_VERDICT_SUBKINDS` maps ASSERT-FAIL to `mission`
+    and FLAKE to `autopilot-flake`, and BOTH are in
+    `RETRYABLE_INVALID_SUBKINDS`, so the harness retries either way (B7's Ike
+    red is the live proof: attempt 1 ASSERT-FAIL, attempt 2 flown and passed).
+    What it buys is the CLASSIFICATION: `mission` says the FLIGHT failed and
+    sends an operator to the trajectory, `autopilot-flake` says the MACHINE
+    broke and sends them to the machine. On a sub-surface arrival the
+    trajectory is the answer.
+
+    So CAPTURE_ARM_SUBSURFACE now terminates MISSION_ASSERT_FAIL carrying the
+    impact language, and the other two shapes keep the FLAKE fast-fail they
+    were designed as. CAPTURE_ARM_BLIND above all: a dark periapsis clock is a
+    MACHINE fault (the channel, not the trajectory) and it is the one shape
+    NOTHING else in capture mode can end, which is why the bound exists.
+
+    This is NOT the impact terminal relocated. It fires on the ARMING counter,
+    30 frames deep; the impact terminal keeps its own 5-frame debounce and
+    still owns a low-altitude sub-surface arrival that develops AFTER a ready
+    frame reset this run (jittery periapsis), where it is by far the faster of
+    the two.
+
+    Every path tears the warp down on the way out (``_b5_stop_all_warp``): the
+    shipped version returned ``actions=[]`` with ``warp_to_cmd`` still armed,
+    so the runner drove StopRecording / CommitTree / FlushAndQuit against a
+    warping game."""
+    why = classify_capture_arm_failure(snapshot.periapsis,
+                                       snapshot.time_to_periapsis)
+    evidence = ("%d consecutive in-%s-SOI frames could not arm PLAN-CAPTURE "
+                "(cap %d; pe=%s ttPe=%s alt=%s vspd=%s ut=%s). %s"
+                % (unarmed, state.params.target_body,
+                   CAPTURE_NEVER_ARMED_FRAMES,
+                   _obs_fmt(snapshot.periapsis),
+                   _obs_fmt(snapshot.time_to_periapsis),
+                   _obs_fmt(snapshot.altitude),
+                   _obs_fmt(snapshot.vertical_speed),
+                   _obs_fmt(snapshot.ut),
+                   _CAPTURE_ARM_FAILURE_HINT.get(why, "")))
+    stopped, teardown = _b5_stop_all_warp(state, snapshot)
+    if why == CAPTURE_ARM_SUBSURFACE:
+        return replace(
+            stopped,
+            peak_apoapsis=(peak if peak is not None else stopped.peak_apoapsis),
+            done=True, verdict=MISSION_ASSERT_FAIL,
+            loss_reason=("phase %s: flyby impact certain, capture-never-armed "
+                         "(%s) -- %s"
+                         % (B5_TARGET_FLYBY, why, evidence))), teardown
+    return _b5_named_flake(
+        stopped,
+        "phase %s: capture-never-armed (%s) -- %s"
+        % (B5_TARGET_FLYBY, why, evidence),
+        peak), teardown
 
 
 def capture_node_at_periapsis(node_ut: float, ut: float,
@@ -5080,12 +5329,26 @@ def classify_landing_autopilot(
     shape as the B11 flight-1 NodeExecutor defect.
 
       ``LANDING_AP_RUNNING``  - observed ENABLED, or the craft has already
-      TOUCHED DOWN. The touchdown carve-out is REQUIRED, not defensive:
-      MechJeb's own FinalDescent step calls ``StopLanding()`` (which clears the
-      module's user pool, i.e. disables it) the frame it observes
-      ``Vessel.LandedOrSplashed``, so an observed FALSE after touchdown is the
-      module reporting SUCCESS. Without this conjunct a perfect landing would
-      fast-fail as a dead autopilot. The streak resets.
+      TOUCHED DOWN. The streak resets.
+
+      THE TOUCHDOWN CARVE-OUT IS UNREACHABLE FROM THE LIVE PATH, and saying so
+      is the honest version of what this comment used to claim (2026-07-26
+      review). The hazard is real: MechJeb's own FinalDescent step calls
+      ``StopLanding()`` (which clears the module's user pool, i.e. disables it)
+      the frame it observes ``Vessel.LandedOrSplashed``, so an observed FALSE
+      after touchdown is the module reporting SUCCESS, and reading it as a dead
+      autopilot would fast-fail a PERFECT landing. But the live guarantee is
+      not provided HERE: ``b5_decide``'s DESCENT block tests ``_b5_touched_down``
+      FIRST and leaves the phase, so this function is only ever called with
+      ``touched_down=False`` in flight. The conjunct is therefore a SECOND,
+      ORDER-INDEPENDENT guarantee, kept deliberately: it costs one comparison,
+      it keeps the pure classifier correct for any caller that does not own
+      ``b5_decide``'s ordering, and deleting it would move a load-bearing safety
+      property into a call-site ordering constraint documented only in a
+      comment. Cells: ``LandingDescentTests`` pins the LIVE guarantee (the
+      ordering) in ``test_a_landed_frame_exits_whatever_the_autopilot_reads``;
+      ``LandingAutopilotClassifierTests`` pins THIS backstop in
+      ``test_touchdown_reads_as_success_for_an_out_of_order_caller``.
 
       ``LANDING_AP_UNKNOWN``  - ``ap_enabled`` is the -1 UNREAD sentinel. NO
       action: an unread channel is not evidence of a dead actor (fail closed
@@ -5136,32 +5399,57 @@ def landing_progress_verdict(altitude: float, ref_altitude: Optional[float],
       unreadable). Nothing is decided; the caller HOLDS.
       ``LANDING_PROGRESS_OK``      - the window delivered at least ``min_drop``
       metres of surface-altitude drop. The caller RE-ANCHORS the window.
-      ``LANDING_PROGRESS_VSPEED``  - the window under-delivered, but the craft's
-      OWN vertical speed is finite and NEGATIVE. The caller HOLDS and does NOT
-      re-anchor, so the accumulated drop keeps counting toward the same anchor.
+      ``LANDING_PROGRESS_UNSATISFIABLE`` - the ANCHOR is below ``min_drop``
+      metres AGL, so the window asks for a drop that does not exist below the
+      craft. The watchdog is DISARMED for this window; the caller HOLDS and does
+      NOT re-anchor.
+      ``LANDING_PROGRESS_VSPEED``  - the window under-delivered from an anchor
+      that COULD have delivered, but the craft's OWN vertical speed is finite
+      and NEGATIVE. The caller HOLDS and does NOT re-anchor, so the accumulated
+      drop keeps counting toward the same anchor.
       ``LANDING_STALL_BLIND``      - the altitude (now or at the anchor) is not
       finite. FAIL CLOSED: an unreadable altitude is NOT evidence of descent, so
       it must never buy the descent another window. It gets its OWN name
       because the operator response differs completely from a real stall -- fix
       the channel, not the trajectory.
       ``LANDING_STALL_FLAT``       - a full window elapsed with finite altitudes,
-      the drop was not delivered, and the vertical-speed channel does not show a
-      descent either. The descent is provably not descending.
+      the anchor was high enough for the drop to be possible, the drop was not
+      delivered, and the vertical-speed channel does not show a descent either.
+      The descent is provably not descending.
 
-    WHY THE VERTICAL-SPEED RESCUE EXISTS (reviewer finding, 2026-07-26). The
-    drop window is UNSATISFIABLE BY CONSTRUCTION below ``min_drop`` metres AGL:
-    there is not that much altitude left to shed. The specs command
-    ``landingTouchdownSpeedMps = 0.5`` and MechJeb's ``FinalDescent`` holds
-    roughly that near the ground, so a lander whose window happens to re-anchor
-    a few hundred metres up and then takes longer than the window to touch down
-    averages under the commanded descent rate -- exactly what we ASKED FOR --
-    and the pre-fix code named it "provably not descending" on the FIRST frame
-    past the window, with no debounce and no second window. B13/B14 escaped only
-    by geometry (their single closed window ended at 64.4 km / 16.1 km altitude,
-    hundreds of seconds before touchdown), not by any guard. A craft with a
-    finite negative vertical speed is descending; the give-up must not claim
-    otherwise. SLOW is still bounded -- by ``descentTimeoutSeconds``, which is
-    the instrument for slow. This watchdog bounds BROKEN.
+    THE NEAR-GROUND BAND IS DISARMED, NOT RESCUED (review round 2, 2026-07-26).
+    Below ``min_drop`` metres AGL the window is UNSATISFIABLE BY CONSTRUCTION:
+    there is not that much altitude left to shed, so no outcome in that band
+    carries information and the only thing the gate can produce there is a false
+    give-up. The first cut tried to cover the band with the vertical-speed
+    channel instead ("the craft is descending, so withhold"), and THE FLIGHT
+    DATA SAYS THAT DOES NOT HOLD: on B14 flight 1's Minmus final descent
+    (`harness/results/2026-07-25_1543_B14-minmus-landing_mission.stdout.log`)
+    MechJeb hops and settles, and 23 of the 1,330 DESCENT frames read a vertical
+    speed >= 0 -- the craft physically CLIMBS, peak +1.305 m/s, in runs of up to
+    FIVE consecutive frames (ut 278,489.7 -> 278,493.8, alt 92.711 -> 96.370 m).
+    A rescue that requires a negative vertical speed is absent on exactly those
+    frames, so with a below-``min_drop`` anchor and an elapsed window the old
+    code would have flaked a HEALTHY landing. The band is therefore disarmed
+    outright, and the vertical-speed channel is kept only as what it actually is
+    -- a corroboration channel ABOVE the band, where a genuinely descending
+    craft that under-delivers means the knobs are mis-sized for the body.
+
+    WHAT ACTUALLY KEPT B13/B14 GREEN was neither guard: it was anchor geometry.
+    MEASURED from the machine-state lines of both flights, each descent closed
+    exactly ONE window and then touched down with the next one still running:
+    B13 re-anchored at alt 64,963.5 m (ut 22,634.365) and landed 453.9 s later
+    with 446.1 s of the 900 s window unspent; B14 re-anchored at alt 16,099.0 m
+    (ut 278,100.482) and landed 481.2 s later with 418.8 s unspent. Both anchors
+    are far ABOVE the 5,000 m band, so neither the disarm nor the vertical-speed
+    channel has ever been exercised live -- they are covered by cells only, and
+    must not be read as flight-proven.
+
+    SLOW is still bounded, and not by this gate: ``descentTimeoutSeconds`` is the
+    instrument for slow (2,200 game s against MEASURED descents of 1,353.9 /
+    1,381.3 s). This watchdog bounds BROKEN, and it now takes
+    ``LANDING_STALL_DEBOUNCE_FRAMES`` consecutive frames of proof to fire, like
+    every other liveness gate in this machine.
 
     The window is measured from the ANCHOR, not from phase entry, so a healthy
     descent rolls it forward indefinitely and only a genuine stall ever runs one
@@ -5172,13 +5460,20 @@ def landing_progress_verdict(altitude: float, ref_altitude: Optional[float],
         return LANDING_PROGRESS_PENDING
     if ref_altitude is None or not (_is_finite(altitude)
                                     and _is_finite(ref_altitude)):
-        # BLIND stays AHEAD of the vertical-speed rescue on purpose: an
-        # unreadable altitude is a CHANNEL fault, and the operator response is
-        # "fix the channel". A descending craft on a dark altitude channel is
-        # still a dark altitude channel.
+        # BLIND stays AHEAD of both holds on purpose: an unreadable altitude is
+        # a CHANNEL fault, and the operator response is "fix the channel". A
+        # descending craft on a dark altitude channel is still a dark altitude
+        # channel, and an anchor that cannot be read cannot be tested against
+        # the near-ground band either.
         return LANDING_STALL_BLIND
     if (ref_altitude - altitude) >= min_drop:
         return LANDING_PROGRESS_OK
+    if ref_altitude < min_drop:
+        # DISARMED, and ahead of the vertical-speed channel deliberately: in this
+        # band the drop test cannot be satisfied by any craft above the surface,
+        # so a VSPEED hold here would count a "the knobs are mis-sized" signal
+        # that is really "the gate does not apply".
+        return LANDING_PROGRESS_UNSATISFIABLE
     if _is_finite(vertical_speed) and vertical_speed < 0.0:
         return LANDING_PROGRESS_VSPEED
     return LANDING_STALL_FLAT
@@ -5260,6 +5555,7 @@ def _b5_enter_descent(state: B5State, snapshot: TelemetrySnapshot,
         entered,
         landing_engaged=True,
         landing_ap_down_streak=0,
+        landing_stall_streak=0,
         landing_alt_ref=(float(snapshot.altitude)
                          if _is_finite(snapshot.altitude) else None),
         landing_alt_ref_ut=(float(snapshot.ut) if _is_finite(snapshot.ut)
@@ -6164,26 +6460,19 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 # a debounced run of unarmable frames is a NAMED fast-fail that
                 # says WHICH shape it saw. Capture-mode only by construction:
                 # the enclosing branch is gated on capture_enabled.
+                #
+                # This gate PRE-EMPTS the impact-certain terminal below on a
+                # sub-surface arrival (it starts counting on the SOI-entry
+                # frame; that terminal cannot arm above 400 km), so the VERDICT
+                # CLASS is decided in _b5_capture_never_armed_giveup, not here:
+                # sub-surface is a deterministic flight outcome -> ASSERT-FAIL,
+                # the dark clock and past-periapsis stay flakes.
                 unarmed = state.capture_unarmed_streak + 1
                 state = replace(state, capture_arm_streak=0,
                                 capture_unarmed_streak=unarmed)
                 if unarmed >= CAPTURE_NEVER_ARMED_FRAMES:
-                    why = classify_capture_arm_failure(
-                        snapshot.periapsis, snapshot.time_to_periapsis)
-                    return _b5_named_flake(
-                        state,
-                        "phase %s: capture-never-armed (%s) -- %d consecutive "
-                        "in-%s-SOI frames could not arm PLAN-CAPTURE "
-                        "(cap %d; pe=%s ttPe=%s alt=%s vspd=%s ut=%s). %s"
-                        % (B5_TARGET_FLYBY, why, unarmed,
-                           state.params.target_body, CAPTURE_NEVER_ARMED_FRAMES,
-                           _obs_fmt(snapshot.periapsis),
-                           _obs_fmt(snapshot.time_to_periapsis),
-                           _obs_fmt(snapshot.altitude),
-                           _obs_fmt(snapshot.vertical_speed),
-                           _obs_fmt(snapshot.ut),
-                           _CAPTURE_ARM_FAILURE_HINT.get(why, "")),
-                        peak), []
+                    return _b5_capture_never_armed_giveup(
+                        state, snapshot, unarmed, peak)
         if not state.params.capture_enabled and snapshot.body == return_body:
             # The exit: back in the return body's SOI after the flyby (home
             # for the B5/B6 free-return, Sun for B7 -- a Duna flyby exits
@@ -6660,6 +6949,13 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
         # COMMAND; this is the read-back, and it is the FASTEST signal available
         # (~3 polls, against ~900 game-s for the altitude watchdog and the whole
         # descent budget behind that).
+        #
+        # touched_down=False is a CONSTANT here, and correctly so: the branch
+        # above already returned on every landed frame, so no other value is
+        # reachable. That makes the classifier's own touchdown carve-out a
+        # backstop for out-of-order callers rather than a live path -- THIS
+        # ordering is what stops a perfect landing reading as a dead autopilot.
+        # Do not reorder these two blocks; see classify_landing_autopilot.
         ap_verdict, ap_streak = classify_landing_autopilot(
             snapshot.landing_ap_enabled, state.landing_ap_down_streak,
             state.landing_ap_reissues, touched_down=False)
@@ -6691,6 +6987,10 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                             landing_alt_ref_ut=(float(snapshot.ut)
                                                 if _is_finite(snapshot.ut)
                                                 else state.landing_alt_ref_ut),
+                            # The give-up debounce is re-anchored with the window
+                            # for the same reason: the fresh attempt is judged on
+                            # ITS OWN frames, not on the dead module's.
+                            landing_stall_streak=0,
                             peak_apoapsis=peak),
                     [Action(ACTION_MJ_LAND_UNTARGETED,
                             landing_config=_b5_landing_config(state.params))])
@@ -6724,28 +7024,53 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             snapshot.vertical_speed)
         if progress == LANDING_PROGRESS_OK:
             state = replace(state, landing_alt_ref=float(snapshot.altitude),
-                            landing_alt_ref_ut=float(snapshot.ut))
+                            landing_alt_ref_ut=float(snapshot.ut),
+                            landing_stall_streak=0)
+        elif progress == LANDING_PROGRESS_UNSATISFIABLE:
+            # DISARMED: the anchor is below min_drop AGL, so the window asks for
+            # a drop that does not exist below the craft. HOLD and DO NOT
+            # re-anchor (re-anchoring would restart a clock that decides
+            # nothing); descentTimeoutSeconds owns the phase from here.
+            state = replace(state,
+                            landing_unsat_holds=state.landing_unsat_holds + 1,
+                            landing_stall_streak=0)
         elif progress == LANDING_PROGRESS_VSPEED:
             # HOLD, and DO NOT re-anchor: the accumulated drop keeps counting
             # toward the SAME anchor, so the window still resolves OK the moment
             # the craft has actually shed min_drop. Only the counter moves.
             state = replace(state,
-                            landing_vspeed_holds=state.landing_vspeed_holds + 1)
+                            landing_vspeed_holds=state.landing_vspeed_holds + 1,
+                            landing_stall_streak=0)
         elif progress in (LANDING_STALL_FLAT, LANDING_STALL_BLIND):
-            return _b5_named_flake(
-                state,
-                "phase %s: %s (%s) -- surface altitude went %s -> %s over %.0f "
-                "game seconds, less than the %.0f m the window requires, and "
-                "the independent vertical-speed channel did not show a descent "
-                "either (apEnabled=%d status=%s vspd=%s thr=%s ut=%s "
-                "vspeedHolds=%d)"
-                % (B5_DESCENT, LANDING_GIVEUP_NO_PROGRESS, progress,
-                   _obs_fmt(state.landing_alt_ref), _obs_fmt(snapshot.altitude),
-                   elapsed, state.params.landing_progress_min_drop,
-                   snapshot.landing_ap_enabled,
-                   snapshot.landing_ap_status or "?",
-                   _obs_fmt(snapshot.vertical_speed), _obs_fmt(snapshot.throttle),
-                   _obs_fmt(snapshot.ut), state.landing_vspeed_holds), peak), []
+            # DEBOUNCED like every other liveness gate here. One frame is not a
+            # sustained observation: MechJeb's final descent measurably hops (see
+            # LANDING_STALL_DEBOUNCE_FRAMES for the flight frames), and a single
+            # unreadable altitude sample is a blip, not a dark channel.
+            stall = state.landing_stall_streak + 1
+            state = replace(state, landing_stall_streak=stall)
+            if stall >= LANDING_STALL_DEBOUNCE_FRAMES:
+                return _b5_named_flake(
+                    state,
+                    "phase %s: %s (%s on %d consecutive frames) -- surface "
+                    "altitude went %s -> %s over %.0f game seconds, less than "
+                    "the %.0f m the window requires from an anchor high enough "
+                    "to deliver it, and the independent vertical-speed channel "
+                    "did not show a descent either (apEnabled=%d status=%s "
+                    "vspd=%s thr=%s ut=%s vspeedHolds=%d unsatHolds=%d)"
+                    % (B5_DESCENT, LANDING_GIVEUP_NO_PROGRESS, progress, stall,
+                       _obs_fmt(state.landing_alt_ref),
+                       _obs_fmt(snapshot.altitude),
+                       elapsed, state.params.landing_progress_min_drop,
+                       snapshot.landing_ap_enabled,
+                       snapshot.landing_ap_status or "?",
+                       _obs_fmt(snapshot.vertical_speed),
+                       _obs_fmt(snapshot.throttle),
+                       _obs_fmt(snapshot.ut), state.landing_vspeed_holds,
+                       state.landing_unsat_holds), peak), []
+        else:
+            # PENDING (window not elapsed, or an unreadable clock). The streak is
+            # a CONSECUTIVE-frame claim, so anything that is not proof resets it.
+            state = replace(state, landing_stall_streak=0)
         stayed = _b5_stay_or_flake(state, snapshot, peak)
         if stayed.done:
             return _b5_named_flake(
@@ -9190,8 +9515,36 @@ def classify_post_connect_exception(exc_module: Optional[str], exc_name: Optiona
 # ---------------------------------------------------------------------------
 
 
+def is_warp_arming_command(kind: str, value) -> bool:
+    """True when a warp action ARMS warp, as opposed to cancelling it.
+
+    The distinction the LOW-throughput marker needs (2026-07-26 review,
+    MINOR-5). ``warp_utilisation_row``'s ``warpCommands`` counts every warp
+    action the phase issued, which conflates "this phase tried to warp and got
+    nothing" (the defect) with "this phase deliberately ran at 1x and said so
+    once" (PARK's single ``set_rails_warp value=0.000``, a cancel to 1x).
+
+    MEASURED over the archive: every FALSE POSITIVE of the ratio-only marker
+    issued ZERO arming commands (B11 MJ-ASCENT 0, TRANSFER-BURN 0, CAPTURE-BURN
+    0; PARK's one command is the 1x cancel), while the B12 flight-2 thrash the
+    marker exists for issued thousands.
+
+    ``ACTION_WARP_TO_UT`` always arms. ``ACTION_SET_RAILS_WARP`` arms only for a
+    factor index > 0 (index 0 IS 1x, i.e. a cancel). ``ACTION_CANCEL_WARP``
+    never arms. Pure.
+    """
+    if kind == ACTION_WARP_TO_UT:
+        return True
+    if kind == ACTION_SET_RAILS_WARP:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return False
+        return _is_finite(value) and float(value) > 0.0
+    return False
+
+
 def warp_utilisation_row(phase: str, wall_seconds: float, game_seconds: float,
-                         warp_commands: int) -> Dict:
+                         warp_commands: int,
+                         armed_warp_commands: int = 0) -> Dict:
     """One per-phase WARP-UTILISATION row for the mission result (B12 flight 2
     follow-up; the queued mission time-accounting task owns the full version).
 
@@ -9200,7 +9553,12 @@ def warp_utilisation_row(phase: str, wall_seconds: float, game_seconds: float,
     2's thrashing coast read ~1.3 while issuing 3,603 warp commands. That one
     line would have named the defect without any log archaeology. Pure; a
     non-positive or non-finite wall span yields a None ratio rather than a
-    divide-by-zero."""
+    divide-by-zero.
+
+    ``armedWarpCommands`` is the subset that actually ARMED warp (see
+    ``is_warp_arming_command``); it is what separates "tried to warp and got
+    nothing" from "deliberately ran at 1x".
+    """
     ratio: Optional[float] = None
     if (_is_finite(wall_seconds) and wall_seconds > 0.0
             and _is_finite(game_seconds)):
@@ -9211,13 +9569,40 @@ def warp_utilisation_row(phase: str, wall_seconds: float, game_seconds: float,
         "gameSeconds": round(float(game_seconds), 3) if _is_finite(game_seconds) else None,
         "gameSecondsPerWallSecond": ratio,
         "warpCommands": int(warp_commands),
+        "armedWarpCommands": int(armed_warp_commands),
     }
 
 
+def gate_flip_novelty_keys(phase: str, gate_changes: Sequence[str]) -> List[str]:
+    """The ``phase|field`` novelty keys one frame's gate flips carry.
+
+    A ``diff_machine_state`` entry is ``"<key> <old>-><new>"``, so the FIELD is
+    the token before the first space. MEASURED on the 43 MB pathological log:
+    7,218 gate-flip dumps but only SIXTEEN distinct ``(phase, field)`` pairs in
+    the entire run (7,207 dumps came from ``warpToCmd`` alone). Admitting the
+    FIRST occurrence of each pair unconditionally therefore emits 16 windows
+    instead of 7,218 -- a bigger reduction than the time rule alone -- while
+    guaranteeing that no NOVEL flip ever loses its 20-frame context, which the
+    time rule cannot promise (a suppressed flip followed by >10 s of quiet loses
+    its window permanently). Pure.
+    """
+    keys: List[str] = []
+    for change in gate_changes or ():
+        field = str(change).split(" ", 1)[0]
+        if not field:
+            continue
+        key = "%s|%s" % (phase, field)
+        if key not in keys:
+            keys.append(key)
+    return keys
+
+
 def should_dump_gate_flip_window(now: float, last_dump: Optional[float],
-                                 interval: float) -> bool:
-    """Rate-limit gate-flip event-window dumps to at most one per ``interval``
-    WALL seconds (measured amplifier, 2026-07-25).
+                                 interval: float, first_seen: bool = False) -> bool:
+    """Admit a gate-flip event-window dump: unconditionally on the FIRST
+    occurrence of a ``(phase, gate-field)`` pair, then at most one per
+    ``interval`` WALL seconds for repeats (measured amplifier, 2026-07-25;
+    novelty rule added by the 2026-07-26 review, MINOR-7).
 
     MEASURED: results/2026-07-25_0103_B12-minmus-orbit_mission.stdout.log is
     43 MB / 181,786 lines, of which 144,561 (79.5%) are ``window[NN/20]``
@@ -9227,6 +9612,11 @@ def should_dump_gate_flip_window(now: float, last_dump: Optional[float],
     only 209 unique frames (71% duplication), because consecutive dumps re-emit
     an overlapping slice of the same ring.
 
+    ``first_seen`` is the caller's answer to "is any of this frame's flipped
+    (phase, field) pairs new?" -- see ``gate_flip_novelty_keys``. It wins over
+    the time limit so a brand-new gate can never be silently suppressed by an
+    unrelated flip that happened 3 seconds earlier.
+
     Only ``gate-flip`` is rate-limited. ``phase-transition``, ``terminal-*``,
     ``vessel-lost`` and the give-up dumps stay unconditional: those are sparse
     by construction and are the ones a post-mortem actually needs. The ``gate
@@ -9235,6 +9625,8 @@ def should_dump_gate_flip_window(now: float, last_dump: Optional[float],
 
     Pure: ``last_dump`` None (no dump yet this flight) always admits.
     """
+    if first_seen:
+        return True
     if last_dump is None:
         return True
     if not (_is_finite(now) and _is_finite(last_dump) and _is_finite(interval)):
@@ -9527,11 +9919,18 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("landing_ap_reissues", "landingApReissues"),
     ("landing_alt_ref", "landingAltRef"),
     ("landing_alt_ref_ut", "landingAltRefUt"),
-    # The vertical-speed RESCUE counter. Here and NOT in MACHINE_DIFF_FIELDS on
-    # purpose (see the field's own comment): non-zero is the operator's signal
-    # that the drop window is mis-sized for this body, which is a tuning read,
-    # not a per-frame gate event.
+    # The two WITHHELD-give-up counters. Here and NOT in MACHINE_DIFF_FIELDS on
+    # purpose (see the fields' own comments): non-zero is the operator's signal
+    # that the drop window is mis-sized for this body (vspeed) or that it was
+    # disarmed near the ground (unsat), which are tuning reads, not per-frame
+    # gate events.
     ("landing_vspeed_holds", "landingVspeedHolds"),
+    ("landing_unsat_holds", "landingUnsatHolds"),
+    # The no-progress DEBOUNCE run. Bounded in the machine at
+    # LANDING_STALL_DEBOUNCE_FRAMES (the phase ends on the frame that reaches
+    # it), so a live status read can watch the give-up count down instead of
+    # only seeing it arrive.
+    ("landing_stall_streak", "landingStallStreak"),
     ("landed_stable_streak", "landedStableStreak"),
     ("landed_ever_stable", "landedEverStable"),
     ("landed_body", "landedBody"),
@@ -9542,8 +9941,11 @@ MACHINE_STATE_FIELDS: Tuple[Tuple[str, str], ...] = (
     # WHY the machine is about to end (the named give-up). It already reaches
     # the mission RESULT via resolve_flight_verdict, but it never reached the
     # periodic machine-state line or the status file, so a live status read
-    # could see done/verdict without ever seeing the reason. Sparse by
-    # construction: it is set exactly once, on the terminal frame.
+    # could see done/verdict without ever seeing the reason. The VALUE is
+    # sparse by construction -- set exactly once, on the terminal frame -- but
+    # the KEY is not: listing it here puts `flakeReason=none` on every machine
+    # line of every mission, which is the intended cost (a fixed-width line is
+    # what makes the terminal frame's value greppable next to its neighbours).
     ("flake_reason", "flakeReason"),
 )
 
@@ -9668,6 +10070,11 @@ MACHINE_DIFF_FIELDS: Tuple[Tuple[str, str], ...] = (
     ("landing_engaged", "landingEngaged"),
     ("landing_ap_down_streak", "landingApDownStreak"),
     ("landing_ap_reissues", "landingApReissues"),
+    # The no-progress debounce run, bounded at LANDING_STALL_DEBOUNCE_FRAMES by
+    # the machine (the phase ends on the frame that reaches it), exactly like
+    # landing_ap_down_streak above. A give-up that used to arrive with no
+    # warning now counts down in the log.
+    ("landing_stall_streak", "landingStallStreak"),
     ("landed_stable_streak", "landedStableStreak"),
     ("landed_ever_stable", "landedEverStable"),
     ("landed_body", "landedBody"),

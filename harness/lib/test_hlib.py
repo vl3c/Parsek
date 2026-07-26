@@ -1587,9 +1587,12 @@ class CoverageTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-def _dresult(scenario, verdict, wall, ended):
-    return {"schema": hlib.SCHEMA_VERSION, "scenarioId": scenario,
-            "verdict": verdict, "wallSeconds": wall, "endedUtc": ended}
+def _dresult(scenario, verdict, wall, ended, run_id=None):
+    row = {"schema": hlib.SCHEMA_VERSION, "scenarioId": scenario,
+           "verdict": verdict, "wallSeconds": wall, "endedUtc": ended}
+    if run_id is not None:
+        row["runId"] = run_id
+    return row
 
 
 class DurationRecordTests(unittest.TestCase):
@@ -1630,7 +1633,8 @@ class DurationRecordTests(unittest.TestCase):
         d = hlib.compute_durations(
             [_dresult("S1", "PASS", 500, "2026-07-25T01:00:00Z")])
         self.assertEqual(d["S1"], {"n": 1, "p50": 500.0, "p95": 500.0,
-                                   "last": 500.0, "lastVsP50": 1.0})
+                                   "last": 500.0, "lastVsP50": 1.0,
+                                   "samples": {"2026-07-25T01:00:00Z": 500.0}})
         self.assertEqual(hlib.duration_regressions(d), [])
 
     def test_too_few_samples_never_warns_even_on_a_huge_outlier(self):
@@ -1689,6 +1693,207 @@ class DurationRecordTests(unittest.TestCase):
         self.assertEqual(hlib._percentile(vals, 50.0), 2.0)
         self.assertEqual(hlib._percentile(vals, 95.0), 4.0)
         self.assertEqual(hlib._percentile([7.0], 95.0), 7.0)
+
+    def test_samples_ride_the_entry_keyed_by_ended_utc(self):
+        d = hlib.compute_durations(self._b12())
+        self.assertEqual(sorted(d["B12-minmus-orbit"]["samples"]),
+                         ["2026-07-25T01:00:00Z", "2026-07-25T02:00:00Z",
+                          "2026-07-25T03:00:00Z", "2026-07-25T04:00:00Z"])
+
+    def test_one_result_file_per_run_id_cannot_double_count(self):
+        """results/<runId>.json is ONE file per run, so two rows carrying the
+        same runId can only be a caller passing the same run twice."""
+        rows = [_dresult("S1", "PASS", 600, "2026-07-25T01:00:00Z", run_id="r1"),
+                _dresult("S1", "PASS", 600, "2026-07-25T01:00:01Z", run_id="r1")]
+        d = hlib.compute_durations(rows)
+        self.assertEqual(d["S1"]["n"], 1)
+
+
+class DurationLedgerMergeTests(unittest.TestCase):
+    """MAJOR-2 (2026-07-26 review): the ledger stores SAMPLES, not a summary.
+
+    Recomputing the committed record from this checkout's gitignored results/
+    dir wiped 23 of 24 scenarios (observed live 2026-07-25); merging only the
+    MISSING scenarios forward still downgraded the measured one from n=5 to
+    n=1, which is below DURATION_MIN_SAMPLES and therefore DISARMS the warn.
+    """
+
+    # The real committed B11 entry on 2026-07-25, summary-only (pre-samples).
+    LEGACY_B11 = {"n": 5, "p50": 1317.0, "p95": 1319.0, "last": 1318.0,
+                  "lastVsP50": 1.001}
+
+    def _prior(self):
+        return {
+            "B11-mun-orbit": dict(self.LEGACY_B11),
+            "B12-minmus-orbit": {"n": 4, "p50": 627.0, "p95": 627.0,
+                                 "last": 626.0, "lastVsP50": 0.998},
+            "B6-minmus-flyby": {"n": 3, "p50": 409.0, "p95": 426.0,
+                                "last": 409.0, "lastVsP50": 1.0},
+        }
+
+    def test_a_checkout_that_measured_one_scenario_keeps_the_others(self):
+        """BLOCKER-1: the wipe. One fresh-worktree B11 run must not delete B12
+        and B6 from the committed record."""
+        merged = hlib.merge_durations(
+            self._prior(), {"B11-mun-orbit": {"2026-07-26T10:00:00Z": 1400.0}})
+        self.assertEqual(sorted(merged),
+                         ["B11-mun-orbit", "B12-minmus-orbit", "B6-minmus-flyby"])
+        self.assertEqual(merged["B12-minmus-orbit"],
+                         self._prior()["B12-minmus-orbit"])
+        self.assertEqual(merged["B6-minmus-flyby"],
+                         self._prior()["B6-minmus-flyby"])
+
+    def test_the_measured_scenario_keeps_its_n_and_stays_armed(self):
+        """MAJOR-2: the n=5 -> n=1 downgrade the old tests never exercised. The
+        legacy entry carries no samples, so this is the BOOTSTRAP case: n is
+        max(prior_n, samples) rather than a sum, because a long-lived worktree's
+        results dir holds exactly the samples the committed n already counted.
+        A fresh worktree therefore KEEPS n=5 and the warn stays armed."""
+        merged = hlib.merge_durations(
+            self._prior(), {"B11-mun-orbit": {"2026-07-26T10:00:00Z": 1400.0}})
+        entry = merged["B11-mun-orbit"]
+        self.assertEqual(entry["n"], 5)
+        self.assertGreaterEqual(entry["n"], hlib.DURATION_MIN_SAMPLES)
+        self.assertEqual(entry["last"], 1400.0)
+        self.assertEqual(entry["samples"], {"2026-07-26T10:00:00Z": 1400.0})
+        # From the NEXT merge on the incremental rule applies.
+        again = hlib.merge_durations(
+            merged, {"B11-mun-orbit": {"2026-07-26T10:00:00Z": 1400.0,
+                                       "2026-07-27T10:00:00Z": 1310.0}})
+        self.assertEqual(again["B11-mun-orbit"]["n"], 6)
+
+    def test_a_long_lived_results_dir_cannot_double_count_after_truncation(self):
+        """The trap this rule exists for. results/ accumulates, so once the tail
+        truncates, the samples that AGED OUT are still in the results dir and
+        absent from the tail -- re-adding them as new turned 25 real samples
+        into n=41 on the very next run."""
+        all_samples = {"2026-07-25T%02d:00:00Z" % i: 100.0 + i
+                       for i in range(1, 26)}
+        ledger = hlib.merge_durations({}, {"S1": all_samples})
+        self.assertEqual(ledger["S1"]["n"], 25)
+        self.assertEqual(len(ledger["S1"]["samples"]),
+                         hlib.DURATION_SAMPLE_TAIL)
+        # The next run re-reads the SAME dir plus one new result.
+        all_samples["2026-07-26T01:00:00Z"] = 130.0
+        ledger = hlib.merge_durations(ledger, {"S1": all_samples})
+        self.assertEqual(ledger["S1"]["n"], 26)
+        # ...and again with nothing new at all.
+        ledger = hlib.merge_durations(ledger, {"S1": all_samples})
+        self.assertEqual(ledger["S1"]["n"], 26)
+
+    def test_a_sample_older_than_the_watermark_is_skipped(self):
+        ledger = hlib.merge_durations({}, {"S1": {"2026-07-25T05:00:00Z": 500.0}})
+        stale = hlib.merge_durations(ledger,
+                                     {"S1": {"2026-07-25T01:00:00Z": 900.0}})
+        self.assertEqual(stale["S1"]["n"], 1)
+        self.assertEqual(stale["S1"]["samples"], {"2026-07-25T05:00:00Z": 500.0})
+
+    def test_the_old_behaviour_would_have_disarmed_the_warn(self):
+        """The regression this fix exists for, pinned: recomputing the entry
+        from THIS checkout's single result yields n=1, and n=1 is below the
+        arming gate, so a genuinely slow run could never warn."""
+        recomputed = hlib.compute_durations(
+            [_dresult("B11-mun-orbit", "PASS", 1400, "2026-07-26T10:00:00Z")])
+        self.assertEqual(recomputed["B11-mun-orbit"]["n"], 1)
+        self.assertLess(recomputed["B11-mun-orbit"]["n"],
+                        hlib.DURATION_MIN_SAMPLES)
+        merged = hlib.merge_durations(
+            self._prior(), {"B11-mun-orbit": {"2026-07-26T10:00:00Z": 1400.0}})
+        self.assertGreaterEqual(merged["B11-mun-orbit"]["n"],
+                                hlib.DURATION_MIN_SAMPLES)
+
+    def test_merging_the_same_samples_twice_is_idempotent(self):
+        fresh = {"S1": {"2026-07-26T10:00:00Z": 500.0}}
+        once = hlib.merge_durations({}, fresh)
+        twice = hlib.merge_durations(once, fresh)
+        self.assertEqual(twice, once)
+        self.assertEqual(twice["S1"]["n"], 1)
+        thrice = hlib.merge_durations(twice, fresh)
+        self.assertEqual(thrice["S1"]["n"], 1)
+
+    def test_a_re_read_results_dir_does_not_re_count_its_own_samples(self):
+        """The live shape: a long-lived worktree's results/ dir accumulates, so
+        every run's merge re-reads samples the ledger already holds."""
+        rows = [_dresult("S1", "PASS", 500, "2026-07-25T01:00:00Z", run_id="r1"),
+                _dresult("S1", "PASS", 520, "2026-07-25T02:00:00Z", run_id="r2")]
+        ledger = hlib.merge_durations({}, hlib.duration_samples(rows))
+        self.assertEqual(ledger["S1"]["n"], 2)
+        rows.append(_dresult("S1", "PASS", 510, "2026-07-25T03:00:00Z",
+                             run_id="r3"))
+        ledger = hlib.merge_durations(ledger, hlib.duration_samples(rows))
+        self.assertEqual(ledger["S1"]["n"], 3)
+        self.assertEqual(sorted(ledger["S1"]["samples"].values()),
+                         [500.0, 510.0, 520.0])
+
+    def test_the_sample_tail_is_bounded_and_n_keeps_counting(self):
+        ledger: dict = {}
+        for i in range(1, 26):
+            ledger = hlib.merge_durations(
+                ledger, {"S1": {"2026-07-25T%02d:00:00Z" % i: 100.0 + i}})
+        entry = ledger["S1"]
+        self.assertEqual(entry["n"], 25)
+        self.assertEqual(len(entry["samples"]), hlib.DURATION_SAMPLE_TAIL)
+        # The TAIL is kept: the oldest 15 aged out, the newest 10 remain.
+        self.assertEqual(sorted(entry["samples"]),
+                         ["2026-07-25T%02d:00:00Z" % i for i in range(16, 26)])
+        self.assertEqual(entry["last"], 125.0)
+
+    def test_percentiles_are_recomputed_over_the_union_not_the_run(self):
+        prior = hlib.merge_durations(
+            {}, {"S1": {"2026-07-25T0%d:00:00Z" % i: 600.0
+                        for i in range(1, 4)}})
+        merged = hlib.merge_durations(prior,
+                                      {"S1": {"2026-07-26T01:00:00Z": 1800.0}})
+        self.assertEqual(merged["S1"]["n"], 4)
+        self.assertEqual(merged["S1"]["p50"], 600.0)   # union median, not 1800
+        self.assertEqual(merged["S1"]["last"], 1800.0)
+        self.assertEqual(merged["S1"]["lastVsP50"], 3.0)
+        self.assertEqual(hlib.duration_regressions(merged), ["S1"])
+
+    def test_a_scenario_only_this_run_measured_is_added(self):
+        merged = hlib.merge_durations(self._prior(),
+                                      {"NEW-1": {"2026-07-26T10:00:00Z": 42.0}})
+        self.assertIn("NEW-1", merged)
+        self.assertEqual(merged["NEW-1"]["n"], 1)
+
+    def test_a_committed_sample_wins_a_key_collision(self):
+        prior = hlib.merge_durations({}, {"S1": {"2026-07-25T01:00:00Z": 500.0}})
+        merged = hlib.merge_durations(prior,
+                                      {"S1": {"2026-07-25T01:00:00Z": 9999.0}})
+        self.assertEqual(merged["S1"]["samples"],
+                         {"2026-07-25T01:00:00Z": 500.0})
+        self.assertEqual(merged["S1"]["n"], 1)
+
+    def test_a_malformed_committed_entry_is_dropped_not_carried(self):
+        """MINOR-8: the ledger is committed and hand-editable, and the warn's
+        log line formats last/p50/p95/n. A partial entry must never reach it."""
+        prior = {"X": {"n": 5, "lastVsP50": 2.0}}          # no last/p50/p95
+        merged = hlib.merge_durations(prior, {})
+        self.assertEqual(merged, {})
+        self.assertEqual(hlib.duration_regressions(prior), [])
+
+    def test_a_malformed_entry_that_this_run_measured_is_rebuilt(self):
+        prior = {"X": {"n": 5, "lastVsP50": 2.0}}
+        merged = hlib.merge_durations(prior,
+                                      {"X": {"2026-07-26T01:00:00Z": 300.0}})
+        self.assertEqual(merged["X"]["n"], 5)   # the readable n still counts
+        self.assertEqual(merged["X"]["last"], 300.0)
+        self.assertEqual(merged["X"]["p50"], 300.0)
+
+    def test_garbage_samples_values_are_ignored(self):
+        prior = {"X": {"n": 2, "p50": 10.0, "p95": 10.0, "last": 10.0,
+                       "lastVsP50": 1.0,
+                       "samples": {"2026-07-25T01:00:00Z": "nope",
+                                   "2026-07-25T02:00:00Z": 10.0,
+                                   "": 5.0}}}
+        merged = hlib.merge_durations(prior, {})
+        self.assertEqual(merged["X"]["samples"], {"2026-07-25T02:00:00Z": 10.0})
+        self.assertEqual(merged["X"]["n"], 2)
+
+    def test_empty_inputs(self):
+        self.assertEqual(hlib.merge_durations({}, {}), {})
+        self.assertEqual(hlib.merge_durations(None, None), {})
+        self.assertEqual(hlib.duration_samples([]), {})
 
 
 # ---------------------------------------------------------------------------
@@ -2774,63 +2979,10 @@ class LedgerSpecSurfaceValidationTests(unittest.TestCase):
         self.assertEqual([], spec["expectations"]["ledger"].get("manifest", []))
 
 
-class MergeDurationsTests(unittest.TestCase):
-    """The committed duration ledger must survive a checkout that has only
-    flown a couple of scenarios. results/*.json is gitignored, so a fresh
-    worktree's compute_durations covers only what it ran; writing that
-    unmerged destroyed a 24-scenario ledger down to 2 entries live."""
+# NOTE: MergeDurationsTests was DELETED when the orbit branch's sample-based
+# merge_durations superseded this branch's minimal "keep the richer entry"
+# rule. Its seven cells encoded the OLD contract (summary-only entries,
+# fresh-wins-by-n). DurationLedgerMergeTests above covers every one of those
+# intents and adds the truncation double-count, watermark, idempotence,
+# tail-bound and percentile-recompute cases this class never had.
 
-    def test_scenarios_absent_from_the_fresh_run_are_preserved(self):
-        existing = {"B11-mun-orbit": {"n": 5, "p50": 1317.0},
-                    "B5-mun-flyby": {"n": 2, "p50": 515.0}}
-        fresh = {"B13-mun-landing": {"n": 1, "p50": 2825.0}}
-        merged = hlib.merge_durations(existing, fresh)
-        self.assertEqual(sorted(merged), ["B11-mun-orbit", "B13-mun-landing",
-                                          "B5-mun-flyby"])
-        self.assertEqual(merged["B11-mun-orbit"]["p50"], 1317.0)
-
-    def test_a_freshly_measured_scenario_wins_over_the_committed_entry(self):
-        existing = {"B13-mun-landing": {"n": 1, "p50": 9999.0}}
-        fresh = {"B13-mun-landing": {"n": 2, "p50": 2825.0}}
-        merged = hlib.merge_durations(existing, fresh)
-        self.assertEqual(merged["B13-mun-landing"]["p50"], 2825.0)
-
-    def test_missing_or_malformed_committed_record_is_not_fatal(self):
-        fresh = {"B14-minmus-landing": {"n": 1, "p50": 2141.0}}
-        self.assertEqual(hlib.merge_durations(None, fresh), fresh)
-        self.assertEqual(hlib.merge_durations({}, fresh), fresh)
-        self.assertEqual(hlib.merge_durations({"bad": "notadict"}, fresh), fresh)
-
-    def test_empty_fresh_run_leaves_the_committed_ledger_untouched(self):
-        existing = {"B11-mun-orbit": {"n": 5, "p50": 1317.0}}
-        self.assertEqual(hlib.merge_durations(existing, {}), existing)
-
-    def test_a_thinner_fresh_entry_does_not_replace_a_better_sampled_one(self):
-        """The reviewer finding: a worktree with ONE local B11 result used to
-        overwrite the committed n=5 entry with its own n=1, and
-        duration_regressions then skipped it (DURATION_MIN_SAMPLES = 3). The
-        ledger stopped warning for exactly the scenario that just ran."""
-        existing = {"B11-mun-orbit": {"n": 5, "p50": 1317.0, "last": 1318.0}}
-        fresh = {"B11-mun-orbit": {"n": 1, "p50": 4000.0, "last": 4000.0}}
-        merged = hlib.merge_durations(existing, fresh)
-        self.assertEqual(merged["B11-mun-orbit"]["n"], 5)
-        self.assertEqual(merged["B11-mun-orbit"]["p50"], 1317.0)
-        # And the surviving entry still clears the regression gate.
-        self.assertEqual(hlib.DURATION_MIN_SAMPLES, 3)
-
-    def test_an_equally_sampled_fresh_entry_still_wins(self):
-        """Ties go to the fresh entry: same n means the same evidence recomputed
-        on this checkout, and `last` must be able to move."""
-        existing = {"B12-minmus-orbit": {"n": 4, "p50": 627.0, "last": 627.0}}
-        fresh = {"B12-minmus-orbit": {"n": 4, "p50": 627.0, "last": 900.0}}
-        merged = hlib.merge_durations(existing, fresh)
-        self.assertEqual(merged["B12-minmus-orbit"]["last"], 900.0)
-
-    def test_a_malformed_committed_n_never_pins_out_a_real_fresh_entry(self):
-        for bad in ({"n": "five"}, {"n": None}, {"n": True},
-                    {"n": float("nan")}, {}):
-            existing = {"B13-mun-landing": dict(bad, p50=9999.0)}
-            fresh = {"B13-mun-landing": {"n": 1, "p50": 2825.0}}
-            merged = hlib.merge_durations(existing, fresh)
-            self.assertEqual(merged["B13-mun-landing"]["p50"], 2825.0,
-                             "committed n=%r must fail LOW" % (bad.get("n"),))

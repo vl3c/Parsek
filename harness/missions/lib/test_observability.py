@@ -21,6 +21,7 @@ import os
 import sys
 import tempfile
 import unittest
+from dataclasses import dataclass, replace
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _MISSIONS = os.path.dirname(_HERE)                       # harness/missions
@@ -533,6 +534,271 @@ class GateFlipDumpRateLimitTests(unittest.TestCase):
             mission_runner.GATE_FLIP_WINDOW_DUMP_INTERVAL_SECONDS,
             mission_runner.RING_BUFFER_FRAMES
             * mission_runner.POLL_INTERVAL_SECONDS)
+
+    def test_a_novel_phase_field_pair_is_admitted_inside_the_interval(self):
+        """MINOR-7: the whole 43 MB pathological run held only 16 distinct
+        (phase, field) pairs against 7,218 dumps. A NEW pair must never lose its
+        20-frame window to an unrelated flip 3 seconds earlier."""
+        limiter = mission_runner._GateFlipDumpLimiter(interval=10.0)
+        self.assertTrue(limiter.admit(0.0, ["COAST|warpToCmd"]))
+        # Same pair, well inside the interval -> the time rule suppresses.
+        self.assertFalse(limiter.admit(1.0, ["COAST|warpToCmd"]))
+        # A DIFFERENT field, same wall instant -> novel, admitted anyway.
+        self.assertTrue(limiter.admit(1.0, ["COAST|planAttempts"]))
+        # The SAME field in a different phase is also novel.
+        self.assertTrue(limiter.admit(1.5, ["BURN|warpToCmd"]))
+        self.assertEqual((limiter.emitted, limiter.novel, limiter.suppressed),
+                         (3, 3, 1))
+        self.assertEqual(len(limiter.seen_keys), 3)
+
+    def test_the_novelty_key_set_is_bounded(self):
+        limiter = mission_runner._GateFlipDumpLimiter(interval=10.0)
+        cap = mission_runner._GateFlipDumpLimiter.NOVELTY_KEY_CAP
+        for i in range(cap):
+            limiter.admit(0.0, ["P|f%d" % i])
+        self.assertEqual(len(limiter.seen_keys), cap)
+        # Past the cap a novel key falls back to the TIME rule (still bounded
+        # memory, never unbounded growth).
+        self.assertFalse(limiter.admit(0.0, ["P|overflow"]))
+        self.assertEqual(len(limiter.seen_keys), cap)
+
+    def test_novelty_keys_are_phase_scoped_and_deduped_per_frame(self):
+        self.assertEqual(
+            mlib.gate_flip_novelty_keys("COAST",
+                                        ["warpToCmd 1.0->2.0",
+                                         "warpToCmd 2.0->3.0",
+                                         "planAttempts 0->1"]),
+            ["COAST|warpToCmd", "COAST|planAttempts"])
+        self.assertEqual(mlib.gate_flip_novelty_keys("COAST", []), [])
+        self.assertEqual(mlib.gate_flip_novelty_keys("COAST", None), [])
+
+    def test_first_seen_beats_the_time_limit_in_the_pure_predicate(self):
+        self.assertFalse(mlib.should_dump_gate_flip_window(105.0, 100.0, 10.0))
+        self.assertTrue(mlib.should_dump_gate_flip_window(105.0, 100.0, 10.0,
+                                                          first_seen=True))
+
+
+@dataclass(frozen=True)
+class _GateFakeState:
+    """A minimal machine state for the gate-flip fly-loop cells. The fly loop
+    reads every machine field through ``getattr``, so a purpose-built state is a
+    legitimate driver -- and it is the only way to script MANY consecutive flips
+    of one gate, which no committed mission's fake flight produces."""
+    phase: str = "COAST"
+    done: bool = False
+    verdict: object = None
+    flake_phase: str = ""
+    skip_settle_tail: bool = True
+    # Two real MACHINE_DIFF_FIELDS entries: the amplifier field itself and a
+    # second one so a (phase, field) pair change is distinguishable.
+    warp_to_cmd: object = None
+    plan_attempts: int = 0
+
+
+class _StepClock:
+    """A wall clock that advances only when a FRAME is read, so the fly loop's
+    several clock() reads per frame cannot smear the wall span the rate limit is
+    being tested against."""
+
+    def __init__(self, step=0.5):
+        self.t = 0.0
+        self.step = float(step)
+
+    def tick(self):
+        self.t += self.step
+
+    def __call__(self):
+        return self.t
+
+
+class _GateFakeControl(mission_runner.MissionControl):
+    def __init__(self, frames, clock):
+        self._frames = list(frames)
+        self._i = 0
+        self._clock = clock
+        self.client_version = "0.5.4"
+        self.server_version = "0.5.4"
+
+    def open(self, host, rpc_port, stream_port):
+        pass
+
+    def read_snapshot(self):
+        self._clock.tick()
+        if self._i < len(self._frames):
+            snap = self._frames[self._i]
+            self._i += 1
+            return snap
+        return self._frames[-1]
+
+    def perform(self, action):
+        pass
+
+    def close(self):
+        pass
+
+
+class GateFlipSuppressionFlightTests(unittest.TestCase):
+    """G4's ONE safety claim, end to end (2026-07-26 review, MAJOR-3).
+
+    The only existing end-to-end cell flies a fake B1 that produces exactly ONE
+    gate flip, so the SUPPRESSION path never ran: removing the rate limit
+    entirely, and rate-limiting EVERY reason (phase-transition / terminal-* /
+    vessel-lost included), both survived the whole 1,117-test suite. Under the
+    second mutation three phase-transition windows and the gate-flip window
+    vanish while the summary line still prints the claim it just violated.
+
+    This flight scripts MANY consecutive flips of ONE gate under a clock that
+    steps well inside the limit, so both halves of the claim are measured.
+    """
+
+    PHASES = ("COAST", "BURN", "PARK")
+
+    def _fly(self):
+        clock = _StepClock(step=0.5)
+        lines = []
+        log = mission_runner.MissionLogger(sink=lines.append, clock=clock)
+        # 12 frames per phase; the gate flips on EVERY frame. At 0.5 wall-s per
+        # frame that is 6 wall-s per phase against a 10 s limit, so every repeat
+        # inside a phase must be suppressed.
+        snaps = [mlib.TelemetrySnapshot(ut=float(i), situation="ORBITING")
+                 for i in range(36)]
+
+        def decide(state, snapshot):
+            index = int(snapshot.ut)
+            phase = self.PHASES[min(index // 12, len(self.PHASES) - 1)]
+            if index >= 35:
+                return replace(state, phase=phase, done=True,
+                               verdict=mlib.MISSION_FLAKE), []
+            # PARK flips a DIFFERENT field, so the flight exercises both a new
+            # (phase, warpToCmd) pair and a new (phase, planAttempts) pair.
+            if phase == "PARK":
+                return replace(state, phase=phase,
+                               plan_attempts=state.plan_attempts + 1), []
+            return replace(state, phase=phase,
+                           warp_to_cmd=float(index) + 1.0), []
+
+        state, _frames = mission_runner.fly_loop(
+            _GateFakeControl(snaps, clock), _GateFakeState(), decide, log,
+            deadline=10_000.0, clock=clock, sleep=lambda _s: None,
+            poll_interval=0.0, settle_frames=0, allow_rails_warp=True,
+            max_physics_warp=0.0)
+        return state, lines
+
+    @staticmethod
+    def _dumps(lines, reason):
+        return [l for l in lines if ("window dump reason=%s " % reason) in l]
+
+    def test_repeat_gate_flips_are_suppressed_and_the_count_is_honest(self):
+        _state, lines = self._fly()
+        limiter = mission_runner._FLY_LOOP_GATE_DUMPS
+        self.assertIsNotNone(limiter)
+        # The suppression path RAN (the mutation "remove the rate limit" dies
+        # here: every flip would be emitted and suppressed would stay 0).
+        self.assertGreater(limiter.suppressed, 0)
+        # ...and the emitted count is the number of gate-flip windows actually
+        # written, not a number the summary line merely claims.
+        self.assertEqual(len(self._dumps(lines, "gate-flip")), limiter.emitted)
+        summary = [l for l in lines if "gate-flip window dumps emitted=" in l]
+        self.assertEqual(len(summary), 1, summary)
+        self.assertIn("emitted=%d" % limiter.emitted, summary[0])
+        self.assertIn("suppressed=%d" % limiter.suppressed, summary[0])
+
+    def test_novel_phase_field_pairs_are_never_suppressed(self):
+        """MINOR-7 over the live loop: each first occurrence of a
+        (phase, field) pair is admitted, never rate-limited away."""
+        _state, lines = self._fly()
+        limiter = mission_runner._FLY_LOOP_GATE_DUMPS
+        # Exactly three distinct pairs across the whole flight -- the shape the
+        # 43 MB run had (16 pairs / 7,218 dumps), in miniature.
+        self.assertEqual(sorted(limiter.seen_keys),
+                         ["BURN|warpToCmd", "COAST|warpToCmd",
+                          "PARK|planAttempts"])
+        self.assertGreaterEqual(limiter.novel, 1)
+        # Novel admissions are not billed as suppressions.
+        self.assertLessEqual(limiter.novel, limiter.emitted)
+
+    def test_every_other_dump_reason_stays_unconditional(self):
+        """The mutation "rate-limit EVERY reason" dies here: it deletes the
+        phase-transition windows and the flight's terminal window while the
+        summary line keeps claiming they are never suppressed."""
+        state, lines = self._fly()
+        transitions = [l for l in lines if "] phase " in l and " -> " in l]
+        # One transition per phase CHANGE (the flight starts in PHASES[0]).
+        self.assertEqual(len(transitions), len(self.PHASES) - 1)
+        self.assertEqual(len(self._dumps(lines, "phase-transition")),
+                         len(transitions))
+        # ...and the terminal frame's window, which the same mutation eats.
+        self.assertTrue(state.done)
+        self.assertEqual(
+            len(self._dumps(lines, "terminal-%s" % mlib.MISSION_FLAKE)), 1)
+
+    def test_a_vessel_lost_frame_always_dumps_even_while_rate_limited(self):
+        """vessel-lost is sparse by construction and must never be suppressed,
+        even when a gate has been flipping every frame right before it."""
+        clock = _StepClock(step=0.5)
+        lines = []
+        log = mission_runner.MissionLogger(sink=lines.append, clock=clock)
+        snaps = [mlib.TelemetrySnapshot(ut=float(i), situation="ORBITING")
+                 for i in range(6)]
+        snaps.append(mlib.TelemetrySnapshot(ut=6.0, situation="ORBITING",
+                                            vessel_lost=True))
+
+        def decide(state, snapshot):
+            if snapshot.vessel_lost:
+                return replace(state, warp_to_cmd=99.0, done=True,
+                               verdict=None), []
+            return replace(state, warp_to_cmd=float(snapshot.ut) + 1.0), []
+
+        mission_runner.fly_loop(
+            _GateFakeControl(snaps, clock), _GateFakeState(), decide, log,
+            deadline=10_000.0, clock=clock, sleep=lambda _s: None,
+            poll_interval=0.0, settle_frames=0, allow_rails_warp=True,
+            max_physics_warp=0.0)
+        limiter = mission_runner._FLY_LOOP_GATE_DUMPS
+        self.assertGreater(limiter.suppressed, 0,
+                           "the gate-flip repeats must have been rate-limited")
+        self.assertEqual(len(self._dumps(lines, "vessel-lost")), 1)
+
+
+class WarpArmingCommandTests(unittest.TestCase):
+    """MINOR-5: 'issued a warp command' and 'ARMED a warp' are different facts,
+    and only the second one distinguishes the thrash defect from a deliberate
+    1x phase. Every FALSE POSITIVE of the ratio-only LOW marker issued ZERO
+    arming commands; PARK's single command is set_rails_warp value=0.000."""
+
+    def test_warp_to_ut_arms(self):
+        self.assertTrue(mlib.is_warp_arming_command(mlib.ACTION_WARP_TO_UT, 500.0))
+        self.assertTrue(mlib.is_warp_arming_command(mlib.ACTION_WARP_TO_UT, None))
+
+    def test_cancel_never_arms(self):
+        self.assertFalse(mlib.is_warp_arming_command(mlib.ACTION_CANCEL_WARP, None))
+
+    def test_rails_warp_to_zero_is_a_cancel_not_an_arm(self):
+        self.assertFalse(
+            mlib.is_warp_arming_command(mlib.ACTION_SET_RAILS_WARP, 0.0))
+        self.assertTrue(
+            mlib.is_warp_arming_command(mlib.ACTION_SET_RAILS_WARP, 3.0))
+
+    def test_unreadable_rails_value_does_not_arm(self):
+        for value in (None, "3", True, float("nan")):
+            self.assertFalse(
+                mlib.is_warp_arming_command(mlib.ACTION_SET_RAILS_WARP, value),
+                value)
+
+    def test_the_row_carries_both_counts(self):
+        row = mlib.warp_utilisation_row("PARK", 180.4, 180.3, 1, 0)
+        self.assertEqual(row["warpCommands"], 1)
+        self.assertEqual(row["armedWarpCommands"], 0)
+        self.assertEqual(row["gameSecondsPerWallSecond"], 0.999)
+
+    def test_the_accumulator_splits_the_two_counts(self):
+        wu = mission_runner._WarpUtilisation(_StepClock(step=0.0))
+        wu.begin("PARK", ut=0.0)
+        wu.note_warp_command(armed=False)          # set_rails_warp 0 (cancel)
+        wu.note_warp_command(armed=True)           # warp_to_ut
+        self.assertEqual((wu.warp_cmds, wu.armed_warp_cmds), (2, 1))
+        wu.begin("NEXT", ut=0.0)                   # a new phase resets BOTH
+        self.assertEqual((wu.warp_cmds, wu.armed_warp_cmds), (0, 0))
 
 
 class WallBudgetBlockTests(unittest.TestCase):

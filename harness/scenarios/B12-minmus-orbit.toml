@@ -365,9 +365,24 @@ count = { min = 8, max = 8 }
 #   ParsekFlight.LogCommitTerminalVerdicts "CommitTreeFlight terminal: ...
 #   terminalOrbitBody=Minmus", the only token that actually witnesses WHERE the
 #   tree ended - without it a commit at Kerbin reads identically to one at
-#   Minmus. LIVE-MATCHED: the emitting code landed with this spec change, and the
-#   token was proven on the first flight after the deploy (B12 flight 5,
-#   2026-07-25, results/2026-07-25_0349_B12-minmus-orbit.json).
+#   Minmus. FLOWN AND PROVEN 2026-07-25, on this lane, in both directions:
+#   results/2026-07-25_0545_B12-minmus-orbit.json red'd PARSEK-FAIL with
+#   "logContracts.required not matched: CommitTreeFlight terminal: rec=\w+
+#   terminalState=Orbiting terminalOrbitBody=Minmus" (the flight ran the PREVIOUS
+#   DLL - see the provision note in .claude/CLAUDE.md), and the very next run
+#   results/2026-07-25_0600_B12-minmus-orbit.json is a PASS with mismatches=[]
+#   (mission wall 580.826 s).
+#
+# TWO MORE TERMINAL TOKENS (2026-07-26), the same pair B11 grew for the same
+# reason: `count = {8, 8}` is a scalar, so a regression that drops the
+# flameout-staged ascent core and adds a spurious booster still reads 8 and
+# still passes. `terminalState=Orbiting terminalOrbitBody=Kerbin` (the core left
+# in Kerbin orbit) and `terminalState=Destroyed terminalOrbitBody=(null)` (the
+# radial boosters) make the other two rows of the topology checked instead of
+# narrated. Measured on the same fixture + launcher in
+# logs/2026-07-25_1216_B7-duna-flyby/KSP.log: 8 terminal lines, 6 of them
+# `Destroyed (null)` and 1 `Orbiting Kerbin`. Read B11's spec for the full
+# rationale.
 required = [
   "Recording started",
   "Recording stopped",
@@ -375,6 +390,8 @@ required = [
   "CommitTreeFlight: starting tree commit at UT=",
   "committree committed=true",
   "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Minmus",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Kerbin",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Destroyed terminalOrbitBody=\\(null\\)",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
