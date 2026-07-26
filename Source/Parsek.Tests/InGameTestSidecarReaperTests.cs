@@ -7,25 +7,30 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Unit tests for <see cref="PersistenceSplitOptimizerTestCleanup"/>, the helper
-    /// that deletes the orphan sidecars the in-game persistence-split optimizer test
-    /// leaves on disk after <c>RunOptimizationPass</c> flushes synthetic recordings.
+    /// Unit tests for <see cref="InGameTestSidecarReaper"/>, the shared helper that
+    /// deletes the orphan sidecars an in-game test leaves on disk after it drives a
+    /// REAL recording-pipeline write (<c>RecordingStore.CommitTree</c>'s per-recording
+    /// <c>SaveRecordingFiles</c> flush, or <c>RunOptimizationPass</c>'s dirty-file
+    /// flush over synthetic + split-half recordings).
     ///
-    /// <para>The in-game test itself runs inside KSP's Unity play mode and writes
+    /// <para>The in-game tests themselves run inside KSP's Unity play mode and write
     /// real <c>saves/&lt;save&gt;/Parsek/Recordings/</c> files; the xUnit harness can
-    /// only exercise the cleanup helper against a temp directory. These tests verify
-    /// the helper deletes every sidecar suffix the recording pipeline writes (mirroring
+    /// only exercise the reaper against a temp directory. These tests verify it
+    /// deletes every sidecar suffix the recording pipeline writes (mirroring
     /// <c>RecordingPaths</c>) for the supplied id set, leaves unrelated files alone,
-    /// rejects path-traversal ids, and emits the expected INFO summary.</para>
+    /// PRESERVES any id the store still knows about (the known-ids guard), rejects
+    /// path-traversal ids, and emits the expected INFO summary.</para>
     /// </summary>
     [Collection("Sequential")]
-    public class PersistenceSplitOptimizerTestCleanupTests : IDisposable
+    public class InGameTestSidecarReaperTests : IDisposable
     {
+        private const string Ctx = "UnitTest";
+
         private readonly List<string> logLines = new List<string>();
         private readonly string tempDir;
 
         // Every suffix the recording pipeline writes (RecordingPaths.Build* + the
-        // legacy .pcrf). The cleanup helper must delete all of these.
+        // legacy .pcrf). The reaper must delete all of these.
         private static readonly string[] AllSuffixes =
         {
             ".prec",
@@ -38,7 +43,7 @@ namespace Parsek.Tests
             ".pcrf",
         };
 
-        public PersistenceSplitOptimizerTestCleanupTests()
+        public InGameTestSidecarReaperTests()
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
@@ -78,7 +83,7 @@ namespace Parsek.Tests
             WriteSidecarsFor(syntheticA);
             WriteSidecarsFor(syntheticB);
 
-            // Sanity: every file is on disk before cleanup.
+            // Sanity: every file is on disk before the reap.
             foreach (var suffix in AllSuffixes)
             {
                 Assert.True(File.Exists(Path.Combine(tempDir, syntheticA + suffix)),
@@ -87,27 +92,28 @@ namespace Parsek.Tests
                     $"setup: missing {syntheticB}{suffix}");
             }
 
-            int deleted = PersistenceSplitOptimizerTestCleanup.DeleteSidecarsForIdsIn(
-                tempDir, new[] { syntheticA, syntheticB });
+            int deleted = InGameTestSidecarReaper.DeleteSidecarsForIdsIn(
+                tempDir, new[] { syntheticA, syntheticB }, Ctx);
 
-            // Two ids × eight suffixes.
+            // Two ids x eight suffixes.
             Assert.Equal(AllSuffixes.Length * 2, deleted);
 
             // All sidecars for the two ids are gone.
             foreach (var suffix in AllSuffixes)
             {
                 Assert.False(File.Exists(Path.Combine(tempDir, syntheticA + suffix)),
-                    $"after cleanup: {syntheticA}{suffix} should be gone");
+                    $"after reap: {syntheticA}{suffix} should be gone");
                 Assert.False(File.Exists(Path.Combine(tempDir, syntheticB + suffix)),
-                    $"after cleanup: {syntheticB}{suffix} should be gone");
+                    $"after reap: {syntheticB}{suffix} should be gone");
             }
 
-            // INFO summary line emitted.
+            // INFO summary line emitted, carrying the caller's context tag.
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO][TestRunner]") &&
-                l.Contains("PersistenceSplitOptimizerTest cleanup") &&
+                l.Contains("UnitTest sidecar reap") &&
                 l.Contains("deleted 16 sidecar file(s)") &&
-                l.Contains("for 2 synthetic recording id(s)"));
+                l.Contains("for 2 synthetic recording id(s)") &&
+                l.Contains("preservedKnown=0"));
         }
 
         [Fact]
@@ -121,8 +127,8 @@ namespace Parsek.Tests
             string readme = Path.Combine(tempDir, "readme.txt");
             File.WriteAllText(readme, "keep me");
 
-            int deleted = PersistenceSplitOptimizerTestCleanup.DeleteSidecarsForIdsIn(
-                tempDir, new[] { synthetic });
+            int deleted = InGameTestSidecarReaper.DeleteSidecarsForIdsIn(
+                tempDir, new[] { synthetic }, Ctx);
 
             Assert.Equal(AllSuffixes.Length, deleted);
 
@@ -136,11 +142,96 @@ namespace Parsek.Tests
             Assert.True(File.Exists(readme), "readme.txt must survive");
         }
 
+        // ---- Known-ids guard (the S0.5-class safety property) --------------------
+
+        [Fact]
+        public void PreservesIds_StillKnownToTheStore()
+        {
+            // The shape this guards: a test's reap list overlaps a recording the store
+            // still owns (an id collision, or a reap that ran before the in-memory
+            // removal). Those files are real mission data and must survive.
+            const string stillOwned = "rec_live_committed";
+            const string testResidue = "rec_synthetic_residue";
+            WriteSidecarsFor(stillOwned);
+            WriteSidecarsFor(testResidue);
+
+            var known = new HashSet<string>(StringComparer.Ordinal) { stillOwned };
+
+            int deleted = InGameTestSidecarReaper.DeleteSidecarsForIdsIn(
+                tempDir, new[] { stillOwned, testResidue }, Ctx, known);
+
+            // Only the unowned id's files were unlinked.
+            Assert.Equal(AllSuffixes.Length, deleted);
+            foreach (var suffix in AllSuffixes)
+            {
+                Assert.True(File.Exists(Path.Combine(tempDir, stillOwned + suffix)),
+                    $"store-owned {stillOwned}{suffix} must survive the reap");
+                Assert.False(File.Exists(Path.Combine(tempDir, testResidue + suffix)),
+                    $"residue {testResidue}{suffix} should be reaped");
+            }
+
+            // The preservation is counted and named, never silent.
+            Assert.Contains(logLines, l =>
+                l.Contains("[VERBOSE][TestRunner]") &&
+                l.Contains("preserving 'rec_live_committed'") &&
+                l.Contains("still known to RecordingStore"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO][TestRunner]") &&
+                l.Contains("for 1 synthetic recording id(s)") &&
+                l.Contains("preservedKnown=1"));
+        }
+
+        [Fact]
+        public void NullKnownSet_ReapsEverything()
+        {
+            // A directory-scoped unit test (or any caller with no store context) passes
+            // null, which reads as "the store knows nothing" - no id is preserved.
+            const string id = "rec_no_store_context";
+            WriteSidecarsFor(id);
+
+            int deleted = InGameTestSidecarReaper.DeleteSidecarsForIdsIn(
+                tempDir, new[] { id }, Ctx, null);
+
+            Assert.Equal(AllSuffixes.Length, deleted);
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO][TestRunner]") && l.Contains("preservedKnown=0"));
+        }
+
+        [Fact]
+        public void PreservesEveryId_WhenAllAreStillKnown()
+        {
+            // Degenerate case: a reap issued BEFORE the in-memory removal deletes
+            // NOTHING rather than destroying the tree it was about to drop.
+            const string a = "rec_owned_a";
+            const string b = "rec_owned_b";
+            WriteSidecarsFor(a);
+            WriteSidecarsFor(b);
+
+            var known = new HashSet<string>(StringComparer.Ordinal) { a, b };
+
+            int deleted = InGameTestSidecarReaper.DeleteSidecarsForIdsIn(
+                tempDir, new[] { a, b }, Ctx, known);
+
+            Assert.Equal(0, deleted);
+            foreach (var suffix in AllSuffixes)
+            {
+                Assert.True(File.Exists(Path.Combine(tempDir, a + suffix)));
+                Assert.True(File.Exists(Path.Combine(tempDir, b + suffix)));
+            }
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO][TestRunner]") &&
+                l.Contains("deleted 0 sidecar file(s)") &&
+                l.Contains("for 0 synthetic recording id(s)") &&
+                l.Contains("preservedKnown=2"));
+        }
+
+        // ---- Degenerate inputs ---------------------------------------------------
+
         [Fact]
         public void NoOp_WhenIdHasNoSidecarsOnDisk()
         {
-            int deleted = PersistenceSplitOptimizerTestCleanup.DeleteSidecarsForIdsIn(
-                tempDir, new[] { "rec_never_flushed" });
+            int deleted = InGameTestSidecarReaper.DeleteSidecarsForIdsIn(
+                tempDir, new[] { "rec_never_flushed" }, Ctx);
 
             Assert.Equal(0, deleted);
             Assert.Contains(logLines, l =>
@@ -155,8 +246,8 @@ namespace Parsek.Tests
             string missing = Path.Combine(Path.GetTempPath(),
                 "parsek-cleanup-missing-" + Guid.NewGuid().ToString("N"));
 
-            int deleted = PersistenceSplitOptimizerTestCleanup.DeleteSidecarsForIdsIn(
-                missing, new[] { "rec_anything" });
+            int deleted = InGameTestSidecarReaper.DeleteSidecarsForIdsIn(
+                missing, new[] { "rec_anything" }, Ctx);
 
             Assert.Equal(0, deleted);
             Assert.Contains(logLines, l =>
@@ -167,8 +258,8 @@ namespace Parsek.Tests
         [Fact]
         public void NoOp_WhenIdCollectionIsNull()
         {
-            int deleted = PersistenceSplitOptimizerTestCleanup.DeleteSidecarsForIdsIn(
-                tempDir, null);
+            int deleted = InGameTestSidecarReaper.DeleteSidecarsForIdsIn(
+                tempDir, null, Ctx);
 
             Assert.Equal(0, deleted);
             Assert.Contains(logLines, l =>
@@ -189,10 +280,10 @@ namespace Parsek.Tests
 
             try
             {
-                int deleted = PersistenceSplitOptimizerTestCleanup.DeleteSidecarsForIdsIn(
-                    tempDir, new[] { "../sentinel", "..\\sentinel", "valid_id" });
+                int deleted = InGameTestSidecarReaper.DeleteSidecarsForIdsIn(
+                    tempDir, new[] { "../sentinel", "..\\sentinel", "valid_id" }, Ctx);
 
-                // No deletes happen — the two traversal ids are rejected by
+                // No deletes happen - the two traversal ids are rejected by
                 // ValidateRecordingId, the third has no files on disk.
                 Assert.Equal(0, deleted);
                 Assert.True(File.Exists(sentinel), "sentinel outside recordings dir must survive");
@@ -201,7 +292,8 @@ namespace Parsek.Tests
                 // failed validation and never reached the per-suffix loop).
                 Assert.Contains(logLines, l =>
                     l.Contains("[INFO][TestRunner]") &&
-                    l.Contains("for 1 synthetic recording id(s)"));
+                    l.Contains("for 1 synthetic recording id(s)") &&
+                    l.Contains("invalidId=2"));
             }
             finally
             {
@@ -215,11 +307,11 @@ namespace Parsek.Tests
             const string realId = "rec_real";
             WriteSidecarsFor(realId);
 
-            int deleted = PersistenceSplitOptimizerTestCleanup.DeleteSidecarsForIdsIn(
-                tempDir, new[] { null, "", realId, "   " });
+            int deleted = InGameTestSidecarReaper.DeleteSidecarsForIdsIn(
+                tempDir, new[] { null, "", realId, "   " }, Ctx);
 
             // Only realId actually deletes anything; null/empty are skipped.
-            // "   " (whitespace) goes through ValidateRecordingId — the trailing
+            // "   " (whitespace) goes through ValidateRecordingId - the trailing
             // spaces are valid filename chars on most platforms but no sidecar
             // file matches, so 0 deletes for it.
             Assert.Equal(AllSuffixes.Length, deleted);
@@ -232,10 +324,10 @@ namespace Parsek.Tests
         [Fact]
         public void SuffixListMatches_RecordingPipeline()
         {
-            // Belt-and-braces: confirm the cleanup helper's suffix coverage matches
+            // Belt-and-braces: confirm the reaper's suffix coverage matches
             // what RecordingPaths exposes builders for (plus the legacy .pcrf).
             // If a new sidecar suffix is added to RecordingPaths, this test starts
-            // failing — forcing the cleanup helper's list to be updated.
+            // failing - forcing the reaper's list to be updated.
             const string id = "test_id";
 
             string[] expectedFromPaths =
@@ -249,14 +341,14 @@ namespace Parsek.Tests
                 Path.GetFileName(RecordingPaths.BuildReadableGhostSnapshotMirrorRelativePath(id)),
             };
 
-            // Write each pipeline-known sidecar; the cleanup helper must delete them all.
+            // Write each pipeline-known sidecar; the reaper must delete them all.
             for (int i = 0; i < expectedFromPaths.Length; i++)
             {
                 File.WriteAllText(Path.Combine(tempDir, expectedFromPaths[i]), "stub");
             }
 
-            int deleted = PersistenceSplitOptimizerTestCleanup.DeleteSidecarsForIdsIn(
-                tempDir, new[] { id });
+            int deleted = InGameTestSidecarReaper.DeleteSidecarsForIdsIn(
+                tempDir, new[] { id }, Ctx);
 
             Assert.Equal(expectedFromPaths.Length, deleted);
             for (int i = 0; i < expectedFromPaths.Length; i++)

@@ -15819,11 +15819,20 @@ namespace Parsek.InGameTests
             return -1;
         }
 
+        // The three callers all put their synthetic tree through the REAL
+        // RecordingStore.CommitTree, which flushes SaveRecordingFiles (.prec / .pann /
+        // .prec.txt) for every recording in it. This removal is memory-only, so without
+        // the reap below those sidecars stay in saves/<save>/Parsek/Recordings/ forever
+        // (CleanOrphanFiles preserves ids it no longer knows). Same leak class the
+        // M1-mission-loop-unit harness scenario caught live on 2026-07-26 against
+        // CrossTreeDockLoopUnitInGameTest. Ids are collected BEFORE the removal and
+        // reaped AFTER it, so the reaper's known-ids guard reads the post-removal store.
         private static void RemoveCommittedTreeByIdForPlaybackRuntimeTest(string treeId)
         {
             if (string.IsNullOrEmpty(treeId))
                 return;
 
+            var reapIds = new List<string>();
             var committed = RecordingStore.CommittedTrees;
             for (int i = committed.Count - 1; i >= 0; i--)
             {
@@ -15832,9 +15841,16 @@ namespace Parsek.InGameTests
                     continue;
 
                 foreach (Recording rec in tree.Recordings.Values)
+                {
+                    if (rec != null && !string.IsNullOrEmpty(rec.RecordingId))
+                        reapIds.Add(rec.RecordingId);
                     RecordingStore.RemoveCommittedInternal(rec);
+                }
                 committed.RemoveAt(i);
             }
+
+            if (reapIds.Count > 0)
+                InGameTestSidecarReaper.DeleteSidecarsForIds(reapIds, "PlaybackRuntimeTest");
         }
 
         #endregion

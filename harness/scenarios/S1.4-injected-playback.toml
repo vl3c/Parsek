@@ -44,31 +44,48 @@ count = { min = 272, max = 272 }
 [expectations.logContracts]
 # ERROR is UPPERCASE in ParsekLog.Write and the patterns are case-sensitive.
 #
-# ANTI-VACUITY (hlib.batch_contract_vacuity_gap). The old pin was
+# ANTI-VACUITY (hlib.batch_contract_vacuity_gap). The original pin was
 # `BATCH_COMPLETE v1 .* failed=0\b`, which an ALL-SKIPPED batch satisfies just as
-# well as an all-passed one (the B10 defect: `passed=0 failed=0 skipped=N`). What
-# is pinned now, and exactly why each token is the shape it is:
-#  - total=42 is EXACT and derived from the attributes: RuntimeTests declares 42
+# well as an all-passed one (the B10 defect: `passed=0 failed=0 skipped=N`). The
+# 2026-07-26 hardening replaced it with a loose `passed=[1-9][0-9]*` +
+# `skipped=[0-9]+` and a PENDING-OPERATOR, because 12 of the 42 carry conditional
+# skips and no live tally had ever been recorded.
+#
+# THAT PENDING-OPERATOR IS NOW CLOSED. Flown 2026-07-26; the tally is MEASURED and
+# pinned WHOLE:
+#
+#   BATCH_COMPLETE v1 total=42 passed=40 failed=0 skipped=2 category=GhostPlayback scene=FLIGHT
+#
+# What each token means, and what a change in it would be telling you:
+#  - total=42 is attribute-exact: RuntimeTests declares 42
 #    [InGameTest(Category = "GhostPlayback")] methods, and BATCH_COMPLETE's total
 #    is `allTests.Count(Status != NotRun)` (InGameTestRunner.RunBatch), which for a
 #    single RunCategory batch in a fresh process is every test in the category -
 #    scene-skipped and batch-skipped ones included. A category rename or a lost
 #    test file reds here.
-#  - scene=FLIGHT is EXACT: gloops-airshow carries a focusable vessel, so
+#  - scene=FLIGHT: gloops-airshow carries a focusable vessel, so
 #    TestCommandLoadGame.DecideLoadRoute takes the Focusable/FLIGHT route (the
 #    same route H5 MEASURED on this fixture). This is the token that would have
 #    caught B10 directly.
-#  - passed=[1-9][0-9]* is the anti-vacuity conjunct: at least one test must
-#    actually have EXECUTED and passed.
-#  - skipped=[0-9]+ is deliberately NOT pinned to a number, and this is the honest
-#    limit of what is derivable today. 41 of the 42 are Scene = FLIGHT and 1 is
-#    scene-agnostic, so scene eligibility skips NONE of them; exactly 1
-#    (RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs) is AllowBatchExecution=false
-#    and is always batch-skipped - but 11 more carry conditional InGameAssert.Skip
-#    guards on live fixture state, and no live run of this scenario has ever had
-#    its tally recorded. PENDING-OPERATOR: read the real `passed=`/`skipped=` off
-#    the next live run's BATCH_COMPLETE line and pin both exactly, the way H5 does.
-required  = ["BATCH_COMPLETE v1 total=42 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostPlayback scene=FLIGHT"]
+#  - skipped=2, both accounted for in the live log, and NEITHER is a scene skip
+#    (41 of the 42 are Scene = FLIGHT, 1 is scene-agnostic, so scene eligibility
+#    drops none):
+#      * 1 batch-execution skip - RunAllDuringWatch_DoesNotLeakSunLateUpdateNREs is
+#        AllowBatchExecution=false (it destroys live ghosts while the camera watches
+#        one), logged as "Batch execution skipped 1 single-run-only test(s)". This
+#        one is structural and cannot vary.
+#      * 1 conditional self-skip - GhostPlaybackTests
+#        .WatchEntry_SameBody_PreservesFreshEntryAngles, "no stable same-body ghost
+#        available for watch-entry regression". Fixture-determined: the same
+#        gloops-airshow + all-synthetic corpus produces the same answer every run.
+#    The other 10 conditional-skip guards did NOT fire on this corpus.
+#  - passed=40: everything else executed. This is the number the loose pin could
+#    not state, and the reason the loose pin was a placeholder: `passed=[1-9][0-9]*`
+#    would have accepted a run where 39 tests silently stopped executing.
+# If the conditional skip ever flips, this reds with the exact numbers to
+# re-derive from - that is the intended signal, not a flake. Re-measure and re-pin
+# from the new line; do NOT widen the pattern back out.
+required  = ["BATCH_COMPLETE v1 total=42 passed=40 failed=0 skipped=2 category=GhostPlayback scene=FLIGHT"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 # A known-benign leg overlaps its proto orbit line at one boundary; the sweep

@@ -51,7 +51,15 @@ count = { min = 0, max = 0 }
 
 [expectations.logContracts]
 # The batch tally is pinned WHOLE (hlib.batch_contract_vacuity_gap rejects a RunTests
-# spec whose contract an empty / all-skipped batch could satisfy). Derivation:
+# spec whose contract an empty / all-skipped batch could satisfy). Every number is
+# MEASURED off the first live run in the corrected category, 2026-07-26:
+#
+#   BATCH_COMPLETE v1 total=4 passed=1 failed=0 skipped=3 category=GameActionsHealth scene=SPACECENTER
+#
+# Under the old RecordingInvariants category the same step emitted
+# `total=2 passed=0 failed=0 skipped=2` and read green; one real assertion now runs.
+# The pre-flight derivation was confirmed token for token and is kept below as the
+# explanation of each number:
 #  - total=4: ExtendedRuntimeTests declares exactly 4
 #    [InGameTest(Category = "GameActionsHealth")] methods; BATCH_COMPLETE's total is
 #    `allTests.Count(Status != NotRun)` over the single RunCategory batch.

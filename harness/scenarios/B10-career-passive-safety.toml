@@ -81,8 +81,14 @@ count = { min = 0, max = 0 }
 # the forbidden patterns are case-sensitive re.search; match ERROR, not Error.
 #
 # The batch tally is pinned WHOLE (hlib.batch_contract_vacuity_gap enforces that a
-# RunTests spec carry a pin an empty / all-skipped batch cannot satisfy). Derivation,
-# all four numbers:
+# RunTests spec carry a pin an empty / all-skipped batch cannot satisfy). Every number
+# below is MEASURED off the first live run in the corrected category, 2026-07-26:
+#
+#   BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=GameActionsHealth scene=SPACECENTER
+#
+# That line IS the vacuity fix proven: the same step under the old category emitted
+# `total=2 passed=0 failed=0 skipped=2 category=RecordingInvariants` and read green.
+# Four tests now genuinely execute. What each number means:
 #  - total=4: ExtendedRuntimeTests declares exactly 4
 #    [InGameTest(Category = "GameActionsHealth")] methods, and BATCH_COMPLETE's total is
 #    `allTests.Count(Status != NotRun)` over the single RunCategory batch.
@@ -90,10 +96,12 @@ count = { min = 0, max = 0 }
 #    AllowBatchExecution default-true, so none is filtered. The three singleton tests
 #    self-skip only when HighLogic.CurrentGame is null or the mode is not CAREER
 #    (ScienceSingletonAccessible also accepts SCIENCE_SANDBOX); fresh-career is
-#    GAME { Mode = CAREER } and the seam loads it before the batch, so none fires.
-#  - scene=SPACECENTER: fresh-career has zero VESSEL nodes, so LoadGame takes
+#    GAME { Mode = CAREER } and the seam loads it before the batch, so none fired.
+#  - scene=SPACECENTER: fresh-career has zero VESSEL nodes, so LoadGame took
 #    DecideLoadRoute's NoVesselSpaceCenter route. Pinning the scene is what makes the
 #    original defect impossible to repeat silently - a route change reds here.
+# Do NOT relax any token back toward a bare failed=0: that is the exact shape the
+# 2026-07-26 audit found reading green over an empty batch.
 required  = ["BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=GameActionsHealth scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
