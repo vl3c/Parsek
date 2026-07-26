@@ -61,10 +61,16 @@ SCHEMA_VERSION = 1
 #   it prevents a terminal INVALID(staging) on every daily run self-quarantining a
 #   scenario that never actually ran (M-A5 integration item 4). An operator
 #   re-tiers it to its real cadence tier the moment the fixture lands.
-# - `operator`: the scenario's PASS is unreachable unattended (e.g. RequiresFlight
-#   verbs with no flight-entry verb - under a cadence it would only ever defer to
-#   a TIMEOUT and burn boots); it runs ONLY on an explicit `--tier operator` /
-#   `--id` invocation. A `pending-operator` tag alone is non-gating; the tier is.
+# - `operator`: the scenario must not be picked up by a cadence run. Two reasons
+#   qualify: (a) its PASS is unreachable unattended (e.g. RequiresFlight verbs
+#   with no flight-entry verb - under a cadence it would only ever defer to a
+#   TIMEOUT and burn boots); or (b) it is EXPENSIVE AND UNFLOWN, where a
+#   systematic first-flight failure would red the sweep every night at full
+#   budget x retries until someone sits down with it (B16-eve-orbit: 4,700 s
+#   x `retry.policy = "once"` = ~2.6 h per night). A (b)-tiered spec carries an
+#   inline PROMOTE note naming the nightly tier to restore after its first
+#   green flight. It runs ONLY on an explicit `--tier operator` / `--id`
+#   invocation. A `pending-operator` tag alone is non-gating; the tier is.
 TIERS: Tuple[str, ...] = ("perpr", "daily", "nightly", "weekly", "pending-fixture", "operator")
 
 # The two provisioned instance profiles (design + M-A6).

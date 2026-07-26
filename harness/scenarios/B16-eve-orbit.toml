@@ -130,8 +130,12 @@
 #   optimum.
 #
 # STEP 3 - THE VERDICT. ~735 m/s needed against ~1,850 m/s available: a 2.5x
-# margin. Even after subtracting the full 2 x 200 m/s correction cap the margin
-# is ~1,450 vs ~735, still ~2.0x. B16 IS FEASIBLE, and NOT marginally so.
+# margin. RE-CHECKED against the raised correction cap (maxCorrectionDvMps 200
+# -> 450, see its own block below): subtracting B15's MEASURED 378.5 m/s
+# correction leaves ~1,470 vs ~735, still ~2.0x, and even the pathological worst
+# case of BOTH rounds landing on the 450 ceiling leaves ~950 vs ~735, ~1.3x.
+# B16 IS FEASIBLE - comfortably on the measured numbers, and still positive on
+# the worst case, which is the number the first flight must re-read.
 #   WHY THE PARK IS STILL HIGH (5,000 km) despite the margin: it is not a fuel
 #   decision, it is a GILLY decision. See below.
 #   THE HONEST RESIDUAL: the ~1,850 m/s figure is DERIVED from a MEASURED fuel
@@ -164,12 +168,32 @@
 # =============================================================================
 schema = 1
 id = "B16-eve-orbit"
-# nightly: same committed Kerbal X fixture as B2/B4/B5/B6/B7/B11-B15.
+# operator UNTIL THE FIRST FLIGHT, then PROMOTE TO nightly. Same committed
+# Kerbal X fixture as B2/B4/B5/B6/B7/B11-B15.
 # NOT YET FLOWN. Every number is DERIVED or carried from a MEASURED B7 / B11 /
 # B12 flight, and each one says which. The first flight pins the PROVISIONAL
 # items called out inline (recordings count, the two wall budgets, the
 # ejection-window wait, the achieved capture geometry).
-tier = "nightly"
+#
+# WHY operator AND NOT nightly, stated so the promotion is not forgotten. This
+# is the most expensive scenario in the suite (budgetSeconds 4700) with
+# `retry.policy = "once"`, so a nightly rotation would spend up to ~2.6 HOURS
+# on it EVERY NIGHT. That is a fine price for a lane that passes and a bad one
+# for a lane whose first flight has not happened: a SYSTEMATIC failure (which
+# is what the Eve lane's first six B15 flights all were) reds both attempts
+# identically and reds the whole sweep nightly until someone sits down and
+# flies it. `operator` is exactly the "not schedulable yet" knob -- it is in NO
+# cadence set (hlib.CADENCE_TIERS), so B16 runs only on an explicit
+# `--tier operator` / `--id B16-eve-orbit`, which is how its first flight
+# should be flown anyway (the PROVISIONAL pins above need a human reading the
+# result).
+#
+# PROMOTE IT: the moment B16 flies GREEN and the PROVISIONAL pins are replaced
+# with MEASURED ones, set `tier = "nightly"` and update the
+# docs/dev/autotest-status.md row. B15 is the precedent for the whole
+# sequence -- it was tiered nightly while unflown and cost seven flights to
+# turn green, which is the experience this line exists to not repeat.
+tier = "operator"
 description = "Eve ORBIT / commit-in-target-orbit across a heliocentric traverse: MechJeb ascent to a HIGH (700 km) park, OperationInterplanetaryTransfer ejection at the next Kerbin->Eve window, heliocentric coast with time-to-SOI corrections, CAPTURE burn (circularize at a ~5,000 km periapsis) inside the Eve SOI, a held stable park below Gilly's orbit, and a mid-mission command-seam CommitTree that closes the tree WHILE PARKED IN EVE'S SOI."
 instanceProfile = "stock-minimal"
 tags = ["B16", "orbit", "mechjeb", "eve", "interplanetary", "cross-soi", "capture", "commit-in-foreign-soi"]

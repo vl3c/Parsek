@@ -1072,6 +1072,11 @@ class KrpcMissionControl(MissionControl):
                 op = self._mechjeb.maneuver_planner.operation_interplanetary_transfer
                 op.wait_for_phase_angle = True
                 planned = op.make_nodes()
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Plan",
+                    "operation_interplanetary_transfer.make_nodes failed: %s" % (exc,)))
+            else:
                 # OBSERVED PLAN DIAGNOSTIC (B15 flight-4, 2026-07-26). The first
                 # three Eve flights were BLIND here: the machine saw only
                 # node_count and node_dv, so a plan that ejected correctly but
@@ -1091,11 +1096,26 @@ class KrpcMissionControl(MissionControl):
                 # Everything is read defensively -- a diagnostic must never
                 # break a flight, so every failure degrades to a "?" and the
                 # line still prints what it did manage to read.
-                self._log_transfer_plan_diagnostic(sc, planned)
-            except Exception as exc:
-                _stdout_sink(mlib.format_mission_log_line(
-                    "Warn", "Plan",
-                    "operation_interplanetary_transfer.make_nodes failed: %s" % (exc,)))
+                #
+                # ITS OWN try/except, AND THE else: IS THE POINT (review
+                # follow-up). This diagnostic is the ONE change on this action
+                # that is NOT param-gated -- it runs on B7's plans too. Inside
+                # `make_nodes()`'s try, a raise from the diagnostic's own
+                # unguarded tail (the patches loop, the %-format, the sink)
+                # would be reported as "make_nodes failed", i.e. a false
+                # plan-FAILURE message on a plan that SUCCEEDED -- exactly the
+                # misleading-message class this lane exists to remove. Split
+                # out, a diagnostic fault names itself and the plan verdict
+                # (node_count, which the diagnostic cannot touch) is untouched.
+                try:
+                    self._log_transfer_plan_diagnostic(sc, planned)
+                except Exception as exc:
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Warn", "Plan",
+                        "interplanetary plan diagnostic raised (%s: %s); the "
+                        "PLAN ITSELF SUCCEEDED and is unaffected -- only this "
+                        "observability line was lost"
+                        % (type(exc).__name__, str(exc)[:160])))
         elif kind == mlib.ACTION_MJ_PLAN_COURSE_CORRECT:
             # KRPC.MechJeb 0.8.1: course-correct the existing target encounter to
             # the machine-chosen flyby periapsis (metres). Same throw/log/swallow
@@ -2004,8 +2024,9 @@ class KrpcMissionControl(MissionControl):
         diagnostic that can break a flight is worse than no diagnostic: each
         read degrades to a "?" / NaN sentinel, the verdict degrades to
         "unknown", and the line still prints whatever it did manage to read.
-        The caller wraps this too, so even an unexpected raise cannot reach the
-        plan action."""
+        The caller wraps this in its OWN try -- separate from the one around
+        `make_nodes()` -- so an unexpected raise here can neither reach the plan
+        action nor be mis-reported as a plan failure."""
         target_name = "?"
         target_pe = target_ap = float("nan")
         target_soi = 0.0

@@ -1401,7 +1401,12 @@ def park_trim_verdict(ecc_max: float, eccentricity: float, node_count: int,
 
     WHY A ROUND PARK IS A REQUIREMENT AND NOT A PREFERENCE. MechJeb's
     interplanetary ejection planner sizes the burn for the WRONG RADIUS on an
-    eccentric parking orbit. Decompiled MechJeb 2.15.1,
+    eccentric parking orbit. Decompiled from the INSTALLED harness binary --
+    `automation/stock-minimal/GameData/MechJeb2/Plugins/MechJeb2.dll`, file
+    version 2.15.1.0, the pin in `harness/provision/pins.toml` -- NOT from the
+    `mods/MechJeb2` source checkout, which tracks a later refactor that no
+    longer contains this method under this name. Anyone re-checking this must
+    decompile the DLL.
     `OrbitalManeuverCalculator.DeltaVAndTimeForInterplanetaryTransferEjection`:
     it computes the required post-burn SPEED as
 
@@ -1417,13 +1422,37 @@ def park_trim_verdict(ecc_max: float, eccentricity: float, node_count: int,
 
     Near escape velocity that third-and-fourth-term error is brutal: it is a
     difference of two large reciprocals scaled by 2*mu, so a park that is only
-    slightly out of round can eat most of the C3 budget. B15 flight 3 MEASURED
-    it -- a 562 x 778 km park (ecc 0.085) turned a 769.6 m/s Eve ejection into
-    a 652.8 m/s one, and 779 m/s of required v_inf into 129, whereupon the
-    heliocentric leg's perihelion missed Eve's orbit by 2.46e9 m and no
-    encounter was ever predicted. MechJeb warns about this itself, but only
-    above ecc 0.2 ("#MechJeb_transfer_errormsg3"), which is far too loose for a
-    low-C3 transfer.
+    slightly out of round can eat most of the C3 budget.
+
+    MEASURED, and ONLY measured numbers here (an earlier draft of this
+    paragraph quoted a 769.6 m/s "correct ejection" that is in no archive and
+    does not reproduce). Flight 3 planned the Eve ejection from a
+    562.354 x 778.184 km park (ecc 0.08495) and MechJeb priced it at
+    652.843 m/s. Flight 5 -- same planner, same target, same window class, but
+    from a ROUND 778.177 x 778.201 km park -- priced the SAME ejection at
+    775.873 m/s. That 123.0 m/s is the whole defect: flight 3's heliocentric
+    perihelion came out at 12,389,067,761 m against Eve's
+    9,734,357,699 - 9,931,011,389 m orbit, a 2.46e9 m miss, and no encounter
+    was ever predicted.
+
+    DERIVED, to show the shortfall really is the sma-vs-r_burn term. State the
+    assumption up front: `r_burn` is NOT recorded, so the arithmetic below
+    takes the burn at PERIAPSIS, which is where the term is largest -- treat
+    the achieved figure as a lower bound on the shortfall, not a measurement.
+    A Kerbin -> Eve Hohmann needs 778.997 m/s of SOI-EXIT velocity, i.e. a
+    post-burn specific energy of 261,454 J/kg (v_inf at infinity 723.1 m/s).
+    From a round park at flight 3's own apoapsis radius the formula above
+    prices that at 775.75 m/s -- flight 5's MEASURED 775.873 to within
+    0.12 m/s, which is the check that the model is the right one. Flight 3's
+    652.843 m/s applied at the periapsis of its ecc-0.085 park leaves
+    8,310 J/kg: v_inf 128.9 m/s where 723.1 was wanted (SOI-exit 317.1 m/s
+    where 779.0 was wanted). Quote the two v_inf figures as a PAIR or neither
+    -- 779 is an SOI-exit number and 129 an at-infinity one, and comparing
+    them across conventions is what made the original line unreproducible.
+
+    MechJeb warns about this itself, but only above ecc 0.2
+    ("#MechJeb_transfer_errormsg3"), which is far too loose for a low-C3
+    transfer.
 
     Verdicts:
     THE ECCENTRICITY IS ONLY READ WHEN NO NODE IS PENDING, and B15 flight 4
@@ -4109,6 +4138,16 @@ def _b5_correction_via_bodies(params: B5Params) -> Tuple[str, ...]:
     the body the flyby exits back into). Narrowing to it is a strict subset,
     so it can only ever REMOVE a firing opportunity that was wrong anyway.
 
+    THE SUBSET CLAIM IS A PRECONDITION, NOT AN INVARIANT, AND THIS FUNCTION DOES
+    NOT ENFORCE IT. It holds only while ``return_body`` is itself a member of
+    ``via_bodies``, which is true of all three interplanetary specs today. A
+    future lane whose ``returnBodyName`` sits OUTSIDE ``viaBodyNames`` would make
+    this return a body the coast never declared legal -- ADDING a firing
+    opportunity and inverting the whole safety argument. Pinned by
+    ``test_the_return_body_is_a_member_of_the_via_bodies_on_every_lane``
+    (test_shells.py); if that cell ever fails, re-argue this function rather
+    than widening the spec.
+
     IDENTICAL for every lane flown to date: B7/Duna has return_body "Sun" and
     via_bodies ("Sun",), so this returns ("Sun",) unchanged; B5/B6 are not
     interplanetary and return their (empty) via list, and their no-encounter
@@ -4182,7 +4221,9 @@ def _b5_correction_round_ready(state: B5State, snapshot: TelemetrySnapshot) -> b
     Eve SOI radii off) and whose PHASE was never corrected.
 
     Narrowing to the transfer-parent SOI is a strict subset and is IDENTICAL
-    for every lane flown to date (B7: return_body "Sun", via_bodies ("Sun",))."""
+    for every lane flown to date (B7: return_body "Sun", via_bodies ("Sun",)) --
+    subject to the ``return_body in via_bodies`` precondition documented on
+    ``_b5_correction_via_bodies``, which no code enforces and one test pins."""
     p = state.params
     if not _b5_rounds_pending(state):
         return False
@@ -5978,7 +6019,7 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 desired = min(desired, max_legal_rails_factor(
                     snapshot.body, snapshot.altitude))
         elif (rounds_pending and state.params.correction_trigger_time_to_soi
-                and snapshot.body in state.params.via_bodies
+                and snapshot.body in _b5_correction_via_bodies(state.params)
                 and _is_finite(snapshot.time_to_soi) and _is_finite(snapshot.ut)):
             # Correction-trigger approach, TIME mode (B7): approach the next
             # round's time-to-SOI threshold on the CURRENT native-first
@@ -5992,8 +6033,29 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
             # mode's no-1x floor: a trigger is a refinement point, not a
             # wall; overshoot at 10x is <= ~5 game-s per poll), with the
             # same SOI time bound + legality clamp as the altitude stair.
-            # Confined to via bodies: the home-SOI escape leg rides the SOI
-            # native-warp branch below instead (warp to the home SOI exit).
+            # Confined to the correction body domain: the home-SOI escape leg
+            # rides the SOI native-warp branch below instead (warp to the home
+            # SOI exit).
+            #
+            # BODY DOMAIN = `_b5_correction_via_bodies`, THE SAME LIST BOTH
+            # CORRECTION TRIGGERS READ (review follow-up; the two triggers were
+            # narrowed first and this WARP branch was left reading the raw
+            # `via_bodies`, an asymmetry that only bites the Eve lanes). Reading
+            # the wide list here means a craft inside a NON-transfer-parent via
+            # SOI enters this branch and computes dt against a threshold scaled
+            # for the heliocentric leg: in the Mun's SOI, dt = 3,086 - 20,000,000
+            # = -19,996,914, which fails `dt > soi_lead`, so
+            # rails_factor_for_time returns 0 on the non-positive input and the
+            # floor-2 stair pins the whole transit at 10x. MEASURED on B15
+            # flight 7: 317 of 318 Mun-SOI frames at RAILSx10, ~3,086 game s
+            # spread over ~308 wall s of a 1,236 s mission. With the domain
+            # matched, the Mun transit falls through to the SOI native-warp
+            # branch below (warp to the boundary minus soi_lead) exactly as the
+            # home-SOI escape leg does. Provably a NO-OP off the Eve lanes:
+            # B7's via_bodies IS ("Sun",) == its correction domain, and B5/B6
+            # and the moon orbit/landing lanes never reach here at all (they
+            # have no time-mode triggers, so they take the altitude stair
+            # above).
             dt = (snapshot.time_to_soi
                   - state.params.correction_trigger_time_to_soi[state.correction_rounds_done])
             if dt > state.params.soi_lead:

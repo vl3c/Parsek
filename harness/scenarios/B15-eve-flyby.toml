@@ -368,7 +368,11 @@ circularizeTimeoutSeconds  = 12000
 #
 # WHY AN INTERPLANETARY LANE NEEDS A ROUND PARK AND A MOON LANE DOES NOT.
 # MechJeb sizes the ejection burn for the WRONG RADIUS on an eccentric park.
-# Decompiled MechJeb 2.15.1,
+# Decompiled from the INSTALLED harness binary,
+# automation/stock-minimal/GameData/MechJeb2/Plugins/MechJeb2.dll, file version
+# 2.15.1.0 (the pin in harness/provision/pins.toml) -- NOT from the
+# mods/MechJeb2 source checkout, which tracks a later refactor that no longer
+# contains this method under this name.
 # OrbitalManeuverCalculator.DeltaVAndTimeForInterplanetaryTransferEjection:
 #     v_eject = sqrt(2 * (soiExitEnergy + mu / o.semiMajorAxis))
 # is computed at the park's SEMI-MAJOR AXIS, then applied at a burnUT its own
@@ -376,19 +380,36 @@ circularizeTimeoutSeconds  = 12000
 # correctly. Circular park: r == sma, exact. Eccentric park: not, and
 #     v_inf^2 = v_ideal^2 - 2mu/SOI + 2mu/sma - 2mu/r_burn
 # so near escape velocity a modest radius error eats most of the C3 budget.
-# MEASURED, flight 3: a 562 x 778 km park (ecc 0.085) turned the 769.6 m/s Eve
-# ejection into 652.8 m/s and the required 779 m/s of v_inf into 129 -- the
-# heliocentric perihelion then sat 2.46e9 m ABOVE Eve's aphelion and no Eve
-# encounter was ever geometrically possible. MechJeb warns about park
-# eccentricity itself, but only above 0.2, which is far too loose here.
+#
+# MEASURED (only measured numbers here; an earlier draft quoted a 769.6 m/s
+# "correct ejection" that is in no archive and does not reproduce). Flight 3
+# planned from a 562.354 x 778.184 km park (ecc 0.08495) and MechJeb priced the
+# ejection at 652.843 m/s; flight 5, same planner and window class but from a
+# ROUND 778 km park, priced the SAME ejection at 775.873 m/s. That 123.0 m/s
+# shortfall put the heliocentric perihelion 2.46e9 m ABOVE Eve's aphelion, so no
+# Eve encounter was ever geometrically possible.
+#
+# DERIVED, with the assumption stated because r_burn is NOT recorded: the burn
+# is taken at PERIAPSIS, where the term is largest, so the achieved figure is a
+# lower bound. A Kerbin -> Eve Hohmann needs 778.997 m/s of SOI-EXIT velocity =
+# 261,454 J/kg of post-burn specific energy = 723.1 m/s of v_inf at infinity.
+# From a round park at flight 3's apoapsis radius the formula prices that at
+# 775.75 m/s, which is flight 5's MEASURED 775.873 to within 0.12 m/s -- the
+# check that the model is the right one. Flight 3's 652.843 m/s at its periapsis
+# leaves 8,310 J/kg: v_inf 128.9 where 723.1 was wanted (SOI-exit 317.1 where
+# 779.0 was wanted). Quote those as a PAIR in one convention or not at all.
+# MechJeb warns about park eccentricity itself, but only above 0.2, which is far
+# too loose here.
 #
 # WHY 0.02, and why an ACCEPTANCE not a target. MechJeb's DeltaVToCircularize
 # is closed-form, so the achieved value should be ~0.001-0.005; 0.02 is a
 # tolerance with 4-20x headroom over that, in the house style (a window, never
 # a pin). DERIVED cost of the residual at 0.02: v_inf 640 instead of the ideal
 # 723, leaving the heliocentric perihelion ~507e6 m short of Eve's orbit, which
-# the correction rounds close for ~124 m/s -- inside maxCorrectionDvMps (200)
-# with margin. At the expected ~0.001 the demand is ~40 m/s.
+# the correction rounds close for ~124 m/s -- inside maxCorrectionDvMps, which
+# is 450 on this lane (see the key below; it was 200 when this paragraph was
+# first written, and the ~124 m/s fits either way). At the expected ~0.001 the
+# demand is ~40 m/s.
 #
 # APOAPSIS, not periapsis, is deliberate: rounding out at apoapsis can only
 # RAISE the park, so the 700 km-park rails-warp-legality argument above (park
@@ -399,7 +420,7 @@ circularizeTimeoutSeconds  = 12000
 #   park at CIRCULARIZE entry   ecc 0.08495, 562,354 x 778,177 m (flight 3's)
 #   ONE trim node               69.506 m/s, planned at the next apoapsis
 #   park at ORBIT entry         ecc 0.000, 778,177 x 778,201 m
-#   ejection node               775.873 m/s   (flight 3 planned 652.846)
+#   ejection node               775.873 m/s   (flight 3 planned 652.843)
 #   heliocentric leg            pe 9.93797e9  vs Eve aphelion 9.93101e9
 #   gap to Eve's orbit          6.96e6 m = 0.082 Eve SOI radii
 #                               (flight 3: 2.46e9 m = 28.9 SOI radii, 353x worse)

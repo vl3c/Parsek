@@ -3822,10 +3822,14 @@ def _trim_state(**overrides):
 class ParkTrimVerdictTests(unittest.TestCase):
     """The pure park round-out decision. B15 flights 1-3 died because MechJeb's
     interplanetary ejection planner sizes its burn at the parking orbit's
-    semi-major axis and applies it elsewhere, so an eccentric park under-ejects
-    (MEASURED: ecc 0.085 turned 769.6 m/s of required ejection into 652.8, and
-    779 m/s of required v_inf into 129). These cells pin the ladder that fixes
-    it and, just as importantly, that it is INERT when unarmed."""
+    semi-major axis and applies it elsewhere, so an eccentric park under-ejects.
+    MEASURED, both ends from the archive: flight 3's ecc-0.08495 park had the
+    ejection priced at 652.843 m/s, and flight 5's ROUND park had the same
+    planner price the same ejection at 775.873 m/s - a 123.0 m/s shortfall.
+    (The at-infinity v_inf figures that shortfall implies, 128.9 achieved
+    against 723.1 wanted, are DERIVED under a burn-at-periapsis assumption; see
+    `mlib.park_trim_verdict`.) These cells pin the ladder that fixes it and,
+    just as importantly, that it is INERT when unarmed."""
 
     def test_unarmed_is_off_so_every_flown_lane_is_unchanged(self):
         for ecc_max in (0.0, -1.0, float("nan")):
